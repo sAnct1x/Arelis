@@ -7,7 +7,7 @@ because each one closed over its own ``*_nudge_used`` flag. TurnContext
 owns the flags, so the loop can be a table.
 
 Gates that are not this shape (evidence, quote-first, dual-hit, file-answer,
-the hard refuse) stay as methods on the loop — they have extra arguments
+the hard refuse) stay as methods on the loop, they have extra arguments
 or they end the turn. Putting those in the table would just hide a
 different function behind a flag.
 """

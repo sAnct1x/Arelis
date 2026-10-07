@@ -5,25 +5,29 @@ the exception and the URL go to Thinking. Two paths never got the same treatment
 
 The orchestrator's last line of defence published
 ``f"Turn failed: {exc.__class__.__name__}: {exc}"``, which the UI put straight in
-the transcript — so the worst moment the app has produced the least human sentence
+the transcript, so the worst moment the app has produced the least human sentence
 it could, ``Turn failed: ConnectError: [Errno 11001] getaddrinfo failed``.
 
 Failed tool output went to chat verbatim, up to 500 characters. That was a
 deliberate choice and half right: "Not a file: C:/typo.csv" is exactly what the
 user needs, and hiding it made a wrong path look like a silent no-op. What it did
-not anticipate is that tool failures are written *for the model* — the analyze tool
+not anticipate is that tool failures are written *for the model*, the analyze tool
 now answers a bad file type with "Call vision(path=…) for an image", which is an
 instruction to a 7B appearing in a human's chat window.
 
 So the rule here is not "hide the output". It is: pass through what a person can
-act on, and swap out anything addressed to the model. Detail is never lost — it
+act on, and swap out anything addressed to the model. Detail is never lost, it
 goes to Thinking and Workspace either way.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
+from decimal import Decimal, InvalidOperation
+
+from arelis.core.evidence import looks_like_bot_wall
 
 TURN_FAILED_NOTICE = (
     "Something went wrong mid-turn, so I stopped rather than guess. "
@@ -65,16 +69,6 @@ _PAGE_TOOLS = frozenset({"scrape", "web_fetch", "browser"})
 _SEARCH_TOOLS = frozenset({"web_search"})
 _PAGE_WRITE_TOOLS = frozenset({"scrape", "web_search", "web_fetch", "browser"})
 _ALGEBRA_WRITE_TOOLS = frozenset({"cas", "calculator", "python", "units", "plot"})
-_BOT_WALL = re.compile(
-    r"(?i)\b("
-    r"are you a robot|"
-    r"captcha|"
-    r"access denied|"
-    r"sign in to continue|"
-    r"password-protected|"
-    r"verify you are human"
-    r")\b"
-)
 _PAGE_CHAT_CHARS = 420
 # Short fact lines (a price, a one-line hit) can ship as chat.
 # A scraped article or a SERP must not — ask the model to write first.
@@ -124,8 +118,8 @@ def plain_reason(exc: BaseException) -> str:
     """The readable half of an exception: no class name, no errno bracket.
 
     ``open failed: [Errno 13] Permission denied: 'C:/x'`` becomes
-    ``Permission denied: 'C:/x'``. The refusal itself is usually the useful part —
-    a path outside the workspace roots, a file held open by something else — so
+    ``Permission denied: 'C:/x'``. The refusal itself is usually the useful part
+    a path outside the workspace roots, a file held open by something else, so
     this trims the machine framing rather than replacing the sentence.
     """
     text = str(exc).strip()
@@ -142,7 +136,7 @@ def turn_failed_notice(exc: BaseException) -> tuple[str, str]:
 
     An Ollama exception that reaches this far is still an Ollama exception, so it
     keeps the copy that names the chip in the title bar rather than the generic
-    line — the user's next action is different.
+    line, the user's next action is different.
     """
     detail = f"{type(exc).__name__}: {exc}"
     try:
@@ -156,7 +150,9 @@ def turn_failed_notice(exc: BaseException) -> tuple[str, str]:
     except Exception:
         # Copy is not worth an exception inside the handler of an exception.
         pass
-    return TURN_FAILED_NOTICE, detail
+    from arelis.i18n import tr
+
+    return tr(TURN_FAILED_NOTICE), detail
 
 
 def is_model_directed(text: str) -> bool:
@@ -167,7 +163,7 @@ def is_model_directed(text: str) -> bool:
 def tool_failure_notice(tool: str, output: str) -> str:
     """One line a person can act on, for a tool that failed.
 
-    Passes the tool's own first line through when it is plain — "Not a file:
+    Passes the tool's own first line through when it is plain, "Not a file:
     C:/typo.csv" is the whole answer and swapping it for something vaguer would
     undo the reason this was ever shown. Substitutes human copy when the line is
     addressed to the model, or when there is nothing to show.
@@ -202,13 +198,13 @@ def should_nudge_write_after_page(tool: str, output: str) -> bool:
     """True when empty-after-tool would paste an article instead of a fact.
 
     Qwen3.5 often leaves chat empty after scrape and puts the wrap-up in
-    thinking. Shipping a short price is fine. Shipping a blog is not —
+    thinking. Shipping a short price is fine. Shipping a blog is not
     the user asked for an answer, not the page.
     """
     if (tool or "").strip() not in _PAGE_WRITE_TOOLS:
         return False
     out = output or ""
-    if _BOT_WALL.search(out):
+    if looks_like_bot_wall(out):
         return True
     if "Site:" in out or out.lstrip().startswith("# "):
         return True
@@ -244,6 +240,18 @@ def _algebra_result_tokens(output: str) -> list[str]:
         parts = right.split()
         if len(parts) >= 2 and parts[-1].isalpha():
             tokens.append(parts[0])
+    # A spoken answer often uses the short display form ("1.88"), not the
+    # full float from the receipt. Count that as stating the result.
+    for tok in list(tokens):
+        if not re.fullmatch(r"-?\d+\.\d{3,}", tok):
+            continue
+        try:
+            val = float(tok)
+        except ValueError:
+            continue
+        short = f"{val:.2f}".rstrip("0").rstrip(".")
+        if short and short not in tokens:
+            tokens.append(short)
     return [t for t in tokens if t]
 
 
@@ -264,7 +272,7 @@ def reply_states_algebra_result(content: str, tool: str, output: str) -> bool:
 
     Qwen3.5 often puts the number in thinking and ships 'What's next?' as
     the bubble. Empty-after-tool only catches a blank reply; this is the
-    filler case. CAS dumps stay on the write-up path — do not police them.
+    filler case. CAS dumps stay on the write-up path, do not police them.
     """
     name = (tool or "").strip()
     if name not in _RESULT_TOOLS:
@@ -275,11 +283,29 @@ def reply_states_algebra_result(content: str, tool: str, output: str) -> bool:
     return any(_token_in_reply(tok, content or "") for tok in tokens)
 
 
+_DATA_FOLLOWUP = (
+    "I got the information, but I could not put it into words. Ask me again and I will try."
+)
+
+_PLANET_IN_ASK = re.compile(r"(?i)\b(mercury|venus|mars|jupiter|saturn|uranus|neptune|pluto)\b")
+# Spoken duration rewrite for "how long is a year on Mars": (686.980)/365.256
+_PERIOD_OVER_EARTH = re.compile(r"^\(\d+(?:\.\d+)?\)/365\.256$")
+_WANTS_EARTH_DAYS = re.compile(r"(?i)\b(?:earth\s+)?days?\b")
+# Calendar / reminder / task lists are already written for people.
+_PERSON_LIST_TOOLS = frozenset({"agenda", "remind", "tasks"})
+
+# Text pulled FROM a page, image, clipboard, or note is already the answer.
+_CONTENT_PASSTHROUGH_TOOLS = frozenset(
+    {"ocr", "clipboard", "transcribe", "notes", "doc_extract", "vision"}
+)
+
+
 def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     """Person-facing copy when the model leaves chat empty after a tool.
 
     The model still sees the raw tool result (including instruction footers).
-    This path is only the last-resort chat line.
+    This path is only the last-resort chat line. It must never ship a formula
+    line, a data header, or a bare Done.
     """
     body = (output or "").strip()
     name = (tool or "").strip()
@@ -291,7 +317,7 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         return "Ready when you are. What problem do you want to start with?"
     if not body:
         return (
-            "The tool finished, but I could not write a follow-up. "
+            "I finished the lookup, but I could not write a follow-up. "
             "Send the same ask again."
         )
     listing = _WORKSPACE_LISTING_LINE.search(body) or body.lstrip().startswith(
@@ -305,7 +331,7 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     if not cleaned:
         if name == "agenda":
             return "No events in this window."
-        return "The tool finished. The details are in Workspace."
+        return "I finished the lookup. The details are in Workspace."
     # Ahead of the page branch, because web_fetch is on both lists now: it was
     # a page reader when that branch was written and it answers APIs as well
     # since it grew POST/PUT/PATCH/DELETE. _page_talk has no idea what to do
@@ -315,13 +341,13 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
             "The call went through and came back with data, but I did not get "
             "a sentence out of it. Ask again and I will read the response."
         )
-    if name == "calculator":
-        return pretty_calculator_chat(cleaned)
+    if name in {"calculator", "units"}:
+        return plain_algebra_chat(cleaned, ask=ask)
     if name in _PAGE_TOOLS:
-        if _BOT_WALL.search(cleaned):
+        if looks_like_bot_wall(cleaned):
             return (
                 "That page did not give a usable source (login, captcha, "
-                "or a bot check). I need another URL or a search — this "
+                "or a bot check). I need another URL or a search, this "
                 "is not the report."
             )
         return _page_talk(cleaned)
@@ -331,12 +357,327 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         "source: ink" in cleaned.lower() or "no text layer" in cleaned.lower()
     ):
         return (
-            "That PDF is handwritten or scanned — I still need to look at "
+            "That PDF is handwritten or scanned, I still need to look at "
             "the page images. Ask me again if I stopped on the path list."
         )
+    # A posed CAS/python dump is the answer they asked for. Do not treat
+    # latex / result lines as a generic data header.
+    if name in {"cas", "python"} and _algebra_was_asked(ask):
+        if len(cleaned) > 1600:
+            cleaned = cleaned[:1597].rstrip() + "…"
+        return cleaned
+    # Agenda / remind / tasks already answer in words. Keep the list.
+    if name in _PERSON_LIST_TOOLS:
+        if len(cleaned) > 1600:
+            cleaned = cleaned[:1597].rstrip() + "…"
+        return cleaned
+    # Weather already answers in words (current-only lines look like key:value).
+    if name == "weather":
+        if len(cleaned) > 1600:
+            cleaned = cleaned[:1597].rstrip() + "…"
+        return cleaned
+    # OCR / clipboard / notes / PDF text: the content IS the answer.
+    if name in _CONTENT_PASSTHROUGH_TOOLS:
+        if len(cleaned) > 1600:
+            cleaned = cleaned[:1597].rstrip() + "…"
+        return cleaned
+    if _looks_like_data_dump(cleaned):
+        return _DATA_FOLLOWUP
     if len(cleaned) > 1600:
         cleaned = cleaned[:1597].rstrip() + "…"
     return cleaned
+
+
+def followup_passthrough_tool(tool: str, line: str, raw: str) -> str:
+    """Tool name for memory passthrough only when the shipped line is the tool's text."""
+    shipped = (line or "").strip()
+    source = (raw or "").strip()
+    if shipped and (shipped == source or (source and shipped in source)):
+        return (tool or "").strip()
+    return ""
+
+
+# The units tool appends a note for the model after a temperature
+# conversion. It is not part of the answer, so it is dropped before phrasing.
+_TEMP_NOTE = re.compile(r"\s*Temperature conversions use an offset\b.*$", re.S)
+_CLEAN_UNIT_RHS = re.compile(
+    r"^(?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s+"
+    r"(?P<unit>[A-Za-z]+(?:_[A-Za-z]+)*)$"
+)
+_CLEAN_NUM_RHS = re.compile(
+    r"^(?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?P<pct>%)?$"
+)
+_UNIT_WORDS: dict[str, tuple[str, str]] = {
+    "degree_celsius": ("degree Celsius", "degrees Celsius"),
+    "degree_fahrenheit": ("degree Fahrenheit", "degrees Fahrenheit"),
+    "centimeter": ("centimeter", "centimeters"),
+    "millimeter": ("millimeter", "millimeters"),
+    "kilometer": ("kilometer", "kilometers"),
+    "meter": ("meter", "meters"),
+    "inch": ("inch", "inches"),
+    "foot": ("foot", "feet"),
+    "mile": ("mile", "miles"),
+    "kilogram": ("kilogram", "kilograms"),
+    "gram": ("gram", "grams"),
+    "second": ("second", "seconds"),
+    "minute": ("minute", "minutes"),
+    "hour": ("hour", "hours"),
+}
+# Plurals that do not just take an "s".
+_IRREGULAR_PLURALS: dict[str, str] = {
+    "foot": "feet",
+    "century": "centuries",
+    "henry": "henries",
+}
+# Unit names that read the same for one or many.
+_SAME_PLURAL_ENDINGS = ("hertz", "lux", "siemens", "celsius", "fahrenheit")
+# Big numbers are said with a scale word, never in e-notation.
+_SCALE_WORDS: tuple[tuple[int, str], ...] = (
+    (10**24, "septillion"),
+    (10**21, "sextillion"),
+    (10**18, "quintillion"),
+    (10**15, "quadrillion"),
+    (10**12, "trillion"),
+    (10**9, "billion"),
+    (10**6, "million"),
+)
+
+
+def plain_algebra_chat(output: str, *, ask: str = "") -> str:
+    """One plain sentence from a calculator or units receipt.
+
+    Never the formula line. The model still saw the exact receipt.
+    """
+    body = (output or "").strip()
+    if not body:
+        return body
+    expr = ""
+    right = body
+    if " = " in body:
+        expr, right = body.rsplit(" = ", 1)
+        expr = expr.strip()
+        right = right.strip()
+    main = right
+    if " (exactly " in main:
+        main = main.split(" (exactly ", 1)[0].strip()
+    main = _TEMP_NOTE.sub("", main).strip()
+    unit_hit = _CLEAN_UNIT_RHS.fullmatch(main)
+    if unit_hit is not None:
+        shown, rounded = _spoken_number(unit_hit.group("num"), expr=expr)
+        if not shown:
+            return _DATA_FOLLOWUP
+        unit = _humanize_unit(unit_hit.group("unit"), shown)
+        about = "about " if rounded else ""
+        return f"That works out to {about}{shown} {unit}."
+    num_hit = _CLEAN_NUM_RHS.fullmatch(main)
+    if num_hit is None:
+        return _DATA_FOLLOWUP
+    shown, rounded = _spoken_number(num_hit.group("num"), expr=expr)
+    if not shown:
+        return _DATA_FOLLOWUP
+    try:
+        raw_val = float(num_hit.group("num"))
+    except ValueError:
+        raw_val = 0.0
+    is_pct = bool(num_hit.group("pct")) or bool(
+        expr and re.search(r"\*\s*100\b", expr) and abs(raw_val) < 10000
+    )
+    planet = _PLANET_IN_ASK.search(ask or "")
+    if planet is not None and re.search(r"(?i)\byear\b", ask or ""):
+        name = planet.group(1).capitalize()
+        folded_expr = re.sub(r"\s+", "", expr)
+        if _PERIOD_OVER_EARTH.fullmatch(folded_expr):
+            return f"A year on {name} is about {shown} Earth years."
+        # Only the bare sidereal day count. "687/7 for a Mars year" is their
+        # arithmetic, not the length of the orbit.
+        if _WANTS_EARTH_DAYS.search(ask or "") and re.fullmatch(
+            r"\d+(?:\.\d+)?", folded_expr
+        ):
+            days = _round_day_count(shown)
+            return f"A year on {name} is about {days} Earth days."
+        # Age-in-planet-years and other shapes: just state the number.
+    about = "about " if rounded else ""
+    suffix = "%" if is_pct else ""
+    return f"That works out to {about}{shown}{suffix}."
+
+
+def _humanize_unit(unit: str, magnitude: str) -> str:
+    """Turn Pint unit ids into plain spoken words; plural except for exactly 1."""
+    key = (unit or "").strip().lower()
+    try:
+        val = float((magnitude or "").replace(",", ""))
+        singular = abs(val - 1.0) < 1e-12 or abs(val + 1.0) < 1e-12
+    except ValueError:
+        singular = False
+    pair = _UNIT_WORDS.get(key)
+    if pair is not None:
+        return pair[0] if singular else pair[1]
+    spoken = " ".join((unit or "").replace("_", " ").split())
+    if not spoken:
+        return spoken
+    words = spoken.split(" ")
+    # Pint's force_pound (and "pound force") read as "pounds of force".
+    if len(words) == 2 and "force" in (words[0].lower(), words[1].lower()):
+        noun = words[1] if words[0].lower() == "force" else words[0]
+        body = noun if singular else _plural_word(noun)
+        return f"{body} of force"
+    if singular:
+        return spoken
+    # "mile per hour" becomes "miles per hour": only the part before "per".
+    head, sep, tail = spoken.partition(" per ")
+    words = head.split(" ")
+    words[-1] = _plural_word(words[-1])
+    return " ".join(words) + sep + tail
+
+
+def _plural_word(word: str) -> str:
+    """Plural of one unit word: centuries, feet, inches, and hertz unchanged."""
+    low = word.lower()
+    for single, many in _IRREGULAR_PLURALS.items():
+        if low.endswith(single):
+            return word[: len(word) - len(single)] + many
+    if low.endswith(_SAME_PLURAL_ENDINGS) or low.endswith("s"):
+        return word
+    if low.endswith("y") and len(low) > 1 and low[-2] not in "aeiou":
+        return word[:-1] + "ies"
+    if low.endswith(("x", "z", "ch", "sh")):
+        return word + "es"
+    return word + "s"
+
+
+def _spoken_number(raw: str, *, expr: str = "") -> tuple[str, bool]:
+    """Return (shown, rounded) for a number said to a person.
+
+    Never e-notation. Big numbers get a scale word (about 9.46 trillion),
+    very long ones a digit count, and tiny ones an empty string so the
+    caller ships the plain give-up line instead of something like 1.6e-19.
+    """
+    text = (raw or "").strip()
+    if not _CALC_NUMBER.fullmatch(text):
+        return "", False
+    if expr and re.search(r"\*\s*100\b", expr):
+        shown, rounded = _format_magnitude(text, expr=expr)
+        if shown and "e" not in shown.lower():
+            return shown, rounded
+    try:
+        value = Decimal(text)
+    except InvalidOperation:
+        return "", False
+    if not value.is_finite():
+        return "", False
+    dash = "-" if value < 0 else ""
+    minus = "minus " if value < 0 else ""
+    size = abs(value)
+    if size == 0:
+        return "0", False
+    nearest = size.to_integral_value()
+    snap_rounded = False
+    # Float noise such as -39.99999999999997 is a whole number.
+    if nearest != 0 and abs(size - nearest) <= Decimal("1e-9") * nearest:
+        if abs(size - nearest) > Decimal("1e-12") * nearest:
+            snap_rounded = True
+        size = nearest
+
+    def _is_rounded(shown_num: str) -> bool:
+        got = Decimal(shown_num.replace(",", ""))
+        if got == size:
+            return snap_rounded
+        if size != 0 and abs(got - size) <= Decimal("1e-12") * size:
+            return snap_rounded
+        return True
+
+    if size >= Decimal(10) ** 27:
+        if size == size.to_integral_value():
+            digits = str(int(size))
+            lead = digits.rstrip("0")
+            if len(lead) == 1:
+                zeros = len(digits) - 1
+                return f"{minus}{lead} followed by {zeros} zeros", False
+            count = len(digits)
+        else:
+            count = size.adjusted() + 1
+        return f"{minus}a number with {count} digits", False
+    if size == size.to_integral_value() and size < 10**12:
+        return f"{dash}{int(size):,}", snap_rounded
+    if size >= 10**6:
+        for i, (scale, word) in enumerate(_SCALE_WORDS):
+            if size >= scale:
+                part = f"{size / scale:.2f}".rstrip("0").rstrip(".")
+                if part == "1000":
+                    if i > 0:
+                        scale, word = _SCALE_WORDS[i - 1]
+                        part = f"{size / scale:.2f}".rstrip("0").rstrip(".")
+                    else:
+                        count = (
+                            len(str(int(size)))
+                            if size == size.to_integral_value()
+                            else size.adjusted() + 1
+                        )
+                        return f"{minus}a number with {count} digits", False
+                exact = Decimal(part) * scale == size
+                return f"{dash}{part} {word}", snap_rounded or (not exact)
+    if size < Decimal("1e-6"):
+        if size >= Decimal("1e-9"):
+            sig = len(size.normalize().as_tuple().digits)
+            if sig <= 3:
+                places = -int(size.adjusted()) + (sig - 1)
+                shown = f"{size:.{places}f}".rstrip("0")
+                return f"{dash}{shown}", _is_rounded(shown)
+        return "", False
+    if size < Decimal("1e-4"):
+        places = -size.adjusted() + 2
+        shown = f"{size:.{places}f}".rstrip("0")
+        return f"{dash}{shown}", _is_rounded(shown)
+    decimals = max(0, -size.as_tuple().exponent)
+    if decimals > 4:
+        if size < 1:
+            shown = f"{float(size):.4g}"
+        else:
+            shown = f"{size:,.2f}".rstrip("0").rstrip(".")
+    else:
+        shown = f"{size:,.{decimals}f}"
+    return f"{dash}{shown}", _is_rounded(shown)
+
+
+def _round_day_count(number: str) -> str:
+    """Sidereal days are quoted whole; 686.98 reads as about 687."""
+    try:
+        val = float((number or "").replace(",", ""))
+    except ValueError:
+        return number
+    return str(round(val))
+
+
+_SENTENCE_ENDS = tuple(".!?。！？")
+
+
+def _looks_like_data_dump(text: str) -> bool:
+    """True when the tool answered in headers / tables / key-value lines."""
+    body = (text or "").strip()
+    if not body:
+        return False
+    if re.search(
+        r"(?im)^(api\s+version|api\s+source|target\s+body|center\s+body|"
+        r"start\s+time|revised|r\.a\.|ephemeris)\b",
+        body,
+    ):
+        return True
+    # Markdown calendar / bullet lists are person-facing, not ephemeris dumps.
+    if re.search(r"(?m)^(?:\*\*[^*]+\*\*|\s*[-*]\s+\S)", body):
+        return False
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    # Drop a trailing "Source: ..." line so a short list is not a dump.
+    lines = [ln for ln in lines if not re.match(r"(?i)^source\s*:", ln)]
+    if len(lines) >= 3:
+        short = sum(
+            1
+            for ln in lines
+            if len(ln) < 90 and not ln.endswith(_SENTENCE_ENDS)
+        )
+        if short >= 3:
+            return True
+    kv = sum(1 for ln in lines if re.match(r"^[\w ./-]{1,48}:\s+\S", ln))
+    return kv >= 2
 
 
 _SIMPLE_FRAC = re.compile(r"^-?\d{1,2}/\d{1,2}$")
@@ -344,7 +685,7 @@ _CALC_NUMBER = re.compile(r"^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$")
 
 
 def pretty_calculator_chat(output: str) -> str:
-    """Chat line from a calculator receipt — not 15 decimals and a fraction.
+    """Chat line from a calculator receipt, not 15 decimals and a fraction.
 
     The model still sees the exact tool output. This is only what we ship
     when she leaves the bubble empty (or filler without the number).
@@ -367,31 +708,57 @@ def pretty_calculator_chat(output: str) -> str:
     return f"{left} = {pretty}"
 
 
-def _pretty_number_token(raw: str, *, expr: str = "") -> str:
+def _format_magnitude(raw: str, *, expr: str = "") -> tuple[str, bool]:
+    """Return (shown, rounded) for a clean numeric token."""
     text = (raw or "").strip()
     if not _CALC_NUMBER.fullmatch(text):
-        return text
-    if "." not in text and "e" not in text.lower():
-        return text
+        return "", False
     try:
         val = float(text)
     except ValueError:
-        return text
-    if val.is_integer() and abs(val) < 2**53:
-        return str(int(val))
-    # `((now-then)/then)*100` is a percent. One decimal, not 15.
+        return "", False
+    if not math.isfinite(val) and re.fullmatch(r"-?\d+", text):
+        # An exact integer too big for a float (1e308*10 is 310 digits).
+        # Say it in short scientific form instead of spelling it out.
+        from decimal import Decimal
+
+        return f"{Decimal(text):.4g}".lower(), True
+    if not math.isfinite(val):
+        # 1e308*10 overflows float; keep the short scientific token.
+        if "e" in text.lower():
+            return text.lower(), True
+        return "", False
     if expr and re.search(r"\*\s*100\b", expr) and abs(val) < 10000:
-        return f"{val:.1f}"
+        shown = f"{val:.1f}"
+        return shown, shown != text
+    # Ordinary integers (including millions) get thousands separators.
+    if val.is_integer() and abs(val) < 2**53:
+        n = int(val)
+        shown = f"{n:,}" if abs(n) >= 1000 else str(n)
+        return shown, False
+    # Non-integer huge / tiny: keep it short (never a 309-digit sentence).
+    if abs(val) >= 1e6 or (abs(val) > 0 and abs(val) < 1e-4):
+        return f"{val:.4g}", True
     decimals = 0
-    frac = text.split(".", 1)[1]
-    frac = re.split(r"[eE]", frac, maxsplit=1)[0]
-    decimals = len(frac)
+    if "." in text:
+        frac = text.split(".", 1)[1]
+        frac = re.split(r"[eE]", frac, maxsplit=1)[0]
+        decimals = len(frac)
+    elif "e" in text.lower():
+        return f"{val:.4g}", True
     if decimals > 4:
         if abs(val) < 1:
-            return f"{val:.4g}"
-        shown = f"{val:.2f}".rstrip("0").rstrip(".")
-        return shown or "0"
-    return text
+            shown = f"{val:.4g}"
+        else:
+            shown = f"{val:.2f}".rstrip("0").rstrip(".") or "0"
+        return shown, True
+    return text, False
+
+
+def _pretty_number_token(raw: str, *, expr: str = "") -> str:
+    text = (raw or "").strip()
+    shown, _rounded = _format_magnitude(text, expr=expr)
+    return shown if shown else text
 
 
 def _is_json_body(text: str) -> bool:
@@ -400,8 +767,8 @@ def _is_json_body(text: str) -> bool:
     The last branch of `chat_followup_from_tool` pastes the tool's output into
     chat verbatim, which is right for a tool that answers in words and wrong
     for one that answers in data. `web_fetch` grew POST/PUT/PATCH/DELETE and
-    now returns API bodies, so an empty model reply put a raw response object —
-    tokens and all — in the bubble as if she had written it.
+    now returns API bodies, so an empty model reply put a raw response object
+    tokens and all, in the bubble as if she had written it.
 
     Parsed rather than pattern-matched, so a sentence that merely starts with a
     brace is still a sentence, and a body that only looks like JSON is still
@@ -476,8 +843,11 @@ def _search_talk(output: str) -> str:
 __all__ = [
     "TURN_FAILED_NOTICE",
     "chat_followup_from_tool",
+    "followup_passthrough_tool",
     "is_model_directed",
+    "plain_algebra_chat",
     "plain_reason",
+    "pretty_calculator_chat",
     "reply_states_algebra_result",
     "should_nudge_write_after_algebra",
     "should_nudge_write_after_page",

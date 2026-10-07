@@ -1,4 +1,4 @@
-"""Throwaway stills she took to look — not pictures she made for you.
+"""Throwaway stills she took to look, not pictures she made for you.
 
 Browser / desk / OCR-screen captures live under outputs/images/ with a
 prefix. After vision or OCR reads one, it goes. Leftovers from a crashed
@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 from arelis.paths import outputs_dir
+from arelis.workspace import is_unsafe_windows_path
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +27,10 @@ _KEEP_ASK = re.compile(
     r"(?:save|keep|don't delete|do not delete)\b.{0,48}\b"
     r"(?:screenshot|screen ?shot|capture|still)\b|"
     r"(?:screenshot|screen ?shot|capture|still)\b.{0,48}\b"
-    r"(?:save|keep)\b"
+    r"(?:save|keep)\b|"
+    r"(?:take|capture|grab|get)\b.{0,48}\b"
+    r"(?:screenshot|screen ?shot)\b|"
+    r"action\s*=\s*['\"]?screenshot['\"]?"
     r")"
 )
 
@@ -35,7 +39,7 @@ _hold = False
 
 
 def hold_look_files(on: bool) -> None:
-    """This turn asked to keep the capture — forget/sweep must not unlink it."""
+    """This turn asked to keep the capture, forget/sweep must not unlink it."""
     global _hold
     _hold = bool(on)
 
@@ -46,6 +50,8 @@ def images_dir() -> Path:
 
 def is_look_scratch(path: Path | str) -> bool:
     """True for a throwaway look still under outputs/images/."""
+    if is_unsafe_windows_path(str(path)):
+        return False
     try:
         resolved = Path(path).expanduser().resolve()
         root = images_dir().resolve()
@@ -74,6 +80,8 @@ def note_look_scratch(path: Path | str) -> None:
 def forget_look_scratch(path: Path | str) -> bool:
     """Unlink a look still. False when it was not scratch or already gone."""
     if _hold:
+        return False
+    if is_unsafe_windows_path(str(path)):
         return False
     raw = Path(path)
     try:
@@ -122,6 +130,8 @@ def prune_look_scratch(
 ) -> int:
     """Launch leftover: newest look stills stay, the rest go."""
     root = directory if directory is not None else images_dir()
+    if is_unsafe_windows_path(str(root)):
+        return 0
     if not root.is_dir():
         return 0
     removed = _prune_prefix(root, LOOK_PREFIXES, max(0, int(keep)))
@@ -131,11 +141,7 @@ def prune_look_scratch(
 
 def _prune_prefix(root: Path, prefixes: tuple[str, ...], keep: int) -> int:
     try:
-        files = [
-            p
-            for p in root.iterdir()
-            if p.is_file() and p.name.lower().startswith(prefixes)
-        ]
+        files = [p for p in root.iterdir() if p.is_file() and p.name.lower().startswith(prefixes)]
     except OSError:
         return 0
     files.sort(key=lambda p: p.stat().st_mtime)

@@ -27,11 +27,17 @@ from arelis.spatial.scene import (
     polygon_xy,
 )
 from arelis.ui.stage import paint_corner_ticks
-from arelis.ui.theme import color
+from arelis.ui.theme import FILAMENT, color
+
+
+def _wash(name: str, alpha: int) -> QColor:
+    ink = QColor(color(name))
+    ink.setAlpha(alpha)
+    return ink
 
 
 def make_reach_control(parent: QWidget | None, reach: float) -> tuple[QSlider, QLabel]:
-    """Feel slider. Hands only — mouse on this plane stays 1:1 pixels."""
+    """Feel slider. Hands only, mouse on this plane stays 1:1 pixels."""
     value = clamp_reach(reach)
     slider = QSlider(Qt.Orientation.Horizontal, parent)
     slider.setObjectName("SettingsSlider")
@@ -40,7 +46,7 @@ def make_reach_control(parent: QWidget | None, reach: float) -> tuple[QSlider, Q
     slider.setPageStep(10)
     slider.setFixedWidth(128)
     slider.setValue(round(value * 100))
-    slider.setToolTip("Reach — how far a small hand move goes. Like mouse DPI.")
+    slider.setToolTip("Reach, how far a small hand move goes. Like mouse DPI.")
     label = QLabel(f"{value:.2f}x", parent)
     label.setObjectName("InstrumentHint")
     label.setFixedWidth(42)
@@ -48,7 +54,7 @@ def make_reach_control(parent: QWidget | None, reach: float) -> tuple[QSlider, Q
 
 
 class WorldPanel(QWidget):
-    """Paints the plane. Mouse is the control; a fist uses the same scene."""
+    """Paints the plane. The mouse is a pinch, same grab as a hand."""
 
     changed = Signal()
 
@@ -90,7 +96,7 @@ class WorldPanel(QWidget):
         items: list[tuple[tuple[float, float], tuple[float, float], bool]]
         | tuple[tuple[tuple[float, float], tuple[float, float], bool], ...],
     ) -> None:
-        """Glow is per close — left does not light with right."""
+        """Glow is per close, left does not light with right."""
         prev = [bool(row[4]) for row in self._hands]
         hands: list[tuple[float, float, float, float, bool]] = []
         flashes = list(self._flashes)
@@ -181,7 +187,7 @@ class WorldPanel(QWidget):
             self._paint_sphere(painter, disc, cx, cy, radius, ring, width)
         else:
             poly = polygon_xy(disc)
-            fill = QColor(255, 122, 34, 36 if disc.attached else 22)
+            fill = _wash("accent", 36 if disc.attached else 22)
             pen = QPen(ring)
             pen.setWidth(width)
             painter.setPen(pen)
@@ -226,7 +232,7 @@ class WorldPanel(QWidget):
     ) -> None:
         """Rim pip + tick so a sphere can show spin the same as an n-gon.
 
-        Axes on: opposite pip (CW vs CCW) and a tilt meridian. Not XYZ —
+        Axes on: opposite pip (CW vs CCW) and a tilt meridian. Not XYZ
         only spin and tilt exist on this plane.
         """
         reach = max(6, int(radius * max(0.38, abs(math.cos(float(disc.tilt))))))
@@ -261,7 +267,9 @@ class WorldPanel(QWidget):
         painter.setPen(meridian)
         painter.drawLine(QPoint(px, py), QPoint(qx, qy))
         painter.setPen(color("text"))
-        painter.setFont(QFont("Segoe UI", 8))
+        label_font = QFont(painter.font())
+        label_font.setPixelSize(11)
+        painter.setFont(label_font)
         painter.drawText(mx + 6, my - 2, "spin")
         painter.drawText(qx + 4, qy + 4, "tilt")
 
@@ -286,9 +294,9 @@ class WorldPanel(QWidget):
         hy = float(cy) - radius * 0.34
         ball = QRadialGradient(QPointF(hx, hy), float(max(radius, 8)) * 1.2)
         # Opaque. Alpha on the fill read as a ring; the spec read as a dot.
-        lit = QColor(255, 220, 160) if disc.attached else QColor(255, 206, 128)
-        mid = QColor(255, 138, 42) if disc.attached else QColor(255, 122, 34)
-        dark = QColor(72, 28, 6)
+        lit = QColor(*FILAMENT["core"]) if disc.attached else color("accent2")
+        mid = color("accent")
+        dark = QColor(64, 28, 10)
         ball.setColorAt(0.0, lit)
         ball.setColorAt(0.42, mid)
         ball.setColorAt(1.0, dark)
@@ -296,7 +304,7 @@ class WorldPanel(QWidget):
         painter.setBrush(ball)
         painter.drawEllipse(QPoint(cx, cy), radius, radius)
         spec = max(3, int(radius * 0.16))
-        painter.setBrush(QColor(255, 240, 210))
+        painter.setBrush(QColor(*FILAMENT["core"]))
         painter.drawEllipse(QPoint(int(hx), int(hy)), spec, spec)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -360,7 +368,9 @@ class WorldPanel(QWidget):
         self.scene.select_at(x, y)
         if self.scene.near_any(x, y):
             self._dragging = True
-            self.scene.apply_pointer(x, y, True, t=time.perf_counter())
+            self.scene.apply_pointer(
+                x, y, True, t=time.perf_counter(), who="pointer", kind="pinch"
+            )
         self.update()
         self.changed.emit()
 
@@ -368,7 +378,9 @@ class WorldPanel(QWidget):
         if not self._dragging:
             return
         x, y = self._from_px(event.position().x(), event.position().y())
-        self.scene.apply_pointer(x, y, True, t=time.perf_counter())
+        self.scene.apply_pointer(
+            x, y, True, t=time.perf_counter(), who="pointer", kind="pinch"
+        )
         self.update()
         self.changed.emit()
 
@@ -377,7 +389,9 @@ class WorldPanel(QWidget):
             return
         if self._dragging:
             x, y = self._from_px(event.position().x(), event.position().y())
-            self.scene.apply_pointer(x, y, False, t=time.perf_counter())
+            self.scene.apply_pointer(
+                x, y, False, t=time.perf_counter(), who="pointer"
+            )
             self._dragging = False
             self.update()
             self.changed.emit()
@@ -509,7 +523,7 @@ class WorldPanel(QWidget):
         if not self._tools_open:
             return
         panel = self._tools_rect()
-        painter.setBrush(QColor(22, 13, 7, 230))
+        painter.setBrush(_wash("bg0", 230))
         painter.setPen(QPen(color("edge"), 1))
         painter.drawRoundedRect(panel, 6, 6)
         painter.setPen(color("text_dim"))
@@ -527,7 +541,7 @@ class WorldPanel(QWidget):
         r = min(rect.width(), rect.height()) * 0.32
         ink = color("accent")
         painter.setPen(QPen(ink, 1))
-        painter.setBrush(QColor(255, 122, 34, 40))
+        painter.setBrush(_wash("accent", 40))
         if kind == "sphere":
             painter.drawEllipse(QPoint(cx, cy), int(r), int(r))
             return
@@ -546,7 +560,7 @@ class WorldPanel(QWidget):
         if body is None:
             return
         sheet = self._sheet_rect()
-        painter.setBrush(QColor(22, 13, 7, 230))
+        painter.setBrush(_wash("bg0", 230))
         painter.setPen(QPen(color("edge"), 1))
         painter.drawRoundedRect(sheet, 6, 6)
         painter.setPen(color("text_dim"))

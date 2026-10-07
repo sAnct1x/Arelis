@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from arelis.ui.caption_fade import CaptionButton, watch_caption
 from arelis.ui.icons import (
     window_close_icon,
     window_maximize_icon,
@@ -27,8 +28,9 @@ def _chrome_btn(
     *,
     tooltip: str = "",
     name: str = "",
+    cls: type[QPushButton] = QPushButton,
 ) -> QPushButton:
-    btn = QPushButton()
+    btn = cls()
     btn.setObjectName(obj)
     btn.setIcon(icon)
     btn.setFixedSize(32, 26)
@@ -45,7 +47,11 @@ def _chrome_btn(
 
 
 class TitleBar(QWidget):
-    """Frameless window chrome that matches the glass shell."""
+    """Frameless window chrome that matches the glass shell.
+
+    Minimize, maximize, and close fade out until the pointer is in their
+    corner. Filament's slim bar uses the same three buttons.
+    """
 
     title_menu_requested = Signal(object)  # same menu as a right-click on filament
     view_menu_requested = Signal(object)  # emits the view button for QMenu.exec
@@ -156,6 +162,7 @@ class TitleBar(QWidget):
             self._minimize,
             tooltip="Minimize",
             name="Minimize",
+            cls=CaptionButton,
         )
         self.max_btn = _chrome_btn(
             "ChromeMax",
@@ -163,6 +170,7 @@ class TitleBar(QWidget):
             self._maximize,
             tooltip="Maximize",
             name="Maximize",
+            cls=CaptionButton,
         )
         self.close_btn = _chrome_btn(
             "ChromeClose",
@@ -170,11 +178,51 @@ class TitleBar(QWidget):
             self._close,
             tooltip="Close",
             name="Close",
+            cls=CaptionButton,
         )
-        layout.addWidget(self.min_btn)
-        layout.addWidget(self.max_btn)
-        layout.addWidget(self.close_btn)
+        self._caption = QWidget()
+        self._caption.setObjectName("ChromeCaption")
+        self._caption.setAutoFillBackground(False)
+        self._caption.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self._caption.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self._caption.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        caption_layout = QHBoxLayout(self._caption)
+        caption_layout.setContentsMargins(0, 0, 0, 0)
+        caption_layout.setSpacing(SPACE["micro"])
+        caption_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        caption_layout.addWidget(self.min_btn)
+        caption_layout.addWidget(self.max_btn)
+        caption_layout.addWidget(self.close_btn)
+        layout.addWidget(self._caption)
         layout.addWidget(self._span_right)
+
+        self._hover = watch_caption(
+            self,
+            self.min_btn,
+            self.max_btn,
+            self.close_btn,
+            zone=self._caption,
+        )
+        self._caption_poll = self._hover.poll
+        self._caption_hide_timer = self._hover.hide_timer
+        self._caption_anim = self._hover.anim
+        self.setMouseTracking(True)
+
+    @property
+    def _caption_opacity(self) -> float:
+        return self._hover.opacity
+
+    def _sync_caption_hover(self) -> None:
+        self._hover.sync()
+
+    def _cursor_near_caption(self) -> bool:
+        return self._hover.cursor_near()
+
+    def _caption_pinned(self) -> bool:
+        return self._hover.pinned()
+
+    def _hide_caption_if_idle(self) -> None:
+        self._hover.hide_if_idle()
 
     def set_home_band(self, left: int, width: int, total: int) -> None:
         """Keep arelis + hands + 1/2/3 + window buttons on the primary desk."""
@@ -290,6 +338,7 @@ class TitleBar(QWidget):
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        self._sync_caption_hover()
         if self._drag_pos is not None and event.buttons() & Qt.MouseButton.LeftButton:
             w = self._window()
             if w and not w.isMaximized() and not w.isFullScreen():
@@ -300,6 +349,7 @@ class TitleBar(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self._drag_pos = None
+        self._sync_caption_hover()
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
@@ -345,6 +395,7 @@ class FloatingDockTitleBar(QWidget):
             self._minimize,
             tooltip="Minimize",
             name="Minimize",
+            cls=CaptionButton,
         )
         self.max_btn = _chrome_btn(
             "ChromeMax",
@@ -352,6 +403,7 @@ class FloatingDockTitleBar(QWidget):
             self._maximize,
             tooltip="Maximize",
             name="Maximize",
+            cls=CaptionButton,
         )
         self.close_btn = _chrome_btn(
             "ChromeClose",
@@ -359,10 +411,12 @@ class FloatingDockTitleBar(QWidget):
             self._close,
             tooltip="Hide panel (View menu to restore)",
             name="Close",
+            cls=CaptionButton,
         )
         layout.addWidget(self.min_btn)
         layout.addWidget(self.max_btn)
         layout.addWidget(self.close_btn)
+        watch_caption(self, self.min_btn, self.max_btn, self.close_btn)
 
         self.setToolTip("drag to move · double-click to dock · maximize · hide")
 

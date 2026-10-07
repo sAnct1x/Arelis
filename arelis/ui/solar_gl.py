@@ -1,6 +1,6 @@
 """OpenGL space for the solar lab. Approach/orbit, not landing.
 
-Offscreen FBO — a native GL widget aborted this AMD driver. Software
+Offscreen FBO, a native GL widget aborted this AMD driver. Software
 QPainter globes stay as fallback. Body spin is attitude.py (IAU W, or
 GMST+obliquity for Earth) times a mesh-to-body map. Radii drawn here
 may use a screen-space floor; physics does not.
@@ -539,7 +539,7 @@ def earth_gl_cache_key(
 
     `_hold_earth_eye` rewrites ecliptic cam for Earth spin. Rounding
     that xyz busts the cache and forces a 2560 px readback. Bin ECEF
-    at 100 m. Clock step comes from `gl_clock_step_s` — at Travel
+    at 100 m. Clock step comes from `gl_clock_step_s`, at Travel
     standoff the terminator is ~0.02 px/s, so the second does not matter.
     """
 
@@ -1207,7 +1207,7 @@ class SolarSpaceView(QOpenGLFunctions):
         """Destroy the offscreen context for the Earth stay.
 
         doneCurrent is not enough. Chromium still aborts if a desktop-GL
-        member remains in the Qt share group — Travel to Earth died on
+        member remains in the Qt share group, Travel to Earth died on
         the first QWebEngineView after a park-only handoff.
         """
         if getattr(self, "_parked", False) and getattr(self, "_ctx", None) is None:
@@ -1412,7 +1412,7 @@ class SolarSpaceView(QOpenGLFunctions):
         )
 
     def _planet_fills_view(self, panel, bodies, eye, fz) -> bool:
-        """True when a globe owns the frame — hide the distant Sun speck."""
+        """True when a globe owns the frame, hide the distant Sun speck."""
         prefer = getattr(panel, "_inspect", None)
         if getattr(panel, "_earth_zone_on", lambda: False)():
             prefer = "Earth"

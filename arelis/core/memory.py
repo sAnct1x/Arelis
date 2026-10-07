@@ -99,17 +99,17 @@ class SessionMemory:
     system messages are assembled ahead of this history. fit_messages in the
     agent loop is what pins those; this class only keeps its own list short.
 
-    ``max_messages`` must be built from ``agent.history_max_messages`` — use
+    ``max_messages`` must be built from ``agent.history_max_messages``, use
     :meth:`from_config`. Both numbers bound the same history, and the tighter
     one wins, so a default here that disagrees with config silently overrides
     it. That was a real bug: this defaulted to 40 while config said 120, so the
     agent loop's cap could never fire and the oldest turns were deleted here
-    instead — quietly, with no summary and no telemetry, while the loop's
+    instead, quietly, with no summary and no telemetry, while the loop's
     careful fold-instead-of-forget path sat unreachable behind it.
 
     When sink is set, each add/summary/fact is written through immediately so a
     crash loses at most the turn in progress. Persistence is not this class's
-    job when sink is None — that is how scheduled runs stay isolated.
+    job when sink is None, that is how scheduled runs stay isolated.
     """
 
     messages: list[ChatMessage] = field(default_factory=list)
@@ -187,7 +187,7 @@ class SessionMemory:
         """Drop the oldest *n* prompt-visible messages. Notices stay.
 
         ``as_ollama`` skips role ``notice``, so a raw ``messages[n:]`` slice
-        drifts whenever an inbound SMS line sits in the working set — it can
+        drifts whenever an inbound SMS line sits in the working set, it can
         delete the previous user/assistant turn or leave a stale prefix.
         The archive sink already has those rows; this only shrinks the
         in-process list so the next turn does not re-drop the same prefix.
@@ -313,11 +313,10 @@ def tool_passthrough_note(tool: str) -> str:
     """Mark an assistant turn that is a tool result rather than her words.
 
     When the model returns nothing after a tool succeeds, the turn still has to
-    end with something, so `_tool_followup_fallback` puts the tool's own output
-    in the bubble. That is the right call — the work was done and throwing the
-    result away would be worse — but `_finish` then writes it to memory as an
-    assistant turn, and from the next turn on it is indistinguishable from
-    something she composed.
+    end with something. Prefer a plain-language fallback; only mark passthrough
+    when the bubble still carries the tool's own prose (weather, agenda
+    receipt). `_finish` then writes it to memory as an assistant turn, and
+    from the next turn on it is indistinguishable from something she composed.
 
     That compounds. A pasted JSON body or a column of numbers becomes an
     example of how she talks, and the model reads its own history as a style
@@ -329,7 +328,7 @@ def tool_passthrough_note(tool: str) -> str:
     name = (tool or "").strip()
     named = f" from {name}" if name else ""
     return (
-        f"[The line above is raw tool output{named}, not her own words — the "
+        f"[The line above is raw tool output{named}, not her own words, the "
         "model returned nothing after the call. Do not treat it as an example "
         "of how she writes.]"
     )

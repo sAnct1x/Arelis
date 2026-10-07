@@ -1,4 +1,4 @@
-"""Filament room field — coil, current, dust. Same light as the mockup.
+"""Filament room field, coil, current, dust. Same light as the mockup.
 
 Weather is idle (coil) at first rest, awake (unwrapped) once in use,
 then listen / think / speak. The void is charcoal so the particles can
@@ -38,7 +38,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -352,7 +351,7 @@ def _union_desks(desks: list[QRect], home: QRect | None = None) -> QRect:
 def filament_row_geometry(window: QWidget) -> tuple[QRect, QRect, int]:
     """Horizontal desk row: union, home monitor, how many desks (1–3).
 
-    Span API for the filament sitting. Not dead if nothing calls it yet —
+    Span API for the filament sitting. Not dead if nothing calls it yet
     1/2/3 and chrome_band_on_glass go through filament_row_desks /
     home_band_from_union; this is the one-tuple form of that row.
     """
@@ -507,7 +506,7 @@ class FilamentField:
         self._desk_w = max(0.0, float(desk_width))
 
     def set_load(self, name: str) -> None:
-        """Extra paint cost on the desk — currently just `camera`."""
+        """Extra paint cost on the desk, currently just `camera`."""
         self._load = str(name or "")
 
     def atmosphere_ms(self) -> int:
@@ -537,7 +536,7 @@ class FilamentField:
         """Horizontal band the current actually occupies. Not the whole HWND.
 
         Idle is a tall ellipse; the unwrapped wave is a short ribbon. Using
-        only the wave left the apex uncleared — dashed ghosts above `days`.
+        only the wave left the apex uncleared, dashed ghosts above `days`.
         """
         w, h = rect.width(), rect.height()
         if w <= 0 or h <= 0:
@@ -613,11 +612,11 @@ class FilamentField:
         self._hidden = set(names)
 
     def set_live_faces(self, names: set[str]) -> None:
-        """Titles that should breathe — a turn, a yes, an unread."""
+        """Titles that should breathe, a turn, a yes, an unread."""
         self._live = set(names)
 
     def set_hot(self, names: set[str]) -> None:
-        """Bead under a hand aperture. Glow only — not a click."""
+        """Bead under a hand aperture. Glow only, not a click."""
         self._hot = set(names)
 
     def is_live(self, name: str) -> bool:
@@ -679,7 +678,7 @@ class FilamentField:
         return QPointF(p.x() + dx / length * pad, p.y() + dy / length * pad)
 
     def bead_point(self, name: str, rect: QRect) -> QPointF:
-        """The tile's own particle — off the dust, same motion as the word."""
+        """The tile's own particle, off the dust, same motion as the word."""
         if name in FREE_FLOATS:
             return self._free_bead(rect)
         found = self.spec(name)
@@ -694,7 +693,8 @@ class FilamentField:
             if name in self._hidden:
                 continue
             a = self.bead_point(name, rect)
-            reach = _REALITY_HIT if name in FREE_FLOATS else 26.0
+            # The glow is wider than the old 26px dot. A pinch lands on it.
+            reach = _REALITY_HIT if name in FREE_FLOATS else 44.0
             dist = math.hypot(pos.x() - a.x(), pos.y() - a.y())
             if dist < reach and dist < best_d:
                 best = name
@@ -702,7 +702,7 @@ class FilamentField:
             if name in self._open:
                 continue
             title = self.title_point(name, rect)
-            title_reach = 36.0 if name in FREE_FLOATS else 32.0
+            title_reach = 56.0 if name in FREE_FLOATS else 52.0
             tdist = math.hypot(pos.x() - title.x(), pos.y() - title.y())
             if tdist < title_reach and tdist < best_d:
                 best = name
@@ -747,7 +747,7 @@ class FilamentField:
         )
 
     def shape_region(self, rect: QRect, extras: list[QRect] | None = None) -> QRegion:
-        """The field is the window. No hole — particles need the void."""
+        """The field is the window. No hole, particles need the void."""
         return QRegion(rect)
 
     def paint(self, painter: QPainter, rect: QRect) -> None:
@@ -1279,6 +1279,7 @@ class FilamentChatWindow(QWidget):
             | Qt.WindowType.NoDropShadowWindowHint
             | Qt.WindowType.Window
         )
+        from arelis.ui.caption_fade import CaptionTool, watch_caption
         from arelis.ui.glass import GlassFrame, seal_tool_window
         from arelis.ui.icons import window_close_icon
         from arelis.ui.theme import GLASS, METRICS, SPACE, space_box
@@ -1308,14 +1309,15 @@ class FilamentChatWindow(QWidget):
         title.setCursor(Qt.CursorShape.OpenHandCursor)
         title.installEventFilter(self)
         head.addWidget(title, stretch=1)
-        close_btn = QToolButton()
+        close_btn = CaptionTool()
         close_btn.setObjectName("SettingsClose")
         close_btn.setIcon(window_close_icon(12))
         close_btn.setFixedSize(METRICS["row"], METRICS["row"])
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setToolTip("hide chat — talk still works")
+        close_btn.setToolTip("hide chat: talk still works")
         close_btn.clicked.connect(self.close)
         head.addWidget(close_btn)
+        watch_caption(self, close_btn)
         root.addLayout(head)
         self.body = QWidget()
         self.body.setObjectName("FilamentChatBody")

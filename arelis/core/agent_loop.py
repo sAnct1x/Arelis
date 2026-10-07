@@ -18,6 +18,7 @@ from arelis.core.context import (
     prompt_char_count,
     split_recent_history,
 )
+from arelis.core.dash_filter import DashFilter, clean_dashes_counted
 from arelis.core.events import Event, EventType
 from arelis.core.facts import facts_prompt_line
 from arelis.core.json_tools import (
@@ -51,6 +52,9 @@ from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer
 from arelis.llm.errors import classify_ollama_failure
 from arelis.llm.router import ModelRole, ModelRouter
+from arelis.location.privacy import StreamRedactor
+from arelis.location.privacy import current as current_redactor
+from arelis.location.privacy import redact as redact_location
 from arelis.memory.store import MemoryStore
 from arelis.tools.base import ToolRegistry
 
@@ -222,7 +226,7 @@ def _normalize_ollama_messages(messages: list[dict[str, Any]]) -> list[dict[str,
 
     Injected calls used to store ``arguments`` as a JSON string while native
     calls used a dict. Ollama then 400s with “can't find closing '}'” on the
-    next step — including the no-tools JSON fallback — and the turn dies.
+    next step, including the no-tools JSON fallback, and the turn dies.
     """
     out: list[dict[str, Any]] = []
     for msg in messages:
@@ -284,7 +288,7 @@ _WRITE_AFTER_THINK_NOTICE = (
 
 _WRITE_AFTER_ALGEBRA_NOTICE = (
     "You already have a tool result. Write the chat line now, in your own words. "
-    "If they have not given a problem, ask what they want — do not paste a "
+    "If they have not given a problem, ask what they want, do not paste a "
     "warmup. If they have, copy the latex: line into $$ $$ and walk the steps. "
     "Do not call another tool unless the ask still needs one."
 )
@@ -296,6 +300,12 @@ _WRITE_AFTER_CALC_NOTICE = (
     "Do not call the calculator again."
 )
 
+_WRITE_AFTER_TOOL_NOTICE = (
+    "You already have a tool result. Answer their question now in plain "
+    "words. Do not paste the raw tool output, a formula line, a data "
+    "header, or the word Done. Write one short sentence a person can read."
+)
+
 
 def write_after_algebra_notice(tool: str) -> str:
     """Write-up nudge after algebra. Calculator must state the number."""
@@ -305,7 +315,7 @@ def write_after_algebra_notice(tool: str) -> str:
 
 
 _JS_SHELL_BROWSER_NOTICE = (
-    "That page is a JavaScript shell — scrape cannot read it. Call "
+    "That page is a JavaScript shell, scrape cannot read it. Call "
     "browser(action=open, url={url}) so they can Allow her window. "
     "Read the tab after it loads. Do not invent what the page says."
 )
@@ -337,7 +347,7 @@ New excerpt to fold in:
 Reply in exactly this form:
 SUMMARY: <one short paragraph, at most {max_chars} characters>
 FACTS:
-- <durable fact, or NONE if none — usual answer is NONE>"""
+- <durable fact, or NONE if none, usual answer is NONE>"""
 
 # Hard cap: even a chatty compress pass cannot flood the History review queue.
 _MAX_PROPOSED_FACTS = 2
@@ -427,7 +437,8 @@ def now_line() -> str:
     actually resolves it.
     """
     now = datetime.now().astimezone()
-    stamp = now.strftime("%A, %d %B %Y, %H:%M").replace(" 0", " ")
+    # 12-hour with AM/PM. A 24-hour 02:31 was read back as 2:31 PM.
+    stamp = now.strftime("%A, %d %B %Y, %I:%M %p").replace(" 0", " ")
     zone = now.strftime("%Z") or "local time"
     return (
         f"Right now it is {stamp} ({zone}). Use this for anything about today, "
@@ -436,8 +447,65 @@ def now_line() -> str:
     )
 
 
+def theme_line() -> str:
+    """The theme on the screen, for the system prompt.
+
+    Same reason as the clock. Without it she answers "what theme am I on"
+    with "I don't know": guessing a room would be a lie, and nothing else
+    on the turn names the one that is actually up. The words are the spoken
+    name: the View menu label with any parenthetical dropped.
+    """
+    from arelis.ui.theme_tokens import theme_spoken_name
+
+    name = theme_spoken_name()
+    return (
+        f"The screen theme right now is {name}. "
+        "If they ask what theme or skin this is, say that name in plain words. "
+        "It is the theme on this screen, so it is reliable. Do not guess a different one."
+    )
+
+
+def theme_reply_if_needed(user_text: str, draft: str) -> str | None:
+    """Plain theme name when they asked and the draft does not already say it.
+
+    A refusal, a different theme, or the menu's parenthetical is not the
+    answer. She says the plain name.
+    """
+    from arelis.core.claims import answer_looks_like_refusal
+    from arelis.core.intent_catalog import looks_like_theme_ask
+    from arelis.ui.theme_tokens import theme_menu_label, theme_spoken_name
+
+    if not looks_like_theme_ask(user_text):
+        return None
+    name = theme_spoken_name()
+    menu = theme_menu_label()
+    body = draft or ""
+    echoed_aside = "(" in menu and menu.lower() in body.lower()
+    if name.lower() in body.lower() and not echoed_aside and not answer_looks_like_refusal(body):
+        return None
+    return f"You're on {name}."
+
+
 class _StoppedError(Exception):
     """Raised internally when the cooperative cancel flag is seen mid-stream."""
+
+
+class _CloseError(Exception):
+    """The ceiling asked the turn to finish from work already in hand."""
+
+
+_CLOSE_NUDGE = (
+    "Time is up. Stop searching and stop opening pages. Finish from the "
+    "sources you already opened. If they asked for a file, call document "
+    "once with the full body, and say plainly what you did not get to. "
+    "If they did not ask for a file, answer in text. Do not call any other "
+    "tool. Where sources disagree, keep the disagreement. Leave out any "
+    "number you did not actually read."
+)
+
+_CLOSE_PARTIAL = (
+    "I closed with what I already had. I did not finish every source."
+)
 
 
 class _LiveAnswer:
@@ -459,6 +527,7 @@ class _LiveAnswer:
 
     def __init__(self) -> None:
         self._stripper = ThinkingStripper()
+        self._dashes = DashFilter()
         self._hold = ""
         self._decided = False
         self._suppressed = False
@@ -474,9 +543,15 @@ class _LiveAnswer:
 
     def flush(self) -> str:
         """Release held text once the stream is over."""
-        return self._absorb(self._stripper.flush(), final=True)
+        released = self._absorb(self._stripper.flush(), final=True)
+        tail = self._dashes.flush()
+        if tail:
+            self.published += tail
+            released += tail
+        return released
 
     def _reset(self) -> None:
+        self._dashes = DashFilter()
         self._hold = ""
         self._decided = False
         self._suppressed = False
@@ -496,6 +571,9 @@ class _LiveAnswer:
                 self._suppressed = True
                 return ""
             visible = candidate
+        if not visible:
+            return ""
+        visible = self._dashes.feed(visible)
         if not visible:
             return ""
         self.published += visible
@@ -571,6 +649,10 @@ class AgentLoop:
         # One line per tool call, carried into memory so the next turn knows
         # which file was written or which page was read.
         self._trace: list[str] = []
+        # Last Horizons distance summary this turn. _finish uses it so a
+        # later reply cannot invent a closest or farthest.
+        self._horizons_distance_text = ""
+        self._horizons_distance_ask = ""
         # Learned chars-per-token per model. Starts at 4.0 and corrects from
         # prompt_eval_count so fit_messages does not stay a permanent guess.
         self._token_ratios = TokenRatios()
@@ -585,6 +667,10 @@ class AgentLoop:
         self._last_round_thinking = False
         self._fail_replan_used = False
         self._active_plan = None
+        # Ceiling asked for a close. _in_close means that pass is running,
+        # so the same flag does not abort the answer it just asked for.
+        self._close_requested = False
+        self._in_close = False
         from arelis.browser.live import set_hit_sink
 
         set_hit_sink(self._on_watch_hit)
@@ -634,6 +720,8 @@ class AgentLoop:
         route_reason: str = "default",
         stopped_ask: str = "",
     ) -> None:
+        self._horizons_distance_text = ""
+        self._horizons_distance_ask = ""
         ctx = await self._prepare_turn(
             text,
             role,
@@ -644,9 +732,52 @@ class AgentLoop:
         if ctx is None:
             return
         for round_i in range(1, self.max_rounds + 1):
-            if await self._run_round(ctx, round_i):
+            if self._wants_close():
+                await self._close_from_gathered(ctx)
                 return
+            try:
+                if await self._run_round(ctx, round_i):
+                    return
+            except _CloseError:
+                await self._close_from_gathered(ctx)
+                return
+        if self._wants_close():
+            await self._close_from_gathered(ctx)
+            return
         await self._force_final_answer(ctx)
+
+    def request_close(self) -> None:
+        """Finish from work already in hand. Stop still cancels outright."""
+        if self._in_close or self.terminal_sent:
+            return
+        self._close_requested = True
+
+    def _wants_close(self) -> bool:
+        return bool(self._close_requested) and not self._in_close
+
+    async def _close_from_gathered(self, ctx: TurnContext) -> None:
+        """One pass, no more searches. Document only if they asked for a file."""
+        self._in_close = True
+        self._close_requested = False
+        await self.bus.publish(
+            Event(EventType.THINKING, {"text": "closing with what I have"})
+        )
+        ctx.messages.append({"role": "user", "content": _CLOSE_NUDGE})
+        done = await self._run_round(ctx, self.max_rounds + 1)
+        # Native tools rejected: one JSON-fallback pass, still inside the close.
+        if not done and not self.terminal_sent and ctx.fallback_mode:
+            done = await self._run_round(ctx, self.max_rounds + 1)
+        if done:
+            return
+        if ctx.last_ok_tool_name == "document" and ctx.last_ok_tool_out:
+            note = _tool_followup_fallback(
+                ctx.last_ok_tool_out,
+                ctx.last_ok_tool_name,
+                ask=ctx.text,
+            )
+        else:
+            note = _CLOSE_PARTIAL
+        await self._finish(note, ctx.sources, streamed="")
 
     async def _prepare_turn(
         self,
@@ -668,6 +799,9 @@ class AgentLoop:
 
     async def _force_final_answer(self, ctx: TurnContext) -> None:
         """Last round with tools withheld, after the loop has spent its budget."""
+        # Already a wrap-up. Do not let a late ceiling abort this stream.
+        self._in_close = True
+        self._close_requested = False
         await self.bus.publish(
             Event(
                 EventType.THINKING,
@@ -681,7 +815,7 @@ class AgentLoop:
                 "content": (
                     "Stop calling tools. Provide your best final answer now "
                     "from the information gathered. If the pages you opened "
-                    "were listicles or thin, say the sources were weak — do "
+                    "were listicles or thin, say the sources were weak, do "
                     "not rank or declare a winner from them. If you lack a "
                     "tool warrant for a precise or contingent claim, say you "
                     "do not know."
@@ -738,7 +872,11 @@ class AgentLoop:
             final_content,
             ctx.sources,
             streamed=streamed,
-            fallback_text=_ROUND_LIMIT_NOTICE,
+            fallback_text=round_limit_notice(
+                self.max_rounds,
+                last_fail_tool=ctx.last_fail_tool_name,
+                last_fail_error=ctx.last_fail_tool_out,
+            ),
         )
 
     def _look_refuse(self, content: str) -> str | None:
@@ -1178,9 +1316,23 @@ class AgentLoop:
         if not text:
             return
         self._last_round_thinking = True
+        stream = getattr(self, "_think_redactor", None)
+        if stream is not None:
+            text = stream.feed(text)
+            if not text:
+                return
         await self.bus.publish(
             Event(EventType.THINKING, {"text": text, "stream": True})
         )
+
+    async def _flush_think_stream(self) -> None:
+        """Release a held half-word once the round's thinking has ended."""
+        stream = getattr(self, "_think_redactor", None)
+        tail = stream.flush() if stream is not None else ""
+        if tail:
+            await self.bus.publish(
+                Event(EventType.THINKING, {"text": tail, "stream": True})
+            )
 
     async def _stream_round(
         self,
@@ -1201,6 +1353,7 @@ class AgentLoop:
         content_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         self._last_round_thinking = False
+        self._think_redactor = StreamRedactor(current_redactor())
         model = self.router.model_for(role)
         # Hold paint on a real tool round so exactness nudges do not retract
         # a half-streamed answer (H5 / R13). Schemas can still ride a chitchat
@@ -1237,7 +1390,7 @@ class AgentLoop:
                     {
                         "text": (
                             "waiting for the conversation model to finish "
-                            "loading — first reply after that is quick"
+                            "loading: first reply after that is quick"
                         )
                     },
                 )
@@ -1245,6 +1398,8 @@ class AgentLoop:
             if self._timer is not None:
                 self._timer.mark("warmup_wait")
 
+        if self._wants_close():
+            raise _CloseError
         async for kind, payload in self.router.stream(
             role,
             stream_messages,
@@ -1253,6 +1408,8 @@ class AgentLoop:
         ):
             if self.is_cancelled():
                 raise _StoppedError
+            if self._wants_close():
+                raise _CloseError
             if self.is_paused():
                 await self._hold_if_paused()
             if kind == "thinking":
@@ -1280,6 +1437,7 @@ class AgentLoop:
                     if updated is not None:
                         self.memory.chars_per_token = updated
 
+        await self._flush_think_stream()
         raw = "".join(content_parts).strip()
         if hold_paint:
             # Never paint here: raw may still be a JSON-fallback tool call that
@@ -1302,7 +1460,7 @@ class AgentLoop:
         if "send_sms" in available_all:
             reason = (
                 "send_sms is registered but hidden for this turn by the tool "
-                "subset — the utterance did not read as an outbound send."
+                "subset, the utterance did not read as an outbound send."
             )
         else:
             reason = (
@@ -1315,16 +1473,18 @@ class AgentLoop:
 
     async def _publish_tool_intent(self, tool_calls: list[dict[str, Any]]) -> None:
         """Surface a short status as soon as a tool call is parsed (felt latency)."""
-        label = _tool_intent_label(tool_calls)
+        label = redact_location(_tool_intent_label(tool_calls))
         if not label:
             return
         await self.bus.publish(Event(EventType.THINKING, {"text": label}))
         await self.bus.publish(Event(EventType.STATUS, {"message": label}))
 
     async def _publish_delta(self, text: str) -> None:
+        from arelis.talk_language import keeps_cjk
         from arelis.voice.speech_text import scrub_cjk_runs
 
-        text = scrub_cjk_runs(text, strip=False) if text else text
+        if text and not keeps_cjk(self.config):
+            text = scrub_cjk_runs(text, strip=False)
         if not text:
             return
         self._painted += text
@@ -1399,6 +1559,27 @@ class AgentLoop:
             if parsed_final and parsed_final["kind"] == "final":
                 final = (parsed_final["text"] or "").strip() or final
                 streamed = ""
+        locked_src = getattr(self, "_horizons_distance_text", "") or ""
+        if locked_src:
+            from arelis.tools.catalog import chat_line_for_distance
+
+            revised = chat_line_for_distance(
+                locked_src,
+                final,
+                ask=getattr(self, "_horizons_distance_ask", "") or "",
+            )
+            if revised != final:
+                final = revised
+                streamed = ""
+                if not passthrough_tool:
+                    passthrough_tool = "catalog"
+            self._horizons_distance_text = ""
+            self._horizons_distance_ask = ""
+        # Clean model prose before Sources so third-party titles stay intact.
+        if not passthrough_tool:
+            final, n_dash = clean_dashes_counted(final)
+            if n_dash > 0 and self._timer is not None:
+                self._timer.mark("dash_filter", replaced=n_dash)
         final = _append_sources(final, sources)
 
         # Preflight expected a tool but none of those succeeded this turn.
@@ -1503,7 +1684,7 @@ class AgentLoop:
         raise _StoppedError
 
     def _on_watch_hit(self, data: dict[str, Any]) -> None:
-        """Background watch hit — STATUS so Drive / notify update after the turn."""
+        """Background watch hit, STATUS so Drive / notify update after the turn."""
         line = str(data.get("output") or "Watch hit.")
         self.bus.publish_nowait(
             Event(
@@ -1536,7 +1717,10 @@ class AgentLoop:
         self.terminal_sent = True
         partial = self._painted.strip()
         self._painted = ""
-        text = f"{partial}\n\n_Stopped._" if partial else "Stopped."
+        from arelis.i18n import tr
+
+        word = tr("Stopped.")
+        text = f"{partial}\n\n_{word}_" if partial else word
         # publish_nowait, not publish: this also runs while a CancelledError is
         # propagating, and anything that suspends there can be interrupted
         # again, which would lose the terminal event and hang the composer.
@@ -1580,6 +1764,7 @@ from arelis.core.loop_helpers import (  # noqa: E402, F401
     _wants_project_context,
     decide_mid_turn_escalate,
     disconnected_integration_reply,
+    round_limit_notice,
     should_offer_tools,
     turn_expects_tool_round,
     wants_fresh_page_ask,

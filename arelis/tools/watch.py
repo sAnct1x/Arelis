@@ -16,7 +16,7 @@ class WatchTool:
         "and whether Earth/web egress is muted. Call only when the user asks "
         "if we are safe, if ports are open, if APIs are being hammered, or "
         "what the watch sees. Do not invent a threat. The numbers in the "
-        "result are the truth — say them. This is not antivirus and does not "
+        "result are the truth, say them. This is not antivirus and does not "
         "scan the whole PC."
     )
     risk = "read"

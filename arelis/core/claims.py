@@ -67,6 +67,11 @@ _YEAR_RANGE = re.compile(r"\b(?:1\d{3}|20\d{2})\s*[-–—]\s*(?:1\d{3}|20\d{2})
 # "2-3 hours" / "1-2 days" is a span in a story. Live 2026-09-21: a rant
 # about Grok 4.6 that mentioned those ranges was refused with
 # "this needs a calculator result".
+# A numbered outline is not an operand. Live 2026-09-26: "what is
+# speculation …\n5. Sources" on a JWST report ask refused the turn
+# with the calculator sentence. The what-is window is DOTALL, so the
+# section number counted.
+_OUTLINE_ITEM = re.compile(r"(?m)^\s*\d{1,2}\.\s+")
 _QUANTITY_RANGE = re.compile(
     r"(?i)\b\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?\s+"
     r"(?:hours?|hrs?|days?|weeks?|months?|years?|"
@@ -92,6 +97,85 @@ _MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"\b(?:square\s+root|sqrt|factorial|mod(?:ulo)?)\b.{0,30}\d",
         re.I | re.S,
+    ),
+    re.compile(r"(?i)\bhalf\s+of\s+\d"),
+    re.compile(r"(?i)\bto\s+the\s+power\s+of\s+\d"),
+    re.compile(r"(?i)\b(?:how\s+many\s+)?days?\s+in\s+\d+(?:\.\d+)?\s+weeks?\b"),
+)
+
+# A slash in a date, an event, or "24/7" is not division unless the ask
+# clearly wants a number ("as a decimal", "divided by", or digit-op-digit).
+# A bare year in a title ("the plot of 1984") is not an operand either.
+# A year inside "1500 + 2000" or "square root of 1600" is.
+_CLEAR_MATH_CUE = re.compile(
+    r"(?i)(?:%|\*|\^|\btimes\b|\bplus\b|\bminus\b|\bdivided\s+by\b|"
+    r"\bas\s+a\s+(?:decimal|fraction|percent)\b)"
+)
+# Digit, operator, digit. The letter x and the times sign both count.
+_OPERATOR_PAIR_CUE = re.compile(
+    r"(?i)\d+(?:\.\d+)?\s*[+x×*/-]\s*\d+(?:\.\d+)?"
+)
+_SQUARE_ROOT_OF = re.compile(r"(?i)\b(?:square\s+root|sqrt)\b(?:\s+of)?\s+\d")
+# Skip a month/day slash only when the ask is about a date or an event.
+_DATE_EVENT_ASK = re.compile(
+    r"(?i)(?:"
+    r"\bwhat\s+was\b"
+    r"|\bhappened\b"
+    r"|\b24/7\b"
+    r"|(?<![\d/.])(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])/(?:\d{2}|\d{4})(?![\d/])"
+    r")"
+)
+
+
+def _operator_pair_cue(text: str) -> bool:
+    """True when a number is clearly an operand, not a year in a sentence."""
+    if _OPERATOR_PAIR_CUE.search(text):
+        return True
+    if _SQUARE_ROOT_OF.search(text):
+        return True
+    return False
+_NOT_DIVISION_SLASH = re.compile(
+    r"(?<![\d/.])(?:"
+    r"(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])(?:/(?:\d{2}|\d{4}))?"
+    r"|24/7"
+    r")(?![\d/])"
+)
+_PROSE_YEAR = re.compile(r"\b(?:1[0-9]{3}|20[0-9]{2})\b")
+
+# Spoken duration / orbital period / age-in-planet-years. Bare "how many days
+# until Friday" is a calendar wait, not this. A year at N AU or "11.86 years
+# in days" is arithmetic the calculator (or units) has to do.
+_PLANET_WORD = (
+    r"mercury|venus|mars|jupiter|saturn|uranus|neptune|pluto|"
+    r"planet"
+)
+_DURATION_MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        rf"(?i)\b(?:how\s+long|how\s+many\s+(?:earth\s+)?days|"
+        rf"year\s+(?:feel|last))\b.{{0,120}}\b(?:year|orbit)\b.{{0,80}}"
+        rf"\b(?:\bau\b|astronomical\s+units?|{_PLANET_WORD})\b"
+    ),
+    re.compile(
+        rf"(?i)\b(?:a\s+)?(?:year|orbit(?:al)?\s+period)\s+"
+        rf"(?:on|at|for)\b.{{0,60}}\b(?:\bau\b|astronomical\s+units?|{_PLANET_WORD})\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:how\s+many|how\s+long)\b.{0,48}\b(?:earth\s+)?days?\b"
+        r".{0,24}\b(?:is|in|are)\b.{0,24}(?<![\d.])\d+(?:\.\d+)?\s*years?\b"
+    ),
+    re.compile(
+        r"(?i)(?<![\d.])\d+(?:\.\d+)?\s*years?\b\s*(?:in|to|into|as)\s+"
+        r"(?:earth\s+)?days?\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:earth\s+)?days?\s+is\s+(?<![\d.])\d+(?:\.\d+)?\s*years?\b"
+    ),
+    re.compile(
+        rf"(?i)\b(?:how\s+old|age|old\s+am\s+i)\b.{{0,80}}"
+        rf"\b(?:{_PLANET_WORD})\s+years?\b"
+    ),
+    re.compile(
+        rf"(?i)\bborn\b.{{0,80}}\b(?:{_PLANET_WORD})\s+years?\b"
     ),
 )
 
@@ -132,7 +216,7 @@ _CAS_FORCE = (
 )
 
 _UNIT_NAMES = (
-    r"meters?|metres?|kilometers?|kilometres?|kg|kilograms?|"
+    r"meters?|metres?|kilometers?|kilometres?|km|miles?|mi|kg|kilograms?|"
     r"feet|foot|inches|inch|pounds?|lbs?|kelvin|celsius|fahrenheit|"
     r"eV|joules?|watts?|newtons?|parsecs?|\bau\b|nm|μm|um|"
     r"solar\s+masses?"
@@ -149,8 +233,20 @@ _UNITS_FORCE = (
         rf"(?i)\b\d+(?:\.\d+)?(?:\s*[a-zA-Zµμ/%]+)?\s+"
         rf"(?:in|into|to)\s+(?:{_UNIT_NAMES})\b",
     ),
+    # Temperature conversions with "degrees": "90 degrees Fahrenheit in Celsius"
+    re.compile(
+        r"(?i)\b\d+(?:\.\d+)?\s+degrees?\s+(?:fahrenheit|celsius|kelvin|f|c|k)\b.{0,20}\b(?:in|into|to)\s+"
+        r"(?:degrees?\s+)?(?:fahrenheit|celsius|kelvin|f|c|k)\b",
+    ),
     re.compile(r"(?i)\b\d+(?:\.\d+)?\s*(?:ft|feet)\s+\d+(?:\.\d+)?\s*(?:in|inches)\b"),
     re.compile(rf"(?i)\bhow\s+many\s+(?:{_UNIT_NAMES})\b"),
+    # "how many centuries is 300 years" is a conversion. "how many centuries
+    # ago" is not, so the years have to be in the same ask.
+    re.compile(r"(?i)\bhow\s+many\s+centur(?:y|ies)\b.{0,48}\byears?\b"),
+    re.compile(
+        r"(?i)\blight\s+years?\b.{0,40}\b(?:in|into|to)\s+"
+        r"(?:km|kilometers?|kilometres?)\b"
+    ),
 )
 _CONSTANT_CONCEPT = re.compile(
     r"(?i)\b("
@@ -283,7 +379,7 @@ _AGENDA_PATTERNS: tuple[re.Pattern[str], ...] = (
 _GIT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"\b(?:what(?:'s|\s+is)|show(?:\s+me)?|check|get)\s+"
-        r"(?:the\s+)?(?:git\s+(?:status|diff|log)|(?:status|diff))\b",
+        r"(?:the\s+)?git\s+(?:status|diff|log)\b",
         re.I,
     ),
     re.compile(
@@ -561,6 +657,14 @@ def detect_units_ask(text: str) -> bool:
     return any(p.search(raw) for p in _UNITS_FORCE)
 
 
+def detect_duration_math_ask(text: str) -> bool:
+    """True for spoken year-length, years↔days, or age-in-planet-years asks."""
+    raw = text or ""
+    if not raw.strip():
+        return False
+    return any(p.search(raw) for p in _DURATION_MATH_PATTERNS)
+
+
 def detect_math_ask(text: str) -> bool:
     lowered = (text or "").strip()
     if not lowered:
@@ -571,13 +675,28 @@ def detect_math_ask(text: str) -> bool:
         return False
     if _SYMBOLIC_MATH.search(lowered):
         return False
+    if detect_duration_math_ask(lowered):
+        return True
     cleaned = _CLOCK.sub(" ", _ISO_DT.sub(" ", lowered))
     cleaned = _COMPACT_STAMP.sub(" ", cleaned)
     cleaned = _YEAR_RANGE.sub(" ", cleaned)
     cleaned = _QUANTITY_RANGE.sub(" ", cleaned)
+    cleaned = _OUTLINE_ITEM.sub(" ", cleaned)
+    word_cue = _CLEAR_MATH_CUE.search(lowered) is not None
+    pair_cue = _operator_pair_cue(lowered)
+    # "what was 9/11" and "10/12/2025" lose the slash. "what is 3/4" keeps it,
+    # because a digit/digit pair is the cue and the ask is not a date.
+    if _DATE_EVENT_ASK.search(lowered) and not word_cue:
+        cleaned = _NOT_DIVISION_SLASH.sub(" ", cleaned)
+    elif not word_cue and not pair_cue:
+        cleaned = _NOT_DIVISION_SLASH.sub(" ", cleaned)
     hits = [p for p in _MATH_PATTERNS if p.search(cleaned)]
     if not hits:
         return False
+    if not word_cue and not pair_cue:
+        without_years = _PROSE_YEAR.sub(" ", cleaned)
+        if not any(p.search(without_years) for p in _MATH_PATTERNS):
+            return False
     # When "N x N" is the only arithmetic shape present and the sentence is
     # plainly about the size of a picture, there is nothing to compute. Narrow on
     # purpose: "what is 17 x 19" still forces the calculator, because that has no
@@ -731,6 +850,48 @@ def detect_send_success_claim(text: str) -> bool:
     return bool(_SEND_SUCCESS_CLAIM.search(text or ""))
 
 
+# Answer-side: a years-to-days figure (or "about N Earth days" next to a year
+# length) must appear in a calculator/units warrant. The 4307 days on a 11.86
+# year Kepler result was 11.8*365, never a tool value.
+_YEAR_THEN_DAYS_CLAIM = re.compile(
+    r"(?i)(\d+(?:\.\d+)?)\s*years?\b[^.]{0,64}?"
+    r"(?:"
+    r"\(\s*(?:≈|~|=|about|roughly|approx(?:imately)?)?\s*"
+    r"([0-9][0-9,]{1,}(?:\.\d+)?)\s*(?:earth\s+)?days?\s*\)"
+    r"|"
+    r"(?:≈|~|=|about|roughly|approx(?:imately)?)\s*"
+    r"([0-9][0-9,]{1,}(?:\.\d+)?)\s*earth\s+days?\b"
+    r")",
+)
+
+
+def duration_days_claim_missing_kinds(text: str, *, warrant_text: str) -> list[str]:
+    """Which exactness kinds a years→days assertion still needs."""
+    claimed: list[float] = []
+    for match in _YEAR_THEN_DAYS_CLAIM.finditer(text or ""):
+        raw_days = match.group(2) or match.group(3)
+        days = float(raw_days.replace(",", ""))
+        if days >= 10:
+            claimed.append(days)
+    if not claimed:
+        return []
+    warrants = [
+        float(tok.replace(",", ""))
+        for tok in re.findall(r"\d[\d,]*(?:\.\d+)?", warrant_text or "")
+    ]
+    for days in claimed:
+        if not any(_duration_days_backed(days, value) for value in warrants):
+            return ["math"]
+    return []
+
+
+def _duration_days_backed(claimed: float, warrant: float) -> bool:
+    if abs(claimed - warrant) <= 0.6:
+        return True
+    scale = abs(warrant)
+    return scale >= 1.0 and abs(claimed - warrant) / scale <= 0.002
+
+
 def send_claim_missing_kinds(text: str, *, has_send_sms: bool, has_send_email: bool) -> list[str]:
     """Which send_* warrants a send-success claim still needs."""
     if not detect_send_success_claim(text):
@@ -777,8 +938,12 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
         needs_units = False
     if needs_calc and needs_units:
         # "17% of 240 in a table" is arithmetic, not Pint — unless they
-        # clearly named a physical unit conversion.
-        if not any(p.search(text or "") for p in _UNITS_FORCE[:1]):
+        # clearly named a physical unit conversion. A conversion keeps
+        # the units warrant; demanding a calculator then refuses a good
+        # units result ("3 kilometers in miles" became "I don't know").
+        if any(p.search(text or "") for p in _UNITS_FORCE):
+            needs_calc = False
+        else:
             needs_units = False
     if needs_calc:
         kinds.append("math")
@@ -900,6 +1065,11 @@ def apply_research_web_need(
         return need
     raw = text or ""
     if _PEDAGOGICAL_DERIVE.search(raw) and not _REPORT_FILE_ASK.search(raw):
+        return need
+    # The research chip is not a warrant. "ready?" has nothing to retrieve.
+    from arelis.core.route_hints import research_chip_needs_a_page
+
+    if not research_chip_needs_a_page(raw):
         return need
     kinds = list(need.kinds)
     if "web" not in kinds:

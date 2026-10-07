@@ -4,9 +4,11 @@ Each unused finger is a bone chain (MCP–PIP–DIP–tip). Curl is
 1 - chord/chain. A fist aimed at the C920 still folds; tip–MCP
 distance does not — that looks like an open finger pointing at you.
 
-Closed aperture + straight fingers = pinch. Still unpinch is a click;
-travel past click_travel is an XY grab. Closed + high curl = fist =
-rotate and Z (DepthBank), not the grab. Two pinches scale one body.
+A closed aperture is one grab: pinch. Still unpinch is a click;
+travel past click_travel grabs. That grab turns and dollies.
+Curl used to split a fist off as a second grab; the fist latch
+spun the disc off a short bone and the pinch, which is the grab
+people actually hold, did not turn at all. Two pinches scale one body.
 
 A still wrist that "opens" is a camera lie (horizontal fist twist).
 A moving wrist that opens is a flick. Leave-closed uses that split.
@@ -31,9 +33,9 @@ class PinchClick:
     y: float
     travel: float
 
-TrackState = Literal["idle", "fist", "pinch", "lost"]
-GestureState = Literal["idle", "fist", "pinch", "both", "lost"]
-PoseReading = Literal["open", "fist", "pinch", "ambiguous"]
+TrackState = Literal["idle", "pinch", "lost"]
+GestureState = Literal["idle", "pinch", "lost"]
+PoseReading = Literal["open", "pinch"]
 
 # Image units. A hand stays nearer its last wrist than the other hand does.
 LOCK_WRIST = 0.22
@@ -66,6 +68,13 @@ def follow_hand(
     if idle and label:
         named = [hand for hand in hands if hand.label == label]
         if not named:
+            # The weaker hand's Left/Right score flips while the wrist
+            # has not moved. Dropping it here is "my left hand died."
+            # IDLE_WRIST is too tight to absorb the other hand on the disc.
+            if wrist is not None:
+                nearest = min(hands, key=lambda hand: _xy_dist(hand.xy(0), wrist))
+                if _xy_dist(nearest.xy(0), wrist) <= IDLE_WRIST:
+                    return nearest
             return None
         if len(named) == 1:
             cand = named[0]
@@ -99,14 +108,10 @@ class GestureParams:
     aperture_on: float = 0.50
     # Open enough to leave. Release still has to beat a flick.
     aperture_off: float = 0.64
-    # Straight fingers (low curl) + closed aperture = pinch.
-    pinch_max_curl: float = 0.28
     frames_on: int = 2
     frames_off: int = 3
-    # A still twist spikes aperture for ~300 ms. Don't unlatch the fist.
+    # A still twist spikes aperture for ~300 ms. Don't unlatch.
     # A sling moves the wrist; that path keeps frames_off.
-    fist_off: int = 8
-    # Same C920 lie as the fist. Pinch used to leave in frames_off=3.
     pinch_off: int = 8
     still_wrist: float = 0.035
     # Pinch tap vs grab. Below this travel, unpinch is a click.
@@ -114,15 +119,15 @@ class GestureParams:
 
 
 def read_pose(hand: Hand, params: GestureParams | None = None) -> PoseReading:
-    """Stateless reading. The FSM adds hysteresis and kind-lock."""
+    """Stateless reading. The FSM adds hysteresis and kind-lock.
+
+    Closed is pinch, curled or not. A fist is a hard pinch, not a
+    second verb.
+    """
     p = params or GestureParams()
-    aperture = hand.pinch_metric()
-    curl = hand.hand_curl()
-    if aperture >= p.aperture_on:
+    if hand.pinch_metric() >= p.aperture_on:
         return "open"
-    if curl <= p.pinch_max_curl:
-        return "pinch"
-    return "fist"
+    return "pinch"
 
 
 @dataclass
@@ -158,9 +163,7 @@ class HandTrack:
 
     @property
     def dragging(self) -> bool:
-        """Pinch is a click until the wrist travels. Fist is rotate+Z at once."""
-        if self.state == "fist":
-            return True
+        """Pinch is a click until the wrist travels. Then it is the grab."""
         if self.state == "pinch":
             return self._travel >= self.params.click_travel
         return False
@@ -179,7 +182,7 @@ class HandTrack:
         """Last closed pose, MediaPipe blinked. Overlay keeps this hand."""
         return (
             self._miss > 0
-            and self.state in ("fist", "pinch")
+            and self.state == "pinch"
             and self.hand is not None
         )
 
@@ -220,7 +223,7 @@ class HandTrack:
 
     def observe(self, hand: Hand | None) -> TrackState:
         if hand is None:
-            if self.state in ("fist", "pinch") and self.hand is not None:
+            if self.state == "pinch" and self.hand is not None:
                 # Side-on fist: MediaPipe often returns no hands for a frame.
                 # Clearing the track is the blink. Keep the last closed pose.
                 self._miss += 1
@@ -246,7 +249,7 @@ class HandTrack:
                 self._unlock()
             return self.state
 
-        was_coasting = self._miss > 0 and self.state in ("fist", "pinch")
+        was_coasting = self._miss > 0 and self.state == "pinch"
         locked = bool(self.locked_label or self._lock_wrist)
         p = self.params
         prev_wrist = self._lock_wrist
@@ -254,7 +257,7 @@ class HandTrack:
             # Pointer may still follow. Do not read aperture — clipped
             # tips invent an open hand and drop a live fist/pinch.
             self._remember(hand)
-            if self.state in ("fist", "pinch"):
+            if self.state == "pinch":
                 if self._open:
                     self._open -= 1
                 return self.state
@@ -275,7 +278,7 @@ class HandTrack:
             self._open = 0
             self._want = ""
         if self.state in ("idle", "lost"):
-            if reading in ("fist", "pinch"):
+            if reading == "pinch":
                 if self._want != reading:
                     self._want = reading
                     self._held = 1
@@ -292,14 +295,14 @@ class HandTrack:
                     self._arm_pinch(hand)
             elif self.state == "lost" and reading == "open":
                 self.state = "idle"
-        elif self.state in ("fist", "pinch"):
+        elif self.state == "pinch":
             # Kind is locked. A still twist spikes aperture; that is not
             # an open hand. A sling moves the wrist — honor that sooner.
             if hand.pinch_metric() > p.aperture_off:
                 self._open += 1
             elif self._open:
                 self._open -= 1
-            hold = p.fist_off if self.state == "fist" else p.pinch_off
+            hold = p.pinch_off
             need = hold if not moving else p.frames_off
             if self.state == "pinch" and self._pinch_origin is not None:
                 wrist = hand.xy(0)
@@ -346,14 +349,7 @@ class GestureMachine:
 
     @property
     def state(self) -> GestureState:
-        kinds = {track.state for track in self.tracks}
-        has_fist = "fist" in kinds
-        has_pinch = "pinch" in kinds
-        if has_fist and has_pinch:
-            return "both"
-        if has_fist:
-            return "fist"
-        if has_pinch:
+        if any(track.state == "pinch" for track in self.tracks):
             return "pinch"
         if any(track.state == "lost" for track in self.tracks):
             return "lost"
@@ -363,9 +359,6 @@ class GestureMachine:
 
     @property
     def hand(self) -> Hand | None:
-        for track in self.tracks:
-            if track.state == "fist" and track.hand is not None:
-                return track.hand
         for track in self.tracks:
             if track.state == "pinch" and track.hand is not None:
                 return track.hand
@@ -377,7 +370,7 @@ class GestureMachine:
     @property
     def locked_label(self) -> str:
         for track in self.tracks:
-            if track.state in ("fist", "pinch") and track.who:
+            if track.state == "pinch" and track.who:
                 return track.who
         return ""
 
@@ -406,14 +399,14 @@ class GestureMachine:
             return self.state
 
         self._bare = "idle"
-        closed = [t for t in self.tracks if t.state in ("fist", "pinch")]
-        rest = [t for t in self.tracks if t.state not in ("fist", "pinch")]
+        closed = [t for t in self.tracks if t.state == "pinch"]
+        rest = [t for t in self.tracks if t.state != "pinch"]
         for track in closed + rest:
             found = follow_hand(
                 tuple(leftover),
                 label=track.who,
                 wrist=track._lock_wrist,
-                idle=track.state not in ("fist", "pinch"),
+                idle=track.state != "pinch",
             )
             if found is not None:
                 leftover = [hand for hand in leftover if hand is not found]
@@ -439,10 +432,17 @@ class GestureMachine:
 
     def _collect_clicks(self, t: float) -> None:
         self.clicks.clear()
+        pending: list[PinchClick] = []
         for track in self.tracks:
             hit = track.take_click()
-            if hit is None:
-                continue
+            if hit is not None:
+                pending.append(hit)
+        # Two hands opening is the end of a resize, not two clicks.
+        if len(pending) >= 2:
+            return
+        if pending and any(track.state == "pinch" for track in self.tracks):
+            return
+        for hit in pending:
             if self._last_click_t >= 0 and (t - self._last_click_t) < CLICK_DEBOUNCE:
                 continue
             self.clicks.append(hit)
@@ -473,9 +473,6 @@ class GestureMachine:
                 kept.append(track)
                 continue
             other = kept[twin_at]
-            if track.state in ("fist", "pinch") and other.state not in (
-                "fist",
-                "pinch",
-            ):
+            if track.state == "pinch" and other.state != "pinch":
                 kept[twin_at] = track
         self.tracks = kept

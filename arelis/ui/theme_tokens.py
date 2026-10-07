@@ -1,91 +1,94 @@
 from __future__ import annotations
 
-# Orbit void — sodium lamp in a dark room. Exposure is locked: do not chase
-# brightness here. The last pass was gold (#ffb457, hue ~33) and read as yellow.
-# This lock is hue. The filament pinprick can be cream; everything it throws
-# (rims, type, bloom, chrome) stays orange-amber (~22-26), like high-pressure
-# sodium at night. Darker is still orange, not chocolate-red. Floating HWNDs
-# stay opaque.
+import re
+
+# Evening room under a sodium lamp. Bright enough to read, quiet enough to sit in.
+# The room shares the lamp's hue (~24-28) at low chroma: bg0 is #100d0b, a spread
+# of 5 between red and blue. A wider split (the old #160d07, red 22 / blue 7)
+# reads as chocolate. The lamp is #ff7a22. Body type is warm paper #f8f1ea.
+# Hint and dim stay amber so secondary type belongs to the light. Filament core
+# is the only cream pinprick. Harvest gold #ffb457 stays retired. Floating
+# HWNDs stay opaque.
 
 COLORS = {
-    # --- the void -------------------------------------------------------
-    "bg0": "#160d07",
-    "bg1": "#221408",
-    "bg2": "#321c0e",
-    "plate": "rgba(22, 13, 7, 255)",  # opaque body of a floating tool window
-    "panel_fill": "rgba(32, 20, 10, 255)",  # settings pane, sms thread
-    "veil": "rgba(22, 13, 7, 36)",  # barely-there wash over the atmosphere
-    "scrim": "rgba(22, 13, 7, 200)",  # drop target over the live chat
-    "code_fill": "rgba(16, 10, 6, 180)",  # fenced code inside a transcript bubble
-    "glass": "rgba(22, 13, 7, 140)",
-    "glass_strong": "rgba(26, 16, 8, 176)",
-    "glass_soft": "rgba(40, 24, 12, 110)",
-    "glass_fill": "rgba(22, 13, 7, 248)",
-    "glass_fill_float": "rgba(22, 13, 7, 248)",
-    "glass_fill_docked": "rgba(22, 13, 7, 0)",
-    "glass_fill_settings": "rgba(22, 13, 7, 255)",
-    "bubble_fill": "rgba(28, 16, 8, 130)",
-    "bubble_wash": "rgba(24, 14, 8, 120)",  # transcript bubbles, written as HTML
-    "menu_fill": "rgba(30, 18, 10, 242)",
+    # --- the room: same hue as the lamp, low chroma ----------------------
+    "bg0": "#100d0b",
+    "bg1": "#2a221c",
+    "bg2": "#40342b",
+    "plate": "rgba(16, 13, 11, 255)",  # opaque body of a floating tool window
+    "panel_fill": "rgba(22, 18, 15, 255)",  # settings pane, sms thread
+    "veil": "rgba(16, 13, 11, 36)",  # barely-there wash over the atmosphere
+    "scrim": "rgba(16, 13, 11, 200)",  # drop target over the live chat
+    "code_fill": "rgba(10, 8, 7, 180)",  # fenced code inside a transcript bubble
+    "glass": "rgba(16, 13, 11, 140)",
+    "glass_strong": "rgba(18, 15, 12, 176)",
+    "glass_soft": "rgba(40, 33, 27, 110)",
+    "glass_fill": "rgba(16, 13, 11, 248)",
+    "glass_fill_float": "rgba(16, 13, 11, 248)",
+    "glass_fill_docked": "rgba(16, 13, 11, 0)",
+    "glass_fill_settings": "rgba(16, 13, 11, 255)",
+    "bubble_fill": "rgba(24, 20, 16, 130)",
+    "bubble_wash": "rgba(20, 16, 13, 190)",  # transcript scrim behind each message
+    "menu_fill": "rgba(22, 18, 15, 242)",
 
     # --- surfaces the light falls on ------------------------------------
-    "inset": "rgba(26, 16, 8, 150)",  # sunken well inside a plate
-    "well": "rgba(38, 22, 12, 255)",  # text field at rest
-    "well_focus": "rgba(52, 30, 14, 255)",
-    "well_soft": "rgba(40, 24, 12, 130)",
-    "card_fill": "rgba(42, 24, 12, 160)",
-    "raised": "rgba(46, 26, 12, 255)",
-    "raised_warm": "rgba(64, 36, 16, 255)",
-    "sunk": "rgba(28, 16, 8, 255)",  # pressed
-    "sunk_soft": "rgba(28, 16, 8, 190)",
-    "tab_selected": "rgba(88, 50, 18, 255)",
-    "groove": "rgba(42, 24, 12, 170)",
-    "chip": "rgba(48, 28, 12, 110)",
-    "chip_solid": "rgba(48, 28, 12, 220)",
-    "row_hover": "rgba(90, 50, 18, 80)",
-    "row_selected": "rgba(110, 60, 20, 110)",
-    "hover_soft": "rgba(90, 50, 18, 110)",
-    "hover": "rgba(90, 50, 18, 150)",
-    "hover_strong": "rgba(120, 66, 22, 210)",
-    "button_fill": "rgba(80, 44, 16, 170)",
-    "button_hover": "rgba(120, 66, 22, 210)",
-    "button_hover_hot": "rgba(160, 86, 28, 220)",
-    "button_hover_soft": "rgba(100, 56, 20, 150)",
-    "live_fill": "rgba(140, 76, 24, 150)",  # a latched capture control
-    "selection": "rgba(140, 76, 24, 190)",
-    "selection_strong": "rgba(150, 82, 26, 210)",
+    "inset": "rgba(18, 15, 12, 150)",  # sunken well inside a plate
+    "well": "rgba(74, 60, 50, 255)",  # text field at rest
+    "well_focus": "rgba(92, 74, 62, 255)",
+    "well_soft": "rgba(74, 60, 50, 130)",
+    "card_fill": "rgba(42, 34, 28, 170)",
+    "raised": "rgba(58, 48, 40, 255)",
+    "raised_warm": "rgba(84, 62, 46, 255)",
+    "sunk": "rgba(12, 10, 8, 255)",  # pressed
+    "sunk_soft": "rgba(12, 10, 8, 190)",
+    "tab_selected": "rgba(132, 74, 34, 255)",
+    "groove": "rgba(42, 34, 28, 180)",
+    "chip": "rgba(44, 36, 30, 120)",
+    "chip_solid": "rgba(44, 36, 30, 230)",
+    "row_hover": "rgba(255, 122, 34, 56)",
+    "row_selected": "rgba(255, 122, 34, 96)",
+    "hover_soft": "rgba(255, 122, 34, 72)",
+    "hover": "rgba(255, 122, 34, 110)",
+    "hover_strong": "rgba(255, 122, 34, 160)",
+    "button_fill": "rgba(72, 52, 38, 200)",
+    "button_hover": "rgba(255, 122, 34, 190)",
+    "button_hover_hot": "rgba(255, 140, 48, 220)",
+    "button_hover_soft": "rgba(255, 122, 34, 130)",
+    "live_fill": "rgba(255, 122, 34, 140)",  # a latched capture control
+    "selection": "rgba(255, 122, 34, 170)",
+    "selection_strong": "rgba(255, 122, 34, 210)",
 
-    # --- rims: the filament seen edge-on --------------------------------
-    "rim": "rgba(255, 122, 34, 110)",
-    "rim_glow": "rgba(255, 122, 34, 56)",
-    "rim_pulse_min": "68",
-    "rim_pulse_max": "128",
-    "hairline_faint": "rgba(255, 122, 34, 44)",
-    "hairline": "rgba(255, 122, 34, 68)",
-    "hairline_mid": "rgba(255, 122, 34, 88)",
-    "edge_soft": "rgba(255, 122, 34, 70)",
-    "edge": "rgba(255, 122, 34, 96)",
-    "edge_mid": "rgba(255, 122, 34, 130)",
-    "edge_strong": "rgba(255, 122, 34, 165)",
-    "edge_hot": "rgba(255, 122, 34, 210)",
-    "edge_warm": "rgba(255, 192, 138, 96)",
-    "edge_bright": "rgba(255, 192, 138, 140)",
-    "catch": "rgba(255, 192, 138, 80)",
+    # --- rims: the lamp seen edge-on, visible and still soft ------------
+    "rim": "rgba(255, 122, 34, 150)",
+    "rim_glow": "rgba(255, 122, 34, 80)",
+    "rim_pulse_min": "100",
+    "rim_pulse_max": "168",
+    "hairline_faint": "rgba(255, 122, 34, 64)",
+    "hairline": "rgba(255, 122, 34, 100)",
+    "hairline_mid": "rgba(255, 122, 34, 130)",
+    "edge_soft": "rgba(255, 122, 34, 100)",
+    "edge": "rgba(255, 122, 34, 140)",
+    "edge_mid": "rgba(255, 122, 34, 175)",
+    "edge_strong": "rgba(255, 122, 34, 205)",
+    "edge_hot": "rgba(255, 122, 34, 235)",
+    "edge_warm": "rgba(255, 192, 138, 140)",
+    "edge_bright": "rgba(255, 192, 138, 185)",
+    "catch": "rgba(255, 192, 138, 110)",
 
-    # --- type: sodium-lit, still bright — hue shift, not a dimmer --------
-    "text": "#fae8dc",
-    "hint": "#f0c7a8",
-    "thinking": "#e4b596",
-    "text_dim": "#d8a482",
+    # --- type: paper in the lamplight, amber once it steps back ---------
+    "text": "#f8f1ea",
+    "hint": "#e6b892",
+    "thinking": "#dcb492",
+    "text_dim": "#d4a484",
     "dim": "#c4906e",
-    "status_white": "#fae8dc",
-    # Type that sits *in* the bloom rather than on a plate. Orange cream,
-    # not lemon — cream over the void is how the idle line went yellow.
-    "text_soft": "rgba(255, 210, 160, 200)",
-    "text_muted": "rgba(255, 210, 160, 150)",
-    "text_faint": "rgba(255, 210, 160, 96)",
+    "status_white": "#f8f1ea",
+    # Type that sits in the bloom. Same paper as body text, falling alpha.
+    # Orange cream here is how the idle line went brown.
+    "text_soft": "rgba(248, 241, 234, 220)",
+    "text_muted": "rgba(248, 241, 234, 165)",
+    "text_faint": "rgba(248, 241, 234, 110)",
 
-    # --- the light itself: sodium orange, not harvest gold --------------
+    # --- the lamp. Gold #ffb457 stays retired. --------------------------
     "accent": "#ff7a22",
     "accent2": "#ffc08a",
     "amber": "#ff7a22",
@@ -102,35 +105,34 @@ COLORS = {
     "danger_fill": "rgba(160, 60, 70, 180)",
     "danger_wash": "rgba(40, 16, 22, 90)",
 
-    "user_bubble": "rgba(36, 24, 14, 0)",
-    "assistant_bubble": "rgba(28, 18, 10, 0)",
+    "user_bubble": "rgba(28, 23, 19, 0)",
+    "assistant_bubble": "rgba(20, 16, 13, 0)",
 }
 
-# The orbit core is the filament seen directly rather than the glow it throws.
-# Cream only here — a pinprick of hot metal. The halo and tick are the sodium
-# orange the rest of the room is made of.
+# The orbit core is the filament seen directly. Cream only here, a pinprick
+# of hot metal. Halo and tick stay the sodium orange that lights the room.
 FILAMENT = {
-    "core": (255, 220, 175),
-    "core_halo": (255, 170, 100),
-    "tick": (255, 140, 50),
+    "core": (255, 228, 204),
+    "core_halo": (255, 176, 108),
+    "tick": (255, 148, 56),
     "tick_halo": (255, 122, 34),
 }
 
-# Same exposure as the last pass (alphas stay). Hue is what changed: gold
-# bloom was the yellow wash across the stage.
+# Soft pool of lamp light. Alphas stay low so the evening is a room, not a
+# spotlight. The falloff ends in the room color.
 BLOOM = {
     "inner": (
-        (0.0, (255, 150, 72, 92)),
-        (0.16, (255, 122, 40, 70)),
-        (0.42, (200, 84, 26, 40)),
-        (0.72, (96, 38, 12, 18)),
+        (0.0, (255, 150, 72, 100)),
+        (0.16, (255, 122, 40, 72)),
+        (0.42, (180, 78, 28, 36)),
+        (0.72, (40, 24, 12, 16)),
     ),
     "outer": (
-        (0.0, (255, 118, 36, 40)),
-        (0.38, (140, 50, 14, 18)),
+        (0.0, (255, 122, 36, 44)),
+        (0.45, (90, 40, 16, 14)),
     ),
     "grain": (255, 148, 64),
-    "vignette": (16, 8, 3, 48),
+    "vignette": (12, 10, 8, 64),
 }
 
 # Floating must stay opaque: WA_TranslucentBackground on a separate HWND
@@ -145,24 +147,24 @@ GLASS = {
     "radius": 12.0,
     "radius_stage": 12.0,
     "rim_pulse_seconds": 6.0,
-    "rim_pulse_lo": 68,
-    "rim_pulse_hi": 128,
+    "rim_pulse_lo": 100,
+    "rim_pulse_hi": 168,
 }
 
 # Opaque float plates (calendar, contacts, notify, settings). Same lamp as
 # COLORS; kept here so GlassFrame is not a second palette.
 PLATE = {
-    "seal": (22, 13, 7, 255),
-    "body": (34, 20, 10, 255),
-    "opaque": ((0.0, (86, 40, 12)), (0.36, (40, 22, 10)), (1.0, (22, 13, 7))),
+    "seal": (16, 13, 11, 255),
+    "body": (22, 18, 15, 255),
+    "opaque": ((0.0, (84, 62, 46)), (0.36, (42, 34, 28)), (1.0, (16, 13, 11))),
     "smoked": (
-        (0.0, (56, 32, 14), 20),
-        (0.42, (28, 16, 9), 4),
-        (1.0, (18, 11, 7), -6),
+        (0.0, (48, 38, 30), 20),
+        (0.42, (22, 18, 15), 4),
+        (1.0, (12, 10, 8), -6),
     ),
 }
 
-HAIRLINE = {"rest": 68, "live": 200}
+HAIRLINE = {"rest": 100, "live": 210}
 
 # Control heights. Two tiers on purpose, and only two: dock furniture, and the
 # composer, which is the one row that is not furniture. A third tier is how the
@@ -239,20 +241,27 @@ def space_allowed() -> frozenset[int]:
         {0, 1, control_pad_y(), SHELL["half"]} | set(SPACE.values())
     )
 
+# Desk face. Files live in ui/fonts/. IBM Plex is the fallback if those
+# files fail to register. Segoe / Cascadia / Consolas are the system floor.
+DESK_SANS = "Zen Kaku Gothic New"
+DESK_MONO = "Space Mono"
+
 FONTS = {
-    "display": '"IBM Plex Sans", "Segoe UI Semibold", "Segoe UI", sans-serif',
-    "body": '"IBM Plex Sans", "Segoe UI", sans-serif',
-    "mono": '"IBM Plex Mono", "Cascadia Mono", "Consolas", monospace',
+    "display": f'"{DESK_SANS}", "IBM Plex Sans", "Segoe UI Semibold", "Segoe UI", sans-serif',
+    "body": f'"{DESK_SANS}", "IBM Plex Sans", "Segoe UI", sans-serif',
+    "mono": f'"{DESK_MONO}", "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace',
 }
 
-# Tracking and body weight ride the active palette so a later room can
-# change type without a second stylesheet.
+# Body weight rides the active palette so a later room can change type
+# without a second stylesheet. 400 is Regular. Light (300) at 13px drops
+# the strokes on the dark plate. Tracking stays 0: Qt does not add
+# letter-spacing to the text width, so any of it clips the last glyph.
 TYPE = {
-    "body_weight": "300",
-    "track_wide": "0.14em",
-    "track_mid": "0.12em",
-    "track_idle": "0.16em",
-    "track_heading": "0.08em",
+    "body_weight": "400",
+    "track_wide": "0em",
+    "track_mid": "0em",
+    "track_idle": "0em",
+    "track_heading": "0em",
 }
 
 # Sodium is the product. Filament is a test face (View → themes).
@@ -303,7 +312,7 @@ def _filament_colors() -> dict[str, str]:
         "glass_fill_docked": rgba(void, 0),
         "glass_fill_settings": rgba(void, 255),
         "bubble_fill": rgba((24, 26, 32), 130),
-        "bubble_wash": rgba((20, 22, 28), 120),
+        "bubble_wash": rgba((20, 22, 28), 190),
         "menu_fill": rgba((22, 24, 30), 242),
         "inset": rgba((14, 16, 22), 150),
         "well": rgba(well, 255),
@@ -346,7 +355,10 @@ def _filament_colors() -> dict[str, str]:
         "text": hex6(cream),
         "hint": "#d4b888",
         "thinking": "#c4a06a",
-        "text_dim": "#b89468",
+        # User lines and role labels. Labels sit on the bare plate, and the
+        # sheen at the top of a tall chat tile put #b89468 at 3.27:1.
+        # Same cream hue as body type, one step down.
+        "text_dim": "#d4c1a1",
         "dim": "#a88858",
         "status_white": hex6(cream),
         "text_soft": rgba(cream, 200),
@@ -355,7 +367,9 @@ def _filament_colors() -> dict[str, str]:
         "accent": "#c4a06a",
         "accent2": "#e4c896",
         "amber": "#c4a06a",
-        "status_amber": "#c4a06a",
+        # Notices and the tool status line, on that same plate.
+        # The lamp accent stays #c4a06a.
+        "status_amber": "#d9bb93",
         "warn": "#d4783c",
     })
     return c
@@ -393,6 +407,143 @@ _FILAMENT_PLATE = {
     ),
 }
 
+def _night_colors() -> dict[str, str]:
+    """Near-black void, brand purple ring. Same token names as sodium."""
+    c = dict(_SODIUM_COLORS)
+    # Measured from Arelis brand art (glowing purple ring, white star).
+    void = (6, 10, 32)  # #060a20 window bg
+    deep = (2, 4, 24)  # #020418
+    panel = (11, 12, 38)  # #0b0c26
+    panel_hi = (14, 15, 45)  # #0e0f2d
+    card = (22, 20, 54)  # #161436
+    border = (48, 41, 76)  # #30294c
+    hover = (48, 32, 80)  # #302050
+    selected = (64, 48, 96)  # #403060
+    mid = (80, 64, 128)  # #504080
+    pressed = (112, 80, 160)  # #7050a0
+    accent = (128, 80, 176)  # #8050b0
+    focus = (128, 96, 176)  # #8060b0
+    # Secondary lavender-grey: ≥4.5:1 on #060a20, panel, and card (WCAG).
+    lav = (144, 136, 168)  # #9088a8
+    lav_dim = (132, 124, 156)  # #847c9c
+    lav_faint = (122, 114, 144)  # #7a7290
+    paper = (255, 255, 255)
+    well = (14, 15, 45)  # #0e0f2d
+    well_focus = (22, 20, 54)  # #161436
+
+    def rgba(rgb: tuple[int, int, int], a: int) -> str:
+        return f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {a})"
+
+    def hex6(rgb: tuple[int, int, int]) -> str:
+        return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+
+    c.update({
+        "bg0": hex6(void),
+        "bg1": hex6(panel),
+        "bg2": hex6(card),
+        "plate": rgba(panel, 255),
+        "panel_fill": rgba(panel, 255),
+        "veil": rgba(void, 36),
+        "scrim": rgba(deep, 200),
+        "code_fill": rgba(deep, 180),
+        "glass": rgba(void, 140),
+        "glass_strong": rgba((7, 9, 30), 176),
+        "glass_soft": rgba(panel_hi, 110),
+        "glass_fill": rgba(void, 248),
+        "glass_fill_float": rgba(void, 248),
+        "glass_fill_docked": rgba(void, 0),
+        "glass_fill_settings": rgba(void, 255),
+        "bubble_fill": rgba(card, 130),
+        "bubble_wash": rgba(panel, 190),
+        "menu_fill": rgba(panel, 242),
+        "inset": rgba(deep, 150),
+        "well": rgba(well, 255),
+        "well_focus": rgba(well_focus, 255),
+        "well_soft": rgba(well, 130),
+        "card_fill": rgba(card, 170),
+        "raised": rgba(card, 255),
+        "raised_warm": rgba(selected, 255),
+        "sunk": rgba(deep, 255),
+        "sunk_soft": rgba(deep, 190),
+        "tab_selected": rgba(selected, 255),
+        "groove": rgba(card, 180),
+        "chip": rgba(card, 120),
+        "chip_solid": rgba(card, 230),
+        "row_hover": rgba(hover, 180),
+        "row_selected": rgba(selected, 220),
+        "hover_soft": rgba(hover, 140),
+        "hover": rgba(hover, 200),
+        "hover_strong": rgba(selected, 220),
+        "button_fill": rgba(mid, 180),
+        "button_hover": rgba(accent, 200),
+        "button_hover_hot": rgba(focus, 220),
+        "button_hover_soft": rgba(pressed, 160),
+        "live_fill": rgba(accent, 160),
+        "selection": rgba(selected, 210),
+        "selection_strong": rgba(pressed, 220),
+        "rim": rgba(focus, 160),
+        "rim_glow": rgba(accent, 80),
+        "hairline_faint": rgba(border, 100),
+        "hairline": rgba(border, 160),
+        "hairline_mid": rgba(border, 200),
+        "edge_soft": rgba(border, 140),
+        "edge": rgba(border, 200),
+        "edge_mid": rgba(mid, 180),
+        "edge_strong": rgba(accent, 200),
+        "edge_hot": rgba(focus, 235),
+        "edge_warm": rgba(lav, 140),
+        "edge_bright": rgba(lav, 185),
+        "catch": rgba(focus, 120),
+        "text": hex6(paper),
+        "hint": hex6(lav),
+        "thinking": hex6(lav_dim),
+        "text_dim": hex6(lav_dim),
+        "dim": hex6(lav_faint),
+        "status_white": hex6(paper),
+        "text_soft": rgba(paper, 220),
+        "text_muted": rgba(lav, 180),
+        "text_faint": rgba(lav, 120),
+        "accent": hex6(accent),
+        "accent2": hex6(focus),
+        "amber": hex6(accent),
+        "status_amber": hex6(accent),
+        "warn": "#b060d0",
+    })
+    return c
+
+
+_NIGHT_COLORS = _night_colors()
+_NIGHT_CORE = {
+    "core": (255, 255, 255),
+    "core_halo": (128, 96, 176),
+    "tick": (128, 80, 176),
+    "tick_halo": (112, 80, 160),
+}
+_NIGHT_BLOOM = {
+    "inner": (
+        (0.0, (128, 80, 176, 90)),
+        (0.18, (112, 80, 160, 64)),
+        (0.45, (64, 48, 96, 32)),
+        (0.75, (6, 10, 32, 14)),
+    ),
+    "outer": (
+        (0.0, (128, 96, 176, 40)),
+        (0.5, (48, 32, 80, 12)),
+    ),
+    "grain": (128, 80, 176),
+    "vignette": (2, 4, 24, 72),
+}
+_NIGHT_PLATE = {
+    "seal": (6, 10, 32, 255),
+    "body": (11, 12, 38, 255),
+    "opaque": ((0.0, (64, 48, 96)), (0.36, (22, 20, 54)), (1.0, (6, 10, 32))),
+    "smoked": (
+        (0.0, (48, 32, 80), 20),
+        (0.42, (11, 12, 38), 4),
+        (1.0, (2, 4, 24), -6),
+    ),
+}
+
 _PALETTES = {
     "sodium": {
         "colors": _SODIUM_COLORS,
@@ -412,12 +563,22 @@ _PALETTES = {
         "hairline": dict(_SODIUM_HAIRLINE),
         "type": dict(_SODIUM_TYPE),
     },
+    "night": {
+        "colors": _NIGHT_COLORS,
+        "filament": _NIGHT_CORE,
+        "bloom": _NIGHT_BLOOM,
+        "glass": dict(_SODIUM_GLASS),
+        "plate": _NIGHT_PLATE,
+        "hairline": dict(_SODIUM_HAIRLINE),
+        "type": dict(_SODIUM_TYPE),
+    },
 }
 
 THEME_IDS = tuple(_PALETTES)
 _THEME_LABELS = {
     "sodium": "sodium",
     "filament": "filament (testing)",
+    "night": "night",
 }
 THEME_CHOICES = tuple((tid, _THEME_LABELS.get(tid, tid)) for tid in THEME_IDS)
 
@@ -438,6 +599,35 @@ def resolve_theme_id(value: str | None) -> str:
 
 def active_theme() -> str:
     return _ACTIVE_THEME
+
+
+def theme_menu_label(theme_id: str | None = None) -> str:
+    """View menu name for the theme on screen, or for ``theme_id``.
+
+    Unknown names resolve the same way the palette does, to sodium, so a
+    bad id never becomes a theme that is not installed.
+    """
+    resolved = active_theme() if theme_id is None else resolve_theme_id(theme_id)
+    return _THEME_LABELS.get(resolved, _THEME_LABELS[DEFAULT_THEME])
+
+
+_MENU_ASIDE = re.compile(r"\s*\([^)]*\)")
+
+
+def spoken_theme_name(menu_label: str) -> str:
+    """Menu words with any parenthetical dropped.
+
+    The View menu can say "filament (testing)". She says "filament".
+    The menu string itself is not rewritten here.
+    """
+    spoken = _MENU_ASIDE.sub("", menu_label or "")
+    spoken = " ".join(spoken.split())
+    return spoken or " ".join((menu_label or "").split())
+
+
+def theme_spoken_name(theme_id: str | None = None) -> str:
+    """What she should say this theme is called."""
+    return spoken_theme_name(theme_menu_label(theme_id))
 
 
 def theme_from_config(config: dict | None) -> str:

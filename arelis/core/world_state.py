@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from arelis.location.privacy import prompt_detail
+
 log = logging.getLogger(__name__)
 
 
@@ -122,7 +124,15 @@ def _place_part(config: dict[str, Any]) -> str:
     place_fn = getattr(snap, "place", None)
     if not callable(place_fn):
         return ""
-    place = " ".join(str(place_fn() or "").split())
+    detail = prompt_detail(config)
+    if detail == "off":
+        return ""
+    if detail == "city":
+        parts = (str(getattr(snap, n, "") or "") for n in ("city", "region", "country"))
+        place = ", ".join(p for p in parts if p)
+    else:
+        place = str(place_fn() or "")
+    place = " ".join(place.split())
     if not place:
         return ""
     return f"place {place}"
@@ -157,7 +167,7 @@ def _attention_count_part(store: Any, config: dict[str, Any]) -> str:
     ``inbox_rules`` a setting that only worked in an email nobody reads until
     7am. Both are now honoured, but only from what is already on this machine:
     the calendar cache the notify poller reads, and the headers the mail poller
-    last fetched. Nothing on this path opens a socket — it runs on every turn,
+    last fetched. Nothing on this path opens a socket, it runs on every turn,
     and an IMAP round trip between a question and its answer is not a price
     worth paying for one number.
     """

@@ -3,7 +3,7 @@
 The glass UI is already windowless (`pythonw`). Child processes are not:
 subprocess.run on Windows allocates a console unless CREATE_NO_WINDOW is set.
 Patching subprocess.run here covers Tesseract, git, PowerShell probes, and
-schtasks at launch — so we do not chase one call site at a time.
+schtasks at launch, so we do not chase one call site at a time.
 
 Do not subclass or replace subprocess.Popen. A Popen subclass plus STARTUPINFO
 took the whole pythonw process down on the first child (Task Scheduler query
@@ -56,7 +56,7 @@ def hidden_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[st
 def install_hidden_subprocess() -> None:
     """Hide consoles for every subprocess.run in this process.
 
-    Call once at program start (main). Leaves Popen untouched — replacing that
+    Call once at program start (main). Leaves Popen untouched, replacing that
     class crashed launch. Set ARELIS_SHOW_CONSOLES=1 to leave children visible.
     """
     global _installed

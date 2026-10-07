@@ -17,9 +17,7 @@ def _short_ceiling(window, seconds: float = 0.08) -> None:
 def test_countdown_is_not_armed_when_idle(arelis_window) -> None:
     window = arelis_window()
     timer = getattr(window, "_hung_watchdog", None)
-    tick = getattr(window, "_hung_tick", None)
     assert timer is None or not timer.isActive()
-    assert tick is None or not tick.isActive()
     assert window.chat.progress.isHidden()
     assert "left" not in window.chat.progress.text()
 
@@ -30,8 +28,8 @@ def test_hung_ceiling_unlocks_without_stop(arelis_window, qt_app) -> None:
     window._set_busy(True)
     assert window._turn_busy
     assert window._hung_watchdog.isActive()
-    assert window._hung_tick.isActive()
-    assert "left" in window.chat.progress.text()
+    assert "left" not in window.chat.progress.text()
+    assert window.chat.progress.text().strip()
     assert not window.chat.progress.isHidden()
 
     QTest.qWait(250)
@@ -55,7 +53,6 @@ def test_stop_cancels_the_hung_ceiling(arelis_window, qt_app) -> None:
     window._on_stop()
 
     assert not window._hung_watchdog.isActive()
-    assert not window._hung_tick.isActive()
     assert window._turn_busy
     assert window._busy_watchdog.isActive()
     assert "stop requested" in window.thinking.footer.text()
@@ -75,7 +72,6 @@ def test_clearing_busy_disarms_the_countdown(arelis_window) -> None:
     assert window._hung_watchdog.isActive()
     window._set_busy(False)
     assert not window._hung_watchdog.isActive()
-    assert not window._hung_tick.isActive()
     assert "left" not in window.chat.progress.text()
     assert window.chat.progress.isHidden()
 
@@ -101,6 +97,68 @@ def test_new_turn_after_stop_is_not_killed_by_the_watchdog(arelis_window) -> Non
     window._on_busy_watchdog()
     assert window._turn_busy
     assert "Turn ended without a reply" not in window.chat.view.toPlainText()
+
+
+class _GatheredLoop:
+    def __init__(self, tools: set[str] | None = None) -> None:
+        self.tools_used = set(tools or set())
+        self._trace: list[str] = []
+        self.terminal_sent = False
+        self._in_close = False
+        self.closed = False
+
+    def request_close(self) -> None:
+        self.closed = True
+
+
+class _Orch:
+    def __init__(self, loop: _GatheredLoop) -> None:
+        self._agent_loop = loop
+
+
+def test_hung_ceiling_wraps_up_when_work_is_in_hand(arelis_window, qt_app) -> None:
+    window = arelis_window()
+    _short_ceiling(window)
+    loop = _GatheredLoop({"scrape"})
+    window.orchestrator = _Orch(loop)
+    window._set_busy(True)
+
+    QTest.qWait(250)
+
+    assert window._turn_busy
+    assert loop.closed
+    assert window._hung_closing
+    assert window._hung_watchdog.isActive()
+    assert window._hung_watchdog.remainingTime() > 5000
+    shown = window.chat.view.toPlainText().lower()
+    assert "hung" not in shown
+    assert "wrapping up" in window.thinking.footer.text().lower()
+    assert "wrapping" in window.chat.progress.text().lower()
+
+
+def test_hung_ceiling_stops_when_nothing_was_gathered(arelis_window, qt_app) -> None:
+    window = arelis_window()
+    _short_ceiling(window)
+    loop = _GatheredLoop()
+    window.orchestrator = _Orch(loop)
+    window._set_busy(True)
+
+    QTest.qWait(250)
+
+    assert loop.closed is False
+    assert window._turn_busy is False
+    assert "hung" in window.chat.view.toPlainText().lower()
+
+
+def test_hung_ceiling_stops_if_the_close_does_not_finish(arelis_window) -> None:
+    window = arelis_window()
+    window._set_busy(True)
+    window._hung_closing = True
+    window._on_hung_turn()
+
+    assert window._turn_busy is False
+    assert "hung" in window.chat.view.toPlainText().lower()
+    assert not window._hung_closing
 
 
 def test_busy_watchdog_still_unlocks_the_stopped_turn(arelis_window) -> None:

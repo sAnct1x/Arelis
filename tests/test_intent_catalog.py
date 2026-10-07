@@ -445,3 +445,114 @@ def test_log_base_10_is_math_not_git() -> None:
     assert detect_cas_ask("factor x^3 - 8")
     assert not detect_math_ask("factor x^3 - 8")
     assert detect_exactness_need("factor x^3 - 8").needs_cas
+
+
+def test_generic_status_is_not_git() -> None:
+    """Bug regression: S52, S54 - generic status questions should not trigger git gate."""
+    from arelis.core.claims import detect_git_ask
+
+    for ask in (
+        "What's the status of the solar simulation?",
+        "What is the status of the Earth view?",
+        "What's the status of the simulation?",
+        "Is the solar system loaded?",
+        "Which Reality view are we in right now?",
+    ):
+        assert not detect_git_ask(ask), f"git check failed for: {ask}"
+
+    for ask in (
+        "What's the git status of this project?",
+        "Show me the git log.",
+        "What's the repository status?",
+        "Is the working tree clean?",
+        "Check the current branch.",
+    ):
+        assert detect_git_ask(ask), f"should be git for: {ask}"
+
+
+def test_kilometers_in_miles_is_units_not_calculator() -> None:
+    ask = "What is 3 kilometers in miles? Use the units tool. Do not change anything."
+    need = detect_exactness_need(ask)
+    assert need.needs_units
+    assert not need.needs_calculator
+
+
+def test_report_outline_is_not_a_calculator_ask() -> None:
+    """Live 2026-09-26: section "5. Sources" after "what is speculation"
+    refused a JWST report with the calculator sentence.
+    """
+    from arelis.core.claims import detect_document_ask, detect_math_ask
+    from arelis.core.plan_nudge import select_plan
+
+    outline = (
+        "4. Three piles, kept separate: what is measured, what is inferred "
+        "(including the hycean-ocean idea), and what is speculation "
+        "(including biosignatures).\n"
+        "5. Sources. For every paper or page you used: title, authors, year."
+    )
+    assert not detect_math_ask(outline)
+    assert not detect_exactness_need(outline).needs_calculator
+    assert detect_math_ask("What is 12.5% of 640?")
+    assert detect_math_ask("what is 17-3")
+
+    ask = (
+        "Research what JWST has actually measured in the atmosphere of "
+        "the exoplanet K2-18 b. Write the result as a PDF I can open. "
+        "Put the report in the file, not in chat.\n"
+        "Search the web, then open the papers.\n"
+        + outline
+    )
+    assert not detect_math_ask(ask)
+    need = detect_exactness_need(ask)
+    assert not need.needs_calculator
+    assert need.needs_document
+    assert detect_document_ask(ask)
+    plan = select_plan(ask, skill_ids=["web", "workspace"])
+    assert plan is not None
+    assert plan.id != "document"
+    assert "document" in select_plan("Write the result as a PDF I can open.").steps
+
+
+def test_first_unnegated_skips_declined_hits() -> None:
+    import re
+
+    from arelis.core.intent_catalog import first_unnegated
+
+    pat = re.compile(r"(?i)look\s+at\s+the\s+book")
+    hit = first_unnegated(pat, "look at the book")
+    assert hit is not None and hit.group(0) == "look at the book"
+    assert first_unnegated(pat, "no need to look at the book") is None
+    assert first_unnegated(pat, "why did you look at the book") is None
+    assert first_unnegated(pat, "I shouldn't look at the book") is None
+    assert first_unnegated(pat, "") is None
+    # A negation in an earlier sentence does not carry over to a new request.
+    later = first_unnegated(pat, "no need to rush. look at the book")
+    assert later is not None and later.group(0) == "look at the book"
+    # The second hit counts when only the first one is declined.
+    both = first_unnegated(pat, "no need to look at the book. then look at the book")
+    assert both is not None and both.start() > 20
+
+
+def test_complaint_vocabulary_vetoes_diagnostics() -> None:
+    assert DIAGNOSTICS.matches("run diagnostics")
+    for text in (
+        "why did you run diagnostics",
+        "why would you run diagnostics",
+        "no need to run diagnostics",
+        "you shouldn't run diagnostics",
+        "you didn't need to run diagnostics",
+    ):
+        assert not DIAGNOSTICS.matches(text), text
+
+
+def test_clause_negation_word_list() -> None:
+    import re
+
+    from arelis.core.intent_catalog import first_unnegated
+
+    pat = re.compile(r"(?i)look\s+at\s+the\s+book")
+    assert first_unnegated(pat, "don\u2019t look at the book") is None
+    assert first_unnegated(pat, "why don't you look at the book") is not None
+    assert first_unnegated(pat, "never mind, look at the book") is not None
+    assert first_unnegated(pat, "I never look at the book") is None
+    assert not DIAGNOSTICS.matches("don\u2019t run diagnostics")

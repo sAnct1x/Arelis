@@ -2,7 +2,7 @@
 
 The phone is a window onto this PC, not a second Arelis. Scan the QR
 once, talk. Same LAN is still how the PC reaches the phone. The SMS
-radio starts on Wi-Fi, ethernet, or cellular — it no longer sits silent
+radio starts on Wi-Fi, ethernet, or cellular. It no longer sits silent
 on mobile data. `0.0.0.0` is bind-only; the advertised listen URL is a
 real IPv4 when one exists. SMS and RCS grants are optional (Settings →
 Texts in the app). Google Messages stays your messenger. This is not a
@@ -10,19 +10,19 @@ Play Store build. The house serves the APK: Settings → Notify grows a
 camera QR that downloads it from this PC, and a paired phone offers a
 newer one the same way. One tap to install. Not silent.
 
-When the PC is reachable, the first open of the local day is a new chat
-— empty orbit, same as glass cold launch. Yesterday stays under
+When the PC is reachable, the first open of the local day is a new chat:
+empty orbit, same as glass cold launch. Yesterday stays under
 **chats**. Opening a thread later that day keeps it. Allow / Deny for
 sends she already does on the PC. **files** opens the current room or
 workspace. **chats** is the PC history plus a new conversation. Allow on
-the phone is the same card as the PC — one press on either side settles
+the phone is the same card as the PC: one press on either side settles
 it.
 
-When the PC is gone, chats and files wait. If you installed the offline
-brain at pair (Gemma 4 E2B, ~2.6 GB), she can talk and look at a photo
+When the PC is gone, chats and files wait. If you installed Gemma
+on the phone at pair (Gemma 4 E2B, ~2.6 GB), she can talk and look at a photo
 you just took. No mail, no SMS, no PC files. You stay in the
-conversation already on screen. When Arelis is back — even during “At
-the house · loading” — those words copy in, no prompt and no extra
+conversation already on screen. When Arelis is back (even during “At
+the house · loading”), those words copy in, no prompt and no extra
 line. If there was no house thread yet, they become a new conversation
 instead of landing in last week’s. Wi-Fi is the nicer download; mobile
 data is allowed if you choose it.
@@ -61,17 +61,17 @@ are not flooded with backlog.
 3. On the phone camera (not the Arelis app), scan **Get the app** on
    Settings → Notify. That page is this PC. Download, install
    (`app.arelis`). Uninstall the old Notify package first if it is still
-   `app.arelis.notify`. A checkout with no APK will say so — run
+   `app.arelis.notify`. A checkout with no APK will say so. Run
    `python scripts/build_companion.py` on the PC, then reopen Notify.
 4. Open Arelis and scan the pair QR (or paste the pairing text). Same
    LAN so the PC can reach the phone. You can talk immediately. SMS
    grants are not required for talk. The radio still starts on cellular
    if that is the only IPv4.
-5. After pair, install the offline brain (~2.6 GB) so she still talks
+5. After pair, install Gemma on the phone (~2.6 GB) so she still talks
    if the PC is down. The phone asks this PC first; Hugging Face is the
-   fallback if the house has not cached it. **Fetch offline brain** on
-   Notify pulls it onto the PC. Wait for Wi-Fi, or use mobile data on
-   purpose.
+   fallback if this PC has not cached it. On the PC, open Settings, Notify,
+   open **If the scan doesn't work**, and pick **Download offline copy** to
+   save it here. Wait for Wi-Fi, or use mobile data on purpose.
 6. Optional, only if you want the text hose: **Settings → Texts**, then
    Allow restricted settings, SMS, notification access, Battery
    Unrestricted. Pairing and texts are once; chat is the home screen.
@@ -87,7 +87,7 @@ dock footer, not chat.
 ### Core + UI
 
 If you run `arelis --core`, the window attaches and does not bind
-`:8765` itself — the core lock is what counts, not "something already
+`:8765` itself. The core lock is what counts, not "something already
 answers on that port." A second Arelis window is not a core. If the
 core never handshakes, or it dies and stays gone, the glass opens the
 door itself. Inbound reaches chat when the UI shows a live IPC bridge
@@ -121,11 +121,11 @@ Do these before digging in PC code:
 
 1. Battery Unrestricted for Arelis. Doze silently kills notification
    listeners. The radio notification can still show while inbound is
-   dead — that is the "worked last week, dead now" shape.
+   dead: that is the "worked last week, dead now" shape.
 2. Notification access on for Arelis.
 3. Companion paired. Token in the QR matches `sms.ingest_token`. DHCP
    IP drift: the phone re-registers its radio and listens for a LAN
-   beacon from this PC. Do not scan a new QR for a lease change — only
+   beacon from this PC. Do not scan a new QR for a lease change, only
    for a different PC or a different phone.
 4. Same LAN, not Guest Wi-Fi. Firewall TCP 8765, Private.
 5. Google Messages notifications not muted for that chat. Muted chats
@@ -146,8 +146,8 @@ on the phone and retry when the PC is back. A 429 is "slow down", not
 | Symptom | Check |
 |---------|--------|
 | No inbound texts | Arelis still running? Paired? Can the PC reach the phone? |
-| STATUS missing | `tools.sms.inbound` / `ingest` enabled. Token set. A bind/poll failure also lands in chat now; the listen URL stays in Thinking (`Ctrl+1`) so orbit does not hide |
-| Companion 401 | Wrong or missing `sms.ingest_token`. New QR |
+| STATUS missing | `tools.sms.inbound` / `ingest` enabled. Ingest `enabled: auto` listens only after a pairing code exists. Token set. A bind/poll failure also lands in chat now; the listen URL stays in Thinking (`Ctrl+1`) so orbit does not hide |
+| Companion 401 | Wrong or missing `sms.ingest_token`. New code |
 | Companion timeout | Firewall / wrong IP. Wait for the phone to find the LAN beacon, or open Settings → Notify if this is a new PC |
 | Worked, then died after a quiet week | Not pairing expiry. Old APK posted a stale PC IP and never rediscovered unless you opened the companion. Sideload this checkout. Battery Unrestricted. Open the app once to kick the new keepalive. |
 | Pairing 409 | QR was for a different Windows account's Arelis |

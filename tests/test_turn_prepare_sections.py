@@ -20,6 +20,7 @@ def test_operating_and_delivery_sections_keep_the_volatile_tail_last(monkeypatch
     monkeypatch.setattr(sections, "episodes_prompt_line", lambda *_a, **_k: "EPISODES")
     monkeypatch.setattr(sections, "world_state_prompt_line", lambda *_a, **_k: "WORLD")
     monkeypatch.setattr(sections, "now_line", lambda: "NOW")
+    monkeypatch.setattr(sections, "theme_line", lambda: "THEME")
 
     import arelis.talk_language as talk_language
 
@@ -64,8 +65,8 @@ def test_operating_and_delivery_sections_keep_the_volatile_tail_last(monkeypatch
         "EPISODES",
         "WORLD",
     ]
-    assert contents[-2:] == ["LANGUAGE", "NOW"]
-    assert "conversation mode" in contents[-3]
+    assert contents[-3:] == ["LANGUAGE", "THEME", "NOW"]
+    assert "conversation mode" in contents[-4]
 
 
 @pytest.mark.asyncio
@@ -98,7 +99,7 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
 
     loop._messages_for_turn = messages_for_turn
     loop.tools = SimpleNamespace(
-        ollama_tools=lambda visible: [{"name": sorted(visible)[0]}],
+        ollama_tools=lambda visible, *, param_hints=False: [{"name": sorted(visible)[0]}],
     )
 
     async def begin(*_args, **_kwargs):
@@ -201,3 +202,24 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
     num_ctx, kwargs = captured["budget_args"]
     assert num_ctx == 4096
     assert kwargs["schema_chars"] == len(json.dumps([{"name": "weather"}]))
+
+
+def test_now_line_names_the_half_of_the_day(monkeypatch) -> None:
+    from datetime import datetime
+
+    import arelis.core.agent_loop as agent_loop
+
+    fixed = {"when": datetime(2026, 9, 26, 2, 31)}
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return fixed["when"]
+            else:
+                return fixed["when"].replace(tzinfo=tz)
+
+    monkeypatch.setattr(agent_loop, "datetime", Clock)
+    assert "2:31 AM" in agent_loop.now_line()
+    fixed["when"] = datetime(2026, 9, 26, 14, 31)
+    assert "2:31 PM" in agent_loop.now_line()

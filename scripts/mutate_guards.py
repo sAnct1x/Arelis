@@ -91,7 +91,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         name="weather_force_call",
         overrides={"weather_force_call": False},
-        guards="no_call_steps weather inject + call_redirects.redirect_weather",
+        guards="weather preinject (weather_force_call) + try_weather",
     ),
     Mutation(
         name="sms_force_call",

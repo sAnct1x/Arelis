@@ -13,13 +13,18 @@ from arelis.core.evidence import classify_fetch_failure
 from arelis.core.fail_tags import tool_fail_replan_notice
 from arelis.core.look import LOOKING_STATUS, format_see_record
 from arelis.core.memory import tool_trace_entry
-from arelis.core.preflight import login_check_hop_args
+from arelis.core.native_tool_calling import native_tool_calling
+from arelis.core.preflight import (
+    login_check_hop_args,
+    looks_like_browser_click_signin,
+)
 from arelis.core.receipts import (
     action_receipt,
     append_action_ledger,
     format_action_receipt,
 )
 from arelis.core.same_call import record_same_call
+from arelis.core.search_loop import mark_page_opened, note_search_hits
 from arelis.core.sms_complete import (
     looks_like_contact_email_ask,
     looks_like_contact_phone_ask,
@@ -29,7 +34,11 @@ from arelis.core.sms_complete import (
 from arelis.core.tool_results import PreparedToolOutput, prepare_tool_output
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_goal import NEED_LOGIN, browser_errand_done
-from arelis.core.turn_scratch import RoundScratch
+from arelis.core.turn_prepare import (
+    calculator_blocked_for_date_ask,
+    python_blocked_for_date_ask,
+)
+from arelis.core.turn_scratch import RoundScratch, named_tools_owed
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_data, redact_secrets, truncate_tool_output
@@ -106,8 +115,23 @@ async def execute_call(
                 ms, result = fanout_results[call_i]
             else:
                 t0 = time.perf_counter()
-                result = await loop.tools.call(name, **args)
-                ms = int((time.perf_counter() - t0) * 1000)
+                blocked = None
+                if name == "calculator":
+                    blocked = calculator_blocked_for_date_ask(
+                        text, str(args.get("expression") or "")
+                    )
+                elif name == "python":
+                    blocked = python_blocked_for_date_ask(
+                        text, str(args.get("code") or "")
+                    )
+                if blocked:
+                    from arelis.tools.base import ToolResult
+
+                    result = ToolResult(ok=False, output=blocked)
+                    ms = 0
+                else:
+                    result = await loop.tools.call(name, **args)
+                    ms = int((time.perf_counter() - t0) * 1000)
         finally:
             if unbind_image is not None:
                 unbind_image.set_progress(None)
@@ -122,6 +146,9 @@ async def execute_call(
             action = str(args.get("action") or "").strip()
             if action:
                 tool_fields["action"] = action
+            # Add arg_keys in native mode for telemetry
+            if native_tool_calling(agent_cfg):
+                tool_fields["arg_keys"] = sorted(args.keys()) if args else []
             loop._timer.mark("tool", **tool_fields)
         data_dict = result.data if isinstance(result.data, dict) else None
         if name in {"scrape", "web_fetch"} and not result.ok:
@@ -130,14 +157,15 @@ async def execute_call(
                 tag = str(data_dict.get("fail_class") or "")
             if not tag:
                 tag = classify_fetch_failure(str(result.output or ""))
-            if tag == "fail:js_shell":
+            if tag in {"fail:js_shell", "fail:challenge"}:
                 url = ""
                 if isinstance(data_dict, dict):
                     url = str(data_dict.get("url") or "").strip()
                 if not url.startswith("http"):
                     url = str(args.get("url") or "").strip()
                 if url.startswith("http"):
-                    ctx.js_shell_url = url
+                    if tag == "fail:js_shell":
+                        ctx.js_shell_url = url
                     if "browser" in available_all:
                         visible = set(visible) | {"browser"}
                         available = set(available) | {"browser"}
@@ -145,7 +173,10 @@ async def execute_call(
                         ctx.tool_names.update(visible)
                         tool_names = ctx.tool_names
                         if offer_tools:
-                            ollama_tools = loop.tools.ollama_tools(visible)
+                            ollama_tools = loop.tools.ollama_tools(
+                                visible,
+                                param_hints=native_tool_calling(agent_cfg),
+                            )
         if result.ok:
             loop.tools_used.add(name)
             fail_counts.pop(call_fp, None)
@@ -169,6 +200,12 @@ async def execute_call(
             ):
                 ctx.inbox_empty_ok = True
             if name == "browser":
+                # Captured before a click flips the flag. A sign-in line
+                # that has not clicked yet stays open so try_browser_signin
+                # can still run on a later round.
+                signin_needs_later_round = (
+                    looks_like_browser_click_signin(text) and not ctx.browser_clicked
+                )
                 b_act = str(args.get("action") or "").strip().lower()
                 if b_act == "snapshot" or (
                     b_act in {"open", "navigate"}
@@ -184,6 +221,9 @@ async def execute_call(
                     ctx.browser_clicked = True
                 if b_act == "screenshot":
                     ctx.browser_screenshot_ok = True
+                if not signin_needs_later_round:
+                    ctx.browser_ok = True
+                    r.browser_ok = True
             if name == "vision":
                 ctx.vision_ok = True
             if name == "desktop":
@@ -202,10 +242,12 @@ async def execute_call(
                 q = str(args.get("query") or "").strip().casefold()
                 if q:
                     web_search_ok.add(q)
+                note_search_hits(ctx, (data_dict or {}).get("results") or [])
             if name in {"scrape", "web_fetch"}:
                 page = str(args.get("url") or "").strip().casefold()
                 if page:
                     page_ok.add(page)
+                    mark_page_opened(ctx, page)
             if name == "send_sms":
                 sent_to = str(args.get("to") or "").strip()
                 if sent_to:
@@ -228,10 +270,37 @@ async def execute_call(
                     )
                 )
                 ctx.agenda_create_ok = True
+            if (
+                name == "agenda"
+                and str(args.get("action") or "").lower()
+                in {"open", "today", "tomorrow", "list"}
+            ):
+                ctx.agenda_open_read_ok = True
+                r.agenda_open_read_ok = True
+            if name == "calculator":
+                ctx.calculator_ok = True
+                r.calculator_ok = True
+            if name == "units":
+                ctx.units_ok = True
+                r.units_ok = True
+            if name == "tile":
+                ctx.tile_ok = True
+                r.tile_ok = True
+            if (
+                name == "workspace"
+                and str(args.get("action") or "").strip().lower() == "read"
+            ):
+                ctx.inspect_ok = True
+                r.inspect_ok = True
+            if name == "run_script":
+                ctx.run_script_ok = True
+                r.run_script_ok = True
             if loop._look is not None:
                 loop._note_look_tool(name, args, result, data_dict)
         else:
             fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
+            ctx.last_fail_tool_name = name
+            ctx.last_fail_tool_out = str(result.output or "")
             if name == "send_sms":
                 ctx.sms_failed = True
             if loop._look is not None and name == "camera":
@@ -285,7 +354,7 @@ async def execute_call(
                             "Browser connect/control failed "
                             f"({code}). If the user only asked to "
                             "pull up a site, call browser(action=open"
-                            f"{url_bit}) — that is a plain OS open "
+                            f"{url_bit}), that is a plain OS open "
                             "(no Chrome restart). For click/snapshot/"
                             "navigate when CDP is down, call "
                             f"browser(action=relaunch{url_bit}) after "
@@ -318,6 +387,7 @@ async def execute_call(
             output=str(result.output or ""),
             data=data_dict,
             args=args if isinstance(args, dict) else None,
+            native_tools=native_tool_calling(r.agent_cfg),
         )
         receipt = action_receipt(
             name,
@@ -431,6 +501,12 @@ async def execute_call(
             if isinstance(args, dict)
             else "",
         )
+        
+        # Apply native tool calling hints to output
+        if native_tool_calling(agent_cfg):
+            from arelis.core.native_tool_calling import append_native_task_hint
+            out = append_native_task_hint(name, args, result.ok, out)
+        
         if (
             loop._look is not None
             and name in {"ocr", "vision"}
@@ -503,7 +579,8 @@ async def execute_call(
                     snapshot=str(result.output or ""),
                     signed_in=bool(data_dict.get("signed_in")),
                 )
-                if errand.done:
+                # Skip errand-done shortcut when native_tool_calling is enabled
+                if errand.done and not native_tool_calling(agent_cfg):
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -525,15 +602,22 @@ async def execute_call(
                 snapshot=str(result.output or ""),
                 signed_in=bool((data_dict or {}).get("signed_in")),
             )
-            if errand.done:
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": "browser errand done; stopping"},
+            # Skip errand-done shortcut when native_tool_calling is enabled
+            if errand.done and not native_tool_calling(agent_cfg):
+                # Don't finish if the ask named other tools we still owe (e.g.,
+                # "open and screenshot" or "open then call screenshot" shouldn't
+                # end after the open). Same pattern as the image_edit fix: check
+                # named_tools_owed to see if the chain continues.
+                owed = [n for n in named_tools_owed(loop, ctx) if n != "browser"]
+                if not owed:
+                    await loop.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "browser errand done; stopping"},
+                        )
                     )
-                )
-                await loop._finish(errand.reply, sources, streamed="")
-                return True
+                    await loop._finish(errand.reply, sources, streamed="")
+                    return True
             if errand.status == NEED_LOGIN and not ctx.browser_login_hop:
                 ended = await _login_check_hop(
                     loop,
@@ -574,16 +658,24 @@ async def execute_call(
             # calculator to verify the pixel count.
             path = str(data_dict["path"])
             if name == "image_edit":
-                # Its own sentence already names the sizes and the
-                # adjustments, which is the part worth reading.
-                await loop._finish(str(result.output).strip(), sources, streamed="")
+                # Not when the ask goes on to a tool it named (OCR the new
+                # file, vision on it): that chain still owes its second step,
+                # so fall through to the normal tool-message path.
+                # Skip named_tools_owed check when native_tool_calling is enabled
+                if not native_tool_calling(agent_cfg) and not [
+                    n for n in named_tools_owed(loop, ctx) if n != "image_edit"
+                ]:
+                    # Its own sentence already names the sizes and the
+                    # adjustments, which is the part worth reading.
+                    await loop._finish(str(result.output).strip(), sources, streamed="")
+                    return True
+            else:
+                await loop._finish(
+                    f"Image ready: open in Workspace ({path}).",
+                    sources,
+                    streamed="",
+                )
                 return True
-            await loop._finish(
-                f"Image ready — open in Workspace ({path}).",
-                sources,
-                streamed="",
-            )
-            return True
         if (
             name == "browser"
             and result.ok
@@ -660,6 +752,34 @@ async def execute_call(
             # paraphrases the tool output and the id vanishes.
             await loop._finish(str(result.output).strip(), sources, streamed="")
             return True
+        if (
+            name == "catalog"
+            and result.ok
+            and isinstance(data_dict, dict)
+            and data_dict.get("mode") == "now"
+        ):
+            from arelis.tools.catalog import (
+                DISTANCE_MODEL_NOTE,
+                should_ship_distance_line,
+            )
+
+            summary = str(result.output or "").strip()
+            loop._horizons_distance_text = summary
+            loop._horizons_distance_ask = text
+            later = 0
+            calls = getattr(r, "calls", None) or []
+            if isinstance(calls, list):
+                later = max(0, len(calls) - call_i - 1)
+            if should_ship_distance_line(text, later_calls=later):
+                await loop._finish(
+                    summary,
+                    sources,
+                    streamed="",
+                    passthrough_tool="catalog",
+                )
+                return True
+            if DISTANCE_MODEL_NOTE not in out:
+                out = f"{out.rstrip()}\n\n{DISTANCE_MODEL_NOTE}"
         messages.append(loop._tool_message(name, out))
         if name == "weather" and not result.ok:
             asked = str(args.get("place") or "").strip()
@@ -737,9 +857,12 @@ async def execute_call(
                         {"role": "user", "content": more_msg}
                     )
                 elif not later_weather:
-                    # Keep the tool array byte-stable. Stripping weather
-                    # here used to re-prefill the whole 23k prefix (~50s)
-                    # for "answer from the reading you already have."
+                    # Keep this round's tool array byte-stable. Stripping
+                    # weather here used to re-prefill the whole 23k prefix
+                    # (~50s) for "answer from the reading you already have."
+                    # The next model round offers no tools at all
+                    # (_weather_answer_ready in run_round). That empty
+                    # array is the other stable shape. A shorter list is not.
                     messages.append(
                         {
                             "role": "user",
@@ -894,7 +1017,7 @@ async def execute_call(
             ):
                 replan += (
                     " If they asked about the weather/forecast, call "
-                    "weather — do not web_search again."
+                    "weather, do not web_search again."
                 )
             if replan:
                 loop._fail_replan_used = True
@@ -1006,7 +1129,8 @@ async def _login_check_hop(
         snapshot=str(result.output or ""),
         signed_in=bool(data.get("signed_in")),
     )
-    if errand.done:
+    # Skip errand-done shortcut when native_tool_calling is enabled
+    if errand.done and not native_tool_calling(loop.agent_cfg):
         await loop._finish(errand.reply, sources, streamed="")
         return True
     await loop._finish(

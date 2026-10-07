@@ -2,7 +2,7 @@
 
 Wave 1 fed a finished WAV into a streaming Zipformer (OnlineRecognizer).
 Wave 2 feeds live PCM into the same recognizer so finish() is cheap. CPU on
-purpose — the GPU stays on the chat model. Kroko 2025 is the default pack
+purpose, the GPU stays on the chat model. Kroko 2025 is the default pack
 (conversational English); the 2023 LibriSpeech pack remains a fallback.
 Nothing here phones home except the optional first-run download.
 """
@@ -26,6 +26,8 @@ SAMPLE_RATE = 16000
 _DEFAULT_DIR = models_dir() / "sherpa"
 _KROKO_PACK = "sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06"
 _LEGACY_PACK = "sherpa-onnx-streaming-zipformer-en-2023-06-26"
+# Streaming bilingual ear. Physics talk is Chinese with English terms in it.
+_ZH_PACK = "sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20"
 _PACK_NAME = _KROKO_PACK
 _ARCHIVE = f"{_PACK_NAME}.tar.bz2"
 _MODEL_URL = (
@@ -59,18 +61,40 @@ def resolve_model_dir(stt_config: dict[str, Any] | None = None) -> Path:
     return resolve_model_path(path)
 
 
-def find_transducer_files(root: Path) -> dict[str, Path] | None:
+def _pack_order(language: str) -> tuple[str, ...]:
+    if language == "zh":
+        return (_ZH_PACK,)
+    return (_KROKO_PACK, _LEGACY_PACK)
+
+
+def _archive_for(language: str) -> tuple[str, str]:
+    name = _ZH_PACK if language == "zh" else _PACK_NAME
+    archive = f"{name}.tar.bz2"
+    url = (
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/"
+        f"asr-models/{archive}"
+    )
+    return archive, url
+
+
+def find_transducer_files(
+    root: Path, *, language: str = "en"
+) -> dict[str, Path] | None:
     """encoder / decoder / joiner / tokens in the same folder, or None.
 
-    Prefers the Kroko 2025 conversational pack, then the 2023 LibriSpeech
-    pack, then any other transducer folder under root.
+    English prefers the Kroko 2025 conversational pack, then the 2023
+    LibriSpeech pack, then any other transducer folder under root.
+    Chinese uses only the bilingual zh-en pack, so an English model
+    sitting next to it is not what hears a Mandarin sentence.
     """
     if not root.is_dir():
         return None
-    for name in (_KROKO_PACK, _LEGACY_PACK):
+    for name in _pack_order(language):
         found = _transducer_in(root / name)
         if found is not None:
             return found
+    if language == "zh":
+        return None
     for tokens in root.rglob("tokens.txt"):
         found = _transducer_in(tokens.parent)
         if found is not None:
@@ -98,9 +122,11 @@ def _transducer_in(parent: Path) -> dict[str, Path] | None:
     return None
 
 
-def sherpa_files_present(model_dir: Path | None = None) -> bool:
+def sherpa_files_present(
+    model_dir: Path | None = None, *, language: str = "en"
+) -> bool:
     root = Path(model_dir) if model_dir else _DEFAULT_DIR
-    return find_transducer_files(root) is not None
+    return find_transducer_files(root, language=language) is not None
 
 
 _HOTWORDS = (
@@ -119,7 +145,7 @@ _HOTWORDS = (
 
 
 def _hotwords_file(model_dir: Path) -> Path | None:
-    """Small bias list. Sites and her name — not a jargon dump Whisper would echo."""
+    """Small bias list. Sites and her name, not a jargon dump Whisper would echo."""
     try:
         model_dir.mkdir(parents=True, exist_ok=True)
         path = model_dir / "hotwords.txt"
@@ -150,7 +176,8 @@ def _build_recognizer(
     }
     if _KROKO_PACK in pack:
         base["model_type"] = "zipformer2"
-    hot = _hotwords_file(Path(files["encoder"]).parent.parent)
+    # English site names are not tokens in the bilingual pack. Skip them.
+    hot = None if _ZH_PACK in pack else _hotwords_file(Path(files["encoder"]).parent.parent)
     attempts: list[dict[str, Any]] = []
     beam = {
         **base,
@@ -177,12 +204,15 @@ def _build_recognizer(
     raise SherpaUnavailableError("Sherpa OnlineRecognizer.from_transducer failed")
 
 
-def sherpa_usable(stt_config: dict[str, Any] | None = None) -> bool:
+def sherpa_usable(
+    stt_config: dict[str, Any] | None = None, *, language: str = "en"
+) -> bool:
     """True when Sherpa can run now or after a one-time download."""
     if not sherpa_package_available():
         return False
     cfg = stt_config or {}
-    if sherpa_files_present(resolve_model_dir(cfg)):
+    lang = "zh" if str(cfg.get("pack_language") or language) == "zh" else "en"
+    if sherpa_files_present(resolve_model_dir(cfg), language=lang):
         return True
     return bool(cfg.get("allow_download", True))
 
@@ -194,6 +224,7 @@ class SherpaSpeechToText:
         self.config = stt_config or {}
         self.model_dir = resolve_model_dir(self.config)
         self.allow_download = bool(self.config.get("allow_download", True))
+        self.language = "zh" if str(self.config.get("pack_language") or "") == "zh" else "en"
         self._recognizer = None
         self._pack = ""
 
@@ -225,7 +256,9 @@ class SherpaSpeechToText:
         if not sherpa_package_available():
             raise SherpaUnavailableError(_NO_PACKAGE)
         files = ensure_sherpa_files(
-            self.model_dir, allow_download=self.allow_download
+            self.model_dir,
+            allow_download=self.allow_download,
+            language=self.language,
         )
         import sherpa_onnx
 
@@ -350,26 +383,29 @@ def ensure_sherpa_files(
     model_dir: Path | None = None,
     *,
     allow_download: bool,
+    language: str = "en",
 ) -> dict[str, Path]:
     root = Path(model_dir) if model_dir else _DEFAULT_DIR
-    found = find_transducer_files(root)
+    lang = "zh" if language == "zh" else "en"
+    found = find_transducer_files(root, language=lang)
     if found is not None:
         return found
+    archive_name, model_url = _archive_for(lang)
     if not allow_download:
         raise SherpaUnavailableError(
             f"Sherpa model not found in {root}. See models/sherpa/README.md."
         )
     root.mkdir(parents=True, exist_ok=True)
-    archive = root / _ARCHIVE
+    archive = root / archive_name
     log.info("Downloading Sherpa STT model to %s", archive)
     tmp = archive.with_suffix(archive.suffix + ".part")
     try:
-        urlretrieve(_MODEL_URL, tmp)
+        urlretrieve(model_url, tmp)
         tmp.replace(archive)
     except Exception as exc:
         tmp.unlink(missing_ok=True)
         raise SherpaUnavailableError(
-            f"Could not download Sherpa model from {_MODEL_URL}: {exc}"
+            f"Could not download Sherpa model from {model_url}: {exc}"
         ) from exc
     try:
         _extract_archive(archive, root)
@@ -379,7 +415,7 @@ def ensure_sherpa_files(
         raise SherpaUnavailableError(
             f"Could not unpack Sherpa model {archive}: {exc}"
         ) from exc
-    found = find_transducer_files(root)
+    found = find_transducer_files(root, language=lang)
     if found is None:
         raise SherpaUnavailableError(
             f"Sherpa archive extracted but encoder/decoder/joiner/tokens "

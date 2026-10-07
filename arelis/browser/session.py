@@ -1,4 +1,4 @@
-"""One BrowserSession per Arelis process — attach, launch, or relaunch."""
+"""One BrowserSession per Arelis process, attach, launch, or relaunch."""
 
 from __future__ import annotations
 
@@ -27,11 +27,14 @@ class BrowserSession:
         driver: BrowserDriver | None = None,
         max_snapshot_chars: int = 6000,
         max_read_chars: int = 3500,
+        fresh_profile: bool = False,
     ) -> None:
         self.cdp_url = cdp_url
         self.max_snapshot_chars = max_snapshot_chars
         self.max_read_chars = max_read_chars
-        self._driver: BrowserDriver = driver or PlaywrightDriver(cdp_url=cdp_url)
+        self._driver: BrowserDriver = driver or PlaywrightDriver(
+            cdp_url=cdp_url, fresh_profile=fresh_profile
+        )
         self.last_mode: str = ""
         self.last_browser: str = ""
         self._click_misses = 0
@@ -40,6 +43,11 @@ class BrowserSession:
         self._watch_done.set()
         self._watch_result: ActionResult | None = None
         self._watch_id = 0
+
+    @property
+    def fresh_profile(self) -> bool:
+        """True when her window starts empty each run (tools.browser.fresh_profile)."""
+        return bool(getattr(self._driver, "fresh_profile", False))
 
     @classmethod
     def fake(cls, **kwargs: Any) -> BrowserSession:
@@ -70,7 +78,7 @@ class BrowserSession:
         return await self._with_wall(await self._driver.open_url(url))
 
     async def open_url_os(self, url: str, browser: str | None = None) -> ActionResult:
-        """Open URL like a normal browser click — no CDP attach or restart."""
+        """Open URL like a normal browser click, no CDP attach or restart."""
         name = resolve_browser_choice(browser)
         result = await self._driver.open_url_os(url, name)
         if result.ok:
@@ -81,11 +89,12 @@ class BrowserSession:
     async def navigate(self, url: str) -> ActionResult:
         return await self._with_wall(await self._driver.navigate(url))
 
-    async def snapshot(self, *, focus: str = "") -> ActionResult:
+    async def snapshot(
+        self, *, focus: str = "", max_chars: int | None = None
+    ) -> ActionResult:
+        cap = self.max_snapshot_chars if max_chars is None else max_chars
         return await self._with_wall(
-            await self._driver.snapshot(
-                max_chars=self.max_snapshot_chars, focus=focus
-            )
+            await self._driver.snapshot(max_chars=cap, focus=focus)
         )
 
     async def read(self) -> ActionResult:
@@ -196,6 +205,20 @@ class BrowserSession:
         self._click_misses = 0
         if str((result.data or {}).get("code") or "") == "YOUR_TURN":
             return result
+        if result.ok:
+            # The next model round used to be "snapshot, then look."
+            # Hand her the page she just landed on.
+            snap = await self.snapshot(max_chars=1600)
+            if str((snap.data or {}).get("code") or "") == "YOUR_TURN":
+                return snap
+            if snap.ok and snap.output:
+                data = dict(result.data or {})
+                data["snapshot"] = True
+                result = ActionResult(
+                    ok=True,
+                    output=f"{result.output}\n\n{snap.output}",
+                    data=data,
+                )
         label = str((result.data or {}).get("label") or "")
         return await self._with_wall(result, click_label=label)
 
@@ -366,7 +389,7 @@ class BrowserSession:
             self._watch_done.set()
 
     async def await_watch(self, timeout_s: float = 2.0) -> ActionResult | None:
-        """Test helper — wait until the live watch hits, cancels, or times out."""
+        """Test helper, wait until the live watch hits, cancels, or times out."""
         if self._watch_done.is_set():
             return self._watch_result
         try:
@@ -497,7 +520,7 @@ class BrowserSession:
     async def pdf(self, path: str) -> ActionResult:
         return await self._driver.pdf(path)
 
-    async def settle(self, *, timeout_s: float = 4.0) -> ActionResult:
+    async def settle(self, *, timeout_s: float = 1.0) -> ActionResult:
         settler = getattr(self._driver, "settle", None)
         if not callable(settler):
             return ActionResult(ok=True, output="Settled.", data={"settled": True})

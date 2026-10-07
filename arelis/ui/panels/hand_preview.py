@@ -57,16 +57,16 @@ class HandPreview(QWidget):
             self._closed = frozenset(self._kinds)
         elif closed_labels is not None:
             self._closed = frozenset(closed_labels)
-            self._kinds = {name: "fist" for name in self._closed}
+            self._kinds = {name: "pinch" for name in self._closed}
         elif closed:
             self._closed = frozenset(
                 hand.label for hand in hands if getattr(hand, "label", "")
             )
-            self._kinds = {name: "fist" for name in self._closed}
+            self._kinds = {name: "pinch" for name in self._closed}
         else:
             self._closed = frozenset()
             self._kinds = {}
-        self._state = (state or ("fist" if self._closed else "idle")).lower()
+        self._state = (state or ("pinch" if self._closed else "idle")).lower()
         self._fps = float(fps)
         self._live = True
         self.update()
@@ -125,12 +125,14 @@ class HandPreview(QWidget):
         for hand in self._hands:
             tag = hand.label[:1].upper() if hand.label else "?"
             if hand.label in self._closed:
-                pose = self._kinds.get(hand.label, "fist").upper()
+                pose = self._kinds.get(hand.label, "pinch").upper()
                 bits.append(f"{tag} {pose}")
         label = " · ".join(bits) if bits else self._state.upper()
         text = f"{n} HAND{'S' if n != 1 else ''}   {self._fps:.0f} FPS   {label}"
         bar = QRect(dest.x(), dest.bottom() - 36, dest.width(), 36)
-        painter.fillRect(bar, QColor(22, 13, 7, 210))
+        bar_fill = QColor(color("bg0"))
+        bar_fill.setAlpha(210)
+        painter.fillRect(bar, bar_fill)
         painter.setPen(color("text"))
         font = QFont(painter.font())
         font.setPixelSize(18)

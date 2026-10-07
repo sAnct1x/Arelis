@@ -77,7 +77,6 @@ ADAPTER_TTL_S: dict[str, float] = {
     "eonet": 180.0,
     "gdacs": 180.0,
     "cameras": 900.0,
-    "shodan": 900.0,
     "traffic": 900.0,
     "weather": 300.0,
     "nws": 300.0,
@@ -112,7 +111,6 @@ ADAPTER_LAYERS: dict[str, frozenset[str]] = {
     "radar": frozenset({"radar"}),
     "gfw": frozenset({"radar"}),
     "cameras": frozenset({"cameras"}),
-    "shodan": frozenset({"cameras"}),
     "traffic": frozenset({"traffic"}),
     "weather": frozenset({"weather"}),
     "nws": frozenset({"weather"}),
@@ -142,14 +140,13 @@ ADAPTER_BANDS: dict[str, frozenset[str]] = {
     "opensky": frozenset({"approach", "near", "city"}),
     "adsb": frozenset({"near", "city"}),
     "ais": frozenset({"near", "city"}),
-    "usgs": frozenset({"city"}),
-    "emsc": frozenset({"city"}),
-    "geonet": frozenset({"city"}),
-    "firms": frozenset({"city"}),
+    "usgs": frozenset({"space", "approach", "near", "city"}),
+    "emsc": frozenset({"space", "approach", "near", "city"}),
+    "geonet": frozenset({"space", "approach", "near", "city"}),
+    "firms": frozenset({"space", "approach", "near", "city"}),
     "radar": frozenset({"city"}),
     "gfw": frozenset({"city"}),
     "cameras": frozenset({"city"}),
-    "shodan": frozenset({"city"}),
     "traffic": frozenset({"city"}),
     "weather": frozenset({"city"}),
     "nws": frozenset({"city"}),
@@ -173,19 +170,59 @@ ADAPTER_BANDS: dict[str, frozenset[str]] = {
 }
 
 PAINT_LAYERS: dict[str, frozenset[str]] = {
-    "space": frozenset({"iss", "satellites"}),
-    "approach": frozenset({"iss", "satellites", "flights", "drones"}),
+    "space": frozenset({"iss", "satellites", "quakes", "fires"}),
+    "approach": frozenset({"iss", "satellites", "flights", "drones", "quakes", "fires"}),
     "near": frozenset(
-        {"iss", "satellites", "flights", "drones", "military", "vessels"}
+        {
+            "iss",
+            "satellites",
+            "flights",
+            "drones",
+            "military",
+            "vessels",
+            "quakes",
+            "fires",
+        }
     ),
     "city": frozenset(LAYER_IDS),
 }
 
+# First time the eye enters a band, these layers turn on. An explicit
+# off stays off. Weather, traffic, military, and drones stay a click —
+# opening every city catalog was the slam this replaced.
+DESCENT_OPENS: dict[str, tuple[str, ...]] = {
+    "space": ("satellites", "iss", "quakes", "fires"),
+    "approach": ("flights",),
+    "near": ("vessels",),
+    "city": ("cameras",),
+}
+
+
+def layers_opened_by(band: str) -> tuple[str, ...]:
+    """Layers a descent to `band` is allowed to switch on."""
+    if band not in BANDS:
+        return ()
+    idx = BANDS.index(band)
+    out: list[str] = []
+    for name in BANDS[: idx + 1]:
+        out.extend(DESCENT_OPENS[name])
+    return tuple(out)
+
+
 # Chips that earn a seat at this band. The rest stay off the bar.
 CHIP_LAYERS: dict[str, tuple[str, ...]] = {
-    "space": ("satellites", "iss"),
-    "approach": ("satellites", "iss", "flights", "drones"),
-    "near": ("satellites", "iss", "flights", "drones", "military", "vessels"),
+    "space": ("satellites", "iss", "quakes", "fires"),
+    "approach": ("satellites", "iss", "flights", "drones", "quakes", "fires"),
+    "near": (
+        "satellites",
+        "iss",
+        "flights",
+        "drones",
+        "military",
+        "vessels",
+        "quakes",
+        "fires",
+    ),
 }
 
 # After bbox filter, keep the nearest N so a city dump does not bury the plate.
@@ -216,7 +253,6 @@ def _sibs(*names: str) -> dict[str, tuple[str, ...]]:
 SIBLINGS: dict[str, tuple[str, ...]] = {
     **_sibs("celestrak", "spacetrack", "tip"),
     **_sibs("usgs", "emsc", "geonet"),
-    **_sibs("cameras", "shodan"),
     **_sibs("radar", "gfw"),
     **_sibs("radio", "aprs", "satnogs"),
     **_sibs(
@@ -528,6 +564,15 @@ def filter_to_view(entities: list[Entity], view: EarthView | None) -> list[Entit
     return out
 
 
+def _heat(entity: Entity) -> float:
+    meta = entity.meta or {}
+    raw = meta.get("mag") if entity.layer == "quakes" else meta.get("bright")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def organize(entities: list[Entity], view: EarthView | None) -> list[Entity]:
     """Nearest first, then cap per layer so a city dump does not bury the plate."""
     if not entities:
@@ -535,10 +580,17 @@ def organize(entities: list[Entity], view: EarthView | None) -> list[Entity]:
     lat = view.lat if view is not None else 0.0
     lon = view.lon if view is not None else 0.0
 
-    def key(entity: Entity) -> tuple[float, str, str]:
+    def key(entity: Entity) -> tuple[float, float, str, str]:
         pair = entity_lla(entity)
         dist = _haversine_km(lat, lon, pair[0], pair[1]) if pair else 1.0e9
-        return (dist, entity.layer, entity.id)
+        # From space the heat is the strong events, not the ones under the stare point.
+        if (
+            view is not None
+            and view.band == "space"
+            and entity.layer in {"quakes", "fires"}
+        ):
+            return (-_heat(entity), dist, entity.layer, entity.id)
+        return (dist, 0.0, entity.layer, entity.id)
 
     ranked = sorted(entities, key=key)
     used: dict[str, int] = {}

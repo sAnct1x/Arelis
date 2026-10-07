@@ -1,6 +1,6 @@
 """Merge, split, and rotate PDFs under workspace roots.
 
-pypdf PdfReader / PdfWriter — the same stack doc_extract and the document
+pypdf PdfReader / PdfWriter, the same stack doc_extract and the document
 index already use. Form fill is not here: appearances and XFA are not a
 one-liner in pypdf, and a half-filled form that looks blank is worse than
 saying no. Use `document` to write a new PDF instead.
@@ -27,7 +27,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from arelis.paths import display_path, ensure
+from arelis.paths import ensure
 from arelis.tools.base import ToolResult
 from arelis.workspace import WorkspaceRoots
 
@@ -115,7 +115,7 @@ def _degrees(raw: Any) -> int:
     except (TypeError, ValueError) as exc:
         raise ValueError("rotate degrees must be 90, 180, or 270.") from exc
     if value not in {90.0, 180.0, 270.0}:
-        raise ValueError("rotate degrees must be 90, 180, or 270 — not 0 or 45.")
+        raise ValueError("rotate degrees must be 90, 180, or 270, not 0 or 45.")
     return int(value)
 
 
@@ -128,7 +128,7 @@ class PdfAssembleTool:
         "paths (comma list or JSON array) in that order. split needs path plus "
         "pages (1-based, e.g. 1-3,5). rotate needs path plus degrees 90/180/270 "
         "and optional pages (those pages only, rotated). Caps: 50 source pages "
-        "copied, 8 MB per file. Form fill is not supported — pypdf appearances "
+        "copied, 8 MB per file. Form fill is not supported, pypdf appearances "
         "are not reliable here; use document to make a new PDF. Allow is required. "
         "Do not use doc_extract (that reads) or document (that creates from text)."
     )
@@ -174,7 +174,7 @@ class PdfAssembleTool:
                 "type": "string",
                 "description": (
                     "Output PDF path under a workspace root. Omitted: a new "
-                    "file under the active project's outputs/ — never the source"
+                    "file under the active project's outputs/, never the source"
                 ),
             },
         },
@@ -220,7 +220,8 @@ class PdfAssembleTool:
         except Exception as exc:
             return ToolResult(ok=False, output=f"Could not assemble PDF: {exc}")
 
-        shown = display_path(dest)
+        resolved = self.workspace.resolve(str(dest), for_write=False)
+        shown = resolved.qualified(multi=len(self.workspace) > 1)
         extra = f", rotated {degrees}" if degrees else ""
         return ToolResult(
             ok=True,
@@ -235,7 +236,12 @@ class PdfAssembleTool:
                 "pages": picked,
                 "n_pages": n_pages,
                 "degrees": degrees,
-                "sources": [display_path(path) for path in sources],
+                "sources": [
+                    self.workspace.resolve(str(path), for_write=False).qualified(
+                        multi=len(self.workspace) > 1
+                    )
+                    for path in sources
+                ],
             },
         )
 

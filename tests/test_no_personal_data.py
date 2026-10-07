@@ -24,6 +24,7 @@ the leak this test exists to prevent.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -359,14 +360,6 @@ def _public_globe(path: Path) -> bool:
         "tests/test_earth.py",
         "tests/test_earth_goto.py",
         "tests/test_egress.py",
-        "scripts/shot_reality_polish.py",
-        "scripts/probe_earth_ghost.py",
-        "scripts/walk_earth_lod.py",
-        "scripts/walk_earth_streets.py",
-        "scripts/walk_earth_globe.py",
-        "scripts/walk_earth_field.py",
-        "scripts/shot_earth_break.py",
-        "scripts/shot_earth_reality.py",
         "tests/test_earth_inspect.py",
         "tests/test_earth_field.py",
         "tests/test_earth_polish.py",
@@ -506,6 +499,43 @@ def test_holiday_copy_does_not_use_a_live_country_title() -> None:
         "A Google holiday UI title is in a tracked file. That title is a "
         "real country name and will fail the name-scrub for anyone whose "
         "profile location is that country:\n" + _report(hits)
+    )
+
+
+# SHA-256 of the lowercased surname. The letters are not stored. A word is a
+# run of ASCII letters, so punctuation beside the name does not hide it, and
+# capitalization does not either. This file is included in the scan: the hash
+# means the check no longer has to spell what it forbids.
+_SURNAME_SHA256 = "6d09c24b943ecae5a22ee52595fb0f0556d17d62ae14b5c0b07df540d582a61c"
+_LETTER_WORD = re.compile(r"[A-Za-z]+")
+
+
+def test_no_tracked_file_carries_the_maintainer_surname() -> None:
+    """A tracked text file must not contain the maintainer's surname.
+
+    The scrub list below is local and skipped when it is missing, which is
+    every CI run. This check does not skip, and it does not skip this file.
+    The other rules still do, because they have to write the patterns they
+    ban. This one compares hashes of lowercased letter-words instead.
+    """
+    hits = []
+    for path in _tracked_files():
+        if path.suffix.lower() in BINARY_SUFFIXES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = path.relative_to(PROJECT_ROOT)
+        for line_no, line in enumerate(text.splitlines(), 1):
+            for word in _LETTER_WORD.findall(line):
+                digest = hashlib.sha256(word.lower().encode("utf-8")).hexdigest()
+                if digest == _SURNAME_SHA256:
+                    hits.append(f"{rel}:{line_no}")
+                    break
+    assert not hits, (
+        "The maintainer's surname is in a tracked text file. Remove it "
+        "before this is pushed:\n" + _report(hits)
     )
 
 

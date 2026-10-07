@@ -63,6 +63,58 @@ def needs_prompt() -> bool:
     return not marker_path().is_file()
 
 
+def local_workspace_roots() -> list[Any]:
+    """Roots saved in config.local.yaml only. Empty when none were pinned yet.
+
+    Shipped default.yaml is ignored on purpose: an upgrade with existing roots
+    must not re-ask and must not rewrite those roots.
+    """
+    from arelis.config import LOCAL_CONFIG_PATH
+
+    if not LOCAL_CONFIG_PATH.is_file():
+        return []
+    try:
+        import yaml
+
+        data = yaml.safe_load(LOCAL_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        # Corrupt local overlay: treat as no saved roots so first-run can still ask.
+        return []
+    if not isinstance(data, dict):
+        return []
+    roots = (data.get("workspace") or {}).get("roots") or []
+    return list(roots) if isinstance(roots, list) else []
+
+
+def first_local_root_path(roots: list[Any] | None = None) -> Path | None:
+    """Path of the first saved root, or None when there is nothing to adopt."""
+    items = list(roots) if roots is not None else local_workspace_roots()
+    if not items:
+        return None
+    first = items[0]
+    if isinstance(first, dict):
+        raw = first.get("path")
+        if raw is None:
+            return None
+        return Path(str(raw)).expanduser()
+    return Path(str(first)).expanduser()
+
+
+def adopt_existing_workspace_marker() -> Path | None:
+    """Write the first-run marker for an existing root without touching roots.
+
+    Used when the marker is missing but config.local.yaml already has folders
+    (upgraders). Never calls record_choice / never replaces workspace.roots.
+    """
+    if marker_path().is_file():
+        return None
+    root = first_local_root_path()
+    if root is None:
+        return None
+    _write_marker(root)
+    return root
+
+
 def suggested_root() -> Path:
     """The folder offered on screen, and used if nobody is there to answer."""
     return default_workspace_root()

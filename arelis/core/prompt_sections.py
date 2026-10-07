@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from arelis.contacts import contacts_prompt_line
-from arelis.core.agent_loop import _wants_project_context, now_line
+from arelis.core.agent_loop import _wants_project_context, now_line, theme_line
 from arelis.core.episodes import episodes_prompt_line
 from arelis.core.lessons import format_lessons, select_lessons
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.plan_nudge import select_plan
 from arelis.core.preflight import detect_intents, preflight_system_message
 from arelis.core.sms_complete import (
@@ -35,6 +36,16 @@ def append_stopped_turn_note(
         messages.append({"role": "system", "content": hint})
 
 
+def append_nasa_fact_guidance(
+    messages: list[dict[str, str]],
+    text: str,
+) -> bool:
+    """Pin planet / Mars-moon numbers before the model answers. Native-safe."""
+    from arelis.physics.fact_sheet import append_reference_facts
+
+    return append_reference_facts(messages, text)
+
+
 def append_preflight_guidance(
     messages: list[dict[str, str]],
     loop: Any,
@@ -45,6 +56,12 @@ def append_preflight_guidance(
 ) -> list[str]:
     """Append deterministic intent guidance and settle expected tool names."""
     preflight_kinds: list[str] = []
+    # NASA fact pins are not routing: they stay on even when native tool
+    # calling skips the regex intent layer below.
+    append_nasa_fact_guidance(messages, text)
+    # native_tool_calling disables regex/intent routing layer entirely
+    if native_tool_calling(agent_cfg):
+        return preflight_kinds
     if not bool(agent_cfg.get("intent_preflight", True)):
         return preflight_kinds
 
@@ -233,31 +250,19 @@ def append_delivery_context(
     *,
     speak: bool,
 ) -> None:
-    """Append spoken-answer policy, language, then the volatile clock line."""
+    """Append spoken-answer policy, language, the screen theme, then the clock.
+
+    The clock stays last. It is the line that changes on its own. The theme
+    changes only when they pick one, so it sits just ahead of the clock and
+    never in the cached prefix.
+    """
     if speak:
+        from arelis.talk_language import spoken_policy
+
         messages.append(
             {
                 "role": "system",
-                "content": (
-                    "You are speaking aloud in conversation mode. Prefer "
-                    "1-3 short sentences unless the user asked for detail, "
-                    "code, steps, or a list. Their text is a speech "
-                    "transcript — messy, filled with ah/um, and wrong on "
-                    "names. Hear what they meant from the last few turns. "
-                    "Do not correct the transcript and do not ask them to "
-                    "repeat themselves. If they said they missed what you "
-                    "said, say the last answer again — do not ask what they "
-                    "wanted repeated. Small talk is talk: what are you "
-                    "doing tonight is not a calendar, and what did I say "
-                    "without a topic is not a recall search. Do not "
-                    "interview; one follow-up is enough and none is fine. "
-                    "When they asked you to do something (text, email, "
-                    "write, search, weather, scrape, remember), call the "
-                    "tool first — do not only talk about doing it, and do "
-                    "not ask permission in chat. send_sms and send_email "
-                    "open a confirm card; that is how the message is "
-                    "approved."
-                ),
+                "content": spoken_policy(loop.config.get("_reply_language")),
             }
         )
     from arelis.talk_language import reply_instruction
@@ -265,4 +270,5 @@ def append_delivery_context(
     lang_note = reply_instruction(loop.config.get("_reply_language"))
     if lang_note:
         messages.append({"role": "system", "content": lang_note})
+    messages.append({"role": "system", "content": theme_line()})
     messages.append({"role": "system", "content": now_line()})

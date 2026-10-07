@@ -28,9 +28,7 @@ from arelis.ui.turn_watchdog import (
     HUNG_MESSAGE,
     arm_hung_turn,
     disarm_hung_turn,
-    on_hung_tick,
     on_hung_turn,
-    paint_hung_countdown,
     pause_hung_turn,
     resume_hung_turn,
 )
@@ -73,13 +71,14 @@ class WindowTurn:
             item.tool,
             item.summary,
             detail=item.detail,
-            note=item.note or "Restored pending send — nothing was sent while you were away.",
+            note=item.note or "Restored pending send, nothing was sent while you were away.",
             batch_ok=item.batch_ok,
         )
         self._set_confirm_pending(True)
         self.thinking.append(f"confirm  {item.summary}", kind="tool")
         if self.isHidden():
-            self.show_from_tray()
+            self.show_from_tray(activate=False)
+            flash_taskbar(self)
 
     def _on_index_tick(self) -> None:
         if self._force_quit or self._disposed:
@@ -124,7 +123,7 @@ class WindowTurn:
 
         store = self.store
         if store is None or not store.session_id:
-            self.chat.add_system("Nothing to export — this conversation is empty.")
+            self.chat.add_system("Nothing to export: this conversation is empty.")
             return
         rows = store.get_messages(store.session_id)
         try:
@@ -192,7 +191,7 @@ class WindowTurn:
         """Composer hint while waiting for first token (L1 cold TTFT)."""
         pending = getattr(self.router, "warmup_pending", None)
         if callable(pending) and pending():
-            tip = "loading the model — first reply after that is quick"
+            tip = "loading the model: first reply after that is quick"
         else:
             model = str((self.config.get("models") or {}).get(role) or self._current_model or "")
             tip = f"thinking… ({role}" + (f":{model}" if model else "") + ")"
@@ -274,9 +273,6 @@ class WindowTurn:
     def _on_hung_turn(self) -> None:
         on_hung_turn(self)
 
-    def _on_hung_tick(self) -> None:
-        on_hung_tick(self)
-
     def _on_stop_declined(self) -> None:
         """Esc on a turn that has painted nothing. Explain instead of cancelling.
 
@@ -285,7 +281,7 @@ class WindowTurn:
         the send was cancelled before its Allow card existed.
         """
         message = (
-            "Still working — the answer is held back until the tools finish. "
+            "Still working: the answer is held back until the tools finish. "
             "Press stop to cancel it."
         )
         self.thinking.append(message, kind="status")
@@ -395,8 +391,6 @@ class WindowTurn:
             self.chat.show_progress(self._busy_status_line())
             if not was:
                 arm_hung_turn(self)
-            else:
-                paint_hung_countdown(self)
         else:
             disarm_hung_turn(self)
             self.chat.clear_progress()

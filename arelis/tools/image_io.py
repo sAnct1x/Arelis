@@ -24,7 +24,7 @@ loaded at tens of thousands of tokens, so it can take a longer edge.
 
 Measured against qwen2.5vl:3b, the cost of the picture alone: 1024px is 1,100
 tokens, 1280px is 1,221, 1600px is 1,849. All three answer correctly, so 1024
-is the fallback cap — margin on a 4096 window, not a quality target. When the
+is the fallback cap, margin on a 4096 window, not a quality target. When the
 chat model looks, 2048 is the cap: enough that a phone photo of a monitor
 still has readable chrome, without shipping a 4K paste as-is.
 
@@ -38,7 +38,12 @@ from pathlib import Path
 from typing import Any
 
 from arelis.paths import outputs_dir, state_dir, user_data_dir
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    WorkspaceRoots,
+    refuse_unsafe_windows_path,
+    safe_resolve,
+)
 
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 
@@ -79,12 +84,15 @@ def readable_image_roots() -> tuple[Path, ...]:
 
 
 def _under_own_roots(raw: str) -> Path | None:
-    """The path a drops/outputs-relative or absolute reference points at."""
-    candidate = Path(raw)
-    if not candidate.is_absolute():
-        candidate = user_data_dir() / candidate
+    """The path a drops/outputs-relative or absolute reference points at.
+
+    Raises PermissionError with UNSAFE_WINDOWS_PATH_MSG for UNC / NT device
+    strings and does not resolve them. Returns None when the path is safe
+    to resolve but is not under a readable image root.
+    """
+    refuse_unsafe_windows_path(raw)
     try:
-        candidate = candidate.resolve()
+        candidate = safe_resolve(raw, base=user_data_dir())
     except OSError:
         return None
     for root in readable_image_roots():
@@ -106,12 +114,15 @@ def resolve_image(workspace: WorkspaceRoots | None, path_str: str) -> Path:
     raw = (path_str or "").strip()
     if not raw:
         raise ValueError("Missing path")
+    refuse_unsafe_windows_path(raw)
 
     found: Path | None = None
     if workspace is not None:
         try:
             found = workspace.resolve_read(raw).path
-        except (ValueError, PermissionError, FileNotFoundError):
+        except (ValueError, PermissionError, FileNotFoundError) as exc:
+            if str(exc) == UNSAFE_WINDOWS_PATH_MSG:
+                raise
             found = None
 
     # A workspace hit that does not exist is not better than a drops hit that

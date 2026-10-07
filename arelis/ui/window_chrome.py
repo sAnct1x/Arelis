@@ -140,7 +140,7 @@ class WindowChrome:
         """Plates the 10 Hz tick may invalidate.
 
         Conversation is type in the void. A 10 Hz repaint on that
-        translucent surface — or on RoomStrip / DriveStrip sitting on it —
+        translucent surface, or on RoomStrip / DriveStrip sitting on it
         is the duplicate-orbit / ghost-tick path. Companion HWNDs
         (world, calendar) have their own timers.
         """
@@ -308,6 +308,23 @@ class WindowChrome:
             self._theme_group.addAction(act)
             self.addAction(act)
             self._theme_actions[theme_id] = act
+
+        from arelis.talk_language import session_code
+
+        self._lang_group = QActionGroup(self)
+        self._lang_group.setExclusive(True)
+        self._lang_actions: dict[str, QAction] = {}
+        current_lang = session_code(self.config)
+        for code, label in (("en", "English"), ("zh", "简体中文")):
+            act = QAction(label, self)
+            act.setCheckable(True)
+            act.setChecked(code == current_lang)
+            act.triggered.connect(
+                lambda checked=False, lang=code: self._choose_language(lang, checked)
+            )
+            self._lang_group.addAction(act)
+            self.addAction(act)
+            self._lang_actions[code] = act
 
         self.act_dictate = QAction("dictate", self)
         self.act_dictate.triggered.connect(self.conversation.toggle_dictate)
@@ -598,7 +615,12 @@ class WindowChrome:
         menu.addSeparator()
         menu.addAction(self.act_always_on_top)
         menu.addAction(self.act_fullscreen)
-        themes = menu.addMenu("themes")
+        from arelis.i18n import tr
+
+        language = menu.addMenu(tr("Language"))
+        for act in self._lang_actions.values():
+            language.addAction(act)
+        themes = menu.addMenu(tr("themes"))
         for act in self._theme_actions.values():
             themes.addAction(act)
         menu.addSeparator()
@@ -653,6 +675,7 @@ class WindowChrome:
         if hasattr(self, "act_world"):
             self.act_world.setChecked(not self.world_window.isHidden())
         self._sync_theme_checks()
+        self._sync_language_checks()
 
     def _sync_theme_checks(self) -> None:
         from arelis.ui.theme import active_theme
@@ -662,6 +685,22 @@ class WindowChrome:
             act.blockSignals(True)
             act.setChecked(theme_id == current)
             act.blockSignals(False)
+
+    def _sync_language_checks(self) -> None:
+        from arelis.talk_language import session_code
+
+        current = session_code(self.config)
+        for code, act in getattr(self, "_lang_actions", {}).items():
+            act.blockSignals(True)
+            act.setChecked(code == current)
+            act.blockSignals(False)
+
+    def _choose_language(self, code: str, checked: bool) -> None:
+        if not checked:
+            return
+        from arelis.ui.settings_host import apply_session_language
+
+        apply_session_language(self, code)
 
     def _choose_theme(self, theme_id: str, checked: bool) -> None:
         if not checked:
@@ -674,11 +713,11 @@ class WindowChrome:
             ok = confirm(
                 self,
                 "filament (testing)",
-                "a test face. it wants a row of desks — three is the intended layout.",
+                "a test face. it wants a row of desks, three is the intended layout.",
                 detail=(
                     "sodium is the app. filament is a checkout experiment for a "
                     "three-monitor desk; 1 and 2 still work. talk does not need a "
-                    "chat tile. plates float — drag them. right-click for themes. "
+                    "chat tile. plates float, drag them. right-click for themes. "
                     "sodium is one click."
                 ),
                 confirm_text="enter filament",

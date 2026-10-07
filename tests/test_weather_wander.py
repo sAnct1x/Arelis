@@ -10,17 +10,11 @@ arelis/tools/weather.py, which pins that small models invent the lat/lon of
 whichever big city they have seen most often. So there is nothing
 `user_location` can return that `weather` can accept.
 
-Two sibling mechanisms should have caught it and neither does:
-
-  `_hide_daily_wander` drops `_WEATHER_WANDER` when weather is expected, but
-  that set is only {web_search, scrape, web_fetch}. Hiding those three is what
-  pushes the model onto `user_location`, which stays visible.
-
-  `redirect_weather` in call_redirects.py fires on `name in _WEATHER_WANDER`,
-  so it inherits the same hole and never sees the call.
-
-`_SMS_WANDER` already lists `user_location` for exactly this reason. The two
-paths disagree, and the weather one is the one that is wrong.
+`_hide_daily_wander` drops `_WEATHER_WANDER` when weather is expected.
+`user_location` belongs in that set: hiding only the search tools is what
+pushed the model onto it. Weather is forced by the preinject now; this file
+only checks the set. `_SMS_WANDER` already lists `user_location` for the
+same reason.
 """
 
 from __future__ import annotations
@@ -58,8 +52,8 @@ def test_user_location_is_hidden_on_a_weather_turn() -> None:
     assert "user_location" not in offered
 
 
-def test_redirect_weather_covers_the_tool_the_model_actually_picks() -> None:
-    """redirect_weather triggers on membership here, so the hole is in the set."""
+def test_user_location_is_in_the_weather_wander_set() -> None:
+    """``_hide_daily_wander`` drops this set on a weather turn, so the hole is in the set."""
     assert "user_location" in _WEATHER_WANDER
 
 

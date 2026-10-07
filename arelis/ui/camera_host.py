@@ -7,6 +7,7 @@ import time
 
 from arelis.paths import display_path
 from arelis.spatial.depth import ESTIMATOR
+from arelis.spatial.grammar import hand_act
 from arelis.spatial.scene import GRAVITY, REACH_DEFAULT, image_to_world
 from arelis.spatial.types import grab_drive
 from arelis.ui.dock_surface import chrome_applying
@@ -103,6 +104,13 @@ def hand_depth(window, who: str, hand: object, stamp: float, frame: object) -> f
     )
 
 
+def scene_pose(*, closed: bool, dragging: bool, company: int) -> tuple[bool, str]:
+    """Shapes see a pinch only for a grab or a resize. A click stays open."""
+    act = hand_act(closed=closed, dragging=dragging, company=company)
+    grab = act in ("grab", "resize")
+    return grab, "pinch" if grab else "open"
+
+
 def on_spatial_hands(window, frame: object) -> None:
     if frame is None:
         window._closed_off.clear()
@@ -125,7 +133,7 @@ def on_spatial_hands(window, frame: object) -> None:
     for track in tracks:
         st = str(getattr(track, "state", "") or "")
         who = str(getattr(track, "who", "") or "")
-        if who and st in ("fist", "pinch"):
+        if who and st == "pinch":
             closed_kinds[who] = st
         held = getattr(track, "hand", None)
         if (
@@ -146,12 +154,14 @@ def on_spatial_hands(window, frame: object) -> None:
     reach = getattr(window, "_world_reach", REACH_DEFAULT)
     stamp = float(getattr(frame, "t_capture", time.perf_counter()))
     apertures: list[tuple[tuple[float, float], tuple[float, float], bool]] = []
+    # Paint stays closed on a still pinch. Solar only flies once it travels.
+    lead_grab = False
     alive: set[str] = set()
     ordered = sorted(
         tracks,
         key=lambda track: (
             0
-            if str(getattr(track, "state", "") or "") in ("fist", "pinch")
+            if str(getattr(track, "state", "") or "") == "pinch"
             else 1,
             0
             if getattr(track, "who", "") == "Left"
@@ -160,6 +170,12 @@ def on_spatial_hands(window, frame: object) -> None:
             else 2,
             str(getattr(track, "who", "")),
         ),
+    )
+    company = sum(
+        1
+        for track in ordered
+        if getattr(track, "hand", None) is not None
+        and str(getattr(track, "state", "") or "") == "pinch"
     )
     for track in ordered:
         who = str(getattr(track, "who", "") or "")
@@ -170,7 +186,7 @@ def on_spatial_hands(window, frame: object) -> None:
         if who in held and dragging:
             alive.add(who)
         if getattr(track, "coasting", False):
-            if who in held and st in ("fist", "pinch"):
+            if who in held and st == "pinch":
                 alive.add(who)
                 if window.world_scene.is_flicking(who):
                     window.world_scene.drop(t=stamp, who=who)
@@ -189,8 +205,10 @@ def on_spatial_hands(window, frame: object) -> None:
                 window.world_scene.forget_pending(who)
             continue
         thumb, index = hand.pinch_tips()
-        closed = st in ("fist", "pinch")
-        grabbing = dragging or st == "fist"
+        closed = st == "pinch"
+        # One hand: travel is the grab. Two closed pinches resize,
+        # even before either wrist has moved.
+        grabbing, pose = scene_pose(closed=closed, dragging=dragging, company=company)
         centroid, off = grab_drive(
             hand, closed=closed, offset=window._closed_off.get(who)
         )
@@ -205,8 +223,8 @@ def on_spatial_hands(window, frame: object) -> None:
         else:
             cw = image_to_world(*centroid, reach=reach)
         ang = None
-        if st == "fist" and hasattr(hand, "palm_angle"):
-            ang = hand.palm_angle()
+        if grabbing and hasattr(hand, "aim_angle"):
+            ang = hand.aim_angle()
         if not solar:
             window.world_scene.apply_pointer(
                 cw[0],
@@ -214,13 +232,17 @@ def on_spatial_hands(window, frame: object) -> None:
                 grabbing,
                 t=stamp,
                 who=who,
-                kind=st if grabbing else "open",
+                kind=pose,
                 z=hand_depth(window, who, hand, stamp, frame),
                 angle=ang,
             )
-        if st == "fist":
-            apertures.append((cw, cw, True))
-        elif st == "pinch":
+        if not apertures:
+            # Solar looks on a grab. A pair resizes a shape; it does not yaw.
+            lead_grab = (
+                hand_act(closed=closed, dragging=bool(dragging), company=company)
+                == "grab"
+            )
+        if closed:
             apertures.append((tw, ti, True))
         else:
             apertures.append((tw, ti, False))
@@ -233,8 +255,8 @@ def on_spatial_hands(window, frame: object) -> None:
         window.world_scene.forget_absent(live, t=stamp)
     if not tracks and hands:
         hand = hands[0]
-        holding = state in ("fist", "pinch", "both")
-        kind = "fist" if state in ("fist", "both") else "pinch" if state == "pinch" else "open"
+        holding = state == "pinch"
+        kind = "pinch" if holding else "open"
         centroid, off = grab_drive(
             hand, closed=holding, offset=window._closed_off.get("")
         )
@@ -251,10 +273,9 @@ def on_spatial_hands(window, frame: object) -> None:
                 t=stamp,
                 kind=kind,
                 z=hand_depth(window, "", hand, stamp, frame),
+                angle=hand.aim_angle() if holding else None,
             )
-        if holding and kind == "fist":
-            apertures.append((cw, cw, True))
-        elif holding:
+        if holding:
             thumb, index = hand.pinch_tips()
             apertures.append(
                 (
@@ -295,7 +316,7 @@ def on_spatial_hands(window, frame: object) -> None:
     if world_up:
         if solar:
             if apertures:
-                (t0, i0, pinched) = apertures[0]
+                (t0, i0, _closed) = apertures[0]
                 mx = (t0[0] + i0[0]) * 0.5
                 my = (t0[1] + i0[1]) * 0.5
                 span = math.hypot(t0[0] - i0[0], t0[1] - i0[1])
@@ -306,7 +327,7 @@ def on_spatial_hands(window, frame: object) -> None:
                     if hand0 is not None:
                         z = hand_depth(window, who0, hand0, stamp, frame)
                 window.world_window.solar.apply_hand(
-                    mx, my, pinched=pinched, span=span, palm_z=z
+                    mx, my, pinched=lead_grab, span=span, palm_z=z
                 )
             else:
                 window.world_window.solar.apply_hand(

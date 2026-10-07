@@ -614,12 +614,20 @@ class MobileHub:
     def _phone_speech(self, text: str, language: str) -> None:
         """Kokoro for the phone speaker. Does not play on the PC."""
         try:
-            from arelis.talk_language import is_english
+            from arelis.talk_language import normalize
 
-            if not is_english(language):
+            code = normalize(language) if str(language or "").strip() else "en"
+            if code not in {"en", "zh"}:
                 return
             fn = self.speak_fn
-            blob = fn(text) if fn is not None else None
+            if fn is None:
+                return
+            try:
+                blob = fn(text, code)
+            except TypeError:
+                if code != "en":
+                    return
+                blob = fn(text)
             if blob:
                 self._emit(
                     {

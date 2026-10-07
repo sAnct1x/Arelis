@@ -1,0 +1,196 @@
+[
+  {
+    "function": {
+      "description": "desk notes. action=add|list|search|read. same folder as keep this",
+      "name": "notes",
+      "parameters": {
+        "properties": {
+          "action": {
+            "enum": [
+              "add",
+              "list",
+              "search",
+              "read"
+            ],
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "sandbox files: list/read/grep/find/write/edit/patch/delete/move/rename/copy. patch=unified diff. writes confirm",
+      "name": "workspace",
+      "parameters": {
+        "properties": {
+          "action": {
+            "enum": [
+              "list",
+              "read",
+              "grep",
+              "find",
+              "write",
+              "edit",
+              "patch",
+              "apply",
+              "delete",
+              "move",
+              "rename",
+              "copy",
+              "keep"
+            ],
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "glob": {
+            "type": "string"
+          },
+          "max_chars": {
+            "type": "integer"
+          },
+          "max_results": {
+            "type": "integer"
+          },
+          "new": {
+            "type": "string"
+          },
+          "old": {
+            "type": "string"
+          },
+          "patch": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "regex": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "short list. action=list|add|update|done|drop. fix a typo with update, not remove+add",
+      "name": "tasks",
+      "parameters": {
+        "properties": {
+          "action": {
+            "enum": [
+              "list",
+              "add",
+              "update",
+              "done",
+              "reopen",
+              "remove",
+              "attach",
+              "detach"
+            ],
+            "type": "string"
+          },
+          "due": {
+            "type": "string"
+          },
+          "goal_id": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "parent_id": {
+            "type": "integer"
+          },
+          "priority": {
+            "enum": [
+              "high",
+              "normal",
+              "low"
+            ],
+            "type": "string"
+          },
+          "recurrence": {
+            "enum": [
+              "daily",
+              "weekly",
+              "weekdays",
+              "monthly"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "done",
+              "all"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  }
+]

@@ -223,8 +223,14 @@ def _same_open_url(current: str, wanted: str) -> bool:
     return a_base == b_base
 
 
-# Glow beat before click. Tests set this to 0.
-GLOW_S = 0.4
+# Outline wait. 0: she clicks immediately. The old 0.4s beat used a
+# document.querySelector that misses shadow DOM and iframes, so the
+# outline often never painted and the drive still paid the wait.
+GLOW_S = 0
+# Action ceiling. A covered or detached node used to sit for 10s, then
+# the model spent another round. Fail fast and restamp once instead.
+CLICK_TIMEOUT_MS = 2_000
+NAV_TIMEOUT_MS = 8_000
 
 # Count trusted pointerdowns so a user grab mid-drive is not our own click.
 _HANDS_JS = """
@@ -252,7 +258,11 @@ _CDP_DEAD_TIPS = (
     "websocket",
     "cdp",
 )
-SETTLE_S = 4.0
+# How long to keep retrying the connect while Chrome starts.
+_CDP_CONNECT_BUDGET_S = 18.0
+_CDP_CONNECT_BACKOFF_S = 0.25
+_CDP_CONNECT_BACKOFF_CAP_S = 2.0
+SETTLE_S = 1.0
 SETTLE_POLL_S = 0.2
 
 SETTLE_HAS_RESULT_JS = r"""() => {
@@ -345,7 +355,9 @@ def normalize_press_key(key: str) -> str | None:
 
 
 async def _glow_ref(page: Any, ref: str) -> bool:
-    """Outline the target in-page (not the OS mouse), then wait a beat."""
+    """Outline the target in-page. No wait when GLOW_S is 0."""
+    if GLOW_S <= 0:
+        return False
     try:
         ok = await page.evaluate(
             """(ref) => {
@@ -366,7 +378,9 @@ async def _glow_ref(page: Any, ref: str) -> bool:
 
 
 async def _glow_xy(page: Any, x: float, y: float) -> bool:
-    """Dot the pixel target in-page, then wait a beat."""
+    """Dot the pixel target in-page. No wait when GLOW_S is 0."""
+    if GLOW_S <= 0:
+        return False
     try:
         ok = await page.evaluate(
             """([x, y]) => {
@@ -615,7 +629,7 @@ class FakeDriver:
             return ActionResult(
                 ok=False,
                 output=(
-                    f"{label} profile in use — already open without debugging. "
+                    f"{label} profile in use, already open without debugging. "
                     "open/navigate will restart with control after Allow, then "
                     f"open the URL. Or close {label} / Allow relaunch. "
                     "Do not screenshot until connected."
@@ -638,7 +652,7 @@ class FakeDriver:
         )
 
     async def open_url_os(self, url: str, browser: str = "chrome") -> ActionResult:
-        """Plain open for tests — no lock / relaunch path."""
+        """Plain open for tests, no lock / relaunch path."""
         self.browser = browser
         self.connected = True
         self.mode = "os_open"
@@ -800,9 +814,6 @@ class FakeDriver:
                 wall,
                 ok=False,
             )
-        if self.user_took_over:
-            self.user_took_over = False
-            return _hands_result(url=self.url)
         self.glowed.append(ref)
         self.clicked.append(ref)
         if info.href:
@@ -953,7 +964,7 @@ class FakeDriver:
                 ok=False,
                 output=(
                     "Refused to type into a password/OTP field. "
-                    "Arelis does not enter credentials — sign in yourself."
+                    "Arelis does not enter credentials, sign in yourself."
                 ),
                 data={"code": "SECRET_FIELD", "ref": ref},
             )
@@ -1019,7 +1030,7 @@ class FakeDriver:
                 self._future.clear()
                 return ActionResult(
                     ok=True,
-                    output="Closed the last tab — blank tab stays.",
+                    output="Closed the last tab, blank tab stays.",
                     data={"tabs": list(self._tabs), "active": 0},
                 )
             self._tabs.pop(self._active)
@@ -1207,7 +1218,7 @@ class FakeDriver:
         if hit:
             return ActionResult(
                 ok=True,
-                output=f"Watch hit — {self.url}",
+                output=f"Watch hit, {self.url}",
                 data={
                     "hit": True,
                     "watch_hit": True,
@@ -1217,7 +1228,7 @@ class FakeDriver:
             )
         return ActionResult(
             ok=True,
-            output=f"Watch still waiting — {self.url}",
+            output=f"Watch still waiting, {self.url}",
             data={"hit": False, "url": self.url, "title": self.title},
         )
 
@@ -1336,8 +1347,15 @@ class FakeDriver:
 class PlaywrightDriver:
     """Drive a real browser via Playwright CDP or Firefox launch."""
 
-    def __init__(self, *, cdp_url: str = "http://127.0.0.1:9222") -> None:
+    def __init__(
+        self, *, cdp_url: str = "http://127.0.0.1:9222", fresh_profile: bool = False
+    ) -> None:
         self.cdp_url = cdp_url.rstrip("/")
+        # tools.browser.fresh_profile (default false): when true the first window
+        # this process opens starts empty; later relaunches in the same run keep
+        # that window's state.
+        self.fresh_profile = bool(fresh_profile)
+        self._window_opened = False
         self._pw: Any = None
         self._browser: Any = None
         self._context: Any = None
@@ -1393,31 +1411,51 @@ class PlaywrightDriver:
             )
             self.cdp_url = chosen
 
+        fresh = self.fresh_profile and not self._window_opened
+        if (
+            fresh
+            and not relaunch
+            and launch_mod.cdp_is_up(self.cdp_url)
+            and launch_mod.cdp_port_is_arelis(self.cdp_url) is True
+        ):
+            # Her window from an earlier run is still open. Its tabs and cookies
+            # are not this session's: replace it rather than attach to it.
+            relaunch = True
+
         if relaunch:
             launch_mod.terminate_browser_processes(browser)  # type: ignore[arg-type]
             await self._close_pw()
             proc = launch_mod.launch_chromium_cdp(
                 browser,  # type: ignore[arg-type]
                 cdp_url=self.cdp_url,
-                restore_session=True,
+                restore_session=not fresh,
+                fresh_profile=fresh,
             )
             if proc is None:
+                log.warning("could not find %s executable", browser)
                 return ActionResult(
                     ok=False,
-                    output=f"Could not find {browser} executable.",
+                    output="I couldn't find the browser on this computer.",
                     data={"code": "NO_EXECUTABLE"},
                 )
             if not launch_mod.wait_for_cdp(self.cdp_url, timeout_s=20.0):
+                log.warning(
+                    "launched %s but CDP did not come up on %s",
+                    browser,
+                    self.cdp_url,
+                )
                 return ActionResult(
                     ok=False,
-                    output=f"Launched {browser} but CDP did not come up on {self.cdp_url}.",
+                    output="The browser didn't open properly. Try again in a moment.",
                     data={"code": "CDP_TIMEOUT"},
                 )
             self._fresh_launch = True
+            self._window_opened = True
             self._placed = False
             return await self._attach_cdp(mode="relaunch")
 
         if launch_mod.cdp_is_up(self.cdp_url):
+            self._window_opened = True
             return await self._attach_cdp(mode="attach")
 
         # Try launch with user profile.
@@ -1427,7 +1465,7 @@ class PlaywrightDriver:
                 output=(
                     "Arelis Chrome is open but not controllable "
                     f"(CDP down on {self.cdp_url}). Allow relaunch to restart "
-                    "HER window only — daily Chrome is left alone. "
+                    "HER window only, daily Chrome is left alone. "
                     "Do not screenshot until connected."
                 ),
                 data={"code": "PROFILE_LOCKED", "browser": browser},
@@ -1436,12 +1474,14 @@ class PlaywrightDriver:
         proc = launch_mod.launch_chromium_cdp(
             browser,  # type: ignore[arg-type]
             cdp_url=self.cdp_url,
-            restore_session=True,
+            restore_session=not fresh,
+            fresh_profile=fresh,
         )
         if proc is None:
+            log.warning("could not find %s executable", browser)
             return ActionResult(
                 ok=False,
-                output=f"Could not find {browser} executable.",
+                output="I couldn't find the browser on this computer.",
                 data={"code": "NO_EXECUTABLE"},
             )
         if not launch_mod.wait_for_cdp(self.cdp_url, timeout_s=15.0):
@@ -1456,12 +1496,18 @@ class PlaywrightDriver:
                     ),
                     data={"code": "PROFILE_LOCKED", "browser": browser},
                 )
+            log.warning(
+                "launched %s but CDP did not come up on %s",
+                browser,
+                self.cdp_url,
+            )
             return ActionResult(
                 ok=False,
-                output=f"Launched {browser} but CDP did not come up on {self.cdp_url}.",
+                output="The browser didn't open properly. Try again in a moment.",
                 data={"code": "CDP_TIMEOUT"},
             )
         self._fresh_launch = True
+        self._window_opened = True
         self._placed = False
         return await self._attach_cdp(mode="launch")
 
@@ -1523,7 +1569,32 @@ class PlaywrightDriver:
 
         await self._close_pw()
         self._pw = await async_playwright().start()
-        self._browser = await self._pw.chromium.connect_over_cdp(self.cdp_url)
+        # Chrome can answer on the debug port, then refuse the connect for a
+        # few seconds while it starts. Retry with backoff before giving up.
+        deadline = time.monotonic() + _CDP_CONNECT_BUDGET_S
+        delay = _CDP_CONNECT_BACKOFF_S
+        browser: Any = None
+        while browser is None:
+            try:
+                browser = await self._pw.chromium.connect_over_cdp(self.cdp_url)
+            except Exception as exc:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    log.warning("browser did not accept a connection in time: %s", exc)
+                    await self._close_pw()
+                    return ActionResult(
+                        ok=False,
+                        output="The browser took too long to open. Try again in a moment.",
+                        data={
+                            "code": "CDP_TIMEOUT",
+                            "reason": "connect_refused",
+                            "mode": mode,
+                        },
+                    )
+                log.info("connect_over_cdp failed; retrying: %s", exc)
+                await asyncio.sleep(min(delay, remaining))
+                delay = min(delay * 2, _CDP_CONNECT_BACKOFF_CAP_S)
+        self._browser = browser
         contexts = self._browser.contexts
         self._context = contexts[0] if contexts else await self._browser.new_context()
         self._page = await self._pick_page()
@@ -1544,7 +1615,7 @@ class PlaywrightDriver:
     async def _present_window(self) -> None:
         """Show her Chrome. Park only a window we just started.
 
-        After that the operator owns size and place. Clicks are CDP — the
+        After that the operator owns size and place. Clicks are CDP, the
         window does not need focus. It does need to be in front of Arelis
         the first time it opens, not behind the glass.
         """
@@ -1655,12 +1726,18 @@ class PlaywrightDriver:
         self._refs.clear()
 
     async def _require_page(self) -> ActionResult | None:
-        if self._page is None:
+        page = self._page
+        if page is None:
             return ActionResult(
                 ok=False,
                 output="Browser not connected. Call open or relaunch first.",
                 data={"code": "NOT_CONNECTED"},
             )
+        try:
+            page.set_default_timeout(CLICK_TIMEOUT_MS)
+            page.set_default_navigation_timeout(NAV_TIMEOUT_MS)
+        except Exception:
+            pass
         return None
 
     async def _install_hands(self) -> None:
@@ -1958,6 +2035,23 @@ class PlaywrightDriver:
             self._page = None
             return _playwright_fail(exc)
 
+    async def _click_once(self, ref: str, info: ElementInfo) -> ActionResult:
+        assert self._page is not None
+        try:
+            loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
+            await loc.first.click(timeout=CLICK_TIMEOUT_MS)
+            return ActionResult(
+                ok=True,
+                output=f"Clicked [{ref}] {info.text or info.tag}",
+                data={
+                    "ref": ref,
+                    "url": self._page.url,
+                    "label": info.text,
+                },
+            )
+        except Exception as exc:
+            return self._fail_keep_or_drop(exc)
+
     async def click(self, ref: str) -> ActionResult:
         err = await self._require_page()
         if err:
@@ -1982,59 +2076,30 @@ class PlaywrightDriver:
                 wall,
                 ok=False,
             )
-        hands = await self._consume_hands()
-        if hands is not None:
-            return hands
-        try:
-            await _glow_ref(self._page, ref)
-            hands = await self._consume_hands()
-            if hands is not None:
-                return hands
-            before = await self._ptr_count()
-            loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
-            await loc.first.click(timeout=10_000)
-            after = await self._ptr_count()
-            if after > before + 1:
-                self._ptr_seen = after
-                return _hands_result(
-                    url=str(self._page.url or ""),
-                    extra="You have the mouse. I stopped clicking.",
-                )
-            self._ptr_seen = after
-            try:
-                await self._page.wait_for_load_state(
-                    "domcontentloaded", timeout=4_000
-                )
-            except Exception:
-                pass
-            await self.settle()
-            return ActionResult(
-                ok=True,
-                output=f"Clicked [{ref}] {info.text or info.tag}",
-                data={
-                    "ref": ref,
-                    "url": self._page.url,
-                    "glowed": True,
-                    "label": info.text,
-                },
+        first = await self._click_once(ref, info)
+        if first.ok or str((first.data or {}).get("code") or "") == "CDP_DEAD":
+            return first
+        # Stale stamp: the outline found a node the click could not use.
+        # Restamp once and try the same words again, inside this call.
+        label = (info.text or info.name or "").strip()
+        snap = await self.snapshot(max_chars=800)
+        if not snap.ok:
+            return first
+        retry_ref = ""
+        if label:
+            from arelis.browser.snapshot import resolve_target_ref
+
+            hit, resolve_err, _matches = resolve_target_ref(
+                self._refs, text=label, kind="click"
             )
-        except Exception as extra_exc:
-            try:
-                now = await self._ptr_count()
-            except Exception:
-                now = self._ptr_seen
-            if now > self._ptr_seen:
-                self._ptr_seen = now
-                url = ""
-                try:
-                    url = str(self._page.url or "") if self._page is not None else ""
-                except Exception:
-                    url = ""
-                return _hands_result(
-                    url=url,
-                    extra="You have the mouse. I stopped clicking.",
-                )
-            return self._fail_keep_or_drop(extra_exc)
+            if hit and not resolve_err:
+                retry_ref = hit
+        if not retry_ref and ref in self._refs:
+            retry_ref = ref
+        if not retry_ref:
+            return first
+        second = await self._click_once(retry_ref, self._refs[retry_ref])
+        return second if second.ok else first
 
     async def hover(
         self,
@@ -2139,14 +2204,14 @@ class PlaywrightDriver:
                 await _glow_ref(self._page, ref)
                 loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
                 if verb == "hover":
-                    await loc.first.hover(timeout=10_000)
+                    await loc.first.hover(timeout=CLICK_TIMEOUT_MS)
                 elif verb == "dblclick":
-                    await loc.first.dblclick(timeout=10_000)
+                    await loc.first.dblclick(timeout=CLICK_TIMEOUT_MS)
                 elif verb == "right_click":
-                    await loc.first.click(timeout=10_000, button="right")
+                    await loc.first.click(timeout=CLICK_TIMEOUT_MS, button="right")
                 elif verb == "drag":
                     dest = self._page.locator(f'[data-arelis-ref="{to}"]')
-                    await loc.first.drag_to(dest.first, timeout=10_000)
+                    await loc.first.drag_to(dest.first, timeout=CLICK_TIMEOUT_MS)
             label = (info.text if info is not None else "") or ref or "pixels"
             return ActionResult(
                 ok=True,
@@ -2186,33 +2251,19 @@ class PlaywrightDriver:
                 ok=False,
                 output=(
                     "Refused to type into a password/OTP field. "
-                    "Arelis does not enter credentials — sign in yourself."
+                    "Arelis does not enter credentials, sign in yourself."
                 ),
                 data={"code": "SECRET_FIELD", "ref": ref},
             )
-        hands = await self._consume_hands()
-        if hands is not None:
-            return hands
         try:
             loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
-            await loc.first.fill(text, timeout=10_000)
-            self._ptr_seen = await self._ptr_count()
+            await loc.first.fill(text, timeout=CLICK_TIMEOUT_MS)
             return ActionResult(
                 ok=True,
                 output=f"Typed into [{ref}]",
                 data={"ref": ref, "length": len(text)},
             )
         except Exception as extra_exc:
-            try:
-                now = await self._ptr_count()
-            except Exception:
-                now = self._ptr_seen
-            if now > self._ptr_seen:
-                self._ptr_seen = now
-                return _hands_result(
-                    url=str(getattr(self._page, "url", "") or ""),
-                    extra="You have the mouse. I stopped typing.",
-                )
             return self._fail_keep_or_drop(extra_exc)
 
     async def tabs(
@@ -2263,7 +2314,7 @@ class PlaywrightDriver:
                     await current.goto("about:blank", wait_until="domcontentloaded")
                     return ActionResult(
                         ok=True,
-                        output="Closed the last tab — blank tab stays.",
+                        output="Closed the last tab, blank tab stays.",
                         data={"url": current.url, "title": await current.title()},
                     )
                 close_i = pages.index(current) if current in pages else 0
@@ -2434,12 +2485,12 @@ class PlaywrightDriver:
             return ActionResult(ok=False, output=f"[{ref}] is not a dropdown.")
         try:
             loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
-            await loc.first.select_option(label=value, timeout=8_000)
+            await loc.first.select_option(label=value, timeout=CLICK_TIMEOUT_MS)
             return ActionResult(ok=True, output=f"Selected {value!r} on [{ref}].")
         except Exception:
             try:
                 loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
-                await loc.first.select_option(value=value, timeout=8_000)
+                await loc.first.select_option(value=value, timeout=CLICK_TIMEOUT_MS)
                 return ActionResult(ok=True, output=f"Selected {value!r} on [{ref}].")
             except Exception as exc:
                 self._page = None
@@ -2545,7 +2596,7 @@ class PlaywrightDriver:
         if hit:
             return ActionResult(
                 ok=True,
-                output=f"Watch hit — {landed}",
+                output=f"Watch hit, {landed}",
                 data={
                     "hit": True,
                     "watch_hit": True,
@@ -2555,7 +2606,7 @@ class PlaywrightDriver:
             )
         return ActionResult(
             ok=True,
-            output=f"Watch still waiting — {landed}",
+            output=f"Watch still waiting, {landed}",
             data={
                 "hit": False,
                 "url": landed,
@@ -2582,7 +2633,7 @@ class PlaywrightDriver:
                 await _glow_ref(self._page, ref)
                 async with self._page.expect_download(timeout=15_000) as pending:
                     loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
-                    await loc.first.click(timeout=10_000)
+                    await loc.first.click(timeout=CLICK_TIMEOUT_MS)
                 item = await pending.value
             else:
                 return ActionResult(
@@ -2623,7 +2674,7 @@ class PlaywrightDriver:
         try:
             await _glow_ref(self._page, ref)
             loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
-            await loc.first.set_input_files(path, timeout=10_000)
+            await loc.first.set_input_files(path, timeout=CLICK_TIMEOUT_MS)
             return ActionResult(
                 ok=True,
                 output=f"Uploaded {Path(path).name} to [{ref}]",

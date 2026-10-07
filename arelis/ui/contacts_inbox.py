@@ -1,4 +1,4 @@
-"""Floating glass address book — View → contacts. Not a dock."""
+"""Floating glass address book, View → contacts. Not a dock."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from PySide6.QtGui import QKeySequence, QMouseEvent, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from arelis.ui.caption_fade import CaptionTool, watch_caption
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.panels.contacts import ContactsPanel
@@ -73,7 +73,7 @@ class ContactsInboxWindow(QWidget):
         heading.setToolTip("Drag to move")
         heading.installEventFilter(self)
         head.addWidget(heading, stretch=1)
-        close_btn = QToolButton()
+        close_btn = CaptionTool()
         close_btn.setObjectName("SettingsClose")
         close_btn.setIcon(window_close_icon(12))
         close_btn.setFixedSize(28, 28)
@@ -81,6 +81,7 @@ class ContactsInboxWindow(QWidget):
         close_btn.setToolTip("Close")
         close_btn.clicked.connect(self.close)
         head.addWidget(close_btn)
+        watch_caption(self, close_btn)
         root.addLayout(head)
 
         self.panel = panel

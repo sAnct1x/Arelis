@@ -1,8 +1,7 @@
 """Pause latch for the Drive strip.
 
-Stop still cancels the turn. Pause only freezes glow / wait / the next tool
-step; the page stays. The UI and the orchestrator share this module flag so a
-click already in its glow beat can hold without extra plumbing through Playwright.
+Stop still cancels the turn. Pause freezes the next wait and the next tool
+step; the page stays. The UI and the orchestrator share this module flag.
 """
 
 from __future__ import annotations
@@ -156,5 +155,5 @@ def format_drive_done(
     if act == "snapshot":
         return "read the page"
     if act == "watch":
-        return "Watching — hit" if data.get("watch_hit") else ""
+        return "Watching: hit" if data.get("watch_hit") else ""
     return ""

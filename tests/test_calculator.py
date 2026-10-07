@@ -155,23 +155,24 @@ async def test_an_ordinary_whole_float_is_still_shown_as_a_whole_number(calc):
 
 
 async def test_a_third_says_it_is_a_third(calc):
-    result = await calc.run(expression="1/3")
+    # Bare M/D is a calendar refuse; keep the fraction display covered with a cue.
+    result = await calc.run(expression="1/3 as a fraction")
     assert "0.3333333333333333" in result.output
     assert "exactly 1/3" in result.output
 
 
 async def test_a_terminating_fraction_gets_no_note(calc):
-    result = await calc.run(expression="1/4")
+    result = await calc.run(expression="1/4 as a fraction")
     assert result.output == "1/4 = 0.25"
 
 
 async def test_a_whole_answer_is_shown_as_a_whole_number(calc):
-    result = await calc.run(expression="10/5")
-    assert result.output == "10/5 = 2"
+    result = await calc.run(expression="15 divided by 3")
+    assert result.output == "15/3 = 5"
 
 
 def test_present_reduces_before_deciding():
-    shown, exact = present(evaluate_expression("2/4"))
+    shown, exact = present(evaluate_expression("15 divided by 30"))
     assert shown == 0.5
     assert exact == ""
 

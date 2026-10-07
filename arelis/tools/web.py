@@ -5,7 +5,11 @@ from typing import Any
 
 import httpx
 
-from arelis.core.evidence import classify_fetch_failure
+from arelis.core.evidence import (
+    challenge_fetch_notice,
+    classify_fetch_failure,
+    looks_like_challenge_page,
+)
 from arelis.tools.base import ToolResult
 from arelis.tools.fetch import (
     BlockedUrlError,
@@ -104,10 +108,12 @@ class WebFetchTool:
         timeout_s: float = 30,
         *,
         block_private_urls: bool = True,
+        offer_browser: bool = True,
     ) -> None:
         self.user_agent = user_agent
         self.timeout_s = timeout_s
         self.block_private_urls = block_private_urls
+        self.offer_browser = offer_browser
 
     async def run(self, **kwargs: Any) -> ToolResult:
         url = kwargs.get("url")
@@ -161,11 +167,28 @@ class WebFetchTool:
                     content=content,
                     block_private=self.block_private_urls,
                 )
-                response.raise_for_status()
                 body = response.text
                 final = str(response.url)
                 status = response.status_code
                 ctype = content_type_main(response.headers)
+                if looks_like_html(body, ctype) and looks_like_challenge_page(
+                    body, status
+                ):
+                    page = str(url).strip()
+                    msg = challenge_fetch_notice(
+                        page, offer_browser=self.offer_browser
+                    )
+                    return ToolResult(
+                        ok=False,
+                        output=_fail_output(msg),
+                        data={
+                            "status": status,
+                            "url": final,
+                            "content_type": ctype,
+                            "fail_class": "fail:challenge",
+                        },
+                    )
+                response.raise_for_status()
         except BlockedUrlError as exc:
             return ToolResult(ok=False, output=_fail_output(str(exc)))
         except Exception as exc:

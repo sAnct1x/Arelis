@@ -3,7 +3,7 @@
 The round cap is a fuse. This is the actual stop: a second list of the
 same folder, a second read of the same file, a second rooms get. A
 different path or different args still run. Failed calls do not count,
-so a retry after an error is allowed. Browser snapshots are not gated —
+so a retry after an error is allowed. Browser snapshots are not gated
 the page can change after a click.
 """
 
@@ -29,6 +29,7 @@ _SKIP_TOOLS = frozenset(
         "send_email",
         "inbox",
         "run_script",
+        "run_task",
         "schedule",
     }
 )
@@ -57,6 +58,8 @@ def same_call_key(name: str, args: dict[str, Any] | None) -> str | None:
         return _workspace_key(payload)
     if n == "research_report":
         return _research_report_key(payload)
+    if n == "document":
+        return _document_key(payload)
     if n == "browser":
         return _browser_nav_key(payload)
     return _generic_key(n, payload)
@@ -108,6 +111,13 @@ def same_call_notice(name: str, args: dict[str, Any]) -> str:
             "researching it again. Answer from the report you have, or "
             "change the question."
         )
+    if name == "document":
+        title = " ".join(str(args.get("title") or "").split())
+        shown = title or "that file"
+        return (
+            f"Already wrote “{shown}” this turn. It is on the desk. "
+            "Do not call document again. Do not paste the report into chat."
+        )
     if name == "browser":
         action = str(args.get("action") or "").strip().lower()
         if action == "wait":
@@ -138,7 +148,7 @@ _STRIP_TOOLS_ON_REPEAT = frozenset({"cas", "python", "units", "plot"})
 def same_call_finishes_turn(name: str) -> bool:
     """True when the prior receipt can stand as the chat line.
 
-    Calculator 2+2 can. A CAS blob cannot — they still owe the write-up.
+    Calculator 2+2 can. A CAS blob cannot, they still owe the write-up.
     """
     return (name or "").strip() in _FINISH_ON_REPEAT
 
@@ -156,10 +166,10 @@ def same_call_finish_line(name: str, last_out: str) -> str:
     """
     text = (last_out or "").strip()
     if text:
-        if (name or "").strip() == "calculator":
-            from arelis.core.failure_copy import pretty_calculator_chat
+        if (name or "").strip() in {"calculator", "units"}:
+            from arelis.core.failure_copy import plain_algebra_chat
 
-            return pretty_calculator_chat(text)
+            return plain_algebra_chat(text)
         if len(text) > 800:
             cut = text[:800]
             nl = cut.rfind("\n")
@@ -171,7 +181,7 @@ def same_call_finish_line(name: str, last_out: str) -> str:
 
 
 def is_browser_nav_call(name: str, args: dict[str, Any] | None) -> bool:
-    """True for open/navigate — the calls the same-URL fuse owns."""
+    """True for open/navigate, the calls the same-URL fuse owns."""
     if (name or "").strip() != "browser":
         return False
     action = str((args or {}).get("action") or "").strip().lower()
@@ -195,6 +205,20 @@ def _browser_nav_key(args: dict[str, Any]) -> str | None:
         return None
     url = url.split("#", 1)[0].rstrip("/")
     return f"browser|go|{url}"
+
+
+def _document_key(args: dict[str, Any]) -> str:
+    """Same title and format is one file, even if the body is rewritten.
+
+    Live 2026-09-26: she called document twice for the K2-18 b PDF.
+    The second call only added a filename, so the full-args key missed
+    it and she spent another minute regenerating the same file.
+    """
+    title = " ".join(str(args.get("title") or "").split()).casefold()
+    fmt = str(args.get("format") or "").strip().casefold() or "pdf"
+    if not title:
+        return _generic_key("document", args)
+    return f"document|{fmt}|{title}"
 
 
 def _research_report_key(args: dict[str, Any]) -> str:

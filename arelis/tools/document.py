@@ -18,12 +18,21 @@ from pathlib import Path
 from typing import Any
 
 from arelis.mathtext import display_math_plain, flatten_latex
-from arelis.paths import display_path, ensure, outputs_dir
+from arelis.paths import display_path, ensure, outputs_dir, user_data_dir
 from arelis.rooms import RoomStore
 from arelis.tools.base import ToolResult
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    WorkspaceRoots,
+    refuse_unsafe_windows_path,
+    safe_resolve,
+)
 
 _FORMATS = frozenset({"pdf", "docx", "xlsx", "csv", "md", "txt"})
+_SANS = "Zen Kaku Gothic New"
+_MONO = "Space Mono"
+_PDF_FACE = "Desk"
+_FONT_DIR = Path(__file__).resolve().parents[1] / "ui" / "fonts"
 _SOURCE_SUFFIXES = frozenset({".md", ".txt", ".csv", ".markdown"})
 _MAX_BODY = 120_000
 _MAX_ROWS = 5_000
@@ -172,6 +181,26 @@ def _parse_rows(raw: str, *, body: str) -> list[list[str]]:
     return [[_clean(ln)] for ln in lines[:_MAX_ROWS]]
 
 
+def _bundled_pair(regular_name: str, bold_name: str) -> tuple[str, str] | None:
+    regular = _FONT_DIR / regular_name
+    if not regular.is_file():
+        return None
+    bold = _FONT_DIR / bold_name
+    return str(regular), str(bold if bold.is_file() else regular)
+
+
+def _pdf_font_files() -> tuple[str, str, str | None]:
+    """Desk face, then IBM Plex, then matplotlib's DejaVu."""
+    for regular_name, bold_name in (
+        ("ZenKakuGothicNew-Regular.ttf", "ZenKakuGothicNew-Bold.ttf"),
+        ("IBMPlexSans-Regular.ttf", "IBMPlexSans-SemiBold.ttf"),
+    ):
+        pair = _bundled_pair(regular_name, bold_name)
+        if pair is not None:
+            return pair[0], pair[1], None
+    return _dejavu_paths()
+
+
 def _dejavu_paths() -> tuple[str, str, str | None]:
     from matplotlib import font_manager
 
@@ -221,7 +250,7 @@ def _pdf_table(pdf: Any, rows: list[list[str]]) -> None:
         pass
     usable = pdf.w - pdf.l_margin - pdf.r_margin
     col_w = usable / max(width, 1)
-    pdf.set_font("DejaVu", "", 10)
+    pdf.set_font(_PDF_FACE, "", 10)
     for data_row in padded:
         y0 = pdf.get_y()
         if y0 > pdf.h - 28:
@@ -243,22 +272,22 @@ def _pdf_table(pdf: Any, rows: list[list[str]]) -> None:
 def _write_pdf(dest: Path, title: str, body: str) -> None:
     from fpdf import FPDF
 
-    regular, bold, italic = _dejavu_paths()
+    regular, bold, italic = _pdf_font_files()
     pdf = FPDF(format="letter", unit="mm")
     pdf.set_auto_page_break(auto=True, margin=22)
-    pdf.add_font("DejaVu", fname=regular)
-    pdf.add_font("DejaVu", style="B", fname=bold)
+    pdf.add_font(_PDF_FACE, fname=regular)
+    pdf.add_font(_PDF_FACE, style="B", fname=bold)
     if italic:
-        pdf.add_font("DejaVu", style="I", fname=italic)
+        pdf.add_font(_PDF_FACE, style="I", fname=italic)
     pdf.add_page()
     heading = _clean(title) or dest.stem.replace("-", " ")
-    pdf.set_font("DejaVu", "B", 18)
+    pdf.set_font(_PDF_FACE, "B", 18)
     pdf.multi_cell(0, 9, heading, new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
     blocks = _blocks(body) or [("p", _clean(body) or heading)]
     for kind, payload in blocks:
         if kind == "table":
-            pdf.set_font("DejaVu", "", 10)
+            pdf.set_font(_PDF_FACE, "", 10)
             _pdf_table(pdf, payload)
             continue
         text = str(payload or "")
@@ -266,42 +295,65 @@ def _write_pdf(dest: Path, title: str, body: str) -> None:
             continue
         if kind == "math":
             pdf.ln(2)
-            pdf.set_font("DejaVu", "I" if italic else "", 12)
+            pdf.set_font(_PDF_FACE, "I" if italic else "", 12)
             pdf.multi_cell(0, 7, text, align="C", new_x="LMARGIN", new_y="NEXT")
             pdf.ln(2)
             continue
         if kind == "h1":
-            pdf.set_font("DejaVu", "B", 14)
+            pdf.set_font(_PDF_FACE, "B", 14)
             pdf.ln(3)
             pdf.multi_cell(0, 8, text, new_x="LMARGIN", new_y="NEXT")
             pdf.ln(1)
         elif kind == "h2":
-            pdf.set_font("DejaVu", "B", 12)
+            pdf.set_font(_PDF_FACE, "B", 12)
             pdf.ln(2)
             pdf.multi_cell(0, 7, text, new_x="LMARGIN", new_y="NEXT")
             pdf.ln(1)
         elif kind == "h3":
-            pdf.set_font("DejaVu", "B", 11)
+            pdf.set_font(_PDF_FACE, "B", 11)
             pdf.ln(2)
             pdf.multi_cell(0, 6.5, text, new_x="LMARGIN", new_y="NEXT")
         elif kind == "li":
-            pdf.set_font("DejaVu", "", 11)
+            pdf.set_font(_PDF_FACE, "", 11)
             pdf.multi_cell(0, 6, f"  •  {text}", new_x="LMARGIN", new_y="NEXT")
         else:
-            pdf.set_font("DejaVu", "", 11)
+            pdf.set_font(_PDF_FACE, "", 11)
             pdf.multi_cell(0, 6, text, new_x="LMARGIN", new_y="NEXT")
             pdf.ln(2)
     pdf.output(str(dest))
 
 
+def _face_run(run: Any, name: str, size: int) -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Pt
+
+    run.font.name = name
+    run.font.size = Pt(size)
+    r_pr = run._element.get_or_add_rPr()
+    r_fonts = r_pr.find(qn("w:rFonts"))
+    if r_fonts is None:
+        r_fonts = OxmlElement("w:rFonts")
+        r_pr.append(r_fonts)
+    for attr in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"):
+        r_fonts.set(qn(attr), name)
+
+
+def _paint_runs(paragraph: Any, *, size: int, mono: bool = False) -> None:
+    name = _MONO if mono else _SANS
+    for run in paragraph.runs:
+        _face_run(run, name, size)
+
+
 def _write_docx(dest: Path, title: str, body: str) -> None:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Pt
 
     doc = Document()
+    normal = doc.styles["Normal"]
+    normal.font.name = _SANS
     heading = _clean(title) or dest.stem.replace("-", " ")
-    doc.add_heading(heading, level=0)
+    _paint_runs(doc.add_heading(heading, level=0), size=18)
     blocks = _blocks(body) or [("p", _clean(body) or heading)]
     for kind, payload in blocks:
         if kind == "table":
@@ -313,7 +365,10 @@ def _write_docx(dest: Path, title: str, body: str) -> None:
             table.style = "Table Grid"
             for r_i, row in enumerate(rows):
                 for c_i in range(width):
-                    table.cell(r_i, c_i).text = str(row[c_i]) if c_i < len(row) else ""
+                    cell = table.cell(r_i, c_i)
+                    cell.text = str(row[c_i]) if c_i < len(row) else ""
+                    for para in cell.paragraphs:
+                        _paint_runs(para, size=10)
             doc.add_paragraph("")
             continue
         text = str(payload or "")
@@ -324,32 +379,34 @@ def _write_docx(dest: Path, title: str, body: str) -> None:
             para.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = para.add_run(text)
             run.italic = True
-            run.font.size = Pt(13)
+            _paint_runs(para, size=13, mono=True)
             continue
         if kind == "h1":
-            doc.add_heading(text, level=1)
+            _paint_runs(doc.add_heading(text, level=1), size=14)
         elif kind == "h2":
-            doc.add_heading(text, level=2)
+            _paint_runs(doc.add_heading(text, level=2), size=12)
         elif kind == "h3":
-            doc.add_heading(text, level=3)
+            _paint_runs(doc.add_heading(text, level=3), size=11)
         elif kind == "li":
-            doc.add_paragraph(text, style="List Bullet")
+            _paint_runs(doc.add_paragraph(text, style="List Bullet"), size=11)
         else:
             para = doc.add_paragraph(text)
-            for run in para.runs:
-                run.font.size = Pt(11)
+            _paint_runs(para, size=11)
     doc.save(str(dest))
 
 
 def _write_xlsx(dest: Path, rows: list[list[str]], title: str) -> None:
     from openpyxl import Workbook
+    from openpyxl.styles import Font
 
     book = Workbook()
     sheet = book.active
     sheet.title = (title or "Sheet1")[:31] or "Sheet1"
+    face = Font(name=_SANS, size=11)
     for r_i, row in enumerate(rows, start=1):
         for c_i, cell in enumerate(row, start=1):
-            sheet.cell(r_i, c_i, cell)
+            written = sheet.cell(r_i, c_i, cell)
+            written.font = face
     book.save(str(dest))
 
 
@@ -563,24 +620,64 @@ class DocumentTool:
             dest = _unique_dest(folder, stem, f".{fmt}")
         return dest
 
+    def _source_roots(self) -> list[Path]:
+        """Folders from_path may read — drop tray plus the active out dir."""
+        roots = [self.drop_dir()]
+        folder, _where = self.out_dir()
+        try:
+            if folder.resolve() != roots[0].resolve():
+                roots.append(folder)
+        except OSError:
+            roots.append(folder)
+        return roots
+
+    def _under_document_roots(self, raw: str) -> Path | None:
+        """Absolute or data-root-relative path under the document drop / out dir.
+
+        Raises PermissionError with UNSAFE_WINDOWS_PATH_MSG for UNC / NT device
+        strings (does not resolve them). Returns None when the path is safe
+        but not under a document root.
+        """
+        try:
+            candidate = safe_resolve(raw, base=user_data_dir())
+        except PermissionError:
+            raise
+        except OSError:
+            return None
+        for root in self._source_roots():
+            if _contained(candidate, root):
+                return candidate
+        return None
+
     def _read_source(self, raw: str) -> str:
         text = (raw or "").strip()
         if not text:
             raise ValueError("from_path is empty.")
+        refuse_unsafe_windows_path(text)
         path: Path | None = None
         if self.workspace is not None:
             try:
                 path = self.workspace.resolve_read(text).path
-            except (ValueError, PermissionError, OSError):
+            except (ValueError, PermissionError, OSError) as exc:
+                if str(exc) == UNSAFE_WINDOWS_PATH_MSG:
+                    raise
                 path = None
-        candidate = Path(text)
-        if path is None and candidate.is_file():
-            resolved = candidate.resolve()
-            folder, _where = self.out_dir()
-            if _contained(resolved, folder) or _contained(resolved, self.drop_dir()):
-                path = resolved
+        # Workspace may "resolve" a relative display path under the project even
+        # when the real file lives in outputs/documents (outside roots). Prefer an
+        # existing drop-tray hit over a missing workspace hit — same idea as
+        # image_io.resolve_image.
         if path is None or not path.is_file():
-            raise ValueError(f"Cannot read {text!r} as a source file.")
+            fallback = self._under_document_roots(text)
+            if fallback is not None and fallback.is_file():
+                path = fallback
+        if path is None or not path.is_file():
+            allowed = ", ".join(display_path(root) for root in self._source_roots())
+            if self.workspace is not None:
+                allowed = f"{allowed}, or a workspace project"
+            raise ValueError(
+                f"Cannot read {text!r} as a source file. "
+                f"from_path must be under an allowed root ({allowed})."
+            )
         if path.suffix.lower() not in _SOURCE_SUFFIXES:
             raise ValueError("from_path must be a markdown, text, or CSV file.")
         body = path.read_text(encoding="utf-8", errors="replace")

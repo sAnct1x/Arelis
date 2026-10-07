@@ -36,7 +36,7 @@ class SolarTool:
         "load fetches JPL Horizons VECTORS (SSB, ECLIPJ2000) and runs "
         "REBOUND IAS15. That is the only IC. status reads the HUD. "
         "lock opens the inspect tile; travel flies the camera "
-        "(accel, cruise, slow) to an approach standoff — not a burn. "
+        "(accel, cruise, slow) to an approach standoff, not a burn. "
         "There is no rideable craft; action=craft is inspect. "
         "impulse, add_probe, add_planet, tracer, l4, and epoch change the "
         "universe and need Allow. "
@@ -206,7 +206,7 @@ class SolarTool:
                 )
             return ToolResult(
                 ok=True,
-                output=f"Realtime — IAS15 locked to UTC now.{when}",
+                output=f"Realtime, IAS15 locked to UTC now.{when}",
                 data={"rate": system.rate, "wall_lock": system.wall_lock, "t": system.t},
             )
         if action == "craft":
@@ -408,7 +408,7 @@ class SolarTool:
                 ok=True,
                 output=(
                     f"Albedo already on disk: {have}. "
-                    "Approach/orbit only — not landing DEM."
+                    "Approach/orbit only, not landing DEM."
                 ),
                 data={"saved": [], "errors": []},
             )
@@ -424,7 +424,7 @@ class SolarTool:
             output=(
                 "Saved NASA public-domain albedo maps for "
                 + ", ".join(saved)
-                + " under models/astro/maps/. Approach/orbit only — not landing DEM."
+                + " under models/astro/maps/. Approach/orbit only, not landing DEM."
                 + ((" " + "; ".join(errors)) if errors else "")
             ),
             data={"saved": saved, "errors": errors},
@@ -604,11 +604,14 @@ class SolarTool:
             f"{name} from the Reality lab catalog "
             f"(IAU mean radius, DE440 / IAU 2015 GM)."
         ]
-        lines.append(f"radius {radius / 1000.0:.1f} km")
+        lines.append(f"mean radius {radius / 1000.0:.1f} km")
         if gm:
             lines.append(f"GM {gm:.6e} m^3/s^2")
         if g_surf is not None:
             lines.append(f"surface g {g_surf:.3f} m/s^2 (GM / R^2)")
+        from arelis.physics.fact_sheet import body_fact_lines
+
+        lines.extend(body_fact_lines(name or ""))
         data: dict[str, Any] = {
             "name": name,
             "radius_m": radius,
@@ -635,7 +638,7 @@ class SolarTool:
             data.update({k: hud[k] for k in ("e", "i_deg", "epoch_tdb") if k in hud})
         elif system is None:
             lines.append(
-                "Lab not loaded — those are catalog figures, not a live position. "
+                "Lab not loaded, those are catalog figures, not a live position. "
                 "Load Reality or call catalog Horizons for where it is this minute."
             )
         return ToolResult(ok=True, output="\n".join(lines), data=data)

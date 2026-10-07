@@ -104,8 +104,13 @@ agent:
   # Pause when she *offers* her window. A drive you already typed or said is
   # the grant. rest of this ask covers further steps. Never batches with mail/SMS.
   confirm_browser: true
+  # Local tray balloon after a browser captcha/login wait.
+  # 0 turns it off; capped at 24 hours; invalid values turn it off.
+  wall_toast_after_s: 120
   # Pause when she offers to drive your Windows session. A desk ask you
-  # already typed or said is the grant. Deletes / Pay / UAC still pause.
+  # already typed or said is the grant. With this on, Delete, Pay, and
+  # Windows permission prompts still show a card. With it off, no card.
+  # The desk still refuses those clicks.
   confirm_desktop: true
   # See one local image (VL). Separate from confirm_image so disabling Comfy
   # generation confirm does not disable vision. rest of this ask covers it.
@@ -147,6 +152,14 @@ agent:
   tool_round_temperature: 0.1
   # Deterministic nudges for clear weather / SMS intents. Never skips Allow.
   intent_preflight: true
+  # EXPERIMENT: Disable regex/intent routing layer so models use native tool
+  # calling instead. When true, skips regex-based intent detection and preflight
+  # nudges that shortcut tool selection. Safety gates (SMS/email bans,
+  # confirm-before-write) stay active. Default false = current qwen3.5:9b
+  # tuned behavior (regex routing ON). Set true for models with strong native
+  # tool calling (Qwen3 30B-A3B, Qwen3.6-27B+) to avoid regex layer fighting
+  # native selection. See docs/models.md.
+  native_tool_calling: false
   # Inject short failure lessons (data/lessons.yaml + built-in seed).
   lessons: true
   # At UI/CLI start, mine logs/turns.log and append curated lessons by signature.
@@ -290,12 +303,12 @@ workspace:
   #
   # Flat path strings still work (name = directory basename). Prefer the named
   # form when you have more than one project; address files as name:relative/path.
-  # Override live roots in config.local.yaml (Settings → Roots) so this shipped
-  # default stays a single-root fresh install.
+  # Override live folders in your own settings (open Settings and add a folder
+  # there) so this shipped default stays a single-folder fresh install.
   # read_only=true rejects write/edit/create under that root.
   roots:
     - "."
-    # Extra projects are opt-in (Settings → Roots, or the workspace dock).
+    # Extra projects are opt-in (open Settings and add a folder, or the files panel).
     # Do not list sibling folders here. Example of a second root, local only:
     # - name: notes
     #   path: "C:/Users/you/Documents/notes"
@@ -318,7 +331,8 @@ tools:
     enabled: true
     # Silent lookup, no API key, no container, not a Settings picker.
     # Order is fixed in search.py: DuckDuckGo HTML, DuckDuckGo Lite, then
-    # Wikipedia (Wikipedia is skipped when recency is day or week).
+    # Wikipedia (skipped when recency is day or week). That last step
+    # includes references on the top hit that match the query.
     max_results: 10
     timeout_s: 20
   research:
@@ -367,7 +381,10 @@ tools:
       # per-channel mode in Settings → Notify → SMS (glass pill, optionally with
       # a voice cue when idle). Keys here would be read by nothing.
       ingest:
-        enabled: true
+        # auto: listen only once this PC has a pairing code (Settings, Notify).
+        # true: always try, and say so when the pairing code is missing.
+        # false: never listen.
+        enabled: auto
         host: "0.0.0.0"
         port: 8765
       # Optional SMS/MMS fallback via SMSGate Local Server GET /inbox.
@@ -407,6 +424,12 @@ tools:
     # else's Chrome, she opens her window on 9333+ instead of attaching.
     enabled: true
     cdp_url: "http://127.0.0.1:9222"
+    # false (default): keep data/browser-profile between runs and restore the
+    # last session, so you sign into Google/Maps once. true: the first window
+    # Arelis opens in a run starts empty on google.com; her profile is wiped
+    # first, so no tabs, history, cookies, autofill or sign-ins come back
+    # (useful for recordings).
+    fresh_profile: false
     max_snapshot_chars: 6000
     max_read_chars: 3500
     aliases:
@@ -659,7 +682,9 @@ voice:
     # int8 on CPU is about three times faster than float32 here for a
     # negligible accuracy cost, and the GPU is reserved for the chat models.
     compute_type: "int8"
-    language: "en"      # "" to auto-detect, at the cost of a beat on short clips
+    language: "en"      # Whisper fallback. "" auto-detects. Session ui.language
+                        # zh uses a bilingual Sherpa pack and Whisper language zh.
+                        # Wake clips stay English so "Hey Arelis" still matches.
     beam_size: 1
     # Post-hoc Silero inside faster-whisper. Off while live Silero already
     # end-points the clip — a second trim ate last words ("hobbies" → "hub").
@@ -679,6 +704,7 @@ voice:
     kokoro_model: "models/kokoro/kokoro-v1.0.onnx"
     kokoro_voices: "models/kokoro/voices-v1.0.bin"
     kokoro_voice: "af_heart"   # American female; bf_emma for British
+    kokoro_voice_zh: "zf_xiaobei"  # Mandarin female when ui.language is zh
     speed: 1.0                 # Kokoro tempo; 1.0 is the voice's own pace
     allow_download: true
     # Piper fallback. Both the .onnx and sibling .onnx.json must be present.
@@ -730,6 +756,18 @@ location:
   # (name, answer style, work, …) are injected every turn; `location:` wins
   # over automatic place sources below. Keep `user:` short — not a 50-field form.
   profile_path: "data/profile.yaml"
+  privacy:
+    # How much of the saved place the model sees every turn. Whatever is in the
+    # prompt can show up in its visible reasoning (the Thinking dock).
+    #   off   timezone only; the weather tool uses the saved place itself and
+    #         user_location returns it when something else needs it (default)
+    #   city  city, region, country; no postal code or coordinates
+    #   full  everything the resolver knows
+    prompt_detail: "off"
+    # Replace the saved city, postal code and coordinates with [location] in
+    # the Thinking dock (plain status lines, tool arguments, and tool results
+    # shown there), in streamed reasoning, and in logs/*.log and turns.jsonl.
+    redact_display: true
   # Timezone and country from the operating system. No network, no permission.
   use_system: true
   network:
@@ -770,6 +808,10 @@ ui:
   # Room look. View → themes. sodium is the shipped lamp — the default face.
   # filament is a test desk for a row of monitors; three is the intended layout.
   theme: sodium
+  # en | zh. zh is Simplified Chinese: the window, her replies, and
+  # conversation voice (she hears Mandarin and speaks it). Wake stays
+  # "Hey Arelis".
+  language: en
   # Filament desk span: 1 / 2 / 3 desks from the OS primary. Starts on one;
   # press 3 when the row is there. Not Windows monitor numbers.
   filament_span: 1
@@ -785,9 +827,10 @@ ui:
   thinking_open: false
   workspace_open: false
   camera_open: false
-  # Wall-clock ceiling on a busy turn. The 8s busy watchdog only arms after
-  # Stop; this one arms when the turn starts, shows a countdown on the
-  # shimmer, and unlocks the same way Stop does if a tool hangs. 0 disables.
+  # Wall-clock ceiling on a busy turn. Arms when the turn starts and shows
+  # a countdown on the shimmer. If tool results are already in hand, she
+  # closes from those instead of being cancelled. If that close stalls, or
+  # nothing has come back yet, the turn stops. 0 disables.
   hung_turn_s: 90
   # Away rest (collapse unused panels) lives in ui_layout.ini via Settings →
   # Window, off by default. Not a shipped-on timer.
@@ -802,5 +845,11 @@ ui:
     calendar_leads_min: [15, 5, 0]
     poll_s: 30
     mail_poll_s: 90
+
+# Installed copies ask GitHub once a day whether a newer release exists.
+# Off means that ping does not happen. `arelis --check-update` still asks
+# when you run it. Download and install still wait for a yes in the UI.
+updates:
+  check: true
 
 persona_file: "persona/arelis.md"

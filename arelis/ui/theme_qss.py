@@ -15,6 +15,8 @@ from arelis.ui.theme_tokens import (
 def dock_tab_bar_qss() -> str:
     """Opaque ember tabs. Translucent QSS on a Windows QTabBar shows grey through."""
     c = COLORS
+    f = FONTS
+    t = TYPE
     s = SPACE
     pad_y = control_pad_y()
     return f"""
@@ -29,7 +31,9 @@ def dock_tab_bar_qss() -> str:
         padding: {pad_y}px {s['plate']}px;
         margin-right: {s['micro']}px;
         min-width: 52px;
-        font-size: 12px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         letter-spacing: {TYPE['track_mid']};
     }}
     QTabBar::tab:selected {{
@@ -84,15 +88,19 @@ def stylesheet() -> str:
         background-color: {c['veil']};
         border-bottom: 1px solid {c['hairline_faint']};
     }}
+    #ChromeCaption {{
+        background: transparent;
+        border: none;
+    }}
     #FloatingTitleBar {{
         background: transparent;
         border: none;
     }}
     #FloatingDockTitle {{
         color: {c['text_dim']};
-        font-family: {f['display']};
-        font-size: 11px;
-        font-weight: 400;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
         background: transparent;
         border: none;
@@ -101,10 +109,10 @@ def stylesheet() -> str:
     }}
     #ChromeTitle {{
         color: {c['dim']};
-        font-family: {f['mono']};
-        font-size: 12px;
-        font-weight: 400;
-        letter-spacing: {t['track_wide']};
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
+        letter-spacing: {t['track_mid']};
         background: transparent;
         border: none;
         padding: 0 {s['gap']}px 0 0;
@@ -120,7 +128,9 @@ def stylesheet() -> str:
         border-radius: 6px;
         padding: {s['micro']}px {s['gap']}px;
         color: {c['text_dim']};
-        font-size: 12px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
     }}
     #ChromeViewBtn:hover, #ChromeRoomsBtn:hover, #ChromeSettingsBtn:hover {{
         color: {c['accent']};
@@ -132,8 +142,9 @@ def stylesheet() -> str:
         border-radius: 6px;
         padding: {s['hair']}px {s['gap']}px;
         color: {c['text_dim']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
     }}
     #ChromeSpanBtn:hover, #ChromeHandsBtn:hover {{
@@ -180,7 +191,9 @@ def stylesheet() -> str:
     }}
     #SettingsHint, #SettingsNotifyUrl {{
         color: {c['accent2']};
-        font-size: 12px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
     }}
     #SettingsHint {{
@@ -188,26 +201,52 @@ def stylesheet() -> str:
     }}
     #SettingsNotifyUrl {{
         color: {c['text']};
-        font-family: {f['mono']};
         padding: {s['inset']}px {s['inset']}px;
         background: {c['well_soft']};
         border: 1px solid {c['edge_warm']};
         border-radius: 10px;
+        margin-top: {s['gap']}px;
     }}
-    #SettingsPairQr {{
+    /* No radius and no padding. A frame here shrinks the contents rect
+       under the pixmap, the code draws past the label, and the URL row
+       paints over the quiet zone. */
+    #SettingsPairQr, #SettingsInstallQr {{
         background: {c['text']};
-        border-radius: 12px;
+        border: none;
+        border-radius: 0;
+        padding: 0;
+        margin: 0;
+    }}
+    #SettingsNotifyScroll, #SettingsNotifyViewport {{
+        background: {c['panel_fill']};
+        border: none;
+    }}
+    #SettingsDisclosure {{
+        color: {c['hint']};
+        background: transparent;
+        border: none;
+        padding: 2px 0;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
+    }}
+    #SettingsDisclosure:hover {{
+        color: {c['accent2']};
+        background: transparent;
     }}
     #SettingsSection {{
         color: {c['accent2']};
-        font-size: 13px;
-        font-weight: 600;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
         padding-top: {pad_y}px;
     }}
     #SettingsFieldLabel {{
         color: {c['text']};
-        font-size: 13px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
         padding-right: {s['gap']}px;
     }}
@@ -234,6 +273,9 @@ def stylesheet() -> str:
         border: 1px solid {c['edge']};
         border-radius: 8px;
         color: {c['text_dim']};
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         padding: {pad_y}px {s['plate']}px;
         margin-right: 6px;
         min-width: 52px;
@@ -319,7 +361,9 @@ def stylesheet() -> str:
         border: 1px solid transparent;
         border-radius: 7px;
         color: {c['text_dim']};
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         padding: 0;
     }}
     #ChromeMin:hover, #ChromeMax:hover {{
@@ -356,9 +400,10 @@ def stylesheet() -> str:
         border: none;
         border-radius: 0;
         padding: 1px {s['gap']}px;
-        color: {c['dim']};
-        font-size: 10px;
-        font-family: {f['mono']};
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
     }}
     #ReadinessChip[status="ok"] {{
@@ -386,10 +431,11 @@ def stylesheet() -> str:
         border: 1px solid {c['edge_soft']};
         border-radius: 9px;
         padding: 1px {s['gap']}px;
-        min-height: 18px;
+        min-height: {m['row'] - 8}px;
         color: {c['warn']};
-        font-size: 10px;
-        font-family: {f['mono']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
     }}
     #ReadinessNotifyChip:hover {{
@@ -405,11 +451,12 @@ def stylesheet() -> str:
         border: 1px solid {c['edge_mid']};
         border-radius: 10px;
         padding: {s['micro']}px {s['inset']}px;
-        color: {c['accent']};
-        font-size: 11px;
-        font-family: {f['mono']};
-        letter-spacing: 0.04em;
-        min-height: 26px;
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
+        letter-spacing: 0;
+        min-height: {m['row']}px;
     }}
     #NotifyPill:hover {{
         border-color: {c['accent']};
@@ -417,22 +464,23 @@ def stylesheet() -> str:
     }}
     #NotifyCardTitle {{
         color: {c['text']};
-        font-size: 13px;
-        font-family: {f['display']};
-        font-weight: 600;
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
     }}
     #NotifyCardBody {{
-        color: {c['text_dim']};
-        font-size: 12px;
+        color: {c['text']};
+        font-size: {FONT_PX}px;
         font-family: {f['body']};
+        font-weight: {t['body_weight']};
     }}
-    /* The tracking on the idle words lives here and only here. void_idle.py
-       also set it through setFont, which is a second author for one property
-       and left the label's measured width disagreeing with its painted one. */
+    /* Idle word is the body face. Tracking used to live here and in
+       void_idle.py at once, and the measured width disagreed with the paint. */
     #VoidListenWord {{
-        color: {c['dim']};
-        font-size: 12px;
-        font-family: {f['mono']};
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_idle']};
         background: transparent;
         border: none;
@@ -446,12 +494,13 @@ def stylesheet() -> str:
         font-size: 18px;
         font-family: {f['body']};
         font-weight: {t['body_weight']};
-        letter-spacing: 0.01em;
+        letter-spacing: 0;
     }}
     #VoidGhostKey {{
-        color: {c['dim']};
-        font-size: 9px;
-        font-family: {f['mono']};
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_wide']};
         background: transparent;
         border: none;
@@ -464,19 +513,20 @@ def stylesheet() -> str:
         border: none;
     }}
     #VoidReadoutKey {{
-        color: {c['text_faint']};
-        font-size: 10px;
-        font-family: {f['mono']};
-        letter-spacing: 0.05em;
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
+        letter-spacing: 0;
         background: transparent;
         border: none;
     }}
     #VoidReadoutValue {{
-        color: {c['accent2']};
-        font-size: 10px;
-        font-family: {f['mono']};
-        font-weight: 400;
-        letter-spacing: 0.05em;
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
+        letter-spacing: 0;
         background: transparent;
         border: none;
     }}
@@ -490,21 +540,23 @@ def stylesheet() -> str:
         color: {c['text']};
         font-size: 18px;
         font-family: {f['body']};
-        letter-spacing: 0.04em;
+        letter-spacing: 0;
         background: transparent;
     }}
     #ShortcutsGroup {{
-        color: {c['dim']};
-        font-size: 9px;
-        font-family: {f['mono']};
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_wide']};
         background: transparent;
         padding-bottom: {s['micro']}px;
     }}
     #ShortcutsChord {{
-        color: {c['accent2']};
-        font-size: 11px;
-        font-family: {f['mono']};
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
         background: transparent;
     }}
     #ShortcutsWhat {{
@@ -514,9 +566,10 @@ def stylesheet() -> str:
         background: transparent;
     }}
     #ShortcutsAbout {{
-        color: {c['dim']};
-        font-size: 10px;
-        font-family: {f['mono']};
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
         background: transparent;
         padding-top: {s['inset']}px;
     }}
@@ -525,9 +578,10 @@ def stylesheet() -> str:
         border: none;
         border-radius: 0;
         padding: 1px {s['gap']}px;
-        color: {c['dim']};
-        font-size: 10px;
-        font-family: {f['mono']};
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
     }}
     #ReadinessSystems:hover {{
@@ -577,9 +631,10 @@ def stylesheet() -> str:
         color: {c['text_dim']};
     }}
     #ReadinessSystemsCaption {{
-        color: {c['dim']};
-        font-size: 9px;
-        font-family: {f['mono']};
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_idle']};
         background: transparent;
         padding: {s['micro']}px {s['gap']}px {s['hair']}px {s['gap']}px;
@@ -647,9 +702,10 @@ def stylesheet() -> str:
         color: {c['text']};
     }}
     #InstrumentTitle {{
-        color: {c['dim']};
-        font-size: 11px;
-        font-weight: 400;
+        color: {c['text']};
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
         background: transparent;
         padding: 0 0 {s['hair']}px {s['hair']}px;
@@ -695,7 +751,7 @@ def stylesheet() -> str:
         color: {c['accent2']};
         font-size: 15px;
         font-family: {f['display']};
-        letter-spacing: 0.04em;
+        letter-spacing: 0;
         background: transparent;
         padding: 0 {s['gap']}px;
     }}
@@ -705,8 +761,9 @@ def stylesheet() -> str:
         border-radius: 8px;
         color: {c['text']};
         padding: {s['hair']}px {s['gap']}px;
-        font-size: 12px;
         font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         min-height: {m['row'] - 8}px;
     }}
     #CalendarDate:focus, #CalendarTime:focus {{
@@ -863,7 +920,9 @@ def stylesheet() -> str:
     }}
     #SmsPhotoChip {{
         color: {c['text']};
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: {c['card_fill']};
         border: 1px solid {c['edge']};
         border-radius: 10px;
@@ -887,10 +946,11 @@ def stylesheet() -> str:
         background-color: {c['well']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: {pad_y}px {s['gap']}px;
+        padding: {s['hair']}px {s['gap']}px;
         color: {c['text']};
-        font-size: 12px;
+        font-size: {FONT_PX}px;
         font-family: {f['body']};
+        font-weight: {t['body_weight']};
         selection-background-color: {c['selection']};
     }}
     #InstrumentSearch:focus {{
@@ -907,8 +967,9 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: {s['hair']}px {m['icon'] - 2}px {s['hair']}px {s['gap']}px;
         color: {c['text']};
-        font-size: 12px;
+        font-size: {FONT_PX}px;
         font-family: {f['body']};
+        font-weight: {t['body_weight']};
         min-height: {m['row'] - 8}px;
     }}
     #InstrumentCombo:hover {{
@@ -937,9 +998,9 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: 0 {s['gap']}px;
         color: {c['accent2']};
-        font-size: 11px;
-        font-family: {f['mono']};
-        font-weight: 400;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         min-height: {m['row'] - 2}px;
         max-height: {m['row'] - 2}px;
     }}
@@ -1007,7 +1068,9 @@ def stylesheet() -> str:
         border: 1px solid {c['edge']};
         border-radius: 8px;
         padding: {pad_y}px {s['plate']}px;
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
         margin-right: 4px;
     }}
@@ -1049,7 +1112,8 @@ def stylesheet() -> str:
     #ThinkingFooter {{
         color: {c['dim']};
         font-family: {f['body']};
-        font-size: 11px;
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
         padding: 0 {s['hair']}px {s['micro']}px {s['hair']}px;
         border: none;
@@ -1131,7 +1195,7 @@ def stylesheet() -> str:
         color: {c['text']};
         font-size: 16px;
         font-weight: {t['body_weight']};
-        letter-spacing: 0.01em;
+        letter-spacing: 0;
         selection-background-color: {c['selection']};
     }}
     #ComposerInput:focus {{
@@ -1145,7 +1209,7 @@ def stylesheet() -> str:
         font-size: 18px;
         font-family: {f['body']};
         font-weight: {t['body_weight']};
-        letter-spacing: 0.01em;
+        letter-spacing: 0;
         background: transparent;
         border: none;
     }}
@@ -1174,9 +1238,16 @@ def stylesheet() -> str:
         background-color: {c['well']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: {pad_y}px {s['gap']}px;
+        /* Vertical pad is a hair, not control_pad_y. The desk face at
+           FONT_PX has a 19px line box, and these fields are locked to the
+           28px row. Six pixels of pad leaves 14px and cuts the glyphs. */
+        padding: {s['hair']}px {s['gap']}px;
         color: {c['text']};
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         selection-background-color: {c['selection']};
+        min-height: {m['row'] - 8}px;
     }}
     QLineEdit:focus {{
         border: 1px solid {c['accent']};
@@ -1185,11 +1256,12 @@ def stylesheet() -> str:
         background-color: {c['raised']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: {s['micro']}px {s['inset']}px;
+        padding: {s['hair']}px {s['inset']}px;
         color: {c['text']};
-        font-size: 11px;
-        font-family: {f['mono']};
-        font-weight: 500;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
+        min-height: {m['row'] - 8}px;
     }}
     QPushButton:hover {{
         background-color: {c['button_hover_soft']};
@@ -1227,8 +1299,9 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: {s['hair']}px {s['gap']}px;
         color: {c['danger']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
     }}
     #StopButton:hover {{
         background: {c['danger_fill_soft']};
@@ -1237,14 +1310,16 @@ def stylesheet() -> str:
     #RoomName {{
         color: {c['accent2']};
         font-family: {f['body']};
-        font-size: 12px;
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
-        letter-spacing: 0.04em;
+        letter-spacing: 0;
     }}
     #RoomDetail {{
-        color: {c['text_muted']};
+        color: {c['text']};
         font-family: {f['body']};
-        font-size: 12px;
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
     }}
     #RoomLeaveButton, #RoomWorldButton {{
@@ -1275,8 +1350,9 @@ def stylesheet() -> str:
         border-radius: 10px;
         padding: {s['inset']}px {s['plate']}px;
         color: {c['text']};
-        font-family: {f['mono']};
-        font-size: 14px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         min-height: 44px;
     }}
     #WorldChooserHands:hover, #WorldChooserSolar:hover,
@@ -1290,14 +1366,16 @@ def stylesheet() -> str:
     }}
     #DriveBrand {{
         color: {c['accent']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
     }}
     #DriveStatus {{
-        color: {c['text_dim']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        color: {c['text']};
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
     }}
     /* Pause was the one cyan control in an amber application. It is the quiet
@@ -1309,8 +1387,9 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: {s['hair']}px {s['gap']}px;
         color: {c['hint']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
     }}
     #PauseButton:hover {{
         background: {c['live_fill']};
@@ -1323,8 +1402,9 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: {s['hair']}px {s['gap']}px;
         color: {c['accent']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
     }}
     #GoButton:hover {{
         background: {c['live_fill']};
@@ -1337,14 +1417,16 @@ def stylesheet() -> str:
     }}
     #ConfirmSummary {{
         color: {c['text']};
-        font-family: {f['mono']};
-        font-size: 12px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
     }}
     #ConfirmDetail {{
         color: {c['text']};
-        font-family: {f['mono']};
-        font-size: 12px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background-color: {c['inset']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
@@ -1352,12 +1434,16 @@ def stylesheet() -> str:
     }}
     #ConfirmNote {{
         color: {c['danger']};
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
     }}
     #ConfirmAllowTurn, #ConfirmAllowAlways {{
-        color: {c['text_dim']};
-        font-size: 11px;
+        color: {c['text']};
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         spacing: 6px;
     }}
     #ConfirmAllow, #FactApprove, #DialogConfirm {{
@@ -1366,8 +1452,8 @@ def stylesheet() -> str:
         border: 1px solid {c['accent']};
         color: {c['text']};
         font-family: {f['body']};
-        font-size: 12px;
-        font-weight: 600;
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
     }}
     #ConfirmAllow:hover, #FactApprove:hover, #DialogConfirm:hover {{
         background-color: {c['button_hover_hot']};
@@ -1388,10 +1474,10 @@ def stylesheet() -> str:
         color: {c['status_white']};
     }}
     #ConfirmSkip, #FactReject, #FactRejectAll, #FactForget, #DialogCancel {{
-        color: {c['text_dim']};
-        font-family: {f['mono']};
-        font-size: 11px;
-        font-weight: 500;
+        color: {c['text']};
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background-color: transparent;
         border: 1px solid {c['edge']};
     }}
@@ -1406,9 +1492,9 @@ def stylesheet() -> str:
         color: {c['text']};
     }}
     QMenu::item {{
-        padding: {pad_y}px {s['plate']}px;
+        padding: {s['hair']}px {s['plate']}px;
         border-radius: 6px;
-        min-height: 22px;
+        min-height: {m['row']}px;
     }}
     QMenu::separator {{
         height: 1px;
@@ -1419,10 +1505,12 @@ def stylesheet() -> str:
         background-color: transparent;
         border: none;
         border-radius: 0;
-        padding: 0 {s['plate']}px 0 {s['gap']}px;
-        color: {c['dim']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        padding: {s['hair']}px {s['plate']}px {s['hair']}px {s['gap']}px;
+        color: {c['text']};
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
+        min-height: {m['row'] - 8}px;
     }}
     #RoleSelect {{
         min-width: 78px;
@@ -1450,11 +1538,14 @@ def stylesheet() -> str:
         padding: {s['micro']}px;
     }}
     QComboBox QAbstractItemView::item {{
-        padding: {pad_y}px {s['gap']}px;
-        min-height: 22px;
+        padding: {s['hair']}px {s['gap']}px;
+        min-height: {m['row']}px;
         border-radius: 6px;
         color: {c['text']};
         background: transparent;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
     }}
     QComboBox QAbstractItemView::item:selected,
     QComboBox QAbstractItemView::item:hover {{
@@ -1601,7 +1692,7 @@ def stylesheet() -> str:
         border-bottom: 1px solid {c['hairline_faint']};
         font-size: {FONT_PX}px;
         padding: {s['inset']}px {s['gap']}px {s['gap']}px {s['gap']}px;
-        letter-spacing: 0.04em;
+        letter-spacing: 0;
         text-decoration: none;
     }}
     #ChatProgress:hover {{
@@ -1625,19 +1716,24 @@ def stylesheet() -> str:
         background: transparent;
     }}
     #DialogNote {{
-        color: {c['text_dim']};
-        font-size: 11px;
+        color: {c['text']};
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
     }}
     #DialogWarning {{
         color: {c['danger']};
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: transparent;
     }}
     #DialogPath {{
-        color: {c['accent2']};
-        font-family: {f['mono']};
-        font-size: 12px;
+        color: {c['text']};
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
         background: {c['well_soft']};
         border: 1px solid {c['edge_warm']};
         border-radius: 8px;

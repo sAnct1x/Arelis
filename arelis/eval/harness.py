@@ -231,6 +231,18 @@ class _StubTool:
         return ToolResult(ok=True, output=f"{self.name} ok", data=dict(kwargs))
 
 
+class _FailingStub(_StubTool):
+    """A stub whose call errors. Scores what the loop ships when its tool fails."""
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        self.calls.append(dict(kwargs))
+        return ToolResult(
+            ok=False,
+            output=f"{self.name} failed (eval stub)",
+            data={"fail_class": "fail:eval_stub"},
+        )
+
+
 class _FatScrapeStub(_StubTool):
     """Returns a long page body so tool_summary / truncation paths exercise offline."""
 
@@ -647,6 +659,10 @@ async def run_scripted_scenario(
         bus.subscribe(et, capture)
 
     tools = foundation_registry()
+    for absent in scenario.absent_tools:
+        tools._tools.pop(absent, None)
+    for failing in scenario.failing_tools:
+        tools.register(_FailingStub(failing, risk="read"))
     router = _ScriptedRouter(scenario.script)
     memory = SessionMemory()
     confirms: list[str] = []

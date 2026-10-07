@@ -16,6 +16,27 @@ from arelis.ui.voice_host import commit_voice_directions
 from arelis.ui.window_resize import enable_win32_resize_frame
 
 
+def apply_session_language(window, raw: Any) -> str:
+    """Store the session language and make the live window follow it."""
+    from arelis.i18n import apply_language
+    from arelis.talk_language import normalize
+
+    code = normalize(raw)
+    window.config.setdefault("ui", {})["language"] = code
+    merge_local_config({"ui": {"language": code}})
+    apply_language(window, code)
+    voice = getattr(window, "voice", None)
+    stt = getattr(voice, "stt", None) if voice is not None else None
+    loaded = str(getattr(stt, "_sherpa_lang", "") or "")
+    if (
+        voice is not None
+        and getattr(window, "_live_stt_active", False)
+        and loaded != code
+    ):
+        window._live_stt_active = bool(voice.start_live_stt())
+    return code
+
+
 def apply_settings(window, values: dict[str, Any]) -> None:
     voice_patch = values.get("voice") or {}
     presence_patch = values.get("presence") or {}
@@ -45,6 +66,8 @@ def apply_settings(window, values: dict[str, Any]) -> None:
     )
 
     ui_patch = values.get("ui") or {}
+    if ui_patch.get("language"):
+        apply_session_language(window, ui_patch.get("language"))
     if "scale" in ui_patch:
         from arelis.ui.scale import clamp_scale, scale_from_config
 
@@ -223,6 +246,9 @@ def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
             orbit = getattr(empty, "orbit", None)
             if orbit is not None:
                 orbit.update()
+        refresh_wash = getattr(chat, "refresh_bubble_wash", None)
+        if callable(refresh_wash):
+            refresh_wash()
     sync = getattr(window, "_sync_filament_face", None)
     if callable(sync):
         sync()
@@ -353,7 +379,11 @@ def settings_test_speak(window) -> None:
             raise RuntimeError("Speech is disabled.")
         out = outputs_dir() / "voice" / "settings_test.wav"
         out.parent.mkdir(parents=True, exist_ok=True)
-        path = await window.voice.tts.synthesize("Arelis settings test.", out)
+        from arelis.talk_language import session_code
+
+        lang = session_code(window.config)
+        line = "这是阿瑞丽丝的语音测试。" if lang == "zh" else "Arelis settings test."
+        path = await window.voice.tts.synthesize(line, out, language=lang)
         if window.speech_player is None:
             raise RuntimeError("No playback device.")
         window.speech_player.enqueue(path, utterance=0)

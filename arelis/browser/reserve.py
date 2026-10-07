@@ -1,8 +1,9 @@
-"""Reservation search URLs — fill party / date / time, never click Book."""
+"""Reservation search URLs, fill party / date / time, never click Book."""
 
 from __future__ import annotations
 
 import re
+from datetime import date, timedelta
 from urllib.parse import quote_plus, urlencode
 
 _SITES = {
@@ -28,7 +29,7 @@ def normalize_reserve_site(site: str) -> str:
 
 
 def normalize_party(raw: object) -> int:
-    text = str(raw or "").strip()
+    text = "" if raw is None else str(raw).strip()
     match = re.search(r"\d+", text)
     if not match:
         return 2
@@ -39,7 +40,43 @@ def normalize_party(raw: object) -> int:
     return max(1, min(20, n))
 
 
-def normalize_date(raw: str) -> str | None:
+def resolve_party(*candidates: object) -> int:
+    """The first party size that was actually given; 0 is a value, not 'missing'."""
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        if isinstance(candidate, str) and not candidate.strip():
+            continue
+        return normalize_party(candidate)
+    return 2
+
+
+_WEEKDAYS = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+
+
+def _today() -> date:
+    return date.today()
+
+
+def _weekday_index(name: str) -> int | None:
+    key = (name or "").strip().lower()
+    if len(key) < 3:
+        return None
+    for index, weekday in enumerate(_WEEKDAYS):
+        if weekday.startswith(key):
+            return index
+    return None
+
+
+def normalize_date(raw: str, *, today: date | None = None) -> str | None:
     text = (raw or "").strip()
     if not text:
         return None
@@ -51,7 +88,99 @@ def normalize_date(raw: str) -> str | None:
     if hit:
         m, d, y = (int(hit.group(1)), int(hit.group(2)), int(hit.group(3)))
         return f"{y:04d}-{m:02d}-{d:02d}"
-    return None
+    folded = re.sub(r"\s+", " ", text.lower()).strip(" .")
+    now = today or _today()
+    if folded in {"today", "tonight"}:
+        return now.isoformat()
+    if folded == "tomorrow":
+        return (now + timedelta(days=1)).isoformat()
+    if folded in {"day after tomorrow", "the day after tomorrow"}:
+        return (now + timedelta(days=2)).isoformat()
+    prefix = ""
+    name = folded
+    if folded.startswith("next "):
+        prefix = "next"
+        name = folded[5:].strip()
+    elif folded.startswith("this "):
+        prefix = "this"
+        name = folded[5:].strip()
+    weekday = _weekday_index(name)
+    if weekday is None:
+        return None
+    ahead = (weekday - now.weekday()) % 7
+    # "next Friday" skips today. A bare weekday on that same day means next week.
+    if prefix == "next" or (prefix != "this" and ahead == 0):
+        if ahead == 0:
+            ahead = 7
+    return (now + timedelta(days=ahead)).isoformat()
+
+
+def party_cap_note(*candidates: object) -> str:
+    """Plain sentence when the group was larger than online booking allows."""
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        if isinstance(candidate, str) and not candidate.strip():
+            continue
+        if isinstance(candidate, bool):
+            return ""
+        number: int | None
+        if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
+            number = int(candidate)
+        else:
+            match = re.search(r"\d+", str(candidate))
+            number = int(match.group(0)) if match else None
+        if number is not None and number > 20:
+            return (
+                "Online booking takes up to 20. "
+                "For a bigger group, call the restaurant."
+            )
+        return ""
+    return ""
+
+
+_MONTH_NAMES = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+
+
+def spoken_date(iso: str) -> str:
+    """Friday, October 9. Empty when the value is not a real day."""
+    text = (iso or "").strip()
+    hit = _DATE.match(text)
+    if not hit:
+        return ""
+    year, month, day = int(hit.group(1)), int(hit.group(2)), int(hit.group(3))
+    try:
+        found = date(year, month, day)
+    except ValueError:
+        return ""
+    weekday = _WEEKDAYS[found.weekday()].capitalize()
+    return f"{weekday}, {_MONTH_NAMES[month - 1]} {day}"
+
+
+def spoken_time(raw: str) -> str:
+    """7 PM, or 7:30 PM when the minutes are not zero."""
+    clock = normalize_time(raw) or ""
+    if not clock:
+        return ""
+    hour, minute = (int(part) for part in clock.split(":"))
+    suffix = "AM" if hour < 12 else "PM"
+    hour12 = hour % 12 or 12
+    if minute == 0:
+        return f"{hour12} {suffix}"
+    return f"{hour12}:{minute:02d} {suffix}"
 
 
 def normalize_time(raw: str) -> str | None:
@@ -92,17 +221,20 @@ def reserve_url(
     party: object = 2,
     date: str = "",
     time: str = "",
+    today: date | None = None,
 ) -> str:
     """Search URL with party/date/time in the query when the site allows it."""
     q = (place or "").strip()
     kind = normalize_reserve_site(site)
     covers = normalize_party(party)
-    day = normalize_date(date)
+    day = normalize_date(date, today=today)
     clock = normalize_time(time)
     if kind == "resy":
         params: dict[str, str] = {"seats": str(covers)}
         if day:
             params["date"] = day
+        if clock:
+            params["time"] = clock
         if q:
             params["query"] = q
         return "https://resy.com/?" + urlencode(params, quote_via=quote_plus)

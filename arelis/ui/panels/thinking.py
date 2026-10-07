@@ -4,9 +4,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
+from arelis.location.privacy import redact
+
 
 class ThinkingPanel(QWidget):
-    """The interesting part — how she thinks. Housekeeping sits under it."""
+    """The interesting part, how she thinks. Housekeeping sits under it."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -33,7 +35,11 @@ class ThinkingPanel(QWidget):
         self._last_essay = ""
 
     def append(self, text: str, kind: str = "trace") -> None:
-        line = (text or "").strip()
+        # One scrub for every line this dock paints. Plain THINKING status,
+        # a tool errand that still carries an argument, and a tool-result
+        # line all land here. Streamed reasoning is scrubbed before publish;
+        # this still catches a whole term that arrived in one chunk.
+        line = redact((text or "").strip())
         if not line:
             return
         if kind in {"status", "model"}:
@@ -53,6 +59,9 @@ class ThinkingPanel(QWidget):
 
     def extend_stream(self, chunk: str) -> None:
         """Model-think tokens as one wrapping paragraph. No console prefix."""
+        if not chunk:
+            return
+        chunk = redact(chunk)
         if not chunk:
             return
         cursor = self.view.textCursor()

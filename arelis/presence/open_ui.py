@@ -17,6 +17,10 @@ log = logging.getLogger(__name__)
 # Avoid a burst of TOOL_CONFIRM events spawning N UIs while the first starts.
 _LAST_SPAWN_MONO: float = 0.0
 _SPAWN_COOLDOWN_S = 20.0
+# Local copy of window_lifetime.USER_OPEN_REASONS, minus "". Empty reason
+# here means no reason was given and is not a user open for spawning.
+# Do not import the Qt UI module into the core.
+_USER_OPEN_REASONS = frozenset({"second_instance", "core_tray", "tray"})
 
 
 def ui_process_appears_running(config: dict[str, Any] | None = None) -> bool:
@@ -24,24 +28,27 @@ def ui_process_appears_running(config: dict[str, Any] | None = None) -> bool:
     return lock_held_by_other(ui_lock_path(config))
 
 
-def spawn_ui_subprocess() -> int | None:
+def spawn_ui_subprocess(*, background: bool = True) -> int | None:
     """Launch `python -m arelis` (UI) so it can attach to a running core."""
     global _LAST_SPAWN_MONO
     now = time.monotonic()
     if now - _LAST_SPAWN_MONO < _SPAWN_COOLDOWN_S:
         log.info(
-            "Skipping UI spawn — cooldown (%.0fs remaining).",
+            "Skipping UI spawn, cooldown (%.0fs remaining).",
             _SPAWN_COOLDOWN_S - (now - _LAST_SPAWN_MONO),
         )
         return None
     if ui_process_appears_running():
-        log.info("Skipping UI spawn — arelis-ui.lock already held.")
+        log.info("Skipping UI spawn, arelis-ui.lock already held.")
         return None
     try:
         env = os.environ.copy()
         env["ARELIS_ATTACH_CORE"] = "1"
+        args = [sys.executable, "-m", "arelis"]
+        if background:
+            args.append("--background")
         kwargs: dict[str, Any] = {
-            "args": [sys.executable, "-m", "arelis"],
+            "args": args,
             "close_fds": True,
             "env": env,
         }
@@ -75,11 +82,12 @@ async def ensure_ui_open(
     # Lock held → UI is alive (maybe tray-hidden) but not on IPC yet; do not
     # spawn a second glass. Caller already broadcast open_ui to zero clients.
     if ui_process_appears_running(config):
-        log.info("UI lock held but no IPC client — not spawning another glass.")
+        log.info("UI lock held but no IPC client, not spawning another glass.")
         return {"attached": 0, "spawned": False, "pid": None, "ui_lock": True}
     pid: int | None = None
     spawned = False
     if spawn_if_detached:
-        pid = spawn_ui_subprocess()
+        reason = str(payload.get("reason") or "")
+        pid = spawn_ui_subprocess(background=reason not in _USER_OPEN_REASONS)
         spawned = pid is not None
     return {"attached": 0, "spawned": spawned, "pid": pid}

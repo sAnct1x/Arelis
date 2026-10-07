@@ -55,6 +55,7 @@ from arelis.tools.remind import RemindTool
 from arelis.tools.research_report import ResearchReportTool
 from arelis.tools.rooms_tool import RoomsTool
 from arelis.tools.run_script import RunScriptTool
+from arelis.tools.run_task import RunTaskTool
 from arelis.tools.schedule_jobs import ScheduleTool
 from arelis.tools.scrape import ScrapeTool
 from arelis.tools.search import build_search_tool
@@ -101,7 +102,7 @@ def build_tool_registry(
     When ``attended`` is omitted it follows ``allow_send``, so every existing
     caller keeps the same registry. Jobs pass ``allow_send=False`` and get
     ``attended=False`` for free. Comfy ``image`` and deterministic
-    ``image_edit`` stay registered unattended — tests pin that; the job
+    ``image_edit`` stay registered unattended, tests pin that; the job
     runner skips the card rather than hiding the tool.
 
     memory_store is the same archive SessionMemory writes through in the UI and
@@ -223,6 +224,7 @@ def build_tool_registry(
             user_agent=ua,
             timeout_s=web_cfg.get("timeout_s", 30),
             block_private_urls=block_private,
+            offer_browser=bool(attended),
         )
         registry.register(web_fetch_tool)
     scrape_tool: ScrapeTool | None = None
@@ -233,6 +235,7 @@ def build_tool_registry(
             max_chars=scrape_cfg.get("max_chars", 120000),
             block_private_urls=block_private,
             follow_siblings=bool(scrape_cfg.get("follow_siblings", True)),
+            offer_browser=bool(attended),
         )
         registry.register(scrape_tool)
     search_tool = None
@@ -403,6 +406,7 @@ def build_tool_registry(
     if attended and run_cfg.get("enabled", True):
         python = str(run_cfg.get("python") or "").strip() or None
         registry.register(RunScriptTool(workspace, python=python))
+        registry.register(RunTaskTool(workspace, python=python))
     if tools_cfg.get("analyze", {}).get("enabled", True):
         registry.register(AnalyzeTool(workspace))
     if tools_cfg.get("sql", {}).get("enabled", True):
@@ -516,6 +520,7 @@ def build_tool_registry(
             cdp_url=str(browser_cfg.get("cdp_url") or "http://127.0.0.1:9222"),
             max_snapshot_chars=int(browser_cfg.get("max_snapshot_chars") or 6000),
             max_read_chars=int(browser_cfg.get("max_read_chars") or 3500),
+            fresh_profile=bool(browser_cfg.get("fresh_profile", False)),
         )
         registry.register(
             BrowserTool(session, aliases=aliases, workspace=workspace)

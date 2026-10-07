@@ -15,7 +15,7 @@ included. The globe itself only runs on a source checkout
 `pip install -e ".[astro]"` installed.
 
 Inventory currently stands at `arelis/earth/feeds.py`: **109 shipped**,
-**25 keyed**, **3 later**, **4 out**. Adapters are meant to replace a layer, not
+**24 keyed**, **3 later**, **4 out**. Adapters are meant to replace a layer, not
 invent coverage that isn't there — completeness is treated as the
 anti-beacon here, meaning we'd rather leave a region visibly sparse
 than quietly thin it out to hide a gap.
@@ -73,15 +73,15 @@ box (via OpenSky's bounding-box query, 1 credit per call) and keeps
 TLE refresh so sats stay. Near adds boats. City band
 opens every layer whose chip is switched on — cameras, traffic,
 weather, incident sites — still filtered down to the look area and
-capped in volume. The globe stops painting the sat swarm in
-near/city (ISS and a tracked mark stay); CelesTrak still refreshes
-so the shell is not cold when you climb back out. Layer chips all
-start off except for **Sats** and
-**ISS**. The bar itself only ever shows what the current band can
-actually use: space keeps just those two on; approach adds flights;
-near adds boats; city opens the rest. Clicking a country or city on
-the globe lets you fall toward it. A chip that's off simply isn't
-being fetched at all.
+capped in volume. The globe keeps the satellite sample through approach. Near and
+city stop painting the swarm (ISS and a tracked mark stay).
+CelesTrak still refreshes so the shell is not cold when you climb
+back out. **Sats** and **ISS** start on. The first time the eye enters
+approach, **Flights** turns on. Near adds **Vessels**. City adds
+**Cameras**. Weather, traffic, military, and drones stay a click.
+Turn one off and it stays off until you turn it back on. Leave
+resets. The bar only shows what this band can use. A chip that's
+off is not fetched.
 
 Natural Earth country borders are painted directly onto the globe so
 continents actually read clearly (public domain data, cached in ECEF
@@ -148,7 +148,9 @@ What shows up on the globe is only what a receiver or operator has
 already chosen to publish. This isn't meant to be a US-centric map,
 either — NYC, for instance, is represented by one municipal catalog
 among many. `merge_live` only runs the adapters that the current band
-and enabled chips allow, in parallel, then caps the fetch. The plate
+and enabled chips allow, in parallel, then caps the fetch. A 429,
+a missing AISStream key, and a feed that does not answer are named
+misses. An empty list is the only quiet box. The plate
 filters to the current look box. Walking that box invalidates air,
 sea, cameras, radio, weather, traffic, and fires so the next city
 is not last city's pins.
@@ -164,12 +166,14 @@ is not last city's pins.
 | Airports | OurAirports' large/medium scheduled-service fields — not a live radar feed. |
 | Ocean floats | Argo's last-fix samples (via IFREMER ERDDAP, capped at 80) — not a painted subsurface shell. |
 | Every car | A genuine gap. We use 511 / WZDx / Open511 / official ArcGIS catalogs, not individual VINs. |
-| Every camera | TfL, Caltrans, NYC, SG LTA, Fintraffic, HK TD, CARS 511 (ON, MB, NS, AB, SK, FL, NY, CO, IA, MN, GA), ODOT TripCheck, SHA/NDDOT, ALGO, DelDOT, NZTA, Quebec 511, and OSM worldwide. These show as pins; official stills or streams play on click, when the publisher's own JSON includes them. The URL itself isn't stored on the pin. |
+| Every camera | TfL, Caltrans, NYC, SG LTA, Fintraffic, HK TD, CARS 511 (ON, MB, NS, AB, SK, FL, NY, CO, IA, MN, GA), ODOT TripCheck, SHA/NDDOT, ALGO, DelDOT, NZTA, Quebec 511, and OSM worldwide. Highway stills play on click when that catalog's JSON includes one. An OSM `contact:webcam` or `website:webcam` that is a public http(s) page plays on click too. The URL isn't stored on the pin. A surveillance tag with no published page is not a camera you can view. An IP address is not a layer. |
 | Continents / countries / states | Natural Earth 110m border lines on the globe (cached in ECEF). Fill color only shows while the globe is small — not a live feed. |
 | Ground imagery | NASA GIBS Blue Marble from space. Daily VIIRS true-color closer in. From space and at night in approach, NASA Black Marble city lights. A published mosaic, not a live pass. |
 | Street-level tiles | Named highway overlays on GIBS / photoreal when Streets is on (Overpass, ODbL). OSM raster is the city underlay below ~15 km when photoreal is off — not a swap of the planet from space. |
 | 3D cities | Google Photorealistic 3D Tiles at city sit (~8 km and below), when `earth.google_maps_key` is set — covered cities only. The hop itself stays on the mosaic. |
 | City blocks | Cesium photoreal below ~8 km when `earth.google_maps_key` is set — covered cities only. Overpass footprints still live in `buildings.py`; the Buildings chip is off the bar. Individual houses stay unlabeled. |
+| Every earthquake | USGS all-day, EMSC, and GeoNet. Heat from space: bigger magnitude, bigger glow. The city look keeps the ones in the box. |
+| Every fire | NASA FIRMS VIIRS, last day, if `earth.firms_key` is set. Heat, not a pin. Cloud and the next pass hide fires. Not a perimeter. |
 | Every satellite | CelesTrak's GNSS / weather / visual / science / comm catalogs, plus Starlink/OneWeb/Planet samples — not a painted orbital shell of everything up there. |
 | Military | adsb.lol's public squawk data only — aircraft that stay silent simply stay absent from the map. |
 | Your own video | RTSP, a local webcam, or an HTTP MJPEG/snapshot feed you've pasted in yourself. Clicking the pin plays the live footage, with an eye rendered in the frustum if you've set a heading. Face detection boxes stay in local ENU coordinates only — WGS84 precision is enough for placing the pin itself. |
@@ -226,7 +230,8 @@ feeds you've pasted in yourself, and sensors you personally own.
 Clicking look-from plays back either the live stream you pasted in,
 or an official publisher still/stream sourced from that same JSON
 feed. An open port by itself is never treated as consent. Sites like
-Insecam, logging into a camera you don't own, any kind of global
+Insecam, device-search sites that index open ports by location, logging
+into a camera you don't own, any kind of global
 face-recognition index, or a VIN/license-plate dragnet are all
 explicitly out of bounds and won't be implemented.
 
@@ -248,7 +253,6 @@ to wait on these before using the no-key adapters that already ship.
 | `earth.waqi_token` | https://aqicn.org/data-platform/token/ | api.waqi.info (WAQI plus the originating EPA citation; treat it as a local observer, don't republish) |
 | `earth.opensky_client_id` / `_secret` | Account → API client → credentials.json | opensky-network.org + auth.opensky-network.org (OAuth2, Standard tier is 4,000 credits/day — we stay under that) |
 | `earth.openaq_key` | https://explore.openaq.org/register | api.openaq.org (OpenAQ plus originating provider; local observer, don't republish) |
-| `earth.shodan_key` | Hobby tier; IP and banner catalog only — never used to log in, never used for look-from | api.shodan.io |
 | `earth.drivetexas_key` | https://api.drivetexas.org/request-key — conditions and WZDx only, no cameras | api.drivetexas.org |
 | `earth.nsw_key` | https://opendata.transport.nsw.gov.au/user/register — Live Traffic cameras, sent as header `apikey TOKEN` | api.transport.nsw.gov.au |
 | `earth.wsdot_access_code` | https://wsdot.wa.gov/traffic/api/ — cameras plus highway alerts | wsdot.wa.gov |

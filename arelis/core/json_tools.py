@@ -8,6 +8,9 @@ _FENCE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
 _THINK_BLOCK = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
 _THINK_OPEN = re.compile(r"<think>", re.IGNORECASE)
 _THINK_CLOSE = re.compile(r"</think>", re.IGNORECASE)
+_TEXT_TOOL_CALL = re.compile(
+    r"<tool_call>\s*(\{[\s\S]*?\})\s*</tool_call>", re.IGNORECASE
+)
 
 
 def strip_thinking_text(text: str) -> str:
@@ -311,3 +314,55 @@ def extract_native_tool_calls(calls: list[dict[str, Any]]) -> list[tuple[str, di
         seen.add(fingerprint)
         out.append((name, args))
     return out
+
+
+def parse_text_tool_call(
+    text: str, *, registered_tools: set[str] | None = None
+) -> dict[str, Any] | None:
+    """Parse text-form tool calls like <tool_call>{"name":"...", "arguments":...}</tool_call>.
+    
+    When native_tool_calling is enabled, some models emit tool calls as literal text
+    instead of using the structured API. This parser extracts and validates them.
+    
+    Only accepts a block that is the last thing in the message (nothing but whitespace
+    after the closing tag) to distinguish actual calls from examples/explanations.
+    
+    Returns normalized dict {"kind": "tool", "name": str, "args": dict} or None.
+    Validates against registered_tools when provided.
+    """
+    if not text or not text.strip():
+        return None
+    
+    # Look for text-form tool calls
+    matches = list(_TEXT_TOOL_CALL.finditer(text))
+    if not matches:
+        return None
+    
+    # Only accept if the last match ends the message (nothing but whitespace after)
+    last_match = matches[-1]
+    after_call = text[last_match.end():]
+    if after_call.strip():
+        # Text after the tool call means it's an example/explanation, not a real call
+        return None
+    
+    json_str = last_match.group(1).strip()
+    
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError:
+        return None
+    
+    if not isinstance(data, dict):
+        return None
+    
+    normalized = _normalize_tool_dict(data)
+    if not normalized or normalized.get("kind") != "tool":
+        return None
+    
+    # Validate against registered tools if provided
+    if registered_tools is not None:
+        tool_name = normalized.get("name", "")
+        if tool_name not in registered_tools:
+            return None
+    
+    return normalized

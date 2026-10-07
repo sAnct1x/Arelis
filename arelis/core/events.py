@@ -30,16 +30,24 @@ class EventType(str, Enum):
     freeze, undo). It mutates the live scene this frame and never starts
     a turn. The 9B is not on this path.
 
+    TILE_VERB is the same idea for the desk: "open history", "close files".
+    Typed text already takes this path before a turn. Speech has to as
+    well, or the sentence waits on the model.
+
     CONVERSATION_END hangs up hands-free talk (goodbye / that's all / stop
     listening). The glass unlatches the two-arcs toggle the same way the
     chord does. It never starts a turn. The room you were in stays put.
+
+    LANGUAGE is the session language (en or zh). The orchestrator has
+    already stored it. The glass swaps the face, the copy, and the live
+    ear. It is not a turn.
 
     The voice events are a chain, not a group. VOICE_TRANSCRIPT enters the
     pipeline and the orchestrator turns it into a USER_MESSAGE. While an answer
     is streaming, ASSISTANT_DELTA also feeds the voice service: completed
     sentences become VOICE_AUDIO_READY before the turn ends. ASSISTANT_RETRACT
     cancels that in-flight speech when the painted text was only a tool
-    preamble. VOICE_SPEAK is still the terminal hand-off — it flushes any
+    preamble. VOICE_SPEAK is still the terminal hand-off, it flushes any
     remainder from the final written answer (and is the whole path for
     non-stream producers such as SMS cues). VOICE_AUDIO_READY carries one
     synthesized clip and is the only one the UI plays, because audio devices
@@ -66,7 +74,7 @@ class EventType(str, Enum):
     watcher polls SMSGate Local Server GET /inbox and publishes one event per
     new message id. The UI always records it (Notifications unread + inbound_sms
     buffer). Chat/voice announcement waits while a turn owns the floor (model,
-    Allow, send, spoken reply), then flushes as one batched system note — not
+    Allow, send, spoken reply), then flushes as one batched system note, not
     into an agent turn, and not into the outbound draft.
 
     ROOM_CHANGED announces that the open room changed, which is a bigger event
@@ -74,7 +82,7 @@ class EventType(str, Enum):
     role all moved at once. It is published after the swap has happened, and it
     carries the whole new state rather than a delta, so a surface that missed an
     earlier one still paints the truth. An empty room id means the general
-    conversation. SESSION_LOADED still carries the messages — this event says
+    conversation. SESSION_LOADED still carries the messages, this event says
     which room they belong to.
 
     CALENDAR_CHANGED fires after a Google/Outlook write or a cache sync, from
@@ -108,7 +116,9 @@ class EventType(str, Enum):
     ERROR = "error"
     VOICE_TRANSCRIPT = "voice_transcript"
     PHYSICS_VERB = "physics_verb"
+    TILE_VERB = "tile_verb"
     CONVERSATION_END = "conversation_end"
+    LANGUAGE = "language"
     VOICE_SPEAK = "voice_speak"
     VOICE_AUDIO_READY = "voice_audio_ready"
     VOICE_SPEECH_DONE = "voice_speech_done"

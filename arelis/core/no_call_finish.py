@@ -11,8 +11,10 @@ from typing import Any
 from arelis.core.agent_loop import (
     _FILE_ANSWER_TOOLS,
     _JS_SHELL_BROWSER_NOTICE,
+    _MAX_TOOL_NUDGES,
     _SCRAPE_AFTER_SEARCH_NOTICE,
     _WEB_TOOLS,
+    theme_reply_if_needed,
 )
 from arelis.core.claims import (
     answer_looks_like_ack_only,
@@ -31,9 +33,10 @@ from arelis.core.failure_copy import (
 )
 from arelis.core.gates import FORCE_GATE_KINDS, apply_force_gates
 from arelis.core.loop_helpers import _answer_has_quote_span, _exactness_finish_refuse
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.plan_nudge import plan_progress_notice
 from arelis.core.turn_context import TurnContext
-from arelis.core.turn_scratch import RoundScratch
+from arelis.core.turn_scratch import RoundScratch, named_tools_owed_runnable, negated_tool_mentions
 
 SKIP = "skip"
 NUDGE = "nudge"
@@ -86,7 +89,10 @@ async def try_js_shell_browser(loop: Any, ctx: TurnContext, r: RoundScratch, rou
         ctx.tool_names.update(r.visible)
         r.tool_names = ctx.tool_names
         if r.offer_tools:
-            r.ollama_tools = loop.tools.ollama_tools(r.visible)
+            r.ollama_tools = loop.tools.ollama_tools(
+                r.visible,
+                param_hints=native_tool_calling(r.agent_cfg),
+            )
     await loop._retract()
     r.messages.append({"role": "assistant", "content": r.content})
     r.messages.append(
@@ -128,9 +134,7 @@ async def try_plan_progress(loop: Any, ctx: TurnContext, r: RoundScratch, round_
 
 
 async def try_force_gates(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    if await apply_force_gates(
-        loop, ctx, r.content, refused=answer_looks_like_refusal(r.content)
-    ):
+    if await apply_force_gates(loop, ctx, r.content, refused=answer_looks_like_refusal(r.content)):
         return NUDGE
     return SKIP
 
@@ -163,7 +167,7 @@ async def try_evidence(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: in
 
 
 async def try_ink_vision(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    """Ink PDF extract is not an answer — vision the page images next."""
+    """Ink PDF extract is not an answer, vision the page images next."""
     if not (
         ctx.ink_page_images
         and "vision" not in loop.tools_used
@@ -177,19 +181,13 @@ async def try_ink_vision(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         ctx.ink_vision_nudge_used = True
         await loop._retract()
         r.messages.append({"role": "assistant", "content": r.content})
-        r.messages.append(
-            {"role": "user", "content": ink_vision_notice(ctx.ink_page_images)}
-        )
-        await loop.bus.publish(
-            Event(EventType.THINKING, {"text": "plan_progress  ink-vision"})
-        )
+        r.messages.append({"role": "user", "content": ink_vision_notice(ctx.ink_page_images)})
+        await loop.bus.publish(Event(EventType.THINKING, {"text": "plan_progress  ink-vision"}))
         return NUDGE
     return SKIP
 
 
-async def try_algebra_answer(
-    loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int
-) -> str:
+async def try_algebra_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     """Ship the calculator line when chat is filler without the number.
 
     Live dump: tool returns `14-6 = 8`, thinking has 8, bubble is
@@ -211,14 +209,13 @@ async def try_algebra_answer(
     await loop.bus.publish(
         Event(
             EventType.THINKING,
-            {"text": "algebra result missing from chat; shipping the tool line"},
+            {"text": "algebra result missing from chat; shipping a plain answer"},
         )
     )
     await loop._finish(
         line,
         r.sources,
         streamed="",
-        passthrough_tool=name,
     )
     return FINISH
 
@@ -244,6 +241,10 @@ async def try_file_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round_i:
 
 
 async def try_quote_first(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
+    if r.exact_need.needs_document and r.ledger.has_ok("document"):
+        # The report is already in the file. Quote-first is what pasted
+        # the K2-18 b sources into chat after the PDF was saved.
+        return SKIP
     if not (
         r.evidence_gate
         and r.ledger.has_ok("web")
@@ -327,10 +328,52 @@ FINISH_STEPS: tuple[StepFn, ...] = (
 
 
 async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    for step in FINISH_STEPS:
-        hit = await step(loop, ctx, r, round_i)
-        if hit != SKIP:
-            return hit
+    # When native_tool_calling is enabled, skip the regex finish nudges but keep
+    # refuse logic — and still hold the turn when the user named tools that
+    # have not run (and are not twice-failed / exhausted).
+    if not native_tool_calling(r.agent_cfg):
+        for step in FINISH_STEPS:
+            hit = await step(loop, ctx, r, round_i)
+            if hit != SKIP:
+                return hit
+    else:
+        owed = named_tools_owed_runnable(loop, ctx, r.fail_counts)
+        # Native-only: do not nudge for tools the user only mentioned under
+        # negation ("do not use the document tool"). Flag-off finish path
+        # is unchanged above.
+        negated = negated_tool_mentions(ctx.text, owed)
+        owed = [n for n in owed if n not in negated]
+        if owed and ctx.nudges < _MAX_TOOL_NUDGES:
+            ctx.nudges += 1
+            await loop._retract()
+            r.messages.append({"role": "assistant", "content": r.content})
+            r.messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "You still need to call these tools the user named: "
+                        + ", ".join(owed)
+                        + ". Call them now before answering."
+                    ),
+                }
+            )
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "named tools owed; asking to continue"},
+                )
+            )
+            return NUDGE
+    fixed = theme_reply_if_needed(ctx.text, r.content)
+    if fixed is not None:
+        await loop._retract()
+        await loop.bus.publish(
+            Event(EventType.THINKING, {"text": "theme ask; saying the screen theme"})
+        )
+        if loop._timer is not None:
+            loop._timer.mark("theme", action="name")
+        await loop._finish(fixed, r.sources, streamed="")
+        return FINISH
     refuse = _exactness_finish_refuse(
         r.content,
         exact_need=ctx.exact_need,

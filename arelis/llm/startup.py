@@ -9,7 +9,7 @@ Pin the default chat model so the first turn is not a cold weight load.
 
 Prefill the static prefix, so the first turn is not a cold *prompt* either. The
 persona, the telegraph policy and the skinny schemas are around 5,500 tokens and
-identical every turn, which is what makes the prefix cache useful — but somebody
+identical every turn, which is what makes the prefix cache useful, but somebody
 has to process them once. Doing it here took the first reply to 0.9s.
 
 This file was ``llm/preflight.py`` and sat beside ``core/preflight.py``, which is
@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 
 # STATUS copy the UI matches so the first-turn shimmer is not "thinking…"
 # while the prefix seed is still running.
-WARMUP_PINNED = "Chat model loaded — preparing the first reply."
+WARMUP_PINNED = "Chat model loaded, preparing the first reply."
 WARMUP_READY = "Ready for the first reply."
 
 
@@ -150,7 +150,7 @@ async def run_auto_lessons(bus: EventBus, *, enabled: bool = True) -> None:
         )
         return
     if bits:
-        log.info("Trust mine — %s", "; ".join(bits))
+        log.info("Trust mine, %s", "; ".join(bits))
 
 
 async def run_model_warmup(
@@ -169,7 +169,7 @@ async def run_model_warmup(
 
     The first user turn waits for this to finish (``router.arm_warmup``). If it
     does not, the seed and the turn hit Ollama together and the first token
-    waits on two prefills — a minute instead of one 40s load.
+    waits on two prefills, a minute instead of one 40s load.
 
     Fail soft throughout: a down Ollama must not block the UI. Toggle with
     `router.warm_on_start`. Always releases the warmup gate so a failed pin
@@ -242,14 +242,16 @@ def prefix_warmup_for(
     try:
         from arelis.config import load_persona, shipped_num_ctx
         from arelis.core.agent_loop import static_system_prefix
+        from arelis.core.native_tool_calling import native_tool_calling
 
+        agent_cfg = config.get("agent") or {}
         ollama_cfg = config.get("ollama") or {}
         num_ctx = int(ollama_cfg.get("num_ctx") or shipped_num_ctx())
         return PrefixWarmup(
             messages=list(static_system_prefix(load_persona(config))),
             # The full surface, because that is what a turn sends. Warming a
             # different tools array would seed a prefix no turn ever asks for.
-            tools=list(tools.ollama_tools()),
+            tools=list(tools.ollama_tools(param_hints=native_tool_calling(agent_cfg))),
             num_ctx=num_ctx,
         )
     except Exception as exc:

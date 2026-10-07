@@ -1,7 +1,7 @@
 """Live webcam preview instrument (QtMultimedia).
 
 Preview + device pick + still snapshot. Soft-fails when QtMultimedia video
-or cameras are missing — same stance as arelis.ui.audio for the mic.
+or cameras are missing, same stance as arelis.ui.audio for the mic.
 
 Ask Arelis: snapshot then emit ask_arelis so the app submits an Identify look.
 Optional snapshot_blocking() for the camera tool while the dock is live.
@@ -84,7 +84,7 @@ def list_video_input_names() -> list[str]:
 
 
 def scale_qimage(image: QImage, max_width: int) -> QImage:
-    """Shrink for preview / pose. Smooth, not nearest — aliasing made tips crawl."""
+    """Shrink for preview / pose. Smooth, not nearest, aliasing made tips crawl."""
     if image.isNull() or image.width() <= max_width:
         return image
     height = max(1, round(image.height() * (max_width / image.width())))
@@ -104,7 +104,7 @@ def rgb_to_qimage(rgb: np.ndarray) -> QImage:
 
 
 def video_frame_to_rgb(frame, max_width: int) -> tuple[np.ndarray | None, int, int]:
-    """RGB at max_width. Prefer a mapped subsample — full toImage is the 5 Hz path."""
+    """RGB at max_width. Prefer a mapped subsample, full toImage is the 5 Hz path."""
     if frame is None or not frame.isValid():
         return None, 0, 0
     src_w, src_h = int(frame.width()), int(frame.height())
@@ -174,19 +174,44 @@ def _ys(src_h: int, dest_h: int) -> np.ndarray:
     return (np.arange(dest_h) * (src_h / dest_h)).astype(np.int32)
 
 
+def _yuv601(y: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """BT.601 limited-range-ish full swing. Skin color is a landmark cue.
+
+    Luma-only grey made the off-center hand lose to the desk.
+    """
+    yf = y.astype(np.float32)
+    uf = u.astype(np.float32) - 128.0
+    vf = v.astype(np.float32) - 128.0
+    rgb = np.stack(
+        (
+            yf + 1.402 * vf,
+            yf - 0.344136 * uf - 0.714136 * vf,
+            yf + 1.772 * uf,
+        ),
+        axis=-1,
+    )
+    return np.clip(rgb, 0, 255).astype(np.uint8)
+
+
 def _sample_nv12(
     buf: np.ndarray, w: int, h: int, bpl: int, dw: int, dh: int
 ) -> np.ndarray:
     y_plane = buf[: bpl * h].reshape(h, bpl)[:, :w]
     xs, ys = _xs(w, dw), _ys(h, dh)
-    y = y_plane[ys][:, xs].astype(np.float32)
-    # Approximate luma as grey RGB — enough for the landmarker; UV is optional.
-    rgb = np.empty((dh, dw, 3), dtype=np.uint8)
-    grey = np.clip(y, 0, 255).astype(np.uint8)
-    rgb[:, :, 0] = grey
-    rgb[:, :, 1] = grey
-    rgb[:, :, 2] = grey
-    return rgb
+    y = y_plane[ys][:, xs]
+    uv_h = h // 2
+    uv_off = bpl * h
+    need = uv_off + bpl * uv_h
+    if uv_h < 1 or buf.size < need:
+        grey = np.clip(y, 0, 255).astype(np.uint8)
+        return np.repeat(grey[:, :, None], 3, axis=2)
+    uv = buf[uv_off:need].reshape(uv_h, bpl)
+    cys = np.clip(ys // 2, 0, uv_h - 1)
+    cxs = np.clip((xs // 2) * 2, 0, max(bpl - 2, 0))
+    uv_rows = uv[cys]
+    u = uv_rows[:, cxs]
+    v = uv_rows[:, np.clip(cxs + 1, 0, bpl - 1)]
+    return _yuv601(y, u, v)
 
 
 def _sample_yuyv(
@@ -194,13 +219,18 @@ def _sample_yuyv(
 ) -> np.ndarray:
     row = buf[: bpl * h].reshape(h, bpl)
     xs, ys = _xs(w, dw), _ys(h, dh)
-    # YUYV: Y0 U Y1 V. Take Y at 2*x.
-    y = row[ys][:, xs * 2 if not uyvy else xs * 2 + 1]
-    rgb = np.empty((dh, dw, 3), dtype=np.uint8)
-    rgb[:, :, 0] = y
-    rgb[:, :, 1] = y
-    rgb[:, :, 2] = y
-    return rgb
+    rows = row[ys]
+    # Packed 4 bytes cover two pixels: YUYV is Y0 U Y1 V, UYVY is U Y0 V Y1.
+    pair = np.clip((xs // 2) * 4, 0, max(bpl - 4, 0))
+    if uyvy:
+        y = rows[:, np.clip(xs * 2 + 1, 0, bpl - 1)]
+        u = rows[:, pair]
+        v = rows[:, np.clip(pair + 2, 0, bpl - 1)]
+    else:
+        y = rows[:, np.clip(xs * 2, 0, bpl - 1)]
+        u = rows[:, np.clip(pair + 1, 0, bpl - 1)]
+        v = rows[:, np.clip(pair + 3, 0, bpl - 1)]
+    return _yuv601(y, u, v)
 
 
 def _sample_rgb32(
@@ -208,21 +238,23 @@ def _sample_rgb32(
 ) -> np.ndarray:
     packed = buf[: bpl * h].reshape(h, bpl)
     xs, ys = _xs(w, dw), _ys(h, dh)
-    bgra = "BGRA" in name or "BGRX" in name
-    out = np.empty((dh, dw, 3), dtype=np.uint8)
-    for j, y in enumerate(ys):
-        row = packed[y]
-        for i, x in enumerate(xs):
-            o = int(x) * 4
-            if bgra:
-                out[j, i, 0] = row[o + 2]
-                out[j, i, 1] = row[o + 1]
-                out[j, i, 2] = row[o]
-            else:
-                out[j, i, 0] = row[o]
-                out[j, i, 1] = row[o + 1]
-                out[j, i, 2] = row[o + 2]
-    return out
+    rows = packed[ys]
+    # A Python loop over every pixel was a frame of lag by itself.
+    origin = np.clip(xs.astype(np.int32) * 4, 0, max(bpl - 4, 0))
+    pix = np.stack(
+        (
+            rows[:, origin],
+            rows[:, origin + 1],
+            rows[:, origin + 2],
+            rows[:, origin + 3],
+        ),
+        axis=-1,
+    )
+    if "BGRA" in name or "BGRX" in name:
+        rgb = pix[..., [2, 1, 0]]
+    else:
+        rgb = pix[..., :3]
+    return np.ascontiguousarray(rgb)
 
 
 def qimage_to_rgb(image: QImage) -> np.ndarray | None:
@@ -426,7 +458,7 @@ class CameraPanel(QWidget):
         self.track_btn.toggled.connect(self._on_track_toggled)
         self.record_btn.toggled.connect(self._on_record_toggled)
         self.ask_btn.setToolTip(
-            "One still, then Allow — Identify what is in frame. "
+            "One still, then Allow, Identify what is in frame. "
             "Typed chat can Read, Translate, or ask if food is still good."
         )
 
@@ -711,7 +743,7 @@ class CameraPanel(QWidget):
             self._set_hint("Start the camera before taking a snapshot.")
             return
         if not self._image_capture.isReadyForCapture():
-            self._set_hint("Camera not ready for capture yet — wait a moment.")
+            self._set_hint("Camera not ready for capture yet: wait a moment.")
             return
         out_dir = outputs_dir() / "images"
         out_dir.mkdir(parents=True, exist_ok=True)

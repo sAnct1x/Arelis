@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
+import itertools
+from types import SimpleNamespace
+
 import pytest
 
+from arelis.config import load_config, shipped_num_ctx
+from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
+from arelis.core.memory import SessionMemory
 from arelis.core.turn_confirm import SKIP, confirm_call
 from arelis.core.turn_context import TurnContext
+from arelis.eval.harness import _ScriptedRouter, foundation_registry
 from arelis.tools import build_tool_registry
 from arelis.tools.base import NEVER_BATCH, ToolRegistry, capability_class, confirm_args_blocked
 from arelis.tools.policy import (
+    DELETE_ACTIONS,
     always_pause,
     batch_ok,
+    confirm_mode,
     confirm_toggles_for_call,
     evaluate_capability,
     evaluate_confirm,
@@ -20,6 +30,34 @@ from arelis.tools.policy import (
     persist_ok,
     set_confirm_mode,
 )
+from arelis.ui.theme import THEME_IDS, apply_theme
+
+FLOOR_EXEMPT_THEMES = frozenset({"filament"})
+
+_TOGGLE_KEYS = (
+    "confirm_writes",
+    "confirm_send",
+    "confirm_image",
+    "confirm_browser",
+    "confirm_vision",
+    "confirm_run",
+)
+
+
+def _floor_calls() -> list[tuple[str, dict]]:
+    calls: list[tuple[str, dict]] = [("send_email", {}), ("send_sms", {})]
+    for tool, actions in DELETE_ACTIONS.items():
+        action = sorted(actions)[0]
+        calls.append((tool, {"action": action}))
+    calls.append(("web_fetch", {"method": "DELETE"}))
+    return calls
+
+
+def _toggle_flag_sets() -> list[dict[str, bool]]:
+    out: list[dict[str, bool]] = []
+    for bits in itertools.product((True, False), repeat=len(_TOGGLE_KEYS)):
+        out.append(dict(zip(_TOGGLE_KEYS, bits, strict=True)))
+    return out
 
 
 def test_capability_class_is_the_policy_table() -> None:
@@ -38,6 +76,8 @@ def test_capability_class_is_the_policy_table() -> None:
         ("agenda", {"action": "sync", "provider": "ics"}, "WRITE_LOCAL"),
         ("image", None, "SIDE_EFFECT_LOCAL"),
         ("run_script", {"path": "x.py"}, "SIDE_EFFECT_LOCAL"),
+        ("run_task", {"action": "run", "name": "pytest"}, "SIDE_EFFECT_LOCAL"),
+        ("run_task", {"action": "list"}, "READ"),
         ("earth", {"action": "dump"}, "READ"),
     ]
     for name, args, expected in cases:
@@ -67,6 +107,7 @@ def test_evaluate_confirm_matches_registry() -> None:
         ("earth", "read"),
         ("plot", "write"),
         ("run_script", "side_effect"),
+        ("run_task", "side_effect"),
     ):
         reg.register(_Stub(name, risk))
 
@@ -82,6 +123,8 @@ def test_evaluate_confirm_matches_registry() -> None:
         ("earth", {"action": "dump"}, False),
         ("plot", {}, True),
         ("run_script", {"path": "x.py"}, True),
+        ("run_task", {"action": "run", "name": "pytest"}, True),
+        ("run_task", {"action": "list"}, False),
         ("unknown", {}, False),
     ]
     for name, args, expected in pairs:
@@ -128,6 +171,8 @@ def test_never_batch_and_batch_ok() -> None:
     assert batch_ok("workspace", {"action": "write"})
     assert not batch_ok("workspace", {"action": "delete"})
     assert not batch_ok("run_script", {"path": "x.py"})
+    assert not batch_ok("run_task", {"action": "run", "name": "pytest"})
+    assert batch_ok("run_task", {"action": "list"})
     assert "send_email" in NEVER_BATCH
 
 
@@ -151,6 +196,9 @@ def test_ask_is_grant_skips_local_work() -> None:
     )
     assert evaluate_confirm(
         "run_script", {"path": "x.py"}, asked=True, risk="side_effect"
+    )
+    assert evaluate_confirm(
+        "run_task", {"action": "run", "name": "pytest"}, asked=True, risk="side_effect"
     )
     assert evaluate_confirm("inbox", {"action": "trash"}, asked=True)
     assert evaluate_confirm(
@@ -183,6 +231,8 @@ def test_ask_me_everything_restores_cards() -> None:
 def test_always_pause_and_persist_ok() -> None:
     assert always_pause("send_sms")
     assert always_pause("run_script")
+    assert always_pause("run_task", {"action": "run", "name": "pytest"})
+    assert not always_pause("run_task", {"action": "list"})
     assert always_pause("workspace", {"action": "delete"})
     assert always_pause("browser", {"action": "upload", "path": "x.csv"})
     assert not always_pause("browser", {"action": "download"})
@@ -200,6 +250,7 @@ def test_always_pause_and_persist_ok() -> None:
     assert persist_label("send_sms", {}) == ""
     assert not persist_ok("workspace", {"action": "delete"})
     assert not persist_ok("run_script", {"path": "x.py"})
+    assert not persist_ok("run_task", {"action": "run", "name": "pytest"})
     assert not persist_ok("inbox", {"action": "trash"})
 
 
@@ -246,6 +297,7 @@ def test_attended_follows_allow_send_by_default() -> None:
     assert "image_edit" in jobs.names()
     assert "research_report" not in jobs.names()
     assert "run_script" not in jobs.names()
+    assert "run_task" not in jobs.names()
 
 
 def test_placeholder_phone_still_blocks_allow_card() -> None:
@@ -257,6 +309,7 @@ def test_placeholder_phone_still_blocks_allow_card() -> None:
     assert "placeholder" in reason.lower() or "user_phone" in reason.lower()
 
 
+@pytest.mark.no_ui
 def test_empty_workspace_write_still_blocks() -> None:
     reason = confirm_args_blocked(
         "workspace",
@@ -351,3 +404,258 @@ async def test_identical_blocked_write_stops_after_two_tries() -> None:
     joined = " ".join(str(m) for m in messages)
     assert "already failed twice" in joined.lower()
     assert "Stop calling" in joined
+
+
+@pytest.mark.parametrize(
+    "theme_id",
+    [t for t in THEME_IDS if t not in FLOOR_EXEMPT_THEMES],
+)
+def test_floor_on_every_non_filament_theme(theme_id: str) -> None:
+    try:
+        apply_theme(theme_id)
+        assert confirm_mode() == "card"
+        floor = _floor_calls()
+        for flags in _toggle_flag_sets():
+            for asked, ask_is_grant in itertools.product((True, False), repeat=2):
+                for name, args in floor:
+                    assert evaluate_confirm(
+                        name,
+                        args,
+                        asked=asked,
+                        ask_is_grant=ask_is_grant,
+                        **flags,
+                    )
+                    turn = confirm_toggles_for_call(
+                        name,
+                        allow_writes_this_turn=True,
+                        **flags,
+                    )
+                    assert evaluate_confirm(
+                        name,
+                        args,
+                        asked=asked,
+                        ask_is_grant=ask_is_grant,
+                        **turn,
+                    )
+    finally:
+        apply_theme("sodium")
+
+
+def test_theme_confirm_mode_drift_guard() -> None:
+    covered = [t for t in THEME_IDS if t not in FLOOR_EXEMPT_THEMES]
+    try:
+        for theme_id in THEME_IDS:
+            apply_theme(theme_id)
+            expected = "voice" if theme_id in FLOOR_EXEMPT_THEMES else "card"
+            assert confirm_mode() == expected
+        assert FLOOR_EXEMPT_THEMES == {"filament"}
+        assert FLOOR_EXEMPT_THEMES <= set(THEME_IDS)
+        assert "sodium" in covered
+        assert "night" in covered
+    finally:
+        apply_theme("sodium")
+
+
+def test_filament_floor_exemption_unchanged() -> None:
+    try:
+        apply_theme("filament")
+        assert confirm_mode() == "voice"
+        for flags in _toggle_flag_sets():
+            for asked, ask_is_grant in itertools.product((True, False), repeat=2):
+                kwargs = dict(flags, asked=asked, ask_is_grant=ask_is_grant)
+                assert not evaluate_confirm("send_email", {}, **kwargs)
+                assert not evaluate_confirm("send_sms", {}, **kwargs)
+                assert not evaluate_confirm(
+                    "workspace", {"action": "write"}, **kwargs
+                )
+                assert evaluate_confirm(
+                    "workspace", {"action": "delete"}, **kwargs
+                )
+                assert evaluate_confirm("inbox", {"action": "trash"}, **kwargs)
+                assert evaluate_confirm("agenda", {"action": "delete"}, **kwargs)
+                assert evaluate_confirm(
+                    "run_script", {"path": "x.py"}, **kwargs
+                )
+                assert evaluate_confirm(
+                    "run_task", {"action": "run", "name": "pytest"}, **kwargs
+                )
+    finally:
+        apply_theme("sodium")
+
+
+def test_pay_and_uac_follow_their_toggles_and_overwrite_stays_off_the_floor() -> None:
+    """Card mode. Pay and UAC are not on the always-ask floor.
+
+    Replacing a file stays on the files switch. Delete does not.
+    """
+    set_confirm_mode("card")
+    pay = {"action": "click", "text": "Checkout"}
+    uac = {"action": "click", "text": "Yes"}
+    try:
+        assert (
+            evaluate_confirm(
+                "browser",
+                pay,
+                confirm_browser=False,
+                asked=True,
+                ask_is_grant=True,
+            )
+            is False
+        )
+        assert (
+            evaluate_confirm(
+                "browser",
+                pay,
+                confirm_browser=True,
+                asked=True,
+                ask_is_grant=True,
+            )
+            is True
+        )
+        assert (
+            evaluate_confirm(
+                "desktop",
+                uac,
+                confirm_desktop=False,
+                asked=True,
+                ask_is_grant=True,
+            )
+            is False
+        )
+        assert (
+            evaluate_confirm(
+                "desktop",
+                uac,
+                confirm_desktop=True,
+                asked=True,
+                ask_is_grant=True,
+            )
+            is True
+        )
+        assert (
+            evaluate_confirm(
+                "workspace",
+                {"action": "write"},
+                confirm_writes=False,
+            )
+            is False
+        )
+        assert (
+            evaluate_confirm(
+                "workspace",
+                {"action": "edit"},
+                confirm_writes=False,
+            )
+            is False
+        )
+        assert (
+            evaluate_confirm(
+                "workspace",
+                {"action": "delete"},
+                confirm_writes=False,
+            )
+            is True
+        )
+    finally:
+        set_confirm_mode("card")
+
+
+def test_send_star_tools_are_on_the_floor() -> None:
+    from arelis.tools.policy import FLOOR_SEND_TOOLS
+
+    router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
+    registry = build_tool_registry(load_config(), allow_send=True, attended=True, router=router)
+    missing = [
+        name
+        for name in registry.names()
+        if name.startswith("send_") and name not in FLOOR_SEND_TOOLS
+    ]
+    assert "send_email" in FLOOR_SEND_TOOLS
+    assert "send_sms" in FLOOR_SEND_TOOLS
+    assert missing == []
+
+
+def test_persist_file_write_still_cards_delete(tmp_path, monkeypatch) -> None:
+    local = tmp_path / "config.local.yaml"
+    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+
+    class _Loop:
+        confirm_writes = True
+        config = {"agent": {"confirm_writes": True}}
+
+    loop = _Loop()
+    apply_theme("sodium")
+    assert persist_confirm_off(loop, "workspace", {"action": "write"}) == (
+        "confirm_writes"
+    )
+    assert loop.confirm_writes is False
+    assert evaluate_confirm(
+        "workspace",
+        {"action": "delete"},
+        confirm_writes=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_scripted_send_sms_confirms_when_send_toggle_off() -> None:
+    apply_theme("sodium")
+    confirms: list[str] = []
+
+    async def _count_confirm(_cid: str, name: str, _args: dict, _summary: str) -> str:
+        confirms.append(name)
+        return "allow"
+
+    full = foundation_registry()
+    tools = ToolRegistry()
+    sms = full.get("send_sms")
+    assert sms is not None
+    tools.register(sms)
+    script = [
+        [
+            (
+                "tool_calls",
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "send_sms",
+                            "arguments": {"to": "wife", "body": "hello"},
+                        },
+                    }
+                ],
+            )
+        ],
+        [("token", "sent.")],
+    ]
+    bus = EventBus()
+    loop = AgentLoop(
+        bus,
+        _ScriptedRouter(script),
+        tools,
+        SessionMemory(),
+        persona="You are Arelis under eval.",
+        config={
+            "agent": {
+                "max_rounds": 6,
+                "exactness": True,
+                "numeric_gate": True,
+                "evidence_gate": True,
+                "confirm_send": False,
+            },
+            "ollama": {"num_ctx": shipped_num_ctx()},
+        },
+        request_confirm=_count_confirm,
+        is_cancelled=lambda: False,
+    )
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await loop.run("text wife hello", "fast", source="eval")
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+        try:
+            await bus_task
+        except asyncio.CancelledError:
+            pass
+    assert confirms == ["send_sms"]

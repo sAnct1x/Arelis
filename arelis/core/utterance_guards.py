@@ -2,15 +2,15 @@
 
 These are the "not that" guards. None of them decides what a turn *is*; each
 answers whether a turn is a greeting, arithmetic, a file write, a goals ask, a
-URL, an image generation — one of the things that must not be mistaken for the
+URL, an image generation, one of the things that must not be mistaken for the
 body of a half-finished message, or arm a tool surface that has nothing to do
 with it.
 
 They lived in ``sms_complete`` because SMS is where each one was first needed,
 and that is a bad address for them twice over. The smaller cost is that the
 fattest module in ``core`` got fatter every time a new phrasing turned up. The
-larger one is the import it forced: ``intent_catalog.is_tiny_prompt_ask`` —
-whose whole job is deciding that a turn needs no tools at all — reached into
+larger one is the import it forced: ``intent_catalog.is_tiny_prompt_ask``
+whose whole job is deciding that a turn needs no tools at all, reached into
 the SMS draft reconstructor to find out whether someone had said hello.
 
 Nothing here knows about SMS, and nothing here should learn. A guard that has
@@ -206,7 +206,8 @@ _LOOK_OR_FILE = re.compile(
     r"summarize (?:the|this|that) file|"
     r"git status|"
     r"what(?:'s| is) on my clipboard|"
-    r"generate (?:a |an |me )?(?:simple )?image"
+    r"generate (?:a |an |me )?(?:simple )?image|"
+    r"(?:extract|copy|get|read) (?:the )?(?:text|content) (?:of|from)"
     r")\b"
 )
 
@@ -280,13 +281,46 @@ def looks_like_contacts_followup(text: str, history: list[Any] | None = None) ->
 
 
 def looks_like_look_or_file(text: str) -> bool:
-    """True for vision / OCR / attach / git / clipboard turns — not an SMS body."""
+    """True for vision / OCR / attach / git / clipboard turns, not an SMS body."""
     return bool(_LOOK_OR_FILE.search(text or ""))
 
 
 def looks_like_greeting(text: str) -> bool:
-    """True for hello / how-are-you — not an SMS body and not a news ask."""
+    """True for hello / how-are-you, not an SMS body and not a news ask."""
     return bool(_GREETING.match((text or "").strip()))
+
+
+# A check-in is about the conversation, not a fact to go fetch.
+# "hey i got some questions and testing to do, ready?" is one of these.
+# Anchored so "are you ready to explain the result" stays a real ask.
+_CHECK_IN = re.compile(
+    r"(?i)^\s*"
+    r"(?:(?:hey|hi|hello|yo|howdy|sup|ok|okay|alright|so)\b[\s,!.]*)?"
+    r"(?:"
+    r"how\s+are\s+you\b.*|"
+    r"how'?s\s+it\s+going\b.*|"
+    r"what'?s\s+up[\s?.!]*|"
+    r"(?:i\s+)?(?:got|have)\s+(?:some\s+)?questions\b.*\bready\b[\s?.!]*|"
+    r"(?:are\s+you\s+)?ready(?:\s+when\s+you\s+are)?[\s?.!]*|"
+    r"you\s+(?:there|around|up|with\s+me)[\s?.!]*|"
+    r"(?:just\s+)?(?:checking|testing)(?:\s+(?:you|this|things))?[\s?.!]*|"
+    r"let(?:'s|\s+us)\s+(?:go|start|begin)[\s?.!]*|"
+    r"(?:i(?:'m| am)\s+)?(?:here|back)[\s?.!]*"
+    r")"
+    r"$"
+)
+
+
+def looks_like_chat_turn(text: str) -> bool:
+    """True for hello, thanks, or a readiness check. Not a page to retrieve."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    return bool(
+        looks_like_greeting(raw)
+        or looks_like_closing_chitchat(raw)
+        or _CHECK_IN.match(raw)
+    )
 
 
 def looks_like_math_ask(text: str) -> bool:
@@ -295,7 +329,7 @@ def looks_like_math_ask(text: str) -> bool:
 
 
 def looks_like_describe_followup(text: str) -> bool:
-    """True for 'just describe it' after a failed image — not an SMS body."""
+    """True for 'just describe it' after a failed image, not an SMS body."""
     return bool(_DESCRIBE_FOLLOWUP.match((text or "").strip()))
 
 

@@ -5,6 +5,10 @@ body:
   - type: markdown
     attributes:
       value: |
+        If you used a setup file from 0.2.4 to 0.2.9, those closed at
+        startup. Please try the [latest release](https://github.com/sAnct1x/Arelis/releases/latest)
+        first, and file this if it still breaks.
+
         She is supposed to ask which folder she may use, then which model
         to pull. If that never happened, or the window died, this is the
         form.
@@ -12,6 +16,9 @@ body:
         Do not paste a real name, a home path, a phone number, or a
         consumer email. `C:/Users/you/...` and `you@example.com` are
         fine. The repo cannot take a secret back.
+
+        If you can, attach the Arelis log file (logs/arelis.log).
+        Remove personal paths and names from it first.
   - type: dropdown
     id: where
     attributes:
@@ -30,8 +37,8 @@ body:
     id: version
     attributes:
       label: Setup file
-      description: The name you downloaded. Example — Arelis-0.2.9-win64-setup.exe
-      placeholder: Arelis-0.2.9-win64-setup.exe
+      description: "The name you downloaded. Example: Arelis-0.3.0-win64-setup.exe"
+      placeholder: Arelis-0.3.0-win64-setup.exe
     validations:
       required: true
   - type: input
@@ -53,3 +60,9 @@ body:
     attributes:
       label: What you expected
       description: Optional. Skip if it is "it should have worked."
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file
+      description: |
+        Attach logs/arelis.log if you can. Remove personal paths and names first.

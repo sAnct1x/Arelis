@@ -1,7 +1,7 @@
 """Download the voice weights a first "Hey Arelis" actually needs.
 
 The setup `.exe` does not ship Sherpa, Kokoro, Silero, or Smart Turn. Those
-land the first time someone talks — or during first-open model setup, so the
+land the first time someone talks, or during first-open model setup, so the
 idle line is not still lying when they say the wake phrase.
 
 This module has no Qt. The wizard and VoiceService.preload share it.

@@ -16,9 +16,12 @@ import time
 from typing import Any
 
 from arelis.core.agent_loop import (
+    _CLOSE_PARTIAL,
     _MAX_TOOL_NUDGES,
     _WRITE_AFTER_PAGE_NOTICE,
     _WRITE_AFTER_THINK_NOTICE,
+    _WRITE_AFTER_TOOL_NOTICE,
+    _CloseError,
     _is_ollama_object_400,
     _native_tool_call,
     _normalize_ollama_messages,
@@ -26,23 +29,27 @@ from arelis.core.agent_loop import (
     _tool_followup_fallback,
     write_after_algebra_notice,
 )
+from arelis.core.claims import document_force_notice
 from arelis.core.email_complete import (
     looks_like_bare_confirm,
     rewrite_schedule_calls,
 )
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import (
+    followup_passthrough_tool,
     should_nudge_write_after_algebra,
     should_nudge_write_after_page,
 )
 from arelis.core.json_tools import (
     extract_native_tool_calls,
     parse_fallback_payload,
+    parse_text_tool_call,
     strip_thinking_text,
 )
 from arelis.core.loop_helpers import (
     _MALFORMED_CALL_NOTICE,
 )
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.no_call_finish import NUDGE as FINISH_NUDGE
 from arelis.core.no_call_finish import run_finish_steps
 from arelis.core.no_call_steps import NUDGE, run_inject_steps
@@ -62,9 +69,10 @@ from arelis.core.turn_goal import (
     goal_unlock_notice,
     receipt_serves_goal,
 )
-from arelis.core.turn_scratch import RoundScratch, strip_tool_schemas
+from arelis.core.turn_scratch import RoundScratch, named_tools_owed, strip_tool_schemas
 from arelis.llm.errors import classify_ollama_failure, is_vram_failure
 from arelis.tools.pdf_pages import ink_vision_walk
+from arelis.tools.weather import weather_places_missing
 
 
 def _write_round(ctx: TurnContext, r: RoundScratch) -> None:
@@ -76,7 +84,7 @@ def _write_round(ctx: TurnContext, r: RoundScratch) -> None:
 
     Goes through ``r``, not a local snapshot. A snapshot taken before a
     raise is how a wander-hide that already landed on the scratch could
-    still be undone when ``dispatch_calls`` blew up — next round would
+    still be undone when ``dispatch_calls`` blew up, next round would
     offer web_search again.
     """
     ctx.available = r.available
@@ -85,6 +93,22 @@ def _write_round(ctx: TurnContext, r: RoundScratch) -> None:
     ctx.offer_tools = r.offer_tools
     ctx.research_mode = r.research_mode
     ctx.sms_preinject = r.sms_preinject
+    ctx.email_preinject = r.email_preinject
+    ctx.weather_preinject = r.weather_preinject
+    ctx.agenda_preinject = r.agenda_preinject
+    ctx.agenda_open_read_ok = r.agenda_open_read_ok
+    ctx.calculator_preinject = r.calculator_preinject
+    ctx.calculator_ok = r.calculator_ok
+    ctx.units_preinject = r.units_preinject
+    ctx.units_ok = r.units_ok
+    ctx.browser_preinject = r.browser_preinject
+    ctx.browser_ok = r.browser_ok
+    ctx.tile_preinject = r.tile_preinject
+    ctx.tile_ok = r.tile_ok
+    ctx.workspace_preinject = r.workspace_preinject
+    ctx.inspect_ok = r.inspect_ok
+    ctx.run_script_preinject = r.run_script_preinject
+    ctx.run_script_ok = r.run_script_ok
     ctx.exact_need = r.exact_need
 
 
@@ -99,7 +123,7 @@ async def apply_no_call_path(
     Inject and finish decisions live in ``no_call_steps`` / ``no_call_finish``.
     Everything rebindable is a field on ``r``, so a nudge that takes the tool
     schemas away has already handed that decision to the next round by the
-    time this returns — or raises.
+    time this returns, or raises.
     """
     if not r.calls:
         # The model wrote a call as prose instead of making one, so the
@@ -143,8 +167,47 @@ async def apply_no_call_path(
             # ask once for a write-up. Short facts (price, agenda)
             # still ship from the tool result.
             if ctx.last_ok_tool_out:
+                serves_goal = receipt_serves_goal(
+                    ctx.goal, ctx.last_ok_tool_name, ctx.last_ok_tool_out
+                )
+                owes_file = (
+                    serves_goal
+                    and ctx.exact_need.needs_document
+                    and not ctx.ledger.has_ok("document")
+                    and "document" in r.tool_names
+                )
+                # A search list is not the report. Stripping tools here
+                # used to fire before goal-unlock, so scrape / document
+                # came back as "Unknown tool".
                 if (
-                    not ctx.page_write_nudge_used
+                    owes_file
+                    and not ctx.document_nudge_used
+                    and ctx.nudges < _MAX_TOOL_NUDGES
+                    and should_nudge_write_after_page(
+                        ctx.last_ok_tool_name, ctx.last_ok_tool_out
+                    )
+                ):
+                    ctx.document_nudge_used = True
+                    ctx.nudges += 1
+                    await loop._retract()
+                    r.messages.append({"role": "assistant", "content": r.content})
+                    r.messages.append(
+                        {"role": "user", "content": document_force_notice()}
+                    )
+                    await loop.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {
+                                "text": (
+                                    "empty after page; report still needs a file"
+                                )
+                            },
+                        )
+                    )
+                    return False
+                if (
+                    serves_goal
+                    and not ctx.page_write_nudge_used
                     and ctx.nudges < _MAX_TOOL_NUDGES
                     and should_nudge_write_after_page(
                         ctx.last_ok_tool_name, ctx.last_ok_tool_out
@@ -249,6 +312,48 @@ async def apply_no_call_path(
                         )
                     )
                     return None
+                line = _tool_followup_fallback(
+                    ctx.last_ok_tool_out,
+                    ctx.last_ok_tool_name,
+                    ask=ctx.text,
+                )
+                raw = (ctx.last_ok_tool_out or "").strip()
+                # Weather / short agenda / price lines already are the answer.
+                # Data dumps and formula rewrites still need a write-up round.
+                already_plain = bool(
+                    line.strip()
+                    and (
+                        line.strip() == raw
+                        or (raw and line.strip() in raw)
+                    )
+                )
+                if (
+                    not already_plain
+                    and not ctx.page_write_nudge_used
+                    and not ctx.algebra_write_nudge_used
+                    and not ctx.tool_answer_nudge_used
+                ):
+                    ctx.tool_answer_nudge_used = True
+                    strip_tool_schemas(ctx, r)
+                    await loop._retract()
+                    r.messages.append({"role": "assistant", "content": r.content})
+                    r.messages.append(
+                        {
+                            "role": "user",
+                            "content": _WRITE_AFTER_TOOL_NOTICE,
+                        }
+                    )
+                    await loop.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": ("empty after tool; asking for a write-up")},
+                        )
+                    )
+                    return False
+                # Composed plain fallback is her words, not a tool paste.
+                passthrough = followup_passthrough_tool(
+                    ctx.last_ok_tool_name, line, raw
+                )
                 await loop.bus.publish(
                     Event(
                         EventType.THINKING,
@@ -256,14 +361,10 @@ async def apply_no_call_path(
                     )
                 )
                 await loop._finish(
-                    _tool_followup_fallback(
-                        ctx.last_ok_tool_out,
-                        ctx.last_ok_tool_name,
-                        ask=ctx.text,
-                    ),
+                    line,
                     r.sources,
                     streamed="",
-                    passthrough_tool=ctx.last_ok_tool_name,
+                    passthrough_tool=passthrough,
                 )
                 return True
             # Thinking ate the reply (LIGO / long proofs). Ask for the
@@ -338,7 +439,7 @@ async def apply_no_call_path(
         if stripped_run_now and not r.calls:
             await loop._finish(
                 "The job is already scheduled. It will run at the time "
-                "you set — no need to fire it now.",
+                "you set, no need to fire it now.",
                 r.sources,
                 streamed="",
             )
@@ -375,6 +476,23 @@ async def apply_no_call_path(
     return None
 
 
+def _weather_answer_ready(ctx: TurnContext) -> bool:
+    """The forecast this ask needed is already in hand.
+
+    The answer round offers no tools. A shorter list is a new prefix and
+    re-prefills (~50s on the reference card). The two stable shapes are
+    the full list, or nothing. A days retry, or a named city still
+    missing, leaves the full list so that call can still run.
+    """
+    if not ctx.weather_ok_places:
+        return False
+    return not weather_places_missing(
+        ctx.text,
+        ctx.weather_ok_places,
+        ctx.weather_failed_places,
+    )
+
+
 async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
     """One model/tool step. True means the turn is over."""
     # Only the names this coordinator rebinds, or that the write-back below
@@ -394,15 +512,28 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
     research_mode = ctx.research_mode
     exact_need = ctx.exact_need
     sms_preinject = ctx.sms_preinject
+    email_preinject = ctx.email_preinject
+    weather_preinject = ctx.weather_preinject
+    agenda_preinject = ctx.agenda_preinject
+    calculator_preinject = ctx.calculator_preinject
+    units_preinject = ctx.units_preinject
+    browser_preinject = ctx.browser_preinject
+    tile_preinject = ctx.tile_preinject
+    workspace_preinject = ctx.workspace_preinject
+    run_script_preinject = ctx.run_script_preinject
     r: RoundScratch | None = None
     try:
         await loop._hold_if_paused()
 
-        escalated = await loop._maybe_escalate(
-            text,
-            round_i=round_i,
-            agent_cfg=agent_cfg,
-        )
+        # A close is one answer from work already in hand, not a model swap
+        # and not another search.
+        escalated = False
+        if not getattr(loop, "_in_close", False):
+            escalated = await loop._maybe_escalate(
+                text,
+                round_i=round_i,
+                agent_cfg=agent_cfg,
+            )
         role = loop._turn_role
         model = loop.router.model_for(role)
         if escalated:
@@ -425,7 +556,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             available, visible = apply_expected(
                 loop, available, text=text, available_all=available_all
             )
-            ollama_tools = loop.tools.ollama_tools(visible)
+            ollama_tools = loop.tools.ollama_tools(
+                visible,
+                param_hints=native_tool_calling(agent_cfg),
+            )
             ctx.tool_names.clear()
             ctx.tool_names.update(visible)
             ctx.ollama_tools = ollama_tools
@@ -437,16 +571,30 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         if round_i > 1 and (
             ctx.email_sent_ok
             or ctx.agenda_create_ok
+            or ctx.agenda_open_read_ok
+            or ctx.calculator_ok
+            or ctx.units_ok
+            or ctx.tile_ok
+            or ctx.inspect_ok
+            or ctx.run_script_ok
             or bool(ctx.sms_sent)
             or ctx.page_write_nudge_used
             or ctx.algebra_write_nudge_used
+            or ctx.tool_answer_nudge_used
+            or _weather_answer_ready(ctx)
         ):
-            offer_tools = False
-            ollama_tools = []
-            ctx.offer_tools = False
-            ctx.ollama_tools = []
-            ctx.tool_names.clear()
-            tool_names = ctx.tool_names
+            # Only strip tools if all exactness needs are satisfied.
+            # Multi-step asks (chains) need tools until all required kinds complete.
+            # named_tools_owed still applies in native_tool_calling mode: the flag
+            # drops regex injects/nudges, not the "user named these tools" hold.
+            missing_kinds = ctx.ledger.missing_kinds(ctx.exact_need.kinds)
+            if not missing_kinds and not named_tools_owed(loop, ctx):
+                offer_tools = False
+                ollama_tools = []
+                ctx.offer_tools = False
+                ctx.ollama_tools = []
+                ctx.tool_names.clear()
+                tool_names = ctx.tool_names
 
         await loop.bus.publish(
             Event(
@@ -454,6 +602,19 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 {"text": f"round {round_i}/{loop.max_rounds}  model step"},
             )
         )
+
+        if getattr(loop, "_in_close", False):
+            if loop.tools.get("document") is not None:
+                ollama_tools = loop.tools.ollama_tools(
+                    {"document"},
+                    param_hints=native_tool_calling(agent_cfg),
+                )
+                offer_tools = True
+            else:
+                ollama_tools = []
+                offer_tools = False
+            ctx.ollama_tools = ollama_tools
+            ctx.offer_tools = offer_tools
 
         tools_arg = None if ctx.fallback_mode else (ollama_tools or None)
         round_ms = 0
@@ -473,6 +634,158 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling send_sms…"}))
             if loop._timer is not None:
                 loop._timer.mark("exactness", gate="sms_force", action="preinject")
+        elif email_preinject is not None:
+            injected = email_preinject
+            email_preinject = None
+            content = ""
+            streamed = ""
+            calls = [("send_email", injected)]
+            tool_calls = [_native_tool_call("send_email", injected)]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "inject  send_email from a complete draft (pre-model)"},
+                )
+            )
+            await loop.bus.publish(
+                Event(EventType.STATUS, {"message": "Calling send_email…"})
+            )
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="email_force", action="preinject")
+        elif weather_preinject is not None:
+            injected = weather_preinject
+            weather_preinject = None
+            content = ""
+            streamed = ""
+            calls = [("weather", injected)]
+            tool_calls = [_native_tool_call("weather", injected)]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "inject  weather from intent (pre-model)"},
+                )
+            )
+            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling weather…"}))
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="weather_force", action="preinject")
+        elif agenda_preinject is not None:
+            injected = agenda_preinject
+            agenda_preinject = None
+            content = ""
+            streamed = ""
+            calls = [("agenda", injected)]
+            tool_calls = [_native_tool_call("agenda", injected)]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "inject  agenda from intent (pre-model)"},
+                )
+            )
+            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling agenda…"}))
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="agenda_force", action="preinject")
+        elif calculator_preinject is not None:
+            injected = calculator_preinject
+            calculator_preinject = None
+            content = ""
+            streamed = ""
+            calls = [("calculator", injected)]
+            tool_calls = [_native_tool_call("calculator", injected)]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "inject  calculator from intent (pre-model)"},
+                )
+            )
+            await loop.bus.publish(
+                Event(EventType.STATUS, {"message": "Calling calculator…"})
+            )
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="math", action="preinject")
+        elif units_preinject is not None:
+            injected = units_preinject
+            units_preinject = None
+            content = ""
+            streamed = ""
+            calls = [("units", injected)]
+            tool_calls = [_native_tool_call("units", injected)]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "inject  units from intent (pre-model)"},
+                )
+            )
+            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling units…"}))
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="units", action="preinject")
+        elif browser_preinject is not None:
+            injected = browser_preinject
+            browser_preinject = None
+            content = ""
+            streamed = ""
+            calls = [("browser", injected)]
+            tool_calls = [_native_tool_call("browser", injected)]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "inject  browser from intent (pre-model)"},
+                )
+            )
+            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling browser…"}))
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="browser", action="preinject")
+        elif tile_preinject is not None:
+            injected = tile_preinject
+            tile_preinject = None
+            content = ""
+            streamed = ""
+            calls = [("tile", injected)]
+            tool_calls = [_native_tool_call("tile", injected)]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "inject  tile from intent (pre-model)"},
+                )
+            )
+            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling tile…"}))
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="tile", action="preinject")
+        elif workspace_preinject is not None:
+            injected = workspace_preinject
+            workspace_preinject = None
+            content = ""
+            streamed = ""
+            calls = [("workspace", injected)]
+            tool_calls = [_native_tool_call("workspace", injected)]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "inject  workspace from inspect ask (pre-model)"},
+                )
+            )
+            await loop.bus.publish(
+                Event(EventType.STATUS, {"message": "Calling workspace…"})
+            )
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="inspect_force", action="preinject")
+        elif run_script_preinject is not None:
+            injected = run_script_preinject
+            run_script_preinject = None
+            content = ""
+            streamed = ""
+            calls = [("run_script", injected)]
+            tool_calls = [_native_tool_call("run_script", injected)]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "inject  run_script from named script (pre-model)"},
+                )
+            )
+            await loop.bus.publish(
+                Event(EventType.STATUS, {"message": "Calling run_script…"})
+            )
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="run_script", action="preinject")
         else:
             try:
                 round_t0 = time.perf_counter()
@@ -488,6 +801,8 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     loop._timer.rounds += 1
                     loop._timer.model_ms += round_ms
             except _StoppedError:
+                raise
+            except _CloseError:
                 raise
             except asyncio.CancelledError:
                 raise
@@ -524,6 +839,11 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     and ctx.last_ok_tool_out
                     and "research_report" in loop.tools_used
                 ):
+                    vram_line = _tool_followup_fallback(
+                        ctx.last_ok_tool_out,
+                        ctx.last_ok_tool_name,
+                        ask=ctx.text,
+                    )
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -531,17 +851,22 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         )
                     )
                     await loop._finish(
-                        _tool_followup_fallback(
-                            ctx.last_ok_tool_out,
-                            ctx.last_ok_tool_name,
-                            ask=ctx.text,
-                        ),
+                        vram_line,
                         sources,
                         streamed="",
-                        passthrough_tool=ctx.last_ok_tool_name,
+                        passthrough_tool=followup_passthrough_tool(
+                            ctx.last_ok_tool_name,
+                            vram_line,
+                            ctx.last_ok_tool_out,
+                        ),
                     )
                     return True
                 if ctx.last_ok_tool_out and _is_ollama_object_400(exc):
+                    four_line = _tool_followup_fallback(
+                        ctx.last_ok_tool_out,
+                        ctx.last_ok_tool_name,
+                        ask=ctx.text,
+                    )
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -549,14 +874,14 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         )
                     )
                     await loop._finish(
-                        _tool_followup_fallback(
-                            ctx.last_ok_tool_out,
-                            ctx.last_ok_tool_name,
-                            ask=ctx.text,
-                        ),
+                        four_line,
                         sources,
                         streamed="",
-                        passthrough_tool=ctx.last_ok_tool_name,
+                        passthrough_tool=followup_passthrough_tool(
+                            ctx.last_ok_tool_name,
+                            four_line,
+                            ctx.last_ok_tool_out,
+                        ),
                     )
                     return True
                 await loop._publish_error(failure.chat, detail=failure.detail)
@@ -564,6 +889,21 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
 
             content = strip_thinking_text(raw_content)
             calls = extract_native_tool_calls(tool_calls)
+            
+            # When native_tool_calling is enabled and the model wrote a text-form
+            # tool call (e.g. <tool_call>{"name":..., "arguments":...}</tool_call>),
+            # parse and execute it.
+            if (
+                not calls
+                and native_tool_calling(agent_cfg)
+                and content
+            ):
+                text_call = parse_text_tool_call(content, registered_tools=tool_names)
+                if text_call and text_call.get("kind") == "tool":
+                    name = text_call["name"]
+                    args = text_call["args"]
+                    calls = [(name, args)]
+                    tool_calls = [_native_tool_call(name, args)]
 
         if not calls and loop.json_fallback:
             # strict while native tool calling is working: only a trailing
@@ -575,6 +915,14 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 calls = [(parsed["name"], parsed["args"])]
             elif parsed and parsed["kind"] == "final":
                 content = parsed["text"]
+
+        if getattr(loop, "_in_close", False):
+            calls = [(n, a) for n, a in (calls or []) if n == "document"]
+            if not calls:
+                prose = (content or "").strip() or _CLOSE_PARTIAL
+                await loop._finish(prose, sources, streamed=streamed)
+                return True
+            tool_calls = [_native_tool_call(n, a) for n, a in calls]
 
         r = RoundScratch(
             text=text,
@@ -602,6 +950,22 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             ollama_tools=ollama_tools,
             messages=messages,
             sms_preinject=sms_preinject,
+            email_preinject=email_preinject,
+            weather_preinject=weather_preinject,
+            agenda_preinject=agenda_preinject,
+            agenda_open_read_ok=ctx.agenda_open_read_ok,
+            calculator_preinject=calculator_preinject,
+            calculator_ok=ctx.calculator_ok,
+            units_preinject=units_preinject,
+            units_ok=ctx.units_ok,
+            browser_preinject=browser_preinject,
+            browser_ok=ctx.browser_ok,
+            tile_preinject=tile_preinject,
+            tile_ok=ctx.tile_ok,
+            workspace_preinject=workspace_preinject,
+            inspect_ok=ctx.inspect_ok,
+            run_script_preinject=run_script_preinject,
+            run_script_ok=ctx.run_script_ok,
             sms_draft=ctx.sms_draft,
             email_draft=ctx.email_draft,
             agenda_draft=ctx.agenda_draft,
@@ -650,4 +1014,13 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             ctx.offer_tools = offer_tools
             ctx.research_mode = research_mode
             ctx.sms_preinject = sms_preinject
+            ctx.email_preinject = email_preinject
+            ctx.weather_preinject = weather_preinject
+            ctx.agenda_preinject = agenda_preinject
+            ctx.calculator_preinject = calculator_preinject
+            ctx.units_preinject = units_preinject
+            ctx.browser_preinject = browser_preinject
+            ctx.tile_preinject = tile_preinject
+            ctx.workspace_preinject = workspace_preinject
+            ctx.run_script_preinject = run_script_preinject
             ctx.exact_need = exact_need

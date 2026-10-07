@@ -10,7 +10,7 @@ visible top-level window, one ArelisWindow, one ConversationStage and one
 HistoryPanel, and no production code renders a widget into another. So a second
 live copy of a subtree has to come from one of:
 
-  * a native child window — calling winId() on a child promotes it to its own
+  * a native child window, calling winId() on a child promotes it to its own
     HWND, and enable_win32_resize_frame then puts WS_THICKFRAME on it. A child
     HWND with a non-client frame is composited separately from its parent's
     backing store and offset by the frame it just grew. Child HWNDs do not

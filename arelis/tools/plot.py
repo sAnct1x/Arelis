@@ -1,4 +1,4 @@
-"""Named charts — a PNG on disk, not Python the model recites.
+"""Named charts, a PNG on disk, not Python the model recites.
 
 A 9B cannot be given matplotlib as a programming language. This tool draws
 named chart kinds (line, scatter, residuals, histogram, bar, subplots), reads
@@ -12,6 +12,7 @@ A room with a real project folder lands under that project's plots/.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import re
 from pathlib import Path
@@ -83,24 +84,86 @@ def _looks_like_chart_out(path_str: str) -> bool:
     return Path(leaf).suffix.lower() in _CHART_OUT_SUFFIXES
 
 
-def _parse_numbers(raw: str, *, name: str) -> np.ndarray:
-    np = _numpy()
-    text = (raw or "").strip()
-    if not text:
+def _missing_inline(raw: Any) -> bool:
+    """True when xs/ys/values/categories was omitted or empty."""
+    if raw is None:
+        return True
+    if isinstance(raw, (list, tuple)):
+        return len(raw) == 0
+    return not str(raw).strip()
+
+
+def _inline_pair(
+    kwargs: dict[str, Any],
+    *,
+    primary: str,
+    alias: str,
+) -> Any:
+    """Inline series: primary (xs/ys) wins over alias (x/y) when both are set."""
+    value = kwargs.get(primary)
+    if not _missing_inline(value):
+        return value
+    return kwargs.get(alias)
+
+
+def _inline_parts(raw: Any, *, name: str, kind: str = "number") -> list[str]:
+    """Split an inline series the way the 9B actually writes it.
+
+    Accepts a real list/tuple from native tool calling, a JSON array string,
+    Python-ish ``[1, 4, 9]`` / ``(1, 4, 9)``, or the documented comma list.
+    Truncation with ``…`` / ``...`` stays refused, inventing the missing
+    values is exactly what this tool exists to prevent.
+    """
+    if isinstance(raw, (list, tuple)):
+        parts = [str(p).strip() for p in raw if str(p).strip() != ""]
+    else:
+        text = str(raw if raw is not None else "").strip()
+        if not text:
+            parts = []
+        else:
+            if "…" in text or "..." in text:
+                raise ValueError(
+                    f"{name} is truncated. Pass every {kind}, or a CSV via "
+                    "path=. Do not use … or ..."
+                )
+            parsed: Any = None
+            if len(text) >= 2 and text[0] in "[(" and text[-1] in "])":
+                candidate = text
+                if text[0] == "(" and text[-1] == ")":
+                    candidate = f"[{text[1:-1]}]"
+                try:
+                    parsed = json.loads(candidate)
+                except json.JSONDecodeError:
+                    parsed = None
+            if isinstance(parsed, list):
+                parts = [str(p).strip() for p in parsed if str(p).strip() != ""]
+            elif len(text) >= 2 and text[0] in "[(" and text[-1] in "])":
+                # Trailing commas and similar — strip the wrapper, split CSV.
+                parts = [p for p in _INLINE_SPLIT.split(text[1:-1]) if p]
+            else:
+                parts = [p for p in _INLINE_SPLIT.split(text) if p]
+    if not parts:
         raise ValueError(f"Missing {name}.")
-    if "…" in text or "..." in text:
-        raise ValueError(
-            f"{name} is truncated. Pass every number, or a CSV via path=. Do not use … or ..."
-        )
-    parts = [p for p in _INLINE_SPLIT.split(text) if p]
+    unit = "points" if kind == "number" else "labels"
     if len(parts) > _MAX_INLINE:
-        raise ValueError(f"{name} is too long (max {_MAX_INLINE} points).")
+        raise ValueError(f"{name} is too long (max {_MAX_INLINE} {unit}).")
+    return parts
+
+
+def _parse_numbers(raw: Any, *, name: str) -> np.ndarray:
+    np = _numpy()
+    parts = _inline_parts(raw, name=name, kind="number")
     try:
         values = np.array([float(p) for p in parts], dtype=float)
     except ValueError as exc:
-        raise ValueError(f"{name} must be numbers separated by commas, not an expression.") from exc
+        raise ValueError(
+            f'{name} must be numbers, e.g. {name}="1,2,3" (or a {name} list), '
+            "not an expression."
+        ) from exc
     if np.isnan(values).any():
-        raise ValueError(f"{name} contained a non-number.")
+        raise ValueError(
+            f'{name} contained a non-number. Use {name}="1,2,3" (or a {name} list).'
+        )
     return values
 
 
@@ -155,7 +218,7 @@ def sample_expression(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Evaluate a one-variable expression across [lo, hi] into plottable arrays.
 
-    `parse_cas_expr` does the parsing on purpose — it whitelists an AST and then
+    `parse_cas_expr` does the parsing on purpose, it whitelists an AST and then
     parses into a locked namespace with empty builtins. Nothing here may reach
     `eval` or bare `sympify`: this field is reachable from any turn, so a hole
     in it is remote code execution behind a chart request.
@@ -196,7 +259,7 @@ def sample_expression(
         ys = np.where(np.isfinite(ys), ys, np.nan)
     mask = np.isfinite(ys)
     if not mask.any():
-        raise ValueError(f"{text!r} has no finite values between {lo} and {hi} — check the range.")
+        raise ValueError(f"{text!r} has no finite values between {lo} and {hi}, check the range.")
     return xs[mask], ys[mask]
 
 
@@ -217,16 +280,18 @@ class PlotTool:
         "line, scatter, residuals, histogram, bar, subplots. For a "
         "CSV/TSV/Excel file pass path plus column names: x and y for line or "
         "scatter; y alone for histogram; x (categories) and y (values) for bar. "
-        "For a tiny series pass xs and ys as comma-separated numbers, or ys "
-        "alone for histogram, or categories and values for bar. To draw a "
-        "formula (sin(x), x^2) pass expr with xmin and xmax — never type the "
-        "numbers out yourself. path= is the table, never the PNG — that name "
+        "For a tiny series pass xs and ys as comma-separated numbers "
+        "(or a JSON/[1,2,3] list; x/y are aliases for xs/ys when there is "
+        "no path), or ys alone for histogram, or categories and values "
+        "for bar. To draw a "
+        "formula (sin(x), x^2) pass expr with xmin and xmax, never type the "
+        "numbers out yourself. path= is the table, never the PNG, that name "
         "is out=. histogram takes one numeric series (y or ys) with optional "
         "bins. bar draws categories against values, not a line chart. "
-        "subplots combines two or more panels in one figure — pass panels as "
+        "subplots combines two or more panels in one figure, pass panels as "
         "comma-separated kinds (e.g. line,histogram) with the same data. "
         "residuals fits a straight line (least squares) and plots data+fit "
-        "plus residuals — do not invent a trend or draw an ASCII chart. This "
+        "plus residuals, do not invent a trend or draw an ASCII chart. This "
         "is not Python: do not pass code or matplotlib. Allow is required. Do "
         "not use image (Comfy) for data."
     )
@@ -250,30 +315,36 @@ class PlotTool:
                 "type": "string",
                 "description": (
                     "Table file under a workspace root (CSV/TSV/JSON/Excel). "
-                    "Not the PNG — that is out="
+                    "Not the PNG, that is out="
                 ),
             },
             "x": {
                 "type": "string",
-                "description": "Column name for the horizontal axis",
+                "description": (
+                    "Column name for the horizontal axis, or (with no path) "
+                    "inline x numbers as an alias for xs"
+                ),
             },
             "y": {
                 "type": "string",
                 "description": (
                     "Column name for the vertical axis, or the only column "
-                    "for histogram"
+                    "for histogram; with no path, inline y numbers as an "
+                    "alias for ys"
                 ),
             },
             "categories": {
                 "type": "string",
                 "description": (
-                    "Comma-separated category labels for bar when there is no file"
+                    "Category labels for bar when there is no file "
+                    "(comma-separated, or a JSON/list string)"
                 ),
             },
             "values": {
                 "type": "string",
                 "description": (
-                    "Comma-separated numbers for bar when there is no file"
+                    "Numbers for bar when there is no file "
+                    "(comma-separated, JSON array, or [1, 2, 3])"
                 ),
             },
             "bins": {
@@ -313,11 +384,17 @@ class PlotTool:
             },
             "xs": {
                 "type": "string",
-                "description": "Comma-separated x numbers when there is no file",
+                "description": (
+                    "X numbers when there is no file (comma-separated, "
+                    "JSON array, or [1, 2, 3])"
+                ),
             },
             "ys": {
                 "type": "string",
-                "description": "Comma-separated y numbers when there is no file",
+                "description": (
+                    "Y numbers when there is no file (comma-separated, "
+                    "JSON array, or [1, 2, 3])"
+                ),
             },
             "title": {"type": "string", "description": "Chart title"},
             "xlabel": {"type": "string", "description": "Horizontal axis label"},
@@ -363,12 +440,12 @@ class PlotTool:
         if room is not None and room.root:
             return (
                 self.drop_dir(),
-                "the shared drop tray — this room's folder is not a project any more",
+                "the shared drop tray, this room's folder is not a project any more",
             )
         if room is not None:
             return (
                 self.drop_dir(),
-                "the shared drop tray — this room has no folder",
+                "the shared drop tray, this room has no folder",
             )
         return self.drop_dir(), "the shared drop tray (outputs/plots)"
 
@@ -488,7 +565,7 @@ class PlotTool:
         bits = [f"Wrote {shown} ({action}, {n} points) in {where}."]
         if extra:
             bits.append(extra)
-        bits.append("Open that file — that chart is from this turn, not a picture I imagined.")
+        bits.append("Open that file, that chart is from this turn, not a picture I imagined.")
         return ToolResult(
             ok=True,
             output=" ".join(bits),
@@ -548,24 +625,39 @@ class PlotTool:
                 samples = _DEFAULT_SAMPLES
             x, y = sample_expression(expr, var=var, lo=lo, hi=hi, samples=samples)
             return x, y, var, expr, f"{expr} over [{lo:g}, {hi:g}]"
-        xs = str(kwargs.get("xs") or "").strip()
-        ys = str(kwargs.get("ys") or "").strip()
-        if not xs or not ys:
+        xs = _inline_pair(kwargs, primary="xs", alias="x")
+        ys = _inline_pair(kwargs, primary="ys", alias="y")
+        missing_xs = _missing_inline(xs)
+        missing_ys = _missing_inline(ys)
+        if missing_xs or missing_ys:
             if png_as_path:
                 raise ValueError(
-                    "path is the PNG name — use out= for the file and xs/ys "
-                    "for the numbers (or path= to a CSV with x and y columns)."
+                    'path is the PNG name. Use out= for the file and '
+                    'xs="1,2,3", ys="1,4,9" (or xs/ys lists), or path= to a '
+                    "CSV with x and y columns."
+                )
+            if missing_xs and missing_ys:
+                raise ValueError(
+                    'Need xs and ys. Use xs="1,2,3", ys="1,4,9" (or xs/ys '
+                    "lists), or a CSV via path= with x and y column names. "
+                    "The PNG name is out=, not path=."
+                )
+            if missing_xs:
+                raise ValueError(
+                    'Missing xs. Use xs="1,2,3" (or an xs list) together with ys.'
                 )
             raise ValueError(
-                "Give a table path with x and y columns, or xs and ys as numbers. "
-                "The PNG name is out=, not path=."
+                'Missing ys. Use ys="1,4,9" (or a ys list) together with xs.'
             )
         x = _parse_numbers(xs, name="xs")
         y = _parse_numbers(ys, name="ys")
         if len(x) != len(y):
-            raise ValueError("xs and ys must be the same length.")
+            raise ValueError(
+                f"xs and ys must be the same length "
+                f"(got {len(x)} in xs, {len(y)} in ys)."
+            )
         if len(x) < 2:
-            raise ValueError("Need at least two points.")
+            raise ValueError("Need at least two points in xs/ys.")
         return x, y, "x", "y", "inline"
 
     def _histogram_series(
@@ -602,10 +694,11 @@ class PlotTool:
                 values = values[:_MAX_ROWS]
             display = resolved.qualified(multi=len(self.workspace) > 1)
             return values, y_name, display
-        ys = str(kwargs.get("ys") or "").strip()
-        if not ys:
+        ys = _inline_pair(kwargs, primary="ys", alias="y")
+        if _missing_inline(ys):
             raise ValueError(
-                "histogram needs a table path with y= column name, or ys= as numbers."
+                'histogram needs ys="1,2,3" (or a ys list), or a table path '
+                "with y= column name."
             )
         values = _parse_numbers(ys, name="ys")
         if len(values) < 1:
@@ -651,12 +744,18 @@ class PlotTool:
                 values = values[:_MAX_ROWS]
             display = resolved.qualified(multi=len(self.workspace) > 1)
             return cats, values, x_name, y_name, display
-        cats_raw = str(kwargs.get("categories") or "").strip()
-        vals_raw = str(kwargs.get("values") or "").strip()
-        if not cats_raw or not vals_raw:
+        cats_raw = kwargs.get("categories")
+        vals_raw = kwargs.get("values")
+        if _missing_inline(cats_raw) or _missing_inline(vals_raw):
+            which = []
+            if _missing_inline(cats_raw):
+                which.append("categories")
+            if _missing_inline(vals_raw):
+                which.append("values")
             raise ValueError(
-                "bar needs a table path with x and y columns, or categories= "
-                "and values= as comma-separated lists."
+                f"bar is missing {', '.join(which)}. Use "
+                'categories="a,b", values="1,2" (or lists), or a table path '
+                "with x and y column names."
             )
         cats = _parse_labels(cats_raw, name="categories")
         values = _parse_numbers(vals_raw, name="values")
@@ -692,8 +791,8 @@ class PlotTool:
                     np = _numpy()
                     mask = np.isfinite(y)
                     cats = [cats[i] for i in range(len(cats)) if mask[i]]
-            elif str(kwargs.get("categories") or "").strip():
-                cats = _parse_labels(str(kwargs.get("categories")), name="categories")
+            elif not _missing_inline(kwargs.get("categories")):
+                cats = _parse_labels(kwargs.get("categories"), name="categories")
         return x, y, cats, xlabel, ylabel, source
 
     def _draw_histogram(
@@ -831,18 +930,9 @@ class PlotTool:
         return dest
 
 
-def _parse_labels(raw: str, *, name: str) -> list[str]:
-    text = (raw or "").strip()
-    if not text:
-        raise ValueError(f"Missing {name}.")
-    if "…" in text or "..." in text:
-        raise ValueError(
-            f"{name} is truncated. Pass every label, or a CSV via path=. Do not use … or ..."
-        )
-    parts = [p for p in _INLINE_SPLIT.split(text) if p]
-    if len(parts) > _MAX_INLINE:
-        raise ValueError(f"{name} is too long (max {_MAX_INLINE} labels).")
-    return parts
+def _parse_labels(raw: Any, *, name: str) -> list[str]:
+    # Same shapes as numbers: list, JSON array, [a,b], or comma-separated.
+    return _inline_parts(raw, name=name, kind="label")
 
 
 def _parse_bins(raw: Any) -> int | None:

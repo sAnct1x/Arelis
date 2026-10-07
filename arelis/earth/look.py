@@ -8,7 +8,10 @@ process cache only — not in meta, dumps, cites, or logs.
 Owned: RTSP, local device, or HTTP MJPEG/snapshot the operator pasted.
 Official: same JSON the operator's map already uses, host allowlisted.
 Radio: Radio Browser directory URL, played, not stored on the pin.
-Unsecured IP cameras and open ports stay out.
+Unsecured IP cameras and open ports stay out. A mapper-published
+https webcam (OSM contact:webcam / website:webcam) plays on click
+the same way: URL in this cache only, never on the pin. An IP
+address, a credential in the URL, or a non-http scheme does not.
 """
 
 from __future__ import annotations
@@ -44,7 +47,7 @@ MO_MODOT_SFS04 = "https://sfs04-traveler.modot.mo.gov/"
 MO_MODOT_SFS07 = "https://sfs07-traveler.modot.mo.gov/"
 MO_OZARKS = "https://s2.ozarkstrafficoneview.com/"
 
-LookKind = Literal["owned", "official", "radio"]
+LookKind = Literal["owned", "official", "radio", "published"]
 LookMedia = Literal["video", "mjpeg", "still", "audio"]
 
 _LOCK = threading.Lock()
@@ -166,9 +169,9 @@ def remember(
     raw = (source or "").strip()
     if not eid or not raw:
         return None
-    if eid.startswith("shodan:"):
-        return None
     if kind == "official" and not official_url_ok(raw):
+        return None
+    if kind == "published" and not published_url_ok(raw):
         return None
     if kind == "radio" and not _http_url(raw):
         return None
@@ -203,6 +206,24 @@ def offer_official(entity_id: str, *urls: str) -> LookHandle | None:
         media=media,
         note="publisher",
     )
+
+
+def offer_published(entity_id: str, *urls: str) -> LookHandle | None:
+    """A public http(s) webcam the publisher already put on the map.
+
+    Not the highway allowlist. Not an IP camera. Not a stream URL on the pin.
+    """
+    for url in urls:
+        text = str(url or "").strip()
+        if published_url_ok(text):
+            return remember(
+                entity_id,
+                kind="published",
+                source=text,
+                media=media_of(text),
+                note="published",
+            )
+    return None
 
 
 def offer_owned(
@@ -277,6 +298,8 @@ def describe(entity_id: str, *, layer: str = "") -> str:
         return ""
     if handle.kind == "owned":
         return "Look-from: live (owned). Stream URL is not on this pin."
+    if handle.kind == "published":
+        return "Look-from: published webcam. URL is not on this pin."
     if handle.media == "audio":
         return "Listen: published stream. URL is not on this pin."
     if handle.media == "still":
@@ -293,6 +316,33 @@ def open_source(handle: LookHandle) -> Any:
         except ValueError:
             return raw
     return raw
+
+
+# Indexes of other people's open cameras. A tag pointing here is not consent.
+_REFUSED_PUBLISHED_HOSTS = frozenset({"insecam.org"})
+
+
+def published_url_ok(url: str) -> bool:
+    """Public http(s) on a named host. IP cameras and odd ports stay out."""
+    import ipaddress
+
+    if not _http_url(url):
+        return False
+    parsed = urlparse(url)
+    if parsed.username or parsed.password:
+        return False
+    if parsed.port not in (None, 80, 443):
+        return False
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not host or host == "localhost" or host.endswith(".local"):
+        return False
+    if _host_in(host, _REFUSED_PUBLISHED_HOSTS):
+        return False
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return False
 
 
 def official_url_ok(url: str) -> bool:

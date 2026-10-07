@@ -221,3 +221,54 @@ def test_run_the_inbox_tests_is_a_diagnostics_ask() -> None:
 
 def test_howto_is_still_not_a_diagnostics_ask() -> None:
     assert not detect_diagnostics_ask("how do I run the tests?")
+
+
+async def test_bare_name_without_py_suffix_resolves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bare 'test_units_temp' should resolve to tests/test_units_temp.py."""
+    calls = _patch_pytest(monkeypatch)
+    result = await DiagnosticsTool().run(target="test_units_temp")
+    assert result.ok, result.output
+    assert calls, "bare name should resolve and start pytest"
+    seen = _norm(_pytest_target(calls[0]))
+    assert "test_units_temp.py" in seen
+    assert "tests/" in seen
+
+
+async def test_nonexistent_bare_name_still_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bare name that doesn't exist as .py should still error cleanly."""
+    calls = _patch_pytest(monkeypatch)
+    result = await DiagnosticsTool().run(target="nonexistent_test_zzz")
+    assert not result.ok
+    assert result.data.get("fail_class") == "fail:missing"
+    assert "[fail:missing]" in result.output
+    assert not calls
+
+
+async def test_traversal_escape_still_refused_with_bare_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Path traversal like ../x should still be refused."""
+    calls = _patch_pytest(monkeypatch)
+    result = await DiagnosticsTool().run(target="../diagnostics")
+    assert not result.ok
+    assert result.data.get("fail_class") == "fail:target"
+    assert not calls
+
+
+async def test_bare_name_with_nodeid_resolves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bare 'test_units_temp::test_function' should resolve to tests/test_units_temp.py::test_function."""
+    calls = _patch_pytest(monkeypatch)
+    result = await DiagnosticsTool().run(
+        target="test_units_temp::test_fahrenheit_to_celsius_spoken"
+    )
+    assert result.ok, result.output
+    assert calls, "bare name with nodeid should resolve and start pytest"
+    seen = _norm(_pytest_target(calls[0]))
+    assert "test_units_temp.py::test_fahrenheit_to_celsius_spoken" in seen
+    assert "tests/" in seen

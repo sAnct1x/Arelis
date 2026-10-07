@@ -101,6 +101,12 @@ def test_voice_grant_only_pauses_on_delete() -> None:
             "browser", {"action": "open", "url": "youtube"}, risk="side_effect"
         )
         assert evaluate_confirm("run_script", {"path": "x.py"}, risk="side_effect")
+        assert evaluate_confirm(
+            "run_task", {"action": "run", "name": "pytest"}, risk="side_effect"
+        )
+        assert not evaluate_confirm(
+            "run_task", {"action": "list"}, risk="side_effect"
+        )
         assert not evaluate_confirm(
             "image", {"prompt": "x"}, asked=True, risk="side_effect"
         )
@@ -134,6 +140,15 @@ def test_voice_grant_only_pauses_on_delete() -> None:
             "workspace", {"action": "delete"}, risk="read", **off
         )
         assert evaluate_confirm("run_script", {"path": "x.py"}, risk="side_effect", **off)
+        assert evaluate_confirm(
+            "run_task",
+            {"action": "run", "name": "pytest"},
+            risk="side_effect",
+            **off,
+        )
+        assert not evaluate_confirm(
+            "run_task", {"action": "list"}, risk="side_effect", **off
+        )
         assert evaluate_confirm("inbox", {"action": "trash"}, **off)
         assert evaluate_confirm(
             "browser",
@@ -625,7 +640,16 @@ def test_filament_takes_the_desk(arelis_window) -> None:
     assert (
         window.act_history.shortcutContext() == Qt.ShortcutContext.ApplicationShortcut
     )
+    conv = window.conversation
+    conv.input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    conv.input.setFixedWidth(24)
     window._filament_set_chat_open(True)
+    assert (
+        conv.input.document().defaultTextOption().alignment()
+        & Qt.AlignmentFlag.AlignHorizontal_Mask
+    ) == Qt.AlignmentFlag.AlignLeft
+    assert conv.input.maximumWidth() > 2000
+    assert conv.input.parent() is conv._composer
     assert window._filament_chat_tile.hasMouseTracking()
     assert window._filament_chat_tile.minimumWidth() <= 240
     assert window._filament_chat_tile.minimumHeight() <= 180
@@ -702,6 +726,45 @@ def test_filament_notify_breathes_when_unread(arelis_window) -> None:
     window.notify_inbox.show()
     window._place_filament_floats()
     assert not window._filament.is_live("notify")
+    apply_window_theme(window, "sodium", persist=False)
+
+
+def test_filament_files_bead_lights_when_sodium_would_pop_the_dock(arelis_window) -> None:
+    from arelis.ui.event_host import _mirror_pending_work, _show_run_log
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    apply_window_theme(window, "filament", persist=False)
+    window.work_dock.hide()
+    window._reveal_dock(window.work_dock, window.act_workspace)
+    assert window.work_dock.isHidden()
+    assert window._filament.is_live("files")
+    word = window._filament_floats.chips()["files"]
+    assert word.property("live") == "true"
+    window.work_dock.show()
+    window._place_filament_floats()
+    assert not window._filament.is_live("files")
+
+    window.work_dock.hide()
+    _show_run_log(
+        window,
+        {"tool": "run_task", "output": "1 passed", "data": {"name": "pytest"}},
+    )
+    assert window.work_dock.isHidden()
+    assert window._filament.is_live("files")
+
+    window.work_dock.hide()
+    window._filament_hot = set()
+    window._place_filament_floats()
+    _mirror_pending_work(
+        window,
+        {
+            "tool": "run_task",
+            "headline": "run pytest",
+            "detail": "Argv: [\"pytest\"]",
+        },
+    )
+    assert not window.work_dock.isHidden()
     apply_window_theme(window, "sodium", persist=False)
 
 

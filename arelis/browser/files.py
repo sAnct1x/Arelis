@@ -2,14 +2,27 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any
 
 from arelis.paths import outputs_dir
+from arelis.workspace import (
+    FOLDER_CHOICE_HELP,
+    UNSAFE_WINDOWS_PATH_MSG,
+    is_unsafe_windows_path,
+    safe_resolve,
+)
+
+log = logging.getLogger(__name__)
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _FAKE_PDF = b"%PDF-1.1\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+_UPLOAD_NEEDS_PATH = (
+    "Name the file to upload. It has to be in a folder Arelis may use. " + FOLDER_CHOICE_HELP
+)
+_UPLOAD_OUTSIDE = "That file is not in a folder Arelis may use. " + FOLDER_CHOICE_HELP
 
 
 def downloads_dir() -> Path:
@@ -49,9 +62,11 @@ def resolve_upload_path(
     """Allow workspace roots and outputs/ only. No home-drive scrape."""
     text = str(raw or "").strip()
     if not text:
-        return None, "upload needs path (a file under workspace roots or outputs/)."
+        return None, _UPLOAD_NEEDS_PATH
+    if is_unsafe_windows_path(text):
+        return None, UNSAFE_WINDOWS_PATH_MSG
     try:
-        resolved = Path(text).expanduser().resolve()
+        resolved = safe_resolve(text)
     except OSError:
         return None, f"Bad upload path: {text}"
     if not resolved.is_file():
@@ -61,18 +76,14 @@ def resolve_upload_path(
     if workspace is not None:
         try:
             hit = workspace.resolve_read(str(resolved))
-        except Exception as exc:
-            return None, (
-                f"Upload stays under workspace roots or outputs/: {exc}"
-            )
+        except Exception:
+            log.warning("upload path refused", exc_info=True)
+            return None, _UPLOAD_OUTSIDE
         path = getattr(hit, "path", None)
         if path is None:
-            return None, "Upload stays under workspace roots or outputs/."
+            return None, _UPLOAD_OUTSIDE
         return Path(path), ""
-    return None, (
-        "Upload stays under workspace roots or outputs/. "
-        "Add the folder in Settings → roots."
-    )
+    return None, _UPLOAD_OUTSIDE
 
 
 def file_ready_payload(

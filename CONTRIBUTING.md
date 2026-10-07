@@ -4,16 +4,16 @@ Thanks for looking.
 
 ## About this project
 
-Arelis is maintained by one person on the side of a full-time university degree
-(astrophysics). Roughly a year of on-and-off work. Re-released a month or two
-ago. Updates come in bursts around the school calendar.
+I maintain Arelis on the side of a full-time university degree
+(astrophysics). Roughly a year of on-and-off work. Re-released a month
+or two ago. Updates come in bursts around the school calendar.
 
 Help is welcome. The parts where it helps most:
 
-- **Windows testing** — more hardware, more edge cases.
-- **Documentation** — first-run confusion, setup pitfalls.
-- **Packaging and installer work** — the .exe, signing, dependencies.
-- **Reality/astro extras** — the optional spatial and astro features. Source only.
+- **Windows testing** - more hardware, more edge cases.
+- **Documentation** - first-run confusion, setup pitfalls.
+- **Packaging and installer work** - the .exe, signing, dependencies.
+- **Reality/astro extras** - the optional spatial and astro features. Source only.
 
 A clear bug report is useful even if you are not writing code. Follow the rest
 of this file for what works and what will not land.
@@ -65,10 +65,10 @@ the rest of the code.
 
 `tests/test_no_personal_data.py` fails the commit if you slip. Use
 `5555550123`, `you@example.com`, and `C:/Users/you/...`. Springfield and
-Metropolis, Illinois are the towns we keep.
+Metropolis, Illinois are the stand-in towns.
 
 A public repo cannot take a secret back. Deleting the file later does not
-erase the clones.
+erase the clones that already have it.
 
 ## What will not land
 
@@ -95,16 +95,13 @@ licence. Sign off your commits:
 git commit -s -m "your message"
 ```
 
-Second, a licence grant. You keep the copyright. You also grant the
-maintainer a perpetual, worldwide, non-exclusive, irrevocable licence to
-use, reproduce, modify, and distribute the contribution, including the
-right to license it under different terms later. That is a licence, not
-an assignment. You can still use your own work however you like.
+Second, your contribution is licensed under the same terms as the project,
+the GNU Affero General Public License, version 3 or later (see
+[LICENSE](LICENSE)). You keep the copyright. You can still use your own
+work however you like.
 
-The grant is there so this project can adopt a later AGPL, or fix a
-licence clash with a dependency, without hunting down every person who
-ever landed a line. If you are not comfortable with that, open an issue
-instead. A clear bug report is genuinely useful.
+If you are not comfortable with that, open an issue instead. A clear bug
+report is genuinely useful.
 
 ## Pull request guidelines
 
@@ -159,10 +156,25 @@ Why, in the imperative, with a short lowercase prefix: `voice:`, `ui:`,
 `tests:`. The body is the reasoning a reader cannot recover from the
 diff. Do not credit a tool in the message.
 
+## Releases
+
+This is a one-person project, so releases come when they are ready, not on a
+schedule. I make no promise about how often.
+
+Anything experimental is published as a pre-release on GitHub (for example a
+tag like `v0.3.0-rc1`). A pre-release is for people who want to try new things
+and tell me what broke. It is not the latest release, and installed copies of
+Arelis do not offer it as an update. A normal release is one I have tested on
+my own machine first.
+
 ## Reporting a bug
 
 A security hole is different. See [SECURITY.md](SECURITY.md). Private
 report. Not a public issue.
+
+A question is not a bug. Ask it in
+[Discussions](https://github.com/sAnct1x/Arelis/discussions) under Q&A.
+Ideas go there too. Issues are for things that broke.
 
 For ordinary bugs: what you did, what you expected, what happened. Logs
 stay on your machine (`%LOCALAPPDATA%\Arelis\logs` installed, `logs/`

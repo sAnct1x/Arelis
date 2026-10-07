@@ -73,7 +73,9 @@ def test_first_run_is_the_same_glass_as_everything_else(qt_app, tmp_path: Path) 
         notes = " ".join(
             w.text() for w in dialog.findChildren(QLabel) if w.text()
         ).lower()
-        assert "close this window" in notes
-        assert "accepts this folder" in notes
+        assert "closing this window" in notes
+        assert "not skipping the question" in notes
+        assert "your reports" in notes
+        assert "youreports" not in notes
     finally:
         dialog.deleteLater()

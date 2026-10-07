@@ -1,4 +1,4 @@
-"""Arelis's own test suite — the same pytest CI runs, not a guess.
+"""Arelis's own test suite, the same pytest CI runs, not a guess.
 
 The model must not invent pass/fail counts. This tool runs ``python -m pytest``
 on a path under tests/ (the full tree when no target is given). It is not a
@@ -54,11 +54,11 @@ class DiagnosticsTool:
         "Run Arelis's own pytest suite and return a factual summary: "
         "passed/failed/skipped, failed names, short traces. target= a path or "
         "pytest nodeid under tests/ (bare names resolve there). Omit target "
-        "or pass suite=all for the full tree. Call this only when the user "
-        "asks to run diagnostics. Do not invent results. After it returns, "
-        "report the counts, name the failures, and say what they likely "
-        "mean. A failing suite is a real issue — do not claim everything "
-        "is fine."
+        "or pass suite=all for the full tree. Use this for test, pytest, or "
+        "diagnostics asks that target Arelis's own tests/ directory. Do not "
+        "invent results. After it returns, report the counts, name the "
+        "failures, and say what they likely mean. A failing suite is a real "
+        "issue, do not claim everything is fine."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -128,9 +128,7 @@ def _refuse_raw_path(path_part: str) -> bool:
     return False
 
 
-def resolve_diagnostics_target(
-    raw: str, *, tests_dir: Path, root: Path
-) -> str | ToolResult:
+def resolve_diagnostics_target(raw: str, *, tests_dir: Path, root: Path) -> str | ToolResult:
     """Return a pytest path under tests/, or a tagged refusal.
 
     The raw string is not passed to pytest until resolve() lands inside
@@ -152,6 +150,13 @@ def resolve_diagnostics_target(
             "target",
             f"diagnostics only runs paths under tests/. Refused: {raw}",
         )
+
+    # Try .py suffix if bare name doesn't exist
+    if not resolved.exists() and not resolved.suffix:
+        py_variant = resolved.with_suffix(".py")
+        if py_variant.exists() and _contained(py_variant, tests_root):
+            resolved = py_variant
+
     if node:
         if not resolved.is_file():
             return _fail(
@@ -170,9 +175,7 @@ def resolve_diagnostics_target(
     return f"{rel}::{node}" if node else rel
 
 
-def _pytest_path(
-    kwargs: dict[str, Any], *, tests_dir: Path, root: Path
-) -> str | ToolResult:
+def _pytest_path(kwargs: dict[str, Any], *, tests_dir: Path, root: Path) -> str | ToolResult:
     raw = str(kwargs.get("target") or "").strip()
     if not raw:
         return str(tests_dir)
@@ -191,10 +194,7 @@ def _run_suite(kwargs: dict[str, Any] | None = None) -> ToolResult:
     if not tests_dir.is_dir():
         return ToolResult(
             ok=False,
-            output=(
-                f"No tests/ directory at {root}. "
-                "This checkout cannot run diagnostics."
-            ),
+            output=(f"No tests/ directory at {root}. This checkout cannot run diagnostics."),
         )
     decided = _pytest_path(kwargs, tests_dir=tests_dir, root=root)
     if isinstance(decided, ToolResult):
@@ -271,9 +271,7 @@ def parse_pytest(
     fail_lines = [
         line
         for line in blob.splitlines()
-        if line.startswith("E ")
-        or line.startswith("FAILED ")
-        or line.startswith("ERROR ")
+        if line.startswith("E ") or line.startswith("FAILED ") or line.startswith("ERROR ")
     ][:_MAX_FAIL_LINES]
     no_tests = bool(_NO_TESTS_RE.search(summary_body or blob)) or returncode == 5
     interrupted = returncode == 2 or bool(_INTERRUPT_RE.search(blob) and returncode != 0)
@@ -399,9 +397,7 @@ def _issues(parsed: dict[str, Any]) -> list[str]:
         out.append("- none from this run. The suite is green.")
         skipped = int(parsed.get("skipped") or 0)
         if skipped:
-            out.append(
-                f"- {skipped} skipped (usually optional deps or not this OS)."
-            )
+            out.append(f"- {skipped} skipped (usually optional deps or not this OS).")
         warnings = int(parsed.get("warnings") or 0)
         if warnings:
             out.append(f"- {warnings} warning(s). Not a failure.")
@@ -414,9 +410,7 @@ def _issues(parsed: dict[str, Any]) -> list[str]:
             "trace is an env/key miss."
         )
     if errors:
-        out.append(
-            f"- {errors} collection/error(s). The suite did not finish cleanly."
-        )
+        out.append(f"- {errors} collection/error(s). The suite did not finish cleanly.")
     meaning = str(parsed.get("exit_meaning") or "")
     if not failed and not errors and parsed.get("exit_code"):
         out.append(

@@ -5,10 +5,12 @@ How Earth is supposed to work (keep this true):
 - **Enter** loads the store (sim + snapshot) and turns **Live** on.
   Default chips: satellites + ISS. Everything else is off until you
   click it. Leave resets those flags.
-- **Band** (space → approach → near → city) is a *filter*: it decides
-  what *can* paint and which chips sit on the bar. It does not flip
-  layer switches. Zooming in used to call ``_reveal_band`` and turn
-  every city layer on — that is gone.
+- **Band** (space → approach → near → city) is a filter and a door.
+  The first time the eye enters approach, flights turn on. Near adds
+  vessels. City adds cameras. Weather, traffic, military, and drones
+  stay a click. An explicit off stays off until you turn it back on.
+  Leave resets. Zooming in used to call ``_reveal_band`` and turn
+  every city layer on — that slam stays gone.
 - **Streets** follow altitude in the city band. Buildings is gone —
   Cesium already is the city.
 - **Live** fetches only for layers that are on *and* allowed in this
@@ -39,6 +41,7 @@ from arelis.earth.lod import (
     adapters_due,
     filter_to_view,
     ground_streets_on,
+    layers_opened_by,
     look_shifted,
     organize,
     paint_layers,
@@ -57,7 +60,6 @@ LOOK_BOX_ADAPTERS = frozenset(
         "adsb",
         "ais",
         "cameras",
-        "shodan",
         "traffic",
         "radio",
         "aprs",
@@ -92,6 +94,8 @@ class EarthRuntime:
     buildings: bool = False
     grid: bool = False
     layers: dict[str, bool] = field(default_factory=default_layers)
+    held_off: set[str] = field(default_factory=set)
+    misses: dict[str, str] = field(default_factory=dict)
     store: EntityStore = field(default_factory=EntityStore)
     track_id: str = ""
     ride_id: str = ""
@@ -131,6 +135,8 @@ class EarthRuntime:
         self.track_id = ""
         self.ride_id = ""
         self.layers = default_layers()
+        self.held_off = set()
+        self.misses = {}
         self.grid = False
         self.tiles = False
         self.buildings = False
@@ -181,6 +187,8 @@ class EarthRuntime:
         self.buildings = False
         self.grid = False
         self.layers = default_layers()
+        self.held_off = set()
+        self.misses = {}
         self.last_view = None
         self.last_live_view = None
         self.last_fetch_unix.clear()
@@ -254,6 +262,10 @@ class EarthRuntime:
             return None
         val = bool(on) if on is not None else (not self.layers[key])
         self.layers[key] = val
+        if val:
+            self.held_off.discard(key)
+        else:
+            self.held_off.add(key)
         try:
             from arelis.physics.telemetry import emit
 
@@ -316,6 +328,7 @@ class EarthRuntime:
             except Exception:
                 # telemetry is non-critical, continue on failure
                 pass
+            self._open_descended_layers(view.band)
             if view.band in {"approach", "near", "city"}:
                 try:
                     from arelis.earth.tiles import tiles_for_view, zoom_for_ground
@@ -347,12 +360,39 @@ class EarthRuntime:
         return tuple(organize(filter_to_view(hits, view), view))
 
     def _paint_contact(self, entity: Entity) -> bool:
-        """Drawn air/sea wait for a published fix. Pytest keeps the sim sky."""
+        """A sketch does not wear a live glyph.
+
+        Air and sea never paint the cartoon outside pytest. Once Live is
+        on, no simulated layer paints — a miss is an empty look, not a
+        fake constellation. Pytest keeps the sim sky.
+        """
         if entity.freshness != "simulated":
             return True
+        if _in_pytest():
+            return True
+        if self.live:
+            return False
         if entity.layer not in _COAST_LAYERS:
             return True
-        return _in_pytest()
+        return False
+
+    def _open_descended_layers(self, band: str) -> None:
+        """Turn on the layers this altitude is for. A held-off chip stays off."""
+        from arelis.earth.lod import ADAPTER_LAYERS
+
+        opened = False
+        for key in layers_opened_by(band):
+            if key in self.held_off or key not in self.layers:
+                continue
+            if self.layers[key]:
+                continue
+            self.layers[key] = True
+            opened = True
+            for adapter, needed in ADAPTER_LAYERS.items():
+                if key in needed:
+                    self.last_fetch_unix.pop(adapter, None)
+        if opened and self.live and not _in_pytest():
+            self._start_live_merge(moved=True)
 
     def get(self, entity_id: str) -> Entity | None:
         return self.store.get(entity_id)
@@ -516,9 +556,17 @@ class EarthRuntime:
             # live feed merge failed, continue without
             return
         if isinstance(got, dict):
+            from arelis.earth.entity import FeedMiss
+
             for key in only:
-                if got.get(key) is not None:
+                val = got.get(key)
+                if isinstance(val, list):
                     self.last_fetch_unix[key] = now
+                    self.misses.pop(key, None)
+                elif isinstance(val, FeedMiss):
+                    self.misses[key] = val.reason
+                elif val is None:
+                    self.misses[key] = "http"
         self.last_live_view = view
 
     def _lock_wall_clock(self) -> None:

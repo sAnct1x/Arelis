@@ -349,7 +349,7 @@ def test_ais_no_key_ohio_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ais_mod, "fetch_digitraffic", _boom)
     monkeypatch.setattr(ais_mod, "fetch_barentswatch", _boom)
     ships = ais_mod.fetch_ais(bbox=LookBBox(38.8, -84.2, 41.2, -81.8))
-    assert ships is None
+    assert getattr(ships, "reason", "") == "no_key"
 
 
 def test_miss_does_not_stamp_last_fetch(monkeypatch: pytest.MonkeyPatch) -> None:

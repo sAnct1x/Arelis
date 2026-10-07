@@ -103,19 +103,37 @@ def qt_font_directory() -> Path:
     return ensure(cache_dir() / "qt-fonts")
 
 
+def _register_font(filename: str) -> str | None:
+    path = _FONT_DIR / filename
+    if not path.is_file():
+        return None
+    font_id = QFontDatabase.addApplicationFont(str(path))
+    if font_id < 0:
+        return None
+    names = QFontDatabase.applicationFontFamilies(font_id)
+    return names[0] if names else None
+
+
 def load_fonts() -> dict[str, str]:
     families = {
         "display": "Segoe UI",
         "body": "Segoe UI",
         "mono": "Consolas",
     }
-    # Orbit prefers Zen Kaku / Space Mono when vendored; otherwise IBM Plex
-    # with the same tracking in the stylesheet.
-    preferred = [
+    # Zen Kaku is the desk face (Light 300 through Bold 700). Space Mono is
+    # the readout. Extra weights are registered even though they share a
+    # family name, or Qt faux-bolds the one file it was given. IBM Plex
+    # fills a role only when the desk file for that role did not load.
+    roles = [
         ("ZenKakuGothicNew-Regular.ttf", "body"),
         ("ZenKakuGothicNew-Light.ttf", "display"),
         ("SpaceMono-Regular.ttf", "mono"),
     ]
+    weights = (
+        "ZenKakuGothicNew-Medium.ttf",
+        "ZenKakuGothicNew-Bold.ttf",
+        "SpaceMono-Bold.ttf",
+    )
     fallback = [
         ("IBMPlexSans-Regular.ttf", "body"),
         ("IBMPlexSans-SemiBold.ttf", "display"),
@@ -123,35 +141,40 @@ def load_fonts() -> dict[str, str]:
     ]
     filled: set[str] = set()
     missing_required: list[str] = []
-    for filename, key in preferred + fallback:
+    for filename, key in roles:
+        name = _register_font(filename)
+        if not name or key in filled:
+            continue
+        families[key] = name
+        filled.add(key)
+        if key == "body" and "display" not in filled:
+            families["display"] = name
+    for filename in weights:
+        _register_font(filename)
+    for filename, key in fallback:
         if key in filled:
             continue
-        path = _FONT_DIR / filename
-        optional = filename.startswith("Zen") or filename.startswith("Space")
-        if not path.exists():
-            if not optional:
-                missing_required.append(filename)
+        name = _register_font(filename)
+        if not name:
+            missing_required.append(filename)
             continue
-        font_id = QFontDatabase.addApplicationFont(str(path))
-        if font_id < 0:
-            if not optional:
-                missing_required.append(filename)
-            continue
-        names = QFontDatabase.applicationFontFamilies(font_id)
-        if names:
-            families[key] = names[0]
-            filled.add(key)
-            if key == "body" and "display" not in filled:
-                families["display"] = names[0]
+        families[key] = name
+        filled.add(key)
+        if key == "body" and "display" not in filled:
+            families["display"] = name
     if missing_required and "body" not in filled:
         log.warning(
             "UI fonts missing or unloadable under %s (%s); falling back to system type.",
             _FONT_DIR,
             ", ".join(missing_required),
         )
-    FONTS["display"] = f'"{families["display"]}", "Segoe UI Semibold", "Segoe UI", sans-serif'
-    FONTS["body"] = f'"{families["body"]}", "Segoe UI", sans-serif'
-    FONTS["mono"] = f'"{families["mono"]}", "Cascadia Mono", "Consolas", monospace'
+    FONTS["display"] = (
+        f'"{families["display"]}", "IBM Plex Sans", "Segoe UI Semibold", "Segoe UI", sans-serif'
+    )
+    FONTS["body"] = f'"{families["body"]}", "IBM Plex Sans", "Segoe UI", sans-serif'
+    FONTS["mono"] = (
+        f'"{families["mono"]}", "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace'
+    )
     return families
 
 
@@ -182,7 +205,7 @@ def polish_combo_popup(combo, *, compact: bool = False) -> None:
     """Fill the combo popup plate. Windows leaves a black gutter otherwise.
 
     The item view is styled; the native container and the reserved scrollbar
-    lane are not. Transparent global scrollbars then show the unstyled frame —
+    lane are not. Transparent global scrollbars then show the unstyled frame
     a black strip down the right of *fast* / *research*. Same fill as QMenu.
     Two-item lists do not get a scrollbar.
     """

@@ -106,6 +106,11 @@ class VoiceService:
 
     # ---------------------------------------------------------------- output
 
+    def _speak_language(self) -> str:
+        from arelis.talk_language import active_reply_language
+
+        return active_reply_language(self.config)
+
     def cancel_speech(self) -> None:
         """Abandon the reply being synthesized, at the next sentence boundary.
 
@@ -181,7 +186,7 @@ class VoiceService:
         When deltas already streamed some sentences, this flushes the remainder
         from the authoritative final text and closes the cycle. When nothing
         was streamed (SMS cues, one-sentence answers held until the end), this
-        is the whole speak path — same contract as before.
+        is the whole speak path, same contract as before.
         """
         if not self.tts_enabled or not self.speak_enabled:
             return
@@ -191,7 +196,10 @@ class VoiceService:
         utterance = 0
         try:
             final_text = event.payload.get("text") or ""
-            spoken = prepare_spoken_text(final_text, max_chars=self.max_spoken_chars)
+            lang = self._speak_language()
+            spoken = prepare_spoken_text(
+                final_text, max_chars=self.max_spoken_chars, language=lang
+            )
             async with self._stream_lock:
                 stream_open = self._stream_open
             if not spoken and not stream_open:
@@ -219,7 +227,9 @@ class VoiceService:
             async with self._speak_lock:
                 self._speak_seq += 1
                 utterance = self._speak_seq
-                sentences, _ = next_speakable_units(spoken, 0, finalize=True)
+                sentences, _ = next_speakable_units(
+                    spoken, 0, finalize=True, language=lang
+                )
                 sentences = sentences or [spoken]
                 self._prune_clips()
                 for index, sentence in enumerate(sentences):
@@ -227,7 +237,7 @@ class VoiceService:
                         break
                     out = self._out_dir / f"reply_{utterance:04d}_{index:03d}.wav"
                     try:
-                        path = await self.tts.synthesize(sentence, out)
+                        path = await self.tts.synthesize(sentence, out, language=lang)
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
@@ -263,11 +273,12 @@ class VoiceService:
             )
 
     def _queue_from_buffer(self, *, finalize: bool) -> None:
+        lang = self._speak_language()
         prepared = prepare_spoken_text(
-            self._stream_raw, max_chars=self.max_spoken_chars
+            self._stream_raw, max_chars=self.max_spoken_chars, language=lang
         )
         units, spoken = next_speakable_units(
-            prepared, self._spoken_count, finalize=finalize
+            prepared, self._spoken_count, finalize=finalize, language=lang
         )
         if not units:
             return
@@ -315,7 +326,9 @@ class VoiceService:
                 index = self._stream_clips
                 out = self._out_dir / f"reply_{utterance:04d}_{index:03d}.wav"
                 try:
-                    path = await self.tts.synthesize(sentence, out)
+                    path = await self.tts.synthesize(
+                        sentence, out, language=self._speak_language()
+                    )
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
@@ -460,7 +473,9 @@ class VoiceService:
             from arelis.voice.sherpa_stt import LiveSherpaBridge, sherpa_files_present
 
             engine = self.stt._sherpa_engine()
-            if not engine.loaded() and not sherpa_files_present(engine.model_dir):
+            if not engine.loaded() and not sherpa_files_present(
+                engine.model_dir, language=getattr(engine, "language", "en")
+            ):
                 return False
             bridge = LiveSherpaBridge(engine)
             bridge.start()
@@ -544,7 +559,7 @@ class VoiceService:
             await self.bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": text}))
 
     async def warm_wake(self) -> None:
-        """Sherpa + Kokoro. Whisper can finish later — it must not block speech."""
+        """Sherpa + Kokoro. Whisper can finish later, it must not block speech."""
         if self.stt_enabled and self.stt.available():
             async with self._preload_lock:
                 try:
@@ -562,7 +577,8 @@ class VoiceService:
             return
         warm = self._out_dir / "_tts_warm.wav"
         try:
-            await self.tts.synthesize("Ready.", warm)
+            warm_line = "准备好了。" if self._speak_language() == "zh" else "Ready."
+            await self.tts.synthesize(warm_line, warm, language=self._speak_language())
         except Exception as exc:
             log.warning("TTS warm-up failed: %s", exc)
         finally:
@@ -587,7 +603,7 @@ class VoiceService:
         announced = False
         if missing or need_warm:
             await self._status(
-                "Getting the voice files — then I'll hear you."
+                "Getting the voice files, then I'll hear you."
                 if missing
                 else "Warming the ear…"
             )

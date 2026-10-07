@@ -3,7 +3,7 @@
 Those locals were the reason _run could not be split: prepare, each round,
 verify and finish all closed over the same names, so extracting a method
 meant a 20-argument signature that immediately grew. One object is the
-split. Nothing here survives the turn — AgentLoop still owns the timer,
+split. Nothing here survives the turn, AgentLoop still owns the timer,
 the look grant and the expected-tool set, because other methods already
 read those.
 """
@@ -64,11 +64,23 @@ class TurnContext:
     skip_sms_draft: bool = False
     active_room: Any = None
     sms_preinject: dict[str, Any] | None = None
+    email_preinject: dict[str, Any] | None = None
+    weather_preinject: dict[str, Any] | None = None
+    agenda_preinject: dict[str, Any] | None = None
+    calculator_preinject: dict[str, Any] | None = None
+    units_preinject: dict[str, Any] | None = None
+    browser_preinject: dict[str, Any] | None = None
+    tile_preinject: dict[str, Any] | None = None
+    workspace_preinject: dict[str, Any] | None = None
+    run_script_preinject: dict[str, Any] | None = None
     active_plan: Any = None
 
     scrape_nudge_used: bool = False
     page_write_nudge_used: bool = False
     algebra_write_nudge_used: bool = False
+    # One per turn: ask for plain words after any tool when page/algebra
+    # write-up did not already fire. Not gated by the tool-nudge budget.
+    tool_answer_nudge_used: bool = False
     think_write_nudge_used: bool = False
     js_shell_nudge_used: bool = False
     js_shell_url: str = ""
@@ -95,6 +107,8 @@ class TurnContext:
     memory_nudge_used: int = 0
     last_ok_tool_out: str = ""
     last_ok_tool_name: str = ""
+    last_fail_tool_name: str = ""
+    last_fail_tool_out: str = ""
     inbox_mutated_ok: bool = False
     inbox_empty_ok: bool = False
     last_browser_snapshot: str = ""
@@ -107,6 +121,13 @@ class TurnContext:
     same_skip_keys: set[str] = field(default_factory=set)
     skip_finish_text: str = ""
     agenda_create_ok: bool = False
+    agenda_open_read_ok: bool = False
+    calculator_ok: bool = False
+    units_ok: bool = False
+    browser_ok: bool = False
+    tile_ok: bool = False
+    inspect_ok: bool = False
+    run_script_ok: bool = False
     evidence_nudge_used: bool = False
     quote_nudge_used: bool = False
     dual_hit_nudge_used: bool = False
@@ -123,6 +144,14 @@ class TurnContext:
     skip_counts: dict[str, int] = field(default_factory=dict)
     web_search_ok: set[str] = field(default_factory=set)
     page_ok: set[str] = field(default_factory=set)
+    # URLs returned by web_search this turn, and which of them were opened.
+    # Another search waits until one hit from the last search is open.
+    hit_urls: set[str] = field(default_factory=set)
+    last_hit_urls: list[str] = field(default_factory=list)
+    opened_urls: set[str] = field(default_factory=set)
+    # Duplicate scrape/fetch skips this turn. Two means she is looping
+    # on URLs she already opened; the fetch tools come off the menu.
+    duplicate_page_skips: int = 0
     same_ok: set[str] = field(default_factory=set)
     goal: TurnGoal = NONE
     goal_unlock_used: bool = False

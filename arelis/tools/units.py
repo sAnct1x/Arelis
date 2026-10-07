@@ -1,4 +1,4 @@
-"""Unit conversion and published constants — so numbers are not a vibe."""
+"""Unit conversion and published constants, so numbers are not a vibe."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class UnitsTool:
         "(CODATA / IAU / Planck) with the source year in the result. "
         "Use convert for '5 ft 8 in in meters'. Use constant for G, c, sigma, "
         "Hubble, solar mass. This is not a unit conversion into a cosmological "
-        "frame — '2.7 K to the CMB frame' is a Doppler boost, not Pint. "
+        "frame, and '2.7 K to the CMB frame' is a Doppler boost, not Pint. "
         "Do not recite CODATA from memory."
     )
     risk = "read"
@@ -69,7 +69,16 @@ class UnitsTool:
                 data={"fail_class": "fail:action"},
             )
         if action == "constant":
-            return _lookup(str(kwargs.get("name") or ""))
+            name = str(kwargs.get("name") or "")
+            result = _lookup(name)
+            if result.ok:
+                return result
+            # A model that picks action=constant for "90 degrees Fahrenheit in
+            # Celsius" has asked for a conversion. Retry it as one.
+            pair = _split_conversion(name)
+            if pair is not None:
+                return _convert(*pair)
+            return result
         return _convert(
             str(kwargs.get("quantity") or ""),
             str(kwargs.get("to") or ""),
@@ -92,7 +101,7 @@ def _lookup(name: str) -> ToolResult:
     if len(items) > 1:
         lines.append(
             "Those are published figures, not a measurement this turn. "
-            "Cosmology still has a Hubble tension — pick a value with its source."
+            "Cosmology still has a Hubble tension, pick a value with its source."
         )
     return ToolResult(
         ok=True,
@@ -109,6 +118,80 @@ def _lookup(name: str) -> ToolResult:
 
 
 _TO_SPLIT = re.compile(r"(?i)\s+(?:to|into)\s+")
+# "in" is also the inch. It only separates a quantity from a unit when no
+# to/into is present, and only where the right-hand side is a real unit.
+# The lookahead lets "10 in in cm" offer both " in " candidates.
+_IN_SPLIT = re.compile(r"(?i)\s+in(?=\s)")
+
+
+def _map_astro_au(text: str) -> str:
+    """Uppercase AU is absorbance in the unit library. People mean the Earth-Sun distance."""
+    return re.sub(r"\bAU\b", "astronomical_unit", text or "")
+
+
+_HOW_MANY_IN = re.compile(
+    r"(?i)^\s*how\s+many\s+(?P<dest>.+?)\s+(?:are\s+)?in\s+(?P<qty>.+?)\s*\??\s*$"
+)
+_HOW_MANY_IS = re.compile(
+    r"(?i)^\s*how\s+many\s+(?P<dest>.+?)\s+(?:is|are)\s+(?P<qty>.+?)\s*\??\s*$"
+)
+_HOW_FAR_IN = re.compile(
+    r"(?i)^\s*how\s+(?:far|long)\s+is\s+(?P<qty>.+?)\s+(?:in|to|into)\s+(?P<dest>.+?)\s*\??\s*$"
+)
+_LIGHT_YEAR_WORDS = re.compile(r"(?i)\blight\s+years?\b")
+_LEADING_ARTICLE = re.compile(r"(?i)^(?:a|an|one)\s+")
+
+
+def _tidy_spoken_quantity(text: str) -> str:
+    out = (text or "").strip().rstrip("?.!")
+    out = _LIGHT_YEAR_WORDS.sub("light_year", out)
+    out = _LEADING_ARTICLE.sub("1 ", out)
+    if re.fullmatch(r"(?i)light_year", out):
+        return "1 light_year"
+    return out
+
+
+def _is_unit(text: str) -> bool:
+    try:
+        _UREG.parse_units(_normalize_unit(text))
+    except Exception:
+        # Silence is the answer: pint raises a different error type for an
+        # unknown word, a bad token and an empty string, and every one of them
+        # means "this is not a unit", so the caller tries the next split.
+        return False
+    return True
+
+
+def _question_conversion(text: str) -> tuple[str, str] | None:
+    """'how many km is 5 miles' and 'how far is a light year in km'."""
+    raw = (text or "").strip()
+    for pattern in (_HOW_MANY_IN, _HOW_FAR_IN, _HOW_MANY_IS):
+        hit = pattern.match(raw)
+        if hit is None:
+            continue
+        qty = _tidy_spoken_quantity(hit.group("qty"))
+        dest = _LIGHT_YEAR_WORDS.sub("light_year", hit.group("dest").strip().rstrip("?.!"))
+        if qty and dest and _is_unit(dest):
+            return qty, dest
+    return None
+
+
+def _split_conversion(text: str) -> tuple[str, str] | None:
+    """Split 'QTY to UNIT' / 'QTY into UNIT' / 'QTY in UNIT' into (qty, unit).
+
+    ``to`` and ``into`` win, so '10 in to cm' is 10 inches. ``in`` is the
+    fallback and is tried from the right: the last ' in ' whose right side
+    parses as a unit, so '5 ft 8 in in cm' keeps its inches.
+    """
+    qty = (text or "").strip()
+    parts = _TO_SPLIT.split(qty, maxsplit=1)
+    if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+        return parts[0].strip(), parts[1].strip()
+    for hit in reversed(list(_IN_SPLIT.finditer(qty))):
+        left, right = qty[: hit.start()].strip(), qty[hit.end() :].strip()
+        if left and right and _is_unit(right):
+            return left, right
+    return None
 
 
 def _split_convert_args(quantity: str, to_unit: str) -> tuple[str, str]:
@@ -117,10 +200,10 @@ def _split_convert_args(quantity: str, to_unit: str) -> tuple[str, str]:
     dest = (to_unit or "").strip()
     if dest or not qty:
         return qty, dest
-    parts = _TO_SPLIT.split(qty, maxsplit=1)
-    if len(parts) == 2 and parts[0].strip() and parts[1].strip():
-        return parts[0].strip(), parts[1].strip()
-    return qty, dest
+    spoken = _question_conversion(qty)
+    if spoken is not None:
+        return spoken
+    return _split_conversion(qty) or (qty, dest)
 
 
 def _convert(quantity: str, to_unit: str) -> ToolResult:
@@ -202,7 +285,7 @@ _TEMP_UNIT = (
 
 
 def _normalize_unit(text: str) -> str:
-    out = (text or "").strip()
+    out = _map_astro_au((text or "").strip())
     for pattern, repl in _TEMP_UNIT:
         out = pattern.sub(repl, out)
     return out

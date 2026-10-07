@@ -213,19 +213,102 @@ def test_long_transcript_load_keeps_markdown_stable(qt_app) -> None:
     assert "final" in live and "bold" in live
 
 
-def test_assistant_bubble_wash_is_a_table_cell_not_a_div(qt_app) -> None:
-    """Qt paints div backgrounds per layout line — that was the barcode."""
-    from arelis.ui.panels.chat import ChatPanel, _assistant_bubble_html
+def test_message_wash_is_one_translucent_coat(qt_app) -> None:
+    """Bright stuff behind a message has to dim, without a solid black plate.
+
+    A CSS background paints once per line. ``bgcolor`` is one rectangle and
+    it drops alpha. The cell brush is a single coat that keeps its alpha.
+    """
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QColor, QImage, QPainter, QPalette, QTextFormat, QTextTable
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    from arelis.ui.panels.chat import (
+        ChatPanel,
+        _assistant_bubble_html,
+        _user_bubble_html,
+    )
+    from arelis.ui.theme import color
 
     html = _assistant_bubble_html("line one\n\nline two")
     assert "<table" in html
     assert 'width="82%"' in html
-    assert "background-color:" in html
+    assert 'id="bubble"' in html
+    assert "bgcolor=" not in html
+    assert "background-color:" not in html
+    user = _user_bubble_html("hey there")
+    assert 'id="bubble"' in user
+    assert "bgcolor=" not in user
+    assert "background-color:" not in user
+
+    host = QWidget()
+    host.setFixedSize(640, 420)
+    palette = host.palette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(255, 220, 40))
+    host.setPalette(palette)
+    host.setAutoFillBackground(True)
+    layout = QVBoxLayout(host)
+    layout.setContentsMargins(0, 0, 0, 0)
     panel = ChatPanel()
-    panel.finish_assistant("**Sources:**\n\n1. Example (https://example.com)")
-    text = panel.view.toPlainText()
-    assert "Sources" in text
-    assert "**" not in text
+    panel.view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    panel.view.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+    panel.view.viewport().setAutoFillBackground(False)
+    panel.view.setStyleSheet(
+        "QTextBrowser { background: transparent; border: none; color: #f8f1ea; }"
+    )
+    layout.addWidget(panel)
+    host.show()
+    panel.add_user("hey there")
+    panel.finish_assistant(
+        "this answer wraps across the wash so the coat can be read behind the words"
+    )
+    qt_app.processEvents()
+
+    want = color("bubble_wash").getRgb()
+    found = 0
+
+    def walk(frame) -> None:
+        nonlocal found
+        it = frame.begin()
+        while not it.atEnd():
+            child = it.currentFrame()
+            it += 1
+            if not isinstance(child, QTextTable):
+                continue
+            for row in range(child.rows()):
+                for col in range(child.columns()):
+                    fmt = child.cellAt(row, col).format()
+                    name = fmt.property(QTextFormat.Property.AnchorName)
+                    if not name or "bubble" not in name:
+                        continue
+                    found += 1
+                    assert fmt.background().color().getRgb() == want
+                    assert want[3] < 255
+            walk(child)
+
+    walk(panel.view.document().rootFrame())
+    assert found >= 2
+
+    image = QImage(host.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QColor(255, 220, 40))
+    painter = QPainter(image)
+    host.render(painter, QPoint(0, 0))
+    painter.end()
+    alpha = want[3] / 255
+    yellow = (255, 220, 40)
+    single = tuple(round(want[i] * alpha + yellow[i] * (1 - alpha)) for i in range(3))
+    plate = single_n = 0
+    width, height = image.width(), image.height()
+    for y in range(0, height, 2):
+        for x in range(0, width, 2):
+            pixel = image.pixelColor(x, y)
+            rgb = (pixel.red(), pixel.green(), pixel.blue())
+            if max(abs(rgb[i] - want[i]) for i in range(3)) <= 8:
+                plate += 1
+            elif max(abs(rgb[i] - single[i]) for i in range(3)) <= 18:
+                single_n += 1
+    assert plate == 0
+    assert single_n > 80
     assert panel.view.cursorWidth() == 0
 
 

@@ -178,10 +178,15 @@ def status_sentence(zone: Any) -> str:
     busy = bool(getattr(zone, "_live_busy", False))
     if busy and not published:
         line = f"Watching Earth {where} — fetching published feeds."
+    elif zone.live and published and band == "space":
+        line = (
+            f"Watching Earth {where} — satellites and the ISS. "
+            "Planes open under 2,500 km."
+        )
     elif zone.live and published:
         line = f"Watching Earth {where} — live published feeds."
     elif zone.live:
-        line = f"Watching Earth {where} — live, simulated until feeds return."
+        line = f"Watching Earth {where} — waiting on published feeds."
     elif published:
         line = f"Watching Earth {where} — last published fix, then coasting."
     else:
@@ -238,10 +243,40 @@ def layer_hole_line(zone: Any) -> str | None:
     inflight = getattr(zone, "_live_inflight", None) or set()
     visible = list(zone.visible()) if hasattr(zone, "visible") else []
     have = {getattr(ent, "layer", "") for ent in visible}
+    misses = getattr(zone, "misses", None) or {}
+    if layers.get("flights") and "opensky" not in inflight and "flights" not in have:
+        reason = misses.get("opensky")
+        if reason == "rate":
+            return "OpenSky said slow down. This look waits, then tries again."
+        if reason == "http":
+            return "OpenSky did not answer. That is a miss, not an empty sky."
+        if "opensky" in fetched:
+            return "No published planes in this look."
+    if layers.get("vessels") and "ais" not in inflight and "vessels" not in have:
+        reason = misses.get("ais")
+        try:
+            from arelis.earth.ais import aisstream_key
+
+            keyed = bool(aisstream_key())
+        except Exception:
+            # ais import or key check may fail — treat as no key
+            keyed = False
+        if reason == "no_key" or (not keyed and "ais" not in fetched):
+            return (
+                "No AISStream key. Baltic and Barents receivers are the "
+                "hulls without one. Mid-ocean stays empty."
+            )
+        if reason == "http":
+            return "Ship feeds did not answer. A miss is not an empty ocean."
+        if "ais" in fetched:
+            return (
+                "No published ships in this look. "
+                "VHF dies tens of kilometres from a receiver."
+            )
     if layers.get("cameras"):
-        if "cameras" in inflight or "shodan" in inflight:
+        if "cameras" in inflight:
             return None
-        if "cameras" not in fetched and "shodan" not in fetched:
+        if "cameras" not in fetched:
             return None
         if "cameras" not in have:
             return (

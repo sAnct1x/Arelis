@@ -47,7 +47,7 @@ class _FakeLoop:
         self.memory = SimpleNamespace(messages=[])
         self.tools = SimpleNamespace(
             get=lambda _name: None,
-            ollama_tools=lambda _names: [],
+            ollama_tools=lambda _names, *, param_hints=False: [],
             call=self._call,
         )
         self._trace: list[str] = []
@@ -199,6 +199,54 @@ async def test_sms_draft_nudges_once_then_injects() -> None:
 
 
 @pytest.mark.asyncio
+async def test_quote_first_stays_quiet_once_the_pdf_is_written() -> None:
+    """Live 2026-09-26: the PDF was saved, then quote-first pasted the sources."""
+    from arelis.core.claims import ExactnessNeed
+    from arelis.core.no_call_finish import NUDGE, SKIP, try_quote_first
+
+    loop = _FakeLoop()
+    need = ExactnessNeed(
+        False,
+        True,
+        False,
+        False,
+        needs_document=True,
+        kinds=("document", "web"),
+    )
+    r = _scratch(
+        content="The PDF is on the desk.",
+        exact_need=need,
+    )
+    r.ledger.add(
+        source="https://arxiv.org/abs/2309.05566",
+        kind="web",
+        span="methane at 5 sigma",
+        ok=True,
+    )
+    r.ledger.add(
+        source="document",
+        kind="document",
+        span="outputs/documents/JWST-and-the-atmosphere-of-K2-18-b.pdf",
+        ok=True,
+    )
+    ctx = _ctx()
+    ctx.exact_need = need
+    assert await try_quote_first(loop, ctx, r, 10) == SKIP
+    assert ctx.quote_nudge_used is False
+    assert loop.retracts == 0
+    chat = _scratch(content="Here is what the pages say.", exact_need=need)
+    chat.ledger.add(
+        source="https://arxiv.org/abs/2309.05566",
+        kind="web",
+        span="methane at 5 sigma",
+        ok=True,
+    )
+    bare = _ctx()
+    bare.exact_need = need
+    assert await try_quote_first(loop, bare, chat, 10) == NUDGE
+
+
+@pytest.mark.asyncio
 async def test_plain_thanks_finishes_the_turn() -> None:
     loop = _FakeLoop()
     r = _scratch(content="You're welcome.")
@@ -273,6 +321,280 @@ async def test_dispatch_second_same_call_skip_finishes() -> None:
     assert "already have that result" not in str(loop.finished[0]).lower()
 
 
+def test_arxiv_search_and_id_urls_are_one_page() -> None:
+    from arelis.core.turn_dispatch import page_key
+
+    search = page_key(
+        "https://arxiv.org/search/?query=K2-18b+JWST&searchtype=all&source=recent"
+    )
+    assert search == page_key(
+        "https://arxiv.org/search/?query=K2-18b+JWST&searchtype=all"
+        "&source=recent&abstracts=show&all"
+    )
+    paper = page_key("https://arxiv.org/html/2309.05566")
+    assert paper == page_key("https://arxiv.org/abs/2309.05566")
+    assert paper == page_key("https://arxiv.org/pdf/2309.05566.pdf")
+    assert paper != search
+
+
+@pytest.mark.asyncio
+async def test_search_cap_with_a_page_open_keeps_scrape_for_the_rest() -> None:
+    """Live 2026-09-26 turn 41d1f60b: one DMS paper, then scrape was gone.
+
+    The cap said call document and she could not open the 2023 paper.
+    She went to recall and quoted an earlier turn until Stop.
+    """
+    from arelis.core.claims import ExactnessNeed
+
+    loop = _FakeLoop()
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
+    r = _scratch(
+        calls=[("web_search", {"query": "yet another reanalysis"})],
+        content="",
+        streamed="",
+        tool_names={
+            "web_search",
+            "scrape",
+            "document",
+            "browser",
+            "research_report",
+            "recall",
+        },
+        offer_tools=True,
+        messages=[],
+        research_mode=True,
+        web_search_ok={f"q{i}" for i in range(8)},
+    )
+    ctx = _ctx()
+    ctx.tool_names = r.tool_names
+    ctx.exact_need = ExactnessNeed(
+        False,
+        True,
+        False,
+        False,
+        needs_document=True,
+        kinds=("web", "document"),
+    )
+    ctx.ledger.add(
+        source="https://arxiv.org/abs/2504.12267",
+        kind="web",
+        span="DMS and DMDS at 3 sigma",
+        ok=True,
+    )
+    assert await dispatch_calls(loop, ctx, r, 12) is False
+    assert "web_search" in r.tool_names
+    assert "scrape" in r.tool_names
+    assert "document" in r.tool_names
+    assert ctx.document_nudge_used is False
+    blob = " ".join(str(m.get("content") or "") for m in r.messages)
+    assert "not searching again" in blob
+    assert "Wikipedia" not in blob
+
+
+@pytest.mark.asyncio
+async def test_search_cap_on_wikipedia_keeps_scrape_and_drops_the_browser() -> None:
+    """Live 2026-09-26 turn d246e037: eight searches, one wiki page.
+
+    The cap told her to write the PDF and left browser and research_report
+    on. She wrote a markdown report, opened the wrong arXiv id, and the
+    second open of that URL pasted the Google click into chat.
+    """
+    from arelis.core.claims import ExactnessNeed
+
+    loop = _FakeLoop()
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
+    r = _scratch(
+        calls=[("web_search", {"query": "one more madhusudhan query"})],
+        content="",
+        streamed="",
+        tool_names={
+            "web_search",
+            "scrape",
+            "document",
+            "browser",
+            "research_report",
+            "recall",
+        },
+        offer_tools=True,
+        messages=[],
+        research_mode=True,
+        web_search_ok={f"q{i}" for i in range(8)},
+    )
+    ctx = _ctx()
+    ctx.tool_names = r.tool_names
+    ctx.exact_need = ExactnessNeed(
+        False,
+        True,
+        False,
+        False,
+        needs_document=True,
+        kinds=("web", "document"),
+    )
+    ctx.ledger.add(
+        source="https://en.wikipedia.org/wiki/K2-18b",
+        kind="web",
+        span="sub-Neptune",
+        ok=True,
+    )
+    assert await dispatch_calls(loop, ctx, r, 10) is False
+    assert loop.finished is None
+    assert "scrape" in r.tool_names
+    assert "document" in r.tool_names
+    assert "web_search" in r.tool_names
+    assert "scrape" in r.tool_names
+    assert ctx.document_nudge_used is False
+    blob = " ".join(str(m.get("content") or "") for m in r.messages)
+    assert "not searching again" in blob
+    assert "Wikipedia" not in blob
+
+
+@pytest.mark.asyncio
+async def test_a_second_search_waits_until_a_hit_is_opened() -> None:
+    loop = _FakeLoop()
+    paper = "https://arxiv.org/abs/2309.05566"
+    wiki = "https://en.wikipedia.org/wiki/K2-18b"
+    r = _scratch(
+        calls=[("web_search", {"query": "same topic again"})],
+        content="",
+        streamed="",
+        tool_names={"web_search", "scrape", "document"},
+        offer_tools=True,
+        messages=[],
+    )
+    ctx = _ctx()
+    ctx.tool_names = r.tool_names
+    ctx.last_hit_urls = [paper, wiki]
+    from arelis.core.search_loop import page_key
+
+    ctx.hit_urls = {page_key(paper), page_key(wiki)}
+    assert await dispatch_calls(loop, ctx, r, 2) is False
+    assert loop.finished is None
+    assert "scrape" in r.tool_names
+    assert "web_search" in r.tool_names
+    blob = " ".join(str(m.get("content") or "") for m in r.messages)
+    assert "Open a page from the last search" in blob
+    assert paper in blob
+    assert blob.index(paper) < blob.index(wiki)
+
+
+@pytest.mark.asyncio
+async def test_an_invented_url_is_not_scraped() -> None:
+    loop = _FakeLoop()
+    paper = "https://arxiv.org/abs/2309.05566"
+    r = _scratch(
+        calls=[("scrape", {"url": "https://arxiv.org/abs/2309.15684"})],
+        content="",
+        streamed="",
+        tool_names={"scrape", "web_search", "document"},
+        messages=[],
+    )
+    ctx = _ctx()
+    ctx.tool_names = r.tool_names
+    ctx.last_hit_urls = [paper]
+    from arelis.core.search_loop import page_key
+
+    ctx.hit_urls = {page_key(paper)}
+    assert await dispatch_calls(loop, ctx, r, 3) is False
+    assert loop.finished is None
+    blob = " ".join(str(m.get("content") or "") for m in r.messages)
+    assert "Do not invent an address" in blob
+    assert paper in blob
+    assert "url not in search hits" in " ".join(loop._trace)
+
+
+@pytest.mark.asyncio
+async def test_repeated_browser_open_does_not_paint_the_page_when_a_pdf_is_owed() -> None:
+    from arelis.core.claims import ExactnessNeed
+    from arelis.core.same_call import record_same_call, same_call_key
+
+    loop = _FakeLoop()
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
+    args = {"action": "open", "url": "https://arxiv.org/abs/2309.16758"}
+    r = _scratch(
+        calls=[("browser", args)],
+        content="",
+        streamed="",
+        tool_names={"browser", "scrape", "document"},
+        offer_tools=True,
+        messages=[],
+    )
+    ctx = _ctx()
+    ctx.tool_names = r.tool_names
+    ctx.exact_need = ExactnessNeed(
+        False,
+        False,
+        False,
+        False,
+        needs_document=True,
+        kinds=("document",),
+    )
+    ctx.last_ok_tool_out = "Clicked [e36] Carbon bearing molecules"
+    ctx.last_ok_tool_name = "browser"
+    record_same_call(ctx.same_ok, "browser", args)
+    key = same_call_key("browser", args)
+    assert key
+    ctx.same_skip_keys.add(key)
+    assert await dispatch_calls(loop, ctx, r, 20) is False
+    assert loop.finished is None
+    assert "browser" not in r.tool_names
+    assert "document" in r.tool_names
+    assert "Clicked" not in " ".join(str(m.get("content") or "") for m in r.messages)
+
+
+@pytest.mark.asyncio
+async def test_second_duplicate_page_does_not_force_the_file() -> None:
+    """Repeating a URL is a skip. It does not end the research and write."""
+    from arelis.core.claims import ExactnessNeed
+
+    loop = _FakeLoop()
+    offered: list[set[str]] = []
+
+    def _schemas(names: set[str], *, param_hints: bool = False) -> list[dict[str, str]]:
+        offered.append(set(names))
+        return [{"name": n} for n in sorted(names)]
+
+    loop.tools.ollama_tools = _schemas
+    url = "https://arxiv.org/html/2309.05566"
+    from arelis.core.turn_dispatch import page_key
+
+    r = _scratch(
+        calls=[("scrape", {"url": url, "max_chars": 8000})],
+        content="",
+        streamed="",
+        tool_names={"scrape", "web_search", "web_fetch", "document"},
+        offer_tools=True,
+        messages=[],
+        page_ok={page_key(url)},
+    )
+    ctx = _ctx()
+    ctx.tool_names = r.tool_names
+    ctx.page_ok = r.page_ok
+    ctx.duplicate_page_skips = 1
+    ctx.ledger.add(
+        source="https://arxiv.org/abs/2309.05566",
+        kind="web",
+        span="methane and carbon dioxide",
+        ok=True,
+    )
+    ctx.exact_need = ExactnessNeed(
+        False,
+        False,
+        False,
+        False,
+        needs_document=True,
+        kinds=("document",),
+    )
+    assert await dispatch_calls(loop, ctx, r, 11) is False
+    assert loop.finished is None
+    assert "scrape" in r.tool_names
+    assert "web_search" in r.tool_names
+    assert "document" in r.tool_names
+    assert ctx.document_nudge_used is False
+    blob = " ".join(str(m.get("content") or "") for m in r.messages)
+    assert "Call document now" not in blob
+    assert "Already fetched that URL" in blob
+
+
 @pytest.mark.asyncio
 async def test_dispatch_cas_same_call_strips_tools_for_a_writeup() -> None:
     from arelis.core.same_call import record_same_call
@@ -330,7 +652,8 @@ async def test_dispatch_calculator_same_call_ships_the_number() -> None:
     record_same_call(ctx.same_ok, "calculator", args)
     assert await dispatch_calls(loop, ctx, r, 2) is True
     assert loop.finished is not None
-    assert loop.finished[0] == "14-6 = 8"
+    # #121: same-call finish ships a plain sentence with the number, not the formula.
+    assert loop.finished[0] == "That works out to 8."
     thinking = " ".join(str(e.payload.get("text") or "") for e in loop.bus.events)
     assert "same-call algebra" not in thinking
 
@@ -539,6 +862,69 @@ def test_fake_loop_finish_matches_the_real_signature() -> None:
     assert shape(_FakeLoop._finish) == shape(AgentLoop._finish)
 
 
+@pytest.mark.asyncio
+async def test_empty_after_search_keeps_tools_on_a_research_goal() -> None:
+    """Live 2026-09-26: empty chat after web_search stripped scrape and
+    document, then the next round's calls were unknown tools.
+    """
+    from arelis.core.turn_goal import derive_turn_goal
+
+    loop = _FakeLoop()
+    ask = (
+        "Research what JWST measured. Search the web, then open the papers. "
+        "Write the result as a PDF."
+    )
+    r = _scratch(content="")
+    ctx = _ctx(text=ask)
+    ctx.research_mode = True
+    ctx.goal = derive_turn_goal(ask, role="research", research_mode=True)
+    ctx.last_ok_tool_name = "web_search"
+    ctx.last_ok_tool_out = "Title: Madhusudhan\n" + ("https://arxiv.org/abs/2309.05566 " * 30)
+    ctx.tool_names = {"web_search", "scrape", "web_fetch", "document", "research_report"}
+    r.tool_names = ctx.tool_names
+    assert ctx.goal.kind == "research"
+    assert await apply_no_call_path(loop, ctx, r, 3) is False
+    assert ctx.page_write_nudge_used is False
+    assert ctx.goal_unlock_used is True
+    assert "scrape" in ctx.tool_names
+    assert "document" in r.tool_names
+    thinking = " ".join(str(e.payload.get("text") or "") for e in loop.bus.events)
+    assert "goal unlock" in thinking
+    assert "empty after page" not in thinking
+
+
+@pytest.mark.asyncio
+async def test_empty_after_a_page_asks_for_the_pdf_without_stripping_it() -> None:
+    from arelis.core.claims import ExactnessNeed
+    from arelis.core.turn_goal import derive_turn_goal
+
+    loop = _FakeLoop()
+    ask = "Search the web. Write the result as a PDF."
+    r = _scratch(content="")
+    ctx = _ctx(text=ask)
+    ctx.research_mode = True
+    ctx.goal = derive_turn_goal(ask, role="research", research_mode=True)
+    ctx.exact_need = ExactnessNeed(
+        False,
+        True,
+        False,
+        False,
+        needs_document=True,
+        kinds=("web", "document"),
+    )
+    ctx.last_ok_tool_name = "scrape"
+    ctx.last_ok_tool_out = "Site: nasa.gov\n" + ("methane and carbon dioxide. " * 40)
+    ctx.tool_names = {"scrape", "document", "web_search"}
+    r.tool_names = ctx.tool_names
+    assert await apply_no_call_path(loop, ctx, r, 4) is False
+    assert ctx.document_nudge_used is True
+    assert ctx.page_write_nudge_used is False
+    assert "document" in ctx.tool_names
+    assert r.offer_tools is True
+    thinking = " ".join(str(e.payload.get("text") or "") for e in loop.bus.events)
+    assert "report still needs a file" in thinking
+
+
 def test_dispatch_tables_are_named_and_ordered() -> None:
     """The extract must keep a table, not hide the chain in one blob."""
     from arelis.core import call_redirects, no_call_finish, no_call_steps
@@ -550,3 +936,99 @@ def test_dispatch_tables_are_named_and_ordered() -> None:
     assert len(call_redirects.REDIRECT_STEPS) >= 4
     assert all(callable(step) for step in call_redirects.REDIRECT_STEPS)
 
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "tool"),
+    [
+        (
+            "no need to look at the book, its just crazy that she wrote a scenario",
+            "desktop",
+        ),
+        (
+            "i never asked you to do anything, why did you open your browser, check the time",
+            "browser",
+        ),
+    ],
+)
+async def test_declined_or_complaining_text_injects_no_tool(text: str, tool: str) -> None:
+    loop = _FakeLoop()
+    r = _scratch(
+        text=text,
+        content="Sure.",
+        tool_names={tool},
+        available={tool},
+        visible={tool},
+        available_all={tool},
+    )
+    ctx = _ctx(text=text)
+    ctx.tool_names = {tool}
+    await apply_no_call_path(loop, ctx, r, 0)
+    assert r.calls == []
+    assert loop._expected_tools == set()
+
+
+@pytest.mark.asyncio
+async def test_real_look_request_still_injects_desktop_screenshot() -> None:
+    loop = _FakeLoop()
+    text = "look at the book on my right monitor"
+    r = _scratch(
+        text=text,
+        content="Sure.",
+        tool_names={"desktop"},
+        available={"desktop"},
+        visible={"desktop"},
+        available_all={"desktop"},
+    )
+    ctx = _ctx(text=text)
+    ctx.tool_names = {"desktop"}
+    assert await apply_no_call_path(loop, ctx, r, 0) is None
+    assert [name for name, _args in r.calls] == ["desktop"]
+
+
+_MOON_DUMP = (
+    "API VERSION: 1.2\n"
+    "Target body name: Moon (301)\n"
+    "Center body name: Earth (399)\n"
+)
+_CATALOG_TOOLS = [{"type": "function", "function": {"name": "catalog"}}]
+
+
+@pytest.mark.asyncio
+async def test_empty_after_data_dump_retry_turns_tools_off() -> None:
+    """Retry branch itself drops every tool, then a second empty ships the fallback."""
+    ask = "how far away is the moon right now?"
+    loop = _FakeLoop()
+    r = _scratch(
+        content="",
+        text=ask,
+        tool_names={"catalog"},
+        ollama_tools=list(_CATALOG_TOOLS),
+        offer_tools=True,
+    )
+    ctx = _ctx(
+        text=ask,
+        last_ok_tool_out=_MOON_DUMP,
+        last_ok_tool_name="catalog",
+        tool_names={"catalog"},
+        ollama_tools=list(_CATALOG_TOOLS),
+        offer_tools=True,
+    )
+    assert await apply_no_call_path(loop, ctx, r, 2) is False
+    assert ctx.tool_answer_nudge_used is True
+    assert r.ollama_tools == []
+    assert r.offer_tools is False
+    assert ctx.ollama_tools == []
+    assert ctx.offer_tools is False
+    assert not ctx.tool_names
+    assert loop.finished is None
+
+    r2 = _scratch(
+        content="", text=ask, tool_names=set(), ollama_tools=[], offer_tools=False
+    )
+    assert await apply_no_call_path(loop, ctx, r2, 3) is True
+    assert loop.finished is not None
+    shipped = loop.finished[0]
+    assert "could not put it into words" in shipped
+    assert "API VERSION" not in shipped

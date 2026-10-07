@@ -780,7 +780,7 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "var flyGen" in js
     assert "function bumpFly" in js
     assert "gen !== flyGen" in js
-    assert "billboard.color = tint" in js
+    assert "ent.billboard.color = Cesium.Color.WHITE" in js
     assert "emitCamera(true)" in js
     assert "moveEnd.addEventListener" in js
     assert "function hoseKey" in js
@@ -805,7 +805,8 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "setInterval(stepCoast" in js
     assert "depthTestAgainstTerrain = false" in js
     assert "Waiting for tilesLoaded hid the city" in js
-    assert '? 90 : 8' in js
+    assert "var cap = 90" in js.split("function coastFromRow")[1].split("function coastPosition")[0]
+    assert "sunNow()" in js.split("function stepCoast")[1].split("function holdCoast")[0]
     assert 'row.layer === "radio"' in js.split("function wantLabel")[1].split("function applyEarthFov")[0]
     assert "var RIDE_LAYERS" in js
     assert "bridge.ridden" in js

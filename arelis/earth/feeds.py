@@ -148,8 +148,10 @@ FEEDS: tuple[FeedSpec, ...] = (
         "osm-webcams",
         "cameras",
         "shipped",
-        "OSM camera:type=webcam pins worldwide (ODbL, positions only)",
-        "Mapper catalog, not a crawl. No stills. Overpass sample boxes on inhabited continents.",
+        "OSM public webcam tags worldwide (ODbL)",
+        "camera:type=webcam plus contact:webcam and website:webcam. "
+        "A public http(s) page opens on click. URL stays off the pin. "
+        "Not a surveillance map. Not an IP camera.",
         host="overpass-api.de",
     ),
     FeedSpec(
@@ -1130,15 +1132,6 @@ FEEDS: tuple[FeedSpec, ...] = (
         "later",
         "Copernicus Data Space (free account) for extra Sentinel later",
         "Not sat-AIS. A scene is not a hull.",
-    ),
-    FeedSpec(
-        "shodan-banners",
-        "cameras",
-        "keyed",
-        "Shodan banner catalog if a free key already exists",
-        "IP and banner text. Not a login and not look-from. An open port is not consent.",
-        host="api.shodan.io",
-        key="earth.shodan_key",
     ),
     FeedSpec(
         "owned-rtsp",

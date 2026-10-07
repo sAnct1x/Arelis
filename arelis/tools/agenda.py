@@ -1,4 +1,4 @@
-"""Agenda tool — local cache + Google/Outlook APIs (ICS fallback).
+"""Agenda tool, local cache + Google/Outlook APIs (ICS fallback).
 
 Read actions are free. create/update/delete require Allow and never batch.
 """
@@ -20,6 +20,7 @@ from arelis.calendar.models import CachedEvent, same_event_slot
 from arelis.calendar.secrets import load_calendar_secrets
 from arelis.calendar.service import CalendarService
 from arelis.calendar.store import CalendarStore
+from arelis.core.reliance.conflicts import find_overlaps, overlap_line
 from arelis.tools.base import ToolResult
 
 log = logging.getLogger(__name__)
@@ -69,11 +70,11 @@ class AgendaTool:
         "create/update/delete events (writes need Allow). Local create "
         "works without Google; connecting later pushes pending events "
         "without another ask. Never invent "
-        "meetings or open slots — list or free first and cite the tool "
+        "meetings or open slots, list or free first and cite the tool "
         "(time, title, place, one-line notes). Never ask the user for a "
         "Google event id; delete "
         "by title/time. provider=google|outlook|local|all|ics. action=open shows "
-        "the local tile; action=close hides it — do not use the browser "
+        "the local tile; action=close hides it, do not use the browser "
         "calendar alias unless they asked for the website."
     )
     # Registered as read; write actions gated in ToolRegistry.needs_confirm.
@@ -159,7 +160,7 @@ class AgendaTool:
                 "type": "string",
                 "description": (
                     "Cached or provider event id for update/delete. Optional "
-                    "for delete — prefer summary (and start) and the tool "
+                    "for delete, prefer summary (and start) and the tool "
                     "resolves the id. Never ask the user to paste a Google id."
                 ),
             },
@@ -273,7 +274,7 @@ class AgendaTool:
             if info.get("ok"):
                 lines.append(f"- {name}: {info.get('count', 0)} events cached")
             else:
-                lines.append(f"- {name}: FAIL — {info.get('error')}")
+                lines.append(f"- {name}: FAIL, {info.get('error')}")
         for err in summary.get("errors") or []:
             if not any(err.startswith(f"{p}:") for p in (summary.get("providers") or {})):
                 lines.append(f"- {err}")
@@ -318,13 +319,24 @@ class AgendaTool:
 
         if loaded["missing"]:
             path = loaded["path"]
+            if action == "today":
+                sentence = (
+                    "Nothing on your calendar today. "
+                    "Connect a calendar in the calendar tile to see events."
+                )
+            elif action == "tomorrow":
+                sentence = (
+                    "Nothing on your calendar tomorrow. "
+                    "Connect a calendar in the calendar tile to see events."
+                )
+            else:
+                sentence = (
+                    "Nothing on your calendar for that stretch. "
+                    "Connect a calendar in the calendar tile to see events."
+                )
             return ToolResult(
                 ok=True,
-                output=(
-                    "No events. Sign in on the calendar tile, "
-                    "or add data/calendar.ics.\n"
-                    f"ICS path: {path}"
-                ),
+                output=sentence,
                 data={
                     "action": action,
                     "events": [],
@@ -471,7 +483,7 @@ class AgendaTool:
                         f"{_format_clock(block['start'], tz)}–"
                         f"{_format_clock(block['end'], tz)}"
                     )
-                lines.append(f"- {when} — {block['summary']}")
+                lines.append(f"- {when}, {block['summary']}")
         else:
             lines.append("- (none)")
         lines.append("")
@@ -553,11 +565,15 @@ class AgendaTool:
         calendar_id = str(kwargs.get("calendar_id") or "").strip() or None
 
         # Idempotency: refuse a second POST for the same title+start (S11).
+        # A different event on the same hour still creates; the result names it.
+        overlap_note = ""
+        overlap_rows: list[dict[str, str]] = []
         store = CalendarStore()
         try:
             day = starts_at.date()
+            end_day = (ends_at or starts_at).date()
             cached = store.list_range(
-                day, day, provider=provider or None
+                day, end_day, provider=provider or None
             )
             for hit in cached:
                 if _same_event(summary, starts_at, hit):
@@ -565,7 +581,7 @@ class AgendaTool:
                         ok=True,
                         output=(
                             f"Already on {provider}: {hit.summary} @ "
-                            f"{hit.starts_at.isoformat()} — not creating a duplicate."
+                            f"{hit.starts_at.isoformat()}, not creating a duplicate."
                         ),
                         data={
                             "event": hit.as_dict(),
@@ -573,6 +589,21 @@ class AgendaTool:
                             "duplicate": True,
                         },
                     )
+            overlaps = find_overlaps(
+                start=starts_at,
+                end=ends_at,
+                events=[hit.as_dict() for hit in cached],
+                ignore_summary=summary,
+            )
+            overlap_note = overlap_line(overlaps)
+            overlap_rows = [
+                {
+                    "summary": hit.summary,
+                    "starts_at": hit.starts_at,
+                    "ends_at": hit.ends_at,
+                }
+                for hit in overlaps
+            ]
         finally:
             store.close()
 
@@ -594,13 +625,18 @@ class AgendaTool:
         extra = ""
         if ev.provider == "local" or ev.sync_state == "pending":
             extra = " It will sync to Google or Outlook when that calendar is connected."
+        clash = f" {overlap_note}" if overlap_note else ""
         return ToolResult(
             ok=True,
             output=(
                 f"Created on {where}: {ev.summary} @ {ev.starts_at.isoformat()}."
-                f"{extra}"
+                f"{extra}{clash}"
             ),
-            data={"event": ev.as_dict(), "action": "create"},
+            data={
+                "event": ev.as_dict(),
+                "action": "create",
+                "overlaps": overlap_rows,
+            },
         )
 
     async def _update(self, kwargs: dict[str, Any]) -> ToolResult:
@@ -702,7 +738,7 @@ class AgendaTool:
                 ok=False,
                 output=(
                     "[fail:agenda] No matching calendar events to delete. "
-                    "Call agenda(action=list) and delete by title/time — "
+                    "Call agenda(action=list) and delete by title/time"
                     "do not ask the user for a Google event id."
                 ),
                 data={"action": "delete", "count": 0},
@@ -721,7 +757,7 @@ class AgendaTool:
             ]
             for ev in matches:
                 when = ev.starts_at.strftime("%a %I:%M %p").lstrip("0")
-                lines.append(f"- {when} — {ev.summary} ({ev.provider})")
+                lines.append(f"- {when}, {ev.summary} ({ev.provider})")
             return ToolResult(
                 ok=False,
                 output="\n".join(lines),
@@ -743,7 +779,7 @@ class AgendaTool:
         if not to_delete:
             return ToolResult(
                 ok=True,
-                output="Nothing extra to delete — already a single copy.",
+                output="Nothing extra to delete, already a single copy.",
                 data={"action": "delete", "count": 0, "kept": len(matches)},
             )
         deleted: list[str] = []

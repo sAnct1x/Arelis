@@ -46,8 +46,8 @@ def tool_fail_replan_notice(
             return (
                 "Tool replan: workspace cannot read that path (outside roots). "
                 "Stop. Do not list C:\\Users, Documents, or any parent. "
-                "Tell them to Allow the path they named or add the folder in "
-                "Settings → roots. Answer from what you already have."
+                "Tell them to Allow the path they named, or open Settings and "
+                "add a folder there. Answer from what you already have."
             )
         return None
     if tool not in _REPLAN_TOOLS:
@@ -95,7 +95,7 @@ def tool_fail_replan_notice(
         return (
             f"Tool replan: image failed ({tag}). "
             "Tell the user ComfyUI is not running or image generation failed. "
-            "Do NOT call send_sms, send_email, comfyui, or search_images — those "
+            "Do NOT call send_sms, send_email, comfyui, or search_images, those "
             "tools do not exist or do not start ComfyUI. Do not fetch stock "
             "photos unless they asked for a description or a web search. "
             "They must start ComfyUI themselves (or set tools.image.auto_start)."
@@ -106,6 +106,14 @@ def tool_fail_replan_notice(
             "If the output lists page images, call vision on those paths. "
             "Do not ask them to paste. Do not call ocr on the PDF. "
             "Do not invent PDF contents."
+        )
+    if tool in {"scrape", "web_fetch"} and "fail:challenge" in tag:
+        return (
+            f"Tool replan: {tool} failed ({tag}). "
+            "That URL needs a human check. Do not fetch it again this turn. "
+            "If a person is here, offer browser(action=open) so they can Allow "
+            "her Chrome. Otherwise skip it and try a different source. "
+            "Do not invent page contents."
         )
     return (
         f"Tool replan: {tool} failed ({tag}). "

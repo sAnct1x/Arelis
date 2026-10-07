@@ -39,7 +39,7 @@ Verification, rather than a build that merely finished
 
 A build script that exits zero having produced a tree that cannot start is worse than
 one that fails, because the failure arrives on somebody else's machine. So the last
-phase runs the tree: it imports every Qt module the codebase imports, brings up a real
+phase runs the tree: it imports the Qt modules the installed app uses, brings up a real
 QApplication offscreen, runs `-m arelis --version` in a subprocess because that is the
 form every scheduled job takes, and runs `Scripts/arelis.exe --version` because that is
 the form the shortcut takes. It also runs scripts/installed_smoke.py under the bundled
@@ -52,9 +52,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import zipfile
@@ -67,6 +69,8 @@ BUILD = HERE / "build"
 DIST = HERE / "dist"
 TREE = DIST / "Arelis"
 LOCK = HERE / "requirements-win-amd64-cp314.txt"
+# Pure-Python projects that ship no wheel; see SDIST_ONLY in lock.py.
+SDIST_ONLY = ("jieba",)
 
 PYTHON_VERSION = "3.14.7"
 PYTHON_TAG = "314"
@@ -90,15 +94,16 @@ PIP_VERSION = "25.3"
 # would let an installed copy rewrite itself.
 BUILD_ONLY = ("pip", "setuptools", "wheel", "pkg_resources", "_distutils_hack")
 
-# Every Qt module imported anywhere in the codebase, which is the whole basis for the
-# prune being safe. Kept as data because the verification step imports exactly this
-# list, so a module added to the app and not added here fails the build.
+# Modules that must survive the prune. verify() imports exactly this list, so a
+# module the app needs that is missing here fails the build. tests/ checks the list
+# against every PySide6.Qt* import under arelis/.
 QT_MODULES = (
     "QtCore",
     "QtGui",
     "QtWidgets",
     "QtMultimedia",
     "QtMultimediaWidgets",
+    "QtOpenGL",
 )
 
 # One import per dependency this project declares, in the form that actually proves it
@@ -131,7 +136,26 @@ REQUIRED_IMPORTS = (
 
 
 def say(message: str) -> None:
-    print(message, flush=True)
+    """Print one build line. A cp1252 Windows console must not abort the build.
+
+    PYTHONUTF8 is not required. An arrow becomes ``->``. Anything else that
+    console cannot encode is replaced, and the line still prints.
+    """
+    text = str(message)
+    for src, dst in (("\u2192", "->"), ("\u2190", "<-"), ("\u2026", "...")):
+        text = text.replace(src, dst)
+    stream = sys.stdout
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    try:
+        text.encode(encoding)
+    except LookupError:
+        text = text.encode("ascii", errors="replace").decode("ascii")
+    except UnicodeEncodeError:
+        text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+    try:
+        print(text, flush=True)
+    except UnicodeEncodeError:
+        print(text.encode("ascii", errors="replace").decode("ascii"), flush=True)
 
 
 def run(command: list[str], what: str, cwd: Path | None = None) -> str:
@@ -282,6 +306,123 @@ def installed_version() -> str:
     ).strip()
 
 
+def _normalise_dist_name(name: str) -> str:
+    """PyPI name equivalence: ``jieba`` and ``Jieba`` are the same distribution."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def is_pure_py3_wheel(filename: str) -> bool:
+    """True when a wheel filename is the pure-Python ``py3-none-any`` form.
+
+    Same purity rule lock.py documents for SDIST_ONLY: anything else is not what the
+    sdist-only exception is for.
+    """
+    return filename.endswith("-py3-none-any.whl")
+
+
+def pinned_requirement_for(lock_text: str, name: str) -> tuple[str, str]:
+    """Return ``(version, requirements body)`` for one hashed pin in the lock.
+
+    The body is that project's ``name==version`` line plus any ``--hash=sha256`` lines
+    belonging to it, suitable for a one-package ``pip wheel --require-hashes`` input.
+    """
+    want = _normalise_dist_name(name)
+    lines = lock_text.splitlines()
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped or stripped.startswith("#"):
+            index += 1
+            continue
+        block_lines = [lines[index]]
+        while block_lines[-1].rstrip().endswith("\\"):
+            index += 1
+            if index >= len(lines):
+                break
+            block_lines.append(lines[index])
+        logical = " ".join(part.rstrip().removesuffix("\\").strip() for part in block_lines)
+        match = re.match(r"([A-Za-z0-9._-]+)\s*==\s*([^\s]+)", logical)
+        if match and _normalise_dist_name(match.group(1)) == want:
+            return match.group(2), "\n".join(block_lines) + "\n"
+        index += 1
+    raise SystemExit(f"{name} is in SDIST_ONLY but missing from {LOCK.name}")
+
+
+def lock_without_sdist_only(lock_text: str, names: tuple[str, ...] = SDIST_ONLY) -> str:
+    """Lock text with SDIST_ONLY projects removed for the main hashed install.
+
+    Those are installed from a locally built wheel first. Leaving their sdist hashes
+    in the file would make ``--only-binary :all:`` refuse them, and pip under
+    ``--require-hashes`` accepts an already-installed dependency that is simply not
+    listed again.
+    """
+    drop = {_normalise_dist_name(name) for name in names}
+    lines = lock_text.splitlines()
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped or stripped.startswith("#"):
+            kept.append(lines[index])
+            index += 1
+            continue
+        block_lines = [lines[index]]
+        while block_lines[-1].rstrip().endswith("\\"):
+            index += 1
+            if index >= len(lines):
+                break
+            block_lines.append(lines[index])
+        logical = " ".join(part.rstrip().removesuffix("\\").strip() for part in block_lines)
+        match = re.match(r"([A-Za-z0-9._-]+)\s*==\s*", logical)
+        if match and _normalise_dist_name(match.group(1)) in drop:
+            index += 1
+            continue
+        kept.extend(block_lines)
+        index += 1
+    return "\n".join(kept) + ("\n" if lock_text.endswith("\n") else "")
+
+
+def install_sdist_only_wheels() -> None:
+    """Build SDIST_ONLY sdists into wheels on the runner, then install into the tree.
+
+    The embeddable tree has pip but no setuptools, so building an sdist there fails with
+    ``BackendUnavailable``. The runner's Python can use build isolation. The sdist hash
+    from the lock is enforced by ``--require-hashes`` at the wheel step; the tree then
+    gets a local ``py3-none-any`` wheel with ``--no-index`` and no building.
+    """
+    lock_text = LOCK.read_text(encoding="utf-8")
+    wheelhouse = BUILD / "sdist-wheels"
+    if wheelhouse.exists():
+        shutil.rmtree(wheelhouse)
+    wheelhouse.mkdir(parents=True, exist_ok=True)
+
+    for name in SDIST_ONLY:
+        version, body = pinned_requirement_for(lock_text, name)
+        req_path = BUILD / f"requirements-{name}.txt"
+        req_path.parent.mkdir(parents=True, exist_ok=True)
+        req_path.write_text(body, encoding="utf-8", newline="\n")
+        run(
+            [sys.executable, "-m", "pip", "wheel", "--no-deps", "--require-hashes",
+             "--no-binary", name, "-r", str(req_path), "--wheel-dir", str(wheelhouse)],
+            f"Building a wheel for {name} from the hashed sdist",
+        )
+        wheels = sorted(wheelhouse.glob(f"{name}-*.whl"))
+        if len(wheels) != 1:
+            raise SystemExit(f"expected one {name} wheel, found {wheels}")
+        if not is_pure_py3_wheel(wheels[0].name):
+            raise SystemExit(
+                f"{name} did not build to a py3-none-any wheel (got {wheels[0].name}). "
+                "SDIST_ONLY is for pure-Python projects only."
+            )
+        run(
+            [str(python_exe()), "-m", "pip", "install", "--no-deps", "--no-index",
+             "--find-links", str(wheelhouse), "--no-warn-script-location",
+             f"{name}=={version}"],
+            f"Installing {name} into the tree from the local wheel",
+        )
+        say(f"  installed {wheels[0].name} into the tree")
+
+
 def install_locked_dependencies() -> None:
     """Install the lock, with hashes enforced.
 
@@ -289,16 +430,29 @@ def install_locked_dependencies() -> None:
     contents are not the ones resolved and reviewed, so a mirror serving something else
     fails this build instead of being packaged into an installer and handed out.
 
+    SDIST_ONLY projects are wheeled on the runner and installed into the tree first; the
+    main install then uses a filtered lock without those lines so ``--only-binary :all:``
+    can stay strict for everything else.
+
     Bytecode is compiled on purpose. An installed copy under Program Files or a
     read-only directory cannot write .pyc, and without them every launch recompiles the
     same modules and throws the result away.
     """
+    install_sdist_only_wheels()
+
+    BUILD.mkdir(parents=True, exist_ok=True)
+    filtered = BUILD / "requirements-binary.txt"
+    filtered.write_text(
+        lock_without_sdist_only(LOCK.read_text(encoding="utf-8")),
+        encoding="utf-8",
+        newline="\n",
+    )
     run(
         [str(python_exe()), "-m", "pip", "install",
          "--require-hashes",
          "--only-binary", ":all:",
          "--no-warn-script-location",
-         "-r", str(LOCK)],
+         "-r", str(filtered)],
         "Installing the locked dependency set",
     )
     say(f"  installed the {LOCK.name} set")
@@ -493,11 +647,11 @@ def remove_build_only_packages() -> None:
 # Phase 3: the prune
 #
 # PySide6 installs 634MB, which is more than half the tree and more than everything
-# else in it put together. It is a build of all of Qt, and Arelis imports five modules
-# of it. What follows removes feature families the codebase never mentions, and the
-# reason it can be this aggressive is that the import census and the offscreen
-# QApplication run afterwards: a wrong entry here fails this build rather than somebody
-# else's launch.
+# else in it put together. It is a build of all of Qt, and Arelis imports the
+# modules named in QT_MODULES. What follows removes feature families the codebase
+# never mentions, and the reason it can be this aggressive is that the import census
+# and the offscreen QApplication run afterwards: a wrong entry here fails this build
+# rather than somebody else's launch.
 #
 # Two things in that directory look like obvious waste and are not:
 #
@@ -553,10 +707,13 @@ QT_DROP_PREFIXES = (
     # SQL, state machines, remote objects, Qt's own test framework.
     "Qt6Sql", "QtSql", "Qt6Scxml", "QtScxml", "Qt6StateMachine", "QtStateMachine",
     "Qt6RemoteObjects", "QtRemoteObjects", "Qt6Test", "QtTest",
-    # The Python QtOpenGL* bindings. The installer does not enter the solar plate, so
-    # it does not import them. Qt6OpenGL.dll itself stays: it is 1.9MB and Qt6Gui can
-    # reach for it.
-    "QtOpenGL",
+    # QtOpenGL used to be dropped here. Removed from this list: the app imports
+    # PySide6.QtOpenGL at startup via arelis.ui.solar_gl (the .pyd is about 8.7 MB),
+    # so prune_qt must leave QtOpenGL.pyd alone. Qt6OpenGL.dll was never matched
+    # (it starts with Qt6) and stays either way.
+    # QtOpenGLWidgets is unused under arelis/; drop it by this name so the prefix
+    # cannot match QtOpenGL.pyd.
+    "QtOpenGLWidgets",
 )
 
 # Plugins are a keep-list rather than a drop-list, the one place that inversion is
@@ -709,7 +866,7 @@ def prune_test_suites(site: Path) -> int:
 def prune(before: int) -> None:
     site = TREE / "Lib" / "site-packages"
     freed = 0
-    say("  Qt, which is 634MB of which Arelis imports five modules:")
+    say(f"  Qt, which is 634MB of which Arelis imports {len(QT_MODULES)} modules:")
     freed += prune_qt(site)
     say("  elsewhere:")
     freed += prune_babel(site)
@@ -928,7 +1085,7 @@ def package_installer(version: str) -> Path | None:
 def verify() -> None:
     site = TREE / "Lib" / "site-packages"
 
-    say("  importing every Qt module the codebase imports...")
+    say("  importing the Qt modules the installed app uses...")
     imports = "; ".join(f"import PySide6.{name}" for name in QT_MODULES)
     run(
         [str(python_exe()), "-c", imports],
@@ -978,6 +1135,69 @@ def verify() -> None:
         sys.stderr.write("\nQt cannot start in the built tree.\n\n")
         sys.stderr.write((result.stdout or "") + "\n" + (result.stderr or "") + "\n")
         raise SystemExit(1)
+
+    say("  the app's own modules import in the tree...")
+    # Catch a prune that deletes a binding the UI imports at startup (QtOpenGL via
+    # solar_gl) even when QT_MODULES still imports cleanly. Scratch data root so
+    # nothing touches a real profile.
+    data_root = tempfile.mkdtemp(prefix="arelis_verify_")
+    ui_env = dict(
+        os.environ,
+        QT_QPA_PLATFORM="offscreen",
+        ARELIS_ALLOW_OFFSCREEN="1",
+        ARELIS_DATA_DIR=data_root,
+    )
+    try:
+        module_probe = (
+            "import arelis.ui.solar_gl;"
+            "import arelis.ui.launch;"
+            "import arelis.ui.app;"
+            "print('modules ok')"
+        )
+        result = subprocess.run(
+            [str(python_exe()), "-c", module_probe],
+            capture_output=True,
+            text=True,
+            env=ui_env,
+        )
+        if result.returncode != 0 or "modules ok" not in result.stdout:
+            sys.stderr.write("\nApp UI modules do not import in the built tree.\n\n")
+            sys.stderr.write((result.stdout or "") + "\n" + (result.stderr or "") + "\n")
+            raise SystemExit(1)
+
+        say("  main window builds offscreen...")
+        # Same construction tests/conftest.py arelis_window uses. No core thread,
+        # no Ollama, no first-run prompts (those live in run_ui, not ArelisWindow).
+        window_probe = (
+            "import asyncio\n"
+            "from PySide6.QtWidgets import QApplication\n"
+            "from arelis.core.bus import EventBus\n"
+            "from arelis.ui.app import ArelisWindow, BusBridge\n"
+            "app = QApplication.instance() or QApplication([])\n"
+            "cfg = {"
+            "'ui': {'default_width': 800, 'default_height': 600}, "
+            "'router': {'default_role': 'fast'}, "
+            "'voice': {'enabled': False}"
+            "}\n"
+            "win = ArelisWindow(cfg, BusBridge(), asyncio.new_event_loop(), EventBus())\n"
+            "app.processEvents()\n"
+            "win.dispose()\n"
+            "win.loop.close()\n"
+            "app.quit()\n"
+            "print('window ok')\n"
+        )
+        result = subprocess.run(
+            [str(python_exe()), "-c", window_probe],
+            capture_output=True,
+            text=True,
+            env=ui_env,
+        )
+        if result.returncode != 0 or "window ok" not in result.stdout:
+            sys.stderr.write("\nMain window cannot build in the built tree.\n\n")
+            sys.stderr.write((result.stdout or "") + "\n" + (result.stderr or "") + "\n")
+            raise SystemExit(1)
+    finally:
+        shutil.rmtree(data_root, ignore_errors=True)
 
     say("  the ways Arelis is started...")
     # Every one of these is a real launch path: the shortcuts and the update relaunch use

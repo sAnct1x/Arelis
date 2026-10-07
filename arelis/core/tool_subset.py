@@ -11,7 +11,7 @@ on every path, including the full-surface one.
 **Context economy** shrank the schema array to whichever tools the matched skill
 cards implied. It was measured and it does not work. Ollama renders the tools
 array near the front of the prompt, so an array that changes shape from turn to
-turn changes the prefix, and a changed prefix cannot be reused — the persona, the
+turn changes the prefix, and a changed prefix cannot be reused, the persona, the
 policy and the whole conversation behind it are prefilled again. On the reference
 card (see scripts/measure_tool_surface_prefill.py):
 
@@ -27,8 +27,8 @@ anyone running a model that genuinely cannot choose among 34 tools, and the
 research allowlist still exists for the deep-dive loop, but neither is on by
 default and neither is load-bearing.
 
-The one-off cost of a large constant prefix — around 40s of prefill on a cold
-start — is paid at startup instead, by seed_prefix_cache in arelis/llm/startup.
+The one-off cost of a large constant prefix, around 40s of prefill on a cold
+start, is paid at startup instead, by seed_prefix_cache in arelis/llm/startup.
 
 This module never skips Allow.
 """
@@ -49,6 +49,7 @@ from arelis.core.intent_catalog import (
     must_keep_full_surface_text,
     research_extras_for_text,
 )
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.preflight import detect_intents
 from arelis.core.skills import (
     select_skill_ids_detailed,
@@ -149,10 +150,20 @@ def is_deep_dive_ask(text: str) -> bool:
 
 
 def is_research_mode(role: str, text: str) -> bool:
-    """True for research role or deep-dive language."""
+    """True when this turn is a research task.
+
+    The research chip used to make every sentence one, including
+    "ready?". A check-in stays chat. A sourced file or a real question
+    on that chip still takes the research loop.
+    """
+    from arelis.core.route_hints import is_sourced_file_ask, research_chip_needs_a_page
+    from arelis.core.utterance_guards import looks_like_chat_turn
+
+    if looks_like_chat_turn(text):
+        return False
     if (role or "").strip().lower() == "research":
-        return True
-    return is_deep_dive_ask(text)
+        return research_chip_needs_a_page(text)
+    return is_deep_dive_ask(text) or is_sourced_file_ask(text)
 
 
 def turn_round_budget(
@@ -243,14 +254,18 @@ def _skill_subset(
     history: list[Any] | None = None,
     skill_ids: Iterable[str] | None = None,
     extra_skill_ids: Iterable[str] | None = None,
+    agent_cfg: dict[str, Any] | None = None,
 ) -> set[str]:
     """Shrink to skill + preflight tools, or return *available* when unsure."""
     expected: set[str] = set()
+    # When native_tool_calling is enabled, skip regex-based intent detection
+    use_intent_routing = not native_tool_calling(agent_cfg)
     veto_sms = sms_negative_hit(text or "")
-    for hint in detect_intents(text, history=history):
-        if veto_sms and hint.kind in {"sms_send", "inbound_sms", "sms"}:
-            continue
-        expected.update(hint.expected_tools)
+    if use_intent_routing:
+        for hint in detect_intents(text, history=history):
+            if veto_sms and hint.kind in {"sms_send", "inbound_sms", "sms"}:
+                continue
+            expected.update(hint.expected_tools)
     extra = [sid for sid in (extra_skill_ids or ()) if sid]
     if skill_ids is not None:
         ids = list(skill_ids)
@@ -335,6 +350,7 @@ def filter_tool_names(
     history: list[Any] | None = None,
     skill_ids: Iterable[str] | None = None,
     extra_skill_ids: Iterable[str] | None = None,
+    agent_cfg: dict[str, Any] | None = None,
 ) -> set[str]:
     """Return the tool names the model may see this turn.
 
@@ -346,22 +362,27 @@ def filter_tool_names(
     """
     names = set(available)
     extra = set(tools_for_skill_ids(extra_skill_ids or ()))
+    use_intent_routing = not native_tool_calling(agent_cfg)
     if not enabled and not skill_subset:
         # The full surface still owes the authorization filter. Skipping it here
         # is what let a stale SMS draft ride an unrelated turn.
-        expected = {
-            t
-            for hint in detect_intents(text, history=history)
-            for t in hint.expected_tools
-        }
+        expected: set[str] = set()
+        if use_intent_routing:
+            expected = {
+                t
+                for hint in detect_intents(text, history=history)
+                for t in hint.expected_tools
+            }
         return _without_unauthorized_sends(names, text, expected, history=history)
     if _must_keep_full_surface(text, history):
-        expected = {
-            t
-            for hint in detect_intents(text, history=history)
-            for t in hint.expected_tools
-        }
-        return _without_unauthorized_sends(names, text, expected, history=history)
+        expected_full: set[str] = set()
+        if use_intent_routing:
+            expected_full = {
+                t
+                for hint in detect_intents(text, history=history)
+                for t in hint.expected_tools
+            }
+        return _without_unauthorized_sends(names, text, expected_full, history=history)
     if enabled and should_apply_research_subset(role, text, history=history):
         allow = set(RESEARCH_TOOL_ALLOWLIST) | _extras_for_text(text) | extra
         return {n for n in names if n in allow}
@@ -379,4 +400,5 @@ def filter_tool_names(
         history=history,
         skill_ids=skill_ids,
         extra_skill_ids=extra_skill_ids,
+        agent_cfg=agent_cfg,
     )

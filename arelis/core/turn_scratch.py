@@ -14,7 +14,7 @@ them to the next stage. Writing through one object is that contract.
 
 ``slots=True`` is load-bearing rather than a size tweak. The scratch was a
 ``SimpleNamespace``, so ``r.ollama_tolls = []`` was a new attribute and a
-silently dropped write — on this object it raises.
+silently dropped write, on this object it raises.
 
 This is a separate module because ``turn_round`` imports ``turn_dispatch``,
 so the shared type cannot live in either one.
@@ -22,6 +22,7 @@ so the shared type cannot live in either one.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -89,6 +90,40 @@ class RoundScratch:
     calls: list[tuple[str, dict[str, Any]]]
     tool_calls: list[dict[str, Any]]
     round_ms: int
+    # Same one-shot as sms_preinject. Defaulted so a scratch built by a
+    # caller that lists fields by name still constructs; run_round passes it.
+    weather_preinject: dict[str, Any] | None = None
+    agenda_preinject: dict[str, Any] | None = None
+    # Open or a today/tomorrow/list read returned ok this turn. Create,
+    # delete, and close do not set it. Defaulted like the one-shots above.
+    agenda_open_read_ok: bool = False
+    # Same one-shot as the drafts above. A successful calculator call sets
+    # calculator_ok. Units and the CAS do not.
+    calculator_preinject: dict[str, Any] | None = None
+    calculator_ok: bool = False
+    # Same one-shot. A successful units call sets units_ok.
+    units_preinject: dict[str, Any] | None = None
+    units_ok: bool = False
+    # Same one-shot as sms_preinject. Defaulted so a scratch built by a
+    # caller that lists fields by name still constructs; run_round passes it.
+    email_preinject: dict[str, Any] | None = None
+    # Same one-shot. A successful browser call sets browser_ok. A sign-in
+    # line that has not clicked yet does not: try_browser_signin still
+    # needs a later round.
+    browser_preinject: dict[str, Any] | None = None
+    browser_ok: bool = False
+    # Same one-shot. A successful tile call sets tile_ok. Calendar stays
+    # on agenda when that tool is registered, so this stays unset.
+    tile_preinject: dict[str, Any] | None = None
+    tile_ok: bool = False
+    # Same one-shot. A successful workspace read sets inspect_ok.
+    # A write or an edit does not.
+    workspace_preinject: dict[str, Any] | None = None
+    inspect_ok: bool = False
+    # Same one-shot. A successful run_script call sets run_script_ok.
+    # A match with no named .py stays unset.
+    run_script_preinject: dict[str, Any] | None = None
+    run_script_ok: bool = False
 
 
 FIELD_NAMES: tuple[str, ...] = tuple(RoundScratch.__dataclass_fields__)
@@ -108,3 +143,101 @@ def strip_tool_schemas(ctx: TurnContext, r: RoundScratch) -> None:
     ctx.ollama_tools = []
     ctx.tool_names.clear()
     r.tool_names = ctx.tool_names
+
+
+# A tool the user asks for by verb rather than by name. "remember that result as my
+# weekly distance" never says "memory".
+_OWED_TOOL_VERBS: dict[str, re.Pattern[str]] = {
+    "memory": re.compile(r"\bremember\s+(?:that|this|it|the|my)\b"),
+}
+
+
+def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
+    """Tools the user named in the ask that have not run yet this turn.
+
+    ``exact_need.kinds`` only knows the exactness tools (units, calculator,
+    weather, ...). "convert with units, then calculator, then remember it" owes
+    ``memory`` and ``document`` chains that no kind covers, so the first success
+    stripped the tool array and the rest of the chain never ran. A tool is owed
+    when its name is a whole word in the text, it is on this turn's menu, and it
+    has not succeeded. ``max_rounds`` still bounds a model that will not call it.
+    """
+    text = (ctx.text or "").lower()
+    owed: list[str] = []
+    for name in sorted(ctx.available_all):
+        if name in loop.tools_used:
+            continue
+        spoken = name.replace("_", " ")
+        pattern = _OWED_TOOL_VERBS.get(name)
+        if (
+            re.search(rf"\b{re.escape(spoken)}\b", text)
+            or ("_" in name and re.search(rf"\b{re.escape(name)}\b", text))
+            or (pattern is not None and pattern.search(text))
+        ):
+            owed.append(name)
+    return owed
+
+
+_NEGATION_BEFORE_TOOL = re.compile(
+    r"(?:"
+    r"(?:\b(?:do\s+not|don't|dont|never|not)\s+(?:use|call)\b)"
+    r"|(?:\bwithout(?:\s+using)?\b)"
+    r"|(?:\bno\b)"
+    r")"
+    r"(?:\s+\w+){0,5}\s*$"
+)
+
+
+def _tool_mention_starts(text: str, name: str) -> list[int]:
+    """Start offsets of whole-word tool mentions (same rules as named_tools_owed)."""
+    spoken = name.replace("_", " ")
+    starts: list[int] = []
+    for m in re.finditer(rf"\b{re.escape(spoken)}\b", text):
+        starts.append(m.start())
+    if "_" in name:
+        for m in re.finditer(rf"\b{re.escape(name)}\b", text):
+            starts.append(m.start())
+    pattern = _OWED_TOOL_VERBS.get(name)
+    if pattern is not None:
+        for m in pattern.finditer(text):
+            starts.append(m.start())
+    return sorted(set(starts))
+
+
+def _mention_negated(text: str, start: int, *, window: int = 48) -> bool:
+    prefix = text[max(0, start - window) : start]
+    return _NEGATION_BEFORE_TOOL.search(prefix) is not None
+
+
+def negated_tool_mentions(prompt: str, names: list[str]) -> set[str]:
+    """Names whose every whole-word mention in ``prompt`` is preceded by negation.
+
+    Conservative: if any mention of a name is positive (not in a short negation
+    window), that name is not returned. Empty mentions are ignored.
+    """
+    text = (prompt or "").lower()
+    out: set[str] = set()
+    for name in names:
+        starts = _tool_mention_starts(text, name)
+        if not starts:
+            continue
+        if all(_mention_negated(text, s) for s in starts):
+            out.add(name)
+    return out
+
+
+def named_tools_owed_runnable(
+    loop: Any, ctx: TurnContext, fail_counts: dict[str, int]
+) -> list[str]:
+    """``named_tools_owed`` minus tools that already failed twice this turn.
+
+    Same fingerprint rule as confirm/execute: after two identical failures the
+    tool is not runnable again, so it must not block finishing the turn.
+    """
+    out: list[str] = []
+    for name in named_tools_owed(loop, ctx):
+        prefix = f"{name}|"
+        if any(count >= 2 and fp.startswith(prefix) for fp, count in fail_counts.items()):
+            continue
+        out.append(name)
+    return out

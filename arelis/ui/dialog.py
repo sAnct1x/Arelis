@@ -1,4 +1,4 @@
-"""Frameless glass dialogs — the in-app answer to QMessageBox.
+"""Frameless glass dialogs, the in-app answer to QMessageBox.
 
 A native message box is a light grey Windows plate with a system font on it,
 and over a black void it reads as a different program interrupting this one.
@@ -7,7 +7,7 @@ looks like Arelis asking it.
 
 `GlassDialog` is the plate: frameless, draggable by its heading, closed by
 Escape. `confirm()` is the one-line question on top of it, and it is the only
-confirm in the app — three near-identical copies of this were what the delete
+confirm in the app, three near-identical copies of this were what the delete
 prompts used to be.
 """
 
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from arelis.ui.caption_fade import CaptionButton, watch_caption
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.theme import GLASS, METRICS, SPACE, space_box
@@ -91,7 +92,7 @@ class GlassDialog(QDialog):
         title.installEventFilter(self)
         head.addWidget(title, stretch=1)
         if closable:
-            close_btn = QPushButton()
+            close_btn = CaptionButton()
             close_btn.setObjectName("SettingsClose")
             close_btn.setIcon(window_close_icon(12))
             close_btn.setFixedSize(METRICS["chrome"], METRICS["chrome"])
@@ -103,6 +104,7 @@ class GlassDialog(QDialog):
             close_btn.setDefault(False)
             close_btn.clicked.connect(self.reject)
             head.addWidget(close_btn)
+            watch_caption(self, close_btn)
         root.addLayout(head)
 
         self.body = QVBoxLayout()
@@ -239,9 +241,12 @@ def notice(
     dialog.add_text(message, role="DialogWarning" if warning else "DialogBody")
     if detail:
         dialog.add_text(detail, role="DialogNote")
-    ok = dialog.add_button("OK", primary=True)
+    from arelis.i18n import localize, tr
+
+    ok = dialog.add_button(tr("OK"), primary=True)
     ok.clicked.connect(dialog.accept)
     ok.setFocus()
+    localize(dialog)
     dialog.exec()
 
 
@@ -256,15 +261,18 @@ def confirm(
     destructive: bool = False,
 ) -> bool:
     """Ask, block, and return whether the user said yes."""
+    from arelis.i18n import localize, tr
+
     dialog = ConfirmDialog(
-        heading,
-        message,
+        tr(heading),
+        tr(message),
         parent=parent,
-        detail=detail,
-        confirm_text=confirm_text,
-        cancel_text=cancel_text,
+        detail=tr(detail) if detail else detail,
+        confirm_text=tr(confirm_text),
+        cancel_text=tr(cancel_text),
         destructive=destructive,
     )
+    localize(dialog)
     return dialog.exec() == QDialog.DialogCode.Accepted
 
 

@@ -4,13 +4,13 @@ Major apps (Chrome, VS Code, Slack, Office) do not invent a 4K mode.
 They design in logical pixels and let the OS scale factor do the rest:
 
 - 1080p at 100% is 1920×1080 logical.
-- 4K at 150% is ~2560×1440 logical — the same layout as a 1440p panel.
+- 4K at 150% is ~2560×1440 logical, the same layout as a 1440p panel.
 - Three screens are three work areas, not one giant canvas.
 
 Qt 6 already applies per-monitor DPI. This module owns the rest:
 
 - PassThrough rounding so 125% / 150% stay sharp (Chrome/Electron).
-- Optional ``ui.scale`` — a user zoom on top of the OS, default 1.0.
+- Optional ``ui.scale``, a user zoom on top of the OS, default 1.0.
 - First-launch size that fits the current work area (taskbar included).
 - Restored geometry that still sits on a connected screen.
 

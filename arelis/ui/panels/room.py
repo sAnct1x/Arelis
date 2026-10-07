@@ -1,7 +1,7 @@
 """The banner that says which room owns this conversation.
 
-Entering a room swaps three things at once — the thread, the project folder and
-the model role — and every one of them is invisible. Without something on screen
+Entering a room swaps three things at once, the thread, the project folder and
+the model role, and every one of them is invisible. Without something on screen
 saying so, the only difference between Reality and the general
 conversation is that she answers differently, which reads as her being
 inconsistent rather than as you being somewhere else.

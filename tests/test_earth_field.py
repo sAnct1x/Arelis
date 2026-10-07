@@ -1,8 +1,7 @@
-"""Reality field walk: enter, inspect, coast, ocean, city, look-from.
+"""Reality field: enter, inspect, coast, ocean, city, look-from.
 
-The live eyes live in scripts/walk_earth_field.py. This file is the
-contract that walk is allowed to assume — chips, bands, cards, look,
-and which catalogs can paint where. Pytest stays simulated.
+Chips, bands, cards, look, and which catalogs can paint where.
+Pytest stays simulated.
 """
 
 from __future__ import annotations
@@ -45,8 +44,10 @@ def test_field_enter_shows_iss_and_the_card() -> None:
     assert earth.layers["iss"] is True
     assert earth.layers["cameras"] is False
     vis = {e.layer for e in earth.visible()}
-    assert vis <= {"iss", "satellites"}
+    assert vis <= {"iss", "satellites", "quakes", "fires"}
     assert "iss" in vis
+    assert "quakes" in vis
+    assert "fires" in vis
     text = inspect_card_text(iss)
     assert "ISS" in text
     assert "click to ride" in text
@@ -365,9 +366,6 @@ def test_field_click_sat_does_not_rebuild_the_globe() -> None:
     assert "_go_earth_lla" in fly
     go = body.split("def _go_earth_lla", 1)[1].split("\n    def ", 1)[0]
     assert "arm_ride" in go
-    walk = Path("scripts/walk_earth_field.py").read_text(encoding="utf-8")
-    coast = walk.split("ISS COAST", 1)[1].split("_banner", 1)[0]
-    assert "solar._tick()" in coast
     follow = body.split("def _globe_follow_ride", 1)[1].split("\n    def ", 1)[0]
     assert "keep_ride=True" in follow
     assert "sit = 80_000" in follow
@@ -658,6 +656,29 @@ def test_field_find_does_not_seed_dest_as_eye(
     assert panel._earth_id is None
     panel.hide()
     set_earth(None)
+
+
+def test_entity_push_skips_a_coast_tick() -> None:
+    from arelis.ui.earth_globe_host import _entity_push_key
+
+    base = {
+        "id": "norad:1",
+        "vx": 100.0,
+        "vy": 0.0,
+        "vz": 0.0,
+        "when_unix": 1_000.0,
+        "heading_deg": 12.0,
+        "freshness": "interpolated",
+        "hot": False,
+        "ride": False,
+        "card": "",
+        "lat": 10.0,
+        "lon": 20.0,
+    }
+    later = {**base, "lat": 10.4, "lon": 20.2, "when_unix": 1_007.0}
+    assert _entity_push_key([base]) == _entity_push_key([later])
+    turned = {**base, "heading_deg": 40.0}
+    assert _entity_push_key([base]) != _entity_push_key([turned])
 
 
 def test_field_city_orbit_marks_do_not_glue_iss() -> None:

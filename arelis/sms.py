@@ -111,7 +111,7 @@ def resolve_sms_target(to: str, contacts: dict[str, Contact]) -> ResolvedSms | s
     """Return a ResolvedSms, or an error string the tool can show the model.
 
     A nickname still has to be in the book. A number the user just typed is
-    an address — the operator path already treated digits that way. Inventing
+    an address, the operator path already treated digits that way. Inventing
     a number is a model problem; refusing a number they handed over hid
     send_sms and she told them she could not text.
     """
@@ -176,7 +176,9 @@ def format_sms_confirm(to: str, body: str, *, contacts: dict[str, Contact] | Non
 
 def prepare_body(body: str, *, max_chars: int = DEFAULT_MAX_BODY_CHARS) -> tuple[str, bool]:
     """Return (body, truncated?)."""
-    text = (body or "").strip()
+    from arelis.core.dash_filter import clean_dashes
+
+    text = clean_dashes(body or "").strip()
     if max_chars <= 0 or len(text) <= max_chars:
         return text, False
     return text[:max_chars], True

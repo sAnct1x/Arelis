@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from arelis.tools.base import ToolResult
+from arelis.tools.confirm_preview import run_script_confirm
 from arelis.tools.safety import redact_secrets
 from arelis.workspace import WorkspaceRoots
 
@@ -33,9 +34,10 @@ class RunScriptTool:
     name = "run_script"
     description = (
         "Run a .py file under a workspace root. Not a shell. Not diagnostics. "
-        "Not schedule run_now. path is relative or name:relative/path. "
-        "args is an argv list of strings. Prefer print or a CSV so the "
-        "result can be read back."
+        "Not schedule run_now. Not run_task. Use this to execute a Python "
+        "script file that exists in the workspace. path is relative or "
+        "name:relative/path. args is an argv list of strings. Prefer print "
+        "or a CSV so the result can be read back."
     )
     risk = "side_effect"
     parameters_schema: dict[str, Any] = {
@@ -74,6 +76,9 @@ class RunScriptTool:
             self.workspace = WorkspaceRoots.from_paths(list(roots))
         self.python = (python or "").strip() or None
         self.is_cancelled = is_cancelled
+
+    def confirm_detail(self, args: dict[str, Any]) -> str:
+        return run_script_confirm(self.workspace, args)
 
     async def run(self, **kwargs: Any) -> ToolResult:
         return await asyncio.to_thread(self._run_sync, kwargs)
@@ -297,7 +302,7 @@ def _format_output(
         parts.extend(["", "stderr:", err])
     if not out and not err:
         parts.append("")
-        parts.append("(no output — print the result, or write a file I can read)")
+        parts.append("(no output, print the result, or write a file I can read)")
     return "\n".join(parts)
 
 

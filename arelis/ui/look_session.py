@@ -13,7 +13,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QThread, QUrl, Signal
 from PySide6.QtGui import QImage
 
-from arelis.earth.look import LookHandle, official_url_ok, open_source
+from arelis.earth.look import LookHandle, official_url_ok, open_source, published_url_ok
 
 log = logging.getLogger(__name__)
 
@@ -72,9 +72,9 @@ class LookSession(QObject):
         self._thread.start()
         self.playing.emit(True)
         if handle.kind == "owned":
-            self.status.emit("Looking from owned camera — live.")
+            self.status.emit("Looking from owned camera: live.")
         elif handle.media == "still":
-            self.status.emit("Publisher still — refreshing.")
+            self.status.emit("Publisher still: refreshing.")
         else:
             self.status.emit("Publisher live.")
 
@@ -127,7 +127,7 @@ class LookSession(QObject):
             self.status.emit("Published stream failed.")
             return
         self.playing.emit(True)
-        self.status.emit("Listening — published stream.")
+        self.status.emit("Listening: published stream.")
 
     def _on_player_error(self, *_args: object) -> None:
         self.status.emit("Published stream failed.")
@@ -157,12 +157,24 @@ class _GrabWorker(QObject):
         if handle.kind == "official" and not official_url_ok(url):
             self.status.emit("Publisher still is not on an allowed host.")
             return
+        if handle.kind == "published" and not published_url_ok(url):
+            self.status.emit("Published webcam is not a public page.")
+            return
         while not self._stop.is_set():
-            image = _fetch_still(url, official=handle.kind == "official")
+            image = _fetch_still(
+                url,
+                official=handle.kind == "official",
+                published=handle.kind == "published",
+            )
             if image is not None:
                 self.frame.emit(image)
             elif not self._stop.is_set():
-                self.status.emit("Publisher still failed. Pin stays.")
+                if handle.kind == "published":
+                    self.status.emit(
+                        "Published page is not a picture. Pin stays."
+                    )
+                else:
+                    self.status.emit("Publisher still failed. Pin stays.")
             self._stop.wait(_STILL_PERIOD_S)
 
     def _grab_video(self, handle: LookHandle) -> None:
@@ -204,7 +216,7 @@ class _GrabWorker(QObject):
                 cap.release()
 
 
-def _fetch_still(url: str, *, official: bool) -> QImage | None:
+def _fetch_still(url: str, *, official: bool, published: bool = False) -> QImage | None:
     try:
         import httpx
     except ImportError:
@@ -213,7 +225,10 @@ def _fetch_still(url: str, *, official: bool) -> QImage | None:
         with httpx.Client(timeout=8.0, follow_redirects=True) as client:
             resp = client.get(url, headers={"User-Agent": _UA})
             resp.raise_for_status()
-            if official and not official_url_ok(str(resp.url)):
+            final = str(resp.url)
+            if official and not official_url_ok(final):
+                return None
+            if published and not published_url_ok(final):
                 return None
             image = QImage.fromData(resp.content)
             if image.isNull():

@@ -1,4 +1,4 @@
-"""One-message mail tile — open a notice, read the body, send a reply."""
+"""One-message mail tile, open a notice, read the body, send a reply."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from arelis.ui.caption_fade import CaptionTool, watch_caption
 from arelis.ui.glass import GlassFrame, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.theme import GLASS, METRICS, SPACE, space_box
@@ -72,13 +72,14 @@ class MailPeekWindow(QWidget):
         self.heading.setCursor(Qt.CursorShape.OpenHandCursor)
         self.heading.installEventFilter(self)
         head.addWidget(self.heading, stretch=1)
-        close_btn = QToolButton()
+        close_btn = CaptionTool()
         close_btn.setObjectName("SettingsClose")
         close_btn.setIcon(window_close_icon(12))
         close_btn.setFixedSize(METRICS["chrome"], METRICS["chrome"])
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self.close)
         head.addWidget(close_btn)
+        watch_caption(self, close_btn)
         root.addLayout(head)
 
         self.from_label = QLabel(sender)

@@ -3,10 +3,11 @@
 Distance-gated by arelis.earth.lod: space fetches satellites, approach
 fetches local planes, near adds boats, city opens the rest if the chip
 is on. Hosts named here are pinned in tests/test_egress.py. Failures
-(`None`) leave the simulated layer in place. A successful
-empty list replaces that look-box layer — last city's planes are not
-this ocean. Keyed legal feeds are in; logging into a camera you do
-not own is not an adapter.
+(`None` or a FeedMiss) leave the last published fix in place. A
+successful empty list replaces that look-box layer — last city's
+planes are not this ocean. A rate limit, a missing key, and a dead
+poll are named misses, not a quiet sky. Keyed legal feeds are in;
+logging into a camera you do not own is not an adapter.
 """
 
 from __future__ import annotations
@@ -45,7 +46,6 @@ from arelis.earth.radar import fetch_radar
 from arelis.earth.radio import fetch_radio
 from arelis.earth.rwis import fetch_rwis
 from arelis.earth.satnogs import fetch_satnogs
-from arelis.earth.shodan import fetch_shodan
 from arelis.earth.spacetrack import fetch_spacetrack, fetch_tip
 from arelis.earth.store import EntityStore
 from arelis.earth.swpc import fetch_swpc
@@ -82,7 +82,6 @@ def _adapter_fns() -> dict[str, Callable[[], Any]]:
         "aprs": fetch_aprs,
         "satnogs": fetch_satnogs,
         "cameras": fetch_cameras,
-        "shodan": fetch_shodan,
         "weather": fetch_weather,
         "nws": fetch_nws,
         "swpc": fetch_swpc,
@@ -103,6 +102,11 @@ def _adapter_fns() -> dict[str, Callable[[], Any]]:
         "fdsn": fetch_fdsn,
         "traffic": fetch_traffic,
     }
+
+
+def _lists_only(got: dict[str, Any]) -> dict[str, Any]:
+    """A list is an answer, even []. A miss is not an answer."""
+    return {key: val if isinstance(val, list) else None for key, val in got.items()}
 
 
 def merge_live(
@@ -137,13 +141,12 @@ def merge_live(
         pass
     t0 = time.perf_counter()
     got = _gather(jobs)
-    _apply_live(store, got, set(jobs), view)
+    _apply_live(store, _lists_only(got), set(jobs), view)
     try:
         from arelis.physics.telemetry import emit
 
         counts = {
-            key: (len(val) if isinstance(val, list) else 0 if val is None else 1)
-            for key, val in got.items()
+            key: len(val) if isinstance(val, list) else 0 for key, val in got.items()
         }
         emit(
             "live_merge",
@@ -182,9 +185,6 @@ def _jobs(
         elif key == "cameras" and view is not None and view.bbox is not None:
             box = view.bbox
             jobs[key] = lambda b=box: fetch_cameras(bbox=b)
-        elif key == "shodan" and view is not None and view.bbox is not None:
-            box = view.bbox
-            jobs[key] = lambda b=box: fetch_shodan(bbox=b)
         else:
             jobs[key] = fn
     return jobs
@@ -270,11 +270,9 @@ def _apply_live(
                 view,
             )
             _replace_layer(store, "radio", radio)
-    if {"cameras", "shodan"} & ran:
-        if _heard(got, "cameras", "shodan"):
-            pins = _capped(
-                (got.get("cameras") or []) + (got.get("shodan") or []), view
-            )
+    if "cameras" in ran:
+        if _heard(got, "cameras"):
+            pins = _capped(got.get("cameras") or [], view)
             _replace_layer(store, "cameras", pins)
     weather_keys = (
         "weather",

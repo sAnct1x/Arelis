@@ -167,6 +167,7 @@ def test_weather_and_search_stay_on_their_own_gates() -> None:
     assert same_call_key("weather", {"place": "Boston"}) is None
     assert same_call_key("web_search", {"query": "fusion"}) is None
     assert same_call_key("run_script", {"path": "demo.py"}) is None
+    assert same_call_key("run_task", {"action": "run", "name": "pytest"}) is None
 
 
 def test_research_report_same_query_ignores_max_sources() -> None:
@@ -201,16 +202,43 @@ def test_same_call_notice_names_the_path() -> None:
 
 
 def test_same_call_finish_line_ships_the_prior_result() -> None:
-    assert same_call_finish_line("calculator", "840 * 0.175 = 147") == "840 * 0.175 = 147"
+    # #121: a plain sentence with the number, not the formula line.
+    plain = same_call_finish_line("calculator", "840 * 0.175 = 147")
+    assert plain == "That works out to 147."
     ugly = (
         "((349.54 - 287.20) / 287.20) * 100 = 21.706128133704734 "
         "(exactly 15585/718)"
     )
     line = same_call_finish_line("calculator", ugly)
-    assert "15585" not in line
-    assert "21.7" in line
+    assert line == "That works out to about 21.7%."
     assert "already have that result" in same_call_finish_line("calculator", "").lower()
     assert "tab is open" in same_call_finish_line("browser", "").lower()
+
+
+def test_document_repeat_is_the_title_not_the_body() -> None:
+    first = {
+        "format": "pdf",
+        "title": "JWST and the atmosphere of K2-18 b",
+        "body": "section one",
+    }
+    second = {
+        "format": "pdf",
+        "title": "JWST and the atmosphere of K2-18 b",
+        "filename": "JWST-and-the-atmosphere-of-K2-18-b.pdf",
+        "body": "section one, rewritten",
+        "replace": True,
+    }
+    assert same_call_key("document", first) == same_call_key("document", second)
+    same_ok: set[str] = set()
+    record_same_call(same_ok, "document", first)
+    notice = already_ran_same_call(same_ok, "document", second)
+    assert notice is not None
+    assert "Do not paste the report into chat" in notice
+    other = same_call_key(
+        "document",
+        {"format": "pdf", "title": "A different report", "body": "x"},
+    )
+    assert other != same_call_key("document", first)
 
 
 def test_same_call_cas_does_not_finish_the_turn() -> None:

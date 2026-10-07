@@ -46,7 +46,7 @@ from arelis.ui.theme import color
 _TILE_IMAGES: dict[tuple[str, int, int, int], QImage] = {}
 _TILE_IMAGE_CAP = 64
 
-# Theme sodium, not harvest gold. Hue lock is #ff7a22; gold was the yellow wash.
+# Theme sodium. Lamp is #ff7a22. Room and type come from the evening tokens.
 _INK_ROLE: dict[str, str] = {
     "flights": "amber",
     "drones": "warn",
@@ -172,14 +172,14 @@ _INK_A: dict[str, int] = {
     "military": 230,
     "vessels": 190,
     "radar": 200,
-    "satellites": 150,
+    "satellites": 230,
     "iss": 255,
     "quakes": 210,
     "fires": 220,
     "weather": 190,
     "radio": 180,
     "cameras": 220,
-    "traffic": 110,
+    "traffic": 220,
     "sites": 170,
     "people": 240,
 }
@@ -266,7 +266,7 @@ def _paint_borders(
     disc: tuple[float, float, float] | None,
     view: EarthView,
 ) -> None:
-    """Country fill, then country and state lines. Landfall — not a feed."""
+    """Country fill, then country and state lines. Landfall, not a feed."""
     from arelis.earth.land import (
         country_fills,
         country_rings,
@@ -791,7 +791,7 @@ def inspect_caption(entity: Entity) -> str:
 
 
 def inspect_card_text(entity: Entity, *, riding: bool = False) -> str:
-    """Short plate for a click. No legal cite — that ate the HUD."""
+    """Short plate for a click. No legal cite, that ate the HUD."""
     lat, lon, alt = ecef_to_lla(entity.x, entity.y, entity.z)
     from arelis.earth.copy import group_phrase, inspect_kind_line
 

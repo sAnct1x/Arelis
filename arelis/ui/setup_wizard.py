@@ -1,11 +1,13 @@
 """Glass: look at this PC, recommend one model, pull it, then a short how-to.
 
 Folder consent is a different dialog. This one is not a permission. Escape on
-the recommendation accepts it — same reason as first-run: re-asking trains
+the recommendation accepts it, same reason as first-run: re-asking trains
 people to dismiss without reading, and the recommendation is already on screen.
 """
 
 from __future__ import annotations
+
+import logging
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
@@ -33,17 +35,28 @@ from arelis.setup.catalog import (
 from arelis.setup.engine import (
     already_pulled,
     download_ollama_setup,
+    downloading_model_label,
     find_ollama_exe,
     ollama_reachable,
+    plain_download_status,
     pull_tag,
     run_ollama_setup,
     runtime_dir,
     start_ollama,
 )
 from arelis.setup.hardware import HardwareSnapshot, probe_hardware
+from arelis.setup.plain_errors import plain_failure
 from arelis.setup.state import needs_model_setup, record_model_choice
 from arelis.ui.dialog import GlassDialog
 from arelis.ui.theme import SPACE
+
+log = logging.getLogger(__name__)
+
+# Shown before the installer window can ask for an account.
+OLLAMA_SIGNIN_NOTE = (
+    "Ollama may ask you to sign in or connect other AI services. "
+    "You do not need to. Skip or close that and Arelis keeps going."
+)
 
 
 class _ProbeWorker(QThread):
@@ -66,19 +79,43 @@ class _PrepareWorker(QThread):
         super().__init__(parent)
         self._tag = tag
         self._cancel = False
+        self._stage = "unexpected"
 
     def cancel(self) -> None:
         self._cancel = True
+
+    def _fail(self, stage: str, problem: BaseException | str) -> None:
+        log.warning(
+            "First-run setup failed at %s: %s",
+            stage,
+            problem,
+            exc_info=problem if isinstance(problem, BaseException) else None,
+        )
+        self.failed.emit(plain_failure(stage, problem))
 
     def run(self) -> None:
         try:
             self._run()
         except Exception as exc:
-            self.failed.emit(str(exc) or type(exc).__name__)
+            self._fail(self._stage, exc)
 
     def _report(self, status: str, done: int = 0, total: int = 0) -> None:
         if not self._cancel:
             self.progressed.emit(status, done, total)
+
+    def _size_gb(self, tag: str) -> float | None:
+        model = by_tag(tag)
+        if model is None:
+            return None
+        return float(model.download_gb)
+
+    def _pull(self, tag: str) -> None:
+        size_gb = self._size_gb(tag)
+
+        def on_progress(status: str, done: int = 0, total: int = 0) -> None:
+            self._report(plain_download_status(status, size_gb=size_gb), done, total)
+
+        pull_tag(tag, progress=on_progress)
 
     def _run(self) -> None:
         if self._cancel:
@@ -88,32 +125,46 @@ class _PrepareWorker(QThread):
             if exe is None:
                 self._report("Downloading the local engine…")
                 setup = runtime_dir() / "OllamaSetup.exe"
+                self._stage = "download_engine"
                 download_ollama_setup(setup, progress=self._report)
                 if self._cancel:
                     return
-                self._report("Installing the local engine…")
+                # Stays on screen while the installer is open.
+                self._report(OLLAMA_SIGNIN_NOTE)
+                self._stage = "install_engine"
                 problem = run_ollama_setup(setup)
                 if problem:
-                    self.failed.emit(problem)
+                    self._fail("install_engine", problem)
                     return
+                # Exit code 0 is not enough. Prove ollama.exe is on the path
+                # before we claim install worked and try to pull.
+                if find_ollama_exe() is None:
+                    self._fail(
+                        "install_engine",
+                        "The local engine was not found after the install.",
+                    )
+                    return
+            self._stage = "start_engine"
             problem = start_ollama()
             if problem:
-                self.failed.emit(problem)
+                self._fail("start_engine", problem)
                 return
         if self._cancel:
             return
+        self._stage = "pull_model"
         if already_pulled(self._tag):
-            self._report(f"{self._tag} is already on this PC.")
+            self._report("This model is already on this PC.")
         else:
-            self._report(f"Getting {self._tag}…")
-            pull_tag(self._tag, progress=self._report)
+            self._report(downloading_model_label(self._size_gb(self._tag)))
+            self._pull(self._tag)
         if self._cancel:
             return
+        self._stage = "pull_recall"
         if already_pulled(EMBED_TAG):
             self._report("The small recall model is already on this PC.")
         else:
             self._report("Getting the small recall model…")
-            pull_tag(EMBED_TAG, progress=self._report)
+            self._pull(EMBED_TAG)
         if self._cancel:
             return
         try:
@@ -122,9 +173,9 @@ class _PrepareWorker(QThread):
             if missing_voice_parts(allowed_only=True):
                 self._report("Getting the voice files…")
                 prepare_voice_files(progress=self._report)
-        except Exception:
+        except Exception as exc:
             # Typing still works. The window will try again and say so.
-            pass
+            log.warning("Voice files were not fetched: %s", exc)
         if self._cancel:
             return
         self.finished_ok.emit()
@@ -241,7 +292,7 @@ class ModelSetupDialog(GlassDialog):
         t1.setObjectName("DialogHeading")
         t2 = QLabel(
             "Type in the box under the ring. The window will say when "
-            "she's listening — then say Hey Arelis.\n\n"
+            "she's listening, then say Hey Arelis.\n\n"
             "When she wants to send a text, send mail, or change a file, "
             "two buttons: allow and deny.\n\n"
             "Mail, phone, and calendar can wait. They live in Settings "
@@ -385,7 +436,8 @@ class ModelSetupDialog(GlassDialog):
             extra = (
                 "The local engine (Ollama, free) is not on this PC yet. "
                 "Using this model will download it first, about 1.4 GB, "
-                "then the model itself."
+                "then the model itself. "
+                + OLLAMA_SIGNIN_NOTE
             )
             self._rec_why.setText(why(self._picked, self._hardware) + " " + extra)
         self._show_recommend()
@@ -412,9 +464,17 @@ class ModelSetupDialog(GlassDialog):
 
 
 def prompt_for_model_setup(parent: QWidget | None = None) -> str | None:
-    """Show the model glass when needed. Returns the tag, or None if skipped."""
+    """Show the model glass when needed. Tag only after prepare succeeds."""
+    from arelis.setup.state import try_quiet_complete_model_setup
+
+    if try_quiet_complete_model_setup():
+        return None
     if not needs_model_setup():
         return None
     dialog = ModelSetupDialog(parent)
     dialog.exec()
+    # Incomplete close must not look like success. _picked is set in __init__,
+    # so returning it always opened the mute main window with a failed chat model.
+    if needs_model_setup():
+        return None
     return dialog._picked.tag if dialog._picked else None

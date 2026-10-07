@@ -97,16 +97,16 @@
       drones: Cesium.Color.fromCssColorString("#ff5e12"),
       military: Cesium.Color.fromCssColorString("#ff5e12"),
       vessels: Cesium.Color.fromCssColorString("#ffc08a"),
-      satellites: Cesium.Color.fromCssColorString("#d8a482"),
-      iss: Cesium.Color.fromCssColorString("#fae8dc"),
+      satellites: Cesium.Color.fromCssColorString("#d4a484"),
+      iss: Cesium.Color.fromCssColorString("#f8f1ea"),
       cameras: Cesium.Color.fromCssColorString("#ff7a22"),
       quakes: Cesium.Color.fromCssColorString("#ff5e12"),
       fires: Cesium.Color.fromCssColorString("#ff5e12"),
       weather: Cesium.Color.fromCssColorString("#ffc08a"),
-      radio: Cesium.Color.fromCssColorString("#fae8dc"),
-      traffic: Cesium.Color.fromCssColorString("#d8a482"),
-      sites: Cesium.Color.fromCssColorString("#d8a482"),
-      radar: Cesium.Color.fromCssColorString("#d8a482")
+      radio: Cesium.Color.fromCssColorString("#f8f1ea"),
+      traffic: Cesium.Color.fromCssColorString("#d4a484"),
+      sites: Cesium.Color.fromCssColorString("#d4a484"),
+      radar: Cesium.Color.fromCssColorString("#d4a484")
     };
     return map[layer] || Cesium.Color.fromCssColorString("#ff7a22");
   }
@@ -555,7 +555,7 @@
     if (key === lastBuildingsKey) return;
     lastBuildingsKey = key;
     clearBuildings();
-    var ink = Cesium.Color.fromCssColorString("#d8a482").withAlpha(0.85);
+    var ink = Cesium.Color.fromCssColorString("#d4a484").withAlpha(0.85);
     list.forEach(function (ring, i) {
       if (!ring || ring.length < 3) return;
       var flat = [];
@@ -869,11 +869,89 @@
     return "city";
   }
 
+  function heatLayer(row) {
+    return row && (row.layer === "quakes" || row.layer === "fires");
+  }
+
+  var heatBlobUrl = "";
+  function heatBlob() {
+    if (heatBlobUrl) return heatBlobUrl;
+    var canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    var g = canvas.getContext("2d");
+    var rad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    rad.addColorStop(0, "rgba(255,255,255,0.92)");
+    rad.addColorStop(0.28, "rgba(255,255,255,0.55)");
+    rad.addColorStop(0.62, "rgba(255,255,255,0.16)");
+    rad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = rad;
+    g.fillRect(0, 0, 64, 64);
+    heatBlobUrl = canvas.toDataURL("image/png");
+    return heatBlobUrl;
+  }
+
+  function heatRadius(row) {
+    var band = row.band || "city";
+    var scale = band === "space" ? 1 : band === "approach" ? 0.42 : band === "near" ? 0.2 : 0.07;
+    var weight = 0.35;
+    if (row.layer === "quakes") {
+      var mag = Number(row.mag);
+      if (!isFinite(mag)) mag = 3;
+      weight = Math.max(0.18, Math.min(1, (mag - 1.5) / 6));
+    } else {
+      var bright = Number(row.bright);
+      if (!isFinite(bright)) bright = 320;
+      weight = Math.max(0.22, Math.min(1, (bright - 295) / 80));
+    }
+    var base = row.layer === "quakes" ? 520000 : 160000;
+    return Math.max(6000, base * scale * (0.3 + weight));
+  }
+
+  function heatColor(row) {
+    if (row.layer === "quakes") {
+      var mag = Number(row.mag);
+      if (!isFinite(mag)) mag = 3;
+      var t = Math.max(0, Math.min(1, (mag - 2) / 5));
+      return Cesium.Color.fromBytes(
+        255,
+        Math.round(120 + 100 * (1 - t)),
+        Math.round(40 * (1 - t)),
+        Math.round(90 + 130 * t)
+      );
+    }
+    var bright = Number(row.bright);
+    if (!isFinite(bright)) bright = 320;
+    var f = Math.max(0, Math.min(1, (bright - 300) / 70));
+    return Cesium.Color.fromBytes(
+      255,
+      Math.round(50 + 90 * (1 - f)),
+      0,
+      Math.round(100 + 120 * f)
+    );
+  }
+
+  function dressHeat(ent, row) {
+    if (!heatLayer(row) || !ent.billboard) return false;
+    var diameter = heatRadius(row) * 2;
+    ent.billboard.show = true;
+    ent.billboard.image = heatBlob();
+    ent.billboard.sizeInMeters = true;
+    ent.billboard.width = diameter;
+    ent.billboard.height = diameter;
+    ent.billboard.rotation = 0;
+    ent.billboard.alignedAxis = Cesium.Cartesian3.ZERO;
+    ent.billboard.color = heatColor(row);
+    ent.billboard.disableDepthTestDistance = Number.POSITIVE_INFINITY;
+    return true;
+  }
+
   function wantLabel(row) {
     if (!row) return false;
     if (row.layer === "radio" || row.layer === "cameras" || row.layer === "weather") {
       return false;
     }
+    if (heatLayer(row) && !row.hot) return false;
     if (row.hot) return true;
     if (!row.label) return false;
     if (row.layer === "iss") {
@@ -998,6 +1076,7 @@
 
   function stepCoast() {
     if (!viewer) return;
+    sunNow();
     hideFarSide();
     if (rideId) {
       if (goLock) {
@@ -1057,7 +1136,7 @@
     }
     var dt = (Date.now() / 1000) - when;
     if (dt < 0) dt = 0;
-    var cap = (row.layer === "iss" || row.layer === "satellites") ? 90 : 8;
+    var cap = 90;
     if (dt > cap) dt = cap;
     return new Cesium.Cartesian3(x + vx * dt, y + vy * dt, z + vz * dt);
   }
@@ -1145,16 +1224,16 @@
         position: pos,
         point: {
           pixelSize: 16,
-          color: Cesium.Color.fromCssColorString("#fae8dc"),
-          outlineColor: Cesium.Color.fromCssColorString("#160d07"),
+          color: Cesium.Color.fromCssColorString("#f8f1ea"),
+          outlineColor: Cesium.Color.fromCssColorString("#100d0b"),
           outlineWidth: 2,
           disableDepthTestDistance: Number.POSITIVE_INFINITY
         },
         label: {
           text: text,
           font: "15px sans-serif",
-          fillColor: Cesium.Color.fromCssColorString("#fae8dc"),
-          outlineColor: Cesium.Color.fromCssColorString("#160d07"),
+          fillColor: Cesium.Color.fromCssColorString("#f8f1ea"),
+          outlineColor: Cesium.Color.fromCssColorString("#100d0b"),
           outlineWidth: 4,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           pixelOffset: new Cesium.Cartesian2(10, -14),
@@ -1209,6 +1288,7 @@
   }
 
   function dressBillboard(ent, row) {
+    if (dressHeat(ent, row)) return;
     var img = markImage(row);
     var px = markSize(row);
     if (row.hot) px = Math.round(px * 1.45);
@@ -1224,15 +1304,13 @@
       ent.billboard.rotation = 0;
       ent.billboard.alignedAxis = Cesium.Cartesian3.ZERO;
     }
-    var tint = ink(row.layer);
-    if (row.hot) {
-      ent.billboard.color = Cesium.Color.fromCssColorString("#ff7a22");
-    } else if (row.freshness === "stale") {
-      ent.billboard.color = tint.withAlpha(0.45);
+    /* Ink is baked into the atlas. A second tint turns every mark the same mud. */
+    if (row.freshness === "stale") {
+      ent.billboard.color = Cesium.Color.WHITE.withAlpha(0.45);
     } else if (row.freshness === "dead-reckoned") {
-      ent.billboard.color = tint.withAlpha(0.7);
+      ent.billboard.color = Cesium.Color.WHITE.withAlpha(0.72);
     } else {
-      ent.billboard.color = tint;
+      ent.billboard.color = Cesium.Color.WHITE;
     }
     ent.billboard.disableDepthTestDistance = orbitalDepth(row);
   }
@@ -1246,7 +1324,8 @@
         + ":" + Math.round(row.vx || 0) + ":" + Math.round(row.when_unix || 0)
         + ":" + (row.mark || row.layer) + ":" + (row.heading_deg || 0)
         + ":" + (row.freshness || "") + ":" + (row.band || "")
-        + ":" + (row.hot ? "1" : "0") + ":" + (row.ride ? "1" : "0");
+        + ":" + (row.hot ? "1" : "0") + ":" + (row.ride ? "1" : "0")
+        + ":" + Math.round(Number(row.mag) || 0) + ":" + Math.round(Number(row.bright) || 0);
     }).join("|");
     if (key === lastEntityKey) return;
     lastEntityKey = key;
@@ -1281,8 +1360,8 @@
           label: {
             text: row.label || "",
             font: row.layer === "iss" ? "16px sans-serif" : "13px sans-serif",
-            fillColor: Cesium.Color.fromCssColorString("#fae8dc"),
-            outlineColor: Cesium.Color.fromCssColorString("#160d07"),
+            fillColor: Cesium.Color.fromCssColorString("#f8f1ea"),
+            outlineColor: Cesium.Color.fromCssColorString("#100d0b"),
             outlineWidth: 4,
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
             pixelOffset: new Cesium.Cartesian2(12, -12),
@@ -1386,8 +1465,8 @@
         label: {
           text: row.name,
           font: "12px sans-serif",
-          fillColor: Cesium.Color.fromCssColorString("#d8a482"),
-          outlineColor: Cesium.Color.fromCssColorString("#160d07"),
+          fillColor: Cesium.Color.fromCssColorString("#d4a484"),
+          outlineColor: Cesium.Color.fromCssColorString("#100d0b"),
           outlineWidth: 2,
           pixelOffset: new Cesium.Cartesian2(6, -4),
           disableDepthTestDistance: Number.POSITIVE_INFINITY

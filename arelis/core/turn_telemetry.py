@@ -3,7 +3,7 @@
 Voice already has a state-machine trace under voice.debug. This is different:
 every agent turn (typed or spoken) writes stage timings to logs/turns.log so
 you can see whether a pause was summarize, the model, a tool, confirm wait,
-or STT — without turning on a special debug flag.
+or STT, without turning on a special debug flag.
 
 One line per stage, plus a done summary:
 
@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from arelis.location.privacy import LocationLogFilter
+from arelis.location.privacy import redact as redact_location
 from arelis.paths import logs_dir
 
 log = logging.getLogger("arelis.turn.trace")
@@ -75,6 +77,7 @@ def ensure_turn_log(log_dir: Path | None = None) -> None:
     except OSError:
         return
     handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.addFilter(LocationLogFilter())
     handler._arelis_tag = _HANDLER_TAG  # type: ignore[attr-defined]
     # Avoid doubling if something re-called ensure.
     for existing in log.handlers:
@@ -182,6 +185,9 @@ class TurnTimer:
             action = str(fields.get("action") or "").strip()
             if action:
                 rec["action"] = action
+            # Include arg_keys when present (native mode)
+            if "arg_keys" in fields:
+                rec["arg_keys"] = fields["arg_keys"]
             self.tool_records.append(rec)
         gate = str(fields.get("gate") or "").strip()
         if gate:
@@ -344,7 +350,7 @@ def _append_jsonl(record: dict[str, Any]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            handle.write(redact_location(json.dumps(record, ensure_ascii=False)) + "\n")
     except OSError:
         return
 

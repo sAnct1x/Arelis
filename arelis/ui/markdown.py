@@ -38,7 +38,9 @@ _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*$")
 _RULE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
 _QUOTE = re.compile(r"^\s*>\s?(.*)$")
 _BULLET = re.compile(r"^(\s*)[-*+]\s+(.*)$")
-_NUMBER = re.compile(r"^(\s*)\d{1,9}[.)]\s+(.*)$")
+# Item text after the marker must be non-empty. "391. " (number, period,
+# trailing space, nothing else) is a bare answer, not an empty <li>.
+_NUMBER = re.compile(r"^(\s*)\d{1,9}[.)]\s+(\S.*)$")
 _TABLE_RULE = re.compile(r"^\s*\|?(?:\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$")
 
 # One pass over a line of prose. A single alternation rather than a chain of
@@ -171,7 +173,9 @@ def render_markdown(text: str) -> str:
             i, block = _take_table(lines, i)
             out.append(block)
             continue
-        if _BULLET.match(line) or _NUMBER.match(line):
+        if _BULLET.match(line) or (
+            _NUMBER.match(line) and not _lone_sentence_not_a_list(lines, i)
+        ):
             i, block = _take_list(lines, i)
             out.append(block)
             continue
@@ -268,8 +272,34 @@ def _take_paragraph(lines: list[str], i: int) -> tuple[int, str]:
     return i, f'<p style="margin:4px 0 4px 0;">{"<br/>".join(body)}</p>'
 
 
+def _marker_value(line: str) -> int | None:
+    if _NUMBER.match(line) is None:
+        return None
+    digits = re.match(r"\s*(\d+)", line)
+    if digits is None:
+        return None
+    return int(digits.group(1))
+
+
+def _lone_sentence_not_a_list(lines: list[str], i: int) -> bool:
+    """A single "2026. That was..." is a sentence, not item 1 of a list.
+
+    A run that starts at 1, or more than one item, stays a list.
+    """
+    number = _marker_value(lines[i])
+    if number is None or number == 1:
+        return False
+    nxt = i + 1
+    if nxt < len(lines) and not lines[nxt].strip():
+        nxt += 1
+    if nxt < len(lines) and (_BULLET.match(lines[nxt]) or _NUMBER.match(lines[nxt])):
+        return False
+    return True
+
+
 def _starts_block(lines: list[str], i: int) -> bool:
     line = lines[i]
+    numbered = bool(_NUMBER.match(line)) and not _lone_sentence_not_a_list(lines, i)
     return bool(
         _FENCE.match(line)
         or _MATH_TOKEN.match(line.strip())
@@ -277,7 +307,7 @@ def _starts_block(lines: list[str], i: int) -> bool:
         or _HEADING.match(line)
         or _QUOTE.match(line)
         or _BULLET.match(line)
-        or _NUMBER.match(line)
+        or numbered
         or _is_table(lines, i)
     )
 

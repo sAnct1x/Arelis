@@ -1,7 +1,7 @@
 """Earth-zone Cesium plate.
 
 Source-checkout + astro extra only. Missing WebEngine falls back to the
-Qt globe. Tokens stay in Python and ride QWebChannel — never written
+Qt globe. Tokens stay in Python and ride QWebChannel, never written
 into the HTML on disk.
 
 When the solar lab used GPU, Cesium is a child process
@@ -73,7 +73,7 @@ def globe_wants_own_process() -> bool:
     """Cesium leaves this process when solar GL / a share group is live.
 
     The child never nests. Pytest without ARELIS_SOLAR_GL stays in-process.
-    Daily driver (GPU solar lab) always goes out of process — park() cannot
+    Daily driver (GPU solar lab) always goes out of process, park() cannot
     kill QOpenGLContext.globalShareContext() while AA_ShareOpenGLContexts
     is an application attribute.
     """
@@ -214,7 +214,7 @@ def seal_globe_plate(widget: QWidget) -> None:
     """Same HWND rule as the main glass: opaque plate, no leftover frame.
 
     ``WA_TranslucentBackground`` on a native child is a layered window. The OS
-    keeps the last bitmap and composites it through Cesium — the double limb
+    keeps the last bitmap and composites it through Cesium, the double limb
     and night-side marks. ``winId()`` on a sibling is the offset ghost
     (``window_resize.top_level_hwnd``). HUD chrome stays a Qt overlay.
     """
@@ -270,7 +270,7 @@ def globe_key_payload(event: QKeyEvent) -> dict[str, Any]:
 
 
 class EarthHudGlass(QWidget):
-    """Same sodium HUD, parked over Cesium — not a second Earth UI.
+    """Same sodium HUD, parked over Cesium, not a second Earth UI.
 
     Cesium is a foreign HWND. A child of the solar plate paints *under*
     it (AA_DontCreateNativeWidgetSiblings). This is a Tool window of the
@@ -278,7 +278,7 @@ class EarthHudGlass(QWidget):
 
     Translucent on purpose: an opaque glass plus a Source fill of
     ``(0, 0, 0, 0)`` is a black plate on Windows. The Cesium host
-    (``seal_globe_plate``) stays opaque — that layered-window rule is
+    (``seal_globe_plate``) stays opaque, that layered-window rule is
     for native children, not this overlay.
     """
 
@@ -385,7 +385,7 @@ class EarthHudGlass(QWidget):
 
 
 def stack_chrome_over_globe(hud: QWidget | None, host: QWidget | None) -> None:
-    """Pin the sodium HUD over the globe. No child winId — that is the ghost."""
+    """Pin the sodium HUD over the globe. No child winId, that is the ghost."""
     if hud is None:
         return
     panel = getattr(hud, "_panel", None)
@@ -1117,20 +1117,26 @@ class EarthGlobeHost(QWidget):
 
 # City eye looks at the street. The store still holds the catalog.
 _CITY_ORBIT_MARKS = 0
-_APPROACH_ORBIT_MARKS = 16
+# Approach keeps the CelesTrak sample (the group budgets sum past 1,300).
+# Near and city drop the swarm. A tracked sat still stays.
+_APPROACH_ORBIT_MARKS = 1600
 
 
 def _entity_push_key(rows: list[dict[str, Any]]) -> tuple[Any, ...]:
+    """Identity of a push. Motion between pushes is the JS coast.
+
+    Latitude in this key used to change every tick, so the whole catalog
+    crossed the bridge three times a second. Cesium already coasts from
+    the last pose and velocity. A new base pose every 10 s is enough.
+    """
     return tuple(
         (
             row.get("id"),
-            round(float(row.get("lat") or 0.0), 3),
-            round(float(row.get("lon") or 0.0), 3),
-            int(row.get("alt_m") or 0),
             int(float(row.get("vx") or 0.0)),
             int(float(row.get("vy") or 0.0)),
             int(float(row.get("vz") or 0.0)),
-            int(float(row.get("when_unix") or 0.0)),
+            int(float(row.get("when_unix") or 0.0) // 10),
+            round(float(row.get("heading_deg") or 0.0)),
             row.get("freshness") or "",
             bool(row.get("hot")),
             bool(row.get("ride")),
@@ -1146,7 +1152,7 @@ def pick_orbit_marks(
     cap: int = _CITY_ORBIT_MARKS,
     keep_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Tracked marks always. City/near keep no sat swarm — only a hot ISS."""
+    """Tracked marks always. City/near keep no sat swarm, only a hot ISS."""
     held = keep_ids or set()
     orbit = [row for row in rows if row.get("layer") in {"satellites", "iss"}]
     ground = [row for row in rows if row.get("layer") not in {"satellites", "iss"}]
@@ -1165,6 +1171,16 @@ def pick_orbit_marks(
     pinned_ids = {str(row.get("id") or "") for row in pinned}
     rest = [row for row in sats if str(row.get("id") or "") not in pinned_ids]
     return ground + iss + pinned + rest[: max(0, cap - len(pinned))]
+
+
+def _meta_float(meta: dict[str, Any], key: str) -> float | None:
+    try:
+        raw = meta.get(key)
+        if raw is None or raw == "":
+            return None
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def entity_rows() -> list[dict[str, Any]]:
@@ -1233,6 +1249,8 @@ def entity_rows() -> list[dict[str, Any]]:
                 "vy": ent.vy,
                 "vz": ent.vz,
                 "when_unix": pose_at,
+                "mag": _meta_float(meta, "mag"),
+                "bright": _meta_float(meta, "bright"),
             }
         )
     held = {track, ride} - {""}

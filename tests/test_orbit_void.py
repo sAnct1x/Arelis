@@ -42,13 +42,12 @@ def test_apply_theme_restyles_the_window(arelis_window) -> None:
 
 
 def test_every_surface_is_lit_by_one_warm_source() -> None:
-    """No neutral and no green anywhere on the ramp.
+    """One sodium lamp in an evening room.
 
-    This asserts the light model rather than the hexes, because the hexes are
-    the thing that gets retuned. What must not change is that a surface reads as
-    firelight: red above green above blue at every step, and the darker it gets
-    the more saturated it is, which is what makes a shadow an ember rather than
-    grey paint with a tint on it.
+    Hexes get retuned. What stays: every surface is warm (red above green
+    above blue, hue under 34), the void stays low chroma so the room is an
+    evening rather than chocolate, the lamp is #ff7a22, and type on the
+    working plate is bright enough to read.
     """
     from arelis.ui.theme import apply_theme
 
@@ -63,11 +62,18 @@ def test_every_surface_is_lit_by_one_warm_source() -> None:
         assert lightness > previous, f"{name} is not brighter than the step below"
         previous = lightness
 
-    # Body text on the surface it is actually painted on. Below about 4:1 the
+    # Body text on the surface it is actually painted on. Below about 4.5:1 the
     # dim ramp stops being legible at 13px, which is the size all of it is.
-    assert _contrast(color("text"), color("panel_fill")) > 7.0
-    assert _contrast(color("hint"), color("panel_fill")) > 4.0
-    assert _contrast(color("text_dim"), color("panel_fill")) > 2.5
+    # Paper has to step off the amber hint, and the far wall has to step off
+    # the void, or the room collapses back into one brown.
+    void = color("bg0")
+    assert void.red() - void.blue() <= 8
+    assert _contrast(color("text"), color("panel_fill")) > 12.0
+    assert _contrast(color("hint"), color("panel_fill")) > 7.0
+    assert _contrast(color("dim"), color("panel_fill")) > 4.5
+    assert _contrast(color("text_dim"), color("panel_fill")) > 4.5
+    assert _contrast(color("text"), color("hint")) > 1.5
+    assert _contrast(color("bg2"), color("bg0")) > 1.5
     # The room light has to actually read. A 40-alpha inner bloom is a stain.
     assert BLOOM["inner"][0][1][3] >= 70
     assert PLATE["seal"][:3] == (
@@ -442,6 +448,17 @@ def test_idle_prompt_grows_then_wraps(qt_app) -> None:
         assert window.conversation.input.width() <= 720
         assert window.conversation.input.height() > 36
         assert "hello," in window.conversation.input.text()
+        sentence = (
+            "I want you to deeply research what JWST has discovered about "
+            "the planet K2-12B's atmosphere. I want this research to be "
+            "properly formatted"
+        )
+        window.conversation.input.setText(sentence)
+        window.conversation._fit_idle_prompt()
+        bar = window.conversation.input.verticalScrollBar()
+        assert bar.maximum() == 0
+        assert bar.value() == 0
+        assert window.conversation.input.height() > 36
     finally:
         window.hide()
         window.loop.close()

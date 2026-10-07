@@ -1,4 +1,4 @@
-"""Short scientific Python — kinematics, scripts, sympy, not a shell.
+"""Short scientific Python, kinematics, scripts, sympy, not a shell.
 
 The pocket calculator is one expression. Physics is a few lines with names.
 This tool runs that cell: assignments, prints, math, sympy, numpy. It is not
@@ -9,14 +9,14 @@ Two layers do that work, and it is worth knowing which one to trust.
 The AST rules came first: an import allowlist, no leading underscores, a list
 of forbidden calls, and a list of attribute names that mean "evaluate this
 text" or "touch the disk". They are useful and they are *not* sufficient,
-which is not a guess — it is the history of this file. The list shipped with
+which is not a guess, it is the history of this file. The list shipped with
 `savetxt` and `save` on it, and `scipy.io.savemat`, `scipy.io.wavfile.write`
 and `from scipy.io import savemat` all wrote real files to the repo root. Fix
 those three names and the next library arrives with three more. A denylist of
 names is always one import behind.
 
 So the promise above is kept by an audit hook instead. `sys.addaudithook`
-fires on the *operation* — the `open`, the `Popen`, the `connect` — no matter
+fires on the *operation*, the `open`, the `Popen`, the `connect`, no matter
 which function was spelled to reach it, and the hook refuses any of them on a
 thread that is running a cell. There is only one `open`. The AST rules stay as
 defence in depth and as better error messages, but the hook is the boundary.
@@ -201,7 +201,7 @@ _ATTR_CALL_ONLY = frozenset({"S"})
 _FORBIDDEN_ATTRS_ANYWHERE = _FORBIDDEN_ATTR_CALLS - _ATTR_CALL_ONLY
 
 _ATTR_REFUSAL = (
-    "{name!r} is not allowed here — it evaluates text or touches the disk. "
+    "{name!r} is not allowed here, it evaluates text or touches the disk. "
     "Compute with expressions, and use the workspace tool for files."
 )
 
@@ -234,12 +234,12 @@ class PythonTool:
         "a multi-step derivation. math is preloaded (sin, cos, radians, sqrt, "
         "pi). sympy is `sp`, numpy is `np` when installed. Assignments and "
         "print() work; the last expression is shown. Do not import os, "
-        "subprocess, or open files. sympify/lambdify/parse_expr are refused — "
+        "subprocess, or open files. sympify/lambdify/parse_expr are refused"
         "build expressions from sp.Symbol, not from strings. Timeout 10s. "
         "Use calculator for a single "
         "arithmetic expression; use cas for one symbolic integrate/diff/solve; "
         "use this when you need a script (projectile range, quadratic time of "
-        "flight, systems of equations). matplotlib is not allowed — print "
+        "flight, systems of equations). matplotlib is not allowed, print "
         "comma-separated xs and ys, then call plot with those numbers and "
         "out='name.png' (path= is a CSV, not the picture)."
     )
@@ -373,7 +373,7 @@ def _cell_audit(event: str, args: tuple[Any, ...]) -> None:
     every thread that is not executing a cell, which is all of them almost
     all of the time, and the only way out of here is a deliberate raise.
 
-    Thread state rather than a set of thread ids on purpose — ids are reused
+    Thread state rather than a set of thread ids on purpose, ids are reused
     after a thread dies, and the timeout path deliberately abandons threads.
     """
     if not getattr(_cell_local, "in_cell", False):
@@ -410,7 +410,7 @@ def _run_timed(code: str) -> str:
     """Ten seconds, and this time it is true.
 
     The previous version wrapped the pool in `with`, so on timeout
-    `__exit__` called `shutdown(wait=True)` and joined the runaway thread —
+    `__exit__` called `shutdown(wait=True)` and joined the runaway thread
     forever. `while True: pass` did not time out; it hung the agent, with the
     tool description still promising "Timeout 10s".
 
@@ -505,7 +505,7 @@ def _run_cell(code: str) -> str:
             out += "\n"
         out += shown
     text = (out or "").strip() or (
-        "(no output — print the result, or leave a final expression)"
+        "(no output, print the result, or leave a final expression)"
     )
     if len(text) > _MAX_OUTPUT:
         text = text[:_MAX_OUTPUT] + "\n…(truncated)"
@@ -553,7 +553,7 @@ def _assert_safe(tree: ast.AST) -> None:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if "__" in node.value:
                 raise ValueError(
-                    "a string containing '__' is not allowed — that is how an "
+                    "a string containing '__' is not allowed, that is how an "
                     "attribute name gets smuggled past the checks"
                 )
         # f-strings hold their literal halves in JoinedStr, not Constant.
@@ -565,7 +565,7 @@ def _assert_safe(tree: ast.AST) -> None:
                     and "__" in piece.value
                 ):
                     raise ValueError(
-                        "a string containing '__' is not allowed — that is how "
+                        "a string containing '__' is not allowed, that is how "
                         "an attribute name gets smuggled past the checks"
                     )
         if isinstance(

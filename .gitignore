@@ -99,6 +99,9 @@ android/**/local.properties
 android/**/.idea/
 logs/
 outputs/
+# Playwright browser builds. A checkout points PLAYWRIGHT_BROWSERS_PATH at
+# <repo>/browsers. Those files are a download, not source.
+/browsers/
 # layout ini, active project, and the real profile are all local
 *.gguf
 models/

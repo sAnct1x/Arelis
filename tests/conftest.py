@@ -114,8 +114,11 @@ def _reset_house_watch():
 
 
 @pytest.fixture(autouse=True)
-def _reset_theme():
+def _reset_theme(request: pytest.FixtureRequest):
     """Paper tests mutate the live palette. Sodium is the suite default."""
+    if "no_ui" in request.keywords:
+        yield
+        return
     from arelis.ui.theme import apply_theme
 
     apply_theme("sodium")

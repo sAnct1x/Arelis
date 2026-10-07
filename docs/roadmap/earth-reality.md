@@ -16,9 +16,8 @@ lines), `arelis/physics/` (26 / 4,955), `arelis/spatial/` (12 /
 `test_globe_stack.py` file. Numbers in here were measured on this
 checkout, not estimated.
 
-The daily-driver audit (`docs/roadmap/README.md`) is **closed**.
-Do not reopen it. Glass, tools, orchestrator, SMS, Allow stay
-frozen the other way.
+The daily-driver audit is **closed**. Do not reopen it. Glass,
+tools, orchestrator, SMS, Allow stay frozen the other way.
 
 Canvas view: `earth-reality-audit.canvas.tsx` in the Cursor
 canvases folder. The markdown is the source of truth. If the
@@ -53,6 +52,9 @@ Handoff prompt: `docs/roadmap/earth-reality-handoff.md`.
 
 **The wound is not Cesium, and it is not 141 feeds.**
 
+That 141 is the catalog on 2026-09-19. Rechecked 2026-10-07 against
+`arelis/earth/feeds.py`: 140 rows.
+
 The production board (`reality-production-plan.canvas.tsx`) claimed
 skip-Cesium / GPU native disc as the live Earth path, Live off by
 default, a Buildings chip, and in-process photoreal slipped. The
@@ -81,12 +83,16 @@ The wound that *does* look like last audit:
    dark.
 
 2. **The inventory test counts statuses, not ids.**
-   `FEEDS` is 141 = 109 shipped / 25 keyed / 3 later / 4 out, and
-   that string is pinned in `docs/earth.md`. **102 of 141 feed ids
-   are never named in any `tests/test_*.py`.** 82 of those are
-   shipped. A thinned region stays green as long as the four
-   status counts hold. Same shape as a helper with 100% coverage
-   and unwired call sites.
+   This note disagreed with itself. One sentence said **102 of 140**
+   feed ids are never named in any `tests/test_*.py`. The inventory
+   below said **39 / 141** named and 102 unnamed. 39 + 102 = 141,
+   so the two totals did not match. Rechecked 2026-10-07 against
+   `arelis/earth/feeds.py` and `tests/test_*.py`: `FEEDS` is
+   **140** = **109 shipped / 24 keyed / 3 later / 4 out**, and
+   **all 140 ids are named** in `tests/test_earth_audit.py`
+   (`FEEDS_PIN`). Unnamed: **0**. The four status strings are still
+   pinned in `docs/earth.md`. The id pin is what keeps a missing
+   feed from hiding behind those four counts.
 
 3. **Docs from two campaigns sit next to each other and disagree
    with the code.** Live-off default (production canvas) vs Enter
@@ -109,7 +115,8 @@ and delete things:
 
 - Cesium is a wound. **Not claimed.** Measure hitch / VRAM before
   touching the child process. Overlay Qt tests do not replace it.
-- 141 feeds are a wound. **Not claimed.** Do not thin a region.
+- 141 feeds are a wound. **Not claimed.** That 141 is the
+  2026-09-19 catalog (140 rows on 2026-10-07). Do not thin a region.
   Later/out are already not fetched (measured: 0 later/out ids in
   `live._adapter_fns()`).
 - Native disc is dead code. **Not claimed.** Fallback when
@@ -126,9 +133,9 @@ leave the argument here.
 
 ## Measured inventory
 
-Freeze note in `docs/roadmap/README.md` said ~16k / 70 files
-earth, ~3.1k spatial, ~3.9k physics, 327 of 1,391 mypy. On this
-checkout (physical `splitlines()`, 2026-09-19):
+An earlier freeze note said ~16k / 70 files earth, ~3.1k spatial,
+~3.9k physics, 327 of 1,391 mypy. On this checkout (physical
+`splitlines()`, 2026-09-19):
 
 | Package | Files | Lines | Freeze said |
 |---------|------:|------:|-------------|
@@ -137,14 +144,19 @@ checkout (physical `splitlines()`, 2026-09-19):
 | `arelis/spatial/` | **12** | **3,575** | ~3.1k |
 | **combined** | **104** | **26,085** | ~24k |
 
-`FEEDS`: **141** rows = **109 shipped / 25 keyed / 3 later / 4 out**.
-Matches `earth/__init__.py` and `docs/earth.md`. **34** live
-adapter keys. Later/out are inventory-only: **none** appear in
+`FEEDS`: **140** rows = **109 shipped / 24 keyed / 3 later / 4 out**.
+Matches `earth/__init__.py` and `docs/earth.md`. Rechecked
+2026-10-07 against `arelis/earth/feeds.py`. **33** live adapter
+keys, from `len(arelis.earth.live._adapter_fns())`. The
+2026-09-19 note said 34. That count included the banner-search
+adapter, which is gone. Later/out are inventory-only: **none** appear in
 `live._adapter_fns()`.
 
-Feed ids named in any `tests/test_*.py`: **39 / 141**. Unnamed:
-**102** (82 shipped, 18 keyed, 1 later `copernicus-dataspace`, 1
-out `face-index`).
+Feed ids named in any `tests/test_*.py`: **140 / 140**. Unnamed:
+**0**. The 2026-09-19 inventory said 39 / 141 named and 102
+unnamed (82 shipped, 18 keyed, 1 later `copernicus-dataspace`, 1
+out `face-index`). That pair is the old audit, not this checkout.
+The removed keyed row is gone, and `FEEDS_PIN` names every remaining id.
 
 Lane docs name `test_earth_appearance.py` and
 `test_reality_walk.py`. **Those files do not exist.** Walk
@@ -312,7 +324,8 @@ Candidates, each with a measurement that would justify acting:
   rip it because it is large. Hitch numbers belong in Phase 7
   notes, not a host debate.
 - [x] **2.2** "141 feeds are the slowness." **Cancelled on
-  measurement, 2026-09-19.** `adapter_allowed("cameras", "space")`
+  measurement, 2026-09-19.** The catalog was 141 rows that day
+  and is 140 on 2026-10-07. `adapter_allowed("cameras", "space")`
   is False with default chips. Space does not hammer 511.
   Empty-sky was the merge truthy-check, not feed count. Do not
   thin a region.
@@ -484,9 +497,9 @@ You run this. Isolated `ARELIS_DATA_DIR`. HWND grab via
   `outputs/earth_reality_pass/` (gitignored). HWND grab is
   `widget.grab()` / `grabWindow(winId)`, never
   `screen.grabWindow(0)`.
-- [x] **7.10** Break pass (`scripts/shot_earth_break.py`,
-  `tests/test_earth_break.py`). Enter from the Sun, double
-  leave, Mercury kick, re-enter, Find garbage, ride ISS.
+- [x] **7.10** Break pass (`tests/test_earth_break.py`). Enter from
+  the Sun, double leave, Mercury kick, re-enter, Find garbage,
+  ride ISS.
   Fixed what the pixels and the hunt actually broke: pending
   Enter after leave, travel-away under Cesium, GPU `view_id`
   reset, construct-fail `_cesium_off`, AIS Ohio `[]` wipe,
@@ -495,9 +508,9 @@ You run this. Isolated `ARELIS_DATA_DIR`. HWND grab via
   city is OSM/photoreal not a pale wash; space nadir is
   sunlit. Fetcher tests parse recorded USGS/OpenSky JSON
   through the real client path; optional live USGS behind
-  `ARELIS_LIVE_EARTH=1`. Walks are still the live Cesium
-  proof. ISS ride over Japan is the plate working. Walks:
-  `outputs/earth_reality_pass/` and
+  `ARELIS_LIVE_EARTH=1`. The contract is
+  `tests/test_earth_break.py`. Pixel dumps from that pass sit
+  under `outputs/earth_reality_pass/` and
   `outputs/earth_reality_break/` (gitignored).
 
 Do not ask the human to launch Arelis as the test loop.
@@ -507,8 +520,8 @@ Do not ask the human to launch Arelis as the test loop.
 ## Frozen the other way
 
 Glass, chat UI, orchestrator, SMS, Allow, PDF lane, eval
-floors, Settings model picker, companion APK. Closed in
-`docs/roadmap/README.md`. Do not wander back. Do not
+floors, Settings model picker, companion APK. Closed with
+the 0.2.9 daily-driver pass. Do not wander back. Do not
 ruff-format the tree. Do not remount Drive. Do not widen
 `policy.py`. Read `.cursor/rules/multi-agent-lanes.mdc`
 before touching `conversation.py` or `launch.py`.

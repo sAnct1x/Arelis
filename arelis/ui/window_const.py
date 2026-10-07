@@ -24,8 +24,10 @@ BUSY_WATCHDOG_MS = 8000
 
 # Ceiling on a live turn, armed when busy starts. Override with ui.hung_turn_s.
 # The 8s watchdog above is post-Stop recovery; this is the "tool hung" unlock.
+# If she already has tool results, the ceiling asks her to close. This is how
+# long that close gets before a real hang still cuts the turn.
 HUNG_TURN_S = 90
-HUNG_TURN_TICK_MS = 1000
+HUNG_CLOSE_GRACE_S = 180
 HUNG_TURN_MAX_S = 3600
 
 THINK_PULSE_MS = 600

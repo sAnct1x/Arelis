@@ -127,7 +127,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
   http). Never pass the title as url. Never invent a URL from a headline.
   Never ask the user to paste a URL that web_search already gave you.
 - Search in a few words. Pass recency=day or recency=week for news. Put the
-  user's city in the query when place matters.
+  place in the query when it matters; user_location has their saved one.
 - If the first search is thin, rephrase once before giving up. Then stop.
 - Prefer scrape for human-readable pages (news, docs, articles). It pulls the
   main article (JSON-LD / microdata / <article> / paragraph lattice / density),
@@ -344,8 +344,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
   ("remember that I climb").
 - Never write or edit under a read-only root (the prompt lists those names).
 - If workspace says outside allowed roots, stop. Do not list C:\\Users,
-  Documents, or any parent. Tell them to Allow the path or add the folder
-  in Settings → roots.
+  Documents, or any parent. Tell them to Allow the path, or open Settings
+  and add a folder there.
 - Never tell the user to run a shell command to do something a tool can do.
 - Do not claim you edited a file unless a write/edit tool succeeded.
 - Prefer git_info (status/diff/log) over inventing branch or dirty state.
@@ -365,6 +365,12 @@ SKILL_CARDS: dict[str, SkillCard] = {
             ".py",
             "python file",
             "run the program",
+            "run the script",
+            "run it with run_script",
+            "call run_script",
+            "then run",
+            "write and run",
+            "create and run",
         ),
         negative_hints=(
             "run diagnostics",
@@ -381,11 +387,20 @@ SKILL_CARDS: dict[str, SkillCard] = {
   python cell is a formula, not their script.
 - When they name a .py to run, call run_script with that path. Not a shell.
   Not diagnostics (that is her tests/ only). Not schedule run_now.
+  Not run_task (that is for named project tasks from package.json or
+  arelis-tasks.json).
+- For write-then-run chains: after workspace writes a .py, call run_script
+  with that same path. Do not use python (locked cell) or run_task for a
+  file path.
+- A check the project already named is run_task. action=list shows pytest
+  (when tests/ exists), package.json scripts, and arelis-tasks.json.
+  action=run needs name= one of those. args is a list of strings.
+  Do not pass a command string. Do not call cmd, PowerShell, or bash.
 - Prefer print or a CSV so you can read the result. Do not invent numbers
   a process did not print. A later workspace read is how you open a file
   the script wrote.
 - Writes and runs still Allow. Do not claim a run succeeded unless
-  run_script returned this turn.
+  run_script or run_task returned this turn.
 """.strip(),
     ),
     "inspect": SkillCard(
@@ -587,6 +602,13 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "pages of the pdf",
             "read this pdf",
             "analyze this pdf",
+            ".docx",
+            ".pptx",
+            "read the content",
+            "read the text",
+            "what's in the document",
+            "memo.docx",
+            "presentation.pptx",
         ),
         requires_tool="doc_extract",
         negative_hints=(
@@ -598,9 +620,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
         ),
         body="""
 ### Local documents
-- For PDF content or quotes, call doc_extract with the path (workspace,
-  data/drops/ attachment, or granted absolute). Use page_start/page_end when
-  the user names pages. Do not invent PDF text.
+- For PDF, Word (.docx), or PowerPoint (.pptx) content or quotes, call
+  doc_extract with the path (workspace, data/drops/ attachment, or granted
+  absolute). Use page_start/page_end when the user names pages. Do not invent
+  document text.
 - If doc_extract returns source: look, that is the transcription of a
   scanned or handwritten PDF. Answer from it. If it still says source: ink,
   call vision once with paths= (every page). She looks one page at a time.
@@ -820,8 +843,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
   Acknowledge arXiv. Do not scrape NASA JavaScript. APOD and ADS need a
   free key in data/secrets.yaml; say so if the tool reports it is missing.
   Horizons `table=vectors` is SSB ECLIPJ2000 state for Reality;
-  observer tables are for the sky. Do not invent a bibcode, an abstract,
-  or an ephemeris. "Find me a paper" is catalog, not a guess.
+  observer tables are for the sky. How far, closest, or farthest:
+  action=horizons, target=the body name only, omit date and query, then
+  repeat the tool sentences. Do not add a closest or farthest the tool
+  did not state. Do not invent a bibcode, an abstract, or an ephemeris.
+  "Find me a paper" is catalog, not a guess.
 - Reality's solar system is the `solar` tool (REBOUND, true scale).
   load uses Horizons VECTORS. realtime (key 1, or 1×) discards any warp
   and locks IAS15 to UTC now from the Horizons epoch — Moon and Earth are
@@ -847,8 +873,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
   adsb.lol military, AISStream (free key in data/secrets.yaml), Fintraffic
   Digitraffic AIS (no key), CelesTrak TLE + Starlink sample, Radio Browser,
   TfL JamCam, Caltrans D1-D12 CCTV + lane closures, Open-Meteo,
-  FIRMS (free key), Launch Library pads, APRS (free key), Shodan banners
-  (optional free key, not a login); failures keep sim.
+  FIRMS (free key), Launch Library pads, APRS (free key); failures keep sim.
   Mid-ocean AIS is a hole (VHF dies offshore; we do not buy satellite AIS).
   Sentinel-1 ocean frames (NASA ASF, no key) are pass footprints, not hull names.
   NASA EONET named events upsert onto sites. OSM webcam tags are positions only.
@@ -1338,7 +1363,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - You drive the window. Plan the errand: open or search, click, type,
   read, go back. Do not wait for them to hand you refs.
 - Click: text='Sign in', or nth=1 for the first result, or a snapshot ref.
-  hover / dblclick / right_click / drag use the same refs and glow.
+  hover / dblclick / right_click / drag use the same refs. A click
+  returns the new snapshot — do not snapshot again unless that list is
+  missing the control.
   x,y only after screenshot then vision this turn. Prefer refs.
   Type: type(text='…', into='search') — empty into uses the search box.
   type(who=Mom, into=email|phone|name|work_phone) fills that field from

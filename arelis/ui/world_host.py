@@ -1,6 +1,6 @@
 """Reality plate host. ArelisWindow only toggles this behind the stage grant.
 
-Offering the plate still goes through ``world_stage_allowed`` — installer
+Offering the plate still goes through ``world_stage_allowed``, installer
 trees and wheels must not show the chip, the View item, or the window.
 Attach lives here so the main window does not build the plate itself.
 Verb and tile handlers take ``window`` first so the integrator can drop
@@ -99,7 +99,7 @@ def toggle_world(window, checked: bool, page: str = "", *, force: bool = False) 
         window.act_world.setChecked(False)
         if checked:
             window.thinking.append(
-                "Reality's plate is a source-checkout stage — not in the installer.",
+                "Reality's plate is a source-checkout stage, not in the installer.",
                 kind="status",
             )
         return
@@ -175,20 +175,61 @@ def try_physics_verb(window, text: str) -> bool:
 
 
 def try_tile_speech(window, text: str) -> bool:
-    """View-menu tiles from the composer. Reality already went through verbs."""
-    from arelis.core.tile_complete import match_tile_intent, world_page_for
+    """View-menu tiles and desk chrome. Reality already went through verbs."""
+    from arelis.core.desk_guide import desk_guide_text, match_desk_guide
+    from arelis.core.tile_complete import (
+        match_desk_intent,
+        match_tile_intent,
+        world_page_for,
+    )
 
+    if match_desk_guide(text):
+        _speak_closed(window, desk_guide_text())
+        return True
+    desk = match_desk_intent(text)
+    if desk:
+        return _apply_desk_speech(window, desk)
     hit = match_tile_intent(text)
     if not hit:
         return False
     action, name = hit
+    if not name and action == "close":
+        from arelis.ui.hands_desk import front_tile_key
+
+        name = front_tile_key(window)
     if not name:
         return False
     page = world_page_for(text) if name == "world" else ""
-    apply_tile(window, name, show=(action == "open"), page=page)
-    verb = "Opened" if action == "open" else "Closed"
+    show = action == "open"
+    apply_tile(window, name, show=show, page=page)
+    if show:
+        window._filament_front = name
+    elif getattr(window, "_filament_front", "") == name:
+        window._filament_front = ""
+    verb = "Opened" if show else "Closed"
     _speak_closed(window, f"{verb} the {name} tile.")
     return True
+
+
+def _apply_desk_speech(window, desk: tuple[str, str]) -> bool:
+    kind, arg = desk
+    if kind == "span":
+        from arelis.ui.filament_desk import filament_set_span
+
+        filament_set_span(window, int(arg))
+        _speak_closed(window, f"Span {arg}.")
+        return True
+    if kind == "rooms":
+        chips = getattr(window, "_filament_floats", None)
+        anchor = window
+        if chips is not None and hasattr(chips, "chips"):
+            anchor = chips.chips().get("rooms") or window
+        show = getattr(window, "_show_rooms_menu", None)
+        if not callable(show):
+            return False
+        show(anchor)
+        return True
+    return False
 
 
 def _physics_closed_line(act: PhysicsAct) -> str:
@@ -364,7 +405,7 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
             return
         if not world_available():
             window.thinking.append(
-                "Reality's plate is a source-checkout stage — not in the installer.",
+                "Reality's plate is a source-checkout stage, not in the installer.",
                 kind="status",
             )
             return
@@ -534,7 +575,7 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         window.thinking.append(
             "No discs in Reality. Spawn a particle, belt tracer, or L4 from "
             "the ⋯ menu. WASD flies the inspect camera. heavier/lighter would "
-            "change a mass — that is solar impulse/add_planet with Allow.",
+            "change a mass, that is solar impulse/add_planet with Allow.",
             kind="status",
         )
         return

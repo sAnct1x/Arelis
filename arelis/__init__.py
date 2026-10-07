@@ -1,4 +1,4 @@
-"""Arelis — local-first personal research assistant.
+"""Arelis, local-first personal research assistant.
 
 The three facts the application states about itself live here, and nowhere
 else. `pyproject.toml` reads `__version__` from this file rather than carrying
@@ -7,7 +7,7 @@ somebody remembers to change both, and the one a user is shown should be the
 one the package actually is.
 """
 
-__version__ = "0.2.9"
+__version__ = "0.3.0"
 
 # SPDX identifier. The full text is in LICENSE at the root of the repository.
 __license__ = "AGPL-3.0-or-later"

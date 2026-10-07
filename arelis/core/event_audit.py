@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
+from arelis.location.privacy import LocationLogFilter
 from arelis.paths import logs_dir
 
 log = logging.getLogger("arelis.event.audit")
@@ -42,6 +43,7 @@ _AUDITED: frozenset[EventType] = frozenset(
         EventType.SESSION_LOADED,
         EventType.VOICE_TRANSCRIPT,
         EventType.PHYSICS_VERB,
+        EventType.TILE_VERB,
         EventType.CONVERSATION_END,
         EventType.STATUS,
         EventType.MOBILE_SYNC,
@@ -99,6 +101,7 @@ def ensure_event_log(log_dir: Path | None = None) -> None:
     except OSError:
         return
     handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.addFilter(LocationLogFilter())
     handler._arelis_tag = _HANDLER_TAG  # type: ignore[attr-defined]
     for existing in log.handlers:
         if getattr(existing, "_arelis_tag", "") == _HANDLER_TAG:
@@ -213,6 +216,9 @@ def _format_event(event: Event) -> str:
         fields["preview"] = _clip(str(payload.get("text") or ""), 80)
     elif event.type == EventType.PHYSICS_VERB:
         fields["verb"] = payload.get("verb") or "?"
+    elif event.type == EventType.TILE_VERB:
+        fields["action"] = payload.get("action") or "?"
+        fields["name"] = payload.get("name") or "?"
     elif event.type == EventType.CONVERSATION_END:
         fields["reason"] = payload.get("reason") or "voice"
     elif event.type == EventType.STATUS:

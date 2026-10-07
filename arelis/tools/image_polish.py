@@ -43,7 +43,7 @@ CHECKS: tuple[Check, ...] = (
     Check("thumb-is-square", "visual", "Each thumb is a square"),
     Check("selected-thumb", "visual", "The open picture is the checked thumb"),
     Check("qss-has-roles", "visual", "Stylesheet names well, strip, thumb, caption"),
-    Check("overlay-plex-first", "visual", "Overlay type prefers IBM Plex, not Arial"),
+    Check("overlay-desk-first", "visual", "Overlay type is Zen Kaku, not Arial"),
     Check("strip-capped", "scalability", "Rail lists at most 16 files"),
     Check("n-clamped", "scalability", "Variations clamp to 1–4"),
     Check("thumb-loads-scaled", "scalability", "Thumbs decode near display size"),

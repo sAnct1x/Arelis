@@ -21,7 +21,11 @@ _SHORT_DESC: dict[str, str] = {
     "calculator": "exact arithmetic. expression required. takes '15% of 84', '30% off 59.99', '$4.50+$2'. not unit conversion (units), not equations (cas)",
     "camera": "webcam snapshot. inspect only",
     "cas": "symbolic math. action=simplify|solve|diff|integrate|limit|series|sum|gradient|directional|factor|expand; n= order, at= point, dir= vector",
-    "catalog": "pinned live feeds. action=list|get",
+    "catalog": (
+        "arxiv, horizons, apod, or ads. no list/get. "
+        "how far, closest, or farthest: target=body name only, omit date and query. "
+        "repeat the tool sentences. do not add a closest or farthest"
+    ),
     "clipboard": "OS clipboard. action=read (default) | write with text=",
     "contacts": "local address book. action=list|get|add|update|remove",
     "diagnostics": "local pytest / doctor. not a web search",
@@ -67,7 +71,7 @@ _SHORT_DESC: dict[str, str] = {
     # "defaults to their own place" earns its length: measured 7/13 runs
     # calling user_location first, which weather can never use because it
     # refuses coordinates. Only the arms carrying this sentence got it right.
-    "weather": "forecast. defaults to the user's own place — omit place for home, never look up their location first. place=city name, not coords",
+    "weather": "forecast. defaults to the user's own place, omit place for home, never look up their location first. place=city name, not coords",
     "web_fetch": "http(s) APIs / JSON. not pages. method=POST|PUT|PATCH|DELETE + headers/body for a real API; non-GET asks first",
     "web_search": "search first. never guess a url",
     "workspace": "sandbox files: list/read/grep/find/write/edit/patch/delete/move/rename/copy. patch=unified diff. writes confirm",
@@ -76,22 +80,23 @@ _SHORT_DESC: dict[str, str] = {
 
 # Shipped every turn. Telegraph. Keywords tests lock are intentional.
 COMPACT_TOOL_POLICY = """
-tools: call; don't invent results. Never ask "Would you like me to proceed / fetch / scrape / search / check?" when the ask is clear. Multi-part: keep calling until done. Fallback: {"tool":"<name>","args":{}} or {"final":"<answer>"}.
+tools: call; don't invent results. Never ask \"Would you like me to proceed / fetch / scrape / search / check?\" when the ask is clear. Multi-part: keep calling until done. Fallback: {\"tool\":\"<name>\",\"args\":{}} or {\"final\":\"<answer>\"}.
 confirm: writes/sends = card, not a chat ask. Never claim a side effect unless a tool this turn succeeded. Confirmation without a tool is a lie.
 browser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no goto_sign_in.
 desktop: your Windows session; look=screenshot (grabs+reads); no shell; no raw exe; no password; stop Pay|delete|UAC.
 web: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.
 weather: call the weather tool; not search; not scrape; place=name; two cities = two calls.
-location: user_location; do not web-guess. not before weather — weather resolves its own place.
+location: user_location; do not web-guess. not before weather, weather resolves its own place.
 sms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.
 email: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.
-workspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.
+workspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop, open a new path or answer. Outside roots: stop; do not list parents; Allow the path or open Settings and add a folder there.
 attach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).
-memory: recall before claiming you do not know; remember/forget via the memory tool. "what do you remember/know about me" = memory action=list, not recall.
+memory: recall before claiming you do not know; remember/forget via the memory tool. \"what do you remember/know about me\" = memory action=list, not recall.
 goals: goals. tasks: tasks. analyze: analyze. sql: sql. doc_extract: doc_extract. document: document. pdf: pdf. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
 agenda: agenda (events; free=open slots). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule. remind: remind (in/at, not schedule). notes: notes.
 image: image. image_edit: image_edit. vision: vision. transcribe: transcribe. research_report: research_report.
-solar: solar. earth: earth. catalog: catalog. plot: plot (histogram|bar|line; xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
+solar: solar. earth: earth. catalog: how far, closest, or farthest is horizons, target=body name, omit date and query, then repeat the tool sentences and do not add a closest or farthest. plot: plot (histogram|bar|line; xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
+hands: one gesture, a pinch. still pinch clicks; a moving pinch grabs empty glass, the edge, or the title; two pinches resize a Reality shape or a tile; an open hand scrolls. instant voice: open/close history|thinking|files|days|camera|notify|contacts|chat|reality, span 1|2|3, close this, open rooms. if they ask how hands or voice control works, explain that. do not invent a fist.
 """.strip()
 
 
@@ -116,7 +121,7 @@ def format_tool_catalog(tools: Sequence[Mapping[str, Any]] | None = None) -> str
         rows[name] = skinny_description(name, str(item.get("description") or ""))
     lines = ["What she can do. Ask by name.", ""]
     for name in sorted(rows, key=str.lower):
-        lines.append(f"`{name}` — {rows[name]}")
+        lines.append(f"`{name}`: {rows[name]}")
     return "\n".join(lines)
 
 
@@ -133,21 +138,52 @@ def skinny_description(name: str, fallback: str = "") -> str:
     return cut
 
 
-def skinny_parameters(schema: dict[str, Any] | None) -> dict[str, Any]:
+def skinny_parameters(
+    schema: dict[str, Any] | None,
+    *,
+    tool_name: str = "",
+    param_hints: bool = False,
+) -> dict[str, Any]:
     """Keep types, enums, required, property names. Drop description essays.
 
     A property that was only an essay becomes ``{}`` after the strip, which
-    is worse than omitting it — the model sees a named hole with no type.
+    is worse than omitting it, the model sees a named hole with no type.
     Drop those. Give the field a type in the source schema if it should stay.
+
+    When param_hints is True and tool_name is in the allowlist, keep specific
+    parameter descriptions that help the model use the correct arguments.
     """
     if not isinstance(schema, dict):
         return {"type": "object", "properties": {}}
+
+    # Strip all descriptions first
     stripped = _strip_descriptions(schema)
     props = stripped.get("properties") if isinstance(stripped, dict) else None
+
     if isinstance(props, dict):
-        stripped["properties"] = {
+        # Filter out empty properties
+        filtered = {
             key: value for key, value in props.items() if value != {}
         }
+
+        # Apply hints at top level when param_hints is enabled
+        if param_hints and tool_name:
+            from arelis.core.native_tool_calling import NATIVE_NOTES_ONLY_TEXT, NATIVE_PARAM_HINTS
+
+            # Add descriptions for hinted parameters
+            for (tn, pn), desc in NATIVE_PARAM_HINTS.items():
+                if tn == tool_name and pn in filtered:
+                    filtered[pn]["description"] = desc
+
+            # For notes tool in native mode, only expose 'text' parameter (not aliases)
+            if tool_name == "notes" and NATIVE_NOTES_ONLY_TEXT:
+                # Remove content and body aliases, keep only text
+                filtered = {
+                    key: value for key, value in filtered.items()
+                    if key not in ("content", "body")
+                }
+
+        stripped["properties"] = filtered
     return stripped
 
 
@@ -155,18 +191,25 @@ def skinny_ollama_tool(
     name: str,
     description: str,
     parameters_schema: dict[str, Any] | None,
+    *,
+    param_hints: bool = False,
 ) -> dict[str, Any]:
     return {
         "type": "function",
         "function": {
             "name": name,
             "description": skinny_description(name, description),
-            "parameters": skinny_parameters(parameters_schema),
+            "parameters": skinny_parameters(
+                parameters_schema,
+                tool_name=name,
+                param_hints=param_hints,
+            ),
         },
     }
 
 
 def _strip_descriptions(node: Any) -> Any:
+    """Strip descriptions recursively."""
     if isinstance(node, dict):
         return {
             key: _strip_descriptions(value)

@@ -8,13 +8,13 @@ body:
         First-run and SmartScreen have their own form.
 
         Nothing that identifies a real person. No contacts, no real
-        mailbox, no home folder. Springfield is the town we keep.
+        mailbox, no home folder. Springfield is the stand-in town.
   - type: input
     id: version
     attributes:
       label: Version
       description: F1 in the window, or the setup file name.
-      placeholder: 0.2.9
+      placeholder: 0.3.0
     validations:
       required: true
   - type: textarea

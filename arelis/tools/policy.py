@@ -15,7 +15,7 @@ common case; write/edit still pause.
 Do not shrink the tool schema from here. Authorization (hide send unless
 this utterance asked) lives in ``tool_subset``. Jobs omit tools with
 ``build_tool_registry(attended=False)``; they do not consult this table
-to drop Comfy ``image`` — that registration is pinned by tests.
+to drop Comfy ``image``, that registration is pinned by tests.
 """
 
 from __future__ import annotations
@@ -109,7 +109,9 @@ INBOX_LOCAL_WRITE_ACTIONS = frozenset({"download"})
 NEVER_BATCH = frozenset({"send_email", "send_sms", "agenda", "external_read", "inbox"})
 
 # Asked does not skip these — you still see the exact payload.
-ALWAYS_PAUSE_TOOLS = frozenset({"send_email", "send_sms", "run_script", "external_read"})
+ALWAYS_PAUSE_TOOLS = frozenset(
+    {"send_email", "send_sms", "run_script", "run_task", "external_read"}
+)
 
 _PERSIST_KEYS = {
     "writes": "confirm_writes",
@@ -142,8 +144,11 @@ def _http_method(args: dict[str, Any] | None) -> str:
     return str((args or {}).get("method") or "get").strip().lower()
 
 
+# Card mode (every theme except Filament): send and delete always pause.
 # Filament: the spoken ask is the grant. Only a destructive call pauses.
 _CONFIRM_MODE = "card"
+
+FLOOR_SEND_TOOLS = frozenset({"send_email", "send_sms"})
 
 DELETE_ACTIONS = {
     "contacts": frozenset({"remove"}),
@@ -160,7 +165,11 @@ DELETE_ACTIONS = {
 
 
 def set_confirm_mode(mode: str) -> None:
-    """card (sodium) or voice (filament). Tests reset this via apply_theme."""
+    """card (every theme except Filament) or voice (filament, testing).
+
+    The send/delete floor applies in card mode. Voice is exempt while
+    Filament is under testing. Tests reset this via apply_theme.
+    """
     global _CONFIRM_MODE
     _CONFIRM_MODE = "voice" if (mode or "").strip().lower() == "voice" else "card"
 
@@ -179,8 +188,16 @@ def action_is_delete(name: str, args: dict[str, Any] | None) -> bool:
     return bool(wanted and action in wanted)
 
 
+def floor_call(name: str, args: dict[str, Any] | None = None) -> bool:
+    """True for outbound mail/texts and any delete. Card mode always pauses."""
+    tool = (name or "").strip()
+    if tool in FLOOR_SEND_TOOLS:
+        return True
+    return action_is_delete(name, args)
+
+
 def _browser_is_pay(args: dict[str, Any] | None) -> bool:
-    """Checkout / Pay / Buy — she stops. You click, or you say yes."""
+    """Checkout / Pay / Buy, she stops. You click, or you say yes."""
     from arelis.browser.walls import pay_cta_label
 
     action = _action(args)
@@ -192,7 +209,7 @@ def _browser_is_pay(args: dict[str, Any] | None) -> bool:
 
 
 def _desktop_is_destructive(args: dict[str, Any] | None) -> bool:
-    """Delete / Pay / UAC on the desk — she stops."""
+    """Delete / Pay / UAC on the desk, she stops."""
     action = _action(args)
     if action not in {"click", "press", "type", "hotkey"}:
         return False
@@ -215,8 +232,10 @@ def action_is_destructive(name: str, args: dict[str, Any] | None) -> bool:
 
 
 def always_pause(name: str, args: dict[str, Any] | None = None) -> bool:
-    """True when the ask is not enough — send, pay, delete, run, outside read."""
+    """True when the ask is not enough, send, pay, delete, run, outside read."""
     tool = (name or "").strip()
+    if tool == "run_task" and _action(args) == "list":
+        return False
     if tool in ALWAYS_PAUSE_TOOLS:
         return True
     if tool == "browser" and _action(args) == "upload":
@@ -326,6 +345,8 @@ def confirm_toggle(
         return "none"
     if tool == "run_script":
         return "run"
+    if tool == "run_task":
+        return "none" if _action(args) == "list" else "run"
     if tool == "research_report":
         return "writes"
     if tool == "external_read":
@@ -376,20 +397,28 @@ def evaluate_confirm(
     """Decide whether this call must go through the confirm card.
 
     Argument-dependent, not just risk-dependent. An unknown tool (no risk)
-    and a read action both return False — the loop rejects unknown names
+    and a read action both return False. The loop rejects unknown names
     before it reaches here.
 
     Voice mode (filament) skips the card: saying the ask is the grant.
     Destructive calls still pause so she can ask out loud. Running a
-    project program is not ordinary — it pauses on voice too.
+    project program is not ordinary; it pauses on voice too.
+    Filament is exempt from the send/delete floor while it is under testing.
 
-    Sodium: the typed ask is the grant for local work unless ``ask_is_grant``
-    is off. Send, pay, delete, and ``run_script`` still pause when asked.
+    Card mode (every theme except Filament): send and delete always pause,
+    ignoring confirm_send, confirm_writes, ask_is_grant, asked, and
+    allow_writes_this_turn. The typed ask is the grant for other local
+    work unless ``ask_is_grant`` is off. Pay and ``run_script`` still pause
+    when asked.
     """
     if _CONFIRM_MODE == "voice":
         if (name or "").strip() == "run_script":
             return True
+        if (name or "").strip() == "run_task" and _action(args) != "list":
+            return True
         return action_is_destructive(name, args)
+    if floor_call(name, args):
+        return True
     toggle = confirm_toggle(name, args, risk=risk)
     if toggle == "send":
         gated = confirm_send
@@ -460,6 +489,8 @@ def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> Capabi
         return "READ"
     if tool == "run_script":
         return "SIDE_EFFECT_LOCAL"
+    if tool == "run_task":
+        return "READ" if action == "list" else "SIDE_EFFECT_LOCAL"
     if tool == "plot":
         return "WRITE_LOCAL"
     if tool == "document":
@@ -500,6 +531,23 @@ def confirm_toggles_for_call(
     }
 
 
+def _tool_confirm(
+    name: str,
+    args: dict[str, Any],
+    lookup: Callable[[str], Any] | None,
+) -> str:
+    """Card body from the tool, when it knows the file better than this table."""
+    tool = (lookup or (lambda _n: None))(name)
+    detail = getattr(tool, "confirm_detail", None)
+    if not callable(detail):
+        return ""
+    try:
+        return str(detail(args) or "").strip()
+    except Exception:
+        # A preview that throws must not take the Allow card down with it.
+        return ""
+
+
 def describe_call(
     name: str,
     args: dict[str, Any],
@@ -515,19 +563,28 @@ def describe_call(
     appears at all, so there is nothing to actually approve.
     """
     if name == "send_email":
+        from arelis.core.dash_filter import clean_dashes
+
         to = str(args.get("to") or "").strip() or "(you)"
-        subject = str(args.get("subject") or "").strip() or "(no subject)"
-        body = redact_secrets(str(args.get("body") or "")).strip()
+        # Dash-clean and redact for the card only. Never write this back into
+        # args: send_email.run already clean_dashes, and a redacted body would
+        # go out as "[redacted]" after Allow.
+        subject_raw = clean_dashes(str(args.get("subject") or "")).strip()
+        body = clean_dashes(redact_secrets(str(args.get("body") or ""))).strip()
+        subject = subject_raw or "(no subject)"
         attach = str(args.get("attach") or args.get("path") or "").strip()
         lines = [f"To:      {to}", f"Subject: {subject}"]
         if attach:
             lines.append(f"Attach:  {attach}")
         return "\n".join(lines) + f"\n\n{body}"
     if name == "send_sms":
+        from arelis.core.dash_filter import clean_dashes
         from arelis.sms import format_sms_confirm
 
         to = str(args.get("to") or "").strip()
-        body = redact_secrets(str(args.get("body") or "")).strip()
+        # Card display only. prepare_body dash-cleans at send; redaction must
+        # not rewrite the approved payload.
+        body = clean_dashes(redact_secrets(str(args.get("body") or ""))).strip()
         # Prefer the tool's loader so tests (and any future alternate book)
         # match what send_sms will actually resolve.
         contacts = None
@@ -637,7 +694,7 @@ def describe_call(
             lines.append("Question: (default describe)")
         lines.append(
             "Unloads the chat model briefly, runs the VL model, then "
-            "rewarms conversation. One still — seeing does not authorize "
+            "rewarms conversation. One still, seeing does not authorize "
             "sending or navigating."
         )
         return "\n".join(lines)
@@ -676,8 +733,8 @@ def describe_call(
                 lines.append("Pauses briefly so the page can settle (max 8s).")
         if action == "click":
             lines.append(
-                "Glows the target in her Chrome, waits a beat, then clicks. "
-                "text= is the visible label; nth=1 is the first result."
+                "Clicks immediately in her Chrome and returns a snapshot of "
+                "the page. text= is the visible label; nth=1 is the first result."
             )
         if action == "type":
             lines.append(
@@ -737,22 +794,52 @@ def describe_call(
                 "stop before Checkout / Pay."
             )
         if action == "reserve":
+            from arelis.browser.reserve import (
+                normalize_date,
+                normalize_reserve_site,
+                normalize_time,
+                party_cap_note,
+                resolve_party,
+                spoken_date,
+                spoken_time,
+            )
+
             place = str(
                 args.get("place") or args.get("query") or args.get("destination") or ""
             ).strip()
             if place:
                 lines.append(f"Place: {place}")
-            party = args.get("party")
-            if party not in (None, ""):
-                lines.append(f"Party: {party}")
-            if str(args.get("date") or "").strip():
-                lines.append(f"Date: {args.get('date')}")
-            if str(args.get("time") or "").strip():
-                lines.append(f"Time: {args.get('time')}")
-            lines.append(
-                "Opens OpenTable (or Resy / Google) with party/date/time "
-                "in the URL. You click Book / Reserve."
-            )
+            lines.append(f"Party: {resolve_party(args.get('party'), args.get('covers'))}")
+            raw_date = str(args.get("date") or "").strip()
+            raw_time = str(args.get("time") or "").strip()
+            day = normalize_date(raw_date) if raw_date else None
+            clock = normalize_time(raw_time) if raw_time else None
+            if day:
+                said = spoken_date(day)
+                if said:
+                    lines.append(f"Date: {said}")
+                else:
+                    lines.append(
+                        "I couldn't read the date, so pick it on the booking page."
+                    )
+            elif raw_date:
+                lines.append(
+                    "I couldn't read the date, so pick it on the booking page."
+                )
+            if clock:
+                said_time = spoken_time(clock)
+                if said_time:
+                    lines.append(f"Time: {said_time}")
+            elif raw_time:
+                lines.append("I need a real time before that booking link can include one.")
+            note = party_cap_note(args.get("party"), args.get("covers"))
+            if note:
+                lines.append(note)
+            site_key = normalize_reserve_site(str(args.get("site") or "opentable"))
+            site_name = {"opentable": "OpenTable", "resy": "Resy", "google": "Google"}[
+                site_key
+            ]
+            lines.append(f"Opens {site_name}. You click Book when the page is ready.")
         return "\n".join(lines)
     if name == "desktop":
         action = str(args.get("action") or "").strip().lower() or "?"
@@ -789,7 +876,7 @@ def describe_call(
             return "\n".join(lines)
         return (
             "Read system clipboard text\n"
-            "May include passwords or private notes — only if you "
+            "May include passwords or private notes, only if you "
             "intend to share what is currently copied."
         )
     if name == "ocr":
@@ -802,7 +889,7 @@ def describe_call(
         path = str(args.get("path") or "").strip() or "?"
         return (
             f"OCR local image (Tesseract CPU)\nPath: {path}\n"
-            "One still — seeing does not authorize sending or navigating."
+            "One still, seeing does not authorize sending or navigating."
         )
     if name == "agenda":
         action = str(args.get("action") or "").strip().lower() or "?"
@@ -884,18 +971,39 @@ def describe_call(
             lines.append(f"Horizon: {horizon}")
         return "\n".join(lines)
     if name == "run_script":
+        rendered = _tool_confirm(name, args, lookup)
+        if rendered:
+            return rendered
         path = str(args.get("path") or "").strip() or "(path)"
         extra = args.get("args")
-        lines = ["Run this program", f"Path: {path}"]
+        lines = [
+            "Run this program",
+            "This process runs as you. It can touch the rest of the disk.",
+            f"Path: {path}",
+        ]
         if extra:
             lines.append(f"Args: {extra}")
         return "\n".join(lines)
+    if name == "run_task":
+        rendered = _tool_confirm(name, args, lookup)
+        if rendered:
+            return rendered
+        task = str(args.get("name") or "").strip() or "(name)"
+        return (
+            f"Run {task}\n"
+            "This process runs as you. It can touch the rest of the disk."
+        )
     if name == "workspace":
+        rendered = _tool_confirm(name, args, lookup)
+        if rendered:
+            return rendered
         action = str(args.get("action") or "").strip().lower() or "?"
         path = str(args.get("path") or "").strip() or "(path)"
         lines = [f"Workspace {action}", f"Path: {path}"]
         if action in {"write", "edit"}:
-            content = redact_secrets(str(args.get("content") or args.get("new_text") or ""))
+            content = redact_secrets(
+                str(args.get("content") or args.get("new") or args.get("new_text") or "")
+            )
             if not content.strip():
                 lines.append("Content: (empty)")
             else:

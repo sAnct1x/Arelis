@@ -1,4 +1,4 @@
-"""Deterministic Attention scan — measured watchers/proactivity v1.
+"""Deterministic Attention scan, measured watchers/proactivity v1.
 
 No background poller, no silent send. Pure function over tasks/goals/agenda
 (+ optional config inbox/file rules) so the morning briefing (and an attended
@@ -123,7 +123,7 @@ def collect_attention(
         items.append(
             AttentionItem(
                 kind="horizon_goal",
-                text=f"Horizon soon ({kind}): {prefix}{title} — {horizon}",
+                text=f"Horizon soon ({kind}): {prefix}{title}, {horizon}",
                 sort_key=f"2:{horizon}:{gid}",
             )
         )
@@ -267,7 +267,7 @@ def _inbox_rule_items(
         items.append(
             AttentionItem(
                 kind="inbox_match",
-                text=f"Inbox match ({rid}): {subject} — {sender}{extra}",
+                text=f"Inbox match ({rid}): {subject}, {sender}{extra}",
                 sort_key=f"0.5:{rid}:{subject}",
             )
         )

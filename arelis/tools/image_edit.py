@@ -96,7 +96,7 @@ def _parse_crop_box(value: Any) -> tuple[int, int, int, int] | None:
             return None
         if len(present) != 4:
             raise ValueError(
-                "crop_box needs left, top, right, and bottom — a rectangle inside the image."
+                "crop_box needs left, top, right, and bottom, a rectangle inside the image."
             )
         try:
             left, top, right, bottom = (int(value[key]) for key in keys)
@@ -160,9 +160,9 @@ class ImageEditTool:
         "youtube_banner, instagram_square, instagram_story, tiktok, twitter_post, "
         "linkedin_post, wallpaper_1080p, wallpaper_1440p, phone_wallpaper, icon), "
         "fit (cover crops to fill, contain pads, stretch distorts), crop "
-        "(left/right/top/bottom/center — keep that half; center is the middle "
+        "(left/right/top/bottom/center, keep that half; center is the middle "
         "50% on both axes), crop_box (left, top, right, bottom in pixels on the "
-        "source), scale (2.0 is 2×, clamped 0.1–4.0 — arithmetic, not a model), "
+        "source), scale (2.0 is 2×, clamped 0.1–4.0, arithmetic, not a model), "
         "pad (border pixels, black or transparent PNG), rotate (degrees "
         "clockwise), flip (horizontal/vertical), grayscale, invert, blur "
         "(radius), text (centered overlay), text_align (center/top/bottom), "
@@ -271,7 +271,7 @@ class ImageEditTool:
                 "type": "string",
                 "description": (
                     "Glyphs to stamp on the picture (e.g. Arelis). Centered by "
-                    "default. Not an SMS — this draws on the image."
+                    "default. Not an SMS, this draws on the image."
                 ),
             },
             "text_align": {
@@ -684,7 +684,7 @@ class ImageEditTool:
         rel = display_path(dest)
         return ToolResult(
             ok=True,
-            output=f"Saved {rel} — {', '.join(changes)}.",
+            output=f"Saved {rel}, {', '.join(changes)}.",
             data={
                 "path": rel,
                 "abs_path": str(dest),
@@ -791,9 +791,11 @@ def _apply_warmth(frame: Any, warmth: float) -> Any:
 
 
 def overlay_font_paths() -> tuple[Path, ...]:
-    """IBM Plex first (the desk face), then Segoe. Arial is a last resort."""
+    """Desk face first (Zen Kaku Bold), then IBM Plex. Arial is a last resort."""
     bundled = Path(__file__).resolve().parents[1] / "ui" / "fonts"
     return (
+        bundled / "ZenKakuGothicNew-Bold.ttf",
+        bundled / "ZenKakuGothicNew-Regular.ttf",
         bundled / "IBMPlexSans-SemiBold.ttf",
         bundled / "IBMPlexSans-Regular.ttf",
         Path(r"C:\Windows\Fonts\segoeuib.ttf"),
@@ -822,7 +824,7 @@ def _ink(mode: str, rgb: tuple[int, int, int]) -> Any:
 
 
 def _draw_overlay_text(frame: Any, text: str, align: str) -> Any:
-    """Stamp cream glyphs with a dark stroke so they read on any background."""
+    """Stamp paper glyphs with a room-dark stroke so they read on any background."""
     from PIL import ImageDraw
 
     draw = ImageDraw.Draw(frame)
@@ -854,8 +856,8 @@ def _draw_overlay_text(frame: Any, text: str, align: str) -> Any:
         (x, y),
         text,
         font=best,
-        fill=_ink(frame.mode, (250, 232, 220)),
+        fill=_ink(frame.mode, (248, 241, 234)),
         stroke_width=stroke,
-        stroke_fill=_ink(frame.mode, (22, 13, 7)),
+        stroke_fill=_ink(frame.mode, (16, 13, 11)),
     )
     return frame

@@ -12,7 +12,7 @@ None of this is a cloud API.
 | Category | Now | 10/10 |
 |---|---|---|
 | Ship | 10 | Discover Comfy on disk; start it when found; one-step fail if missing |
-| Txt2img | 10 | SDXL when present; aspect; style; 1–4 variations; seed; sidecar |
+| Txt2img | 10 | SDXL when present; aspect; style; 1-4 variations; seed; sidecar |
 | Restyle | 10 | img2img with path + denoise + style |
 | Surgical | 10 | Region inpaint, outpaint, optional rembg |
 | Pixel | 10 | Crop box/half, 2× enlarge, pad, warmth, plus rotate/grade/overlay |
@@ -33,7 +33,7 @@ None of this is a cloud API.
   found without a recursive drive scan. `launch_cwd` empty still
   starts that copy. If nothing is there, the fail names
   `tools.image.launch_cwd` and `auto_start` once.
-- **Txt2img / restyle.** One call. Optional `n` (1–4), `aspect`,
+- **Txt2img / restyle.** One call. Optional `n` (1-4), `aspect`,
   `style`, `path` + `denoise`. A `.json` sidecar sits next to the PNG.
 - **Surgical.** `mask_region` (left / right / top / bottom / center)
   or a pixel box inpaints. `outpaint` grows the canvas. `remove_background`
@@ -46,7 +46,7 @@ None of this is a cloud API.
   the sidecar prompt. Left / right walk the rail. Open stays on that face.
 - **Feel.** `arelis/tools/image_polish.py` is the rubric (intuitiveness,
   usability, visual, scalability, maintainability). A 10 is every named
-  check on that axis. Overlay type is IBM Plex with a sodium stroke.
+  check on that axis. Overlay type is Zen Kaku Gothic New with a sodium stroke.
 - **Routing.** “Four versions” → `image n=4`. “Upscale this” →
   `image_edit scale=2`. “Remove the background” → `image`.
   “Crop the left half” → `image_edit`. “Make this a watercolor” →

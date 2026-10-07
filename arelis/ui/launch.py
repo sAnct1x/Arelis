@@ -12,7 +12,7 @@ from collections.abc import MutableMapping
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 
 from arelis.config import load_config
@@ -28,7 +28,9 @@ from arelis.presence.inbound_runtime import InboundRuntime
 from arelis.presence.ipc_client import IpcClient
 from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
+from arelis.setup.state import needs_model_setup, try_quiet_complete_model_setup
 from arelis.ui.first_run import prompt_for_workspace_root
+from arelis.ui.foreground import show_without_activating
 from arelis.ui.scale import configure_display_scale
 from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.theme import (
@@ -44,6 +46,128 @@ from arelis.voice import VoiceService
 from arelis.workspace import WorkspaceRoots
 
 log = logging.getLogger(__name__)
+
+
+def first_run_blocks_main() -> bool:
+    """True while model setup is still unfinished. Mute main glass must wait."""
+    return needs_model_setup()
+
+
+def _reload_after_first_run(
+    config: dict[str, Any], *, config_was_given: bool
+) -> dict[str, Any]:
+    """Pick up pins first-run glass wrote to config.local.yaml.
+
+    When the caller did not hand us a config, reload from disk (default + local).
+    When they did (tests, ``--config``), merge the on-disk local overlay into
+    that dict so we do not throw away the caller's base settings.
+    """
+    if not config_was_given:
+        return load_config()
+    from arelis.config import (
+        LOCAL_CONFIG_PATH,
+        _parse_workspace_roots,
+        deep_merge,
+        ensure_package_inspect_root,
+    )
+
+    if not LOCAL_CONFIG_PATH.is_file():
+        return config
+    try:
+        import yaml
+
+        local = yaml.safe_load(LOCAL_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        # Corrupt or unreadable local overlay: keep the caller's config rather
+        # than aborting launch after the person already finished first-run glass.
+        log.warning("could not re-read local config after first-run", exc_info=True)
+        return config
+    if not isinstance(local, dict) or not local:
+        return config
+    deep_merge(config, local)
+    named = _parse_workspace_roots(
+        (config.get("workspace") or {}).get("roots", ["."])
+    )
+    named = ensure_package_inspect_root(named)
+    config.setdefault("workspace", {})
+    config["workspace"]["named_roots"] = named
+    config["workspace"]["roots"] = [entry["path"] for entry in named]
+    return config
+
+
+def apply_first_run_glass(
+    config: dict[str, Any], *, config_was_given: bool = False
+) -> dict[str, Any] | None:
+    """Workspace then model glass. Always ask when needed, even if config was given.
+
+    Returns the (possibly refreshed) config when it is safe to open the main
+    window, or None when model setup is still unfinished after one dialog
+    attempt. Incomplete close shows the existing notice and exits; the next
+    launch asks again. No loop.
+    """
+    # Do not gate on config_was_given. Main always passes a config for the
+    # normal installer path; that flag only means "do not silently replace the
+    # caller dict" when refreshing after a prompt actually ran.
+    if prompt_for_workspace_root() is not None:
+        config = _reload_after_first_run(config, config_was_given=config_was_given)
+
+    # Upgraders who already have the engine and the shipped default model:
+    # mark complete quietly. Do not open the wizard or pull a different tag.
+    try_quiet_complete_model_setup()
+    if needs_model_setup():
+        tag = prompt_for_model_setup()
+        if tag is not None:
+            config = _reload_after_first_run(config, config_was_given=config_was_given)
+    if first_run_blocks_main():
+        return None
+    return config
+
+
+def _present_at_startup(window: Any) -> None:
+    """Show the glass at launch without taking keyboard focus."""
+    window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
+    show_without_activating(window)
+
+
+def _open_ui_reason(msg: object) -> str:
+    """Map a core open_ui payload to an activation reason.
+
+    Missing or empty reason is not a user open. Matches what IpcServer already
+    does for requests without a reason.
+    """
+    if not isinstance(msg, dict):
+        return "open_ui"
+    reason = str(msg.get("reason") or "")
+    return reason if reason else "open_ui"
+
+
+def _mark_launch(window: Any, background: bool) -> None:
+    """Remember a quiet launch, then drop the flag once the person uses the window."""
+    window._launched_in_background = bool(background)
+    if not background:
+        return
+    app = QGuiApplication.instance()
+    if app is None:
+        return
+
+    def _clear_on_active(state: object) -> None:
+        if state != Qt.ApplicationState.ApplicationActive:
+            return
+        window._launched_in_background = False
+        try:
+            app.applicationStateChanged.disconnect(_clear_on_active)
+        except (RuntimeError, TypeError):
+            pass
+
+    app.applicationStateChanged.connect(_clear_on_active)
+
+
+def _core_open_ui_handler(window: Any) -> Any:
+    """Core IPC open_ui callback: map the payload, then ask the window on the Qt thread."""
+    return lambda msg: QTimer.singleShot(
+        0,
+        lambda m=msg: window._on_activation_request(_open_ui_reason(m)),
+    )
 
 
 def _start_activation_listener(
@@ -64,8 +188,8 @@ def _start_activation_listener(
             bus,
             host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
             port=int(presence_cfg.get("ipc_port") or 8766),
-            on_open_ui=lambda _reason: QTimer.singleShot(
-                0, window._on_activation_request
+            on_open_ui=lambda reason: QTimer.singleShot(
+                0, lambda r=reason: window._on_activation_request(str(r or ""))
             ),
             seat="ui",
         )
@@ -90,7 +214,7 @@ def force_windows_qt_platform(env: MutableMapping[str, str]) -> None:
     """Insist on the real Windows Qt backend, whatever the environment says.
 
     A stray QT_QPA_PLATFORM is a process that starts, runs, logs normally and
-    never shows a window — the worst shape a failure can take, because there is
+    never shows a window, the worst shape a failure can take, because there is
     nothing to look at while you work out why. offscreen is the value that
     actually gets set by accident, exported by a test run and inherited by the
     next launch from the same shell, but minimal and vnc go wrong identically.
@@ -116,10 +240,10 @@ async def _drain_event_loop(
     """Stop what is still running before the loop is taken out from under it.
 
     Stopping the loop with work in flight is not free, whatever the exit code
-    says. The visible symptom was tidy enough to ignore — "Task was destroyed but
+    says. The visible symptom was tidy enough to ignore, "Task was destroyed but
     it is pending" for EventBus.run and MemoryIndexer.run_batch, then an
     "Indexed 3 workspace file(s)" line arriving two and a half seconds after quit
-    had finished — but the second half of that is the part that matters. The
+    had finished, but the second half of that is the part that matters. The
     indexer does its writing in ``asyncio.to_thread``, so cancelling the task
     only abandons the *await*: the worker thread carries on into memory.db while
     the interpreter is shutting down around it. A process exiting during a SQLite
@@ -159,7 +283,7 @@ async def _drain_event_loop(
         # evil: a quit that never returns is a program the user has to kill, and
         # they will then be exiting mid-write anyway with no record of why.
         log.warning(
-            "loop drain: background writes still running after %.2fs — exiting anyway",
+            "loop drain: background writes still running after %.2fs, exiting anyway",
             budget_s,
         )
     try:
@@ -176,7 +300,7 @@ _HANDOFF_MAX_TRIES = 24
 def _raise_running_instance(config: dict[str, Any]) -> int:
     """Second launch: put the Arelis that is already running back on screen.
 
-    The UI lock is held, so this copy must not open a window — two glasses over
+    The UI lock is held, so this copy must not open a window, two glasses over
     one memory.db is not a thing anyone wants. But refusing quietly is worse than
     it sounds: the running instance is usually hidden in the tray, so the visible
     result of double-clicking Arelis was nothing at all, and the honest response
@@ -185,7 +309,7 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
 
     A held lock always means a living process. Windows releases both the named
     mutex and the byte lock when a process ends, however it ends, so there is no
-    such thing here as a stale lock left by a crash — if the lock is held, someone
+    such thing here as a stale lock left by a crash, if the lock is held, someone
     is home. The wait-and-retry lives in ``_second_launch``; this function is the
     last-resort notice after that wait has already asked and the other copy still
     did not answer.
@@ -217,8 +341,8 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
             "Arelis is already open, but it did not answer the request to come "
             "to the front.",
             detail=(
-                "Look for the Arelis icon in the notification area — Windows "
-                "often keeps it in the overflow behind the chevron — and choose "
+                "Look for the Arelis icon in the notification area, Windows "
+                "often keeps it in the overflow behind the chevron, and choose "
                 f"Open Arelis. If it is not responding at all, {logs_dir()}"
                 "\\arelis.log has the last thing it did."
             ),
@@ -264,12 +388,14 @@ def _second_launch(config: dict[str, Any], ui_lock: Any) -> int | None:
     return _raise_running_instance(config)
 
 
-def run_ui(config: dict[str, Any] | None = None) -> int:
+def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) -> int:
     # Before any QApplication — a native child HWND is the offset ghost, and
     # this attribute is what stops one winId() from promoting every sibling.
     configure_native_windows()
     # Remembered because first run may need to reload from disk, and a config
-    # handed in by a caller (tests, harnesses) must not be silently replaced.
+    # handed in by a caller (tests, harnesses) must not be silently replaced
+    # when the glasses did not run. The glasses themselves always run when
+    # needed; this flag only controls how we refresh config afterward.
     config_was_given = config is not None
     config = config or load_config()
     # Per-monitor DPI + optional ui.scale. Must land before QApplication.
@@ -345,18 +471,23 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     app.setFont(app_font(families))
     app.setStyleSheet(stylesheet())
 
-    # First run: ask which folder Arelis may work in. It happens here rather than
-    # beside the other config work above because it needs a QApplication, and the
-    # QApplication cannot be created until the font and platform environment is
-    # set. Nothing between the two reads the workspace.
-    # Returns None when the question has already been answered, which is every
-    # launch after the first.
-    if not config_was_given and prompt_for_workspace_root() is not None:
-        config = load_config()
-        workspace = _bind_workspace(config)
-    if not config_was_given and prompt_for_model_setup() is not None:
-        config = load_config()
-        workspace = _bind_workspace(config)
+    # First run: workspace folder, then model setup. Needs QApplication.
+    # Always ask when needed. Do not skip because main passed a config dict.
+    refreshed = apply_first_run_glass(config, config_was_given=config_was_given)
+    if refreshed is None:
+        from arelis.ui.dialog import notice
+
+        notice(
+            None,
+            "Setup is not finished",
+            "Arelis needs a chat model on this PC before it can open.",
+            detail="Run Arelis again when you are ready to finish setup.",
+            warning=True,
+        )
+        _release_ui_lock()
+        return 1
+    config = refreshed
+    workspace = _bind_workspace(config)
     # Required so hiding the last window to the tray does not kill the process.
     presence_cfg_early = (config or {}).get("presence") or {}
     if bool(presence_cfg_early.get("close_to_tray", True)):
@@ -466,6 +597,8 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         logging.getLogger(__name__).exception("Arelis window failed to start")
         _release_ui_lock()
         raise
+    _mark_launch(window, background)
+    window.orchestrator = orchestrator
     asyncio.run_coroutine_threadsafe(orchestrator.resume_last_room(), loop)
     # Inbound: by default the UI owns ingest. Close-to-tray keeps it alive when
     # the window hides; `arelis --core` can own ingest instead.
@@ -496,9 +629,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     bus,
                     host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
                     port=int(presence_cfg.get("ipc_port") or 8766),
-                    on_open_ui=lambda _msg: QTimer.singleShot(
-                        0, window._on_activation_request
-                    ),
+                    on_open_ui=_core_open_ui_handler(window),
                     # Our own core may have fallen forward past the configured
                     # port because another account on this PC holds it. The
                     # handshake names the account, so scanning cannot attach us
@@ -559,7 +690,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     EventType.STATUS,
                     {
                         "message": (
-                            f"{len(parked)} pending send confirm(s) waiting — "
+                            f"{len(parked)} pending send confirm(s) waiting, "
                             "allow or skip in the card (nothing was sent while away)."
                         )
                     },
@@ -568,10 +699,11 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
             loop,
         )
 
-    window.show()
-    window.raise_()
-    window.activateWindow()
-    window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
+    from arelis.i18n import apply_language
+    from arelis.talk_language import session_code
+
+    apply_language(window, session_code(config))
+    _present_at_startup(window)
 
     def _deferred_memory_backup() -> None:
         try:

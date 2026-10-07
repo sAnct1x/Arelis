@@ -3,7 +3,7 @@
 Whole utterance only for decisions and hangup. Room chat and "I don't know"
 must not allow a send. Stop is the turn, not deny-this-step. Hangup ends
 the hands-free call. Pause / go hold her Chrome drive. After a stop,
-ordinary talk goes to the model with a one-line note — no resume phrase list.
+ordinary talk goes to the model with a one-line note, no resume phrase list.
 """
 
 from __future__ import annotations
@@ -26,16 +26,18 @@ _ALLOW = re.compile(
     r"yes|yeah|yep|yup|ok|okay|sure|"
     r"allow|approve|"
     r"go ahead|do it|please do|"
-    r"keep going|continue"
-    r")\s*[.!]?\s*$"
+    r"keep going|continue|"
+    r"好的?|可以|行|嗯|同意|没问题|继续"
+    r")\s*[.!?。！？]?\s*$"
 )
 _STOP = re.compile(
     r"(?i)^\s*(?:"
     r"stop|cancel|"
     r"cut it out|that's enough|thats enough|"
     r"stop (?:it|that|please|talking)|"
-    r"be quiet|shut up|hush"
-    r")\s*[.!]?\s*$"
+    r"be quiet|shut up|hush|"
+    r"停|停下|停止|别说了|安静"
+    r")\s*[.!?。！？]?\s*$"
 )
 # Hang up conversation. Whole utterance only. Not "stop" (that cancels a
 # turn) and not "stop talking" (that hushes her and stays in the call).
@@ -49,29 +51,33 @@ _HANGUP = re.compile(
     r"go(?:\s+back)?\s+to\s+sleep|"
     r"(?:i(?:'?m|\s+am)\s+)?done\s+talking|"
     r"talk\s+later|"
-    r"see\s+y(?:a|ou)(?:\s+later)?"
-    r")\s*[.!]?\s*$"
+    r"see\s+y(?:a|ou)(?:\s+later)?|"
+    r"再见|拜拜|晚安|先这样|就这样|不说了"
+    r")\s*[.!?。！？]?\s*$"
 )
 _DRIVE_PAUSE = re.compile(
     r"(?i)^\s*(?:"
     r"pause|"
     r"hold on|hold up|hang on|"
-    r"wait(?: a (?:sec(?:ond)?|minute))?"
-    r")\s*[.!]?\s*$"
+    r"wait(?: a (?:sec(?:ond)?|minute))?|"
+    r"等一下|等会|暂停|慢着"
+    r")\s*[.!?。！？]?\s*$"
 )
 _DRIVE_RESUME = re.compile(
     r"(?i)^\s*(?:"
     r"go|resume|unpause|unfreeze|"
-    r"keep going|continue|go ahead"
-    r")\s*[.!]?\s*$"
+    r"keep going|continue|go ahead|"
+    r"继续|接着说|接着|往下"
+    r")\s*[.!?。！？]?\s*$"
 )
 _DENY = re.compile(
     r"(?i)^\s*(?:"
     r"no|nope|nah|"
     r"deny|"
     r"don't|dont|do not|"
-    r"never|not now"
-    r")\s*[.!]?\s*$"
+    r"never|not now|"
+    r"不|不要|不用|别|算了|取消"
+    r")\s*[.!?。！？]?\s*$"
 )
 
 # Spoken corrections on an open send card. Leading "no" is "change this", not deny.
@@ -147,6 +153,12 @@ def classify_repeat(text: str) -> bool:
     raw = (text or "").strip()
     if not raw:
         return False
+    if re.match(
+        r"^\s*(?:再说一遍|再说一次|你刚才说什么|你刚说什么|没听清|没听清楚|没听见)"
+        r"\s*[。！？?]?\s*$",
+        raw,
+    ):
+        return True
     if _REPEAT_WHOLE.match(raw):
         return True
     if not _REPEAT_TAIL.search(raw):
@@ -159,7 +171,7 @@ def classify_voice_act(text: str) -> str | None:
 
     Values: ``allow``, ``allow_turn``, ``skip`` (deny), ``stop``.
     Empty string is not a decision (Enter on an empty composer stays allow).
-    After a stop, ordinary talk goes to the model with a one-line note —
+    After a stop, ordinary talk goes to the model with a one-line note
     no resume phrase list.
     """
     raw = (text or "").strip()
@@ -180,7 +192,7 @@ def classify_drive_act(text: str) -> str | None:
     """``pause`` / ``resume`` for her Chrome drive, or None.
 
     Whole utterance only. Physics ``pause`` is classified first in the
-    orchestrator when Reality is open. ``go ahead`` is also allow — the
+    orchestrator when Reality is open. ``go ahead`` is also allow, the
     caller uses resume only while the drive is held.
     """
     raw = (text or "").strip()

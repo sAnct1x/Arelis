@@ -1,7 +1,8 @@
 """Drawn sodium marks for Earth layers and solar body kinds.
 
 One path language. Qt overlay, Cesium atlas, inspect card, and solar roster
-all call this factory. Stroke is 1.25px, round caps, same hand as icons.py.
+all call this factory. Stroke scales with the mark, round caps, same hand
+as icons.py. Earth layers sit on a dark disc so they read on imagery.
 No icon packs, no theme icons, no downloaded glyph set.
 """
 
@@ -25,6 +26,8 @@ from arelis.earth.entity import LAYER_IDS
 from arelis.ui.theme import color
 
 STROKE = 2.0
+# paint_mark sets this so a line drawn at atlas size still reads at 32px.
+_ACTIVE_STROKE = 2.6
 BANDS: tuple[str, ...] = ("space", "approach", "near", "city")
 BAND_PX: dict[str, int] = {
     "space": 44,
@@ -111,7 +114,7 @@ def _detail(band: str) -> int:
 
 def _pen(ink: QColor, *, dashed: bool = False, width: float | None = None) -> QPen:
     pen = QPen(ink)
-    pen.setWidthF(STROKE if width is None else float(width))
+    pen.setWidthF(_ACTIVE_STROKE if width is None else float(width))
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     if dashed:
@@ -131,6 +134,19 @@ def _fill(painter: QPainter, ink: QColor) -> None:
     wash = QColor(ink)
     wash.setAlpha(FILL_ALPHA)
     painter.setBrush(wash)
+
+
+def _plate(painter: QPainter, r: float, ink: QColor) -> None:
+    """Dark disc so a mark reads on day imagery and on city lights."""
+    plate = QColor(12, 8, 6, 228)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(plate)
+    painter.drawEllipse(QPointF(0.0, 0.0), r * 1.12, r * 1.12)
+    ring = QColor(ink)
+    ring.setAlpha(230)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(_pen(ring, width=max(1.6, _ACTIVE_STROKE * 0.55)))
+    painter.drawEllipse(QPointF(0.0, 0.0), r * 1.08, r * 1.08)
 
 
 def _body(painter: QPainter, ink: QColor) -> None:
@@ -186,7 +202,7 @@ def _draw_flights(painter: QPainter, r: float, detail: int) -> None:
 
 
 def _draw_military(painter: QPainter, r: float, detail: int) -> None:
-    """Delta fighter, twin fins — not the airliner."""
+    """Delta fighter, twin fins, not the airliner."""
     del detail
     delta = QPolygonF(
         [
@@ -252,7 +268,7 @@ def _draw_satellites(painter: QPainter, r: float, detail: int, ink: QColor) -> N
 
 
 def _draw_iss(painter: QPainter, r: float, ink: QColor) -> None:
-    """Truss and four solar wings — the station, not a ring."""
+    """Truss and four solar wings, the station, not a ring."""
     del ink
     _line(painter, -r * 0.96, 0.0, r * 0.96, 0.0)
     painter.drawRect(QRectF(-r * 0.16, -r * 0.14, r * 0.32, r * 0.28))
@@ -289,7 +305,7 @@ def _draw_people(painter: QPainter, r: float, ink: QColor) -> None:
 
 
 def _draw_radar(painter: QPainter, r: float) -> None:
-    """Dish on a stem — a sweep, not a diamond."""
+    """Dish on a stem, a sweep, not a diamond."""
     _line(painter, 0.0, r * 0.86, 0.0, r * 0.04)
     _line(painter, -r * 0.24, r * 0.86, r * 0.24, r * 0.86)
     painter.drawArc(QRectF(-r * 0.72, -r * 0.78, r * 1.44, r * 1.20), 20 * 16, 140 * 16)
@@ -497,13 +513,17 @@ def paint_mark(
     del hot
     if ink is None:
         ink = ink_for_kind(kind)
+    global _ACTIVE_STROKE
     px = float(size if size is not None else mark_size(band))
-    r = px * 0.46
+    r = px * 0.42
     detail = _detail(band)
+    _ACTIVE_STROKE = max(1.8, px * 0.062)
     painter.save()
     painter.translate(QPointF(cx, cy))
     if kind in HEADING_KINDS and heading_deg is not None:
         painter.rotate(float(heading_deg))
+    if kind in LAYER_IDS:
+        _plate(painter, r, ink)
     _body(painter, ink)
     drawer = _DRAWERS.get(kind)
     if drawer is not None:

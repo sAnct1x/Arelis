@@ -45,6 +45,13 @@ class Scenario:
     expect_model_switch_reason: str = ""
     # When set with expect_model_switch_reason, require payload role match.
     expect_escalate_to_role: str = ""
+    # Stub tools that answer ok=False, so a scenario can test what the loop does
+    # when the tool it routed to fails. Offline only; the live board uses real tools.
+    failing_tools: tuple[str, ...] = ()
+    # Tools removed from the offline registry, for "the tool does not exist this
+    # turn" scenarios. Without this the route preinjects the stub and the
+    # refusal path is never reached.
+    absent_tools: tuple[str, ...] = ()
     # Skip live Ollama matrix (scripted refuse / edge cases only).
     offline_only: bool = False
     # Research / FAMA-style failure class this guards.
@@ -71,10 +78,10 @@ SCENARIOS: list[Scenario] = [
         forbid_tools=("scrape",),
         failure_class="contextual_misinterpretation",
         notes=(
-            "Must call weather, not scrape AccuWeather — so the script does "
-            "the wrong thing and redirect_weather has to fix it. Before "
-            "2026-09-17 this scripted the weather call itself and asserted "
-            "weather was called, which no amount of broken redirect could fail."
+            "Must call weather, not scrape AccuWeather. The route preinjects "
+            "weather before this scripted scrape is read. Before 2026-09-17 "
+            "this scripted the weather call itself and asserted weather was "
+            "called, which no amount of broken routing could fail."
         ),
         script=[
             [
@@ -205,6 +212,31 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        id="orbit_year_days_forces_calculator",
+        user="don't guess, how many earth days is 11.86 years",
+        expect_tools=("calculator",),
+        failure_class="knowing_doing_gap",
+        notes=(
+            "Spoken years-to-days must force the calculator. Reciting 4307 "
+            "(11.8*365) without a tool is the night-theme defect."
+        ),
+        script=[
+            [("token", "That's about 4,307 days.")],
+            [
+                (
+                    "tool_calls",
+                    [
+                        _tool_call(
+                            "calculator",
+                            {"expression": "11.86 * 365.25"},
+                        )
+                    ],
+                )
+            ],
+            [("token", "About 4332 days.")],
+        ],
+    ),
+    Scenario(
         id="news_forces_web_evidence",
         user="What did the WSJ say about AI virus genomes?",
         expect_tools=("web_search", "scrape"),
@@ -242,11 +274,37 @@ SCENARIOS: list[Scenario] = [
         user="What is 17.5% of 840?",
         expect_tools=(),
         allow_no_tools=True,
+        absent_tools=("calculator",),
         offline_only=True,
         expect_answer_contains=("don't know",),
         forbid_claim_if_no_tool=("147",),
         failure_class="knowing_doing_gap",
-        notes="Exactness hard refuse: second bare invent after force must not ship.",
+        notes=(
+            "Exactness hard refuse: second bare invent after force must not ship. "
+            "Unchanged intent. The route now preinjects calculator whenever it is "
+            "registered, so the scenario removes it from the registry "
+            "(absent_tools) to keep reaching the refusal path."
+        ),
+        script=[
+            [("token", "That would be about 147.")],
+            [("token", "I'm sure the answer is 147.")],
+        ],
+    ),
+    Scenario(
+        id="math_refuses_when_calculator_fails",
+        user="What is 17.5% of 840?",
+        expect_tools=("calculator",),
+        failing_tools=("calculator",),
+        offline_only=True,
+        expect_answer_contains=("calculator couldn't evaluate",),
+        forbid_claim_if_no_tool=("147",),
+        failure_class="knowing_doing_gap",
+        notes=(
+            "The real guarantee behind math_refuses_without_calculator, kept "
+            "after the route began preinjecting calculator: the calculator is "
+            "called, it errors, and the model's recited 147 (never a tool "
+            "result) must not ship. The answer is the calculator-failed refusal."
+        ),
         script=[
             [("token", "That would be about 147.")],
             [("token", "I'm sure the answer is 147.")],
@@ -318,13 +376,14 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id="constant_refuses_without_units",
         user="what is the gravitational constant?",
-        expect_tools=(),
-        allow_no_tools=True,
+        expect_tools=("units",),
         offline_only=True,
-        expect_answer_contains=("don't know",),
         forbid_claim_if_no_tool=("6.674",),
         failure_class="knowing_doing_gap",
-        notes="Exactness hard refuse: recited CODATA must not ship.",
+        notes=(
+            "The route preinjects units before this scripted recital is read. "
+            "A turn that never got a units result still uses the refusal sentence."
+        ),
         script=[
             [("token", "G is 6.674e-11 in SI units.")],
             [("token", "It's 6.67430e-11 m^3/kg/s^2.")],
@@ -1913,7 +1972,7 @@ SCENARIOS: list[Scenario] = [
         category="tool_select",
         notes=(
             "Guards weather_force_call. The model reaches for a search engine; "
-            "redirect_weather has to block it and inject the weather call."
+            "the weather preinject runs weather before that call is read."
         ),
         script=[
             [

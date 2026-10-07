@@ -1,6 +1,6 @@
 """Standing user profile from data/profile.yaml (non-location fields).
 
-Location stays in arelis.location — this module only formats identity and
+Location stays in arelis.location, this module only formats identity and
 preferences that should ride every turn without becoming SQLite facts.
 Re-reads the file each call so edits apply on the next turn.
 """

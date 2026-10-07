@@ -276,6 +276,7 @@ def test_every_tile_dock_and_line_is_in_the_stylesheet() -> None:
         "#DriveStrip",
         "#RoomStrip",
         "#TitleBar",
+        "#ChromeCaption",
         "#ChromeTitle",
         "#ChromeHandsBtn",
         "#ChromeSpanBtn",
@@ -372,7 +373,7 @@ def test_workspace_actions_are_icon_only(qt_app) -> None:
             (panel.new_root_btn, "Create a folder and add it as a project"),
             (
                 panel.remove_root_btn,
-                "Remove this project from the workspace — files stay on disk",
+                "Remove this project from the workspace, files stay on disk",
             ),
             (panel.up_btn, "Up one folder"),
             (panel.refresh_btn, "Refresh this folder"),

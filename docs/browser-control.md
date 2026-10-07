@@ -2,7 +2,7 @@
 
 Arelis drives **her own Chrome window** (profile under
 `data/browser-profile/`), not your daily Chrome. You watch it. You sign
-into Google and Maps in that window once — launch prunes Cache / GPU
+into Google and Maps in that window once. Launch prunes Cache / GPU
 trees but keeps the sign-in. A full wipe is
 `python -m arelis.housekeep --reset-browser`; the next open is a new
 profile. She does not enter passwords,
@@ -10,7 +10,7 @@ OTP codes, or payment fields. Relaunch never runs `taskkill /IM
 chrome.exe`.
 
 > Controlling the Windows desktop is a separate Arelis feature.
-> See [Desktop Control](desktop-control.md) for more information.
+> See [Desktop Control](desktop-control.md).
 
 Ask her to open a page and she does. If she offers a window you did not
 ask for, you still get allow / deny.
@@ -45,7 +45,7 @@ First time: she tells you to sign into Google and Maps in that window.
 
 1. If her Chrome already has CDP up at `tools.browser.cdp_url` (default
    `http://127.0.0.1:9222`), attach. If that port is already someone
-   else's Chrome, she does not attach — she opens her window on 9333+.
+   else's Chrome, she does not attach. She opens her window on 9333+.
    An empty process scan is unknown, not foreign: she keeps the port
    she already attached. A live attach is not hopped mid-errand.
 2. If not: launch Chrome or Edge with `--remote-debugging-port` and
@@ -58,7 +58,7 @@ Daily Chrome can stay open.
 
 `open` / `navigate` / `click` all use this window. Search waits for
 result links before the snapshot. Mid-turn CDP death no longer dumps
-the turn — she restarts her window once.
+the turn. She restarts her window once.
 
 Override per call: `browser=edge`, `browser=firefox`, `private=true`
 (Firefox only).
@@ -74,17 +74,19 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
 - Aliases: `youtube`, `gmail`, `github`, … (see `tools.browser.aliases`).
 - You tell her the errand. She plans the clicks. Refs are optional.
 - `click(text="Sign in")` or `click(nth=1)` for the first result.
-  `type(text="…", into="search")` — empty `into` uses the search box.
+  `type(text="…", into="search")`: empty `into` uses the search box.
   `type(who=Mom, into=email)` fills name / phone / email / work_phone
   from `contacts.yaml`. No street address. No memory scrape.
   `find` lists matches without clicking. Password and OTP fields are refused.
 - Snapshot ranks visible controls (light DOM, one shadow root, same-origin
   iframes). `focus=results` (what search returns)
   is a short result list, not the footer.
-- `click` glows the target in-page (not your mouse), waits a beat, then
-  clicks. The Drive strip says the label, not `e3`.
-  `hover` / `dblclick` / `right_click` / `drag` use the same glow on a
-  snapshot ref. `x,y` only after `screenshot` then `vision` this turn —
+- `click` hits the target immediately and returns a short snapshot of
+  the page she landed on, so the next step does not start with another
+  snapshot call. A miss restamps once and retries inside the same call.
+  The Drive strip says the label, not `e3`.
+  `hover` / `dblclick` / `right_click` / `drag` use the same refs.
+  `x,y` only after `screenshot` then `vision` this turn,
   not computer-use by default. Walls still apply.
 - `wait(seconds)` sleeps. `wait(url=/home)` / `wait(text=…)` /
   `wait(heading=…)` polls the tab (max 8s) then snapshots. No CSS
@@ -95,7 +97,7 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
   Unattended jobs do not get the browser.
 - `back` / `forward` / `reload`. `tabs` with no args lists
   `index|title|url`. `select=Gmail` (title substring) or `select=0`.
-  `tab=new` (optional url) or `tab=close` (current tab only — not by
+  `tab=new` (optional url) or `tab=close` (current tab only, not by
   title). No bookmarks. The window stays.
 - `open` reuses the current tab and returns a short receipt.
 - `read` returns compact visible text of the tab she is on. That is not
@@ -109,21 +111,25 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
 - `reserve` opens OpenTable (or Resy / Google) with party, date, and
   time in the URL. She can type remaining non-secret fields. Book /
   Reserve / Confirm is still your turn.
-- A **Drive strip** in Arelis (not in Chrome) shows Stop / Pause /
-  "about to click…". Pause freezes the glow beat and the next step. The
-  page stays. Go continues. Stop aborts the turn. The same words work
-  out loud on both faces.
+- A **Drive strip** in Arelis (not in Chrome) shows Stop / Pause.
+  Her Chrome is hers for the drive: moving the mouse in that window
+  does not take it back. Pause freezes the next step. The page stays.
+  Go continues. Stop aborts the turn. The same words work out loud on
+  both faces.
 - `screenshot` writes a PNG under `outputs/images/browser_….png`.
   Describe pixels with `vision` in a separate call. The file is a
-  look still — deleted after vision, unless you asked to save it.
+  look still: deleted after vision, unless you asked to save it.
   Optional `full_page=true`.
 - `download` clicks a snapshot ref and saves under `outputs/downloads/`.
   `pdf` prints the tab to `outputs/documents/`. Both raise FILE_READY.
   `upload` takes a path under workspace roots or `outputs/` (Allow).
-  `type=file` stays refused — use upload.
+  `type=file` stays refused: use upload.
 
 A drive you typed or said is the grant. If she offers the window, that
 still pauses. `agent.confirm_browser` (default true) is that offer gate.
+Pay and Checkout follow that same switch. Switch on: a card, even when
+you named the job. Switch off: no card. The page still stops on Pay, so
+she does not click it.
 **rest of this ask** covers further browser steps in the same reply.
 Vision uses `confirm_vision` separately. Never batches with mail or SMS.
 
@@ -142,7 +148,10 @@ Vision uses `confirm_vision` separately. Never batches with mail or SMS.
 ## Config
 
 See `tools.browser` and `agent.confirm_browser` in
-`arelis/config/default.yaml`. Unattended jobs do not get this tool.
+`arelis/config/default.yaml`. `tools.browser.fresh_profile` is `false` by
+default, so her Chrome keeps your sign-ins between runs. Set it to `true`
+in `data/config.local.yaml` to start from an empty window every run.
+Unattended jobs do not get this tool.
 
 ## Your turn
 
@@ -152,5 +161,5 @@ When she sees one of those walls she freezes, the Drive strip says
 count as sign-in. If you take the mouse in her Chrome, she freezes
 instead of clicking over you. Captcha / sign-in: she continues when
 the wall is gone (or you hit Go). Pay: she reads the tab once, posts
-a short checkout receipt, and finishes — you click Pay. No second
+a short checkout receipt, and finishes. You click Pay. No second
 Allow card.

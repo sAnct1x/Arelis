@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
 from arelis.config import PROJECT_ROOT
+from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.confirm_speech import (
     apply_confirm_edit,
@@ -23,6 +25,7 @@ from arelis.core.orchestrator import Orchestrator
 from arelis.core.preflight import user_asked_for_browser
 from arelis.tools.base import ToolRegistry
 from arelis.tools.confirm_copy import confirm_headline
+from arelis.workspace import WorkspaceRoots
 
 
 def test_headlines_are_human() -> None:
@@ -42,6 +45,8 @@ def test_headlines_are_human() -> None:
     assert confirm_headline("run_script", {"path": "lab/measure_drift.py"}) == (
         "run measure_drift.py"
     )
+    assert confirm_headline("run_task", {"action": "run", "name": "pytest"}) == "run pytest"
+    assert confirm_headline("run_task", {"action": "list"}) == "list project tasks"
     assert confirm_headline("desktop", {"action": "open", "target": "notepad"}) == (
         "open notepad"
     )
@@ -362,6 +367,55 @@ def _voice_orch(bus: EventBus) -> Orchestrator:
         },
         SessionMemory(),
     )
+
+
+@pytest.mark.asyncio
+async def test_spoken_allow_resolves_the_newer_card() -> None:
+    """Two pending cards: spoken allow hits the one on screen."""
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    orch = _voice_orch(bus)
+    older: asyncio.Task[str] | None = None
+    newer: asyncio.Task[str] | None = None
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        older = asyncio.create_task(orch._request_confirm("c-old", "plot", {}, "older"))
+        newer = asyncio.create_task(orch._request_confirm("c-new", "plot", {}, "newer"))
+        for _ in range(50):
+            if "c-old" in orch._confirm_waiters and "c-new" in orch._confirm_waiters:
+                break
+            await asyncio.sleep(0)
+        else:
+            raise AssertionError("both confirm waiters did not register")
+        old_fut = orch._confirm_waiters["c-old"]
+        await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "allow"}))
+        await bus.drain()
+        decision = await asyncio.wait_for(newer, timeout=2)
+        assert decision == "allow"
+        assert not old_fut.done()
+        assert any(
+            e.type == EventType.TOOL_CONFIRM_REPLY
+            and e.payload.get("id") == "c-new"
+            and e.payload.get("reason") == "voice"
+            for e in seen
+        )
+        assert not any(
+            e.type == EventType.TOOL_CONFIRM_REPLY and e.payload.get("id") == "c-old"
+            for e in seen
+        )
+    finally:
+        pending = [task for task in (older, newer) if task is not None and not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        bus.stop()
+        bus_task.cancel()
 
 
 @pytest.mark.asyncio
@@ -775,3 +829,86 @@ def test_wake_yes_without_hey_is_not_a_decision() -> None:
 
     miss = classify_wake("yes")
     assert miss.matched is False
+
+
+@pytest.mark.asyncio
+async def test_second_message_waits_out_the_external_allow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Message 2 must not paint an Allow while message 1 is parked on one."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    outside_a = tmp_path / "one.txt"
+    outside_b = tmp_path / "two.txt"
+    outside_a.write_text("one", encoding="utf-8")
+    outside_b.write_text("two", encoding="utf-8")
+    workspace = WorkspaceRoots.from_paths([str(root)])
+
+    async def _quiet_run(self, *args, **kwargs):
+        self.terminal_sent = True
+
+    monkeypatch.setattr(AgentLoop, "run", _quiet_run)
+
+    bus = EventBus()
+    orch = Orchestrator(
+        bus,
+        _StubRouter(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        {
+            "agent": {"confirm_timeout_s": 30},
+            "workspace": {"roots": [str(root)]},
+            "_persona_path": str(PROJECT_ROOT / "arelis" / "persona" / "arelis.md"),
+        },
+        SessionMemory(),
+        workspace=workspace,
+    )
+    first: asyncio.Task[None] | None = None
+    second: asyncio.Task[None] | None = None
+    try:
+        first = asyncio.create_task(
+            orch.on_user_message(
+                Event(EventType.USER_MESSAGE, {"text": f"Read {outside_a}"})
+            )
+        )
+        for _ in range(100):
+            if orch._confirm_live:
+                break
+            await asyncio.sleep(0)
+        assert len(orch._confirm_live) == 1
+        assert Path(next(iter(orch._confirm_live.values()))["args"]["path"]) == outside_a.resolve()
+
+        second = asyncio.create_task(
+            orch.on_user_message(
+                Event(EventType.USER_MESSAGE, {"text": f"Read {outside_b}"})
+            )
+        )
+        for _ in range(100):
+            if orch._turn_lock._waiters:
+                break
+            await asyncio.sleep(0)
+        # Queued on the turn lock, still inside message 1's Allow.
+        assert orch._turn_lock.locked()
+        assert orch._turn_lock._waiters
+        assert len(orch._confirm_live) == 1
+        assert not orch.workspace.has_external_read(outside_b)
+
+        next(iter(orch._confirm_waiters.values())).set_result("allow")
+        await asyncio.wait_for(first, timeout=2)
+        assert orch.workspace.has_external_read(outside_a)
+
+        for _ in range(100):
+            if orch._confirm_live and not second.done():
+                break
+            await asyncio.sleep(0)
+        assert len(orch._confirm_live) == 1
+        assert not second.done()
+        assert Path(next(iter(orch._confirm_live.values()))["args"]["path"]) == outside_b.resolve()
+        next(iter(orch._confirm_waiters.values())).set_result("skip")
+        await asyncio.wait_for(second, timeout=2)
+        assert not orch.workspace.has_external_read(outside_b)
+    finally:
+        pending = [task for task in (first, second) if task is not None and not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
