@@ -198,6 +198,7 @@ _CALENDAR_SLASH = re.compile(
 )
 _MATH_INTENT = re.compile(
     r"(?i)(?:%|\*|\^|\bof\b|\btimes\b|\bplus\b|\bminus\b|"
+    r"\bdivided\s+by\b|"
     r"\bsqrt\b|\bas\s+a\s+(?:decimal|fraction|percent)\b|"
     r"[+\-](?=\s*\d))"
 )
@@ -209,7 +210,30 @@ _TIMES_X = re.compile(r"(?<=[\d)])\s*[xX]\s*(?=[\d(])")
 _SPOKEN_TIMES = re.compile(r"(?i)(?<=[\d)])\s*(?:times|multiplied\s+by)\s*(?=[\d(])")
 _SPOKEN_PLUS = re.compile(r"(?i)(?<=[\d)])\s*plus\s*(?=[\d(])")
 _SPOKEN_MINUS = re.compile(r"(?i)(?<=[\d)])\s*minus\s*(?=[\d(])")
-_SPOKEN_DIV = re.compile(r"(?i)(?<=[\d)])\s*(?:divided\s+by|over)\s*(?=[\d(])")
+# "687 days divided by 7" keeps the unit word between the number and the operator.
+_SPOKEN_DIV = re.compile(
+    r"(?i)(?<=[\d)])(?:\s+[A-Za-z]+)?\s*(?:divided\s+by|over)\s*(?=[\d(])"
+)
+_OWN_ARITHMETIC = re.compile(
+    r"(?i)\d+(?:\.\d+)?(?:\s+[A-Za-z]+)?\s*"
+    r"(?:divided\s+by|times|multiplied\s+by|plus|minus|\*|\/)\s*"
+    r"\d"
+)
+_FOR_A_PLANET_YEAR = re.compile(
+    r"(?i)\s+for\s+(?:a\s+)?(?:"
+    r"mercury|venus|earth|mars|jupiter|saturn|uranus|neptune|pluto"
+    r")\s+years?\b.*$"
+)
+_HALF_OF = re.compile(r"(?i)\bhalf\s+of\s+")
+_SQUARE_ROOT_OF = re.compile(
+    r"(?i)\b(?:the\s+)?square\s+root\s+of\s+(\d+(?:\.\d+)?)"
+)
+_TO_THE_POWER = re.compile(
+    r"(?i)(\d+(?:\.\d+)?)\s+to\s+the\s+power\s+of\s+(\d+(?:\.\d+)?)"
+)
+_DAYS_IN_WEEKS = re.compile(
+    r"(?i)\b(?:how\s+many\s+)?days?\s+in\s+(\d+(?:\.\d+)?)\s+weeks?\b"
+)
 _SPOKEN_SQUARED = re.compile(r"(?i)(?<=[\d)])\s*squared\b")
 _SPOKEN_CUBED = re.compile(r"(?i)(?<=[\d)])\s*cubed\b")
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
@@ -319,6 +343,10 @@ def rewrite_spoken_duration(text: str) -> str | None:
     age = _rewrite_planet_age(raw)
     if age is not None:
         return age
+    # "687 days divided by 7 for a Mars year" already has the arithmetic.
+    # Swapping in the sidereal year drops the numbers they typed.
+    if _OWN_ARITHMETIC.search(raw):
+        return None
     au = _AU_AMOUNT.search(raw)
     planet = _PLANET_NAME.search(raw)
     wants_days = bool(_WANTS_DAYS.search(raw))
@@ -430,6 +458,11 @@ def normalize_expression(text: str) -> str:
     source = _SPOKEN_PLUS.sub("+", source)
     source = _SPOKEN_MINUS.sub("-", source)
     source = _SPOKEN_DIV.sub("/", source)
+    source = _FOR_A_PLANET_YEAR.sub("", source)
+    source = _HALF_OF.sub("(1/2)*", source)
+    source = _SQUARE_ROOT_OF.sub(r"sqrt(\1)", source)
+    source = _TO_THE_POWER.sub(r"\1**\2", source)
+    source = _DAYS_IN_WEEKS.sub(r"\1*7", source)
     source = _SPOKEN_SQUARED.sub("**2", source)
     source = _SPOKEN_CUBED.sub("**3", source)
     # People write 17^2. Python wants **. This tool has no bitwise XOR.

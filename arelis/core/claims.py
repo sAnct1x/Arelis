@@ -98,7 +98,49 @@ _MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"\b(?:square\s+root|sqrt|factorial|mod(?:ulo)?)\b.{0,30}\d",
         re.I | re.S,
     ),
+    re.compile(r"(?i)\bhalf\s+of\s+\d"),
+    re.compile(r"(?i)\bto\s+the\s+power\s+of\s+\d"),
+    re.compile(r"(?i)\b(?:how\s+many\s+)?days?\s+in\s+\d+(?:\.\d+)?\s+weeks?\b"),
 )
+
+# A slash in a date, an event, or "24/7" is not division unless the ask
+# clearly wants a number ("as a decimal", "divided by", or digit-op-digit).
+# A bare year in a title ("the plot of 1984") is not an operand either.
+# A year inside "1500 + 2000" or "square root of 1600" is.
+_CLEAR_MATH_CUE = re.compile(
+    r"(?i)(?:%|\*|\^|\btimes\b|\bplus\b|\bminus\b|\bdivided\s+by\b|"
+    r"\bas\s+a\s+(?:decimal|fraction|percent)\b)"
+)
+# Digit, operator, digit. The letter x and the times sign both count.
+_OPERATOR_PAIR_CUE = re.compile(
+    r"(?i)\d+(?:\.\d+)?\s*[+x×*/-]\s*\d+(?:\.\d+)?"
+)
+_SQUARE_ROOT_OF = re.compile(r"(?i)\b(?:square\s+root|sqrt)\b(?:\s+of)?\s+\d")
+# Skip a month/day slash only when the ask is about a date or an event.
+_DATE_EVENT_ASK = re.compile(
+    r"(?i)(?:"
+    r"\bwhat\s+was\b"
+    r"|\bhappened\b"
+    r"|\b24/7\b"
+    r"|(?<![\d/.])(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])/(?:\d{2}|\d{4})(?![\d/])"
+    r")"
+)
+
+
+def _operator_pair_cue(text: str) -> bool:
+    """True when a number is clearly an operand, not a year in a sentence."""
+    if _OPERATOR_PAIR_CUE.search(text):
+        return True
+    if _SQUARE_ROOT_OF.search(text):
+        return True
+    return False
+_NOT_DIVISION_SLASH = re.compile(
+    r"(?<![\d/.])(?:"
+    r"(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])(?:/(?:\d{2}|\d{4}))?"
+    r"|24/7"
+    r")(?![\d/])"
+)
+_PROSE_YEAR = re.compile(r"\b(?:1[0-9]{3}|20[0-9]{2})\b")
 
 # Spoken duration / orbital period / age-in-planet-years. Bare "how many days
 # until Friday" is a calendar wait, not this. A year at N AU or "11.86 years
@@ -174,7 +216,7 @@ _CAS_FORCE = (
 )
 
 _UNIT_NAMES = (
-    r"meters?|metres?|kilometers?|kilometres?|miles?|kg|kilograms?|"
+    r"meters?|metres?|kilometers?|kilometres?|km|miles?|mi|kg|kilograms?|"
     r"feet|foot|inches|inch|pounds?|lbs?|kelvin|celsius|fahrenheit|"
     r"eV|joules?|watts?|newtons?|parsecs?|\bau\b|nm|μm|um|"
     r"solar\s+masses?"
@@ -198,6 +240,13 @@ _UNITS_FORCE = (
     ),
     re.compile(r"(?i)\b\d+(?:\.\d+)?\s*(?:ft|feet)\s+\d+(?:\.\d+)?\s*(?:in|inches)\b"),
     re.compile(rf"(?i)\bhow\s+many\s+(?:{_UNIT_NAMES})\b"),
+    # "how many centuries is 300 years" is a conversion. "how many centuries
+    # ago" is not, so the years have to be in the same ask.
+    re.compile(r"(?i)\bhow\s+many\s+centur(?:y|ies)\b.{0,48}\byears?\b"),
+    re.compile(
+        r"(?i)\blight\s+years?\b.{0,40}\b(?:in|into|to)\s+"
+        r"(?:km|kilometers?|kilometres?)\b"
+    ),
 )
 _CONSTANT_CONCEPT = re.compile(
     r"(?i)\b("
@@ -633,9 +682,21 @@ def detect_math_ask(text: str) -> bool:
     cleaned = _YEAR_RANGE.sub(" ", cleaned)
     cleaned = _QUANTITY_RANGE.sub(" ", cleaned)
     cleaned = _OUTLINE_ITEM.sub(" ", cleaned)
+    word_cue = _CLEAR_MATH_CUE.search(lowered) is not None
+    pair_cue = _operator_pair_cue(lowered)
+    # "what was 9/11" and "10/12/2025" lose the slash. "what is 3/4" keeps it,
+    # because a digit/digit pair is the cue and the ask is not a date.
+    if _DATE_EVENT_ASK.search(lowered) and not word_cue:
+        cleaned = _NOT_DIVISION_SLASH.sub(" ", cleaned)
+    elif not word_cue and not pair_cue:
+        cleaned = _NOT_DIVISION_SLASH.sub(" ", cleaned)
     hits = [p for p in _MATH_PATTERNS if p.search(cleaned)]
     if not hits:
         return False
+    if not word_cue and not pair_cue:
+        without_years = _PROSE_YEAR.sub(" ", cleaned)
+        if not any(p.search(without_years) for p in _MATH_PATTERNS):
+            return False
     # When "N x N" is the only arithmetic shape present and the sentence is
     # plainly about the size of a picture, there is nothing to compute. Narrow on
     # purpose: "what is 17 x 19" still forces the calculator, because that has no
