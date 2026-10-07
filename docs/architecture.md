@@ -91,6 +91,24 @@ window attaches over loopback.
    card and only destructive calls (delete, forget, Pay, Checkout,
    a UAC prompt on the desk), plus `run_script` stop and wait. See
    Themes below.
+
+   Pay and Checkout follow the browser allow switch. With that switch
+   on, the card still shows when you named the job. With it off, no
+   card is shown. Windows permission prompts follow the desktop allow
+   switch the same way. The page and the desk still refuse the click.
+   Skipping the card leaves Pay and the permission prompt unpressed.
+   On the filament testing face those calls still pause, because that
+   face treats them as destructive and does not consult the switches.
+
+   Replacing an existing file stays on the files switch. It does not
+   always ask. Delete does. A save that overwrites a file you asked
+   for is ordinary file work. Turning file asks off would mean nothing
+   if every overwrite still raised a card.
+
+   An old settings file that turns mail and texts off is ignored. There
+   is no extra notice. The allow screen already locks that box on and
+   says every mail and text always asks, and the house menu reports
+   that gate as on.
 5. Tool results flow back into the turn, and she answers based on
    what she actually got back, not what she expects to get back.
 
@@ -286,7 +304,7 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `scrape` / `web_fetch` | Read a page for her | No |
 | `research_report` | Multi-source write-up, saved under `outputs/research/` | Yes |
 | `browser` | Drive her Chrome | Only when she offers it: a drive you asked for counts as the grant |
-| `desktop` | Drive your Windows session (open apps, type, click) | Only when she offers it: a desk ask you named is the grant. Deletes / Pay / UAC still pause |
+| `desktop` | Drive your Windows session (open apps, type, click) | Only when she offers it: a desk ask you named is the grant. With the desk switch on, Delete, Pay, and Windows permission prompts still show a card. With it off, no card, and the desk still refuses the click |
 | `workspace` | Files in allowed roots. `edit` is old→new; `patch` applies a unified diff | Writes: yes |
 | `analyze` / `doc_extract` / `git_info` | Tables, PDFs (text, office, and scanned pages via pypdfium2), git (status/diff/log/branch/blame/show; stash list; stage/commit) | Writes on git: yes |
 | `notes` | Desk notes: same `notes/` folder as `keep this:` / `/keep`. list / search / read | `add`: yes |

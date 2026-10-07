@@ -127,6 +127,9 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
 
 A drive you typed or said is the grant. If she offers the window, that
 still pauses. `agent.confirm_browser` (default true) is that offer gate.
+Pay and Checkout follow that same switch. Switch on: a card, even when
+you named the job. Switch off: no card. The page still stops on Pay, so
+she does not click it.
 **rest of this ask** covers further browser steps in the same reply.
 Vision uses `confirm_vision` separately. Never batches with mail or SMS.
 

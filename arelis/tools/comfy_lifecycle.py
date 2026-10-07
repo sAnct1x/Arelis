@@ -18,6 +18,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from arelis.workspace import is_unsafe_windows_path
+
 log = logging.getLogger(__name__)
 
 # One process per Arelis run. Re-launching on every image call would stack GPUs.
@@ -62,6 +64,8 @@ def _is_comfy_root(root: Path) -> bool:
 def discover_comfy(roots: list[Path] | None = None) -> Path | None:
     """First common Comfy root that exists. No recursive scan."""
     for raw in roots if roots is not None else default_comfy_roots():
+        if is_unsafe_windows_path(str(raw)):
+            continue
         try:
             root = Path(raw).expanduser()
             if _is_comfy_root(root):
@@ -100,6 +104,8 @@ def resolve_launch(
     """Build argv + cwd, or None when auto-start is not configured."""
     raw = (launch_command or "").strip()
     cwd_raw = (launch_cwd or "").strip()
+    if is_unsafe_windows_path(raw) or is_unsafe_windows_path(cwd_raw):
+        return None
     if not raw and not cwd_raw:
         return None
 

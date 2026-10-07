@@ -225,6 +225,9 @@ def test_mail_and_texts_checkbox_is_locked(qt_app) -> None:
         writes_tip = dlg.confirm_writes.toolTip()
         assert "Deletes always pause." in writes_tip
         assert "when this is on" not in writes_tip
+        desk_tip = dlg.confirm_desktop.toolTip()
+        assert "Windows permission prompts still ask first when this is on." in desk_tip
+        assert "UAC" not in desk_tip
     finally:
         dlg.close()
 

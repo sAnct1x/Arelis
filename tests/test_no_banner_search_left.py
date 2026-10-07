@@ -84,6 +84,10 @@ def _repo_roots() -> list[Path]:
         _REPO / "README.md",
         _REPO / "pyproject.toml",
         _REPO / "data" / "secrets.example.yaml",
+        _REPO / "scripts",
+        _REPO / "android",
+        _REPO / "CONTRIBUTING.md",
+        _REPO / "SECURITY.md",
     ]
     installer = _REPO / "win-installer"
     if installer.is_dir():
@@ -95,6 +99,26 @@ def test_banner_search_word_is_gone() -> None:
     hits, visited = _scan(_repo_roots(), _REPO)
     assert visited >= _MIN_FILES, f"scan too thin: {visited} files"
     assert hits == [], "left behind:\n" + "\n".join(hits)
+
+
+def test_scan_roots_include_scripts_android_and_top_docs(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    for name in ("arelis", "tests", "docs", ".github", "scripts", "android", "win-installer"):
+        (repo / name).mkdir(parents=True)
+    (repo / "README.md").write_text("ok\n", encoding="utf-8")
+    (repo / "pyproject.toml").write_text("ok\n", encoding="utf-8")
+    (repo / "data").mkdir()
+    (repo / "data" / "secrets.example.yaml").write_text("ok\n", encoding="utf-8")
+    (repo / "scripts" / "note.py").write_text(f"label = '{_NEEDLE}'\n", encoding="utf-8")
+    (repo / "android" / "note.md").write_text(f"label = '{_NEEDLE}'\n", encoding="utf-8")
+    (repo / "CONTRIBUTING.md").write_text(f"see {_NEEDLE}\n", encoding="utf-8")
+    (repo / "SECURITY.md").write_text(f"see {_NEEDLE}\n", encoding="utf-8")
+    monkeypatch.setattr("tests.test_no_banner_search_left._REPO", repo)
+    hits, _visited = _scan(_repo_roots(), repo)
+    assert "scripts/note.py:1" in hits
+    assert "android/note.md:1" in hits
+    assert "CONTRIBUTING.md:1" in hits
+    assert "SECURITY.md:1" in hits
 
 
 def test_scan_helper_reports_a_planted_hit(tmp_path: Path) -> None:

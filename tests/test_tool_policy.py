@@ -483,6 +483,83 @@ def test_filament_floor_exemption_unchanged() -> None:
         apply_theme("sodium")
 
 
+def test_pay_and_uac_follow_their_toggles_and_overwrite_stays_off_the_floor() -> None:
+    """Card mode. Pay and UAC are not on the always-ask floor.
+
+    Replacing a file stays on the files switch. Delete does not.
+    """
+    set_confirm_mode("card")
+    pay = {"action": "click", "text": "Checkout"}
+    uac = {"action": "click", "text": "Yes"}
+    try:
+        assert (
+            evaluate_confirm(
+                "browser",
+                pay,
+                confirm_browser=False,
+                asked=True,
+                ask_is_grant=True,
+            )
+            is False
+        )
+        assert (
+            evaluate_confirm(
+                "browser",
+                pay,
+                confirm_browser=True,
+                asked=True,
+                ask_is_grant=True,
+            )
+            is True
+        )
+        assert (
+            evaluate_confirm(
+                "desktop",
+                uac,
+                confirm_desktop=False,
+                asked=True,
+                ask_is_grant=True,
+            )
+            is False
+        )
+        assert (
+            evaluate_confirm(
+                "desktop",
+                uac,
+                confirm_desktop=True,
+                asked=True,
+                ask_is_grant=True,
+            )
+            is True
+        )
+        assert (
+            evaluate_confirm(
+                "workspace",
+                {"action": "write"},
+                confirm_writes=False,
+            )
+            is False
+        )
+        assert (
+            evaluate_confirm(
+                "workspace",
+                {"action": "edit"},
+                confirm_writes=False,
+            )
+            is False
+        )
+        assert (
+            evaluate_confirm(
+                "workspace",
+                {"action": "delete"},
+                confirm_writes=False,
+            )
+            is True
+        )
+    finally:
+        set_confirm_mode("card")
+
+
 def test_send_star_tools_are_on_the_floor() -> None:
     from arelis.tools.policy import FLOOR_SEND_TOOLS
 
