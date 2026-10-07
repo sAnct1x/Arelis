@@ -156,7 +156,7 @@ Feed ids named in any `tests/test_*.py`: **140 / 140**. Unnamed:
 **0**. The 2026-09-19 inventory said 39 / 141 named and 102
 unnamed (82 shipped, 18 keyed, 1 later `copernicus-dataspace`, 1
 out `face-index`). That pair is the old audit, not this checkout.
-`shodan-banners` is gone, and `FEEDS_PIN` names every remaining id.
+The removed keyed row is gone, and `FEEDS_PIN` names every remaining id.
 
 Lane docs name `test_earth_appearance.py` and
 `test_reality_walk.py`. **Those files do not exist.** Walk
