@@ -488,7 +488,11 @@ def plain_algebra_chat(output: str, *, ask: str = "") -> str:
         folded_expr = re.sub(r"\s+", "", expr)
         if _PERIOD_OVER_EARTH.fullmatch(folded_expr):
             return f"A year on {name} is about {shown} Earth years."
-        if _WANTS_EARTH_DAYS.search(ask or ""):
+        # Only the bare sidereal day count. "687/7 for a Mars year" is their
+        # arithmetic, not the length of the orbit.
+        if _WANTS_EARTH_DAYS.search(ask or "") and re.fullmatch(
+            r"\d+(?:\.\d+)?", folded_expr
+        ):
             days = _round_day_count(shown)
             return f"A year on {name} is about {days} Earth days."
         # Age-in-planet-years and other shapes: just state the number.
