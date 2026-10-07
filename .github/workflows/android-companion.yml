@@ -135,8 +135,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # Earlier steps run in android/arelis-notify. Assemble writes
+      # companion/arelis.apk.json under the repo root, so this step runs there.
       - name: Attach to a draft release
         if: startsWith(github.ref, 'refs/tags/')
+        working-directory: ${{ github.workspace }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
