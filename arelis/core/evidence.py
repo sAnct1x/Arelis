@@ -460,12 +460,11 @@ class EvidenceLedger:
         return missing
 
 
-def looks_like_bot_wall(text: str, status: int | None = None) -> bool:
+def looks_like_bot_wall(text: str) -> bool:
     """True when the text uses captcha or verify-human wording.
 
-    Cookie-banner phrases do not count. ``status`` is accepted so callers can
-    pass the HTTP code; a 403 alone is not a wall (Cloudflare puts the
-    challenge words on that page too).
+    Cookie-banner phrases do not count. An error status is not wording; that
+    check lives on the page, not on this text.
     """
     return bool(_BOT_WALL.search(text or ""))
 
@@ -476,35 +475,185 @@ def _has_challenge_hint(text: str) -> bool:
 
 
 # A real article can talk about captchas or say "just a moment". A challenge
-# page is either an error status or almost no visible text.
+# page is an error status, or a thin page that is not an article or docs main.
 _WALL_STATUSES = frozenset({401, 403, 429, 503})
 _THIN_VISIBLE_CHARS = 2000
-_TAGS = re.compile(r"<[^>]+>")
-# Drop script/style bodies and comments so inline JS cannot pad a wall, and so
-# class="h-captcha" is not wording. Closed tags first; unterminated ones run
-# to the end of the document. No nested quantifiers.
-_STRIP_NOISE = re.compile(
-    r"(?is)<script\b[^>]*>.*?</script\s*>|<script\b[^>]*>.*"
-    r"|<style\b[^>]*>.*?</style\s*>|<style\b[^>]*>.*"
-    r"|<!--.*?-->|<!--.*"
-)
+# A gate is a line or two. A short post or docs page inside article or main
+# is longer than this, so those pages are read instead of handed off.
+_ARTICLE_BODY_CHARS = 100
+_NOISE_TAGS = ("script", "style")
+
+
+def _name_boundary(text: str, end: int) -> bool:
+    return end >= len(text) or not (text[end].isalnum() or text[end] == "_")
+
+
+def _noise_kind(lower: str, start: int) -> str | None:
+    if lower.startswith("<!--", start):
+        return "comment"
+    for name in _NOISE_TAGS:
+        end = start + 1 + len(name)
+        if lower.startswith(name, start + 1) and _name_boundary(lower, end):
+            return name
+    return None
+
+
+def _close_span(lower: str, close: str, start: int) -> tuple[int, int] | None:
+    """Start of a close tag and the index just past its '>'."""
+    limit = len(lower)
+    pos = start
+    while pos < limit:
+        at = lower.find(close, pos)
+        if at < 0:
+            return None
+        cursor = at + len(close)
+        while cursor < limit and lower[cursor].isspace():
+            cursor += 1
+        if cursor < limit and lower[cursor] == ">":
+            return at, cursor + 1
+        pos = at + 1
+    return None
+
+
+def _strip_comments(html: str) -> str:
+    lower = html.lower()
+    limit = len(html)
+    parts: list[str] = []
+    cursor = 0
+    while cursor < limit:
+        at = lower.find("<!--", cursor)
+        if at < 0:
+            parts.append(html[cursor:])
+            break
+        parts.append(html[cursor:at])
+        end = lower.find("-->", at + 4)
+        parts.append(" ")
+        if end < 0:
+            break
+        cursor = end + 3
+    return "".join(parts)
+
+
+def _strip_noise(html: str) -> str:
+    """Drop script, style, and comment bodies. Linear in the page size.
+
+    A closed tag ends at its close tag. An opening tag with no close runs to
+    the end of the page. An opening tag with no '>' is left in place, because
+    it is not a tag, and the rest of the page is still scanned for comments.
+    """
+    if not html:
+        return ""
+    lower = html.lower()
+    limit = len(html)
+    parts: list[str] = []
+    cursor = 0
+    while cursor < limit:
+        start = lower.find("<", cursor)
+        if start < 0:
+            parts.append(html[cursor:])
+            break
+        kind = _noise_kind(lower, start)
+        if kind is None:
+            parts.append(html[cursor : start + 1])
+            cursor = start + 1
+            continue
+        parts.append(html[cursor:start])
+        if kind == "comment":
+            end = lower.find("-->", start + 4)
+            parts.append(" ")
+            if end < 0:
+                break
+            cursor = end + 3
+            continue
+        name_end = start + 1 + len(kind)
+        gt = lower.find(">", name_end)
+        if gt < 0:
+            parts.append(_strip_comments(html[start:]))
+            break
+        span = _close_span(lower, "</" + kind, gt + 1)
+        parts.append(" ")
+        if span is None:
+            break
+        cursor = span[1]
+    return "".join(parts)
+
+
+def _strip_tags(html: str) -> str:
+    """Replace complete tags with a space. Linear even when '>' is missing."""
+    if not html:
+        return ""
+    limit = len(html)
+    parts: list[str] = []
+    cursor = 0
+    while cursor < limit:
+        start = html.find("<", cursor)
+        if start < 0:
+            parts.append(html[cursor:])
+            break
+        gt = html.find(">", start + 1)
+        if gt < 0:
+            parts.append(html[cursor:])
+            break
+        if gt == start + 1:
+            parts.append(html[cursor : start + 1])
+            cursor = start + 1
+            continue
+        parts.append(html[cursor:start])
+        parts.append(" ")
+        cursor = gt + 1
+    return "".join(parts)
 
 
 def _visible_text(html: str) -> str:
     """Tag-stripped visible text: no script, style, or comment bodies."""
-    blob = _STRIP_NOISE.sub(" ", html or "")
-    blob = _TAGS.sub(" ", blob)
-    return " ".join(blob.split())
+    return " ".join(_strip_tags(_strip_noise(html or "")).split())
+
+
+def _article_body_chars(html: str) -> int:
+    """Longest visible run inside an article or main element."""
+    stripped = _strip_noise(html or "")
+    lower = stripped.lower()
+    best = 0
+    for name in ("article", "main"):
+        open_tag = "<" + name
+        cursor = 0
+        limit = len(stripped)
+        while cursor < limit:
+            start = lower.find(open_tag, cursor)
+            if start < 0:
+                break
+            after = start + len(open_tag)
+            if not _name_boundary(lower, after):
+                cursor = after
+                continue
+            gt = lower.find(">", after)
+            if gt < 0:
+                break
+            span = _close_span(lower, "</" + name, gt + 1)
+            if span is None:
+                inner = stripped[gt + 1 :]
+                cursor = limit
+            else:
+                inner = stripped[gt + 1 : span[0]]
+                cursor = span[1]
+            count = len(" ".join(_strip_tags(inner).split()))
+            if count > best:
+                best = count
+            if best >= _ARTICLE_BODY_CHARS:
+                return best
+    return best
 
 
 def looks_like_challenge_page(body: str, status: int | None = None) -> bool:
-    """For a fetched page: challenge wording AND (an error status or a thin page)."""
+    """Challenge wording, plus an error status or a thin page with no article."""
     visible = _visible_text(body)
     if not (looks_like_bot_wall(visible) or _has_challenge_hint(visible)):
         return False
     if status in _WALL_STATUSES:
         return True
-    return len(visible) < _THIN_VISIBLE_CHARS
+    if len(visible) >= _THIN_VISIBLE_CHARS:
+        return False
+    return _article_body_chars(body) < _ARTICLE_BODY_CHARS
 
 
 def challenge_fetch_notice(url: str, *, offer_browser: bool) -> str:

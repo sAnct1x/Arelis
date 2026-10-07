@@ -6,6 +6,7 @@ No network. Monkeypatch guarded_get / guarded_request. Nothing here solves a wal
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 import pytest
 
@@ -21,7 +22,6 @@ _WORDING = "Just a moment. Checking your browser. Verify you are human."
 
 _SHORT_DOCS = "SHORT docs page, reCAPTCHA integration (~600 chars)"
 _SHORT_BLOG = "short blog post about captchas (~700 chars)"
-_XFAIL_SHORT_CAPTCHA_TALK = frozenset({_SHORT_DOCS, _SHORT_BLOG})
 
 
 def _visible_len(html: str) -> int:
@@ -182,20 +182,17 @@ def test_web_fetch_and_scrape_offer_browser_follows_attended() -> None:
 
 
 def _fixture_params() -> list[Any]:
-    rows: list[Any] = []
-    for name, is_wall, status, body in WALL_FIXTURES:
-        marks = ()
-        if name in _XFAIL_SHORT_CAPTCHA_TALK:
-            marks = (
-                pytest.mark.xfail(
-                    strict=True,
-                    reason="short page that discusses captchas; documented limit",
-                ),
-            )
-        rows.append(
-            pytest.param(name, is_wall, status, body, id=name, marks=marks)
-        )
-    return rows
+    return [
+        pytest.param(name, is_wall, status, body, id=name)
+        for name, is_wall, status, body in WALL_FIXTURES
+    ]
+
+
+def _fixture_body(name: str) -> str:
+    for label, _is_wall, _status, body in WALL_FIXTURES:
+        if label == name:
+            return body
+    raise AssertionError("labelled page is missing")
 
 
 @pytest.mark.parametrize("name,is_wall,status,body", _fixture_params())
@@ -204,3 +201,132 @@ def test_labelled_wall_fixtures(
 ) -> None:
     del name
     assert looks_like_challenge_page(body, status) is is_wall
+
+
+def test_short_gate_inside_main_is_still_a_wall() -> None:
+    html = (
+        "<html><body><main><p>Please verify you are human.</p></main></body></html>"
+    )
+    assert looks_like_challenge_page(html, 200) is True
+
+
+def test_style_and_comment_blocks_do_not_pad_a_gate() -> None:
+    gate = "<html><body><p>Verify you are human.</p></body></html>"
+    style = (
+        "<html><body><style>"
+        + ("z" * 5000)
+        + "</style><p>Verify you are human.</p></body></html>"
+    )
+    comment = (
+        "<html><body><!--"
+        + ("z" * 5000)
+        + "--><p>Verify you are human.</p></body></html>"
+    )
+    assert looks_like_challenge_page(gate, 200) is True
+    assert looks_like_challenge_page(style, 200) is True
+    assert looks_like_challenge_page(comment, 200) is True
+    assert _visible_len(style) == _visible_len(gate)
+    assert _visible_len(comment) == _visible_len(gate)
+
+
+def test_unterminated_script_does_not_hide_a_gate_behind_padding() -> None:
+    html = (
+        "<html><body><p>Verify you are human.</p><script>"
+        + ("var secret = 1;" * 400)
+    )
+    assert looks_like_challenge_page(html, 200) is True
+    assert _visible_len(html) < 2000
+
+
+def test_hostile_unclosed_script_tags_finish_quickly() -> None:
+    import time
+
+    page = "<p>Verify you are human.</p>" + ("<script " * 25_000)
+    assert len(page) > 200_000
+    assert ">" not in page.split("</p>", 1)[-1]
+    started = time.perf_counter()
+    is_wall = looks_like_challenge_page(page, 200)
+    elapsed = time.perf_counter() - started
+    assert is_wall is False
+    assert elapsed < 0.5
+
+
+@pytest.mark.asyncio
+async def test_web_fetch_reads_a_short_blog_about_captchas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = _fixture_body(_SHORT_BLOG)
+    url = "https://example.test/blog"
+    hits = _install_web(monkeypatch, body, status=200)
+    result = await WebFetchTool("arelis-test/1.0", offer_browser=True).run(url=url)
+    assert result.data.get("fail_class") != "fail:challenge"
+    assert "human check" not in result.output.lower()
+    assert "crosswalks" in result.output
+    assert hits == [url]
+
+
+@pytest.mark.asyncio
+async def test_scrape_reads_a_short_captcha_docs_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = _fixture_body(_SHORT_DOCS)
+    url = "https://example.test/docs"
+    hits = _install_scrape(monkeypatch, body, status=200)
+    result = await ScrapeTool("arelis-test/1.0", offer_browser=True).run(url=url)
+    assert result.ok is True
+    assert result.data.get("fail_class") != "fail:challenge"
+    assert "human check" not in result.output.lower()
+    assert "grecaptcha.execute" in result.output
+    assert hits == [url]
+
+
+@pytest.mark.asyncio
+async def test_scrape_long_403_wall_makes_exactly_one_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = _fixture_body(
+        "LONG 403 interstitial: captcha wording + 6KB of real-looking page chrome"
+    )
+    assert _visible_len(body) > 2000
+    hits = _install_scrape(monkeypatch, body, status=403)
+    result = await ScrapeTool("arelis-test/1.0", offer_browser=True).run(url=_CF_URL)
+    assert result.ok is False
+    assert result.data.get("fail_class") == "fail:challenge"
+    assert hits == [_CF_URL]
+
+
+@pytest.mark.asyncio
+async def test_scrape_skips_a_long_403_wall_on_a_follow_up_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shell = (
+        "<html><head><title>Story</title></head>"
+        "<body><div id='root'></div><p>Loading</p></body></html>"
+    )
+    pad = "The harbor log records a calm tide and a late ferry. " * 50
+    wall = (
+        "<html><body><article><h1>Blocked</h1>"
+        "<p>Complete the captcha to continue. Verify you are human.</p>"
+        f"<p>{pad}</p></article></body></html>"
+    )
+    assert _visible_len(wall) > 2000
+    hits: list[str] = []
+    import arelis.tools.scrape as scrape
+    from tests.test_fetch_challenge import _Response
+
+    async def _fake_get(*args: Any, **kwargs: Any) -> _Response:
+        url = str(args[1] if len(args) > 1 else kwargs.get("url") or "")
+        hits.append(url)
+        parsed = urlparse(url)
+        twin = f"{parsed.path}?{parsed.query}"
+        if "amp" in twin.lower():
+            return _Response(wall, status=403, url=url)
+        return _Response(shell, status=200, url=url)
+
+    monkeypatch.setattr(scrape, "guarded_get", _fake_get)
+    result = await ScrapeTool("arelis-test/1.0", offer_browser=True).run(
+        url="https://example.test/story"
+    )
+    assert len(hits) > 1
+    assert result.ok is False
+    assert "harbor log" not in result.output
