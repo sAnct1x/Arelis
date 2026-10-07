@@ -857,6 +857,7 @@ class BrowserTool:
                 normalize_date,
                 normalize_reserve_site,
                 normalize_time,
+                party_cap_note,
                 reserve_url,
                 resolve_party,
             )
@@ -900,6 +901,9 @@ class BrowserTool:
             extra_bits.append(
                 "You click Book / Reserve / Confirm. I stop on that screen."
             )
+            cap = party_cap_note(kwargs.get("party"), kwargs.get("covers"))
+            if cap:
+                extra_bits.append(cap)
             extra = "\n".join(extra_bits)
             data = dict(opened.data or {})
             data.update(
