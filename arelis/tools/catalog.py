@@ -1,4 +1,4 @@
-"""Named science catalogs — arXiv, Horizons, NASA APOD, NASA ADS.
+"""Named science catalogs, arXiv, Horizons, NASA APOD, NASA ADS.
 
 A 9B cannot be given "search the NASA website". This tool has four actions,
 hits only the hosts we pin, and never evals user code. arXiv and Horizons
@@ -12,12 +12,13 @@ import asyncio
 import re
 import threading
 import xml.etree.ElementTree as ET
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from typing import Any
 
 import httpx
 
 from arelis import __source_url__, __version__
+from arelis.physics.constants import BODY_BY_NAME
 from arelis.science.keys import ScienceKeys, load_science_keys
 from arelis.tools.base import ToolResult
 
@@ -50,9 +51,13 @@ class CatalogTool:
         "Look up papers and solar-system data from named catalogs. "
         "Actions: arxiv (no key; acknowledge arXiv in the answer), "
         "horizons (JPL ephemerides, no key, do not invent EMAIL; "
+        "put the body in target, Moon is 301, Sun is 10; "
+        "how far, closest, or farthest: target=the body name only, "
+        "omit date and query, then repeat the tool sentences and do not "
+        "add a closest or farthest the tool did not state; "
         "table=observer for sky, table=vectors for SSB ECLIPJ2000 state), "
-        "apod (NASA Astronomy Picture of the Day — needs nasa.api_key), "
-        "ads (NASA ADS paper search — needs ads.token). "
+        "apod (NASA Astronomy Picture of the Day, needs nasa.api_key), "
+        "ads (NASA ADS paper search, needs ads.token). "
         "Do not scrape NASA or arXiv JavaScript. Do not use web_search "
         "when the user named arXiv, Horizons, APOD, or ADS. "
         "Do not recite a bibcode or an ephemeris from memory."
@@ -68,15 +73,24 @@ class CatalogTool:
             },
             "query": {
                 "type": "string",
-                "description": "Search text for arxiv or ads",
+                "description": (
+                    "Search text for arxiv or ads only. "
+                    "Not a planet, and not a distance question."
+                ),
             },
             "target": {
                 "type": "string",
-                "description": "Horizons body, e.g. Mars, Jupiter, 499",
+                "description": (
+                    "Horizons body name only (Moon, Mars, Jupiter, 499). "
+                    "Not a sentence and not a date."
+                ),
             },
             "date": {
                 "type": "string",
-                "description": "APOD or Horizons day as YYYY-MM-DD (default today UTC)",
+                "description": (
+                    "APOD day, or one Horizons sky day (RA and Dec), as YYYY-MM-DD. "
+                    "Omit for how far, closest, or farthest."
+                ),
             },
             "table": {
                 "type": "string",
@@ -111,8 +125,13 @@ class CatalogTool:
             if action == "arxiv":
                 return await self._arxiv(str(kwargs.get("query") or ""))
             if action == "horizons":
+                target = str(kwargs.get("target") or "").strip()
+                if not target:
+                    target = str(kwargs.get("query") or "").strip()
+                if not target:
+                    target = str(kwargs.get("name") or "").strip()
                 return await self._horizons(
-                    str(kwargs.get("target") or ""),
+                    target,
                     str(kwargs.get("date") or ""),
                     str(kwargs.get("table") or "observer"),
                 )
@@ -226,19 +245,42 @@ class CatalogTool:
         )
 
     async def _horizons(self, target: str, day: str, table: str = "observer") -> ToolResult:
-        body = (target or "").strip()
-        if not body or not _SAFE_TARGET.match(body):
+        raw = (target or "").strip()
+        # A sentence plus a date is the chat model freelancing. Pull the body
+        # and take the no-date distance summary. A bare name plus a date stays
+        # a one-day sky table.
+        pulled = _distance_phrase_body(raw)
+        if pulled:
+            raw = pulled
+            day = ""
+        if not raw or not _SAFE_TARGET.match(raw):
             raise ValueError(
                 "horizons needs a target like Mars, Jupiter, or 499. "
                 "No email is sent."
             )
-        start = _day_or_today(day)
-        stop = start + timedelta(days=1)
+        body = _horizons_body_id(raw)
         kind = (table or "observer").strip().lower()
         if kind not in {"observer", "vectors"}:
             raise ValueError("horizons table must be observer or vectors.")
+        day_text = (day or "").strip()
+        use_now = kind == "observer" and not day_text
+        if use_now and body.strip() == "399":
+            return ToolResult(
+                ok=False,
+                output=(
+                    "Distances here are measured from Earth's center, "
+                    "so there is no distance to Earth itself."
+                ),
+                data={
+                    "fail_class": "fail:name",
+                    "action": "horizons",
+                    "target": raw,
+                },
+            )
         command = _quoted_command(body)
         if kind == "vectors":
+            start = _day_or_today(day_text)
+            stop = start + timedelta(days=1)
             params = {
                 "format": "json",
                 "COMMAND": command,
@@ -246,14 +288,33 @@ class CatalogTool:
                 "MAKE_EPHEM": "YES",
                 "EPHEM_TYPE": "VECTORS",
                 "CENTER": "@0",
-                "REF_PLANE": "ECLIPJ2000",
+                "REF_PLANE": "ECLIPTIC",
                 "OUT_UNITS": "KM-S",
                 "VEC_TABLE": "2",
                 "START_TIME": start.isoformat(),
                 "STOP_TIME": stop.isoformat(),
                 "STEP_SIZE": "1d",
             }
+        elif use_now:
+            now_dt = _utc_now().astimezone(UTC).replace(second=0, microsecond=0)
+            start_dt = now_dt - timedelta(hours=1)
+            stop_dt = now_dt + timedelta(days=30)
+            start = now_dt.date()
+            params = {
+                "format": "json",
+                "COMMAND": command,
+                "OBJ_DATA": "NO",
+                "MAKE_EPHEM": "YES",
+                "EPHEM_TYPE": "OBSERVER",
+                "CENTER": "500@399",
+                "START_TIME": start_dt.strftime("%Y-%m-%d %H:%M"),
+                "STOP_TIME": stop_dt.strftime("%Y-%m-%d %H:%M"),
+                "STEP_SIZE": "1h",
+                "QUANTITIES": "20,23,24",
+            }
         else:
+            start = _day_or_today(day_text)
+            stop = start + timedelta(days=1)
             params = {
                 "format": "json",
                 "COMMAND": command,
@@ -271,15 +332,32 @@ class CatalogTool:
             raise RuntimeError("Horizons must not send EMAIL")
         response = await self._horizons_get(params)
         if response.status_code >= 400:
+            detail = _horizons_http_message(response)
+            output = f"Horizons returned HTTP {response.status_code}."
+            if detail:
+                output = f"{output} {detail}"
             return ToolResult(
                 ok=False,
-                output=f"Horizons returned HTTP {response.status_code}.",
+                output=output,
                 data={"fail_class": "fail:http", "http": response.status_code},
             )
         payload = response.json()
         blob = str(payload.get("result") or payload.get("error") or "").strip()
         if not blob:
             raise ValueError("Horizons returned an empty result.")
+        if "Multiple major-bodies match" in blob or "No matches found" in blob:
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"Horizons could not pin down {raw!r}. "
+                    "Use a Horizons id: Moon is 301, Sun is 10."
+                ),
+                data={
+                    "fail_class": "fail:name",
+                    "action": "horizons",
+                    "target": raw,
+                },
+            )
         if kind == "vectors":
             from arelis.physics.horizons import parse_vector_table
 
@@ -307,6 +385,44 @@ class CatalogTool:
                     "frame": "ECLIPJ2000",
                     "center": "SSB",
                     "jd": state.epoch_jd,
+                },
+            )
+        if use_now:
+            who = _body_plain_name(body, raw)
+            try:
+                rows = _parse_observer_delta_rows(blob)
+            except ValueError:
+                return ToolResult(
+                    ok=False,
+                    output=f"No distance table came back for {who}.",
+                    data={
+                        "fail_class": "fail:parse",
+                        "action": "horizons",
+                        "target": body,
+                    },
+                )
+            if len(rows) < 2:
+                return ToolResult(
+                    ok=False,
+                    output=f"No distance table came back for {who}.",
+                    data={
+                        "fail_class": "fail:parse",
+                        "action": "horizons",
+                        "target": body,
+                    },
+                )
+            summary = _distance_summary(who, rows)
+            return ToolResult(
+                ok=True,
+                output=summary,
+                data={
+                    "action": "horizons",
+                    "table": "observer",
+                    "target": body,
+                    "date": start.isoformat(),
+                    "mode": "now",
+                    "source": "JPL Horizons",
+                    "basis": "distance from Earth's center",
                 },
             )
         clipped = blob if len(blob) <= 3500 else blob[:3500] + "\n[truncated]"
@@ -445,7 +561,7 @@ class CatalogTool:
             abstract = " ".join(str(doc.get("abstract") or "").split())
             if len(abstract) > 400:
                 abstract = abstract[:400] + "…"
-            lines.append(f"- {bib} ({year}): {title} — {who}")
+            lines.append(f"- {bib} ({year}): {title}, {who}")
             if abstract:
                 lines.append(f"  {abstract}")
             hits.append({"bibcode": bib, "title": title, "year": year})
@@ -456,9 +572,459 @@ class CatalogTool:
         )
 
 
+# Chat calls. The 9B often stuffs a date or a sentence into Horizons, then
+# writes a closest the table did not contain. These helpers keep the call on
+# the no-date summary and the bubble on that summary.
+_DISTANCE_ASK = re.compile(
+    r"(?i)\b(?:how\s+far|how\s+close|distance|closest|farthest|furthest|nearest)\b"
+)
+_OTHER_WORK = re.compile(
+    r"(?i)\b(?:weather|forecast|arxiv|papers?|apod|ads|email|inbox|remind|calendar|agenda)\b"
+)
+_BODY_WORD = re.compile(
+    r"(?i)\b(mercury|venus|earth|mars|jupiter|saturn|uranus|neptune|"
+    r"pluto|moon|luna|sun|ceres)\b"
+)
+_BODY_CANON = {
+    "mercury": "Mercury",
+    "venus": "Venus",
+    "earth": "Earth",
+    "mars": "Mars",
+    "jupiter": "Jupiter",
+    "saturn": "Saturn",
+    "uranus": "Uranus",
+    "neptune": "Neptune",
+    "pluto": "Pluto",
+    "moon": "Moon",
+    "luna": "Moon",
+    "sun": "Sun",
+    "ceres": "Ceres",
+}
+_TURNING_WORD = re.compile(
+    r"(?i)\b(?:closest|farthest|furthest|nearest|apogee|perigee)\b"
+)
+_TURNING_DENIAL = re.compile(
+    r"(?i)\bno\s+closest\b|\bno\s+farthest\b|\bno\s+furthest\b|\bdoes not reach\b"
+)
+_DATE_TOKEN = re.compile(
+    r"(?i)\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+)
+_DIST_TOKEN = re.compile(
+    r"(?i)(?:~\s*)?\d[\d,]*(?:\.\d+)?\s*(?:million|m)?\s*(?:km|kilometers)\b"
+    r"|(?:~\s*)?\d[\d,]*(?:\.\d+)?\s*million\b"
+)
+DISTANCE_MODEL_NOTE = (
+    "Answer with the sentences above, unchanged. "
+    "Do not add a closest or farthest date or a distance "
+    "that is not written above."
+)
+
+
+def looks_like_distance_ask(text: str) -> bool:
+    """True for how far / closest / farthest about a named body."""
+    raw = text or ""
+    return bool(_DISTANCE_ASK.search(raw) and _BODY_WORD.search(raw))
+
+
+def _first_body(text: str) -> str:
+    match = _BODY_WORD.search(text or "")
+    if not match:
+        return ""
+    return _BODY_CANON.get(match.group(1).casefold(), "")
+
+
+def _clean_body_token(raw: str) -> str:
+    text = " ".join((raw or "").split())
+    if not text:
+        return ""
+    if text.isdigit():
+        return text
+    key = text.casefold()
+    if key == "the moon":
+        return "Moon"
+    if key == "the sun":
+        return "Sun"
+    return _BODY_CANON.get(key, "")
+
+
+def _distance_subjects(text: str) -> set[str]:
+    found: set[str] = set()
+    for match in _BODY_WORD.finditer(text or ""):
+        key = match.group(1).casefold()
+        if key == "luna":
+            key = "moon"
+        found.add(key)
+    if "earth" in found and len(found) > 1:
+        found.discard("earth")
+    return found
+
+
+def _distance_phrase_body(raw: str) -> str:
+    """Body name when `raw` is a distance sentence, else empty.
+
+    A bare 'Mars' is not a sentence. 'Mars closest Nov 4' is.
+    """
+    if not looks_like_distance_ask(raw):
+        return ""
+    if _clean_body_token(raw):
+        return ""
+    return _first_body(raw)
+
+
+def _pure_distance_ask(ask: str) -> bool:
+    if not looks_like_distance_ask(ask):
+        return False
+    if _OTHER_WORK.search(ask or ""):
+        return False
+    return len(_distance_subjects(ask)) <= 1
+
+
+def normalize_horizons_distance_args(
+    args: dict[str, Any] | None, user_text: str
+) -> dict[str, Any]:
+    """Drop a made-up date and a sentence query on a distance ask.
+
+    A one-day sky table (RA and Dec on a named day) is left alone. Vectors
+    stay when the user asked for vectors.
+    """
+    payload = dict(args or {})
+    action = str(payload.get("action") or "").strip().lower()
+    if action and action != "horizons":
+        return payload
+    if not looks_like_distance_ask(user_text):
+        return payload
+    if re.search(r"(?i)\bvectors?\b", user_text or ""):
+        return payload
+    # They named a day. Keep it. The bug is a date the model added on its own.
+    if _DATE_TOKEN.search(user_text or ""):
+        return payload
+    payload["action"] = "horizons"
+    table = str(payload.get("table") or "").strip().lower()
+    target = str(payload.get("target") or "").strip()
+    query = str(payload.get("query") or "").strip()
+    clean = _clean_body_token(target)
+    if not clean:
+        clean = _first_body(target) or _first_body(query) or _first_body(user_text)
+    if clean:
+        payload["target"] = clean
+    payload.pop("query", None)
+    payload.pop("date", None)
+    if table != "observer":
+        payload["table"] = "observer"
+    return payload
+
+
+def should_ship_distance_line(ask: str, *, later_calls: int = 0) -> bool:
+    """True when the distance summary is the whole answer."""
+    if later_calls > 0:
+        return False
+    return _pure_distance_ask(ask)
+
+
+def format_distance_for_model(summary: str) -> str:
+    """Tool text the model sees: the sentences, then a do-not-invent line."""
+    body = plain_distance_summary(summary)
+    if not body:
+        return (summary or "").strip()
+    return f"{body}\n\n{DISTANCE_MODEL_NOTE}"
+
+
+def plain_distance_summary(text: str) -> str:
+    """Person-facing distance sentences, or empty when this is not one."""
+    raw = (text or "").strip()
+    banner = "[untrusted external data"
+    if raw.startswith(banner):
+        parts = raw.split("\n\n", 1)
+        raw = parts[1].strip() if len(parts) == 2 else ""
+    if DISTANCE_MODEL_NOTE in raw:
+        raw = raw.replace(DISTANCE_MODEL_NOTE, "").strip()
+    if "from Earth right now" not in raw:
+        return ""
+    return raw
+
+
+def _tool_denies_turning(tool: str, word: str) -> bool:
+    low = (tool or "").lower()
+    kind = (word or "").lower()
+    if (
+        "no closest or farthest" in low
+        or "no closest or furthest" in low
+        or "does not reach a closest or farthest" in low
+    ):
+        return True
+    if kind in {"closest", "nearest", "perigee"}:
+        return "no closest" in low
+    if kind in {"farthest", "furthest", "apogee"}:
+        return "no farthest" in low or "no furthest" in low
+    return False
+
+
+def reply_invents_turning_point(tool_output: str, model_reply: str) -> bool:
+    """True when the reply names a closest or farthest the tool did not."""
+    tool = plain_distance_summary(tool_output) or (tool_output or "")
+    reply = (model_reply or "").replace(DISTANCE_MODEL_NOTE, "")
+    if not _TURNING_WORD.search(reply):
+        return False
+    for match in _TURNING_WORD.finditer(reply):
+        start = max(0, match.start() - 48)
+        end = min(len(reply), match.end() + 64)
+        window = reply[start:end]
+        if _TURNING_DENIAL.search(window):
+            continue
+        tokens = _DATE_TOKEN.findall(window) + _DIST_TOKEN.findall(window)
+        if not tokens:
+            if _tool_denies_turning(tool, match.group(0)):
+                return True
+            continue
+        folded = tool.casefold()
+        for tok in tokens:
+            if tok.casefold() not in folded:
+                return True
+    return False
+
+
+def chat_line_for_distance(
+    tool_output: str, model_reply: str, *, ask: str = ""
+) -> str:
+    """Use the tool sentences when a distance reply would freestyle.
+
+    A pure how-far / closest / farthest ask is the tool text. Any reply that
+    adds a closest or farthest the tool did not state is the tool text too.
+    """
+    summary = plain_distance_summary(tool_output)
+    if not summary:
+        return model_reply
+    reply = (model_reply or "").replace(DISTANCE_MODEL_NOTE, "").strip()
+    if reply == summary:
+        return summary
+    if _pure_distance_ask(ask) or reply_invents_turning_point(summary, reply):
+        return summary
+    return reply
+
+
 def _quoted_command(body: str) -> str:
     """Horizons COMMAND= wants a quoted id: '399', not 399."""
     return "'" + body.strip().strip("'\"") + "'"
+
+
+_AU_KM = 149_597_870.7
+_BODY_ALIASES: dict[str, str] = {
+    "the moon": "301",
+    "luna": "301",
+    "the sun": "10",
+}
+_OBSERVER_ROW = re.compile(
+    r"^\s*(\d{4}-[A-Za-z]{3}-\d{2})\s+(\d{2}:\d{2})"
+    r"(?:\s+[A-Za-z*/]+)?"
+    r"\s+([+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)"
+)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _local_zone() -> tzinfo | None:
+    """Local zone for distance times. None means system local. Tests inject."""
+    return None
+
+
+def _horizons_body_id(raw: str) -> str:
+    """Map a body name to a Horizons id. Numeric targets pass through."""
+    text = " ".join((raw or "").split())
+    if not text:
+        return text
+    if text.isdigit():
+        return text
+    key = text.casefold()
+    alias = _BODY_ALIASES.get(key)
+    if alias is not None:
+        return alias
+    for name, spec in BODY_BY_NAME.items():
+        if name.casefold() == key:
+            return spec.horizons_id
+    return text
+
+
+def _horizons_http_message(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except (ValueError, TypeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("message") or "").strip()
+
+
+def _parse_observer_delta_rows(blob: str) -> list[tuple[datetime, float]]:
+    """Parse $$SOE..$$EOE rows; first float after the clock is delta in AU."""
+    if "$$SOE" not in blob or "$$EOE" not in blob:
+        raise ValueError("Horizons returned no distance table.")
+    block = blob.split("$$SOE", 1)[1].split("$$EOE", 1)[0]
+    rows: list[tuple[datetime, float]] = []
+    for line in block.splitlines():
+        match = _OBSERVER_ROW.match(line)
+        if not match:
+            continue
+        stamp = datetime.strptime(f"{match.group(1)} {match.group(2)}", "%Y-%b-%d %H:%M").replace(
+            tzinfo=UTC
+        )
+        rows.append((stamp, float(match.group(3))))
+    if not rows:
+        raise ValueError("Horizons returned no distance rows.")
+    return rows
+
+
+def _to_local(stamp: datetime) -> datetime:
+    zone = _local_zone()
+    if zone is not None:
+        return stamp.astimezone(zone)
+    return stamp.astimezone()
+
+
+def _zone_label(local: datetime) -> str:
+    name = local.tzname() or ""
+    if name in {"EST", "EDT", "ET"}:
+        return "Eastern"
+    zone = _local_zone()
+    key = getattr(zone, "key", "") if zone is not None else ""
+    if key == "America/New_York":
+        return "Eastern"
+    return name or "local"
+
+
+def _format_local_stamp(stamp: datetime) -> str:
+    local = _to_local(stamp)
+    clock = local.strftime("%I:%M %p").lstrip("0")
+    return f"{local:%b} {local.day} at about {clock} {_zone_label(local)}"
+
+
+def _km_text(au: float) -> str:
+    return f"{round(au * _AU_KM):,}"
+
+
+def _body_plain_name(body_id: str, raw: str) -> str:
+    want = (body_id or "").strip()
+    for spec in BODY_BY_NAME.values():
+        if spec.horizons_id == want:
+            return spec.name
+    text = " ".join((raw or "").split())
+    if text and not text.isdigit():
+        return text
+    return text or want or "body"
+
+
+def _sentence_name(plain: str, *, start: bool) -> str:
+    key = (plain or "").strip().casefold()
+    if key == "moon":
+        return "The Moon" if start else "the Moon"
+    if key == "sun":
+        return "The Sun" if start else "the Sun"
+    name = (plain or "").strip() or "body"
+    if start:
+        return name[:1].upper() + name[1:]
+    return name
+
+
+def _round_to_minute(stamp: datetime) -> datetime:
+    extra = stamp.second + stamp.microsecond / 1_000_000
+    stamped = stamp.replace(second=0, microsecond=0)
+    if extra >= 30:
+        stamped += timedelta(minutes=1)
+    return stamped
+
+
+def _interpolate_turn(
+    rows: list[tuple[datetime, float]], i: int
+) -> tuple[datetime, float]:
+    """Parabola through hourly samples i-1, i, i+1. Vertex time and distance."""
+    t1, d1 = rows[i]
+    d0 = rows[i - 1][1]
+    d2 = rows[i + 1][1]
+    den = d0 - 2 * d1 + d2
+    if den == 0:
+        return _round_to_minute(t1), d1
+    offset_h = 0.5 * (d0 - d2) / den
+    dist = d1 + offset_h * (0.5 * (d2 - d0) + offset_h * (den / 2.0))
+    when = t1 + timedelta(hours=offset_h)
+    return _round_to_minute(when), dist
+
+
+def _next_turn(
+    rows: list[tuple[datetime, float]], *, lowest: bool, now: datetime
+) -> tuple[datetime, float, bool] | None:
+    """Next closest (or farthest) turning point. None if the window has none.
+
+    A pass more than 30 minutes before now is skipped. Within 30 minutes is now.
+    """
+    values = [au for _, au in rows]
+    for i in range(1, len(values) - 1):
+        before, here, after = values[i - 1], values[i], values[i + 1]
+        if lowest and not (before > here <= after):
+            continue
+        if not lowest and not (before < here >= after):
+            continue
+        when, au = _interpolate_turn(rows, i)
+        delta = when - now
+        if delta < timedelta(minutes=-30):
+            continue
+        if abs(delta) <= timedelta(minutes=30):
+            return when, au, True
+        return when, au, False
+    return None
+
+
+def _distance_summary(plain: str, rows: list[tuple[datetime, float]]) -> str:
+    now_stamp, now_au = rows[1]
+    closest = _next_turn(rows, lowest=True, now=now_stamp)
+    farthest = _next_turn(rows, lowest=False, now=now_stamp)
+    who = _sentence_name(plain, start=True)
+    bits = [f"{who} is {_km_text(now_au)} km from Earth right now."]
+    if closest is None and farthest is None:
+        last_au = rows[-1][1]
+        if last_au < now_au:
+            bits.append(
+                "It keeps getting closer for the next 30 days, so there is "
+                "no closest or farthest point in that time."
+            )
+        elif last_au > now_au:
+            bits.append(
+                "It keeps getting farther for the next 30 days, so there is "
+                "no closest or farthest point in that time."
+            )
+        else:
+            bits.append(
+                "It does not reach a closest or farthest point in the next 30 days."
+            )
+        return " ".join(bits)
+    if closest is not None and closest[2]:
+        bits.append("It is at its closest right now.")
+    if farthest is not None and farthest[2]:
+        bits.append("It is at its farthest right now.")
+    c_later = closest is not None and not closest[2]
+    f_later = farthest is not None and not farthest[2]
+    if c_later and f_later:
+        bits.append(
+            f"It will be closest on {_format_local_stamp(closest[0])} "
+            f"({_km_text(closest[1])} km) and farthest on "
+            f"{_format_local_stamp(farthest[0])} ({_km_text(farthest[1])} km)."
+        )
+    elif c_later:
+        bits.append(
+            f"It will be closest on {_format_local_stamp(closest[0])} "
+            f"({_km_text(closest[1])} km)."
+        )
+    elif f_later:
+        bits.append(
+            f"It will be farthest on {_format_local_stamp(farthest[0])} "
+            f"({_km_text(farthest[1])} km)."
+        )
+    if closest is None:
+        bits.append("It does not reach a closest point in the next 30 days.")
+    elif farthest is None:
+        bits.append("It does not reach a farthest point in the next 30 days.")
+    return " ".join(bits)
 
 
 def _horizons_retryable(response: httpx.Response) -> bool:

@@ -127,7 +127,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
   http). Never pass the title as url. Never invent a URL from a headline.
   Never ask the user to paste a URL that web_search already gave you.
 - Search in a few words. Pass recency=day or recency=week for news. Put the
-  user's city in the query when place matters.
+  place in the query when it matters; user_location has their saved one.
 - If the first search is thin, rephrase once before giving up. Then stop.
 - Prefer scrape for human-readable pages (news, docs, articles). It pulls the
   main article (JSON-LD / microdata / <article> / paragraph lattice / density),
@@ -344,8 +344,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
   ("remember that I climb").
 - Never write or edit under a read-only root (the prompt lists those names).
 - If workspace says outside allowed roots, stop. Do not list C:\\Users,
-  Documents, or any parent. Tell them to Allow the path or add the folder
-  in Settings → roots.
+  Documents, or any parent. Tell them to Allow the path, or open Settings
+  and add a folder there.
 - Never tell the user to run a shell command to do something a tool can do.
 - Do not claim you edited a file unless a write/edit tool succeeded.
 - Prefer git_info (status/diff/log) over inventing branch or dirty state.
@@ -843,8 +843,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
   Acknowledge arXiv. Do not scrape NASA JavaScript. APOD and ADS need a
   free key in data/secrets.yaml; say so if the tool reports it is missing.
   Horizons `table=vectors` is SSB ECLIPJ2000 state for Reality;
-  observer tables are for the sky. Do not invent a bibcode, an abstract,
-  or an ephemeris. "Find me a paper" is catalog, not a guess.
+  observer tables are for the sky. How far, closest, or farthest:
+  action=horizons, target=the body name only, omit date and query, then
+  repeat the tool sentences. Do not add a closest or farthest the tool
+  did not state. Do not invent a bibcode, an abstract, or an ephemeris.
+  "Find me a paper" is catalog, not a guess.
 - Reality's solar system is the `solar` tool (REBOUND, true scale).
   load uses Horizons VECTORS. realtime (key 1, or 1×) discards any warp
   and locks IAS15 to UTC now from the Horizons epoch — Moon and Earth are
@@ -870,8 +873,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
   adsb.lol military, AISStream (free key in data/secrets.yaml), Fintraffic
   Digitraffic AIS (no key), CelesTrak TLE + Starlink sample, Radio Browser,
   TfL JamCam, Caltrans D1-D12 CCTV + lane closures, Open-Meteo,
-  FIRMS (free key), Launch Library pads, APRS (free key), Shodan banners
-  (optional free key, not a login); failures keep sim.
+  FIRMS (free key), Launch Library pads, APRS (free key); failures keep sim.
   Mid-ocean AIS is a hole (VHF dies offshore; we do not buy satellite AIS).
   Sentinel-1 ocean frames (NASA ASF, no key) are pass footprints, not hull names.
   NASA EONET named events upsert onto sites. OSM webcam tags are positions only.

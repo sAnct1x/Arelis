@@ -35,7 +35,7 @@ def _cache_root() -> Path:
 
 
 def is_tool_cache_path(path: str) -> bool:
-    """True for this turn's scrape/fetch dump — not a user file to re-read."""
+    """True for this turn's scrape/fetch dump, not a user file to re-read."""
     text = (path or "").replace("\\", "/").casefold()
     return "/tool_cache/" in text or text.rstrip("/").endswith("tool_cache")
 

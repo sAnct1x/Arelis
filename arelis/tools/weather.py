@@ -1,4 +1,4 @@
-"""Local weather via Open-Meteo — no model-invented URLs, no JS weather sites."""
+"""Local weather via Open-Meteo, no model-invented URLs, no JS weather sites."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ class WeatherTool:
     ``test_weather_ignores_model_invented_coords`` pins that.
 
     ``run`` used to read latitude/longitude from kwargs as a fallback, which four
-    different places then described four different ways — the schema declared
+    different places then described four different ways, the schema declared
     neither, the description forbade both, the skill card said to pass them for a
     named place, and the failure message asked for them. None of it worked: the
     profile always won, so a named place silently returned home weather, and once
@@ -50,11 +50,11 @@ class WeatherTool:
     description = (
         "Get current conditions and the next few days of forecast from Open-Meteo. "
         "Default is the user's profile location. For another city pass place "
-        "(a name this tool geocodes — never coordinates). "
+        "(a name this tool geocodes, never coordinates). "
         "days is how many daily rows including today: 1 is today only, "
         "tomorrow needs 2 or more, default 3, up to 16. "
         "For a time of day ('will it rain at 3pm', 'this afternoon') pass "
-        "hours — a daily row only carries the day's maximum chance and cannot "
+        "hours, a daily row only carries the day's maximum chance and cannot "
         "say when. For 'yesterday' pass past_days. "
         "Do not scrape AccuWeather, weather.com, or invent Open-Meteo query strings."
     )
@@ -72,7 +72,7 @@ class WeatherTool:
                 "type": "integer",
                 "description": (
                     "Hourly rows from now (1-48). Use this for 'will it rain "
-                    "at 3pm' or 'this afternoon' — a daily row only has the "
+                    "at 3pm' or 'this afternoon'a daily row only has the "
                     "day's max chance and cannot say when. 0 (default) for none"
                 ),
             },

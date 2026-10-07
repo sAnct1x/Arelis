@@ -51,7 +51,7 @@ def bead_true_anomalies(
 ) -> tuple[float, ...]:
     """Direction beads on an osculating ellipse. Half-step so none sits on the body.
 
-    ``phase`` is a wall-clock chase along increasing true anomaly — a direction
+    ``phase`` is a wall-clock chase along increasing true anomaly, a direction
     cue, not orbital motion. The planet still sits at ``nu``.
     """
     count = max(int(n), 1)

@@ -258,7 +258,7 @@ class WorkspacePanel(QWidget):
         )
         self.remove_root_btn = _icon_btn(
             folder_minus_icon(16),
-            "Remove this project from the workspace — files stay on disk",
+            "Remove this project from the workspace, files stay on disk",
         )
         self.keep_btn = _icon_btn(note_keep_icon(16), "Keep a note on the desk")
         self.add_root_btn.clicked.connect(self.add_root_requested.emit)
@@ -556,7 +556,7 @@ class WorkspacePanel(QWidget):
         self.console_cwd.setToolTip("Commands you type start in this folder")
         self.console_edit = QLineEdit()
         self.console_edit.setObjectName("InstrumentSearch")
-        self.console_edit.setPlaceholderText("you type it — she cannot run this line")
+        self.console_edit.setPlaceholderText("you type it: she cannot run this line")
         self.console_edit.setFixedHeight(METRICS["row"])
         self.console_edit.setToolTip(
             "Runs in the active project. Arelis has no tool that presses enter."
@@ -621,7 +621,7 @@ class WorkspacePanel(QWidget):
     def set_recent(self, paths: list[str]) -> None:
         self.recent_combo.blockSignals(True)
         self.recent_combo.clear()
-        self.recent_combo.addItem("—", "")
+        self.recent_combo.addItem("-", "")
         for path in paths:
             self.recent_combo.addItem(path, path)
         self.recent_combo.blockSignals(False)
@@ -641,7 +641,7 @@ class WorkspacePanel(QWidget):
         self._root_name = name
         path = self._project_paths.get(name, "")
         if name and path:
-            self.root_label.setText(f"project: {name} — {path}")
+            self.root_label.setText(f"project: {name}, {path}")
             self.root_label.setToolTip(path)
             self.project_combo.setToolTip(path)
         elif name:
@@ -860,7 +860,7 @@ class WorkspacePanel(QWidget):
         return self._dirty
 
     def baseline_text(self) -> str:
-        """Editor contents as of the last load or save — what a diff is against."""
+        """Editor contents as of the last load or save, what a diff is against."""
         return self._baseline
 
     def loaded_abs(self) -> str:
@@ -1128,7 +1128,7 @@ class WorkspacePanel(QWidget):
 
         QPlainTextEdit already has a stack. The hole is delivery: this
         panel takes StrongFocus (image left/right), and a chord that
-        lands here — or a ShortcutOverride the window sees first —
+        lands here, or a ShortcutOverride the window sees first
         used to vanish. Claim the shortcut, then undo/redo. An empty
         stack is a no-op, so Ctrl+Z cannot wipe a freshly loaded file.
         """

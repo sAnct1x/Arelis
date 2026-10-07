@@ -22,6 +22,7 @@ from typing import Any
 
 from arelis.config import load_config
 from arelis.paths import outputs_dir
+from arelis.presence.lock import pid_is_alive
 
 GIB = 1024**3
 
@@ -730,14 +731,9 @@ def main() -> int:
             old = int(lock.read_text(encoding="utf-8").strip() or "0")
         except ValueError:
             old = 0
-        if old and old != os.getpid():
-            try:
-                os.kill(old, 0)
-            except OSError:
-                pass
-            else:
-                print(f"another scorecard is pid {old}; refusing to start", flush=True)
-                return 2
+        if old and old != os.getpid() and pid_is_alive(old):
+            print(f"another scorecard is pid {old}; refusing to start", flush=True)
+            return 2
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text(str(os.getpid()), encoding="utf-8")
     print(f"num_ctx={num_ctx}  out={out}  resume={len(done)}", flush=True)

@@ -4,6 +4,8 @@ body:
       value: |
         For help setting up or using Arelis. If something is broken, open an [issue](https://github.com/sAnct1x/Arelis/issues) instead.
 
+        Get the newest setup file from the [latest release](https://github.com/sAnct1x/Arelis/releases/latest).
+
         Nothing that identifies a real person. No contacts, no real email, no home folder path.
   - type: textarea
     id: question
@@ -17,7 +19,7 @@ body:
     attributes:
       label: Arelis version
       description: Press F1 in the window, or check the setup file name.
-      placeholder: 0.2.9
+      placeholder: 0.3.0
     validations:
       required: true
   - type: input

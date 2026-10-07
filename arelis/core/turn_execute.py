@@ -34,6 +34,10 @@ from arelis.core.sms_complete import (
 from arelis.core.tool_results import PreparedToolOutput, prepare_tool_output
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_goal import NEED_LOGIN, browser_errand_done
+from arelis.core.turn_prepare import (
+    calculator_blocked_for_date_ask,
+    python_blocked_for_date_ask,
+)
 from arelis.core.turn_scratch import RoundScratch, named_tools_owed
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
@@ -111,8 +115,23 @@ async def execute_call(
                 ms, result = fanout_results[call_i]
             else:
                 t0 = time.perf_counter()
-                result = await loop.tools.call(name, **args)
-                ms = int((time.perf_counter() - t0) * 1000)
+                blocked = None
+                if name == "calculator":
+                    blocked = calculator_blocked_for_date_ask(
+                        text, str(args.get("expression") or "")
+                    )
+                elif name == "python":
+                    blocked = python_blocked_for_date_ask(
+                        text, str(args.get("code") or "")
+                    )
+                if blocked:
+                    from arelis.tools.base import ToolResult
+
+                    result = ToolResult(ok=False, output=blocked)
+                    ms = 0
+                else:
+                    result = await loop.tools.call(name, **args)
+                    ms = int((time.perf_counter() - t0) * 1000)
         finally:
             if unbind_image is not None:
                 unbind_image.set_progress(None)
@@ -127,6 +146,9 @@ async def execute_call(
             action = str(args.get("action") or "").strip()
             if action:
                 tool_fields["action"] = action
+            # Add arg_keys in native mode for telemetry
+            if native_tool_calling(agent_cfg):
+                tool_fields["arg_keys"] = sorted(args.keys()) if args else []
             loop._timer.mark("tool", **tool_fields)
         data_dict = result.data if isinstance(result.data, dict) else None
         if name in {"scrape", "web_fetch"} and not result.ok:
@@ -135,14 +157,15 @@ async def execute_call(
                 tag = str(data_dict.get("fail_class") or "")
             if not tag:
                 tag = classify_fetch_failure(str(result.output or ""))
-            if tag == "fail:js_shell":
+            if tag in {"fail:js_shell", "fail:challenge"}:
                 url = ""
                 if isinstance(data_dict, dict):
                     url = str(data_dict.get("url") or "").strip()
                 if not url.startswith("http"):
                     url = str(args.get("url") or "").strip()
                 if url.startswith("http"):
-                    ctx.js_shell_url = url
+                    if tag == "fail:js_shell":
+                        ctx.js_shell_url = url
                     if "browser" in available_all:
                         visible = set(visible) | {"browser"}
                         available = set(available) | {"browser"}
@@ -150,7 +173,10 @@ async def execute_call(
                         ctx.tool_names.update(visible)
                         tool_names = ctx.tool_names
                         if offer_tools:
-                            ollama_tools = loop.tools.ollama_tools(visible)
+                            ollama_tools = loop.tools.ollama_tools(
+                                visible,
+                                param_hints=native_tool_calling(agent_cfg),
+                            )
         if result.ok:
             loop.tools_used.add(name)
             fail_counts.pop(call_fp, None)
@@ -273,6 +299,8 @@ async def execute_call(
                 loop._note_look_tool(name, args, result, data_dict)
         else:
             fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
+            ctx.last_fail_tool_name = name
+            ctx.last_fail_tool_out = str(result.output or "")
             if name == "send_sms":
                 ctx.sms_failed = True
             if loop._look is not None and name == "camera":
@@ -326,7 +354,7 @@ async def execute_call(
                             "Browser connect/control failed "
                             f"({code}). If the user only asked to "
                             "pull up a site, call browser(action=open"
-                            f"{url_bit}) — that is a plain OS open "
+                            f"{url_bit}), that is a plain OS open "
                             "(no Chrome restart). For click/snapshot/"
                             "navigate when CDP is down, call "
                             f"browser(action=relaunch{url_bit}) after "
@@ -473,6 +501,12 @@ async def execute_call(
             if isinstance(args, dict)
             else "",
         )
+        
+        # Apply native tool calling hints to output
+        if native_tool_calling(agent_cfg):
+            from arelis.core.native_tool_calling import append_native_task_hint
+            out = append_native_task_hint(name, args, result.ok, out)
+        
         if (
             loop._look is not None
             and name in {"ocr", "vision"}
@@ -637,7 +671,7 @@ async def execute_call(
                     return True
             else:
                 await loop._finish(
-                    f"Image ready — open in Workspace ({path}).",
+                    f"Image ready: open in Workspace ({path}).",
                     sources,
                     streamed="",
                 )
@@ -718,6 +752,34 @@ async def execute_call(
             # paraphrases the tool output and the id vanishes.
             await loop._finish(str(result.output).strip(), sources, streamed="")
             return True
+        if (
+            name == "catalog"
+            and result.ok
+            and isinstance(data_dict, dict)
+            and data_dict.get("mode") == "now"
+        ):
+            from arelis.tools.catalog import (
+                DISTANCE_MODEL_NOTE,
+                should_ship_distance_line,
+            )
+
+            summary = str(result.output or "").strip()
+            loop._horizons_distance_text = summary
+            loop._horizons_distance_ask = text
+            later = 0
+            calls = getattr(r, "calls", None) or []
+            if isinstance(calls, list):
+                later = max(0, len(calls) - call_i - 1)
+            if should_ship_distance_line(text, later_calls=later):
+                await loop._finish(
+                    summary,
+                    sources,
+                    streamed="",
+                    passthrough_tool="catalog",
+                )
+                return True
+            if DISTANCE_MODEL_NOTE not in out:
+                out = f"{out.rstrip()}\n\n{DISTANCE_MODEL_NOTE}"
         messages.append(loop._tool_message(name, out))
         if name == "weather" and not result.ok:
             asked = str(args.get("place") or "").strip()
@@ -955,7 +1017,7 @@ async def execute_call(
             ):
                 replan += (
                     " If they asked about the weather/forecast, call "
-                    "weather — do not web_search again."
+                    "weather, do not web_search again."
                 )
             if replan:
                 loop._fail_replan_used = True

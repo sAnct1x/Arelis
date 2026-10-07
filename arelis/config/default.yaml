@@ -104,8 +104,13 @@ agent:
   # Pause when she *offers* her window. A drive you already typed or said is
   # the grant. rest of this ask covers further steps. Never batches with mail/SMS.
   confirm_browser: true
+  # Local tray balloon after a browser captcha/login wait.
+  # 0 turns it off; capped at 24 hours; invalid values turn it off.
+  wall_toast_after_s: 120
   # Pause when she offers to drive your Windows session. A desk ask you
-  # already typed or said is the grant. Deletes / Pay / UAC still pause.
+  # already typed or said is the grant. With this on, Delete, Pay, and
+  # Windows permission prompts still show a card. With it off, no card.
+  # The desk still refuses those clicks.
   confirm_desktop: true
   # See one local image (VL). Separate from confirm_image so disabling Comfy
   # generation confirm does not disable vision. rest of this ask covers it.
@@ -298,12 +303,12 @@ workspace:
   #
   # Flat path strings still work (name = directory basename). Prefer the named
   # form when you have more than one project; address files as name:relative/path.
-  # Override live roots in config.local.yaml (Settings → Roots) so this shipped
-  # default stays a single-root fresh install.
+  # Override live folders in your own settings (open Settings and add a folder
+  # there) so this shipped default stays a single-folder fresh install.
   # read_only=true rejects write/edit/create under that root.
   roots:
     - "."
-    # Extra projects are opt-in (Settings → Roots, or the workspace dock).
+    # Extra projects are opt-in (open Settings and add a folder, or the files panel).
     # Do not list sibling folders here. Example of a second root, local only:
     # - name: notes
     #   path: "C:/Users/you/Documents/notes"
@@ -376,7 +381,10 @@ tools:
       # per-channel mode in Settings → Notify → SMS (glass pill, optionally with
       # a voice cue when idle). Keys here would be read by nothing.
       ingest:
-        enabled: true
+        # auto: listen only once this PC has a pairing code (Settings, Notify).
+        # true: always try, and say so when the pairing code is missing.
+        # false: never listen.
+        enabled: auto
         host: "0.0.0.0"
         port: 8765
       # Optional SMS/MMS fallback via SMSGate Local Server GET /inbox.
@@ -416,6 +424,12 @@ tools:
     # else's Chrome, she opens her window on 9333+ instead of attaching.
     enabled: true
     cdp_url: "http://127.0.0.1:9222"
+    # false (default): keep data/browser-profile between runs and restore the
+    # last session, so you sign into Google/Maps once. true: the first window
+    # Arelis opens in a run starts empty on google.com; her profile is wiped
+    # first, so no tabs, history, cookies, autofill or sign-ins come back
+    # (useful for recordings).
+    fresh_profile: false
     max_snapshot_chars: 6000
     max_read_chars: 3500
     aliases:
@@ -742,6 +756,18 @@ location:
   # (name, answer style, work, …) are injected every turn; `location:` wins
   # over automatic place sources below. Keep `user:` short — not a 50-field form.
   profile_path: "data/profile.yaml"
+  privacy:
+    # How much of the saved place the model sees every turn. Whatever is in the
+    # prompt can show up in its visible reasoning (the Thinking dock).
+    #   off   timezone only; the weather tool uses the saved place itself and
+    #         user_location returns it when something else needs it (default)
+    #   city  city, region, country; no postal code or coordinates
+    #   full  everything the resolver knows
+    prompt_detail: "off"
+    # Replace the saved city, postal code and coordinates with [location] in
+    # the Thinking dock (plain status lines, tool arguments, and tool results
+    # shown there), in streamed reasoning, and in logs/*.log and turns.jsonl.
+    redact_display: true
   # Timezone and country from the operating system. No network, no permission.
   use_system: true
   network:
@@ -819,5 +845,11 @@ ui:
     calendar_leads_min: [15, 5, 0]
     poll_s: 30
     mail_poll_s: 90
+
+# Installed copies ask GitHub once a day whether a newer release exists.
+# Off means that ping does not happen. `arelis --check-update` still asks
+# when you run it. Download and install still wait for a yes in the UI.
+updates:
+  check: true
 
 persona_file: "persona/arelis.md"

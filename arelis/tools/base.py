@@ -49,12 +49,12 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
         if _PLACEHOLDER_ARG.search(text):
             return (
                 f"Placeholder argument {key}={_short(text)!r} "
-                "— fill a real value first."
+                "- fill a real value first."
             )
     if tool == "workspace" and action == "write":
         content = str(args.get("content") or "")
         if not content.strip():
-            return "workspace write has empty content — nothing to Allow."
+            return "workspace write has empty content, nothing to Allow."
     if tool == "document":
         body = str(args.get("body") or "")
         rows = str(args.get("rows") or "")
@@ -66,7 +66,7 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
             and not title.strip()
             and not from_path.strip()
         ):
-            return "document has empty body — nothing to Allow."
+            return "document has empty body, nothing to Allow."
     if tool == "contacts" and action in CONTACTS_WRITE_ACTIONS:
         phone = str(args.get("phone") or args.get("number") or "").strip()
         if phone and _PLACEHOLDER_ARG.search(phone):
@@ -128,12 +128,20 @@ class ToolRegistry:
     def names(self) -> set[str]:
         return set(self._tools)
 
-    def ollama_tools(self, names: set[str] | None = None) -> builtins.list[dict[str, Any]]:
+    def ollama_tools(
+        self,
+        names: set[str] | None = None,
+        *,
+        param_hints: bool = False,
+    ) -> builtins.list[dict[str, Any]]:
         """OpenAI-style tools array for Ollama /api/chat.
 
         When ``names`` is set, only those tools are offered (per-turn subset).
         Descriptions are one line; param essays are stripped. Names, enums,
-        and required stay — that is what structured calling needs.
+        and required stay, that is what structured calling needs.
+        
+        When ``param_hints`` is True (native_tool_calling mode), specific
+        parameter descriptions are kept to guide the model.
         """
         from arelis.core.compact_prompt import skinny_ollama_tool
 
@@ -146,6 +154,7 @@ class ToolRegistry:
                     tool.name,
                     getattr(tool, "description", "") or "",
                     getattr(tool, "parameters_schema", None),
+                    param_hints=param_hints,
                 )
             )
         return out
@@ -177,7 +186,7 @@ class ToolRegistry:
         only tool that used to reach it, so turning off image confirmations
         would otherwise turn off mail/SMS confirmations as a side effect
         nobody asked for. browser and vision are gated by their own toggles
-        for the same reason — they must not share the image (Comfy) toggle.
+        for the same reason, they must not share the image (Comfy) toggle.
         """
         tool = self.get(name)
         if tool is None:

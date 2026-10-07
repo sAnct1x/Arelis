@@ -22,7 +22,7 @@ def test_world_state_includes_clock_role_and_model() -> None:
 def test_world_state_includes_place_from_location() -> None:
     loc = UserLocation(city="Raleigh", region="NC", country="US")
     line = world_state_prompt_line(
-        {"_location": loc},
+        {"_location": loc, "location": {"privacy": {"prompt_detail": "full"}}},
         role="fast",
         model="qwen2.5:7b",
     )

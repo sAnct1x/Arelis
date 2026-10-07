@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 # Evening room under a sodium lamp. Bright enough to read, quiet enough to sit in.
 # The room shares the lamp's hue (~24-28) at low chroma: bg0 is #100d0b, a spread
 # of 5 between red and blue. A wider split (the old #160d07, red 22 / blue 7)
@@ -353,7 +355,10 @@ def _filament_colors() -> dict[str, str]:
         "text": hex6(cream),
         "hint": "#d4b888",
         "thinking": "#c4a06a",
-        "text_dim": "#b89468",
+        # User lines and role labels. Labels sit on the bare plate, and the
+        # sheen at the top of a tall chat tile put #b89468 at 3.27:1.
+        # Same cream hue as body type, one step down.
+        "text_dim": "#d4c1a1",
         "dim": "#a88858",
         "status_white": hex6(cream),
         "text_soft": rgba(cream, 200),
@@ -362,7 +367,9 @@ def _filament_colors() -> dict[str, str]:
         "accent": "#c4a06a",
         "accent2": "#e4c896",
         "amber": "#c4a06a",
-        "status_amber": "#c4a06a",
+        # Notices and the tool status line, on that same plate.
+        # The lamp accent stays #c4a06a.
+        "status_amber": "#d9bb93",
         "warn": "#d4783c",
     })
     return c
@@ -400,6 +407,143 @@ _FILAMENT_PLATE = {
     ),
 }
 
+def _night_colors() -> dict[str, str]:
+    """Near-black void, brand purple ring. Same token names as sodium."""
+    c = dict(_SODIUM_COLORS)
+    # Measured from Arelis brand art (glowing purple ring, white star).
+    void = (6, 10, 32)  # #060a20 window bg
+    deep = (2, 4, 24)  # #020418
+    panel = (11, 12, 38)  # #0b0c26
+    panel_hi = (14, 15, 45)  # #0e0f2d
+    card = (22, 20, 54)  # #161436
+    border = (48, 41, 76)  # #30294c
+    hover = (48, 32, 80)  # #302050
+    selected = (64, 48, 96)  # #403060
+    mid = (80, 64, 128)  # #504080
+    pressed = (112, 80, 160)  # #7050a0
+    accent = (128, 80, 176)  # #8050b0
+    focus = (128, 96, 176)  # #8060b0
+    # Secondary lavender-grey: ≥4.5:1 on #060a20, panel, and card (WCAG).
+    lav = (144, 136, 168)  # #9088a8
+    lav_dim = (132, 124, 156)  # #847c9c
+    lav_faint = (122, 114, 144)  # #7a7290
+    paper = (255, 255, 255)
+    well = (14, 15, 45)  # #0e0f2d
+    well_focus = (22, 20, 54)  # #161436
+
+    def rgba(rgb: tuple[int, int, int], a: int) -> str:
+        return f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {a})"
+
+    def hex6(rgb: tuple[int, int, int]) -> str:
+        return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+
+    c.update({
+        "bg0": hex6(void),
+        "bg1": hex6(panel),
+        "bg2": hex6(card),
+        "plate": rgba(panel, 255),
+        "panel_fill": rgba(panel, 255),
+        "veil": rgba(void, 36),
+        "scrim": rgba(deep, 200),
+        "code_fill": rgba(deep, 180),
+        "glass": rgba(void, 140),
+        "glass_strong": rgba((7, 9, 30), 176),
+        "glass_soft": rgba(panel_hi, 110),
+        "glass_fill": rgba(void, 248),
+        "glass_fill_float": rgba(void, 248),
+        "glass_fill_docked": rgba(void, 0),
+        "glass_fill_settings": rgba(void, 255),
+        "bubble_fill": rgba(card, 130),
+        "bubble_wash": rgba(panel, 190),
+        "menu_fill": rgba(panel, 242),
+        "inset": rgba(deep, 150),
+        "well": rgba(well, 255),
+        "well_focus": rgba(well_focus, 255),
+        "well_soft": rgba(well, 130),
+        "card_fill": rgba(card, 170),
+        "raised": rgba(card, 255),
+        "raised_warm": rgba(selected, 255),
+        "sunk": rgba(deep, 255),
+        "sunk_soft": rgba(deep, 190),
+        "tab_selected": rgba(selected, 255),
+        "groove": rgba(card, 180),
+        "chip": rgba(card, 120),
+        "chip_solid": rgba(card, 230),
+        "row_hover": rgba(hover, 180),
+        "row_selected": rgba(selected, 220),
+        "hover_soft": rgba(hover, 140),
+        "hover": rgba(hover, 200),
+        "hover_strong": rgba(selected, 220),
+        "button_fill": rgba(mid, 180),
+        "button_hover": rgba(accent, 200),
+        "button_hover_hot": rgba(focus, 220),
+        "button_hover_soft": rgba(pressed, 160),
+        "live_fill": rgba(accent, 160),
+        "selection": rgba(selected, 210),
+        "selection_strong": rgba(pressed, 220),
+        "rim": rgba(focus, 160),
+        "rim_glow": rgba(accent, 80),
+        "hairline_faint": rgba(border, 100),
+        "hairline": rgba(border, 160),
+        "hairline_mid": rgba(border, 200),
+        "edge_soft": rgba(border, 140),
+        "edge": rgba(border, 200),
+        "edge_mid": rgba(mid, 180),
+        "edge_strong": rgba(accent, 200),
+        "edge_hot": rgba(focus, 235),
+        "edge_warm": rgba(lav, 140),
+        "edge_bright": rgba(lav, 185),
+        "catch": rgba(focus, 120),
+        "text": hex6(paper),
+        "hint": hex6(lav),
+        "thinking": hex6(lav_dim),
+        "text_dim": hex6(lav_dim),
+        "dim": hex6(lav_faint),
+        "status_white": hex6(paper),
+        "text_soft": rgba(paper, 220),
+        "text_muted": rgba(lav, 180),
+        "text_faint": rgba(lav, 120),
+        "accent": hex6(accent),
+        "accent2": hex6(focus),
+        "amber": hex6(accent),
+        "status_amber": hex6(accent),
+        "warn": "#b060d0",
+    })
+    return c
+
+
+_NIGHT_COLORS = _night_colors()
+_NIGHT_CORE = {
+    "core": (255, 255, 255),
+    "core_halo": (128, 96, 176),
+    "tick": (128, 80, 176),
+    "tick_halo": (112, 80, 160),
+}
+_NIGHT_BLOOM = {
+    "inner": (
+        (0.0, (128, 80, 176, 90)),
+        (0.18, (112, 80, 160, 64)),
+        (0.45, (64, 48, 96, 32)),
+        (0.75, (6, 10, 32, 14)),
+    ),
+    "outer": (
+        (0.0, (128, 96, 176, 40)),
+        (0.5, (48, 32, 80, 12)),
+    ),
+    "grain": (128, 80, 176),
+    "vignette": (2, 4, 24, 72),
+}
+_NIGHT_PLATE = {
+    "seal": (6, 10, 32, 255),
+    "body": (11, 12, 38, 255),
+    "opaque": ((0.0, (64, 48, 96)), (0.36, (22, 20, 54)), (1.0, (6, 10, 32))),
+    "smoked": (
+        (0.0, (48, 32, 80), 20),
+        (0.42, (11, 12, 38), 4),
+        (1.0, (2, 4, 24), -6),
+    ),
+}
+
 _PALETTES = {
     "sodium": {
         "colors": _SODIUM_COLORS,
@@ -419,12 +563,22 @@ _PALETTES = {
         "hairline": dict(_SODIUM_HAIRLINE),
         "type": dict(_SODIUM_TYPE),
     },
+    "night": {
+        "colors": _NIGHT_COLORS,
+        "filament": _NIGHT_CORE,
+        "bloom": _NIGHT_BLOOM,
+        "glass": dict(_SODIUM_GLASS),
+        "plate": _NIGHT_PLATE,
+        "hairline": dict(_SODIUM_HAIRLINE),
+        "type": dict(_SODIUM_TYPE),
+    },
 }
 
 THEME_IDS = tuple(_PALETTES)
 _THEME_LABELS = {
     "sodium": "sodium",
     "filament": "filament (testing)",
+    "night": "night",
 }
 THEME_CHOICES = tuple((tid, _THEME_LABELS.get(tid, tid)) for tid in THEME_IDS)
 
@@ -445,6 +599,35 @@ def resolve_theme_id(value: str | None) -> str:
 
 def active_theme() -> str:
     return _ACTIVE_THEME
+
+
+def theme_menu_label(theme_id: str | None = None) -> str:
+    """View menu name for the theme on screen, or for ``theme_id``.
+
+    Unknown names resolve the same way the palette does, to sodium, so a
+    bad id never becomes a theme that is not installed.
+    """
+    resolved = active_theme() if theme_id is None else resolve_theme_id(theme_id)
+    return _THEME_LABELS.get(resolved, _THEME_LABELS[DEFAULT_THEME])
+
+
+_MENU_ASIDE = re.compile(r"\s*\([^)]*\)")
+
+
+def spoken_theme_name(menu_label: str) -> str:
+    """Menu words with any parenthetical dropped.
+
+    The View menu can say "filament (testing)". She says "filament".
+    The menu string itself is not rewritten here.
+    """
+    spoken = _MENU_ASIDE.sub("", menu_label or "")
+    spoken = " ".join(spoken.split())
+    return spoken or " ".join((menu_label or "").split())
+
+
+def theme_spoken_name(theme_id: str | None = None) -> str:
+    """What she should say this theme is called."""
+    return spoken_theme_name(theme_menu_label(theme_id))
 
 
 def theme_from_config(config: dict | None) -> str:

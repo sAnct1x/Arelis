@@ -15,6 +15,99 @@ _ACTIVE_PROJECT_FILE = state_dir() / "active_project"
 # Windows drive paths use a colon; never treat "C:\..." as project "C".
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:(?:[\\/]|$)")
 
+# Plain language for the model to relay when a path is refused before any
+# filesystem call. UNC and NT device prefixes can trigger outbound SMB auth
+# on Windows merely by being resolved; a local-first assistant has no need
+# for network shares, so every such prefix is refused (no config opt-in).
+UNSAFE_WINDOWS_PATH_MSG = (
+    "That path points at a network location; I only work in your workspace folder"
+)
+
+# Same sentence on the welcome glass and on this error, so a new person
+# is not sent to a menu name.
+FOLDER_CHOICE_HELP = (
+    "When Arelis first opens, it asks you to choose the folder it may work in. "
+    "Later, open Settings and add a folder there."
+)
+
+NO_WORKSPACE_ROOTS_MSG = (
+    "No folder is set up yet. This is a setup step, not a bug. " + FOLDER_CHOICE_HELP
+)
+
+
+def _path_text(raw: str) -> str:
+    """Whitespace and one pair of surrounding quotes off a caller path string."""
+    text = (raw or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1].strip()
+    return text
+
+
+def _is_unc_file_url(text: str) -> bool:
+    """True for file: URLs that name a UNC host, not a local drive letter."""
+    if len(text) < 5 or not text[:5].lower() == "file:":
+        return False
+    rest_norm = text[5:].replace("/", "\\")
+    # file:////server/share (four slashes) or file:\\\\server
+    if rest_norm.startswith("\\\\\\\\"):
+        return True
+    # file://server/share or file:\\server (two slashes). Three slashes is
+    # file:///C:/... or file:///local, which is not UNC.
+    if rest_norm.startswith("\\\\") and not rest_norm.startswith("\\\\\\"):
+        return True
+    return False
+
+
+def is_unsafe_windows_path(raw: str) -> bool:
+    """True when ``raw`` is a UNC or NT device path that must not be resolved.
+
+    Strips whitespace and surrounding quotes, then treats ``/`` as ``\\``.
+    Refuses strings that start with ``\\\\`` (covers ``\\\\server``,
+    ``\\\\?\\``, ``\\\\.\\``, and mixed-slash spellings) or ``\\??\\``.
+    Also refuses ``file:`` URL forms of UNC (``file://server/share``,
+    ``file:////server/share``, ``file:\\\\server``). A local
+    ``file:///C:/...`` URL is not this.
+
+    String-only: no Path.resolve, exists, stat, or open. Callers that
+    return None/False (grant_external_read, has_external_read,
+    resolve_staged_path) must return after True and must not resolve the
+    same string. Callers that surface an error use refuse_unsafe_windows_path
+    or safe_resolve, which raise PermissionError with UNSAFE_WINDOWS_PATH_MSG
+    and never resolve.
+    """
+    text = _path_text(raw)
+    if not text:
+        return False
+    if _is_unc_file_url(text):
+        return True
+    norm = text.replace("/", "\\")
+    if norm.startswith("\\\\") or norm.startswith("\\??\\"):
+        return True
+    return False
+
+
+def refuse_unsafe_windows_path(raw: str) -> None:
+    """Raise PermissionError(UNSAFE_WINDOWS_PATH_MSG) when unsafe. Does not resolve."""
+    if is_unsafe_windows_path(raw):
+        raise PermissionError(UNSAFE_WINDOWS_PATH_MSG)
+
+
+def safe_resolve(raw: str | Path, *, base: Path | None = None) -> Path:
+    """Refuse unsafe Windows prefixes, then expanduser and resolve.
+
+    Raises PermissionError with UNSAFE_WINDOWS_PATH_MSG before any
+    filesystem call when the string is UNC or NT device. Relative paths
+    join onto ``base`` when given. Callers that want None/False instead
+    of an exception should use is_unsafe_windows_path and return, and
+    must not then Path.resolve the same string.
+    """
+    text = _path_text(str(raw or ""))
+    refuse_unsafe_windows_path(text)
+    path = Path(text)
+    if base is not None and not path.is_absolute() and not _WINDOWS_DRIVE.match(text):
+        path = base / path
+    return path.expanduser().resolve()
+
 
 class AmbiguousPathError(ValueError):
     """Bare path matched more than one configured root."""
@@ -62,7 +155,7 @@ class WorkspaceRoots:
 
     def __init__(self, roots: list[RootEntry], active: str | None = None) -> None:
         if not roots:
-            raise ValueError("No workspace roots are configured")
+            raise ValueError(NO_WORKSPACE_ROOTS_MSG)
         seen: set[str] = set()
         for root in roots:
             if root.name in seen:
@@ -126,7 +219,7 @@ class WorkspaceRoots:
     ) -> None:
         """Hot-swap configured roots (Settings) while keeping session grants."""
         if not roots:
-            raise ValueError("No workspace roots are configured")
+            raise ValueError(NO_WORKSPACE_ROOTS_MSG)
         seen: set[str] = set()
         for root in roots:
             if root.name in seen:
@@ -191,13 +284,19 @@ class WorkspaceRoots:
 
         Returns the normalized path when granted, or None when the path cannot
         be resolved / is not a usable file or directory.
+
+        Unsafe Windows prefixes return None here and are never resolved.
+        resolve() / resolve_read() raise PermissionError with
+        UNSAFE_WINDOWS_PATH_MSG for the same strings instead of returning None.
         """
         raw = str(path or "").strip()
         if not raw:
             return None
+        if is_unsafe_windows_path(raw):
+            return None
         try:
-            resolved = Path(raw).expanduser().resolve()
-        except OSError:
+            resolved = safe_resolve(raw)
+        except (PermissionError, OSError):
             return None
         if not resolved.exists():
             return None
@@ -230,9 +329,16 @@ class WorkspaceRoots:
         return path.parent if path.is_file() else path
 
     def has_external_read(self, path: Path | str) -> bool:
+        """True when a prior grant covers this path. False for unsafe prefixes.
+
+        Unsafe Windows prefixes return False and are never resolved.
+        """
+        raw = str(path or "").strip()
+        if is_unsafe_windows_path(raw):
+            return False
         try:
-            resolved = Path(path).expanduser().resolve()
-        except OSError:
+            resolved = safe_resolve(raw)
+        except (PermissionError, OSError):
             return False
         return self._external_covers(resolved)
 
@@ -245,10 +351,10 @@ class WorkspaceRoots:
     ) -> ResolvedPath:
         """Map a caller path to a real path inside an allowed root.
 
-        Qualifiers are config keys only — never joined into the filesystem path
+        Qualifiers are config keys only, never joined into the filesystem path
         before the name→root lookup. resolve() runs before the containment test
         so ".." and symlinks cannot escape. External read grants are never used
-        here — use resolve_read() for list/read/analyze/vision/doc_extract.
+        here, use resolve_read() for list/read/analyze/vision/doc_extract.
 
         for_create and for_write both reject read_only roots (edit uses for_write).
         """
@@ -276,6 +382,7 @@ class WorkspaceRoots:
         raw = (path_str or "").strip()
         if not raw:
             raise ValueError("Missing path")
+        refuse_unsafe_windows_path(raw)
 
         qualified = _split_qualified(raw, set(self._by_name))
         if qualified is not None:
@@ -403,7 +510,7 @@ def _soften_existing(path: Path) -> Path:
 
     Operators type `readme` or wrong-case stems; exact Path joins miss
     `README.md`. Only remaps when a unique sibling (or unique stem match)
-    exists — never invents a path for creates.
+    exists, never invents a path for creates.
     """
     if path.exists():
         return path
@@ -458,7 +565,7 @@ def compose_stt_initial_prompt(config: dict, workspace: WorkspaceRoots) -> str:
     """Bias Whisper toward wake/jargon seed, then at most two project names.
 
     Seed first so project names cannot bury "Hey Arelis". Keep the whole string
-    short — Whisper often regurgitates a long initial_prompt as the transcript.
+    short, Whisper often regurgitates a long initial_prompt as the transcript.
     """
     stt = (config.get("voice") or {}).get("stt") or {}
     seed = str(stt.get("initial_prompt") or "").strip() or "Hey Arelis."

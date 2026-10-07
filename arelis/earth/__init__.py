@@ -8,7 +8,7 @@ Leave Earth returns to heliocentric. Breadcrumb for the next agent:
 - Concept closed (2026-09-05): the 2026-08 zone plan is this package.
   Archive that chat. Do not name the zone. Room id stays physics.
   Source of truth: docs/earth.md + feeds.FEEDS.
-- Now: feeds.FEEDS is 109 shipped / 25 keyed / 3 later / 4 out.
+- Now: feeds.FEEDS is 109 shipped / 24 keyed / 3 later / 4 out.
   Distance-gated live (`lod.py`): space=sats, approach keeps sats and
   opens planes, near adds boats, city opens ground catalogs. Streets
   wait on altitude. The globe caps the sat swarm in near/city; TLE
@@ -48,7 +48,6 @@ Leave Earth returns to heliocentric. Breadcrumb for the next agent:
   Qt fallback prefers earth_8192.jpg when present (still a sphere).
 - Keyed waiting: AISStream, BarentsWatch, GFW, FIRMS, APRS, Space-Track,
   WAQI, OpenAQ, OpenSky OAuth2 (4,000 credits/day),
-  Shodan banners (IP + body; never login, never look-from),
   DriveTexas conditions (no cameras), NSW Live Traffic cameras,
   WSDOT AccessCode, OHGO, DriveNC cameras, Travel-IQ CARS fleet
   (UT/AZ/ID/WI/LA/AK/NV/CT/NE).

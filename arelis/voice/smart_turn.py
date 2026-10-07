@@ -1,4 +1,4 @@
-"""Pipecat Smart Turn v3 — semantic end-of-turn on CPU ONNX.
+"""Pipecat Smart Turn v3, semantic end-of-turn on CPU ONNX.
 
 Silero says there was a pause. This model looks at the last 8 s of audio
 (prosody, not the transcript) and says whether the speaker is done or still

@@ -1,0 +1,14 @@
+{
+  "notes": {
+    "offline_pull": "Ollama 0.40.0. Server and client in a network namespace with only loopback. POST /api/pull name=qwen3.5:4b. The error field of the stream.",
+    "bad_tag": "Ollama 0.40.0. POST /api/pull name=arelis-no-such-model:missingtag. The error field of the stream.",
+    "disk_full": "Ollama 0.40.0. OLLAMA_MODELS on a 1MB tmpfs. POST /api/pull name=all-minilm. The error field of the stream.",
+    "engine_too_old": "Ollama 0.3.6. POST /api/pull name=qwen3.5:4b. Same error field for qwen3:0.6b. Registry answered 412 and Ollama put that body in the error field."
+  },
+  "errors": {
+    "offline_pull": "pull model manifest: Get \"https://registry.ollama.ai/v2/library/qwen3.5/manifests/4b\": dial tcp: lookup registry.ollama.ai on 198.18.0.53:53: dial udp 198.18.0.53:53: connect: network is unreachable",
+    "bad_tag": "pull model manifest: file does not exist",
+    "disk_full": "write /tmp/ollama-models-full/blobs/sha256-797b70c4edf85907fe0a49eb85811256f65fa0f7bf52166b147fd16be2be4662-partial: no space left on device",
+    "engine_too_old": "pull model manifest: 412: \nThe model you are attempting to pull requires a newer version of Ollama.\n\nPlease download the latest version at:\n\n\thttps://ollama.com/download\n"
+  }
+}

@@ -47,7 +47,7 @@ class _FakeLoop:
         self.memory = SimpleNamespace(messages=[])
         self.tools = SimpleNamespace(
             get=lambda _name: None,
-            ollama_tools=lambda _names: [],
+            ollama_tools=lambda _names, *, param_hints=False: [],
             call=self._call,
         )
         self._trace: list[str] = []
@@ -347,7 +347,7 @@ async def test_search_cap_with_a_page_open_keeps_scrape_for_the_rest() -> None:
     from arelis.core.claims import ExactnessNeed
 
     loop = _FakeLoop()
-    loop.tools.ollama_tools = lambda names: [{"name": n} for n in sorted(names)]
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
     r = _scratch(
         calls=[("web_search", {"query": "yet another reanalysis"})],
         content="",
@@ -402,7 +402,7 @@ async def test_search_cap_on_wikipedia_keeps_scrape_and_drops_the_browser() -> N
     from arelis.core.claims import ExactnessNeed
 
     loop = _FakeLoop()
-    loop.tools.ollama_tools = lambda names: [{"name": n} for n in sorted(names)]
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
     r = _scratch(
         calls=[("web_search", {"query": "one more madhusudhan query"})],
         content="",
@@ -508,7 +508,7 @@ async def test_repeated_browser_open_does_not_paint_the_page_when_a_pdf_is_owed(
     from arelis.core.same_call import record_same_call, same_call_key
 
     loop = _FakeLoop()
-    loop.tools.ollama_tools = lambda names: [{"name": n} for n in sorted(names)]
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
     args = {"action": "open", "url": "https://arxiv.org/abs/2309.16758"}
     r = _scratch(
         calls=[("browser", args)],
@@ -549,7 +549,7 @@ async def test_second_duplicate_page_does_not_force_the_file() -> None:
     loop = _FakeLoop()
     offered: list[set[str]] = []
 
-    def _schemas(names: set[str]) -> list[dict[str, str]]:
+    def _schemas(names: set[str], *, param_hints: bool = False) -> list[dict[str, str]]:
         offered.append(set(names))
         return [{"name": n} for n in sorted(names)]
 
@@ -652,7 +652,8 @@ async def test_dispatch_calculator_same_call_ships_the_number() -> None:
     record_same_call(ctx.same_ok, "calculator", args)
     assert await dispatch_calls(loop, ctx, r, 2) is True
     assert loop.finished is not None
-    assert loop.finished[0] == "14-6 = 8"
+    # #121: same-call finish ships a plain sentence with the number, not the formula.
+    assert loop.finished[0] == "That works out to 8."
     thinking = " ".join(str(e.payload.get("text") or "") for e in loop.bus.events)
     assert "same-call algebra" not in thinking
 
@@ -935,3 +936,99 @@ def test_dispatch_tables_are_named_and_ordered() -> None:
     assert len(call_redirects.REDIRECT_STEPS) >= 4
     assert all(callable(step) for step in call_redirects.REDIRECT_STEPS)
 
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "tool"),
+    [
+        (
+            "no need to look at the book, its just crazy that she wrote a scenario",
+            "desktop",
+        ),
+        (
+            "i never asked you to do anything, why did you open your browser, check the time",
+            "browser",
+        ),
+    ],
+)
+async def test_declined_or_complaining_text_injects_no_tool(text: str, tool: str) -> None:
+    loop = _FakeLoop()
+    r = _scratch(
+        text=text,
+        content="Sure.",
+        tool_names={tool},
+        available={tool},
+        visible={tool},
+        available_all={tool},
+    )
+    ctx = _ctx(text=text)
+    ctx.tool_names = {tool}
+    await apply_no_call_path(loop, ctx, r, 0)
+    assert r.calls == []
+    assert loop._expected_tools == set()
+
+
+@pytest.mark.asyncio
+async def test_real_look_request_still_injects_desktop_screenshot() -> None:
+    loop = _FakeLoop()
+    text = "look at the book on my right monitor"
+    r = _scratch(
+        text=text,
+        content="Sure.",
+        tool_names={"desktop"},
+        available={"desktop"},
+        visible={"desktop"},
+        available_all={"desktop"},
+    )
+    ctx = _ctx(text=text)
+    ctx.tool_names = {"desktop"}
+    assert await apply_no_call_path(loop, ctx, r, 0) is None
+    assert [name for name, _args in r.calls] == ["desktop"]
+
+
+_MOON_DUMP = (
+    "API VERSION: 1.2\n"
+    "Target body name: Moon (301)\n"
+    "Center body name: Earth (399)\n"
+)
+_CATALOG_TOOLS = [{"type": "function", "function": {"name": "catalog"}}]
+
+
+@pytest.mark.asyncio
+async def test_empty_after_data_dump_retry_turns_tools_off() -> None:
+    """Retry branch itself drops every tool, then a second empty ships the fallback."""
+    ask = "how far away is the moon right now?"
+    loop = _FakeLoop()
+    r = _scratch(
+        content="",
+        text=ask,
+        tool_names={"catalog"},
+        ollama_tools=list(_CATALOG_TOOLS),
+        offer_tools=True,
+    )
+    ctx = _ctx(
+        text=ask,
+        last_ok_tool_out=_MOON_DUMP,
+        last_ok_tool_name="catalog",
+        tool_names={"catalog"},
+        ollama_tools=list(_CATALOG_TOOLS),
+        offer_tools=True,
+    )
+    assert await apply_no_call_path(loop, ctx, r, 2) is False
+    assert ctx.tool_answer_nudge_used is True
+    assert r.ollama_tools == []
+    assert r.offer_tools is False
+    assert ctx.ollama_tools == []
+    assert ctx.offer_tools is False
+    assert not ctx.tool_names
+    assert loop.finished is None
+
+    r2 = _scratch(
+        content="", text=ask, tool_names=set(), ollama_tools=[], offer_tools=False
+    )
+    assert await apply_no_call_path(loop, ctx, r2, 3) is True
+    assert loop.finished is not None
+    shipped = loop.finished[0]
+    assert "could not put it into words" in shipped
+    assert "API VERSION" not in shipped

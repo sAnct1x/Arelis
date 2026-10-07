@@ -23,6 +23,50 @@ from arelis.setup.catalog import EMBED_TAG
 log = logging.getLogger(__name__)
 
 
+def shipped_fast_tag() -> str:
+    """Chat model tag from shipped default.yaml (not a local pin)."""
+    try:
+        import yaml
+
+        from arelis.config import DEFAULT_CONFIG_PATH
+
+        data = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        # Unreadable shipped default: treat as no tag rather than abort launch.
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    models = data.get("models") or {}
+    if not isinstance(models, dict):
+        return ""
+    return str(models.get("fast") or "").strip()
+
+
+def try_quiet_complete_model_setup() -> bool:
+    """Mark setup complete without a dialog when the PC is already ready.
+
+    Quiet path: local engine answers and the shipped default chat model is
+    already downloaded. No wizard, no surprise download of a different tag.
+    """
+    if not needs_model_setup():
+        return True
+    tag = shipped_fast_tag()
+    if not tag:
+        return False
+    try:
+        from arelis.setup.engine import already_pulled, ollama_reachable
+
+        if not ollama_reachable():
+            return False
+        if not already_pulled(tag):
+            return False
+    except Exception:
+        # Engine probe failed: fall through to the normal wizard path.
+        return False
+    record_model_setup_complete(tag=tag)
+    return True
+
+
 def needs_model_setup() -> bool:
     marker = _read_marker()
     setup = (marker or {}).get("model_setup") or {}
@@ -89,7 +133,7 @@ def record_model_setup_complete(*, tag: str) -> None:
 
 
 def _configured_fast() -> str:
-    """Only a tag this copy pinned locally — not the shipped default.yaml."""
+    """Only a tag this copy pinned locally, not the shipped default.yaml."""
     path = LOCAL_CONFIG_PATH
     if not path.is_file():
         return ""

@@ -534,3 +534,201 @@ def test_ensure_keeps_attached_cdp_url(monkeypatch) -> None:
 
     asyncio.run(_run())
 
+
+
+def _fake_chrome(monkeypatch, tmp_path):  # type: ignore[no-untyped-def]
+    from arelis.browser import launch as launch_mod
+
+    calls: list[list[str]] = []
+
+    class _Proc:
+        pid = 1
+
+        def poll(self):
+            return None
+
+    profile = tmp_path / "browser-profile"
+    (profile / "Default").mkdir(parents=True)
+    (profile / "Default" / "Preferences").write_text("{}", encoding="utf-8")
+    (profile / "Default" / "Cookies").write_text("session", encoding="utf-8")
+    monkeypatch.setattr(launch_mod, "arelis_user_data_dir", lambda: profile)
+    monkeypatch.setattr(launch_mod, "chrome_executable", lambda: "chrome")
+    monkeypatch.setattr(
+        launch_mod.subprocess, "Popen", lambda args, **_k: calls.append(list(args)) or _Proc()
+    )
+    return launch_mod, profile, calls
+
+
+def test_fresh_profile_wipes_old_session_and_opens_google(monkeypatch, tmp_path) -> None:
+    launch_mod, profile, calls = _fake_chrome(monkeypatch, tmp_path)
+    launch_mod.launch_chromium_cdp("chrome", cdp_url="http://127.0.0.1:9222", fresh_profile=True)
+    argv = calls[0]
+    assert "--restore-last-session" not in argv
+    assert argv[-1] == "https://www.google.com"
+    assert not (profile / "Default" / "Cookies").exists()
+
+
+def test_persistent_profile_is_opt_in(monkeypatch, tmp_path) -> None:
+    launch_mod, profile, calls = _fake_chrome(monkeypatch, tmp_path)
+    launch_mod.launch_chromium_cdp("chrome", cdp_url="http://127.0.0.1:9222", fresh_profile=False)
+    argv = calls[0]
+    assert "--restore-last-session" in argv
+    assert "https://www.google.com" not in argv
+    assert (profile / "Default" / "Cookies").exists()
+
+
+def test_driver_starts_fresh_once_then_keeps_the_window(monkeypatch) -> None:
+    from arelis.browser import launch as launch_mod
+    from arelis.browser.actions import ActionResult, PlaywrightDriver
+
+    seen: list[dict[str, Any]] = []
+
+    def _launch(_browser, **kwargs):  # type: ignore[no-untyped-def]
+        seen.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(launch_mod, "playwright_available", lambda: True)
+    monkeypatch.setattr(launch_mod, "prefer_cdp_url", lambda url: url)
+    monkeypatch.setattr(launch_mod, "cdp_is_up", lambda _u, **_k: False)
+    monkeypatch.setattr(launch_mod, "profile_appears_locked", lambda _b: False)
+    monkeypatch.setattr(launch_mod, "wait_for_cdp", lambda *_a, **_k: True)
+    monkeypatch.setattr(launch_mod, "terminate_browser_processes", lambda _b: None)
+    monkeypatch.setattr(launch_mod, "launch_chromium_cdp", _launch)
+    driver = PlaywrightDriver(fresh_profile=True)
+
+    async def _attach(*, mode: str) -> ActionResult:
+        return ActionResult(ok=True, output=mode)
+
+    async def _close() -> None:
+        return None
+
+    driver._attach_cdp = _attach  # type: ignore[method-assign]
+    driver._close_pw = _close  # type: ignore[method-assign]
+
+    async def _run() -> None:
+        await driver.ensure("chrome")
+        await driver.ensure("chrome", relaunch=True)
+
+    asyncio.run(_run())
+    assert seen[0] == {"cdp_url": "http://127.0.0.1:9222", "restore_session": False, "fresh_profile": True}
+    assert seen[1]["fresh_profile"] is False and seen[1]["restore_session"] is True
+
+
+def _driver_launch_kwargs(monkeypatch, *, fresh_profile: bool | None = None):  # type: ignore[no-untyped-def]
+    from arelis.browser import launch as launch_mod
+    from arelis.browser.actions import ActionResult, PlaywrightDriver
+
+    seen: list[dict[str, Any]] = []
+
+    def _launch(_browser, **kwargs):  # type: ignore[no-untyped-def]
+        seen.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(launch_mod, "playwright_available", lambda: True)
+    monkeypatch.setattr(launch_mod, "prefer_cdp_url", lambda url: url)
+    monkeypatch.setattr(launch_mod, "cdp_is_up", lambda _u, **_k: False)
+    monkeypatch.setattr(launch_mod, "profile_appears_locked", lambda _b: False)
+    monkeypatch.setattr(launch_mod, "wait_for_cdp", lambda *_a, **_k: True)
+    monkeypatch.setattr(launch_mod, "terminate_browser_processes", lambda _b: None)
+    monkeypatch.setattr(launch_mod, "launch_chromium_cdp", _launch)
+    driver = (
+        PlaywrightDriver()
+        if fresh_profile is None
+        else PlaywrightDriver(fresh_profile=fresh_profile)
+    )
+
+    async def _attach(*, mode: str) -> ActionResult:
+        return ActionResult(ok=True, output=mode)
+
+    async def _close() -> None:
+        return None
+
+    driver._attach_cdp = _attach  # type: ignore[method-assign]
+    driver._close_pw = _close  # type: ignore[method-assign]
+    return driver, seen
+
+
+def test_driver_default_keeps_profile_on_first_launch(monkeypatch) -> None:
+    from arelis.browser.actions import PlaywrightDriver
+
+    driver, seen = _driver_launch_kwargs(monkeypatch)
+    assert PlaywrightDriver().fresh_profile is False
+
+    async def _run() -> None:
+        await driver.ensure("chrome")
+
+    asyncio.run(_run())
+    assert seen[0] == {
+        "cdp_url": "http://127.0.0.1:9222",
+        "restore_session": True,
+        "fresh_profile": False,
+    }
+
+
+def test_browser_session_default_fresh_profile_is_off() -> None:
+    assert BrowserSession().fresh_profile is False
+
+
+def test_shipped_fresh_profile_default_is_false() -> None:
+    import yaml
+
+    from arelis.config import DEFAULT_CONFIG_PATH
+
+    data = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    assert data["tools"]["browser"]["fresh_profile"] is False
+
+
+def test_first_run_note_hidden_when_fresh(tmp_path) -> None:
+    from arelis.browser.launch import first_run_note
+
+    kept = first_run_note(tmp_path, fresh=False)
+    assert "Sign into Google and Maps" in kept
+    assert first_run_note(tmp_path, fresh=True) == ""
+
+
+def test_open_adds_sign_in_note_only_when_profile_is_kept(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
+    session = BrowserSession.fake()
+    session._driver.fresh_profile = False  # type: ignore[attr-defined]
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        first = await tool.run(action="open", url="https://example.com")
+        assert first.ok
+        assert "Sign into Google and Maps" in (first.output or "")
+        second = await tool.run(action="open", url="https://example.com/next")
+        assert second.ok
+        assert "Sign into Google and Maps" not in (second.output or "")
+
+    asyncio.run(_run())
+
+    wiped = BrowserSession.fake()
+    wiped._driver.fresh_profile = True  # type: ignore[attr-defined]
+    fresh_tool = BrowserTool(wiped)
+
+    async def _fresh() -> None:
+        opened = await fresh_tool.run(action="open", url="https://example.com")
+        assert opened.ok
+        assert "Sign into Google and Maps" not in (opened.output or "")
+
+    asyncio.run(_fresh())
+
+
+def test_local_config_overrides_fresh_profile(tmp_path, monkeypatch) -> None:
+    from arelis.config import load_config
+
+    missing = tmp_path / "absent-config.local.yaml"
+    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", missing)
+    cfg = load_config()
+    assert cfg["tools"]["browser"]["fresh_profile"] is False
+
+    local = tmp_path / "config.local.yaml"
+    local.write_text(
+        "tools:\n  browser:\n    fresh_profile: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+    overridden = load_config()
+    assert overridden["tools"]["browser"]["fresh_profile"] is True

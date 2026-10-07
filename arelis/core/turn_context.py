@@ -3,7 +3,7 @@
 Those locals were the reason _run could not be split: prepare, each round,
 verify and finish all closed over the same names, so extracting a method
 meant a 20-argument signature that immediately grew. One object is the
-split. Nothing here survives the turn — AgentLoop still owns the timer,
+split. Nothing here survives the turn, AgentLoop still owns the timer,
 the look grant and the expected-tool set, because other methods already
 read those.
 """
@@ -78,6 +78,9 @@ class TurnContext:
     scrape_nudge_used: bool = False
     page_write_nudge_used: bool = False
     algebra_write_nudge_used: bool = False
+    # One per turn: ask for plain words after any tool when page/algebra
+    # write-up did not already fire. Not gated by the tool-nudge budget.
+    tool_answer_nudge_used: bool = False
     think_write_nudge_used: bool = False
     js_shell_nudge_used: bool = False
     js_shell_url: str = ""
@@ -104,6 +107,8 @@ class TurnContext:
     memory_nudge_used: int = 0
     last_ok_tool_out: str = ""
     last_ok_tool_name: str = ""
+    last_fail_tool_name: str = ""
+    last_fail_tool_out: str = ""
     inbox_mutated_ok: bool = False
     inbox_empty_ok: bool = False
     last_browser_snapshot: str = ""

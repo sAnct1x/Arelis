@@ -60,7 +60,6 @@ LOOK_BOX_ADAPTERS = frozenset(
         "adsb",
         "ais",
         "cameras",
-        "shodan",
         "traffic",
         "radio",
         "aprs",

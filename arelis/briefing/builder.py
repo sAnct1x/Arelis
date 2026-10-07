@@ -63,7 +63,7 @@ async def build_briefing(
 
     now = datetime.now().astimezone()
     stamp = now.strftime("%A, %d %B %Y").replace(" 0", " ")
-    sections: list[str] = [f"# Briefing — {stamp}", ""]
+    sections: list[str] = [f"# Briefing, {stamp}", ""]
 
     owns_store = store is None
     if store is None:
@@ -203,7 +203,7 @@ async def _weather_section(
     place = snap.place() or "your area"
     if not snap.has_coordinates():
         if snap.known():
-            return f"{place} — no coordinates on file, so weather was skipped."
+            return f"{place}, no coordinates on file, so weather was skipped."
         return ""
     try:
         wx = await fetch_current_weather(
@@ -213,7 +213,7 @@ async def _weather_section(
         )
     except Exception as exc:
         log.info("Briefing weather skipped: %s", exc)
-        return f"{place} — weather lookup failed ({exc})."
+        return f"{place}, weather lookup failed ({exc})."
     condition = describe_weather_code(wx.get("weather_code"))
     temp = wx.get("temperature_2m")
     feels = wx.get("apparent_temperature")
@@ -286,7 +286,7 @@ async def _mail_section(
         subject = str(item.get("subject") or "(no subject)")
         sender = str(item.get("from") or "(unknown)")
         date = str(item.get("date") or "")
-        lines.append(f"- **{subject}** — {sender}" + (f" · {date}" if date else ""))
+        lines.append(f"- **{subject}**, {sender}" + (f" · {date}" if date else ""))
     return "\n".join(lines), messages
 
 
@@ -352,7 +352,7 @@ def _goals_section(store: MemoryStore, *, limit: int) -> str:
         horizon = str(row.get("horizon") or "").strip()
         prefix = f"#{gid} " if gid is not None else ""
         tag = f"[{status}/{kind}]"
-        suffix = f" — {horizon}" if horizon else ""
+        suffix = f", {horizon}" if horizon else ""
         lines.append(f"- {prefix}{tag} {title}{suffix}")
     return "\n".join(lines)
 

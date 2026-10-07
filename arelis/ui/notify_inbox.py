@@ -1,4 +1,4 @@
-"""Floating glass inbox — View → notifications. Not a dock."""
+"""Floating glass inbox, View → notifications. Not a dock."""
 
 from __future__ import annotations
 

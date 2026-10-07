@@ -21,8 +21,8 @@ conversation database next to several gigabytes of model weights is exactly the
 payload that turns roaming profiles into a support ticket. None of this is meant
 to follow someone between machines. It is meant to stay on the one that made it.
 
-The layout under the root mirrors the repository — ``data``, ``logs``,
-``outputs``, ``models`` — which is not cosmetic. It means a checkout can point
+The layout under the root mirrors the repository, ``data``, ``logs``,
+``outputs``, ``models``, which is not cosmetic. It means a checkout can point
 the root at itself and every path lands where it always did, so this migration
 could be done a few modules at a time with the suite green in between instead of
 in one leap.
@@ -31,8 +31,8 @@ One incidental property, worth recording because it is free rather than because 
 was the goal: Windows gives each account its own ``%LOCALAPPDATA%``, so two people
 sharing a PC get two unrelated sets of contacts, profile and memory without Arelis
 having any notion of an account. ``tests/test_user_data_dir.py`` pins the part that
-is ours. The part that is the operating system's — that one user cannot read
-another's directory — is stated there as the assumption it is, rather than dressed
+is ours. The part that is the operating system's, that one user cannot read
+another's directory, is stated there as the assumption it is, rather than dressed
 up as something we enforce.
 """
 
@@ -69,9 +69,7 @@ def is_source_checkout() -> bool:
     else's source tree. ``tests/`` is not packaged into a wheel, so an installed
     copy cannot have both no matter where it was installed.
     """
-    return (INSTALL_PARENT / "pyproject.toml").is_file() and (
-        INSTALL_PARENT / "tests"
-    ).is_dir()
+    return (INSTALL_PARENT / "pyproject.toml").is_file() and (INSTALL_PARENT / "tests").is_dir()
 
 
 def user_data_dir() -> Path:
@@ -110,6 +108,17 @@ def user_data_dir() -> Path:
 def state_dir() -> Path:
     """User records and durable state: contacts, profile, secrets, memory."""
     return user_data_dir() / "data"
+
+
+def pre_upgrade_backups_dir() -> Path:
+    """Pre-upgrade record copies. Sibling of the user data root, never inside it.
+
+    Uninstall wipe removes ``%LOCALAPPDATA%\\Arelis`` (and Arelis-runtime /
+    Arelis-dev). A folder named ``<data-root>-backups`` next to that root sits
+    outside the wipe list, so a wipe cannot take the upgrade copies with it.
+    """
+    data_root = user_data_dir()
+    return data_root.parent / f"{data_root.name}-backups"
 
 
 def logs_dir() -> Path:
@@ -192,7 +201,7 @@ def display_path(path: Path | str) -> str:
 
     Seven call sites did this seven not-quite-identical ways: some emitted forward
     slashes and one left Windows separators in, and two used ``os.path.relpath``,
-    which does not fail for a path outside the root — it invents a chain of ``..``
+    which does not fail for a path outside the root, it invents a chain of ``..``
     segments instead. Telling a user their screenshot is at
     ``../../../Users/them/Downloads/x.png`` is worse than telling them the real
     path, and it also made displayed paths depend on how deep the root happened to
@@ -220,7 +229,7 @@ def app_icon_path() -> Path:
     Shipped and read-only, so it resolves against the package rather than the
     data root. It lived outside the package and went unlisted in package-data,
     which meant an installed Arelis had no icon anywhere while a checkout looked
-    entirely correct — the same blind spot as the mutable paths, in the opposite
+    entirely correct, the same blind spot as the mutable paths, in the opposite
     direction.
     """
     return PACKAGE_ROOT / "assets" / "arelis.ico"

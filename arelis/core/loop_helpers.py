@@ -8,6 +8,7 @@ from typing import Any
 
 from arelis.core.claims import (
     answer_looks_like_refusal,
+    duration_days_claim_missing_kinds,
     send_claim_missing_kinds,
     unsupported_exactness_reply,
     unsupported_send_claim_reply,
@@ -183,7 +184,7 @@ _TODAY_NEWS = re.compile(
 
 
 def wants_fresh_page_ask(text: str) -> bool:
-    """True for a current-events ask — not every sentence that says 'today'."""
+    """True for a current-events ask, not every sentence that says 'today'."""
     raw = text or ""
     low = raw.lower()
     if any(marker in low for marker in _NEWS_FRESH_MARKERS):
@@ -263,6 +264,12 @@ def _exactness_finish_refuse(
         )
         if send_missing:
             return unsupported_send_claim_reply()
+    if numeric_gate:
+        warrant = " ".join(
+            w.span for w in ledger.items if w.ok and w.kind in {"calc", "units"}
+        )
+        if duration_days_claim_missing_kinds(content, warrant_text=warrant):
+            return unsupported_exactness_reply(["math"])
     if answer_looks_like_refusal(content):
         return None
     # Compose/send turns must not die on "no retrieved page warrant" (R4 / S10).
@@ -345,11 +352,35 @@ def _answer_has_quote_span(text: str) -> bool:
 
 
 _EMPTY_REPLY_NOTICE = (
-    "I thought through it and never wrote the answer — an empty reply, not a "
+    "I thought through it and never wrote the answer, an empty reply, not a "
     "crash or an unload. Say continue, or ask a smaller piece."
 )
 
-_ROUND_LIMIT_NOTICE = "I hit the tool-step limit before finishing. Try a narrower ask."
+def round_limit_notice(
+    rounds: int,
+    *,
+    last_fail_tool: str = "",
+    last_fail_error: str = "",
+) -> str:
+    """User-facing text when the turn burns its model/tool step budget."""
+    n = max(1, int(rounds or 1))
+    text = f"I hit the tool-step limit ({n}/{n}) before finishing. Try a narrower ask."
+    tool = str(last_fail_tool or "").strip()
+    if not tool:
+        return text
+    err = str(last_fail_error or "").strip()
+    if err:
+        return (
+            f"I hit the tool-step limit ({n}/{n}) before finishing. "
+            f"Last failing tool: {tool}: {err} Try a narrower ask."
+        )
+    return (
+        f"I hit the tool-step limit ({n}/{n}) before finishing. "
+        f"Last failing tool: {tool}. Try a narrower ask."
+    )
+
+
+_ROUND_LIMIT_NOTICE = round_limit_notice(8)
 
 # Sent when a model announces a call in prose rather than making one. Observed
 # from qwen2.5:7b: "Let's start by reading the file:" then a fenced JSON object,

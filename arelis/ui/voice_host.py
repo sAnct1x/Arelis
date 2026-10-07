@@ -39,7 +39,7 @@ class VoiceSettingsPlan:
     Whisper / Piper hold devices for the life of the window. A direction that
     does not already match the live service cannot be flipped in place, so the
     toggle blocks until they confirm they will restart. Confirming writes
-    config only — it does not pretend the running service followed.
+    config only, it does not pretend the running service followed.
     """
 
     action: str
@@ -47,7 +47,7 @@ class VoiceSettingsPlan:
     apply_live: bool
     heading: str = ""
     message: str = ""
-    confirm_text: str = "Save — I'll restart"
+    confirm_text: str = "Save, I'll restart"
     cancel_text: str = "Keep current"
     notices: tuple[str, ...] = ()
 
@@ -86,7 +86,7 @@ def _voice_direction_notices(
             continue
         state = "on" if wanted else "off"
         notices.append(
-            f"Restart Arelis to finish turning {label} {state} — "
+            f"Restart Arelis to finish turning {label} {state}, "
             f"the running voice service still has it {'off' if wanted else 'on'}."
         )
     return tuple(notices)
@@ -560,7 +560,7 @@ def wake_resolved(window, future, generation: int) -> None:
             if len(snippet) > 60:
                 snippet = snippet[:57] + "…"
             window.thinking.append(
-                f'heard “{snippet}” — say “Hey Arelis” to wake',
+                f"heard “{snippet}”, say “Hey Arelis” to wake",
                 kind="status",
             )
     except RuntimeError:
@@ -618,7 +618,7 @@ def on_wake_detected(window, remainder: object) -> None:
         remainder=text[:80],
         **window.voice_controller.debug_state(),
     )
-    window.thinking.append("Wake heard — listening.", kind="status")
+    window.thinking.append("Wake heard: listening.", kind="status")
     if not text:
         return
     # Remainder that is only another wake / punctuation was already peeled.
@@ -744,7 +744,7 @@ def on_capture_failed(window, message: str) -> None:
     window.conversation.set_conversing(False)
 
 def on_playback_failed(window, message: str) -> None:
-    """A clip failed to play — abandon speech so conversation can listen again."""
+    """A clip failed to play, abandon speech so conversation can listen again."""
     window.thinking.append(f"playback: {message}", kind="status")
     stop_speech(window)
 

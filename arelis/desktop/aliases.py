@@ -1,4 +1,4 @@
-"""Resolve spoken app names to a launch key — not a per-app tool."""
+"""Resolve spoken app names to a launch key, not a per-app tool."""
 
 from __future__ import annotations
 

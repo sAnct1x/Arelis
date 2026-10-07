@@ -11,6 +11,16 @@ name: Windows installer
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - "win-installer/**"
+      - "pyproject.toml"
+      - "arelis/main.py"
+      - "arelis/ui/launch.py"
+      - "arelis/ui/solar_gl.py"
+      - "scripts/installer_smoke.py"
+      - ".github/workflows/windows-installer.yml"
+      - ".github/workflows/installer-smoke.yml"
   workflow_dispatch:
 
 permissions:
@@ -24,8 +34,8 @@ jobs:
       run:
         working-directory: android/arelis-notify
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: "17"
@@ -43,10 +53,10 @@ jobs:
           fi
       - name: Setup Gradle (wrapper)
         if: steps.props.outputs.mode == 'wrapper'
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       - name: Setup Gradle (no wrapper jar)
         if: steps.props.outputs.mode == 'direct'
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
         with:
           gradle-version: ${{ steps.props.outputs.version }}
       - name: Write release keystore
@@ -69,7 +79,7 @@ jobs:
       - name: Assemble and stage
         working-directory: .
         run: python3 scripts/build_companion.py
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: arelis-companion-apk
           path: |
@@ -86,8 +96,8 @@ jobs:
       # Only for the release step at the end, and only on a tag.
       contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: arelis-companion-apk
           path: companion
@@ -96,7 +106,7 @@ jobs:
       # downloads CPython 3.14.7's embeddable distribution itself and verifies it against
       # the digest python.org publishes. Matching versions anyway, so that the pip doing
       # the resolving agrees with the interpreter being resolved for.
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
           cache: pip
@@ -131,7 +141,7 @@ jobs:
             "Verify with ``Get-FileHash <file> -Algorithm SHA256``."
           ) | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: arelis-windows-installer
           path: |
@@ -155,3 +165,11 @@ jobs:
             gh release create $tag --draft --title "Arelis $tag" --notes "Draft. Unsigned installer; the .sha256 beside it is what to verify against."
           }
           gh release upload $tag (Get-ChildItem win-installer/dist/*-setup.exe*) --clobber
+
+  smoke:
+    needs: installer
+    permissions:
+      contents: read
+    uses: ./.github/workflows/installer-smoke.yml
+    with:
+      candidate_artifact: arelis-windows-installer

@@ -18,10 +18,15 @@ from pathlib import Path
 from typing import Any
 
 from arelis.mathtext import display_math_plain, flatten_latex
-from arelis.paths import display_path, ensure, outputs_dir
+from arelis.paths import display_path, ensure, outputs_dir, user_data_dir
 from arelis.rooms import RoomStore
 from arelis.tools.base import ToolResult
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    WorkspaceRoots,
+    refuse_unsafe_windows_path,
+    safe_resolve,
+)
 
 _FORMATS = frozenset({"pdf", "docx", "xlsx", "csv", "md", "txt"})
 _SANS = "Zen Kaku Gothic New"
@@ -615,24 +620,64 @@ class DocumentTool:
             dest = _unique_dest(folder, stem, f".{fmt}")
         return dest
 
+    def _source_roots(self) -> list[Path]:
+        """Folders from_path may read — drop tray plus the active out dir."""
+        roots = [self.drop_dir()]
+        folder, _where = self.out_dir()
+        try:
+            if folder.resolve() != roots[0].resolve():
+                roots.append(folder)
+        except OSError:
+            roots.append(folder)
+        return roots
+
+    def _under_document_roots(self, raw: str) -> Path | None:
+        """Absolute or data-root-relative path under the document drop / out dir.
+
+        Raises PermissionError with UNSAFE_WINDOWS_PATH_MSG for UNC / NT device
+        strings (does not resolve them). Returns None when the path is safe
+        but not under a document root.
+        """
+        try:
+            candidate = safe_resolve(raw, base=user_data_dir())
+        except PermissionError:
+            raise
+        except OSError:
+            return None
+        for root in self._source_roots():
+            if _contained(candidate, root):
+                return candidate
+        return None
+
     def _read_source(self, raw: str) -> str:
         text = (raw or "").strip()
         if not text:
             raise ValueError("from_path is empty.")
+        refuse_unsafe_windows_path(text)
         path: Path | None = None
         if self.workspace is not None:
             try:
                 path = self.workspace.resolve_read(text).path
-            except (ValueError, PermissionError, OSError):
+            except (ValueError, PermissionError, OSError) as exc:
+                if str(exc) == UNSAFE_WINDOWS_PATH_MSG:
+                    raise
                 path = None
-        candidate = Path(text)
-        if path is None and candidate.is_file():
-            resolved = candidate.resolve()
-            folder, _where = self.out_dir()
-            if _contained(resolved, folder) or _contained(resolved, self.drop_dir()):
-                path = resolved
+        # Workspace may "resolve" a relative display path under the project even
+        # when the real file lives in outputs/documents (outside roots). Prefer an
+        # existing drop-tray hit over a missing workspace hit — same idea as
+        # image_io.resolve_image.
         if path is None or not path.is_file():
-            raise ValueError(f"Cannot read {text!r} as a source file.")
+            fallback = self._under_document_roots(text)
+            if fallback is not None and fallback.is_file():
+                path = fallback
+        if path is None or not path.is_file():
+            allowed = ", ".join(display_path(root) for root in self._source_roots())
+            if self.workspace is not None:
+                allowed = f"{allowed}, or a workspace project"
+            raise ValueError(
+                f"Cannot read {text!r} as a source file. "
+                f"from_path must be under an allowed root ({allowed})."
+            )
         if path.suffix.lower() not in _SOURCE_SUFFIXES:
             raise ValueError("from_path must be a markdown, text, or CSV file.")
         body = path.read_text(encoding="utf-8", errors="replace")

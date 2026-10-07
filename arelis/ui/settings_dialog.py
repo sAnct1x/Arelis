@@ -1,6 +1,7 @@
-"""Single Settings dialog — audio, window, allow, notify, roots, memory."""
+"""Single Settings dialog, audio, window, allow, notify, roots, memory."""
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,8 @@ from arelis.ui.scale import (
     scale_preset_label,
 )
 from arelis.ui.theme import GLASS, SPACE, polish_combo_popup, space_box
+
+log = logging.getLogger(__name__)
 
 
 class _PageCombo(QComboBox):
@@ -470,7 +473,7 @@ class SettingsDialog(QDialog):
         self.confirm_writes = QCheckBox("files, memory, calendar, rooms")
         self.confirm_writes.setChecked(bool(agent.get("confirm_writes", True)))
         self.confirm_writes.setToolTip(
-            "Save, remember, calendar, rooms. Deletes still pause when this is on."
+            "Save, remember, calendar, rooms. Deletes always pause."
         )
         self.confirm_image = QCheckBox("pictures")
         self.confirm_image.setChecked(bool(agent.get("confirm_image", True)))
@@ -483,7 +486,8 @@ class SettingsDialog(QDialog):
         self.confirm_desktop = QCheckBox("the desk, when she offers it")
         self.confirm_desktop.setChecked(bool(agent.get("confirm_desktop", True)))
         self.confirm_desktop.setToolTip(
-            "When she offers to drive your Windows session. Deletes still pause."
+            "When she offers to drive your Windows session. "
+            "Delete, Pay, and Windows permission prompts still ask first when this is on."
         )
         self.confirm_vision = QCheckBox("seeing images and the screen")
         self.confirm_vision.setChecked(bool(agent.get("confirm_vision", True)))
@@ -499,14 +503,17 @@ class SettingsDialog(QDialog):
 
         self._allow_always_h = _allow_section("Even when you named it")
         self._allow_always_blurb = _allow_hint(
-            "Naming the job is never enough. Uncheck to never ask."
+            "Naming the job is never enough for these. Mail and texts always "
+            "ask. Uncheck programs to never ask."
         )
         allow_l.addWidget(self._allow_always_h)
         allow_l.addWidget(self._allow_always_blurb)
         self.confirm_send = QCheckBox("mail and texts")
-        self.confirm_send.setChecked(bool(agent.get("confirm_send", True)))
+        self.confirm_send.setChecked(True)
+        self.confirm_send.setEnabled(False)
         self.confirm_send.setToolTip(
-            "Each mail or text still needs Allow when this is on."
+            "Every mail and text always asks. This cannot be turned off.\n"
+            "Filament (testing) is exempt."
         )
         self.confirm_run = QCheckBox("programs in the project")
         self.confirm_run.setChecked(bool(agent.get("confirm_run", True)))
@@ -717,7 +724,7 @@ class SettingsDialog(QDialog):
             account = None
         if account is not None:
             self.mail_address.setText(account.address)
-            self.mail_password.setPlaceholderText("saved — type to replace")
+            self.mail_password.setPlaceholderText("saved: type to replace")
         mail_form = QFormLayout()
         mail_form.addRow("Address", self.mail_address)
         mail_form.addRow("App password", self.mail_password)
@@ -745,15 +752,15 @@ class SettingsDialog(QDialog):
         # --- Roots (projects Arelis may read/write) ---
         roots_tab = QWidget()
         roots_tab.setObjectName("SettingsTabBody")
-        roots_tab.setAccessibleName("roots")
+        roots_tab.setAccessibleName("folders")
         roots_l = QVBoxLayout(roots_tab)
         roots_l.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         roots_l.setSpacing(SPACE["gap"])
         roots_hint = QLabel(
-            "Folders Arelis may read and write. Default is this repo only. "
-            "Add another project when you actually work on it — workspace dock "
-            "(add / new / remove) or edit here. Writes need Allow; read-only "
-            "roots never accept write/edit. Saved to data/config.local.yaml."
+            "Folders Arelis may read and write. "
+            "When Arelis first opens, it asks you to choose the folder it may work in. "
+            "Add a folder below. "
+            "Changing a file still asks you first. A read-only folder cannot be changed."
         )
         roots_hint.setObjectName("SettingsHint")
         roots_hint.setWordWrap(True)
@@ -775,14 +782,14 @@ class SettingsDialog(QDialog):
         path_row = QHBoxLayout()
         self.root_path = QLineEdit()
         self.root_path.setObjectName("SettingsField")
-        self.root_path.setPlaceholderText("C:/Users/…/project")
+        self.root_path.setPlaceholderText("your folder")
         browse_btn = QPushButton("Browse")
         browse_btn.clicked.connect(self._browse_root_path)
         path_row.addWidget(self.root_path, stretch=1)
         path_row.addWidget(browse_btn)
         self.root_read_only = QCheckBox("Read-only")
         root_form.addRow("Name", self.root_name)
-        root_form.addRow("Path", path_row)
+        root_form.addRow("Folder", path_row)
         root_form.addRow(self.root_read_only)
         roots_l.addLayout(root_form)
 
@@ -799,7 +806,7 @@ class SettingsDialog(QDialog):
         root_btns.addStretch(1)
         roots_l.addLayout(root_btns)
         self._refresh_roots_list()
-        tabs.addTab(roots_tab, "roots")
+        tabs.addTab(roots_tab, "folders")
 
         # --- Memory (live: forget commits immediately, not via Apply) ---
         self.memory = ActiveFactsPanel()
@@ -956,12 +963,32 @@ class SettingsDialog(QDialog):
         return urls or "(no listen address)"
 
     def _create_ingest_token(self) -> None:
-        from arelis.sms_ingest import ensure_ingest_token
-
         try:
-            ensure_ingest_token()
+            from arelis.presence.inbound_runtime import create_pairing_code
+
+            parent = self.parent()
+            bus = getattr(parent, "bus", None)
+            loop = getattr(parent, "loop", None)
+            runtime = getattr(parent, "inbound_runtime", None)
+            config = getattr(parent, "config", None) or self._settings_config
+            if bus is not None and loop is not None:
+                runtime = create_pairing_code(bus, loop, config, runtime)
+                if parent is not None:
+                    parent.inbound_runtime = runtime
+                    parent.sms_ingest = runtime.ingest
+                    if hasattr(parent, "_turn_busy"):
+                        from arelis.ui.mobile_host import bind_mobile_hub
+
+                        bind_mobile_hub(parent)
+            else:
+                import secrets
+
+                from arelis.sms_ingest import save_ingest_token
+
+                save_ingest_token(secrets.token_urlsafe(24))
         except Exception as exc:
-            self.pair_status.setText(f"Could not create a token: {exc}")
+            log.exception("Could not create ingest pairing token: %s", exc)
+            self.pair_status.setText(tr("Couldn't make a pairing code. Try again."))
             return
         self._refresh_pairing_qr(self._settings_config, rotate=False)
         self.pair_status.setText("Pairing code ready. Scan it with the Arelis app.")
@@ -1270,7 +1297,7 @@ class SettingsDialog(QDialog):
 
     def _root_label(self, entry: dict[str, Any]) -> str:
         ro = " [read-only]" if entry.get("read_only") else ""
-        return f"{entry.get('name') or '?'} — {entry.get('path') or '?'}{ro}"
+        return f"{entry.get('name') or '?'}, {entry.get('path') or '?'}{ro}"
 
     def _refresh_roots_list(self) -> None:
         self.roots_list.blockSignals(True)
@@ -1289,7 +1316,7 @@ class SettingsDialog(QDialog):
 
     def _browse_root_path(self) -> None:
         start = self.root_path.text().strip() or str(Path.home())
-        chosen = QFileDialog.getExistingDirectory(self, "Workspace root folder", start)
+        chosen = QFileDialog.getExistingDirectory(self, "Choose a folder", start)
         if chosen:
             self.root_path.setText(chosen)
 
@@ -1370,7 +1397,7 @@ class SettingsDialog(QDialog):
             return
         if grant:
             self.ask_is_grant.setToolTip(tr(
-                "When on, a job you already named does not open Allow — "
+                "When on, a job you already named does not open Allow, "
                 "except mail, texts, deletes, Pay, and programs."
             ))
             self._allow_grant_blurb.setText(tr(

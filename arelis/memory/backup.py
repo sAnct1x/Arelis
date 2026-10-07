@@ -3,7 +3,9 @@
 A dated copy of a 20–90 MB database every day, kept for two weeks, is how
 ``data/backups/`` grew past a gigabyte without anyone asking for it. The
 function still exists for a deliberate ``keep=N`` call. Launch does not
-write copies.
+write copies. The dated memory copy is still off. Pre-upgrade copies of
+allowlisted records are a separate path (``arelis.backup``) and are not
+pruned here.
 """
 
 from __future__ import annotations

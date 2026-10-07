@@ -34,7 +34,7 @@ async def sync_ics_from_url(
     """Fetch ICS text and atomically replace the local calendar file.
 
     Returns a small status dict for tool/data. Never raises for missing
-    secret — callers get ``missing_secret`` / ``ok=False`` instead.
+    secret, callers get ``missing_secret`` / ``ok=False`` instead.
     """
     feed = (url or load_ics_url(secrets_path) or "").strip()
     if not feed:

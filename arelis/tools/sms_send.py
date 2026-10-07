@@ -26,7 +26,7 @@ class SendSmsTool:
         "Pass to as a contact nickname (wife, me, myself, mom, …) or any "
         "phone number the user just gave. Contacts are optional hints. "
         "Never invent a number. If they named someone with no number yet, "
-        "ask for the number and call this tool — do not require adding them "
+        "ask for the number and call this tool, do not require adding them "
         "to the book first. The user sees and approves every message before "
         "it goes."
     )

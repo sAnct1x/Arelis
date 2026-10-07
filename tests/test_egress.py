@@ -111,7 +111,6 @@ ALLOWED: dict[str, str] = {
     "firms.modaps.eosdis.nasa.gov": "Earth-zone NASA FIRMS hotspots, only when earth action=live and a MAP_KEY is set",
     "api.aprs.fi": "Earth-zone APRS loc, only when earth action=live and an aprs.fi key is set",
     "aprs.fi": "credit link required by aprs.fi API terms; named in Earth cites, not fetched",
-    "api.shodan.io": "Earth-zone Shodan banner catalog, only when earth action=live and a key is set; never a login",
     "webcams.nyctmc.org": "Earth-zone NYC DOT camera positions, only when earth action=live; no stills",
     "api.data.gov.sg": "Earth-zone Singapore LTA camera positions, only when earth action=live; no stills",
     "tie.digitraffic.fi": "Earth-zone Fintraffic road cameras and traffic messages, only when earth action=live",

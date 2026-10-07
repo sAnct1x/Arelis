@@ -147,7 +147,7 @@ Filename: "{app}\pythonw.exe"; Parameters: "-m arelis"; WorkingDir: "{app}"; \
 ; run -- correct for the wizard, and it would leave a self-update ending with Arelis
 ; closed and no explanation. arelis/update.py passes /relaunch=yes; nothing else does, so
 ; a person running the setup with /SILENT by hand still gets the old quiet behaviour.
-Filename: "{app}\pythonw.exe"; Parameters: "-m arelis"; WorkingDir: "{app}"; \
+Filename: "{app}\pythonw.exe"; Parameters: "-m arelis --background"; WorkingDir: "{app}"; \
     Flags: nowait; Check: RelaunchRequested
 
 [UninstallRun]
@@ -190,6 +190,8 @@ Type: filesandordirs; Name: "{app}"
 Type: filesandordirs; Name: "{localappdata}\Arelis"; Check: ShouldWipeData
 Type: filesandordirs; Name: "{localappdata}\Arelis-runtime"; Check: ShouldWipeData
 Type: filesandordirs; Name: "{localappdata}\Arelis-dev"; Check: ShouldWipeData
+; Arelis-backups (pre-upgrade safety copies) is intentionally not listed.
+; A wipe keeps it and tells the person after uninstall (see CurUninstallStepChanged).
 
 ; Last on purpose: everything after [Code] is Pascal, so a section placed below it would be
 ; read as source and silently stop being a section.
@@ -225,4 +227,28 @@ begin
        'A system Ollama install is never removed.',
        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
     WipeData := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  BackupDir: String;
+  ErrorCode: Integer;
+begin
+  if CurUninstallStep <> usPostUninstall then
+    Exit;
+  if not WipeData then
+    Exit;
+  if UninstallSilent then
+    Exit;
+  BackupDir := ExpandConstant('{localappdata}\Arelis-backups');
+  if not DirExists(BackupDir) then
+    Exit;
+  // Inno MsgBox has no custom "Open folder" button, so Yes opens the folder.
+  if MsgBox(
+       'Your safety copies of memory and settings were kept, in case you reinstall. ' +
+       'You can delete them any time.' + #13#10 + #13#10 +
+       'They are in the Arelis-backups folder in your user files.' + #13#10 + #13#10 +
+       'Open that folder now?',
+       mbInformation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+    ShellExec('open', BackupDir, '', '', SW_SHOWNORMAL, ewNoWait, ErrorCode);
 end;

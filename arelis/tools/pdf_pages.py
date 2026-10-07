@@ -242,7 +242,7 @@ def build_jpeg_page_pdf_bytes(jpeg: bytes, width: int, height: int) -> bytes:
 
 
 def build_vector_page_pdf_bytes(width: int = 200, height: int = 80) -> bytes:
-    """One-page PDF with a filled rectangle only — no text, no images.
+    """One-page PDF with a filled rectangle only, no text, no images.
 
     extract_embedded_pages finds nothing here. The only way to see the
     page is raster_pages / pypdfium2, which is the installer hole.

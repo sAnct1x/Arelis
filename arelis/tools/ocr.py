@@ -1,7 +1,7 @@
 """Local OCR via system Tesseract (CPU). No cloud, no GPU.
 
-action=text — OCR an image under workspace roots or outputs/images/.
-action=screen — capture the primary display to outputs/images/, then OCR.
+action=text, OCR an image under workspace roots or outputs/images/.
+action=screen, capture the primary display to outputs/images/, then OCR.
 Always Allow (confirm_vision): screen/clipboard-adjacent privacy.
 """
 
@@ -20,7 +20,12 @@ from arelis.hidden_proc import hidden_run
 from arelis.paths import outputs_dir, user_data_dir
 from arelis.tools.base import ToolResult
 from arelis.tools.safety import redact_secrets
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    WorkspaceRoots,
+    refuse_unsafe_windows_path,
+    safe_resolve,
+)
 
 log = logging.getLogger(__name__)
 
@@ -54,13 +59,13 @@ def run_tesseract(path: Path, *, lang: str = "eng") -> str:
 
 
 def run_tesseract_inspect(path: Path, *, lang: str = "eng") -> OcrInspect:
-    """OCR plus exogenous TSV confidence — CPU only, no VL self-score."""
+    """OCR plus exogenous TSV confidence, CPU only, no VL self-score."""
     exe = _tesseract_exe()
     if not exe:
         raise RuntimeError(
             "tesseract is not on PATH. Install Tesseract OCR for Windows "
             "(UB Mannheim build) or set tools.ocr.enabled: false. "
-            "GPU chat models stay unloaded — this path is CPU-only."
+            "GPU chat models stay unloaded, this path is CPU-only."
         )
     if not path.is_file():
         raise FileNotFoundError(f"Image not found: {path}")
@@ -352,6 +357,7 @@ class OcrTool:
         raw = (path_str or "").strip()
         if not raw:
             raise FileNotFoundError("Missing path for action=text.")
+        refuse_unsafe_windows_path(raw)
         try:
             resolved = self.workspace.resolve_read(raw)
             path = resolved.path
@@ -359,16 +365,17 @@ class OcrTool:
                 # image_edit / browser report "outputs/images/x.png" relative to
                 # the data dir, but a relative path resolves against the first
                 # workspace root without raising. Look under the data dir too.
-                alt = (user_data_dir() / raw).resolve()
+                alt = safe_resolve(raw, base=user_data_dir())
                 images = (outputs_dir() / "images").resolve()
                 if alt.is_file() and alt.is_relative_to(images):
                     path = alt
-        except Exception:
-            candidate = Path(raw)
-            if not candidate.is_absolute():
-                candidate = (user_data_dir() / candidate).resolve()
-            else:
-                candidate = candidate.resolve()
+        except Exception as exc:
+            if str(exc) == UNSAFE_WINDOWS_PATH_MSG:
+                raise
+            try:
+                candidate = safe_resolve(raw, base=user_data_dir())
+            except PermissionError:
+                raise
             images_root = (outputs_dir() / "images").resolve()
             try:
                 candidate.relative_to(images_root)

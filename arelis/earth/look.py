@@ -169,8 +169,6 @@ def remember(
     raw = (source or "").strip()
     if not eid or not raw:
         return None
-    if eid.startswith("shodan:"):
-        return None
     if kind == "official" and not official_url_ok(raw):
         return None
     if kind == "published" and not published_url_ok(raw):

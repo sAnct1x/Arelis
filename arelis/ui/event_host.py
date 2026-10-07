@@ -8,13 +8,18 @@ world_host.
 
 from __future__ import annotations
 
+import logging
+import math
 from pathlib import Path
 from typing import Any
+
+from PySide6.QtCore import QObject, QTimer
 
 from arelis.browser.hold import format_drive_done, format_drive_status
 from arelis.browser.walls import your_turn_status
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import plain_reason, tool_failure_notice
+from arelis.i18n import tr
 from arelis.llm.startup import WARMUP_READY
 from arelis.local_open import open_local_file, reveal_local_file
 from arelis.spatial import PHYSICS_ROOM_ID
@@ -28,6 +33,123 @@ from arelis.ui.world_host import should_offer_world
 # for one very long sentence synthesizing while the previous one plays.
 # Every clip and playback transition restarts it.
 SPEECH_WATCHDOG_MS = 45000
+
+log = logging.getLogger(__name__)
+
+
+def _arelis_window_is_active() -> bool:
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return False
+    return app.applicationState() == Qt.ApplicationState.ApplicationActive
+
+
+# Missing key defaults to 120 s. Invalid / non-finite / bool / sub-ms is off.
+# Values above 24 h clamp to 86_400_000 ms so QTimer.start cannot overflow.
+_WALL_TOAST_DEFAULT_S = 120
+_WALL_TOAST_MAX_MS = 86_400_000
+
+
+def _wall_toast_delay_ms(window: Any) -> int:
+    try:
+        cfg = getattr(window, "config", None) or {}
+        raw = cfg.get("agent") or {}
+        if not isinstance(raw, dict):
+            return 0
+        if "wall_toast_after_s" not in raw:
+            seconds = float(_WALL_TOAST_DEFAULT_S)
+        else:
+            value = raw.get("wall_toast_after_s")
+            if value is None or isinstance(value, bool):
+                return 0
+            seconds = float(value)
+    except (AttributeError, OverflowError, TypeError, ValueError):
+        return 0
+    if not math.isfinite(seconds) or seconds <= 0:
+        return 0
+    try:
+        delay_ms = int(seconds * 1000)
+    except (OverflowError, ValueError):
+        return 0
+    if delay_ms < 1:
+        return 0
+    if delay_ms > _WALL_TOAST_MAX_MS:
+        return _WALL_TOAST_MAX_MS
+    return delay_ms
+
+
+def _wall_toast_message(kind: str) -> str:
+    status = your_turn_status(kind).replace("\u2014", "-").replace("\u2013", "-")
+    prefix = "your turn: "
+    if status.startswith(prefix):
+        status = status[len(prefix) :]
+    if status == "I am stuck":
+        return "Still waiting on you. I cannot find the next step."
+    if status == "page stays":
+        return "Still waiting on you. The page is staying up."
+    return f"Still waiting on you: {status}."
+
+
+def _ensure_wall_toast_timer(window: Any) -> QTimer:
+    timer = getattr(window, "_wall_toast_timer", None)
+    if timer is not None:
+        return timer
+    parent = window if isinstance(window, QObject) else None
+    timer = QTimer(parent)
+    timer.setSingleShot(True)
+    timer.timeout.connect(lambda: _on_wall_toast_timeout(window))
+    window._wall_toast_timer = timer
+    return timer
+
+
+def _arm_wall_toast(window: Any, kind: str, url: str = "") -> None:
+    pending = getattr(window, "_wall_toast_pending", None)
+    if pending is not None:
+        return
+    delay_ms = _wall_toast_delay_ms(window)
+    if delay_ms <= 0:
+        return
+    try:
+        _ensure_wall_toast_timer(window).start(delay_ms)
+    except Exception as exc:
+        # Optional reminder: a timer that cannot start must not take down
+        # dispatch_event or leave a stuck wait.
+        log.debug("wall toast timer failed to start: %s", exc)
+        window._wall_toast_pending = None
+        window._wall_toast_sent = False
+        return
+    window._wall_toast_pending = (str(kind or ""), str(url or ""))
+    window._wall_toast_sent = False
+
+
+def _cancel_wall_toast(window: Any) -> None:
+    timer = getattr(window, "_wall_toast_timer", None)
+    if timer is not None:
+        timer.stop()
+    window._wall_toast_pending = None
+    window._wall_toast_sent = False
+
+
+def _on_wall_toast_timeout(window: Any) -> None:
+    pending = getattr(window, "_wall_toast_pending", None)
+    if not pending or getattr(window, "_wall_toast_sent", False):
+        return
+    window._wall_toast_sent = True
+    kind = pending[0] if pending else ""
+    # Another window in front, including a browser, still gets the reminder.
+    # Skip only when this app itself is the one on screen.
+    if _arelis_window_is_active():
+        log.debug("wall toast skipped: Arelis is the active window")
+        return
+    if getattr(window, "_tray", None) is None:
+        log.debug("wall toast skipped: no system tray")
+        return
+    from arelis.ui.notify_host import _toast_reminder
+
+    _toast_reminder(window, _wall_toast_message(kind))
 
 
 def _browser_drive_done(data: dict[str, Any]) -> str:
@@ -60,7 +182,7 @@ def _watch_hit_ui(window: Any, line: str, *, url: str = "") -> None:
         )
     )
     sync_notify_surface(window)
-    window.conversation.set_drive_status("Watching — hit")
+    window.conversation.set_drive_status("Watching: hit")
 
 
 def parse_role_set_message(message: str) -> str | None:
@@ -201,6 +323,7 @@ def dispatch_event(window: Any, event: Event) -> None:
 
         stop_speech(window)
     elif t == EventType.ASSISTANT_DONE:
+        _cancel_wall_toast(window)
         if window._mobile_foreign:
             window._assistant_streaming = False
             window._mobile_foreign = False
@@ -339,14 +462,15 @@ def dispatch_event(window: Any, event: Event) -> None:
         if p.get("image_progress"):
             window.chat.show_progress(str(msg))
             return
-        window.thinking.append(msg, kind="status")
+        window.thinking.append(tr(msg), kind="status")
         # Listen URL stays in thinking — a system line on cold launch hid the
         # orbit. Bind / token / companion-port failures belong on the glass.
         text = str(msg)
+        shown = tr(text)
         if text.startswith(("Inbound notify", "Phone notifications")):
             window._inbound_banner = text
             if not text.startswith("Phone notifications: http"):
-                window.chat.add_system(text)
+                window.chat.add_system(shown)
         elif "update the phone companion" in text:
             window.chat.add_system(text)
         if msg.startswith("Active project set to"):
@@ -423,7 +547,7 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.conversation.dismiss_confirm()
             window._set_confirm_pending(False)
             if p.get("reason") == "timeout":
-                window.thinking.append("confirm timed out — denied", kind="status")
+                window.thinking.append("confirm timed out: denied", kind="status")
             elif p.get("reason") == "voice":
                 said = "allow" if p.get("decision") == "allow" else "deny"
                 window.thinking.append(f"voice {said}", kind="status")
@@ -494,12 +618,14 @@ def dispatch_event(window: Any, event: Event) -> None:
                         note = raw.strip()
                         break
                 stay = (
-                    "Your turn — the window stays."
+                    "Your turn: the window stays."
                     if p.get("tool") == "desktop"
-                    else "Your turn — the page stays."
+                    else "Your turn: the page stays."
                 )
                 window.chat.add_system(note or stay)
                 window.thinking.append(f"your turn  {kind or code}", kind="status")
+                if p.get("tool") == "browser":
+                    _arm_wall_toast(window, kind, str(data.get("url") or ""))
             elif data.get("watch_hit"):
                 _watch_hit_ui(
                     window,
@@ -512,7 +638,7 @@ def dispatch_event(window: Any, event: Event) -> None:
                     window.conversation.set_drive_status(done)
         if p.get("tool") in {"image", "image_edit"}:
             if p.get("ok"):
-                window.chat.add_system("Image ready — open in Workspace")
+                window.chat.add_system("Image ready: open in Workspace")
             else:
                 window.chat.add_system(
                     tool_failure_notice("image", str(p.get("output") or ""))
@@ -603,7 +729,7 @@ def dispatch_event(window: Any, event: Event) -> None:
                             window.chat.add_system(
                                 f"I wrote {display}, but you have unsaved edits open in the "
                                 "editor, so I left them alone. Open the file again to see my "
-                                "version — that replaces what is in the editor."
+                                "version, that replaces what is in the editor."
                             )
                         window._reveal_dock(window.work_dock, window.act_workspace)
                     except Exception as exc:
@@ -625,7 +751,7 @@ def dispatch_event(window: Any, event: Event) -> None:
                     # screen looks like what is on disk.
                     window.chat.add_system(
                         f"I reported writing {display}, but could not read it "
-                        "back — nothing is at that path now. Treat the write as "
+                        "back, nothing is at that path now. Treat the write as "
                         "failed and check the file before relying on it."
                     )
                     window.thinking.append(
@@ -641,7 +767,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         path = p.get("path")
         if path:
             window.workspace.show_image(path)
-            window.workspace.append_output(f"Image ready — {Path(str(path)).name}")
+            window.workspace.append_output(f"Image ready: {Path(str(path)).name}")
             record_artifact(
                 window,
                 str(path),
@@ -695,6 +821,7 @@ def dispatch_event(window: Any, event: Event) -> None:
 
         on_sms_received(window, p)
     elif t == EventType.TURN_CANCEL:
+        _cancel_wall_toast(window)
         # Voice stop publishes cancel from the orchestrator. The stop
         # button publishes it too — skip the echo so we do not double-cut.
         if window._ignore_cancel_echo:
@@ -707,14 +834,17 @@ def dispatch_event(window: Any, event: Event) -> None:
         if str(p.get("reason") or "") == "your_turn":
             kind = str(p.get("kind") or "")
             window.conversation.set_drive_your_turn(your_turn_status(kind))
+            _arm_wall_toast(window, kind, str(p.get("url") or ""))
         else:
             window.conversation.set_drive_paused(True)
     elif t == EventType.TURN_RESUME:
+        _cancel_wall_toast(window)
         window.conversation.set_drive_paused(False)
         if str(p.get("reason") or "") == "wall_cleared":
             window.conversation.set_drive_status("continuing…")
-            window.thinking.append("wall gone — continuing", kind="status")
+            window.thinking.append("wall gone: continuing", kind="status")
     elif t == EventType.ERROR:
+        _cancel_wall_toast(window)
         if window._mobile_foreign:
             window._mobile_foreign = False
             if p.get("scope") != "voice":

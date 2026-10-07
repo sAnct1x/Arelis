@@ -197,6 +197,41 @@ def test_settings_allow_tab(qt_app) -> None:
         dlg.close()
 
 
+def test_mail_and_texts_checkbox_is_locked(qt_app) -> None:
+    from arelis.ui.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(
+        {
+            "voice": {},
+            "presence": {},
+            "agent": {"confirm_send": False},
+            "workspace": {
+                "named_roots": [
+                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
+                ]
+            },
+            "tools": {"sms": {"inbound": {"ingest": {}}}},
+        },
+        initial_tab="Allow",
+        list_models=lambda: [],
+    )
+    try:
+        assert dlg.confirm_send.isChecked() is True
+        assert dlg.confirm_send.isEnabled() is False
+        tip = dlg.confirm_send.toolTip()
+        assert "Every mail and text always asks." in tip
+        assert "Filament (testing) is exempt." in tip
+        assert "while it is under testing" not in tip
+        writes_tip = dlg.confirm_writes.toolTip()
+        assert "Deletes always pause." in writes_tip
+        assert "when this is on" not in writes_tip
+        desk_tip = dlg.confirm_desktop.toolTip()
+        assert "Windows permission prompts still ask first when this is on." in desk_tip
+        assert "UAC" not in desk_tip
+    finally:
+        dlg.close()
+
+
 def test_load_config_merges_local(tmp_path: Path, monkeypatch) -> None:
     default = tmp_path / "default.yaml"
     default.write_text(
@@ -528,7 +563,7 @@ def test_settings_has_no_theme_tab(qt_app) -> None:
             "window",
             "allow",
             "notify",
-            "roots",
+            "folders",
             "memory",
         ]
         assert "theme" not in labels

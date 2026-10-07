@@ -129,7 +129,7 @@ class ConfirmCard(QWidget):
         self.allow_btn.setFocus()
 
     def arm(self, confirm_id: str, headline: str = "") -> None:
-        """Hold a decision without painting the card — voice or typed allow."""
+        """Hold a decision without painting the card, voice or typed allow."""
         self._confirm_id = confirm_id
         if headline:
             self.summary.setText(headline)

@@ -1,4 +1,4 @@
-"""Agenda tool — local cache + Google/Outlook APIs (ICS fallback).
+"""Agenda tool, local cache + Google/Outlook APIs (ICS fallback).
 
 Read actions are free. create/update/delete require Allow and never batch.
 """
@@ -70,11 +70,11 @@ class AgendaTool:
         "create/update/delete events (writes need Allow). Local create "
         "works without Google; connecting later pushes pending events "
         "without another ask. Never invent "
-        "meetings or open slots — list or free first and cite the tool "
+        "meetings or open slots, list or free first and cite the tool "
         "(time, title, place, one-line notes). Never ask the user for a "
         "Google event id; delete "
         "by title/time. provider=google|outlook|local|all|ics. action=open shows "
-        "the local tile; action=close hides it — do not use the browser "
+        "the local tile; action=close hides it, do not use the browser "
         "calendar alias unless they asked for the website."
     )
     # Registered as read; write actions gated in ToolRegistry.needs_confirm.
@@ -160,7 +160,7 @@ class AgendaTool:
                 "type": "string",
                 "description": (
                     "Cached or provider event id for update/delete. Optional "
-                    "for delete — prefer summary (and start) and the tool "
+                    "for delete, prefer summary (and start) and the tool "
                     "resolves the id. Never ask the user to paste a Google id."
                 ),
             },
@@ -274,7 +274,7 @@ class AgendaTool:
             if info.get("ok"):
                 lines.append(f"- {name}: {info.get('count', 0)} events cached")
             else:
-                lines.append(f"- {name}: FAIL — {info.get('error')}")
+                lines.append(f"- {name}: FAIL, {info.get('error')}")
         for err in summary.get("errors") or []:
             if not any(err.startswith(f"{p}:") for p in (summary.get("providers") or {})):
                 lines.append(f"- {err}")
@@ -319,13 +319,24 @@ class AgendaTool:
 
         if loaded["missing"]:
             path = loaded["path"]
+            if action == "today":
+                sentence = (
+                    "Nothing on your calendar today. "
+                    "Connect a calendar in the calendar tile to see events."
+                )
+            elif action == "tomorrow":
+                sentence = (
+                    "Nothing on your calendar tomorrow. "
+                    "Connect a calendar in the calendar tile to see events."
+                )
+            else:
+                sentence = (
+                    "Nothing on your calendar for that stretch. "
+                    "Connect a calendar in the calendar tile to see events."
+                )
             return ToolResult(
                 ok=True,
-                output=(
-                    "No events. Sign in on the calendar tile, "
-                    "or add data/calendar.ics.\n"
-                    f"ICS path: {path}"
-                ),
+                output=sentence,
                 data={
                     "action": action,
                     "events": [],
@@ -472,7 +483,7 @@ class AgendaTool:
                         f"{_format_clock(block['start'], tz)}–"
                         f"{_format_clock(block['end'], tz)}"
                     )
-                lines.append(f"- {when} — {block['summary']}")
+                lines.append(f"- {when}, {block['summary']}")
         else:
             lines.append("- (none)")
         lines.append("")
@@ -570,7 +581,7 @@ class AgendaTool:
                         ok=True,
                         output=(
                             f"Already on {provider}: {hit.summary} @ "
-                            f"{hit.starts_at.isoformat()} — not creating a duplicate."
+                            f"{hit.starts_at.isoformat()}, not creating a duplicate."
                         ),
                         data={
                             "event": hit.as_dict(),
@@ -727,7 +738,7 @@ class AgendaTool:
                 ok=False,
                 output=(
                     "[fail:agenda] No matching calendar events to delete. "
-                    "Call agenda(action=list) and delete by title/time — "
+                    "Call agenda(action=list) and delete by title/time"
                     "do not ask the user for a Google event id."
                 ),
                 data={"action": "delete", "count": 0},
@@ -746,7 +757,7 @@ class AgendaTool:
             ]
             for ev in matches:
                 when = ev.starts_at.strftime("%a %I:%M %p").lstrip("0")
-                lines.append(f"- {when} — {ev.summary} ({ev.provider})")
+                lines.append(f"- {when}, {ev.summary} ({ev.provider})")
             return ToolResult(
                 ok=False,
                 output="\n".join(lines),
@@ -768,7 +779,7 @@ class AgendaTool:
         if not to_delete:
             return ToolResult(
                 ok=True,
-                output="Nothing extra to delete — already a single copy.",
+                output="Nothing extra to delete, already a single copy.",
                 data={"action": "delete", "count": 0, "kept": len(matches)},
             )
         deleted: list[str] = []

@@ -11,7 +11,7 @@ on every path, including the full-surface one.
 **Context economy** shrank the schema array to whichever tools the matched skill
 cards implied. It was measured and it does not work. Ollama renders the tools
 array near the front of the prompt, so an array that changes shape from turn to
-turn changes the prefix, and a changed prefix cannot be reused — the persona, the
+turn changes the prefix, and a changed prefix cannot be reused, the persona, the
 policy and the whole conversation behind it are prefilled again. On the reference
 card (see scripts/measure_tool_surface_prefill.py):
 
@@ -27,8 +27,8 @@ anyone running a model that genuinely cannot choose among 34 tools, and the
 research allowlist still exists for the deep-dive loop, but neither is on by
 default and neither is load-bearing.
 
-The one-off cost of a large constant prefix — around 40s of prefill on a cold
-start — is paid at startup instead, by seed_prefix_cache in arelis/llm/startup.
+The one-off cost of a large constant prefix, around 40s of prefill on a cold
+start, is paid at startup instead, by seed_prefix_cache in arelis/llm/startup.
 
 This module never skips Allow.
 """

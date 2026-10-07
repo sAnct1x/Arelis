@@ -1,8 +1,8 @@
-"""Right-side Reality tiles. Same HUD glass — not a second window.
+"""Right-side Reality tiles. Same HUD glass, not a second window.
 
 Radio and cameras stay as marks. Their names live in this list. A camera
 click peeks a publisher still; View enlarges the live look; More is public
-facts only — no stream URL, no open-port IP.
+facts only, no stream URL, no open-port IP.
 """
 
 from __future__ import annotations

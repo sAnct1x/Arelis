@@ -1134,15 +1134,6 @@ FEEDS: tuple[FeedSpec, ...] = (
         "Not sat-AIS. A scene is not a hull.",
     ),
     FeedSpec(
-        "shodan-banners",
-        "cameras",
-        "keyed",
-        "Shodan banner catalog if a free key already exists",
-        "IP and banner text. Not a login and not look-from. An open port is not consent.",
-        host="api.shodan.io",
-        key="earth.shodan_key",
-    ),
-    FeedSpec(
         "owned-rtsp",
         "cameras",
         "shipped",

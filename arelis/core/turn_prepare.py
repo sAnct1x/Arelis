@@ -57,6 +57,7 @@ from arelis.core.intent_catalog import (
     weather_intent_matches,
 )
 from arelis.core.look import LookTurn, classify_look, frame_sha256
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.other_work import looks_like_other_work
 from arelis.core.preflight import draft_browser_args, looks_like_room_create
 from arelis.core.prompt_sections import (
@@ -202,7 +203,7 @@ async def _begin_turn(
                     EventType.STATUS,
                     {
                         "message": (
-                            f"Loading `{model}` — previous chat model was unloaded so it can fit."
+                            f"Loading `{model}`, previous chat model was unloaded so it can fit."
                         )
                     },
                 )
@@ -451,11 +452,96 @@ def _prepare_agenda_first_move(
         ctx.agenda_preinject = {"action": agenda_read_action(text)}
 
 
+_SLASH_DATE = re.compile(r"(?<![\d/.])\d{1,2}/\d{1,2}/\d{2,4}(?![\d/])")
+_PAST_MONTH_DAY = re.compile(
+    r"(?i)^\s*what\s+was\s+(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])\s*\??\s*$"
+)
+_WHAT_IS_MONTH_DAY = re.compile(
+    r"(?i)^\s*what\s+is\s+(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])\s*\??\s*$"
+)
+_HAPPENED_ON_MONTH_DAY = re.compile(
+    r"(?i)\b(?:what\s+happened|happened\s+on)\b.{0,40}"
+    r"(?<![\d/.])(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])(?:/\d{2,4})?(?![\d/])"
+)
+
+
+
+
+def _looks_like_date_or_event_ask(text: str) -> bool:
+    """True when the person is asking about a slash date or event, not math."""
+    raw = text or ""
+    if re.search(r"(?i)as\s+a\s+(?:decimal|fraction|percent)", raw):
+        return False
+    if _WHAT_IS_MONTH_DAY.match(raw) or _PAST_MONTH_DAY.match(raw):
+        return True
+    if re.search(
+        r"(?i)(?:what\s+happened|happened\s+on).{0,48}"
+        r"(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])(?!\d)",
+        raw,
+    ):
+        return True
+    return False
+
+
+def calculator_blocked_for_date_ask(user_text: str, expression: str) -> str | None:
+    """Refuse calculator when a date/event ask is being evaluated as that M/D."""
+    return _date_ask_ratio_block(user_text, expression or "")
+
+
+def python_blocked_for_date_ask(user_text: str, code: str) -> str | None:
+    """Refuse a python one-liner that only divides the ask's month/day."""
+    if not _looks_like_date_or_event_ask(user_text):
+        return None
+    hit = re.search(
+        r"(?<![\d/.])(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])(?![\d/])",
+        user_text or "",
+    )
+    if not hit:
+        return None
+    month, day = int(hit.group(1)), int(hit.group(2))
+    blob = code or ""
+    # Allow real date math (datetime / month names / day-of-year loops).
+    if re.search(r"(?i)datetime|timedelta|date\(|September|October|memorial|attack", blob):
+        return None
+    if re.search(rf"(?<!\d){month}\s*/\s*{day}(?!\d)", blob) and len(blob) < 80:
+        return (
+            "That looks like a date or event in the ask, not a division. "
+            "Answer in words about the date or event."
+        )
+    return None
+
+
+def _date_ask_ratio_block(user_text: str, expression: str) -> str | None:
+    if not _looks_like_date_or_event_ask(user_text):
+        return None
+    hit = re.search(
+        r"(?<![\d/.])(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])(?![\d/])",
+        user_text or "",
+    )
+    if not hit:
+        return None
+    month, day = int(hit.group(1)), int(hit.group(2))
+    from arelis.tools.calculator import normalize_expression
+
+    try:
+        source = normalize_expression(expression or "")
+    except Exception:
+        # Not a date-ratio we can match; leave the tool call alone.
+        return None
+    src = (source or "").strip()
+    if re.fullmatch(rf"0?{month}/0?{day}", src):
+        return (
+            "That looks like a date or event in the ask, not a division. "
+            "Answer in words about the date or event."
+        )
+    return None
+
 def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
     """Arm a calculator call before the model.
 
     The tool normalizes the line. A units ask or a CAS ask is not this
     call. The round spends the dict once. A later round does not see it.
+    A line that still cannot evaluate is left for the model to write.
     """
     if not detect_math_ask(text):
         return
@@ -467,6 +553,19 @@ def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
     # the second step shouldn't be preinjected. Requires comma/semicolon before
     # "then", or comma before "and then" to avoid false matches like "now and then"
     if re.search(r"(?:[,;]\s+then\b|,\s+and\s+then\b)", text, re.I):
+        return
+    # "10/5/2026", "what was/is 9/11", and "what happened on 9/11" are a
+    # date or an event, not division.
+    if (
+        _SLASH_DATE.search(text)
+        or _PAST_MONTH_DAY.match(text)
+        or _WHAT_IS_MONTH_DAY.match(text)
+        or _HAPPENED_ON_MONTH_DAY.search(text)
+    ):
+        return
+    from arelis.tools.calculator import expression_is_evaluable
+
+    if not expression_is_evaluable(text):
         return
     ctx.calculator_preinject = {"expression": text}
 
@@ -815,7 +914,14 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         active_plan=active_plan,
     )
-    ollama_tools = loop.tools.ollama_tools(visible) if offer_tools else []
+    ollama_tools = (
+        loop.tools.ollama_tools(
+            visible,
+            param_hints=native_tool_calling(agent_cfg),
+        )
+        if offer_tools
+        else []
+    )
     if loop._timer is not None and not offer_tools:
         loop._timer.mark("chat_fast_path", tools=0)
     await _attach_tool_schemas_and_history(

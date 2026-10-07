@@ -24,6 +24,7 @@ from PySide6.QtWidgets import QFileDialog, QWidget
 
 from arelis import onboarding
 from arelis.ui.dialog import GlassDialog
+from arelis.workspace import FOLDER_CHOICE_HELP
 
 
 class FirstRunDialog(GlassDialog):
@@ -43,10 +44,10 @@ class FirstRunDialog(GlassDialog):
         # the sentence that follows says exactly what it means, including delete.
         self.add_text(
             "Arelis can read, create, change and delete files inside this "
-            "folder, and nowhere else on your PC. Everything it makes for you — "
-            "reports, screenshots, voice clips — is saved here too.\n\n"
-            "You can change this later, or add more folders, in "
-            "Settings → Roots."
+            "folder, and nowhere else on your PC. Everything it makes for you "
+            "is saved here too: your reports, screenshots, and voice clips.\n\n"
+            "You can change this later, or add more folders. "
+            + FOLDER_CHOICE_HELP
         )
 
         self._path_label = self.add_text(str(self._root), role="DialogPath")
@@ -58,8 +59,8 @@ class FirstRunDialog(GlassDialog):
             "This folder will be created if it does not exist yet. Your "
             "settings, contacts and conversation history are kept separately, "
             "outside it.\n\n"
-            "Continue, or close this window, accepts this folder. That is "
-            "a decision, not a skip.",
+            "Continue uses this folder. Closing this window uses it too. "
+            "You are choosing the folder, not skipping the question.",
             role="DialogNote",
         )
 
@@ -94,8 +95,15 @@ def prompt_for_workspace_root(parent: QWidget | None = None) -> Path | None:
     Documents, the sentence granting access is on screen beside it, and the
     alternative is re-asking on every single launch until the user engages, which
     trains people to dismiss dialogs without reading them.
+
+    If folders are already saved but the marker is missing (upgraders), write
+    the marker for the first saved root and skip the dialog. Roots stay as-is.
     """
     if not onboarding.needs_prompt():
+        return None
+    adopted = onboarding.adopt_existing_workspace_marker()
+    if adopted is not None:
+        # Marker only. Do not reload/replace roots.
         return None
     dialog = FirstRunDialog(onboarding.suggested_root(), parent)
     dialog.exec()

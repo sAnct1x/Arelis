@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from arelis.contacts import contacts_prompt_line
-from arelis.core.agent_loop import _wants_project_context, now_line
+from arelis.core.agent_loop import _wants_project_context, now_line, theme_line
 from arelis.core.episodes import episodes_prompt_line
 from arelis.core.lessons import format_lessons, select_lessons
 from arelis.core.native_tool_calling import native_tool_calling
@@ -36,6 +36,16 @@ def append_stopped_turn_note(
         messages.append({"role": "system", "content": hint})
 
 
+def append_nasa_fact_guidance(
+    messages: list[dict[str, str]],
+    text: str,
+) -> bool:
+    """Pin planet / Mars-moon numbers before the model answers. Native-safe."""
+    from arelis.physics.fact_sheet import append_reference_facts
+
+    return append_reference_facts(messages, text)
+
+
 def append_preflight_guidance(
     messages: list[dict[str, str]],
     loop: Any,
@@ -46,6 +56,9 @@ def append_preflight_guidance(
 ) -> list[str]:
     """Append deterministic intent guidance and settle expected tool names."""
     preflight_kinds: list[str] = []
+    # NASA fact pins are not routing: they stay on even when native tool
+    # calling skips the regex intent layer below.
+    append_nasa_fact_guidance(messages, text)
     # native_tool_calling disables regex/intent routing layer entirely
     if native_tool_calling(agent_cfg):
         return preflight_kinds
@@ -237,7 +250,12 @@ def append_delivery_context(
     *,
     speak: bool,
 ) -> None:
-    """Append spoken-answer policy, language, then the volatile clock line."""
+    """Append spoken-answer policy, language, the screen theme, then the clock.
+
+    The clock stays last. It is the line that changes on its own. The theme
+    changes only when they pick one, so it sits just ahead of the clock and
+    never in the cached prefix.
+    """
     if speak:
         from arelis.talk_language import spoken_policy
 
@@ -252,4 +270,5 @@ def append_delivery_context(
     lang_note = reply_instruction(loop.config.get("_reply_language"))
     if lang_note:
         messages.append({"role": "system", "content": lang_note})
+    messages.append({"role": "system", "content": theme_line()})
     messages.append({"role": "system", "content": now_line()})

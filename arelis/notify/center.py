@@ -1,4 +1,4 @@
-"""Unified notices for the glass pill. Pure logic — no Qt, no IMAP."""
+"""Unified notices for the glass pill. Pure logic, no Qt, no IMAP."""
 
 from __future__ import annotations
 

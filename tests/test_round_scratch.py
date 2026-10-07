@@ -74,7 +74,7 @@ def _augment(loop: _FakeLoop) -> _FakeLoop:
     loop.config = {}
     loop.tools.needs_confirm = lambda *a, **k: False
     loop.tools.summarize_call = lambda name, args: f"{name} {sorted(args)}"
-    loop.tools.ollama_tools = lambda names: sorted(str(n) for n in names)
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: sorted(str(n) for n in names)
     return loop
 
 
@@ -1150,3 +1150,25 @@ async def test_the_landed_routes_spend_the_prepared_call() -> None:
     loop, ctx = _fresh(phrase, "run_script")
     _prepare_run_script_first_move(ctx, phrase)
     await _spent(loop, ctx, "run_script", "run_script_preinject", phrase)
+
+
+def test_a_browser_complaint_does_not_arm_the_pre_model_browser_read() -> None:
+    """2026-10-04: 'why did you open your browser' itself launched Chrome."""
+    from arelis.core.preflight import detect_intents
+
+    complaint = (
+        "i never asked you to do anything, why did you open your browser, check the time"
+    )
+    for text in (complaint, "why did you open your browser"):
+        expected = {t for h in detect_intents(text) for t in h.expected_tools}
+        ctx = _ctx(text=text)
+        ctx.tool_names = {"browser", "web_search"}
+        _prepare_browser_first_move(ctx, text, expected)
+        assert ctx.browser_preinject is None, text
+
+    ask = "open your browser"
+    expected = {t for h in detect_intents(ask) for t in h.expected_tools}
+    real = _ctx(text=ask)
+    real.tool_names = {"browser", "web_search"}
+    _prepare_browser_first_move(real, ask, expected)
+    assert real.browser_preinject == draft_browser_args(ask)

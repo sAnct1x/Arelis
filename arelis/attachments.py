@@ -12,6 +12,11 @@ from uuid import uuid4
 
 from arelis.history_view import history_pairs
 from arelis.paths import display_path, state_dir, user_data_dir
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    is_unsafe_windows_path,
+    safe_resolve,
+)
 
 MAX_ATTACHMENTS = 10
 MAX_BYTES = 25 * 1024 * 1024  # 25 MiB
@@ -266,12 +271,12 @@ def wants_image_restyle(user_text: str = "") -> bool:
 
 
 def wants_image_surgical(user_text: str = "") -> bool:
-    """True for rembg / outpaint / region inpaint — Comfy, not Pillow crop."""
+    """True for rembg / outpaint / region inpaint, Comfy, not Pillow crop."""
     return bool(_IMAGE_SURGICAL_ASK.search(user_text or ""))
 
 
 def wants_image_variations(user_text: str = "") -> bool:
-    """True for four versions / variations / n=4 — image with n, not a crop."""
+    """True for four versions / variations / n=4, image with n, not a crop."""
     return bool(_IMAGE_VARIATIONS_ASK.search(user_text or ""))
 
 
@@ -293,7 +298,7 @@ def wants_image_edit(user_text: str = "") -> bool:
 
 
 def wants_person_identify(user_text: str = "") -> bool:
-    """True for a pasted-photo 'who is this?' — not camera Point-and-Ask."""
+    """True for a pasted-photo 'who is this?', not camera Point-and-Ask."""
     return bool(_PERSON_IDENTIFY.search(user_text or ""))
 
 
@@ -340,7 +345,7 @@ def route_tool(kind: str, user_text: str = "") -> str:
         return "analyze"
     if kind == "text":
         return "workspace read"
-    return "(unsupported — say what you can)"
+    return "(unsupported, say what you can)"
 
 
 _ATTACH_KIND_LINE = re.compile(
@@ -417,7 +422,7 @@ def display_session_title(raw: str) -> str:
 
 
 def session_title_from_turn(content: str, *, max_len: int = 80) -> str:
-    """Human session title from a user turn — never the attachments boilerplate.
+    """Human session title from a user turn, never the attachments boilerplate.
 
     Attach turns are stored as ``Attachments for this turn…\\n\\n{ask}``. Using
     the first line raw made History look like a system prompt dump.
@@ -587,9 +592,13 @@ def resolve_staged_path(stored: str) -> Path | None:
     ``Attachment.path`` is workspace-relative posix under ``user_data_dir()``.
     Tests and clipboard pastes may also pass an absolute path. The composer
     rail and the sent bubble share this so they cannot disagree.
+
+    Unsafe Windows prefixes return None and are never resolved.
     """
     raw = (stored or "").strip()
     if not raw:
+        return None
+    if is_unsafe_windows_path(raw):
         return None
     path = Path(raw)
     candidates: list[Path] = []
@@ -637,9 +646,14 @@ def stage_files(
         if len(ok) >= room:
             errors.append(f"Attachment limit is {max_attachments} per message.")
             break
-        src = Path(raw)
+        if is_unsafe_windows_path(str(raw)):
+            errors.append(UNSAFE_WINDOWS_PATH_MSG)
+            continue
         try:
-            src = src.expanduser().resolve()
+            src = safe_resolve(raw)
+        except PermissionError:
+            errors.append(UNSAFE_WINDOWS_PATH_MSG)
+            continue
         except OSError as exc:
             errors.append(f"Could not resolve {raw}: {exc}")
             continue
@@ -807,7 +821,7 @@ def format_attachments_block(
         ):
             rules.append(
                 "Images: call image with path= the staged path above. "
-                "Restyle: prompt the look (watercolor, anime, …) — img2img. "
+                "Restyle: prompt the look (watercolor, anime, …), img2img. "
                 "Four versions / variations: n=4. Cut-out: "
                 "remove_background=true. Outpaint/uncrop/extend the canvas: "
                 "outpaint=all. Change the left/right/top/bottom/center: "
@@ -823,10 +837,10 @@ def format_attachments_block(
                 "size, adjustments, or text overlay asked for (e.g. "
                 "preset=youtube_thumbnail or width=1280 height=720, vibrance=1.3, "
                 "crop=left/right/center, scale=2, or text=Arelis). It writes a "
-                "new file and leaves the original alone. Do not call image — "
+                "new file and leaves the original alone. Do not call image, "
                 "that generates a different picture from a text prompt and "
                 "cannot modify this file. Do not call vision, which can only "
-                "look at it. Do not call send_sms — 'add text' on a picture is "
+                "look at it. Do not call send_sms, 'add text' on a picture is "
                 "an overlay, not a message. Do not call the calculator for "
                 "the pixel dimensions."
             )

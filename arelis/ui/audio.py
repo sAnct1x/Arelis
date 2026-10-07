@@ -228,7 +228,7 @@ class MicRecorder(QObject):
             self._buffer[:] = self._buffer[-keep:]
 
     def peek(self) -> bytes:
-        """Copy the buffer without clearing — for provisional mid-utterance STT."""
+        """Copy the buffer without clearing, for provisional mid-utterance STT."""
         return bytes(self._buffer)
 
     def discard(self) -> None:

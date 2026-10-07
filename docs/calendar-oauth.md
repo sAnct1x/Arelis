@@ -5,7 +5,7 @@ tokens so she can read and write Google Calendar and Outlook. Models
 stay local. Writes always wait for allow / deny. She can create events
 on the local tile before anything is connected. Connecting or
 re-authorizing Google / Outlook pushes those pending events in the
-background — no second ask. Ctrl+7 opens the local tile either way.
+background, no second ask. Ctrl+7 opens the local tile either way.
 
 `data/secrets.yaml` is under your records folder:
 `%LOCALAPPDATA%\Arelis\data` installed, or `data\` in the repository
@@ -28,7 +28,7 @@ from source.
 
 While the OAuth app is in **Testing**, Google expires refresh tokens
 after about seven days of light use. That is expected. The next sync
-or create opens the sign-in again from the tile — do not run a
+or create opens the sign-in again from the tile. Do not run a
 terminal command. Publish the Cloud app when you trust the scopes if
 you want tokens that last.
 

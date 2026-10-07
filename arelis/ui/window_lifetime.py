@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from arelis.core.bus import bind_app_bus
 from arelis.paths import app_icon_path
+from arelis.ui.foreground import flash_taskbar, show_without_activating
 from arelis.ui.idle_host import wake_from_away_rest
 from arelis.ui.layout_store import (
     save_window_layout,
@@ -40,6 +41,8 @@ from arelis.ui.window_resize import (
 
 log = logging.getLogger(__name__)
 
+# open_ui / tray reasons that mean the owner asked for the glass.
+USER_OPEN_REASONS = frozenset({"", "second_instance", "core_tray", "tray"})
 
 _PANEL_OUTER = SHELL["outer"]
 _PANEL_HALF = SHELL["half"]
@@ -57,7 +60,7 @@ class WindowLifetime:
         the window is short-lived: the callback arrives later, touches widgets
         whose C++ halves have since been deleted, and takes the process with it.
 
-        ``QTimer.singleShot`` cannot be cancelled, so the shot still fires — it
+        ``QTimer.singleShot`` cannot be cancelled, so the shot still fires, it
         just finds a disposed window and returns. That is the whole mechanism.
         """
         QTimer.singleShot(
@@ -68,8 +71,8 @@ class WindowLifetime:
     def dispose(self) -> None:
         """Release everything that outlives a hidden window. Idempotent.
 
-        ``closeEvent`` is the app's teardown and does much more than this — layout
-        save, asyncio shutdown, tray, model unload — but it stops only four of the
+        ``closeEvent`` is the app's teardown and does much more than this, layout
+        save, asyncio shutdown, tray, model unload, but it stops only four of the
         nine timers and never removes the application-wide event filter, because
         the process was about to end anyway.
 
@@ -148,7 +151,7 @@ class WindowLifetime:
             self.hide()
             self._tray.showMessage(
                 "Arelis",
-                "Still running in the tray — inbound texts keep working. "
+                "Still running in the tray, inbound texts keep working. "
                 "Quit from the tray menu to stop fully.",
                 QSystemTrayIcon.MessageIcon.Information,
                 4000,
@@ -258,7 +261,7 @@ class WindowLifetime:
         """Take floating instruments with the glass when it leaves the screen.
 
         A docked instrument is a child widget and disappears with its parent. A
-        floating one is a top-level window of its own — ``apply_dock_chrome``
+        floating one is a top-level window of its own, ``apply_dock_chrome``
         gives it ``Qt.Window``, where every other companion surface here is a
         ``Qt.Tool`` and so is hidden by Qt along with its parent. The panel
         therefore stayed on screen with the glass in the tray, and the next launch
@@ -314,21 +317,31 @@ class WindowLifetime:
     def _remember_window_state(self) -> None:
         """Record maximized/full-screen before hiding, ignoring Minimized.
 
-        Minimized is never worth coming back to — somebody asking for the window
-        wants to see it — and it is also what the OS leaves set if the glass was
+        Minimized is never worth coming back to, somebody asking for the window
+        wants to see it, and it is also what the OS leaves set if the glass was
         minimized on its way to the tray.
         """
         state = self.windowState()
         state &= ~Qt.WindowState.WindowMinimized
         self._tray_window_state = state
 
-    def _on_activation_request(self) -> None:
-        """Second-launch IPC / tray Open. No-op once Quit has started."""
+    def _on_activation_request(self, reason: object = "") -> None:
+        """Second-launch IPC / tray Open. No-op once Quit has started.
+
+        User reasons bring the glass forward. Automatic reasons (tool_confirm
+        and anything unknown) show without stealing focus and flash the taskbar.
+        The tray menu's triggered signal passes a bool, which counts as a user
+        open.
+        """
         if self._force_quit or self._disposed:
             return
-        self.show_from_tray()
+        if not isinstance(reason, str) or reason in USER_OPEN_REASONS:
+            self.show_from_tray(activate=True)
+            return
+        self.show_from_tray(activate=False)
+        flash_taskbar(self)
 
-    def show_from_tray(self) -> None:
+    def show_from_tray(self, *, activate: bool = True) -> None:
         if self._force_quit or self._disposed:
             return
         if self.isVisible():
@@ -340,9 +353,12 @@ class WindowLifetime:
         # at its final size. Showing first and correcting afterwards is what put
         # a full-screen frame on screen underneath a restored-size one.
         self.setWindowState(self._tray_window_state)
-        self.show()
-        self.raise_()
-        self.activateWindow()
+        if activate:
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        else:
+            show_without_activating(self)
         # Inbound texts and readiness keep moving while the glass is hidden.
         # Repaint this window and every float — each is its own HWND.
         invalidate_window_surface(self)

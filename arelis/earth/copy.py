@@ -274,9 +274,9 @@ def layer_hole_line(zone: Any) -> str | None:
                 "VHF dies tens of kilometres from a receiver."
             )
     if layers.get("cameras"):
-        if "cameras" in inflight or "shodan" in inflight:
+        if "cameras" in inflight:
             return None
-        if "cameras" not in fetched and "shodan" not in fetched:
+        if "cameras" not in fetched:
             return None
         if "cameras" not in have:
             return (

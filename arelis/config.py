@@ -33,8 +33,8 @@ def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
 def shipped_num_ctx() -> int:
     """``ollama.num_ctx`` as shipped in default.yaml.
 
-    Callers that build a config by hand — the eval harnesses, the job runner,
-    tests — used to write their own number, and 8192 stayed in three of them
+    Callers that build a config by hand, the eval harnesses, the job runner,
+    tests, used to write their own number, and 8192 stayed in three of them
     long after the shipped default had moved. A harness pinned to a window
     nobody runs is not measuring the product. Read it from the one file that
     declares it instead of copying the digits.
@@ -112,6 +112,10 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
         from arelis.location import build_location
 
         data["_location"] = build_location(data)
+        # Scrub the saved place from the Thinking dock and text logs (location.privacy).
+        from arelis.location.privacy import install as install_location_redactor
+
+        install_location_redactor(data)
     return data
 
 
@@ -151,7 +155,7 @@ def ensure_package_inspect_root(named: list[dict]) -> list[dict]:
     A checkout already has the repository as ``workspace.roots`` ``"."``, so
     stacking ``PACKAGE_ROOT`` on top would be a second overlapping root.
     Installed, ``"."`` is Documents/Arelis and the package lives under
-    site-packages — they need a separate root to inspect shipped code, and
+    site-packages, they need a separate root to inspect shipped code, and
     that root must not accept writes.
     """
     if paths.is_source_checkout():

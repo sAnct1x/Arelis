@@ -51,7 +51,7 @@ _AUTHOR_MARK = re.compile(r"\\authormark\s*\d+\*?,?")
 
 
 def excerpt_text(text: str, *, max_chars: int = 600) -> str:
-    """Short deterministic excerpt — first paragraphs, not an LLM summary."""
+    """Short deterministic excerpt, first paragraphs, not an LLM summary."""
     body = (text or "").strip()
     if not body:
         return ""
@@ -86,9 +86,9 @@ def render_report(
         title = hit.title or hit.url
         excerpt = (hit.excerpt or "").strip()
         if excerpt:
-            findings_parts.append(f"{i}. **{title}** — {excerpt}")
+            findings_parts.append(f"{i}. **{title}**, {excerpt}")
         else:
-            findings_parts.append(f"{i}. **{title}** — (no extractable text)")
+            findings_parts.append(f"{i}. **{title}**, (no extractable text)")
     findings = (
         "\n".join(findings_parts)
         if findings_parts

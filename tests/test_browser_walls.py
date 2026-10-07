@@ -155,7 +155,7 @@ def test_checkout_receipt_is_short() -> None:
         heading="Checkout",
         body="title: Checkout\nurl: https://shop.example/checkout\n\nTotal $12.00",
     )
-    assert line.startswith("Checkout is up — your turn to click Pay.")
+    assert line.startswith("Checkout is up: your turn to click Pay.")
     assert "https://shop.example/checkout" in line
     assert "Total $12.00" in line
     assert line.count("\n") <= 4

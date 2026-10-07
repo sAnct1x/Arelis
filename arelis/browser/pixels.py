@@ -1,4 +1,4 @@
-"""Pixel pointer gate — x,y only after screenshot + vision this turn."""
+"""Pixel pointer gate, x,y only after screenshot + vision this turn."""
 
 from __future__ import annotations
 

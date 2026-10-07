@@ -12,6 +12,7 @@ from typing import Any
 
 from arelis.core.path_refs import ABS_PREFIX_OR_START, ABS_START, PATH_CHARS
 from arelis.paths import outputs_dir
+from arelis.workspace import is_unsafe_windows_path
 
 _DOC_SUFFIXES = frozenset({".pdf", ".docx", ".xlsx", ".csv", ".md", ".txt"})
 _OPEN_SUFFIXES = _DOC_SUFFIXES | {".png"}
@@ -160,6 +161,8 @@ def _usable_file(raw: str, *, suffixes: frozenset[str] | None = None) -> str:
     text = (raw or "").strip().strip("\"'`")
     if not text:
         return ""
+    if is_unsafe_windows_path(text):
+        return ""
     path = Path(text)
     if not path.is_file():
         for folder in (outputs_dir() / "documents", outputs_dir() / "plots"):
@@ -263,7 +266,7 @@ def latest_openable_path(
     history: list[Any] | None = None,
     receipts: list[Any] | None = None,
 ) -> str:
-    """Newest written file this thread can open — document or chart."""
+    """Newest written file this thread can open, document or chart."""
     return _latest_named_file(
         history,
         receipts,
@@ -276,7 +279,7 @@ def files_in_turn(content: str, note: str = "") -> list[tuple[str, str]]:
     """Existing written files named in this turn, oldest first.
 
     Used to rebuild the open / show-in-folder card when History or a room
-    comes back. Missing files are skipped — a dead link is worse than none.
+    comes back. Missing files are skipped, a dead link is worse than none.
     """
     seen: set[str] = set()
     out: list[tuple[str, str]] = []

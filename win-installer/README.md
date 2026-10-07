@@ -36,13 +36,13 @@ winget install -e --id JRSoftware.InnoSetup
 
 ## What it produces
 
-`win-installer/dist/Arelis/` is around 640 MB. A directory that runs
+`win-installer/dist/Arelis/` is around 0.9 GB. A directory that runs
 Arelis with nothing installed and nothing on PATH.
 
-`win-installer/dist/Arelis-0.2.9-win64-setup.exe` is the same tree,
+`win-installer/dist/Arelis-0.3.0-win64-setup.exe` is the same tree,
 compressed, installing per-user into `%LOCALAPPDATA%\Programs\Arelis`.
 
-Where the 640 MB goes, largest first: Playwright's driver, Qt, PyAV's
+Where most of that goes, largest first: Playwright's driver, Qt, PyAV's
 FFmpeg, CTranslate2, ONNX Runtime, NumPy, pandas, sherpa-onnx,
 espeak-ng. That is the cost of speech, a browser, and dataframes on this
 PC instead of a server.
@@ -170,7 +170,7 @@ What a cautious person can check instead: `build.py` prints the SHA-256
 of the setup `.exe`, and releases publish it.
 
 ```powershell
-Get-FileHash .\Arelis-0.2.9-win64-setup.exe -Algorithm SHA256
+Get-FileHash .\Arelis-0.3.0-win64-setup.exe -Algorithm SHA256
 ```
 
 The bundled interpreter is verified during the build against the digest
@@ -195,7 +195,7 @@ and downloaded models under `%LOCALAPPDATA%\Arelis`.
 | Path | What it is |
 | --- | --- |
 | `%LOCALAPPDATA%\Arelis` | Profile, chats, secrets, models, her Chrome, Playwright browsers |
-| `%LOCALAPPDATA%\Arelis-runtime` | Ollama setup we downloaded (not a system Ollama install) |
+| `%LOCALAPPDATA%\Arelis-runtime` | Ollama setup she downloaded (not a system Ollama install) |
 | `%LOCALAPPDATA%\Arelis-dev` | Checkout sandbox from `run_dev_ui.ps1` |
 | `Documents\Arelis` | Default workspace, **only if it is not a source checkout** |
 
@@ -203,3 +203,12 @@ A scripted full removal: `unins000.exe /SILENT /wipe=yes`.
 
 Never removed: a system Ollama install, `%USERPROFILE%\.ollama`, or
 this repository.
+
+## Installer smoke test
+
+CI runs `.github/workflows/installer-smoke.yml` after the Windows installer
+build (and on demand via `workflow_dispatch`). It silent-installs the setup
+exe, probes `import arelis.ui.launch` / `arelis.ui.solar_gl`, looks for a real
+top-level window from `{app}\python.exe -m arelis --config ...`, then exercises
+upgrade, downgrade, and wipe uninstall. Logs land in the `installer-smoke-logs`
+artifact. See `scripts/installer_smoke.py`.

@@ -24,7 +24,7 @@ class CliPrinter:
 
     interactive decides whether writes are gated. On a terminal the user is
     asked, the same as in the desktop app. When stdin is a pipe there is nobody
-    to ask — absence of a human is not consent, so confirms are skipped
+    to ask, absence of a human is not consent, so confirms are skipped
     (denied) unless allow_write=True (`arelis --cli --allow-write`).
     """
 
@@ -171,7 +171,7 @@ async def run_cli_async(
             router.mark_warmup_done()
 
     preflight_task = asyncio.create_task(_startup_models())
-    print("Arelis CLI — type /help, or chat. Ctrl+C to exit.")
+    print("Arelis CLI, type /help, or chat. Ctrl+C to exit.")
     print("Pronunciation: ah-REL-is\n")
     try:
         while True:
@@ -184,6 +184,9 @@ async def run_cli_async(
                 continue
             if text in {"/exit", "/quit", "exit", "quit"}:
                 break
+            if text == "/help":
+                print(cli_help_text())
+                continue
             await bus.publish(Event(EventType.USER_MESSAGE, {"text": text}))
             # Block until the turn is fully handled before prompting again.
             # The turn's handler task stays unfinished for its whole duration,
@@ -197,6 +200,17 @@ async def run_cli_async(
         bus_task.cancel()
         await router.close()
     return 0
+
+
+def cli_help_text() -> str:
+    """Commands this prompt handles itself. Anything else is chat."""
+    return (
+        "Commands:\n"
+        "  /help          show this list\n"
+        "  /exit, exit    leave\n"
+        "  /quit, quit    leave\n"
+        "Any other line is chat."
+    )
 
 
 def _muted(config: dict[str, Any]) -> dict[str, Any]:

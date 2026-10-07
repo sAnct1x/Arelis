@@ -70,7 +70,7 @@ def test_format_agenda_section_labels_today_tomorrow() -> None:
     assert "Lab" in text
     assert "Standup notes" in text
     assert "**Tomorrow**" in text
-    assert "all day — All-day errand" in text
+    assert "all day, All-day errand" in text
 
 
 def test_missing_calendar_file_is_empty(tmp_path) -> None:
@@ -160,8 +160,10 @@ async def test_agenda_tool_missing_file_is_clear(tmp_path) -> None:
     )
     result = await tool.run(action="today")
     assert result.ok
-    assert "missing" in result.output.lower()
-    assert str(missing) in result.output
+    assert "Nothing on your calendar today." in result.output
+    assert "calendar tile" in result.output
+    assert str(missing) not in result.output
+    assert "calendar.ics" not in result.output
     assert result.data.get("missing") is True
 
 

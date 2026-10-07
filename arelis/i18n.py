@@ -25,7 +25,7 @@ _ZH: dict[str, str] = {
     "window": "窗口",
     "allow": "允许",
     "notify": "通知",
-    "roots": "目录",
+    "folders": "文件夹",
     "memory": "记忆",
     "Microphone": "麦克风",
     "Speaker": "扬声器",
@@ -64,6 +64,17 @@ _ZH: dict[str, str] = {
     "Phone": "手机",
     "Scan with the Arelis app. Same Wi-Fi.": "用 Arelis 应用扫。要在同一个 Wi-Fi。",
     "Create a pairing code": "生成配对码",
+    (
+        "Phone notifications are turned on but not set up yet. "
+        "To finish, open Settings, go to Notify, pick Create a pairing code."
+    ): "手机通知已经打开，但还没配对好。请打开设置，进入通知，点生成配对码。",
+    "Phone notifications couldn't start. Restart Arelis to try again.": (
+        "手机通知没能启动。重启 Arelis 再试一次。"
+    ),
+    "Phone notifications moved to a new spot. Pair your phone again in Settings, Notify.": (
+        "手机通知换了位置。请打开设置，进入通知，重新配对手机。"
+    ),
+    "Couldn't make a pairing code. Try again.": "没法生成配对码。再试一次。",
     "Install the app": "安装应用",
     "Copy link": "复制链接",
     "Copy for the phone": "复制给手机",
@@ -109,7 +120,7 @@ _ZH: dict[str, str] = {
     "say yes · or type allow": "说「可以」，或输入允许",
     "Enter = allow · Esc = deny…": "回车 = 允许 · Esc = 拒绝…",
     "listening": "在听",
-    "talking — esc to cut": "她在说 — Esc 打断",
+    "talking: esc to cut": "她在说，Esc 打断",
     "dictate into the message box (Ctrl+M)": "听写进输入框（Ctrl+M）",
     "Dictate": "听写",
     "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop": (
@@ -117,11 +128,11 @@ _ZH: dict[str, str] = {
     ),
     "Talk": "对话",
     "stop": "停止",
-    "stop current turn — Esc also stops once she has started answering": (
-        "停掉这一轮 — 她开始回答后 Esc 也能停"
+    "stop current turn: Esc also stops once she has started answering": (
+        "停掉这一轮，她开始回答后 Esc 也能停"
     ),
     "Stop": "停止",
-    "stop current turn — also the hung-turn unlock": "停掉这一轮，卡住的回合也能解开",
+    "stop current turn: also the hung-turn unlock": "停掉这一轮，卡住的回合也能解开",
     "send": "发送",
     "Send": "发送",
     'say "hey arelis"': "说「Hey Arelis」",
@@ -142,13 +153,13 @@ _ZH: dict[str, str] = {
     "confirm tool": "确认操作",
     "pause": "暂停",
     "go": "继续",
-    "freeze mid-drive — the page stays": "暂停操作 — 页面留着",
-    "abort this turn — the page stays": "停掉这一轮 — 页面留着",
+    "freeze mid-drive: the page stays": "暂停操作，页面留着",
+    "abort this turn: the page stays": "停掉这一轮，页面留着",
     "continue from here": "从这里继续",
     "Pause drive": "暂停操作",
     "Stop drive": "停止操作",
-    "paused — page stays": "已暂停 — 页面留着",
-    "your turn — page stays": "轮到你 — 页面留着",
+    "paused: page stays": "已暂停，页面留着",
+    "your turn: page stays": "轮到你，页面留着",
     "✦ thinking…": "✦ 在想…",
     "✦ wrapping up…": "✦ 在收尾…",
     "✦ loading the model…": "✦ 模型还在加载…",
@@ -201,7 +212,7 @@ _ZH: dict[str, str] = {
         "这一轮中间出错了，我停下来了，没有瞎猜。"
         "细节在「思考」（Ctrl+1）。再试一次，或者说得再清楚点。"
     ),
-    "Skipped — I was not allowed to read the outside-workspace path you named.": (
+    "Skipped, I was not allowed to read the outside-workspace path you named.": (
         "跳过了。你点名的工作区外面那个路径没有被允许读取。"
     ),
     "On her own": "她自己做的时候",
@@ -224,7 +235,7 @@ _ZH: dict[str, str] = {
         "勾上的类每次都问。取消勾选就再也不问。"
     ),
     (
-        "When on, a job you already named does not open Allow — "
+        "When on, a job you already named does not open Allow, "
         "except mail, texts, deletes, Pay, and programs."
     ): (
         "开着的时候，你已经点名的事不再弹出允许，"

@@ -1,6 +1,6 @@
 """The desk: pages and artifacts that exist because you talked.
 
-Workspace roots are the sandbox — the legal boundary. The desk is the
+Workspace roots are the sandbox, the legal boundary. The desk is the
 inbox that sits on top of it: notes you asked to keep, files she wrote,
 plots, pictures. Pins stay at the top. A missing file drops off the list
 rather than becoming a dead row.
@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from arelis.paths import state_dir
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import WorkspaceRoots, is_unsafe_windows_path
 
 log = logging.getLogger(__name__)
 
@@ -447,6 +447,8 @@ def _slug(title: str) -> str:
 def _normalize_abs(path: str) -> str:
     raw = (path or "").strip()
     if not raw:
+        return ""
+    if is_unsafe_windows_path(raw):
         return ""
     try:
         return str(Path(raw).expanduser().resolve())

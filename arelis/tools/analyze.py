@@ -3,7 +3,7 @@
 `summary`, `head` and `describe` describe a file; none of them answers
 anything about it. "What did we spend in March?" left the model with a choice
 between reading 200 rows out of `head` and adding them up in its own head, or
-guessing — and it is the tool's job not to offer that choice.
+guessing, and it is the tool's job not to offer that choice.
 
 The obvious implementation is `DataFrame.query()`, and it is not used here on
 purpose. That method evaluates its argument: with the python engine it is
@@ -361,7 +361,7 @@ def _columns(raw: Any) -> list[str]:
 
 
 def _run_query(df: Any, kwargs: dict[str, Any]) -> str:
-    """Filter, group, aggregate, sort, limit — the four verbs a data question
+    """Filter, group, aggregate, sort, limit, the four verbs a data question
     actually uses, none of which existed before.
 
     Returns the rendered table. The row count before and after filtering is
