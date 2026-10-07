@@ -1,0 +1,59 @@
+name: Upgrade path
+
+# Separate from ci.yml, and not wired into windows-installer.yml.
+# Building two installers is slow. A red result here does not fail those
+# workflows. Same family as the installer smoke test: a clean windows-latest
+# runner, Inno Setup, silent install, logs uploaded. This one is the real
+# upgrade path (published v0.3.0, then this build, then a fake next patch
+# through the in-app backup), so it is its own workflow.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/upgrade-path.yml"
+      - "scripts/upgrade_path_smoke.py"
+      - "tests/test_upgrade_path_smoke.py"
+      - "arelis/backup.py"
+      - "arelis/ui/update_prompt.py"
+      - "arelis/update.py"
+      - "arelis/paths.py"
+      - "win-installer/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upgrade-path-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upgrade:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: win-installer/requirements-win-amd64-cp314.txt
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Run upgrade path
+        env:
+          PYTHONUTF8: "1"
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/upgrade_path_smoke.py run
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: upgrade-path-logs
+          path: |
+            upgrade-out/**
+            !upgrade-out/**/*.exe
+          if-no-files-found: warn
+          retention-days: 14
