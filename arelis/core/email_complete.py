@@ -662,20 +662,6 @@ def split_attach_args(raw: str) -> list[str]:
     ]
 
 
-def email_remaining_files(
-    draft: EmailDraft | None, already_attached: set[str] | None
-) -> list[str]:
-    """Written files still owed on a multi-attach draft."""
-    if draft is None:
-        return []
-    have = {Path(s).name.lower() for s in (already_attached or set()) if s}
-    return [
-        path
-        for path in draft.all_attach_paths
-        if Path(path).name.lower() not in have
-    ]
-
-
 def email_files_still_owed(draft: EmailDraft | None) -> bool:
     """True when they asked for formats that are not on the draft yet."""
     if draft is None or not draft.wanted_suffixes:
