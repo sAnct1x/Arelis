@@ -18,8 +18,11 @@ What a green run proves
 * A backup that cannot create its folder returns no path, and the real
   update prompt does not start the installer.
 * The real ``start_installer`` then installs the fake next version.
-* A wipe uninstall removes the app and the data folder and leaves the
-  backup folder in place.
+* A wipe uninstall removes the app. The data folder is checked too.
+  As of this script, that check fails for a real installer bug: Inno
+  stores ``Check: ShouldWipeData`` at install time, when the flag is
+  still false, so ``/wipe=yes`` does not delete the data folder. The
+  backup folder is still checked after that.
 
 What it does not prove
 ======================
@@ -1581,40 +1584,64 @@ def cmd_run() -> int:
     deadline = time.time() + 60
     while install_dir().exists() and time.time() < deadline:
         time.sleep(1)
-    if install_dir().exists() or uninstall_key_present() or data_root().exists():
-        return fail(
-            "uninstall-wipe",
-            f"install_exists={install_dir().exists()} key={uninstall_key_present()} "
-            f"data_exists={data_root().exists()}",
-        )
+    app_gone = []
+    if install_dir().exists():
+        app_gone.append("install folder still present")
+    if uninstall_key_present():
+        app_gone.append("registry key still present")
     if start_menu_dir().exists():
-        return fail("uninstall-wipe", f"start menu folder still present: {start_menu_dir()}")
+        app_gone.append(f"start menu folder still present: {start_menu_dir()}")
     if pids_under(install_dir()):
-        return fail("uninstall-wipe", "a process is still running from the install folder")
-    record(
-        "uninstall-wipe",
-        "PASS",
-        "install folder, data folder, registry key, and start menu are gone",
-    )
+        app_gone.append("a process is still running from the install folder")
+    if app_gone:
+        return fail("uninstall-wipe", "; ".join(app_gone))
+    data_still = data_root().exists()
+    if data_still:
+        # Real installer bug, left for a product fix. Inno evaluates
+        # Check: ShouldWipeData while installing, and WipeData is still
+        # false then, so the data delete never lands in the uninstall log.
+        # /wipe=yes sets the flag too late to matter.
+        record(
+            "uninstall-wipe",
+            "FAIL",
+            "app is gone, but the data folder is still there after /wipe=yes. "
+            "secrets_still="
+            + str((state_dir() / "secrets.yaml").is_file())
+            + " memory_marker_still="
+            + str(marker_in_file(state_dir() / "memory.db")),
+        )
+    else:
+        record(
+            "uninstall-wipe",
+            "PASS",
+            "install folder, data folder, registry key, and start menu are gone",
+        )
 
     names = pre_folders()
     problems = backup_problems()
+    backup_memory = backups_dir() / expected_pre / "memory.db"
     if (
         expected_pre not in names
         or problems
-        or not marker_in_file(backups_dir() / expected_pre / "memory.db")
+        or not marker_in_file(backup_memory)
         or sentinel_in_tree(backups_dir())
-        or (state_dir() / "secrets.yaml").exists()
     ):
         return fail(
             "backup-survives-wipe",
-            f"folders={names} problems={problems} data_still={data_root().exists()}",
+            f"folders={names} problems={problems} data_still={data_still}",
         )
     record(
         "backup-survives-wipe",
         "PASS",
-        f"{expected_pre} still beside where the data folder was; secrets were not in it",
+        f"{expected_pre} still beside the data folder; secrets were not in it",
     )
+    if data_still:
+        record(
+            "done",
+            "FAIL",
+            "stopped on the wipe bug: /wipe=yes did not remove the data folder",
+        )
+        return 1
     untouched = assert_repo_untouched(checkout_before)
     if untouched:
         return fail("checkout-version-untouched-final", untouched)
