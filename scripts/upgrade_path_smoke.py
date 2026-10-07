@@ -95,10 +95,13 @@ HEADLESS_PY = """
     def _install_exec_hook() -> None:
         original = QApplication.exec
 
-        def _exec(self, *args, **kwargs):
+        def _exec(*args, **kwargs):
             print("headless_reached_exec", flush=True)
-            QTimer.singleShot(1500, self.quit)
-            return original(self, *args, **kwargs)
+            app = args[0] if args else QApplication.instance()
+            if app is not None:
+                QTimer.singleShot(1500, app.quit)
+            # PySide6's exec is static and rejects the instance we were given.
+            return original()
 
         QApplication.exec = _exec
 

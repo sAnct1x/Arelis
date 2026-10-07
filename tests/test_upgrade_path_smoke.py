@@ -160,6 +160,26 @@ def test_seed_fact_source_is_one_v0_3_0_accepts() -> None:
     assert sources == ["explicit"]
 
 
+def test_headless_hook_calls_exec_with_no_arguments() -> None:
+    """PySide6 QApplication.exec() is static. Passing the instance raises."""
+    import ast
+
+    m = _mod()
+    tree = ast.parse(m.child_source(m.HEADLESS_PY))
+    calls = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or node.name != "_exec":
+            continue
+        for inner in ast.walk(node):
+            if (
+                isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Name)
+                and inner.func.id == "original"
+            ):
+                calls.append((len(inner.args), len(inner.keywords)))
+    assert calls == [(0, 0)]
+
+
 def test_child_scripts_parse() -> None:
     m = _mod()
     sources = m.compiled_child_scripts()
