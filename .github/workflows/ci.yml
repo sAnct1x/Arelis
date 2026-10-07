@@ -159,7 +159,7 @@ jobs:
           python-version: "3.14"
       - name: Lock is complete, pinned and hashed
         run: python win-installer/lock.py --check
-      - name: No os.kill(pid, 0) in arelis
+      - name: No os.kill signal 0 in arelis or scripts
         run: python scripts/check_windows_footguns.py
 
   # The job above installs with -e, which makes the directory above the package the
