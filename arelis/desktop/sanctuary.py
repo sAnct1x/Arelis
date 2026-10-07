@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from arelis.paths import user_data_dir
+from arelis.workspace import is_unsafe_windows_path
 
 # Basenames only. notepad.exe lives in System32 — that folder is not the ban.
 DENIED_EXES = frozenset(
@@ -150,6 +151,8 @@ def denied_file_prefixes() -> list[Path]:
 
 def is_denied_file_path(path: str | Path) -> bool:
     """True when this is an OS / secrets / other-user path, not an app launch."""
+    if is_unsafe_windows_path(str(path)):
+        return True
     try:
         resolved = Path(path).expanduser().resolve()
     except OSError:
