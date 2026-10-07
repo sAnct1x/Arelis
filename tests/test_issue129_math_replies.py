@@ -74,6 +74,22 @@ def test_days_in_weeks_counts_as_math() -> None:
     assert detect_exactness_need(ask).needs_calculator
 
 
+@pytest.mark.parametrize(
+    "ask",
+    [
+        "what is 1500 + 2000",
+        "1999 x 2",
+        "square root of 1600",
+        "what is 3/4",
+        "what is 1/2",
+        "what is 5/8",
+    ],
+)
+def test_ordinary_sums_fractions_and_roots_stay_math(ask: str) -> None:
+    """A year-shaped number or a short fraction is still arithmetic."""
+    assert detect_math_ask(ask)
+
+
 # --- slashes that are not division ------------------------------------------
 
 

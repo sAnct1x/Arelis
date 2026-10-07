@@ -104,12 +104,36 @@ _MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 # A slash in a date, an event, or "24/7" is not division unless the ask
-# clearly wants a number ("as a decimal", "divided by"). A bare year in a
-# title ("the plot of 1984") is not an operand either.
+# clearly wants a number ("as a decimal", "divided by", or digit-op-digit).
+# A bare year in a title ("the plot of 1984") is not an operand either.
+# A year inside "1500 + 2000" or "square root of 1600" is.
 _CLEAR_MATH_CUE = re.compile(
     r"(?i)(?:%|\*|\^|\btimes\b|\bplus\b|\bminus\b|\bdivided\s+by\b|"
     r"\bas\s+a\s+(?:decimal|fraction|percent)\b)"
 )
+# Digit, operator, digit. The letter x and the times sign both count.
+_OPERATOR_PAIR_CUE = re.compile(
+    r"(?i)\d+(?:\.\d+)?\s*[+x×*/-]\s*\d+(?:\.\d+)?"
+)
+_SQUARE_ROOT_OF = re.compile(r"(?i)\b(?:square\s+root|sqrt)\b(?:\s+of)?\s+\d")
+# Skip a month/day slash only when the ask is about a date or an event.
+_DATE_EVENT_ASK = re.compile(
+    r"(?i)(?:"
+    r"\bwhat\s+was\b"
+    r"|\bhappened\b"
+    r"|\b24/7\b"
+    r"|(?<![\d/.])(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])/(?:\d{2}|\d{4})(?![\d/])"
+    r")"
+)
+
+
+def _operator_pair_cue(text: str) -> bool:
+    """True when a number is clearly an operand, not a year in a sentence."""
+    if _OPERATOR_PAIR_CUE.search(text):
+        return True
+    if _SQUARE_ROOT_OF.search(text):
+        return True
+    return False
 _NOT_DIVISION_SLASH = re.compile(
     r"(?<![\d/.])(?:"
     r"(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])(?:/(?:\d{2}|\d{4}))?"
@@ -658,12 +682,18 @@ def detect_math_ask(text: str) -> bool:
     cleaned = _YEAR_RANGE.sub(" ", cleaned)
     cleaned = _QUANTITY_RANGE.sub(" ", cleaned)
     cleaned = _OUTLINE_ITEM.sub(" ", cleaned)
-    if not _CLEAR_MATH_CUE.search(lowered):
+    word_cue = _CLEAR_MATH_CUE.search(lowered) is not None
+    pair_cue = _operator_pair_cue(lowered)
+    # "what was 9/11" and "10/12/2025" lose the slash. "what is 3/4" keeps it,
+    # because a digit/digit pair is the cue and the ask is not a date.
+    if _DATE_EVENT_ASK.search(lowered) and not word_cue:
+        cleaned = _NOT_DIVISION_SLASH.sub(" ", cleaned)
+    elif not word_cue and not pair_cue:
         cleaned = _NOT_DIVISION_SLASH.sub(" ", cleaned)
     hits = [p for p in _MATH_PATTERNS if p.search(cleaned)]
     if not hits:
         return False
-    if not _CLEAR_MATH_CUE.search(lowered):
+    if not word_cue and not pair_cue:
         without_years = _PROSE_YEAR.sub(" ", cleaned)
         if not any(p.search(without_years) for p in _MATH_PATTERNS):
             return False
