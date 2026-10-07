@@ -319,13 +319,24 @@ class AgendaTool:
 
         if loaded["missing"]:
             path = loaded["path"]
+            if action == "today":
+                sentence = (
+                    "Nothing on your calendar today. "
+                    "Connect a calendar in the calendar tile to see events."
+                )
+            elif action == "tomorrow":
+                sentence = (
+                    "Nothing on your calendar tomorrow. "
+                    "Connect a calendar in the calendar tile to see events."
+                )
+            else:
+                sentence = (
+                    "Nothing on your calendar for that stretch. "
+                    "Connect a calendar in the calendar tile to see events."
+                )
             return ToolResult(
                 ok=True,
-                output=(
-                    "No events. Sign in on the calendar tile, "
-                    "or add data/calendar.ics.\n"
-                    f"ICS path: {path}"
-                ),
+                output=sentence,
                 data={
                     "action": action,
                     "events": [],
