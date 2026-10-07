@@ -114,6 +114,20 @@ _LOCAL_CLOCK = re.compile(
     r")[?!.\s]*$"
 )
 
+# The screen theme is already in the system prompt (theme_line). These asks
+# must not take the unmatched "what" web fallback. A book's theme does not
+# match: that still needs a search. "am I on" / "my theme" is the screen.
+_THEME_ASK = re.compile(
+    r"(?i)^\s*(?:"
+    r"(?:what|which)\s+(?:theme|skin)\s+(?:am\s+i|are\s+(?:we|you))\s+(?:on|using)"
+    r"(?:\s+right\s+now|\s+currently|\s+now)?"
+    r"|what(?:'s|\s+is)\s+(?:my|our|your)\s+(?:current\s+|active\s+)?(?:theme|skin)"
+    r"(?:\s+right\s+now|\s+currently|\s+now)?"
+    r"|what(?:'s|\s+is)\s+the\s+(?:current|active)\s+(?:theme|skin)"
+    r"(?:\s+right\s+now|\s+currently|\s+now)?"
+    r")(?:\s+please)?[?!.\s]*$"
+)
+
 # --- matchers (moved verbatim from preflight / claims) ---
 
 _WEATHER_PRE = re.compile(
@@ -1664,16 +1678,22 @@ def looks_like_local_clock_ask(text: str) -> bool:
     return bool(_LOCAL_CLOCK.match((text or "").strip()))
 
 
+def looks_like_theme_ask(text: str) -> bool:
+    """True when they are asking which screen theme is on, not a book's theme."""
+    return bool(_THEME_ASK.match((text or "").strip()))
+
+
 def looks_like_identity_ask(text: str) -> bool:
     """True when they are asking who Arelis is, not who is on screen."""
     return bool(_IDENTITY_ASK.match((text or "").strip()))
 
 
 def is_tiny_prompt_ask(text: str) -> bool:
-    """Clock, hello, thanks, or identity, no web fallback.
+    """Clock, hello, thanks, identity, or the screen theme. No web fallback.
 
     Unmatched real work still fail-opens. A place ("what time is it in Tokyo")
     does not match: that still needs a tool. "Who is this" is not identity.
+    "What's the theme of Hamlet" is not the screen.
     """
     from arelis.core.utterance_guards import (
         looks_like_closing_chitchat,
@@ -1688,4 +1708,5 @@ def is_tiny_prompt_ask(text: str) -> bool:
         or looks_like_greeting(raw)
         or looks_like_closing_chitchat(raw)
         or looks_like_identity_ask(raw)
+        or looks_like_theme_ask(raw)
     )

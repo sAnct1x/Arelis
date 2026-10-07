@@ -14,6 +14,7 @@ from arelis.core.agent_loop import (
     _MAX_TOOL_NUDGES,
     _SCRAPE_AFTER_SEARCH_NOTICE,
     _WEB_TOOLS,
+    theme_reply_if_needed,
 )
 from arelis.core.claims import (
     answer_looks_like_ack_only,
@@ -363,6 +364,16 @@ async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i
                 )
             )
             return NUDGE
+    fixed = theme_reply_if_needed(ctx.text, r.content)
+    if fixed is not None:
+        await loop._retract()
+        await loop.bus.publish(
+            Event(EventType.THINKING, {"text": "theme ask; saying the screen theme"})
+        )
+        if loop._timer is not None:
+            loop._timer.mark("theme", action="name")
+        await loop._finish(fixed, r.sources, streamed="")
+        return FINISH
     refuse = _exactness_finish_refuse(
         r.content,
         exact_need=ctx.exact_need,

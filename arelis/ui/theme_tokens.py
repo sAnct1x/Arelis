@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 # Evening room under a sodium lamp. Bright enough to read, quiet enough to sit in.
 # The room shares the lamp's hue (~24-28) at low chroma: bg0 is #100d0b, a spread
 # of 5 between red and blue. A wider split (the old #160d07, red 22 / blue 7)
@@ -597,6 +599,35 @@ def resolve_theme_id(value: str | None) -> str:
 
 def active_theme() -> str:
     return _ACTIVE_THEME
+
+
+def theme_menu_label(theme_id: str | None = None) -> str:
+    """View menu name for the theme on screen, or for ``theme_id``.
+
+    Unknown names resolve the same way the palette does, to sodium, so a
+    bad id never becomes a theme that is not installed.
+    """
+    resolved = active_theme() if theme_id is None else resolve_theme_id(theme_id)
+    return _THEME_LABELS.get(resolved, _THEME_LABELS[DEFAULT_THEME])
+
+
+_MENU_ASIDE = re.compile(r"\s*\([^)]*\)")
+
+
+def spoken_theme_name(menu_label: str) -> str:
+    """Menu words with any parenthetical dropped.
+
+    The View menu can say "filament (testing)". She says "filament".
+    The menu string itself is not rewritten here.
+    """
+    spoken = _MENU_ASIDE.sub("", menu_label or "")
+    spoken = " ".join(spoken.split())
+    return spoken or " ".join((menu_label or "").split())
+
+
+def theme_spoken_name(theme_id: str | None = None) -> str:
+    """What she should say this theme is called."""
+    return spoken_theme_name(theme_menu_label(theme_id))
 
 
 def theme_from_config(config: dict | None) -> str:
