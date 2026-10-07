@@ -486,7 +486,8 @@ class SettingsDialog(QDialog):
         self.confirm_desktop = QCheckBox("the desk, when she offers it")
         self.confirm_desktop.setChecked(bool(agent.get("confirm_desktop", True)))
         self.confirm_desktop.setToolTip(
-            "When she offers to drive your Windows session. Deletes still pause."
+            "When she offers to drive your Windows session. "
+            "Delete, Pay, and UAC still pause when this is on."
         )
         self.confirm_vision = QCheckBox("seeing images and the screen")
         self.confirm_vision.setChecked(bool(agent.get("confirm_vision", True)))
