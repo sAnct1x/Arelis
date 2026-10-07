@@ -195,7 +195,7 @@ end;
 
 function ShouldWipeData(): Boolean;
 begin
-  Result := WipeData;
+  Result := not WipeData;
 end;
 
 function InitializeUninstall(): Boolean;
