@@ -800,6 +800,8 @@ def describe_call(
                 normalize_time,
                 party_cap_note,
                 resolve_party,
+                spoken_date,
+                spoken_time,
             )
 
             place = str(
@@ -813,11 +815,21 @@ def describe_call(
             day = normalize_date(raw_date) if raw_date else None
             clock = normalize_time(raw_time) if raw_time else None
             if day:
-                lines.append(f"Date: {day}")
+                said = spoken_date(day)
+                if said:
+                    lines.append(f"Date: {said}")
+                else:
+                    lines.append(
+                        "I couldn't read the date, so pick it on the booking page."
+                    )
             elif raw_date:
-                lines.append("I need a real date before that booking link can include one.")
+                lines.append(
+                    "I couldn't read the date, so pick it on the booking page."
+                )
             if clock:
-                lines.append(f"Time: {clock}")
+                said_time = spoken_time(clock)
+                if said_time:
+                    lines.append(f"Time: {said_time}")
             elif raw_time:
                 lines.append("I need a real time before that booking link can include one.")
             note = party_cap_note(args.get("party"), args.get("covers"))

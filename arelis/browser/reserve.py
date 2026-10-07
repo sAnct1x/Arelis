@@ -139,6 +139,50 @@ def party_cap_note(*candidates: object) -> str:
     return ""
 
 
+_MONTH_NAMES = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+
+
+def spoken_date(iso: str) -> str:
+    """Friday, October 9. Empty when the value is not a real day."""
+    text = (iso or "").strip()
+    hit = _DATE.match(text)
+    if not hit:
+        return ""
+    year, month, day = int(hit.group(1)), int(hit.group(2)), int(hit.group(3))
+    try:
+        found = date(year, month, day)
+    except ValueError:
+        return ""
+    weekday = _WEEKDAYS[found.weekday()].capitalize()
+    return f"{weekday}, {_MONTH_NAMES[month - 1]} {day}"
+
+
+def spoken_time(raw: str) -> str:
+    """7 PM, or 7:30 PM when the minutes are not zero."""
+    clock = normalize_time(raw) or ""
+    if not clock:
+        return ""
+    hour, minute = (int(part) for part in clock.split(":"))
+    suffix = "AM" if hour < 12 else "PM"
+    hour12 = hour % 12 or 12
+    if minute == 0:
+        return f"{hour12} {suffix}"
+    return f"{hour12}:{minute:02d} {suffix}"
+
+
 def normalize_time(raw: str) -> str | None:
     text = (raw or "").strip()
     if not text:

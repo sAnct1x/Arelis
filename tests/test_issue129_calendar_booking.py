@@ -76,15 +76,28 @@ def test_next_friday_at_seven_is_on_the_card_and_in_the_link() -> None:
     friday = _next_friday()
     stamp = _query(url).get("dateTime", [""])[0]
     assert stamp.startswith(f"{friday}T19:00")
-    assert f"Date: {friday}" in card
-    assert "Time: 19:00" in card
+    assert "Time: 7 PM" in card
+    assert friday not in card
+    assert "19:00" not in card
     assert "Opens OpenTable." in card
     assert "or Resy" not in card
-    assert friday in card
 
 
 def test_next_friday_from_a_wednesday_is_the_ninth() -> None:
     assert normalize_date("next Friday", today=date(2026, 10, 7)) == "2026-10-09"
+    card = describe_call(
+        "browser",
+        {
+            "action": "reserve",
+            "place": _PLACE,
+            "date": "2026-10-09",
+            "time": "7pm",
+        },
+    )
+    assert "Date: Friday, October 9" in card
+    assert "Time: 7 PM" in card
+    assert "2026-10-09" not in card
+    assert "19:00" not in card
 
 
 def test_a_date_that_cannot_be_read_asks_instead_of_dropping_it() -> None:
@@ -99,9 +112,26 @@ def test_a_date_that_cannot_be_read_asks_instead_of_dropping_it() -> None:
         },
     )
     assert "dateTime" not in _query(url)
-    assert "I need a real date" in card
+    assert "I couldn't read the date, so pick it on the booking page." in card
     assert "Date: sometime" not in card
-    assert "Time: 19:00" in card
+    assert "Time: 7 PM" in card
+    assert "19:00" not in card
+
+
+def test_half_past_seven_keeps_the_minutes() -> None:
+    card = describe_call(
+        "browser",
+        {
+            "action": "reserve",
+            "place": _PLACE,
+            "date": "2026-10-09",
+            "time": "7:30pm",
+        },
+    )
+    assert "Date: Friday, October 9" in card
+    assert "Time: 7:30 PM" in card
+    assert "19:30" not in card
+    assert "2026-10-09" not in card
 
 
 def test_the_card_names_the_site_that_will_open() -> None:
