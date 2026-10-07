@@ -20,6 +20,7 @@ def test_operating_and_delivery_sections_keep_the_volatile_tail_last(monkeypatch
     monkeypatch.setattr(sections, "episodes_prompt_line", lambda *_a, **_k: "EPISODES")
     monkeypatch.setattr(sections, "world_state_prompt_line", lambda *_a, **_k: "WORLD")
     monkeypatch.setattr(sections, "now_line", lambda: "NOW")
+    monkeypatch.setattr(sections, "theme_line", lambda: "THEME")
 
     import arelis.talk_language as talk_language
 
@@ -64,8 +65,8 @@ def test_operating_and_delivery_sections_keep_the_volatile_tail_last(monkeypatch
         "EPISODES",
         "WORLD",
     ]
-    assert contents[-2:] == ["LANGUAGE", "NOW"]
-    assert "conversation mode" in contents[-3]
+    assert contents[-3:] == ["LANGUAGE", "THEME", "NOW"]
+    assert "conversation mode" in contents[-4]
 
 
 @pytest.mark.asyncio
