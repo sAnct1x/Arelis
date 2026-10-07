@@ -662,86 +662,12 @@ def split_attach_args(raw: str) -> list[str]:
     ]
 
 
-def email_remaining_files(
-    draft: EmailDraft | None, already_attached: set[str] | None
-) -> list[str]:
-    """Written files still owed on a multi-attach draft."""
-    if draft is None:
-        return []
-    have = {Path(s).name.lower() for s in (already_attached or set()) if s}
-    return [
-        path
-        for path in draft.all_attach_paths
-        if Path(path).name.lower() not in have
-    ]
-
-
 def email_files_still_owed(draft: EmailDraft | None) -> bool:
     """True when they asked for formats that are not on the draft yet."""
     if draft is None or not draft.wanted_suffixes:
         return False
     have = {Path(p).suffix.lower() for p in draft.all_attach_paths}
     return any(suf not in have for suf in draft.wanted_suffixes)
-
-
-def email_send_finished(
-    draft: EmailDraft | None,
-    already_sent: set[str] | None,
-    already_attached: set[str] | None = None,
-) -> bool:
-    """True when every named inbox and every owed file has gone out."""
-    if draft is None:
-        return False
-    if email_remaining(draft, already_sent):
-        return False
-    if email_files_still_owed(draft):
-        return False
-    if email_remaining_files(draft, already_attached):
-        return False
-    return True
-
-
-def bind_written_files(
-    draft: EmailDraft | None,
-    written: list[str] | tuple[str, ...],
-    user_text: str = "",
-) -> EmailDraft | None:
-    """Attach this-turn document paths that match the asked formats."""
-    if draft is None:
-        return None
-    wanted = draft.wanted_suffixes or wanted_attach_suffixes(user_text)
-    if not wanted:
-        return draft
-    picked: list[str] = []
-    seen: set[str] = set()
-    for raw in (*draft.all_attach_paths, *written):
-        text = str(raw or "").strip()
-        if not text:
-            continue
-        path = resolve_attach_path(text) or text
-        key = path.lower()
-        if key in seen:
-            continue
-        if Path(path).suffix.lower() not in wanted:
-            continue
-        seen.add(key)
-        picked.append(path)
-    if not picked:
-        return draft if draft.wanted_suffixes else _clone_draft(
-            draft, wanted_suffixes=wanted
-        )
-    names = ", ".join(Path(p).name for p in picked)
-    body = draft.body.strip()
-    if not body or body.lower().startswith("please see the attached"):
-        label = "files" if len(picked) > 1 else "file"
-        body = f"Please see the attached {label} ({names})."
-    return _clone_draft(
-        draft,
-        body=body,
-        attach_path=picked[0],
-        attach_paths=tuple(picked),
-        wanted_suffixes=wanted,
-    )
 
 
 def _clean_text(raw: str) -> str:

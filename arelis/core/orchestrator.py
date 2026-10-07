@@ -21,23 +21,11 @@ from arelis.core.orchestrator_confirm import OrchestratorConfirm
 from arelis.core.orchestrator_rooms import (
     advance_room_setup,
     apply_room_fields,
-    begin_room_setup,
     enter_or_create_room,
-    enter_room,
-    field_ack,
-    finish_room_setup,
-    forget_room,
     handle_room_talk,
     leave_room,
-    offer_reality_plate,
-    point_workspace_at,
-    publish_room,
-    publish_room_only,
     room_command,
     rooms_overview,
-    set_room_field,
-    setup_closing,
-    take_setup_answer,
 )
 from arelis.core.orchestrator_rooms import (
     resume_last_room as resume_last_room_impl,
@@ -68,7 +56,6 @@ from arelis.desk import DeskStore
 from arelis.llm.router import ModelRole, ModelRouter
 from arelis.memory.store import MemoryStore
 from arelis.rooms import (
-    Room,
     RoomSetup,
     RoomStore,
 )
@@ -286,11 +273,6 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         task = self._turn_task
         return task is not None and not task.done()
 
-    def _drive_held(self) -> bool:
-        from arelis.browser.hold import is_paused
-
-        return bool(self._pause or is_paused())
-
     def _screen_confirm_id(self) -> str:
         """Confirm id spoken allow, deny, and edit should hit.
 
@@ -458,26 +440,11 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
     async def _enter_or_create_room(self, wanted: str) -> None:
         return await enter_or_create_room(self, wanted)
 
-    async def _offer_reality_plate(self, room: Room) -> None:
-        return await offer_reality_plate(self, room)
-
     async def _handle_room_talk(self, text: str) -> bool:
         return await handle_room_talk(self, text)
 
-    async def _begin_room_setup(self, room: Room, *, restart: bool = False) -> None:
-        return await begin_room_setup(self, room, restart=restart)
-
-    async def _take_setup_answer(self, text: str) -> bool:
-        return await take_setup_answer(self, text)
-
     async def _advance_room_setup(self, *, user_text: str = "") -> None:
         return await advance_room_setup(self, user_text=user_text)
-
-    async def _finish_room_setup(self, *, skipped: bool, user_text: str = "") -> None:
-        return await finish_room_setup(self, skipped=skipped, user_text=user_text)
-
-    def _setup_closing(self, room: Room, skipped: bool) -> str:
-        return setup_closing(self, room, skipped)
 
     async def _apply_room_fields(
         self,
@@ -491,38 +458,11 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
             self, fields, user_text=user_text, quiet=quiet, closing=closing
         )
 
-    def _field_ack(self, room: Room, fields: dict[str, Any]) -> str:
-        return field_ack(self, room, fields)
-
-    def _set_room_field(self, rest: str) -> str:
-        return set_room_field(self, rest)
-
-    def _forget_room(self, rest: str) -> str:
-        return forget_room(self, rest)
-
-    def _point_workspace_at(self, room: Room) -> str:
-        return point_workspace_at(self, room)
-
     async def resume_last_room(self) -> bool:
         return await resume_last_room_impl(self)
 
-    async def _enter_room(self, room: Room, *, preamble: str = "", silent: bool = False) -> None:
-        return await enter_room(self, room, preamble=preamble, silent=silent)
-
     async def _leave_room(self) -> None:
         return await leave_room(self)
-
-    async def _publish_room_only(self, room: Room) -> None:
-        return await publish_room_only(self, room)
-
-    async def _publish_room(
-        self,
-        room: Room | None,
-        session_id: str,
-        rows: list[dict[str, Any]],
-        summary: str,
-    ) -> None:
-        return await publish_room(self, room, session_id, rows, summary)
 
     async def _say(self, message: str, *, status: bool = True) -> None:
         """A command's whole reply. Both events, because the UI needs both.

@@ -125,30 +125,6 @@ def _windows_dir() -> Path:
     return Path(os.environ.get("WINDIR") or os.environ.get("SystemRoot") or r"C:\Windows")
 
 
-def denied_file_prefixes() -> list[Path]:
-    win = _windows_dir().resolve()
-    prefixes = [
-        win,
-        win / "System32",
-        win / "SysWOW64",
-        win / "WinSxS",
-        user_data_dir() / "secrets.yaml",
-    ]
-    users = Path(os.environ.get("SystemDrive", "C:") + r"\Users")
-    home = Path.home()
-    if users.is_dir():
-        prefixes.append(users)
-        # Home itself is not a browse target for desktop open-as-file;
-        # other profiles stay denied even if we later allow Documents.
-        for child in users.iterdir() if users.exists() else ():
-            try:
-                if child.resolve() != home.resolve():
-                    prefixes.append(child)
-            except OSError:
-                prefixes.append(child)
-    return prefixes
-
-
 def is_denied_file_path(path: str | Path) -> bool:
     """True when this is an OS / secrets / other-user path, not an app launch."""
     if is_unsafe_windows_path(str(path)):
