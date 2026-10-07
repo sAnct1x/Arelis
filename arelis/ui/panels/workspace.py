@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.desk import Artifact, infer_kind, is_image_kind, is_text_kind
+from arelis.location.privacy import redact
 from arelis.mathtext import flatten_latex
 from arelis.rooms import PHYSICS_DISPLAY_NAME, PHYSICS_ROOM_ID
 from arelis.ui.code_highlight import QuietPythonHighlighter
@@ -115,7 +116,9 @@ def _clip_log(text: str, limit: int = _LOG_LINES) -> str:
 
 
 def _first_status_line(text: str) -> str:
-    line = (text or "").strip().splitlines()[0] if text else ""
+    """First line of the bottom strip. The saved place is hidden here too."""
+    cleaned = redact(text or "").strip()
+    line = cleaned.splitlines()[0] if cleaned else ""
     return line[:_STATUS_CHARS]
 
 
