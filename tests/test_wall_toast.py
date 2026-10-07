@@ -337,22 +337,22 @@ def test_huge_wall_toast_delay_does_not_escape_dispatch(
 
 
 @pytest.mark.parametrize(
-    ("kind", "detail"),
+    ("kind", "text"),
     (
-        ("captcha", "captcha"),
-        ("login", "sign in"),
-        ("pay", "you click Pay"),
-        ("stuck", "I am stuck"),
-        ("hands", "you have the mouse"),
-        ("other", "page stays"),
+        ("captcha", "Still waiting on you: captcha."),
+        ("login", "Still waiting on you: sign in."),
+        ("pay", "Still waiting on you: you click Pay."),
+        ("stuck", "Still waiting on you. I cannot find the next step."),
+        ("hands", "Still waiting on you: you have the mouse."),
+        ("other", "Still waiting on you. The page is staying up."),
     ),
 )
-def test_wall_toast_message_says_the_wait_once(kind: str, detail: str) -> None:
+def test_wall_toast_message_says_the_wait_once(kind: str, text: str) -> None:
     from arelis.ui.event_host import _wall_toast_message
 
-    text = _wall_toast_message(kind)
-    assert text == f"Still waiting on you: {detail}."
-    assert text.lower().count("your turn") == 0
+    got = _wall_toast_message(kind)
+    assert got == text
+    assert got.lower().count("your turn") == 0
 
 
 def test_wall_toast_delay_ms_missing_key_and_none_config_default_to_120s() -> None:

@@ -86,6 +86,10 @@ def _wall_toast_message(kind: str) -> str:
     prefix = "your turn: "
     if status.startswith(prefix):
         status = status[len(prefix) :]
+    if status == "I am stuck":
+        return "Still waiting on you. I cannot find the next step."
+    if status == "page stays":
+        return "Still waiting on you. The page is staying up."
     return f"Still waiting on you: {status}."
 
 
