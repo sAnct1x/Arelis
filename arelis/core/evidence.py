@@ -478,9 +478,10 @@ def _has_challenge_hint(text: str) -> bool:
 # page is an error status, or a thin page that is not an article or docs main.
 _WALL_STATUSES = frozenset({401, 403, 429, 503})
 _THIN_VISIBLE_CHARS = 2000
-# A gate is a line or two. A short post or docs page inside article or main
-# is longer than this, so those pages are read instead of handed off.
-_ARTICLE_BODY_CHARS = 100
+# A gate explanation is about a hundred characters. The short docs page and
+# the short blog, inside main or article, are longer than this. 200 is above
+# those gates and still below those pages, so the pages are read.
+_ARTICLE_BODY_CHARS = 200
 _NOISE_TAGS = ("script", "style")
 
 

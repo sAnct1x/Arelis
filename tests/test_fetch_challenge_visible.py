@@ -204,24 +204,27 @@ def test_labelled_wall_fixtures(
 
 
 def test_short_gate_inside_main_is_still_a_wall() -> None:
-    html = (
-        "<html><body><main><p>Please verify you are human.</p></main></body></html>"
-    )
+    html = "<html><body><main><p>Please verify you are human.</p></main></body></html>"
+    assert looks_like_challenge_page(html, 200) is True
+
+
+@pytest.mark.parametrize(
+    "html",
+    (
+        "<main><h1>One more step</h1><p>Please complete the security check to access example.com. Verify you are human to continue.</p></main>",
+        "<main><h1>Access check</h1><p>Please verify you are human. This helps us keep the site safe for everyone who visits it each day.</p></main>",
+    ),
+)
+def test_a_gate_explanation_inside_main_is_still_a_wall(html: str) -> None:
     assert looks_like_challenge_page(html, 200) is True
 
 
 def test_style_and_comment_blocks_do_not_pad_a_gate() -> None:
     gate = "<html><body><p>Verify you are human.</p></body></html>"
     style = (
-        "<html><body><style>"
-        + ("z" * 5000)
-        + "</style><p>Verify you are human.</p></body></html>"
+        "<html><body><style>" + ("z" * 5000) + "</style><p>Verify you are human.</p></body></html>"
     )
-    comment = (
-        "<html><body><!--"
-        + ("z" * 5000)
-        + "--><p>Verify you are human.</p></body></html>"
-    )
+    comment = "<html><body><!--" + ("z" * 5000) + "--><p>Verify you are human.</p></body></html>"
     assert looks_like_challenge_page(gate, 200) is True
     assert looks_like_challenge_page(style, 200) is True
     assert looks_like_challenge_page(comment, 200) is True
@@ -230,10 +233,7 @@ def test_style_and_comment_blocks_do_not_pad_a_gate() -> None:
 
 
 def test_unterminated_script_does_not_hide_a_gate_behind_padding() -> None:
-    html = (
-        "<html><body><p>Verify you are human.</p><script>"
-        + ("var secret = 1;" * 400)
-    )
+    html = "<html><body><p>Verify you are human.</p><script>" + ("var secret = 1;" * 400)
     assert looks_like_challenge_page(html, 200) is True
     assert _visible_len(html) < 2000
 
@@ -284,9 +284,7 @@ async def test_scrape_reads_a_short_captcha_docs_page(
 async def test_scrape_long_403_wall_makes_exactly_one_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    body = _fixture_body(
-        "LONG 403 interstitial: captcha wording + 6KB of real-looking page chrome"
-    )
+    body = _fixture_body("LONG 403 interstitial: captcha wording + 6KB of real-looking page chrome")
     assert _visible_len(body) > 2000
     hits = _install_scrape(monkeypatch, body, status=403)
     result = await ScrapeTool("arelis-test/1.0", offer_browser=True).run(url=_CF_URL)
