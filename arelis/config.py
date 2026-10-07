@@ -112,7 +112,7 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
         from arelis.location import build_location
 
         data["_location"] = build_location(data)
-        # Scrub the saved place from streamed reasoning and text logs (location.privacy).
+        # Scrub the saved place from the Thinking dock and text logs (location.privacy).
         from arelis.location.privacy import install as install_location_redactor
 
         install_location_redactor(data)
