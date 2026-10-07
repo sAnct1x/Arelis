@@ -62,6 +62,7 @@ Unattended jobs do not get this tool.
 
 `agent.confirm_desktop` (default true) pauses when she offers the
 desk. An ask you already typed or said is the grant. With that switch
-on, a Delete, Pay, or UAC label still shows a card. With it off, no
-card is shown. UAC follows this switch. The desk still will not click
-Yes, Delete, or Pay. Settings: "the desk, when she offers it."
+on, a Delete, Pay, or Windows permission prompt still shows a card.
+With it off, no card is shown. Windows permission prompts follow this
+switch. The desk still will not click Delete, Pay, or the permission
+prompt. Settings: "the desk, when she offers it."

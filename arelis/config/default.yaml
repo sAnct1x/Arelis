@@ -108,8 +108,9 @@ agent:
   # 0 turns it off; capped at 24 hours; invalid values turn it off.
   wall_toast_after_s: 120
   # Pause when she offers to drive your Windows session. A desk ask you
-  # already typed or said is the grant. With this on, Delete / Pay / UAC
-  # still show a card. With it off, no card. The desk still refuses those clicks.
+  # already typed or said is the grant. With this on, Delete, Pay, and
+  # Windows permission prompts still show a card. With it off, no card.
+  # The desk still refuses those clicks.
   confirm_desktop: true
   # See one local image (VL). Separate from confirm_image so disabling Comfy
   # generation confirm does not disable vision. rest of this ask covers it.
