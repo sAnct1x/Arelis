@@ -39,7 +39,7 @@ Verification, rather than a build that merely finished
 
 A build script that exits zero having produced a tree that cannot start is worse than
 one that fails, because the failure arrives on somebody else's machine. So the last
-phase runs the tree: it imports every Qt module the codebase imports, brings up a real
+phase runs the tree: it imports the Qt modules the installed app uses, brings up a real
 QApplication offscreen, runs `-m arelis --version` in a subprocess because that is the
 form every scheduled job takes, and runs `Scripts/arelis.exe --version` because that is
 the form the shortcut takes. It also runs scripts/installed_smoke.py under the bundled
@@ -647,11 +647,11 @@ def remove_build_only_packages() -> None:
 # Phase 3: the prune
 #
 # PySide6 installs 634MB, which is more than half the tree and more than everything
-# else in it put together. It is a build of all of Qt, and Arelis imports five modules
-# of it. What follows removes feature families the codebase never mentions, and the
-# reason it can be this aggressive is that the import census and the offscreen
-# QApplication run afterwards: a wrong entry here fails this build rather than somebody
-# else's launch.
+# else in it put together. It is a build of all of Qt, and Arelis imports the
+# modules named in QT_MODULES. What follows removes feature families the codebase
+# never mentions, and the reason it can be this aggressive is that the import census
+# and the offscreen QApplication run afterwards: a wrong entry here fails this build
+# rather than somebody else's launch.
 #
 # Two things in that directory look like obvious waste and are not:
 #
@@ -866,7 +866,7 @@ def prune_test_suites(site: Path) -> int:
 def prune(before: int) -> None:
     site = TREE / "Lib" / "site-packages"
     freed = 0
-    say("  Qt, which is 634MB of which Arelis imports five modules:")
+    say(f"  Qt, which is 634MB of which Arelis imports {len(QT_MODULES)} modules:")
     freed += prune_qt(site)
     say("  elsewhere:")
     freed += prune_babel(site)
@@ -1085,7 +1085,7 @@ def package_installer(version: str) -> Path | None:
 def verify() -> None:
     site = TREE / "Lib" / "site-packages"
 
-    say("  importing every Qt module the codebase imports...")
+    say("  importing the Qt modules the installed app uses...")
     imports = "; ".join(f"import PySide6.{name}" for name in QT_MODULES)
     run(
         [str(python_exe()), "-c", imports],
