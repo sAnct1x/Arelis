@@ -27,6 +27,7 @@ from arelis.reminders import (
     ReminderError,
     ReminderStore,
     default_reminders_path,
+    normalize_message,
 )
 from arelis.tools.remind import REMIND_WRITE_ACTIONS, WRITE_ACTIONS, RemindTool
 
@@ -297,6 +298,32 @@ async def test_write_actions_are_in_at_cancel() -> None:
     assert WRITE_ACTIONS == {"in", "at", "cancel"}
     assert REMIND_WRITE_ACTIONS == WRITE_ACTIONS
     assert "list" not in WRITE_ACTIONS
+
+
+@pytest.mark.parametrize(
+    "raw", ["", " ", "\n", "\t", " \n\t ", None, " " * (MAX_MESSAGE_CHARS + 5)]
+)
+def test_normalize_message_rejects_empty_and_whitespace(raw: object) -> None:
+    with pytest.raises(ReminderError, match="needs a message"):
+        normalize_message(raw)
+
+
+def test_normalize_message_accepts_the_exact_character_limit() -> None:
+    exact = "a" * MAX_MESSAGE_CHARS
+    assert normalize_message(exact) == exact
+    assert normalize_message(f" {exact}\n") == exact
+    with pytest.raises(ReminderError, match=str(MAX_MESSAGE_CHARS)):
+        normalize_message("b" * (MAX_MESSAGE_CHARS + 1))
+    with pytest.raises(ReminderError, match=str(MAX_MESSAGE_CHARS)):
+        normalize_message(f" {('c' * (MAX_MESSAGE_CHARS + 1))}\n")
+
+
+def test_normalize_message_strips_ends_and_keeps_inner_text() -> None:
+    assert normalize_message("  take the pizza out  ") == "take the pizza out"
+    assert normalize_message("\n\ttake the pizza out\n") == "take the pizza out"
+    body = "ping at 9:00\nbring the notes\t(100%) & don't forget"
+    assert normalize_message(f"\n\t  {body}  \n") == body
+    assert normalize_message("a  b") == "a  b"
 
 
 @pytest.mark.asyncio
