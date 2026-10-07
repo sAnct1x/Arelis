@@ -98,7 +98,25 @@ _MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"\b(?:square\s+root|sqrt|factorial|mod(?:ulo)?)\b.{0,30}\d",
         re.I | re.S,
     ),
+    re.compile(r"(?i)\bhalf\s+of\s+\d"),
+    re.compile(r"(?i)\bto\s+the\s+power\s+of\s+\d"),
+    re.compile(r"(?i)\b(?:how\s+many\s+)?days?\s+in\s+\d+(?:\.\d+)?\s+weeks?\b"),
 )
+
+# A slash in a date, an event, or "24/7" is not division unless the ask
+# clearly wants a number ("as a decimal", "divided by"). A bare year in a
+# title ("the plot of 1984") is not an operand either.
+_CLEAR_MATH_CUE = re.compile(
+    r"(?i)(?:%|\*|\^|\btimes\b|\bplus\b|\bminus\b|\bdivided\s+by\b|"
+    r"\bas\s+a\s+(?:decimal|fraction|percent)\b)"
+)
+_NOT_DIVISION_SLASH = re.compile(
+    r"(?<![\d/.])(?:"
+    r"(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])(?:/(?:\d{2}|\d{4}))?"
+    r"|24/7"
+    r")(?![\d/])"
+)
+_PROSE_YEAR = re.compile(r"\b(?:1[0-9]{3}|20[0-9]{2})\b")
 
 # Spoken duration / orbital period / age-in-planet-years. Bare "how many days
 # until Friday" is a calendar wait, not this. A year at N AU or "11.86 years
@@ -174,7 +192,7 @@ _CAS_FORCE = (
 )
 
 _UNIT_NAMES = (
-    r"meters?|metres?|kilometers?|kilometres?|miles?|kg|kilograms?|"
+    r"meters?|metres?|kilometers?|kilometres?|km|miles?|mi|kg|kilograms?|"
     r"feet|foot|inches|inch|pounds?|lbs?|kelvin|celsius|fahrenheit|"
     r"eV|joules?|watts?|newtons?|parsecs?|\bau\b|nm|μm|um|"
     r"solar\s+masses?"
@@ -198,6 +216,13 @@ _UNITS_FORCE = (
     ),
     re.compile(r"(?i)\b\d+(?:\.\d+)?\s*(?:ft|feet)\s+\d+(?:\.\d+)?\s*(?:in|inches)\b"),
     re.compile(rf"(?i)\bhow\s+many\s+(?:{_UNIT_NAMES})\b"),
+    # "how many centuries is 300 years" is a conversion. "how many centuries
+    # ago" is not, so the years have to be in the same ask.
+    re.compile(r"(?i)\bhow\s+many\s+centur(?:y|ies)\b.{0,48}\byears?\b"),
+    re.compile(
+        r"(?i)\blight\s+years?\b.{0,40}\b(?:in|into|to)\s+"
+        r"(?:km|kilometers?|kilometres?)\b"
+    ),
 )
 _CONSTANT_CONCEPT = re.compile(
     r"(?i)\b("
@@ -633,9 +658,15 @@ def detect_math_ask(text: str) -> bool:
     cleaned = _YEAR_RANGE.sub(" ", cleaned)
     cleaned = _QUANTITY_RANGE.sub(" ", cleaned)
     cleaned = _OUTLINE_ITEM.sub(" ", cleaned)
+    if not _CLEAR_MATH_CUE.search(lowered):
+        cleaned = _NOT_DIVISION_SLASH.sub(" ", cleaned)
     hits = [p for p in _MATH_PATTERNS if p.search(cleaned)]
     if not hits:
         return False
+    if not _CLEAR_MATH_CUE.search(lowered):
+        without_years = _PROSE_YEAR.sub(" ", cleaned)
+        if not any(p.search(without_years) for p in _MATH_PATTERNS):
+            return False
     # When "N x N" is the only arithmetic shape present and the sentence is
     # plainly about the size of a picture, there is nothing to compute. Narrow on
     # purpose: "what is 17 x 19" still forces the calculator, because that has no
