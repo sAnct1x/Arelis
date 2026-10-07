@@ -66,7 +66,7 @@ def _wall_toast_delay_ms(window: Any) -> int:
             if value is None or isinstance(value, bool):
                 return 0
             seconds = float(value)
-    except (AttributeError, TypeError, ValueError):
+    except (AttributeError, OverflowError, TypeError, ValueError):
         return 0
     if not math.isfinite(seconds) or seconds <= 0:
         return 0
@@ -83,6 +83,13 @@ def _wall_toast_delay_ms(window: Any) -> int:
 
 def _wall_toast_message(kind: str) -> str:
     status = your_turn_status(kind).replace("\u2014", "-").replace("\u2013", "-")
+    prefix = "your turn: "
+    if status.startswith(prefix):
+        status = status[len(prefix) :]
+    if status == "I am stuck":
+        return "Still waiting on you. I cannot find the next step."
+    if status == "page stays":
+        return "Still waiting on you. The page is staying up."
     return f"Still waiting on you: {status}."
 
 
@@ -132,6 +139,8 @@ def _on_wall_toast_timeout(window: Any) -> None:
         return
     window._wall_toast_sent = True
     kind = pending[0] if pending else ""
+    # Another window in front, including a browser, still gets the reminder.
+    # Skip only when this app itself is the one on screen.
     if _arelis_window_is_active():
         log.debug("wall toast skipped: Arelis is the active window")
         return
