@@ -169,12 +169,9 @@ Filename: "{app}\pythonw.exe"; Parameters: "-m arelis --background"; WorkingDir:
 Filename: "{app}\python.exe"; Parameters: "-m arelis --remove-scheduled-tasks"; \
     WorkingDir: "{app}"; Flags: runhidden skipifdoesntexist; \
     RunOnceId: "RemoveScheduledTasks"
-; Only when they said yes to wiping data. Tasks already went above. This removes
-; chats, memory, secrets, downloaded models, her Chrome profile, and the Ollama
-; setup we parked under Arelis-runtime -- not a system Ollama install.
-Filename: "{app}\python.exe"; Parameters: "-m arelis --purge-user-data"; \
-    WorkingDir: "{app}"; Flags: runhidden skipifdoesntexist; \
-    RunOnceId: "PurgeUserData"; Check: ShouldWipeData
+; The data wipe is not here. A Check on this section is decided while installing
+; and stored in the uninstall log, so /wipe=yes and the Yes answer would both
+; arrive too late. CurUninstallStepChanged does it once the answer is known.
 
 [UninstallDelete]
 ; Bytecode written after install, which is not in the file list and would otherwise
@@ -182,16 +179,8 @@ Filename: "{app}\python.exe"; Parameters: "-m arelis --purge-user-data"; \
 Type: filesandordirs; Name: "{app}\Lib\site-packages\__pycache__"
 ; The folder itself, if anything post-install (more pycache, a lock) lingered.
 Type: filesandordirs; Name: "{app}"
-
-; Off unless they asked. Default uninstall keeps this so a reinstall finds chats.
-; Documents\Arelis is the default workspace -- and also where people clone this
-; repository. The Python wipe skips a folder that looks like a checkout; Inno
-; cannot tell, so it must not delete the Documents workspace by name.
-Type: filesandordirs; Name: "{localappdata}\Arelis"; Check: ShouldWipeData
-Type: filesandordirs; Name: "{localappdata}\Arelis-runtime"; Check: ShouldWipeData
-Type: filesandordirs; Name: "{localappdata}\Arelis-dev"; Check: ShouldWipeData
-; Arelis-backups (pre-upgrade safety copies) is intentionally not listed.
-; A wipe keeps it and tells the person after uninstall (see CurUninstallStepChanged).
+; Data folders are not listed. Same reason as above: a Check here is baked in
+; at install time. Arelis-backups must never be listed.
 
 ; Last on purpose: everything after [Code] is Pascal, so a section placed below it would be
 ; read as source and silently stop being a section.
@@ -221,12 +210,86 @@ begin
   if MsgBox(
        'Also delete all Arelis data on this PC?' + #13#10 + #13#10 +
        'That is conversations, memory, secrets, downloaded models, ' +
-       'her Chrome profile, and %LOCALAPPDATA%\Arelis-runtime.' + #13#10 + #13#10 +
-       'Documents\Arelis is removed only if it is not a source checkout.' + #13#10 + #13#10 +
+       'and her Chrome profile.' + #13#10 + #13#10 +
+       'The Arelis folder in your documents stays if it contains this ' +
+       'program''s own project files.' + #13#10 + #13#10 +
        'Choose No to keep that data for a later reinstall. ' +
        'A system Ollama install is never removed.',
        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
     WipeData := True;
+end;
+
+function LooksLikeSourceTree(Dir: String): Boolean;
+begin
+  Result := FileExists(AddBackslash(Dir) + 'pyproject.toml') and
+    DirExists(AddBackslash(Dir) + 'tests');
+end;
+
+function DefaultWorkspaceDir(): String;
+var
+  Profile: String;
+begin
+  // Same rule as arelis.paths.default_workspace_root. Inno has no
+  // constant for the profile directory, so this reads the environment the app uses.
+  Profile := RemoveBackslash(GetEnv('USERPROFILE'));
+  if Profile = '' then
+  begin
+    Result := '';
+    Exit;
+  end;
+  if DirExists(AddBackslash(Profile) + 'Documents') then
+    Result := AddBackslash(Profile) + 'Documents\Arelis'
+  else
+    Result := AddBackslash(Profile) + 'Arelis';
+end;
+
+procedure RemoveOwnedFolder(Dir: String);
+var
+  Workspace: String;
+begin
+  if Dir = '' then
+    Exit;
+  // Exact default folders only. A custom data directory is ignored, and the
+  // backup folder beside the data is never one of these names.
+  Workspace := DefaultWorkspaceDir();
+  if (CompareText(Dir, ExpandConstant('{localappdata}\Arelis')) <> 0) and
+     (CompareText(Dir, ExpandConstant('{localappdata}\Arelis-runtime')) <> 0) and
+     (CompareText(Dir, ExpandConstant('{localappdata}\Arelis-dev')) <> 0) and
+     (CompareText(Dir, Workspace) <> 0) then
+    Exit;
+  if CompareText(Dir, ExpandConstant('{localappdata}\Arelis-backups')) = 0 then
+    Exit;
+  if LooksLikeSourceTree(Dir) then
+    Exit;
+  if DirExists(Dir) then
+    DelTree(Dir, True, True, True);
+end;
+
+procedure RemoveOwnedFolders;
+var
+  Workspace: String;
+begin
+  RemoveOwnedFolder(ExpandConstant('{localappdata}\Arelis'));
+  RemoveOwnedFolder(ExpandConstant('{localappdata}\Arelis-runtime'));
+  RemoveOwnedFolder(ExpandConstant('{localappdata}\Arelis-dev'));
+  Workspace := DefaultWorkspaceDir();
+  if Workspace <> '' then
+    RemoveOwnedFolder(Workspace);
+end;
+
+procedure PurgeOwnedData;
+var
+  Python, Params: String;
+  ResultCode: Integer;
+begin
+  Python := ExpandConstant('{app}\python.exe');
+  if FileExists(Python) then
+  begin
+    // Clear a custom data directory first so the app wipe cannot follow it.
+    Params := '/d /c set "ARELIS_DATA_DIR=" & "' + Python + '" -m arelis --purge-user-data';
+    Exec(ExpandConstant('{cmd}'), Params, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
+  RemoveOwnedFolders;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -234,9 +297,20 @@ var
   BackupDir: String;
   ErrorCode: Integer;
 begin
+  // usUninstall is before the program files go, so python.exe is still there.
+  if CurUninstallStep = usUninstall then
+  begin
+    if ShouldWipeData() then
+      PurgeOwnedData;
+    Exit;
+  end;
   if CurUninstallStep <> usPostUninstall then
     Exit;
-  if not WipeData then
+  // The scheduled-task step runs between these two. Delete again so a folder
+  // it recreated does not survive a wipe.
+  if ShouldWipeData() then
+    RemoveOwnedFolders;
+  if not ShouldWipeData() then
     Exit;
   if UninstallSilent then
     Exit;
