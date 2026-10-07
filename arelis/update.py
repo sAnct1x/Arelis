@@ -163,19 +163,56 @@ def record_check(when: datetime | None = None) -> None:
         log.debug("could not record the update check: %s", exc)
 
 
+# Words that mean "do not ask". Any case, and surrounding spaces are ignored.
+# The integer 0 is handled separately because it is not a string.
+_CHECK_OFF_WORDS = frozenset({"false", "no", "off", "0"})
+
+
+def _log_unreadable_check_setting() -> None:
+    """One plain line when a value is empty or not a recognised off switch."""
+    log.info("The update check setting was blank or not understood, so update checks stay on.")
+
+
+def _check_setting_allows_update(value: Any) -> bool:
+    """Whether one raw value leaves the daily update check on.
+
+    A real boolean is used as it is. The words false, no, off, and 0, in any
+    case, with surrounding spaces ignored, and the integer 0, mean off. None,
+    an empty value, or any other word falls back to on and writes one log line.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if word in _CHECK_OFF_WORDS:
+            return False
+        _log_unreadable_check_setting()
+        return True
+    # bool is a subclass of int, and it was already returned above.
+    if isinstance(value, int) and value == 0:
+        return False
+    _log_unreadable_check_setting()
+    return True
+
+
 def automatic_check_enabled(config: dict[str, Any] | None = None) -> bool:
     """Whether the once-a-day GitHub ping is allowed.
 
     Default true so current installs keep checking. A missing ``updates`` block
     is the same as true: a settings file that never mentioned this is not an
     opt-out. ``--check-update`` does not read this; that is an aimed request.
+
+    The raw value is interpreted by ``_check_setting_allows_update``. The launch
+    prompt and the scheduler both call this function, so they share that reading.
     """
     if not isinstance(config, dict):
         return True
     section = config.get("updates")
     if not isinstance(section, dict):
         return True
-    return bool(section.get("check", True))
+    if "check" not in section:
+        return True
+    return _check_setting_allows_update(section["check"])
 
 
 def check_is_due(now: datetime | None = None) -> bool:

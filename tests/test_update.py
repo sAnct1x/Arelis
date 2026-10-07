@@ -8,11 +8,13 @@ digest check is exercised for real rather than described.
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
 import pytest
+import yaml
 from packaging.version import Version
 
 from arelis import update
@@ -49,16 +51,24 @@ def release_payload(
 
 class TestWhatCountsAsAnUpdate:
     def test_a_newer_tag_is_offered(self) -> None:
-        release = update.available_update("0.1.0", fetch=lambda: update.parse_release(release_payload()))
+        release = update.available_update(
+            "0.1.0", fetch=lambda: update.parse_release(release_payload())
+        )
         assert release is not None
         assert release.version == Version("0.2.0")
         assert release.setup_name.endswith("-setup.exe")
 
     def test_the_version_you_are_running_is_not_an_update(self) -> None:
-        assert update.available_update("0.2.0", fetch=lambda: update.parse_release(release_payload())) is None
+        assert (
+            update.available_update("0.2.0", fetch=lambda: update.parse_release(release_payload()))
+            is None
+        )
 
     def test_an_older_release_is_not_an_update(self) -> None:
-        assert update.available_update("0.3.0", fetch=lambda: update.parse_release(release_payload())) is None
+        assert (
+            update.available_update("0.3.0", fetch=lambda: update.parse_release(release_payload()))
+            is None
+        )
 
     def test_ten_is_newer_than_nine(self) -> None:
         """The reason tags are parsed rather than compared as text."""
@@ -285,7 +295,9 @@ class TestDownloading:
         assert path.read_bytes() == body
         assert not list(tmp_path.glob("*.part")), "the partial file should have been renamed"
 
-    def test_a_download_that_does_not_match_its_digest_is_deleted(self, monkeypatch, tmp_path) -> None:
+    def test_a_download_that_does_not_match_its_digest_is_deleted(
+        self, monkeypatch, tmp_path
+    ) -> None:
         """The whole reason the digest is published. A mismatch must leave nothing behind
         that looks like an installer, because the next thing anyone does is run it."""
         self._serve(monkeypatch, b"tampered", hashlib.sha256(b"expected").hexdigest())
@@ -297,7 +309,9 @@ class TestDownloading:
         body = b"installer"
         self._serve(monkeypatch, body, hashlib.sha256(body).hexdigest())
         seen: list[tuple[int, int]] = []
-        update.download(self._release(), into=tmp_path, progress=lambda got, total: seen.append((got, total)))
+        update.download(
+            self._release(), into=tmp_path, progress=lambda got, total: seen.append((got, total))
+        )
         assert seen
         assert seen[-1][0] == len(body)
 
@@ -308,6 +322,161 @@ class TestDownloading:
         self._serve(monkeypatch, body, hashlib.sha256(body).hexdigest())
         update.download(self._release(), into=tmp_path)
         assert not stale.exists()
+
+
+def recorded_github_gets(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Count httpx.get calls. The stub answers 404, so nothing leaves the machine."""
+
+    calls: list[str] = []
+
+    def stub(url, *args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(str(url))
+        request = httpx.Request("GET", str(url))
+        return httpx.Response(404, request=request)
+
+    monkeypatch.setattr(httpx, "get", stub)
+    return calls
+
+
+def _fallback_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "arelis.update" and "update checks stay on" in record.getMessage()
+    ]
+
+
+class TestHowACheckValueIsRead:
+    """Empty, quoted, and numeric values, counted by the GitHub calls they cause.
+
+    A real boolean is kept. false, no, off, and 0 (any case, surrounding spaces
+    ignored) and the integer 0 turn the check off. An empty value, None, or any
+    other word leaves it on and writes one log line.
+    """
+
+    @pytest.mark.parametrize(
+        ("settings", "github_requests", "logs_a_fallback"),
+        [
+            pytest.param("updates:\n  check:\n", 1, True, id="empty"),
+            pytest.param("updates:\n  check: ''\n", 1, True, id="empty-string"),
+            pytest.param('updates:\n  check: "false"\n', 0, False, id="false"),
+            pytest.param('updates:\n  check: "False"\n', 0, False, id="False"),
+            pytest.param('updates:\n  check: "off"\n', 0, False, id="off"),
+            pytest.param('updates:\n  check: "no"\n', 0, False, id="no"),
+            pytest.param('updates:\n  check: "  false  "\n', 0, False, id="false-with-spaces"),
+            pytest.param('updates:\n  check: "0"\n', 0, False, id="zero-string"),
+            pytest.param("updates:\n  check: 0\n", 0, False, id="zero"),
+            pytest.param("updates:\n  check: true\n", 1, False, id="true"),
+            pytest.param('updates:\n  check: "maybe"\n', 1, True, id="unknown"),
+        ],
+    )
+    def test_github_is_asked_only_when_the_value_leaves_checks_on(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        settings: str,
+        github_requests: int,
+        logs_a_fallback: bool,
+    ) -> None:
+        calls = recorded_github_gets(monkeypatch)
+        config = yaml.safe_load(settings)
+        with caplog.at_level(logging.INFO, logger="arelis.update"):
+            result = update.consider_automatic_update(config)
+        assert result is None
+        assert len(calls) == github_requests
+        if github_requests:
+            assert all("api.github.com" in url for url in calls)
+        fallback = _fallback_lines(caplog)
+        assert len(fallback) == (1 if logs_a_fallback else 0)
+        for line in fallback:
+            assert "\n" not in line
+            assert "\\" not in line
+            assert "/" not in line
+
+
+def _let_the_prompt_reach_github(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The installer and the once-a-day stamp are not what this is measuring.
+
+    On Linux the installer gate returns before any request, which would hide a
+    setting that was read wrong. Open that gate, and the daily gate, so the
+    request count is the setting's.
+    """
+    monkeypatch.setattr("arelis.ui.update_prompt.updates_supported", lambda: (True, ""))
+    monkeypatch.setattr("arelis.ui.update_prompt.check_is_due", lambda now=None: True)
+    monkeypatch.setattr(update, "cache_dir", lambda: tmp_path)
+
+
+def _pump_qt(qt_app, milliseconds: int) -> None:
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    loop = QEventLoop()
+    QTimer.singleShot(milliseconds, loop.quit)
+    loop.exec()
+    qt_app.processEvents()
+
+
+def _wait_out_check_threads(window) -> None:
+    from arelis.ui.update_prompt import UpdatePrompt
+
+    for prompt in window.findChildren(UpdatePrompt):
+        thread = getattr(prompt, "_check", None)
+        if thread is not None:
+            thread.wait(5000)
+
+
+class TestThePromptReadsTheSameSetting:
+    """UpdatePrompt.start and schedule_update_check both have to honour the setting.
+
+    consider_automatic_update refusing on its own is not enough: dropping the
+    check in either of these two still has to fail a test.
+    """
+
+    def test_start_does_not_ask_github_for_a_quoted_false(
+        self, qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from PySide6.QtWidgets import QWidget
+
+        from arelis.ui.update_prompt import UpdatePrompt
+
+        calls = recorded_github_gets(monkeypatch)
+        _let_the_prompt_reach_github(monkeypatch, tmp_path)
+        window = QWidget()
+        window.config = yaml.safe_load('updates:\n  check: "false"\n')
+        try:
+            prompt = UpdatePrompt(window)
+            prompt.start()
+            if prompt._check is not None:
+                prompt._check.wait(5000)
+            assert calls == []
+            # Passing the gate writes a stamp before the worker runs. Opting out
+            # must not do that, even when the worker would have refused too.
+            assert not (tmp_path / "update-check.json").exists()
+        finally:
+            window.deleteLater()
+            qt_app.processEvents()
+
+    def test_scheduling_does_not_ask_github_for_a_quoted_false(
+        self, qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from PySide6.QtWidgets import QWidget
+
+        from arelis.ui.update_prompt import schedule_update_check
+
+        calls = recorded_github_gets(monkeypatch)
+        _let_the_prompt_reach_github(monkeypatch, tmp_path)
+        window = QWidget()
+        window.config = yaml.safe_load('updates:\n  check: "false"\n')
+        try:
+            schedule_update_check(window, delay_ms=0)
+            # Turn the setting on before the timer can run. Scheduling has to
+            # refuse on its own. If only the later start looked, this would ask.
+            window.config = {"updates": {"check": True}}
+            _pump_qt(qt_app, 100)
+            _wait_out_check_threads(window)
+            assert calls == []
+        finally:
+            window.deleteLater()
+            qt_app.processEvents()
 
 
 def test_the_api_url_follows_the_source_url() -> None:
@@ -422,7 +591,7 @@ def test_the_installer_script_reads_the_relaunch_flag() -> None:
     )
     assert "--purge-user-data" in script
     # Wipe keeps pre-upgrade safety copies and offers to open their folder.
-    assert "Name: \"{localappdata}\\Arelis-backups\"" not in script, (
+    assert 'Name: "{localappdata}\\Arelis-backups"' not in script, (
         "Arelis-backups must not be deleted on wipe"
     )
     assert "Your safety copies of memory and settings were kept" in script
