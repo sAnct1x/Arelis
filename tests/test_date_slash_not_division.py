@@ -133,9 +133,12 @@ def test_plain_fraction_ask_still_computes(ask: str) -> None:
 def test_three_part_date_is_not_computed(ask: str) -> None:
     assert not _armed_division(ask), f"{ask!r} was armed as division"
 
-def test_spoken_divided_by_calendar_slash_is_refused() -> None:
-    with pytest.raises(ValueError, match='calendar date'):
-        evaluate_expression('9 divided by 11')
+def test_spoken_divided_by_is_division_even_when_the_digits_look_like_a_date() -> None:
+    """A clear 'divided by' is arithmetic. A bare 9/11 is still not."""
+    value = float(evaluate_expression("9 divided by 11"))
+    assert value == pytest.approx(9 / 11, rel=1e-9)
+    with pytest.raises(ValueError, match="calendar date"):
+        evaluate_expression("9/11")
 
 @pytest.mark.parametrize(
     "ask,expr",
