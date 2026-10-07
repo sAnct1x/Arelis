@@ -103,7 +103,6 @@ def _stub_driver(driver: PlaywrightDriver) -> None:
         return None
 
     driver._pick_page = _pick  # type: ignore[method-assign]
-    driver._install_hands = _noop  # type: ignore[method-assign]
     driver._present_window = _noop  # type: ignore[method-assign]
 
 

@@ -232,21 +232,6 @@ GLOW_S = 0
 CLICK_TIMEOUT_MS = 2_000
 NAV_TIMEOUT_MS = 8_000
 
-# Count trusted pointerdowns so a user grab mid-drive is not our own click.
-_HANDS_JS = """
-(() => {
-  if (window.__arelisHands) return;
-  window.__arelisHands = true;
-  window.__arelisPtrCount = 0;
-  window.addEventListener(
-    'pointerdown',
-    () => { window.__arelisPtrCount = (window.__arelisPtrCount || 0) + 1; },
-    true
-  );
-})();
-"""
-_PTR_COUNT_JS = "() => window.__arelisPtrCount || 0"
-
 _CDP_DEAD_TIPS = (
     "target closed",
     "target crashed",
@@ -422,20 +407,6 @@ async def _page_heading(page: Any) -> str:
 def _is_cdp_dead(exc: BaseException) -> bool:
     lowered = (str(exc).strip() or type(exc).__name__).lower()
     return any(tip in lowered for tip in _CDP_DEAD_TIPS)
-
-
-def _hands_result(*, url: str = "", extra: str = "") -> ActionResult:
-    from arelis.browser.walls import Wall, attach_wall, wall_message
-
-    note = extra or "You have the mouse."
-    return attach_wall(
-        ActionResult(
-            ok=True,
-            output=note,
-            data={"url": url, "label": "you"},
-        ),
-        Wall("hands", "operator", wall_message("hands")),
-    )
 
 
 def _playwright_fail(exc: BaseException) -> ActionResult:
@@ -1364,7 +1335,6 @@ class PlaywrightDriver:
         self._browser_name = "chrome"
         self._private = False
         self._mode = ""
-        self._ptr_seen = 0
         self._placed = False
         self._fresh_launch = False
 
@@ -1533,7 +1503,6 @@ class PlaywrightDriver:
         )
         pages = self._context.pages
         self._page = pages[0] if pages else await self._context.new_page()
-        await self._install_hands()
         self._mode = "firefox_private" if private else "firefox"
         return ActionResult(
             ok=True,
@@ -1554,7 +1523,6 @@ class PlaywrightDriver:
             # launch-mode connect used to snap back to the front tab (Gmail).
             if self._page is None:
                 self._page = await self._pick_page()
-            await self._install_hands()
             self._mode = mode
             await self._present_window()
             return ActionResult(
@@ -1598,7 +1566,6 @@ class PlaywrightDriver:
         contexts = self._browser.contexts
         self._context = contexts[0] if contexts else await self._browser.new_context()
         self._page = await self._pick_page()
-        await self._install_hands()
         self._mode = mode
         await self._present_window()
         return ActionResult(
@@ -1739,46 +1706,6 @@ class PlaywrightDriver:
         except Exception:
             pass
         return None
-
-    async def _install_hands(self) -> None:
-        """Listen for operator pointerdowns across navigations."""
-        ctx = self._context
-        page = self._page
-        if ctx is not None:
-            try:
-                await ctx.add_init_script(_HANDS_JS)
-            except Exception:
-                log.debug("hands init script skipped", exc_info=True)
-        if page is not None:
-            try:
-                await page.evaluate(_HANDS_JS)
-            except Exception:
-                log.debug("hands inject skipped", exc_info=True)
-        self._ptr_seen = 0
-
-    async def _ptr_count(self) -> int:
-        if self._page is None:
-            return self._ptr_seen
-        try:
-            raw = await self._page.evaluate(_PTR_COUNT_JS)
-        except Exception:
-            return self._ptr_seen
-        try:
-            return int(raw or 0)
-        except (TypeError, ValueError):
-            return self._ptr_seen
-
-    async def _consume_hands(self) -> ActionResult | None:
-        count = await self._ptr_count()
-        if count <= self._ptr_seen:
-            return None
-        self._ptr_seen = count
-        url = ""
-        try:
-            url = str(self._page.url) if self._page is not None else ""
-        except Exception:
-            url = ""
-        return _hands_result(url=url)
 
     def _fail_keep_or_drop(self, exc: BaseException) -> ActionResult:
         if _is_cdp_dead(exc):
