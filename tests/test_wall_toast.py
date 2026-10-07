@@ -289,6 +289,72 @@ def test_wall_toast_delay_ms_values(raw, expected) -> None:
     assert _wall_toast_delay_ms(window) == expected
 
 
+@pytest.mark.parametrize(
+    "raw",
+    (10**400, -(10**400)),
+    ids=("10**400", "neg-10**400"),
+)
+def test_wall_toast_delay_ms_huge_int_is_off(raw: int) -> None:
+    from arelis.ui.event_host import _wall_toast_delay_ms
+
+    window = SimpleNamespace(config={"agent": {"wall_toast_after_s": raw}})
+    assert _wall_toast_delay_ms(window) == 0
+
+
+def test_wall_toast_delay_ms_float_overflow_after_scale_is_off() -> None:
+    from arelis.ui.event_host import _wall_toast_delay_ms
+
+    window = SimpleNamespace(config={"agent": {"wall_toast_after_s": 1e306}})
+    assert _wall_toast_delay_ms(window) == 0
+
+
+def test_wall_toast_delay_ms_agent_section_attribute_error_is_off() -> None:
+    from arelis.ui.event_host import _wall_toast_delay_ms
+
+    class _Config:
+        def get(self, *_args: object, **_kwargs: object) -> object:
+            raise AttributeError("agent")
+
+    assert _wall_toast_delay_ms(SimpleNamespace(config=_Config())) == 0
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (10**400, -(10**400)),
+    ids=("10**400", "neg-10**400"),
+)
+def test_huge_wall_toast_delay_does_not_escape_dispatch(
+    monkeypatch: pytest.MonkeyPatch, raw: int
+) -> None:
+    from arelis.ui.event_host import dispatch_event
+
+    _arm_hooks(monkeypatch)
+    window = _window()
+    _set_delay(window, raw)
+    dispatch_event(window, _your_turn())
+    assert getattr(window, "_wall_toast_pending", None) is None
+    assert window.shown == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "detail"),
+    (
+        ("captcha", "captcha"),
+        ("login", "sign in"),
+        ("pay", "you click Pay"),
+        ("stuck", "I am stuck"),
+        ("hands", "you have the mouse"),
+        ("other", "page stays"),
+    ),
+)
+def test_wall_toast_message_says_the_wait_once(kind: str, detail: str) -> None:
+    from arelis.ui.event_host import _wall_toast_message
+
+    text = _wall_toast_message(kind)
+    assert text == f"Still waiting on you: {detail}."
+    assert text.lower().count("your turn") == 0
+
+
 def test_wall_toast_delay_ms_missing_key_and_none_config_default_to_120s() -> None:
     from arelis.ui.event_host import _wall_toast_delay_ms
 
