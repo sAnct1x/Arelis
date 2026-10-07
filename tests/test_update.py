@@ -591,8 +591,9 @@ def test_the_installer_script_reads_the_relaunch_flag() -> None:
     assert "{localappdata}\\Arelis" in code
     assert "{localappdata}\\Arelis-runtime" in code
     assert "{localappdata}\\Arelis-dev" in code
-    assert "{userprofile}\\Documents\\Arelis" in code
-    assert "{userprofile}\\Arelis" in code
+    assert "GetEnv('USERPROFILE')" in code
+    assert "Documents\\Arelis" in code
+    assert "{userprofile}" not in code
     assert "function DefaultWorkspaceDir" in code
     assert "procedure RemoveOwnedFolders" in code
     assert "pyproject.toml" in code and "tests" in code

@@ -226,19 +226,29 @@ begin
 end;
 
 function DefaultWorkspaceDir(): String;
+var
+  Profile: String;
 begin
-  // Same rule as arelis.paths.default_workspace_root: the Documents folder
-  // under the profile when it exists, otherwise the profile itself.
-  if DirExists(ExpandConstant('{userprofile}\Documents')) then
-    Result := ExpandConstant('{userprofile}\Documents\Arelis')
+  // Same rule as arelis.paths.default_workspace_root. Inno has no
+  // constant for the profile directory, so this reads the environment the app uses.
+  Profile := RemoveBackslash(GetEnv('USERPROFILE'));
+  if Profile = '' then
+  begin
+    Result := '';
+    Exit;
+  end;
+  if DirExists(AddBackslash(Profile) + 'Documents') then
+    Result := AddBackslash(Profile) + 'Documents\Arelis'
   else
-    Result := ExpandConstant('{userprofile}\Arelis');
+    Result := AddBackslash(Profile) + 'Arelis';
 end;
 
 procedure RemoveOwnedFolder(Dir: String);
 var
   Workspace: String;
 begin
+  if Dir = '' then
+    Exit;
   // Exact default folders only. A custom data directory is ignored, and the
   // backup folder beside the data is never one of these names.
   Workspace := DefaultWorkspaceDir();
@@ -256,11 +266,15 @@ begin
 end;
 
 procedure RemoveOwnedFolders;
+var
+  Workspace: String;
 begin
   RemoveOwnedFolder(ExpandConstant('{localappdata}\Arelis'));
   RemoveOwnedFolder(ExpandConstant('{localappdata}\Arelis-runtime'));
   RemoveOwnedFolder(ExpandConstant('{localappdata}\Arelis-dev'));
-  RemoveOwnedFolder(DefaultWorkspaceDir());
+  Workspace := DefaultWorkspaceDir();
+  if Workspace <> '' then
+    RemoveOwnedFolder(Workspace);
 end;
 
 procedure PurgeOwnedData;
