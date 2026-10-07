@@ -180,9 +180,9 @@ def test_workspace_strip_hides_the_saved_place(qt_app) -> None:
 
     place = UserLocation(
         city="Springfield",
-        region="IL",
+        region="Illinois",
         country="US",
-        postal_code="00000",
+        postal_code="62701",
         timezone="America/Chicago",
     )
     panel = WorkspacePanel()
@@ -198,7 +198,7 @@ def test_workspace_strip_hides_the_saved_place(qt_app) -> None:
         failed = status_for_tool_result(
             "workspace",
             ok=False,
-            output="Not a file: Springfield/00000.csv",
+            output="Not a file: Springfield/62701.csv",
         )
         assert failed == "Not a file: [location]/[location].csv"
         plain = status_for_tool_result(
