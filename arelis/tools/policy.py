@@ -794,7 +794,15 @@ def describe_call(
                 "stop before Checkout / Pay."
             )
         if action == "reserve":
-            from arelis.browser.reserve import resolve_party
+            from arelis.browser.reserve import (
+                normalize_date,
+                normalize_reserve_site,
+                normalize_time,
+                party_cap_note,
+                resolve_party,
+                spoken_date,
+                spoken_time,
+            )
 
             place = str(
                 args.get("place") or args.get("query") or args.get("destination") or ""
@@ -802,14 +810,36 @@ def describe_call(
             if place:
                 lines.append(f"Place: {place}")
             lines.append(f"Party: {resolve_party(args.get('party'), args.get('covers'))}")
-            if str(args.get("date") or "").strip():
-                lines.append(f"Date: {args.get('date')}")
-            if str(args.get("time") or "").strip():
-                lines.append(f"Time: {args.get('time')}")
-            lines.append(
-                "Opens OpenTable (or Resy / Google) with party/date/time "
-                "in the URL. You click Book / Reserve."
-            )
+            raw_date = str(args.get("date") or "").strip()
+            raw_time = str(args.get("time") or "").strip()
+            day = normalize_date(raw_date) if raw_date else None
+            clock = normalize_time(raw_time) if raw_time else None
+            if day:
+                said = spoken_date(day)
+                if said:
+                    lines.append(f"Date: {said}")
+                else:
+                    lines.append(
+                        "I couldn't read the date, so pick it on the booking page."
+                    )
+            elif raw_date:
+                lines.append(
+                    "I couldn't read the date, so pick it on the booking page."
+                )
+            if clock:
+                said_time = spoken_time(clock)
+                if said_time:
+                    lines.append(f"Time: {said_time}")
+            elif raw_time:
+                lines.append("I need a real time before that booking link can include one.")
+            note = party_cap_note(args.get("party"), args.get("covers"))
+            if note:
+                lines.append(note)
+            site_key = normalize_reserve_site(str(args.get("site") or "opentable"))
+            site_name = {"opentable": "OpenTable", "resy": "Resy", "google": "Google"}[
+                site_key
+            ]
+            lines.append(f"Opens {site_name}. You click Book when the page is ready.")
         return "\n".join(lines)
     if name == "desktop":
         action = str(args.get("action") or "").strip().lower() or "?"
