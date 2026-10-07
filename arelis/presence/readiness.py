@@ -105,11 +105,9 @@ async def probe_readiness(
         owns_provider = True
 
     available: list[str] | None = None
-    ollama_error: str | None = None
     try:
         available = await prov.list_models()
     except Exception as exc:
-        ollama_error = str(exc) or type(exc).__name__
         log.info("Readiness Ollama probe failed: %s", exc)
 
     if owns_provider:
@@ -123,14 +121,14 @@ async def probe_readiness(
             "ollama",
             "Ollama",
             ChipLevel.OK,
-            f"Reachable ({len(available)} tags listed).",
+            f"Ollama is reachable ({len(available)} models listed).",
         )
     else:
         chips["ollama"] = ReadinessChip(
             "ollama",
             "Ollama",
             ChipLevel.OFF,
-            f"Unreachable{f': {ollama_error}' if ollama_error else ''}.",
+            "Ollama isn't available right now.",
         )
 
     configured = _configured_chat_models(config)
@@ -139,14 +137,14 @@ async def probe_readiness(
             "models",
             "Models",
             ChipLevel.OFF,
-            "Cannot check configured tags while Ollama is down.",
+            "Can't check models while Ollama is down.",
         )
     elif not configured:
         chips["models"] = ReadinessChip(
             "models",
             "Models",
             ChipLevel.WARN,
-            "No chat models configured in models.*.",
+            "No chat models are set up yet.",
         )
     else:
         absent = missing_models(available, configured)
@@ -156,7 +154,7 @@ async def probe_readiness(
                 "models",
                 "Models",
                 ChipLevel.OK,
-                f"All configured tags present ({tags}).",
+                f"Every chat model is ready ({tags}).",
             )
         else:
             missing_bits = ", ".join(f"{role}:{name}" for role, name in absent)
@@ -168,7 +166,7 @@ async def probe_readiness(
                 "models",
                 "Models",
                 level,
-                f"Configured tags not present: {missing_bits}.",
+                f"These chat models aren't available yet: {missing_bits}.",
             )
 
     chips["role"] = _role_chip(config, router, configured)
@@ -194,7 +192,7 @@ def _watch_chip(config: dict[str, Any]) -> ReadinessChip:
             "watch",
             "Watch",
             ChipLevel.OFF,
-            "Watch disabled in config.",
+            "Watch is off.",
         )
     from arelis.guard import get_watch
 
@@ -254,23 +252,20 @@ def _role_chip(
                 "role",
                 "Model",
                 ChipLevel.OK,
-                f"Hot model {role}:{model} (VRAM pin). "
-                "Composer fast/research picks the reply role for the next message; "
-                "auto-routing may load a different model for a turn.",
+                f"{model} is loaded and ready.",
             )
         if model:
             return ReadinessChip(
                 "role",
                 "Model",
                 ChipLevel.WARN,
-                f"Model not pinned yet, cold {role}:{model}. "
-                "Composer reply-role picker is separate.",
+                f"{model} isn't loaded yet.",
             )
         return ReadinessChip(
             "role",
             "Model",
             ChipLevel.OFF,
-            "No model resolved for the active router role.",
+            "No model is ready for the next reply.",
         )
     model = configured.get(default_role) or ""
     if model:
@@ -278,14 +273,13 @@ def _role_chip(
             "role",
             "Model",
             ChipLevel.WARN,
-            f"Default {default_role}:{model} (router not attached). "
-            "Composer reply-role picker is separate.",
+            f"The usual model is {model}.",
         )
     return ReadinessChip(
         "role",
         "Model",
         ChipLevel.OFF,
-        "No default role model configured.",
+        "No model is set up yet.",
     )
 
 
@@ -296,7 +290,7 @@ def _calendar_chip(config: dict[str, Any]) -> ReadinessChip:
             "calendar",
             "Calendar",
             ChipLevel.OFF,
-            "Calendar tool disabled in config.",
+            "Calendar is off.",
         )
     secrets = load_calendar_secrets()
     google = secrets.google
@@ -307,41 +301,41 @@ def _calendar_chip(config: dict[str, Any]) -> ReadinessChip:
                 "calendar",
                 "Calendar",
                 ChipLevel.OK,
-                f"Google authorized (calendar {google.calendar_id}).",
+                "Google calendar is connected.",
             )
         if outlook is not None and outlook.authorized:
             return ReadinessChip(
                 "calendar",
                 "Calendar",
                 ChipLevel.OK,
-                "Outlook authorized.",
+                "Outlook calendar is connected.",
             )
     if load_ics_url():
         return ReadinessChip(
             "calendar",
             "Calendar",
             ChipLevel.OK,
-            "ICS feed configured.",
+            "A calendar feed is ready.",
         )
     if google is not None and google.configured:
         return ReadinessChip(
             "calendar",
             "Calendar",
             ChipLevel.WARN,
-            "Google client present but refresh token missing.",
+            "Google calendar still needs to be connected.",
         )
     if outlook is not None and outlook.configured:
         return ReadinessChip(
             "calendar",
             "Calendar",
             ChipLevel.WARN,
-            "Outlook client present but refresh token missing.",
+            "Outlook calendar still needs to be connected.",
         )
     return ReadinessChip(
         "calendar",
         "Calendar",
         ChipLevel.OFF,
-        "Calendar not connected.",
+        "Calendar isn't connected yet.",
     )
 
 
@@ -404,7 +398,7 @@ def _mail_chip(config: dict[str, Any]) -> ReadinessChip:
             "mail",
             "Mail",
             ChipLevel.OFF,
-            "Mail tool disabled in config.",
+            "Mail is off.",
         )
     account = load_account()
     if account is None:
@@ -412,13 +406,13 @@ def _mail_chip(config: dict[str, Any]) -> ReadinessChip:
             "mail",
             "Mail",
             ChipLevel.OFF,
-            "Mail account not configured.",
+            "Mail isn't set up yet.",
         )
     return ReadinessChip(
         "mail",
         "Mail",
         ChipLevel.OK,
-        f"Account ready ({account.address}).",
+        f"Mail is ready ({account.address}).",
     )
 
 
@@ -429,27 +423,27 @@ def _embed_chip(config: dict[str, Any], available: list[str] | None) -> Readines
             "embed",
             "Embed",
             ChipLevel.OFF,
-            "No embed_model configured.",
+            "The memory model isn't set up yet.",
         )
     if available is None:
         return ReadinessChip(
             "embed",
             "Embed",
             ChipLevel.OFF,
-            f"Cannot check `{tag}` while Ollama is down.",
+            "Can't check the memory model while Ollama is down.",
         )
     if model_is_available(available, tag):
         return ReadinessChip(
             "embed",
             "Embed",
             ChipLevel.OK,
-            f"Configured embed tag `{tag}` present.",
+            "The memory model is ready.",
         )
     return ReadinessChip(
         "embed",
         "Embed",
         ChipLevel.WARN,
-        f"Configured embed tag `{tag}` not present.",
+        "The memory model isn't available yet.",
     )
 
 
@@ -462,13 +456,13 @@ async def _search_chip(config: dict[str, Any]) -> ReadinessChip:
             "search",
             "Search",
             ChipLevel.OFF,
-            "web_search disabled in config.",
+            "Search is off.",
         )
     return ReadinessChip(
         "search",
         "Search",
         ChipLevel.OK,
-        "DuckDuckGo (no API key; may rate-limit under heavy use).",
+        "Search is ready.",
     )
 
 
@@ -480,7 +474,7 @@ def _ocr_chip(config: dict[str, Any]) -> ReadinessChip:
             "ocr",
             "OCR",
             ChipLevel.OFF,
-            "ocr tool disabled in config.",
+            "Reading text in pictures is off.",
         )
     from arelis.tools.ocr import tesseract_available
 
@@ -489,13 +483,13 @@ def _ocr_chip(config: dict[str, Any]) -> ReadinessChip:
             "ocr",
             "OCR",
             ChipLevel.OK,
-            "tesseract available (CPU OCR).",
+            "Reading text in pictures is ready.",
         )
     return ReadinessChip(
         "ocr",
         "OCR",
         ChipLevel.WARN,
-        "tesseract not on PATH; ocr tool will soft-fail until installed.",
+        "Reading text in pictures isn't available yet.",
     )
 
 
@@ -514,7 +508,7 @@ async def _image_chip(config: dict[str, Any]) -> ReadinessChip:
             "image",
             "Image",
             ChipLevel.OFF,
-            "image tool disabled in config.",
+            "Pictures are off.",
         )
     url = str(image_cfg.get("comfy_url") or "http://127.0.0.1:8188").strip()
     from arelis.tools.comfy_lifecycle import comfy_is_healthy_async, discover_comfy
@@ -524,7 +518,7 @@ async def _image_chip(config: dict[str, Any]) -> ReadinessChip:
             "image",
             "Image",
             ChipLevel.OK,
-            f"ComfyUI answering at {url}.",
+            "Pictures are ready.",
         )
     launch_cwd = str(image_cfg.get("launch_cwd") or "").strip()
     found = ""
@@ -539,12 +533,11 @@ async def _image_chip(config: dict[str, Any]) -> ReadinessChip:
             "image",
             "Image",
             ChipLevel.WARN,
-            f"first image starts Comfy at {found}",
+            "Pictures will start when you ask for one.",
         )
     return ReadinessChip(
         "image",
         "Image",
         ChipLevel.WARN,
-        f"ComfyUI not running at {url}, so image generation is unavailable. "
-        "Start ComfyUI, or set tools.image.auto_start with tools.image.launch_cwd.",
+        "Pictures aren't available right now.",
     )
