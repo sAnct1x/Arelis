@@ -577,19 +577,30 @@ def test_the_installer_script_reads_the_relaunch_flag() -> None:
     assert script.index("[Code]") > script.index("[UninstallDelete]"), (
         "[Code] must be the last section: Inno reads everything after it as Pascal."
     )
-    assert "Check: ShouldWipeData" in script
+    # A Check on [UninstallRun] or [UninstallDelete] is stored at install time,
+    # while WipeData is still false, so /wipe=yes would never delete anything.
+    assert "Check: ShouldWipeData" not in script
     assert "function ShouldWipeData" in script
+    assert "Result := WipeData;" in script
+    assert "if ShouldWipeData() then" in script
+    assert "CurUninstallStep = usUninstall" in script
     assert "function InitializeUninstall" in script
     assert "{param:wipe|no}" in script
     assert "MB_DEFBUTTON2" in script
-    assert "{localappdata}\\Arelis" in script
-    assert "{localappdata}\\Arelis-runtime" in script
-    assert "{localappdata}\\Arelis-dev" in script
-    assert "{userdocs}\\Arelis" not in script, (
-        "Inno cannot tell a workspace from a git clone; Documents\\Arelis "
-        "is only removed by --purge-user-data after a checkout check."
-    )
-    assert "--purge-user-data" in script
+    code = script.split("[Code]", 1)[1]
+    assert "{localappdata}\\Arelis" in code
+    assert "{localappdata}\\Arelis-runtime" in code
+    assert "{localappdata}\\Arelis-dev" in code
+    assert "{userprofile}\\Documents\\Arelis" in code
+    assert "{userprofile}\\Arelis" in code
+    assert "function DefaultWorkspaceDir" in code
+    assert "procedure RemoveOwnedFolders" in code
+    assert "pyproject.toml" in code and "tests" in code
+    assert "--purge-user-data" in code
+    assert "ARELIS_DATA_DIR=" in code
+    assert "purge-user-data" not in script.split("[Code]", 1)[0]
+    post = code.split("CurUninstallStep <> usPostUninstall", 1)[1]
+    assert "RemoveOwnedFolders" in post
     # Wipe keeps pre-upgrade safety copies and offers to open their folder.
     assert 'Name: "{localappdata}\\Arelis-backups"' not in script, (
         "Arelis-backups must not be deleted on wipe"

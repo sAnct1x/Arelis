@@ -180,6 +180,15 @@ def test_headless_hook_calls_exec_with_no_arguments() -> None:
     assert calls == [(0, 0)]
 
 
+def test_uninstall_checks_keep_and_wipe() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "wipe=False" in text
+    assert "wipe=True" in text
+    assert "ARELIS_DATA_DIR" in text
+    assert "arelis-not-our-data" in text
+    assert "owned-marker.txt" in text
+
+
 def test_child_scripts_parse() -> None:
     m = _mod()
     sources = m.compiled_child_scripts()

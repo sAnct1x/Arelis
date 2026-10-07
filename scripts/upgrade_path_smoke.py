@@ -18,11 +18,9 @@ What a green run proves
 * A backup that cannot create its folder returns no path, and the real
   update prompt does not start the installer.
 * The real ``start_installer`` then installs the fake next version.
-* A wipe uninstall removes the app. The data folder is checked too.
-  As of this script, that check fails for a real installer bug: Inno
-  stores ``Check: ShouldWipeData`` at install time, when the flag is
-  still false, so ``/wipe=yes`` does not delete the data folder. The
-  backup folder is still checked after that.
+* Uninstall without the wipe flag removes the app and leaves the data
+  folder byte for byte. Uninstall with ``/wipe=yes`` removes that data
+  folder and leaves the backup folder, including its contents.
 
 What it does not prove
 ======================
@@ -867,6 +865,19 @@ def stop_install_processes() -> None:
         kill_tree(pid)
 
 
+def documents_arelis() -> Path:
+    return Path(os.environ.get("USERPROFILE", "")) / "Documents" / "Arelis"
+
+
+def extra_owned_dirs() -> list[Path]:
+    local = local_appdata()
+    return [local / "Arelis-runtime", local / "Arelis-dev", documents_arelis()]
+
+
+def looks_like_checkout(path: Path) -> bool:
+    return (path / "pyproject.toml").is_file() and (path / "tests").is_dir()
+
+
 def silent_install(setup: Path, log_name: str) -> int:
     log_path = OUT / log_name
     cmd = [
@@ -881,6 +892,61 @@ def silent_install(setup: Path, log_name: str) -> int:
     say("install " + setup.name)
     done = subprocess.run(cmd, check=False, timeout=INSTALL_TIMEOUT_S)
     return int(done.returncode)
+
+
+def run_uninstaller(log_name: str, *, wipe: bool, extra_env: dict[str, str] | None = None) -> int:
+    stop_install_processes()
+    unins = install_dir() / "unins000.exe"
+    log_path = OUT / log_name
+    if not unins.is_file():
+        return 127
+    cmd = [
+        str(unins),
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        f"/LOG={log_path}",
+    ]
+    if wipe:
+        cmd.append("/wipe=yes")
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+    say(("wipe " if wipe else "keep ") + unins.name)
+    done = subprocess.run(cmd, check=False, timeout=INSTALL_TIMEOUT_S, env=env)
+    return int(done.returncode)
+
+
+def wait_until_install_gone() -> None:
+    deadline = time.time() + 60
+    while install_dir().exists() and time.time() < deadline:
+        time.sleep(1)
+
+
+def app_gone_problems() -> list[str]:
+    problems = []
+    if install_dir().exists():
+        problems.append("install folder still present")
+    if uninstall_key_present():
+        problems.append("registry key still present")
+    if start_menu_dir().exists():
+        problems.append("start menu folder still present")
+    if pids_under(install_dir()):
+        problems.append("a process is still running from the install folder")
+    return problems
+
+
+def backup_still_good(expected_pre: str) -> list[str]:
+    names = pre_folders()
+    problems = backup_problems()
+    backup_memory = backups_dir() / expected_pre / "memory.db"
+    if expected_pre not in names:
+        problems.append(f"missing {expected_pre}")
+    if not marker_in_file(backup_memory):
+        problems.append("marker missing from the backup copy of memory")
+    if sentinel_in_tree(backups_dir()):
+        problems.append("secret token is inside the backup folder")
+    return problems
 
 
 def download(url: str, dest: Path) -> None:
@@ -1562,86 +1628,103 @@ def cmd_run() -> int:
         record("start-menu-before-wipe", "INFO", "start menu folder was already absent")
     else:
         record("start-menu-before-wipe", "INFO", str(start_menu_dir()))
-    stop_install_processes()
-    unins = install_dir() / "unins000.exe"
-    if not unins.is_file():
-        return fail("uninstall-wipe", "unins000.exe is missing")
-    log_path = OUT / "uninstall.log"
-    done = subprocess.run(
-        [
-            str(unins),
-            "/VERYSILENT",
-            "/SUPPRESSMSGBOXES",
-            "/NORESTART",
-            "/wipe=yes",
-            f"/LOG={log_path}",
-        ],
-        check=False,
-        timeout=INSTALL_TIMEOUT_S,
-    )
-    if done.returncode != 0:
-        return fail("uninstall-wipe", f"exit {done.returncode}; log tail: {_tail(log_path)}")
-    deadline = time.time() + 60
-    while install_dir().exists() and time.time() < deadline:
-        time.sleep(1)
-    app_gone = []
-    if install_dir().exists():
-        app_gone.append("install folder still present")
-    if uninstall_key_present():
-        app_gone.append("registry key still present")
-    if start_menu_dir().exists():
-        app_gone.append(f"start menu folder still present: {start_menu_dir()}")
-    if pids_under(install_dir()):
-        app_gone.append("a process is still running from the install folder")
-    if app_gone:
-        return fail("uninstall-wipe", "; ".join(app_gone))
-    data_still = data_root().exists()
-    if data_still:
-        # Real installer bug, left for a product fix. Inno evaluates
-        # Check: ShouldWipeData while installing, and WipeData is still
-        # false then, so the data delete never lands in the uninstall log.
-        # /wipe=yes sets the flag too late to matter.
-        record(
-            "uninstall-wipe",
-            "FAIL",
-            "app is gone, but the data folder is still there after /wipe=yes. "
-            "secrets_still="
-            + str((state_dir() / "secrets.yaml").is_file())
-            + " memory_marker_still="
-            + str(marker_in_file(state_dir() / "memory.db")),
-        )
-    else:
-        record(
-            "uninstall-wipe",
-            "PASS",
-            "install folder, data folder, registry key, and start menu are gone",
-        )
 
-    names = pre_folders()
-    problems = backup_problems()
-    backup_memory = backups_dir() / expected_pre / "memory.db"
-    if (
-        expected_pre not in names
-        or problems
-        or not marker_in_file(backup_memory)
-        or sentinel_in_tree(backups_dir())
-    ):
+    # Silent, and no /wipe=yes: the same answer as choosing No.
+    # Plant the other default folders, plus a custom data dir the wipe must ignore.
+    decoy = Path(os.environ.get("TEMP", str(OUT))) / "arelis-not-our-data"
+    if decoy.exists():
+        shutil.rmtree(decoy)
+    decoy.mkdir(parents=True)
+    (decoy / "keep-me.txt").write_text("DO-NOT-DELETE\n", encoding="utf-8")
+    owned_markers: dict[Path, str] = {}
+    for path in extra_owned_dirs():
+        if looks_like_checkout(path):
+            continue
+        path.mkdir(parents=True, exist_ok=True)
+        marker = path / "owned-marker.txt"
+        marker.write_text("owned-by-arelis\n", encoding="utf-8")
+        owned_markers[path] = sha256_file(marker)
+    snap_keep = snapshot_files(state_dir())
+    uninstall_env = {"ARELIS_DATA_DIR": str(decoy)}
+    code = run_uninstaller("uninstall-keep.log", wipe=False, extra_env=uninstall_env)
+    if code != 0:
         return fail(
-            "backup-survives-wipe",
-            f"folders={names} problems={problems} data_still={data_still}",
+            "uninstall-keep-data", f"exit {code}; log tail: {_tail(OUT / 'uninstall-keep.log')}"
         )
+    wait_until_install_gone()
+    gone = app_gone_problems()
+    drifted = same_hashes(snap_keep, snapshot_files(state_dir()), TRACKED)
+    owned_lost = []
+    for path, digest in owned_markers.items():
+        marker = path / "owned-marker.txt"
+        if (not marker.is_file()) or sha256_file(marker) != digest:
+            owned_lost.append(str(path))
+    decoy_gone = not (decoy / "keep-me.txt").is_file()
+    kept_backup = backup_still_good(expected_pre)
+    if gone or drifted or owned_lost or decoy_gone or kept_backup or not data_root().exists():
+        return fail(
+            "uninstall-keep-data",
+            f"gone={gone} drifted={drifted} owned_lost={owned_lost} decoy_gone={decoy_gone} "
+            f"backup={kept_backup} data_exists={data_root().exists()}",
+        )
+    record(
+        "uninstall-keep-data",
+        "PASS",
+        "app is gone; tracked files are unchanged; backup folder still has the marker",
+    )
+
+    code = silent_install(next_setup, "setup-reinstall.log")
+    if code != 0:
+        return fail(
+            "reinstall-after-keep", f"exit {code}; log tail: {_tail(OUT / 'setup-reinstall.log')}"
+        )
+    try:
+        again = installed_version_line()
+        shown_again = display_version()
+    except Exception as exc:
+        return fail("reinstall-after-keep", str(exc))
+    stop_install_processes()
+    drifted = same_hashes(snap_keep, snapshot_files(state_dir()), TRACKED)
+    if drifted or not version_line_has(again, next_version) or shown_again != next_version:
+        return fail(
+            "reinstall-after-keep",
+            f"line={again!r} display={shown_again!r} drifted={drifted}",
+        )
+    record("reinstall-after-keep", "PASS", f"{again}; data still byte-identical")
+
+    code = run_uninstaller("uninstall-wipe.log", wipe=True, extra_env=uninstall_env)
+    if code != 0:
+        return fail("uninstall-wipe", f"exit {code}; log tail: {_tail(OUT / 'uninstall-wipe.log')}")
+    wait_until_install_gone()
+    gone = app_gone_problems()
+    if gone:
+        return fail("uninstall-wipe", "; ".join(gone))
+    owned_left = [
+        path
+        for path in [data_root(), *owned_markers]
+        if path.exists() and not looks_like_checkout(path)
+    ]
+    decoy_gone = not (decoy / "keep-me.txt").is_file()
+    if owned_left or decoy_gone:
+        return fail(
+            "uninstall-wipe",
+            "still present after /wipe=yes: "
+            + ", ".join(str(p) for p in owned_left)
+            + ("; custom data dir was deleted" if decoy_gone else ""),
+        )
+    record(
+        "uninstall-wipe",
+        "PASS",
+        "install folder, data folder, registry key, and start menu are gone",
+    )
+    kept_backup = backup_still_good(expected_pre)
+    if kept_backup:
+        return fail("backup-survives-wipe", "; ".join(kept_backup))
     record(
         "backup-survives-wipe",
         "PASS",
-        f"{expected_pre} still beside the data folder; secrets were not in it",
+        f"{expected_pre} still beside where the data folder was; secrets were not in it",
     )
-    if data_still:
-        record(
-            "done",
-            "FAIL",
-            "stopped on the wipe bug: /wipe=yes did not remove the data folder",
-        )
-        return 1
     untouched = assert_repo_untouched(checkout_before)
     if untouched:
         return fail("checkout-version-untouched-final", untouched)
