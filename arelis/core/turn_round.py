@@ -37,6 +37,7 @@ from arelis.core.email_complete import (
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import (
     followup_passthrough_tool,
+    reply_is_done_without_answer,
     should_nudge_write_after_algebra,
     should_nudge_write_after_page,
 )
@@ -157,10 +158,14 @@ async def apply_no_call_path(
             )
             return False
 
-        if not r.content and not ctx.fallback_mode:
+        no_words = not (r.content or "").strip()
+        # A blank bubble is not an answer. Neither is a bare Done, or
+        # Done plus a link, once a tool has already run.
+        done_instead = bool(ctx.last_ok_tool_out) and reply_is_done_without_answer(r.content)
+        if (no_words or done_instead) and not ctx.fallback_mode:
             # Qwen3.5 often puts the wrap-up in thinking and leaves
-            # chat content empty. Native calling still worked — a tool
-            # already ran — so do not enter the sticky-note protocol
+            # chat content empty. Native calling still worked, a tool
+            # already ran, so do not enter the sticky-note protocol
             # and do not ship the "empty reply / model unloaded" notice.
             # Tools may already be stripped (agenda/SMS/email wrap-up).
             # A long scrape/search must not become the chat line —

@@ -840,6 +840,30 @@ def _search_talk(output: str) -> str:
     return _first_sentences(output, n=1, cap=240)
 
 
+_URL_TOKEN = re.compile(r"https?://\S+", re.IGNORECASE)
+_MD_LINK = re.compile(r"\[[^\]]*\]\([^)]*\)")
+_SOURCES_LINE = re.compile(r"(?i)^\s*\*{0,2}sources:\*{0,2}\s*$")
+
+
+def reply_is_done_without_answer(text: str) -> bool:
+    """True when the chat line is only Done, or Done plus a link.
+
+    A real sentence that happens to start with Done is an answer.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    kept: list[str] = []
+    for line in raw.splitlines():
+        if _SOURCES_LINE.match(line):
+            break
+        kept.append(line)
+    body = _URL_TOKEN.sub(" ", "\n".join(kept))
+    body = _MD_LINK.sub(" ", body)
+    words = re.findall(r"[A-Za-z']+", body)
+    return len(words) == 1 and words[0].lower() == "done"
+
+
 __all__ = [
     "TURN_FAILED_NOTICE",
     "chat_followup_from_tool",
@@ -848,6 +872,7 @@ __all__ = [
     "plain_algebra_chat",
     "plain_reason",
     "pretty_calculator_chat",
+    "reply_is_done_without_answer",
     "reply_states_algebra_result",
     "should_nudge_write_after_algebra",
     "should_nudge_write_after_page",
