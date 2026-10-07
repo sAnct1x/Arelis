@@ -12,6 +12,7 @@ from typing import Any
 
 from arelis.core.path_refs import ABS_PREFIX_OR_START, ABS_START, PATH_CHARS
 from arelis.paths import outputs_dir
+from arelis.workspace import is_unsafe_windows_path
 
 _DOC_SUFFIXES = frozenset({".pdf", ".docx", ".xlsx", ".csv", ".md", ".txt"})
 _OPEN_SUFFIXES = _DOC_SUFFIXES | {".png"}
@@ -159,6 +160,8 @@ def _usable_file(raw: str, *, suffixes: frozenset[str] | None = None) -> str:
     allowed = suffixes if suffixes is not None else _OPEN_SUFFIXES
     text = (raw or "").strip().strip("\"'`")
     if not text:
+        return ""
+    if is_unsafe_windows_path(text):
         return ""
     path = Path(text)
     if not path.is_file():
