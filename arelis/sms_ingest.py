@@ -42,29 +42,157 @@ DEFAULT_PORT = 8765
 RECENT_LIMIT = 40
 
 
-def list_lan_ipv4() -> list[str]:
-    """Best-effort private IPv4 addresses for companion URL hints."""
+# Healthy hostname lookups return in milliseconds. Two seconds is long enough
+# for a slow resolver and short enough that a stuck one cannot pin the UI,
+# the LAN beacon, or a test. macOS CI has hung forever inside getaddrinfo.
+_HOSTNAME_LOOKUP_S = 2.0
+
+_lookup_lock = threading.Lock()
+_lookup_gen = 0
+_lookup_thread: threading.Thread | None = None
+_lookup_done = threading.Event()
+_lookup_ips: list[str] = []
+_lookup_error: BaseException | None = None
+_lookup_started = 0.0
+_lookup_warned = False
+
+
+def _ipv4_from_hostname() -> list[str]:
     found: list[str] = []
-    try:
-        hostname = socket.gethostname()
-        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
-            ip = info[4][0]
-            if ip and not ip.startswith("127.") and ip not in found:
-                found.append(ip)
-    except OSError:
-        pass
-    # Also try the route used for outbound UDP — often the real LAN NIC.
+    hostname = socket.gethostname()
+    for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+        ip = info[4][0]
+        if ip and not ip.startswith("127.") and ip not in found:
+            found.append(ip)
+    return found
+
+
+def _reset_hostname_lookup() -> None:
+    """Forget the current hostname lookup so the next call starts a new one.
+
+    A resolver that never returns keeps its daemon thread. Bumping the
+    generation stops that thread from publishing into a later lookup. Tests
+    call this so one stuck getaddrinfo cannot decide the next case. The
+    running app does not: after a stuck lookup, hostname addresses stay
+    empty for the rest of the process and list_lan_ipv4 keeps the route.
+    """
+    global _lookup_gen, _lookup_thread, _lookup_done, _lookup_ips
+    global _lookup_error, _lookup_started, _lookup_warned
+    with _lookup_lock:
+        _lookup_gen += 1
+        _lookup_thread = None
+        _lookup_done = threading.Event()
+        _lookup_done.set()
+        _lookup_ips = []
+        _lookup_error = None
+        _lookup_started = 0.0
+        _lookup_warned = False
+
+
+def _hostname_ipv4_bounded(timeout_s: float = _HOSTNAME_LOOKUP_S) -> list[str]:
+    """IPv4 addresses for this hostname, or [] if the resolver does not answer.
+
+    One daemon thread does the lookup. A second call while that thread is
+    still stuck does not start another, and does not wait out the budget
+    again. Hostname addresses stay empty for the rest of the process.
+    list_lan_ipv4 still returns the outbound route address.
+    """
+    global _lookup_thread, _lookup_done, _lookup_ips, _lookup_error
+    global _lookup_started, _lookup_warned
+
+    def run(done: threading.Event, gen: int) -> None:
+        global _lookup_ips, _lookup_error
+        ips: list[str] = []
+        error: BaseException | None = None
+        try:
+            ips = _ipv4_from_hostname()
+        except OSError:
+            ips = []
+        except Exception as exc:
+            error = exc
+        with _lookup_lock:
+            if gen == _lookup_gen:
+                _lookup_ips = ips
+                _lookup_error = error
+        done.set()
+
+    with _lookup_lock:
+        in_flight = (
+            _lookup_thread is not None
+            and _lookup_thread.is_alive()
+            and not _lookup_done.is_set()
+        )
+        if in_flight:
+            done = _lookup_done
+        else:
+            done = threading.Event()
+            _lookup_done = done
+            _lookup_ips = []
+            _lookup_error = None
+            _lookup_started = time.monotonic()
+            thread = threading.Thread(
+                target=run,
+                args=(done, _lookup_gen),
+                name="arelis-lan-lookup",
+                daemon=True,
+            )
+            _lookup_thread = thread
+            thread.start()
+        started = _lookup_started
+
+    remaining = timeout_s - (time.monotonic() - started)
+    if remaining > 0:
+        finished = done.wait(remaining)
+    else:
+        finished = done.is_set()
+    if not finished:
+        with _lookup_lock:
+            warn = not _lookup_warned
+            _lookup_warned = True
+        if warn:
+            log.warning(
+                "hostname lookup for LAN addresses did not finish within %.1fs",
+                timeout_s,
+            )
+        return []
+
+    with _lookup_lock:
+        error = _lookup_error
+        ips = list(_lookup_ips)
+    if error is not None:
+        raise error
+    return ips
+
+
+def _route_ipv4() -> str | None:
+    """Address the OS would use for an outbound UDP packet, if it has one."""
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             probe.connect(("8.8.8.8", 80))
             ip = probe.getsockname()[0]
-            if ip and not ip.startswith("127.") and ip not in found:
-                found.insert(0, ip)
         finally:
             probe.close()
     except OSError:
-        pass
+        return None
+    if ip and not str(ip).startswith("127."):
+        return str(ip)
+    return None
+
+
+def list_lan_ipv4() -> list[str]:
+    """Best-effort private IPv4 addresses for companion URL hints.
+
+    If the hostname resolver never returns, later calls in this process
+    skip it and return only the outbound route address, or an empty list
+    when that route is missing too.
+    """
+    found = _hostname_ipv4_bounded()
+    # Route address goes first only when the hostname list does not already
+    # contain it. That keeps the previous order on a fast lookup.
+    route = _route_ipv4()
+    if route and route not in found:
+        found.insert(0, route)
     return found
 
 
