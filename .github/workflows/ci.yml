@@ -123,8 +123,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libegl1 libxkbcommon-x11-0 libdbus-1-3
 
+      # Same Qt the Windows installer lock ships. pyproject only says
+      # PySide6>=6.6, so an unconstrained install follows PyPI. 6.12.0
+      # crashed the Ubuntu 3.11 job at interpreter shutdown after a green run.
       - name: Install package
-        run: python -m pip install -e ".[dev]"
+        run: |
+          python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
+          python -m pip install -e ".[dev]" -c qt-constraints.txt
 
       - name: Pytest
         run: python -m pytest -q --tb=short --junitxml=pytest-results.xml
