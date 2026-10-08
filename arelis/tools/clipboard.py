@@ -8,6 +8,7 @@ copied. Both need the card.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -17,6 +18,51 @@ from arelis.tools.safety import redact_secrets
 
 _MAX_CHARS = 8000
 _READ_TIMEOUT_S = 4.0
+# Short wait so a worker cannot sit forever if the GUI thread is blocked
+# on this same tool. A blocking queued connection would deadlock there.
+_GUI_HOP_TIMEOUT_S = 2.0
+
+
+def _is_windows() -> bool:
+    import sys
+
+    return sys.platform == "win32"
+
+
+def _call_on_gui_thread(fn: Callable[[], Any]) -> Any:
+    """Run fn on the Qt GUI thread and wait, without a blocking queued call."""
+    from PySide6.QtCore import QThread, QTimer
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        raise RuntimeError("Clipboard unavailable: no Qt application")
+    if QThread.currentThread() is app.thread():
+        return fn()
+
+    done = threading.Event()
+    box: dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            box["value"] = fn()
+        except Exception as exc:
+            box["error"] = exc
+        finally:
+            done.set()
+
+    # Context object posts the callback onto the GUI thread. Queued, not
+    # blocking, so a GUI thread already waiting on this tool times out
+    # instead of deadlocking.
+    QTimer.singleShot(0, app, _run)
+    if not done.wait(_GUI_HOP_TIMEOUT_S):
+        raise RuntimeError("Clipboard unavailable: timed out waiting for the GUI thread")
+    if "error" in box:
+        err = box["error"]
+        if isinstance(err, RuntimeError) and str(err).startswith("Clipboard unavailable:"):
+            raise err
+        raise RuntimeError(f"Clipboard unavailable: {err}") from err
+    return box["value"]
 
 
 def _qt_clipboard_on_gui_thread() -> str | None:
@@ -35,8 +81,11 @@ def _qt_clipboard_on_gui_thread() -> str | None:
 
 def read_clipboard_text() -> str:
     """Best-effort plain-text clipboard read for the current platform."""
+    if not _is_windows():
+        return _read_clipboard_via_qt()
     qt = _qt_clipboard_on_gui_thread()
-    if qt:
+    # Empty text is a real read. A truthy check used to fall through to WinDLL.
+    if qt is not None:
         return qt
     # Windows: CF_UNICODETEXT. restype on GlobalLock must be
     # c_void_p or 64-bit Python truncates the pointer and wstring_at AVs.
@@ -44,6 +93,21 @@ def read_clipboard_text() -> str:
         return _read_windows_clipboard()
     except Exception as exc:
         raise RuntimeError(f"Clipboard unavailable: {exc}") from exc
+
+
+def _read_clipboard_via_qt() -> str:
+    """Linux and Mac: Qt on the GUI thread. No WinDLL fallback."""
+
+    def _read() -> str:
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is None:
+            raise RuntimeError("Clipboard unavailable: no Qt application")
+        return app.clipboard().text() or ""
+
+    text = _call_on_gui_thread(_read)
+    return "" if text is None else str(text)
 
 
 def _read_windows_clipboard() -> str:
@@ -113,12 +177,29 @@ def _qt_write_on_gui_thread(text: str) -> bool:
 
 def write_clipboard_text(text: str) -> None:
     """Put plain text on the clipboard, replacing what was there."""
+    if not _is_windows():
+        _write_clipboard_via_qt(text)
+        return
     if _qt_write_on_gui_thread(text):
         return
     try:
         _write_windows_clipboard(text)
     except Exception as exc:
         raise RuntimeError(f"Clipboard unavailable: {exc}") from exc
+
+
+def _write_clipboard_via_qt(text: str) -> None:
+    """Linux and Mac: Qt on the GUI thread. No WinDLL fallback."""
+
+    def _write() -> None:
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is None:
+            raise RuntimeError("Clipboard unavailable: no Qt application")
+        app.clipboard().setText(text)
+
+    _call_on_gui_thread(_write)
 
 
 def _write_windows_clipboard(text: str) -> None:
@@ -207,9 +288,7 @@ class ClipboardTool:
             "action": {
                 "type": "string",
                 "enum": ["read", "write"],
-                "description": (
-                    "read the clipboard (default), or write replaces it"
-                ),
+                "description": ("read the clipboard (default), or write replaces it"),
             },
             "text": {
                 "type": "string",
