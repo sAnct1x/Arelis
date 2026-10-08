@@ -1,14 +1,28 @@
 # What's new
 
-This checkout is **0.3.0**, and the 0.3.0 installer is out: [download it here](https://github.com/sAnct1x/Arelis/releases/latest). I installed it on a fresh Windows account and it opened and answered. The 0.2.4 to 0.2.9 installers were broken (they closed at startup), so use 0.3.0 instead.
+This checkout is **0.3.1**. The latest published installer is still **0.3.0** until 0.3.1 is published: [download it here](https://github.com/sAnct1x/Arelis/releases/latest). The 0.2.4 to 0.2.9 installers were broken (they closed at startup), so use 0.3.0 or newer.
 
-Notes: [v0.3.0](releases/v0.3.0.md). Older:
+Notes: [v0.3.1](releases/v0.3.1.md). Older:
+[v0.3.0](releases/v0.3.0.md).
 [v0.2.9](releases/v0.2.9.md).
 [v0.2.8](releases/v0.2.8.md).
 [v0.2.7](releases/v0.2.7.md). [v0.2.6](releases/v0.2.6.md).
 [v0.2.5](releases/v0.2.5.md). [v0.2.4](releases/v0.2.4.md).
 [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
 [v0.2.1](releases/v0.2.1.md).
+
+## 0.3.1
+
+Fixes only. Full notes: [v0.3.1](releases/v0.3.1.md).
+Upgrade safety copies now sit next to the data folder so a wipe
+uninstall keeps them, and a failed copy stops the update. Choosing to
+remove your data when uninstalling now really removes it, and your
+backups are kept. A data folder you chose yourself is left alone.
+Status lines say, in plain words, what is ready, off, or not set up
+yet. Apps and Features shows plain Arelis. Short captcha-mention
+pages, math and unit replies, calendar and booking wording, Done-only
+page-read replies, the workspace place line, and a few path and Pay
+card guards are fixed.
 
 ## 0.3.0
 
