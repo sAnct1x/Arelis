@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import logging
 import os
@@ -274,7 +275,18 @@ def probe_ingest_health(
             if not mine_only:
                 return True
             body = resp.read(4096)
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        OSError,
+        http.client.HTTPException,
+    ):
+        # Nothing answered, or what answered is not HTTP. On Linux a connect
+        # to a closed loopback port can complete as a connection to this same
+        # socket when the local port the kernel picks is the port being
+        # probed, so the request line comes back as the status line
+        # (BadStatusLine). That is not a listener. Raising it aborts pairing
+        # before this process can bind.
         return False
     try:
         claimed = json.loads(body.decode("utf-8", "replace")).get("instance")
