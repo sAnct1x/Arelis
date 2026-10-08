@@ -7,6 +7,7 @@ suggests alternate models or shopping for replacements.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -66,6 +67,17 @@ _CHIP_ORDER = (
     "ocr",
     "image",
 )
+
+
+def _unique_model_names(names: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        ordered.append(name)
+    return ordered
 
 
 def _configured_chat_models(config: dict[str, Any]) -> dict[str, str]:
@@ -151,24 +163,29 @@ async def probe_readiness(
     else:
         absent = missing_models(available, configured)
         if not absent:
-            tags = ", ".join(f"{role}:{name}" for role, name in configured.items())
+            tags = ", ".join(_unique_model_names(configured.values()))
             chips["models"] = ReadinessChip(
                 "models",
                 "Models",
                 ChipLevel.OK,
-                f"Every chat model is ready ({tags}).",
+                f"Every chat model is ready: {tags}.",
             )
         else:
-            missing_bits = ", ".join(f"{role}:{name}" for role, name in absent)
+            names = _unique_model_names(name for _role, name in absent)
+            missing_bits = ", ".join(names)
             n_unique = len(set(configured.values()))
             level = (
                 ChipLevel.OFF if len(absent) >= n_unique else ChipLevel.WARN
             )
+            if len(names) == 1:
+                detail = f"This chat model isn't downloaded yet: {missing_bits}."
+            else:
+                detail = f"These chat models aren't downloaded yet: {missing_bits}."
             chips["models"] = ReadinessChip(
                 "models",
                 "Models",
                 level,
-                f"These chat models aren't available yet: {missing_bits}.",
+                detail,
             )
 
     chips["role"] = _role_chip(config, router, configured)

@@ -93,8 +93,9 @@ jobs:
             task=:app:assembleDebug
             built=app/build/outputs/apk/debug/app-debug.apk
             kind=debug
-            echo "No ARELIS_ANDROID_KEYSTORE secret — debug APK. In-place updates need a release key."
+            echo "No ARELIS_ANDROID_KEYSTORE secret. Debug APK. In-place updates need a release key."
           fi
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
           if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
             ./gradlew "$task"
           else
@@ -138,7 +139,7 @@ jobs:
       # Earlier steps run in android/arelis-notify. Assemble writes
       # companion/arelis.apk.json under the repo root, so this step runs there.
       - name: Attach to a draft release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && steps.apk.outputs.kind == 'release'
         working-directory: ${{ github.workspace }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -146,10 +147,11 @@ jobs:
           tag="${{ github.ref_name }}"
           name=$(python3 -c "import json; print(json.load(open('companion/arelis.apk.json'))['versionName'])")
           kind=$(python3 -c "import json; print(json.load(open('companion/arelis.apk.json'))['signed'])")
-          dest="Arelis-companion-${name}.apk"
           if [ "$kind" != "release" ]; then
-            dest="Arelis-companion-${name}-debug.apk"
+            echo "Refusing to attach this APK. The sidecar says it is not a signed release."
+            exit 1
           fi
+          dest="Arelis-companion-${name}.apk"
           cp companion/arelis.apk "$dest"
           cp companion/arelis.apk.sha256 "${dest}.sha256"
           if ! gh release view "$tag" >/dev/null 2>&1; then

@@ -257,3 +257,69 @@ async def test_probe_readiness_details_stay_plain(
     }
     assert _levels(on_ready) == ready
     assert _levels(on_loaded) == {**ready, "role": "ok"}
+
+
+def _models_detail(snapshot: ReadinessSnapshot) -> tuple[str, str]:
+    chip = next(item for item in snapshot.chips if item.key == "models")
+    return chip.status.value, chip.detail
+
+
+def _no_role_prefix(detail: str) -> None:
+    for role in ("fast", "think"):
+        assert f"{role}:" not in detail, detail
+
+
+@pytest.mark.asyncio
+async def test_missing_chat_models_are_named_without_their_roles() -> None:
+    """A missing model is named on its own, without the internal role prefix."""
+    both_missing = await probe_readiness(
+        _config(on=False, models={"fast": "qwen3:8b", "think": "qwen3:14b"}),
+        provider=_Up([]),
+    )
+    level, detail = _models_detail(both_missing)
+    assert level == "off"
+    assert detail == "These chat models aren't downloaded yet: qwen3:8b, qwen3:14b."
+    _no_role_prefix(detail)
+
+    one_missing = await probe_readiness(
+        _config(on=False, models={"fast": "qwen3:8b", "think": "qwen3:14b"}),
+        provider=_Up(["qwen3:8b"]),
+    )
+    level, detail = _models_detail(one_missing)
+    assert level == "warn"
+    assert detail == "This chat model isn't downloaded yet: qwen3:14b."
+    assert "qwen3:8b" not in detail
+    _no_role_prefix(detail)
+
+    shared = await probe_readiness(
+        _config(on=False, models={"fast": "qwen3:14b", "think": "qwen3:14b"}),
+        provider=_Up([]),
+    )
+    level, detail = _models_detail(shared)
+    assert level == "off"
+    assert detail == "This chat model isn't downloaded yet: qwen3:14b."
+    assert detail.count("qwen3:14b") == 1
+    _no_role_prefix(detail)
+
+
+@pytest.mark.asyncio
+async def test_ready_chat_models_are_named_without_their_roles() -> None:
+    """A ready row lists each model once, without the internal role prefix."""
+    ready = await probe_readiness(
+        _config(on=False, models={"fast": "qwen3:8b", "think": "qwen3:14b"}),
+        provider=_Up(["qwen3:8b", "qwen3:14b"]),
+    )
+    level, detail = _models_detail(ready)
+    assert level == "ok"
+    assert detail == "Every chat model is ready: qwen3:8b, qwen3:14b."
+    _no_role_prefix(detail)
+
+    shared = await probe_readiness(
+        _config(on=False, models={"fast": "qwen3:8b", "think": "qwen3:8b"}),
+        provider=_Up(["qwen3:8b"]),
+    )
+    level, detail = _models_detail(shared)
+    assert level == "ok"
+    assert detail == "Every chat model is ready: qwen3:8b."
+    assert detail.count("qwen3:8b") == 1
+    _no_role_prefix(detail)
