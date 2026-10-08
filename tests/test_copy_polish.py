@@ -148,7 +148,7 @@ def test_download_line_hides_the_blob_id(
 ) -> None:
     from arelis.setup.catalog import EMBED_TAG
     from arelis.ui.setup_wizard import _PrepareWorker
-    from tests.test_setup_worker import _patch_wizard, _run_worker
+    from tests.test_setup_worker import _block_voice_model_fetch, _patch_wizard, _run_worker
 
     def pull(tag: str, progress=None) -> None:
         if progress is not None and tag != EMBED_TAG:
@@ -160,6 +160,9 @@ def test_download_line_hides_the_blob_id(
         pull_tag=pull,
         already_pulled=lambda tag: False,
     )
+    # The chat-model progress line is what this test checks. Stub the
+    # Sherpa download and extract so the worker never fetches that archive.
+    _block_voice_model_fetch(monkeypatch)
     _failed, ok, progressed = _run_worker(_PrepareWorker("qwen3.5:9b"))
     assert ok == [True]
     texts = [item[0] for item in progressed]
@@ -172,7 +175,7 @@ def test_ollama_note_shows_before_the_installer(
 ) -> None:
     import arelis.ui.setup_wizard as wizard
     from arelis.ui.setup_wizard import _PrepareWorker
-    from tests.test_setup_worker import _patch_wizard
+    from tests.test_setup_worker import _block_voice_model_fetch, _patch_wizard
 
     shown: list[str] = []
     at_installer: list[str] = []
@@ -189,6 +192,7 @@ def test_ollama_note_shows_before_the_installer(
         already_pulled=lambda tag: True,
         run_ollama_setup=installer,
     )
+    _block_voice_model_fetch(monkeypatch)
     # Patch again so the closure sees statuses reported before the call.
     monkeypatch.setattr(wizard, "run_ollama_setup", installer)
     worker = _PrepareWorker("qwen3.5:9b")
