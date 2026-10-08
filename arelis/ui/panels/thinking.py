@@ -1,85 +1,69 @@
+"""Routes thinking lines into the chat, and status onto her dock when she is open."""
+
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject
 
 from arelis.location.privacy import redact
 
 
-class ThinkingPanel(QWidget):
-    """The interesting part, how she thinks. Housekeeping sits under it."""
+class ThinkingPanel(QObject):
+    """Same append / extend_stream / clear entry the rest of the window already calls.
+
+    Nothing is painted in a dock anymore. Trace and tool lines go to the current
+    turn's thought block. Status and model lines show on her caption when the
+    dock is open, in that thought block while a turn runs, and on the chat
+    status line for a few seconds when she is closed and idle.
+    """
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAutoFillBackground(False)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        self.view = QPlainTextEdit()
-        self.view.setObjectName("ThinkingView")
-        self.view.setReadOnly(True)
-        self.view.setPlaceholderText("she'll think here")
-        self.view.setFrameShape(QPlainTextEdit.Shape.NoFrame)
-        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.view.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        layout.addWidget(self.view, stretch=1)
-        self.footer = QLabel("")
-        self.footer.setObjectName("ThinkingFooter")
-        self.footer.setWordWrap(True)
-        self.footer.hide()
-        layout.addWidget(self.footer)
-        self._stream_open = False
+        self._window = None
         self._last_status = ""
         self._last_essay = ""
 
+    def bind(self, window) -> None:
+        self._window = window
+
     def append(self, text: str, kind: str = "trace") -> None:
-        # One scrub for every line this dock paints. Plain THINKING status,
-        # a tool errand that still carries an argument, and a tool-result
-        # line all land here. Streamed reasoning is scrubbed before publish;
-        # this still catches a whole term that arrived in one chunk.
         line = redact((text or "").strip())
         if not line:
+            return
+        window = self._window
+        if window is None:
             return
         if kind in {"status", "model"}:
             if line == self._last_status:
                 return
             self._last_status = line
-            self.footer.setText(line)
-            self.footer.setVisible(True)
+            self._route_status(window, line)
             return
-        self._stream_open = False
         if line == self._last_essay:
             return
         self._last_essay = line
-        self.view.appendPlainText(line)
-        bar = self.view.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        window.chat.add_thought_line(line)
 
     def extend_stream(self, chunk: str) -> None:
-        """Model-think tokens as one wrapping paragraph. No console prefix."""
         if not chunk:
             return
         chunk = redact(chunk)
-        if not chunk:
+        if not chunk or self._window is None:
             return
-        cursor = self.view.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        if not self._stream_open:
-            existing = self.view.toPlainText()
-            if existing and not existing.endswith("\n"):
-                cursor.insertText("\n")
-            self._stream_open = True
-        cursor.insertText(chunk)
-        self.view.setTextCursor(cursor)
-        bar = self.view.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        self._window.chat.extend_thought(chunk)
 
     def clear(self) -> None:
-        self._stream_open = False
         self._last_status = ""
         self._last_essay = ""
-        self.view.clear()
-        self.footer.clear()
-        self.footer.hide()
+
+    def _route_status(self, window, line: str) -> None:
+        dock = getattr(window, "persona_dock", None)
+        panel = getattr(window, "persona_panel", None)
+        open_dock = dock is not None and not dock.isHidden()
+        if open_dock and panel is not None:
+            panel.show_status(line)
+        busy = bool(getattr(window, "_turn_busy", False))
+        if busy:
+            window.chat.add_thought_line(line)
+            return
+        if not open_dock:
+            window.chat.show_idle_note(line)

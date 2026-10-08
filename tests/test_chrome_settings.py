@@ -58,9 +58,7 @@ def test_recent_workspace_files_roundtrip(tmp_path: Path, monkeypatch) -> None:
     from arelis.ui.layout_store import load_recent_workspace_files, push_recent_workspace_file
 
     ini = tmp_path / "ui_layout.ini"
-    monkeypatch.setattr(
-        "arelis.ui.layout_store._settings_path", lambda: ini
-    )
+    monkeypatch.setattr("arelis.ui.layout_store._settings_path", lambda: ini)
     assert load_recent_workspace_files() == []
     push_recent_workspace_file("arelis:README.md")
     push_recent_workspace_file("interferometer:notes.txt")
@@ -158,9 +156,7 @@ def test_settings_allow_tab(qt_app) -> None:
             "presence": {},
             "agent": {"confirm_browser": False, "confirm_send": True},
             "workspace": {
-                "named_roots": [
-                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
-                ]
+                "named_roots": [{"name": "arelis", "path": str(Path.cwd()), "read_only": False}]
             },
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },
@@ -206,9 +202,7 @@ def test_mail_and_texts_checkbox_is_locked(qt_app) -> None:
             "presence": {},
             "agent": {"confirm_send": False},
             "workspace": {
-                "named_roots": [
-                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
-                ]
+                "named_roots": [{"name": "arelis", "path": str(Path.cwd()), "read_only": False}]
             },
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },
@@ -261,24 +255,16 @@ def test_hit_test_resize_corners(qt_app) -> None:
 
     geo = w.frameGeometry()
     try:
-        assert (
-            hit_test_resize_at(w, geo.left() + 2, geo.top() + 2) == HTTOPLEFT
-        )
-        assert (
-            hit_test_resize_at(w, geo.left() + 2, geo.center().y()) == HTLEFT
-        )
-        assert (
-            hit_test_resize_at(w, geo.center().x(), geo.bottom() - 2) == HTBOTTOM
-        )
+        assert hit_test_resize_at(w, geo.left() + 2, geo.top() + 2) == HTTOPLEFT
+        assert hit_test_resize_at(w, geo.left() + 2, geo.center().y()) == HTLEFT
+        assert hit_test_resize_at(w, geo.center().x(), geo.bottom() - 2) == HTBOTTOM
         assert hit_test_resize_at(w, geo.center().x(), geo.center().y()) is None
         # Cursor-based helper still works.
         from arelis.ui import window_resize as wr
 
         original = wr.QCursor.pos
         try:
-            wr.QCursor.pos = staticmethod(
-                lambda: QPoint(geo.left() + 2, geo.center().y())
-            )
+            wr.QCursor.pos = staticmethod(lambda: QPoint(geo.left() + 2, geo.center().y()))
             assert hit_test_resize(w) == HTLEFT
         finally:
             wr.QCursor.pos = original
@@ -512,7 +498,7 @@ def test_every_dock_keeps_an_object_name() -> None:
 
     src = Path("arelis/ui/window_build.py").read_text(encoding="utf-8")
     for dock in (
-        "ThinkingDock",
+        "PersonaDock",
         "WorkspaceDock",
         "HistoryDock",
         "CameraDock",
@@ -531,7 +517,7 @@ def test_view_menu_omits_settings() -> None:
     start = src.index("def _show_view_menu")
     end = src.index("\n    def ", start + 1)
     body = src[start:end]
-    assert "act_thinking" in body
+    assert "act_persona" in body
     assert "act_settings" not in body
     assert "menu.addAction(self.act_settings)" not in body
     assert 'addMenu(tr("themes"))' in body
@@ -548,9 +534,7 @@ def test_settings_has_no_theme_tab(qt_app) -> None:
             "voice": {},
             "presence": {},
             "workspace": {
-                "named_roots": [
-                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
-                ]
+                "named_roots": [{"name": "arelis", "path": str(Path.cwd()), "read_only": False}]
             },
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },
@@ -618,9 +602,7 @@ def test_settings_opens_notify_tab(qt_app) -> None:
             "voice": {},
             "presence": {},
             "workspace": {
-                "named_roots": [
-                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
-                ]
+                "named_roots": [{"name": "arelis", "path": str(Path.cwd()), "read_only": False}]
             },
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },
@@ -688,9 +670,7 @@ def test_notify_qr_keeps_its_full_square(qt_app) -> None:
             "voice": {},
             "presence": {},
             "workspace": {
-                "named_roots": [
-                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
-                ]
+                "named_roots": [{"name": "arelis", "path": str(Path.cwd()), "read_only": False}]
             },
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },

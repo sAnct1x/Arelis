@@ -9,6 +9,16 @@ from __future__ import annotations
 from PySide6.QtTest import QTest
 
 
+def _status_line(window) -> str:
+    """Status the operator can see: her caption, the progress line, or a thought."""
+    panel = getattr(window, "persona_panel", None)
+    caption = panel.status_text() if panel is not None else ""
+    lines = [caption, window.chat.progress.text()]
+    for thought in getattr(window.chat, "_thoughts", ()):
+        lines.extend(thought.lines)
+    return "\n".join(lines)
+
+
 def _short_ceiling(window, seconds: float = 0.08) -> None:
     ui = window.config.setdefault("ui", {})
     ui["hung_turn_s"] = seconds
@@ -40,8 +50,8 @@ def test_hung_ceiling_unlocks_without_stop(arelis_window, qt_app) -> None:
     shown = window.chat.view.toPlainText()
     assert "hung" in shown.lower()
     assert "stop requested" not in shown.lower()
-    assert "stop requested" not in window.thinking.footer.text().lower()
-    assert "hung" in window.thinking.footer.text().lower()
+    assert "stop requested" not in _status_line(window).lower()
+    assert "hung" in _status_line(window).lower()
     assert not window._hung_watchdog.isActive()
     assert not window._busy_watchdog.isActive()
 
@@ -55,14 +65,14 @@ def test_stop_cancels_the_hung_ceiling(arelis_window, qt_app) -> None:
     assert not window._hung_watchdog.isActive()
     assert window._turn_busy
     assert window._busy_watchdog.isActive()
-    assert "stop requested" in window.thinking.footer.text()
+    assert "stop requested" in _status_line(window)
 
     QTest.qWait(350)
 
     assert window._turn_busy
     shown = window.chat.view.toPlainText()
     assert "hung" not in shown.lower()
-    assert "stop requested" in window.thinking.footer.text()
+    assert "stop requested" in _status_line(window)
 
 
 def test_clearing_busy_disarms_the_countdown(arelis_window) -> None:
@@ -132,7 +142,7 @@ def test_hung_ceiling_wraps_up_when_work_is_in_hand(arelis_window, qt_app) -> No
     assert window._hung_watchdog.remainingTime() > 5000
     shown = window.chat.view.toPlainText().lower()
     assert "hung" not in shown
-    assert "wrapping up" in window.thinking.footer.text().lower()
+    assert "wrapping up" in _status_line(window).lower()
     assert "wrapping" in window.chat.progress.text().lower()
 
 

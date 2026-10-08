@@ -109,7 +109,11 @@ class WindowChrome:
         """Hide instruments for a conversation-first composition."""
         ui_cfg = self.config.get("ui", {})
         if not ui_cfg.get("thinking_open", False):
-            self.think_dock.hide()
+            self._persona_adjusting = True
+            try:
+                self.persona_dock.hide()
+            finally:
+                self._persona_adjusting = False
         if not ui_cfg.get("workspace_open", False):
             self.work_dock.hide()
         if not ui_cfg.get("camera_open", False):
@@ -120,13 +124,8 @@ class WindowChrome:
             cal.hide()
 
     def _on_thinking_status_clicked(self) -> None:
-        """The status line is a control: open Thinking, or pulse that plate."""
-        # isVisible() is false whenever the parent window is hidden (tests, tray),
-        # so the open/closed latch is isHidden() — same as the rest of the UI.
-        if not self.think_dock.isHidden():
-            self._pulse_thinking_instrument()
-            return
-        self._reveal_dock(self.think_dock, self.act_thinking, asked=True)
+        """The status line opens this turn's thinking in the chat."""
+        self.chat.expand_thinking()
 
     def _pulse_thinking_instrument(self) -> None:
         """One short amber hairline on the thinking plate, then rest."""
@@ -182,13 +181,14 @@ class WindowChrome:
             frame.update()
 
     def _build_view_actions(self) -> None:
-        self.act_thinking = QAction("thinking", self)
-        self.act_thinking.setCheckable(True)
-        self.act_thinking.setChecked(self.think_dock.isVisible())
-        self.act_thinking.setShortcut(QKeySequence("Ctrl+1"))
-        self.act_thinking.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
-        self.act_thinking.triggered.connect(self._toggle_thinking)
-        self.addAction(self.act_thinking)
+        self.act_persona = QAction("arelis", self)
+        self.act_persona.setCheckable(True)
+        self.act_persona.setChecked(self.persona_dock.isVisible())
+        self.act_persona.setShortcut(QKeySequence("Ctrl+1"))
+        self.act_persona.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_persona.triggered.connect(self._toggle_persona)
+        self.addAction(self.act_persona)
+        self.act_thinking = self.act_persona
 
         self.act_workspace = QAction("workspace", self)
         self.act_workspace.setCheckable(True)
@@ -553,7 +553,7 @@ class WindowChrome:
         widths: list[int] = []
         for dock in (
             self.history_dock,
-            self.think_dock,
+            self.persona_dock,
             self.work_dock,
             self.camera_dock,
         ):
@@ -603,7 +603,7 @@ class WindowChrome:
         self._sync_view_checks()
         menu = QMenu(self)
         menu.setAccessibleName("View")
-        menu.addAction(self.act_thinking)
+        menu.addAction(self.act_persona)
         menu.addAction(self.act_workspace)
         menu.addAction(self.act_history)
         menu.addAction(self.act_notifications)
@@ -661,9 +661,9 @@ class WindowChrome:
 
     def _sync_view_checks(self) -> None:
         """Keep View-menu checkmarks aligned with the docks that are actually up."""
-        if not hasattr(self, "act_thinking"):
+        if not hasattr(self, "act_persona"):
             return
-        self.act_thinking.setChecked(self.think_dock.isVisible())
+        self.act_persona.setChecked(self.persona_dock.isVisible())
         self.act_workspace.setChecked(self.work_dock.isVisible())
         self.act_history.setChecked(self.history_dock.isVisible())
         self.act_notifications.setChecked(self.notify_inbox.isVisible())
@@ -755,11 +755,11 @@ class WindowChrome:
 
     def _reset_layout(self) -> None:
         self.camera.stop()
-        self.think_dock.setFloating(False)
+        self.persona_dock.setFloating(False)
         self.work_dock.setFloating(False)
         self.history_dock.setFloating(False)
         self.camera_dock.setFloating(False)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.think_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.persona_dock)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.work_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.history_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.camera_dock)
@@ -772,7 +772,7 @@ class WindowChrome:
         self._calendar_sync_watchdog.stop()
         self.sms_chats.hide_all()
         self._apply_calm_instrument_defaults()
-        self.act_thinking.setChecked(self.think_dock.isVisible())
+        self.act_persona.setChecked(self.persona_dock.isVisible())
         self.act_workspace.setChecked(self.work_dock.isVisible())
         self.act_history.setChecked(False)
         self.act_notifications.setChecked(False)

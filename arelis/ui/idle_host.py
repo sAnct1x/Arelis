@@ -26,17 +26,21 @@ def idle_eligible(window) -> bool:
 def sync_idle_mode(window) -> None:
     idle = idle_eligible(window)
     window.conversation.set_idle_mode(idle)
-    instruments = any(
-        not dock.isHidden()
-        for dock in (
-            window.think_dock,
-            window.work_dock,
-            window.history_dock,
-            window.camera_dock,
+    instruments = (
+        any(
+            not dock.isHidden()
+            for dock in (
+                window.persona_dock,
+                window.work_dock,
+                window.history_dock,
+                window.camera_dock,
+            )
         )
-    ) or (not window.notify_inbox.isHidden()) or (not window.contacts_inbox.isHidden()) or (
-        not window.calendar_window.isHidden()
-    ) or (not window.world_window.isHidden())
+        or (not window.notify_inbox.isHidden())
+        or (not window.contacts_inbox.isHidden())
+        or (not window.calendar_window.isHidden())
+        or (not window.world_window.isHidden())
+    )
     filament = active_theme() == "filament"
     window.readiness_strip.setVisible((not idle or instruments) and not filament)
     empty = getattr(window.chat, "empty", None)
@@ -59,7 +63,7 @@ def return_to_idle(window) -> None:
     """Esc on an empty thread: close instruments and show Orbit."""
     if window.chat.has_messages:
         return
-    window.think_dock.hide()
+    window.persona_dock.hide()
     window.work_dock.hide()
     window.history_dock.hide()
     window.camera_dock.hide()
@@ -117,7 +121,7 @@ def enter_away_rest(window) -> None:
         arm_away_rest_timer(window)
         return
     hidden = {
-        "thinking": not window.think_dock.isHidden(),
+        "thinking": not window.persona_dock.isHidden(),
         "workspace": not window.work_dock.isHidden(),
         "history": not window.history_dock.isHidden(),
         "camera": not window.camera_dock.isHidden(),
@@ -129,7 +133,7 @@ def enter_away_rest(window) -> None:
         return
     window._away_hidden = hidden
     window._away_resting = True
-    window.think_dock.hide()
+    window.persona_dock.hide()
     window.work_dock.hide()
     window.history_dock.hide()
     window.camera_dock.hide()
@@ -165,7 +169,7 @@ def wake_from_away_rest(window) -> None:
     window._away_resting = False
     window._away_hidden = {}
     if hidden.get("thinking"):
-        window.think_dock.show()
+        window.persona_dock.show()
     if hidden.get("workspace"):
         window.work_dock.show()
     if hidden.get("history"):
@@ -264,8 +268,7 @@ def refresh_idle_face(window) -> None:
     elif vc is not None and bool(getattr(vc, "listening", False)):
         listening = "ON"
     elif (
-        window.conversation.mic_btn.isChecked()
-        or window.conversation.conversation_btn.isChecked()
+        window.conversation.mic_btn.isChecked() or window.conversation.conversation_btn.isChecked()
     ):
         listening = "ON"
     idle.set_readout(ollama=ollama, listening=listening)
@@ -274,10 +277,7 @@ def refresh_idle_face(window) -> None:
 def bind_idle(window) -> None:
     overlay = window.conversation.notify_overlay
     overlay.collapsed.connect(lambda: sync_idle_mode(window))
-    window.conversation.idle_conditions_changed.connect(
-        lambda: sync_idle_mode(window)
-    )
+    window.conversation.idle_conditions_changed.connect(lambda: sync_idle_mode(window))
     window.conversation.input.textChanged.connect(lambda: note_engagement(window))
     window.readiness_updated.connect(lambda snap: on_idle_readiness(window, snap))
     window._away_timer.timeout.connect(lambda: enter_away_rest(window))
-

@@ -17,6 +17,7 @@ counted.
 
 Scenarios: --maximized, --docks, --float, --quit (tray Quit instead of restore).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -54,9 +55,7 @@ def _visible_top_levels() -> list[tuple[int, str, str]]:
     found: list[tuple[int, str, str]] = []
     me = os.getpid()
 
-    proc = ctypes.WINFUNCTYPE(
-        ctypes.c_bool, wintypes.HWND, wintypes.LPARAM
-    )
+    proc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
 
     def _visit(hwnd: int, _param: int) -> bool:
         pid = wintypes.DWORD()
@@ -127,7 +126,14 @@ def main() -> int:
     threading.Thread(target=loop_thread, name="arelis-restore-asyncio", daemon=True).start()
 
     window = ArelisWindow(
-        config, bridge, loop, bus, voice, store=store, restore_session_id=None, indexer=indexer,
+        config,
+        bridge,
+        loop,
+        bus,
+        voice,
+        store=store,
+        restore_session_id=None,
+        indexer=indexer,
         router=router,
     )
     window.chat.add_user("TRAY RESTORE CHECK")
@@ -140,7 +146,7 @@ def main() -> int:
     window.setup_tray(app)
     maximized = "--maximized" in sys.argv
     if "--docks" in sys.argv:
-        for dock in (window.think_dock, window.work_dock, window.history_dock):
+        for dock in (window.persona_dock, window.work_dock, window.history_dock):
             dock.setFloating(False)
             dock.show()
     quit_scenario = "--quit" in sys.argv or "--quitbare" in sys.argv
@@ -148,14 +154,14 @@ def main() -> int:
     if floated:
         from arelis.ui.app import _apply_floating_dock_chrome, _glassify_floating_dock
 
-        window.think_dock.show()
-        window.think_dock.setFloating(True)
+        window.persona_dock.show()
+        window.persona_dock.setFloating(True)
         app.processEvents()
-        _apply_floating_dock_chrome(window.think_dock, True)
-        _glassify_floating_dock(window.think_dock)
-        window.think_dock.move(1500, 300)
-        window.think_dock.resize(420, 520)
-        window.think_dock.show()
+        _apply_floating_dock_chrome(window.persona_dock, True)
+        _glassify_floating_dock(window.persona_dock)
+        window.persona_dock.move(1500, 300)
+        window.persona_dock.resize(420, 520)
+        window.persona_dock.show()
     if maximized:
         window.showMaximized()
     else:
@@ -166,7 +172,7 @@ def main() -> int:
     report: dict[str, object] = {"scenario": "maximized" if maximized else "normal"}
 
     def _float_state() -> tuple[bool, bool, bool, tuple[int, int, int, int]]:
-        dock = window.think_dock
+        dock = window.persona_dock
         return (
             dock.isVisible(),
             dock.isFloating(),
