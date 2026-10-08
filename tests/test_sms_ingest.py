@@ -6,6 +6,7 @@ import asyncio
 import socket
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import httpx
@@ -27,6 +28,14 @@ from arelis.sms_ingest import (
     publish_inbound,
 )
 from arelis.tools.inbound_sms import InboundSmsTool
+
+
+@pytest.fixture(autouse=True)
+def _fresh_lan_lookup() -> Iterator[None]:
+    """A stuck getaddrinfo in an earlier test must not leak into this one."""
+    sms_ingest._reset_hostname_lookup()
+    yield
+    sms_ingest._reset_hostname_lookup()
 
 
 def _book(**people: dict) -> dict[str, Contact]:
@@ -156,6 +165,45 @@ def test_list_lan_ipv4_returns_when_getaddrinfo_hangs(monkeypatch: pytest.Monkey
     if worker is not None:
         worker.join(timeout=2.0)
         assert not worker.is_alive()
+
+
+def test_reset_clears_a_stuck_hostname_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hung resolver hides hostname addresses until the lookup state is reset.
+
+    That is what macOS CI did: an earlier real getaddrinfo never returned, and
+    every later call reused that thread. Resetting starts a new lookup, so
+    these tests do not depend on order.
+    """
+    release = threading.Event()
+    entered = threading.Event()
+
+    def hang(*_args: object, **_kwargs: object) -> list[object]:
+        entered.set()
+        release.wait()
+        return []
+
+    def hostname_only(*_args: object, **_kwargs: object) -> list[tuple]:
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.2", 0))]
+
+    monkeypatch.setattr(sms_ingest.socket, "getaddrinfo", hang)
+    monkeypatch.setattr(
+        sms_ingest.socket,
+        "socket",
+        lambda *_args, **_kwargs: _RouteSocket("192.168.1.9"),
+    )
+    stuck: threading.Thread | None = None
+    try:
+        assert sms_ingest.list_lan_ipv4() == ["192.168.1.9"]
+        assert entered.is_set()
+        monkeypatch.setattr(sms_ingest.socket, "getaddrinfo", hostname_only)
+        assert sms_ingest.list_lan_ipv4() == ["192.168.1.9"]
+        stuck = sms_ingest._lookup_thread
+        sms_ingest._reset_hostname_lookup()
+        assert sms_ingest.list_lan_ipv4() == ["192.168.1.9", "10.0.0.2"]
+    finally:
+        release.set()
+        if stuck is not None:
+            stuck.join(timeout=2.0)
 
 
 def test_load_ingest_token(tmp_path: Path, monkeypatch) -> None:
