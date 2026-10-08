@@ -218,9 +218,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         if p.get("source") in {"voice", "mobile"}:
             text = p.get("text") or ""
             attachments = p.get("attachments") if p.get("source") == "mobile" else None
-            window._mobile_foreign = p.get("source") == "mobile" and bool(
-                p.get("foreign")
-            )
+            window._mobile_foreign = p.get("source") == "mobile" and bool(p.get("foreign"))
             if not window._mobile_foreign:
                 window.chat.add_user(text, attachments=list(attachments or []) or None)
             window._set_busy(True)
@@ -249,9 +247,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         from arelis.core.desk_guide import desk_guide_text, match_desk_guide
 
         if match_desk_guide(said):
-            window.bus.publish(
-                Event(EventType.VOICE_SPEAK, {"text": desk_guide_text()})
-            )
+            window.bus.publish(Event(EventType.VOICE_SPEAK, {"text": desk_guide_text()}))
     elif t == EventType.PHYSICS_VERB:
         # Closed verbs never publish USER_MESSAGE, so conversation would
         # wait for a turn that does not exist. Drop the awaiting latch
@@ -288,9 +284,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         if window._speech_expected:
             window._speech_watchdog.start(SPEECH_WATCHDOG_MS)
         if window.speech_player is not None:
-            window.speech_player.enqueue(
-                str(p.get("path") or ""), int(p.get("utterance") or 0)
-            )
+            window.speech_player.enqueue(str(p.get("path") or ""), int(p.get("utterance") or 0))
     elif t == EventType.VOICE_SPEECH_DONE:
         from arelis.ui.voice_host import on_speech_synthesized
 
@@ -456,7 +450,7 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.thinking.extend_stream(text)
         else:
             window.thinking.append(text, kind="trace")
-        window._reveal_dock(window.think_dock, window.act_thinking)
+        window._reveal_dock(window.persona_dock, window.act_persona)
     elif t == EventType.STATUS:
         msg = p.get("message", "")
         if p.get("image_progress"):
@@ -533,7 +527,7 @@ def dispatch_event(window: Any, event: Event) -> None:
                 spoken = headline
             window.bus.publish(Event(EventType.VOICE_SPEAK, {"text": spoken}))
         else:
-            window._reveal_dock(window.think_dock, window.act_thinking)
+            window._reveal_dock(window.persona_dock, window.act_persona)
         window.thinking.append(
             str(p.get("headline") or p.get("summary") or "waiting for you"),
             kind="tool",
@@ -564,7 +558,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         # the weather" is for her.
         window.chat.show_progress(tool_status_line(str(tool or ""), args))
         window.conversation.set_turn_visible(True)
-        window._reveal_dock(window.think_dock, window.act_thinking)
+        window._reveal_dock(window.persona_dock, window.act_persona)
         # The shimmer is set for every tool now, so image needs no special
         # case beyond its own Thinking line.
         if str(tool or "") in {"image", "research_report"}:
@@ -640,9 +634,7 @@ def dispatch_event(window: Any, event: Event) -> None:
             if p.get("ok"):
                 window.chat.add_system("Image ready: open in Workspace")
             else:
-                window.chat.add_system(
-                    tool_failure_notice("image", str(p.get("output") or ""))
-                )
+                window.chat.add_system(tool_failure_notice("image", str(p.get("output") or "")))
         if str(p.get("tool") or "") in {"image", "research_report"}:
             from arelis.ui.notify_host import finish_job
 
@@ -662,9 +654,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         if p.get("tool") in {"workspace", "analyze"}:
             payload_args = p.get("args") if isinstance(p.get("args"), dict) else {}
             action = str(
-                payload_args.get("action")
-                or window._workspace_tool_args.get("action")
-                or ""
+                payload_args.get("action") or window._workspace_tool_args.get("action") or ""
             )
             out = str(p.get("output") or "")
             status = status_for_tool_result(
@@ -681,16 +671,12 @@ def dispatch_event(window: Any, event: Event) -> None:
                 # boundary first: "Not a file: C:/typo.csv" is the whole
                 # answer and passes through, while analyze's own advice to
                 # the model — "Call vision(path=…) for an image" — does not.
-                window.chat.add_system(
-                    tool_failure_notice(str(p.get("tool") or ""), str(out))
-                )
+                window.chat.add_system(tool_failure_notice(str(p.get("tool") or ""), str(out)))
                 window._reveal_dock(window.work_dock, window.act_workspace)
         if p.get("tool") == "workspace" and p.get("ok"):
             payload_args = p.get("args") if isinstance(p.get("args"), dict) else {}
             action = str(
-                payload_args.get("action")
-                or window._workspace_tool_args.get("action")
-                or ""
+                payload_args.get("action") or window._workspace_tool_args.get("action") or ""
             )
             display = str(data.get("path") or "")
             abs_path = str(data.get("abs_path") or "")
@@ -706,16 +692,12 @@ def dispatch_event(window: Any, event: Event) -> None:
                     window._reveal_dock(window.work_dock, window.act_workspace)
                 elif target.is_file():
                     try:
-                        content = Path(read_from).read_text(
-                            encoding="utf-8", errors="replace"
-                        )
+                        content = Path(read_from).read_text(encoding="utf-8", errors="replace")
                         placed = window.workspace.set_file(
                             display, content, root_name=root_name, abs_path=abs_path
                         )
                         if placed:
-                            window.workspace.set_recent(
-                                push_recent_workspace_file(display)
-                            )
+                            window.workspace.set_recent(push_recent_workspace_file(display))
                             if action in {"write", "edit", "keep"}:
                                 record_artifact(
                                     window,
@@ -741,9 +723,7 @@ def dispatch_event(window: Any, event: Event) -> None:
                             f"editor: {plain_reason(exc)}. The version on disk is mine; "
                             "open the file again to see it."
                         )
-                        window.thinking.append(
-                            f"workspace read-back failed: {exc}", kind="status"
-                        )
+                        window.thinking.append(f"workspace read-back failed: {exc}", kind="status")
                 else:
                     # ok=True naming a path that is neither a file nor a
                     # directory. The editor cannot move, and staying quiet
@@ -805,17 +785,13 @@ def dispatch_event(window: Any, event: Event) -> None:
                 open_local_file(abs_path)
             except OSError as exc:
                 leaf = Path(abs_path).name or "that file"
-                window.chat.add_system(
-                    f"I could not open {leaf}. {plain_reason(exc)}"
-                )
+                window.chat.add_system(f"I could not open {leaf}. {plain_reason(exc)}")
         if abs_path and p.get("reveal"):
             try:
                 reveal_local_file(abs_path)
             except OSError as exc:
                 leaf = Path(abs_path).name or "that file"
-                window.chat.add_system(
-                    f"I could not show {leaf}. {plain_reason(exc)}"
-                )
+                window.chat.add_system(f"I could not show {leaf}. {plain_reason(exc)}")
     elif t == EventType.SMS_RECEIVED:
         from arelis.ui.sms_host import on_sms_received
 
@@ -905,4 +881,3 @@ def _show_run_log(window, payload: dict) -> None:
     title = f"{name}  {cwd}".strip()
     window.workspace.show_log(title, str(payload.get("output") or ""))
     window._reveal_dock(window.work_dock, window.act_workspace)
-

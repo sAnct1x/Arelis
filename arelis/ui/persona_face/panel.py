@@ -337,6 +337,7 @@ class PersonaPanel(QWidget):
                 level = self._level()
             # A broken level source must not stop her; fall back to the gentle envelope.
             except Exception:
+                # A level source is optional. If it raises, the mouth uses the synthetic envelope.
                 level = None
         speaking = self._speaking or self._state == "speaking"
         self.avatar.frame = self._motion.step(

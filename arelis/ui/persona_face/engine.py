@@ -469,10 +469,14 @@ def build_hair(counts: dict[str, int]) -> tuple[list, list]:
         velocity[inside, 0] += side[inside] * 1.5
         band = smooth((pos[:, 1] + 0.04) / 0.05) * (1.0 - smooth((pos[:, 1] - 0.22) / 0.06))
         velocity[:, 0] += side * restore * band
-        amp = 0.1 + 7.0 * float(smooth((step * ds - 0.45) / 0.9))
-        cx, cy = flow.curl(pos[:, 0], pos[:, 1])
-        velocity = velocity / (np.hypot(velocity[:, 0], velocity[:, 1])[:, None] + 1e-6)
-        velocity = velocity + amp * np.stack([cx, cy], 1)
+        # Long locks fall almost straight. Curl stays small and slow past the shoulders.
+        fall_amp = smooth((pos[:, 1] - 0.02) / 0.70)
+        amp = (0.04 + 0.18 * float(smooth((step * ds - 1.2) / 1.8))) * (1.0 - 0.9 * fall_amp)
+        cx, cy = flow.curl(pos[:, 0] * 0.28, pos[:, 1] * 0.22)
+        norm = np.hypot(velocity[:, 0], velocity[:, 1])[:, None] + 1e-6
+        velocity = velocity / norm
+        curl = np.stack([np.asarray(cx).reshape(-1), np.asarray(cy).reshape(-1)], 1)
+        velocity = velocity + np.asarray(amp).reshape(-1, 1) * curl
         velocity /= np.hypot(velocity[:, 0], velocity[:, 1])[:, None] + 1e-6
         pos = pos + velocity * ds
         path[step] = pos
@@ -652,7 +656,7 @@ class Rig:
         wisp_n = counts["wisp"]
         cloud = rng.normal(0.0, 0.9, (wisp_n, 2))
         cloud[:, 1] += rng.random(wisp_n) * 0.75
-        self.wisp = self.noise.advect(cloud, 16, 0.012)
+        self.wisp = self.noise.advect(cloud, 5, 0.005)
         tone = np.clip(
             self.noise.value(self.wisp[:, 0] * 0.8, self.wisp[:, 1] * 0.8) * 3.0 + 0.2, 0.0, 1.0
         )
@@ -670,7 +674,7 @@ class Rig:
         return canvas.x, unstretch_y(canvas.y)
 
 
-def edge_window(height: int, width: int, margin: float = 0.025, bottom: float = 0.16) -> np.ndarray:
+def edge_window(height: int, width: int, margin: float = 0.08, bottom: float = 0.20) -> np.ndarray:
     y = np.linspace(0.0, 1.0, height, dtype=np.float32)[:, None]
     x = np.linspace(0.0, 1.0, width, dtype=np.float32)[None, :]
     x_fade = smooth(x / margin) * smooth((1.0 - x) / margin)
@@ -756,7 +760,7 @@ def _splat_sparks(canvas: Canvas, rig: Rig, mask: np.ndarray, weight: np.ndarray
         * weight[sparks]
     )
     pts = rig.world(hair["points"][sparks] + hair["spark_jit"][sparks])
-    col = lerp(PAL["face"], PAL["hair1"], hair["color"][sparks] * 0.5)
+    col = lerp(PAL["hair0"], PAL["hair1"], 0.25 + 0.45 * hair["color"][sparks])
     canvas.splat(pts, gain, col, 0.8)
 
 
@@ -787,7 +791,12 @@ def paint_hair_layers(rig: Rig, width: int) -> dict[str, np.ndarray]:
     colored, _dark = front.base_light()
     bases["front"] = colored
     total = bases["root"] + bases["mid"] + bases["tip"] + bases["front"]
-    shown = film(total, 0.82, width)
+    shown = film(total, 0.58, width)
+    # Crown and fringe were blowing out to white along the part. Hold them in lavender.
+    peak = shown.max(axis=-1, keepdims=True)
+    hot = np.clip((peak - 0.38) / 0.62, 0.0, 1.0).astype(np.float32)
+    lavender = np.array([0.58, 0.46, 0.82], dtype=np.float32)
+    shown = shown * (1.0 - 0.7 * hot) + lavender * peak * (0.7 * hot)
     energy = np.maximum(total.sum(axis=-1, keepdims=True), 1e-5)
     layers: dict[str, np.ndarray] = {}
     for name, part in bases.items():

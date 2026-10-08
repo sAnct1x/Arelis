@@ -6,7 +6,7 @@ functions from hosts. Do not reopen ``app.py`` for a View toggle.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QDockWidget, QTabBar, QWidget
 
@@ -30,30 +30,43 @@ def _set_shell_margins(shell: QWidget | None, margins: tuple[int, int, int, int]
         layout.setContentsMargins(*margins)
 
 
+class _PersonaCloseWatch(QObject):
+    """The dock's close button is a hand close. hide() from the app is not."""
+
+    def __init__(self, window) -> None:
+        super().__init__(window)
+        self._window = window
+
+    def eventFilter(self, obj, event) -> bool:
+        window = self._window
+        if (
+            obj is window.persona_dock
+            and event.type() == QEvent.Type.Close
+            and not getattr(window, "_persona_adjusting", False)
+        ):
+            window._persona_user_closed = True
+        return False
+
+
 def bind_docks(window) -> None:
-    """Wire think/work/history/camera docks to the extracted layout slots."""
-    window.think_dock.visibilityChanged.connect(
-        lambda visible, d=window.think_dock: on_dock_visibility(
-            window, visible, sender=d
-        )
+    """Wire her dock and the other instruments to the extracted layout slots."""
+    watch = _PersonaCloseWatch(window)
+    window.persona_dock.installEventFilter(watch)
+    window._persona_close_watch = watch
+    window.persona_dock.visibilityChanged.connect(
+        lambda visible, d=window.persona_dock: on_dock_visibility(window, visible, sender=d)
     )
     window.work_dock.visibilityChanged.connect(
-        lambda visible, d=window.work_dock: on_dock_visibility(
-            window, visible, sender=d
-        )
+        lambda visible, d=window.work_dock: on_dock_visibility(window, visible, sender=d)
     )
     window.history_dock.visibilityChanged.connect(
-        lambda visible, d=window.history_dock: on_dock_visibility(
-            window, visible, sender=d
-        )
+        lambda visible, d=window.history_dock: on_dock_visibility(window, visible, sender=d)
     )
     window.camera_dock.visibilityChanged.connect(
-        lambda visible, d=window.camera_dock: on_dock_visibility(
-            window, visible, sender=d
-        )
+        lambda visible, d=window.camera_dock: on_dock_visibility(window, visible, sender=d)
     )
     for dock in (
-        window.think_dock,
+        window.persona_dock,
         window.work_dock,
         window.history_dock,
         window.camera_dock,
@@ -61,18 +74,10 @@ def bind_docks(window) -> None:
         dock.dockLocationChanged.connect(lambda _area: sync_panel_margins(window))
         dock.topLevelChanged.connect(lambda _floating: sync_panel_margins(window))
         dock.topLevelChanged.connect(lambda _floating: window._flush_glass_surface())
-    window.history_dock.topLevelChanged.connect(
-        lambda _f: stack_left_instruments(window)
-    )
-    window.camera_dock.topLevelChanged.connect(
-        lambda _f: stack_left_instruments(window)
-    )
-    window.history_dock.dockLocationChanged.connect(
-        lambda _a: stack_left_instruments(window)
-    )
-    window.camera_dock.dockLocationChanged.connect(
-        lambda _a: stack_left_instruments(window)
-    )
+    window.history_dock.topLevelChanged.connect(lambda _f: stack_left_instruments(window))
+    window.camera_dock.topLevelChanged.connect(lambda _f: stack_left_instruments(window))
+    window.history_dock.dockLocationChanged.connect(lambda _a: stack_left_instruments(window))
+    window.camera_dock.dockLocationChanged.connect(lambda _a: stack_left_instruments(window))
 
 
 def reveal_dock(
@@ -92,7 +97,7 @@ def reveal_dock(
     if active_theme() == "filament" and not asked:
         if not dock.isVisible():
             name = {
-                window.think_dock: "thinking",
+                window.persona_dock: "thinking",
                 window.work_dock: "files",
                 window.history_dock: "history",
                 window.camera_dock: "camera",
@@ -104,6 +109,8 @@ def reveal_dock(
         return
     if getattr(window, "_away_resting", False):
         return
+    if dock is window.persona_dock and not asked and getattr(window, "_persona_user_closed", False):
+        return
     if dock.isVisible():
         return
     dock.show()
@@ -112,7 +119,7 @@ def reveal_dock(
     window._animate_dock(dock)
     if active_theme() == "filament":
         names = {
-            window.think_dock: "thinking",
+            window.persona_dock: "thinking",
             window.work_dock: "files",
             window.history_dock: "history",
             window.camera_dock: "camera",
@@ -120,14 +127,26 @@ def reveal_dock(
         window._filament_present_tile(dock, names.get(dock, "files"))
 
 
-def toggle_thinking(window, checked: bool) -> None:
+def toggle_persona(window, checked: bool) -> None:
     from arelis.ui.idle_host import note_engagement
 
     note_engagement(window)
-    window.think_dock.setVisible(checked)
     if checked:
-        window._animate_dock(window.think_dock)
-        window._filament_present_tile(window.think_dock, "thinking")
+        window._persona_user_closed = False
+    else:
+        window._persona_user_closed = True
+    window._persona_adjusting = True
+    try:
+        window.persona_dock.setVisible(checked)
+    finally:
+        window._persona_adjusting = False
+    if checked:
+        window._animate_dock(window.persona_dock)
+        window._filament_present_tile(window.persona_dock, "thinking")
+
+
+def toggle_thinking(window, checked: bool) -> None:
+    toggle_persona(window, checked)
 
 
 def toggle_workspace(window, checked: bool) -> None:
@@ -265,11 +284,7 @@ def on_dock_visibility(window, visible: bool, *, sender=None) -> None:
         chrome_applying(sender) or getattr(sender, "_arelis_parked", False)
     ):
         return
-    if (
-        not visible
-        and active_theme() == "filament"
-        and isinstance(sender, QDockWidget)
-    ):
+    if not visible and active_theme() == "filament" and isinstance(sender, QDockWidget):
         flush_tile_geom(sender)
     window._sync_view_checks()
     window._place_filament_floats()
@@ -284,14 +299,12 @@ def on_dock_visibility(window, visible: bool, *, sender=None) -> None:
     from arelis.ui.idle_host import sync_idle_mode
 
     sync_idle_mode(window)
+    if sender is window.persona_dock:
+        window.conversation._sync_parked_orbit(window.conversation._idle_mode)
 
 
 def docked_in(window, dock: QDockWidget, area: Qt.DockWidgetArea) -> bool:
-    return (
-        dock.isVisible()
-        and not dock.isFloating()
-        and window.dockWidgetArea(dock) == area
-    )
+    return dock.isVisible() and not dock.isFloating() and window.dockWidgetArea(dock) == area
 
 
 def left_column_member(window, dock: QDockWidget) -> bool:
@@ -347,16 +360,10 @@ def sync_panel_margins(window) -> None:
     """Keep outer and inter-panel gutters equal (history | chat | thinking)."""
     left = docked_in(
         window, window.history_dock, Qt.DockWidgetArea.LeftDockWidgetArea
-    ) or docked_in(
-        window, window.camera_dock, Qt.DockWidgetArea.LeftDockWidgetArea
-    )
+    ) or docked_in(window, window.camera_dock, Qt.DockWidgetArea.LeftDockWidgetArea)
     # Thinking on the right abuts the chat glass.
-    right = docked_in(
-        window, window.think_dock, Qt.DockWidgetArea.RightDockWidgetArea
-    )
-    bottom = docked_in(
-        window, window.work_dock, Qt.DockWidgetArea.BottomDockWidgetArea
-    )
+    right = docked_in(window, window.persona_dock, Qt.DockWidgetArea.RightDockWidgetArea)
+    bottom = docked_in(window, window.work_dock, Qt.DockWidgetArea.BottomDockWidgetArea)
 
     # Chat: OUTER against the window when a side is empty; HALF when a dock
     # shares that edge (dock contributes the other HALF → gap == OUTER).
@@ -385,7 +392,7 @@ def sync_panel_margins(window) -> None:
             window._history_shell,
             (_PANEL_OUTER, _PANEL_TOP, _PANEL_HALF, _PANEL_BOTTOM),
         )
-    if window.think_dock.isFloating():
+    if window.persona_dock.isFloating():
         _set_shell_margins(window._think_shell, (0, 0, 0, 0))
     else:
         _set_shell_margins(
@@ -422,7 +429,7 @@ def sanitize_floating_docks(window) -> None:
     stay their own opaque HWNDs; calendar and world are not docks.
     """
     for dock in (
-        window.think_dock,
+        window.persona_dock,
         window.work_dock,
         window.history_dock,
         window.camera_dock,

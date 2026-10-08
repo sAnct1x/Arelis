@@ -33,7 +33,7 @@ from arelis.ui.window_docks import (
     toggle_contacts,
     toggle_history,
     toggle_notifications,
-    toggle_thinking,
+    toggle_persona,
     toggle_workspace,
 )
 from arelis.ui.world_host import (
@@ -54,8 +54,11 @@ class WindowAliases:
     def _reveal_dock(self, dock, action=None, *, asked: bool = False) -> None:
         return reveal_dock(self, dock, action, asked=asked)
 
+    def _toggle_persona(self, checked: bool) -> None:
+        return toggle_persona(self, checked)
+
     def _toggle_thinking(self, checked: bool) -> None:
-        return toggle_thinking(self, checked)
+        return toggle_persona(self, checked)
 
     def _toggle_workspace(self, checked: bool) -> None:
         return toggle_workspace(self, checked)

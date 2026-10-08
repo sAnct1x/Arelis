@@ -74,6 +74,7 @@ from arelis.ui.panels import (
     ThinkingPanel,
     WorkspacePanel,
 )
+from arelis.ui.persona_face import PersonaPanel
 from arelis.ui.readiness_strip import ReadinessStrip
 from arelis.ui.scale import default_window_size
 from arelis.ui.settings_host import (
@@ -270,7 +271,7 @@ class WindowBuild:
         )
         assert hasattr(self, "workspace_roots"), "Core state must be built before instruments"
         # Dockable instruments — full glass bodies, no broken native title chrome
-        self.thinking = ThinkingPanel()
+        self.thinking = ThinkingPanel(self)
         self.workspace = WorkspacePanel()
         self.history = HistoryPanel()
         self.contacts = ContactsPanel()
@@ -289,13 +290,17 @@ class WindowBuild:
         )
         self.workspace.set_recent(load_recent_workspace_files())
         refresh_desk(self)
-        self.think_host = InstrumentPanel("thinking", self.thinking)
+        self.persona_panel = PersonaPanel()
+        self.persona_panel.stop_speaking_requested.connect(self._on_persona_stop_speaking)
+        self.thinking.bind(self)
+        self.persona_host = InstrumentPanel("arelis", self.persona_panel)
+        self.think_host = self.persona_host
         self.work_host = InstrumentPanel("workspace", self.workspace)
         self.history_host = InstrumentPanel("history", self.history)
         self.camera_host = InstrumentPanel("camera", self.camera)
 
     def _build_docks(self) -> None:
-        assert hasattr(self, "think_host"), (
+        assert hasattr(self, "persona_host"), (
             "Instruments must be built before docks (docks wrap the instrument hosts)"
         )
         # The four dock object names below are not styling hooks — no QSS rule
@@ -303,21 +308,25 @@ class WindowBuild:
         # so they are what layout_store writes into ui_layout.ini and matches on
         # the way back. Drop one and that dock silently stops coming back where
         # it was left, days later, with nothing to connect it to.
-        self.think_dock = GlassDockWidget("thinking", self)
-        self.think_dock.setObjectName("ThinkingDock")
-        self._think_shell = _dock_shell(
-            self.think_host,
+        self._persona_user_closed = False
+        self._persona_adjusting = False
+        self.persona_dock = GlassDockWidget("arelis", self)
+        self.persona_dock.setObjectName("PersonaDock")
+        self.think_dock = self.persona_dock
+        self._persona_shell = _dock_shell(
+            self.persona_host,
             (_PANEL_HALF, _PANEL_TOP, _PANEL_OUTER, _PANEL_BOTTOM),
         )
-        self.think_dock.setWidget(self._think_shell)
+        self._think_shell = self._persona_shell
+        self.persona_dock.setWidget(self._persona_shell)
         # After setWidget, so the first surface pass reaches the shell and panel.
-        _hide_dock_title(self.think_dock)
-        self.think_dock.setAllowedAreas(
+        _hide_dock_title(self.persona_dock)
+        self.persona_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea
             | Qt.DockWidgetArea.RightDockWidgetArea
             | Qt.DockWidgetArea.BottomDockWidgetArea
         )
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.think_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.persona_dock)
 
         self.work_dock = GlassDockWidget("workspace", self)
         self.work_dock.setObjectName("WorkspaceDock")
@@ -369,7 +378,7 @@ class WindowBuild:
         # Without mins, QMainWindow will crush side docks to a few pixels.
         self._dock_min_width = 220
         for dock in (
-            self.think_dock,
+            self.persona_dock,
             self.history_dock,
             self.work_dock,
             self.camera_dock,
@@ -393,13 +402,15 @@ class WindowBuild:
         # and leaves 4K-at-150% alone (that screen is already ~1440 logical).
         opening = default_window_size(self.config)
         self.resize(opening)
-        self.think_dock.resize(320, 600)
+        self.persona_dock.resize(370, 600)
+        self.resizeDocks([self.persona_dock], [370], Qt.Orientation.Horizontal)
         self.history_dock.resize(280, 600)
         self._apply_calm_instrument_defaults()
 
         restored = restore_window_layout(self, opening)
         if not restored:
             self._apply_calm_instrument_defaults()
+        self._adopt_old_thinking_layout()
         # Seal restored floats now, before the first show. Do not redock them
         # after paint — that shrink used to leave a second orbit on the right.
         self._sanitize_floating_docks()
@@ -526,7 +537,7 @@ class WindowBuild:
         self._calendar_sync_watchdog.setSingleShot(True)
         self._job_tick = QTimer(self)
         self._job_tick.setInterval(1000)
-        
+
         self._atmosphere_timer = QTimer(self)
         self._atmosphere_timer.setInterval(100)
         self._atmosphere_timer.timeout.connect(self._tick_atmosphere)
@@ -583,3 +594,37 @@ class WindowBuild:
             # window is shown; a zero-delay shot waits one event-loop pass so
             # the bridge is connected before SESSION_LOADED comes back.
             self._later(0, lambda: request_session_load(self, self._restore_session_id or ""))
+
+    def _on_persona_stop_speaking(self) -> None:
+        from arelis.ui.voice_host import stop_speech
+
+        stop_speech(self)
+
+    def _adopt_old_thinking_layout(self) -> None:
+        """A layout saved by the old Thinking dock opens as her dock on the right."""
+        from arelis.ui.layout_store import settings
+
+        state = settings().value("state")
+        raw = b""
+        if state is not None:
+            try:
+                raw = bytes(state)
+            except TypeError:
+                raw = b""
+        text = raw.decode("latin1", "ignore").replace("\x00", "")
+        if "ThinkingDock" not in text or "PersonaDock" in text:
+            return
+        self._place_persona_dock()
+
+    def _place_persona_dock(self) -> None:
+        dock = self.persona_dock
+        self._persona_adjusting = True
+        try:
+            if dock.isFloating():
+                dock.setFloating(False)
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+            self.resizeDocks([dock], [370], Qt.Orientation.Horizontal)
+            ui_cfg = self.config.get("ui", {}) or {}
+            dock.setVisible(bool(ui_cfg.get("thinking_open", False)))
+        finally:
+            self._persona_adjusting = False

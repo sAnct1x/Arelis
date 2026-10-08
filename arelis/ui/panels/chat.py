@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -119,7 +121,7 @@ def _assistant_open() -> str:
     )
 
 
-_ASSISTANT_CLOSE = "</div></td><td width=\"18%\"></td></tr></table>"
+_ASSISTANT_CLOSE = '</div></td><td width="18%"></td></tr></table>'
 
 
 def _acts_html() -> str:
@@ -138,7 +140,37 @@ def _acts_html() -> str:
         f"</div>"
     )
 
+
 _CARET_GLYPHS = {"▍", "|", "▌"}
+_CHEVRON_CLOSED = ">"
+_CHEVRON_OPEN = "v"
+
+
+def _thought_phrase(seconds: float, done: bool) -> str:
+    whole = int(seconds)
+    if whole < 0:
+        whole = 0
+    if whole >= 60:
+        body = f"{whole // 60}m {whole % 60}s"
+    else:
+        body = f"{whole}s"
+    if done:
+        return f"Thought for {body}"
+    return f"Thinking for {body}"
+
+
+@dataclass
+class _Thought:
+    id: str
+    lines: list[str] = field(default_factory=list)
+    stream: str = ""
+    started: float = 0.0
+    sealed_at: float | None = None
+    open: bool = False
+    start: int | None = None
+    end: int | None = None
+    live: bool = True
+    painted: str = ""
 
 
 class ChatProgress(QLabel):
@@ -154,9 +186,9 @@ class ChatProgress(QLabel):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-        self.setToolTip("open thinking")
-        self.setAccessibleName("Thinking status")
-        self.setAccessibleDescription("open thinking")
+        self.setToolTip("show thinking")
+        self.setAccessibleName("show thinking")
+        self.setAccessibleDescription("show thinking")
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -267,6 +299,17 @@ class ChatPanel(QWidget):
         self._settle_soon.timeout.connect(self._pin_to_bottom)
         self._text_scale = 1.0
         self._parked_gutter = 0
+        self._thoughts: list[_Thought] = []
+        self._label_at: int | None = None
+        self._turn_busy = False
+        self._progress_from_turn = False
+        self._thought_timer = QTimer(self)
+        self._thought_timer.setInterval(1000)
+        self._thought_timer.timeout.connect(self._tick_thought)
+        self._idle_note_timer = QTimer(self)
+        self._idle_note_timer.setSingleShot(True)
+        self._idle_note_timer.setInterval(6000)
+        self._idle_note_timer.timeout.connect(self._clear_idle_note)
 
     @property
     def has_messages(self) -> bool:
@@ -284,6 +327,10 @@ class ChatPanel(QWidget):
     def refresh_bubble_wash(self) -> None:
         """Repaint message scrims after a theme change."""
         self._wash_bubbles()
+        for thought in self._thoughts:
+            thought.painted = ""
+            if thought.start is not None:
+                self._repaint_thought(thought)
 
     def _on_idle_session(self, session_id: str) -> None:
         self.session_clicked.emit(session_id)
@@ -326,15 +373,227 @@ class ChatPanel(QWidget):
         body = max(10, min(24, round(14 * self._text_scale)))
         # Inner pad only. The parked orbit uses layout contentsMargins, because
         # Qt rich-text tables ignore stylesheet padding-right.
-        self.view.setStyleSheet(
-            f"font-size: {body}px; padding-right: {SPACE['plate']}px;"
-        )
+        self.view.setStyleSheet(f"font-size: {body}px; padding-right: {SPACE['plate']}px;")
 
     def _ensure_view(self) -> None:
         if not self._has_messages:
             self.empty.hide()
             self.view.show()
             self._has_messages = True
+
+    def mark_turn(self, busy: bool) -> None:
+        self._turn_busy = bool(busy)
+        if busy:
+            if self._live_thought() is not None and not self._thought_timer.isActive():
+                self._thought_timer.start()
+            return
+        self._seal_live_thought()
+        live = self._live_thought()
+        if live is not None:
+            live.live = False
+        self._thought_timer.stop()
+
+    def add_thought_line(self, text: str) -> None:
+        line = (text or "").strip()
+        if not line:
+            return
+        thought = self._ensure_thought()
+        thought.lines.append(line)
+        self._repaint_thought(thought)
+
+    def extend_thought(self, chunk: str) -> None:
+        if not chunk:
+            return
+        thought = self._ensure_thought()
+        thought.stream += chunk
+        self._repaint_thought(thought)
+
+    def seal_thought(self) -> None:
+        self._seal_live_thought()
+
+    def expand_thinking(self) -> None:
+        thought = self._live_thought()
+        if thought is None and self._thoughts:
+            thought = self._thoughts[-1]
+        if thought is None:
+            return
+        if not thought.open:
+            thought.open = True
+            self._repaint_thought(thought)
+        self._scroll_to_thought(thought)
+
+    def show_idle_note(self, text: str) -> None:
+        if self._progress_from_turn and self.progress.isVisible():
+            return
+        self._progress_from_turn = False
+        self.progress.setText(text)
+        self.progress.show()
+        self._idle_note_timer.start(6000)
+
+    def _clear_idle_note(self) -> None:
+        if self._progress_from_turn:
+            return
+        self.clear_progress()
+
+    def _live_thought(self) -> _Thought | None:
+        for thought in reversed(self._thoughts):
+            if thought.live:
+                return thought
+        return None
+
+    def _ensure_thought(self) -> _Thought:
+        live = self._live_thought()
+        if live is not None:
+            return live
+        thought = _Thought(id=uuid4().hex, started=time.monotonic())
+        self._thoughts.append(thought)
+        self._place_thought(thought)
+        if self._turn_busy:
+            self._thought_timer.start()
+        return thought
+
+    def _seal_live_thought(self) -> None:
+        thought = self._live_thought()
+        if thought is None or thought.sealed_at is not None:
+            return
+        if not thought.lines and not thought.stream:
+            thought.live = False
+            return
+        thought.sealed_at = time.monotonic()
+        self._repaint_thought(thought)
+
+    def _tick_thought(self) -> None:
+        thought = self._live_thought()
+        if thought is None or thought.sealed_at is not None or not self._turn_busy:
+            self._thought_timer.stop()
+            return
+        self._repaint_thought(thought)
+
+    def _thought_html(self, thought: _Thought) -> str:
+        dim = _ink("text_dim")
+        rule = _ink("hairline_mid", "text_dim")
+        now = thought.sealed_at if thought.sealed_at is not None else time.monotonic()
+        phrase = _thought_phrase(now - thought.started, thought.sealed_at is not None)
+        chevron = _CHEVRON_OPEN if thought.open else _CHEVRON_CLOSED
+        href = f"arelis-act://thought/{thought.id}"
+        head = (
+            f'<div style="margin:2px 18% 4px 2px;">'
+            f'<a href="{href}" style="color:{dim};text-decoration:none;font-size:12px;">'
+            f"{chevron} {_esc(phrase)}</a></div>"
+        )
+        if not thought.open:
+            return head
+        parts = [_esc(line) for line in thought.lines]
+        if thought.stream:
+            parts.append(_esc(thought.stream))
+        body = "<br>".join(parts)
+        return (
+            head
+            + '<table width="82%" cellspacing="0" cellpadding="0" style="margin:0 0 8px 10px;">'
+            + "<tr>"
+            + f'<td width="3" style="background-color:{rule};">&nbsp;</td>'
+            + f'<td style="color:{dim};font-size:12px;padding:2px 8px;">{body}</td>'
+            + "</tr></table>"
+        )
+
+    def _place_thought(self, thought: _Thought) -> None:
+        self._ensure_view()
+        if self._stream_open and self._anchor is not None:
+            pos = self._anchor
+        else:
+            pos = self._end_position()
+        html = self._thought_html(thought)
+        end = self._insert_html(pos, html)
+        thought.start = pos
+        thought.end = end
+        thought.painted = html
+        self._bump_after(pos, end - pos, skip=thought)
+
+    def _repaint_thought(self, thought: _Thought) -> None:
+        html = self._thought_html(thought)
+        if thought.start is not None and html == thought.painted:
+            return
+        if thought.start is None:
+            self._place_thought(thought)
+            return
+        start = thought.start
+        old_end = thought.end if thought.end is not None else start
+        cursor = self.view.textCursor()
+        cursor.setPosition(min(start, self._end_position()))
+        cursor.setPosition(min(old_end, self._end_position()), QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        cursor.insertHtml(html)
+        new_end = cursor.position()
+        thought.end = new_end
+        thought.painted = html
+        self._bump_after(old_end, new_end - old_end, skip=thought)
+
+    def _detach_thought(self, thought: _Thought) -> None:
+        if thought.start is None or thought.end is None:
+            return
+        start = thought.start
+        end = thought.end
+        cursor = self.view.textCursor()
+        cursor.setPosition(min(start, self._end_position()))
+        cursor.setPosition(min(end, self._end_position()), QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        self._bump_after(end, start - end, skip=thought)
+        thought.start = None
+        thought.end = None
+        thought.painted = ""
+
+    def _insert_html(self, pos: int, html: str) -> int:
+        cursor = self.view.textCursor()
+        cursor.setPosition(min(pos, self._end_position()))
+        cursor.insertHtml(html)
+        return cursor.position()
+
+    def _bump_after(self, pos: int, delta: int, skip: _Thought | None = None) -> None:
+        if not delta:
+            return
+        if self._anchor is not None and self._anchor >= pos:
+            self._anchor += delta
+        if self._acts_pos is not None and self._acts_pos >= pos:
+            self._acts_pos += delta
+        if self._label_at is not None and self._label_at >= pos:
+            self._label_at += delta
+        for item in self._thoughts:
+            if item is skip:
+                continue
+            if item.start is not None and item.start >= pos:
+                item.start += delta
+            if item.end is not None and item.end >= pos:
+                item.end += delta
+
+    def _scroll_to_thought(self, thought: _Thought) -> None:
+        if thought.start is None:
+            return
+        cursor = self.view.textCursor()
+        cursor.setPosition(min(thought.start, self._end_position()))
+        self.view.setTextCursor(cursor)
+        self.view.ensureCursorVisible()
+
+    def toggle_thought(self, thought_id: str) -> None:
+        for thought in self._thoughts:
+            if thought.id == thought_id:
+                thought.open = not thought.open
+                self._repaint_thought(thought)
+                return
+
+    def _drop_dangling_label(self) -> None:
+        if self._label_at is None:
+            return
+        live = self._live_thought()
+        cut = live.start if live is not None and live.start is not None else self._end_position()
+        start = self._label_at
+        self._label_at = None
+        if start >= cut:
+            return
+        cursor = self.view.textCursor()
+        cursor.setPosition(min(start, self._end_position()))
+        cursor.setPosition(min(cut, self._end_position()), QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        self._bump_after(cut, start - cut)
 
     def add_user(
         self,
@@ -350,6 +609,10 @@ class ChatPanel(QWidget):
         thumbnails under the bubble (read-only).
         """
         self._stop_caret()
+        live = self._live_thought()
+        if live is not None:
+            self._seal_live_thought()
+            live.live = False
         # If a stream is open, _close_stream finalizes it and keeps
         # _last_assistant_body so a following ASSISTANT_DONE with the same text
         # does not append a second bubble. Clear the guard only when there was
@@ -371,10 +634,16 @@ class ChatPanel(QWidget):
         self._close_stream()
         self._strip_last_acts()
         self._ensure_view()
+        live = self._live_thought()
+        if live is not None and live.start is not None:
+            self._detach_thought(live)
+        self._label_at = self._end_position()
+        self.view.append(_assistant_label())
+        if live is not None:
+            self._place_thought(live)
         self._anchor = self._end_position()
         self._stream_text = []
         self._last_assistant_body = None
-        self.view.append(_assistant_label())
         self.view.append(_assistant_open())
         self._stream_open = True
         self._start_caret()
@@ -383,6 +652,7 @@ class ChatPanel(QWidget):
     def append_delta(self, text: str) -> None:
         if not self._stream_open:
             self.begin_assistant()
+        self._seal_live_thought()
         follow = self._near_bottom()
         self._stream_text.append(text)
         self._strip_caret()
@@ -414,8 +684,13 @@ class ChatPanel(QWidget):
         follow = self._near_bottom()
         if not self._stream_open:
             self._ensure_view()
+            self._label_at = self._end_position()
             self._anchor = self._end_position()
-        self._replace_from_anchor(_assistant_bubble_html(body))
+            self._replace_from_anchor(_assistant_bubble_html(body))
+        else:
+            answer = _assistant_open() + render_markdown(body) + _ASSISTANT_CLOSE
+            self._replace_from_anchor(answer)
+        self._label_at = None
         self._stream_open = False
         self._stream_text = []
         self._anchor = None
@@ -435,6 +710,7 @@ class ChatPanel(QWidget):
         if not self._stream_open:
             return
         self._replace_from_anchor("")
+        self._drop_dangling_label()
         self._stream_open = False
         self._stream_text = []
         self._anchor = None
@@ -496,7 +772,7 @@ class ChatPanel(QWidget):
             f'<span style="color:{_ink("text_dim")};"> · </span>'
             f'<a href="{reveal_href}" style="color:{_ink("accent")};text-decoration:none;">'
             f"show in folder</a>"
-            f"</div></td><td width=\"18%\"></td></tr></table>"
+            f'</div></td><td width="18%"></td></tr></table>'
         )
 
     def _on_anchor(self, url: QUrl) -> None:
@@ -512,6 +788,8 @@ class ChatPanel(QWidget):
                 self.again_requested.emit()
             elif host == "export":
                 self.export_requested.emit()
+            elif host == "thought":
+                self.toggle_thought((url.path() or "").strip("/"))
             return
         if scheme != "arelis-file":
             return
@@ -566,6 +844,8 @@ class ChatPanel(QWidget):
         self._ensure_view()
         from arelis.i18n import tr
 
+        self._progress_from_turn = True
+        self._idle_note_timer.stop()
         self.progress.setText(tr(text) if text else text)
         appearing = not self.progress.isVisible()
         self.progress.show()
@@ -576,6 +856,8 @@ class ChatPanel(QWidget):
             self._shimmer_timer.start()
 
     def clear_progress(self) -> None:
+        self._progress_from_turn = False
+        self._idle_note_timer.stop()
         self._shimmer_timer.stop()
         self.progress.hide()
         self.progress.setText("")
@@ -615,6 +897,9 @@ class ChatPanel(QWidget):
         self._pending_notices = []
         self._pending_files = []
         self._file_tokens = {}
+        self._thoughts = []
+        self._label_at = None
+        self._thought_timer.stop()
         self.view.clear()
         self.view.hide()
         self.empty.show()
@@ -786,10 +1071,7 @@ class ChatPanel(QWidget):
 
 def _esc(text: str) -> str:
     return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\n", "<br/>")
+        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
     )
 
 
@@ -843,11 +1125,7 @@ def _user_bubble_html(
     if attachments:
         parts = [_attachment_html(item) for item in attachments]
         gap = "6px" if body else "0"
-        chips = (
-            f'<div style="margin-top:{gap};" align="right">'
-            + "".join(parts)
-            + "</div>"
-        )
+        chips = f'<div style="margin-top:{gap};" align="right">' + "".join(parts) + "</div>"
     if not body and not chips:
         body = "(attachment)"
     inner = body
@@ -858,11 +1136,11 @@ def _user_bubble_html(
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" style="margin:12px 0 8px 0;">'
         "<tr>"
-        '<td></td>'
+        "<td></td>"
         '<td align="right" valign="top" style="width:1%;">'
         # Nested table shrink-wraps; a lone block div still fills the row in Qt.
         '<table cellspacing="0" cellpadding="0" align="right">'
-        "<tr><td align=\"right\">"
+        '<tr><td align="right">'
         f'<div style="color:{_ink("text_dim")};font-size:11px;'
         f'letter-spacing:0.08em;margin:0 2px 3px 0;" '
         f'align="right">you</div>'
@@ -877,9 +1155,4 @@ def _user_bubble_html(
 
 
 def _assistant_bubble_html(body: str) -> str:
-    return (
-        _assistant_label()
-        + _assistant_open()
-        + render_markdown(body)
-        + _ASSISTANT_CLOSE
-    )
+    return _assistant_label() + _assistant_open() + render_markdown(body) + _ASSISTANT_CLOSE

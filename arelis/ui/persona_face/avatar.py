@@ -11,7 +11,14 @@ from PySide6.QtGui import QImage, QPainter, QTransform
 from PySide6.QtWidgets import QWidget
 
 from arelis.ui.persona_face.bake import composite_rest, flatten_on_black
-from arelis.ui.persona_face.engine import BLINK_LEVELS, MOUTH_LEVELS, VIEW, bake_layers, raster_size
+from arelis.ui.persona_face.engine import (
+    BLINK_LEVELS,
+    MOUTH_LEVELS,
+    VIEW,
+    bake_layers,
+    raster_size,
+    smooth,
+)
 from arelis.ui.persona_face.motion import Frame
 from arelis.ui.void_idle import paint_orbit
 
@@ -97,6 +104,10 @@ class PersonaAvatar(QWidget):
         self._rebake.setSingleShot(True)
         self._rebake.timeout.connect(self._start_bake)
         self._orbit_angle = 18.0
+        self._canvas: QImage | None = None
+        self._mask: QImage | None = None
+        self._mask_key: tuple[int, int, float] | None = None
+        self.mask_builds = 0
 
     def bake_ready(self) -> bool:
         return self._bake_ready
@@ -175,7 +186,16 @@ class PersonaAvatar(QWidget):
         super().mousePressEvent(event)
 
     def paintEvent(self, event) -> None:
-        painter = QPainter(self)
+        dpr = max(1.0, float(self.devicePixelRatioF()))
+        width = max(1, round(self.width() * dpr))
+        height = max(1, round(self.height() * dpr))
+        canvas = self._canvas
+        if canvas is None or canvas.width() != width or canvas.height() != height:
+            canvas = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+            self._canvas = canvas
+        canvas.setDevicePixelRatio(dpr)
+        canvas.fill(0)
+        painter = QPainter(canvas)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         if not self._bake_ready:
@@ -183,19 +203,63 @@ class PersonaAvatar(QWidget):
         self._paint_orb(painter)
         if self._bake_ready and self.reveal > 0.001:
             self._paint_face(painter)
+        painter.resetTransform()
+        painter.setOpacity(1.0)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+        painter.drawImage(0, 0, self._edge_mask(width, height, dpr))
         painter.end()
+        screen = QPainter(self)
+        screen.drawImage(0, 0, canvas)
+        screen.end()
+
+    def _edge_mask(self, width: int, height: int, dpr: float) -> QImage:
+        """Soft alpha that reaches zero at the face frame, built once per size.
+
+        Layers stop at the frame, and hair drifts a few pixels past it. Fading
+        the finished plate here hides that line without any per frame work.
+        """
+        key = (width, height, round(dpr, 3))
+        if self._mask is not None and self._mask_key == key:
+            return self._mask
+        rect = self._face_rect()
+        left = rect.left() * dpr
+        right = rect.right() * dpr
+        top = rect.top() * dpr
+        bottom = rect.bottom() * dpr
+        band_x = max(1.0, rect.width() * dpr * 0.14)
+        band_top = max(1.0, rect.height() * dpr * 0.08)
+        band_bottom = max(1.0, rect.height() * dpr * 0.22)
+        xs = np.arange(width, dtype=np.float32) + 0.5
+        ys = np.arange(height, dtype=np.float32) + 0.5
+        fade_x = smooth(np.minimum(xs - left, right - xs) / band_x)
+        fade_y = np.minimum(smooth((ys - top) / band_top), smooth((bottom - ys) / band_bottom))
+        alpha = np.clip(fade_y[:, None] * fade_x[None, :], 0.0, 1.0)
+        level = np.round(alpha * 255.0).astype(np.uint8)
+        bgra = np.ascontiguousarray(np.repeat(level[:, :, None], 4, axis=2))
+        image = QImage(
+            bgra.data, width, height, width * 4, QImage.Format.Format_ARGB32_Premultiplied
+        )
+        self._mask = image.copy()
+        self._mask.setDevicePixelRatio(1.0)
+        self._mask_key = key
+        self.mask_builds += 1
+        return self._mask
 
     def _face_rect(self) -> QRectF:
         """Tall frame: head toward the top, hair filling the rest."""
         x0, x1, y0, y1 = VIEW
         aspect = (y1 - y0) / (x1 - x0)
-        width = self.width() * 0.98
+        # Leave a soft margin so hair fades inside the plate instead of clipping.
+        inset_x = self.width() * 0.04
+        inset_y = self.height() * 0.04
+        width = max(1.0, self.width() - inset_x * 2.0)
         height = width * aspect
-        if height > self.height() * 0.98:
-            height = self.height() * 0.98
+        limit = max(1.0, self.height() - inset_y * 2.0)
+        if height > limit:
+            height = limit
             width = height / aspect
         x = (self.width() - width) / 2.0
-        y = self.height() * 0.01
+        y = inset_y
         return QRectF(x, y, width, height)
 
     def _map(self, vx: float, vy: float, rect: QRectF) -> QPointF:

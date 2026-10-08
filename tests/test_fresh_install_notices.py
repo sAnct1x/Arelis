@@ -28,7 +28,9 @@ PHONE_NOTIFY_NEEDS_PAIRING = (
     "Phone notifications are turned on but not set up yet. "
     "To finish, open Settings, go to Notify, pick Create a pairing code."
 )
-PHONE_NOTIFY_NEEDS_PAIRING_ZH = "手机通知已经打开，但还没配对好。请打开设置，进入通知，点生成配对码。"
+PHONE_NOTIFY_NEEDS_PAIRING_ZH = (
+    "手机通知已经打开，但还没配对好。请打开设置，进入通知，点生成配对码。"
+)
 
 PATH_IN_USER_TEXT = re.compile(
     r"(?i)(?:\bdata[/\\]|\.ya?ml\b|\b[a-z]:[\\/]|appdata|%localappdata%)"
@@ -271,7 +273,14 @@ def test_fresh_profile_window_shows_no_phone_notice(
             assert runtime.ingest is None
             _flush_status(runtime)
             assert said == []
-            assert "Phone notifications" not in window.thinking.footer.text()
+            visible = "\n".join(
+                [
+                    window.persona_panel.status_text(),
+                    window.chat.progress.text(),
+                    *[line for thought in window.chat._thoughts for line in thought.lines],
+                ]
+            )
+            assert "Phone notifications" not in visible
         finally:
             loop.run_until_complete(runtime.stop())
 

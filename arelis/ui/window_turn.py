@@ -261,12 +261,7 @@ class WindowTurn:
         # Recovery for a live turn that dies without ASSISTANT_DONE. Idle
         # Stop must not arm this — a later "excellent job" is a new turn,
         # and an 8s leftover timer used to unlock it mid-generation.
-        if (
-            not hung
-            and self._turn_busy
-            and not self._force_quit
-            and not self._disposed
-        ):
+        if not hung and self._turn_busy and not self._force_quit and not self._disposed:
             self._stop_busy_epoch = self._busy_epoch
             self._busy_watchdog.start(_BUSY_WATCHDOG_MS)
 
@@ -288,7 +283,7 @@ class WindowTurn:
         # With the thinking dock closed that line lands somewhere nobody is
         # looking, and pressing Esc into total silence is what made the app feel
         # hung in the first place.
-        if not self.think_dock.isVisible():
+        if not self.persona_dock.isVisible():
             self.chat.add_system(message)
 
     def _on_drive_pause(self) -> None:
@@ -381,6 +376,21 @@ class WindowTurn:
         was = bool(self._turn_busy)
         self._turn_busy = busy
         self.conversation.set_busy(busy)
+        panel = getattr(self, "persona_panel", None)
+        if panel is not None:
+            if busy:
+                panel.set_state("thinking")
+                panel.set_model_busy(True)
+            else:
+                panel.set_model_busy(False)
+                speaking = bool(getattr(self, "_speech_expected", False)) or bool(
+                    getattr(self, "_speech_playing", False)
+                )
+                if not speaking:
+                    panel.set_state("done")
+        chat = getattr(self, "chat", None)
+        if chat is not None and hasattr(chat, "mark_turn"):
+            chat.mark_turn(busy)
         self.history.set_switch_enabled(not busy)
         # Every turn status hangs off this one flag, so no shimmer can outlive the
         # turn that started it — including the turns that end at the watchdog
