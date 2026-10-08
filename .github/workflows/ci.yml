@@ -92,11 +92,12 @@ jobs:
             tests/test_eval_stub_schemas.py \
             tests/test_tool_schema_quality.py
 
-  # Two cells, not eight. 3.11 on Ubuntu is the floor requires-python claims.
-  # 3.14 on Windows is the interpreter the installer ships.
+  # Ubuntu 3.11 is the floor requires-python claims. Windows 3.14 is the
+  # interpreter the installer ships. The macOS cell is informational.
   test:
     needs: lint
     timeout-minutes: 25
+    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
@@ -105,6 +106,10 @@ jobs:
             python-version: "3.14"
           - os: ubuntu-latest
             python-version: "3.11"
+          # The macOS cell is informational, allowed to fail, and exists to measure Mac support.
+          - os: macos-latest
+            python-version: "3.14"
+            experimental: true
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -179,6 +184,7 @@ jobs:
   installed:
     needs: lint
     timeout-minutes: 15
+    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
@@ -187,6 +193,10 @@ jobs:
             python-version: "3.14"
           - os: ubuntu-latest
             python-version: "3.11"
+          # The macOS cell is informational, allowed to fail, and exists to measure Mac support.
+          - os: macos-latest
+            python-version: "3.14"
+            experimental: true
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

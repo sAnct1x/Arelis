@@ -61,11 +61,15 @@ def _load_extractor():
 
 
 def test_both_matrix_cells_share_one_constrained_install() -> None:
-    """Windows and Ubuntu both run the same install, so both get the shipped Qt."""
+    """Windows, Ubuntu, and the macOS cell all run the same install.
+
+    The macOS cell is informational. It still has to install the shipped Qt,
+    not whatever PyPI currently calls latest.
+    """
     job = _test_job()
     include = job["strategy"]["matrix"]["include"]
     oss = {row["os"] for row in include}
-    assert oss == {"windows-latest", "ubuntu-latest"}
+    assert oss == {"windows-latest", "ubuntu-latest", "macos-latest"}
 
     step = _install_step()
     assert "if" not in step, "a per-OS install would let one cell float to PyPI"
