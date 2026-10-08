@@ -39,6 +39,7 @@ _SKIP_PREFIXES = (
 _TEXT_FILES = (
     "arelis/persona/arelis.md",
     "docs/releases/v0.3.0.md",
+    "docs/releases/v0.3.1.md",
 )
 _TEXT_ALLOW = frozenset(
     {
