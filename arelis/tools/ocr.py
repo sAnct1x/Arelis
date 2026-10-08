@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,15 +36,29 @@ _MAX_CHARS = 12_000
 _MAX_PDF_PAGES = 8
 
 
+_WINDOWS_TESSERACT = (
+    Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+    Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+)
+_UNIX_TESSERACT = (
+    Path("/opt/homebrew/bin/tesseract"),
+    Path("/usr/local/bin/tesseract"),
+    Path("/usr/bin/tesseract"),
+)
+_TESSERACT_MISSING = (
+    "Tesseract is not installed. Install it for your system, then try again. "
+    "On Windows, install Tesseract OCR. On Linux, install the tesseract package. "
+    "On Mac, install Tesseract with Homebrew."
+)
+
+
 def _tesseract_exe() -> str | None:
     """Resolve tesseract even when User PATH is not visible to this process."""
     found = shutil.which("tesseract")
     if found:
         return found
-    for candidate in (
-        Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
-        Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
-    ):
+    candidates = _WINDOWS_TESSERACT if sys.platform == "win32" else _UNIX_TESSERACT
+    for candidate in candidates:
         if candidate.is_file():
             return str(candidate)
     return None
@@ -62,11 +77,7 @@ def run_tesseract_inspect(path: Path, *, lang: str = "eng") -> OcrInspect:
     """OCR plus exogenous TSV confidence, CPU only, no VL self-score."""
     exe = _tesseract_exe()
     if not exe:
-        raise RuntimeError(
-            "tesseract is not on PATH. Install Tesseract OCR for Windows "
-            "(UB Mannheim build) or set tools.ocr.enabled: false. "
-            "GPU chat models stay unloaded, this path is CPU-only."
-        )
+        raise RuntimeError(_TESSERACT_MISSING)
     if not path.is_file():
         raise FileNotFoundError(f"Image not found: {path}")
     proc = hidden_run(

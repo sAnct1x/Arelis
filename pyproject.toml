@@ -36,7 +36,7 @@ dependencies = [
   "lxml>=5.0",
   "pandas>=2.2",
   "numpy>=1.26",
-  "PySide6>=6.6",
+  "PySide6>=6.6,<6.12",
   "PyYAML>=6.0",
   "pypdf>=5.0",
   # Renders scanned / handwritten PDF pages that have no embedded JPEGs.

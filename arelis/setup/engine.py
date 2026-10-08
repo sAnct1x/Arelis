@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -33,8 +34,28 @@ Progress = Callable[[str, int, int], None]
 
 
 def runtime_dir() -> Path:
-    local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    return Path(local) / "Arelis-runtime"
+    """Where the Windows setup program is stored. Off Windows, beside user data."""
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(local) / "Arelis-runtime"
+    from arelis.paths import user_data_dir
+
+    return user_data_dir().parent / "Arelis-runtime"
+
+
+def ollama_install_help() -> str | None:
+    """None on Windows, where the setup program is downloaded. A sentence elsewhere."""
+    if sys.platform == "win32":
+        return None
+    if sys.platform == "darwin":
+        return (
+            "Ollama is not installed. Install the Ollama app, or install it with "
+            "Homebrew, then try again."
+        )
+    return (
+        "Ollama is not installed. Install it with the official install script "
+        "from the Ollama website, then try again."
+    )
 
 
 def find_ollama_exe() -> Path | None:

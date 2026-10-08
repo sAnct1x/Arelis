@@ -156,6 +156,31 @@ To create a desktop shortcut for the dev build:
 This creates **Arelis (dev)**, which won't overwrite an installed copy's
 shortcut.
 
+## Run from source on Linux
+
+You need Python 3.11 or newer. You also need the same Qt libraries the
+Linux tests install: libegl1, libxkbcommon-x11-0, and libdbus-1-3.
+Tesseract is optional. Install it if you want Arelis to read text in
+pictures.
+
+```bash
+git clone https://github.com/sAnct1x/Arelis.git
+cd Arelis
+python3 -m venv .venv
+source .venv/bin/activate
+python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
+pip install -e . -c qt-constraints.txt
+```
+
+Install Ollama the official way, with the install script from the Ollama
+website. Then run:
+
+```bash
+python -m arelis
+```
+
+Desktop control and scheduled jobs do not work on Linux yet.
+
 ## Where everything lives
 
 On first launch, she'll ask which folder she's allowed to use. She can
