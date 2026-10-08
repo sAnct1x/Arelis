@@ -22,6 +22,7 @@ travel on the tags.
 
 from __future__ import annotations
 
+import contextvars
 import html
 import re
 
@@ -55,6 +56,7 @@ _INLINE = re.compile(
     r"|(?P<em>\*[^*\n]+?\*|(?<!\w)_[^_\n]+?_(?!\w))"
 )
 _LINK_PARTS = re.compile(r"^\[([^\]\n]*)\]\(([^)\s]+)\)$")
+
 
 def _mono() -> str:
     # Theme quotes font names with double quotes, which would close a style
@@ -97,9 +99,7 @@ def _style_link() -> str:
 
 
 def _style_table() -> str:
-    return (
-        f"border-collapse:collapse; margin:8px 0 10px 0; color:{COLORS['text']};"
-    )
+    return f"border-collapse:collapse; margin:8px 0 10px 0; color:{COLORS['text']};"
 
 
 def _style_th() -> str:
@@ -117,6 +117,10 @@ _HEADING_SIZES = {1: 17, 2: 15, 3: 14, 4: 13, 5: 13, 6: 13}
 
 
 _MATH_TOKEN = re.compile(r"^\[\[ARELIS_MATH_(\d+)\]\]$")
+_IMATH = re.compile(r"\[\[ARELIS_IMATH_(\d+)\]\]")
+_CODE_SPAN = re.compile(r"`[^`\n]+`")
+_STAR = "\ue000"
+_SLOTS: contextvars.ContextVar[tuple[str, ...]] = contextvars.ContextVar("math_slots", default=())
 
 
 def _style_math() -> str:
@@ -131,6 +135,14 @@ def render_markdown(text: str) -> str:
     if not text:
         return ""
     text, slots = flatten_for_render(text)
+    token = _SLOTS.set(tuple(slots))
+    try:
+        return _render_lines(text)
+    finally:
+        _SLOTS.reset(token)
+
+
+def _render_lines(text: str) -> str:
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     out: list[str] = []
     i = 0
@@ -139,6 +151,7 @@ def render_markdown(text: str) -> str:
         math = _MATH_TOKEN.match(line.strip())
         if math:
             idx = int(math.group(1))
+            slots = _SLOTS.get()
             body = slots[idx] if 0 <= idx < len(slots) else line.strip()
             out.append(f'<p style="{_style_math()}">{_escape(body)}</p>')
             i += 1
@@ -173,9 +186,7 @@ def render_markdown(text: str) -> str:
             i, block = _take_table(lines, i)
             out.append(block)
             continue
-        if _BULLET.match(line) or (
-            _NUMBER.match(line) and not _lone_sentence_not_a_list(lines, i)
-        ):
+        if _BULLET.match(line) or (_NUMBER.match(line) and not _lone_sentence_not_a_list(lines, i)):
             i, block = _take_list(lines, i)
             out.append(block)
             continue
@@ -185,8 +196,35 @@ def render_markdown(text: str) -> str:
     return "".join(out)
 
 
+def _shield_stars(text: str) -> str:
+    """Turn \\* outside code into a placeholder so emphasis cannot eat it."""
+    parts: list[str] = []
+    pos = 0
+    for match in _CODE_SPAN.finditer(text):
+        parts.append(text[pos : match.start()].replace("\\*", _STAR))
+        parts.append(match.group())
+        pos = match.end()
+    parts.append(text[pos:].replace("\\*", _STAR))
+    return "".join(parts)
+
+
+def _put_math(html_text: str) -> str:
+    slots = _SLOTS.get()
+    if not slots:
+        return html_text
+
+    def put(match: re.Match[str]) -> str:
+        idx = int(match.group(1))
+        if 0 <= idx < len(slots):
+            return _escape(slots[idx])
+        return match.group(0)
+
+    return _IMATH.sub(put, html_text)
+
+
 def render_inline(text: str) -> str:
     """Render one line's inline marks. Text outside a match is escaped as-is."""
+    text = _shield_stars(text)
     out: list[str] = []
     pos = 0
     for match in _INLINE.finditer(text):
@@ -194,7 +232,7 @@ def render_inline(text: str) -> str:
         out.append(_render_match(match))
         pos = match.end()
     out.append(_escape(text[pos:]))
-    return "".join(out)
+    return _put_math("".join(out).replace(_STAR, "*"))
 
 
 def _render_match(match: re.Match[str]) -> str:
@@ -325,9 +363,7 @@ def _take_list(lines: list[str], i: int) -> tuple[int, str]:
     while i < len(lines):
         if not lines[i].strip():
             # A blank line only ends the list if no item follows it.
-            if i + 1 < len(lines) and (
-                _BULLET.match(lines[i + 1]) or _NUMBER.match(lines[i + 1])
-            ):
+            if i + 1 < len(lines) and (_BULLET.match(lines[i + 1]) or _NUMBER.match(lines[i + 1])):
                 i += 1
                 continue
             break
@@ -343,20 +379,14 @@ def _take_list(lines: list[str], i: int) -> tuple[int, str]:
         while indents and indent < indents[-1]:
             parts.append(f"</{kinds.pop()}>")
             indents.pop()
-        # Qt's default <ul>/<ol> left margin hangs outside the chat bubble and
-        # sits left of the "arelis" label — keep markers inside the glass.
-        list_style = (
-            f'style="margin:{SPACE["micro"]}px 0 {SPACE["micro"]}px 0; '
-            f'padding-left:{SPACE["plate"]}px; margin-left:0;"'
-        )
         if not kinds or indent > indents[-1]:
             kinds.append(kind)
             indents.append(indent)
-            parts.append(f"<{kind} {list_style}>")
+            parts.append(_open_list(kind, lines[i]))
         elif kinds[-1] != kind:
             parts.append(f"</{kinds.pop()}>")
             kinds.append(kind)
-            parts.append(f"<{kind} {list_style}>")
+            parts.append(_open_list(kind, lines[i]))
 
         parts.append(f"<li>{render_inline(match.group(2))}</li>")
         i += 1
@@ -365,12 +395,22 @@ def _take_list(lines: list[str], i: int) -> tuple[int, str]:
     return i, "".join(parts)
 
 
-def _is_table(lines: list[str], i: int) -> bool:
-    return (
-        "|" in lines[i]
-        and i + 1 < len(lines)
-        and _TABLE_RULE.match(lines[i + 1]) is not None
+def _open_list(kind: str, line: str) -> str:
+    # Qt's default ul/ol left margin hangs outside the chat bubble.
+    list_style = (
+        f'style="margin:{SPACE["micro"]}px 0 {SPACE["micro"]}px 0; '
+        f'padding-left:{SPACE["plate"]}px; margin-left:0;"'
     )
+    start_attr = ""
+    if kind == "ol":
+        start = _marker_value(line)
+        if start is not None and start != 1:
+            start_attr = f' start="{start}"'
+    return f"<{kind}{start_attr} {list_style}>"
+
+
+def _is_table(lines: list[str], i: int) -> bool:
+    return "|" in lines[i] and i + 1 < len(lines) and _TABLE_RULE.match(lines[i + 1]) is not None
 
 
 def _take_table(lines: list[str], i: int) -> tuple[int, str]:

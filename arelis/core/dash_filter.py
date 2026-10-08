@@ -81,6 +81,14 @@ class DashFilter:
         if en_only and prev.isdigit() and nxt.isdigit():
             self._emit(pre + _EN + post, out)
             return
+        # A dash sitting on a number is a minus sign. Never a comma, never a bullet.
+        if nxt.isdigit():
+            self.replaced += 1
+            if prev == "":
+                self._emit("-" + post.lstrip(" \t"), out)
+            else:
+                self._emit(pre + "-" + post, out)
+            return
         self.replaced += 1
         if _cjk(prev) or _cjk(nxt):
             self._emit("\uff0c", out)
@@ -157,8 +165,7 @@ class DashFilter:
         if ch in _DASHES:
             if (
                 self._pend
-                and self._pend.rstrip(" \t")
-                != self._pend.rstrip(" \t").rstrip(_DASHES)
+                and self._pend.rstrip(" \t") != self._pend.rstrip(" \t").rstrip(_DASHES)
                 and self._pend[-1] in " \t"
             ):
                 self._resolve(ch, out)
