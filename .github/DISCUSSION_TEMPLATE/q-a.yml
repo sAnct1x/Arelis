@@ -19,7 +19,7 @@ body:
     attributes:
       label: Arelis version
       description: Press F1 in the window, or check the setup file name.
-      placeholder: 0.3.0
+      placeholder: 0.3.1
     validations:
       required: true
   - type: input
