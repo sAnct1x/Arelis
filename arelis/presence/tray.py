@@ -28,9 +28,7 @@ class CoreTray:
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
-        self._thread = threading.Thread(
-            target=self._run, name="arelis-core-tray", daemon=True
-        )
+        self._thread = threading.Thread(target=self._run, name="arelis-core-tray", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
@@ -55,13 +53,11 @@ class CoreTray:
             log.warning("Core tray unavailable (Qt): %s", exc)
             return
 
-        import os
-
         from arelis.paths import app_icon_path
 
         # Avoid fighting a glass UI's QApplication on the main thread — we are
         # already on a dedicated thread with our own instance.
-        os.environ.setdefault("QT_QPA_PLATFORM", "windows")
+        apply_core_tray_platform_default()
         app = QApplication.instance()
         if app is None:
             app = QApplication([])
@@ -131,3 +127,15 @@ def sys_platform_is_windows() -> bool:
     import sys
 
     return sys.platform == "win32"
+
+
+def apply_core_tray_platform_default() -> None:
+    """Default QT_QPA_PLATFORM to the windows plugin only on Windows.
+
+    Core tray used to set that on every OS. Linux and Mac then abort because
+    the windows platform plugin is not installed.
+    """
+    import os
+
+    if sys_platform_is_windows():
+        os.environ.setdefault("QT_QPA_PLATFORM", "windows")
