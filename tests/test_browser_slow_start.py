@@ -75,6 +75,10 @@ def _patch_launch(monkeypatch) -> None:  # type: ignore[no-untyped-def]
 
     monkeypatch.setattr(launch_mod, "playwright_available", lambda: True)
     monkeypatch.setattr(launch_mod, "prefer_cdp_url", lambda url: url)
+    # These tests check the Chrome CDP retry path. A macOS runner whose
+    # default browser is Firefox would skip that path and ask Playwright
+    # for firefox.launch_persistent_context instead.
+    monkeypatch.setattr(launch_mod, "detect_default_browser", lambda: "chrome")
     monkeypatch.setattr(launch_mod, "cdp_is_up", lambda _u, **_k: False)
     monkeypatch.setattr(launch_mod, "profile_appears_locked", lambda _b: False)
     monkeypatch.setattr(launch_mod, "wait_for_cdp", lambda *_a, **_k: True)

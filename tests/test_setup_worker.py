@@ -98,6 +98,29 @@ def _status_error(code: int) -> httpx.HTTPStatusError:
     )
 
 
+def _block_voice_model_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The prepare worker calls prepare_voice_files, which downloads Sherpa.
+
+    Stub the retrieve and the bz2 extract so a missing local model never
+    hits the network or unpacks an archive. The other voice weights call
+    urllib.request.urlretrieve from inside the function, so that name is
+    stubbed too.
+    """
+    import urllib.request
+
+    import arelis.voice.sherpa_stt as sherpa
+
+    def _no_download(*_args: object, **_kwargs: object) -> None:
+        raise OSError("voice model download is stubbed")
+
+    def _no_extract(*_args: object, **_kwargs: object) -> None:
+        raise OSError("voice model extract is stubbed")
+
+    monkeypatch.setattr(sherpa, "urlretrieve", _no_download)
+    monkeypatch.setattr(sherpa, "_extract_archive", _no_extract)
+    monkeypatch.setattr(urllib.request, "urlretrieve", _no_download)
+
+
 def _patch_wizard(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **overrides):
     names = {
         "ollama_reachable": lambda: True,
@@ -114,6 +137,7 @@ def _patch_wizard(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **overrides):
 
     for name, value in names.items():
         monkeypatch.setattr(wizard, name, value)
+    _block_voice_model_fetch(monkeypatch)
     return names
 
 

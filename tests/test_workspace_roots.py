@@ -140,6 +140,27 @@ def test_readme_stem_resolves_to_readme_md(tmp_path: Path) -> None:
     assert hit.path == target.resolve()
 
 
+def _directory_is_case_sensitive(directory: Path) -> bool:
+    """True when two spellings of one name are two files.
+
+    APFS and NTFS are usually case-insensitive, so Notes.TXT and notes.txt
+    are the same directory entry. Path equality still compares the spelling.
+    """
+    probe = directory / "._ArelisCaseProbe"
+    other = directory / "._areliscaseprobe"
+    probe.write_text("a", encoding="utf-8")
+    try:
+        if not other.exists():
+            return True
+        try:
+            return not os.path.samefile(probe, other)
+        except OSError:
+            return True
+    finally:
+        probe.unlink(missing_ok=True)
+        other.unlink(missing_ok=True)
+
+
 def test_case_insensitive_filename_resolve(tmp_path: Path) -> None:
     root = tmp_path / "proj"
     root.mkdir()
@@ -147,7 +168,15 @@ def test_case_insensitive_filename_resolve(tmp_path: Path) -> None:
     target.write_text("x", encoding="utf-8")
     ws = WorkspaceRoots.from_paths([str(root)])
     hit = ws.resolve("notes.txt")
-    assert hit.path == target.resolve()
+    resolved = target.resolve()
+    # Case-sensitive volumes must return the on-disk spelling. Case-insensitive
+    # volumes (APFS, typical NTFS) keep whichever spelling the path was built
+    # with, and both names are the same file.
+    if _directory_is_case_sensitive(root):
+        assert hit.path == resolved
+    else:
+        assert os.path.samefile(hit.path, resolved)
+        assert hit.path.name.casefold() == resolved.name.casefold() == "notes.txt"
 
 
 def test_qualified_path_resolves_to_named_root(tmp_path: Path) -> None:
