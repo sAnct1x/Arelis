@@ -10,17 +10,68 @@ Qt, which is the problem this avoids rather than the one it creates.
 The cost is that audio is bound to the Qt thread. Everything crossing to the
 async side goes through the bus, the same as every other UI interaction.
 """
+
 from __future__ import annotations
 
 import logging
+import time
+import wave
 from pathlib import Path
 
+import numpy as np
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal
 
 from arelis.core.failure_copy import plain_reason
 from arelis.voice.pcm import rms_level
 
 log = logging.getLogger(__name__)
+
+# Loudness samples per second. Matches the mouth follower the face expects.
+_LEVEL_HZ = 60.0
+
+
+def wav_loudness_envelope(path: str | Path) -> np.ndarray | None:
+    """RMS loudness of a WAV clip, about 60 samples a second, or None.
+
+    Kokoro and the shared PCM writer both store 16 bit mono WAV. Anything
+    that is missing, not a WAV, or too odd to read returns None and never
+    raises. Values are scaled by a high percentile so one spike does not
+    flatten the rest of the sentence.
+    """
+    try:
+        clip = Path(path)
+        if not clip.is_file():
+            return None
+        with wave.open(str(clip), "rb") as handle:
+            channels = handle.getnchannels()
+            width = handle.getsampwidth()
+            rate = handle.getframerate()
+            raw = handle.readframes(handle.getnframes())
+        if rate <= 0 or not raw or channels < 1 or width not in (2, 4):
+            return None
+        if width == 2:
+            samples = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+        else:
+            samples = np.frombuffer(raw, dtype="<i4").astype(np.float32) / 2.0**31
+        if channels > 1:
+            frames = len(samples) // channels
+            if frames <= 0:
+                return None
+            samples = samples[: frames * channels].reshape(frames, channels).mean(axis=1)
+        hop = max(1, round(rate / _LEVEL_HZ))
+        usable = (len(samples) // hop) * hop
+        if usable < hop:
+            return None
+        block = samples[:usable].reshape(-1, hop)
+        rms = np.sqrt(np.mean(block * block, axis=1))
+        peak = float(np.percentile(rms, 95))
+        if peak < 1e-8:
+            return np.zeros(len(rms), dtype=np.float32)
+        return np.clip(rms / peak, 0.0, 1.0).astype(np.float32)
+    # An unreadable clip just has no loudness; playback is unaffected.
+    except Exception:
+        return None
+
 
 try:
     from PySide6.QtMultimedia import (
@@ -69,8 +120,8 @@ class MicRecorder(QObject):
     file writer for the same bytes.
     """
 
-    level = Signal(float)          # 0.0 - 1.0, one per arriving block
-    frames = Signal(bytes)         # each block, for callers doing their own analysis
+    level = Signal(float)  # 0.0 - 1.0, one per arriving block
+    frames = Signal(bytes)  # each block, for callers doing their own analysis
     failed = Signal(str)
 
     def __init__(
@@ -162,9 +213,7 @@ class MicRecorder(QObject):
             self._io = self._source.start()
         except Exception as exc:
             log.exception("Could not open the microphone")
-            self.failed.emit(
-                f"I could not open the microphone. {plain_reason(exc)}"
-            )
+            self.failed.emit(f"I could not open the microphone. {plain_reason(exc)}")
             self._source = None
             self._io = None
             return False
@@ -275,6 +324,9 @@ class SpeechPlayer(QObject):
         self._output = None
         self._active = False
         self._device_hint = ""
+        self._level_env: np.ndarray | None = None
+        self._level_pos_ms = -1
+        self._level_mark = 0.0
         if MULTIMEDIA_AVAILABLE:
             self._output = QAudioOutput(self)
             self._player = QMediaPlayer(self)
@@ -297,6 +349,41 @@ class SpeechPlayer(QObject):
         if self._output is None:
             return 1.0
         return float(self._output.volume())
+
+    def current_level(self) -> float | None:
+        """Loudness of the clip at the playhead, or None when there is nothing to read."""
+        try:
+            env = self._level_env
+            if not self._active or self._player is None or env is None or len(env) == 0:
+                return None
+            pos = int(self._player.position())
+            now = time.monotonic()
+            if pos != self._level_pos_ms:
+                self._level_pos_ms = pos
+                self._level_mark = now
+            extra = now - self._level_mark
+            if extra < 0.0:
+                extra = 0.0
+            elif extra > 0.05:
+                extra = 0.05
+            index = int((self._level_pos_ms / 1000.0 + extra) * _LEVEL_HZ)
+            if index < 0:
+                return None
+            if index >= len(env):
+                return float(env[-1])
+            return float(env[index])
+        # Loudness only shapes her mouth; a failed read means no level.
+        except Exception:
+            return None
+
+    def _load_level(self, clip: Path) -> None:
+        self._level_env = wav_loudness_envelope(clip)
+        self._level_pos_ms = -1
+        self._level_mark = time.monotonic()
+
+    def _clear_level(self) -> None:
+        self._level_env = None
+        self._level_pos_ms = -1
 
     def set_output_device(self, hint: str) -> None:
         """Select an output by substring of the Windows device name."""
@@ -334,6 +421,7 @@ class SpeechPlayer(QObject):
                 self._cancelled.add(utterance)
         self._queue.clear()
         self._active = False
+        self._clear_level()
         self._player.stop()
         # Releasing the source lets the file be overwritten or pruned; Windows
         # keeps a media handle open otherwise.
@@ -355,11 +443,13 @@ class SpeechPlayer(QObject):
             self._utterance = utterance
             self._active = True
             self._player.setSource(QUrl.fromLocalFile(str(clip)))
+            self._load_level(clip)
             self._player.play()
             self.started.emit()
             return
         if self._active:
             self._active = False
+            self._clear_level()
             self._player.setSource(QUrl())
             self.finished.emit()
 
@@ -384,6 +474,7 @@ class SpeechPlayer(QObject):
         # last-clip error (SPEECH_DONE already cleared _speech_expected).
         self._active = False
         self._queue.clear()
+        self._clear_level()
         try:
             self._player.stop()
             self._player.setSource(QUrl())
