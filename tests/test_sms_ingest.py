@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import threading
+import time
 from pathlib import Path
 
 import httpx
 import pytest
 import yaml
 
+from arelis import sms_ingest
 from arelis.contacts import Contact, match_contact_label, normalize_phone
 from arelis.core.bus import EventBus
 from arelis.core.events import EventType
@@ -48,6 +51,111 @@ def test_format_ingest_listen_urls_mentions_port() -> None:
     text = format_ingest_listen_urls(8765)
     assert ":8765" in text
     assert text.startswith("http://")
+
+
+class _RouteSocket:
+    """Stand-in for the UDP probe socket used by list_lan_ipv4."""
+
+    def __init__(self, ip: str | None) -> None:
+        self._ip = ip
+
+    def connect(self, _addr: object) -> None:
+        if self._ip is None:
+            raise OSError("no route")
+
+    def getsockname(self) -> tuple[str, int]:
+        return (self._ip or "", 1)
+
+    def close(self) -> None:
+        return None
+
+
+@pytest.mark.parametrize(
+    ("hostname_ips", "route_ip", "expected"),
+    [
+        (
+            ["10.0.0.2", "192.168.1.5", "127.0.0.1"],
+            "192.168.1.5",
+            ["10.0.0.2", "192.168.1.5"],
+        ),
+        (["10.0.0.2"], "192.168.1.9", ["192.168.1.9", "10.0.0.2"]),
+        (["10.0.0.2", "10.0.0.2"], "10.1.1.1", ["10.1.1.1", "10.0.0.2"]),
+        (["10.0.0.2"], "127.0.0.1", ["10.0.0.2"]),
+        (None, "192.168.1.9", ["192.168.1.9"]),
+        (["10.0.0.2"], None, ["10.0.0.2"]),
+        (None, None, []),
+        (["127.0.0.1"], "127.0.0.1", []),
+    ],
+)
+def test_list_lan_ipv4_keeps_fast_lookup_results(
+    monkeypatch: pytest.MonkeyPatch,
+    hostname_ips: list[str] | None,
+    route_ip: str | None,
+    expected: list[str],
+) -> None:
+    """A fast resolver still returns the same addresses, in the same order."""
+
+    def getaddrinfo(*_args: object, **_kwargs: object) -> list[tuple]:
+        if hostname_ips is None:
+            raise OSError("lookup failed")
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 0)) for ip in hostname_ips
+        ]
+
+    monkeypatch.setattr(sms_ingest.socket, "getaddrinfo", getaddrinfo)
+    monkeypatch.setattr(
+        sms_ingest.socket,
+        "socket",
+        lambda *_args, **_kwargs: _RouteSocket(route_ip),
+    )
+    assert sms_ingest.list_lan_ipv4() == expected
+    assert sms_ingest.list_lan_ipv4() == expected
+
+
+def test_list_lan_ipv4_returns_when_getaddrinfo_hangs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stuck hostname lookup must not block past a few seconds.
+
+    macOS CI hung inside getaddrinfo on the machine hostname until the 90s
+    pytest timeout killed the run. This patches that call so it waits until
+    released, and requires list_lan_ipv4 to return on its own.
+    """
+    release = threading.Event()
+    entered = threading.Event()
+    finished = threading.Event()
+
+    def hang(*_args: object, **_kwargs: object) -> list[object]:
+        entered.set()
+        try:
+            release.wait()
+            return []
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(sms_ingest.socket, "getaddrinfo", hang)
+    started = time.monotonic()
+    try:
+        ips = sms_ingest.list_lan_ipv4()
+        elapsed = time.monotonic() - started
+        again = time.monotonic()
+        ips_again = sms_ingest.list_lan_ipv4()
+        again_elapsed = time.monotonic() - again
+    finally:
+        release.set()
+    assert entered.is_set()
+    # The lookup budget is 2s. 4s still fails a call that blocks until the
+    # 90s pytest ceiling, which is what killed the macOS run.
+    assert elapsed < 4.0, f"list_lan_ipv4 blocked for {elapsed:.1f}s"
+    # A lookup that is already stuck must not cost another full wait.
+    assert again_elapsed < 0.5, f"second call blocked for {again_elapsed:.1f}s"
+    assert isinstance(ips, list)
+    assert isinstance(ips_again, list)
+    # Reap the lookup thread while the patch is still in place so the next
+    # test does not inherit a stuck resolver.
+    assert finished.wait(2.0)
+    worker = sms_ingest._lookup_thread
+    if worker is not None:
+        worker.join(timeout=2.0)
+        assert not worker.is_alive()
 
 
 def test_load_ingest_token(tmp_path: Path, monkeypatch) -> None:
