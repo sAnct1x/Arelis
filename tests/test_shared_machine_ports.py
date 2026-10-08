@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,44 @@ def _hold(port: int) -> socket.socket:
     sock.bind(("127.0.0.1", port))
     sock.listen(1)
     return sock
+
+
+def _echo_requests(stop: threading.Event) -> tuple[socket.socket, threading.Thread]:
+    """Listen and write each request back.
+
+    A loopback socket connected to itself does this: the bytes just sent are
+    the bytes read next. The health probe has to treat that as silence.
+    """
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    srv.settimeout(0.2)
+
+    def serve() -> None:
+        while not stop.is_set():
+            try:
+                conn, _addr = srv.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                break
+            with conn:
+                conn.settimeout(1.0)
+                data = b""
+                try:
+                    while b"\r\n\r\n" not in data and len(data) < 8192:
+                        chunk = conn.recv(4096)
+                        if not chunk:
+                            break
+                        data += chunk
+                    if data:
+                        conn.sendall(data)
+                except OSError:
+                    pass
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return srv, thread
 
 
 def _sms_config(port: int) -> dict[str, Any]:
@@ -239,6 +278,34 @@ async def test_health_names_the_owner_and_probes_can_require_it(
         bus_task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await bus_task
+
+
+def test_an_echoed_health_request_is_not_listening(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A reply that is the request itself is not a phone listener.
+
+    On Linux, connecting to a closed loopback port can complete as a
+    connection to the same socket when the local port is the one being
+    probed. The health request comes back as the status line, and
+    http.client raises BadStatusLine. Pairing asks this before it binds,
+    so the probe has to answer "not listening" and let the bind happen.
+    """
+    stop = threading.Event()
+    srv, thread = _echo_requests(stop)
+    port = int(srv.getsockname()[1])
+    monkeypatch.setattr(
+        "arelis.presence.lock.candidates",
+        lambda preferred, span=6: [int(preferred)],
+    )
+    try:
+        assert probe_ingest_health(port=port, timeout_s=1.0) is False
+        assert probe_ingest_health(port=port, timeout_s=1.0, mine_only=True) is False
+        assert find_my_ingest_port(_sms_config(port)) is None
+    finally:
+        stop.set()
+        srv.close()
+        thread.join(timeout=2)
 
 
 # ------------------------------------------------------ the UI/core bridge
