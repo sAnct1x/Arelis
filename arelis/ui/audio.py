@@ -68,6 +68,7 @@ def wav_loudness_envelope(path: str | Path) -> np.ndarray | None:
         if peak < 1e-8:
             return np.zeros(len(rms), dtype=np.float32)
         return np.clip(rms / peak, 0.0, 1.0).astype(np.float32)
+    # An unreadable clip just has no loudness; playback is unaffected.
     except Exception:
         return None
 
@@ -371,6 +372,7 @@ class SpeechPlayer(QObject):
             if index >= len(env):
                 return float(env[-1])
             return float(env[index])
+        # Loudness only shapes her mouth; a failed read means no level.
         except Exception:
             return None
 

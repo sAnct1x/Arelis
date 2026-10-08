@@ -335,6 +335,7 @@ class PersonaPanel(QWidget):
         if self._level is not None:
             try:
                 level = self._level()
+            # A broken level source must not stop her; fall back to the gentle envelope.
             except Exception:
                 level = None
         speaking = self._speaking or self._state == "speaking"
