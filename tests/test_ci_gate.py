@@ -13,6 +13,8 @@ import ast
 import re
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 CI_YML = ROOT / ".github" / "workflows" / "ci.yml"
 PYPROJECT = ROOT / "pyproject.toml"
@@ -114,6 +116,26 @@ def test_ci_matrix_is_the_two_claimed_interpreters() -> None:
         assert "windows-latest" in block
         assert "ubuntu-latest" in block
     assert not re.search(r"(?m)^  coverage:", text)
+
+
+def test_macos_cell_may_fail_without_opening_the_gate() -> None:
+    """macOS is informational. Windows and Ubuntu still fail the workflow."""
+    loaded = yaml.safe_load(CI_YML.read_text(encoding="utf-8"))
+    assert isinstance(loaded, dict)
+    jobs = loaded["jobs"]
+    for name in ("test", "installed"):
+        job = jobs[name]
+        assert job["continue-on-error"] == "${{ matrix.experimental == true }}"
+        include = job["strategy"]["matrix"]["include"]
+        by_os = {row["os"]: row for row in include}
+        assert set(by_os) == {"windows-latest", "ubuntu-latest", "macos-latest"}
+        mac = by_os["macos-latest"]
+        assert mac["python-version"] == "3.14"
+        assert mac["experimental"] is True
+        assert "experimental" not in by_os["windows-latest"]
+        assert "experimental" not in by_os["ubuntu-latest"]
+        assert by_os["windows-latest"]["python-version"] == "3.14"
+        assert by_os["ubuntu-latest"]["python-version"] == "3.11"
 
 
 def test_ci_runs_the_eval_boards_as_a_gate() -> None:
