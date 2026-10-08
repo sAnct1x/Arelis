@@ -12,9 +12,15 @@ import re
 # Display math becomes its own paragraph. Inline $…$ stays in the sentence.
 _DISPLAY_DOLLARS = re.compile(r"\$\$(.+?)\$\$", re.S)
 _DISPLAY_BRACKETS = re.compile(r"\\\[(.+?)\\\]", re.S)
-_INLINE_PARENS = re.compile(r"\\\((.+?)\\\)")
-# Pair $…$ only when it looks like math, so "$5 and $\log x$" keeps the price.
-_INLINE_DOLLARS = re.compile(r"(?<!\$)\$(?![\d\s$])([^$\n]+)\$(?!\$)")
+# \( ... \) may wrap across a line. A price never uses these delimiters.
+_INLINE_PARENS = re.compile(r"\\\((.+?)\\\)", re.S)
+# A real math signal. A letter is not enough: "$5 and $10" has letters.
+_MATH_SIGNAL = re.compile(r"[\\^_=<>|*]")
+# "$ x $" and "$ x_n $" with nothing else in the span.
+_SPACED_NAME = re.compile(r"\s*[A-Za-z](?:[A-Za-z0-9]|_[A-Za-z0-9]+)*\s*")
+_PLAIN_MATH = re.compile(r"[\\^_{]|[A-Za-z]")
+# A list item line. Display math on one of these stays in the item.
+_LISTISH = re.compile(r"^\s*(?:[-*+]\s+\S|\d{1,9}[.)]\s+\S)")
 
 _FENCE = re.compile(r"^```")
 
@@ -186,6 +192,47 @@ _SYMBOLS: dict[str, str] = {
     "prod": "Π",
     "quad": "  ",
     "qquad": "    ",
+    "cup": "∪",
+    "cap": "∩",
+    "langle": "⟨",
+    "rangle": "⟩",
+    "implies": "⇒",
+    "impliedby": "⇐",
+    "iff": "⇔",
+    "perp": "⊥",
+    "mid": "∣",
+    "parallel": "∥",
+    "vert": "∣",
+    "Vert": "‖",
+    "|": "‖",
+    "bmod": " mod ",
+    "angle": "∠",
+    "ll": "≪",
+    "gg": "≫",
+    "supseteq": "⊇",
+    "supset": "⊃",
+    "varnothing": "∅",
+    "vdots": "⋮",
+    "ddots": "⋱",
+    "ni": "∋",
+    "therefore": "∴",
+    "because": "∵",
+    "oplus": "⊕",
+    "otimes": "⊗",
+    "setminus": "∖",
+    "cong": "≅",
+    "simeq": "≃",
+    "leftrightarrow": "↔",
+    "uparrow": "↑",
+    "downarrow": "↓",
+    "prime": "′",
+    "star": "∗",
+    "triangle": "△",
+    "square": "□",
+    "aleph": "ℵ",
+    "nsubseteq": "⊈",
+    "nsupseteq": "⊉",
+    "approxeq": "≊",
 }
 
 _FUNCTIONS = frozenset(
@@ -293,8 +340,13 @@ _PATH_BEFORE = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.:
 _TEX_AFTER = frozenset("{[_^ \t\n,.;:!)]}") | {"("}
 
 
-def tex_to_plain(src: str, *, unknown: str = "strip") -> str:
-    """Convert a TeX math body (no delimiters) to unicode."""
+def tex_to_plain(src: str, *, unknown: str = "keep") -> str:
+    """Convert a TeX math body (no delimiters) to unicode.
+
+    Unknown commands stay visible as ``\\name``. Pass ``unknown="strip"``
+    only when a caller still wants the old drop-the-command behaviour.
+    Chat and the default flattener keep the name.
+    """
     return _convert((src or "").strip(), unknown=unknown).strip()
 
 
@@ -312,23 +364,16 @@ def flatten_latex(text: str) -> str:
 
 
 def flatten_for_render(text: str) -> tuple[str, list[str]]:
-    """Flatten TeX and lift display spans into numbered tokens for styling."""
+    """Flatten TeX and lift math spans into tokens markdown will not restyle."""
     if not text:
         return text, []
     slots: list[str] = []
     parts: list[str] = []
-
-    def hold(match: re.Match[str]) -> str:
-        slots.append(tex_to_plain(match.group(1)))
-        return f"\n\n[[ARELIS_MATH_{len(slots) - 1}]]\n\n"
-
     for kind, chunk in _split_protected(text):
         if kind == "code":
             parts.append(chunk)
             continue
-        chunk = _DISPLAY_DOLLARS.sub(hold, chunk)
-        chunk = _DISPLAY_BRACKETS.sub(hold, chunk)
-        parts.append(_flatten_prose(chunk))
+        parts.append(_shield_math(chunk, slots))
     return "".join(parts), slots
 
 
@@ -402,6 +447,80 @@ def _split_inline_code(text: str) -> list[tuple[str, str]]:
     return parts
 
 
+def _inline_dollar_ok(inner: str) -> bool:
+    """True when a $...$ span is math, including digit-led and spaced forms.
+
+    Prices stay literal. "$5", "$10", and "$5 and $10" have no math signal
+    between the dollars, so they are not consumed.
+    """
+    if not inner or "\n" in inner:
+        return False
+    if inner[0].isdigit() or inner[0].isspace():
+        if _MATH_SIGNAL.search(inner):
+            return True
+        return inner[0].isspace() and _SPACED_NAME.fullmatch(inner) is not None
+    return _PLAIN_MATH.search(inner) is not None
+
+
+def _replace_inline_dollars(text: str, convert) -> str:
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] != "$":
+            out.append(text[i])
+            i += 1
+            continue
+        if i + 1 < n and text[i + 1] == "$":
+            out.append("$")
+            i += 1
+            continue
+        j = text.find("$", i + 1)
+        inner = text[i + 1 : j] if j >= 0 else ""
+        closer_ok = j > i + 1 and "\n" not in inner and not (j + 1 < n and text[j + 1] == "$")
+        if closer_ok and _inline_dollar_ok(inner):
+            out.append(convert(inner))
+            i = j + 1
+            continue
+        out.append("$")
+        i += 1
+    return "".join(out)
+
+
+def _on_list_line(text: str, pos: int) -> bool:
+    start = text.rfind("\n", 0, pos) + 1
+    end = text.find("\n", pos)
+    if end < 0:
+        end = len(text)
+    return _LISTISH.match(text[start:end]) is not None
+
+
+def _hold(slots: list[str], body: str) -> int:
+    slots.append(tex_to_plain(body))
+    return len(slots) - 1
+
+
+def _shield_span(text: str, pattern: re.Pattern[str], slots: list[str], *, display: bool) -> str:
+    def repl(match: re.Match[str]) -> str:
+        idx = _hold(slots, match.group(1))
+        if display and not _on_list_line(text, match.start()):
+            return f"\n\n[[ARELIS_MATH_{idx}]]\n\n"
+        return f"[[ARELIS_IMATH_{idx}]]"
+
+    return pattern.sub(repl, text)
+
+
+def _shield_math(text: str, slots: list[str]) -> str:
+    """Pull math out before markdown can treat * and | as markup."""
+    text = _shield_span(text, _DISPLAY_DOLLARS, slots, display=True)
+    text = _shield_span(text, _DISPLAY_BRACKETS, slots, display=True)
+    text = _shield_span(text, _INLINE_PARENS, slots, display=False)
+    text = _replace_inline_dollars(text, lambda inner: f"[[ARELIS_IMATH_{_hold(slots, inner)}]]")
+    if "\\" in text:
+        text = _flatten_bare(text)
+    return text
+
+
 def _flatten_prose(text: str) -> str:
     def as_display(match: re.Match[str]) -> str:
         return "\n" + tex_to_plain(match.group(1)) + "\n"
@@ -409,14 +528,7 @@ def _flatten_prose(text: str) -> str:
     text = _DISPLAY_DOLLARS.sub(as_display, text)
     text = _DISPLAY_BRACKETS.sub(as_display, text)
     text = _INLINE_PARENS.sub(lambda m: tex_to_plain(m.group(1)), text)
-
-    def _dollar(match: re.Match[str]) -> str:
-        inner = match.group(1)
-        if not re.search(r"[\\^_{]|[A-Za-z]", inner):
-            return match.group(0)
-        return tex_to_plain(inner)
-
-    text = _INLINE_DOLLARS.sub(_dollar, text)
+    text = _replace_inline_dollars(text, tex_to_plain)
     if "\\" in text:
         text = _flatten_bare(text)
     return text
@@ -531,8 +643,7 @@ def _command(src: str, i: int, *, unknown: str) -> tuple[str, int]:
         num, i = _read_group(src, i)
         den, i = _read_group(src, i)
         return (
-            f"{_paren(_convert(num, unknown=unknown))}/"
-            f"{_paren(_convert(den, unknown=unknown))}"
+            f"{_paren(_convert(num, unknown=unknown))}/{_paren(_convert(den, unknown=unknown))}"
         ), i
     if cmd == "sqrt":
         root = ""
@@ -548,9 +659,7 @@ def _command(src: str, i: int, *, unknown: str) -> tuple[str, int]:
     if cmd == "binom":
         n, i = _read_group(src, i)
         k, i = _read_group(src, i)
-        return (
-            f"C({_convert(n, unknown=unknown)}, {_convert(k, unknown=unknown)})"
-        ), i
+        return (f"C({_convert(n, unknown=unknown)}, {_convert(k, unknown=unknown)})"), i
     if cmd in _ACCENTS:
         grp, i = _read_group(src, i)
         body = _convert(grp, unknown=unknown)
