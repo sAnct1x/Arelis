@@ -12,12 +12,13 @@ Moon: pressure 1010, horizon 0, upper limb.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import unquote
 
 import httpx
 import pytest
 
-from arelis.tools.catalog import CatalogTool
+from arelis.tools.catalog import CatalogTool, catalog_place
 
 # Exampleville, the synthetic place other tests use. Central time in October.
 _LAT = 39.7817
@@ -215,3 +216,41 @@ async def test_a_single_planet_id_is_still_a_distance_call() -> None:
     assert seen
     assert "COMMAND='499'" in seen[0]
     assert result.ok, result.output
+
+
+@pytest.mark.asyncio
+async def test_saved_place_is_used_when_place_lookup_is_off(
+    tmp_path: Path, _fixed_clock
+) -> None:
+    """Lookup off still uses a saved place, and does not call the network."""
+    profile = tmp_path / "profile.yaml"
+    profile.write_text(
+        "location:\n"
+        "  city: Springfield\n"
+        "  region: Illinois\n"
+        "  country: US\n"
+        f"  latitude: {_LAT}\n"
+        f"  longitude: {_LON}\n"
+        "  timezone: America/Chicago\n",
+        encoding="utf-8",
+    )
+    config = {
+        "location": {
+            "enabled": False,
+            "profile_path": str(profile),
+            "use_system": False,
+            "network": {"enabled": False},
+        }
+    }
+    place = catalog_place(config)
+    assert place is not None
+    assert place.network_enabled() is False
+    seen: list[str] = []
+    result = await _tool(place, seen).run(
+        action="horizons", table="local", target="Moon"
+    )
+    assert seen == []
+    assert result.ok, result.output
+    assert result.data["body"] == "Moon"
+    assert _minutes(result.data["rise"], _MOON[0]) <= 2
+    assert _minutes(result.data["set"], _MOON[1]) <= 2

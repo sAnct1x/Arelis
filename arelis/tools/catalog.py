@@ -887,12 +887,18 @@ def _horizons_body_id(raw: str) -> str:
 
 
 def catalog_place(config: dict[str, Any]) -> Any | None:
-    """Saved place for a local sky table, only when location is on."""
-    if (config.get("location") or {}).get("enabled", True):
-        from arelis.location import build_location
+    """Saved place for a local sky table.
 
-        return config.get("_location") or build_location(config)
-    return None
+    Place lookup off skips the every-turn place line. A place already saved
+    in the profile is still used. Network lookup stays off unless
+    location.network.enabled is set.
+    """
+    from arelis.location import build_location
+
+    loc = config.get("_location")
+    if loc is None:
+        loc = build_location(config)
+    return loc
 
 
 def _horizons_http_message(response: httpx.Response) -> str:
