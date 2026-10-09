@@ -208,6 +208,36 @@ def _latest_named_file(
     return ""
 
 
+def resolve_reported_document_path(path_str: str) -> str:
+    """Open the relative outputs/documents path a document write reports.
+
+    Workspace resolve joins that string onto the project, so a file that
+    actually lives in the drop tray looks missing. This only accepts a
+    relative path with no parent segments, under outputs/documents, and
+    returns empty for anything else. Unsafe Windows prefixes are refused
+    here and are not resolved.
+    """
+    raw = (path_str or "").strip().strip("\"'`")
+    if not raw or is_unsafe_windows_path(raw):
+        return ""
+    if Path(raw).is_absolute() or (len(raw) >= 2 and raw[1] == ":"):
+        return ""
+    parts = [part for part in raw.replace("\\", "/").split("/") if part and part != "."]
+    if ".." in parts or len(parts) < 3:
+        return ""
+    if parts[0] != "outputs" or parts[1] != "documents":
+        return ""
+    try:
+        drop = (outputs_dir() / "documents").resolve()
+        resolved = drop.joinpath(*parts[2:]).resolve()
+        resolved.relative_to(drop)
+    except (OSError, ValueError):
+        return ""
+    if not resolved.is_file():
+        return ""
+    return str(resolved)
+
+
 def resolve_drop_file(
     path_str: str = "",
     *,

@@ -177,7 +177,7 @@ class TestWhoMayUpdate:
         monkeypatch.setattr(update, "is_source_checkout", lambda: True)
         supported, why = update.updates_supported()
         assert supported is False
-        assert "git pull" in why
+        assert why == "You're running from source. Update it with git."
 
     def test_a_pip_install_into_a_virtualenv_is_not_offered_an_update(self, monkeypatch) -> None:
         """No uninstaller means our setup .exe did not put this here, and running one over

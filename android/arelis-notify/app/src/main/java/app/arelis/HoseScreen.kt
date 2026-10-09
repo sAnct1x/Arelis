@@ -53,7 +53,7 @@ fun HoseScreen(
             StepRow(
                 done = grants.people,
                 title = "people you text",
-                body = "Read your threads and names so the PC book gets the people you actually message — not the whole address book.",
+                body = "Read your threads and names so the PC book gets the people you actually message, not the whole address book.",
                 onClick = onGrantPeople,
             )
             if (grants.people) {

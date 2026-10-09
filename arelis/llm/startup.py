@@ -95,16 +95,11 @@ async def run_model_preflight(
         )
         return
 
-    for role, name in missing_models(available, configured):
+    for _role, name in missing_models(available, configured):
         await bus.publish(
             Event(
                 EventType.STATUS,
-                {
-                    "message": (
-                        f"Model `{name}` (role `{role}`) is not pulled. "
-                        f"Run: ollama pull {name}"
-                    )
-                },
+                {"message": f"The model {name} isn't downloaded yet."},
             )
         )
 
