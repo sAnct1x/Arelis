@@ -49,8 +49,8 @@ def ollama_install_help() -> str | None:
         return None
     if sys.platform == "darwin":
         return (
-            "Ollama is not installed. Install the Ollama app, or install it with "
-            "Homebrew, then try again."
+            "Ollama is not installed. Download the Ollama app from the Ollama "
+            "website, or run brew install ollama, then try again."
         )
     return (
         "Ollama is not installed. Install it with the official install script "

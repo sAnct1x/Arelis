@@ -1,4 +1,7 @@
-"""Registering jobs with Windows Task Scheduler.
+"""Registering jobs with the operating system scheduler.
+
+Windows uses Task Scheduler. Mac uses a LaunchAgent (see launchd.py).
+Linux is unchanged: scheduling is not offered there.
 
 Task XML rather than the simple `schtasks /Create /SC DAILY /ST 19:00` form,
 because the flags cannot express StartWhenAvailable. Without it a 7pm job on a
@@ -39,7 +42,7 @@ def task_name(job_id: str) -> str:
 
 
 def supported() -> bool:
-    return sys.platform == "win32"
+    return sys.platform == "win32" or sys.platform == "darwin"
 
 
 def runner_command() -> tuple[str, str]:
@@ -71,6 +74,13 @@ def runner_command() -> tuple[str, str]:
     worth saying because it reads like a hardcoded dependency on a directory an
     install does not have.
     """
+    if sys.platform == "darwin":
+        # No pythonw on Mac. The current interpreter plus -m arelis is the
+        # command launchd should keep.
+        if getattr(sys, "frozen", False):
+            return str(Path(sys.executable)), ""
+        return sys.executable, "-m arelis"
+
     # The planned packaging ships a real interpreter and never reaches this
     # branch. It is here so that changing that decision is one edit rather than a
     # hunt through the scheduler for an assumption nobody wrote down.
@@ -240,6 +250,10 @@ def _repetition(every_minutes: int) -> str:
 
 def register(job: Job) -> str:
     """Create or replace the scheduled task for a job."""
+    if sys.platform == "darwin":
+        from arelis.jobs.launchd import register_job
+
+        return register_job(job)
     _require_windows()
     xml = build_task_xml(job)
     # UTF-16 to match the declaration. schtasks reads the encoding from the
@@ -258,6 +272,10 @@ def register(job: Job) -> str:
 
 def unregister(job_id: str) -> bool:
     """Remove the task. Missing is success: the desired end state is reached."""
+    if sys.platform == "darwin":
+        from arelis.jobs.launchd import unregister_job
+
+        return unregister_job(job_id)
     if not supported():
         return False
     try:
@@ -270,6 +288,11 @@ def unregister(job_id: str) -> bool:
 
 
 def run_now(job_id: str) -> None:
+    if sys.platform == "darwin":
+        from arelis.jobs.launchd import run_job_now
+
+        run_job_now(job_id)
+        return
     _require_windows()
     _schtasks("/Run", "/TN", task_name(job_id))
 
@@ -364,6 +387,10 @@ def _same_runner(previous: dict[str, str], current: dict[str, str]) -> bool:
 
 def registered_ids() -> set[str]:
     """Which jobs actually have a task, so drift from jobs.yaml is visible."""
+    if sys.platform == "darwin":
+        from arelis.jobs.launchd import registered_job_ids
+
+        return registered_job_ids()
     if not supported():
         return set()
     try:
@@ -399,6 +426,10 @@ def remove_all_tasks() -> list[str]:
     outcome is that the uninstall finishes; a task that could not be deleted is worth
     less than a user stuck with a half-removed program and a dialog they cannot action.
     """
+    if sys.platform == "darwin":
+        from arelis.jobs.launchd import remove_all_agents
+
+        return remove_all_agents()
     removed: list[str] = []
     try:
         ids = registered_ids()
@@ -414,7 +445,7 @@ def remove_all_tasks() -> list[str]:
 
 
 def _require_windows() -> None:
-    if not supported():
+    if sys.platform != "win32":
         raise ScheduleError(
             "Scheduling uses Windows Task Scheduler and this is not Windows. "
             "The job is saved and can still be run with `arelis --run-job`."

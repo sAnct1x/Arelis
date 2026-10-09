@@ -181,6 +181,33 @@ python -m arelis
 
 Desktop control and scheduled jobs do not work on Linux yet.
 
+## Run from source on Mac
+
+You need Homebrew, and Python 3.11 or newer from Homebrew.
+
+```bash
+git clone https://github.com/sAnct1x/Arelis.git
+cd Arelis
+python3 -m venv .venv
+source .venv/bin/activate
+python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
+pip install -e . -c qt-constraints.txt
+```
+
+Install Ollama by downloading the app from the Ollama website, or with
+`brew install ollama`. Then run:
+
+```bash
+python -m arelis
+```
+
+Tesseract is optional. Install it with `brew install tesseract` if you want
+Arelis to read text in pictures.
+
+The first launch may ask for microphone or screen permissions.
+
+Desktop control does not work on Mac yet.
+
 ## Where everything lives
 
 On first launch, she'll ask which folder she's allowed to use. She can

@@ -13,7 +13,7 @@ from typing import Literal
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from arelis.paths import state_dir, user_data_dir
+from arelis.paths import library_cache_dir, state_dir, user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +52,9 @@ _FIREFOX_PROG_IDS = {
 
 def browsers_path() -> Path:
     """Where Playwright keeps the browsers it downloads for itself."""
+    mac = library_cache_dir()
+    if mac is not None:
+        return mac / "browsers"
     return user_data_dir() / "browsers"
 
 
@@ -181,6 +184,24 @@ def resolve_browser_choice(choice: str | None) -> BrowserName:
     return detect_default_browser()
 
 
+def _mac_browser_paths() -> list[str]:
+    """Chrome and Chromium in /Applications and the user Applications folder.
+
+    A GUI launch on Mac often does not have Homebrew on PATH. These are checked
+    as files, not via PATH.
+    """
+    bundles = (
+        ("Google Chrome.app", "Google Chrome"),
+        ("Chromium.app", "Chromium"),
+    )
+    roots = (Path("/Applications"), Path.home() / "Applications")
+    found: list[str] = []
+    for root in roots:
+        for bundle, binary in bundles:
+            found.append((root / bundle / "Contents" / "MacOS" / binary).as_posix())
+    return found
+
+
 def chrome_executable() -> str | None:
     return _first_existing(
         [
@@ -213,8 +234,7 @@ def chrome_executable() -> str | None:
             ),
             "/var/lib/flatpak/exports/bin/com.google.Chrome",
             "/var/lib/flatpak/exports/bin/org.chromium.Chromium",
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            *_mac_browser_paths(),
         ]
     )
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from pathlib import Path
 
 from arelis.paths import APP_NAME, default_workspace_root, is_source_checkout, user_data_dir
@@ -51,13 +52,17 @@ def residue_dirs() -> list[Path]:
     seen: set[Path] = set()
     out: list[Path] = []
     local = _localappdata()
-    for path in (
+    published = [
         user_data_dir(),
         local / APP_NAME,
         runtime_dir(),
         local / "Arelis-dev",
         default_workspace_root(),
-    ):
+    ]
+    if sys.platform == "darwin":
+        published.append(Path.home() / "Library" / "Application Support" / APP_NAME)
+        published.append(Path.home() / "Library" / "Caches" / APP_NAME)
+    for path in published:
         try:
             resolved = path.expanduser().resolve()
         except OSError:
