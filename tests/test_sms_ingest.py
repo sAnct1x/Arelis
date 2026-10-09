@@ -165,6 +165,7 @@ def test_list_lan_ipv4_returns_when_getaddrinfo_hangs(monkeypatch: pytest.Monkey
     if worker is not None:
         worker.join(timeout=2.0)
         assert not worker.is_alive()
+    assert not any(thread.name == "arelis-lan-lookup" for thread in threading.enumerate())
 
 
 def test_reset_clears_a_stuck_hostname_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -204,6 +205,40 @@ def test_reset_clears_a_stuck_hostname_lookup(monkeypatch: pytest.MonkeyPatch) -
         release.set()
         if stuck is not None:
             stuck.join(timeout=2.0)
+
+
+def test_released_hang_leaves_no_lookup_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """After a stuck lookup is released, its thread is gone.
+
+    The resolver runs on a daemon thread the process cannot kill. This test
+    holds getaddrinfo, lets the call return on the budget, then releases it.
+    Nothing named arelis-lan-lookup should still be alive.
+    """
+    release = threading.Event()
+    entered = threading.Event()
+
+    def hang(*_args: object, **_kwargs: object) -> list[object]:
+        entered.set()
+        release.wait()
+        return []
+
+    monkeypatch.setattr(sms_ingest.socket, "getaddrinfo", hang)
+    monkeypatch.setattr(
+        sms_ingest.socket,
+        "socket",
+        lambda *_args, **_kwargs: _RouteSocket("192.168.1.9"),
+    )
+    try:
+        assert sms_ingest.list_lan_ipv4() == ["192.168.1.9"]
+        assert entered.wait(1.0)
+    finally:
+        release.set()
+    worker = sms_ingest._lookup_thread
+    assert worker is not None
+    assert worker.name == "arelis-lan-lookup"
+    worker.join(timeout=2.0)
+    assert not worker.is_alive()
+    assert not any(thread.name == "arelis-lan-lookup" for thread in threading.enumerate())
 
 
 def test_load_ingest_token(tmp_path: Path, monkeypatch) -> None:

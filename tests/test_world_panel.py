@@ -138,7 +138,10 @@ def test_chooser_solar_populates_and_fetches_horizons(qt_app, monkeypatch, tmp_p
     from arelis.ui.panels.solar import SolarPanel
     from arelis.ui.world_window import WorldWindow
 
-    monkeypatch.setattr(SolarPanel, "_horizons_work", lambda self: None)
+    monkeypatch.setattr(
+        "arelis.ui.panels.solar._horizons_fetch",
+        lambda *_args, **_kwargs: None,
+    )
     monkeypatch.setattr(SolarPanel, "_try_nearest_cache", lambda self: False)
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     set_system(None)
@@ -301,11 +304,13 @@ def test_spoken_lab_verbs_skip_the_chooser(arelis_window, qt_app, monkeypatch, t
     from arelis.physics.engine import rebound_available
     from arelis.physics.runtime import get_system, set_system
     from arelis.physics.scene import SolarSystem
-    from arelis.ui.panels.solar import SolarPanel
 
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
-    monkeypatch.setattr(SolarPanel, "_horizons_work", lambda self: None)
+    monkeypatch.setattr(
+        "arelis.ui.panels.solar._horizons_fetch",
+        lambda *_args, **_kwargs: None,
+    )
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
     window = arelis_window()
