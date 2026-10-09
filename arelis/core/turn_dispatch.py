@@ -29,7 +29,7 @@ from arelis.core.image_refs import (
     fill_image_gen_args,
     fill_vision_args,
 )
-from arelis.core.intent_catalog import room_data_file_ask
+from arelis.core.intent_catalog import data_cell_should_reject
 from arelis.core.look import PASTED_IDENTIFY_QUESTION, look_call_blocked, vision_question
 from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.preflight import (
@@ -345,17 +345,8 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 r.messages.append(loop._tool_message(name, err))
                 continue
 
-        if name in {
-            "analyze",
-            "weather",
-            "plot",
-            "workspace",
-            "python",
-            "vision",
-        } and room_data_file_ask(r.text):
-            _drop_wander(
-                "analyze", "weather", "plot", "workspace", "python", "vision"
-            )
+        if data_cell_should_reject(name, args, r.text, r.tool_names):
+            _drop_wander(name)
             err = (
                 "That file is already in this room. Call data_cell. "
                 "files= the file names. "

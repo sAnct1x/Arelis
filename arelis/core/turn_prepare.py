@@ -427,7 +427,9 @@ def _prepare_weather_first_move(
     if looks_like_scheduled_send(text) or looks_like_schedule_manage(text):
         return
     # A deep dive owns the turn. The forecast word is the topic, not the call.
-    if RESEARCH.matches(text) or not weather_intent_matches(text):
+    if RESEARCH.matches(text) or not weather_intent_matches(
+        text, data_cell="data_cell" in ctx.tool_names
+    ):
         return
     ctx.weather_preinject = draft_weather_args(text)
 

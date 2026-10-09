@@ -533,6 +533,110 @@ def test_a_room_file_beats_the_weather_preinject(monkeypatch) -> None:
     assert weather_intent_matches("what's the temperature in other.csv")
 
 
+def test_only_data_files_and_specific_stems_take_the_room(monkeypatch) -> None:
+    from arelis.core.intent_catalog import (
+        data_cell_should_reject,
+        weather_intent_matches,
+    )
+    from arelis.core.preflight import detect_intents
+
+    code_room = {"parser.py", "notes.md", "briefing.md", "main.py"}
+    for question in ("run the parser", "open the briefing", "what's the weather"):
+        hints = detect_intents(question, room_files=code_room)
+        assert not any(hint.kind == "data_cell" for hint in hints), question
+    assert weather_intent_matches("what's the weather")
+    rain = detect_intents("will it rain tomorrow", room_files={"weather.csv"})
+    assert any(hint.kind == "weather" for hint in rain)
+    assert not any(hint.kind == "data_cell" for hint in rain)
+    outside = detect_intents(
+        "what's the temperature outside",
+        room_files={"data.csv"},
+    )
+    assert any(hint.kind == "weather" for hint in outside)
+    assert not any(hint.kind == "data_cell" for hint in outside)
+    named = detect_intents(
+        "plot temperature over time from weather.csv",
+        room_files={"weather.csv"},
+    )
+    assert any(hint.kind == "data_cell" for hint in named)
+    assert not any(hint.kind == "weather" for hint in named)
+    forecast = detect_intents("what's the weather", room_files={"weather.csv"})
+    assert any(hint.kind == "weather" for hint in forecast)
+    assert not any(hint.kind == "data_cell" for hint in forecast)
+
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"readings.csv", "m31.fits"},
+    )
+    tools = {"data_cell", "analyze", "weather", "workspace", "python"}
+    assert data_cell_should_reject(
+        "analyze",
+        {},
+        "What's the average of column B in readings.csv?",
+        tools,
+    )
+    assert not data_cell_should_reject(
+        "analyze",
+        {},
+        "Which hour had the highest temperature in my readings?",
+        tools,
+    )
+    assert data_cell_should_reject(
+        "workspace",
+        {"action": "read"},
+        "show me readings.csv",
+        tools,
+    )
+    assert not data_cell_should_reject(
+        "workspace",
+        {"action": "write"},
+        "rename readings.csv",
+        tools,
+    )
+    assert not data_cell_should_reject(
+        "workspace",
+        {"action": "read"},
+        "open readings.csv in the editor",
+        tools,
+    )
+    assert not data_cell_should_reject(
+        "python",
+        {},
+        "write a script that reads readings.csv",
+        tools,
+    )
+    assert not data_cell_should_reject(
+        "analyze",
+        {},
+        "What's the average of column B in readings.csv?",
+        {"analyze", "weather"},
+    )
+
+
+def test_data_cell_off_leaves_weather_and_analyze(monkeypatch) -> None:
+    from arelis.core.intent_catalog import weather_intent_matches
+    from arelis.core.preflight import detect_intents
+
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: False)
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"readings.csv", "m31.fits"},
+    )
+    room = {"readings.csv", "m31.fits"}
+    hints = detect_intents(
+        "What's the average of column B in readings.csv?",
+        room_files=room,
+    )
+    kinds = {hint.kind for hint in hints}
+    assert "data_cell" not in kinds
+    assert "analyze" in kinds
+    plot = "Can you plot temperature over time from readings.csv?"
+    assert weather_intent_matches(plot)
+    again = detect_intents(plot, room_files=room)
+    assert not any(hint.kind == "data_cell" for hint in again)
+    assert weather_intent_matches("will it rain tomorrow")
+
+
 def test_data_cell_is_a_local_write_with_a_plain_status() -> None:
     assert evaluate_capability("data_cell", {"code": "print(1)"}) == "WRITE_LOCAL"
     assert evaluate_confirm("data_cell", {"code": "print(1)"}, risk="write") is True
