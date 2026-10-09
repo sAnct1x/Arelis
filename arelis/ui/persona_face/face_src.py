@@ -89,15 +89,14 @@ def inside_face(p, k=1.0):
 
 
 def hair_hem(x, y):
-    """Ragged shoulder hem. Sides end higher. The cutoff wanders across columns.
+    """One soft rounded hem near the shoulder. Lowest in the middle, a little higher at the sides.
 
-    Weight dies over a band, so the bottom is not one straight row.
+    Weight dies over a wide band, so the tips feather instead of stopping on one row.
     """
-    side = np.clip((np.abs(x) - 0.04) / 0.34, 0.0, 1.0)
-    hem = 0.642 - 0.08 * side
-    hem = hem + 0.010 * np.sin(x * 29.0) + 0.006 * np.sin(x * 71.0 + 1.1)
-    # Dies across about a tenth of the head, and is gone before the shoulder line.
-    return 1.0 - smooth((y - (hem - 0.10)) / 0.10)
+    side = np.clip(np.abs(x) / 0.36, 0.0, 1.0)
+    hem = 0.645 - 0.06 * side * side
+    hem = hem + 0.006 * np.sin(x * 29.0) + 0.004 * np.sin(x * 71.0 + 1.1)
+    return 1.0 - smooth((y - (hem - 0.13)) / 0.13)
 
 
 # Sparkle sits in the crown hair, toward the part, not on a tuft above it.

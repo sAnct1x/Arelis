@@ -275,10 +275,37 @@ def _soften_hem(plate: np.ndarray) -> np.ndarray:
     return np.clip(out + 0.5, 0, 255).astype(np.uint8)
 
 
+def _close_hem_gap(plate: np.ndarray) -> np.ndarray:
+    """Fill the gap the back hair leaves behind the neck, so the hem is one piece.
+
+    The two back curtains part under the jaw. Below the jaw, in the middle,
+    each pixel takes its most solid row neighbour, which closes the
+    notch between the two lobes.
+    """
+    cv = _canvas(plate.shape[1], plate.shape[0])
+    reach = max(1, round(0.08 / 1.6 * plate.shape[1]))
+    src = plate.astype(np.float32)
+    # Take whole pixels from the most solid neighbour. Mixing channels from
+    # different pixels leaves dark rims on a light theme.
+    wide = src.copy()
+    for shift in range(1, reach + 1):
+        for dst, cand in (
+            (wide[:, shift:], src[:, :-shift]),
+            (wide[:, :-shift], src[:, shift:]),
+        ):
+            take = cand[..., 3] > dst[..., 3]
+            dst[take] = cand[take]
+    low = face2.ss(0.28, 0.40, cv.Y)
+    mid = 1.0 - face2.ss(0.16, 0.26, np.abs(cv.X))
+    weight = (low * mid).astype(np.float32)[..., None]
+    out = src * (1.0 - weight) + wide * weight
+    return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+
+
 def _paint_back(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
     cv = _canvas(width, height)
     rig.draw_back(cv, t, POSE)
-    return _soften_hem(to_premul(cv, 3.2, floor=0.06, bottom=False))
+    return _soften_hem(_close_hem_gap(to_premul(cv, 3.2, floor=0.06, bottom=False)))
 
 
 def _fade_outer_left_lock(plate: np.ndarray) -> np.ndarray:

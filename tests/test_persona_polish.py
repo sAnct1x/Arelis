@@ -1073,3 +1073,28 @@ def test_the_hair_stops_at_the_shoulder():
     assert len(half_rows) > 8
     assert int(half_rows.max() - half_rows.min()) >= 6, int(half_rows.max() - half_rows.min())
     assert float(np.median(spans)) >= 3.0, float(np.median(spans))
+
+
+def test_the_hem_is_one_piece_with_no_notch_in_the_middle():
+    """The back curtains parted under the jaw and left two lobes with a notch.
+
+    Across the middle of the hem, the last solid row stays level: no column
+    near the centre ends more than a little above its neighbours.
+    """
+    from arelis.ui.persona_face.engine import VIEW
+
+    layers = _layers()
+    hair = np.maximum(layers["back_0"][..., 3], layers["front_0"][..., 3]).astype(np.float64)
+    height, width = hair.shape
+    x0, x1, y0, y1 = VIEW
+    world_y = y0 + (np.arange(height) + 0.5) / height * (y1 - y0)
+    world_x = x0 + (np.arange(width) + 0.5) / width * (x1 - x0)
+    ends = {}
+    for col in np.flatnonzero(np.abs(world_x) <= 0.20):
+        solid = np.flatnonzero(hair[:, col] >= 128.0)
+        assert len(solid) > 0, float(world_x[col])
+        ends[col] = float(world_y[solid[-1]])
+    centre = [y for col, y in ends.items() if abs(world_x[col]) <= 0.08]
+    edge = [y for col, y in ends.items() if abs(world_x[col]) > 0.12]
+    # Lowest in the middle or level. The old notch sat about 0.11 above the lobes.
+    assert min(centre) >= max(edge) - 0.03, (min(centre), max(edge))
