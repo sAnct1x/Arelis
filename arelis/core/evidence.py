@@ -157,8 +157,13 @@ class EvidenceLedger:
             self.add(source="plot", kind="plot", span=span, ok=ok)
             return
         if name == "data_cell":
-            # A failed cell is not a number and not a chart.
+            # A failed cell is not a number and not a chart. The tool being
+            # off, or a room with no data file, leaves the ledger as it was.
             if not ok:
+                return
+            from arelis.core.intent_catalog import data_cell_enabled, room_data_file_names
+
+            if not data_cell_enabled() or not room_data_file_names():
                 return
             chart_path = str(data.get("abs_path") or "")
             charts = data.get("charts") if isinstance(data.get("charts"), list) else []

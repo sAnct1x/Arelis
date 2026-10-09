@@ -726,9 +726,14 @@ def test_data_cell_is_a_local_write_with_a_plain_status() -> None:
     assert tool_errand("data_cell") == "reading your data"
 
 
-def test_a_data_cell_chart_is_not_replaced_by_the_plot_guard() -> None:
+def test_a_data_cell_chart_is_not_replaced_by_the_plot_guard(monkeypatch) -> None:
     from arelis.core.claims import detect_exactness_need, unsupported_exactness_reply
 
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: True)
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"readings.csv"},
+    )
     ledger = EvidenceLedger()
     ledger.record_tool(
         "data_cell",
@@ -748,9 +753,14 @@ def test_a_data_cell_chart_is_not_replaced_by_the_plot_guard() -> None:
     assert "plot file" not in reply
 
 
-def test_a_data_cell_number_is_not_refused() -> None:
+def test_a_data_cell_number_is_not_refused(monkeypatch) -> None:
     from arelis.core.claims import detect_exactness_need, unsupported_exactness_reply
 
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: True)
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"readings.csv"},
+    )
     ledger = EvidenceLedger()
     ledger.record_tool("data_cell", ok=True, output="5.0", data={})
     need = detect_exactness_need("What's the average of column B in readings.csv?")
@@ -842,3 +852,129 @@ def test_the_hottest_hour_is_not_a_forecast(monkeypatch) -> None:
         "what's the temperature outside",
         data_cell=True,
     ).needs_weather
+
+
+def test_claims_stays_on_main_when_the_tool_is_off_or_the_room_has_no_data_file(
+    monkeypatch,
+) -> None:
+    from arelis.core.claims import detect_exactness_need
+
+    hour = "Which hour had the highest temperature in my readings?"
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"readings.csv"},
+    )
+    assert detect_exactness_need(hour).needs_weather
+    assert detect_exactness_need(hour, data_cell=False).needs_weather
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: False)
+    assert detect_exactness_need(hour, data_cell=True).needs_weather
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: True)
+    monkeypatch.setattr("arelis.core.intent_catalog.live_room_filenames", lambda: set())
+    assert detect_exactness_need(hour, data_cell=True).needs_weather
+
+
+def test_evidence_ignores_a_cell_when_the_tool_is_off_or_the_room_has_no_data_file(
+    monkeypatch,
+) -> None:
+    chart = {
+        "abs_path": r"C:\room\results\chart.png",
+        "charts": [{"name": "chart.png", "abs_path": r"C:\room\results\chart.png"}],
+    }
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: False)
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"readings.csv"},
+    )
+    off = EvidenceLedger()
+    off.record_tool("data_cell", ok=True, output="5.0", data=chart)
+    assert off.missing_kinds(("plot", "math", "analyze")) == ["plot", "math", "analyze"]
+    plain = EvidenceLedger()
+    plain.record_tool("plot", ok=True, output="chart.png", data={"path": "chart.png"})
+    assert plain.has_ok("plot")
+    assert not plain.has_ok("analyze")
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: True)
+    monkeypatch.setattr("arelis.core.intent_catalog.live_room_filenames", lambda: set())
+    empty = EvidenceLedger()
+    empty.record_tool("data_cell", ok=True, output="5.0", data=chart)
+    assert empty.missing_kinds(("plot", "math", "analyze")) == ["plot", "math", "analyze"]
+
+
+def test_preflight_stays_on_main_when_the_tool_is_off_or_the_room_has_no_data_file(
+    monkeypatch,
+) -> None:
+    from arelis.core.preflight import detect_intents
+
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: True)
+    hour = "Which hour had the highest temperature in my readings?"
+    held = detect_intents(hour, room_files={"readings.csv"}, offer_data_cell=False)
+    assert not any(hint.kind == "data_cell" for hint in held)
+    assert any(hint.kind == "weather" for hint in held)
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: False)
+    flagged = detect_intents(hour, room_files={"readings.csv"}, offer_data_cell=True)
+    assert not any(hint.kind == "data_cell" for hint in flagged)
+    empty = detect_intents(
+        "What does the header of the FITS file say?",
+        room_files=set(),
+        offer_data_cell=True,
+    )
+    assert not any(hint.kind == "data_cell" for hint in empty)
+
+
+def test_intent_catalog_does_not_reject_when_the_tool_is_off_or_no_data_file(
+    monkeypatch,
+) -> None:
+    from arelis.core.intent_catalog import data_cell_should_reject
+
+    question = "What does the header of the FITS file say?"
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"m31.fits"},
+    )
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: False)
+    assert not data_cell_should_reject("recall", {}, question, {"data_cell", "recall"})
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: True)
+    monkeypatch.setattr("arelis.core.intent_catalog.live_room_filenames", lambda: set())
+    assert not data_cell_should_reject("recall", {}, question, {"data_cell", "recall"})
+    assert not data_cell_should_reject(
+        "workspace",
+        {"action": "list"},
+        question,
+        {"data_cell", "workspace"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_turn_dispatch_still_calls_recall_when_the_tool_is_off(monkeypatch) -> None:
+    from arelis.core.turn_dispatch import dispatch_calls
+    from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
+    from tests.test_round_scratch import _augment
+
+    monkeypatch.setattr("arelis.core.intent_catalog.data_cell_enabled", lambda: False)
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"m31.fits", "readings.csv"},
+    )
+    loop = _augment(_FakeLoop())
+    called: list[str] = []
+
+    async def _call(name: str, **_kwargs: object) -> SimpleNamespace:
+        called.append(name)
+        return SimpleNamespace(ok=True, output="ok", data={})
+
+    loop.tools.call = _call
+    text = "What does the header of the FITS file say?"
+    tools = {"recall", "workspace"}
+    r = _scratch(
+        text=text,
+        calls=[("recall", {"query": "fits"})],
+        content="",
+        streamed="",
+        tool_names=tools,
+        available=tools,
+        visible=tools,
+        available_all=tools,
+    )
+    ctx = _ctx(text=text, tool_names=tools)
+    await dispatch_calls(loop, ctx, r, 1)
+    assert called == ["recall"]
+    assert not any("Data files in this room" in str(item.get("content", "")) for item in r.messages)

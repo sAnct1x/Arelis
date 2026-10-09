@@ -759,7 +759,11 @@ def detect_intents(
     raw = (text or "").strip()
     if not raw:
         return []
-    offered = data_cell_enabled() if offer_data_cell is None else bool(offer_data_cell)
+    flag_on = data_cell_enabled()
+    if offer_data_cell is None:
+        offered = flag_on
+    else:
+        offered = bool(offer_data_cell) and flag_on
     hist = history or []
     names = {
         str(item).lower()

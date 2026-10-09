@@ -972,12 +972,12 @@ def detect_exactness_need(text: str, *, data_cell: bool | None = None) -> Exactn
             needs_weather = False
     # The hour question names a room file and the word temperature. Exactness
     # still called that weather, and the force nudge ran after data_cell had
-    # already printed the table. A file in this room is not a forecast.
-    if needs_weather:
+    # already printed the table. Only when this turn can call the tool and
+    # the room actually has that file.
+    if needs_weather and data_cell:
         from arelis.core.intent_catalog import data_cell_enabled, room_data_file_ask
 
-        offered = data_cell_enabled() if data_cell is None else data_cell
-        if offered and room_data_file_ask(text or ""):
+        if data_cell_enabled() and room_data_file_ask(text or ""):
             needs_weather = False
     # A weather ask is Open-Meteo, not a news page. Tagging both made a missed
     # weather call refuse with "no retrieved page warrant" — the 9am job mailed
