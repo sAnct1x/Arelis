@@ -197,6 +197,7 @@ class TestWhoMayUpdate:
 
     def test_the_installer_is_recognised_by_its_uninstaller(self, monkeypatch, tmp_path) -> None:
         """The non-vacuity half of the check above: it is looking at something real."""
+        monkeypatch.setattr(update.sys, "platform", "win32")
         package = tmp_path / "Lib" / "site-packages" / "arelis"
         package.mkdir(parents=True)
         monkeypatch.setattr(update, "PACKAGE_ROOT", package)

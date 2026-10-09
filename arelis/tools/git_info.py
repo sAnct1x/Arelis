@@ -191,14 +191,14 @@ class GitInfoTool:
             return ToolResult(ok=False, output=f"git_info path error: {exc}")
 
         toplevel = self._git_toplevel(cwd)
+        named = bool(path_str and str(path_str).strip())
+        if toplevel is None and not named:
+            nested = self._nested_repos()
+            if len(nested) == 1:
+                cwd = nested[0]
+                toplevel = self._git_toplevel(cwd)
         if toplevel is None:
-            return ToolResult(
-                ok=False,
-                output=(
-                    f"Not a git repository (or any parent): {cwd}. "
-                    "Workspace root must be inside a git repo."
-                ),
-            )
+            return ToolResult(ok=False, output=self._not_a_repo_message(cwd))
         # cwd is resolved via WorkspaceRoots; re-check so a race/symlink escape
         # cannot run git outside configured roots. Toplevel may sit above a
         # workspace subdirectory of a larger monorepo — that is allowed.
@@ -279,6 +279,64 @@ class GitInfoTool:
             toplevel=toplevel,
             max_chars=max_chars,
         )
+
+    def _nested_repos(self) -> list[Path]:
+        """Git repos sitting one folder under a workspace root, not the root itself."""
+        found: list[Path] = []
+        seen: set[Path] = set()
+        for root in self.workspace.roots:
+            base = root.path
+            try:
+                children = list(base.iterdir())
+            except OSError:
+                continue
+            for child in children:
+                if not child.is_dir() or child.name.startswith("."):
+                    continue
+                try:
+                    if not (child / ".git").exists():
+                        continue
+                    resolved = child.resolve()
+                except OSError:
+                    continue
+                if resolved in seen or not self._within_workspace(resolved):
+                    continue
+                seen.add(resolved)
+                found.append(resolved)
+        found.sort(key=lambda path: path.name.lower())
+        return found
+
+    def _folder_names(self, cwd: Path) -> list[str]:
+        names: list[str] = []
+        try:
+            children = list(cwd.iterdir())
+        except OSError:
+            return names
+        for child in children:
+            if child.name.startswith(".") or not child.is_dir():
+                continue
+            names.append(child.name)
+        names.sort(key=str.lower)
+        return names[:30]
+
+    def _not_a_repo_message(self, cwd: Path) -> str:
+        folders = self._folder_names(cwd)
+        repos = [path.name for path in self._nested_repos()]
+        if repos:
+            listed = ", ".join(repos)
+            return (
+                "This folder is not a git repository. "
+                f"These folders are repositories: {listed}. "
+                "Tell me which one to use."
+            )
+        if folders:
+            listed = ", ".join(folders)
+            return (
+                "This folder is not a git repository. "
+                f"Folders here: {listed}. "
+                "None of them is a git repository."
+            )
+        return "This folder is not a git repository, and it has no folders inside it."
 
     def _cwd_for(self, path_str: str | None) -> Path:
         if path_str is None or not str(path_str).strip():

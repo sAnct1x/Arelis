@@ -108,6 +108,28 @@ def api_url() -> str:
     return f"https://api.github.com/repos/{slug}/releases/latest"
 
 
+def mac_app_root() -> Path | None:
+    """The .app bundle if this package lives inside the one we build.
+
+    The identifier in Info.plist is the proof, the same job the uninstaller
+    does on Windows: a pip install is not an app we should talk about updating.
+    """
+    current = PACKAGE_ROOT.resolve()
+    for _ in range(12):
+        info = current / "Contents" / "Info.plist"
+        if info.is_file():
+            try:
+                text = info.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                return None
+            return current if "app.arelis" in text else None
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+    return None
+
+
 def install_root() -> Path | None:
     """The directory the installer owns, or None if the installer did not put us here.
 
@@ -115,7 +137,11 @@ def install_root() -> Path | None:
     uninstaller sits at the root, and its presence is the only cheap proof that this tree
     was produced by our setup .exe rather than by pip into a virtualenv that happens to
     have the same depth.
+
+    On Mac the same question is whether we are inside Arelis.app.
     """
+    if sys.platform == "darwin":
+        return mac_app_root()
     try:
         root = PACKAGE_ROOT.parents[2]
     except IndexError:
@@ -123,8 +149,19 @@ def install_root() -> Path | None:
     return root if (root / "unins000.exe").is_file() else None
 
 
+def downloads_the_installer() -> bool:
+    """Windows fetches the setup file. Mac only shows the release page."""
+    return sys.platform == "win32"
+
+
 def updates_supported() -> tuple[bool, str]:
     """Whether this copy may update itself, and in plain words why not when it may not."""
+    if sys.platform == "darwin":
+        if is_source_checkout():
+            return False, "this is a source checkout -- update it with git pull"
+        if mac_app_root() is None:
+            return False, "this copy was not put here by the Arelis app"
+        return True, ""
     if sys.platform != "win32":
         return False, "the Arelis installer is Windows-only"
     if is_source_checkout():

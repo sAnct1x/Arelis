@@ -6,6 +6,7 @@ These lock the words a new person reads. They fail on the old copy on purpose.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -173,6 +174,9 @@ def test_download_line_hides_the_blob_id(
 def test_ollama_note_shows_before_the_installer(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, qt_app
 ) -> None:
+    # This test is the Windows installer flow. Off Windows the worker stops
+    # before the setup program and tells the person how to install Ollama.
+    monkeypatch.setattr(sys, "platform", "win32")
     import arelis.ui.setup_wizard as wizard
     from arelis.ui.setup_wizard import _PrepareWorker
     from tests.test_setup_worker import _block_voice_model_fetch, _patch_wizard

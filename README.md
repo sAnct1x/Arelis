@@ -115,6 +115,16 @@ separate records.
 For details on models, see [models.md](docs/models.md). For how the
 installer is built, see [win-installer/README.md](win-installer/README.md).
 
+### Mac app (unsigned)
+
+Download the disk image from the [latest GitHub release](https://github.com/sAnct1x/arelis/releases/latest) or from the Mac app workflow artifact. It is named `Arelis-0.3.1.dmg`. Open it, and drag Arelis to Applications.
+
+The app is not signed. The first time, right-click (or Control-click) Arelis and choose Open, then choose Open again in the warning. Or open System Settings, go to Privacy and Security, and choose Open Anyway.
+
+This build is for Apple silicon Macs. Arelis needs Ollama on the Mac. She does not include it. Install Ollama from [ollama.com/download](https://ollama.com/download), then open Arelis.
+
+When a newer release exists, the installed app tells you and gives you the release page. It does not download or install the update for you.
+
 ## Running from source
 
 You'll need [Python 3.11+](https://www.python.org/downloads/) and
@@ -155,6 +165,58 @@ To create a desktop shortcut for the dev build:
 
 This creates **Arelis (dev)**, which won't overwrite an installed copy's
 shortcut.
+
+## Run from source on Linux
+
+You need Python 3.11 or newer. You also need the same Qt libraries the
+Linux tests install: libegl1, libxkbcommon-x11-0, and libdbus-1-3.
+Tesseract is optional. Install it if you want Arelis to read text in
+pictures.
+
+```bash
+git clone https://github.com/sAnct1x/Arelis.git
+cd Arelis
+python3 -m venv .venv
+source .venv/bin/activate
+python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
+pip install -e . -c qt-constraints.txt
+```
+
+Install Ollama the official way, with the install script from the Ollama
+website. Then run:
+
+```bash
+python -m arelis
+```
+
+Desktop control and scheduled jobs do not work on Linux yet.
+
+## Run from source on Mac
+
+You need Homebrew, and Python 3.11 or newer from Homebrew.
+
+```bash
+git clone https://github.com/sAnct1x/Arelis.git
+cd Arelis
+python3 -m venv .venv
+source .venv/bin/activate
+python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
+pip install -e . -c qt-constraints.txt
+```
+
+Install Ollama by downloading the app from the Ollama website, or with
+`brew install ollama`. Then run:
+
+```bash
+python -m arelis
+```
+
+Tesseract is optional. Install it with `brew install tesseract` if you want
+Arelis to read text in pictures.
+
+The first launch may ask for microphone or screen permissions.
+
+Desktop control does not work on Mac yet.
 
 ## Where everything lives
 

@@ -440,12 +440,12 @@ def run_user_console(window, command: str) -> None:
         window.workspace.show_log("console", "A command is still running.")
         return
     root = window.workspace_roots.active_root().path
-    program = _powershell()
+    program, arguments = _console_program(text)
     proc = QProcess(window)
     window._workspace_console = proc
     proc.setWorkingDirectory(str(root))
     proc.setProgram(program)
-    proc.setArguments(["-NoProfile", "-NonInteractive", "-Command", text])
+    proc.setArguments(arguments)
     window.workspace.set_console_busy(True)
     window.workspace.show_log(str(root), f"$ {text}\nrunning…")
 
@@ -474,7 +474,7 @@ def run_user_console(window, command: str) -> None:
             return
         window._workspace_console = None
         window.workspace.set_console_busy(False)
-        window.workspace.show_log(str(root), f"$ {text}\nCould not start PowerShell.")
+        window.workspace.show_log(str(root), f"$ {text}\n{_console_start_error()}")
         proc.deleteLater()
 
     proc.finished.connect(_done)
@@ -493,4 +493,31 @@ def _powershell() -> str:
 
     found = shutil.which("powershell.exe") or shutil.which("powershell")
     return found or "powershell.exe"
+
+
+def _console_program(command: str) -> tuple[str, list[str]]:
+    """Windows stays on PowerShell. Elsewhere, the user's shell, then pwsh, bash, sh."""
+    import os
+    import shutil
+    import sys
+
+    if sys.platform == "win32":
+        return _powershell(), ["-NoProfile", "-NonInteractive", "-Command", command]
+    shell = os.environ.get("SHELL", "").strip()
+    if shell and Path(shell).is_file():
+        return shell, ["-c", command]
+    pwsh = shutil.which("pwsh")
+    if pwsh:
+        return pwsh, ["-NoProfile", "-Command", command]
+    if Path("/bin/bash").is_file():
+        return "/bin/bash", ["-c", command]
+    return "/bin/sh", ["-c", command]
+
+
+def _console_start_error() -> str:
+    import sys
+
+    if sys.platform == "win32":
+        return "Could not start PowerShell."
+    return "Could not start the command."
 

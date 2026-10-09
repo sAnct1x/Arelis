@@ -226,6 +226,79 @@ def negated_tool_mentions(prompt: str, names: list[str]) -> set[str]:
     return out
 
 
+_READ_FILE_BACK = re.compile(
+    r"(?i)(?:"
+    r"\bread\b.{0,80}\b(?:back|contents)\b"
+    r"|\bshow\s+me\s+(?:its|the)\s+contents\b"
+    r"|\bread\s+\S+\.[A-Za-z0-9]{1,8}\b"
+    r")"
+)
+
+
+def read_back_still_owed(text: str, trace: object) -> bool:
+    """True when they asked to read a file and no workspace read has succeeded."""
+    if not _READ_FILE_BACK.search(text or ""):
+        return False
+    rows = trace if isinstance(trace, (list, tuple)) else ()
+    for line in rows:
+        row = str(line).strip()
+        if re.match(r"(?i)workspace\s+read\b", row) and "(failed)" not in row.lower():
+            return False
+    return True
+
+
+def closing_tool_names(
+    text: str,
+    trace: object,
+    *,
+    have_document: bool,
+    have_workspace: bool,
+) -> set[str]:
+    """Tools still offered when the turn is wrapping up.
+
+    A document is the usual last step. A file they asked to read back is
+    the other one, so a slow chain can still quote the file.
+    """
+    keep: set[str] = set()
+    if have_document:
+        keep.add("document")
+    if have_workspace and read_back_still_owed(text, trace):
+        keep.add("workspace")
+    return keep
+
+
+def closing_call_ok(name: str, args: object, text: str, trace: object) -> bool:
+    """True for a wrap-up call that is a document, or the owed file read."""
+    if name == "document":
+        return True
+    if name != "workspace" or not read_back_still_owed(text, trace):
+        return False
+    action = ""
+    if isinstance(args, dict):
+        action = str(args.get("action") or "").strip().lower()
+    return action == "read"
+
+
+def close_tools_after_progress(
+    *,
+    missing_kinds: set[str],
+    owed: list[str],
+    text: str,
+    trace: object,
+) -> bool:
+    """True when a finished step may take the tool menu away.
+
+    A script that already ran used to do that even when the person still
+    asked to read the file back, and the next reply said the read was
+    unavailable.
+    """
+    if missing_kinds or owed:
+        return False
+    if read_back_still_owed(text, trace):
+        return False
+    return True
+
+
 def named_tools_owed_runnable(
     loop: Any, ctx: TurnContext, fail_counts: dict[str, int]
 ) -> list[str]:

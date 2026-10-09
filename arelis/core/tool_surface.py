@@ -30,6 +30,7 @@ from arelis.core.agent_loop import (
     _hide_daily_wander,
     _offer_expected,
 )
+from arelis.core.intent_catalog import profile_place_ask, weather_intent_matches
 from arelis.core.look import LOOK_TOOL_SUBSET
 from arelis.core.sms_complete import looks_like_stale_sms_skip
 from arelis.core.tool_subset import filter_tool_names
@@ -131,6 +132,15 @@ def apply_expected(
     """
     if loop._expected_tools & _HIDE_WANDER_FOR:
         available = _hide_daily_wander(set(available), loop._expected_tools)
+    # A saved-place ask with the planet and the browser still on the menu
+    # spends the turn on Earth and web pages. Weather keeps its own menu.
+    if profile_place_ask(text) and not weather_intent_matches(text):
+        available = set(available)
+        for name in ("earth", "browser", "web_search", "scrape", "web_fetch"):
+            available.discard(name)
+        if "user_location" in available_all:
+            available.add("user_location")
+            loop._expected_tools.add("user_location")
     available = _offer_expected(available, loop._expected_tools, available_all)
     if (
         looks_like_stale_sms_skip(text, loop.memory.messages)

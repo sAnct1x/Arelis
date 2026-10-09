@@ -90,6 +90,11 @@ class Prefs(context: Context) {
         get() = TalkLanguage.normalize(sp.getString(KEY_LANG, TalkLanguage.DEFAULT).orEmpty())
         set(value) = sp.edit().putString(KEY_LANG, TalkLanguage.normalize(value)).apply()
 
+    /** system, sodium, filament, or night. Empty means follow the phone. */
+    var theme: String
+        get() = DeskThemes.normalize(sp.getString(KEY_THEME, DeskThemes.FOLLOW))
+        set(value) = sp.edit().putString(KEY_THEME, DeskThemes.normalize(value)).apply()
+
     /** House versionCode the user dismissed with Later. */
     var companionLaterCode: Int
         get() = sp.getInt(KEY_APP_LATER, 0)
@@ -113,6 +118,7 @@ class Prefs(context: Context) {
         private const val KEY_FOCUS = "focus_chat"
         private const val KEY_TALK_DAY = "last_talk_day"
         private const val KEY_LANG = "talk_language"
+        private const val KEY_THEME = "theme"
         private const val KEY_APP_LATER = "companion_later_code"
     }
 }

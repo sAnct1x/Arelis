@@ -163,7 +163,14 @@ def read_still(
 
 def _write_tile(image: object, x: int, y: int, w: int, h: int) -> Path:
     crop = image.crop((x, y, x + w, y + h))  # type: ignore[attr-defined]
-    handle = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    from arelis.paths import installed_mac_temp_dir
+
+    parent = installed_mac_temp_dir()
+    handle = tempfile.NamedTemporaryFile(
+        suffix=".png",
+        delete=False,
+        dir=None if parent is None else str(parent),
+    )
     dest = Path(handle.name)
     handle.close()
     crop.save(dest, "PNG")

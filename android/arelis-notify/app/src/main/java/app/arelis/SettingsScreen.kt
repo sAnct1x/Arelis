@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 fun SettingsScreen(
     paired: Boolean,
     language: String,
+    theme: String,
     phoneName: String,
     phoneCode: Int,
     houseName: String,
@@ -32,6 +33,7 @@ fun SettingsScreen(
     onPair: () -> Unit,
     onTexts: () -> Unit,
     onLanguage: (String) -> Unit,
+    onTheme: (String) -> Unit,
 ) {
     EmberScreen {
         ScreenTop(title = "settings", onBack = onBack, backLabel = "← talk")
@@ -106,6 +108,52 @@ fun SettingsScreen(
                     ) {
                         Text(
                             lang.label,
+                            color = Campfire.text,
+                            fontSize = 16.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (selected) {
+                            Text("selected", color = Campfire.accent, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(Ember.gap))
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "theme",
+                    color = Campfire.accent,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.8.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    DeskThemes.label(theme),
+                    color = Campfire.text,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 17.sp,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Follow system, or keep one look.",
+                    color = Campfire.dim,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                DeskThemes.menu.forEach { choice ->
+                    val selected = DeskThemes.normalize(theme) == choice.id
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(EmberShapeTight)
+                            .clickable { onTheme(choice.id) }
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            choice.label,
                             color = Campfire.text,
                             fontSize = 16.sp,
                             modifier = Modifier.weight(1f),

@@ -82,7 +82,7 @@ class CatalogTool:
                 "type": "string",
                 "description": (
                     "Horizons body name only (Moon, Mars, Jupiter, 499). "
-                    "Not a sentence and not a date."
+                    "Not a sentence and not a date. Never two numbers."
                 ),
             },
             "date": {
@@ -94,9 +94,10 @@ class CatalogTool:
             },
             "table": {
                 "type": "string",
-                "enum": ["observer", "vectors"],
+                "enum": ["observer", "vectors", "local"],
                 "description": (
-                    "horizons only. observer: geocentric sky (default). "
+                    "horizons only. local: rise, set, and altitude for the "
+                    "saved place. observer: geocentric distance (default). "
                     "vectors: SSB ECLIPJ2000 state in SI for the simulator."
                 ),
             },
@@ -109,9 +110,11 @@ class CatalogTool:
         *,
         client: httpx.AsyncClient | None = None,
         keys: ScienceKeys | None = None,
+        location: Any | None = None,
     ) -> None:
         self._client = client
         self._keys = keys
+        self._location = location
 
     async def run(self, **kwargs: Any) -> ToolResult:
         action = str(kwargs.get("action") or "").strip().lower()
@@ -260,8 +263,13 @@ class CatalogTool:
             )
         body = _horizons_body_id(raw)
         kind = (table or "observer").strip().lower()
-        if kind not in {"observer", "vectors"}:
-            raise ValueError("horizons table must be observer or vectors.")
+        if kind not in {"observer", "vectors", "local"}:
+            raise ValueError("horizons table must be observer, vectors, or local.")
+        if kind == "local":
+            from arelis.tools.sky_local import canonical_body, local_sky_result
+
+            picked = canonical_body(body) or canonical_body(raw) or raw
+            return local_sky_result(picked, self._location)
         day_text = (day or "").strip()
         use_now = kind == "observer" and not day_text
         if use_now and body.strip() == "399":
@@ -830,8 +838,29 @@ def _local_zone() -> tzinfo | None:
     return None
 
 
+def _named_horizons_id(text: str) -> str | None:
+    """One known body named in a messy target, else None."""
+    folded = text.casefold()
+    found: list[str] = []
+    if re.search(r"\b(moon|luna)\b", folded):
+        found.append("301")
+    for name, spec in BODY_BY_NAME.items():
+        if re.search(rf"\b{re.escape(name.casefold())}\b", folded):
+            if spec.horizons_id not in found:
+                found.append(spec.horizons_id)
+    if len(found) == 1:
+        return found[0]
+    return None
+
+
 def _horizons_body_id(raw: str) -> str:
-    """Map a body name to a Horizons id. Numeric targets pass through."""
+    """Map a body name to a Horizons id.
+
+    A single number is one designation (499, 301). Two numbers, or a number
+    with leftover words and no body name, is refused. Horizons reads a
+    leading number in that mess as a numbered asteroid, so "301 147" became
+    asteroid 301 Bavaria instead of the Moon.
+    """
     text = " ".join((raw or "").split())
     if not text:
         return text
@@ -844,7 +873,32 @@ def _horizons_body_id(raw: str) -> str:
     for name, spec in BODY_BY_NAME.items():
         if name.casefold() == key:
             return spec.horizons_id
+    numbers = re.findall(r"\d+", text)
+    number_led = bool(re.match(r"\d", text))
+    if len(numbers) >= 2 or number_led:
+        named = _named_horizons_id(text)
+        if named is not None:
+            return named
+        raise ValueError(
+            "That is not one sky body. Name the Moon, the Sun, a planet, "
+            "or one id such as 499. A pair of numbers is not the Moon."
+        )
     return text
+
+
+def catalog_place(config: dict[str, Any]) -> Any | None:
+    """Saved place for a local sky table.
+
+    Place lookup off skips the every-turn place line. A place already saved
+    in the profile is still used. Network lookup stays off unless
+    location.network.enabled is set.
+    """
+    from arelis.location import build_location
+
+    loc = config.get("_location")
+    if loc is None:
+        loc = build_location(config)
+    return loc
 
 
 def _horizons_http_message(response: httpx.Response) -> str:

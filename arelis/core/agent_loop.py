@@ -762,7 +762,17 @@ class AgentLoop:
         await self.bus.publish(
             Event(EventType.THINKING, {"text": "closing with what I have"})
         )
-        ctx.messages.append({"role": "user", "content": _CLOSE_NUDGE})
+        nudge = _CLOSE_NUDGE
+        from arelis.core.turn_scratch import read_back_still_owed
+
+        if read_back_still_owed(ctx.text, getattr(self, "_trace", ())):
+            nudge = (
+                nudge
+                + " They asked to read a file back. That one workspace read"
+                " is still allowed. Call workspace with action read on that"
+                " file, then quote what it says. Do not call anything else."
+            )
+        ctx.messages.append({"role": "user", "content": nudge})
         done = await self._run_round(ctx, self.max_rounds + 1)
         # Native tools rejected: one JSON-fallback pass, still inside the close.
         if not done and not self.terminal_sent and ctx.fallback_mode:

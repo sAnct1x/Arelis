@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -125,11 +127,21 @@ def probe_hardware() -> HardwareSnapshot:
     )
 
 
+_ROCM_VRAM = re.compile(r"VRAM Total Memory \(B\):\s*(\d+)")
+_ROCM_SERIES = re.compile(r"Card series:\s*(.+)")
+_PROBE_TIMEOUT_S = 5
+
+
 def _probe_vram() -> tuple[str, int | None, list[str]]:
+    if sys.platform == "win32":
+        return _probe_vram_windows()
+    if sys.platform == "darwin":
+        return _probe_vram_darwin()
+    return _probe_vram_linux()
+
+
+def _probe_vram_windows() -> tuple[str, int | None, list[str]]:
     notes: list[str] = []
-    if os.name != "nt":
-        notes.append("vram: not Windows")
-        return "", None, notes
     try:
         from arelis.hidden_proc import hidden_run
 
@@ -169,6 +181,116 @@ def _probe_vram() -> tuple[str, int | None, list[str]]:
     if vram_i is not None and vram_i <= 0:
         vram_i = None
     return name, vram_i, notes
+
+
+def _hidden_probe(args: list[str]) -> str:
+    from arelis.hidden_proc import hidden_run
+
+    proc = hidden_run(
+        args,
+        capture_output=True,
+        text=True,
+        timeout=_PROBE_TIMEOUT_S,
+        check=False,
+    )
+    return (proc.stdout or "").strip()
+
+
+def _unknown(notes: list[str], detail: str) -> tuple[str, int | None, list[str]]:
+    notes.append(detail)
+    return "", None, notes
+
+
+def _probe_vram_linux() -> tuple[str, int | None, list[str]]:
+    notes: list[str] = []
+    nvidia = shutil.which("nvidia-smi")
+    if nvidia:
+        try:
+            raw = _hidden_probe(
+                [
+                    nvidia,
+                    "--query-gpu=name,memory.total",
+                    "--format=csv,noheader,nounits",
+                ]
+            )
+        except Exception as exc:
+            notes.append(f"vram probe failed: {exc}")
+        else:
+            name, vram = _parse_nvidia_csv(raw)
+            if vram:
+                return name, vram, notes
+            notes.append("vram probe empty")
+    rocm = shutil.which("rocm-smi")
+    if rocm:
+        try:
+            raw = _hidden_probe([rocm, "--showproductname", "--showmeminfo", "vram"])
+        except Exception as exc:
+            return _unknown(notes, f"vram probe failed: {exc}")
+        name, vram = _parse_rocm(raw)
+        if vram:
+            return name, vram, notes
+        return _unknown(notes, "vram probe empty")
+    if not notes:
+        notes.append("vram probe empty")
+    return "", None, notes
+
+
+def _parse_nvidia_csv(raw: str) -> tuple[str, int | None]:
+    best_name = ""
+    best = 0
+    for line in raw.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 2:
+            continue
+        try:
+            mb = float(parts[1])
+        except ValueError:
+            continue
+        if mb <= 0:
+            continue
+        size = int(mb * 1024 * 1024)
+        if size > best:
+            best = size
+            best_name = parts[0]
+    if best <= 0:
+        return "", None
+    return best_name, best
+
+
+def _parse_rocm(raw: str) -> tuple[str, int | None]:
+    best_name = ""
+    best = 0
+    series = ""
+    for line in raw.splitlines():
+        named = _ROCM_SERIES.search(line)
+        if named:
+            series = named.group(1).strip()
+        found = _ROCM_VRAM.search(line)
+        if not found:
+            continue
+        size = int(found.group(1))
+        if size > best:
+            best = size
+            best_name = series or "AMD GPU"
+    if best <= 0:
+        return "", None
+    return best_name, best
+
+
+def _probe_vram_darwin() -> tuple[str, int | None, list[str]]:
+    notes: list[str] = []
+    exe = shutil.which("sysctl") or "/usr/sbin/sysctl"
+    try:
+        raw = _hidden_probe([exe, "-n", "hw.memsize"])
+    except Exception as exc:
+        return _unknown(notes, f"vram probe failed: {exc}")
+    try:
+        size = int(raw.split()[0])
+    except (IndexError, ValueError):
+        return _unknown(notes, "vram probe empty")
+    if size <= 0:
+        return _unknown(notes, "vram probe empty")
+    return "Unified memory", size, notes
 
 
 def _disk_free() -> int | None:

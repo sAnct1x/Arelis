@@ -1637,6 +1637,38 @@ def exactness_match(kind: str, text: str) -> bool:
     return any(p.search(raw) for p in item.exactness)
 
 
+# Their saved place, not "what city has the tallest tower".
+_PROFILE_PLACE = re.compile(
+    r"(?i)(?:"
+    r"\bwhere\s+am\s+i\b|"
+    r"\bwhere\s+do\s+you\s+think\s+i\s+am\b|"
+    r"\bmy\s+(?:profile\s+)?location\b|"
+    r"\bwhat\s+city\s+(?:am\s+i|is\s+my)\b|"
+    r"\bwhat\s+timezone\s+(?:am\s+i|is\s+my)\b"
+    r")"
+)
+
+
+def profile_place_ask(text: str) -> bool:
+    """True when they ask about their own saved place."""
+    return bool(_PROFILE_PLACE.search(text or ""))
+
+
+def should_inject_saved_place(
+    text: str, tool_names: set[str], tools_used: set[str]
+) -> bool:
+    """Call user_location before the model on a saved-place ask.
+
+    A forecast ask is not this. Weather resolves its own place, and hiding
+    the planet and the browser only applies when they asked where they are.
+    """
+    if "user_location" not in tool_names or "user_location" in tools_used:
+        return False
+    if weather_intent_matches(text):
+        return False
+    return profile_place_ask(text)
+
+
 def weather_intent_matches(text: str) -> bool:
     """True for a forecast ask, not a device spec that mentions temperature."""
     raw = text or ""

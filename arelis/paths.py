@@ -130,8 +130,26 @@ def outputs_dir() -> Path:
     return user_data_dir() / "outputs"
 
 
+def library_cache_dir() -> Path | None:
+    """Installed Mac copies keep regenerable files in ~/Library/Caches/Arelis.
+
+    A checkout, and any run with ARELIS_DATA_DIR set, stays inside that root so
+    tests never write the real Library folder. Windows and Linux are unchanged.
+    """
+    if sys.platform != "darwin":
+        return None
+    if os.environ.get(DATA_DIR_ENV, "").strip():
+        return None
+    if is_source_checkout():
+        return None
+    return Path.home() / "Library" / "Caches" / APP_NAME
+
+
 def models_dir() -> Path:
     """Weights downloaded after install. Large, replaceable, never roamed."""
+    mac = library_cache_dir()
+    if mac is not None:
+        return mac / "models"
     return user_data_dir() / "models"
 
 
@@ -188,7 +206,28 @@ def cache_dir() -> Path:
     there -- and that scratch directory was being created inside the package,
     where an installed copy cannot write and an update would remove it anyway.
     """
+    mac = library_cache_dir()
+    if mac is not None:
+        return mac
     return user_data_dir() / "cache"
+
+
+def temp_dir() -> Path:
+    """Scratch files. Installed Mac copies use Library/Caches, not the data folder."""
+    mac = library_cache_dir()
+    if mac is not None:
+        return mac / "temp"
+    return user_data_dir() / "cache" / "temp"
+
+
+def installed_mac_temp_dir() -> Path | None:
+    """Where Mac installs should put temp files. None keeps the system temp folder."""
+    mac = library_cache_dir()
+    if mac is None:
+        return None
+    path = mac / "temp"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def display_path(path: Path | str) -> str:

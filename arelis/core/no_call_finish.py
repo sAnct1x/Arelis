@@ -36,7 +36,12 @@ from arelis.core.loop_helpers import _answer_has_quote_span, _exactness_finish_r
 from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.plan_nudge import plan_progress_notice
 from arelis.core.turn_context import TurnContext
-from arelis.core.turn_scratch import RoundScratch, named_tools_owed_runnable, negated_tool_mentions
+from arelis.core.turn_scratch import (
+    RoundScratch,
+    named_tools_owed_runnable,
+    negated_tool_mentions,
+    read_back_still_owed,
+)
 
 SKIP = "skip"
 NUDGE = "nudge"
@@ -313,7 +318,36 @@ async def try_research_dual(loop: Any, ctx: TurnContext, r: RoundScratch, round_
     return SKIP
 
 
+async def try_read_back(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
+    """Hold the turn when they asked to read a file and nothing has read it."""
+    del round_i
+    if not read_back_still_owed(ctx.text, getattr(loop, "_trace", ())):
+        return SKIP
+    if "workspace" not in r.tool_names and "workspace" not in ctx.available_all:
+        return SKIP
+    if getattr(ctx, "read_back_nudge_used", False):
+        return SKIP
+    ctx.read_back_nudge_used = True
+    await loop._retract()
+    r.messages.append({"role": "assistant", "content": r.content})
+    r.messages.append(
+        {
+            "role": "user",
+            "content": (
+                "Read that file with the workspace tool, action read, before you answer. "
+                "The read is available this turn. Do not say it is unavailable, "
+                "and do not guess the file contents."
+            ),
+        }
+    )
+    await loop.bus.publish(
+        Event(EventType.THINKING, {"text": "file read still owed; asking for workspace read"})
+    )
+    return NUDGE
+
+
 FINISH_STEPS: tuple[StepFn, ...] = (
+    try_read_back,
     try_scrape_after_search,
     try_js_shell_browser,
     try_plan_progress,

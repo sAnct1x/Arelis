@@ -157,9 +157,10 @@ fun SendMark(busy: Boolean, modifier: Modifier = Modifier) {
         Text("…", color = Campfire.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         return
     }
+    val tint = Campfire.accent
+    val trail = Campfire.accent2
     Canvas(modifier.size(Ember.mark)) {
         val s = size.minDimension
-        val tint = Campfire.accent
         drawCircle(tint.copy(alpha = 0.10f), radius = s * 0.48f)
         val stars = listOf(
             Offset(s * 0.26f, s * 0.64f) to s * 0.055f,
@@ -170,7 +171,7 @@ fun SendMark(busy: Boolean, modifier: Modifier = Modifier) {
             drawCircle(tint, radius = r, center = pt)
         }
         drawLine(
-            Campfire.accent2,
+            trail,
             Offset(s * 0.28f, s * 0.68f),
             Offset(s * 0.76f, s * 0.26f),
             strokeWidth = hair(s).width,

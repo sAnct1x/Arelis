@@ -27,7 +27,7 @@ from arelis.tools.browser_tool import BrowserTool
 from arelis.tools.calculator import CalculatorTool
 from arelis.tools.camera_capture import CameraTool
 from arelis.tools.cas import CasTool
-from arelis.tools.catalog import CatalogTool
+from arelis.tools.catalog import CatalogTool, catalog_place
 from arelis.tools.clipboard import ClipboardTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
 from arelis.tools.contacts_tool import ContactsTool
@@ -371,7 +371,7 @@ def build_tool_registry(
     # Jobs included — the user aimed the scheduled ask. APOD/ADS fail
     # honestly until a free key is pasted.
     if tools_cfg.get("catalog", {}).get("enabled", True):
-        registry.register(CatalogTool())
+        registry.register(CatalogTool(location=catalog_place(config)))
     if attended and tools_cfg.get("solar", {}).get("enabled", True):
         registry.register(SolarTool())
     if attended and tools_cfg.get("earth", {}).get("enabled", True):
@@ -428,14 +428,15 @@ def build_tool_registry(
                 max_chars=int(doc_cfg.get("max_chars", 20_000)),
             )
         )
-    if (config.get("location") or {}).get("enabled", True):
-        # Share the resolver load_config built, so a refresh triggered through
-        # the tool is visible to the prompt line on the next turn.
-        loc = config.get("_location") or build_location(config)
-        registry.register(UserLocationTool(loc))
-        # Dedicated weather tool so the chat model cannot invent broken
-        # Open-Meteo query strings or scrape JS weather sites.
-        registry.register(WeatherTool(loc))
+    # location.enabled false skips the prompt line (config["_location"] stays
+    # unset). It must not hide the forecast for a named city, or the saved
+    # profile city when someone asks what place is on file. Network lookup
+    # stays off unless location.network.enabled is set.
+    loc = config.get("_location")
+    if loc is None:
+        loc = build_location(config)
+    registry.register(UserLocationTool(loc))
+    registry.register(WeatherTool(loc))
     if image_cfg.get("enabled", True):
         out = image_cfg.get("output_dir", "outputs/images")
         out_path = Path(out)

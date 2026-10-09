@@ -37,6 +37,7 @@ from arelis.setup.engine import (
     download_ollama_setup,
     downloading_model_label,
     find_ollama_exe,
+    ollama_install_help,
     ollama_reachable,
     plain_download_status,
     pull_tag,
@@ -91,7 +92,10 @@ class _PrepareWorker(QThread):
             problem,
             exc_info=problem if isinstance(problem, BaseException) else None,
         )
-        self.failed.emit(plain_failure(stage, problem))
+        message = plain_failure(stage, problem)
+        if isinstance(problem, str) and problem.startswith("Ollama is not installed."):
+            message = problem
+        self.failed.emit(message)
 
     def run(self) -> None:
         try:
@@ -123,6 +127,10 @@ class _PrepareWorker(QThread):
         if not ollama_reachable():
             exe = find_ollama_exe()
             if exe is None:
+                help_text = ollama_install_help()
+                if help_text:
+                    self._fail("install_engine", help_text)
+                    return
                 self._report("Downloading the local engine…")
                 setup = runtime_dir() / "OllamaSetup.exe"
                 self._stage = "download_engine"
@@ -433,12 +441,16 @@ class ModelSetupDialog(GlassDialog):
         if radio is not None:
             radio.setChecked(True)
         if not ollama_reachable() and find_ollama_exe() is None:
-            extra = (
-                "The local engine (Ollama, free) is not on this PC yet. "
-                "Using this model will download it first, about 1.4 GB, "
-                "then the model itself. "
-                + OLLAMA_SIGNIN_NOTE
-            )
+            help_text = ollama_install_help()
+            if help_text:
+                extra = help_text
+            else:
+                extra = (
+                    "The local engine (Ollama, free) is not on this PC yet. "
+                    "Using this model will download it first, about 1.4 GB, "
+                    "then the model itself. "
+                    + OLLAMA_SIGNIN_NOTE
+                )
             self._rec_why.setText(why(self._picked, self._hardware) + " " + extra)
         self._show_recommend()
 
