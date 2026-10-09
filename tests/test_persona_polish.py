@@ -321,8 +321,12 @@ def test_hair_tips_move_and_roots_stay_and_busy_is_quieter(qt_app):
     panel.close()
 
 
-def _paint_rgba(theme: str, qt_app):
-    """Face at full reveal, pixels with their alpha, not flattened on the dock."""
+def _paint_rgba(theme: str, qt_app, locked: list | None = None):
+    """Face at full reveal, pixels with their alpha, not flattened on the dock.
+
+    Pass a list as ``locked`` to get back the footprint of the ring stroke and
+    the locked neck below the chin, found by grabbing again without each one.
+    """
     from PySide6.QtGui import QImage
 
     from arelis.ui.persona_face.motion import Frame
@@ -350,8 +354,46 @@ def _paint_rgba(theme: str, qt_app):
     image = panel.avatar.grab().toImage().convertToFormat(QImage.Format.Format_RGBA8888)
     rgba = _rgba(image)
     rest = _rgba(panel.rest_face_image().convertToFormat(QImage.Format.Format_RGBA8888))
+    if locked is not None:
+        locked.append(_locked_footprint(panel, rgba, qt_app))
     panel.close()
     return rgba, rest
+
+
+def _locked_footprint(panel, rgba: np.ndarray, qt_app) -> np.ndarray:
+    """Pixels the ring stroke or the locked neck tip change in the grab."""
+    from dataclasses import replace
+
+    from PySide6.QtGui import QImage
+
+    from arelis.ui.persona_face.engine import VIEW
+
+    avatar = panel.avatar
+
+    def grab() -> np.ndarray:
+        avatar.repaint()
+        qt_app.processEvents()
+        return _rgba(avatar.grab().toImage().convertToFormat(QImage.Format.Format_RGBA8888))
+
+    def changed(other: np.ndarray) -> np.ndarray:
+        diff = np.abs(rgba.astype(np.int16) - other.astype(np.int16)).max(axis=-1)
+        return diff > 2
+
+    frame = avatar.frame
+    avatar.frame = replace(frame, ring=0.0)
+    ring = changed(grab())
+    avatar.frame = frame
+    face = avatar._images.get("face")
+    avatar._images["face"] = QImage()
+    no_face = changed(grab())
+    avatar._images["face"] = face
+    rect = avatar._face_rect()
+    _x0, _x1, y0, y1 = VIEW
+    rows = np.arange(rgba.shape[0], dtype=np.float32) + 0.5
+    world_y = y0 + (rows - rect.y()) / rect.height() * (y1 - y0)
+    # The lock check's neck: face pixels below the chin, at y > 0.31.
+    neck = no_face & (world_y[:, None] > 0.31)
+    return ring | neck
 
 
 def _over_straight(rgba: np.ndarray, bg: tuple[int, int, int]) -> np.ndarray:
@@ -375,6 +417,12 @@ def test_soft_edges_have_no_dark_halo_and_the_neck_is_lavender_gas(qt_app):
     shading, about 38 levels under a brighter neighbour, so 40 sits between
     that shading and the old shell.
 
+    The ring stroke and the neck tip below the chin are skipped. Both are
+    locked art with hard edges, not soft hair or face edges: the ring's purple
+    rim sits beside its own white highlight, and the neck tip is a dark point.
+    Over the old solid hem they hid inside opaque hair; over the feathered hem
+    they read as edges. Every hair and face edge is still held to 40.
+
     The upper neck has to stay at least 0.55 of the cheek luminance. The
     v2.4 closeup neck is about 0.72 of the cheek. This plate's neck was a
     solid column at about 0.27, so 0.55 is the line between that column and
@@ -382,13 +430,14 @@ def test_soft_edges_have_no_dark_halo_and_the_neck_is_lavender_gas(qt_app):
     """
     from arelis.ui.theme import apply_theme, color
 
-    rgba, rest = _paint_rgba("night", qt_app)
+    locked: list = []
+    rgba, rest = _paint_rgba("night", qt_app, locked)
     alpha = rgba[..., 3]
     inside = alpha > 210
     grad_y = np.abs(np.diff(alpha.astype(np.int16), axis=0, prepend=alpha[:1]))
     grad_x = np.abs(np.diff(alpha.astype(np.int16), axis=1, prepend=alpha[:, :1]))
     # Soft edge only. Opaque shading inside the hair is not a fringe.
-    edge = ((grad_x + grad_y) > 25) & (alpha > 20) & (alpha < 230)
+    edge = ((grad_x + grad_y) > 25) & (alpha > 20) & (alpha < 230) & ~locked[0]
     grounds = {
         "light": (240, 236, 248),
         "dark": (
@@ -939,8 +988,10 @@ def test_the_star_sits_in_the_hair():
     assert float(straight[2] - straight[1]) > 8.0, straight.tolist()
 
 
-# Shoulder line in world y. Tips fade out at this line. Below it the plate is clear.
+# Shoulder line in world y. The hair ends a bit past it: tips fade out by
+# _HAIR_END_Y, and below that the plate is clear.
 _SHOULDER_Y = 0.66
+_HAIR_END_Y = 0.70
 
 
 def _span(mask: np.ndarray, view_width: float) -> float:
@@ -1025,12 +1076,12 @@ def test_the_neck_is_behind_the_jaw():
     assert float(lit[:, 2].mean() - lit[:, 1].mean()) >= 12.0
 
 
-def test_the_hair_stops_at_the_shoulder():
-    """Below the shoulder line the hair alpha is gone.
+def test_the_hair_ends_a_bit_past_the_shoulder():
+    """The hair runs a little past the shoulder line, then its alpha is gone.
 
-    The line is world y 0.66, under the jaw and where the shoulders sit.
-    Tips may fade on the way down. On the tall plate the hair still ran past
-    y 1.0, with mean alpha about 77 below y 0.75.
+    The shoulder line is world y 0.66, under the jaw and where the shoulders
+    sit. Tips taper past it and are clear by world y 0.70. On the tall plate
+    the hair still ran past y 1.0, with mean alpha about 77 below y 0.75.
     """
     from arelis.ui.persona_face.bake import composite_rest
     from arelis.ui.persona_face.engine import VIEW
@@ -1041,8 +1092,10 @@ def test_the_hair_stops_at_the_shoulder():
     x0, x1, y0, y1 = VIEW
     del x0, x1
     world_y = y0 + (np.arange(height) + 0.5) / height * (y1 - y0)
-    below = world_y > _SHOULDER_Y
-    assert int(below.sum()) > 4
+    past = (world_y > _SHOULDER_Y) & (world_y <= _HAIR_END_Y)
+    assert float(alpha[past].max()) > 28.0, float(alpha[past].max())
+    below = world_y > _HAIR_END_Y
+    assert int(below.sum()) >= 2
     low = alpha[below]
     assert float(low.mean()) < 8.0, float(low.mean())
     assert float(low.max()) < 28.0, float(low.max())
@@ -1075,11 +1128,13 @@ def test_the_hair_stops_at_the_shoulder():
     assert float(np.median(spans)) >= 3.0, float(np.median(spans))
 
 
-def test_the_hem_is_one_piece_with_no_notch_in_the_middle():
-    """The back curtains parted under the jaw and left two lobes with a notch.
+def test_the_hem_has_no_gap_or_slit_in_the_middle():
+    """The back curtains once parted under the jaw and left a notch.
 
-    Across the middle of the hem, the last solid row stays level: no column
-    near the centre ends more than a little above its neighbours.
+    The hem may taper and feather, so the middle does not have to be solid.
+    What it may not have is a hard empty gap or a vertical slit: across the
+    lower hair band, every middle column carries most of the alpha the sides
+    carry at the same height, and the middle as a whole is not thinner.
     """
     from arelis.ui.persona_face.engine import VIEW
 
@@ -1089,12 +1144,17 @@ def test_the_hem_is_one_piece_with_no_notch_in_the_middle():
     x0, x1, y0, y1 = VIEW
     world_y = y0 + (np.arange(height) + 0.5) / height * (y1 - y0)
     world_x = x0 + (np.arange(width) + 0.5) / width * (x1 - x0)
-    ends = {}
-    for col in np.flatnonzero(np.abs(world_x) <= 0.20):
-        solid = np.flatnonzero(hair[:, col] >= 128.0)
-        assert len(solid) > 0, float(world_x[col])
-        ends[col] = float(world_y[solid[-1]])
-    centre = [y for col, y in ends.items() if abs(world_x[col]) <= 0.08]
-    edge = [y for col, y in ends.items() if abs(world_x[col]) > 0.12]
-    # Lowest in the middle or level. The old notch sat about 0.11 above the lobes.
-    assert min(centre) >= max(edge) - 0.03, (min(centre), max(edge))
+    band = (world_y >= 0.44) & (world_y <= 0.58)
+    column = hair[band].mean(axis=0)
+    centre = column[np.abs(world_x) <= 0.08]
+    sides = column[(np.abs(world_x) > 0.10) & (np.abs(world_x) <= 0.20)]
+    assert float(sides.mean()) > 60.0, float(sides.mean())
+    # A slit is one middle column far below the sides at the same height.
+    assert float(centre.min()) >= 0.6 * float(sides.mean()), (
+        float(centre.min()),
+        float(sides.mean()),
+    )
+    assert float(centre.mean()) >= 0.85 * float(sides.mean()), (
+        float(centre.mean()),
+        float(sides.mean()),
+    )

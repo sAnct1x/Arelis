@@ -33,6 +33,12 @@ _LIGHT = ("wisps", "ring", "star")
 SETTLE_MS = 400
 # 16 px buckets so a layout jitter of a few pixels hits the same file.
 SIZE_STEP = 16
+# The face plate may be drawn up to this much wider than the dock frame, so her
+# head uses the empty dock below her. The dock width sets the real limit.
+FACE_ZOOM = 2.0
+# Half the width of everything she draws, ring included, in view units. The
+# ring reaches about +-0.715; the rest is room for its glow.
+CONTENT_HALF = 0.74
 
 
 def snap_px(width: int) -> int:
@@ -254,7 +260,7 @@ class PersonaAvatar(QWidget):
 
     def _pixel_size(self) -> int:
         dpr = max(1.0, float(self.devicePixelRatioF()))
-        width = round(max(64.0, self.width() * dpr))
+        width = round(max(64.0, self._face_rect().width() * dpr))
         _wide, height = raster_size(width)
         long_side = max(width, height)
         if long_side > 1024:
@@ -408,6 +414,26 @@ class PersonaAvatar(QWidget):
         return self._mask
 
     def _face_rect(self) -> QRectF:
+        """The plate, grown past the frame so her head uses the dock's height.
+
+        The whole figure, ring included, must stay inside the dock with a small
+        margin. Nothing is cut at the sides, so the zoom is the largest size
+        where the ring still fits the dock width, at most FACE_ZOOM.
+        """
+        frame = self._frame_rect()
+        x0, x1, y0, y1 = VIEW
+        aspect = (y1 - y0) / (x1 - x0)
+        inset_y = self.height() * 0.04
+        limit = max(1.0, self.height() - inset_y * 2.0)
+        margin = max(12.0, self.width() * 0.03)
+        fit = max(1.0, self.width() / 2.0 - margin) / (CONTENT_HALF / (x1 - x0))
+        width = min(frame.width() * FACE_ZOOM, fit, limit / aspect)
+        width = max(width, frame.width())
+        height = width * aspect
+        x = (self.width() - width) / 2.0
+        return QRectF(x, frame.y(), width, height)
+
+    def _frame_rect(self) -> QRectF:
         """Tall frame: head toward the top, hair filling the rest."""
         x0, x1, y0, y1 = VIEW
         aspect = (y1 - y0) / (x1 - x0)
@@ -465,7 +491,7 @@ class PersonaAvatar(QWidget):
         travel = self.reveal
         angle = self._orbit_angle * (1.0 - travel) + star_angle * travel
         swell = min(1.0, travel / 0.34) if self._bake_ready else 0.0
-        box = rect.width() * (0.42 + 0.70 * swell)
+        box = self._frame_rect().width() * (0.42 + 0.70 * swell)
         painter.save()
         painter.setOpacity(max(0.0, min(1.0, fade)))
         paint_orbit(
@@ -492,7 +518,8 @@ class PersonaAvatar(QWidget):
         if self._bake_ready or travel <= 0.001 or travel >= 0.999:
             return
         # Before the face exists, the orb's own spark rides out toward the clip.
-        self._draw_spark(painter, pos, rect.width() * 0.045 * (1.15 - 0.35 * travel), 1.0 - travel)
+        spark = self._frame_rect().width() * 0.045 * (1.15 - 0.35 * travel)
+        self._draw_spark(painter, pos, spark, 1.0 - travel)
 
     def _draw_spark(self, painter: QPainter, pos: QPointF, radius: float, fade: float) -> None:
         """Four thin spikes and a short diagonal pair. Not a filled disc."""

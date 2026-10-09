@@ -99,6 +99,16 @@ def hair_hem(x, y):
     return 1.0 - smooth((y - (hem - 0.13)) / 0.13)
 
 
+# Hair v3 (stills): per-strand tip heights, crown root jitter, tapered tips.
+HAIR_V3 = True
+HEM_MID, HEM_SIDE, HEM_RAND = 0.675, 0.075, 0.030
+CAP_ROOT_X, CAP_ROOT_Y, CAP_RADIAL = 2.6, 0.045, 0.014
+HAIR_STRANDS, BACK_STRANDS = 1250, 1400
+# Drift: roots hold still, tips flow a little more.
+ROOT_AMP, TIP_AMP = 0.0015, 0.08
+PART_DIM = 0.45
+
+
 # Sparkle sits in the crown hair, toward the part, not on a tuft above it.
 STAR_AT = (0.10, -0.30)
 
@@ -221,6 +231,8 @@ class Drift:
 
 # ---------------- hair (vectorised version of the pass 1 strands) -----------
 def build_hair(seed=11, n_strands=820):
+    if HAIR_V3:
+        n_strands = HAIR_STRANDS
     r = np.random.default_rng(seed)
     HN = Noise(seed=44, octaves=((3, 1.0), (6, 0.45)))
     c = np.array([0.0, -0.08])
@@ -275,6 +287,10 @@ def build_hair(seed=11, n_strands=820):
     side_end = np.clip((sample - 0.04) / 0.34, 0.0, 1.0)
     # Paths reach the hem. The plate fade, not a hard clip, makes the tips.
     ends = 0.655 - 0.04 * side_end
+    if HAIR_V3:
+        # Own rng so the rest of the build draws the same numbers.
+        rt = np.random.default_rng(seed + 500)
+        ends = HEM_MID - HEM_SIDE * side_end**1.4 + rt.normal(0, HEM_RAND, n_strands)
     allp, alls = [], []
     for i in range(n_strands):
         path = P[: steps[i], i]
@@ -297,6 +313,7 @@ def build_hair(seed=11, n_strands=820):
         )
 
     bangs = []
+    _rroot = np.random.default_rng(seed + 700)
     part = np.array([-0.075, -0.452])
     # cap: strands combed from the side part over the skull to both sides
     for i in range(560):
@@ -309,6 +326,8 @@ def build_hair(seed=11, n_strands=820):
         tt = np.linspace(0, 1, 160)
         th = th0 + (th1 - th0) * (1 - (1 - tt) ** 1.5)
         j = r.normal(0, 0.006)
+        if HAIR_V3:
+            j = j + _rroot.normal(0, CAP_RADIAL)
         tw_ = np.clip(
             CROWN * 0.42 * top_weight(np.sin(th)) + SIDE * 0.45 * side_weight(np.sin(th)), 0, 0.9
         )
@@ -322,6 +341,9 @@ def build_hair(seed=11, n_strands=820):
                 0.0,
                 0.012 + 0.02 * _prng.random(),
             ]  # own rng: other strands unchanged
+        if HAIR_V3:
+            # Roots spread along and behind the part so the crown reads as strands.
+            jit0 = jit0 * [CAP_ROOT_X, 1.0] + [0.0, CAP_ROOT_Y * _rroot.random()]
         pts = part + jit0 + (pts - part) * bl
         n2 = 50
         tail = pts[-1] + np.stack([np.zeros(n2), np.linspace(0, 0.16, n2)], 1)
@@ -378,7 +400,10 @@ def hair_particles(strands, bangs, seed=12):
         P.append(pts)
         S.append(s)
         F.append(np.zeros(len(pts), bool))
-        W.append(0.03 * np.exp(-s / 1.6) * smooth(s / 0.06 + 0.2))
+        w = 0.03 * np.exp(-s / 1.6) * smooth(s / 0.06 + 0.2)
+        if HAIR_V3 and len(s):
+            w = w * (0.15 + 0.85 * smooth((s[-1] - s) / 0.12))
+        W.append(w)
         C.append(np.clip(s / 1.15, 0, 1))
         J.append(0.0012 + 0.03 * smooth((s - 0.5) / 1.0))
     for pts in bangs:
@@ -392,6 +417,12 @@ def hair_particles(strands, bangs, seed=12):
         )
         C.append(s * 0.8)
         J.append(0.0016 + 0 * s)
+        if HAIR_V3:
+            # Cap strands overlap at the part. Dim them there so the crown has no bright V.
+            across = ((pts[:, 0] + 0.075) / 0.07) ** 2
+            down = (np.clip(pts[:, 1] + 0.40, 0, None) / 0.08) ** 2
+            at_part = np.exp(-across - down)
+            W[-1] = W[-1] * (1.0 - PART_DIM * at_part)
     P = np.concatenate(P)
     W = np.concatenate(W)
     # The plate hem fades the tips. Particle weight stays so the tone map
@@ -432,8 +463,21 @@ def face_gas(noise, seed=13, n=170000):
 class Rig:
     def __init__(self, seed=21):
         self.noise = Noise(seed=seed)
-        self.strands, self.bangs = build_hair()
-        self.hair = hair_particles(self.strands, self.bangs)
+        # The skin's fringe shadow keeps the approved (pre v3) fringe. Built
+        # first so the shared part rng draws what it drew for e8488a1.
+        global HAIR_V3
+        keep, HAIR_V3 = HAIR_V3, False
+        try:
+            cover_strands, cover_bangs = build_hair()
+            self.cover_hair = hair_particles(cover_strands, cover_bangs)
+        finally:
+            HAIR_V3 = keep
+        if HAIR_V3:
+            self.strands, self.bangs = build_hair()
+            self.hair = hair_particles(self.strands, self.bangs)
+        else:
+            self.strands, self.bangs = cover_strands, cover_bangs
+            self.hair = self.cover_hair
         self.gas, self.gas_w = face_gas(self.noise)
         rd = np.random.default_rng(77)
         self._dust = rd.random(len(self.gas)) < 0.0018
@@ -478,17 +522,23 @@ class Rig:
             ly = VY + (ly - VY) / VSTRETCH
         return lx, ly
 
-    def splat_front_hair(self, cv, t, pose, *, cover_only: bool = False):
+    def splat_front_hair(self, cv, t, pose, *, cover_only: bool = False, hair=None):
         """Front strands and sparkles. Also stores the fringe cover for the skin."""
         pal = PAL
-        hair = self.hair
-        amp = 0.004 + 0.05 * smooth((hair["Sg"] - 0.25) / 1.1)
+        hair = self.hair if hair is None else hair
+        r0, r1 = (ROOT_AMP, TIP_AMP) if HAIR_V3 and hair is self.hair else (0.004, 0.05)
+        amp = r0 + r1 * smooth((hair["Sg"] - 0.25) / 1.1)
         gassy = self.to_world(hair["Pg"] + amp[:, None] * self.d_hair(hair["Pg"], t), pose)
-        amp2 = 0.004 + 0.05 * smooth((hair["S"] - 0.25) / 1.1)
+        amp2 = r0 + r1 * smooth((hair["S"] - 0.25) / 1.1)
         points = self.to_world(hair["P"] + amp2[:, None] * self.d_hair(hair["P"], t), pose)
-        front = hair["F"]
+        ch = self.cover_hair
+        cpts = self.to_world(
+            ch["P"]
+            + (0.004 + 0.05 * smooth((ch["S"] - 0.25) / 1.1))[:, None] * self.d_hair(ch["P"], t),
+            pose,
+        )
         cov = Canvas(cv.W, cv.H, view=cv.view)
-        chosen = points[front]
+        chosen = cpts[ch["F"]]
         if len(chosen):
             cov.splat(chosen, np.full(len(chosen), 1.0), np.ones(3), 0.8)
         blurred = cov.blur(cov.buf(0.8), 1.6 * cv.W / 768)[..., 0] * 2 * np.pi * 0.64

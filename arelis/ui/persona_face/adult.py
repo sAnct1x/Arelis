@@ -64,6 +64,8 @@ def build_back_hair(seed: int = 31, n: int = 900) -> dict:
     Same construction as the v2.4 renderer. Roots sit behind the head.
     The front fringe and the side locks are a different pass.
     """
+    if face2.HAIR_V3:
+        n = face2.BACK_STRANDS
     r = np.random.default_rng(seed)
     hn = Noise(seed=45, octaves=((2, 1.0), (5, 0.35)))
     th = r.uniform(-np.pi + 0.35, -0.35, n)
@@ -90,6 +92,9 @@ def build_back_hair(seed: int = 31, n: int = 900) -> dict:
     sample = np.abs(path[0, :, 0])
     side_end = np.clip((sample - 0.04) / 0.34, 0.0, 1.0)
     ends = 0.655 - 0.04 * side_end
+    if face2.HAIR_V3:
+        rt = np.random.default_rng(seed + 500)
+        ends = face2.HEM_MID - face2.HEM_SIDE * side_end**1.4 + rt.normal(0, face2.HEM_RAND, n)
     pts, arc = [], []
     for i in range(n):
         one = path[: steps[i], i]
@@ -101,6 +106,9 @@ def build_back_hair(seed: int = 31, n: int = 900) -> dict:
     points = np.concatenate(pts)
     length = np.concatenate(arc)
     weight = 0.020 * smooth(length / 0.25) * np.exp(-np.clip(length - 0.55, 0, None) / 0.35)
+    if face2.HAIR_V3:
+        total = np.concatenate([np.full(len(a), a[-1] if len(a) else 0.0) for a in arc])
+        weight = weight * (0.15 + 0.85 * smooth((total - length) / 0.12))
     # Plate hem fades the tips. Leave the particle weight alone.
     color = np.clip(length / 1.6, 0, 1)
     keep = ~inside_face(points, 1.02)
@@ -175,16 +183,24 @@ class V24Rig(AdultRig):
     def __init__(self, seed: int = 21) -> None:
         super().__init__(seed)
         self.back = build_back_hair()
+        # Approved back strands, kept for the hair seen through the translucent neck.
+        keep, face2.HAIR_V3 = face2.HAIR_V3, False
+        try:
+            self.back_e8488a1 = build_back_hair() if keep else self.back
+        finally:
+            face2.HAIR_V3 = keep
 
-    def draw_back(self, cv, t, pose) -> None:
+    def draw_back(self, cv, t, pose, back=None) -> None:
         pal = face2.PAL
-        back = self.back
+        back = self.back if back is None else back
         dark0 = face2.lerpc(pal["hair0"], "#2a2140", 0.45)
         dark1 = face2.lerpc(pal["hair1"], "#3a2c5c", 0.40)
-        amp = 0.004 + 0.05 * smooth((back["Sg"] - 0.30) / 1.1)
+        v3 = face2.HAIR_V3 and back is self.back
+        r0, r1 = (face2.ROOT_AMP, face2.TIP_AMP) if v3 else (0.004, 0.05)
+        amp = r0 + r1 * smooth((back["Sg"] - 0.30) / 1.1)
         gassy = self.to_world(back["Pg"] + amp[:, None] * self.d_hair(back["Pg"], t), pose)
         cv.splat(gassy, back["Wg"] * BACK, dark0 + (dark1 - dark0) * back["Cg"][:, None], 0.8)
-        amp2 = 0.004 + 0.05 * smooth((back["S"] - 0.30) / 1.1)
+        amp2 = r0 + r1 * smooth((back["S"] - 0.30) / 1.1)
         points = self.to_world(back["P"] + amp2[:, None] * self.d_hair(back["P"], t), pose)
         cv.splat(
             points[::2],
