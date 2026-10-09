@@ -231,6 +231,7 @@ class PersonaAvatar(QWidget):
         self._shapes: dict[str, tuple[int, int]] = {}
         self._crops: dict[str, tuple[float, float, float, float]] = {}
         self._group: QImage | None = None
+        self._front_buffer: QImage | None = None
         self._bake_ready = False
         self._bake_error = ""
         self._thread_name = ""
@@ -793,6 +794,9 @@ class PersonaAvatar(QWidget):
         self, painter: QPainter, kind: str, rect: QRectF, transform: QTransform
     ) -> None:
         first, second, mix = self._phase_pair()
+        if kind == "front":
+            self._blit_front(painter, rect, transform, first, second, mix)
+            return
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
@@ -806,6 +810,59 @@ class PersonaAvatar(QWidget):
         if image_b is not None and mix > 0.001 and second != first:
             painter.setOpacity(base * mix)
             painter.drawImage(rect, image_b)
+        painter.restore()
+
+    def _blit_front(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        transform: QTransform,
+        first: int,
+        second: int,
+        mix: float,
+    ) -> None:
+        """The painted hair lies over the face, so it is drawn over, not added.
+
+        Two phases are crossfaded first (added, which is an exact blend) in a
+        side buffer, and the blend goes over the face once. Drawing both over
+        the face at part opacity would let the skin show through mid-fade.
+        """
+        image_a = self._images.get(f"front_{first}")
+        image_b = self._images.get(f"front_{second}")
+        if image_a is None:
+            return
+        single = image_b is None or second == first or mix <= 0.001
+        if single or mix >= 0.999:
+            image = image_a if single else image_b
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            painter.setTransform(transform, True)
+            painter.drawImage(rect, image)
+            painter.restore()
+            return
+        device = painter.device()
+        width, height = device.width(), device.height()
+        buffer = self._front_buffer
+        if buffer is None or buffer.width() != width or buffer.height() != height:
+            buffer = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+            self._front_buffer = buffer
+        buffer.setDevicePixelRatio(device.devicePixelRatio())
+        buffer.fill(0)
+        inner = QPainter(buffer)
+        inner.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        inner.setTransform(painter.transform())
+        inner.setTransform(transform, True)
+        inner.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+        inner.setOpacity(1.0 - mix)
+        inner.drawImage(rect, image_a)
+        inner.setOpacity(mix)
+        inner.drawImage(rect, image_b)
+        inner.end()
+        painter.save()
+        painter.resetTransform()
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+        painter.drawImage(QPointF(0.0, 0.0), buffer)
         painter.restore()
 
     def _blit_pair(

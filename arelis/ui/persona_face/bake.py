@@ -60,7 +60,8 @@ def composite_rest(
     if front is None and "hair_front" in layers:
         front = layers["hair_front"]
     if front is not None:
-        acc = screen(acc, front)
+        # The painted hair lies over the face, so it is drawn over, not added.
+        acc = over(acc, front)
     acc = screen(acc, layers["ring"])
     if star and "star" in layers:
         acc = screen(acc, layers["star"])

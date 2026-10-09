@@ -8,6 +8,7 @@ import threading
 import numpy as np
 
 from arelis.ui.persona_face import face_src as face2
+from arelis.ui.persona_face import hair_paint
 from arelis.ui.persona_face.adult import V24Rig, apply_v23
 from arelis.ui.persona_face.face_src import Canvas2
 from arelis.ui.persona_face.nebula_src import Canvas, background, hexrgb
@@ -30,6 +31,13 @@ GLANCE_LEVELS = ((-0.015, 0.001), (0.014, -0.002))
 PHASE_COUNT = 36
 PHASE_T = np.linspace(0.35, 5.15, PHASE_COUNT)
 FACE_T = float(PHASE_T[0])
+
+# Hair v4 (target match): the painted mass in hair_paint replaces the strand
+# cap. Off brings back the v3 strand layers.
+HAIR_V4 = True
+# The skin, eyes and mouth are lifted this much toward the target's
+# lavender-white. Below the jaw the neck keeps its tone.
+FACE_GAIN = 1.11
 
 _RIG: V24Rig | None = None
 _LOCK = threading.RLock()
@@ -215,6 +223,9 @@ def to_premul(
     premul = hue_premul * weight[..., None] + premul * (1.0 - weight[..., None])
     if face:
         alpha, premul = _neck_lavender(cv, alpha, premul)
+        if FACE_GAIN != 1.0:
+            lift = 1.0 + (FACE_GAIN - 1.0) * (1.0 - face2.ss(0.30, 0.36, cv.Y))
+            premul = np.minimum(premul * lift[..., None], alpha[..., None])
     if bottom:
         alpha, premul = _fade_bottom(alpha, premul)
     out = np.empty((cv.H, cv.W, 4), dtype=np.uint8)
@@ -560,13 +571,23 @@ def _paint_hair_v3(rig: V24Rig, width: int, height: int, t: float):
 _MATTE: dict = {}
 
 
+def _new_hair_cover(cover: np.ndarray) -> np.ndarray:
+    """The skin under the old front hair was cut and shaded by its cover.
+
+    The painted hair (HAIR_V4) lies over a whole forehead instead, so the
+    old cover must not carve the skin: its sheer bang edge would show the
+    old cuts and shadows through it.
+    """
+    return np.zeros_like(cover) if HAIR_V4 else cover
+
+
 def _face_matte(rig: V24Rig, width: int, height: int) -> np.ndarray:
     """Skin alpha at rest (read only), so hair knows where the neck and jaw see through."""
     key = (width, height)
     if key not in _MATTE:
         saved = getattr(rig, "_cover", None)
         rig.splat_front_hair(_canvas(width, height), FACE_T, POSE, cover_only=True)
-        skin = _skin_canvas(rig, width, height, rig._cover)
+        skin = _skin_canvas(rig, width, height, _new_hair_cover(rig._cover))
         _MATTE.clear()
         _MATTE[key] = to_premul(skin, 1.02, face=True, bottom=False)[..., 3].astype(np.float32)
         if saved is not None:
@@ -575,6 +596,8 @@ def _face_matte(rig: V24Rig, width: int, height: int) -> np.ndarray:
 
 
 def _paint_back(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
+    if HAIR_V4:
+        return hair_paint.plates(VIEW, width, height, t)[0]
     if face2.HAIR_V3:
         return _paint_hair_v3(rig, width, height, t)[0]
     return _paint_back_e8488a1(rig, width, height, t)
@@ -602,6 +625,8 @@ def _fade_outer_left_lock(plate: np.ndarray) -> np.ndarray:
 
 
 def _paint_front(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
+    if HAIR_V4:
+        return hair_paint.plates(VIEW, width, height, t)[1]
     if face2.HAIR_V3:
         return _paint_hair_v3(rig, width, height, t)[1]
     return _paint_front_e8488a1(rig, width, height, t)
@@ -763,6 +788,7 @@ def _bake_layers(
     cover_cv = _canvas(width, height)
     rig.splat_front_hair(cover_cv, FACE_T, POSE, cover_only=True)
     cover = rig._cover
+    cover = _new_hair_cover(cover)
     skin = _skin_canvas(rig, width, height, cover)
     layers: dict[str, np.ndarray] = {
         "wisps": _paint_wisps(rig, width, height),
@@ -870,6 +896,7 @@ def _paint_face_locked(width: int) -> np.ndarray:
     wide, high = raster_size(width)
     real.splat_front_hair(_canvas(wide, high), FACE_T, POSE, cover_only=True)
     cover = real._cover
+    cover = _new_hair_cover(cover)
     skin = _skin_canvas(real, wide, high, cover)
     image = to_premul(skin, 1.02, face=True, bottom=False)
     xs = face2.Canvas2(wide, high, view=VIEW)
@@ -894,6 +921,7 @@ def _paint_eyes_locked(width: int, blink: float, gaze: tuple[float, float]) -> n
     wide, high = raster_size(width)
     real.splat_front_hair(_canvas(wide, high), FACE_T, POSE, cover_only=True)
     cover = real._cover
+    cover = _new_hair_cover(cover)
     skin = _skin_canvas(real, wide, high, cover)
     image = _feature_patch(
         real,
@@ -956,6 +984,7 @@ def _paint_mouth_locked(width: int, openness: float) -> np.ndarray:
     wide, high = raster_size(width)
     real.splat_front_hair(_canvas(wide, high), FACE_T, POSE, cover_only=True)
     cover = real._cover
+    cover = _new_hair_cover(cover)
     skin = _skin_canvas(real, wide, high, cover)
     return _feature_patch(
         real,

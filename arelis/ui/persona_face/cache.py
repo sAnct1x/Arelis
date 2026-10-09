@@ -31,6 +31,7 @@ def renderer_version() -> str:
         digest = hashlib.sha256()
         for name in (
             "plate.py",
+            "hair_paint.py",
             "face_src.py",
             "adult.py",
             "bake.py",
