@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">arelis</string>
     <string name="radio_channel_name">arelis radio</string>
-    <string name="radio_notification">Radio on — texts leave from this SIM after you allow them on the PC.</string>
+    <string name="radio_notification">Radio on. Texts leave from this SIM after you allow them on the PC.</string>
 </resources>

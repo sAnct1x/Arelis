@@ -35,3 +35,12 @@ def test_kotlin_string_literals_have_no_em_or_en_dash() -> None:
             if any(mark in literal for mark in _BAD):
                 hits.append(f"{path.relative_to(_ROOT)}: {literal}")
     assert hits == []
+
+
+def test_android_resource_strings_have_no_em_or_en_dash() -> None:
+    hits: list[str] = []
+    for path in sorted(_ROOT.rglob("res/values*/*.xml")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "<string" in line and any(mark in line for mark in _BAD):
+                hits.append(f"{path.relative_to(_ROOT)}: {line.strip()}")
+    assert hits == []
