@@ -114,7 +114,7 @@ class WeatherTool:
         if asked:
             place = asked
             try:
-                resolved = await resolve_place(asked)
+                resolved = await resolve_place(place_query_for_geocode(asked))
             except Exception as exc:
                 return ToolResult(
                     ok=False,
@@ -430,6 +430,26 @@ _US_STATE_NAME_TO_ABBR = {
     "wisconsin": "wi",
     "wyoming": "wy",
 }
+
+
+def place_query_for_geocode(name: str) -> str:
+    """Put a comma back before a state so the gazetteer can find the city.
+
+    Place extraction drops commas, and "Springfield Illinois" is not a
+    search the gazetteer answers. "Springfield, Illinois" is.
+    """
+    tokens = [part for part in (name or "").split() if part]
+    if len(tokens) >= 4:
+        phrase3 = tuple(part.lower() for part in tokens[-3:])
+        if phrase3 in _US_STATE_PHRASES and tokens[:-3]:
+            return " ".join(tokens[:-3]) + ", " + " ".join(tokens[-3:])
+    if len(tokens) >= 3:
+        phrase2 = tuple(part.lower() for part in tokens[-2:])
+        if phrase2 in _US_STATE_PHRASES and tokens[:-2]:
+            return " ".join(tokens[:-2]) + ", " + " ".join(tokens[-2:])
+    if len(tokens) >= 2 and tokens[-1].lower() in _US_STATE_NAME_TO_ABBR:
+        return " ".join(tokens[:-1]) + ", " + tokens[-1]
+    return " ".join(tokens)
 
 
 def normalize_weather_ask(text: str) -> str:

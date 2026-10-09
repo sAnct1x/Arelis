@@ -52,7 +52,8 @@ def test_units_speed_of_light_is_not_a_raw_codata_line() -> None:
     ask = "what is the speed of light"
     line = asyncio.run(_units_followup("constant", ask, name="speed of light"))
     _assert_clean_spoken(line)
-    assert _DATA in line.lower()
+    assert "299,792,458" in line
+    assert _DATA not in line.lower()
 
 
 def test_units_height_in_cm_uses_plain_unit_word() -> None:
