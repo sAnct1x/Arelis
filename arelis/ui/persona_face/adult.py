@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from arelis.ui.persona_face import face_src as face2
-from arelis.ui.persona_face.face_src import WID, A, Noise, g2, inside_face, smooth, ss
+from arelis.ui.persona_face.face_src import WID, Noise, g2, inside_face, smooth, ss
 from arelis.ui.persona_face.scene_bits import gasify
 
 BACK = 1.35
@@ -28,6 +28,8 @@ def apply_v23() -> None:
     if _APPLIED:
         return
     face2.CHEEK = 0.95
+    # Wider cheeks so the face fills the trimmed hair. Jaw test stays under 0.36.
+    face2.A = 0.275
     face2.CROWN = 1.0
     face2.PART_FIX = True
     face2.GLOW = True
@@ -44,9 +46,9 @@ def half_w_adult(y):
     """Same upper head as v2.3. Below the cheekbones the jaw tapers sooner."""
     y = np.asarray(y, float)
     uu = np.clip((WID - y) / (WID - face2.TOP), 0, 1)
-    up = A * np.sqrt(np.clip(1 - uu**2, 0, 1))
+    up = face2.A * np.sqrt(np.clip(1 - uu**2, 0, 1))
     ud = np.clip((y - WID) / (CHIN_ADULT - WID), 0, 1)
-    dn = A * np.clip(1 - ud**JAW_P, 0, 1) ** JAW_Q
+    dn = face2.A * np.clip(1 - ud**JAW_P, 0, 1) ** JAW_Q
     w = np.where(y < WID, up, dn)
     return np.where((y > face2.TOP) & (y < CHIN_ADULT), w, 0.0)
 
@@ -65,16 +67,16 @@ def build_back_hair(seed: int = 31, n: int = 900) -> dict:
     r = np.random.default_rng(seed)
     hn = Noise(seed=45, octaves=((2, 1.0), (5, 0.35)))
     th = r.uniform(-np.pi + 0.35, -0.35, n)
-    rad = r.uniform(0.26, 0.36, n)
-    p = np.array([0.0, -0.10]) + rad[:, None] * np.stack([np.cos(th), np.sin(th) * 0.9], 1)
+    rad = r.uniform(0.22, 0.30, n)
+    p = np.array([0.0, -0.10]) + rad[:, None] * np.stack([np.cos(th), np.sin(th) * 0.86], 1)
     side = np.sign(p[:, 0] + 1e-6)
-    spread = r.uniform(0.15, 1.0, n)
-    steps = r.integers(150, 230, n)
+    spread = r.uniform(0.12, 0.7, n)
+    steps = r.integers(100, 150, n)
     ds = 0.0075
-    path = np.zeros((230, n, 2))
-    for k in range(230):
+    path = np.zeros((150, n, 2))
+    for k in range(150):
         y = p[:, 1]
-        flare = side * spread * (0.10 + 0.55 * smooth((y - 0.30) / 0.45))
+        flare = side * spread * (0.03 + 0.14 * smooth((y - 0.16) / 0.36))
         v = np.stack([flare, np.ones(n)], 1)
         amp = 0.05 + 0.9 * smooth((k * ds - 0.5) / 1.0)
         cx, cy = hn.curl(p[:, 0] * 1.3, p[:, 1] * 1.3)
@@ -82,13 +84,19 @@ def build_back_hair(seed: int = 31, n: int = 900) -> dict:
         v /= np.hypot(v[:, 0], v[:, 1])[:, None] + 1e-6
         p = p + v * ds
         path[k] = p
+    ends = 0.52 + 0.12 * r.random(n)
     pts, arc = [], []
     for i in range(n):
-        pts.append(path[: steps[i], i])
-        arc.append(np.arange(steps[i]) * ds)
+        one = path[: steps[i], i]
+        over = np.flatnonzero(one[:, 1] > ends[i])
+        if len(over):
+            one = one[: max(int(over[0]), 6)]
+        pts.append(one)
+        arc.append(np.arange(len(one)) * ds)
     points = np.concatenate(pts)
     length = np.concatenate(arc)
-    weight = 0.020 * smooth(length / 0.25) * np.exp(-np.clip(length - 0.9, 0, None) / 0.5)
+    weight = 0.020 * smooth(length / 0.25) * np.exp(-np.clip(length - 0.55, 0, None) / 0.35)
+    weight = weight * (1.0 - smooth((points[:, 1] - 0.48) / 0.16))
     color = np.clip(length / 1.6, 0, 1)
     keep = ~inside_face(points, 1.02)
     points, length, weight, color = points[keep], length[keep], weight[keep], color[keep]

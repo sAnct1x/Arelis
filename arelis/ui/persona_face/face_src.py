@@ -210,18 +210,19 @@ def build_hair(seed=11, n_strands=820):
     HN = Noise(seed=44, octaves=((3, 1.0), (6, 0.45)))
     c = np.array([0.0, -0.08])
     th = r.uniform(-np.pi + 0.10, -0.10, n_strands)
-    R0 = r.uniform(0.355, 0.43, n_strands)
+    # Outer bulk pulled in so the face fills more of the head at the cheeks.
+    R0 = r.uniform(0.322, 0.382, n_strands)
     Rs = R0 - CROWN * 0.065 * top_weight(np.sin(th)) - SIDE * 0.060 * side_weight(np.sin(th))
     p = c + Rs[:, None] * np.stack([np.cos(th), np.sin(th)], 1)
     side = np.where(np.cos(th) >= 0, 1.0, -1.0)
     restore = (
         SIDE * SIDE_RESTORE * 0.060 * side_weight(np.sin(th)) / 0.30
     )  # lower locks keep their place
-    steps = r.integers(115, 215, n_strands)
+    steps = r.integers(72, 128, n_strands)
     ds = 0.008
-    P = np.zeros((215, n_strands, 2))
+    P = np.zeros((128, n_strands, 2))
     s = 0.0
-    for k in range(215):
+    for k in range(128):
         d = p - c
         rr = np.hypot(d[:, 0], d[:, 1]) + 1e-6
         u = d / rr[:, None]
@@ -229,7 +230,8 @@ def build_hair(seed=11, n_strands=820):
         flip = (tg[:, 0] * side + tg[:, 1]) < 0
         tg[flip] *= -1
         g = smooth((p[:, 1] - (c[1] + 0.02)) / 0.30)[:, None]
-        flare = 0.16 + 1.25 * smooth((p[:, 1] - 0.34) / 0.55)
+        # Side locks stay near the jaw instead of flaring into a wide block.
+        flare = 0.05 + 0.20 * smooth((p[:, 1] - 0.16) / 0.42)
         down = np.stack([side * flare, np.ones(n_strands)], 1)
         down /= np.hypot(down[:, 0], down[:, 1])[:, None]
         Rt = R0 - CROWN * 0.065 * top_weight(u[:, 1]) - SIDE * 0.060 * side_weight(u[:, 1])
@@ -249,10 +251,16 @@ def build_hair(seed=11, n_strands=820):
         v /= np.hypot(v[:, 0], v[:, 1])[:, None] + 1e-6
         p = p + v * ds
         P[k] = p
+    # Ragged tips around the shoulder. Each strand stops on its own line.
+    ends = 0.52 + 0.18 * r.random(n_strands)
     allp, alls = [], []
     for i in range(n_strands):
-        allp.append(P[: steps[i], i])
-        alls.append(np.arange(steps[i]) * ds)
+        path = P[: steps[i], i]
+        over = np.flatnonzero(path[:, 1] > ends[i])
+        if len(over):
+            path = path[: max(int(over[0]), 6)]
+        allp.append(path)
+        alls.append(np.arange(len(path)) * ds)
     strands = [(a, b) for a, b in zip(allp, alls)]
 
     # soft bangs: a side part, one sweep across the forehead, one to the other side,
@@ -272,7 +280,8 @@ def build_hair(seed=11, n_strands=820):
     for i in range(560):
         right = i % 3 != 0
         k = r.random() ** 1.25
-        rx, ry = 0.238 + 0.20 * k, 0.255 + 0.215 * k
+        # Lower crown than the old cap. The outer edge still holds the star.
+        rx, ry = 0.240 + 0.160 * k, 0.242 + 0.198 * k
         th1 = (-0.04 - 0.40 * r.random()) if right else (-np.pi + 0.04 + 0.40 * r.random())
         th0 = -np.pi / 2 + (0.16 if right else -0.10) + r.normal(0, 0.04)
         tt = np.linspace(0, 1, 160)
@@ -281,8 +290,8 @@ def build_hair(seed=11, n_strands=820):
         tw_ = np.clip(
             CROWN * 0.42 * top_weight(np.sin(th)) + SIDE * 0.45 * side_weight(np.sin(th)), 0, 0.9
         )
-        rxe = rx - tw_ * (rx - 0.238)
-        rye = ry - tw_ * (ry - 0.255)
+        rxe = rx - tw_ * (rx - 0.240)
+        rye = ry - tw_ * (ry - 0.242)
         pts = np.stack([np.cos(th) * (rxe + j), -0.06 + np.sin(th) * (rye + j)], 1)
         bl = smooth(tt / (0.30 + 0.15 * (1 - k)))[:, None]
         jit0 = r.normal(0, 0.012, 2) * [1.0, 0.5]
@@ -293,7 +302,7 @@ def build_hair(seed=11, n_strands=820):
             ]  # own rng: other strands unchanged
         pts = part + jit0 + (pts - part) * bl
         n2 = 50
-        tail = pts[-1] + np.stack([np.zeros(n2), np.linspace(0, 0.26, n2)], 1)
+        tail = pts[-1] + np.stack([np.zeros(n2), np.linspace(0, 0.16, n2)], 1)
         tail[:, 0] += np.sign(np.cos(th1)) * np.linspace(0, 0.02 + 0.03 * k, n2)
         bangs.append(np.concatenate([pts, tail]))
     # fringe: strands leave the part line and sweep across the forehead
@@ -333,10 +342,22 @@ def build_hair(seed=11, n_strands=820):
                 np.array([sx * 0.232, -0.22]) + o,
                 np.array([sx * 0.272, -0.04]) + o,
                 np.array([sx * (0.262 + 0.02 * f), 0.18]) + o,
-                np.array([sx * (0.205 + 0.06 * f), 0.38 + 0.06 * f]) + o,
+                np.array([sx * (0.188 + 0.04 * f), 0.30 + 0.08 * f]) + o,
                 140,
             )
             bangs.append(pts)
+    # Short tuft under the clip. The lower crown would otherwise leave the star bare.
+    for i in range(72):
+        o = r.normal(0, 0.008, 2)
+        bangs.append(
+            bez(
+                np.array([0.120, -0.448]) + o,
+                np.array([0.190, -0.430]) + o,
+                np.array([0.270, -0.390]) + o,
+                np.array([0.330, -0.330]) + o,
+                100,
+            )
+        )
     return strands, bangs
 
 
@@ -363,6 +384,8 @@ def hair_particles(strands, bangs, seed=12):
         J.append(0.0016 + 0 * s)
     P = np.concatenate(P)
     W = np.concatenate(W)
+    # Tips thin out before the shoulder line. Roots and the fringe stay put.
+    W = W * (1.0 - smooth((P[:, 1] - 0.50) / 0.16))
     C = np.concatenate(C)
     J = np.concatenate(J)
     S = np.concatenate(S)
@@ -404,15 +427,15 @@ class Rig:
         self.gas, self.gas_w = face_gas(self.noise)
         rd = np.random.default_rng(77)
         self._dust = rd.random(len(self.gas)) < 0.0018
-        # neck gas: particles from under the chin, carried down and outward
+        # Neck gas starts under the jaw, narrower than the chin, and thins out.
         n = 60000
-        y0 = rd.uniform(0.28, 0.62, n)
-        x0 = rd.normal(0, 0.05, n) * (1 + 2.2 * np.clip(y0 - 0.40, 0, 1))
+        y0 = rd.uniform(0.36, 0.58, n)
+        x0 = rd.normal(0, 0.026, n) * (1 + 1.2 * np.clip(y0 - 0.46, 0, 1))
         ng = self.noise.advect(np.stack([x0, y0], 1), 10, 0.006)
         self.neck_gas = ng
-        self.neck_amp = np.clip((y0 - 0.32) / 0.3, 0, 1)
-        self.neck_w = 0.0018 * (1 - smooth((y0 - 0.36) / 0.30)) * smooth((y0 - 0.27) / 0.06)
-        self.neck_c = np.clip((y0 - 0.3) / 0.4, 0, 1)
+        self.neck_amp = np.clip((y0 - 0.38) / 0.22, 0, 1)
+        self.neck_w = 0.0013 * (1 - smooth((y0 - 0.40) / 0.20)) * smooth((y0 - 0.34) / 0.05)
+        self.neck_c = np.clip((y0 - 0.36) / 0.28, 0, 1)
         self.d_hair = Drift(101, kmin=1.2, kmax=3.0, wmin=0.05, wmax=0.16)
         self.d_gas = Drift(102, kmin=2.0, kmax=5.0, wmin=0.05, wmax=0.15)
         self.d_wisp = Drift(103, kmin=0.8, kmax=2.2, wmin=0.03, wmax=0.09)
@@ -577,16 +600,22 @@ class Rig:
             * ss(yh - 0.02, yh + 0.06, Yf)
         )
         # neck, dimmer, fading into the gas
-        if NECK:  # longer, softer neck that turns into drifting gas
-            nw = 0.062 + 0.10 * np.clip(Y - 0.42, 0, 1)
+        if NECK:  # under the jaw, behind the face, fading before the shoulders
+            top = CHIN + 0.02
+            nw = 0.032 + 0.022 * np.clip((Y - top) / 0.20, 0, 1)
             neck = (
-                smooth((nw - np.abs(X)) / 0.10) * ss(0.20, 0.28, Y) * (1 - ss(0.36, 0.50, Y)) * 0.55
+                smooth((nw - np.abs(X)) / 0.020)
+                * ss(top, top + 0.05, Y)
+                * (1 - ss(0.48, 0.62, Y))
+                * 0.32
             )
-            neck *= 1 - 0.6 * ins
+            neck *= 1.0 - ins
+            # The column thins out well before the shoulder so it does not stay a solid neck.
+            neck *= 1.0 - ss(0.44, 0.54, Y)
             neck = neck * np.clip(
-                0.55 + 0.9 * (self.noise.val(X * 3.5 + 0.03 * t, Y * 2.5 - 0.04 * t) + 0.12),
-                0.2,
-                1.4,
+                0.45 + 0.7 * (self.noise.val(X * 3.5 + 0.03 * t, Y * 2.5 - 0.04 * t) + 0.12),
+                0.15,
+                1.1,
             )
         else:
             nw = 0.070 + 0.06 * np.clip(Y - 0.36, 0, 1)
@@ -632,9 +661,13 @@ class Rig:
             neck_col = lerpc(pal["face"], pal["hair0"], 0.28)
             cv.buf(0)[...] += (0.68 * skin)[..., None] * col + (1.55 * neck)[..., None] * neck_col
         cv.light(rim, lerpc(pal["hair0"], pal["face"], 0.35))
+        # Soft shadow on the neck, just under the jaw, so the chin sits in front.
         cv.shade(
-            0.10 * ss(0.30, 0.34, Y) * (1 - ss(0.34, 0.40, Y)) * smooth((0.09 - np.abs(X)) / 0.03)
-        )  # under chin
+            0.10
+            * ss(CHIN - 0.005, CHIN + 0.035, Y)
+            * (1 - ss(CHIN + 0.06, CHIN + 0.14, Y))
+            * smooth((0.050 - np.abs(X)) / 0.020)
+        )
         # ---- cheeks
         for sx in (-1, 1):
             cv.light(0.36 * g2(X, fy(0.100), sx * 0.150, 0.100, 0.042, 0.030), blush)

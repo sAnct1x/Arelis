@@ -159,22 +159,26 @@ def test_back_hair_is_strands_behind_her_neck():
 
 
 def test_composited_hair_has_no_horizontal_stripes():
-    """No hair row jumps more than 3 levels away from both neighbours.
+    """No hair row jumps more than 12 levels away from both neighbours.
 
     Slice warps overlapped by a fraction of a pixel and added, which drew a
-    bright line on every band. A whole phase frame does not.
+    bright line on every band. A whole phase frame does not. Shoulder-length
+    tips wobble about 8 levels on one row in this band, so 12 still catches
+    a warp line and lets that wobble through.
     """
     from arelis.ui.persona_face.bake import composite_rest
 
     plate = composite_rest(_layers())
     # Back hair under the chin, between the side locks. A slice warp stripes
     # this whole column. Feature edges on the face are not in the box.
-    hair = _world_patch(plate, (-0.10, 0.10, 0.56, 0.88))
+    # The long curtain used to fill y 0.56 to 0.88. Tips now fade out by the
+    # shoulder, so the strand check sits higher, still under the chin.
+    hair = _world_patch(plate, (-0.10, 0.10, 0.36, 0.46))
     rows = hair[..., :3].astype(np.float64).mean(axis=(1, 2))
     for index in range(1, len(rows) - 1):
         left = abs(float(rows[index] - rows[index - 1]))
         right = abs(float(rows[index] - rows[index + 1]))
-        assert not (left > 3.0 and right > 3.0), (index, left, right)
+        assert not (left > 12.0 and right > 12.0), (index, left, right)
 
 
 def _panel_on(theme: str, qt_app):
@@ -929,3 +933,112 @@ def test_the_star_sits_in_the_hair():
     lum = float(_lum(straight.astype(np.float32)))
     assert lum > 40.0, (lum, straight.tolist())
     assert float(straight[2] - straight[1]) > 8.0, straight.tolist()
+
+
+# Shoulder line in world y. Tips fade out at this line. Below it the plate is clear.
+_SHOULDER_Y = 0.66
+
+
+def _span(mask: np.ndarray, view_width: float) -> float:
+    cols = np.flatnonzero(mask)
+    if len(cols) < 2:
+        return 0.0
+    return float(cols[-1] - cols[0] + 1) / float(mask.shape[0]) * view_width
+
+
+def _straight_lum(patch: np.ndarray) -> float:
+    alpha = patch[..., 3].astype(np.float64)
+    rgb = patch[..., :3].astype(np.float64) * (255.0 / np.maximum(alpha[..., None], 1.0))
+    lit = alpha > 40.0
+    assert int(lit.sum()) > 8
+    return float(np.mean(_lum(rgb[lit].astype(np.float32))))
+
+
+def test_the_face_fills_the_hair_at_the_cheeks():
+    """Skin width over hair width at the cheekbone is at least 0.64.
+
+    On the approved close-up, a cheek band (rows 560 to 650 of 1024) gives
+    connected skin over the hair silhouette a median of about 0.46 and a
+    widest row of about 0.50. Hair runs off both edges of that crop, so 0.50
+    is the face share of a cut-off head, not of the whole mass. The in-app
+    plate at the cheekbone (local y 0.03) measured about 0.58, and the face
+    still sat inside a wide block. 0.64 is above that plate and in the
+    direction of the close-up, where the face is most of the head.
+    """
+    from arelis.ui.persona_face.engine import VIEW
+    from arelis.ui.persona_face.plate import unstretch_y
+
+    hair = np.maximum(_layers()["back_0"][..., 3], _layers()["front_0"][..., 3])
+    face = _layers()["face"][..., 3]
+    height = face.shape[0]
+    x0, x1, y0, y1 = VIEW
+    world_y = y0 + (np.arange(height) + 0.5) / height * (y1 - y0)
+    local = np.asarray(unstretch_y(world_y), dtype=np.float64)
+    row = int(np.argmin(np.abs(local - 0.03)))
+    span = x1 - x0
+    skin = _span(face[row] > 128, span)
+    silhouette = _span(np.maximum(hair[row], face[row]) > 24, span)
+    ratio = skin / silhouette if silhouette else 0.0
+    assert ratio >= 0.64, (ratio, skin, silhouette)
+
+
+def test_the_neck_is_behind_the_jaw():
+    """Just under the jaw the neck is darker than the chin and narrower.
+
+    The pale bulge is the neck continuing the chin. Just under the jaw
+    (world y 0.34 to 0.40) the face layer is only a few levels under the chin
+    patch at y 0.20 to 0.26, so the jaw edge does not read in front. That
+    neck has to be at least 12 levels darker, and narrower than the jaw at
+    local y 0.20. It stays lavender, not a grey column.
+    """
+    from arelis.ui.persona_face.engine import VIEW
+    from arelis.ui.persona_face.plate import unstretch_y
+
+    face = _layers()["face"]
+    height, width, _ = face.shape
+    x0, x1, y0, y1 = VIEW
+    world_y = y0 + (np.arange(height) + 0.5) / height * (y1 - y0)
+    local = np.asarray(unstretch_y(world_y), dtype=np.float64)
+    jaw_row = int(np.argmin(np.abs(local - 0.20)))
+    neck_row = int(np.argmin(np.abs(world_y - 0.44)))
+    span = x1 - x0
+    jaw = _span(face[jaw_row, :, 3] > 200, span)
+    # The neck is the face-layer column under the chin, not the side hair.
+    neck = _span(
+        (face[neck_row, :, 3] > 40) & (np.abs(x0 + (np.arange(width) + 0.5) / width * span) < 0.12),
+        span,
+    )
+    assert jaw > 0.24, jaw
+    assert neck > 0.04, neck
+    assert neck < jaw * 0.72, (neck, jaw)
+    chin_l = _straight_lum(_world_patch(face, (-0.04, 0.04, 0.20, 0.26)))
+    neck_l = _straight_lum(_world_patch(face, (-0.04, 0.04, 0.34, 0.40)))
+    assert neck_l <= chin_l - 12.0, (neck_l, chin_l)
+    neck_px = _world_patch(face, (-0.04, 0.04, 0.34, 0.40))
+    alpha = neck_px[..., 3].astype(np.float64)
+    rgb = neck_px[..., :3].astype(np.float64) * (255.0 / np.maximum(alpha[..., None], 1.0))
+    lit = rgb[alpha > 40.0]
+    assert float(lit[:, 2].mean() - lit[:, 1].mean()) >= 12.0
+
+
+def test_the_hair_stops_at_the_shoulder():
+    """Below the shoulder line the hair alpha is gone.
+
+    The line is world y 0.66, under the jaw and where the shoulders sit.
+    Tips may fade on the way down. On the tall plate the hair still ran past
+    y 1.0, with mean alpha about 77 below y 0.75.
+    """
+    from arelis.ui.persona_face.bake import composite_rest
+    from arelis.ui.persona_face.engine import VIEW
+
+    plate = composite_rest(_layers())
+    alpha = plate[..., 3].astype(np.float64)
+    height = alpha.shape[0]
+    x0, x1, y0, y1 = VIEW
+    del x0, x1
+    world_y = y0 + (np.arange(height) + 0.5) / height * (y1 - y0)
+    below = world_y > _SHOULDER_Y
+    assert int(below.sum()) > 4
+    low = alpha[below]
+    assert float(low.mean()) < 8.0, float(low.mean())
+    assert float(low.max()) < 28.0, float(low.max())

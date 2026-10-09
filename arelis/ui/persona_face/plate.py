@@ -13,8 +13,8 @@ from arelis.ui.persona_face.face_src import Canvas2
 from arelis.ui.persona_face.nebula_src import Canvas, background, hexrgb
 from arelis.ui.persona_face.scene_bits import orbit_ring, sparkle
 
-# Tall dock: head in the upper part, hair running down.
-VIEW = (-0.80, 0.80, -0.72, 1.22)
+# Head and shoulders. Hair ends around the shoulder, so the plate is not a tall empty drop.
+VIEW = (-0.80, 0.80, -0.58, 0.72)
 POSE = (0.0, 0.0, 0.0, 1.0)
 BLINK_LEVELS = (0.0, 0.25, 0.5, 0.75, 1.0)
 GAZE_LEVELS = ((0.0, 0.0), (0.012, -0.01), (-0.008, 0.004))
@@ -97,19 +97,32 @@ def _fade_bottom(alpha: np.ndarray, premul: np.ndarray) -> tuple[np.ndarray, np.
 def _neck_lavender(
     cv: Canvas2, alpha: np.ndarray, premul: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Upper neck is lavender gas. It thins downward instead of a grey column.
+    """Upper neck is lavender gas under the jaw. It thins downward.
 
-    Straight tint is about (198, 160, 228), so blue sits well above green.
-    The cover is only the neck band, and it multiplies by a falloff in Y.
+    The centre just under the chin is darker than the jaw. The rim stays
+    light so a light dock does not pick up a dark shell. Blue stays above green.
     """
-    fall = np.clip((0.62 - cv.Y) / 0.30, 0.0, 1.0)
-    side = np.clip((0.10 - np.abs(cv.X)) / 0.045, 0.0, 1.0)
-    band = np.clip((cv.Y - 0.22) / 0.08, 0.0, 1.0) * side * fall
+    # Below the chin only. A wide band from y 0.22 painted the neck onto the jaw.
+    below = np.clip((cv.Y - 0.330) / 0.10, 0.0, 1.0)
+    fall = np.clip((0.56 - cv.Y) / 0.16, 0.0, 1.0)
+    side = np.clip((0.052 - np.abs(cv.X)) / 0.028, 0.0, 1.0)
+    band = below * side * fall
     use = band * (alpha > 0.02)
-    tint = np.array([198.0, 160.0, 228.0], dtype=np.float32) / 255.0
-    new_a = alpha * (0.35 + 0.65 * fall)
+    # Centre of the neck, just under the jaw, is darker. The rim stays light
+    # lavender so the edge is not a dark shell on a light dock.
+    jaw = np.clip((0.43 - cv.Y) / 0.08, 0.0, 1.0)
+    core = np.clip((side - 0.25) / 0.55, 0.0, 1.0) * jaw
+    light = np.array([188.0, 152.0, 216.0], dtype=np.float32) / 255.0
+    dark = np.array([176.0, 146.0, 204.0], dtype=np.float32) / 255.0
+    tint = light * (1.0 - core[..., None]) + dark * core[..., None]
+    new_a = alpha * (0.25 + 0.75 * fall) * (0.50 + 0.50 * below)
     premul = premul * (1.0 - use[..., None]) + (tint * new_a[..., None]) * use[..., None]
     alpha = alpha * (1.0 - use) + new_a * use
+    # The glow stays opaque until it is almost gone, so fade the column itself.
+    column = np.clip((0.07 - np.abs(cv.X)) / 0.035, 0.0, 1.0)
+    drop = np.clip((cv.Y - 0.46) / 0.10, 0.0, 1.0) * column
+    alpha = alpha * (1.0 - drop)
+    premul = premul * (1.0 - drop[..., None])
     return alpha, premul
 
 
@@ -244,8 +257,8 @@ def _fade_outer_left_lock(plate: np.ndarray) -> np.ndarray:
     nothing there over a wide ramp. Premultiplied, so all four channels scale.
     """
     cv = _canvas(plate.shape[1], plate.shape[0])
-    side = np.clip((-0.40 - cv.X) / 0.12, 0.0, 1.0)
-    below = np.clip((cv.Y - 0.26) / 0.14, 0.0, 1.0)
+    side = np.clip((-0.32 - cv.X) / 0.16, 0.0, 1.0)
+    below = np.clip((cv.Y - 0.30) / 0.16, 0.0, 1.0)
     keep = 1.0 - face2.smooth(side) * face2.smooth(below)
     out = plate.astype(np.float32) * keep[..., None]
     return np.clip(out + 0.5, 0, 255).astype(np.uint8)
