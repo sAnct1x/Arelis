@@ -1681,6 +1681,7 @@ def live_room_filenames() -> set[str]:
         path = state_dir() / "rooms.yaml"
         rooms_stamp = path.stat().st_mtime_ns if path.is_file() else 0
     except Exception:
+        # No rooms file: there is no current room, so this is not a file ask.
         return set()
     cached = _ROOM_NAME_CACHE
     if cached is not None and cached[0] == rooms_stamp:
@@ -1705,6 +1706,7 @@ def _folder_mtime(folder: str) -> int:
         path = Path(folder)
         return path.stat().st_mtime_ns if path.is_dir() else 0
     except Exception:
+        # A missing folder is the same as an empty one.
         return 0
 
 
@@ -1721,6 +1723,7 @@ def _list_room_files(folder: str) -> frozenset[str]:
                 found.add(child.name)
         return frozenset(found)
     except Exception:
+        # A folder that vanishes mid-scan must not take the turn down.
         return frozenset()
 
 
@@ -1745,6 +1748,7 @@ def _scan_live_room(path: Path) -> tuple[frozenset[str], str, int]:
         folder = entry.path
         return _list_room_files(str(folder)), str(folder), _folder_mtime(str(folder))
     except Exception:
+        # A bad rooms file is an empty room, and weather stays weather.
         return frozenset(), "", 0
 
 
@@ -1818,6 +1822,7 @@ def data_cell_enabled() -> bool:
         )
         local_stamp = LOCAL_CONFIG_PATH.stat().st_mtime_ns if LOCAL_CONFIG_PATH.is_file() else 0
     except Exception:
+        # If the stamp cannot be read, leave the tool on.
         return True
     cached = _CELL_FLAG
     if cached is not None and cached[0] == default_stamp and cached[1] == local_stamp:
@@ -1828,6 +1833,7 @@ def data_cell_enabled() -> bool:
         tools = load_config().get("tools") or {}
         enabled = bool((tools.get("data_cell") or {}).get("enabled", True))
     except Exception:
+        # A bad config leaves the tool on, which is the default.
         enabled = True
     _CELL_FLAG = (default_stamp, local_stamp, enabled)
     return enabled

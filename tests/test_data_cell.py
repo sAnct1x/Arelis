@@ -411,6 +411,17 @@ async def test_a_network_call_is_refused(tmp_path: Path) -> None:
     assert not accepted
 
 
+async def test_starting_another_program_is_refused(tmp_path: Path) -> None:
+    tool, _room = _tool(tmp_path)
+    result = await tool.run(
+        code="import os\nos.system('echo hi')\nprint('ran')\n",
+        files=[],
+    )
+    assert not result.ok
+    assert result.output == "I can't start other programs from here."
+    assert "ran" not in result.output
+
+
 async def test_an_oversized_file_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

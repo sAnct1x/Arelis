@@ -130,6 +130,7 @@ def _plain(value: Any) -> Any:
         try:
             return _plain(item())
         except Exception:
+            # A numpy value that will not convert still has to become text.
             return str(value)
     return str(value)
 
@@ -238,13 +239,13 @@ def _audit(event: str, args: tuple[Any, ...]) -> None:
 
 
 def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
+    if event in {"subprocess.Popen", "os.system"}:
+        raise CellBlocked("I can't start other programs from here.")
     if event in {
         "socket.connect",
         "socket.bind",
         "socket.sendto",
         "urllib.Request",
-        "subprocess.Popen",
-        "os.system",
     }:
         raise CellBlocked("I can't reach the network from here.")
     if event != "open" or not args:
@@ -472,10 +473,12 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
+        # A pipe that cannot change encoding is already usable.
         pass
     try:
         request = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     except Exception:
+        # Bad stdin is a refusal, not a crash.
         _emit({"ok": False, "error": "refused", "summary": READ_REFUSAL, "charts": []})
         return 1
     room = Path(str(request.get("room") or ""))
@@ -505,6 +508,17 @@ def main() -> int:
         return 1
     _enable_venv_site()
     _posix_limits()
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as pyplot
+
+        del pyplot
+    except Exception:
+        # No plot library: tables still run. The font cache is built here,
+        # before the guard, because Linux runs fc-list the first time.
+        pass
     _install_hook()
     before = (
         {path.resolve() for path in results.rglob("*") if path.is_file()}
@@ -534,6 +548,7 @@ def main() -> int:
         _emit({"ok": False, "error": "memory", "summary": MEMORY_REFUSAL, "charts": []})
         return 1
     except Exception:
+        # The user sees a plain failure. The traceback stays off the reply.
         _emit({"ok": False, "error": "failed", "summary": "I couldn't finish that.", "charts": []})
         return 1
     summary = _summary(stdout.getvalue())

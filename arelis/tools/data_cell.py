@@ -144,7 +144,12 @@ class DataCellTool:
                 proc.stdin.write(payload)
                 proc.stdin.close()
             except Exception:
+                # The child already exited, so the pipe is gone.
                 reason = "fail"
+            # communicate() flushes stdin on its first call. The pipe is
+            # already closed, and on POSIX that flush raises ValueError.
+            # Dropping the handle makes the wait path the same everywhere.
+            proc.stdin = None
             if reason == "ok":
                 reason, stdout, stderr = _wait(proc, DATA_CELL_TIMEOUT_S)
         finally:
@@ -385,6 +390,7 @@ def _close_job(handle: int | None) -> None:
 
         ctypes.windll.kernel32.CloseHandle(handle)
     except Exception:
+        # The handle was already closed with the job.
         return
 
 
@@ -404,9 +410,12 @@ def _wait(proc: subprocess.Popen[str], timeout_s: float) -> tuple[str, str, str]
 
 
 def _drain(proc: subprocess.Popen[str]) -> None:
+    # Same as _wait: never flush a pipe the parent already closed.
+    proc.stdin = None
     try:
         proc.communicate(timeout=2.0)
     except Exception:
+        # The child is already dead, so there is nothing left to read.
         return
 
 
@@ -436,7 +445,8 @@ def _parse_stdout(stdout: str) -> dict[str, Any] | None:
 def _looks_like_memory(parsed: dict[str, Any] | None, stderr: str, code: int | None) -> bool:
     if parsed and str(parsed.get("error") or "") == "memory":
         return True
-    if "MemoryError" in (stderr or ""):
+    text = stderr or ""
+    if "MemoryError" in text or "Memory allocation still failed" in text:
         return True
     if code is None:
         return False
