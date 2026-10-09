@@ -258,3 +258,115 @@ def test_a_busy_model_calms_the_new_motion():
         settled = busy & (np.cumsum(busy) > 30)
         assert np.std(series[settled]) < np.std(series[idle]) * 0.75, name
     assert _series(frames, "smile")[busy & (np.cumsum(busy) > 90)].max() < 0.5
+
+
+def _grab_premul(widget) -> np.ndarray:
+    from PySide6.QtGui import QImage
+
+    image = widget.grab().toImage().convertToFormat(QImage.Format.Format_RGBA8888_Premultiplied)
+    width, height = image.width(), image.height()
+    raw = np.frombuffer(image.constBits(), np.uint8, count=image.sizeInBytes())
+    rows = raw.reshape(height, -1)[:, : width * 4].reshape(height, width, 4)
+    out = rows.astype(np.float32)
+    # Over a dark dock, as she is seen.
+    out[..., :3] += np.array([14.0, 16.0, 38.0]) * (1.0 - out[..., 3:4] / 255.0)
+    return out
+
+
+def test_the_materialize_has_no_box_no_marker_and_no_jump(qt_app):
+    """Fade-in frames through the real widget.
+
+    The eye and mouth frames are opaque skin boxes; drawn at part opacity over
+    the fading face they used to show as a box. The star used to fly across
+    her forehead as a crosshair and the orb's core sat on her nose as a dot.
+    """
+    from arelis.ui.persona_face.face_src import STAR_AT
+    from arelis.ui.persona_face.motion import Frame
+    from arelis.ui.persona_face.panel import PersonaPanel
+
+    panel = PersonaPanel()
+    panel.resize(370, 600)
+    panel.set_bake_delay(0)
+    panel.show()
+    qt_app.processEvents()
+    deadline = time.monotonic() + 90.0
+    while not panel.bake_ready and time.monotonic() < deadline:
+        qt_app.processEvents()
+        time.sleep(0.02)
+    assert panel.bake_ready
+    panel.avatar.shutdown()
+    panel._timer.stop()
+    panel._mode = "face"
+    avatar = panel.avatar
+
+    frames = []
+    for step in range(79):
+        u = step / 78.0
+        avatar.reveal = u * u * (3.0 - 2.0 * u)
+        avatar.frame = Frame(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, False, 0, 0)
+        frames.append((avatar.reveal, _grab_premul(avatar)))
+    panel.close()
+
+    rect = avatar._face_rect()
+    image = avatar._images["mouth_0"]
+    alpha = _grab_alpha(image)
+    ys, xs = np.nonzero(alpha)
+    height, width = alpha.shape
+    x0 = int(rect.x() + xs.min() / width * rect.width())
+    x1 = int(rect.x() + xs.max() / width * rect.width())
+    y0 = int(rect.y() + ys.min() / height * rect.height())
+    y1 = int(rect.y() + ys.max() / height * rect.height())
+
+    rest = frames[-1][1][..., :3].mean(-1)
+    grid_y, grid_x = np.mgrid[0 : rest.shape[0], 0 : rest.shape[1]]
+    star = avatar._map(STAR_AT[0], STAR_AT[1], rect)
+    away = np.hypot(grid_x - star.x(), grid_y - star.y()) > rect.width() * 0.09
+    face = (
+        (grid_x > rect.x() + rect.width() * 0.30)
+        & (grid_x < rect.x() + rect.width() * 0.70)
+        & (grid_y > rect.y() + rect.height() * 0.22)
+        & (grid_y < rect.y() + rect.height() * 0.72)
+    )
+
+    def edges(lum: np.ndarray) -> np.ndarray:
+        rows = slice(y0 + 4, y1 - 4)
+        cols = slice(x0 + 4, x1 - 4)
+        return np.array(
+            [
+                lum[rows, x0 + 2 : x0 + 5].mean() - lum[rows, x0 - 5 : x0 - 2].mean(),
+                lum[rows, x1 - 4 : x1 - 1].mean() - lum[rows, x1 + 2 : x1 + 5].mean(),
+                lum[y0 + 2 : y0 + 5, cols].mean() - lum[y0 - 5 : y0 - 2, cols].mean(),
+                lum[y1 - 4 : y1 - 1, cols].mean() - lum[y1 + 2 : y1 + 5, cols].mean(),
+            ]
+        )
+
+    rest_edges = edges(rest)
+    rest_mean = rest[y0:y1, x0:x1].mean()
+    jumps = []
+    previous = None
+    for reveal, frame in frames:
+        lum = frame[..., :3].mean(-1)
+        if reveal >= 0.25:
+            # Inside-minus-outside across the patch border, against the rest
+            # frame's own (scaled to this frame's brightness). A box shows here.
+            scale = lum[y0:y1, x0:x1].mean() / rest_mean
+            assert float(np.abs(edges(lum) - rest_edges * scale).max()) < 5.0, reveal
+        if reveal >= 0.2:
+            # Nothing on her face is brighter than the finished face: no
+            # crosshair, no orb dot.
+            assert int(((lum - rest > 30.0) & face & away).sum()) <= 2, reveal
+        if previous is not None:
+            jumps.append(float(np.abs(frame - previous).mean()))
+        previous = frame
+    jumps = np.asarray(jumps)
+    # A smooth fade: no single frame jumps far above the typical step.
+    assert float(jumps.max()) < 2.5 * float(np.median(jumps)), jumps.max()
+
+
+def _grab_alpha(image) -> np.ndarray:
+    from PySide6.QtGui import QImage
+
+    image = image.convertToFormat(QImage.Format.Format_RGBA8888_Premultiplied)
+    width, height = image.width(), image.height()
+    raw = np.frombuffer(image.constBits(), np.uint8, count=image.sizeInBytes())
+    return raw.reshape(height, -1)[:, : width * 4].reshape(height, width, 4)[..., 3].copy()

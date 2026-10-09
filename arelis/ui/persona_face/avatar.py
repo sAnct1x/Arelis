@@ -75,6 +75,20 @@ def _qimage(array: np.ndarray) -> QImage:
     return image.copy()
 
 
+def _feather(patch: np.ndarray, band: int = 5) -> np.ndarray:
+    """Fade a boxed patch to clear over its outer few pixels, so an added frame
+    laid over the face can never show a hard box edge."""
+    height, width = patch.shape[:2]
+
+    def ramp(n: int) -> np.ndarray:
+        idx = np.arange(n, dtype=np.float32)
+        edge = np.minimum(idx + 0.5, n - idx - 0.5)
+        return np.clip(edge / band, 0.0, 1.0)
+
+    mask = ramp(height)[:, None] * ramp(width)[None, :]
+    return np.round(patch.astype(np.float32) * mask[..., None]).astype(np.uint8)
+
+
 def _blur_array(array: np.ndarray, factor: int) -> np.ndarray:
     """Area downscale and bilinear upscale. Once, at bake time."""
     return blur_premul(array, factor)
@@ -216,6 +230,7 @@ class PersonaAvatar(QWidget):
         self._rest: QImage | None = None
         self._shapes: dict[str, tuple[int, int]] = {}
         self._crops: dict[str, tuple[float, float, float, float]] = {}
+        self._group: QImage | None = None
         self._bake_ready = False
         self._bake_error = ""
         self._thread_name = ""
@@ -356,7 +371,7 @@ class PersonaAvatar(QWidget):
         y1 = min(height, int(rows[-1]) + 3)
         x0 = max(0, int(cols[0]) - 2)
         x1 = min(width, int(cols[-1]) + 3)
-        self._images[name] = _qimage(array[y0:y1, x0:x1])
+        self._images[name] = _qimage(_feather(array[y0:y1, x0:x1]))
         self._crops[name] = (x0 / width, y0 / height, (x1 - x0) / width, (y1 - y0) / height)
 
     def _target(self, name: str, rect: QRectF) -> QRectF:
@@ -529,7 +544,9 @@ class PersonaAvatar(QWidget):
         if self.reveal > 0.0 and not self._bake_ready:
             fade = 1.0
         elif self._bake_ready:
-            fade = 1.0 - self._ease((self.reveal - 0.12) / 0.70)
+            # The orb's bright core sits on her nose. Let it go early, before
+            # the face is solid enough for it to read as a dot on her.
+            fade = 1.0 - self._ease(self.reveal / 0.20)
         else:
             fade = 1.0
         if fade <= 0.02 and self._bake_ready:
@@ -640,18 +657,60 @@ class PersonaAvatar(QWidget):
         transform = self.head_transform(rect)
         sharp = self.sharpness()
         if sharp < 0.999:
-            which = "blur_wide" if sharp < 0.45 else "blur_soft"
+            # Wide blur hands over to the soft blur as a crossfade, not a cut.
+            soft = smooth((sharp - 0.30) / 0.30)
             painter.save()
-            painter.setOpacity(self.reveal * (1.0 - sharp))
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
             painter.setTransform(transform, True)
-            image = self._images.get(which)
-            if image is not None and not image.isNull():
-                painter.drawImage(rect, image)
+            for which, weight in (("blur_wide", 1.0 - soft), ("blur_soft", soft)):
+                image = self._images.get(which)
+                if weight > 0.001 and image is not None and not image.isNull():
+                    painter.setOpacity(self.reveal * (1.0 - sharp) * weight)
+                    painter.drawImage(rect, image)
             painter.restore()
-        painter.save()
-        painter.setOpacity(self.reveal * sharp)
+        level = self.reveal * sharp
+        if level >= 0.999:
+            # Rest pose: drawn straight onto the canvas, exactly as approved.
+            painter.save()
+            painter.setOpacity(level)
+            self._paint_stack(painter, rect, transform, level)
+            painter.restore()
+        elif level > 0.001:
+            # Materialize: the eye and mouth frames are opaque skin boxes laid
+            # over the face. At part opacity each layer added its own coverage
+            # and the boxes showed. Build the face at full opacity off screen,
+            # then fade it in as one image.
+            group = self._group_image(painter)
+            group.fill(0)
+            inner = QPainter(group)
+            inner.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            inner.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            inner.setTransform(painter.transform())
+            self._paint_stack(inner, rect, transform, 1.0)
+            inner.end()
+            painter.save()
+            painter.resetTransform()
+            painter.setOpacity(level)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+            painter.drawImage(QPointF(0.0, 0.0), group)
+            painter.restore()
+        self._paint_clip_star(painter, rect, transform)
+
+    def _group_image(self, painter: QPainter) -> QImage:
+        device = painter.device()
+        width, height = device.width(), device.height()
+        group = self._group
+        if group is None or group.width() != width or group.height() != height:
+            group = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+            self._group = group
+        # Same pixel ratio as the canvas, so the inner painter maps 1:1.
+        group.setDevicePixelRatio(device.devicePixelRatio())
+        return group
+
+    def _paint_stack(
+        self, painter: QPainter, rect: QRectF, transform: QTransform, level: float
+    ) -> None:
         self._blit_phase(painter, "back", rect, self._depth(transform, rect, "back"))
         drift = self.frame.turn * DEPTH["wisps"] * TURN_PARALLAX * rect.width()
         self._blit(
@@ -665,27 +724,25 @@ class PersonaAvatar(QWidget):
         self._blit_mouth(painter, rect, transform)
         self._blit_eyes(painter, rect, transform)
         self._blit_phase(painter, "front", rect, self._depth(transform, rect, "front"))
-        painter.setOpacity(self.reveal * sharp * self.frame.ring)
+        painter.setOpacity(level * self.frame.ring)
         self._blit(painter, "ring", rect, transform, light=True)
-        if self.reveal >= 0.999:
-            # The baked star's soft fringe scaled into a dark ring on a light
-            # dock. The clip is the same four-point spark, drawn here.
-            home = self._map(STAR_AT[0], STAR_AT[1], rect)
-            mapped = self._depth(transform, rect, "star").map(home)
-            self.star_anchor = mapped
-            fade = max(0.0, min(1.0, self.frame.star * (1.15 if self.thinking else 1.0)))
+
+    def _paint_clip_star(self, painter: QPainter, rect: QRectF, transform: QTransform) -> None:
+        """The hair clip. It stays at its home on the hair and fades in there.
+
+        It used to fly from the orb's center to the clip across her forehead,
+        which read as a crosshair marker over the half-formed face.
+        """
+        home = self._map(STAR_AT[0], STAR_AT[1], rect)
+        mapped = self._depth(transform, rect, "star").map(home)
+        self.star_anchor = mapped
+        fade = max(0.0, min(1.0, self.frame.star * (1.15 if self.thinking else 1.0)))
+        if self.reveal < 0.999:
+            fade *= smooth((self.reveal - 0.35) / 0.55)
+        if fade > 0.001:
+            painter.save()
             self._draw_spark(painter, mapped, rect.width() * 0.055, fade)
-        else:
-            home = self._map(STAR_AT[0], STAR_AT[1], rect)
-            center = rect.center()
-            pos = QPointF(
-                center.x() + (home.x() - center.x()) * self.reveal,
-                center.y() + (home.y() - center.y()) * self.reveal,
-            )
-            self.star_anchor = pos
-            fade = max(0.0, min(1.0, self.reveal * self.frame.star))
-            self._draw_spark(painter, pos, rect.width() * 0.05 * (1.2 - 0.25 * self.reveal), fade)
-        painter.restore()
+            painter.restore()
 
     def _blit(
         self,
