@@ -548,6 +548,7 @@ def test_update_offer_waits_after_background_launch(qt_app, monkeypatch) -> None
 def test_held_update_offer_shows_when_user_brings_arelis_front(qt_app, monkeypatch) -> None:
     from arelis.ui.update_prompt import UpdatePrompt
 
+    monkeypatch.setattr("arelis.ui.update_prompt.sys.platform", "win32")
     confirms: list[int] = []
     monkeypatch.setattr(
         "arelis.ui.update_prompt.confirm",
@@ -596,6 +597,7 @@ def test_held_update_offer_shows_when_user_brings_arelis_front(qt_app, monkeypat
 def test_update_offer_shows_when_arelis_is_front(qt_app, monkeypatch) -> None:
     from arelis.ui.update_prompt import UpdatePrompt
 
+    monkeypatch.setattr("arelis.ui.update_prompt.sys.platform", "win32")
     confirms: list[int] = []
     monkeypatch.setattr(
         "arelis.ui.update_prompt.confirm",
@@ -766,6 +768,7 @@ def test_offer_shows_after_user_has_used_a_background_window(qt_app, monkeypatch
     from arelis.ui.launch import _mark_launch
     from arelis.ui.update_prompt import UpdatePrompt
 
+    monkeypatch.setattr("arelis.ui.update_prompt.sys.platform", "win32")
     confirms: list[int] = []
     monkeypatch.setattr(
         "arelis.ui.update_prompt.confirm",

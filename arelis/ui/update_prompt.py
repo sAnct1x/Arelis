@@ -17,6 +17,7 @@ was worth.
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
@@ -210,10 +211,25 @@ class UpdatePrompt(QObject):
         self._held_release = None
         self._show_offer(release)
 
+    def _show_mac_notice(self, release: Release) -> None:
+        """Tell the person a newer release exists. Do not download or run it."""
+        notice(
+            self._window,
+            "Update Arelis",
+            f"Arelis {release.version} is available. You have {__version__}.",
+            detail=(
+                "Nothing is downloaded. Open the release page to get it: "
+                f"{release.page_url}"
+            ),
+        )
+
     def _show_offer(self, release: Release) -> None:
         if self._offer_shown:
             return
         self._offer_shown = True
+        if sys.platform == "darwin":
+            self._show_mac_notice(release)
+            return
         accepted = confirm(
             self._window,
             "Update Arelis",
