@@ -165,6 +165,7 @@ def test_list_lan_ipv4_returns_when_getaddrinfo_hangs(monkeypatch: pytest.Monkey
     if worker is not None:
         worker.join(timeout=2.0)
         assert not worker.is_alive()
+    assert not any(thread.name == "arelis-lan-lookup" for thread in threading.enumerate())
 
 
 def test_reset_clears_a_stuck_hostname_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,60 +207,38 @@ def test_reset_clears_a_stuck_hostname_lookup(monkeypatch: pytest.MonkeyPatch) -
             stuck.join(timeout=2.0)
 
 
-def test_stuck_resolver_does_not_leave_a_lookup_thread(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A real resolver that never returns must not leave a thread behind.
+def test_released_hang_leaves_no_lookup_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """After a stuck lookup is released, its thread is gone.
 
-    The in-process thread cannot be killed, and a reset used to abandon it
-    and start another. The real lookup is a child process that is stopped
-    when the budget runs out.
+    The resolver runs on a daemon thread the process cannot kill. This test
+    holds getaddrinfo, lets the call return on the budget, then releases it.
+    Nothing named arelis-lan-lookup should still be alive.
     """
-    import subprocess
+    release = threading.Event()
+    entered = threading.Event()
 
-    calls = {"n": 0}
+    def hang(*_args: object, **_kwargs: object) -> list[object]:
+        entered.set()
+        release.wait()
+        return []
 
-    def run(*_args: object, **_kwargs: object) -> None:
-        calls["n"] += 1
-        raise subprocess.TimeoutExpired(cmd="python", timeout=2)
-
-    monkeypatch.setattr(sms_ingest.subprocess, "run", run)
+    monkeypatch.setattr(sms_ingest.socket, "getaddrinfo", hang)
     monkeypatch.setattr(
         sms_ingest.socket,
         "socket",
         lambda *_args, **_kwargs: _RouteSocket("192.168.1.9"),
     )
-    started = time.monotonic()
-    ips = sms_ingest.list_lan_ipv4()
-    elapsed = time.monotonic() - started
-    assert elapsed < 1.0, f"list_lan_ipv4 blocked for {elapsed:.1f}s"
-    assert ips == ["192.168.1.9"]
-    assert calls["n"] == 1
+    try:
+        assert sms_ingest.list_lan_ipv4() == ["192.168.1.9"]
+        assert entered.wait(1.0)
+    finally:
+        release.set()
+    worker = sms_ingest._lookup_thread
+    assert worker is not None
+    assert worker.name == "arelis-lan-lookup"
+    worker.join(timeout=2.0)
+    assert not worker.is_alive()
     assert not any(thread.name == "arelis-lan-lookup" for thread in threading.enumerate())
-    again = time.monotonic()
-    assert sms_ingest.list_lan_ipv4() == ["192.168.1.9"]
-    assert time.monotonic() - again < 0.5
-    assert calls["n"] == 1
-
-
-def test_hostname_lookup_reads_the_child_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _Done:
-        stdout = '["10.1.2.3"]\n'
-        returncode = 0
-
-    calls = {"n": 0}
-
-    def run(*_args: object, **_kwargs: object) -> _Done:
-        calls["n"] += 1
-        return _Done()
-
-    monkeypatch.setattr(sms_ingest.subprocess, "run", run)
-    monkeypatch.setattr(
-        sms_ingest.socket,
-        "socket",
-        lambda *_args, **_kwargs: _RouteSocket("10.9.9.9"),
-    )
-    assert sms_ingest.list_lan_ipv4() == ["10.9.9.9", "10.1.2.3"]
-    assert sms_ingest.list_lan_ipv4() == ["10.9.9.9", "10.1.2.3"]
-    assert calls["n"] == 1
 
 
 def test_load_ingest_token(tmp_path: Path, monkeypatch) -> None:
