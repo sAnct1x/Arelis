@@ -1,3 +1,4 @@
+# ruff: noqa: N806
 """Hair v4: one painted mass instead of the strand-particle cap.
 
 The hair is two sweeps that meet at a centre part. Each sweep is the band
@@ -19,8 +20,7 @@ import math
 import numpy as np
 
 from arelis.ui.persona_face import face_src as face2
-from arelis.ui.persona_face.nebula_src import Canvas
-from arelis.ui.persona_face.nebula_src import smooth
+from arelis.ui.persona_face.nebula_src import Canvas, smooth
 
 # Guide curves, viewer's left and right. Point i of an inner curve pairs with
 # point i of its outer curve. Both sweeps root on the part, from the hairline
@@ -426,7 +426,9 @@ def _neck(X, Y, px_size) -> np.ndarray:
     half = 0.205 - 0.060 * smooth((Y - 0.24) / 0.20) + 0.010 * smooth((Y - 0.45) / 0.20)
     across = np.abs(X) / half
     alpha = smooth((1 - across) / max(0.08, 3 * px_size / 0.1))
-    alpha = alpha * smooth((Y - 0.16) / 0.05) * (1 - smooth((Y - FADE_FROM) / (FADE_TO - FADE_FROM)))
+    alpha = (
+        alpha * smooth((Y - 0.16) / 0.05) * (1 - smooth((Y - FADE_FROM) / (FADE_TO - FADE_FROM)))
+    )
     light = np.asarray(NECK_LIGHT, dtype=np.float64) / 255.0
     dark = np.asarray(NECK_DARK, dtype=np.float64) / 255.0
     # Shade toward where the curtains cover the sides, and under the jaw.
@@ -458,7 +460,10 @@ def paint_rest(view, width: int, height: int) -> dict:
     # Only well inside the mass, so it never rims the outline.
     gap_a = np.clip((soft - 0.62) / 0.25, 0, 1)
     gap = np.concatenate(
-        [np.asarray(GAP, dtype=np.float64)[None, None] / 255.0 * gap_a[..., None], gap_a[..., None]],
+        [
+            np.asarray(GAP, dtype=np.float64)[None, None] / 255.0 * gap_a[..., None],
+            gap_a[..., None],
+        ],
         -1,
     )
     hair = _over(right, _over(left, gap))

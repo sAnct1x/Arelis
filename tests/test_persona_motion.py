@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-_REF = Path(__file__).parent / "fixtures" / "persona" / "neutral_98fc399.png"
+_REF = Path(__file__).parent / "fixtures" / "persona" / "neutral_target_match.png"
 _LAYERS: dict | None = None
 
 
@@ -84,8 +84,8 @@ def test_the_rest_pose_transform_is_the_approved_one(qt_app):
     avatar.shutdown()
 
 
-def test_the_neutral_frame_matches_the_approved_98fc399_render(qt_app):
-    """Neutral frame through the real widget, within 2 of the accepted hem pass."""
+def test_the_neutral_frame_matches_the_approved_target_match_render(qt_app):
+    """Neutral frame through the real widget, within 2 of the approved target-match look."""
     from PIL import Image
     from PySide6.QtGui import QImage
 

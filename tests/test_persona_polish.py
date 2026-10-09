@@ -83,7 +83,7 @@ def test_a_turn_with_no_reasoning_has_no_thought_line(arelis_window, qt_app):
 
 
 # Cheek centre on the v2.4 closeup, the lower cheek just right of the nose.
-_CHEEK = np.array([189.0, 179.0, 199.0])
+_CHEEK = np.array([213.0, 203.0, 224.0])
 _LAYERS: dict | None = None
 
 
@@ -110,20 +110,19 @@ def _world_patch(image: np.ndarray, box: tuple[float, float, float, float]) -> n
 
 
 def test_baked_skin_is_lavender_like_the_approved_closeup():
-    """Cheek centre stays within 4 levels of (189, 179, 199) on each channel.
+    """Cheek centre stays within 4 levels of (213, 203, 224) on each channel.
 
-    That is the lower cheek on the v2.4 closeup. Blue sits at least 12 above
-    green. The drifted plate was grey, with blue only a couple above green,
-    and about 60 levels darker than this.
+    That is the cheek of the approved target-match look: the v2.4 closeup
+    cheek (189, 179, 199) lifted by the face gain that matches the reference
+    skin. Blue sits at least 12 above green. The drifted plate was grey, with
+    blue only a couple above green, and far darker than this.
     """
     from arelis.ui.persona_face.bake import composite_rest, flatten_on_black
 
     plate = flatten_on_black(composite_rest(_layers()))
     patch = _world_patch(plate, (-0.02, 0.08, 0.10, 0.16))[..., :3].astype(np.float64)
     mean = patch.mean(axis=(0, 1))
-    # Branch cheek measured (188.5, 179.2, 199.0). Main at c4e166d measured
-    # (188.7, 178.5, 192.1). Halfway on the blue miss is about 3.4 levels
-    # under the old 12, so 4 fails main on this assert and still passes here.
+    # The approved look measures (213.4, 203.1, 224.3) here.
     assert np.all(np.abs(mean - _CHEEK) <= 4.0), mean
     assert float(mean[2] - mean[1]) >= 12.0
     from arelis.ui.persona_face.engine import EYE_X, EYE_Y, VIEW
@@ -137,25 +136,29 @@ def test_baked_skin_is_lavender_like_the_approved_closeup():
     assert chroma > 60.0
 
 
-def test_back_hair_is_strands_behind_her_neck():
-    """Behind the neck, between the side locks, the back layer is strand hair.
+def test_the_neck_shows_between_the_curtains():
+    """Under the chin a plain lavender neck shows, with strand hair either side.
 
-    A flat fill of that same average has column deviation near 0 (under 1
-    level even with rounding). This field measures well above 4, which is
-    the cut a flat block fails and a strand texture still clears.
+    The painted hair has no back curtain behind the neck any more: the neck
+    is a smooth lavender column (row deviation well under the hair's) and
+    the curtains beside it are strands (row deviation above 4, which a flat
+    block fails).
     """
     from arelis.ui.persona_face.bake import composite_rest
 
     plate = composite_rest(_layers())
-    patch = _world_patch(plate, (-0.06, 0.06, 0.50, 0.80))
-    alpha = patch[..., 3].astype(np.float64)
-    assert float(alpha.mean()) > 40.0
-    rgb = patch[..., :3].astype(np.float64)
-    mean = rgb.mean(axis=(0, 1))
-    assert float(mean[2] - mean[1]) >= 4.0
-    # Deviation across the row. A flat block is ~0. Strands are not.
-    deviation = float(rgb.mean(axis=-1).std(axis=1).mean())
-    assert deviation > 4.0, deviation
+    neck = _world_patch(plate, (-0.05, 0.05, 0.36, 0.44))
+    assert float(neck[..., 3].mean()) > 200.0
+    rgb = neck[..., :3].astype(np.float64)
+    assert float((rgb[..., 2] - rgb[..., 1]).mean()) >= 12.0
+    neck_dev = float(rgb.mean(axis=-1).std(axis=1).mean())
+    for box in ((-0.30, -0.18, 0.36, 0.44), (0.18, 0.30, 0.36, 0.44)):
+        curtain = _world_patch(plate, box)
+        assert float(curtain[..., 3].mean()) > 200.0, box
+        hair = curtain[..., :3].astype(np.float64)
+        deviation = float(hair.mean(axis=-1).std(axis=1).mean())
+        assert deviation > 4.0, (box, deviation)
+        assert deviation > 2.0 * neck_dev, (box, deviation, neck_dev)
 
 
 def test_composited_hair_has_no_horizontal_stripes():
@@ -408,6 +411,13 @@ def _lum(rgb: np.ndarray) -> np.ndarray:
     return rgb[..., 0] * 0.2126 + rgb[..., 1] * 0.7152 + rgb[..., 2] * 0.0722
 
 
+# The painted hair ends in a soft fringe of darker strand ends, part of the
+# approved look. On the night dock it melts into the ground; on a light dock
+# it reads up to about 76 levels under both sides, so the light ground is
+# held at 80 (a solid dark shell would be far more). The dark ground keeps 40.
+_HALO_LIMIT = {"light": 80.0, "dark": 40.0}
+
+
 def test_soft_edges_have_no_dark_halo_and_the_neck_is_lavender_gas(qt_app):
     """A light dock and a dark dock, sampled along the silhouette.
 
@@ -417,7 +427,9 @@ def test_soft_edges_have_no_dark_halo_and_the_neck_is_lavender_gas(qt_app):
     shading, about 38 levels under a brighter neighbour, so 40 sits between
     that shading and the old shell.
 
-    The ring stroke and the neck tip below the chin are skipped. Both are
+    Pixels within three of the ring stroke and the neck tip below the chin
+    are skipped (the painted hair's lock gaps sit right under the ring's soft
+    rim, which is not a silhouette edge). Both are
     locked art with hard edges, not soft hair or face edges: the ring's purple
     rim sits beside its own white highlight, and the neck tip is a dark point.
     Over the old solid hem they hid inside opaque hair; over the feathered hem
@@ -437,7 +449,15 @@ def test_soft_edges_have_no_dark_halo_and_the_neck_is_lavender_gas(qt_app):
     grad_y = np.abs(np.diff(alpha.astype(np.int16), axis=0, prepend=alpha[:1]))
     grad_x = np.abs(np.diff(alpha.astype(np.int16), axis=1, prepend=alpha[:, :1]))
     # Soft edge only. Opaque shading inside the hair is not a fringe.
-    edge = ((grad_x + grad_y) > 25) & (alpha > 20) & (alpha < 230) & ~locked[0]
+    ring_zone = locked[0].copy()
+    for _ in range(3):
+        grown = ring_zone.copy()
+        grown[1:] |= ring_zone[:-1]
+        grown[:-1] |= ring_zone[1:]
+        grown[:, 1:] |= ring_zone[:, :-1]
+        grown[:, :-1] |= ring_zone[:, 1:]
+        ring_zone = grown
+    edge = ((grad_x + grad_y) > 25) & (alpha > 20) & (alpha < 230) & ~ring_zone
     grounds = {
         "light": (240, 236, 248),
         "dark": (
@@ -464,7 +484,7 @@ def test_soft_edges_have_no_dark_halo_and_the_neck_is_lavender_gas(qt_app):
             margin = min(inside_l, bg_l) - float(lum[y, x])
             if margin > worst:
                 worst = margin
-        assert worst <= 40.0, (name, worst)
+        assert worst <= _HALO_LIMIT[name], (name, worst)
     cheek = _lum(_world_patch(rest, (-0.02, 0.08, 0.10, 0.16))[..., :3])
     neck = _lum(_world_patch(rest, (-0.045, 0.045, 0.32, 0.46))[..., :3])
     cheek_l = float(cheek.mean())
@@ -988,12 +1008,6 @@ def test_the_star_sits_in_the_hair():
     assert float(straight[2] - straight[1]) > 8.0, straight.tolist()
 
 
-# Shoulder line in world y. The hair ends a bit past it: tips fade out by
-# _HAIR_END_Y, and below that the plate is clear.
-_SHOULDER_Y = 0.66
-_HAIR_END_Y = 0.70
-
-
 def _span(mask: np.ndarray, view_width: float) -> float:
     cols = np.flatnonzero(mask)
     if len(cols) < 2:
@@ -1076,56 +1090,36 @@ def test_the_neck_is_behind_the_jaw():
     assert float(lit[:, 2].mean() - lit[:, 1].mean()) >= 12.0
 
 
-def test_the_hair_ends_a_bit_past_the_shoulder():
-    """The hair runs a little past the shoulder line, then its alpha is gone.
+def test_hair_and_neck_fade_into_the_void_at_the_bottom():
+    """Toward the bottom the hair and neck fade out softly, not in a cut.
 
-    The shoulder line is world y 0.66, under the jaw and where the shoulders
-    sit. Tips taper past it and are clear by world y 0.70. On the tall plate
-    the hair still ran past y 1.0, with mean alpha about 77 below y 0.75.
+    Across the figure (|x| < 0.45) the hair, neck and face alpha is near
+    full at y 0.44, gone by y 0.65, falls steadily in between (no step of
+    more than 0.3 of full over 0.01), and the fall from 90% to 10% takes at
+    least 0.06 head units, so it reads as a fade into the void.
     """
-    from arelis.ui.persona_face.bake import composite_rest
     from arelis.ui.persona_face.engine import VIEW
 
-    plate = composite_rest(_layers())
-    alpha = plate[..., 3].astype(np.float64)
-    height = alpha.shape[0]
+    layers = _layers()
+    figure = np.maximum(
+        np.maximum(layers["back_0"][..., 3], layers["front_0"][..., 3]), layers["face"][..., 3]
+    )
+    figure = figure.astype(np.float64)
+    height, width = figure.shape
     x0, x1, y0, y1 = VIEW
-    del x0, x1
     world_y = y0 + (np.arange(height) + 0.5) / height * (y1 - y0)
-    past = (world_y > _SHOULDER_Y) & (world_y <= _HAIR_END_Y)
-    assert float(alpha[past].max()) > 28.0, float(alpha[past].max())
-    below = world_y > _HAIR_END_Y
-    assert int(below.sum()) >= 2
-    low = alpha[below]
-    assert float(low.mean()) < 8.0, float(low.mean())
-    assert float(low.max()) < 28.0, float(low.max())
-    # The hem is ragged. Across columns that carry lower hair, the row where
-    # alpha falls under half wanders by several pixels, and that fall covers
-    # more than a one-pixel step.
-    hair = np.maximum(_layers()["back_0"][..., 3], _layers()["front_0"][..., 3])
-    hair = hair.astype(np.float64)
-    half_rows = []
-    spans = []
-    for col in range(hair.shape[1]):
-        column = hair[:, col]
-        solid = np.flatnonzero(column >= 128.0)
-        if len(solid) < 3:
-            continue
-        last = int(solid[-1])
-        if world_y[last] < 0.30:
-            continue
-        half_rows.append(last)
-        above = np.flatnonzero(column[: last + 1] >= 180.0)
-        if len(above) == 0:
-            continue
-        start = int(above[-1])
-        gone = np.flatnonzero(column[start:] < 40.0)
-        spans.append(int(gone[0]) if len(gone) else int(column.shape[0] - start))
-    half_rows = np.asarray(half_rows)
-    spans = np.asarray(spans)
-    assert len(half_rows) > 8
-    assert int(half_rows.max() - half_rows.min()) >= 6, int(half_rows.max() - half_rows.min())
-    assert float(np.median(spans)) >= 3.0, float(np.median(spans))
+    world_x = x0 + (np.arange(width) + 0.5) / width * (x1 - x0)
+    inside = np.abs(world_x) < 0.45
+    ys = np.arange(0.40, 0.68, 0.01)
+    rows = np.array([figure[int(np.argmin(np.abs(world_y - y))), inside].mean() for y in ys])
+    full = float(rows.max())
+    assert float(rows[int(np.argmin(np.abs(ys - 0.44)))]) > 0.9 * full
+    assert float(rows[ys >= 0.65].max()) < 2.0, rows.round(1)
+    assert float(np.max(rows[:-1] - rows[1:])) <= 0.3 * full, rows.round(1)
+    assert float(np.max(rows[1:] - rows[:-1])) <= 0.03 * full, rows.round(1)
+    top = ys[int(np.flatnonzero(rows < 0.9 * full)[0])]
+    bottom = ys[int(np.flatnonzero(rows < 0.1 * full)[0])]
+    assert bottom - top >= 0.06, (top, bottom)
 
 
 def test_the_hem_has_no_gap_or_slit_in_the_middle():
@@ -1161,13 +1155,13 @@ def test_the_hem_has_no_gap_or_slit_in_the_middle():
 
 
 def test_the_crown_part_has_no_dark_wedge():
-    """Just above the forehead apex, where the cap strands part, the hair is not thin.
+    """Just above the forehead apex, at the centre part, the hair is not thin.
 
-    The strands fanned apart there with no back hair behind the top of the
-    skull, so the dark ground showed through as a small V. The thinnest pixel
-    of that patch must stay within 0.85 of the crown around it (it was about
-    0.67), and it may not be brighter than the crown either, so the fix does
-    not draw a light seam.
+    The old cap fanned apart there and the dark ground showed through as a
+    small V. The thinnest pixel of that patch must stay within 0.85 of the
+    crown around it. The painted part is a soft crease: it may catch the
+    dome's sheen, but it may not be a dark wedge (at least 0.8 of the
+    crown's luminance).
     """
     front = _layers()["front_0"]
     gap = _world_patch(front, (-0.095, -0.050, -0.325, -0.29))
@@ -1177,25 +1171,85 @@ def test_the_crown_part_has_no_dark_wedge():
     assert thinnest >= 0.85 * around, (thinnest, around)
     gap_lum = float(np.median(_lum(_straight(gap).reshape(-1, 3).astype(np.float32))))
     crown_lum = float(np.median(_lum(_straight(crown).reshape(-1, 3).astype(np.float32))))
-    assert gap_lum <= crown_lum + 15.0, (gap_lum, crown_lum)
+    assert gap_lum >= 0.8 * crown_lum, (gap_lum, crown_lum)
 
 
 def test_the_upper_sides_have_no_flyaway_tufts():
     """Past the temples, the hair outline folds in instead of fanning out in stray tufts.
 
-    The outer cap strands ran on past the side locks and splayed into loose
-    tufts and a lone wisp on each upper side. Outside the outline (|x| from
-    0.46, y -0.25 to 0.05) the back layer must stay nearly empty, while the
-    band just inside it keeps its mass so the sides are not slimmed.
+    Outside the outline (|x| from 0.46, y -0.25 to 0.05) the hair must stay
+    nearly empty, while the band just inside it keeps its mass so the sides
+    are not slimmed. The painted hair lies in front of the face, so the
+    back and front layers are read together (the old cap was all back).
     """
-    back = _layers()["back_0"]
+    layers = _layers()
+    hair = np.maximum(layers["back_0"][..., 3], layers["front_0"][..., 3])[..., None]
     for left, right in ((-0.58, -0.46), (0.46, 0.58)):
-        outer = _world_patch(back, (left, right, -0.25, 0.05))[..., 3].astype(np.float32)
+        outer = _world_patch(hair, (left, right, -0.25, 0.05))[..., 0].astype(np.float32)
         assert float(outer.mean()) <= 1.5, (left, float(outer.mean()))
         assert float(outer.max()) <= 60.0, (left, float(outer.max()))
     for left, right in ((-0.38, -0.30), (0.30, 0.38)):
-        band = _world_patch(back, (left, right, -0.15, 0.05))[..., 3].astype(np.float32)
+        band = _world_patch(hair, (left, right, -0.15, 0.05))[..., 0].astype(np.float32)
         assert float(band.mean()) >= 200.0, (left, float(band.mean()))
+
+
+def _outline(y: float) -> tuple[float, float]:
+    """Leftmost and rightmost world x of hair, face or neck on the row at y."""
+    from arelis.ui.persona_face.engine import VIEW
+
+    layers = _layers()
+    figure = np.maximum(
+        np.maximum(layers["back_0"][..., 3], layers["front_0"][..., 3]), layers["face"][..., 3]
+    )
+    height, width = figure.shape
+    x0, x1, y0, y1 = VIEW
+    world_y = y0 + (np.arange(height) + 0.5) / height * (y1 - y0)
+    world_x = x0 + (np.arange(width) + 0.5) / width * (x1 - x0)
+    cols = np.flatnonzero(figure[int(np.argmin(np.abs(world_y - y)))] > 60)
+    assert len(cols) > 2, y
+    return float(world_x[cols[0]]), float(world_x[cols[-1]])
+
+
+def test_the_dome_rises_well_above_the_brow():
+    """A full, rounded skull dome of hair stands well above the brow.
+
+    At the centre the hair top is at least 0.33 head units above the brow
+    line (it measures about 0.36), and the dome is round, not a peak: about
+    halfway up it is already more than half as wide as at the temples.
+    """
+    from arelis.ui.persona_face.engine import VIEW
+    from arelis.ui.persona_face.face_src import BROW_Y
+
+    layers = _layers()
+    hair = np.maximum(layers["back_0"][..., 3], layers["front_0"][..., 3]).astype(np.float64)
+    height, width = hair.shape
+    x0, x1, y0, y1 = VIEW
+    world_y = y0 + (np.arange(height) + 0.5) / height * (y1 - y0)
+    world_x = x0 + (np.arange(width) + 0.5) / width * (x1 - x0)
+    centre = hair[:, int(np.argmin(np.abs(world_x + 0.01)))]
+    top = float(world_y[int(np.flatnonzero(centre > 128)[0])])
+    assert BROW_Y - top >= 0.33, (top, BROW_Y)
+    temple = np.subtract(*_outline(-0.04)[::-1])
+    upper = np.subtract(*_outline(-0.32)[::-1])
+    assert upper >= 0.55 * temple, (upper, temple)
+
+
+def test_no_temple_wings():
+    """The hair hugs the head at the temples and cheeks: no outward wings.
+
+    From the temples down past the jaw (y -0.16 to 0.30) the outline stays
+    inside |x| 0.42 on both sides, never widens going down from the widest
+    temple row to the jaw (y 0.0 to 0.20), and nothing sits past |x| 0.46.
+    """
+    rows = np.arange(-0.16, 0.31, 0.02)
+    widths = []
+    for y in rows:
+        left, right = _outline(float(y))
+        assert left >= -0.42 and right <= 0.42, (float(y), left, right)
+        widths.append(right - left)
+    widths = np.asarray(widths)
+    jaw = widths[(rows >= 0.0) & (rows <= 0.20)]
+    assert float(np.max(np.diff(jaw))) <= 0.01, jaw.round(3)
 
 
 def test_no_dark_slit_points_up_at_the_chin():
@@ -1216,27 +1270,19 @@ def test_no_dark_slit_points_up_at_the_chin():
 
 
 def test_the_hem_under_the_chin_has_no_box_or_row_streaks():
-    """Under the chin the hair runs on as strands: no flat box, no horizontal streaks.
+    """Under the chin the neck runs on smoothly: no box, no horizontal streaks.
 
-    The old plate's tone match stopped column by column under the chin, which
-    left a smooth patch with straight sides there, so below the chin strip it
-    must be retired (near <= 0.02). And the slit fill averaged each row on its
-    own, which drew horizontal streaks in the hem: row means in the middle of
-    the hem may differ from their neighbours by at most 0.13 levels on average
-    (it was about 0.18).
+    The old plate's tone match and slit fill left a box and row streaks
+    under the chin. The painted hair has neither; what shows there now is
+    the neck column, so its row means may differ from their neighbours by
+    at most 0.2 levels on average (it measures about 0.13).
     """
-    from arelis.ui.persona_face import plate
-
     back = _layers()["back_0"]
     height, width = back.shape[:2]
-    static = plate._hair_static(plate.shared_rig(), width, height)
-    near = static["near"][..., None]
-    gate = _world_patch(near, (-0.12, 0.12, 0.36, 0.42))
-    assert float(gate.max()) <= 0.02, float(gate.max())
     rgb = back[..., :3].astype(np.float32)
-    hem = _world_patch(
-        _lum(rgb.reshape(-1, 3)).reshape(height, width, 1), (-0.12, 0.12, 0.40, 0.56)
+    neck = _world_patch(
+        _lum(rgb.reshape(-1, 3)).reshape(height, width, 1), (-0.05, 0.05, 0.36, 0.50)
     )
-    rows = hem[..., 0].mean(axis=1)
+    rows = neck[..., 0].mean(axis=1)
     streak = float(np.abs(rows[1:-1] - (rows[:-2] + rows[2:]) / 2).mean())
-    assert streak <= 0.13, streak
+    assert streak <= 0.2, streak

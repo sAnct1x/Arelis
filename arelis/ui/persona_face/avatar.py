@@ -849,11 +849,7 @@ class PersonaAvatar(QWidget):
         # is exact on a clear buffer), then the scaled pair is added at full
         # opacity, which never clamps because the weights sum to one.
         buffers = self._front_buffers
-        if (
-            not buffers
-            or buffers[0].width() != width
-            or buffers[0].height() != height
-        ):
+        if not buffers or buffers[0].width() != width or buffers[0].height() != height:
             buffers = [
                 QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied) for _ in range(2)
             ]
