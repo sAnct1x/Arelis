@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from arelis.tools.base import ToolResult
 
@@ -624,7 +624,8 @@ def _zone_from(snap: Any) -> tzinfo | None:
     if name:
         try:
             return ZoneInfo(name)
-        except Exception:
+        except (ZoneInfoNotFoundError, ValueError):
+            # An unknown or malformed zone name means no zone; the caller says so.
             return None
     raw = str(getattr(snap, "utc_offset", "") or "").strip().upper()
     if raw.startswith("UTC"):
