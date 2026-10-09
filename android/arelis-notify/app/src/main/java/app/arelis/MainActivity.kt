@@ -15,6 +15,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -73,6 +74,7 @@ class MainActivity : ComponentActivity() {
     private var voiceMode by mutableStateOf("off")
     private var listening by mutableStateOf(false)
     private var talkLanguage by mutableStateOf(TalkLanguage.DEFAULT)
+    private var themeChoice by mutableStateOf(DeskThemes.FOLLOW)
     private var dictateAnchor = ""
     private var glancePreview by mutableStateOf<ByteArray?>(null)
     private var fileScope by mutableStateOf("room")
@@ -178,6 +180,7 @@ class MainActivity : ComponentActivity() {
             if (voiceMode == "conversation" && allow == null) voice.resumeIfLatched()
         }
         talkLanguage = prefs.talkLanguage
+        themeChoice = prefs.theme
         voice.language = TalkLanguage.bcp47(talkLanguage)
         talkTts.language = talkLanguage
         ArelisPings.ensureChannel(this)
@@ -197,6 +200,8 @@ class MainActivity : ComponentActivity() {
             )
         }
         setContent {
+            val systemDark = isSystemInDarkTheme()
+            Campfire.apply(DeskThemes.palette(themeChoice, systemDark))
             ArelisTheme {
                 val nested = screen != "talk" && !(screen == "pair" && !paired)
                 BackHandler(enabled = nested) { stepBack() }
@@ -204,6 +209,7 @@ class MainActivity : ComponentActivity() {
                     "settings" -> SettingsScreen(
                         paired = paired,
                         language = talkLanguage,
+                        theme = themeChoice,
                         phoneName = BuildConfig.VERSION_NAME,
                         phoneCode = BuildConfig.VERSION_CODE,
                         houseName = companionUpdate.houseName,
@@ -219,6 +225,11 @@ class MainActivity : ComponentActivity() {
                             screen = "hose"
                         },
                         onLanguage = { code -> applyTalkLanguage(code) },
+                        onTheme = { id ->
+                            val saved = DeskThemes.normalize(id)
+                            prefs.theme = saved
+                            themeChoice = saved
+                        },
                     )
                     "chats" -> HistoryScreen(
                         items = chatItems,

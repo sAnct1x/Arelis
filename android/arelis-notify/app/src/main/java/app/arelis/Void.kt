@@ -41,6 +41,8 @@ private val GRAIN: List<Triple<Float, Float, Int>> = run {
 }
 
 fun DrawScope.paintVoid() {
+    val lamp = Campfire.accent
+    val room = Campfire.bg0
     val cx = size.width * BLOOM_X
     val cy = size.height * BLOOM_Y
     val center = Offset(cx, cy)
@@ -48,10 +50,10 @@ fun DrawScope.paintVoid() {
     drawRect(
         Brush.radialGradient(
             colorStops = arrayOf(
-                0.00f to Color(255, 150, 72, 92),
-                0.16f to Color(255, 120, 40, 62),
-                0.42f to Color(200, 80, 24, 32),
-                0.72f to Color(96, 36, 10, 12),
+                0.00f to lamp.copy(alpha = 92f / 255f),
+                0.16f to lamp.copy(alpha = 62f / 255f),
+                0.42f to lamp.copy(alpha = 32f / 255f),
+                0.72f to lamp.copy(alpha = 12f / 255f),
                 1.00f to Color.Transparent,
             ),
             center = center,
@@ -61,8 +63,8 @@ fun DrawScope.paintVoid() {
     drawRect(
         Brush.radialGradient(
             colorStops = arrayOf(
-                0.00f to Color(255, 118, 36, 40),
-                0.38f to Color(140, 50, 14, 18),
+                0.00f to lamp.copy(alpha = 40f / 255f),
+                0.38f to lamp.copy(alpha = 18f / 255f),
                 1.00f to Color.Transparent,
             ),
             center = center,
@@ -71,7 +73,7 @@ fun DrawScope.paintVoid() {
     )
     for ((x, y, a) in GRAIN) {
         drawRect(
-            Color(255, 148, 64, a),
+            lamp.copy(alpha = a / 255f),
             topLeft = Offset(x * size.width, y * size.height),
             size = androidx.compose.ui.geometry.Size(1f, 1f),
         )
@@ -81,7 +83,7 @@ fun DrawScope.paintVoid() {
             colorStops = arrayOf(
                 0.00f to Color.Transparent,
                 0.70f to Color.Transparent,
-                1.00f to Color(16, 8, 3, 48),
+                1.00f to room.copy(alpha = 48f / 255f),
             ),
             center = center,
             radius = span * 0.92f,
@@ -115,6 +117,8 @@ fun OrbitFace(
         label = "orbit-beat",
     )
     val d = dim.coerceIn(0.2f, 1f)
+    val ring = Campfire.accent
+    val hot = Campfire.accent2
     Canvas(modifier) {
         val cx = size.width * 0.5f
         val cy = size.height * 0.5f
@@ -125,8 +129,8 @@ fun OrbitFace(
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(255, 170, 100, (40 * d).toInt()),
-                    Color(255, 122, 34, (22 * d).toInt()),
+                    hot.copy(alpha = (40 * d) / 255f),
+                    ring.copy(alpha = (22 * d) / 255f),
                     Color.Transparent,
                 ),
                 center = core,
@@ -136,13 +140,13 @@ fun OrbitFace(
             center = core,
         )
         drawCircle(
-            color = Campfire.accent.copy(alpha = 0.19f * d),
+            color = ring.copy(alpha = 0.19f * d),
             radius = r,
             center = core,
             style = Stroke(width = (3.2f * s).coerceAtLeast(1f)),
         )
         drawCircle(
-            color = Campfire.accent.copy(alpha = 0.43f * d),
+            color = ring.copy(alpha = 0.43f * d),
             radius = r,
             center = core,
             style = Stroke(width = (1.4f * s).coerceAtLeast(1f)),
@@ -153,8 +157,8 @@ fun OrbitFace(
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(255, 122, 34, (190 * d).toInt()),
-                    Color(255, 122, 34, (70 * d).toInt()),
+                    ring.copy(alpha = (190 * d) / 255f),
+                    ring.copy(alpha = (70 * d) / 255f),
                     Color.Transparent,
                 ),
                 center = tick,
@@ -163,14 +167,14 @@ fun OrbitFace(
             radius = tickR,
             center = tick,
         )
-        drawCircle(Color(255, 140, 50, (255 * d).toInt()), radius = 2.4f * s, center = tick)
+        drawCircle(hot.copy(alpha = d), radius = 2.4f * s, center = tick)
         val t = 0.5f - 0.5f * cos(beat * 2f * PI.toFloat())
         val glowR = (22f + 10f * t) * s
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(255, 170, 100, ((160 + 50 * t) * d).toInt()),
-                    Color(255, 122, 34, ((70 + 30 * t) * d).toInt()),
+                    hot.copy(alpha = ((160 + 50 * t) * d) / 255f),
+                    ring.copy(alpha = ((70 + 30 * t) * d) / 255f),
                     Color.Transparent,
                 ),
                 center = core,
@@ -180,7 +184,7 @@ fun OrbitFace(
             center = core,
         )
         drawCircle(
-            Color(255, 220, 175, (255 * d).toInt()),
+            hot.copy(alpha = d),
             radius = (2.4f + 1.2f * t) * s,
             center = core,
         )
