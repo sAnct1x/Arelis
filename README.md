@@ -115,6 +115,16 @@ separate records.
 For details on models, see [models.md](docs/models.md). For how the
 installer is built, see [win-installer/README.md](win-installer/README.md).
 
+### Mac app (unsigned)
+
+Download the disk image from the [latest GitHub release](https://github.com/sAnct1x/arelis/releases/latest) or from the Mac app workflow artifact. It is named `Arelis-0.3.1.dmg`. Open it, and drag Arelis to Applications.
+
+The app is not signed. The first time, right-click (or Control-click) Arelis and choose Open, then choose Open again in the warning. Or open System Settings, go to Privacy and Security, and choose Open Anyway.
+
+This build is for Apple silicon Macs. Arelis needs Ollama on the Mac. She does not include it. Install Ollama from [ollama.com/download](https://ollama.com/download), then open Arelis.
+
+When a newer release exists, the installed app tells you and gives you the release page. It does not download or install the update for you.
+
 ## Running from source
 
 You'll need [Python 3.11+](https://www.python.org/downloads/) and
