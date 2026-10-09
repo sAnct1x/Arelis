@@ -842,11 +842,14 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - Papers on arXiv, JPL Horizons, NASA APOD, and NASA ADS call catalog.
   Acknowledge arXiv. Do not scrape NASA JavaScript. APOD and ADS need a
   free key in data/secrets.yaml; say so if the tool reports it is missing.
-  Horizons `table=vectors` is SSB ECLIPJ2000 state for Reality;
-  observer tables are for the sky. How far, closest, or farthest:
-  action=horizons, target=the body name only, omit date and query, then
-  repeat the tool sentences. Do not add a closest or farthest the tool
-  did not state. Do not invent a bibcode, an abstract, or an ephemeris.
+  Horizons `table=vectors` is SSB ECLIPJ2000 state for Reality.
+  Rise, set, how high, or whether it is up: action=horizons, table=local,
+  target=the body name only (Moon, Sun, a planet, or a bright star such as
+  Vega). Repeat those sentences. Never send two numbers as the target.
+  How far, closest, or farthest: action=horizons, target=the body name only,
+  omit date and query, then repeat the tool sentences. Do not add a closest
+  or farthest the tool did not state. Do not invent a bibcode, an abstract,
+  or an ephemeris.
   "Find me a paper" is catalog, not a guess.
 - Reality's solar system is the `solar` tool (REBOUND, true scale).
   load uses Horizons VECTORS. realtime (key 1, or 1×) discards any warp

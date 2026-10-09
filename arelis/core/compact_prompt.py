@@ -22,9 +22,9 @@ _SHORT_DESC: dict[str, str] = {
     "camera": "webcam snapshot. inspect only",
     "cas": "symbolic math. action=simplify|solve|diff|integrate|limit|series|sum|gradient|directional|factor|expand; n= order, at= point, dir= vector",
     "catalog": (
-        "arxiv, horizons, apod, or ads. no list/get. "
-        "how far, closest, or farthest: target=body name only, omit date and query. "
-        "repeat the tool sentences. do not add a closest or farthest"
+        "arxiv, horizons, apod, or ads. rise, set, or how high: table=local, "
+        "target=body name. how far or closest: target=body name only, omit date "
+        "and query. do not add a closest or farthest. never two numbers"
     ),
     "clipboard": "OS clipboard. action=read (default) | write with text=",
     "contacts": "local address book. action=list|get|add|update|remove",
@@ -95,7 +95,7 @@ memory: recall before claiming you do not know; remember/forget via the memory t
 goals: goals. tasks: tasks. analyze: analyze. sql: sql. doc_extract: doc_extract. document: document. pdf: pdf. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
 agenda: agenda (events; free=open slots). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule. remind: remind (in/at, not schedule). notes: notes.
 image: image. image_edit: image_edit. vision: vision. transcribe: transcribe. research_report: research_report.
-solar: solar. earth: earth. catalog: how far, closest, or farthest is horizons, target=body name, omit date and query, then repeat the tool sentences and do not add a closest or farthest. plot: plot (histogram|bar|line; xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
+solar: solar. earth: earth. catalog: rise, set, how high, or is it up is horizons table=local, target=the body name, then repeat those sentences. Never send two numbers as the target. how far, closest, or farthest is horizons, target=body name, omit date and query, then repeat the tool sentences and do not add a closest or farthest. plot: plot (histogram|bar|line; xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
 hands: one gesture, a pinch. still pinch clicks; a moving pinch grabs empty glass, the edge, or the title; two pinches resize a Reality shape or a tile; an open hand scrolls. instant voice: open/close history|thinking|files|days|camera|notify|contacts|chat|reality, span 1|2|3, close this, open rooms. if they ask how hands or voice control works, explain that. do not invent a fist.
 """.strip()
 
