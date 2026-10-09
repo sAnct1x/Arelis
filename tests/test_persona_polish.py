@@ -660,7 +660,9 @@ def test_she_materializes_over_several_ticks_and_folds_faster(qt_app):
     assert panel.avatar.reveal == 1.0
     panel.repaint()
     qt_app.processEvents()
-    home = panel.avatar._map(0.232, -0.372, panel.avatar._face_rect())
+    from arelis.ui.persona_face.face_src import STAR_AT
+
+    home = panel.avatar._map(STAR_AT[0], STAR_AT[1], panel.avatar._face_rect())
     assert abs(panel.avatar.star_anchor.x() - home.x()) < 2.0
     assert abs(panel.avatar.star_anchor.y() - home.y()) < 2.0
     assert FOLD_S < BLOOM_S
@@ -919,7 +921,9 @@ def test_the_star_sits_in_the_hair():
     from arelis.ui.persona_face.plate import POSE, shared_rig
 
     layers = _layers()
-    spot = shared_rig().to_world(np.array([[0.232, -0.372]]), POSE)[0]
+    from arelis.ui.persona_face.face_src import STAR_AT
+
+    spot = shared_rig().to_world(np.array([[STAR_AT[0], STAR_AT[1]]]), POSE)[0]
     front = layers["front_0"]
     back = layers["back_0"]
     height, width, _ = front.shape
@@ -1042,3 +1046,30 @@ def test_the_hair_stops_at_the_shoulder():
     low = alpha[below]
     assert float(low.mean()) < 8.0, float(low.mean())
     assert float(low.max()) < 28.0, float(low.max())
+    # The hem is ragged. Across columns that carry lower hair, the row where
+    # alpha falls under half wanders by several pixels, and that fall covers
+    # more than a one-pixel step.
+    hair = np.maximum(_layers()["back_0"][..., 3], _layers()["front_0"][..., 3])
+    hair = hair.astype(np.float64)
+    half_rows = []
+    spans = []
+    for col in range(hair.shape[1]):
+        column = hair[:, col]
+        solid = np.flatnonzero(column >= 128.0)
+        if len(solid) < 3:
+            continue
+        last = int(solid[-1])
+        if world_y[last] < 0.30:
+            continue
+        half_rows.append(last)
+        above = np.flatnonzero(column[: last + 1] >= 180.0)
+        if len(above) == 0:
+            continue
+        start = int(above[-1])
+        gone = np.flatnonzero(column[start:] < 40.0)
+        spans.append(int(gone[0]) if len(gone) else int(column.shape[0] - start))
+    half_rows = np.asarray(half_rows)
+    spans = np.asarray(spans)
+    assert len(half_rows) > 8
+    assert int(half_rows.max() - half_rows.min()) >= 6, int(half_rows.max() - half_rows.min())
+    assert float(np.median(spans)) >= 3.0, float(np.median(spans))

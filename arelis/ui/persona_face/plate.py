@@ -97,32 +97,32 @@ def _fade_bottom(alpha: np.ndarray, premul: np.ndarray) -> tuple[np.ndarray, np.
 def _neck_lavender(
     cv: Canvas2, alpha: np.ndarray, premul: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Upper neck is lavender gas under the jaw. It thins downward.
+    """Replace the neck glow with a soft taper.
 
-    The centre just under the chin is darker than the jaw. The rim stays
-    light so a light dock does not pick up a dark shell. Blue stays above green.
+    The tone map turns a dim column into a hard rectangle. Below the jaw the
+    alpha follows a narrowing gaussian that fades on an arc, darker in the
+    shadow under the chin. Blue stays above green.
     """
-    # Below the chin only. A wide band from y 0.22 painted the neck onto the jaw.
-    below = np.clip((cv.Y - 0.330) / 0.10, 0.0, 1.0)
-    fall = np.clip((0.56 - cv.Y) / 0.16, 0.0, 1.0)
-    side = np.clip((0.052 - np.abs(cv.X)) / 0.028, 0.0, 1.0)
-    band = below * side * fall
-    use = band * (alpha > 0.02)
-    # Centre of the neck, just under the jaw, is darker. The rim stays light
-    # lavender so the edge is not a dark shell on a light dock.
-    jaw = np.clip((0.43 - cv.Y) / 0.08, 0.0, 1.0)
-    core = np.clip((side - 0.25) / 0.55, 0.0, 1.0) * jaw
-    light = np.array([188.0, 152.0, 216.0], dtype=np.float32) / 255.0
-    dark = np.array([176.0, 146.0, 204.0], dtype=np.float32) / 255.0
-    tint = light * (1.0 - core[..., None]) + dark * core[..., None]
-    new_a = alpha * (0.25 + 0.75 * fall) * (0.50 + 0.50 * below)
-    premul = premul * (1.0 - use[..., None]) + (tint * new_a[..., None]) * use[..., None]
-    alpha = alpha * (1.0 - use) + new_a * use
-    # The glow stays opaque until it is almost gone, so fade the column itself.
-    column = np.clip((0.07 - np.abs(cv.X)) / 0.035, 0.0, 1.0)
-    drop = np.clip((cv.Y - 0.46) / 0.10, 0.0, 1.0) * column
-    alpha = alpha * (1.0 - drop)
-    premul = premul * (1.0 - drop[..., None])
+    # Leave the chin alone. The ramp starts just under the jaw.
+    apply = np.clip((cv.Y - 0.338) / 0.028, 0.0, 1.0)
+    down = np.clip((cv.Y - 0.35) / 0.20, 0.0, 1.0)
+    half = 0.030 * (1.0 - down) ** 1.05 + 0.008
+    radial = np.exp(-0.5 * (np.abs(cv.X) / half) ** 2)
+    core = np.clip((radial - 0.20) / 0.62, 0.0, 1.0)
+    hem = 0.58 - 0.10 * np.clip(np.abs(cv.X) / np.maximum(half, 0.01), 0.0, 1.0)
+    hem = hem + 0.012 * np.sin(cv.X * 55.0)
+    fall = np.clip((hem - cv.Y) / 0.16, 0.0, 1.0) ** 0.8
+    mask = core * fall * (1.0 - 0.22 * down)
+    new_a = np.clip(mask, 0.0, 1.0)
+    shade = np.clip((0.43 - cv.Y) / 0.08, 0.0, 1.0) * np.clip(
+        (0.028 - np.abs(cv.X)) / 0.020, 0.0, 1.0
+    )
+    light = np.array([188.0, 154.0, 216.0], dtype=np.float32) / 255.0
+    dark = np.array([142.0, 110.0, 176.0], dtype=np.float32) / 255.0
+    tint = light * (1.0 - shade[..., None]) + dark * shade[..., None]
+    keep = 1.0 - apply
+    alpha = alpha * keep + new_a * apply
+    premul = premul * keep[..., None] + (tint * new_a[..., None]) * apply[..., None]
     return alpha, premul
 
 
@@ -133,6 +133,7 @@ def to_premul(
     face: bool = False,
     floor: float = 0.095,
     ink: str = "glow",
+    bottom: bool = True,
 ) -> np.ndarray:
     """Filmed light on a clear plate. Faint veil drops out so no rectangle remains.
 
@@ -154,7 +155,8 @@ def to_premul(
         hue = glow / np.maximum(peak[..., None], 1e-3)
         alpha = np.clip((peak - 0.16) / 0.28, 0.0, 1.0) ** 1.6
         premul = np.clip(hue, 0.0, 1.0) * alpha[..., None]
-        alpha, premul = _fade_bottom(alpha, premul)
+        if bottom:
+            alpha, premul = _fade_bottom(alpha, premul)
         out = np.empty((cv.H, cv.W, 4), dtype=np.uint8)
         out[..., 0] = np.clip(premul[..., 0] * 255.0 + 0.5, 0, 255).astype(np.uint8)
         out[..., 1] = np.clip(premul[..., 1] * 255.0 + 0.5, 0, 255).astype(np.uint8)
@@ -195,7 +197,8 @@ def to_premul(
     premul = hue_premul * weight[..., None] + premul * (1.0 - weight[..., None])
     if face:
         alpha, premul = _neck_lavender(cv, alpha, premul)
-    alpha, premul = _fade_bottom(alpha, premul)
+    if bottom:
+        alpha, premul = _fade_bottom(alpha, premul)
     out = np.empty((cv.H, cv.W, 4), dtype=np.uint8)
     out[..., 0] = np.clip(premul[..., 0] * 255.0 + 0.5, 0, 255).astype(np.uint8)
     out[..., 1] = np.clip(premul[..., 1] * 255.0 + 0.5, 0, 255).astype(np.uint8)
@@ -243,10 +246,39 @@ def _world_box(
     return out
 
 
+def _soften_hem(plate: np.ndarray) -> np.ndarray:
+    """The tone map pins hair alpha at 255 until the light is almost gone.
+
+    Scale by the ragged hem so the tips fade over a band. The fringe lifts
+    toward the hair colour, or a dark back strand reads as a shell on a
+    light dock.
+    """
+    cv = _canvas(plate.shape[1], plate.shape[0])
+    keep = face2.hair_hem(cv.X, cv.Y).astype(np.float32)
+    # Stay opaque through the top of the hem. The last part of the band fades.
+    fade = np.clip((keep - 0.08) / 0.55, 0.0, 1.0)
+    out = plate.astype(np.float32)
+    alpha = out[..., 3:4]
+    present = alpha > 8.0
+    straight = out[..., :3] / np.maximum(alpha, 1.0) * 255.0
+    light = np.array([200.0, 174.0, 226.0], dtype=np.float32)
+    new_a = alpha * fade[..., None]
+    # Judge the rim by the alpha we will store. A saturated source that only
+    # dips a little still has to leave the dark shell behind.
+    rim = new_a[..., 0]
+    cover = np.clip((rim - 12.0) / 24.0, 0.0, 1.0) * np.clip((248.0 - rim) / 18.0, 0.0, 1.0)
+    lift = np.maximum(np.clip((1.0 - fade) / 0.55, 0.0, 1.0), cover)[..., None]
+    mixed = straight * (1.0 - lift) + light * lift
+    use = present.astype(np.float32)
+    out[..., :3] = mixed * (new_a / 255.0) * use + out[..., :3] * (1.0 - use)
+    out[..., 3:4] = new_a * use + alpha * (1.0 - use)
+    return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+
+
 def _paint_back(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
     cv = _canvas(width, height)
     rig.draw_back(cv, t, POSE)
-    return to_premul(cv, 3.2, floor=0.06)
+    return _soften_hem(to_premul(cv, 3.2, floor=0.06, bottom=False))
 
 
 def _fade_outer_left_lock(plate: np.ndarray) -> np.ndarray:
@@ -267,7 +299,7 @@ def _fade_outer_left_lock(plate: np.ndarray) -> np.ndarray:
 def _paint_front(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
     cv = _canvas(width, height)
     rig.splat_front_hair(cv, t, POSE)
-    return _fade_outer_left_lock(to_premul(cv, 1.0))
+    return _fade_outer_left_lock(_soften_hem(to_premul(cv, 1.0, bottom=False)))
 
 
 def _paint_wisps(rig: V24Rig, width: int, height: int) -> np.ndarray:
@@ -288,7 +320,7 @@ def _paint_ring(rig: V24Rig, width: int, height: int) -> np.ndarray:
 
 def _paint_star(rig: V24Rig, width: int, height: int) -> np.ndarray:
     cv = _canvas(width, height)
-    spot = rig.to_world(np.array([[0.232, -0.372]]), POSE)[0]
+    spot = rig.to_world(np.array([[face2.STAR_AT[0], face2.STAR_AT[1]]]), POSE)[0]
     sparkle(cv, spot, 0.078, hexrgb(face2.PAL["star"]), 0.85 + 0.12 * math.sin(FACE_T * 1.7))
     return to_premul(cv, 1.05, ink="star")
 
@@ -411,7 +443,7 @@ def _bake_layers(
     skin = _skin_canvas(rig, width, height, cover)
     layers: dict[str, np.ndarray] = {
         "wisps": _paint_wisps(rig, width, height),
-        "face": to_premul(skin, 1.02, face=True),
+        "face": to_premul(skin, 1.02, face=True, bottom=False),
         "back_0": _paint_back(rig, width, height, float(PHASE_T[0])),
         "front_0": _paint_front(rig, width, height, float(PHASE_T[0])),
     }
@@ -480,7 +512,7 @@ def _paint_face_locked(width: int) -> np.ndarray:
     real.splat_front_hair(_canvas(wide, high), FACE_T, POSE, cover_only=True)
     cover = real._cover
     skin = _skin_canvas(real, wide, high, cover)
-    image = to_premul(skin, 1.02, face=True)
+    image = to_premul(skin, 1.02, face=True, bottom=False)
     xs = face2.Canvas2(wide, high, view=VIEW)
     local_y = unstretch_y(xs.Y)
     local_x = xs.X

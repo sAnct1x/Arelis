@@ -23,6 +23,7 @@ from arelis.ui.persona_face.engine import (
     raster_size,
     smooth,
 )
+from arelis.ui.persona_face.face_src import STAR_AT
 from arelis.ui.persona_face.motion import Frame
 from arelis.ui.void_idle import paint_orbit
 
@@ -456,7 +457,7 @@ class PersonaAvatar(QWidget):
             return
         rect = self._face_rect()
         center = rect.center()
-        star = self._map(0.232, -0.372, rect)
+        star = self._map(STAR_AT[0], STAR_AT[1], rect)
         dx = star.x() - center.x()
         dy = star.y() - center.y()
         star_angle = math.degrees(math.atan2(dx, -dy))
@@ -557,13 +558,13 @@ class PersonaAvatar(QWidget):
         if self.reveal >= 0.999:
             # The baked star's soft fringe scaled into a dark ring on a light
             # dock. The clip is the same four-point spark, drawn here.
-            home = self._map(0.232, -0.372, rect)
+            home = self._map(STAR_AT[0], STAR_AT[1], rect)
             mapped = transform.map(home)
             self.star_anchor = mapped
             fade = max(0.0, min(1.0, self.frame.star * (1.15 if self.thinking else 1.0)))
             self._draw_spark(painter, mapped, rect.width() * 0.055, fade)
         else:
-            home = self._map(0.232, -0.372, rect)
+            home = self._map(STAR_AT[0], STAR_AT[1], rect)
             center = rect.center()
             pos = QPointF(
                 center.x() + (home.x() - center.x()) * self.reveal,

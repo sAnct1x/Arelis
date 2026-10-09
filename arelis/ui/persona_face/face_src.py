@@ -88,6 +88,22 @@ def inside_face(p, k=1.0):
     return np.abs(p[:, 0]) < half_w(p[:, 1]) * k
 
 
+def hair_hem(x, y):
+    """Ragged shoulder hem. Sides end higher. The cutoff wanders across columns.
+
+    Weight dies over a band, so the bottom is not one straight row.
+    """
+    side = np.clip((np.abs(x) - 0.04) / 0.34, 0.0, 1.0)
+    hem = 0.642 - 0.08 * side
+    hem = hem + 0.010 * np.sin(x * 29.0) + 0.006 * np.sin(x * 71.0 + 1.1)
+    # Dies across about a tenth of the head, and is gone before the shoulder line.
+    return 1.0 - smooth((y - (hem - 0.10)) / 0.10)
+
+
+# Sparkle sits in the crown hair, toward the part, not on a tuft above it.
+STAR_AT = (0.10, -0.30)
+
+
 def g2(X, Y, cx, cy, sx, sy=None):
     sy = sx if sy is None else sy
     return np.exp(-((X - cx) ** 2 / (2 * sx * sx) + (Y - cy) ** 2 / (2 * sy * sy)))
@@ -248,11 +264,18 @@ def build_hair(seed=11, n_strands=820):
         amp = 0.1 + 7.0 * smooth((k * ds - 0.45) / 0.9)
         cx, cy = HN.curl(p[:, 0], p[:, 1])
         v = v / (np.hypot(v[:, 0], v[:, 1])[:, None] + 1e-6) + amp * np.stack([cx, cy], 1)
+        # Lower side locks curl in toward the neck so the hem is round, not square.
+        low = smooth((p[:, 1] - 0.20) / 0.16)
+        wide = np.clip((np.abs(p[:, 0]) - 0.08) / 0.22, 0.0, 1.0)
+        v[:, 0] += -np.sign(p[:, 0] + 1e-6) * 0.70 * low * wide
         v /= np.hypot(v[:, 0], v[:, 1])[:, None] + 1e-6
         p = p + v * ds
         P[k] = p
-    # Ragged tips around the shoulder. Each strand stops on its own line.
-    ends = 0.52 + 0.18 * r.random(n_strands)
+    # Each strand stops on its own line. Outer locks finish higher.
+    sample = np.abs(P[0, :, 0])
+    side_end = np.clip((sample - 0.04) / 0.34, 0.0, 1.0)
+    # Paths reach the hem. The plate fade, not a hard clip, makes the tips.
+    ends = 0.655 - 0.04 * side_end
     allp, alls = [], []
     for i in range(n_strands):
         path = P[: steps[i], i]
@@ -346,18 +369,6 @@ def build_hair(seed=11, n_strands=820):
                 140,
             )
             bangs.append(pts)
-    # Short tuft under the clip. The lower crown would otherwise leave the star bare.
-    for i in range(72):
-        o = r.normal(0, 0.008, 2)
-        bangs.append(
-            bez(
-                np.array([0.120, -0.448]) + o,
-                np.array([0.190, -0.430]) + o,
-                np.array([0.270, -0.390]) + o,
-                np.array([0.330, -0.330]) + o,
-                100,
-            )
-        )
     return strands, bangs
 
 
@@ -384,8 +395,8 @@ def hair_particles(strands, bangs, seed=12):
         J.append(0.0016 + 0 * s)
     P = np.concatenate(P)
     W = np.concatenate(W)
-    # Tips thin out before the shoulder line. Roots and the fringe stay put.
-    W = W * (1.0 - smooth((P[:, 1] - 0.50) / 0.16))
+    # The plate hem fades the tips. Particle weight stays so the tone map
+    # does not eat the band before that fade.
     C = np.concatenate(C)
     J = np.concatenate(J)
     S = np.concatenate(S)
@@ -427,15 +438,16 @@ class Rig:
         self.gas, self.gas_w = face_gas(self.noise)
         rd = np.random.default_rng(77)
         self._dust = rd.random(len(self.gas)) < 0.0018
-        # Neck gas starts under the jaw, narrower than the chin, and thins out.
+        # Neck gas is a narrow taper under the jaw. It thins as it falls.
         n = 60000
-        y0 = rd.uniform(0.36, 0.58, n)
-        x0 = rd.normal(0, 0.026, n) * (1 + 1.2 * np.clip(y0 - 0.46, 0, 1))
+        y0 = rd.uniform(0.36, 0.54, n)
+        taper = 1.0 - np.clip((y0 - 0.36) / 0.16, 0.0, 1.0)
+        x0 = rd.normal(0, 0.016, n) * (0.30 + 0.70 * taper)
         ng = self.noise.advect(np.stack([x0, y0], 1), 10, 0.006)
         self.neck_gas = ng
-        self.neck_amp = np.clip((y0 - 0.38) / 0.22, 0, 1)
-        self.neck_w = 0.0013 * (1 - smooth((y0 - 0.40) / 0.20)) * smooth((y0 - 0.34) / 0.05)
-        self.neck_c = np.clip((y0 - 0.36) / 0.28, 0, 1)
+        self.neck_amp = np.clip((y0 - 0.38) / 0.18, 0, 1)
+        self.neck_w = 0.0011 * (1 - smooth((y0 - 0.40) / 0.16)) * smooth((y0 - 0.34) / 0.05)
+        self.neck_c = np.clip((y0 - 0.36) / 0.22, 0, 1)
         self.d_hair = Drift(101, kmin=1.2, kmax=3.0, wmin=0.05, wmax=0.16)
         self.d_gas = Drift(102, kmin=2.0, kmax=5.0, wmin=0.05, wmax=0.15)
         self.d_wisp = Drift(103, kmin=0.8, kmax=2.2, wmin=0.03, wmax=0.09)
@@ -569,7 +581,7 @@ class Rig:
                 tilt=-0.15,
             )
         if star:
-            sp = self.to_world(np.array([[0.232, -0.372]]), pose)[0]
+            sp = self.to_world(np.array([[STAR_AT[0], STAR_AT[1]]]), pose)[0]
             sparkle(cv, sp, 0.078, hexrgb(pal["star"]), 0.85 + 0.12 * np.sin(t * 1.7))
 
     def face_fields(self, cv, X, Y, t, m, b, gaze, brow):
@@ -599,19 +611,17 @@ class Rig:
             * (1 - 0.92 * self._cover)
             * ss(yh - 0.02, yh + 0.06, Yf)
         )
-        # neck, dimmer, fading into the gas
-        if NECK:  # under the jaw, behind the face, fading before the shoulders
-            top = CHIN + 0.02
-            nw = 0.032 + 0.022 * np.clip((Y - top) / 0.20, 0, 1)
-            neck = (
-                smooth((nw - np.abs(X)) / 0.020)
-                * ss(top, top + 0.05, Y)
-                * (1 - ss(0.48, 0.62, Y))
-                * 0.32
-            )
+        # neck: a soft taper under the jaw, darker at the top, gone before the shoulders
+        if NECK:
+            top = CHIN + 0.012
+            down = np.clip((Y - top) / 0.22, 0.0, 1.0)
+            half = 0.026 * (1.0 - down) ** 1.3 + 0.006
+            side = smooth((half - np.abs(X)) / 0.020)
+            rise = ss(top - 0.008, top + 0.040, Y)
+            hem = 0.48 - 0.10 * np.clip(np.abs(X) / 0.040, 0.0, 1.0)
+            fall = 1.0 - ss(hem, hem + 0.08, Y)
+            neck = side * rise * fall * 0.18
             neck *= 1.0 - ins
-            # The column thins out well before the shoulder so it does not stay a solid neck.
-            neck *= 1.0 - ss(0.44, 0.54, Y)
             neck = neck * np.clip(
                 0.45 + 0.7 * (self.noise.val(X * 3.5 + 0.03 * t, Y * 2.5 - 0.04 * t) + 0.12),
                 0.15,

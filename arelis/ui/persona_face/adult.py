@@ -81,10 +81,15 @@ def build_back_hair(seed: int = 31, n: int = 900) -> dict:
         amp = 0.05 + 0.9 * smooth((k * ds - 0.5) / 1.0)
         cx, cy = hn.curl(p[:, 0] * 1.3, p[:, 1] * 1.3)
         v = v / (np.hypot(v[:, 0], v[:, 1])[:, None] + 1e-6) + amp * 0.35 * np.stack([cx, cy], 1)
+        low = smooth((p[:, 1] - 0.20) / 0.16)
+        wide = np.clip((np.abs(p[:, 0]) - 0.08) / 0.22, 0.0, 1.0)
+        v[:, 0] += -np.sign(p[:, 0] + 1e-6) * 0.65 * low * wide
         v /= np.hypot(v[:, 0], v[:, 1])[:, None] + 1e-6
         p = p + v * ds
         path[k] = p
-    ends = 0.52 + 0.12 * r.random(n)
+    sample = np.abs(path[0, :, 0])
+    side_end = np.clip((sample - 0.04) / 0.34, 0.0, 1.0)
+    ends = 0.655 - 0.04 * side_end
     pts, arc = [], []
     for i in range(n):
         one = path[: steps[i], i]
@@ -96,7 +101,7 @@ def build_back_hair(seed: int = 31, n: int = 900) -> dict:
     points = np.concatenate(pts)
     length = np.concatenate(arc)
     weight = 0.020 * smooth(length / 0.25) * np.exp(-np.clip(length - 0.55, 0, None) / 0.35)
-    weight = weight * (1.0 - smooth((points[:, 1] - 0.48) / 0.16))
+    # Plate hem fades the tips. Leave the particle weight alone.
     color = np.clip(length / 1.6, 0, 1)
     keep = ~inside_face(points, 1.02)
     points, length, weight, color = points[keep], length[keep], weight[keep], color[keep]
