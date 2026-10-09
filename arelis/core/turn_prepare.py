@@ -842,7 +842,7 @@ async def prepare_turn(
         skill_ids=skill_ids,
     )
     exact_cfg = bool(agent_cfg.get("exactness", True))
-    exact_need = detect_exactness_need(text)
+    exact_need = detect_exactness_need(text, data_cell="data_cell" in set(visible))
     ctx = TurnContext(
         text=text,
         role=role,

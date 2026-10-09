@@ -565,6 +565,8 @@ def test_room_file_questions_point_at_data_cell() -> None:
         assert "weather" not in kinds, question
         assert "analyze" not in kinds, question
         assert "read_table" in next(h.nudge for h in hints if h.kind == "data_cell")
+        assert "readings.csv" in next(h.nudge for h in hints if h.kind == "data_cell")
+        assert "m31.fits" in next(h.nudge for h in hints if h.kind == "data_cell")
     assert weather_intent_matches("will it rain tomorrow")
     assert weather_intent_matches("what's the temperature outside")
     outside = detect_intents(
@@ -722,3 +724,121 @@ def test_data_cell_is_a_local_write_with_a_plain_status() -> None:
     assert "results" in text.lower()
     assert "data_cell" not in text
     assert tool_errand("data_cell") == "reading your data"
+
+
+def test_a_data_cell_chart_is_not_replaced_by_the_plot_guard() -> None:
+    from arelis.core.claims import detect_exactness_need, unsupported_exactness_reply
+
+    ledger = EvidenceLedger()
+    ledger.record_tool(
+        "data_cell",
+        ok=True,
+        output="Chart saved as chart.png",
+        data={
+            "abs_path": r"C:\room\results\chart.png",
+            "charts": [{"name": "chart.png", "abs_path": r"C:\room\results\chart.png"}],
+        },
+    )
+    need = detect_exactness_need("Can you plot temperature over time from readings.csv?")
+    reply = "The chart is saved."
+    missing = ledger.missing_kinds(need.kinds)
+    if missing:
+        reply = unsupported_exactness_reply(missing)
+    assert "ASCII" not in reply
+    assert "plot file" not in reply
+
+
+def test_a_data_cell_number_is_not_refused() -> None:
+    from arelis.core.claims import detect_exactness_need, unsupported_exactness_reply
+
+    ledger = EvidenceLedger()
+    ledger.record_tool("data_cell", ok=True, output="5.0", data={})
+    need = detect_exactness_need("What's the average of column B in readings.csv?")
+    reply = "The average of column B is 5.0."
+    missing = ledger.missing_kinds(need.kinds)
+    if missing:
+        reply = unsupported_exactness_reply(missing)
+    assert "5.0" in reply
+    assert "analyze reading" not in reply
+
+
+def test_without_a_data_cell_result_the_guards_stay() -> None:
+    from arelis.core.claims import detect_exactness_need, unsupported_exactness_reply
+
+    ledger = EvidenceLedger()
+    plot = unsupported_exactness_reply(
+        ledger.missing_kinds(
+            detect_exactness_need("Can you plot temperature over time from readings.csv?").kinds
+        )
+    )
+    assert "ASCII" in plot
+    number = unsupported_exactness_reply(
+        ledger.missing_kinds(
+            detect_exactness_need("What's the average of column B in readings.csv?").kinds
+        )
+    )
+    assert "analyze reading" in number
+    failed = EvidenceLedger()
+    failed.record_tool(
+        "data_cell",
+        ok=False,
+        output="I couldn't finish that.",
+        data={"abs_path": r"C:\room\results\chart.png"},
+    )
+    assert failed.missing_kinds(("plot", "math", "analyze")) == ["plot", "math", "analyze"]
+
+
+async def test_a_bare_list_names_the_files_in_the_room(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    (room / "readings.csv").write_text("time,temperature,B\n1,10,2\n", encoding="utf-8")
+    (room / "m31.fits").write_bytes(b"not a fits")
+    result = await tool.run(code="list", files=[])
+    assert result.ok, result.output
+    assert "Data files in this room: m31.fits, readings.csv." in result.output
+
+
+async def test_a_missing_name_is_answered_with_the_room_files(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    (room / "readings.csv").write_text("A,B\n1,2\n", encoding="utf-8")
+    result = await tool.run(code='read_table("other.csv")', files=["other.csv"])
+    assert not result.ok
+    assert "Data files in this room: readings.csv." in result.output
+
+
+def test_fits_questions_reject_recall_and_workspace(monkeypatch) -> None:
+    from arelis.core.intent_catalog import data_cell_should_reject
+    from arelis.core.preflight import detect_intents
+
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"readings.csv", "m31.fits"},
+    )
+    room = {"readings.csv", "m31.fits"}
+    tools = {"data_cell", "recall", "workspace", "analyze"}
+    for question in (
+        "What does the header of the FITS file say?",
+        "How big is the image in that FITS file?",
+    ):
+        hints = detect_intents(question, room_files=room)
+        assert any(hint.kind == "data_cell" for hint in hints), question
+        assert "m31.fits" in next(h.nudge for h in hints if h.kind == "data_cell")
+        assert data_cell_should_reject("recall", {}, question, tools)
+        assert data_cell_should_reject("workspace", {"action": "list"}, question, tools)
+        assert not data_cell_should_reject("recall", {}, question, {"recall", "workspace"})
+
+
+def test_the_hottest_hour_is_not_a_forecast(monkeypatch) -> None:
+    from arelis.core.claims import detect_exactness_need
+
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"readings.csv", "m31.fits"},
+    )
+    hour = "Which hour had the highest temperature in my readings?"
+    assert not detect_exactness_need(hour, data_cell=True).needs_weather
+    assert detect_exactness_need(hour, data_cell=False).needs_weather
+    assert detect_exactness_need("will it rain tomorrow", data_cell=True).needs_weather
+    assert detect_exactness_need(
+        "what's the temperature outside",
+        data_cell=True,
+    ).needs_weather

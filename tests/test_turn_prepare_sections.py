@@ -170,7 +170,7 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
             {"role": "system", "content": "DELIVERY"}
         ),
     )
-    monkeypatch.setattr(subject, "detect_exactness_need", lambda _text: SimpleNamespace(
+    monkeypatch.setattr(subject, "detect_exactness_need", lambda _text, **_k: SimpleNamespace(
         needs_web_evidence=False,
         needs_weather=False,
     ))

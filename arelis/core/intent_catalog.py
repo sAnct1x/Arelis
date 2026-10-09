@@ -1839,6 +1839,11 @@ def data_cell_enabled() -> bool:
     return enabled
 
 
+def room_data_file_names(room_files: set[str] | None = None, *, limit: int = 10) -> list[str]:
+    """Data file names in this room, up to ten, names only."""
+    return sorted(_data_names(_room_names(room_files)))[:limit]
+
+
 def room_data_file_explicit(text: str, room_files: set[str] | None = None) -> bool:
     """True when the ask names a room data file, or says fits and one is there.
 
@@ -1900,7 +1905,7 @@ def data_cell_should_reject(
         return False
     if not room_data_file_explicit(text):
         return False
-    if name in {"analyze", "weather", "plot", "python", "vision"}:
+    if name in {"analyze", "weather", "plot", "python", "vision", "recall"}:
         return True
     if name != "workspace":
         return False

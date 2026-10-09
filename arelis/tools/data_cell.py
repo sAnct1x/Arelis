@@ -111,6 +111,8 @@ class DataCellTool:
         names = _names_mentioned(room, code, names)
         mapped, error = _check_inputs(room, names)
         if error:
+            if error.startswith("I can't find that file"):
+                error = _with_file_list(error, code, room)
             return ToolResult(ok=False, output=error)
         results = room / "results"
         try:
@@ -176,7 +178,11 @@ class DataCellTool:
             summary = summary[:_MAX_SUMMARY].rstrip() + "\n(truncated)"
         if not parsed.get("ok"):
             _drop_new_pngs(results, before)
-            return ToolResult(ok=False, output=summary, data={"child_pid": child_pid})
+            return ToolResult(
+                ok=False,
+                output=_with_file_list(summary, code, room),
+                data={"child_pid": child_pid},
+            )
         charts = _charts(parsed.get("charts"), results)
         data: dict[str, Any] = {"child_pid": child_pid}
         if charts:
@@ -190,10 +196,54 @@ class DataCellTool:
                     "charts": charts,
                 }
             )
-        return ToolResult(ok=True, output=summary, data=data)
+        return ToolResult(ok=True, output=_with_file_list(summary, code, room), data=data)
 
 
 _CODE_FILE = re.compile(r"(?i)\b([\w.-]+\.(?:csv|tsv|tab|json|xlsx|xls|fits|fit))\b")
+_TYPE_REPR = re.compile(r"^<class '[^']+'>$")
+_DATA_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls", ".fits", ".fit"}
+
+
+def _room_data_names(room: Path) -> list[str]:
+    found: list[str] = []
+    try:
+        for path in room.iterdir():
+            if path.is_file() and path.suffix.lower() in _DATA_SUFFIXES:
+                found.append(path.name)
+    except OSError:
+        return []
+    return sorted(found)[:10]
+
+
+def _needs_file_list(summary: str, code: str, room: Path) -> bool:
+    text = (summary or "").strip()
+    if text.startswith("I can only save results"):
+        return False
+    head = text.split("\n", 1)[0].strip()
+    if (
+        not text
+        or text.startswith("The code ran but printed nothing")
+        or text.startswith("I can't find that file")
+        or text.startswith("I can only read files")
+        or _TYPE_REPR.match(head) is not None
+    ):
+        return True
+    for match in _CODE_FILE.finditer(code or ""):
+        if not (room / match.group(1)).is_file():
+            return True
+    return False
+
+
+def _with_file_list(summary: str, code: str, room: Path) -> str:
+    if not _needs_file_list(summary, code, room):
+        return summary
+    names = _room_data_names(room)
+    if not names:
+        return summary
+    line = "Data files in this room: " + ", ".join(names) + "."
+    if line in (summary or ""):
+        return summary
+    return ((summary or "").rstrip() + "\n" + line).strip()
 
 
 def _names_mentioned(room: Path, code: str, names: list[str]) -> list[str]:

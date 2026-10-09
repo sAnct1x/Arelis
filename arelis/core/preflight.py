@@ -1505,12 +1505,18 @@ def detect_intents(
         )
 
     if offered and room_data_file_ask(raw, names):
+        from arelis.core.intent_catalog import room_data_file_names
+
+        listed = room_data_file_names(names)
+        nudge = _DATA_CELL_NUDGE
+        if listed:
+            nudge += " Data files in this room: " + ", ".join(listed) + "."
         hints = [hint for hint in hints if hint.kind not in {"weather", "analyze"}]
         hints.append(
             IntentHint(
                 kind="data_cell",
                 expected_tools=("data_cell",),
-                nudge=_DATA_CELL_NUDGE,
+                nudge=nudge,
             )
         )
 
