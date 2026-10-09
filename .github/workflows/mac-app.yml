@@ -6,7 +6,14 @@ name: Mac app
 on:
   workflow_dispatch:
   push:
+    # Tags always build. Path filters are not applied to tag pushes.
+    # Branch pushes build only when the Mac app or the updater changes,
+    # so this branch can prove the disk image before a pull request exists.
     tags: ["v*"]
+    paths:
+      - "mac-installer/**"
+      - ".github/workflows/mac-app.yml"
+      - "arelis/update.py"
   pull_request:
     paths:
       - "mac-installer/**"
