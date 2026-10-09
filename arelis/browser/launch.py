@@ -189,6 +189,32 @@ def chrome_executable() -> str | None:
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             shutil.which("chrome"),
             shutil.which("google-chrome"),
+            shutil.which("chromium"),
+            shutil.which("chromium-browser"),
+            shutil.which("google-chrome-stable"),
+            "/snap/bin/chromium",
+            str(
+                Path.home()
+                / ".local"
+                / "share"
+                / "flatpak"
+                / "exports"
+                / "bin"
+                / "com.google.Chrome"
+            ),
+            str(
+                Path.home()
+                / ".local"
+                / "share"
+                / "flatpak"
+                / "exports"
+                / "bin"
+                / "org.chromium.Chromium"
+            ),
+            "/var/lib/flatpak/exports/bin/com.google.Chrome",
+            "/var/lib/flatpak/exports/bin/org.chromium.Chromium",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
         ]
     )
 
