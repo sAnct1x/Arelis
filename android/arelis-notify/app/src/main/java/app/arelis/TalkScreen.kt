@@ -456,7 +456,7 @@ private fun TalkComposer(
                     if (state.draft.isEmpty()) {
                         Text(
                             when (state.voiceMode) {
-                                "dictate" -> "speak — it lands here"
+                                "dictate" -> "speak and it lands here"
                                 "conversation" -> "listening…"
                                 else -> "talk to her"
                             },

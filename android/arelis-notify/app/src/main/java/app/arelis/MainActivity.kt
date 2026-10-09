@@ -828,7 +828,7 @@ class MainActivity : ComponentActivity() {
                     bubbles = bubbles.map { b ->
                         if (b.id == streamId) {
                             b.copy(
-                                text = "That chat is gone. I opened a new one — say that again.",
+                                text = "That chat is gone. I opened a new one, so say that again.",
                                 streaming = false,
                             )
                         } else {
@@ -1382,7 +1382,7 @@ class MainActivity : ComponentActivity() {
         val card = allow ?: return
         if (allowBusy) return
         if (card.id.isBlank()) {
-            error = "That Allow card has no id — try again from the PC."
+            error = "That Allow card has no id. Try again from the PC."
             return
         }
         allowBusy = true

@@ -31,7 +31,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
-/** Same sodium bloom as arelis/ui/stage.py — lamp in the middle, not a top wash. */
+/** Same sodium bloom as arelis/ui/stage.py: lamp in the middle, not a top wash. */
 private const val BLOOM_X = 0.50f
 private const val BLOOM_Y = 0.44f
 
