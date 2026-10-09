@@ -413,6 +413,11 @@ def _hair_static(rig: V24Rig, width: int, height: int) -> dict:
         last = np.where(live.any(axis=0), height - 1 - np.argmax(live[::-1], axis=0), -height)
         below = (np.arange(height, dtype=np.float32)[:, None] - last[None, :]) * cv.px
         near = near * (1.0 - face2.smooth(np.clip(below / 0.03, 0.0, 1.0)))
+        # Under the chin the cut-off row jumps from column to column, so the
+        # old plate's tone match drew a smooth box with straight sides there.
+        # The new back hair covers that spot, so the old plate retires below
+        # the chin strip.
+        near = near * (1.0 - face2.ss(0.33, 0.355, cv.Y)).astype(np.float32)
         # Below the jaw the neck is a lavender glow of its own, so the old dark
         # plate must not show through it as a dark column.
         side = 1.0 - face2.ss(0.06, 0.085, np.abs(cv.X))
@@ -450,15 +455,33 @@ def _soften_slits(cv: Canvas2, premul: np.ndarray, alpha: np.ndarray):
     pad = np.pad(both, ((0, 0), (reach + 1, reach), (0, 0)), mode="edge")
     run = np.cumsum(pad, axis=1)
     wide = (run[:, 2 * reach + 1 :] - run[:, : -2 * reach - 1]) / (2 * reach + 1)
+    # Each row averaged on its own left horizontal streaks. Feather the
+    # average down the rows too, and keep the strands' own texture: only
+    # thin pixels take the full average, the rest keep most of their strand.
+    vreach = max(1, round(0.012 / cv.px))
+    vpad = np.pad(wide, ((vreach + 1, vreach), (0, 0), (0, 0)), mode="edge")
+    vrun = np.cumsum(vpad, axis=0)
+    smooth_wide = (vrun[2 * vreach + 1 :] - vrun[: -2 * vreach - 1]) / (2 * vreach + 1)
     band = face2.ss(0.30, 0.40, cv.Y) * (1.0 - face2.ss(0.14, 0.22, np.abs(cv.X)))
+    gap = np.clip(
+        (smooth_wide[..., 3] - both[..., 3]) / np.maximum(0.15 * smooth_wide[..., 3], 1e-3),
+        0.0,
+        1.0,
+    )
+    # Under the chin strip only; above it the v10 row fill stays as it was.
+    t = face2.ss(0.33, 0.36, cv.Y)
+    main = band * ((1.0 - t) + t * (0.6 + 0.4 * gap))
+    target = wide + (smooth_wide - wide) * t[..., None]
     # Right under the chin the curtains part as a dark slit that points up at
     # the jaw, where the main band is still ramping in. There, only pixels
     # thinner than their row neighbours take the average, so the slit closes
     # and the strand texture around it stays.
     chin = face2.ss(0.26, 0.33, cv.Y) * (1.0 - face2.ss(0.04, 0.11, np.abs(cv.X)))
     thin = np.clip((wide[..., 3] - both[..., 3]) / np.maximum(0.15 * wide[..., 3], 1e-3), 0.0, 1.0)
-    band = np.maximum(band, chin * thin)
-    mixed = both + (wide - both) * band[..., None].astype(np.float32)
+    mixed = both + (target - both) * main[..., None].astype(np.float32)
+    fill = np.clip((chin * thin - main) / np.maximum(1.0 - main, 1e-4), 0.0, 1.0)
+    fill = fill[..., None].astype(np.float32)
+    mixed = mixed + (wide - mixed) * fill
     return mixed[..., :3], mixed[..., 3]
 
 

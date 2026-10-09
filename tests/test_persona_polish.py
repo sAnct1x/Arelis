@@ -1213,3 +1213,30 @@ def test_no_dark_slit_points_up_at_the_chin():
             float(row.min()),
             float(np.median(row)),
         )
+
+
+def test_the_hem_under_the_chin_has_no_box_or_row_streaks():
+    """Under the chin the hair runs on as strands: no flat box, no horizontal streaks.
+
+    The old plate's tone match stopped column by column under the chin, which
+    left a smooth patch with straight sides there, so below the chin strip it
+    must be retired (near <= 0.02). And the slit fill averaged each row on its
+    own, which drew horizontal streaks in the hem: row means in the middle of
+    the hem may differ from their neighbours by at most 0.13 levels on average
+    (it was about 0.18).
+    """
+    from arelis.ui.persona_face import plate
+
+    back = _layers()["back_0"]
+    height, width = back.shape[:2]
+    static = plate._hair_static(plate.shared_rig(), width, height)
+    near = static["near"][..., None]
+    gate = _world_patch(near, (-0.12, 0.12, 0.36, 0.42))
+    assert float(gate.max()) <= 0.02, float(gate.max())
+    rgb = back[..., :3].astype(np.float32)
+    hem = _world_patch(
+        _lum(rgb.reshape(-1, 3)).reshape(height, width, 1), (-0.12, 0.12, 0.40, 0.56)
+    )
+    rows = hem[..., 0].mean(axis=1)
+    streak = float(np.abs(rows[1:-1] - (rows[:-2] + rows[2:]) / 2).mean())
+    assert streak <= 0.13, streak
