@@ -231,7 +231,7 @@ class PersonaAvatar(QWidget):
         self._shapes: dict[str, tuple[int, int]] = {}
         self._crops: dict[str, tuple[float, float, float, float]] = {}
         self._group: QImage | None = None
-        self._front_buffer: QImage | None = None
+        self._front_buffers: list[QImage] = []
         self._bake_ready = False
         self._bake_error = ""
         self._thread_name = ""
@@ -823,8 +823,8 @@ class PersonaAvatar(QWidget):
     ) -> None:
         """The painted hair lies over the face, so it is drawn over, not added.
 
-        Two phases are crossfaded first (added, which is an exact blend) in a
-        side buffer, and the blend goes over the face once. Drawing both over
+        Two phases are crossfaded first in side buffers, and the blend goes
+        over the face once. Drawing both over
         the face at part opacity would let the skin show through mid-fade.
         """
         image_a = self._images.get(f"front_{first}")
@@ -843,26 +843,40 @@ class PersonaAvatar(QWidget):
             return
         device = painter.device()
         width, height = device.width(), device.height()
-        buffer = self._front_buffer
-        if buffer is None or buffer.width() != width or buffer.height() != height:
-            buffer = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
-            self._front_buffer = buffer
-        buffer.setDevicePixelRatio(device.devicePixelRatio())
-        buffer.fill(0)
-        inner = QPainter(buffer)
-        inner.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-        inner.setTransform(painter.transform())
-        inner.setTransform(transform, True)
+        # Qt's Plus clamps dest + source before it applies the opacity, so
+        # adding a part-opacity phase onto another loses alpha and washes
+        # the hair grey. Each phase is scaled on its own (Source at opacity
+        # is exact on a clear buffer), then the scaled pair is added at full
+        # opacity, which never clamps because the weights sum to one.
+        buffers = self._front_buffers
+        if (
+            not buffers
+            or buffers[0].width() != width
+            or buffers[0].height() != height
+        ):
+            buffers = [
+                QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied) for _ in range(2)
+            ]
+            self._front_buffers = buffers
+        for buffer, image, weight in ((buffers[0], image_a, 1.0 - mix), (buffers[1], image_b, mix)):
+            buffer.setDevicePixelRatio(device.devicePixelRatio())
+            buffer.fill(0)
+            inner = QPainter(buffer)
+            inner.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            inner.setTransform(painter.transform())
+            inner.setTransform(transform, True)
+            inner.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            inner.setOpacity(weight)
+            inner.drawImage(rect, image)
+            inner.end()
+        inner = QPainter(buffers[0])
         inner.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
-        inner.setOpacity(1.0 - mix)
-        inner.drawImage(rect, image_a)
-        inner.setOpacity(mix)
-        inner.drawImage(rect, image_b)
+        inner.drawImage(QPointF(0.0, 0.0), buffers[1])
         inner.end()
         painter.save()
         painter.resetTransform()
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-        painter.drawImage(QPointF(0.0, 0.0), buffer)
+        painter.drawImage(QPointF(0.0, 0.0), buffers[0])
         painter.restore()
 
     def _blit_pair(
