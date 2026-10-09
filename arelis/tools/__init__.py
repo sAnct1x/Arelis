@@ -27,7 +27,7 @@ from arelis.tools.browser_tool import BrowserTool
 from arelis.tools.calculator import CalculatorTool
 from arelis.tools.camera_capture import CameraTool
 from arelis.tools.cas import CasTool
-from arelis.tools.catalog import CatalogTool
+from arelis.tools.catalog import CatalogTool, _catalog_place
 from arelis.tools.clipboard import ClipboardTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
 from arelis.tools.contacts_tool import ContactsTool
@@ -371,7 +371,7 @@ def build_tool_registry(
     # Jobs included — the user aimed the scheduled ask. APOD/ADS fail
     # honestly until a free key is pasted.
     if tools_cfg.get("catalog", {}).get("enabled", True):
-        registry.register(CatalogTool())
+        registry.register(CatalogTool(location=_catalog_place(config)))
     if attended and tools_cfg.get("solar", {}).get("enabled", True):
         registry.register(SolarTool())
     if attended and tools_cfg.get("earth", {}).get("enabled", True):
