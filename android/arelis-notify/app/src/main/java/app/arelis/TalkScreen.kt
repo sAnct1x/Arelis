@@ -1,10 +1,13 @@
 package app.arelis
 
+import android.content.Intent
 import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,11 +40,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -450,7 +456,7 @@ private fun TalkComposer(
                     if (state.draft.isEmpty()) {
                         Text(
                             when (state.voiceMode) {
-                                "dictate" -> "speak — it lands here"
+                                "dictate" -> "speak and it lands here"
                                 "conversation" -> "listening…"
                                 else -> "talk to her"
                             },
@@ -607,6 +613,14 @@ private fun GemmaBanner(
     }
 }
 
+private fun openReplyLink(context: android.content.Context, url: String) {
+    val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
+    val scheme = uri.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https") return
+    val view = Intent(Intent.ACTION_VIEW, uri)
+    runCatching { context.startActivity(view) }
+}
+
 @Composable
 private fun BubbleView(bubble: ChatBubble, onGlance: (GlanceCard) -> Unit) {
     val mine = bubble.role == "user"
@@ -645,7 +659,7 @@ private fun BubbleView(bubble: ChatBubble, onGlance: (GlanceCard) -> Unit) {
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp)
             val bubbleText = bubble.text.ifBlank { if (bubble.streaming) "…" else "" }
-            if (bubble.streaming || bubbleText.isEmpty()) {
+            if (mine || bubble.streaming || bubbleText.isEmpty()) {
                 Text(
                     text = bubbleText,
                     color = Campfire.text,
@@ -655,14 +669,26 @@ private fun BubbleView(bubble: ChatBubble, onGlance: (GlanceCard) -> Unit) {
                     modifier = bubbleMod,
                 )
             } else {
+                val ink = Campfire.palette.ink()
+                val annotated = formatReply(bubble.text, ink).toAnnotatedString()
+                val context = LocalContext.current
+                var layout by remember(bubble.text) { mutableStateOf<TextLayoutResult?>(null) }
                 SelectionContainer {
                     Text(
-                        text = bubbleText,
+                        text = annotated,
                         color = Campfire.text,
                         fontSize = 16.sp,
                         lineHeight = 22.sp,
                         overflow = TextOverflow.Clip,
-                        modifier = bubbleMod,
+                        onTextLayout = { layout = it },
+                        modifier = bubbleMod.pointerInput(annotated) {
+                            detectTapGestures { pos ->
+                                val offset = layout?.getOffsetForPosition(pos) ?: return@detectTapGestures
+                                annotated.getStringAnnotations("URL", offset, offset)
+                                    .firstOrNull()
+                                    ?.let { openReplyLink(context, it.item) }
+                            }
+                        },
                     )
                 }
             }

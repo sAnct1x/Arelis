@@ -13,6 +13,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -62,6 +63,8 @@ class ScanActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             val message by status
+            val systemDark = isSystemInDarkTheme()
+            Campfire.apply(DeskThemes.palette(Prefs(this).theme, systemDark))
             ArelisTheme {
                 Box(Modifier.fillMaxSize().background(Campfire.bg0)) {
                     AndroidView(

@@ -3,36 +3,61 @@ package app.arelis
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
-/** Desktop sodium tokens from arelis/ui/theme.py COLORS — keep in lockstep. */
+/** Colours of the room that is on screen. Screens read these and repaint. */
 object Campfire {
-    val bg0 = Color(0xFF100D0B)
-    val bg1 = Color(0xFF2A221C)
-    val bg2 = Color(0xFF40342B)
-    val well = Color(0xFF4A3C32)
-    val raised = Color(0xFF3A3028)
-    val accent = Color(0xFFFF7A22)
-    val accent2 = Color(0xFFFFC08A)
-    val text = Color(0xFFF8F1EA)
-    val hint = Color(0xFFE6B892)
-    val dim = Color(0xFFC4906E)
-    val coal = Color(0xFF946848)
-    val danger = Color(0xFFF0A0A8)
-    val rim = Color(0x96FF7A22)
+    private var active by mutableStateOf(DeskThemes.sodium)
+
+    fun apply(palette: DeskPalette) {
+        active = palette
+    }
+
+    val palette: DeskPalette get() = active
+
+    val bg0: Color get() = Color(active.bg0)
+    val bg1: Color get() = Color(active.bg1)
+    val bg2: Color get() = Color(active.bg2)
+    val well: Color get() = Color(active.well)
+    val raised: Color get() = Color(active.raised)
+    val accent: Color get() = Color(active.accent)
+    val accent2: Color get() = Color(active.accent2)
+    val text: Color get() = Color(active.text)
+    val hint: Color get() = Color(active.hint)
+    val dim: Color get() = Color(active.dim)
+    val coal: Color get() = Color(active.coal)
+    val danger: Color get() = Color(active.danger)
+    val rim: Color get() = Color(active.rim)
 }
 
 @Composable
 fun ArelisTheme(content: @Composable () -> Unit) {
+    val bg0 = Campfire.bg0
+    val bg1 = Campfire.bg1
+    val accent = Campfire.accent
+    val text = Campfire.text
     MaterialTheme(
         colorScheme = darkColorScheme(
-            background = Campfire.bg0,
-            surface = Campfire.bg1,
-            primary = Campfire.accent,
-            onPrimary = Campfire.bg0,
-            onBackground = Campfire.text,
-            onSurface = Campfire.text,
+            background = bg0,
+            surface = bg1,
+            primary = accent,
+            onPrimary = bg0,
+            onBackground = text,
+            onSurface = text,
         ),
         content = content,
     )
+}
+
+/**
+ * Desktop sodium colours in lockstep with arelis/ui/theme.py COLORS.
+ * tests/test_orbit_void.py reads these lines; DeskThemes.sodium uses the same values.
+ */
+object SodiumLock {
+    val bg0 = Color(0xFF100D0B)
+    val accent = Color(0xFFFF7A22)
+    val accent2 = Color(0xFFFFC08A)
 }
