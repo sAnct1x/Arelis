@@ -493,6 +493,8 @@ def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> Capabi
         return "READ" if action == "list" else "SIDE_EFFECT_LOCAL"
     if tool == "plot":
         return "WRITE_LOCAL"
+    if tool == "data_cell":
+        return "WRITE_LOCAL"
     if tool == "document":
         return "WRITE_LOCAL_ARTIFACT"
     if tool == "pdf":
@@ -624,6 +626,20 @@ def describe_call(
             "for this session.\n\n"
             f"Path: {path}\n\n"
             "Arelis will not write or edit this path."
+        )
+    if name == "data_cell":
+        raw_files = args.get("files") or []
+        if isinstance(raw_files, str):
+            names = [raw_files.strip()] if raw_files.strip() else []
+        elif isinstance(raw_files, (list, tuple)):
+            names = [str(item).strip() for item in raw_files if str(item).strip()]
+        else:
+            names = []
+        shown = ", ".join(names) if names else "the files in this room"
+        return (
+            "Read data in this room and save a chart or a table "
+            "in this room's results folder.\n"
+            f"Files: {shown}"
         )
     if name == "plot":
         tool = (lookup or (lambda _n: None))(name)

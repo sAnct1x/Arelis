@@ -170,7 +170,7 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
             {"role": "system", "content": "DELIVERY"}
         ),
     )
-    monkeypatch.setattr(subject, "detect_exactness_need", lambda _text: SimpleNamespace(
+    monkeypatch.setattr(subject, "detect_exactness_need", lambda _text, **_k: captured.update(data_cell=_k.get("data_cell")) or SimpleNamespace(
         needs_web_evidence=False,
         needs_weather=False,
     ))
@@ -187,6 +187,7 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
     ctx = await subject.prepare_turn(loop, "hello", "fast", stopped_ask="old")
 
     assert ctx is not None
+    assert captured["data_cell"] is False
     assert [message["content"] for message in ctx.messages] == [
         "PERSONA",
         "POLICY",

@@ -723,36 +723,78 @@ def _turn_ask(raw: str) -> str:
     return (ask or raw or "").strip() or (raw or "")
 
 
-_DETECT_CACHE: tuple[str, int, int, tuple[IntentHint, ...]] | None = None
+_DETECT_CACHE: (
+    tuple[str, int, int, tuple[str, ...], bool, tuple[IntentHint, ...]] | None
+) = None
+
+_DATA_CELL_NUDGE = (
+    "Intent preflight: this question is about a file already in this room. "
+    "Call data_cell, not weather, not analyze, not plot, not workspace. "
+    'files= the file names. code calls read_table("name.csv") or '
+    'read_fits("name.fits"). The argument is name, not path. '
+    "read_fits returns header, shape, and columns. "
+    'A chart is save_png(fig, "chart.png"). print the answer.'
+)
 
 
 def detect_intents(
     text: str,
     *,
     history: list[Any] | None = None,
+    room_files: set[str] | None = None,
+    offer_data_cell: bool | None = None,
 ) -> list[IntentHint]:
-    """Return zero or more high-confidence intent hints for this user turn."""
+    """Return zero or more high-confidence intent hints for this user turn.
+
+    ``offer_data_cell`` False leaves weather and analyze alone. None follows
+    the config flag.
+    """
     global _DETECT_CACHE
+    from arelis.core.intent_catalog import (
+        data_cell_enabled,
+        live_room_filenames,
+        room_data_file_ask,
+    )
+
     raw = (text or "").strip()
     if not raw:
         return []
+    flag_on = data_cell_enabled()
+    if offer_data_cell is None:
+        offered = flag_on
+    else:
+        offered = bool(offer_data_cell) and flag_on
     hist = history or []
-    cache_key = (raw, id(hist) if history is not None else 0, len(hist))
+    names = {
+        str(item).lower()
+        for item in (room_files if room_files is not None else live_room_filenames())
+        if str(item).strip()
+    }
+    name_key = tuple(sorted(names))
+    cache_key = (
+        raw,
+        id(hist) if history is not None else 0,
+        len(hist),
+        name_key,
+        offered,
+    )
     cached = _DETECT_CACHE
     if (
         cached is not None
         and cached[0] == cache_key[0]
         and cached[1] == cache_key[1]
         and cached[2] == cache_key[2]
+        and cached[3] == cache_key[3]
+        and cached[4] == cache_key[4]
     ):
-        return list(cached[3])
+        return list(cached[5])
     hints: list[IntentHint] = []
 
     for item in AUTO_HINTS:
         if item.kind == "weather":
             from arelis.core.intent_catalog import weather_intent_matches
 
-            if weather_intent_matches(raw):
+            if weather_intent_matches(raw, data_cell=offered):
                 hints.append(item.to_hint())
             continue
         if item.kind == "recall":
@@ -1466,7 +1508,30 @@ def detect_intents(
             )
         )
 
-    _DETECT_CACHE = (cache_key[0], cache_key[1], cache_key[2], tuple(hints))
+    if offered and room_data_file_ask(raw, names):
+        from arelis.core.intent_catalog import room_data_file_names
+
+        listed = room_data_file_names(names)
+        nudge = _DATA_CELL_NUDGE
+        if listed:
+            nudge += " Data files in this room: " + ", ".join(listed) + "."
+        hints = [hint for hint in hints if hint.kind not in {"weather", "analyze"}]
+        hints.append(
+            IntentHint(
+                kind="data_cell",
+                expected_tools=("data_cell",),
+                nudge=nudge,
+            )
+        )
+
+    _DETECT_CACHE = (
+        cache_key[0],
+        cache_key[1],
+        cache_key[2],
+        name_key,
+        offered,
+        tuple(hints),
+    )
     return hints
 
 

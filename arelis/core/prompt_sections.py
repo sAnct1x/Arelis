@@ -5,6 +5,7 @@ from typing import Any
 from arelis.contacts import contacts_prompt_line
 from arelis.core.agent_loop import _wants_project_context, now_line, theme_line
 from arelis.core.episodes import episodes_prompt_line
+from arelis.core.intent_catalog import data_cell_enabled
 from arelis.core.lessons import format_lessons, select_lessons
 from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.plan_nudge import select_plan
@@ -65,7 +66,16 @@ def append_preflight_guidance(
     if not bool(agent_cfg.get("intent_preflight", True)):
         return preflight_kinds
 
-    intent_hints = detect_intents(text, history=loop.memory.messages)
+    tools = getattr(loop, "tools", None)
+    if tools is None:
+        offer_data_cell = None
+    else:
+        offer_data_cell = data_cell_enabled() and "data_cell" in tools.names()
+    intent_hints = detect_intents(
+        text,
+        history=loop.memory.messages,
+        offer_data_cell=offer_data_cell,
+    )
     preflight_kinds = [hint.kind for hint in intent_hints]
     for hint in intent_hints:
         loop._expected_tools.update(hint.expected_tools)

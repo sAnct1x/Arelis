@@ -42,6 +42,17 @@ class Warrant:
     at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
+def _data_cell_value(output: str) -> str:
+    """Text the cell actually computed. A type repr or the empty nudge is not one."""
+    text = (output or "").strip()
+    text = re.sub(r"\nData files in this room:.*\Z", "", text, flags=re.S).strip()
+    if not text or text.startswith("The code ran but printed nothing"):
+        return ""
+    if re.fullmatch(r"<class '[^']+'>", text):
+        return ""
+    return text
+
+
 class EvidenceLedger:
     """Accumulates warrants for one agent turn."""
 
@@ -144,6 +155,31 @@ class EvidenceLedger:
         if name == "plot":
             span = str(data.get("path") or output or "")[:300]
             self.add(source="plot", kind="plot", span=span, ok=ok)
+            return
+        if name == "data_cell":
+            # A failed cell is not a number and not a chart. The tool being
+            # off, or a room with no data file, leaves the ledger as it was.
+            if not ok:
+                return
+            from arelis.core.intent_catalog import data_cell_enabled, room_data_file_names
+
+            if not data_cell_enabled() or not room_data_file_names():
+                return
+            chart_path = str(data.get("abs_path") or "")
+            charts = data.get("charts") if isinstance(data.get("charts"), list) else []
+            if not chart_path:
+                for item in charts:
+                    if isinstance(item, dict) and item.get("abs_path"):
+                        chart_path = str(item["abs_path"])
+                        break
+            if chart_path:
+                self.add(source="data_cell", kind="plot", span=chart_path[:300], ok=True)
+            printed = _data_cell_value(output)
+            if printed:
+                # calc is the numeric warrant. analyze is the table warrant
+                # the column-stat guard asks for.
+                self.add(source="data_cell", kind="calc", span=printed[:200], ok=True)
+                self.add(source="data_cell", kind="analyze", span=printed[:200], ok=True)
             return
         if name == "document":
             span = str(data.get("path") or output or "")[:300]
