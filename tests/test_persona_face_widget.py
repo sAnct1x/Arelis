@@ -266,6 +266,9 @@ def test_a_blink_does_not_bring_the_orb_back(qt_app):
     panel.tick()
     assert panel.form() == "face"
     assert panel.avatar.reveal == 1.0
+    # The panel's own timer would push a fresh frame over the held blink
+    # during processEvents (a race that failed this test now and then).
+    panel._timer.stop()
     held = panel.avatar.frame
     panel.avatar.frame = type(held)(
         held.sway_deg,

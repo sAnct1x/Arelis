@@ -18,7 +18,9 @@ from arelis.ui.persona_face.engine import (
     BLINK_LEVELS,
     MOUTH_LEVELS,
     PHASE_COUNT,
+    SMILE_LEVELS,
     VIEW,
+    WINK_LEVELS,
     bake_layers,
     raster_size,
     smooth,
@@ -29,6 +31,9 @@ from arelis.ui.void_idle import paint_orbit
 
 _LOG = logging.getLogger("arelis.persona_face")
 _LIGHT = ("wisps", "ring", "star")
+# Added v12 frames are kept as their box only. The approved eye, gaze and
+# mouth frames keep their full plate so the rest pose draws exactly as before.
+_PATCHES = ("wink_", "smile_", "glance_")
 # Dock layout moves for a few frames at startup. Wait, then key the snapped size.
 SETTLE_MS = 400
 # 16 px buckets so a layout jitter of a few pixels hits the same file.
@@ -39,6 +44,19 @@ FACE_ZOOM = 2.0
 # Half the width of everything she draws, ring included, in view units. The
 # ring reaches about +-0.715; the rest is room for its glow.
 CONTENT_HALF = 0.74
+# v12 head motion on a flat plate. A nod dips the head (a fraction of the
+# plate height) and, in the deeper part of a nod, squashes it a little in y.
+# A turn slides the layers apart: back hair one way, front hair and star the
+# other, a fraction of the plate width. A horizontal squash on the turn was
+# tried and dropped: an uneven scale under the tilt takes Qt off its fast
+# rotate path (+20 % paint time all the time), and the parallax alone reads
+# as the turn. The nod squash only runs during a nod, so it costs little.
+NOD_SHIFT = 0.010
+NOD_SQUASH = 0.012
+NOD_SQUASH_FROM = 0.25
+TURN_SQUASH = 0.0
+TURN_PARALLAX = 0.008
+DEPTH = {"back": -1.0, "wisps": -0.6, "front": 0.7, "star": 0.9}
 
 
 def snap_px(width: int) -> int:
@@ -197,6 +215,7 @@ class PersonaAvatar(QWidget):
         self._images: dict[str, QImage] = {}
         self._rest: QImage | None = None
         self._shapes: dict[str, tuple[int, int]] = {}
+        self._crops: dict[str, tuple[float, float, float, float]] = {}
         self._bake_ready = False
         self._bake_error = ""
         self._thread_name = ""
@@ -303,6 +322,9 @@ class PersonaAvatar(QWidget):
         self._bake_error = str(payload.get("error", ""))
         layers = payload.get("layers") or {}
         for name, array in layers.items():
+            if name.startswith(_PATCHES):
+                self._store_patch(name, array)
+                continue
             self._images[name] = _qimage(array)
         rest = payload.get("rest")
         if rest is not None:
@@ -317,6 +339,37 @@ class PersonaAvatar(QWidget):
             _LOG.info("persona face ready %.6f", self.cache_ready_perf)
             self.layers_in.emit()
         self.update()
+
+    def _store_patch(self, name: str, array: np.ndarray) -> None:
+        """Wink, smile and glance frames are small boxes on a full-size canvas.
+        Keep the box only, so an overlay paints the box instead of the plate."""
+        height, width = array.shape[:2]
+        alpha = array[..., 3]
+        rows = np.flatnonzero(alpha.any(axis=1))
+        cols = np.flatnonzero(alpha.any(axis=0))
+        if rows.size == 0 or cols.size == 0:
+            self._images[name] = _qimage(array)
+            self._crops.pop(name, None)
+            return
+        # Two clear pixels around the box keep the bilinear edge the same.
+        y0 = max(0, int(rows[0]) - 2)
+        y1 = min(height, int(rows[-1]) + 3)
+        x0 = max(0, int(cols[0]) - 2)
+        x1 = min(width, int(cols[-1]) + 3)
+        self._images[name] = _qimage(array[y0:y1, x0:x1])
+        self._crops[name] = (x0 / width, y0 / height, (x1 - x0) / width, (y1 - y0) / height)
+
+    def _target(self, name: str, rect: QRectF) -> QRectF:
+        crop = self._crops.get(name)
+        if crop is None:
+            return rect
+        fx, fy, fw, fh = crop
+        return QRectF(
+            rect.x() + fx * rect.width(),
+            rect.y() + fy * rect.height(),
+            fw * rect.width(),
+            fh * rect.height(),
+        )
 
     def shutdown(self) -> None:
         """Stop the bake before this widget is destroyed.
@@ -550,16 +603,41 @@ class PersonaAvatar(QWidget):
             )
         painter.restore()
 
+    def head_transform(self, rect: QRectF) -> QTransform:
+        """Sway, tilt, nod and breath about the neck. Rest pose is unchanged."""
+        frame = self.frame
+        pivot = self._map(0.0, 0.36, rect)
+        breath = 1.0 + 0.004 * frame.breath
+        scale_x = breath
+        scale_y = breath
+        shift = frame.bob * 4.0
+        if frame.nod:
+            dip = (frame.nod - NOD_SQUASH_FROM) / (1.0 - NOD_SQUASH_FROM)
+            if dip > 0.0:
+                scale_y *= 1.0 - NOD_SQUASH * min(1.0, dip)
+            shift += NOD_SHIFT * frame.nod * rect.height()
+        if TURN_SQUASH and frame.turn:
+            scale_x *= 1.0 - TURN_SQUASH * min(1.0, abs(frame.turn))
+        transform = QTransform()
+        transform.translate(pivot.x(), pivot.y() + shift)
+        transform.rotate(frame.sway_deg + frame.roll_deg)
+        transform.scale(scale_x, scale_y)
+        transform.translate(-pivot.x(), -pivot.y())
+        return transform
+
+    def _depth(self, transform: QTransform, rect: QRectF, kind: str) -> QTransform:
+        """Turn parallax: the same head transform, slid by this layer's depth."""
+        turn = self.frame.turn
+        depth = DEPTH.get(kind, 0.0)
+        if not turn or not depth:
+            return transform
+        return transform * QTransform.fromTranslate(
+            turn * depth * TURN_PARALLAX * rect.width(), 0.0
+        )
+
     def _paint_face(self, painter: QPainter) -> None:
         rect = self._face_rect()
-        pivot = self._map(0.0, 0.36, rect)
-        breath = 1.0 + 0.004 * self.frame.breath
-        sway = self.frame.sway_deg
-        transform = QTransform()
-        transform.translate(pivot.x(), pivot.y() + self.frame.bob * 4.0)
-        transform.rotate(sway)
-        transform.scale(breath, breath)
-        transform.translate(-pivot.x(), -pivot.y())
+        transform = self.head_transform(rect)
         sharp = self.sharpness()
         if sharp < 0.999:
             which = "blur_wide" if sharp < 0.45 else "blur_soft"
@@ -574,19 +652,26 @@ class PersonaAvatar(QWidget):
             painter.restore()
         painter.save()
         painter.setOpacity(self.reveal * sharp)
-        self._blit_phase(painter, "back", rect, transform)
-        self._blit(painter, "wisps", rect, dx=self.frame.wisp_x * 8.0, dy=self.frame.wisp_y * 6.0)
+        self._blit_phase(painter, "back", rect, self._depth(transform, rect, "back"))
+        drift = self.frame.turn * DEPTH["wisps"] * TURN_PARALLAX * rect.width()
+        self._blit(
+            painter,
+            "wisps",
+            rect,
+            dx=self.frame.wisp_x * 8.0 + drift,
+            dy=self.frame.wisp_y * 6.0,
+        )
         self._blit(painter, "face", rect, transform, light=False)
         self._blit_mouth(painter, rect, transform)
         self._blit_eyes(painter, rect, transform)
-        self._blit_phase(painter, "front", rect, transform)
+        self._blit_phase(painter, "front", rect, self._depth(transform, rect, "front"))
         painter.setOpacity(self.reveal * sharp * self.frame.ring)
         self._blit(painter, "ring", rect, transform, light=True)
         if self.reveal >= 0.999:
             # The baked star's soft fringe scaled into a dark ring on a light
             # dock. The clip is the same four-point spark, drawn here.
             home = self._map(STAR_AT[0], STAR_AT[1], rect)
-            mapped = transform.map(home)
+            mapped = self._depth(transform, rect, "star").map(home)
             self.star_anchor = mapped
             fade = max(0.0, min(1.0, self.frame.star * (1.15 if self.thinking else 1.0)))
             self._draw_spark(painter, mapped, rect.width() * 0.055, fade)
@@ -624,7 +709,7 @@ class PersonaAvatar(QWidget):
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         if transform is not None:
             painter.setTransform(transform, True)
-        painter.drawImage(rect.translated(dx, dy), image)
+        painter.drawImage(self._target(name, rect.translated(dx, dy)), image)
         painter.restore()
 
     def _phase_pair(self) -> tuple[int, int, float]:
@@ -681,10 +766,10 @@ class PersonaAvatar(QWidget):
         base = painter.opacity()
         if first is not None and mix < 0.999:
             painter.setOpacity(base * (1.0 - mix))
-            painter.drawImage(rect, first)
+            painter.drawImage(self._target(names[0], rect), first)
         if second is not None and mix > 0.001:
             painter.setOpacity(base * mix)
-            painter.drawImage(rect, second)
+            painter.drawImage(self._target(names[1], rect), second)
         painter.restore()
 
     def _blit_mouth(self, painter: QPainter, rect: QRectF, transform: QTransform) -> None:
@@ -693,6 +778,35 @@ class PersonaAvatar(QWidget):
         self._blit_pair(
             painter, (f"mouth_{index}", f"mouth_{index + 1}"), level - index, rect, transform
         )
+        # The warm smile is a closed-mouth frame. It gives way as the lips part.
+        open_by = min(1.0, max(0.0, self.frame.mouth) / 0.25)
+        smile = max(0.0, min(1.0, self.frame.smile)) * (1.0 - open_by)
+        if smile > 0.01:
+            self._blit_overlay(
+                painter, "smile", "mouth_0", len(SMILE_LEVELS), smile, rect, transform
+            )
+
+    def _blit_overlay(
+        self,
+        painter: QPainter,
+        prefix: str,
+        rest: str,
+        count: int,
+        amount: float,
+        rect: QRectF,
+        transform: QTransform,
+    ) -> None:
+        """Added frames over the approved ones: 0 is the rest frame, count is full."""
+        level = max(0.0, min(0.999, amount)) * count
+        index = int(level)
+        first = rest if index == 0 else f"{prefix}_{index}"
+        second = f"{prefix}_{index + 1}"
+        if second not in self._images:
+            return
+        painter.save()
+        painter.setOpacity(painter.opacity() * min(1.0, amount / 0.25))
+        self._blit_pair(painter, (first, second), level - index, rect, transform)
+        painter.restore()
 
     def _blit_eyes(self, painter: QPainter, rect: QRectF, transform: QTransform) -> None:
         blink = max(0.0, min(0.999, self.frame.blink))
@@ -707,6 +821,18 @@ class PersonaAvatar(QWidget):
             else:
                 self._blit_pair(
                     painter, ("gaze_0", "gaze_2"), min(1.0, -gaze / 0.008), rect, transform
+                )
+            glance = self.frame.glance
+            name = "glance_0" if glance < 0.0 else "glance_1"
+            if abs(glance) > 0.02 and name in self._images:
+                painter.save()
+                painter.setOpacity(painter.opacity() * min(1.0, abs(glance)))
+                self._blit(painter, name, rect, transform, light=False)
+                painter.restore()
+            wink = self.frame.wink
+            if wink > 0.01:
+                self._blit_overlay(
+                    painter, "wink", "eye_0", len(WINK_LEVELS), wink, rect, transform
                 )
             return
         level = blink * (len(BLINK_LEVELS) - 1)

@@ -132,6 +132,9 @@ class PersonaPanel(QWidget):
         elif name == "done":
             self._speaking = False
             self._done_at = now
+            # Reply finished: a warm smile eases in, then out.
+            if self._mode == "face":
+                self._motion.cue("smile", now)
             if self._mode == "orb":
                 self._begin("bloom", now)
             if self._mode == "face":
@@ -163,6 +166,14 @@ class PersonaPanel(QWidget):
         self._push(now, 0.0)
         self._apply_interval()
         self.update()
+
+    def set_chat_side(self, side: float) -> None:
+        """Where the chat is from her: -1 to the left (dock on the right), +1 right."""
+        self._motion.chat_side = -1.0 if side < 0.0 else 1.0
+
+    def cue(self, name: str) -> None:
+        """Trigger one motion event now: smile, wink, nod, look or glance."""
+        self._motion.cue(name, self._now())
 
     def set_level_source(self, source: Callable[[], float | None] | None) -> None:
         self._level = source
@@ -277,6 +288,8 @@ class PersonaPanel(QWidget):
                 self._mode = "face"
                 self.avatar.reveal = 1.0
                 self._wake_end()
+                # Greeting: she smiles as she arrives.
+                self._motion.cue("smile", now)
                 if (
                     self._state in {"rest", "done"}
                     and not self._speaking

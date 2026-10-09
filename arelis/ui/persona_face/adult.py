@@ -151,8 +151,11 @@ class AdultRig(face2.Rig):
         finally:
             self._w = w0
 
-    def mouth(self, cv, X, Y, m, e):
+    def mouth(self, cv, X, Y, m, e, smile=0.0):
         if self.skip_mouth:
+            return
+        if smile:
+            super().mouth(cv, X, Y, m, e, smile=smile)
             return
         super().mouth(cv, X, Y, m, e)
 

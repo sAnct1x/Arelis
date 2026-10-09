@@ -856,14 +856,20 @@ class Rig:
         wing = w0 + np.array([sx * 0.010, -0.004 * (1 - b) + 0.001 * b]) * tt
         cv.splat_shade(self._w(wing), 0.16 * (1 - tt[:, 0]) + 0.03, 0.8)
 
-    def mouth(self, cv, X, Y, m, e):
+    def mouth(self, cv, X, Y, m, e, smile=0.0):
         pal = PAL
         mw = MOUTH_HW * (1 - 0.13 * m)
+        if smile:
+            # Added smile frames only. smile=0 is the approved mouth, untouched.
+            mw = mw * (1 + 0.10 * smile)
         u = X / mw
         uc = np.clip(u, -1, 1)
         q = np.clip(1 - uc**2, 0, 1)
         my = Y - MOUTH_Y
         line = -0.0072 * (1 - 0.45 * m) * uc**2 + 0.0016 * np.exp(-((uc / 0.22) ** 2))
+        if smile:
+            # Corners lift into a warmer curve; the middle stays where it was.
+            line = line - smile * 0.0068 * uc**4 - smile * 0.0016 * uc**2
         yU = line - m * 0.0085 * q**1.0
         yL = line + m * 0.029 * q**0.85
         inu = smooth((1 - np.abs(u)) / 0.06)
@@ -894,11 +900,14 @@ class Rig:
         # parting line when closed, little smile corners, soft hollow under the lip
         part = np.exp(-(((my - line) / 0.0021) ** 2)) * smooth((1.03 - np.abs(u)) / 0.06)
         cv.shade(0.95 * part * (1 - ss(0.0, 0.18, m)))
+        corner_y = line_at(1.0) * (1 - 0.45 * m) - 0.0012
+        if smile:
+            corner_y = corner_y - smile * 0.0084
         for sx in (-1, 1):
             cv.shade(
                 0.32
                 * (1 - 0.7 * ss(0.1, 0.5, m))
-                * g2(X, my, sx * mw * 1.03, line_at(1.0) * (1 - 0.45 * m) - 0.0012, 0.0030, 0.0026)
+                * g2(X, my, sx * mw * 1.03, corner_y, 0.0030, 0.0026)
             )
         cv.shade(0.14 * g2(X, my, 0, 0.0165 + m * 0.029 + 0.012, 0.022, 0.0055))
 

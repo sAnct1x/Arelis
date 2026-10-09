@@ -57,7 +57,7 @@ def cache_key(width: int, height: int, dpr: float) -> str:
 def _is_base(name: str) -> bool:
     if name in _BASE or name in {"back_0", "front_0"}:
         return True
-    return name.startswith(("mouth_", "eye_", "gaze_"))
+    return name.startswith(("mouth_", "eye_", "gaze_", "wink_", "smile_", "glance_"))
 
 
 def _split(layers: dict[str, np.ndarray]) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:

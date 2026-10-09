@@ -114,6 +114,13 @@ class Frame:
     mouth: float
     slow: float
     t: float = 0.0
+    # v12 motion. All zero is the approved rest pose.
+    wink: float = 0.0
+    smile: float = 0.0
+    roll_deg: float = 0.0
+    nod: float = 0.0
+    turn: float = 0.0
+    glance: float = 0.0
 
 
 class Mouth:
@@ -136,7 +143,10 @@ class Mouth:
         else:
             env = 0.0 if loudness < 0.0 else (1.0 if loudness > 1.0 else float(loudness))
         self._level = _follow(self._level, env, dt, ATTACK_S, RELEASE_S)
-        self.slow = _follow(self.slow, env, dt, SLOW_ATTACK_S, SLOW_RELEASE_S)
+        # The slow envelope drives head sway. A dt=0 push (a state change) must
+        # not jump it straight to the target.
+        if dt > 0.0:
+            self.slow = _follow(self.slow, env, dt, SLOW_ATTACK_S, SLOW_RELEASE_S)
         self.openness = mouth_from_follower(self._level) if speaking or self._level > 0.0 else 0.0
         if not speaking:
             self.openness = mouth_from_follower(self._level)
@@ -185,6 +195,96 @@ class _Blinks:
         return amount, edge
 
 
+# Head limits. The face is a flat plate, so the turn is only a little parallax
+# and a squash; past these it starts to read as a warp.
+MAX_ROLL_DEG = 3.0
+MAX_NOD = 1.0
+MAX_TURN = 1.0
+HAIR_REACH = 1.35
+
+
+def _soft_clip(x: float, limit: float) -> float:
+    """Smooth saturation: linear near zero, never a hard stop."""
+    return limit * math.tanh(x / limit)
+
+
+def _bump(age: float, rise: float, hold: float, fall: float) -> float:
+    """0 -> 1 -> 0 with eased ends. Zero outside the event, so nothing snaps."""
+    if age <= 0.0:
+        return 0.0
+    if age < rise:
+        return _smooth(age / rise)
+    age -= rise
+    if age < hold:
+        return 1.0
+    age -= hold
+    if age < fall:
+        return 1.0 - _smooth(age / fall)
+    return 0.0
+
+
+class _Events:
+    """Random, non-periodic events. Each gap is hashed from its own serial."""
+
+    def __init__(self, seed: int, first: float, low: float, high: float) -> None:
+        self._seed = seed
+        self._serial = 1
+        self._low = low
+        self._high = high
+        self.start: float | None = None
+        self.next = first + (high - low) * 0.5 * (0.5 + 0.5 * _hash(0, seed))
+        self.size = 1.0
+
+    def roll(self) -> float:
+        value = 0.5 + 0.5 * _hash(self._serial, self._seed + 3)
+        self._serial += 1
+        return value
+
+    def fire(self, t: float, size: float = 1.0) -> None:
+        self.start = t
+        self.size = size
+
+    def due(self, t: float, allowed: bool) -> bool:
+        if t < self.next:
+            return False
+        gap = self._low + (self._high - self._low) * self.roll()
+        self.next = t + gap
+        return allowed
+
+    def age(self, t: float) -> float:
+        return -1.0 if self.start is None else t - self.start
+
+    def active(self, t: float, length: float) -> bool:
+        """Still playing. A new one must not restart it mid-way, or it snaps."""
+        return self.start is not None and 0.0 <= t - self.start < length
+
+
+def _ease_to(current: float, target: float, dt: float, tau: float) -> float:
+    """Exponential ease that holds still on dt=0 (a state change mid-frame)."""
+    if dt <= 0.0:
+        return current
+    return current + (1.0 - math.exp(-dt / tau)) * (target - current)
+
+
+def _follow_abs(current: float, target: float, dt: float, out: float, back: float) -> float:
+    """Ease toward target, faster away from zero; holds still on dt=0."""
+    tau = out if abs(target) > abs(current) else back
+    if dt <= 0.0:
+        return current
+    return current + (1.0 - math.exp(-dt / tau)) * (target - current)
+
+
+def wink_amount(age: float) -> float:
+    """A wink is a slower, held blink on one eye."""
+    return _bump(age, 0.11, 0.16, 0.22)
+
+
+# Event lengths, so a new event never cuts one that is still playing.
+WINK_S = 0.11 + 0.16 + 0.22
+NOD_S = 0.32 + 0.10 + 0.55
+LOOK_S = 0.7 + 1.6 + 0.9
+
+
 class Motion:
     """Continuous sway, breath, hair drift, gaze, blinks, and the mouth."""
 
@@ -192,6 +292,39 @@ class Motion:
         self._seed = int(seed)
         self._mouth = Mouth(seed=seed + 11)
         self._blinks = _Blinks(seed)
+        # v12: winks, smiles, nods, looks and glances are random events.
+        self._winks = _Events(seed + 31, 14.0, 22.0, 70.0)
+        self._smiles = _Events(seed + 32, 9.0, 14.0, 34.0)
+        self._nods = _Events(seed + 33, 4.0, 5.0, 13.0)
+        self._looks = _Events(seed + 34, 6.0, 7.0, 18.0)
+        self._glances = _Events(seed + 35, 2.0, 2.2, 6.5)
+        self._smile = 0.0
+        self._glance = 0.0
+        self._glance_to = 0.0
+        self._smile_hold = 1.8
+        self._look_side = 1.0
+        self._was_speaking = False
+        self.chat_side = -1.0
+        self._calm: float | None = None
+        self._hair_rate = 1.0
+        self._hair_offset = 0.0
+        self._talk = 0.0
+
+    def cue(self, name: str, t: float) -> None:
+        """Panel cues: a greeting or a finished reply smiles; tests can wink."""
+        if name == "smile":
+            self._smiles.fire(t, 1.0)
+            self._smile_hold = 2.2
+        elif name == "wink" and not self._winks.active(t, WINK_S):
+            self._winks.fire(t, 1.0)
+        elif name == "nod" and not self._nods.active(t, NOD_S):
+            self._nods.fire(t, 1.0)
+        elif name == "look" and not self._looks.active(t, LOOK_S):
+            self._looks.fire(t, 1.0)
+            self._look_side = -self._look_side
+        elif name == "glance":
+            self._glances.fire(t, 1.0)
+            self._glance_to = 0.85 if self._glance_to <= 0.0 else -0.85
 
     def step(
         self,
@@ -203,11 +336,23 @@ class Motion:
         model_busy: bool,
         loudness: float | None,
     ) -> Frame:
-        calm = 0.72 if state == "thinking" else 1.0
+        goal = 0.72 if state == "thinking" else 1.0
         if model_busy:
-            calm *= 0.5
-        # Busy hair walks the same noise more slowly, and with less reach.
-        hair_t = t * (0.45 if model_busy else 1.0)
+            goal *= 0.5
+        # Calm eases in and out, so a state change never jumps her pose.
+        if self._calm is None:
+            self._calm = goal
+        self._calm = _ease_to(self._calm, goal, dt, 0.6)
+        calm = self._calm
+        # Busy hair walks the same noise more slowly, and with less reach. The
+        # clock keeps its place when the rate changes, so the hair never skips.
+        rate = 0.45 if model_busy else 1.0
+        if rate != self._hair_rate:
+            self._hair_offset += (self._hair_rate - rate) * t
+            self._hair_rate = rate
+        hair_t = rate * t + self._hair_offset
+        talk_goal = 1.0 if speaking else 0.0
+        self._talk = _follow_abs(self._talk, talk_goal, dt, 0.5, 0.8)
         sway = 0.55 * calm * fbm(t, self._seed + 1, (0.11, 0.23, 0.41, 0.67))
         bob = 0.35 * calm * fbm(t, self._seed + 2, (0.09, 0.19, 0.37))
         breath = calm * fbm(t, self._seed + 3, (0.07, 0.13, 0.29))
@@ -227,9 +372,16 @@ class Motion:
         ring = 0.78 + 0.22 * (0.5 + 0.5 * fbm(t, self._seed + 15, (0.15, 0.33)))
         blink, edge = self._blinks.step(t)
         mouth = self._mouth.step(loudness, dt, speaking=speaking)
-        extra = self._mouth.slow if speaking else 0.0
+        # The slow envelope decays on its own after speech, so no snap at the end.
+        extra = self._mouth.slow
         sway -= 0.25 * extra * calm
         bob += 0.2 * extra * calm
+        lively = not model_busy and state != "thinking"
+        head = self._head(t, dt, calm, lively=lively, speaking=speaking)
+        # Hair reaches a little further along the same noise. Soft clip, so it
+        # eases at the ends of the baked sweep instead of stopping there.
+        hair_tip = _soft_clip(HAIR_REACH * hair_tip, 1.0)
+        self._was_speaking = speaking
         return Frame(
             sway_deg=max(-0.6, min(0.6, sway)),
             bob=bob,
@@ -248,4 +400,61 @@ class Motion:
             mouth=mouth,
             slow=self._mouth.slow,
             t=t,
+            **head,
         )
+
+    def _head(self, t: float, dt: float, calm: float, *, lively: bool, speaking: bool) -> dict:
+        """Wink, smile, tilt, nod, turn and glance. Noise plus eased events."""
+        seed = self._seed
+        # Wink: rare and random, never while she talks or the model works.
+        if self._winks.due(t, lively and not speaking and not self._winks.active(t, WINK_S)):
+            self._winks.fire(t)
+        wink = wink_amount(self._winks.age(t))
+        # Smile: cued on a greeting or a finished reply, sometimes when idle.
+        if self._smiles.due(t, lively and not speaking):
+            self._smiles.fire(t, 0.6 + 0.4 * self._smiles.roll())
+            self._smile_hold = 1.2 + 1.8 * self._smiles.roll()
+        target = self._smiles.size * _bump(self._smiles.age(t), 0.0, self._smile_hold, 0.0)
+        if not lively:
+            target *= 0.4
+        self._smile = _follow_abs(self._smile, target, dt, 0.35, 0.70)
+        smile = max(0.0, min(1.0, self._smile))
+        # Tilt: slow noise, a little more while smiling.
+        roll = 2.1 * calm * fbm(t, seed + 41, (0.045, 0.10, 0.21)) + 0.9 * smile
+        # Nods: an occasional dip and lift; small, more often while talking.
+        if self._nods.due(t, lively and not self._nods.active(t, NOD_S)):
+            self._nods.fire(t, 0.55 + 0.45 * self._nods.roll())
+        if speaking and self._nods.next - t > 4.0:
+            self._nods.next = t + 1.6 + 2.4 * self._nods.roll()
+        nod = self._nods.size * _bump(self._nods.age(t), 0.32, 0.10, 0.55)  # NOD_S
+        nod = nod * calm + 0.18 * calm * fbm(t, seed + 42, (0.07, 0.15))
+        # Turn: slow drift plus a look to one side now and then; toward the chat
+        # while she speaks.
+        if self._looks.due(t, lively and not speaking and not self._looks.active(t, LOOK_S)):
+            self._looks.fire(t)
+            self._look_side = 1.0 if self._looks.roll() > 0.5 else -1.0
+        look = self._look_side * _bump(self._looks.age(t), 0.7, 1.6, 0.9)
+        turn = 0.35 * calm * fbm(t, seed + 43, (0.03, 0.07, 0.13)) + 0.75 * calm * look
+        turn += 0.45 * self.chat_side * self._talk * calm
+        # Glance: a saccade (fast), a hold, then settle back (slower).
+        if self._glances.due(t, True):
+            side = 1.0 if self._glances.roll() > 0.5 else -1.0
+            self._glances.fire(t, 0.55 + 0.45 * self._glances.roll())
+            self._glance_to = side
+        aim = self._glance_to * self._glances.size * _bump(self._glances.age(t), 0.0, 0.7, 0.0)
+        if speaking:
+            # Mostly toward the chat, back to the user between glances.
+            aim = 0.8 * self.chat_side * self._talk if abs(aim) < 0.01 else aim * 0.5
+        if look:
+            aim += 0.6 * look
+        aim *= (0.5 + 0.5 * calm) * (1.0 - wink)
+        # Out fast (a saccade), back slower (the settle).
+        self._glance = _follow_abs(self._glance, aim, dt, 0.045, 0.16)
+        return {
+            "wink": wink,
+            "smile": smile,
+            "roll_deg": _soft_clip(roll, MAX_ROLL_DEG),
+            "nod": _soft_clip(nod, MAX_NOD),
+            "turn": _soft_clip(turn, MAX_TURN),
+            "glance": max(-1.0, min(1.0, self._glance)),
+        }

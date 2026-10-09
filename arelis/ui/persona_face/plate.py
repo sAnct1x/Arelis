@@ -19,6 +19,12 @@ POSE = (0.0, 0.0, 0.0, 1.0)
 BLINK_LEVELS = (0.0, 0.25, 0.5, 0.75, 1.0)
 GAZE_LEVELS = ((0.0, 0.0), (0.012, -0.01), (-0.008, 0.004))
 MOUTH_LEVELS = tuple(i / 7.0 for i in range(8))
+# Added motion frames (v12). The approved eye, gaze and mouth frames are not
+# touched; these are extra patches crossfaded over them.
+WINK_LEVELS = BLINK_LEVELS[1:]
+WINK_SIDE = 1
+SMILE_LEVELS = (0.5, 1.0)
+GLANCE_LEVELS = ((-0.015, 0.001), (0.014, -0.002))
 # One smooth sweep of the renderer's own hair drift. The ends are different
 # poses, so playback walks inside the list and never wraps.
 PHASE_COUNT = 36
@@ -676,19 +682,29 @@ def _skin_canvas(rig: V24Rig, width: int, height: int, cover: np.ndarray) -> Can
     return cv
 
 
-def _draw_eyes(rig: V24Rig, cv: Canvas2, blink: float, gaze: tuple[float, float]) -> None:
+def _draw_eyes(
+    rig: V24Rig,
+    cv: Canvas2,
+    blink: float,
+    gaze: tuple[float, float],
+    wink: float | None = None,
+) -> None:
     rig._pose = POSE
     local_x, local_y = rig.to_local(cv.X, cv.Y, POSE)
     stretched = face2.EYE_Y + (local_y - face2.EYE_Y) * face2.VSTRETCH
     edge = cv.px * 1.2
     for sign in (-1, 1):
-        rig.eye(cv, local_x, stretched, sign, blink, gaze, edge)
+        lid = wink if (wink is not None and sign == WINK_SIDE) else blink
+        rig.eye(cv, local_x, stretched, sign, lid, gaze, edge)
 
 
-def _draw_mouth(rig: V24Rig, cv: Canvas2, mouth: float) -> None:
+def _draw_mouth(rig: V24Rig, cv: Canvas2, mouth: float, smile: float = 0.0) -> None:
     rig._pose = POSE
     local_x, local_y = rig.to_local(cv.X, cv.Y, POSE)
     stretched = face2.MOUTH_Y + (local_y - face2.MOUTH_Y) * face2.VSTRETCH
+    if smile:
+        rig.mouth(cv, local_x, stretched, mouth, cv.px * 1.2, smile=smile)
+        return
     rig.mouth(cv, local_x, stretched, mouth, cv.px * 1.2)
 
 
@@ -703,15 +719,17 @@ def _feature_patch(
     box: tuple[float, float, float, float],
     eyes: bool,
     lips: bool,
+    wink: float | None = None,
+    smile: float = 0.0,
 ) -> np.ndarray:
     cv = _clone(skin)
     rig._cover = cover
     if eyes:
         rig.skip_eyes = False
-        _draw_eyes(rig, cv, blink, gaze)
+        _draw_eyes(rig, cv, blink, gaze, wink)
     if lips:
         rig.skip_mouth = False
-        _draw_mouth(rig, cv, mouth)
+        _draw_mouth(rig, cv, mouth, smile)
     return _world_box(to_premul(cv, 1.02, face=True), box)
 
 
@@ -787,6 +805,37 @@ def _bake_layers(
             box=mouth_box,
             eyes=False,
             lips=True,
+        )
+    # Motion frames: a one-eye wink, a closed warm smile, and wide glances.
+    for index, lid in enumerate(WINK_LEVELS, start=1):
+        layers[f"wink_{index}"] = _feature_patch(
+            rig,
+            skin,
+            cover,
+            mouth=0.0,
+            blink=0.0,
+            gaze=(0.0, 0.0),
+            box=eye_box,
+            eyes=True,
+            lips=False,
+            wink=lid,
+        )
+    for index, warm in enumerate(SMILE_LEVELS, start=1):
+        layers[f"smile_{index}"] = _feature_patch(
+            rig,
+            skin,
+            cover,
+            mouth=0.0,
+            blink=0.0,
+            gaze=(0.0, 0.0),
+            box=mouth_box,
+            eyes=False,
+            lips=True,
+            smile=warm,
+        )
+    for index, look in enumerate(GLANCE_LEVELS):
+        layers[f"glance_{index}"] = _feature_patch(
+            rig, skin, cover, mouth=0.0, blink=0.0, gaze=look, box=eye_box, eyes=True, lips=False
         )
     layers["ring"] = _paint_ring(rig, width, height)
     layers["star"] = _paint_star(rig, width, height)
