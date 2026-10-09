@@ -97,6 +97,55 @@ async def test_whats_the_average_of_column_b_in_my_data_csv(tmp_path: Path) -> N
     assert "20" in result.output
 
 
+async def test_whats_the_average_shows_even_without_print(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    (room / "data.csv").write_text("A,B\n1,10\n2,30\n3,20\n", encoding="utf-8")
+    result = await tool.run(
+        code='read_table("data.csv")["B"].mean()',
+        files=["data.csv"],
+    )
+    assert result.ok, result.output
+    assert "20" in result.output
+
+
+async def test_show_me_my_data_prints_the_table(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    (room / "data.csv").write_text("A,B\n1,10\n2,30\n3,20\n", encoding="utf-8")
+    result = await tool.run(code='read_table("data.csv")', files=["data.csv"])
+    assert result.ok, result.output
+    assert "B" in result.output
+    assert "10" in result.output
+
+
+async def test_plot_temperature_over_time_saves_an_open_figure(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    (room / "readings.csv").write_text(
+        "time,temperature,B\n1,10,2\n2,30,4\n3,20,6\n",
+        encoding="utf-8",
+    )
+    result = await tool.run(
+        code=(
+            "import matplotlib.pyplot as plt\n"
+            "df = read_table('readings.csv')\n"
+            "plt.plot(df['time'], df['temperature'])\n"
+        ),
+        files=["readings.csv"],
+    )
+    assert result.ok, result.output
+    png = room / "results" / "chart.png"
+    assert png.is_file()
+    assert png.stat().st_size > 0
+    assert result.data.get("abs_path") == str(png.resolve())
+
+
+async def test_code_that_prints_nothing_says_so(tmp_path: Path) -> None:
+    tool, _room = _tool(tmp_path)
+    result = await tool.run(code="x = 1\n", files=[])
+    assert result.ok, result.output
+    assert "printed nothing" in result.output
+    assert result.output != "Done."
+
+
 async def test_a_datetime_column_can_be_read(tmp_path: Path) -> None:
     tool, room = _tool(tmp_path)
     (room / "times.csv").write_text(

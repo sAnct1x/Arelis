@@ -10,6 +10,7 @@ a closed local port and does not copy the parent environment.
 
 from __future__ import annotations
 
+import ast
 import io
 import json
 import os
@@ -475,6 +476,9 @@ def save_png(fig: Any, name: str = "chart.png") -> str:
     dest.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(dest, format="png")
     _account_write(dest)
+    number = getattr(fig, "number", None)
+    if isinstance(number, int):
+        _SAVED_FIGS.add(number)
     return dest.name
 
 
@@ -501,6 +505,73 @@ def _unwrap(code: str) -> str:
 def _emit(payload: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(payload, default=str))
     sys.stdout.write("\n")
+
+
+_SAVED_FIGS: set[int] = set()
+_NOTHING_PRINTED = "The code ran but printed nothing. Print the value you want to show."
+
+
+def _display(value: Any) -> str:
+    if value is None:
+        return ""
+    item = getattr(value, "item", None)
+    module = getattr(type(value), "__module__", "")
+    if callable(item) and str(module).startswith("numpy"):
+        try:
+            return str(item())
+        except Exception:
+            # A numpy value that will not unpack still has a repr.
+            pass
+    head = getattr(value, "head", None)
+    to_string = getattr(value, "to_string", None)
+    if callable(head) and callable(to_string):
+        try:
+            return str(head(30))
+        except Exception:
+            # A table that will not preview still has a repr.
+            return repr(value)
+    return repr(value)
+
+
+def _run_user(code: str, namespace: dict[str, Any]) -> None:
+    """Run the cell. The last bare expression is printed, like a notebook."""
+    tree = ast.parse(code, filename="<data>", mode="exec")
+    if tree.body and isinstance(tree.body[-1], ast.Expr):
+        last = tree.body.pop()
+        if tree.body:
+            exec(compile(tree, "<data>", "exec"), namespace, namespace)
+        value = eval(
+            compile(ast.Expression(last.value), "<data>", "eval"),
+            namespace,
+            namespace,
+        )
+        text = _display(value)
+        if text:
+            print(text)
+        return
+    exec(compile(tree, "<data>", "exec"), namespace, namespace)
+
+
+def _chart_name(index: int) -> str:
+    results = Path(_STATE["results"])
+    if index == 1 and not (results / "chart.png").exists():
+        return "chart.png"
+    number = 2
+    while (results / f"chart-{number}.png").exists():
+        number += 1
+    return f"chart-{number}.png"
+
+
+def _save_open_figures() -> None:
+    """Save figures the code drew and did not pass to save_png."""
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        # No plot library: there is no figure to save.
+        return
+    pending = [number for number in plt.get_fignums() if number not in _SAVED_FIGS]
+    for index, number in enumerate(pending, start=1):
+        save_png(plt.figure(number), _chart_name(index))
 
 
 def _summary(text: str) -> str:
@@ -596,11 +667,8 @@ def main() -> int:
     }
     try:
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            exec(
-                compile(_unwrap(str(request.get("code") or "")), "<data>", "exec"),
-                namespace,
-                namespace,
-            )
+            _run_user(_unwrap(str(request.get("code") or "")), namespace)
+            _save_open_figures()
     except CellBlocked as exc:
         _emit({"ok": False, "error": "refused", "summary": exc.message, "charts": []})
         return 1
@@ -612,7 +680,10 @@ def main() -> int:
         _emit({"ok": False, "error": "failed", "summary": "I couldn't finish that.", "charts": []})
         return 1
     summary = _summary(stdout.getvalue())
-    _emit({"ok": True, "error": "", "summary": summary or "Done.", "charts": _new_charts(before)})
+    charts = _new_charts(before)
+    if not summary and not charts:
+        summary = _NOTHING_PRINTED
+    _emit({"ok": True, "error": "", "summary": summary, "charts": charts})
     return 0
 
 
