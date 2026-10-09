@@ -13,6 +13,8 @@ import logging
 import os
 import queue
 import socket
+import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -46,6 +48,15 @@ RECENT_LIMIT = 40
 # for a slow resolver and short enough that a stuck one cannot pin the UI,
 # the LAN beacon, or a test. macOS CI has hung forever inside getaddrinfo.
 _HOSTNAME_LOOKUP_S = 2.0
+# A fresh DHCP address should show up on the beacon without a lookup on every
+# tick. Thirty seconds is the gap between retries after a successful answer.
+_HOSTNAME_CACHE_S = 30.0
+
+# The real resolver cannot be interrupted. Tests replace getaddrinfo and still
+# use the in-process thread so they can release it. Everyone else runs the
+# lookup in a short-lived process that is killed when the budget runs out,
+# so a stuck resolver does not leave a thread behind.
+_REAL_GETADDRINFO = socket.getaddrinfo
 
 _lookup_lock = threading.Lock()
 _lookup_gen = 0
@@ -55,6 +66,25 @@ _lookup_ips: list[str] = []
 _lookup_error: BaseException | None = None
 _lookup_started = 0.0
 _lookup_warned = False
+_host_ips: list[str] | None = None
+_host_ips_at = 0.0
+_host_lookup_failed = False
+_host_flight = threading.Lock()
+
+_HOSTNAME_CHILD = """\
+import json
+import socket
+found = []
+try:
+    host = socket.gethostname()
+    for info in socket.getaddrinfo(host, None, socket.AF_INET):
+        ip = info[4][0]
+        if ip and not str(ip).startswith("127.") and ip not in found:
+            found.append(ip)
+except OSError:
+    pass
+print(json.dumps(found))
+"""
 
 
 def _ipv4_from_hostname() -> list[str]:
@@ -75,9 +105,12 @@ def _reset_hostname_lookup() -> None:
     call this so one stuck getaddrinfo cannot decide the next case. The
     running app does not: after a stuck lookup, hostname addresses stay
     empty for the rest of the process and list_lan_ipv4 keeps the route.
+    The child-process cache is cleared too, so a timed-out lookup in one
+    test does not hide addresses from the next.
     """
     global _lookup_gen, _lookup_thread, _lookup_done, _lookup_ips
     global _lookup_error, _lookup_started, _lookup_warned
+    global _host_ips, _host_ips_at, _host_lookup_failed
     with _lookup_lock:
         _lookup_gen += 1
         _lookup_thread = None
@@ -87,16 +120,89 @@ def _reset_hostname_lookup() -> None:
         _lookup_error = None
         _lookup_started = 0.0
         _lookup_warned = False
+        _host_ips = None
+        _host_ips_at = 0.0
+        _host_lookup_failed = False
 
 
 def _hostname_ipv4_bounded(timeout_s: float = _HOSTNAME_LOOKUP_S) -> list[str]:
     """IPv4 addresses for this hostname, or [] if the resolver does not answer.
 
-    One daemon thread does the lookup. A second call while that thread is
-    still stuck does not start another, and does not wait out the budget
-    again. Hostname addresses stay empty for the rest of the process.
+    Tests that replace getaddrinfo keep the in-process thread, because that
+    is the call they patch and then release. The real resolver runs in a
+    child process instead. A child that does not answer is killed, so the
+    suite does not collect threads stuck in getaddrinfo. After a timeout,
+    hostname addresses stay empty for the rest of the process.
     list_lan_ipv4 still returns the outbound route address.
     """
+    if socket.getaddrinfo is not _REAL_GETADDRINFO:
+        return _hostname_ipv4_threaded(timeout_s)
+    return _hostname_ipv4_child(timeout_s)
+
+
+def _hostname_ipv4_child(timeout_s: float) -> list[str]:
+    """Resolve in a process we can kill. One lookup at a time."""
+    global _host_ips, _host_ips_at, _host_lookup_failed, _lookup_warned
+    with _host_flight:
+        now = time.monotonic()
+        with _lookup_lock:
+            gen = _lookup_gen
+            if _host_lookup_failed:
+                return []
+            if _host_ips is not None and now - _host_ips_at < _HOSTNAME_CACHE_S:
+                return list(_host_ips)
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-c", _HOSTNAME_CHILD],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            with _lookup_lock:
+                if gen != _lookup_gen:
+                    return []
+                warn = not _lookup_warned
+                _lookup_warned = True
+                _host_lookup_failed = True
+            if warn:
+                log.warning(
+                    "hostname lookup for LAN addresses did not finish within %.1fs",
+                    timeout_s,
+                )
+            return []
+        except OSError:
+            return []
+        ips = _parse_hostname_ips(proc.stdout)
+        with _lookup_lock:
+            if gen != _lookup_gen:
+                return ips
+            _host_ips = ips
+            _host_ips_at = time.monotonic()
+            _host_lookup_failed = False
+        return list(ips)
+
+
+def _parse_hostname_ips(stdout: str) -> list[str]:
+    line = (stdout or "").strip().splitlines()
+    text = line[-1] if line else "[]"
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    found: list[str] = []
+    for item in parsed:
+        ip = str(item)
+        if ip and not ip.startswith("127.") and ip not in found:
+            found.append(ip)
+    return found
+
+
+def _hostname_ipv4_threaded(timeout_s: float) -> list[str]:
+    """In-process lookup for a replaced getaddrinfo. One thread at a time."""
     global _lookup_thread, _lookup_done, _lookup_ips, _lookup_error
     global _lookup_started, _lookup_warned
 
