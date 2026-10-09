@@ -170,6 +170,10 @@ def _read_roots() -> list[Path]:
 
 def _font_read(path: Path) -> bool:
     """Matplotlib opens the OS font folder. That is not the user's files."""
+    return _under_roots(path, _font_roots())
+
+
+def _font_roots() -> list[Path]:
     roots: list[Path] = []
     windir = os.environ.get("SYSTEMROOT", "")
     if windir:
@@ -181,10 +185,64 @@ def _font_read(path: Path) -> bool:
         "/System/Library/Fonts",
     ):
         roots.append(Path(extra))
+    return roots
+
+
+_ZONE_ROOTS: list[Path] | None = None
+
+
+def _zone_roots() -> list[Path]:
+    """OS time zone files pandas opens when tzdata is not installed.
+
+    Each TZPATH entry is kept, and so is its resolved folder. On macOS
+    /usr/share/zoneinfo is a symlink into /var/db/timezone, and the open
+    can show either path.
+    """
+    global _ZONE_ROOTS
+    if _ZONE_ROOTS is not None:
+        return _ZONE_ROOTS
+    found: list[Path] = []
+    try:
+        import zoneinfo
+
+        found.extend(Path(item) for item in zoneinfo.TZPATH if item)
+    except Exception:
+        # No zoneinfo module: the fixed paths below are the whole list.
+        pass
+    for extra in ("/etc/localtime", "/var/db/timezone", "/private/var/db/timezone"):
+        found.append(Path(extra))
+    roots: list[Path] = []
+    for path in found:
+        roots.append(path)
+        try:
+            resolved = Path(os.path.realpath(path))
+        except OSError:
+            continue
+        if os.path.normcase(str(resolved)) != os.path.normcase(str(path)):
+            roots.append(resolved)
+    _ZONE_ROOTS = roots
+    return roots
+
+
+def _under_roots(path: Path, roots: list[Path]) -> bool:
     for root in roots:
         if lexically_inside(path, root) and not reparse_leaves(path, root):
             return True
+    if not is_reparse(path):
+        return False
+    try:
+        target = Path(os.path.realpath(path))
+    except OSError:
+        return False
+    for root in roots:
+        if lexically_inside(target, root) and not reparse_leaves(target, root):
+            return True
     return False
+
+
+def _zone_read(path: Path) -> bool:
+    """Read-only. A write still has to land in the results folder."""
+    return _under_roots(path, _zone_roots())
 
 
 def _library_read(path: Path) -> bool:
@@ -264,7 +322,7 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
         if escapes_tree(path, results):
             raise CellBlocked(WRITE_REFUSAL)
         return
-    if _library_read(path) or _font_read(path):
+    if _library_read(path) or _font_read(path) or _zone_read(path):
         return
     if escapes_tree(path, room):
         raise CellBlocked(READ_REFUSAL)
@@ -513,8 +571,10 @@ def main() -> int:
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as pyplot
+        import numpy
+        import pandas
 
-        del pyplot
+        del pyplot, numpy, pandas
     except Exception:
         # No plot library: tables still run. The font cache is built here,
         # before the guard, because Linux runs fc-list the first time.

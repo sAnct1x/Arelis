@@ -97,6 +97,24 @@ async def test_whats_the_average_of_column_b_in_my_data_csv(tmp_path: Path) -> N
     assert "20" in result.output
 
 
+async def test_a_datetime_column_can_be_read(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    (room / "times.csv").write_text(
+        "when,value\n2024-01-02T03:04:05Z,1\n2024-06-01T00:00:00Z,2\n",
+        encoding="utf-8",
+    )
+    result = await tool.run(
+        code=(
+            "import pandas as pd\n"
+            "df = pd.read_csv('times.csv', parse_dates=['when'])\n"
+            "print(int(df['when'].dt.year.iloc[0]))\n"
+        ),
+        files=["times.csv"],
+    )
+    assert result.ok, result.output
+    assert "2024" in result.output
+
+
 async def test_plot_temperature_over_time_from_readings_csv(tmp_path: Path) -> None:
     tool, room = _tool(tmp_path)
     (room / "readings.csv").write_text(
