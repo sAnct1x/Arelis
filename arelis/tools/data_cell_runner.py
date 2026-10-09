@@ -467,6 +467,9 @@ def read_fits(name: str = "", path: str = "") -> dict[str, Any]:
     return {"header": header, "shape": shape, "columns": columns}
 
 
+_ORIG_SAVEFIG: Any = None
+
+
 def save_png(fig: Any, name: str = "chart.png") -> str:
     os.environ.setdefault("MPLBACKEND", "Agg")
     import matplotlib
@@ -474,7 +477,10 @@ def save_png(fig: Any, name: str = "chart.png") -> str:
     matplotlib.use("Agg", force=False)
     dest = _result_file(name)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(dest, format="png")
+    if _ORIG_SAVEFIG is not None:
+        _ORIG_SAVEFIG(fig, dest, format="png")
+    else:
+        fig.savefig(dest, format="png")
     _account_write(dest)
     number = getattr(fig, "number", None)
     if isinstance(number, int):
@@ -574,6 +580,39 @@ def _save_open_figures() -> None:
         save_png(plt.figure(number), _chart_name(index))
 
 
+def _redirect_savefig() -> None:
+    """pyplot.savefig and Figure.savefig write the basename into results.
+
+    The model calls savefig(\"temp_plot.png\") or savefig(\"results/chart.png\").
+    Those paths are not the results folder, so the hook used to refuse the
+    chart. The basename still goes through save_png, so the caps apply.
+    """
+    global _ORIG_SAVEFIG
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.figure import Figure
+    except Exception:
+        # No plot library: there is no savefig to redirect.
+        return
+    if _ORIG_SAVEFIG is None:
+        _ORIG_SAVEFIG = Figure.savefig
+
+    def _save(fig: Any, fname: Any) -> None:
+        leaf = Path(str(fname or "chart.png")).name or "chart.png"
+        if not leaf.lower().endswith(".png"):
+            leaf += ".png"
+        save_png(fig, leaf)
+
+    def _figure_save(self: Any, fname: Any, *_args: Any, **_kwargs: Any) -> None:
+        _save(self, fname)
+
+    def _pyplot_save(fname: Any, *_args: Any, **_kwargs: Any) -> None:
+        _save(plt.gcf(), fname)
+
+    Figure.savefig = _figure_save  # type: ignore[method-assign]
+    plt.savefig = _pyplot_save  # type: ignore[method-assign]
+
+
 def _summary(text: str) -> str:
     clean = (text or "").strip()
     if len(clean) <= _MAX_SUMMARY:
@@ -667,6 +706,7 @@ def main() -> int:
     }
     try:
         with redirect_stdout(stdout), redirect_stderr(stderr):
+            _redirect_savefig()
             _run_user(_unwrap(str(request.get("code") or "")), namespace)
             _save_open_figures()
     except CellBlocked as exc:

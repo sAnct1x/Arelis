@@ -138,6 +138,35 @@ async def test_plot_temperature_over_time_saves_an_open_figure(tmp_path: Path) -
     assert result.data.get("abs_path") == str(png.resolve())
 
 
+async def test_savefig_lands_in_the_results_folder(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    (room / "readings.csv").write_text(
+        "time,temperature,B\n1,10,2\n2,30,4\n",
+        encoding="utf-8",
+    )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    leak = outside / "leak.png"
+    result = await tool.run(
+        code=(
+            "import matplotlib.pyplot as plt\n"
+            "df = read_table('readings.csv')\n"
+            "plt.plot(df['time'], df['temperature'])\n"
+            "plt.savefig('temp_plot.png')\n"
+            f"plt.savefig(r'{leak}')\n"
+        ),
+        files=["readings.csv"],
+    )
+    assert result.ok, result.output
+    saved = room / "results" / "temp_plot.png"
+    leaked = room / "results" / "leak.png"
+    assert saved.is_file() and saved.stat().st_size > 0
+    assert leaked.is_file()
+    assert not (outside / "leak.png").exists()
+    assert not (room / "temp_plot.png").exists()
+    assert result.data.get("abs_path")
+
+
 async def test_code_that_prints_nothing_says_so(tmp_path: Path) -> None:
     tool, _room = _tool(tmp_path)
     result = await tool.run(code="x = 1\n", files=[])
