@@ -3,7 +3,7 @@ package app.arelis
 import org.json.JSONObject
 
 /**
- * House-served APK. Newer versionCode only — never a downgrade, never a
+ * House-served APK. Newer versionCode only. Never a downgrade, never a
  * guess when the house has no file.
  */
 data class CompanionUpdate(

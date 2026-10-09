@@ -356,7 +356,7 @@ class ArelisClient(
             .build()
         val (code, bytes, _) = unary(req)
         val body = String(bytes, Charsets.UTF_8)
-        if (code == 503) throw IllegalStateException("Open Arelis on the PC — files live there.")
+        if (code == 503) throw IllegalStateException("Open Arelis on the PC. Files live there.")
         if (code == 403) throw IllegalStateException("That path is outside the workspace.")
         if (code !in 200..299) throw IllegalStateException("HTTP $code: $body")
         return JSONObject(body.ifBlank { "{}" })
@@ -370,9 +370,9 @@ class ArelisClient(
             .get()
             .build()
         val (code, bytes, mime) = unary(req)
-        if (code == 413) throw IllegalStateException("File is larger than 8 MB — open it on the PC.")
+        if (code == 413) throw IllegalStateException("File is larger than 8 MB. Open it on the PC.")
         if (code == 403) throw IllegalStateException("That path is outside the workspace.")
-        if (code == 503) throw IllegalStateException("Open Arelis on the PC — files live there.")
+        if (code == 503) throw IllegalStateException("Open Arelis on the PC. Files live there.")
         if (code !in 200..299) throw IllegalStateException("HTTP $code")
         return bytes to mime.ifBlank { "application/octet-stream" }
     }

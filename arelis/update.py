@@ -158,14 +158,14 @@ def updates_supported() -> tuple[bool, str]:
     """Whether this copy may update itself, and in plain words why not when it may not."""
     if sys.platform == "darwin":
         if is_source_checkout():
-            return False, "this is a source checkout -- update it with git pull"
+            return False, "You're running from source. Update it with git."
         if mac_app_root() is None:
             return False, "this copy was not put here by the Arelis app"
         return True, ""
     if sys.platform != "win32":
         return False, "the Arelis installer is Windows-only"
     if is_source_checkout():
-        return False, "this is a source checkout -- update it with git pull"
+        return False, "You're running from source. Update it with git."
     if install_root() is None:
         return False, "this copy was not put here by the Arelis installer"
     return True, ""

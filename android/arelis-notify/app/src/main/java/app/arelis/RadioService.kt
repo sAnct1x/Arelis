@@ -20,7 +20,7 @@ class RadioService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val prefs = Prefs(this)
-        // Bind during first pair too — the PC needs this listen URL in POST
+        // Bind during first pair too. The PC needs this listen URL in POST
         // /inbound/pair. Auth is still the device key; unpaired means the PC
         // does not have it yet.
         ensureChannel()
