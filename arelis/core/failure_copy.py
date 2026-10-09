@@ -402,8 +402,11 @@ def followup_passthrough_tool(tool: str, line: str, raw: str) -> str:
 _TEMP_NOTE = re.compile(r"\s*Temperature conversions use an offset\b.*$", re.S)
 _CLEAN_UNIT_RHS = re.compile(
     r"^(?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s+"
-    r"(?P<unit>[A-Za-z]+(?:_[A-Za-z]+)*)$"
+    r"(?P<unit>[A-Za-z]+(?:/[A-Za-z]+)?(?:_[A-Za-z]+)*)$"
 )
+# Published constants append ", source: CODATA ..." after the quantity.
+# That trailer is for the model, not the spoken number.
+_CONSTANT_SOURCE = re.compile(r"\s*,\s*source:\s.*$", re.I | re.S)
 _CLEAN_NUM_RHS = re.compile(
     r"^(?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?P<pct>%)?$"
 )
@@ -461,6 +464,7 @@ def plain_algebra_chat(output: str, *, ask: str = "") -> str:
     if " (exactly " in main:
         main = main.split(" (exactly ", 1)[0].strip()
     main = _TEMP_NOTE.sub("", main).strip()
+    main = _CONSTANT_SOURCE.sub("", main).strip()
     unit_hit = _CLEAN_UNIT_RHS.fullmatch(main)
     if unit_hit is not None:
         shown, rounded = _spoken_number(unit_hit.group("num"), expr=expr)
@@ -503,7 +507,11 @@ def plain_algebra_chat(output: str, *, ask: str = "") -> str:
 
 def _humanize_unit(unit: str, magnitude: str) -> str:
     """Turn Pint unit ids into plain spoken words; plural except for exactly 1."""
-    key = (unit or "").strip().lower()
+    key = (unit or "").strip()
+    # "m/s" is already how people write it. Pluralizing would make "m/ss".
+    if "/" in key:
+        return key
+    key = key.lower()
     try:
         val = float((magnitude or "").replace(",", ""))
         singular = abs(val - 1.0) < 1e-12 or abs(val + 1.0) < 1e-12

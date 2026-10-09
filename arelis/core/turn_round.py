@@ -41,6 +41,7 @@ from arelis.core.failure_copy import (
     should_nudge_write_after_algebra,
     should_nudge_write_after_page,
 )
+from arelis.core.intent_catalog import should_inject_saved_place
 from arelis.core.json_tools import (
     extract_native_tool_calls,
     parse_fallback_payload,
@@ -70,7 +71,14 @@ from arelis.core.turn_goal import (
     goal_unlock_notice,
     receipt_serves_goal,
 )
-from arelis.core.turn_scratch import RoundScratch, named_tools_owed, strip_tool_schemas
+from arelis.core.turn_scratch import (
+    RoundScratch,
+    close_tools_after_progress,
+    closing_call_ok,
+    closing_tool_names,
+    named_tools_owed,
+    strip_tool_schemas,
+)
 from arelis.llm.errors import classify_ollama_failure, is_vram_failure
 from arelis.tools.pdf_pages import ink_vision_walk
 from arelis.tools.weather import weather_places_missing
@@ -593,7 +601,12 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             # named_tools_owed still applies in native_tool_calling mode: the flag
             # drops regex injects/nudges, not the "user named these tools" hold.
             missing_kinds = ctx.ledger.missing_kinds(ctx.exact_need.kinds)
-            if not missing_kinds and not named_tools_owed(loop, ctx):
+            if close_tools_after_progress(
+                missing_kinds=missing_kinds,
+                owed=named_tools_owed(loop, ctx),
+                text=ctx.text,
+                trace=getattr(loop, "_trace", ()),
+            ):
                 offer_tools = False
                 ollama_tools = []
                 ctx.offer_tools = False
@@ -609,9 +622,15 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         )
 
         if getattr(loop, "_in_close", False):
-            if loop.tools.get("document") is not None:
+            keep = closing_tool_names(
+                ctx.text,
+                getattr(loop, "_trace", ()),
+                have_document=loop.tools.get("document") is not None,
+                have_workspace=loop.tools.get("workspace") is not None,
+            )
+            if keep:
                 ollama_tools = loop.tools.ollama_tools(
-                    {"document"},
+                    keep,
                     param_hints=native_tool_calling(agent_cfg),
                 )
                 offer_tools = True
@@ -791,6 +810,22 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             )
             if loop._timer is not None:
                 loop._timer.mark("exactness", gate="run_script", action="preinject")
+        elif should_inject_saved_place(text, tool_names, loop.tools_used):
+            content = ""
+            streamed = ""
+            calls = [("user_location", {})]
+            tool_calls = [_native_tool_call("user_location", {})]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "inject  user_location from saved place (pre-model)"},
+                )
+            )
+            await loop.bus.publish(
+                Event(EventType.STATUS, {"message": "Calling user_location…"})
+            )
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="location", action="preinject")
         else:
             try:
                 round_t0 = time.perf_counter()
@@ -922,7 +957,11 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 content = parsed["text"]
 
         if getattr(loop, "_in_close", False):
-            calls = [(n, a) for n, a in (calls or []) if n == "document"]
+            calls = [
+                (n, a)
+                for n, a in (calls or [])
+                if closing_call_ok(n, a, ctx.text, getattr(loop, "_trace", ()))
+            ]
             if not calls:
                 prose = (content or "").strip() or _CLOSE_PARTIAL
                 await loop._finish(prose, sources, streamed=streamed)
