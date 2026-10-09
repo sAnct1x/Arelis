@@ -366,8 +366,12 @@ def test_chrome_finds_linux_and_mac_browsers(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.delenv("ARELIS_CHROME", raising=False)
     from arelis.browser.launch import chrome_executable
 
-    def which_none(_name: str) -> None:
-        return None
+    def resolve(self: Path, strict: bool = False) -> Path:
+        # Do not follow a real symlink on the machine running the test.
+        del strict
+        return Path(str(self).replace("\\", "/"))
+
+    monkeypatch.setattr(Path, "resolve", resolve)
 
     cases = (
         "/usr/bin/chromium",
@@ -379,7 +383,7 @@ def test_chrome_finds_linux_and_mac_browsers(monkeypatch: pytest.MonkeyPatch) ->
     for suffix in cases:
 
         def is_file(self: Path, suffix: str = suffix) -> bool:
-            return _path_ends(self, suffix)
+            return str(self).replace("\\", "/") == suffix
 
         def which(name: str, suffix: str = suffix) -> str | None:
             if suffix.endswith("/usr/bin/chromium") and name == "chromium":
@@ -402,7 +406,7 @@ def test_chrome_finds_linux_and_mac_browsers(monkeypatch: pytest.MonkeyPatch) ->
         return None
 
     def stable_file(self: Path) -> bool:
-        return _path_ends(self, stable)
+        return str(self).replace("\\", "/") == stable
 
     monkeypatch.setattr(shutil, "which", which_stable)
     monkeypatch.setattr(Path, "is_file", stable_file)

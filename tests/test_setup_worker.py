@@ -11,6 +11,7 @@ import errno
 import json
 import logging
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -233,6 +234,8 @@ class TestGroupA:
         start.assert_called_once()
 
     def test_a4_cancel(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, qt_app) -> None:
+        # Cancel during the Windows download. Off Windows there is no download.
+        monkeypatch.setattr(sys, "platform", "win32")
         download = MagicMock()
         installer = MagicMock()
         reachable = MagicMock(return_value=False)
@@ -421,6 +424,8 @@ class TestGroupB:
         qt_app,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
+        # Download errors are the Windows setup program. Linux never downloads it.
+        monkeypatch.setattr(sys, "platform", "win32")
         caplog.set_level(logging.WARNING, logger="arelis.ui.setup_wizard")
         installer = MagicMock()
         cases = [
@@ -456,6 +461,8 @@ class TestGroupB:
         qt_app,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
+        # A full disk during the Windows setup download.
+        monkeypatch.setattr(sys, "platform", "win32")
         caplog.set_level(logging.WARNING, logger="arelis.ui.setup_wizard")
         disk = OSError(errno.ENOSPC, "No space left on device")
         _patch_wizard(
@@ -485,6 +492,8 @@ class TestGroupB:
         qt_app,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
+        # Installer failures are the Windows setup program.
+        monkeypatch.setattr(sys, "platform", "win32")
         caplog.set_level(logging.WARNING, logger="arelis.ui.setup_wizard")
         for raw in _INSTALLER_STRINGS:
             caplog.clear()

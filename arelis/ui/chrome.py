@@ -58,6 +58,7 @@ def _start_system_move(window) -> bool:
     try:
         handle = handle_fn()
     except Exception:
+        # No window handle yet. The plain drag still moves the window.
         return False
     start = getattr(handle, "startSystemMove", None)
     if not callable(start):
@@ -65,6 +66,7 @@ def _start_system_move(window) -> bool:
     try:
         return bool(start())
     except Exception:
+        # The system move is optional. The plain drag still moves the window.
         return False
 
 

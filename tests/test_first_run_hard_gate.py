@@ -9,6 +9,7 @@ No real Ollama, no real installer download.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -338,6 +339,9 @@ def test_silent_install_without_exe_fails_before_pull(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, qt_app
 ) -> None:
     """Exit code 0 is not enough: ollama.exe must exist before pull."""
+    # Windows flow: missing engine downloads the setup program. Linux and Mac
+    # stop first with a sentence about installing Ollama yourself.
+    monkeypatch.setattr(sys, "platform", "win32")
     import arelis.ui.setup_wizard as wizard
     from arelis.setup.plain_errors import PLAIN
 
