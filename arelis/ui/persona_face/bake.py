@@ -41,15 +41,25 @@ def screen(base: np.ndarray, src: np.ndarray) -> np.ndarray:
     return _pack(rgb, alpha)
 
 
-def composite_rest(layers: dict[str, np.ndarray]) -> np.ndarray:
-    """Calm face: open eyes, closed mouth, hair and ring stacked."""
+def composite_rest(layers: dict[str, np.ndarray], phase: int = 0) -> np.ndarray:
+    """Calm face at one hair phase: back hair, face, fringe, ring, star."""
     acc = np.zeros_like(layers["face"])
-    for name in ("wisps", "hair_tip", "hair_mid", "hair_root"):
-        acc = screen(acc, layers[name])
+    back = layers.get(f"back_{phase}")
+    if back is None and "hair_back" in layers:
+        back = layers["hair_back"]
+    if back is not None:
+        acc = screen(acc, back)
+    if "wisps" in layers:
+        acc = screen(acc, layers["wisps"])
     acc = over(acc, layers["face"])
     acc = over(acc, layers["mouth_0"])
     acc = over(acc, layers["eye_0"])
-    for name in ("hair_front", "ring", "star"):
+    front = layers.get(f"front_{phase}")
+    if front is None and "hair_front" in layers:
+        front = layers["hair_front"]
+    if front is not None:
+        acc = screen(acc, front)
+    for name in ("ring", "star"):
         acc = screen(acc, layers[name])
     return acc
 

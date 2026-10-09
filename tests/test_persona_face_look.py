@@ -62,5 +62,5 @@ def test_her_eyes_are_smaller_and_her_chin_is_narrower():
     local = np.asarray(unstretch_y(view_y), dtype=np.float64)
     row_i = int(np.argmin(np.abs(local - 0.22)))
     jaw = _world_span(alpha[row_i] > 0.92, span_x, width)
-    # v2.3 skin at this row is about 0.284 wide. The longer jaw is narrower.
-    assert 0.23 < jaw < 0.272
+    # Adult face_w at this row is about 0.32 across. The drifted bake was narrower.
+    assert 0.30 < jaw < 0.36

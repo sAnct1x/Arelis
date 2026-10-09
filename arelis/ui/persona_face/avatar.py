@@ -14,6 +14,7 @@ from arelis.ui.persona_face.bake import composite_rest, flatten_on_black
 from arelis.ui.persona_face.engine import (
     BLINK_LEVELS,
     MOUTH_LEVELS,
+    PHASE_COUNT,
     VIEW,
     bake_layers,
     raster_size,
@@ -22,7 +23,7 @@ from arelis.ui.persona_face.engine import (
 from arelis.ui.persona_face.motion import Frame
 from arelis.ui.void_idle import paint_orbit
 
-_LIGHT = ("wisps", "hair_tip", "hair_mid", "hair_root", "hair_front", "ring", "star")
+_LIGHT = ("wisps", "ring", "star")
 
 
 def _qimage(array: np.ndarray) -> QImage:
@@ -44,30 +45,48 @@ def _rgba_image(array: np.ndarray) -> QImage:
 class _BakeThread(QThread):
     ready = Signal(object)
 
-    def __init__(self, size: int) -> None:
+    def __init__(self, size: int, generation: int) -> None:
         super().__init__()
         self._size = size
+        self._generation = generation
+        self._cancel = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancel.set()
 
     def run(self) -> None:
+        # A failed bake has to reach the widget. Swallowing it leaves the orb up
+        # with no explanation, so the error string is the payload.
         try:
-            layers = bake_layers(self._size)
-            rest = flatten_on_black(composite_rest(layers))
-            shapes = {name: layers[name].shape[:2] for name in ("face", "wisps", "star")}
-            self.ready.emit(
-                {
+
+            def publish(layers: dict, phases: int) -> None:
+                if self._cancel.is_set():
+                    return
+                payload = {
                     "layers": layers,
-                    "rest": rest,
-                    "shapes": shapes,
+                    "phases": phases,
+                    "generation": self._generation,
                     "thread": threading.current_thread().name,
                     "error": "",
                 }
-            )
+                if phases == 1:
+                    payload["rest"] = flatten_on_black(composite_rest(layers))
+                    payload["shapes"] = {
+                        name: layers[name].shape[:2] for name in ("face", "wisps", "star")
+                    }
+                self.ready.emit(payload)
+
+            bake_layers(self._size, cancel=self._cancel, publish=publish)
         except Exception as exc:
+            if self._cancel.is_set():
+                return
             self.ready.emit(
                 {
                     "layers": {},
                     "rest": None,
                     "shapes": {},
+                    "phases": 0,
+                    "generation": self._generation,
                     "thread": threading.current_thread().name,
                     "error": f"{type(exc).__name__}: {exc}",
                 }
@@ -97,6 +116,9 @@ class PersonaAvatar(QWidget):
         self._bake_error = ""
         self._thread_name = ""
         self._painted_orb = False
+        self._phases_ready = 0
+        self._closing = False
+        self._generation = 0
         self._baker: _BakeThread | None = None
         self._baked_px = 0
         self._dpr = 1.0
@@ -120,6 +142,9 @@ class PersonaAvatar(QWidget):
 
     def layer_shapes(self) -> dict[str, tuple[int, int]]:
         return dict(self._shapes)
+
+    def phases_ready(self) -> int:
+        return self._phases_ready
 
     def rest_face_image(self) -> QImage:
         if self._rest is None:
@@ -147,38 +172,56 @@ class PersonaAvatar(QWidget):
         return min(1024, width)
 
     def _start_bake(self) -> None:
-        if not self.isVisible():
+        if self._closing or not self.isVisible():
             return
         size = self._pixel_size()
         if self._baker is not None and self._baker.isRunning():
             return
         self._baked_px = size
         self._dpr = float(self.devicePixelRatioF())
-        self._baker = _BakeThread(size)
+        self._generation += 1
+        self._baker = _BakeThread(size, self._generation)
         self._baker.ready.connect(self._on_baked)
         self._baker.start()
 
     def _on_baked(self, payload: object) -> None:
-        if not isinstance(payload, dict):
+        if self._closing or not isinstance(payload, dict):
+            return
+        if int(payload.get("generation", -1)) != self._generation:
             return
         self._thread_name = str(payload.get("thread", ""))
         self._bake_error = str(payload.get("error", ""))
         layers = payload.get("layers") or {}
-        images: dict[str, QImage] = {}
         for name, array in layers.items():
-            images[name] = _qimage(array)
+            self._images[name] = _qimage(array)
         rest = payload.get("rest")
-        self._images = images
-        self._rest = _rgba_image(rest) if rest is not None else None
-        self._shapes = dict(payload.get("shapes") or {})
-        self._bake_ready = bool(images) and self._rest is not None
+        if rest is not None:
+            self._rest = _rgba_image(rest)
+        if payload.get("shapes"):
+            self._shapes = dict(payload["shapes"])
+        self._phases_ready = max(self._phases_ready, int(payload.get("phases") or 0))
+        self._bake_ready = "face" in self._images and self._rest is not None
         self.update()
 
     def shutdown(self) -> None:
+        """Stop the bake before this widget is destroyed.
+
+        A thread that outlives the widget faults on Windows when Qt tears
+        the receiver down. Cancel, drop the signal, then wait it out.
+        """
+        self._closing = True
         self._rebake.stop()
         baker = self._baker
-        if baker is not None and baker.isRunning():
-            baker.wait(8000)
+        self._baker = None
+        if baker is None:
+            return
+        try:
+            baker.ready.disconnect(self._on_baked)
+        except RuntimeError:
+            pass
+        baker.cancel()
+        if baker.isRunning():
+            baker.wait()
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -197,7 +240,7 @@ class PersonaAvatar(QWidget):
         canvas.fill(0)
         painter = QPainter(canvas)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        # The plate is already at device pixels. A smooth scale on top blurs her.
         if not self._bake_ready:
             self._painted_orb = True
         self._paint_orb(painter)
@@ -226,13 +269,20 @@ class PersonaAvatar(QWidget):
         right = rect.right() * dpr
         top = rect.top() * dpr
         bottom = rect.bottom() * dpr
-        band_x = max(1.0, rect.width() * dpr * 0.14)
-        band_top = max(1.0, rect.height() * dpr * 0.08)
-        band_bottom = max(1.0, rect.height() * dpr * 0.22)
+        band_x = max(8.0, 12.0 * dpr)
+        band_top = max(6.0, 10.0 * dpr)
+        band_bottom = max(8.0, 14.0 * dpr)
+        # A few percent at the frame stays clear, so the dock color is the edge.
+        dead_x = rect.width() * dpr * 0.045
+        dead_top = rect.height() * dpr * 0.035
+        dead_bottom = rect.height() * dpr * 0.05
         xs = np.arange(width, dtype=np.float32) + 0.5
         ys = np.arange(height, dtype=np.float32) + 0.5
-        fade_x = smooth(np.minimum(xs - left, right - xs) / band_x)
-        fade_y = np.minimum(smooth((ys - top) / band_top), smooth((bottom - ys) / band_bottom))
+        fade_x = smooth((np.minimum(xs - left, right - xs) - dead_x) / band_x)
+        fade_y = np.minimum(
+            smooth((ys - top - dead_top) / band_top),
+            smooth((bottom - ys - dead_bottom) / band_bottom),
+        )
         alpha = np.clip(fade_y[:, None] * fade_x[None, :], 0.0, 1.0)
         level = np.round(alpha * 255.0).astype(np.uint8)
         bgra = np.ascontiguousarray(np.repeat(level[:, :, None], 4, axis=2))
@@ -308,14 +358,12 @@ class PersonaAvatar(QWidget):
         transform.rotate(sway)
         transform.scale(breath, breath)
         transform.translate(-pivot.x(), -pivot.y())
+        self._blit_phase(painter, "back", rect, transform)
         self._blit(painter, "wisps", rect, dx=self.frame.wisp_x * 8.0, dy=self.frame.wisp_y * 6.0)
-        self._blit(painter, "hair_tip", rect, transform, dx=self.frame.hair_tip * 7.0, light=True)
-        self._blit(painter, "hair_mid", rect, transform, dx=self.frame.hair_mid * 4.0, light=True)
-        self._blit(painter, "hair_root", rect, transform, dx=self.frame.hair_root * 2.0, light=True)
         self._blit(painter, "face", rect, transform, light=False)
         self._blit_mouth(painter, rect, transform)
         self._blit_eyes(painter, rect, transform)
-        self._blit(painter, "hair_front", rect, transform, dx=self.frame.hair_mid * 3.0, light=True)
+        self._blit_phase(painter, "front", rect, transform)
         painter.setOpacity(self.reveal * self.frame.ring)
         self._blit(painter, "ring", rect, transform, light=True)
         star = self.frame.star * (1.15 if self.thinking else 1.0) * (1.0 + 0.35 * self.glow)
@@ -343,8 +391,42 @@ class PersonaAvatar(QWidget):
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         if transform is not None:
             painter.setTransform(transform, True)
-        target = rect.translated(dx, dy)
-        painter.drawImage(target, image)
+        painter.drawImage(rect.translated(dx, dy), image)
+        painter.restore()
+
+    def _phase_pair(self) -> tuple[int, int, float]:
+        """Index along the baked sweep. Value noise in hair_tip, no wrap."""
+        ready = self._phases_ready
+        if ready <= 1:
+            return 0, 0, 0.0
+        span = min(ready, PHASE_COUNT) - 1
+        tip = self.frame.hair_tip
+        if tip < -1.0:
+            tip = -1.0
+        elif tip > 1.0:
+            tip = 1.0
+        pos = (tip + 1.0) * 0.5 * span
+        index = int(pos)
+        if index >= span:
+            return span, span, 0.0
+        return index, index + 1, pos - index
+
+    def _blit_phase(
+        self, painter: QPainter, kind: str, rect: QRectF, transform: QTransform
+    ) -> None:
+        first, second, mix = self._phase_pair()
+        painter.save()
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+        painter.setTransform(transform, True)
+        base = painter.opacity()
+        image_a = self._images.get(f"{kind}_{first}")
+        image_b = self._images.get(f"{kind}_{second}")
+        if image_a is not None and mix < 0.999:
+            painter.setOpacity(base * (1.0 - mix))
+            painter.drawImage(rect, image_a)
+        if image_b is not None and mix > 0.001 and second != first:
+            painter.setOpacity(base * mix)
+            painter.drawImage(rect, image_b)
         painter.restore()
 
     def _blit_pair(

@@ -393,9 +393,13 @@ class ChatPanel(QWidget):
             live.live = False
         self._thought_timer.stop()
 
-    def add_thought_line(self, text: str) -> None:
+    def add_thought_line(self, text: str, *, keep_internal: bool = False) -> None:
         line = (text or "").strip()
         if not line:
+            return
+        from arelis.ui.panels.thinking import internal_status
+
+        if internal_status(line) and not keep_internal:
             return
         thought = self._ensure_thought()
         thought.lines.append(line)

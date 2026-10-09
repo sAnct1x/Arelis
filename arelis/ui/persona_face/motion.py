@@ -113,6 +113,7 @@ class Frame:
     blink_edge: bool
     mouth: float
     slow: float
+    t: float = 0.0
 
 
 class Mouth:
@@ -205,12 +206,14 @@ class Motion:
         calm = 0.72 if state == "thinking" else 1.0
         if model_busy:
             calm *= 0.5
+        # Busy hair walks the same noise more slowly, and with less reach.
+        hair_t = t * (0.45 if model_busy else 1.0)
         sway = 0.55 * calm * fbm(t, self._seed + 1, (0.11, 0.23, 0.41, 0.67))
         bob = 0.35 * calm * fbm(t, self._seed + 2, (0.09, 0.19, 0.37))
         breath = calm * fbm(t, self._seed + 3, (0.07, 0.13, 0.29))
-        hair_root = 0.25 * calm * fbm(t, self._seed + 4, (0.08, 0.16, 0.33))
-        hair_mid = 0.55 * calm * fbm(t, self._seed + 5, (0.1, 0.21, 0.39))
-        hair_tip = 1.0 * calm * fbm(t, self._seed + 6, (0.12, 0.22, 0.45, 0.7))
+        hair_root = 0.25 * calm * fbm(hair_t, self._seed + 4, (0.08, 0.16, 0.33))
+        hair_mid = 0.55 * calm * fbm(hair_t, self._seed + 5, (0.1, 0.21, 0.39))
+        hair_tip = 1.0 * calm * fbm(hair_t, self._seed + 6, (0.12, 0.22, 0.45, 0.7))
         wisp_x = calm * fbm(t, self._seed + 7, (0.05, 0.11, 0.19))
         wisp_y = calm * fbm(t, self._seed + 8, (0.04, 0.09, 0.17))
         gaze_x = 0.004 * calm * fbm(t, self._seed + 12, (0.08, 0.15, 0.28))
@@ -244,4 +247,5 @@ class Motion:
             blink_edge=edge,
             mouth=mouth,
             slow=self._mouth.slow,
+            t=t,
         )
