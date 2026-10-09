@@ -886,7 +886,7 @@ def _horizons_body_id(raw: str) -> str:
     return text
 
 
-def _catalog_place(config: dict[str, Any]) -> Any | None:
+def catalog_place(config: dict[str, Any]) -> Any | None:
     """Saved place for a local sky table, only when location is on."""
     if (config.get("location") or {}).get("enabled", True):
         from arelis.location import build_location
