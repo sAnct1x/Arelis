@@ -29,6 +29,7 @@ from arelis.core.image_refs import (
     fill_image_gen_args,
     fill_vision_args,
 )
+from arelis.core.intent_catalog import room_data_file_ask
 from arelis.core.look import PASTED_IDENTIFY_QUESTION, look_call_blocked, vision_question
 from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.preflight import (
@@ -343,6 +344,31 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, err))
                 continue
+
+        if name in {
+            "analyze",
+            "weather",
+            "plot",
+            "workspace",
+            "python",
+            "vision",
+        } and room_data_file_ask(r.text):
+            _drop_wander(
+                "analyze", "weather", "plot", "workspace", "python", "vision"
+            )
+            err = (
+                "That file is already in this room. Call data_cell. "
+                "files= the file names. "
+                'code calls read_table("file.csv") or read_fits("file.fits"). '
+                "The argument is name, not path. "
+                "read_fits returns header, shape, and columns. "
+                'A chart is save_png(fig, "chart.png"). print the answer.'
+            )
+            await loop.bus.publish(
+                Event(EventType.THINKING, {"text": f"reject  room file  {name}"})
+            )
+            r.messages.append(loop._tool_message(name, err))
+            continue
 
         # Arguments from a different tool — a cancelled SMS draft
         # arriving as calculator(to=…, body=…). Tools take **kwargs and

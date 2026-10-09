@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -1654,6 +1655,144 @@ def profile_place_ask(text: str) -> bool:
     return bool(_PROFILE_PLACE.search(text or ""))
 
 
+_NAMED_ROOM_FILE = re.compile(
+    r"(?i)\b([\w.-]+\.(?:csv|tsv|tab|json|xlsx|xls|fits|fit))\b"
+)
+_DATA_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls", ".fits", ".fit"}
+_ONE_DATA_FILE = re.compile(r"(?i)\b(?:my data|my file|this file|that file|the table)\b")
+# rooms.yaml mtime, room folder mtime, folder path, names. A new file changes
+# the folder mtime, so the next turn relists the top of that folder only.
+_ROOM_NAME_CACHE: tuple[int, int, str, frozenset[str]] | None = None
+
+
+def live_room_filenames() -> set[str]:
+    """File names in the current room, from the saved room, or an empty set.
+
+    A fresh RoomStore is not the in-memory one, so this reads last_active
+    off disk. Tests with no room get nothing and weather stays weather.
+    The list is cached on the rooms file mtime and the room folder mtime.
+    A cache miss that has to find the folder calls load_config once, because
+    nothing else keeps a process-wide config. A new file does not.
+    """
+    global _ROOM_NAME_CACHE
+    try:
+        from arelis.paths import state_dir
+
+        path = state_dir() / "rooms.yaml"
+        rooms_stamp = path.stat().st_mtime_ns if path.is_file() else 0
+    except Exception:
+        return set()
+    cached = _ROOM_NAME_CACHE
+    if cached is not None and cached[0] == rooms_stamp:
+        folder_stamp = _folder_mtime(cached[2])
+        if folder_stamp == cached[1]:
+            return set(cached[3])
+        names = _list_room_files(cached[2])
+        _ROOM_NAME_CACHE = (rooms_stamp, folder_stamp, cached[2], names)
+        return set(names)
+    if not rooms_stamp:
+        _ROOM_NAME_CACHE = (0, 0, "", frozenset())
+        return set()
+    names, folder_path, folder_stamp = _scan_live_room(path)
+    _ROOM_NAME_CACHE = (rooms_stamp, folder_stamp, folder_path, names)
+    return set(names)
+
+
+def _folder_mtime(folder: str) -> int:
+    if not folder:
+        return 0
+    try:
+        path = Path(folder)
+        return path.stat().st_mtime_ns if path.is_dir() else 0
+    except Exception:
+        return 0
+
+
+def _list_room_files(folder: str) -> frozenset[str]:
+    """Top of the room folder only. Never walks, never raises."""
+    if not folder:
+        return frozenset()
+    try:
+        found: set[str] = set()
+        for child in Path(folder).iterdir():
+            if child.name.startswith("."):
+                continue
+            if child.is_file():
+                found.add(child.name)
+        return frozenset(found)
+    except Exception:
+        return frozenset()
+
+
+def _scan_live_room(path: Path) -> tuple[frozenset[str], str, int]:
+    try:
+        import yaml
+
+        from arelis.config import load_config
+        from arelis.workspace import WorkspaceRoots
+
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        room_id = str(raw.get("last_active") or "")
+        body = (raw.get("rooms") or {}).get(room_id) or {}
+        root_name = str(body.get("root") or "").strip()
+        if not root_name:
+            return frozenset(), "", 0
+        config = load_config()
+        workspace = config.get("_workspace") or WorkspaceRoots.from_config(config)
+        entry = workspace.root_named(root_name)
+        if entry is None or not entry.path.is_dir():
+            return frozenset(), "", 0
+        folder = entry.path
+        return _list_room_files(str(folder)), str(folder), _folder_mtime(str(folder))
+    except Exception:
+        return frozenset(), "", 0
+
+
+def _stem_phrase(filename: str) -> str:
+    stem = Path(filename).stem.lower()
+    return re.sub(r"[-_]+", " ", stem).strip()
+
+
+def _phrase_in(text: str, phrase: str) -> bool:
+    if len(phrase) < 2:
+        return False
+    return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text) is not None
+
+
+def room_data_file_ask(text: str, room_files: set[str] | None = None) -> bool:
+    """True when the ask is about a file that is actually in this room.
+
+    A named csv that is not in the room does not match. A word or a two-word
+    phrase that matches a file stem does ("readings" matches readings.csv,
+    "weather log" matches weather_log.csv, "sensor data" matches
+    sensor-data.tsv). "my data", "my file", "this file", "that file", or
+    "the table" match only when the room has exactly one data file. The
+    word "fits" matches when the room has a FITS file.
+    """
+    names = {
+        str(item).lower()
+        for item in (room_files if room_files is not None else live_room_filenames())
+        if str(item).strip()
+    }
+    if not names:
+        return False
+    raw = text or ""
+    mentioned = [hit.group(1).lower() for hit in _NAMED_ROOM_FILE.finditer(raw)]
+    if mentioned:
+        return any(name in names for name in mentioned)
+    has_fits = any(name.endswith((".fits", ".fit")) for name in names)
+    if re.search(r"\bfits\b", raw, re.I) and has_fits:
+        return True
+    folded = re.sub(r"[-_]+", " ", raw.lower())
+    for name in names:
+        if _phrase_in(folded, _stem_phrase(name)):
+            return True
+    data_files = [name for name in names if Path(name).suffix.lower() in _DATA_SUFFIXES]
+    if len(data_files) == 1 and _ONE_DATA_FILE.search(raw):
+        return True
+    return False
+
+
 def should_inject_saved_place(
     text: str, tool_names: set[str], tools_used: set[str]
 ) -> bool:
@@ -1670,8 +1809,10 @@ def should_inject_saved_place(
 
 
 def weather_intent_matches(text: str) -> bool:
-    """True for a forecast ask, not a device spec that mentions temperature."""
+    """True for a forecast ask, not a device spec or a file in this room."""
     raw = text or ""
+    if room_data_file_ask(raw):
+        return False
     if exactness_match("weather", raw):
         return True
     if not WEATHER.matches(raw):

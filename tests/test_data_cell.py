@@ -1,0 +1,542 @@
+"""Behavior of the room data cell. Prompts are the asks; the calls are what the model would send."""
+
+from __future__ import annotations
+
+import os
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from arelis.core.events import EventType
+from arelis.core.evidence import EvidenceLedger
+from arelis.core.turn_context import TurnContext
+from arelis.core.turn_execute import execute_call
+from arelis.tools.base import ToolResult
+from arelis.tools.data_cell import (
+    DATA_CELL_MEMORY_BYTES,
+    DATA_CELL_TIMEOUT_S,
+    MAX_INPUT_BYTES,
+    DataCellTool,
+)
+from arelis.tools.policy import describe_call, evaluate_capability, evaluate_confirm
+from arelis.ui.status_copy import tool_errand
+from arelis.workspace import RootEntry, WorkspaceRoots
+
+_REFUSE_READ = "I can only read files in this room."
+_REFUSE_WRITE = "I can only save results in this room's results folder."
+_TOO_BIG = "That file is too big for me to read here."
+_TOO_LONG = "That took too long, so I stopped it."
+_TOO_MUCH_MEMORY = "That used too much memory, so I stopped it."
+
+
+def _tool(tmp_path: Path, *, root: str = "lab"):
+    room = tmp_path / "room"
+    room.mkdir()
+    workspace = WorkspaceRoots([RootEntry(name=root, path=room.resolve())])
+    rooms = SimpleNamespace(active=SimpleNamespace(root=root))
+    return DataCellTool(workspace, rooms), room
+
+
+def _alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _make_link(link: Path, target: Path) -> None:
+    if sys.platform == "win32":
+        made = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert made.returncode == 0, made.stderr
+        return
+    link.symlink_to(target, target_is_directory=True)
+
+
+def _wait_until_dead(child_pid: int, grand_pid: int) -> None:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and (_alive(child_pid) or _alive(grand_pid)):
+        time.sleep(0.1)
+
+
+def _outside_file(tmp_path: Path, name: str, text: str = "secret") -> Path:
+    path = tmp_path / "outside" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+async def test_whats_the_average_of_column_b_in_my_data_csv(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    (room / "data.csv").write_text("A,B\n1,10\n2,30\n3,20\n", encoding="utf-8")
+    result = await tool.run(
+        code='df = read_table("data.csv")\nprint(df["B"].mean())',
+        files=["data.csv"],
+    )
+    assert result.ok, result.output
+    assert "20" in result.output
+
+
+async def test_plot_temperature_over_time_from_readings_csv(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    (room / "readings.csv").write_text(
+        "time,temperature,B\n1,10,2\n2,30,4\n3,20,6\n",
+        encoding="utf-8",
+    )
+    code = (
+        "df = read_table('readings.csv')\n"
+        "from matplotlib.figure import Figure\n"
+        "fig = Figure()\n"
+        "ax = fig.subplots()\n"
+        "ax.plot(df['time'], df['temperature'])\n"
+        "save_png(fig, 'temperature.png')\n"
+        "print('chart')\n"
+    )
+    result = await tool.run(code=code, files=["readings.csv"])
+    assert result.ok, result.output
+    png = room / "results" / "temperature.png"
+    assert png.is_file()
+    assert png.stat().st_size > 0
+    assert result.data.get("abs_path") == str(png.resolve())
+    assert not list((room).glob("*.png"))
+
+    class _Bus:
+        def __init__(self) -> None:
+            self.events = []
+
+        async def publish(self, event) -> None:
+            self.events.append(event)
+
+    class _Loop:
+        def __init__(self) -> None:
+            self.bus = _Bus()
+            self.max_rounds = 3
+            self._look = None
+            self._timer = None
+            self.tools_used: set[str] = set()
+            self._trace: list[str] = []
+            self._receipts: list[dict] = []
+            self.memory = SimpleNamespace(sink=None, messages=[])
+            self.tool_output_chars = 8000
+            self._expected_tools: set[str] = set()
+            self._fail_replan_used = False
+
+        def _tool_message(self, name: str, out: str) -> dict[str, str]:
+            return {"role": "tool", "name": name, "content": out}
+
+    loop = _Loop()
+    ctx = TurnContext(text="plot temperature over time from readings.csv", role="fast")
+    scratch = SimpleNamespace(
+        text=ctx.text,
+        agent_cfg={"tool_summary_inject": False},
+        available_all=set(),
+        available=set(),
+        visible=set(),
+        tool_names=set(),
+        sources=[],
+        ledger=EvidenceLedger(),
+        fail_counts={},
+        web_search_ok=set(),
+        page_ok=set(),
+        sms_sent=set(),
+        agenda_created=set(),
+        weather_ok_places=set(),
+        weather_days_retried=set(),
+        exact_need=ctx.exact_need,
+        offer_tools=False,
+        ollama_tools=[],
+        messages=[],
+        sms_draft=None,
+        email_draft=None,
+    )
+    packed = ToolResult(ok=True, output=result.output, data=dict(result.data))
+    await execute_call(
+        loop,
+        ctx,
+        scratch,
+        "data_cell",
+        {"code": code, "files": ["readings.csv"]},
+        summary="data",
+        call_fp="data-cell-plot",
+        round_i=1,
+        call_i=0,
+        fanout_results={0: (1, packed)},
+    )
+    ready = [e for e in loop.bus.events if e.type == EventType.FILE_READY]
+    assert len(ready) == 1
+    payload = ready[0].payload
+    assert payload["kind"] == "plot"
+    assert payload["source"] == "data_cell"
+    assert payload["abs_path"] == str(png.resolve())
+    assert payload["show_card"] is True
+
+
+async def test_read_this_fits_header_and_how_big_is_the_image(tmp_path: Path) -> None:
+    import numpy as np
+    from astropy.io import fits
+
+    tool, room = _tool(tmp_path)
+    image = np.zeros((64, 48), dtype=np.float32)
+    header = fits.Header()
+    header["OBJECT"] = "M31"
+    header["EXPTIME"] = 12.5
+    fits.PrimaryHDU(image, header=header).writeto(room / "m31.fits")
+    code = (
+        "info = read_fits('m31.fits')\n"
+        "print(info['header'].get('OBJECT'))\n"
+        "print(info['header'].get('EXPTIME'))\n"
+        "print(info['shape'])\n"
+    )
+    result = await tool.run(code=code, files=["m31.fits"])
+    assert result.ok, result.output
+    assert "M31" in result.output
+    assert "12.5" in result.output
+    assert "64" in result.output and "48" in result.output
+
+
+async def test_reading_a_file_outside_the_room_is_refused(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    secret = _outside_file(tmp_path, "secret.txt", "do-not-read")
+    (room / "data.csv").write_text("B\n1\n", encoding="utf-8")
+    parent = secret.parent
+    result = await tool.run(
+        code='print(open("../outside/secret.txt", encoding="utf-8").read())',
+        files=["../outside/secret.txt"],
+    )
+    assert not result.ok
+    assert result.output == _REFUSE_READ
+    assert secret.read_text(encoding="utf-8") == "do-not-read"
+    assert not (room / "results").exists() or not any((room / "results").iterdir())
+    leaked = [p for p in parent.iterdir() if p.name != "secret.txt" and p.name != "room"]
+    assert leaked == []
+
+
+async def test_an_absolute_path_outside_the_room_is_refused(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    secret = _outside_file(tmp_path, "secret.txt", "do-not-read")
+    result = await tool.run(
+        code=f'print(open(r"{secret}", encoding="utf-8").read())',
+        files=[str(secret)],
+    )
+    assert not result.ok
+    assert result.output == _REFUSE_READ
+    assert secret.read_text(encoding="utf-8") == "do-not-read"
+    assert not list(room.rglob("leak*"))
+
+
+async def test_writing_outside_results_is_refused(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    (room / "data.csv").write_text("B\n1\n2\n", encoding="utf-8")
+    outside = tmp_path / "outside" / "leak.csv"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    via_name = await tool.run(
+        code=("df = read_table('data.csv')\nsave_csv(df, '../leak.csv')\n"),
+        files=["data.csv", "../leak.csv"],
+    )
+    assert not via_name.ok
+    assert via_name.output in {_REFUSE_READ, _REFUSE_WRITE}
+    assert not outside.exists()
+    in_room = room / "leak.csv"
+    via_open = await tool.run(
+        code=(
+            "df = read_table('data.csv')\n"
+            f'open(r"{in_room}", "w", encoding="utf-8").write("nope")\n'
+            f'open(r"{outside}", "w", encoding="utf-8").write("nope")\n'
+        ),
+        files=["data.csv"],
+    )
+    assert not via_open.ok
+    assert via_open.output == _REFUSE_WRITE
+    assert not in_room.exists()
+    assert not outside.exists()
+
+
+async def test_a_link_pointing_out_of_the_room_is_refused(tmp_path: Path) -> None:
+    tool, room = _tool(tmp_path)
+    secret = _outside_file(tmp_path, "secret.txt", "do-not-read")
+    link = room / "linked"
+    _make_link(link, secret.parent)
+    try:
+        result = await tool.run(
+            code='print(open("linked/secret.txt", encoding="utf-8").read())',
+            files=[],
+        )
+        assert not result.ok
+        assert result.output == _REFUSE_READ
+        assert "do-not-read" not in result.output
+        assert secret.read_text(encoding="utf-8") == "do-not-read"
+        leaked = [path for path in secret.parent.iterdir() if path.name not in {"secret.txt"}]
+        assert leaked == []
+    finally:
+        if link.exists():
+            if sys.platform == "win32":
+                os.rmdir(link)
+            else:
+                link.unlink()
+
+
+async def test_an_infinite_loop_is_stopped_and_its_children_die(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert DATA_CELL_TIMEOUT_S == 120
+    monkeypatch.setattr(
+        "arelis.tools.data_cell.DATA_CELL_TIMEOUT_S",
+        3,
+    )
+    tool, room = _tool(tmp_path)
+    if sys.platform == "win32":
+        spawn = r"""
+import ctypes
+from ctypes import wintypes
+import sys
+kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+class STARTUPINFOW(ctypes.Structure):
+    _fields_ = [
+        ("cb", wintypes.DWORD), ("lpReserved", wintypes.LPWSTR),
+        ("lpDesktop", wintypes.LPWSTR), ("lpTitle", wintypes.LPWSTR),
+        ("dwX", wintypes.DWORD), ("dwY", wintypes.DWORD),
+        ("dwXSize", wintypes.DWORD), ("dwYSize", wintypes.DWORD),
+        ("dwXCountChars", wintypes.DWORD), ("dwYCountChars", wintypes.DWORD),
+        ("dwFillAttribute", wintypes.DWORD), ("dwFlags", wintypes.DWORD),
+        ("wShowWindow", wintypes.WORD), ("cbReserved2", wintypes.WORD),
+        ("lpReserved2", ctypes.POINTER(ctypes.c_byte)),
+        ("hStdInput", wintypes.HANDLE), ("hStdOutput", wintypes.HANDLE),
+        ("hStdError", wintypes.HANDLE),
+    ]
+class PROCESS_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("hProcess", wintypes.HANDLE), ("hThread", wintypes.HANDLE),
+        ("dwProcessId", wintypes.DWORD), ("dwThreadId", wintypes.DWORD),
+    ]
+si = STARTUPINFOW()
+si.cb = ctypes.sizeof(si)
+pi = PROCESS_INFORMATION()
+cmd = '"' + sys.executable + '" -c "import time; time.sleep(300)"'
+ok = kernel.CreateProcessW(None, cmd, None, None, False, 0x08000000, None, None, ctypes.byref(si), ctypes.byref(pi))
+if not ok:
+    raise RuntimeError("could not start")
+open("results/grandchild.txt", "w", encoding="utf-8").write(str(int(pi.dwProcessId)))
+while True:
+    pass
+"""
+    else:
+        spawn = (
+            "import os, time\n"
+            "pid = os.fork()\n"
+            "if pid == 0:\n"
+            "    time.sleep(300)\n"
+            "    os._exit(0)\n"
+            "open('results/grandchild.txt', 'w', encoding='utf-8').write(str(pid))\n"
+            "while True:\n"
+            "    time.sleep(0.2)\n"
+        )
+    started = time.monotonic()
+    result = await tool.run(code=spawn, files=[])
+    elapsed = time.monotonic() - started
+    assert not result.ok
+    assert result.output == _TOO_LONG
+    assert elapsed < 20
+    child_pid = int(result.data.get("child_pid") or 0)
+    grand_path = room / "results" / "grandchild.txt"
+    assert grand_path.is_file(), result.output
+    grand_pid = int(grand_path.read_text(encoding="utf-8").strip())
+    _wait_until_dead(child_pid, grand_pid)
+    assert not _alive(child_pid)
+    assert not _alive(grand_pid)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the memory cap is a Windows job limit")
+async def test_a_memory_bomb_is_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert DATA_CELL_MEMORY_BYTES == 2 * 1024 * 1024 * 1024
+    monkeypatch.setattr("arelis.tools.data_cell.DATA_CELL_MEMORY_BYTES", 256 * 1024 * 1024)
+    tool, _room = _tool(tmp_path)
+    result = await tool.run(
+        code="blob = bytearray(400 * 1024 * 1024)\nprint(len(blob))\n",
+        files=[],
+    )
+    assert not result.ok
+    assert result.output == _TOO_MUCH_MEMORY
+    assert "400" not in result.output
+
+
+async def test_a_network_call_is_refused(tmp_path: Path) -> None:
+    tool, _room = _tool(tmp_path)
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    sock.settimeout(0.5)
+    port = sock.getsockname()[1]
+    accepted = False
+    try:
+        result = await tool.run(
+            code=(
+                "import socket\n"
+                "s = socket.socket()\n"
+                "s.settimeout(2)\n"
+                f"s.connect(('127.0.0.1', {port}))\n"
+                "print('connected')\n"
+            ),
+            files=[],
+        )
+        try:
+            conn, _addr = sock.accept()
+            conn.close()
+            accepted = True
+        except TimeoutError:
+            accepted = False
+    finally:
+        sock.close()
+    assert not result.ok
+    assert "connected" not in result.output
+    assert not accepted
+
+
+async def test_an_oversized_file_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert MAX_INPUT_BYTES == 32 * 1024 * 1024
+    monkeypatch.setattr("arelis.tools.data_cell.MAX_INPUT_BYTES", 32)
+    tool, room = _tool(tmp_path)
+    (room / "data.csv").write_text("B\n" + ("1\n" * 40), encoding="utf-8")
+    result = await tool.run(
+        code='print(read_table("data.csv")["B"].mean())',
+        files=["data.csv"],
+    )
+    assert not result.ok
+    assert result.output == _TOO_BIG
+    assert not (room / "results").exists() or not any((room / "results").glob("*.png"))
+
+
+async def test_no_room_or_no_folder_is_one_refusal(tmp_path: Path) -> None:
+    room = tmp_path / "room"
+    room.mkdir()
+    workspace = WorkspaceRoots([RootEntry(name="lab", path=room.resolve())])
+    nowhere = DataCellTool(workspace, None)
+    missing = await nowhere.run(code="print(1)", files=[])
+    assert not missing.ok
+    assert missing.output == _REFUSE_READ
+    empty = DataCellTool(workspace, SimpleNamespace(active=SimpleNamespace(root="")))
+    no_folder = await empty.run(code="print(1)", files=["data.csv"])
+    assert not no_folder.ok
+    assert no_folder.output == _REFUSE_READ
+
+
+async def test_the_child_does_not_see_parent_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ARELIS_PROBE", "room-secret")
+    monkeypatch.setenv("FAKE_TOKEN", "sekret-value")
+    tool, _room = _tool(tmp_path)
+    result = await tool.run(
+        code=(
+            "import os\n"
+            "print('ARELIS_PROBE=' + str('ARELIS_PROBE' in os.environ))\n"
+            "print('FAKE_TOKEN=' + str('FAKE_TOKEN' in os.environ))\n"
+            "print('MPL=' + os.environ.get('MPLBACKEND', ''))\n"
+        ),
+        files=[],
+    )
+    assert result.ok, result.output
+    assert "ARELIS_PROBE=False" in result.output
+    assert "FAKE_TOKEN=False" in result.output
+    assert "room-secret" not in result.output
+    assert "sekret-value" not in result.output
+    assert "MPL=Agg" in result.output
+
+
+def test_room_file_questions_point_at_data_cell() -> None:
+    from arelis.core.compact_prompt import compact_tool_policy
+    from arelis.core.intent_catalog import weather_intent_matches
+    from arelis.core.preflight import detect_intents
+
+    text = compact_tool_policy()
+    assert "csv→analyze" in text
+    assert "csv in this room→data_cell" in text
+    room = {"readings.csv", "m31.fits"}
+    questions = (
+        "What's the average of column B in readings.csv?",
+        "Can you plot temperature over time from readings.csv?",
+        "What does the header of the FITS file say?",
+        "How big is the image in that FITS file?",
+        "Which hour had the highest temperature in my readings?",
+    )
+    for question in questions:
+        hints = detect_intents(question, room_files=room)
+        kinds = {hint.kind for hint in hints}
+        assert "data_cell" in kinds, question
+        assert "weather" not in kinds, question
+        assert "analyze" not in kinds, question
+        assert "read_table" in next(h.nudge for h in hints if h.kind == "data_cell")
+    assert weather_intent_matches("will it rain tomorrow")
+    assert weather_intent_matches("what's the temperature outside")
+    outside = detect_intents(
+        "What's the average of column B in other.csv?",
+        room_files=room,
+    )
+    assert not any(hint.kind == "data_cell" for hint in outside)
+    assert any(hint.kind == "analyze" for hint in outside)
+    sensor = detect_intents(
+        "what was the peak in my sensor log",
+        room_files={"sensor_log.csv"},
+    )
+    assert any(hint.kind == "data_cell" for hint in sensor)
+    weather_log = detect_intents(
+        "plot the weather log",
+        room_files={"weather_log.csv"},
+    )
+    assert any(hint.kind == "data_cell" for hint in weather_log)
+    sensor_data = detect_intents(
+        "what is in the sensor data",
+        room_files={"sensor-data.tsv"},
+    )
+    assert any(hint.kind == "data_cell" for hint in sensor_data)
+    two = detect_intents(
+        "summarize my data",
+        room_files={"readings.csv", "m31.fits"},
+    )
+    assert not any(hint.kind == "data_cell" for hint in two)
+    one = detect_intents("summarize my data", room_files={"readings.csv"})
+    assert any(hint.kind == "data_cell" for hint in one)
+
+
+def test_a_room_file_beats_the_weather_preinject(monkeypatch) -> None:
+    from arelis.core.intent_catalog import weather_intent_matches
+
+    monkeypatch.setattr(
+        "arelis.core.intent_catalog.live_room_filenames",
+        lambda: {"readings.csv", "m31.fits"},
+    )
+    assert not weather_intent_matches("Can you plot temperature over time from readings.csv?")
+    assert not weather_intent_matches("Which hour had the highest temperature in my readings?")
+    assert weather_intent_matches("will it rain tomorrow")
+    assert weather_intent_matches("what's the temperature outside")
+    assert weather_intent_matches("what's the temperature in other.csv")
+
+
+def test_data_cell_is_a_local_write_with_a_plain_status() -> None:
+    assert evaluate_capability("data_cell", {"code": "print(1)"}) == "WRITE_LOCAL"
+    assert evaluate_confirm("data_cell", {"code": "print(1)"}, risk="write") is True
+    text = describe_call("data_cell", {"files": ["readings.csv"]})
+    assert "results" in text.lower()
+    assert "data_cell" not in text
+    assert tool_errand("data_cell") == "reading your data"
