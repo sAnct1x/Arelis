@@ -1158,3 +1158,58 @@ def test_the_hem_has_no_gap_or_slit_in_the_middle():
         float(centre.mean()),
         float(sides.mean()),
     )
+
+
+def test_the_crown_part_has_no_dark_wedge():
+    """Just above the forehead apex, where the cap strands part, the hair is not thin.
+
+    The strands fanned apart there with no back hair behind the top of the
+    skull, so the dark ground showed through as a small V. The thinnest pixel
+    of that patch must stay within 0.85 of the crown around it (it was about
+    0.67), and it may not be brighter than the crown either, so the fix does
+    not draw a light seam.
+    """
+    front = _layers()["front_0"]
+    gap = _world_patch(front, (-0.095, -0.050, -0.325, -0.29))
+    crown = _world_patch(front, (-0.16, 0.02, -0.38, -0.29))
+    around = float(crown[..., 3].mean())
+    thinnest = float(gap[..., 3].min())
+    assert thinnest >= 0.85 * around, (thinnest, around)
+    gap_lum = float(np.median(_lum(_straight(gap).reshape(-1, 3).astype(np.float32))))
+    crown_lum = float(np.median(_lum(_straight(crown).reshape(-1, 3).astype(np.float32))))
+    assert gap_lum <= crown_lum + 15.0, (gap_lum, crown_lum)
+
+
+def test_the_upper_sides_have_no_flyaway_tufts():
+    """Past the temples, the hair outline folds in instead of fanning out in stray tufts.
+
+    The outer cap strands ran on past the side locks and splayed into loose
+    tufts and a lone wisp on each upper side. Outside the outline (|x| from
+    0.46, y -0.25 to 0.05) the back layer must stay nearly empty, while the
+    band just inside it keeps its mass so the sides are not slimmed.
+    """
+    back = _layers()["back_0"]
+    for left, right in ((-0.58, -0.46), (0.46, 0.58)):
+        outer = _world_patch(back, (left, right, -0.25, 0.05))[..., 3].astype(np.float32)
+        assert float(outer.mean()) <= 1.5, (left, float(outer.mean()))
+        assert float(outer.max()) <= 60.0, (left, float(outer.max()))
+    for left, right in ((-0.38, -0.30), (0.30, 0.38)):
+        band = _world_patch(back, (left, right, -0.15, 0.05))[..., 3].astype(np.float32)
+        assert float(band.mean()) >= 200.0, (left, float(band.mean()))
+
+
+def test_no_dark_slit_points_up_at_the_chin():
+    """Right under the chin the back curtains do not part as a dark slit.
+
+    The two back curtains met in a narrow parting just below the chin tip,
+    which read as a dark wedge pointing up at the jaw beside the neck glow.
+    In each row of that strip (|x| < 0.10, y 0.335 to 0.375) the thinnest
+    pixel must stay within 0.93 of the row's median (it was about 0.81).
+    """
+    back = _layers()["back_0"]
+    strip = _world_patch(back, (-0.10, 0.10, 0.335, 0.375))[..., 3].astype(np.float32)
+    for row in strip:
+        assert float(row.min()) >= 0.93 * float(np.median(row)), (
+            float(row.min()),
+            float(np.median(row)),
+        )

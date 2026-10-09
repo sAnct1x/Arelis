@@ -107,6 +107,27 @@ HAIR_STRANDS, BACK_STRANDS = 1250, 1400
 # Drift: roots hold still, tips flow a little more.
 ROOT_AMP, TIP_AMP = 0.0015, 0.08
 PART_DIM = 0.45
+# Upper-side cap flyaways: outer cap strands may pass the side-lock outline
+# by about FLY_SOFT, then fold in. Rows are y, values the soft outline |x|.
+FLY_ROWS = (-0.40, -0.30, -0.20, -0.10, 0.00, 0.10, 0.20)
+FLY_EDGE = (0.22, 0.28, 0.335, 0.385, 0.395, 0.39, 0.39)
+FLY_SOFT = 0.035
+
+
+def taper_flyaways(pts):
+    """Fold cap points that stray past the upper-side outline back toward it.
+
+    Only the excess beyond the outline moves, and only on the upper sides,
+    so the crown, fringe and lower locks keep their shape.
+    """
+    x, y = pts[:, 0], pts[:, 1]
+    edge = np.interp(y, FLY_ROWS, FLY_EDGE)
+    over = np.clip(np.abs(x) - edge, 0.0, None)
+    upper = smooth((y + 0.36) / 0.08) * (1.0 - smooth((y - 0.16) / 0.08))
+    folded = FLY_SOFT * np.tanh(over / FLY_SOFT)
+    out = pts.copy()
+    out[:, 0] = x - np.sign(x) * (over - folded) * upper
+    return out
 
 
 # Sparkle sits in the crown hair, toward the part, not on a tuft above it.
@@ -348,7 +369,10 @@ def build_hair(seed=11, n_strands=820):
         n2 = 50
         tail = pts[-1] + np.stack([np.zeros(n2), np.linspace(0, 0.16, n2)], 1)
         tail[:, 0] += np.sign(np.cos(th1)) * np.linspace(0, 0.02 + 0.03 * k, n2)
-        bangs.append(np.concatenate([pts, tail]))
+        cap = np.concatenate([pts, tail])
+        if HAIR_V3:
+            cap = taper_flyaways(cap)
+        bangs.append(cap)
     # fringe: strands leave the part line and sweep across the forehead
     for i in range(230):
         f2 = r.random()

@@ -451,8 +451,40 @@ def _soften_slits(cv: Canvas2, premul: np.ndarray, alpha: np.ndarray):
     run = np.cumsum(pad, axis=1)
     wide = (run[:, 2 * reach + 1 :] - run[:, : -2 * reach - 1]) / (2 * reach + 1)
     band = face2.ss(0.30, 0.40, cv.Y) * (1.0 - face2.ss(0.14, 0.22, np.abs(cv.X)))
+    # Right under the chin the curtains part as a dark slit that points up at
+    # the jaw, where the main band is still ramping in. There, only pixels
+    # thinner than their row neighbours take the average, so the slit closes
+    # and the strand texture around it stays.
+    chin = face2.ss(0.26, 0.33, cv.Y) * (1.0 - face2.ss(0.04, 0.11, np.abs(cv.X)))
+    thin = np.clip((wide[..., 3] - both[..., 3]) / np.maximum(0.15 * wide[..., 3], 1e-3), 0.0, 1.0)
+    band = np.maximum(band, chin * thin)
     mixed = both + (wide - both) * band[..., None].astype(np.float32)
     return mixed[..., :3], mixed[..., 3]
+
+
+def _fill_crown(
+    cv: Canvas2, premul: np.ndarray, alpha: np.ndarray, skin: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Close the thin wedge where the crown strands fan apart at the part.
+
+    No back hair lies over the top of the skull, so where the cap strands
+    part above the forehead apex the dark ground showed through as a V.
+    Only inside a small soft patch at the part, and never over skin, the gap
+    takes the alpha and colour of the strands around it. Never more opaque
+    than the neighbourhood, so it is not a cap, and no brighter, so no seam.
+    """
+    patch = np.exp(-(((cv.X + 0.072) / 0.04) ** 2) - (((cv.Y + 0.298) / 0.035) ** 2))
+    patch = (patch * np.clip(1.0 - skin / 24.0, 0.0, 1.0)).astype(np.float32)
+    sigma = max(1.0, 0.02 / cv.px)
+    both = np.concatenate([premul, alpha[..., None]], -1).astype(np.float32)
+    soft = np.concatenate(
+        [Canvas.blur(both[..., :3], sigma), Canvas.blur(both[..., 1:4], sigma)[..., 2:3]], -1
+    )
+    near_a = soft[..., 3]
+    tone = soft[..., :3] / np.maximum(near_a[..., None], 1e-4)
+    # The strands around the gap thin out too, so aim a little above them.
+    lift = np.clip(np.minimum(1.0, near_a * 1.3) - alpha, 0.0, None) * patch
+    return premul + tone * lift[..., None], alpha + lift
 
 
 def _paint_hair_v3(rig: V24Rig, width: int, height: int, t: float):
@@ -467,6 +499,7 @@ def _paint_hair_v3(rig: V24Rig, width: int, height: int, t: float):
     front_cv = _canvas(width, height)
     rig.splat_front_hair(front_cv, t, POSE)
     fp, fa = _hair_premul(front_cv, HAIR_TONE["front_exp"])
+    fp, fa = _fill_crown(front_cv, fp, fa, _face_matte(rig, width, height))
     # Front over back, not added, so the side locks do not burn to white.
     # On the skin, strands stay inside the approved fringe footprint.
     on_face = static["on_face"]
