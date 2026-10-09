@@ -476,7 +476,10 @@ class PersonaAvatar(QWidget):
             bgra.data, width, height, width * 4, QImage.Format.Format_ARGB32_Premultiplied
         )
         self._mask = image.copy()
-        self._mask.setDevicePixelRatio(1.0)
+        # The mask is built in device pixels. Tagged 1.0 on a HiDPI canvas, Qt
+        # drew it dpr times larger: at 2x the top fade landed on her crown and
+        # sliced it flat, and the side fades moved. Same ratio as the canvas.
+        self._mask.setDevicePixelRatio(dpr)
         self._mask_key = key
         self.mask_builds += 1
         return self._mask
