@@ -1496,7 +1496,13 @@ class PlaywrightDriver:
         await self._close_pw()
         self._pw = await async_playwright().start()
         # Ephemeral profile (and private flag) — never the user's Firefox logins.
-        tmp = tempfile.mkdtemp(prefix="arelis-firefox-")
+        from arelis.paths import installed_mac_temp_dir
+
+        parent = installed_mac_temp_dir()
+        tmp = tempfile.mkdtemp(
+            prefix="arelis-firefox-",
+            dir=None if parent is None else str(parent),
+        )
         self._context = await self._pw.firefox.launch_persistent_context(
             user_data_dir=tmp,
             headless=False,

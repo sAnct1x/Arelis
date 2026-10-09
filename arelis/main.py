@@ -54,6 +54,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--install-login-start",
+        action="store_true",
+        help="On Mac, start Arelis in the background when you log in.",
+    )
+    parser.add_argument(
+        "--remove-login-start",
+        action="store_true",
+        help="On Mac, stop Arelis from starting when you log in.",
+    )
+    parser.add_argument(
         "--run-job",
         type=str,
         default=None,
@@ -124,6 +134,14 @@ def main(argv: list[str] | None = None) -> int:
     # Before load_config, and deliberately. This runs from an uninstaller, by which time
     # the configuration may be edited, moved or already deleted, and failing to read it
     # is no reason to leave scheduled tasks behind.
+    if args.install_login_start or args.remove_login_start:
+        from arelis.login_start import install_login_start, remove_login_start
+
+        if args.remove_login_start:
+            print(remove_login_start())
+        else:
+            print(install_login_start())
+        return 0
     if args.purge_user_data:
         from arelis.uninstall import purge_user_state
 
