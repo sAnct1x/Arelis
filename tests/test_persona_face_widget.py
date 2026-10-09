@@ -56,7 +56,9 @@ def test_frame_pacing_follows_the_state(qt_app):
     clock = {"t": 0.0}
     panel.set_clock(lambda: clock["t"])
     panel.set_state("thinking")
-    clock["t"] = 1.3
+    from arelis.ui.persona_face.panel import BLOOM_S
+
+    clock["t"] = BLOOM_S + 0.05
     panel.tick()
     assert panel.timer_interval() == 83
 
@@ -114,22 +116,25 @@ def test_she_starts_as_the_orb_and_thinking_blooms_her(qt_app):
     assert panel.form() == "orb"
     assert panel.caption_text() == ""
 
+    from arelis.ui.persona_face.panel import BLOOM_S, FOLD_S
+
     panel.set_state("thinking")
-    clock["t"] = 1.3
+    opened = BLOOM_S + 0.05
+    clock["t"] = opened
     panel.tick()
     assert panel.form() == "face"
     assert panel.caption_text() == "thinking"
 
     panel.set_state("done")
     assert panel.caption_text() == "done"
-    clock["t"] = 1.3 + 2.2
+    clock["t"] = opened + 2.2
     panel.tick()
     assert panel.caption_text() == ""
     assert panel.form() == "face"
 
-    clock["t"] = 1.3 + 60.0
+    clock["t"] = opened + 60.0
     panel.tick()
-    clock["t"] = 1.3 + 60.0 + 1.7
+    clock["t"] = opened + 60.0 + FOLD_S + 0.1
     panel.tick()
     assert panel.form() == "orb"
     panel.close()
@@ -143,8 +148,10 @@ def test_a_click_on_the_orb_blooms_her(qt_app):
     panel.show()
     qt_app.processEvents()
     assert panel.form() == "orb"
+    from arelis.ui.persona_face.panel import BLOOM_S
+
     QTest.mouseClick(panel.avatar, Qt.MouseButton.LeftButton)
-    clock["t"] = 11.3
+    clock["t"] = 10.0 + BLOOM_S + 0.05
     panel.tick()
     assert panel.form() == "face"
     panel.close()
@@ -252,8 +259,10 @@ def test_a_blink_does_not_bring_the_orb_back(qt_app):
         qt_app.processEvents()
         time.sleep(0.02)
     assert panel.bake_ready
+    from arelis.ui.persona_face.panel import BLOOM_S
+
     panel.set_state("thinking")
-    clock["t"] = 1.3
+    clock["t"] = BLOOM_S + 0.05
     panel.tick()
     assert panel.form() == "face"
     assert panel.avatar.reveal == 1.0

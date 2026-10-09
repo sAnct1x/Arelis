@@ -81,6 +81,38 @@ def _lit(cv: Canvas2, exposure: float) -> tuple[np.ndarray, np.ndarray]:
     return lit, dark
 
 
+def _fade_bottom(alpha: np.ndarray, premul: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Hair tips die out over the last 12 percent. The raster edge is clear."""
+    rows = alpha.shape[0]
+    start = int(rows * 0.88)
+    if start >= rows - 1:
+        return alpha, premul
+    ramp = np.ones(rows, dtype=np.float32)
+    ramp[start:] = np.linspace(1.0, 0.0, rows - start, dtype=np.float32)
+    alpha = alpha * ramp[:, None]
+    premul = premul * ramp[:, None, None]
+    return alpha, premul
+
+
+def _neck_lavender(
+    cv: Canvas2, alpha: np.ndarray, premul: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Upper neck is lavender gas. It thins downward instead of a grey column.
+
+    Straight tint is about (198, 160, 228), so blue sits well above green.
+    The cover is only the neck band, and it multiplies by a falloff in Y.
+    """
+    fall = np.clip((0.62 - cv.Y) / 0.30, 0.0, 1.0)
+    side = np.clip((0.10 - np.abs(cv.X)) / 0.045, 0.0, 1.0)
+    band = np.clip((cv.Y - 0.22) / 0.08, 0.0, 1.0) * side * fall
+    use = band * (alpha > 0.02)
+    tint = np.array([198.0, 160.0, 228.0], dtype=np.float32) / 255.0
+    new_a = alpha * (0.35 + 0.65 * fall)
+    premul = premul * (1.0 - use[..., None]) + (tint * new_a[..., None]) * use[..., None]
+    alpha = alpha * (1.0 - use) + new_a * use
+    return alpha, premul
+
+
 def to_premul(
     cv: Canvas2,
     exposure: float = 1.0,
@@ -95,13 +127,32 @@ def to_premul(
     nebula glow behind the skin, so the cheek stays the approved lavender.
     The edge stays the glow alone, or a light theme would pick up a dark box.
     """
+    if ink == "star":
+        # Tight glow only. The wide face bloom turns the four spikes into a disc,
+        # and a steep alpha ramp then fills that disc solid white.
+        colored, _dark = _shaded(cv)
+        scale = _bloom_scale(cv.W)
+        lit = colored + 0.5 * Canvas.blur(colored, max(1.1, 2.2 * scale))
+        lit *= exposure
+        glow = 1.0 - np.exp(-np.clip(lit, 0, None))
+        peak = glow.max(axis=-1)
+        # Alpha stays with the hue so the fringe is star-colored. The floor
+        # drops the wide grey disc; what remains is the core and the spikes.
+        hue = glow / np.maximum(peak[..., None], 1e-3)
+        alpha = np.clip((peak - 0.16) / 0.28, 0.0, 1.0) ** 1.6
+        premul = np.clip(hue, 0.0, 1.0) * alpha[..., None]
+        alpha, premul = _fade_bottom(alpha, premul)
+        out = np.empty((cv.H, cv.W, 4), dtype=np.uint8)
+        out[..., 0] = np.clip(premul[..., 0] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        out[..., 1] = np.clip(premul[..., 1] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        out[..., 2] = np.clip(premul[..., 2] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        out[..., 3] = np.clip(alpha * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        return out
     lit, dark = _lit(cv, exposure)
     glow = 1.0 - np.exp(-np.clip(lit, 0, None))
     peak = glow.max(axis=-1)
     # Below this the glow is a rectangle on a light theme, not part of her.
     # Hair sits softer than skin, so its floor is lower. The corners still fall out.
-    alpha = np.clip((peak - floor) / 0.05, 0.0, 1.0)
-    alpha = np.where(peak < floor, 0.0, alpha)
     shown = glow
     if face or ink == "filmed":
         bg = background(cv.W, cv.H, face2.PAL, stars=int(900 * cv.W * cv.H / 1024**2))
@@ -111,7 +162,27 @@ def to_premul(
         else:
             core = np.clip((peak - 0.28) / 0.22, 0.0, 1.0) ** 2
             shown = glow * (1.0 - core[..., None]) + filmed * core[..., None]
-    premul = shown * alpha[..., None]
+    # Interior keeps the filmed plate (the approved cheek). The rim's
+    # associated color is the glow hue, premultiplied once below, so a
+    # light dock does not pick up a black outline.
+    hue = glow / np.maximum(peak[..., None], 1e-3)
+    # Opaque as soon as the light clears the floor, so hair stays a solid
+    # strand field. The color blend below is what kills the gray shell.
+    alpha = np.clip((peak - floor) / 0.05, 0.0, 1.0)
+    alpha = np.where(peak < floor, 0.0, alpha)
+    premul = np.clip(shown, 0.0, 1.0) * alpha[..., None]
+    # Filmed color goes gray before it goes clear. Blend the outer band to the
+    # glow hue with a wide blur so the shell fades instead of drawing a line.
+    empty = (alpha < 0.15).astype(np.float32)
+    spread = Canvas.blur(np.repeat(empty[..., None], 3, axis=-1), max(2.0, cv.W * 0.04))[..., 0]
+    top = float(spread.max())
+    weight = np.clip(spread / top, 0.0, 1.0) if top > 1e-6 else np.zeros_like(spread)
+    weight = np.where(alpha < 0.05, 0.0, weight)
+    hue_premul = np.clip(hue, 0.0, 1.0) * alpha[..., None]
+    premul = hue_premul * weight[..., None] + premul * (1.0 - weight[..., None])
+    if face:
+        alpha, premul = _neck_lavender(cv, alpha, premul)
+    alpha, premul = _fade_bottom(alpha, premul)
     out = np.empty((cv.H, cv.W, 4), dtype=np.uint8)
     out[..., 0] = np.clip(premul[..., 0] * 255.0 + 0.5, 0, 255).astype(np.uint8)
     out[..., 1] = np.clip(premul[..., 1] * 255.0 + 0.5, 0, 255).astype(np.uint8)
@@ -165,10 +236,25 @@ def _paint_back(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
     return to_premul(cv, 3.2, floor=0.06)
 
 
+def _fade_outer_left_lock(plate: np.ndarray) -> np.ndarray:
+    """Fade the outer left lock out before it crosses the ring.
+
+    Its tips left the head together and read as one flat ribbon below the ring.
+    The back hair still fills that side, so the front lock simply thins to
+    nothing there over a wide ramp. Premultiplied, so all four channels scale.
+    """
+    cv = _canvas(plate.shape[1], plate.shape[0])
+    side = np.clip((-0.40 - cv.X) / 0.12, 0.0, 1.0)
+    below = np.clip((cv.Y - 0.26) / 0.14, 0.0, 1.0)
+    keep = 1.0 - face2.smooth(side) * face2.smooth(below)
+    out = plate.astype(np.float32) * keep[..., None]
+    return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+
+
 def _paint_front(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
     cv = _canvas(width, height)
     rig.splat_front_hair(cv, t, POSE)
-    return to_premul(cv, 1.0)
+    return _fade_outer_left_lock(to_premul(cv, 1.0))
 
 
 def _paint_wisps(rig: V24Rig, width: int, height: int) -> np.ndarray:
@@ -191,7 +277,7 @@ def _paint_star(rig: V24Rig, width: int, height: int) -> np.ndarray:
     cv = _canvas(width, height)
     spot = rig.to_world(np.array([[0.232, -0.372]]), POSE)[0]
     sparkle(cv, spot, 0.078, hexrgb(face2.PAL["star"]), 0.85 + 0.12 * math.sin(FACE_T * 1.7))
-    return to_premul(cv, 1.05)
+    return to_premul(cv, 1.05, ink="star")
 
 
 def _body(rig: V24Rig, cv: Canvas2, mouth: float) -> None:
@@ -215,7 +301,7 @@ def _body(rig: V24Rig, cv: Canvas2, mouth: float) -> None:
         cv.splat(
             rig.to_world(neck, POSE),
             rig.neck_w,
-            face2.lerpc(pal["hair0"], pal["hair1"], rig.neck_c),
+            face2.lerpc(pal["face"], pal["hair0"], 0.35 + 0.25 * rig.neck_c),
             2.0,
         )
 

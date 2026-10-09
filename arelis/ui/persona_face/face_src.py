@@ -528,7 +528,7 @@ class Rig:
             cv.splat(
                 self.to_world(ng, pose),
                 self.neck_w,
-                lerpc(pal["hair0"], pal["hair1"], self.neck_c),
+                lerpc(pal["face"], pal["hair0"], 0.35 + 0.25 * self.neck_c),
                 2.0,
             )
         self.face_fields(cv, X, Y, t, mouth, blink, gaze, brow)
@@ -578,9 +578,9 @@ class Rig:
         )
         # neck, dimmer, fading into the gas
         if NECK:  # longer, softer neck that turns into drifting gas
-            nw = 0.068 + 0.16 * np.clip(Y - 0.42, 0, 1)
+            nw = 0.062 + 0.10 * np.clip(Y - 0.42, 0, 1)
             neck = (
-                smooth((nw - np.abs(X)) / 0.07) * ss(0.20, 0.30, Y) * (1 - ss(0.30, 0.80, Y)) * 0.24
+                smooth((nw - np.abs(X)) / 0.10) * ss(0.20, 0.28, Y) * (1 - ss(0.36, 0.50, Y)) * 0.55
             )
             neck *= 1 - 0.6 * ins
             neck = neck * np.clip(
@@ -624,11 +624,13 @@ class Rig:
                 mask * G["fil"] * ridge * (0.5 + 0.5 * core),
                 lerpc(pal["hair0"], pal["hair1"], 0.4 + 0.0 * X),
             )
-            cv.buf(0)[...] += (0.50 * neck)[..., None] * hexrgb(pal["hair0"])
+            # Lavender gas, not a dark column. Face tone mixed a little toward
+            # the hair, brighter than the old hair0-only neck.
+            neck_col = lerpc(pal["face"], pal["hair0"], 0.28)
+            cv.buf(0)[...] += (1.55 * neck)[..., None] * neck_col
         else:
-            cv.buf(0)[...] += (0.68 * skin)[..., None] * col + (0.50 * neck)[..., None] * hexrgb(
-                pal["hair0"]
-            )
+            neck_col = lerpc(pal["face"], pal["hair0"], 0.28)
+            cv.buf(0)[...] += (0.68 * skin)[..., None] * col + (1.55 * neck)[..., None] * neck_col
         cv.light(rim, lerpc(pal["hair0"], pal["face"], 0.35))
         cv.shade(
             0.10 * ss(0.30, 0.34, Y) * (1 - ss(0.34, 0.40, Y)) * smooth((0.09 - np.abs(X)) / 0.03)

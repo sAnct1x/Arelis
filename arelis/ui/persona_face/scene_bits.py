@@ -18,8 +18,8 @@ def gasify(pts, n_per, jit, rng, noise=None, nd=0.0):
 
 
 def sparkle(cv, c, size, color, strength=1.0):
-    cv.blob(c, size * 0.12, color, 2.2 * strength)
-    cv.blob(c, size * 0.45, color, 0.35 * strength)
+    cv.blob(c, size * 0.10, color, 1.6 * strength)
+    cv.blob(c, size * 0.28, color, 0.12 * strength)
     t = np.linspace(-size, size, 1200)
     f = np.exp(-np.abs(t) / (size * 0.22))
     for ang, s in ((0, 1.0), (np.pi / 2, 1.0), (np.pi / 4, 0.35), (-np.pi / 4, 0.35)):
@@ -39,8 +39,11 @@ def orbit_ring(
     y = c[1] + ex * np.sin(tilt) + ey * np.cos(tilt)
     br = (0.35 + 0.9 * np.clip(nv + 0.3, 0, 1)) * strength
     back = np.sin(a) < 0
-    br = np.where(back & (np.abs(x) < 0.44), br * 0.08, br)
-    br = np.where(back, br * 0.6, br)
+    # The ring passes behind the side locks. A hard x cut drew a pink stripe
+    # where a lock crossed it. The hide ramps over a short band instead.
+    hide = np.clip((0.50 - np.abs(x)) / 0.10, 0.0, 1.0)
+    hide = hide * hide * (3.0 - 2.0 * hide)
+    br = np.where(back, br * (1.0 - 0.92 * hide) * 0.6, br)
     xy = np.stack([x, y], 1)
     cv.splat(xy, 0.008 * br, lerpc(pal["ring"], pal["face"], 0.3), 0.8)
     cv.splat(xy[::3], 0.012 * br[::3], hexrgb(pal["ring"]), 3.5)
