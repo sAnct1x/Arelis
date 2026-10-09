@@ -94,17 +94,8 @@ def _fade_bottom(alpha: np.ndarray, premul: np.ndarray) -> tuple[np.ndarray, np.
     return alpha, premul
 
 
-def _neck_lavender(
-    cv: Canvas2, alpha: np.ndarray, premul: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    """Replace the neck glow with a soft taper.
-
-    The tone map turns a dim column into a hard rectangle. Below the jaw the
-    alpha follows a narrowing gaussian that fades on an arc, darker in the
-    shadow under the chin. Blue stays above green.
-    """
-    # Leave the chin alone. The ramp starts just under the jaw.
-    apply = np.clip((cv.Y - 0.338) / 0.028, 0.0, 1.0)
+def _neck_alpha_v6(cv: Canvas2) -> np.ndarray:
+    """The pointed v6 neck's alpha. Hair still reads its tone match from it."""
     down = np.clip((cv.Y - 0.35) / 0.20, 0.0, 1.0)
     half = 0.030 * (1.0 - down) ** 1.05 + 0.008
     radial = np.exp(-0.5 * (np.abs(cv.X) / half) ** 2)
@@ -112,11 +103,32 @@ def _neck_lavender(
     hem = 0.58 - 0.10 * np.clip(np.abs(cv.X) / np.maximum(half, 0.01), 0.0, 1.0)
     hem = hem + 0.012 * np.sin(cv.X * 55.0)
     fall = np.clip((hem - cv.Y) / 0.16, 0.0, 1.0) ** 0.8
-    mask = core * fall * (1.0 - 0.22 * down)
-    new_a = np.clip(mask, 0.0, 1.0)
-    shade = np.clip((0.43 - cv.Y) / 0.08, 0.0, 1.0) * np.clip(
-        (0.028 - np.abs(cv.X)) / 0.020, 0.0, 1.0
-    )
+    return np.clip(core * fall * (1.0 - 0.22 * down), 0.0, 1.0)
+
+
+def _neck_alpha(cv: Canvas2) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Where the neck replaces the glow, and its alpha there."""
+    apply = np.clip((cv.Y - 0.338) / 0.028, 0.0, 1.0)
+    down = np.clip((cv.Y - 0.35) / 0.20, 0.0, 1.0)
+    half = 0.030 - 0.006 * down
+    radial = np.exp(-0.5 * (np.abs(cv.X) / half) ** 2)
+    fade = 1.0 - face2.smooth(np.clip((cv.Y - 0.37) / 0.17, 0.0, 1.0))
+    return apply, np.clip(0.80 * radial * fade, 0.0, 1.0), radial
+
+
+def _neck_lavender(
+    cv: Canvas2, alpha: np.ndarray, premul: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Replace the neck glow with a soft column that fades into the glow.
+
+    The tone map turns a dim column into a hard rectangle. Below the jaw the
+    alpha is a soft gaussian column that barely narrows and fades out
+    smoothly downward, so there is no pointed tip and no hard edge. A light
+    shade under the chin keeps the chin in front. Blue stays above green.
+    """
+    # Leave the chin alone. The ramp starts just under the jaw.
+    apply, new_a, radial = _neck_alpha(cv)
+    shade = np.clip((0.41 - cv.Y) / 0.06, 0.0, 1.0) * np.clip(radial * 1.6, 0.0, 1.0) * 0.85
     light = np.array([188.0, 154.0, 216.0], dtype=np.float32) / 255.0
     dark = np.array([142.0, 110.0, 176.0], dtype=np.float32) / 255.0
     tint = light * (1.0 - shade[..., None]) + dark * shade[..., None]
@@ -375,11 +387,23 @@ def _hair_static(rig: V24Rig, width: int, height: int) -> dict:
     approved = _paint_front_e8488a1(rig, width, height, t)[..., 3].astype(np.float32)
     face_zone = _front_on_face(cv).astype(np.float32)
     keep = np.clip((approved - 8.0) / 40.0, 0.0, 1.0)
-    out = {"face_zone": face_zone, "on_face": face_zone * keep, "zone": None}
+    out = {"face_zone": face_zone, "on_face": face_zone * keep, "zone": None, "skin": None}
     matte = _face_matte(rig, width, height)
+    # Where the fringe lies on actual skin. Above the hairline it is crown hair.
+    # The skin matte runs over the whole skull, so the hairline row bounds it.
+    out["skin"] = (np.clip(matte / 64.0, 0.0, 1.0) * face2.ss(-0.31, -0.24, cv.Y)).astype(
+        np.float32
+    )
     if matte.max() > 0:
         old = _paint_back_e8488a1(rig, width, height, t).astype(np.float32) / 255.0
+        # The tone match is read from the v6 neck's matte, so the hair around
+        # the jaw keeps its approved tone when the neck below changes shape.
+        apply, new_a, _radial = _neck_alpha(cv)
+        matte = matte + (_neck_alpha_v6(cv) - new_a) * apply * 255.0
         zone = np.clip((matte - 4.0) / 18.0, 0.0, 1.0)
+        # Only the jaw and neck see through. Over the crown the old dark plate
+        # read as a bald scalp under thin hair, so the crown keeps new strands.
+        zone = zone * face2.ss(-0.05, 0.05, cv.Y).astype(np.float32)
         spread = Canvas.blur(np.repeat(zone[..., None], 3, -1), 0.012 / cv.px)[..., 0]
         near = np.clip(face2.smooth(spread * 3.0), 0.0, 1.0)
         # Below the neck tip there is no face to match, so the tone match fades
@@ -389,6 +413,12 @@ def _hair_static(rig: V24Rig, width: int, height: int) -> dict:
         last = np.where(live.any(axis=0), height - 1 - np.argmax(live[::-1], axis=0), -height)
         below = (np.arange(height, dtype=np.float32)[:, None] - last[None, :]) * cv.px
         near = near * (1.0 - face2.smooth(np.clip(below / 0.03, 0.0, 1.0)))
+        # Below the jaw the neck is a lavender glow of its own, so the old dark
+        # plate must not show through it as a dark column.
+        side = 1.0 - face2.ss(0.06, 0.085, np.abs(cv.X))
+        under = (1.0 - face2.ss(0.29, 0.36, cv.Y) * side).astype(np.float32)
+        zone = zone * under
+        near = near * under
         back_cv = _canvas(width, height)
         rig.draw_back(back_cv, t, POSE)
         bp, _ba = _hair_premul(back_cv, HAIR_TONE["back_exp"])
@@ -456,7 +486,9 @@ def _paint_hair_v3(rig: V24Rig, width: int, height: int, t: float):
     back_a = fao + ba * (1.0 - fao)
     back = _pack_hair(back_p, back_a)
     # Over the bright skin the screen add burns to white. Keep it soft lavender.
-    lift = HAIR_TONE["on_face"]
+    # The crown has no skin under it, so it keeps full tone there; dimmed, it
+    # read as a dark bald scalp under the hair.
+    lift = 1.0 - (1.0 - HAIR_TONE["on_face"]) * static["skin"]
     result = back, _pack_hair(fp * (on_face * lift)[..., None], fa * on_face)
     _LAST.clear()
     _LAST[key] = result
