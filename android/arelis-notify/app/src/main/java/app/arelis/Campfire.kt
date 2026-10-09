@@ -51,3 +51,13 @@ fun ArelisTheme(content: @Composable () -> Unit) {
         content = content,
     )
 }
+
+/**
+ * Desktop sodium colours in lockstep with arelis/ui/theme.py COLORS.
+ * tests/test_orbit_void.py reads these lines; DeskThemes.sodium uses the same values.
+ */
+object SodiumLock {
+    val bg0 = Color(0xFF100D0B)
+    val accent = Color(0xFFFF7A22)
+    val accent2 = Color(0xFFFFC08A)
+}
