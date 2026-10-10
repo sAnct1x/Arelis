@@ -4,13 +4,13 @@ SymPy's parse_expr uses eval. evaluate=False is not a sandbox. This tool
 whitelists an AST first, then parses into a locked namespace with empty
 builtins, then runs the named action under a timeout.
 
-That last clause was aspirational until 2026-09-17. Only integrate, dsolve and
-sum were bounded, by a child process that can be killed; every other action
-ran unbounded on the calling thread, and a degree-40 solve or a nested
-simplify would spin a core with the glass unable to answer and Stop unable to
-help. Both halves are real now, by different means, because they have
-different problems: a thread deadline cannot interrupt integrate(), and a
-process spawn cannot be charged to every quadratic. See `_run_bounded`.
+That last clause was aspirational until 2026-09-17. integrate, dsolve and sum
+were bounded by a child process that can be killed; every other action ran
+unbounded on the calling thread, and a degree-40 solve or a nested simplify
+would spin a core with the glass unable to answer and Stop unable to help.
+series joined the child later: its expand sits inside integer gcd, which a
+thread tracer cannot interrupt, and walking away from that thread pins the
+whole process. A quadratic still stays in-process. See `_run_bounded`.
 """
 
 from __future__ import annotations
@@ -47,8 +47,11 @@ _ACTIONS = frozenset(
         "expand",
     }
 )
-# Only these can pin a core for minutes. Solve/diff stay in-process.
-_SPAWN_ACTIONS = frozenset({"integrate", "dsolve", "sum"})
+# These can sit inside one C call the thread tracer never gets to interrupt:
+# integrate(), or math.gcd on a series coefficient. shutdown(wait=False)
+# then leaves that thread holding the interpreter, and a later import looks
+# hung. Solve/diff stay in-process so a quadratic is not a spawn.
+_SPAWN_ACTIONS = frozenset({"integrate", "dsolve", "sum", "series"})
 
 _BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow)
 _UNARYOPS = (ast.UAdd, ast.USub)
@@ -588,6 +591,7 @@ def _run_timed(
             lo,
             hi,
             n,
+            at,
             timeout=_TIMEOUT_S,
         )
     return _run_bounded(
@@ -633,13 +637,12 @@ def _run_bounded(
 ) -> Any:
     """The in-process path, with the timeout the module docstring promises.
 
-    It did not have one. `_SPAWN_ACTIONS`, integrate, dsolve, sum, got a
-    killable child process, and every other action ran unbounded on the
-    calling thread. Measured: `solve(x**40 - x**17 + 3*x**5 - 1)`, a nested
-    `simplify`, and `series(exp(sin(tan(x))), n=40)` each ran past twenty
-    seconds and were still going. None of those is an exotic input for
-    someone doing physics homework, and the failure is the worst kind, the
-    glass stops answering and Stop does nothing.
+    It did not have one. integrate, dsolve, sum, and series get a killable
+    child. Every other action used to run unbounded on the calling thread.
+    Measured: `solve(x**40 - x**17 + 3*x**5 - 1)` and a nested `simplify`
+    each ran past twenty seconds. series did too, and then stayed there
+    after the deadline, inside integer gcd, where this tracer cannot raise.
+    That leftover thread is why series is not on this path.
 
     Two layers, as in python_exec: the tracer stops SymPy itself, and the
     future walks away from the thread if the tracer never gets a call event
@@ -720,9 +723,12 @@ def _compute_to_queue(
     lo: str | None,
     hi: str | None,
     n: int | None,
+    at: str | None = None,
 ) -> None:
     try:
-        result = _compute(action, expr, wrt=wrt, symbol=symbol, lo=lo, hi=hi, n=n)
+        result = _compute(
+            action, expr, wrt=wrt, symbol=symbol, lo=lo, hi=hi, n=n, at=at
+        )
         queue.put(("ok", result.ascii, result.latex, result.text, result.unevaluated))
     except Exception as exc:
         queue.put(("err", type(exc).__name__, str(exc)))
