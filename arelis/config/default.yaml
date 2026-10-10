@@ -539,6 +539,10 @@ tools:
   # outputs/plots/. Always Allow (confirm_writes). Off for unattended jobs.
   plot:
     enabled: true
+  # Analysis and charts of files in the current room, including FITS.
+  # Writes under that room's results/. Always Allow. Off for unattended jobs.
+  data_cell:
+    enabled: true
   # PDF, Word, Excel, CSV, markdown, text under outputs/documents/. Allow
   # (confirm_writes). Off for unattended jobs.
   document:

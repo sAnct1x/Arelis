@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from arelis.core.document_refs import resolve_drop_file
+from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.tools.base import ToolResult
 from arelis.workspace import ResolvedPath, WorkspaceRoots
 
@@ -246,7 +246,7 @@ class AnalyzeTool:
 
     def _resolve(self, path_str: str):
         try:
-            return self.workspace.resolve_read(path_str)
+            hit = self.workspace.resolve_read(path_str)
         except Exception as first:
             drop = resolve_drop_file(
                 path_str,
@@ -260,6 +260,17 @@ class AnalyzeTool:
                     root=path.parent,
                 )
             raise first
+        if hit.path.is_file():
+            return hit
+        reported = resolve_reported_document_path(path_str)
+        if reported:
+            path = Path(reported)
+            return ResolvedPath(
+                path=path,
+                root_name="outputs",
+                root=path.parent,
+            )
+        return hit
 
     def _load(self, path: Path) -> Any:
         """Read a table, capped at _MAX_ROWS_READ.

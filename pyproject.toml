@@ -49,6 +49,10 @@ dependencies = [
   # Charts from tables. PSF license (BSD-compatible). Core, not an extra: a
   # stranger's pip install -e . should plot a CSV without knowing a extra name.
   "matplotlib>=3.8",
+  # FITS headers and images for the data cell. Core, not an extra: a room
+  # with astronomy files should open without a second install. The floor
+  # still resolves on the Ubuntu 3.11 CI runner.
+  "astropy>=6.1",
   # Documents the user can double-click: PDF, Word, Excel. Core, not an extra —
   # "make me a pdf" is the ask, not a niche.
   "fpdf2>=2.8",

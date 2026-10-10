@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -1654,6 +1655,264 @@ def profile_place_ask(text: str) -> bool:
     return bool(_PROFILE_PLACE.search(text or ""))
 
 
+_NAMED_ROOM_FILE = re.compile(
+    r"(?i)\b([\w.-]+\.(?:csv|tsv|tab|json|xlsx|xls|fits|fit))\b"
+)
+_DATA_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls", ".fits", ".fit"}
+_ONE_DATA_FILE = re.compile(r"(?i)\b(?:my data|my file|this file|that file|the table)\b")
+# rooms.yaml mtime, room folder mtime, folder path, names. A new file changes
+# the folder mtime, so the next turn relists the top of that folder only.
+_ROOM_NAME_CACHE: tuple[int, int, str, frozenset[str]] | None = None
+
+
+def live_room_filenames() -> set[str]:
+    """File names in the current room, from the saved room, or an empty set.
+
+    A fresh RoomStore is not the in-memory one, so this reads last_active
+    off disk. Tests with no room get nothing and weather stays weather.
+    The list is cached on the rooms file mtime and the room folder mtime.
+    A cache miss that has to find the folder calls load_config once, because
+    nothing else keeps a process-wide config. A new file does not.
+    """
+    global _ROOM_NAME_CACHE
+    try:
+        from arelis.paths import state_dir
+
+        path = state_dir() / "rooms.yaml"
+        rooms_stamp = path.stat().st_mtime_ns if path.is_file() else 0
+    except Exception:
+        # No rooms file: there is no current room, so this is not a file ask.
+        return set()
+    cached = _ROOM_NAME_CACHE
+    if cached is not None and cached[0] == rooms_stamp:
+        folder_stamp = _folder_mtime(cached[2])
+        if folder_stamp == cached[1]:
+            return set(cached[3])
+        names = _list_room_files(cached[2])
+        _ROOM_NAME_CACHE = (rooms_stamp, folder_stamp, cached[2], names)
+        return set(names)
+    if not rooms_stamp:
+        _ROOM_NAME_CACHE = (0, 0, "", frozenset())
+        return set()
+    names, folder_path, folder_stamp = _scan_live_room(path)
+    _ROOM_NAME_CACHE = (rooms_stamp, folder_stamp, folder_path, names)
+    return set(names)
+
+
+def _folder_mtime(folder: str) -> int:
+    if not folder:
+        return 0
+    try:
+        path = Path(folder)
+        return path.stat().st_mtime_ns if path.is_dir() else 0
+    except Exception:
+        # A missing folder is the same as an empty one.
+        return 0
+
+
+def _list_room_files(folder: str) -> frozenset[str]:
+    """Top of the room folder only. Never walks, never raises."""
+    if not folder:
+        return frozenset()
+    try:
+        found: set[str] = set()
+        for child in Path(folder).iterdir():
+            if child.name.startswith("."):
+                continue
+            if child.is_file():
+                found.add(child.name)
+        return frozenset(found)
+    except Exception:
+        # A folder that vanishes mid-scan must not take the turn down.
+        return frozenset()
+
+
+def _scan_live_room(path: Path) -> tuple[frozenset[str], str, int]:
+    try:
+        import yaml
+
+        from arelis.config import load_config
+        from arelis.workspace import WorkspaceRoots
+
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        room_id = str(raw.get("last_active") or "")
+        body = (raw.get("rooms") or {}).get(room_id) or {}
+        root_name = str(body.get("root") or "").strip()
+        if not root_name:
+            return frozenset(), "", 0
+        config = load_config()
+        workspace = config.get("_workspace") or WorkspaceRoots.from_config(config)
+        entry = workspace.root_named(root_name)
+        if entry is None or not entry.path.is_dir():
+            return frozenset(), "", 0
+        folder = entry.path
+        return _list_room_files(str(folder)), str(folder), _folder_mtime(str(folder))
+    except Exception:
+        # A bad rooms file is an empty room, and weather stays weather.
+        return frozenset(), "", 0
+
+
+# A stem this short, or this common, does not identify a file. The ask has
+# to name it with its extension, or use a one-file phrase.
+_GENERIC_STEMS = frozenset(
+    {
+        "data",
+        "file",
+        "test",
+        "notes",
+        "report",
+        "output",
+        "results",
+        "table",
+        "list",
+        "log",
+        "temp",
+        "sample",
+        "example",
+        "weather",
+        "temperature",
+        "readme",
+        "index",
+        "config",
+        "main",
+        "new",
+        "old",
+        "final",
+    }
+)
+_CELL_FLAG: tuple[int, int, bool] | None = None
+_EDIT_NOT_A_READ = re.compile(r"(?i)\brename\b|\bin the editor\b|\bwrite a script\b")
+
+
+def _stem_phrase(filename: str) -> str:
+    stem = Path(filename).stem.lower()
+    return re.sub(r"[-_]+", " ", stem).strip()
+
+
+def _phrase_in(text: str, phrase: str) -> bool:
+    if len(phrase) < 4 or phrase in _GENERIC_STEMS:
+        return False
+    return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text) is not None
+
+
+def _room_names(room_files: set[str] | None) -> set[str]:
+    return {
+        str(item).lower()
+        for item in (room_files if room_files is not None else live_room_filenames())
+        if str(item).strip()
+    }
+
+
+def _data_names(names: set[str]) -> list[str]:
+    return [name for name in names if Path(name).suffix.lower() in _DATA_SUFFIXES]
+
+
+def data_cell_enabled() -> bool:
+    """True when the config still offers the tool. Cached on the yaml mtimes.
+
+    load_config re-reads both files, so this calls it only when one changes.
+    A process that has not built a registry yet still follows the flag.
+    """
+    global _CELL_FLAG
+    try:
+        from arelis.config import DEFAULT_CONFIG_PATH, LOCAL_CONFIG_PATH
+
+        default_stamp = (
+            DEFAULT_CONFIG_PATH.stat().st_mtime_ns if DEFAULT_CONFIG_PATH.is_file() else 0
+        )
+        local_stamp = LOCAL_CONFIG_PATH.stat().st_mtime_ns if LOCAL_CONFIG_PATH.is_file() else 0
+    except Exception:
+        # If the stamp cannot be read, leave the tool on.
+        return True
+    cached = _CELL_FLAG
+    if cached is not None and cached[0] == default_stamp and cached[1] == local_stamp:
+        return cached[2]
+    try:
+        from arelis.config import load_config
+
+        tools = load_config().get("tools") or {}
+        enabled = bool((tools.get("data_cell") or {}).get("enabled", True))
+    except Exception:
+        # A bad config leaves the tool on, which is the default.
+        enabled = True
+    _CELL_FLAG = (default_stamp, local_stamp, enabled)
+    return enabled
+
+
+def room_data_file_names(room_files: set[str] | None = None, *, limit: int = 10) -> list[str]:
+    """Data file names in this room, up to ten, names only."""
+    return sorted(_data_names(_room_names(room_files)))[:limit]
+
+
+def room_data_file_explicit(text: str, room_files: set[str] | None = None) -> bool:
+    """True when the ask names a room data file, or says fits and one is there.
+
+    A stem or a one-file phrase is not enough for a hard reject.
+    """
+    names = _room_names(room_files)
+    if not names:
+        return False
+    raw = text or ""
+    mentioned = [hit.group(1).lower() for hit in _NAMED_ROOM_FILE.finditer(raw)]
+    if mentioned:
+        return any(name in names for name in mentioned)
+    has_fits = any(name.endswith((".fits", ".fit")) for name in names)
+    return bool(re.search(r"\bfits\b", raw, re.I) and has_fits)
+
+
+def room_data_file_ask(text: str, room_files: set[str] | None = None) -> bool:
+    """True when the ask is about a data file that is actually in this room.
+
+    Only csv, tsv, json, Excel, and FITS count. A .py or .md in the room
+    does not. A named csv that is not in the room does not match. A word
+    or a two-word phrase that matches a data-file stem does ("readings"
+    matches readings.csv, "weather log" matches weather_log.csv). Generic
+    stems such as weather, data, or test do not. "my data", "my file",
+    "this file", "that file", or "the table" match only when the room has
+    exactly one data file. The word "fits" matches when the room has a
+    FITS file.
+    """
+    names = _room_names(room_files)
+    if not names:
+        return False
+    raw = text or ""
+    if room_data_file_explicit(raw, names):
+        return True
+    folded = re.sub(r"[-_]+", " ", raw.lower())
+    for name in _data_names(names):
+        if _phrase_in(folded, _stem_phrase(name)):
+            return True
+    data_files = _data_names(names)
+    if len(data_files) == 1 and _ONE_DATA_FILE.search(raw):
+        return True
+    return False
+
+
+def data_cell_should_reject(
+    name: str,
+    args: dict | None,
+    text: str,
+    tool_names: set[str],
+) -> bool:
+    """Hard-reject a wander only when the tool is on and the file is named.
+
+    A stem match stays a soft hint. A rename, an editor open, or writing a
+    script is not blocked. Workspace is rejected only for read or list.
+    """
+    if "data_cell" not in tool_names or not data_cell_enabled():
+        return False
+    if _EDIT_NOT_A_READ.search(text or ""):
+        return False
+    if not room_data_file_explicit(text):
+        return False
+    if name in {"analyze", "weather", "plot", "python", "vision", "recall"}:
+        return True
+    if name != "workspace":
+        return False
+    action = str((args or {}).get("action") or "").strip().lower()
+    return action in {"read", "list"}
+
+
 def should_inject_saved_place(
     text: str, tool_names: set[str], tools_used: set[str]
 ) -> bool:
@@ -1669,9 +1928,17 @@ def should_inject_saved_place(
     return profile_place_ask(text)
 
 
-def weather_intent_matches(text: str) -> bool:
-    """True for a forecast ask, not a device spec that mentions temperature."""
+def weather_intent_matches(text: str, *, data_cell: bool | None = None) -> bool:
+    """True for a forecast ask, not a device spec or a file in this room.
+
+    ``data_cell`` is whether this turn can call the tool. None follows the
+    config flag. A job that did not register it passes False so a forecast
+    stays a forecast.
+    """
     raw = text or ""
+    offered = data_cell_enabled() if data_cell is None else data_cell
+    if offered and room_data_file_ask(raw):
+        return False
     if exactness_match("weather", raw):
         return True
     if not WEATHER.matches(raw):

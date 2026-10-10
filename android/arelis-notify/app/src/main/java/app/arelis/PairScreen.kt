@@ -37,7 +37,7 @@ fun PairScreen(
         BrandMark(subtitle = headline, mode = HouseMode.Pairing)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Same Wi-Fi as the PC. Scan once. The phone finds the house again after you leave and come back — no new QR for a DHCP move.",
+            "Same Wi-Fi as the PC. Scan once. The phone finds the house again after you leave and come back. No new QR for a DHCP move.",
             color = Campfire.dim,
             fontSize = 14.sp,
             lineHeight = 20.sp,

@@ -116,6 +116,28 @@ def _reset_house_watch():
 
 
 @pytest.fixture(autouse=True)
+def _fake_lan_hostname_lookup(monkeypatch: pytest.MonkeyPatch):
+    """Keep every test off the real hostname resolver.
+
+    list_lan_ipv4 looks up this machine on a daemon thread named
+    arelis-lan-lookup. getaddrinfo cannot be interrupted, so a stuck call
+    stays for the rest of the process. This returns at once for that lookup.
+    A test that needs a hang or a timeout patches getaddrinfo itself.
+    """
+    import socket
+
+    real = socket.getaddrinfo
+
+    def fake(host, port, *args, **kwargs):
+        family = args[0] if args else kwargs.get("family", 0)
+        if port is None and family == socket.AF_INET:
+            return []
+        return real(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake)
+
+
+@pytest.fixture(autouse=True)
 def _reset_theme(request: pytest.FixtureRequest):
     """Paper tests mutate the live palette. Sodium is the suite default."""
     if "no_ui" in request.keywords:

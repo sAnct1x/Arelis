@@ -31,6 +31,7 @@ from arelis.tools.catalog import CatalogTool, catalog_place
 from arelis.tools.clipboard import ClipboardTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
 from arelis.tools.contacts_tool import ContactsTool
+from arelis.tools.data_cell import DataCellTool
 from arelis.tools.desktop_tool import DesktopTool
 from arelis.tools.diagnostics import DiagnosticsTool
 from arelis.tools.doc_extract import DocExtractTool
@@ -379,6 +380,9 @@ def build_tool_registry(
     # Charts write a PNG (Allow). Jobs skip — nobody is there to approve the file.
     if attended and (tools_cfg.get("plot") or {}).get("enabled", True):
         registry.register(PlotTool(workspace, config["_rooms"]))
+    # Room files only, charts under that room's results/. Allow. Jobs skip.
+    if attended and (tools_cfg.get("data_cell") or {}).get("enabled", True):
+        registry.register(DataCellTool(workspace, config["_rooms"]))
     # PDF / Word / Excel / CSV / markdown. Allow. Jobs skip — nobody is there
     # to approve a file landing on disk.
     if attended and (tools_cfg.get("document") or {}).get("enabled", True):

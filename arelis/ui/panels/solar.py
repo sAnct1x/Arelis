@@ -180,6 +180,95 @@ from arelis.ui.panels.solar_paint import (
 from arelis.ui.theme import color
 
 
+class _HorizonsBox:
+    """Progress for a Horizons fetch. Not a widget.
+
+    The worker used to be a thread aimed at ``self._horizons_work``. That bound
+    method was often the last thing keeping the plate alive after a test hid it.
+    When the thread ends, Python drops that target on the worker, and the plate's
+    destructor then runs off the GUI thread. macOS dies inside Qt while the test
+    teardown is still draining deferred deletes. This box is a plain object, so
+    the worker can finish without touching Qt. The plate copies the result across
+    on the GUI thread.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.progress = ""
+        self.result: object | None = None
+
+    def set_progress(self, msg: str) -> None:
+        with self._lock:
+            self.progress = msg
+
+    def finish(self, result: object) -> None:
+        with self._lock:
+            self.result = result
+
+    def take(self) -> tuple[str, object | None]:
+        with self._lock:
+            result = self.result
+            self.result = None
+            return self.progress, result
+
+
+class _MapsBox:
+    """Albedo download result. Same rule as the Horizons box: the worker must
+    not be the object that destroys the plate."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.done: tuple[list[str], list[str]] | None = None
+
+    def finish(self, value: tuple[list[str], list[str]]) -> None:
+        with self._lock:
+            self.done = value
+
+    def take(self) -> tuple[list[str], list[str]] | None:
+        with self._lock:
+            value = self.done
+            self.done = None
+            return value
+
+
+def _horizons_tracers() -> int:
+    system = get_system()
+    if system is None:
+        return 0
+    return sum(1 for particle in system.nbody.particles if particle.tracer)
+
+
+def _horizons_fetch(box: _HorizonsBox, date: str, refresh: bool, tracers: int) -> None:
+    import asyncio
+
+    from arelis.tools.base import ToolResult
+    from arelis.tools.solar_tool import SolarTool
+
+    kwargs: dict[str, object] = {
+        "action": "load",
+        "date": date,
+        "refresh": refresh,
+        "tracers": tracers,
+    }
+    try:
+        result = asyncio.run(
+            SolarTool(on_progress=box.set_progress).run(**kwargs)
+        )
+    except Exception as exc:
+        result = ToolResult(
+            ok=False,
+            output=str(exc),
+            data={"fail_class": "fail:horizons"},
+        )
+    box.finish(result)
+
+
+def _maps_fetch(box: _MapsBox) -> None:
+    from arelis.physics.maps import download_maps
+
+    box.finish(download_maps())
+
+
 class SolarPanel(SolarEarthMixin, QWidget):
     """True-scale solar system in Reality. OpenGL space when the context lives."""
 
@@ -201,6 +290,8 @@ class SolarPanel(SolarEarthMixin, QWidget):
         self._load_result = None
         self._load_progress = ""
         self._load_refresh = False
+        self._horizons_box: _HorizonsBox | None = None
+        self._maps_box: _MapsBox | None = None
         self._ic_date = datetime.now(UTC).date().isoformat()
         self._confirm: dict[str, str | float] | None = None
         self._hand_span: float | None = None
@@ -388,7 +479,26 @@ class SolarPanel(SolarEarthMixin, QWidget):
             return False
         return "not Horizons" in (system.epoch_tdb or "")
 
+    def _pull_background(self) -> None:
+        """Copy worker results onto this plate. GUI thread only."""
+        box = self._horizons_box
+        if box is not None:
+            progress, result = box.take()
+            if result is not None:
+                self._load_result = result
+                self._horizons_box = None
+            elif progress and progress != self._load_progress:
+                self._load_progress = progress
+                self._maps_note = progress
+        maps = self._maps_box
+        if maps is not None:
+            done = maps.take()
+            if done is not None:
+                self._maps_pending = done
+                self._maps_box = None
+
     def _ingest_background(self) -> bool:
+        self._pull_background()
         dirty = False
         loaded = self._load_result
         if loaded is not None:
@@ -1901,35 +2011,14 @@ class SolarPanel(SolarEarthMixin, QWidget):
         self._load_progress = "Fetching JPL Horizons VECTORS…"
         if get_system() is None:
             self._maps_note = self._load_progress
-        threading.Thread(target=self._horizons_work, daemon=True).start()
-
-    def _horizons_work(self) -> None:
-        import asyncio
-
-        from arelis.tools.base import ToolResult
-        from arelis.tools.solar_tool import SolarTool
-
-        def progress(msg: str) -> None:
-            self._load_progress = msg
-            self._maps_note = msg
-
-        kwargs: dict[str, object] = {
-            "action": "load",
-            "date": self._ic_date,
-            "refresh": self._load_refresh,
-        }
-        system = get_system()
-        if system is not None:
-            kwargs["tracers"] = sum(1 for p in system.nbody.particles if p.tracer)
-        try:
-            result = asyncio.run(SolarTool(on_progress=progress).run(**kwargs))
-        except Exception as exc:
-            result = ToolResult(
-                ok=False,
-                output=str(exc),
-                data={"fail_class": "fail:horizons"},
-            )
-        self._load_result = result
+        box = _HorizonsBox()
+        self._horizons_box = box
+        threading.Thread(
+            target=_horizons_fetch,
+            args=(box, self._ic_date, refresh, _horizons_tracers()),
+            name="arelis-horizons",
+            daemon=True,
+        ).start()
 
     def _start_maps(self, *, retry: bool = False) -> None:
         if self._maps_pending is True:
@@ -1939,13 +2028,14 @@ class SolarPanel(SolarEarthMixin, QWidget):
         self._maps_tried = True
         self._maps_note = "fetching NASA albedo…"
         self._maps_pending = True
-
-        def work() -> None:
-            from arelis.physics.maps import download_maps
-
-            self._maps_pending = download_maps()
-
-        threading.Thread(target=work, daemon=True).start()
+        box = _MapsBox()
+        self._maps_box = box
+        threading.Thread(
+            target=_maps_fetch,
+            args=(box,),
+            name="arelis-solar-maps",
+            daemon=True,
+        ).start()
 
     def _paint_tools(self, painter: QPainter) -> None:
         return paint_tools(self, painter)

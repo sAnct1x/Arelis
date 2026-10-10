@@ -22,9 +22,8 @@ _SHORT_DESC: dict[str, str] = {
     "camera": "webcam snapshot. inspect only",
     "cas": "symbolic math. action=simplify|solve|diff|integrate|limit|series|sum|gradient|directional|factor|expand; n= order, at= point, dir= vector",
     "catalog": (
-        "arxiv, horizons, apod, or ads. rise, set, or how high: table=local, "
-        "target=body name. how far or closest: target=body name only, omit date "
-        "and query. do not add a closest or farthest. never two numbers"
+        "arxiv, horizons, apod. table=local, target=body name. "
+        "closest: omit date and query. do not add a closest or farthest."
     ),
     "clipboard": "OS clipboard. action=read (default) | write with text=",
     "contacts": "local address book. action=list|get|add|update|remove",
@@ -90,12 +89,13 @@ location: user_location; do not web-guess. not before weather, weather resolves 
 sms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.
 email: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.
 workspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop, open a new path or answer. Outside roots: stop; do not list parents; Allow the path or open Settings and add a folder there.
-attach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).
+attach: image→vision|ocr; pdf→doc_extract; csv→analyze; csv in this room→data_cell; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).
 memory: recall before claiming you do not know; remember/forget via the memory tool. \"what do you remember/know about me\" = memory action=list, not recall.
 goals: goals. tasks: tasks. analyze: analyze. sql: sql. doc_extract: doc_extract. document: document. pdf: pdf. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
 agenda: agenda (events; free=open slots). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule. remind: remind (in/at, not schedule). notes: notes.
 image: image. image_edit: image_edit. vision: vision. transcribe: transcribe. research_report: research_report.
 solar: solar. earth: earth. catalog: rise, set, how high, or is it up is horizons table=local, target=the body name, then repeat those sentences. Never send two numbers as the target. how far, closest, or farthest is horizons, target=body name, omit date and query, then repeat the tool sentences and do not add a closest or farthest. plot: plot (histogram|bar|line; xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
+data_cell: a file already in this room. code calls read_table("name") or read_fits("name"), argument name not path. save_png(fig, "chart.png") for a chart. print the answer. not weather.
 hands: one gesture, a pinch. still pinch clicks; a moving pinch grabs empty glass, the edge, or the title; two pinches resize a Reality shape or a tile; an open hand scrolls. instant voice: open/close history|thinking|files|days|camera|notify|contacts|chat|reality, span 1|2|3, close this, open rooms. if they ask how hands or voice control works, explain that. do not invent a fist.
 """.strip()
 

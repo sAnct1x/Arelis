@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from arelis.core.document_refs import resolve_drop_file
+from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.core.look import OcrInspect, inspect_ocr_text, ocr_deferral
 from arelis.paths import outputs_dir
 from arelis.tools.base import ToolResult
@@ -94,7 +94,7 @@ class DocExtractTool:
 
     def _resolve(self, path_str: str):
         try:
-            return self.workspace.resolve_read(path_str)
+            hit = self.workspace.resolve_read(path_str)
         except Exception as first:
             drop = resolve_drop_file(path_str, suffixes=_DROP_SUFFIXES)
             if drop:
@@ -105,6 +105,17 @@ class DocExtractTool:
                     root=path.parent,
                 )
             raise first
+        if hit.path.is_file():
+            return hit
+        reported = resolve_reported_document_path(path_str)
+        if reported:
+            path = Path(reported)
+            return ResolvedPath(
+                path=path,
+                root_name="outputs",
+                root=path.parent,
+            )
+        return hit
 
     async def run(self, **kwargs: Any) -> ToolResult:
         path_str = kwargs.get("path")

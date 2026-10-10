@@ -85,6 +85,7 @@ _ERRANDS: dict[str, str] = {
     "solar": "looking at Reality",
     "catalog": "checking the catalog",
     "plot": "drawing the chart",
+    "data_cell": "reading your data",
     "rooms": "looking at rooms",
     "tile": "opening a panel",
     "units": "converting units",

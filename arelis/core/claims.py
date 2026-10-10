@@ -914,7 +914,7 @@ def send_claim_missing_kinds(text: str, *, has_send_sms: bool, has_send_email: b
     return missing
 
 
-def detect_exactness_need(text: str) -> ExactnessNeed:
+def detect_exactness_need(text: str, *, data_cell: bool | None = None) -> ExactnessNeed:
     """What warrants this user turn requires before a final answer is honest."""
     kinds: list[str] = []
     needs_calc = detect_math_ask(text)
@@ -969,6 +969,15 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
     needs_weather = exactness_match("weather", text)
     if needs_weather and _TEMP_SCALE.search(text or ""):
         if not re.search(r"(?i)\b(today|tomorrow|tonight|outside|forecast|weather)\b", text or ""):
+            needs_weather = False
+    # The hour question names a room file and the word temperature. Exactness
+    # still called that weather, and the force nudge ran after data_cell had
+    # already printed the table. Only when this turn can call the tool and
+    # the room actually has that file.
+    if needs_weather and data_cell:
+        from arelis.core.intent_catalog import data_cell_enabled, room_data_file_ask
+
+        if data_cell_enabled() and room_data_file_ask(text or ""):
             needs_weather = False
     # A weather ask is Open-Meteo, not a news page. Tagging both made a missed
     # weather call refuse with "no retrieved page warrant" — the 9am job mailed

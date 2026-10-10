@@ -9,7 +9,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
-/** Pings for Arelis-only events. Never for SMS or mail — Google already did. */
+/** Pings for Arelis-only events. Never for SMS or mail. Google already did. */
 object ArelisPings {
     const val CHANNEL = "arelis-events"
 

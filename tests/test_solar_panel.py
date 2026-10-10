@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -40,6 +41,79 @@ def test_empty_solar_panel_paints(qt_app) -> None:
     panel.show()
     qt_app.processEvents()
     assert panel.size().width() == 640
+    panel.hide()
+
+
+def test_horizons_fetch_can_finish_after_the_plate_is_gone(qt_app, monkeypatch) -> None:
+    """The fetch thread must not be what destroys the plate.
+
+    A bound method as the thread target keeps the plate alive, and Python
+    drops that target on the worker when the thread ends. That destructor
+    is what killed the macOS suite during window teardown.
+    """
+    from typing import Any
+
+    from arelis.tools.base import ToolResult
+    from arelis.ui.panels import solar as solar_mod
+
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    seen: dict[str, object] = {}
+
+    def fetch(box: Any, date: Any, refresh: Any, tracers: Any) -> None:
+        seen["args"] = (box, date, refresh, tracers)
+        started.set()
+        release.wait(5)
+        box.finish(
+            ToolResult(ok=False, output="busy", data={"fail_class": "fail:horizons"})
+        )
+        finished.set()
+
+    monkeypatch.setattr(solar_mod, "_horizons_fetch", fetch)
+    monkeypatch.setattr(SolarPanel, "_try_nearest_cache", lambda self: False)
+    panel = SolarPanel()
+    panel.start_horizons_load()
+    assert started.wait(2)
+    args = seen["args"]
+    assert isinstance(args, tuple)
+    assert all(not hasattr(arg, "deleteLater") for arg in args)
+    panel.deleteLater()
+    del panel
+    qt_app.processEvents()
+    release.set()
+    assert finished.wait(2)
+    qt_app.processEvents()
+
+
+def test_horizons_result_is_applied_on_the_plate(qt_app, monkeypatch) -> None:
+    from typing import Any
+
+    from arelis.tools.base import ToolResult
+    from arelis.ui.panels import solar as solar_mod
+
+    def fetch(box: Any, *_args: object) -> None:
+        box.set_progress("JPL Horizons Earth  1/8")
+        box.finish(
+            ToolResult(
+                ok=False,
+                output="JPL Horizons is busy.",
+                data={"fail_class": "fail:horizons"},
+            )
+        )
+
+    monkeypatch.setattr(solar_mod, "_horizons_fetch", fetch)
+    monkeypatch.setattr(SolarPanel, "_try_nearest_cache", lambda self: False)
+    panel = SolarPanel()
+    panel.resize(640, 480)
+    panel.show()
+    qt_app.processEvents()
+    deadline = time.monotonic() + 2
+    while panel._load_pending and time.monotonic() < deadline:
+        qt_app.processEvents()
+        time.sleep(0.02)
+    assert not panel._load_pending
+    assert "busy" in (panel._maps_note or "").lower()
     panel.hide()
 
 
@@ -105,7 +179,10 @@ def test_open_solar_populates_then_fetches_horizons_once(
     from arelis.physics.engine import rebound_available
 
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(SolarPanel, "_horizons_work", lambda self: None)
+    monkeypatch.setattr(
+        "arelis.ui.panels.solar._horizons_fetch",
+        lambda *_args, **_kwargs: None,
+    )
     set_system(None)
     panel = SolarPanel()
     panel.resize(640, 480)
@@ -168,7 +245,10 @@ def test_horizons_fail_populates_kepler_bootstrap(
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(SolarPanel, "_horizons_work", lambda self: None)
+    monkeypatch.setattr(
+        "arelis.ui.panels.solar._horizons_fetch",
+        lambda *_args, **_kwargs: None,
+    )
     set_system(None)
     panel = SolarPanel()
     panel._load_pending = False
@@ -200,7 +280,10 @@ def test_nearest_cache_fills_the_plate_when_jpl_is_busy(
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(SolarPanel, "_horizons_work", lambda self: None)
+    monkeypatch.setattr(
+        "arelis.ui.panels.solar._horizons_fetch",
+        lambda *_args, **_kwargs: None,
+    )
     save_cached("2000-01-01", sun_and_planet())
     set_system(None)
     panel = SolarPanel()

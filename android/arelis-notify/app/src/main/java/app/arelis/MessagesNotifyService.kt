@@ -16,7 +16,7 @@ import java.util.concurrent.Executors
  * Forwards Google Messages notifications to Arelis over the LAN.
  *
  * RCS and SMS both surface here when the user has notifications enabled for
- * that conversation — which is the durable bridge a SEND_SMS radio cannot provide.
+ * that conversation, which is the durable bridge a SEND_SMS radio cannot provide.
  */
 class MessagesNotifyService : NotificationListenerService() {
     private val executor = Executors.newSingleThreadExecutor()
