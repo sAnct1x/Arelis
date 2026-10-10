@@ -591,6 +591,59 @@ def test_backup_timeout_stops_the_upgrade_without_starting_installer(
         assert quits == []
         assert notices == [update_prompt.BACKUP_FAILED_NOTICE]
         assert details == [update_prompt.BACKUP_FAILED_DETAIL]
+        # Timeout leaves the copy running, but not as a child. Deleting the
+        # window while it is still parented aborts the process.
+        assert prompt._backup is not None
+        assert prompt._backup.isRunning()
+        assert prompt._backup.parent() is None
     finally:
         gate.set()
         window.deleteLater()
+
+
+def test_window_teardown_leaves_a_running_backup_thread_alive(
+    qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Closing the window must not destroy a backup that is still in run().
+
+    Deferred delete of the parent used to take the worker with it and abort
+    the process. The thread is unparented first, then the window goes away.
+    """
+    import shiboken6
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QWidget
+
+    gate = threading.Event()
+
+    def hung_backup(from_version: str, to_version: str | None = None) -> Path | None:
+        gate.wait(timeout=5)
+        return None
+
+    monkeypatch.setattr(update_prompt, "backup_before_upgrade", hung_backup)
+    monkeypatch.setattr(update_prompt, "notice", lambda *_a, **_k: None)
+    monkeypatch.setattr(update_prompt, "start_installer", lambda _path: None)
+    monkeypatch.setattr(update_prompt.QApplication, "quit", staticmethod(lambda: None))
+
+    window = QWidget()
+    prompt = update_prompt.UpdatePrompt(window)
+    backup = None
+    try:
+        prompt._on_downloaded(tmp_path / "setup.exe")
+        _pump_until(
+            qt_app,
+            lambda: prompt._backup is not None and prompt._backup.isRunning(),
+        )
+        backup = prompt._backup
+        assert backup is not None
+        assert backup.parent() is not None
+        window.deleteLater()
+        qt_app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        qt_app.processEvents()
+        assert shiboken6.isValid(backup)
+        assert backup.isRunning()
+        assert backup.parent() is None
+    finally:
+        gate.set()
+        if backup is not None:
+            backup.wait(2000)

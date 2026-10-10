@@ -28,6 +28,7 @@ from arelis import __version__
 from arelis.backup import backup_before_upgrade
 from arelis.ui.dialog import GlassDialog, confirm, notice
 from arelis.ui.foreground import flash_taskbar, process_owns_foreground
+from arelis.ui.live_threads import park_running_thread
 from arelis.update import (
     Release,
     UpdateError,
@@ -139,8 +140,9 @@ class UpdatePrompt(QObject):
     """Owns the worker threads and the dialogs, and keeps itself alive until it is done.
 
     A QObject with the window as its parent rather than a set of local variables, because a
-    QThread that goes out of scope while running takes the process with it. Parented, so
-    closing the window during a download disposes of this too.
+    QThread that goes out of scope while running takes the process with it. Parenting keeps
+    the worker alive for the check. Deleting that parent while ``run()`` is still going
+    aborts the process, so teardown detaches a live worker before the window goes.
     """
 
     def __init__(self, parent: QWidget) -> None:
@@ -156,6 +158,11 @@ class UpdatePrompt(QObject):
         self._held_release: Release | None = None
         self._hold_connected = False
         self._offer_shown = False
+        self._releasing = False
+        self._disconnected: set[tuple[int, str]] = set()
+        # Fired before child objects are deleted, so a worker still inside
+        # run() can be unparented instead of destroyed with the window.
+        parent.destroyed.connect(self._on_window_destroyed)
 
     def start(self) -> None:
         config = getattr(self._window, "config", None)
@@ -285,10 +292,58 @@ class UpdatePrompt(QObject):
         next successful download, so the worst case is a temporary .part nobody uses.
         """
         log.info("update download cancelled")
-        if self._download is not None:
-            self._download.finished_with.disconnect()
-            self._download.progressed.disconnect()
+        self._release_worker(self._download)
         self._close_progress()
+
+    def _on_window_destroyed(self, *_args: object) -> None:
+        self._release_workers()
+
+    def _release_workers(self) -> None:
+        if self._releasing:
+            return
+        self._releasing = True
+        try:
+            self._release_worker(self._check)
+            self._release_worker(self._download)
+            self._release_worker(self._backup)
+        finally:
+            self._releasing = False
+
+    def _release_worker(self, thread: QThread | None) -> None:
+        """Drop signals and, if ``run()`` is still going, unparent the worker.
+
+        Disconnect the slot that was actually connected. A second disconnect of
+        the same slot warns, and disconnecting a slot that was never connected
+        does too.
+        """
+        if thread is None:
+            return
+        if thread is self._backup:
+            self._disconnect_once(thread, "finished_with", self._on_backup_finished)
+        elif thread is self._download:
+            self._disconnect_once(thread, "finished_with", self._on_downloaded)
+            self._disconnect_once(thread, "progressed", self._on_progress)
+        elif thread is self._check:
+            self._disconnect_once(thread, "answered", self._offer)
+        try:
+            running = thread.isRunning()
+        except RuntimeError:
+            return
+        if running:
+            park_running_thread(thread)
+
+    def _disconnect_once(self, thread: QThread, signal_name: str, slot: object) -> None:
+        key = (id(thread), signal_name)
+        if key in self._disconnected:
+            return
+        signal = getattr(thread, signal_name, None)
+        if signal is None:
+            return
+        self._disconnected.add(key)
+        try:
+            signal.disconnect(slot)
+        except (RuntimeError, TypeError):
+            pass
 
     def _close_progress(self) -> None:
         if self._progress is not None:
@@ -322,11 +377,9 @@ class UpdatePrompt(QObject):
         self._finish_backup_and_install(failed=dest is None)
 
     def _on_backup_timeout(self) -> None:
-        if self._backup is not None:
-            try:
-                self._backup.finished_with.disconnect(self._on_backup_finished)
-            except (RuntimeError, TypeError):
-                pass
+        # The copy keeps going. It must not stay a child of this prompt, or the
+        # next time the window is deleted Qt aborts inside QThread's destructor.
+        self._release_worker(self._backup)
         log.warning("pre-upgrade backup is slow; stopping the update")
         self._finish_backup_and_install(failed=True)
 
