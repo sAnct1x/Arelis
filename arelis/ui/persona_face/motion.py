@@ -9,7 +9,7 @@ from dataclasses import dataclass
 ORB_MS = 100
 CALM_MS = 50
 SPEAK_MS = 33
-BUSY_MS = 83
+BUSY_MS = 100
 BLOOM_MS = 33
 
 ATTACK_S = 0.040
@@ -28,10 +28,10 @@ def frame_interval_ms(
     transitioning: bool,
 ) -> int:
     """Timer interval for this pose, in milliseconds."""
-    if transitioning or state == "speaking":
-        return SPEAK_MS
     if model_busy or state == "thinking":
         return BUSY_MS
+    if transitioning or state == "speaking":
+        return SPEAK_MS
     if form == "orb":
         return ORB_MS
     return CALM_MS

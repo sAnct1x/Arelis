@@ -39,8 +39,8 @@ def test_hung_ceiling_unlocks_without_stop(arelis_window, qt_app) -> None:
     assert window._turn_busy
     assert window._hung_watchdog.isActive()
     assert "left" not in window.chat.progress.text()
-    assert window.chat.progress.text().strip()
-    assert not window.chat.progress.isHidden()
+    assert "Thinking for" in window.chat.view.toPlainText()
+    assert window.chat.progress.isHidden()
 
     QTest.qWait(250)
 

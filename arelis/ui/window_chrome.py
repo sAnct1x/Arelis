@@ -108,7 +108,7 @@ class WindowChrome:
     def _apply_calm_instrument_defaults(self) -> None:
         """Hide instruments for a conversation-first composition."""
         ui_cfg = self.config.get("ui", {})
-        if not ui_cfg.get("thinking_open", False):
+        if not ui_cfg.get("thinking_open", True):
             self._persona_adjusting = True
             try:
                 self.persona_dock.hide()
@@ -122,6 +122,41 @@ class WindowChrome:
         cal = getattr(self, "calendar_window", None)
         if cal is not None:
             cal.hide()
+
+    def _open_persona_saved_by_old_default(self) -> None:
+        """A restored hidden dock from the old default is not a hand close.
+
+        `_persona_user_closed` is set only when she is closed by hand in this
+        session, after the window exists. A layout saved while the old default
+        hid her has no separate flag, so she opens. A previous session's hand
+        close looks the same in the saved state and also opens; this session's
+        hand close still sticks.
+        """
+        if getattr(self, "_persona_user_closed", False):
+            return
+        ui_cfg = self.config.get("ui", {}) or {}
+        if not ui_cfg.get("thinking_open", True):
+            return
+        if not self.persona_dock.isHidden():
+            return
+        self._persona_adjusting = True
+        try:
+            self.persona_dock.setVisible(True)
+        finally:
+            self._persona_adjusting = False
+
+    def _wake_persona_at_launch(self) -> None:
+        """Bake and bloom once the glass is shown, not from her own showEvent."""
+        if getattr(self, "_persona_launch_woke", False):
+            return
+        if getattr(self, "_persona_user_closed", False):
+            return
+        panel = getattr(self, "persona_panel", None)
+        dock = getattr(self, "persona_dock", None)
+        if panel is None or dock is None or dock.isHidden():
+            return
+        self._persona_launch_woke = True
+        panel.wake_for_window()
 
     def _on_thinking_status_clicked(self) -> None:
         """The status line opens this turn's thinking in the chat."""
@@ -175,7 +210,9 @@ class WindowChrome:
             self._place_filament_floats(reshape=False)
             self.update(self._filament.dirty_rect(self.rect()))
             return
-        self._atmosphere_timer.setInterval(100)
+        self._atmosphere_timer.setInterval(300)
+        if getattr(self, "_turn_busy", False) or not self.isActiveWindow():
+            return
         self.update()
         for frame in self._atmosphere_glass_frames():
             frame.update()
@@ -430,6 +467,8 @@ class WindowChrome:
         # Filament titles are child buttons — Qt already dirties their move
         # rects. Flushing 7680×1466 on every place() undoes the band update.
         if event.type() == QEvent.Type.LayoutRequest:
+            if getattr(self, "_turn_busy", False):
+                return super().event(event)
             if active_theme() == "filament":
                 self.update(self._filament.dirty_rect(self.rect()))
             else:
@@ -463,6 +502,7 @@ class WindowChrome:
         self.setMouseTracking(True)
         self._sync_browser_anchor()
         sync_idle_mode(self)
+        self._later(0, self._wake_persona_at_launch)
         if active_theme() == "filament" and self._filament_parked is not None:
             self._later(0, self._filament_place_entity)
 

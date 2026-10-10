@@ -20,12 +20,11 @@ from arelis.browser.walls import your_turn_status
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import plain_reason, tool_failure_notice
 from arelis.i18n import tr
-from arelis.llm.startup import WARMUP_READY
 from arelis.local_open import open_local_file, reveal_local_file
 from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.ui.layout_store import push_recent_workspace_file
 from arelis.ui.panels.workspace import is_workspace_listing, status_for_tool_result
-from arelis.ui.status_copy import THINKING_STATUS, WAITING_STATUS, tool_errand, tool_status_line
+from arelis.ui.status_copy import WAITING_STATUS, tool_errand
 from arelis.ui.workspace_host import record_artifact, refresh_desk
 from arelis.ui.world_host import should_offer_world
 
@@ -308,10 +307,6 @@ def dispatch_event(window: Any, event: Event) -> None:
         # a preamble. The agent loop mirrors it into the thinking dock.
         # Drop any speech that streamed from that preamble.
         window.chat.discard_stream()
-        # This is the moment the thread empties itself, and the one that made
-        # three spoken SMS turns look dead. Something has to remain.
-        if window._turn_busy:
-            window.chat.show_progress(window._busy_status_line())
         window._assistant_streaming = False
         from arelis.ui.voice_host import stop_speech
 
@@ -476,10 +471,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.conversation.role.blockSignals(True)
             window.conversation.role.setCurrentText(role_set)
             window.conversation.role.blockSignals(False)
-        # Prefix seed just finished. A first message that was waiting on
-        # it should stop claiming the model is still loading.
-        if str(msg) == WARMUP_READY and window._turn_busy:
-            window.chat.show_progress(THINKING_STATUS)
         if p.get("watch_hit"):
             _watch_hit_ui(
                 window,
@@ -553,10 +544,7 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.thinking.append(errand, kind="tool")
         if str(tool or "") == "workspace" and isinstance(args, dict):
             window._workspace_tool_args = dict(args)
-        # Said in the transcript, in the user's words, whether or not the
-        # Thinking dock is open. `weather {'days': 2}` is for me; "checking
-        # the weather" is for her.
-        window.chat.show_progress(tool_status_line(str(tool or ""), args))
+        # The errand is already in the thought line. Nothing extra above the composer.
         window.conversation.set_turn_visible(True)
         window._reveal_dock(window.persona_dock, window.act_persona)
         # The shimmer is set for every tool now, so image needs no special
@@ -570,12 +558,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             window._drive_session = True
             window.conversation.set_drive(True, format_drive_status(action, args))
     elif t == EventType.TOOL_RESULT:
-        # Result dumps stay out of the essay. The composer line already moved on.
-        # Back to the bare waiting state: the errand is over but the turn is
-        # not, and leaving "checking the weather…" up would be a small lie
-        # that runs for the rest of the round.
-        if window._turn_busy:
-            window.chat.show_progress(window._busy_status_line())
         data = p.get("data") or {}
         intro = str(data.get("intro") or "").strip()
         if p.get("tool") == "agenda" and p.get("ok") and data.get("open"):

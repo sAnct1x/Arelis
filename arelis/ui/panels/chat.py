@@ -384,7 +384,8 @@ class ChatPanel(QWidget):
     def mark_turn(self, busy: bool) -> None:
         self._turn_busy = bool(busy)
         if busy:
-            if self._live_thought() is not None and not self._thought_timer.isActive():
+            self._ensure_thought()
+            if not self._thought_timer.isActive():
                 self._thought_timer.start()
             return
         self._seal_live_thought()
@@ -430,14 +431,13 @@ class ChatPanel(QWidget):
         if self._progress_from_turn and self.progress.isVisible():
             return
         self._progress_from_turn = False
-        self.progress.setText(text)
-        self.progress.show()
+        self.empty.set_phone_note(text)
         self._idle_note_timer.start(6000)
 
     def _clear_idle_note(self) -> None:
         if self._progress_from_turn:
             return
-        self.clear_progress()
+        self.empty.set_phone_note("")
 
     def _live_thought(self) -> _Thought | None:
         for thought in reversed(self._thoughts):
@@ -460,7 +460,7 @@ class ChatPanel(QWidget):
         thought = self._live_thought()
         if thought is None or thought.sealed_at is not None:
             return
-        if not thought.lines and not thought.stream:
+        if not thought.lines and not thought.stream and thought.start is None:
             thought.live = False
             return
         thought.sealed_at = time.monotonic()
@@ -845,6 +845,10 @@ class ChatPanel(QWidget):
 
     def show_progress(self, text: str = "✦ making a picture…") -> None:
         """Shimmering status gate while a long tool (e.g. Comfy) runs."""
+        from arelis.ui.status_copy import THINKING_STATUS, WARMING_STATUS
+
+        if text in {THINKING_STATUS, WARMING_STATUS}:
+            return
         self._ensure_view()
         from arelis.i18n import tr
 

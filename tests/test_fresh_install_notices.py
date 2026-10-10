@@ -277,6 +277,7 @@ def test_fresh_profile_window_shows_no_phone_notice(
                 [
                     window.persona_panel.status_text(),
                     window.chat.progress.text(),
+                    window.chat.empty.phone_note.text(),
                     *[line for thought in window.chat._thoughts for line in thought.lines],
                 ]
             )

@@ -42,9 +42,9 @@ def test_frame_pacing_follows_the_state(qt_app):
     )
     assert (
         frame_interval_ms(form="face", state="thinking", model_busy=False, transitioning=False)
-        == 83
+        == 100
     )
-    assert frame_interval_ms(form="face", state="rest", model_busy=True, transitioning=False) == 83
+    assert frame_interval_ms(form="face", state="rest", model_busy=True, transitioning=False) == 100
     assert frame_interval_ms(form="face", state="rest", model_busy=False, transitioning=True) == 33
 
     panel = _panel(qt_app)
@@ -60,7 +60,7 @@ def test_frame_pacing_follows_the_state(qt_app):
 
     clock["t"] = BLOOM_S + 0.05
     panel.tick()
-    assert panel.timer_interval() == 83
+    assert panel.timer_interval() == 100
 
     panel.set_speaking(True)
     panel.tick()
@@ -71,7 +71,7 @@ def test_frame_pacing_follows_the_state(qt_app):
     panel.set_state("rest")
     clock["t"] = 1.4
     panel.tick()
-    assert panel.timer_interval() == 83
+    assert panel.timer_interval() == 100
     panel.close()
 
 
@@ -123,7 +123,7 @@ def test_she_starts_as_the_orb_and_thinking_blooms_her(qt_app):
     clock["t"] = opened
     panel.tick()
     assert panel.form() == "face"
-    assert panel.caption_text() == "thinking"
+    assert panel.caption_text() == ""
 
     panel.set_state("done")
     assert panel.caption_text() == "done"
@@ -136,7 +136,7 @@ def test_she_starts_as_the_orb_and_thinking_blooms_her(qt_app):
     panel.tick()
     clock["t"] = opened + 60.0 + FOLD_S + 0.1
     panel.tick()
-    assert panel.form() == "orb"
+    assert panel.form() == "face"
     panel.close()
 
 
