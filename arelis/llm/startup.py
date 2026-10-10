@@ -239,16 +239,15 @@ def prefix_warmup_for(
     try:
         from arelis.config import load_persona, shipped_num_ctx
         from arelis.core.agent_loop import static_system_prefix
-        from arelis.core.native_tool_calling import native_tool_calling
+        from arelis.core.tool_surface import session_tool_schemas
 
         agent_cfg = config.get("agent") or {}
         ollama_cfg = config.get("ollama") or {}
         num_ctx = int(ollama_cfg.get("num_ctx") or shipped_num_ctx())
         return PrefixWarmup(
             messages=list(static_system_prefix(load_persona(config))),
-            # The full surface, because that is what a turn sends. Warming a
-            # different tools array would seed a prefix no turn ever asks for.
-            tools=list(tools.ollama_tools(param_hints=native_tool_calling(agent_cfg))),
+            # Same function a turn calls, so the seed is a prefix of turn 1.
+            tools=session_tool_schemas(tools, agent_cfg),
             num_ctx=num_ctx,
         )
     except Exception as exc:

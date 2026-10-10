@@ -607,11 +607,11 @@ tools:
     # Long edge of what is actually sent. Two caps, because two windows:
     # the 3B fallback still has 4096 tokens (a 1440p screenshot is ~4,150 and
     # Ollama rejects it), so max_edge stays 1024 there. The chat model that
-    # sees images is already at the chat window (~65k); chat_max_edge is 2048
-    # so a phone photo of a screen still has readable chrome. Measured on
-    # qwen2.5vl:3b: 1024px ~1,100 tokens, 1600px ~1,849 — both answer.
+    # sees images is already at the chat window (~65k); chat_max_edge is 1024
+    # so a pasted screenshot is shrunk before the look. A full size paste was
+    # slow enough to fail. JPEG quality stays 85.
     max_edge: 1024
-    chat_max_edge: 2048
+    chat_max_edge: 1024
 
 voice:
   # Master switch. Each direction below has its own toggle under it, so the mic

@@ -57,7 +57,6 @@ from arelis.core.intent_catalog import (
     weather_intent_matches,
 )
 from arelis.core.look import LookTurn, classify_look, frame_sha256
-from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.other_work import looks_like_other_work
 from arelis.core.preflight import draft_browser_args, looks_like_room_create
 from arelis.core.prompt_sections import (
@@ -82,7 +81,12 @@ from arelis.core.tool_subset import (
     is_research_mode,
     turn_round_budget,
 )
-from arelis.core.tool_surface import apply_expected, base_surface, cap_to_room
+from arelis.core.tool_surface import (
+    apply_expected,
+    base_surface,
+    cap_to_room,
+    session_tool_schemas,
+)
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer, turn_telemetry_enabled
 from arelis.llm.router import ModelRole
@@ -335,6 +339,7 @@ async def _attach_tool_schemas_and_history(
     offer_tools: bool,
     expect_tool_round: bool,
     ollama_tools: list[dict[str, Any]],
+    turn_tail: list[dict[str, str]],
 ) -> None:
     """Pay for tool schemas, then append as much conversation history as fits."""
     budget = context_budget(
@@ -348,7 +353,12 @@ async def _attach_tool_schemas_and_history(
     ctx.expect_tool_round = expect_tool_round
     ctx.ollama_tools = ollama_tools
     ctx.messages = await loop._messages_for_turn(
-        system_messages, budget, ratio, role, user_text=text
+        system_messages,
+        budget,
+        ratio,
+        role,
+        user_text=text,
+        turn_tail=turn_tail,
     )
 
 
@@ -737,18 +747,19 @@ async def prepare_turn(
     active_room = start.active_room
     available = start.available
     visible = start.visible
-    # Static prefix first (persona + telegraph policy) so the front of
-    # the prompt is byte-stable across turns. Turn-specific lines trail it,
-    # never precede it.
+    # Persona and the tool policy stay at the front so they can be cached.
+    # Everything that changes per turn is collected on its own list and placed
+    # after history, immediately before this ask.
     system_messages = static_system_prefix(loop.persona)
-    append_stopped_turn_note(system_messages, stopped_ask)
+    turn_tail: list[dict[str, str]] = []
+    append_stopped_turn_note(turn_tail, stopped_ask)
     drafts = _reconstruct_turn_drafts(loop, text)
     sms_draft = drafts.sms
     email_draft = drafts.email
     agenda_draft = drafts.agenda
     skip_sms_draft = drafts.skip_sms
     preflight_kinds = append_preflight_guidance(
-        system_messages,
+        turn_tail,
         loop,
         text,
         agent_cfg,
@@ -773,7 +784,7 @@ async def prepare_turn(
         loop._expected_tools.discard("weather")
         loop._expected_tools.discard("web_search")
     turn_goal = append_turn_goal(
-        system_messages,
+        turn_tail,
         loop,
         text,
         role,
@@ -818,7 +829,7 @@ async def prepare_turn(
         return None
     loop._active_plan = active_plan
     append_plan_and_lessons(
-        system_messages,
+        turn_tail,
         loop,
         text,
         agent_cfg,
@@ -827,14 +838,14 @@ async def prepare_turn(
         active_plan=active_plan,
     )
     append_operating_context(
-        system_messages,
+        turn_tail,
         loop,
         role=role,
         model=model,
         skill_ids=skill_ids,
         active_room=active_room,
     )
-    append_delivery_context(system_messages, loop, speak=speak)
+    append_delivery_context(turn_tail, loop, speak=speak)
     num_ctx, tool_reserve_chars = _context_limits(
         loop,
         role,
@@ -890,11 +901,8 @@ async def prepare_turn(
     # A YouTube / Chrome drive is not a scrape-the-web turn.
     if "browser" in loop._expected_tools:
         wants_fresh_page = False
-    # Chat fast-path: skip tool schemas + hold_paint when nothing suggests
-    # a tool. Cuts prefill and lets short replies stream (felt TTFT).
-    # Must still arm tools for ANY exactness warrant (vision/inbox/…) —
-    # calc+web alone left describe/regen turns schema-blind, so the 7B
-    # invented captions or claimed it cannot generate images.
+    # Chat fast path still skips the tool round and hold-paint. Schemas stay
+    # on anyway: dropping them changes the front of the prompt.
     offer_tools = should_offer_tools(
         chat_fast_path=bool(agent_cfg.get("chat_fast_path", True)),
         skill_ids=skill_ids,
@@ -916,14 +924,8 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         active_plan=active_plan,
     )
-    ollama_tools = (
-        loop.tools.ollama_tools(
-            visible,
-            param_hints=native_tool_calling(agent_cfg),
-        )
-        if offer_tools
-        else []
-    )
+    ollama_tools = session_tool_schemas(loop.tools, agent_cfg)
+    loop.memory.remember_turn_block(turn_tail)
     if loop._timer is not None and not offer_tools:
         loop._timer.mark("chat_fast_path", tools=0)
     await _attach_tool_schemas_and_history(
@@ -939,6 +941,7 @@ async def prepare_turn(
         offer_tools=offer_tools,
         expect_tool_round=expect_tool_round,
         ollama_tools=ollama_tools,
+        turn_tail=turn_tail,
     )
     await _prepare_sms_first_move(loop, ctx, text, agent_cfg)
     _prepare_email_first_move(ctx, agent_cfg)

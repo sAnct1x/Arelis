@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -77,6 +78,13 @@ class ChatMessage:
     # Stop/Esc: keep the bubble in History. The next prompt sees a stopped
     # stub (sends redacted) so a cancelled ask can still be referred to.
     cancelled: bool = False
+    # Per-turn system lines that sat immediately before this message.
+    # Replay only. Not written through the archive, so the transcript never
+    # shows them. Dropped when this message is trimmed.
+    prompt_before: tuple[dict[str, Any], ...] = ()
+    # Tool calls, tool results, and the tool-round note that followed this
+    # message in the last request of its turn. Same rules as prompt_before.
+    prompt_after: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass
@@ -141,6 +149,22 @@ class SessionMemory:
             memory.max_messages = cap
         return memory
 
+    def remember_turn_block(self, block: list[dict[str, Any]]) -> None:
+        """Keep this turn's system lines on the latest user message."""
+        for message in reversed(self.messages):
+            if message.role != "user":
+                continue
+            message.prompt_before = tuple(dict(item) for item in block)
+            return
+
+    def remember_turn_follow(self, follow: list[dict[str, Any]]) -> None:
+        """Keep the tool round that followed the latest user message."""
+        for message in reversed(self.messages):
+            if message.role != "user":
+                continue
+            message.prompt_after = tuple(copy.deepcopy(item) for item in follow)
+            return
+
     def add(self, role: str, content: str, note: str = "") -> None:
         self.messages.append(ChatMessage(role=role, content=content, note=note))
         self._trim()
@@ -167,20 +191,56 @@ class SessionMemory:
         if self.sink is not None:
             self.sink.on_pending_fact(cleaned)
 
-    def as_ollama(self, *, include_notes: bool = True) -> list[dict[str, str]]:
-        out: list[dict[str, str]] = []
-        for m in self.messages:
-            if m.role == "notice":
-                continue
-            if m.cancelled:
-                content = _stopped_prompt_content(m.content)
-                if content:
-                    out.append({"role": m.role, "content": content})
-                continue
-            content = m.content
-            if include_notes and m.note:
-                content = f"{m.content}\n\n{m.note}"
-            out.append({"role": m.role, "content": content})
+    def _own_row(
+        self, message: ChatMessage, *, include_notes: bool
+    ) -> dict[str, Any] | None:
+        if message.cancelled:
+            content = _stopped_prompt_content(message.content)
+            if not content:
+                return None
+            return {"role": message.role, "content": content}
+        content = message.content
+        if include_notes and message.note:
+            content = f"{message.content}\n\n{message.note}"
+        return {"role": message.role, "content": content}
+
+    def _rows_for(
+        self,
+        message: ChatMessage,
+        *,
+        include_notes: bool,
+        skip_before: bool = False,
+    ) -> list[dict[str, Any]]:
+        if message.role == "notice":
+            return []
+        rows: list[dict[str, Any]] = []
+        if not skip_before:
+            rows.extend(dict(item) for item in message.prompt_before)
+        own = self._own_row(message, include_notes=include_notes)
+        if own is not None:
+            rows.append(own)
+        rows.extend(copy.deepcopy(item) for item in message.prompt_after)
+        return rows
+
+    def as_ollama(
+        self, *, include_notes: bool = True, include_latest_block: bool = True
+    ) -> list[dict[str, Any]]:
+        """Prompt rows. The latest user block can be omitted when the caller pins it."""
+        latest_user = None
+        if not include_latest_block:
+            for index in range(len(self.messages) - 1, -1, -1):
+                if self.messages[index].role == "user":
+                    latest_user = index
+                    break
+        out: list[dict[str, Any]] = []
+        for index, message in enumerate(self.messages):
+            out.extend(
+                self._rows_for(
+                    message,
+                    include_notes=include_notes,
+                    skip_before=index == latest_user,
+                )
+            )
         return out
 
     def drop_prompt_prefix(self, n: int) -> None:
@@ -194,14 +254,19 @@ class SessionMemory:
         """
         if n <= 0:
             return
+        # Count the rows as_ollama would emit. A turn note rides on its user
+        # message, so it drops with that message and is not split in half.
         kept: list[ChatMessage] = []
         skipped = 0
+        dropping = True
         for message in self.messages:
             if message.role == "notice":
                 kept.append(message)
                 continue
-            if skipped < n:
-                skipped += 1
+            if dropping:
+                skipped += len(self._rows_for(message, include_notes=True))
+                if skipped >= n:
+                    dropping = False
                 continue
             kept.append(message)
         self.messages = kept
@@ -257,6 +322,11 @@ class SessionMemory:
         for message in self.messages:
             text = f"{message.content}\n\n{message.note}" if message.note else message.content
             total += estimate_tokens(text, chars_per_token=self.chars_per_token)
+            for extra in (*message.prompt_before, *message.prompt_after):
+                total += estimate_tokens(
+                    str(extra.get("content") or ""),
+                    chars_per_token=self.chars_per_token,
+                )
         return total
 
 

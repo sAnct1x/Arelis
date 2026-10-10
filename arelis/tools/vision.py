@@ -182,7 +182,8 @@ class VisionTool:
             self.chat_max_edge if chat_sees else self.max_edge
         )
         if len(paths) > 1:
-            return await self._look_pages(paths, question, edge=edge)
+            result = await self._look_pages(paths, question, edge=edge)
+            return result
 
         try:
             encoded, prepared = await self._encode_one(paths[0], edge)

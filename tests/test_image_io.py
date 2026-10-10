@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from arelis.tools.image_io import (
+    CHAT_MAX_EDGE,
     DEFAULT_MAX_EDGE,
     IMAGE_SUFFIXES,
     encode_for_vision,
@@ -192,9 +193,19 @@ def test_a_small_picture_is_sent_untouched(tmp_path: Path) -> None:
 
 
 def test_a_wider_cap_is_honoured(tmp_path: Path) -> None:
+    """An explicit max_edge is the cap. This does not pin the chat default."""
     big = _png(tmp_path / "big.png", size=(2560, 1440))
-    _, meta = encode_for_vision(big, max_edge=2048)
-    assert max(meta["sent_px"]) == 2048
+    _, meta = encode_for_vision(big, max_edge=1600)
+    assert max(meta["sent_px"]) == 1600
+
+
+def test_chat_paste_1837x1116_is_downscaled_to_1024(tmp_path: Path) -> None:
+    """A screenshot under the byte limit still has to fit the chat long edge."""
+    paste = _png(tmp_path / "paste.png", size=(1837, 1116))
+    assert paste.stat().st_size < 1_500_000
+    _payload, meta = encode_for_vision(paste, max_edge=CHAT_MAX_EDGE)
+    assert max(meta["sent_px"]) == 1024
+    assert meta["downscaled"] is True
 
 
 def test_aspect_ratio_survives_the_downscale(tmp_path: Path) -> None:

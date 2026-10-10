@@ -49,6 +49,41 @@ from arelis.tools.weather import (
 )
 
 
+def _pin_plain_user(
+    messages: list[dict[str, Any]], ctx: TurnContext, name: str, out: str
+) -> None:
+    """Put the write-up line on this request, after the tool result.
+
+    A later request that adds it would move the last real user line, and
+    the tool call above would render differently. Weather writes its own
+    line. A result that is already a sentence does not need one.
+    """
+    from arelis.core.agent_loop import _WRITE_AFTER_TOOL_NOTICE, _tool_followup_fallback
+    from arelis.core.failure_copy import (
+        should_nudge_write_after_algebra,
+        should_nudge_write_after_page,
+    )
+    from arelis.core.turn_goal import receipt_serves_goal
+
+    if should_nudge_write_after_page(name, out) or should_nudge_write_after_algebra(name):
+        return
+    if not receipt_serves_goal(ctx.goal, name, out):
+        return
+    line = _tool_followup_fallback(out, name, ask=ctx.text)
+    raw = (out or "").strip()
+    shipped = line.strip()
+    if shipped and (shipped == raw or (raw and shipped in raw)):
+        return
+    if any(item.get("content") == _WRITE_AFTER_TOOL_NOTICE for item in messages):
+        return
+    messages.append({"role": "user", "content": _WRITE_AFTER_TOOL_NOTICE})
+    # Same request as the tool call, so the next prompt extends that call
+    # instead of starting a system line where the previous one ended.
+    from arelis.core.agent_loop import append_tool_free_nudge
+
+    append_tool_free_nudge(messages)
+
+
 async def execute_call(
     loop: Any,
     ctx: TurnContext,
@@ -80,7 +115,6 @@ async def execute_call(
     weather_ok_places = r.weather_ok_places
     weather_days_retried = r.weather_days_retried
     exact_need = r.exact_need
-    offer_tools = r.offer_tools
     ollama_tools = r.ollama_tools
     messages = r.messages
     sms_draft = r.sms_draft
@@ -172,11 +206,6 @@ async def execute_call(
                         ctx.tool_names.clear()
                         ctx.tool_names.update(visible)
                         tool_names = ctx.tool_names
-                        if offer_tools:
-                            ollama_tools = loop.tools.ollama_tools(
-                                visible,
-                                param_hints=native_tool_calling(agent_cfg),
-                            )
         if result.ok:
             loop.tools_used.add(name)
             fail_counts.pop(call_fp, None)
@@ -781,6 +810,8 @@ async def execute_call(
             if DISTANCE_MODEL_NOTE not in out:
                 out = f"{out.rstrip()}\n\n{DISTANCE_MODEL_NOTE}"
         messages.append(loop._tool_message(name, out))
+        if result.ok and name != "weather":
+            _pin_plain_user(messages, ctx, name, out)
         if name == "weather" and not result.ok:
             asked = str(args.get("place") or "").strip()
             if asked:

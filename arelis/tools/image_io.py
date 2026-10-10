@@ -25,8 +25,9 @@ loaded at tens of thousands of tokens, so it can take a longer edge.
 Measured against qwen2.5vl:3b, the cost of the picture alone: 1024px is 1,100
 tokens, 1280px is 1,221, 1600px is 1,849. All three answer correctly, so 1024
 is the fallback cap, margin on a 4096 window, not a quality target. When the
-chat model looks, 2048 is the cap: enough that a phone photo of a monitor
-still has readable chrome, without shipping a 4K paste as-is.
+chat model looks, the long edge is 1024 as well. A pasted screenshot around
+1800 px was about two thousand image tokens and the look failed. JPEG quality
+stays 85.
 
 """
 
@@ -51,7 +52,7 @@ IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 # docstring: this is a correctness bound for the 3B fallback window, not a
 # preference. Chat-sees looks use CHAT_MAX_EDGE.
 DEFAULT_MAX_EDGE = 1024
-CHAT_MAX_EDGE = 2048
+CHAT_MAX_EDGE = 1024
 
 # Re-encode anything above this even when it needs no downscaling, because the
 # base64 of a multi-megabyte file is the other half of the same context problem.

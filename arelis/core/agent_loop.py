@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import re
@@ -306,6 +307,21 @@ _WRITE_AFTER_TOOL_NOTICE = (
     "header, or the word Done. Write one short sentence a person can read."
 )
 
+# Last line on a round that must not run anything. The tool list stays so
+# the request still extends the one before it.
+_TOOL_FREE_NUDGE = "Answer in plain words. Do not call anything."
+
+
+def append_tool_free_nudge(messages: list[dict[str, Any]]) -> None:
+    """Append the plain-answer line once, after everything already sent."""
+    if (
+        messages
+        and messages[-1].get("role") == "system"
+        and messages[-1].get("content") == _TOOL_FREE_NUDGE
+    ):
+        return
+    messages.append({"role": "system", "content": _TOOL_FREE_NUDGE})
+
 
 def write_after_algebra_notice(tool: str) -> str:
     """Write-up nudge after algebra. Calculator must state the number."""
@@ -580,6 +596,55 @@ class _LiveAnswer:
         return visible
 
 
+def _place_turn_tail(
+    messages: list[dict[str, Any]],
+    turn_tail: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Put this turn's system lines after history and before the latest user line.
+
+    Later rounds append assistant and tool messages after that user line.
+    The tail stays where it was placed, so the bytes in front of it do not move.
+    """
+    if not turn_tail:
+        return messages
+    last_user = None
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index].get("role") == "user":
+            last_user = index
+            break
+    if last_user is None:
+        return [*messages, *turn_tail]
+    return [*messages[:last_user], *turn_tail, *messages[last_user:]]
+
+
+def _pin_tool_round_hint(messages: list[dict[str, Any]]) -> None:
+    """Put the tool-round note just after the latest real user line, once.
+
+    Appending it at the end of every round makes the next round diverge
+    where the previous round ended. Leaving it in place lets the tool
+    result extend the previous request.
+    """
+    last_user = None
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index].get("role") != "user":
+            continue
+        content = str(messages[index].get("content") or "").strip()
+        if content.startswith("<tool_response>"):
+            continue
+        last_user = index
+        break
+    if last_user is None:
+        return
+    slot = last_user + 1
+    if (
+        slot < len(messages)
+        and messages[slot].get("role") == "system"
+        and messages[slot].get("content") == _TOOL_ROUND_HINT
+    ):
+        return
+    messages.insert(slot, {"role": "system", "content": _TOOL_ROUND_HINT})
+
+
 class AgentLoop:
     """One user turn: alternate model steps and tool calls until an answer.
 
@@ -722,6 +787,7 @@ class AgentLoop:
     ) -> None:
         self._horizons_distance_text = ""
         self._horizons_distance_ask = ""
+        self._last_sent_messages = None
         ctx = await self._prepare_turn(
             text,
             role,
@@ -808,7 +874,11 @@ class AgentLoop:
         return await run_round(self, ctx, round_i)
 
     async def _force_final_answer(self, ctx: TurnContext) -> None:
-        """Last round with tools withheld, after the loop has spent its budget."""
+        """Last round after the loop has spent its budget.
+
+        The tool list stays. The last line tells the model to answer in words.
+        A tool call on this round is ignored.
+        """
         # Already a wrap-up. Do not let a late ceiling abort this stream.
         self._in_close = True
         self._close_requested = False
@@ -832,11 +902,12 @@ class AgentLoop:
                 ),
             },
         ]
+        append_tool_free_nudge(force_msgs)
         try:
-            raw_final, _, streamed = await self._stream_round(
+            raw_final, _ignored_calls, streamed = await self._stream_round(
                 self._turn_role,
                 force_msgs,
-                None,
+                ctx.ollama_tools or None,
                 round_n=self.max_rounds + 1,
                 expect_tools=False,
             )
@@ -1062,14 +1133,28 @@ class AgentLoop:
         role: ModelRole,
         *,
         user_text: str = "",
+        turn_tail: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Pin system content, fold overflow into a summary, return the prompt.
 
         Summarization uses the turn's own role so a research or code turn does
         not bounce through the fast model and pay a VRAM swap before it starts.
         On the common fast path that is the warm model already.
+
+        ``turn_tail`` is this turn's system text (clock, preflight, goal, and
+        the rest). It is inserted after history and before the latest user
+        line so a later turn can keep the bytes in front of it.
         """
         agent_cfg = self.config.get("agent") or {}
+        # Not named tail: split_recent_history assigns that name below.
+        turn_lines = [dict(item) for item in (turn_tail or [])]
+
+        def _with_tail(
+            pinned_msgs: list[dict[str, Any]],
+            kept_msgs: list[dict[str, Any]],
+        ) -> list[dict[str, Any]]:
+            return _place_turn_tail([*pinned_msgs, *kept_msgs], turn_lines)
+
         pinned = list(system_messages)
         if self.memory.summary:
             pinned.append(
@@ -1079,7 +1164,8 @@ class AgentLoop:
                 }
             )
         history = self.memory.as_ollama(
-            include_notes=not bool(self.config.get("_speak_replies"))
+            include_notes=not bool(self.config.get("_speak_replies")),
+            include_latest_block=False,
         )
         # A backstop on message count. The token budget below is the real limit;
         # this only stops the trailer growing without bound in a session long
@@ -1101,7 +1187,9 @@ class AgentLoop:
             capped_drop = list(history[:-max_msgs])
             history = list(history[-max_msgs:])
         older, tail = split_recent_history(history, min_recent)
-        pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned)
+        pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned) + sum(
+            message_tokens(m, chars_per_token=ratio) for m in turn_lines
+        )
         tail_cost = sum(message_tokens(m, chars_per_token=ratio) for m in tail)
         remaining = budget - pinned_cost - tail_cost
         if remaining <= 0 or not older:
@@ -1125,7 +1213,7 @@ class AgentLoop:
                     max_messages=max_msgs,
                 )
         if not dropped:
-            return [*pinned, *kept]
+            return _with_tail(pinned, kept)
 
         # Conversation mode: a second model pass to fold two old turns costs
         # ~1-2s and shows up in turns.log every spoken reply. The archive
@@ -1152,7 +1240,7 @@ class AgentLoop:
                     {"text": f"phase=drop dropped={n_drop} mode={mode}"},
                 )
             )
-            return [*pinned, *kept]
+            return _with_tail(pinned, kept)
 
         # Re-allocate against a smaller budget, because a summary pin is about to
         # take room the first pass did not reserve. Same older/tail split: the
@@ -1171,7 +1259,7 @@ class AgentLoop:
         if capped_drop:
             dropped = [*capped_drop, *dropped]
         if not dropped:
-            return [*pinned, *kept]
+            return _with_tail(pinned, kept)
 
         await self.bus.publish(
             Event(
@@ -1218,7 +1306,7 @@ class AgentLoop:
                     },
                 )
             )
-            return [*pinned, *kept]
+            return _with_tail(pinned, kept)
         if summary:
             self.memory.set_summary(summary)
             # Dropped prefix is now in the summary; keeping it in messages would
@@ -1237,9 +1325,12 @@ class AgentLoop:
                     "content": f"[earlier in this conversation: {self.memory.summary}]",
                 }
             )
-        pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned)
+        pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned) + sum(
+            message_tokens(m, chars_per_token=ratio) for m in turn_lines
+        )
         remaining_history = self.memory.as_ollama(
-            include_notes=not bool(self.config.get("_speak_replies"))
+            include_notes=not bool(self.config.get("_speak_replies")),
+            include_latest_block=False,
         )
         older, tail = split_recent_history(remaining_history, min_recent)
         tail_cost = sum(message_tokens(m, chars_per_token=ratio) for m in tail)
@@ -1251,7 +1342,7 @@ class AgentLoop:
                 older, max(0, room), chars_per_token=ratio
             )
             kept = [*kept_older, *tail]
-        return [*pinned, *kept]
+        return _with_tail(pinned, kept)
 
     async def _summarize_dropped(
         self,
@@ -1375,10 +1466,12 @@ class AgentLoop:
         hold_paint = tool_round and bool(
             agent_cfg.get("stream_answer_after_tools", True)
         )
-        stream_messages = _normalize_ollama_messages(list(messages))
         if tool_round:
-            # Trailing hint only — must not sit in the static cached prefix.
-            stream_messages.append({"role": "system", "content": _TOOL_ROUND_HINT})
+            # Stable spot, just after the user line. A trailing copy would
+            # move every round and throw away the previous request.
+            _pin_tool_round_hint(messages)
+        stream_messages = _normalize_ollama_messages(list(messages))
+        self._last_sent_messages = copy.deepcopy(stream_messages)
         prompt_chars = prompt_char_count(stream_messages, tools=tools)
         await self.bus.publish(
             Event(
@@ -1538,6 +1631,26 @@ class AgentLoop:
         """
         return {"role": "tool", "tool_name": name, "content": content}
 
+    def _remember_sent_follow(self) -> None:
+        """Store the tool round that the last request sent after the user line."""
+        sent = getattr(self, "_last_sent_messages", None)
+        if not sent:
+            return
+        ask = ""
+        for message in reversed(self.memory.messages):
+            if message.role == "user":
+                ask = message.content
+                break
+        cut = None
+        for index in range(len(sent) - 1, -1, -1):
+            item = sent[index]
+            if item.get("role") == "user" and item.get("content") == ask:
+                cut = index
+                break
+        if cut is None:
+            return
+        self.memory.remember_turn_follow(list(sent[cut + 1 :]))
+
     async def _finish(
         self,
         text: str,
@@ -1618,6 +1731,7 @@ class AgentLoop:
         if passthrough_tool:
             passthrough = tool_passthrough_note(passthrough_tool)
             note = f"{note}\n{passthrough}" if note else passthrough
+        self._remember_sent_follow()
         self.memory.add("assistant", final, note=note)
 
         # Usually the answer was already streamed and only the appended Sources

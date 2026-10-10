@@ -1017,9 +1017,10 @@ async def test_empty_after_data_dump_retry_turns_tools_off() -> None:
     )
     assert await apply_no_call_path(loop, ctx, r, 2) is False
     assert ctx.tool_answer_nudge_used is True
-    assert r.ollama_tools == []
+    # Schemas stay. The cleared names are what stop another call.
+    assert r.ollama_tools == list(_CATALOG_TOOLS)
     assert r.offer_tools is False
-    assert ctx.ollama_tools == []
+    assert ctx.ollama_tools == list(_CATALOG_TOOLS)
     assert ctx.offer_tools is False
     assert not ctx.tool_names
     assert loop.finished is None
