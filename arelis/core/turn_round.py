@@ -27,6 +27,7 @@ from arelis.core.agent_loop import (
     _normalize_ollama_messages,
     _StoppedError,
     _tool_followup_fallback,
+    append_tool_free_nudge,
     write_after_algebra_notice,
 )
 from arelis.core.claims import document_force_notice
@@ -349,13 +350,20 @@ async def apply_no_call_path(
                     ctx.tool_answer_nudge_used = True
                     strip_tool_schemas(ctx, r)
                     await loop._retract()
-                    r.messages.append({"role": "assistant", "content": r.content})
-                    r.messages.append(
-                        {
-                            "role": "user",
-                            "content": _WRITE_AFTER_TOOL_NOTICE,
-                        }
-                    )
+                    # The write-up line is already on the request that
+                    # carried the tool result. Adding it here, after that
+                    # request was sent, would change how the call renders.
+                    if not any(
+                        item.get("content") == _WRITE_AFTER_TOOL_NOTICE
+                        for item in r.messages
+                    ):
+                        r.messages.append({"role": "assistant", "content": r.content})
+                        r.messages.append(
+                            {
+                                "role": "user",
+                                "content": _WRITE_AFTER_TOOL_NOTICE,
+                            }
+                        )
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -606,9 +614,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 text=ctx.text,
                 trace=getattr(loop, "_trace", ()),
             ):
-                # Schemas stay. Clearing tool_names still rejects another call.
+                # Schemas stay. This round answers in words and does not run a call.
                 offer_tools = False
                 ctx.offer_tools = False
+                ctx.plain_only = True
                 ctx.tool_names.clear()
                 tool_names = ctx.tool_names
 
@@ -630,8 +639,18 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             # session list so this request matches the one before it.
             offer_tools = bool(keep)
             ctx.offer_tools = offer_tools
+            if not keep:
+                ctx.plain_only = True
+                ctx.tool_names.clear()
+                tool_names = ctx.tool_names
 
+        # JSON fallback still omits schemas: the server rejected the tool
+        # list, or this round is the text protocol. Sending the same list
+        # again would repeat that rejection. A plain-answer round is not
+        # that case, so it keeps the list and adds one last line.
         tools_arg = None if ctx.fallback_mode else (ollama_tools or None)
+        if ctx.plain_only and not ctx.fallback_mode:
+            append_tool_free_nudge(messages)
         round_ms = 0
         if sms_preinject is not None:
             injected = sms_preinject
@@ -825,7 +844,11 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     messages,
                     tools_arg,
                     round_n=round_i,
-                    expect_tools=bool(tools_arg) and ctx.expect_tool_round,
+                    expect_tools=(
+                        bool(tools_arg)
+                        and ctx.expect_tool_round
+                        and not ctx.plain_only
+                    ),
                 )
                 round_ms = int((time.perf_counter() - round_t0) * 1000)
                 if loop._timer is not None:
@@ -850,6 +873,31 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     base_url=str((loop.config.get("ollama") or {}).get("base_url") or ""),
                     role=str(loop._turn_role or ""),
                 )
+                if ctx.last_ok_tool_out and _is_ollama_object_400(exc):
+                    # A result is already in hand. Another request does not
+                    # phrase it: the same 400 comes back. Ship the sentence.
+                    four_line = _tool_followup_fallback(
+                        ctx.last_ok_tool_out,
+                        ctx.last_ok_tool_name,
+                        ask=ctx.text,
+                    )
+                    await loop.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": ("ollama 400 after tool; answering from result")},
+                        )
+                    )
+                    await loop._finish(
+                        four_line,
+                        sources,
+                        streamed="",
+                        passthrough_tool=followup_passthrough_tool(
+                            ctx.last_ok_tool_name,
+                            four_line,
+                            ctx.last_ok_tool_out,
+                        ),
+                    )
+                    return True
                 if (
                     loop.json_fallback
                     and not ctx.fallback_mode
@@ -892,29 +940,6 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         ),
                     )
                     return True
-                if ctx.last_ok_tool_out and _is_ollama_object_400(exc):
-                    four_line = _tool_followup_fallback(
-                        ctx.last_ok_tool_out,
-                        ctx.last_ok_tool_name,
-                        ask=ctx.text,
-                    )
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": ("ollama 400 after tool; answering from result")},
-                        )
-                    )
-                    await loop._finish(
-                        four_line,
-                        sources,
-                        streamed="",
-                        passthrough_tool=followup_passthrough_tool(
-                            ctx.last_ok_tool_name,
-                            four_line,
-                            ctx.last_ok_tool_out,
-                        ),
-                    )
-                    return True
                 await loop._publish_error(failure.chat, detail=failure.detail)
                 return True
 
@@ -929,7 +954,12 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 and native_tool_calling(agent_cfg)
                 and content
             ):
-                text_call = parse_text_tool_call(content, registered_tools=tool_names)
+                # Names are cleared on a plain round, so pass none and
+                # reject the call below instead of missing it.
+                text_call = parse_text_tool_call(
+                    content,
+                    registered_tools=None if ctx.plain_only else tool_names,
+                )
                 if text_call and text_call.get("kind") == "tool":
                     name = text_call["name"]
                     args = text_call["args"]
@@ -946,6 +976,57 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 calls = [(parsed["name"], parsed["args"])]
             elif parsed and parsed["kind"] == "final":
                 content = parsed["text"]
+
+        if ctx.plain_only and not ctx.fallback_mode and calls:
+            if not ctx.plain_reask_used:
+                ctx.plain_reask_used = True
+                assistant_msg: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": content or "",
+                }
+                if tool_calls:
+                    assistant_msg["tool_calls"] = tool_calls
+                messages.append(assistant_msg)
+                # A real user line after the rejected call keeps that call
+                # rendering the same way on the next turn.
+                messages.append(
+                    {"role": "user", "content": _WRITE_AFTER_TOOL_NOTICE}
+                )
+                append_tool_free_nudge(messages)
+                await loop._retract()
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {"text": "plain answer round; asking again"},
+                    )
+                )
+                return False
+            prose = (content or "").strip()
+            if not prose and ctx.last_ok_tool_out:
+                prose = _tool_followup_fallback(
+                    ctx.last_ok_tool_out,
+                    ctx.last_ok_tool_name,
+                    ask=ctx.text,
+                )
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {"text": "plain answer round; answering from result"},
+                    )
+                )
+                await loop._finish(
+                    prose,
+                    sources,
+                    streamed="",
+                    passthrough_tool=followup_passthrough_tool(
+                        ctx.last_ok_tool_name,
+                        prose,
+                        ctx.last_ok_tool_out,
+                    ),
+                )
+                return True
+            await loop._finish(prose, sources, streamed="")
+            return True
 
         if getattr(loop, "_in_close", False):
             calls = [

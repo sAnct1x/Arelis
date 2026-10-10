@@ -6,18 +6,24 @@ the calculator formula or a data header into the bubble. That is the bug.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 
-from arelis.core.agent_loop import AgentLoop
+from arelis.core.agent_loop import _TOOL_FREE_NUDGE, AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.events import EventType
 from arelis.core.memory import SessionMemory
+from arelis.core.tool_surface import session_tool_schemas
 from arelis.tools.base import ToolRegistry, ToolResult
 from arelis.tools.calculator import CalculatorTool
 from arelis.tools.solar_tool import SolarTool
 from tests.hardening_helpers import _collect, _config, _deny, _ScriptedRouter
+
+# The retry still sends the same tool list. This line is what makes the
+# round tool-free in effect.
+_PLAIN_NUDGE = _TOOL_FREE_NUDGE
 
 _EM_DASH = "\u2014"
 _EN_DASH = "\u2013"
@@ -200,13 +206,29 @@ class _RecordingRouter(_ScriptedRouter):
     def __init__(self, script: list[list[tuple[str, Any]]]) -> None:
         super().__init__(script)
         self.stream_kwargs: list[dict[str, Any]] = []
+        self.stream_messages: list[list[dict[str, Any]]] = []
 
     async def stream(self, role, messages, **kwargs):  # type: ignore[no-untyped-def]
         self.stream_kwargs.append(dict(kwargs))
+        self.stream_messages.append(json.loads(json.dumps(messages)))
         steps = self.script[min(self.i, len(self.script) - 1)]
         self.i += 1
         for item in steps:
             yield item
+
+
+def _assert_same_tools(router: _RecordingRouter, loop: AgentLoop, index: int) -> None:
+    """The retry carries the session list, same as the other requests."""
+    tools = router.stream_kwargs[index].get("tools")
+    expected = session_tool_schemas(loop.tools, loop.config.get("agent"))
+    assert tools == expected
+    assert tools == router.stream_kwargs[0].get("tools")
+
+
+def _assert_plain_nudge(router: _RecordingRouter, index: int) -> None:
+    last = router.stream_messages[index][-1]
+    assert last.get("role") == "system"
+    assert last.get("content") == _PLAIN_NUDGE
 
 
 @pytest.mark.asyncio
@@ -237,8 +259,8 @@ async def test_lookup_empty_then_sentence_retry_offers_no_tools() -> None:
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
     assert done.payload["text"].strip() == good
     assert len(router.stream_kwargs) == 3
-    retry_tools = router.stream_kwargs[2].get("tools")
-    assert not retry_tools, f"retry still offered tools: {retry_tools!r}"
+    _assert_same_tools(router, loop, 2)
+    _assert_plain_nudge(router, 2)
 
 
 @pytest.mark.asyncio
@@ -307,10 +329,61 @@ async def test_retry_round_stays_toolless_when_model_switch_fires(
         if e.type == EventType.THINKING
     ), "model switch did not fire, so this test proves nothing"
     assert len(router.stream_kwargs) == 3
-    retry_tools = router.stream_kwargs[2].get("tools")
-    assert not retry_tools, f"retry after model switch offered tools: {retry_tools!r}"
+    _assert_same_tools(router, loop, 2)
+    _assert_plain_nudge(router, 2)
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
     assert "could not put it into words" in done.payload["text"].lower()
+
+
+class _CountingHorizons(_HorizonsStub):
+    def __init__(self) -> None:
+        self.runs = 0
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        self.runs += 1
+        return await super().run(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_tool_call_on_a_plain_retry_is_not_executed() -> None:
+    """A call on the write-up round does not run. One re-ask, then plain text."""
+    ask = "how far away is the moon right now?"
+    good = "The Moon is about 402,000 kilometers away right now."
+    call = {
+        "type": "function",
+        "function": {
+            "name": "catalog",
+            "arguments": {
+                "action": "horizons",
+                "target": "Moon",
+                "table": "observer",
+            },
+        },
+    }
+    router = _RecordingRouter(
+        [
+            [("tool_calls", [call])],
+            [("token", "")],
+            [("tool_calls", [call])],
+            [("token", good)],
+        ]
+    )
+    tool = _CountingHorizons()
+    bus, loop = _loop(router, tool)
+    events = await _collect(bus, loop.run(ask, "fast"))
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert done.payload["text"].strip() == good
+    assert tool.runs == 1
+    assert len(router.stream_kwargs) == 4
+    earlier = router.stream_messages[2]
+    later = router.stream_messages[3]
+    assert later[: len(earlier)] == earlier
+    tool_rows = [row for row in later if row.get("role") == "tool"]
+    assert len(tool_rows) == 1
+    _assert_same_tools(router, loop, 2)
+    _assert_same_tools(router, loop, 3)
+    _assert_plain_nudge(router, 2)
+    _assert_plain_nudge(router, 3)
 
 
 # --- follow-up: planet-year wording + agenda lists -------------------------

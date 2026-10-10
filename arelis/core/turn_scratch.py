@@ -138,6 +138,7 @@ def strip_tool_schemas(ctx: TurnContext, r: RoundScratch) -> None:
     """
     r.offer_tools = False
     ctx.offer_tools = False
+    ctx.plain_only = True
     ctx.tool_names.clear()
     r.tool_names = ctx.tool_names
 

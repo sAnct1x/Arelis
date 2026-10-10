@@ -307,6 +307,21 @@ _WRITE_AFTER_TOOL_NOTICE = (
     "header, or the word Done. Write one short sentence a person can read."
 )
 
+# Last line on a round that must not run anything. The tool list stays so
+# the request still extends the one before it.
+_TOOL_FREE_NUDGE = "Answer in plain words. Do not call anything."
+
+
+def append_tool_free_nudge(messages: list[dict[str, Any]]) -> None:
+    """Append the plain-answer line once, after everything already sent."""
+    if (
+        messages
+        and messages[-1].get("role") == "system"
+        and messages[-1].get("content") == _TOOL_FREE_NUDGE
+    ):
+        return
+    messages.append({"role": "system", "content": _TOOL_FREE_NUDGE})
+
 
 def write_after_algebra_notice(tool: str) -> str:
     """Write-up nudge after algebra. Calculator must state the number."""
@@ -859,7 +874,11 @@ class AgentLoop:
         return await run_round(self, ctx, round_i)
 
     async def _force_final_answer(self, ctx: TurnContext) -> None:
-        """Last round with tools withheld, after the loop has spent its budget."""
+        """Last round after the loop has spent its budget.
+
+        The tool list stays. The last line tells the model to answer in words.
+        A tool call on this round is ignored.
+        """
         # Already a wrap-up. Do not let a late ceiling abort this stream.
         self._in_close = True
         self._close_requested = False
@@ -883,11 +902,12 @@ class AgentLoop:
                 ),
             },
         ]
+        append_tool_free_nudge(force_msgs)
         try:
-            raw_final, _, streamed = await self._stream_round(
+            raw_final, _ignored_calls, streamed = await self._stream_round(
                 self._turn_role,
                 force_msgs,
-                None,
+                ctx.ollama_tools or None,
                 round_n=self.max_rounds + 1,
                 expect_tools=False,
             )
