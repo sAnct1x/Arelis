@@ -101,3 +101,57 @@ def test_the_edge_fade_is_built_once_per_size(qt_app) -> None:
     assert panel.avatar.mask_builds == built + 1
     panel.close()
     QApplication.processEvents()
+
+
+def test_the_edge_mask_never_dims_the_crown_at_any_pixel_ratio(qt_app):
+    """At 1x and 2x the soft edge fade leaves the top of her hair untouched.
+
+    The mask is built in device pixels. It used to be tagged with ratio 1.0, so
+    on a 2x canvas Qt drew it twice as large and the top fade sliced her crown
+    flat, with the sides fanning out below the cut.
+    """
+    import numpy as np
+    from PySide6.QtGui import QImage
+
+    panel = _ready_panel(qt_app, 370, 600)
+    avatar = panel.avatar
+    avatar.shutdown()
+
+    def canvas_alpha(ratio: float, masked: bool) -> np.ndarray:
+        avatar.devicePixelRatioF = lambda: ratio
+        if not masked:
+
+            def no_mask(width, height, dpr):
+                image = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+                image.fill(0xFFFFFFFF)
+                image.setDevicePixelRatio(dpr)
+                return image
+
+            avatar._edge_mask = no_mask
+        try:
+            avatar.grab()
+        finally:
+            if not masked:
+                del avatar._edge_mask
+        canvas = avatar._canvas.convertToFormat(QImage.Format.Format_RGBA8888_Premultiplied)
+        width, height = canvas.width(), canvas.height()
+        raw = np.frombuffer(canvas.constBits(), np.uint8, count=canvas.sizeInBytes())
+        return raw.reshape(height, -1)[:, : width * 4].reshape(height, width, 4)[..., 3].copy()
+
+    try:
+        for ratio in (1.0, 2.0):
+            rect = avatar._face_rect()
+            with_mask = canvas_alpha(ratio, True).astype(np.float32)
+            without = canvas_alpha(ratio, False).astype(np.float32)
+            # The crown: top quarter of the plate, middle half of its width.
+            y0 = int(rect.y() * ratio)
+            y1 = int((rect.y() + rect.height() * 0.25) * ratio)
+            x0 = int((rect.x() + rect.width() * 0.25) * ratio)
+            x1 = int((rect.x() + rect.width() * 0.75) * ratio)
+            crown = without[y0:y1, x0:x1] > 20
+            assert crown.sum() > 100 * ratio * ratio, ratio
+            kept = with_mask[y0:y1, x0:x1][crown] / without[y0:y1, x0:x1][crown]
+            assert float(kept.min()) >= 0.98, (ratio, float(kept.min()))
+    finally:
+        del avatar.devicePixelRatioF
+        panel.close()

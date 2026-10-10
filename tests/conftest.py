@@ -61,11 +61,13 @@ def pytest_sessionfinish(session, exitstatus):
 # Isolate only the Earth-zone split (and the pre-split giant). Do not apply
 # to the older siblings test_earth_fetchers / _goto / _polish — they never
 # used this fixture.
-_EARTH_ISOLATE_SKIP = frozenset({
-    "test_earth_fetchers.py",
-    "test_earth_goto.py",
-    "test_earth_polish.py",
-})
+_EARTH_ISOLATE_SKIP = frozenset(
+    {
+        "test_earth_fetchers.py",
+        "test_earth_goto.py",
+        "test_earth_polish.py",
+    }
+)
 
 
 def _earth_isolate_applies(filename: str) -> bool:
@@ -243,3 +245,26 @@ def _dispose_arelis_windows():
     app.processEvents()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.processEvents()
+
+
+@pytest.fixture(autouse=True)
+def _stop_persona_bakes():
+    """Stop every persona bake thread a test leaves behind, pass or fail.
+
+    A panel dropped while its bake QThread still runs makes Qt abort the whole
+    process ("QThread: Destroyed while thread is still running") during a later
+    test. A failed or timed-out wait for the bake used to leave exactly that.
+    """
+    yield
+    import sys
+
+    avatar_mod = sys.modules.get("arelis.ui.persona_face.avatar")
+    if avatar_mod is None:
+        return
+    from PySide6.QtWidgets import QApplication
+
+    if QApplication.instance() is None:
+        return
+    for widget in QApplication.allWidgets():
+        if isinstance(widget, avatar_mod.PersonaAvatar):
+            widget.shutdown()

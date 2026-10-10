@@ -327,6 +327,12 @@ class WindowBuild:
             | Qt.DockWidgetArea.BottomDockWidgetArea
         )
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.persona_dock)
+        # She looks toward the chat while speaking; the chat is across from her dock.
+        self.persona_dock.dockLocationChanged.connect(
+            lambda area: self.persona_panel.set_chat_side(
+                1.0 if area == Qt.DockWidgetArea.LeftDockWidgetArea else -1.0
+            )
+        )
 
         self.work_dock = GlassDockWidget("workspace", self)
         self.work_dock.setObjectName("WorkspaceDock")

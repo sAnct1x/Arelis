@@ -2,29 +2,54 @@
 
 from __future__ import annotations
 
+import logging
+import sys
 import time
 from collections.abc import Callable
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
 from arelis.ui.persona_face.avatar import PersonaAvatar
+from arelis.ui.persona_face.engine import PHASE_COUNT
 from arelis.ui.persona_face.motion import Motion, frame_interval_ms
 from arelis.ui.theme import app_font, color, load_fonts
 
-_BLOOM_S = 1.2
-_FOLD_S = 1.6
+# She materializes over a couple of seconds. Folding back is shorter.
+BLOOM_S = 2.6
+FOLD_S = 1.25
+_BLOOM_S = BLOOM_S
+_FOLD_S = FOLD_S
 _QUIET_S = 60.0
 _DONE_S = 2.0
 _STATUS_S = 8.0
 _TEXT_H = 92
 _BLUSH = QColor(245, 163, 199)
+_LOG = logging.getLogger("arelis.persona_face")
 
 
 def _ease(u: float) -> float:
+    """Ease in and out. The middle of the bloom sits strictly between 0 and 1."""
     u = 0.0 if u < 0.0 else (1.0 if u > 1.0 else u)
     return u * u * (3.0 - 2.0 * u)
+
+
+def client_animations() -> bool:
+    """Windows client-area animation flag. Other platforms keep the bloom."""
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+
+        flag = ctypes.c_int(1)
+        ok = ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(flag), 0)
+        if not ok:
+            return True
+        return bool(flag.value)
+    # user32 missing or blocked: keep the bloom rather than a hard cut.
+    except Exception:
+        return True
 
 
 class PersonaPanel(QWidget):
@@ -55,9 +80,21 @@ class PersonaPanel(QWidget):
         self._level: Callable[[], float | None] | None = None
         self._clock: Callable[[], float] | None = None
         self._last = self._now()
-        self._bake_delay = 1.5
+        # The avatar waits for the dock size to settle, then reads the cache.
+        # A second delay here used to start after layout and miss that file.
+        self._bake_delay = 0.0
         self._bake_armed = False
         self._hooked = False
+        self._force_motion: bool | None = None
+        self._phase0_at: float | None = None
+        self._bloom_before_face = False
+        self.wake_start_perf: float | None = None
+        self.wake_end_perf: float | None = None
+        self.wake_duration_s: float | None = None
+        self.fold_start_perf: float | None = None
+        self.fold_end_perf: float | None = None
+        self.fold_duration_s: float | None = None
+        self.avatar.layers_in.connect(self._on_layers)
         self._timer = QTimer(self)
         self._timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._timer.timeout.connect(self._on_timer)
@@ -95,6 +132,9 @@ class PersonaPanel(QWidget):
         elif name == "done":
             self._speaking = False
             self._done_at = now
+            # Reply finished: a warm smile eases in, then out.
+            if self._mode == "face":
+                self._motion.cue("smile", now)
             if self._mode == "orb":
                 self._begin("bloom", now)
             if self._mode == "face":
@@ -126,6 +166,14 @@ class PersonaPanel(QWidget):
         self._push(now, 0.0)
         self._apply_interval()
         self.update()
+
+    def set_chat_side(self, side: float) -> None:
+        """Where the chat is from her: -1 to the left (dock on the right), +1 right."""
+        self._motion.chat_side = -1.0 if side < 0.0 else 1.0
+
+    def cue(self, name: str) -> None:
+        """Trigger one motion event now: smile, wink, nod, look or glance."""
+        self._motion.cue(name, self._now())
 
     def set_level_source(self, source: Callable[[], float | None] | None) -> None:
         self._level = source
@@ -164,6 +212,33 @@ class PersonaPanel(QWidget):
             return ""
         return self._status
 
+    def elided_status(self, width: int | None = None) -> str:
+        """Status keeps its first characters. The tail ellipsizes to the width."""
+        text = self.status_text()
+        if not text:
+            return ""
+        if width is None:
+            width = self.width()
+        font = self.font()
+        font.setPixelSize(12)
+        limit = max(8, int(width) - 16)
+        return QFontMetrics(font).elidedText(text, Qt.TextElideMode.ElideRight, limit)
+
+    def face_ready(self) -> bool:
+        """Phase 0 is up and the materialize has finished.
+
+        All hair phases count, or a few seconds after phase 0 if the rest is
+        still landing. Shots wait on this instead of a fixed sleep.
+        """
+        phases = self.avatar.phases_ready()
+        if phases < 1 or self._mode != "face" or self.avatar.reveal < 0.999:
+            return False
+        if phases >= PHASE_COUNT:
+            return True
+        if self._phase0_at is None:
+            return False
+        return (self._now() - self._phase0_at) >= 4.0
+
     def timer_running(self) -> bool:
         return self._timer.isActive()
 
@@ -200,12 +275,21 @@ class PersonaPanel(QWidget):
         elif dt > 0.1:
             dt = 0.1
         self._last = now
+        if self.avatar.phases_ready() >= 1 and self._phase0_at is None:
+            self._phase0_at = now
+        # A turn can ask for the wake while the orb is still the only thing
+        # drawn. The clock used to run out during the bake, so the face popped
+        # in. Start the 2.6 s when the layers actually exist.
+        self._release_wake(now)
         if self._mode == "bloom":
             u = (now - self._mode_t) / _BLOOM_S
             self.avatar.reveal = _ease(u)
             if u >= 1.0:
                 self._mode = "face"
                 self.avatar.reveal = 1.0
+                self._wake_end()
+                # Greeting: she smiles as she arrives.
+                self._motion.cue("smile", now)
                 if (
                     self._state in {"rest", "done"}
                     and not self._speaking
@@ -220,6 +304,7 @@ class PersonaPanel(QWidget):
                 self._mode = "orb"
                 self.avatar.reveal = 0.0
                 self._quiet = None
+                self._fold_end()
         elif self._mode == "face" and self._fold_due(now):
             self._begin("fold", now)
         if self._status and now - self._status_at >= _STATUS_S:
@@ -306,7 +391,15 @@ class PersonaPanel(QWidget):
         font = self.font()
         font.setPixelSize(px)
         painter.setFont(font)
-        painter.drawText(8, y, width - 16, 18, int(Qt.AlignmentFlag.AlignHCenter), text)
+        shown = QFontMetrics(font).elidedText(text, Qt.TextElideMode.ElideRight, max(8, width - 16))
+        painter.drawText(
+            8,
+            y,
+            width - 16,
+            18,
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+            shown,
+        )
 
     def _pressed(self) -> None:
         if self._speaking or self._state == "speaking":
@@ -319,9 +412,89 @@ class PersonaPanel(QWidget):
             self.avatar.update()
             self.update()
 
+    def _animations_on(self) -> bool:
+        if self._force_motion is not None:
+            return bool(self._force_motion)
+        return client_animations()
+
+    def _wake_begin(self) -> None:
+        stamp = time.perf_counter()
+        self.wake_start_perf = stamp
+        self.wake_end_perf = None
+        self.wake_duration_s = None
+        _LOG.info("persona wake start %.6f", stamp)
+
+    def _wake_end(self) -> None:
+        if self.wake_start_perf is None or self.wake_end_perf is not None:
+            return
+        stamp = time.perf_counter()
+        self.wake_end_perf = stamp
+        self.wake_duration_s = stamp - self.wake_start_perf
+        _LOG.info("persona wake end %.6f duration %.3f", stamp, self.wake_duration_s)
+
+    def _fold_begin(self) -> None:
+        stamp = time.perf_counter()
+        self.fold_start_perf = stamp
+        self.fold_end_perf = None
+        self.fold_duration_s = None
+        _LOG.info("persona fold start %.6f", stamp)
+
+    def _fold_end(self) -> None:
+        if self.fold_start_perf is None or self.fold_end_perf is not None:
+            return
+        stamp = time.perf_counter()
+        self.fold_end_perf = stamp
+        self.fold_duration_s = stamp - self.fold_start_perf
+        _LOG.info("persona fold end %.6f duration %.3f", stamp, self.fold_duration_s)
+
+    def _release_wake(self, now: float) -> None:
+        """Start the 2.6 s clock when the layers exist, not on the next timer."""
+        if not (self.avatar.bake_ready() and self._bloom_before_face):
+            return
+        self._bloom_before_face = False
+        if not self._animations_on():
+            self._mode = "face"
+            self._mode_t = now
+            self.avatar.reveal = 1.0
+            self._wake_begin()
+            self._wake_end()
+            return
+        self._mode = "bloom"
+        self._mode_t = now
+        self.avatar.reveal = 0.0
+        self._wake_begin()
+
+    def _on_layers(self) -> None:
+        self._release_wake(self._now())
+
     def _begin(self, mode: str, now: float) -> None:
+        if not self._animations_on():
+            if mode == "bloom":
+                self._mode = "face"
+                self._mode_t = now
+                self.avatar.reveal = 1.0
+                self._bloom_before_face = False
+                self._wake_begin()
+                self._wake_end()
+                return
+            if mode == "fold":
+                self._mode = "orb"
+                self._mode_t = now
+                self.avatar.reveal = 0.0
+                self._quiet = None
+                self._fold_begin()
+                self._fold_end()
+                return
         self._mode = mode
         self._mode_t = now
+        if mode == "bloom" and not self.avatar.bake_ready():
+            # The clock restarts when the layers land, so a bake does not eat it.
+            self._bloom_before_face = True
+            return
+        if mode == "bloom":
+            self._wake_begin()
+        elif mode == "fold":
+            self._fold_begin()
 
     def _fold_due(self, now: float) -> bool:
         if self._speaking or self._busy or self._state not in {"rest", "done"}:

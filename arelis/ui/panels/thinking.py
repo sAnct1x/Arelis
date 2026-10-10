@@ -2,9 +2,33 @@
 
 from __future__ import annotations
 
+import logging
+import re
+
 from PySide6.QtCore import QObject
 
 from arelis.location.privacy import redact
+
+log = logging.getLogger(__name__)
+
+# Model traffic and turn bookkeeping. Her reasoning is everything else.
+_INTERNAL = re.compile(
+    r"thinking(?:\.\.\.|\u2026)\s*\(fast:"
+    r"|Role ['\"]"
+    r"|\bRole "
+    r"|round \d+/"
+    r"|phase="
+    r"|timing\s+total"
+    r"|loading the model"
+    r"|waiting for the conversation model"
+    r"|Ready for the first reply",
+    re.IGNORECASE,
+)
+
+
+def internal_status(line: str) -> bool:
+    """True when a line is status or a model note, not her own reasoning."""
+    return _INTERNAL.search(line or "") is not None
 
 
 class ThinkingPanel(QObject):
@@ -32,10 +56,19 @@ class ThinkingPanel(QObject):
         window = self._window
         if window is None:
             return
-        if kind in {"status", "model"}:
+        if kind in {"status", "model"} or internal_status(line):
             if line == self._last_status:
                 return
             self._last_status = line
+            if internal_status(line):
+                log.info("%s", line)
+                # A window with no face has nowhere else to show the line.
+                # Location redaction is checked on that thought text.
+                if getattr(window, "persona_panel", None) is None:
+                    window.chat.add_thought_line(line, keep_internal=True)
+                    return
+                self._show_aside(window, line)
+                return
             self._route_status(window, line)
             return
         if line == self._last_essay:
@@ -49,11 +82,25 @@ class ThinkingPanel(QObject):
         chunk = redact(chunk)
         if not chunk or self._window is None:
             return
+        if internal_status(chunk):
+            log.info("%s", chunk.strip())
+            self._show_aside(self._window, chunk.strip())
+            return
         self._window.chat.extend_thought(chunk)
 
     def clear(self) -> None:
         self._last_status = ""
         self._last_essay = ""
+
+    def _show_aside(self, window, line: str) -> None:
+        """Internal lines stay on her caption, or the chat status line when she is closed."""
+        dock = getattr(window, "persona_dock", None)
+        panel = getattr(window, "persona_panel", None)
+        open_dock = dock is not None and not dock.isHidden()
+        if open_dock and panel is not None:
+            panel.show_status(line)
+            return
+        window.chat.show_idle_note(line)
 
     def _route_status(self, window, line: str) -> None:
         dock = getattr(window, "persona_dock", None)

@@ -1,0 +1,1008 @@
+"""Bake the approved renderer once. A frame only moves the cached layers."""
+
+from __future__ import annotations
+
+import math
+import threading
+
+import numpy as np
+
+from arelis.ui.persona_face import face_src as face2
+from arelis.ui.persona_face import hair_paint
+from arelis.ui.persona_face.adult import V24Rig, apply_v23
+from arelis.ui.persona_face.face_src import Canvas2
+from arelis.ui.persona_face.nebula_src import Canvas, background, hexrgb
+from arelis.ui.persona_face.scene_bits import orbit_ring, sparkle
+
+# Head and shoulders. Hair ends around the shoulder, so the plate is not a tall empty drop.
+VIEW = (-0.80, 0.80, -0.58, 0.72)
+POSE = (0.0, 0.0, 0.0, 1.0)
+BLINK_LEVELS = (0.0, 0.25, 0.5, 0.75, 1.0)
+GAZE_LEVELS = ((0.0, 0.0), (0.012, -0.01), (-0.008, 0.004))
+MOUTH_LEVELS = tuple(i / 7.0 for i in range(8))
+# Added motion frames (v12). The approved eye, gaze and mouth frames are not
+# touched; these are extra patches crossfaded over them.
+WINK_LEVELS = BLINK_LEVELS[1:]
+WINK_SIDE = 1
+SMILE_LEVELS = (0.5, 1.0)
+GLANCE_LEVELS = ((-0.015, 0.001), (0.014, -0.002))
+# One smooth sweep of the renderer's own hair drift. The ends are different
+# poses, so playback walks inside the list and never wraps.
+PHASE_COUNT = 36
+PHASE_T = np.linspace(0.35, 5.15, PHASE_COUNT)
+FACE_T = float(PHASE_T[0])
+
+# Hair v4 (target match): the painted mass in hair_paint replaces the strand
+# cap. Off brings back the v3 strand layers.
+HAIR_V4 = True
+# The skin, eyes and mouth are lifted this much toward the target's
+# lavender-white. Below the jaw the neck keeps its tone.
+FACE_GAIN = 1.11
+
+_RIG: V24Rig | None = None
+_LOCK = threading.RLock()
+
+
+def raster_size(width: int) -> tuple[int, int]:
+    x0, x1, y0, y1 = VIEW
+    height = max(1, round(width * (y1 - y0) / (x1 - x0)))
+    return int(width), height
+
+
+def unstretch_y(y):
+    return face2.VY + (y - face2.VY) / face2.VSTRETCH
+
+
+def shared_rig() -> V24Rig:
+    global _RIG
+    with _LOCK:
+        if _RIG is None:
+            apply_v23()
+            _RIG = V24Rig()
+        return _RIG
+
+
+def _bloom_scale(width: int) -> float:
+    """Same halo fraction as the 640 px approved still. Sigma is in pixels."""
+    # Hero frames were tuned at 1024 px across the same dock-width view.
+    return max(0.15, width / 1024.0)
+
+
+def _shaded(cv: Canvas2) -> tuple[np.ndarray, np.ndarray]:
+    acc = np.zeros((cv.H, cv.W, 3))
+    for sigma, layer in cv.layers.items():
+        scale = 2 * math.pi * sigma * sigma if sigma > 0.5 else 1
+        acc += Canvas.blur(layer, sigma) * scale
+    shade = np.zeros((cv.H, cv.W))
+    tint = np.array([1.0, 1.18, 0.78])
+    for sigma, layer in cv.shades.items():
+        if sigma > 0.5:
+            blurred = Canvas.blur(np.repeat(layer[..., None], 3, -1), sigma)[..., 0]
+            shade += blurred * (2 * math.pi * sigma * sigma)
+        else:
+            shade += layer
+    dark = np.exp(-np.clip(shade, 0, None)[..., None] * tint)
+    return acc * dark, dark
+
+
+def _lit(cv: Canvas2, exposure: float) -> tuple[np.ndarray, np.ndarray]:
+    colored, dark = _shaded(cv)
+    scale = _bloom_scale(cv.W)
+    lit = colored.copy()
+    for sigma, amount in ((6.0 * scale, 0.35), (22.0 * scale, 0.28), (60.0 * scale, 0.22)):
+        lit += amount * Canvas.blur(colored, sigma)
+    lit *= exposure * dark**0.6
+    return lit, dark
+
+
+def _fade_bottom(alpha: np.ndarray, premul: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Hair tips die out over the last 12 percent. The raster edge is clear."""
+    rows = alpha.shape[0]
+    start = int(rows * 0.88)
+    if start >= rows - 1:
+        return alpha, premul
+    ramp = np.ones(rows, dtype=np.float32)
+    ramp[start:] = np.linspace(1.0, 0.0, rows - start, dtype=np.float32)
+    alpha = alpha * ramp[:, None]
+    premul = premul * ramp[:, None, None]
+    return alpha, premul
+
+
+def _neck_alpha_v6(cv: Canvas2) -> np.ndarray:
+    """The pointed v6 neck's alpha. Hair still reads its tone match from it."""
+    down = np.clip((cv.Y - 0.35) / 0.20, 0.0, 1.0)
+    half = 0.030 * (1.0 - down) ** 1.05 + 0.008
+    radial = np.exp(-0.5 * (np.abs(cv.X) / half) ** 2)
+    core = np.clip((radial - 0.20) / 0.62, 0.0, 1.0)
+    hem = 0.58 - 0.10 * np.clip(np.abs(cv.X) / np.maximum(half, 0.01), 0.0, 1.0)
+    hem = hem + 0.012 * np.sin(cv.X * 55.0)
+    fall = np.clip((hem - cv.Y) / 0.16, 0.0, 1.0) ** 0.8
+    return np.clip(core * fall * (1.0 - 0.22 * down), 0.0, 1.0)
+
+
+def _neck_alpha(cv: Canvas2) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Where the neck replaces the glow, and its alpha there."""
+    apply = np.clip((cv.Y - 0.338) / 0.028, 0.0, 1.0)
+    down = np.clip((cv.Y - 0.35) / 0.20, 0.0, 1.0)
+    half = 0.030 - 0.006 * down
+    radial = np.exp(-0.5 * (np.abs(cv.X) / half) ** 2)
+    fade = 1.0 - face2.smooth(np.clip((cv.Y - 0.37) / 0.17, 0.0, 1.0))
+    return apply, np.clip(0.80 * radial * fade, 0.0, 1.0), radial
+
+
+def _neck_lavender(
+    cv: Canvas2, alpha: np.ndarray, premul: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Replace the neck glow with a soft column that fades into the glow.
+
+    The tone map turns a dim column into a hard rectangle. Below the jaw the
+    alpha is a soft gaussian column that barely narrows and fades out
+    smoothly downward, so there is no pointed tip and no hard edge. A light
+    shade under the chin keeps the chin in front. Blue stays above green.
+    """
+    # Leave the chin alone. The ramp starts just under the jaw.
+    apply, new_a, radial = _neck_alpha(cv)
+    shade = np.clip((0.41 - cv.Y) / 0.06, 0.0, 1.0) * np.clip(radial * 1.6, 0.0, 1.0) * 0.85
+    light = np.array([188.0, 154.0, 216.0], dtype=np.float32) / 255.0
+    dark = np.array([142.0, 110.0, 176.0], dtype=np.float32) / 255.0
+    tint = light * (1.0 - shade[..., None]) + dark * shade[..., None]
+    keep = 1.0 - apply
+    alpha = alpha * keep + new_a * apply
+    premul = premul * keep[..., None] + (tint * new_a[..., None]) * apply[..., None]
+    return alpha, premul
+
+
+def to_premul(
+    cv: Canvas2,
+    exposure: float = 1.0,
+    *,
+    face: bool = False,
+    floor: float = 0.095,
+    ink: str = "glow",
+    bottom: bool = True,
+) -> np.ndarray:
+    """Filmed light on a clear plate. Faint veil drops out so no rectangle remains.
+
+    The face centre uses the same tone map as render_frame, including the
+    nebula glow behind the skin, so the cheek stays the approved lavender.
+    The edge stays the glow alone, or a light theme would pick up a dark box.
+    """
+    if ink == "star":
+        # Tight glow only. The wide face bloom turns the four spikes into a disc,
+        # and a steep alpha ramp then fills that disc solid white.
+        colored, _dark = _shaded(cv)
+        scale = _bloom_scale(cv.W)
+        lit = colored + 0.5 * Canvas.blur(colored, max(1.1, 2.2 * scale))
+        lit *= exposure
+        glow = 1.0 - np.exp(-np.clip(lit, 0, None))
+        peak = glow.max(axis=-1)
+        # Alpha stays with the hue so the fringe is star-colored. The floor
+        # drops the wide grey disc; what remains is the core and the spikes.
+        hue = glow / np.maximum(peak[..., None], 1e-3)
+        alpha = np.clip((peak - 0.16) / 0.28, 0.0, 1.0) ** 1.6
+        premul = np.clip(hue, 0.0, 1.0) * alpha[..., None]
+        if bottom:
+            alpha, premul = _fade_bottom(alpha, premul)
+        out = np.empty((cv.H, cv.W, 4), dtype=np.uint8)
+        out[..., 0] = np.clip(premul[..., 0] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        out[..., 1] = np.clip(premul[..., 1] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        out[..., 2] = np.clip(premul[..., 2] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        out[..., 3] = np.clip(alpha * 255.0 + 0.5, 0, 255).astype(np.uint8)
+        return out
+    lit, dark = _lit(cv, exposure)
+    glow = 1.0 - np.exp(-np.clip(lit, 0, None))
+    peak = glow.max(axis=-1)
+    # Below this the glow is a rectangle on a light theme, not part of her.
+    # Hair sits softer than skin, so its floor is lower. The corners still fall out.
+    shown = glow
+    if face or ink == "filmed":
+        bg = background(cv.W, cv.H, face2.PAL, stars=int(900 * cv.W * cv.H / 1024**2))
+        filmed = 1.0 - (1.0 - bg * dark**0.3) * np.exp(-np.clip(lit, 0, None))
+        if ink == "filmed":
+            shown = filmed
+        else:
+            core = np.clip((peak - 0.28) / 0.22, 0.0, 1.0) ** 2
+            shown = glow * (1.0 - core[..., None]) + filmed * core[..., None]
+    # Interior keeps the filmed plate (the approved cheek). The rim's
+    # associated color is the glow hue, premultiplied once below, so a
+    # light dock does not pick up a black outline.
+    hue = glow / np.maximum(peak[..., None], 1e-3)
+    # Opaque as soon as the light clears the floor, so hair stays a solid
+    # strand field. The color blend below is what kills the gray shell.
+    alpha = np.clip((peak - floor) / 0.05, 0.0, 1.0)
+    alpha = np.where(peak < floor, 0.0, alpha)
+    premul = np.clip(shown, 0.0, 1.0) * alpha[..., None]
+    # Filmed color goes gray before it goes clear. Blend the outer band to the
+    # glow hue with a wide blur so the shell fades instead of drawing a line.
+    empty = (alpha < 0.15).astype(np.float32)
+    spread = Canvas.blur(np.repeat(empty[..., None], 3, axis=-1), max(2.0, cv.W * 0.04))[..., 0]
+    top = float(spread.max())
+    weight = np.clip(spread / top, 0.0, 1.0) if top > 1e-6 else np.zeros_like(spread)
+    weight = np.where(alpha < 0.05, 0.0, weight)
+    hue_premul = np.clip(hue, 0.0, 1.0) * alpha[..., None]
+    premul = hue_premul * weight[..., None] + premul * (1.0 - weight[..., None])
+    if face:
+        alpha, premul = _neck_lavender(cv, alpha, premul)
+        if FACE_GAIN != 1.0:
+            lift = 1.0 + (FACE_GAIN - 1.0) * (1.0 - face2.ss(0.30, 0.36, cv.Y))
+            premul = np.minimum(premul * lift[..., None], alpha[..., None])
+    if bottom:
+        alpha, premul = _fade_bottom(alpha, premul)
+    out = np.empty((cv.H, cv.W, 4), dtype=np.uint8)
+    out[..., 0] = np.clip(premul[..., 0] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    out[..., 1] = np.clip(premul[..., 1] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    out[..., 2] = np.clip(premul[..., 2] * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    out[..., 3] = np.clip(alpha * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    return out
+
+
+def _canvas(width: int, height: int) -> Canvas2:
+    return Canvas2(width, height, view=VIEW)
+
+
+def _clone(cv: Canvas2) -> Canvas2:
+    other = _canvas(cv.W, cv.H)
+    other.layers = {key: value.copy() for key, value in cv.layers.items()}
+    other.shades = {key: value.copy() for key, value in cv.shades.items()}
+    return other
+
+
+def _world_box(
+    image: np.ndarray, box: tuple[float, float, float, float], feather: int = 8
+) -> np.ndarray:
+    """Keep one region of a full frame and fade its edge."""
+    x0, x1, y0, y1 = VIEW
+    height, width, _ = image.shape
+    left, right, top, bottom = box
+    px0 = int((left - x0) / (x1 - x0) * width)
+    px1 = int((right - x0) / (x1 - x0) * width)
+    py0 = int((top - y0) / (y1 - y0) * height)
+    py1 = int((bottom - y0) / (y1 - y0) * height)
+    px0 = max(0, px0)
+    py0 = max(0, py0)
+    px1 = min(width, max(px0 + 1, px1))
+    py1 = min(height, max(py0 + 1, py1))
+    out = np.zeros_like(image)
+    patch = image[py0:py1, px0:px1].astype(np.float32)
+    yy = np.arange(py1 - py0, dtype=np.float32)
+    xx = np.arange(px1 - px0, dtype=np.float32)
+    fade_y = np.clip(np.minimum(yy, (py1 - py0 - 1) - yy) / max(feather, 1), 0, 1)
+    fade_x = np.clip(np.minimum(xx, (px1 - px0 - 1) - xx) / max(feather, 1), 0, 1)
+    fade = fade_y[:, None] * fade_x[None, :]
+    patch[..., 3] *= fade
+    patch[..., :3] *= fade[..., None]
+    out[py0:py1, px0:px1] = np.clip(patch + 0.5, 0, 255).astype(np.uint8)
+    return out
+
+
+def _soften_hem(plate: np.ndarray) -> np.ndarray:
+    """The tone map pins hair alpha at 255 until the light is almost gone.
+
+    Scale by the ragged hem so the tips fade over a band. The fringe lifts
+    toward the hair colour, or a dark back strand reads as a shell on a
+    light dock.
+    """
+    cv = _canvas(plate.shape[1], plate.shape[0])
+    keep = face2.hair_hem(cv.X, cv.Y).astype(np.float32)
+    # Stay opaque through the top of the hem. The last part of the band fades.
+    fade = np.clip((keep - 0.08) / 0.55, 0.0, 1.0)
+    out = plate.astype(np.float32)
+    alpha = out[..., 3:4]
+    present = alpha > 8.0
+    straight = out[..., :3] / np.maximum(alpha, 1.0) * 255.0
+    light = np.array([200.0, 174.0, 226.0], dtype=np.float32)
+    new_a = alpha * fade[..., None]
+    # Judge the rim by the alpha we will store. A saturated source that only
+    # dips a little still has to leave the dark shell behind.
+    rim = new_a[..., 0]
+    cover = np.clip((rim - 12.0) / 24.0, 0.0, 1.0) * np.clip((248.0 - rim) / 18.0, 0.0, 1.0)
+    lift = np.maximum(np.clip((1.0 - fade) / 0.55, 0.0, 1.0), cover)[..., None]
+    mixed = straight * (1.0 - lift) + light * lift
+    use = present.astype(np.float32)
+    out[..., :3] = mixed * (new_a / 255.0) * use + out[..., :3] * (1.0 - use)
+    out[..., 3:4] = new_a * use + alpha * (1.0 - use)
+    return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+
+
+def _close_hem_gap(plate: np.ndarray) -> np.ndarray:
+    """Fill the gap the back hair leaves behind the neck, so the hem is one piece.
+
+    The two back curtains part under the jaw. Below the jaw, in the middle,
+    each pixel takes its most solid row neighbour, which closes the
+    notch between the two lobes.
+    """
+    cv = _canvas(plate.shape[1], plate.shape[0])
+    reach = max(1, round(0.08 / 1.6 * plate.shape[1]))
+    src = plate.astype(np.float32)
+    # Take whole pixels from the most solid neighbour. Mixing channels from
+    # different pixels leaves dark rims on a light theme.
+    wide = src.copy()
+    for shift in range(1, reach + 1):
+        for dst, cand in (
+            (wide[:, shift:], src[:, :-shift]),
+            (wide[:, :-shift], src[:, shift:]),
+        ):
+            take = cand[..., 3] > dst[..., 3]
+            dst[take] = cand[take]
+    low = face2.ss(0.28, 0.40, cv.Y)
+    mid = 1.0 - face2.ss(0.16, 0.26, np.abs(cv.X))
+    weight = (low * mid).astype(np.float32)[..., None]
+    out = src * (1.0 - weight) + wide * weight
+    return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+
+
+# Hair v3 tone. Hair is light on a clear plate: alpha follows the light, so
+# edges and tips fade instead of snapping opaque, and the colour is pulled to
+# soft lavender so stacked strands stop reading as glossy white.
+HAIR_TONE = {
+    "back_exp": 4.3,
+    "front_exp": 1.3,
+    "on_face": 0.6,
+    "knee": 0.42,
+    "floor": 0.05,
+    "lo": (138.0, 118.0, 178.0),
+    "hi": (206.0, 186.0, 232.0),
+    "hue_mix": 0.35,
+    "bloom": 0.18,
+    "glow": 0.30,
+}
+
+
+def _hair_premul(cv: Canvas2, exposure: float) -> tuple[np.ndarray, np.ndarray]:
+    colored, _dark = _shaded(cv)
+    wide = max(2.0, 9.0 * _bloom_scale(cv.W))
+    # One blur pass: the tight bloom is folded into the wide glow's weight.
+    soft = (HAIR_TONE["bloom"] + HAIR_TONE["glow"]) * Canvas.blur(colored, wide)
+    lit = (colored + soft) * exposure
+    glow = 1.0 - np.exp(-np.clip(lit, 0, None))
+    peak = glow.max(axis=-1)
+    # A faint floor drops the far haze, so no veil sits around her on a light dock.
+    floor = HAIR_TONE["floor"]
+    alpha = np.clip((peak - floor) / (HAIR_TONE["knee"] - floor), 0.0, 1.0) ** 0.9
+    hue = glow / np.maximum(peak[..., None], 1e-3)
+    lo = np.array(HAIR_TONE["lo"], np.float32) / 255.0
+    hi = np.array(HAIR_TONE["hi"], np.float32) / 255.0
+    lav = lo + (hi - lo) * np.clip(peak, 0, 1)[..., None] ** 1.3
+    mix = HAIR_TONE["hue_mix"]
+    straight = lav * (1 - mix) + np.clip(hue * peak[..., None] ** 0.5, 0, 1) * mix
+    # Thin edges take the light lavender, so a light dock shows no dark fringe.
+    edge = (1.0 - alpha)[..., None]
+    straight = straight * (1.0 - edge) + hi * edge
+    return np.clip(straight, 0, 1) * alpha[..., None], alpha
+
+
+def _pack_hair(premul: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    out = np.empty((*alpha.shape, 4), dtype=np.uint8)
+    out[..., :3] = np.clip(premul * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    out[..., 3] = np.clip(alpha * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    return out
+
+
+def _front_on_face(cv: Canvas2) -> np.ndarray:
+    """Where front strands lie over the skin. Elsewhere they ride in the back plate."""
+    lx, ly = Rig_to_local(cv)
+    hw = face2.face_w(ly)
+    return face2.smooth((hw * 1.04 - np.abs(lx)) / 0.025) * (hw > 0)
+
+
+def Rig_to_local(cv: Canvas2):
+    return face2.Rig.to_local(cv.X, cv.Y, POSE)
+
+
+def _hair_static(rig: V24Rig, width: int, height: int) -> dict:
+    """Parts of the hair plate that do not move per frame. Built once per size.
+
+    The approved fringe outline, the approved back plate behind the see-through
+    neck and jaw, and the tone match around it, all taken at the rest pose.
+    """
+    key = (width, height)
+    cached = _STATIC.get(key)
+    if cached is not None:
+        return cached
+    t = FACE_T
+    cv = _canvas(width, height)
+    approved = _paint_front_e8488a1(rig, width, height, t)[..., 3].astype(np.float32)
+    face_zone = _front_on_face(cv).astype(np.float32)
+    keep = np.clip((approved - 8.0) / 40.0, 0.0, 1.0)
+    out = {"face_zone": face_zone, "on_face": face_zone * keep, "zone": None, "skin": None}
+    matte = _face_matte(rig, width, height)
+    # Where the fringe lies on actual skin. Above the hairline it is crown hair.
+    # The skin matte runs over the whole skull, so the hairline row bounds it.
+    out["skin"] = (np.clip(matte / 64.0, 0.0, 1.0) * face2.ss(-0.31, -0.24, cv.Y)).astype(
+        np.float32
+    )
+    if matte.max() > 0:
+        old = _paint_back_e8488a1(rig, width, height, t).astype(np.float32) / 255.0
+        # The tone match is read from the v6 neck's matte, so the hair around
+        # the jaw keeps its approved tone when the neck below changes shape.
+        apply, new_a, _radial = _neck_alpha(cv)
+        matte = matte + (_neck_alpha_v6(cv) - new_a) * apply * 255.0
+        zone = np.clip((matte - 4.0) / 18.0, 0.0, 1.0)
+        # Only the jaw and neck see through. Over the crown the old dark plate
+        # read as a bald scalp under thin hair, so the crown keeps new strands.
+        zone = zone * face2.ss(-0.05, 0.05, cv.Y).astype(np.float32)
+        spread = Canvas.blur(np.repeat(zone[..., None], 3, -1), 0.012 / cv.px)[..., 0]
+        near = np.clip(face2.smooth(spread * 3.0), 0.0, 1.0)
+        # Below the neck tip there is no face to match, so the tone match fades
+        # out there, column by column. Otherwise the old plate's dark tone ran past the tip as a
+        # dark sliver on the feathered hem.
+        live = zone > 0.0
+        last = np.where(live.any(axis=0), height - 1 - np.argmax(live[::-1], axis=0), -height)
+        below = (np.arange(height, dtype=np.float32)[:, None] - last[None, :]) * cv.px
+        near = near * (1.0 - face2.smooth(np.clip(below / 0.03, 0.0, 1.0)))
+        # Under the chin the cut-off row jumps from column to column, so the
+        # old plate's tone match drew a smooth box with straight sides there.
+        # The new back hair covers that spot, so the old plate retires below
+        # the chin strip.
+        near = near * (1.0 - face2.ss(0.33, 0.355, cv.Y)).astype(np.float32)
+        # Below the jaw the neck is a lavender glow of its own, so the old dark
+        # plate must not show through it as a dark column.
+        side = 1.0 - face2.ss(0.06, 0.085, np.abs(cv.X))
+        under = (1.0 - face2.ss(0.29, 0.36, cv.Y) * side).astype(np.float32)
+        zone = zone * under
+        near = near * under
+        back_cv = _canvas(width, height)
+        rig.draw_back(back_cv, t, POSE)
+        bp, _ba = _hair_premul(back_cv, HAIR_TONE["back_exp"])
+        s_px = 0.02 / cv.px
+        mean_old = Canvas.blur(old[..., :3], s_px)
+        mean_new = Canvas.blur(bp, s_px)
+        ratio = np.clip((mean_old + 0.02) / (mean_new + 0.02), 0.6, 1.8)
+        out.update(
+            zone=zone,
+            near=near,
+            gain=(1.0 + (ratio - 1.0) * near[..., None]).astype(np.float32),
+            old=old,
+        )
+    _STATIC.clear()
+    _STATIC[key] = out
+    return out
+
+
+_STATIC: dict = {}
+_LAST: dict = {}
+
+
+def _soften_slits(cv: Canvas2, premul: np.ndarray, alpha: np.ndarray):
+    """Average across neighbouring strands low in the middle, so the curtains
+    behind the neck leave no empty slit. An average, not a max, so the tips
+    still taper instead of filling to a block."""
+    reach = max(1, round(0.08 / cv.px))
+    both = np.concatenate([premul, alpha[..., None]], -1)
+    pad = np.pad(both, ((0, 0), (reach + 1, reach), (0, 0)), mode="edge")
+    run = np.cumsum(pad, axis=1)
+    wide = (run[:, 2 * reach + 1 :] - run[:, : -2 * reach - 1]) / (2 * reach + 1)
+    # Each row averaged on its own left horizontal streaks. Feather the
+    # average down the rows too, and keep the strands' own texture: only
+    # thin pixels take the full average, the rest keep most of their strand.
+    vreach = max(1, round(0.012 / cv.px))
+    vpad = np.pad(wide, ((vreach + 1, vreach), (0, 0), (0, 0)), mode="edge")
+    vrun = np.cumsum(vpad, axis=0)
+    smooth_wide = (vrun[2 * vreach + 1 :] - vrun[: -2 * vreach - 1]) / (2 * vreach + 1)
+    band = face2.ss(0.30, 0.40, cv.Y) * (1.0 - face2.ss(0.14, 0.22, np.abs(cv.X)))
+    gap = np.clip(
+        (smooth_wide[..., 3] - both[..., 3]) / np.maximum(0.15 * smooth_wide[..., 3], 1e-3),
+        0.0,
+        1.0,
+    )
+    # Under the chin strip only; above it the v10 row fill stays as it was.
+    t = face2.ss(0.33, 0.36, cv.Y)
+    main = band * ((1.0 - t) + t * (0.6 + 0.4 * gap))
+    target = wide + (smooth_wide - wide) * t[..., None]
+    # Right under the chin the curtains part as a dark slit that points up at
+    # the jaw, where the main band is still ramping in. There, only pixels
+    # thinner than their row neighbours take the average, so the slit closes
+    # and the strand texture around it stays.
+    chin = face2.ss(0.26, 0.33, cv.Y) * (1.0 - face2.ss(0.04, 0.11, np.abs(cv.X)))
+    thin = np.clip((wide[..., 3] - both[..., 3]) / np.maximum(0.15 * wide[..., 3], 1e-3), 0.0, 1.0)
+    mixed = both + (target - both) * main[..., None].astype(np.float32)
+    fill = np.clip((chin * thin - main) / np.maximum(1.0 - main, 1e-4), 0.0, 1.0)
+    fill = fill[..., None].astype(np.float32)
+    mixed = mixed + (wide - mixed) * fill
+    return mixed[..., :3], mixed[..., 3]
+
+
+def _fill_crown(
+    cv: Canvas2, premul: np.ndarray, alpha: np.ndarray, skin: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Close the thin wedge where the crown strands fan apart at the part.
+
+    No back hair lies over the top of the skull, so where the cap strands
+    part above the forehead apex the dark ground showed through as a V.
+    Only inside a small soft patch at the part, and never over skin, the gap
+    takes the alpha and colour of the strands around it. Never more opaque
+    than the neighbourhood, so it is not a cap, and no brighter, so no seam.
+    """
+    patch = np.exp(-(((cv.X + 0.072) / 0.04) ** 2) - (((cv.Y + 0.298) / 0.035) ** 2))
+    patch = (patch * np.clip(1.0 - skin / 24.0, 0.0, 1.0)).astype(np.float32)
+    sigma = max(1.0, 0.02 / cv.px)
+    both = np.concatenate([premul, alpha[..., None]], -1).astype(np.float32)
+    soft = np.concatenate(
+        [Canvas.blur(both[..., :3], sigma), Canvas.blur(both[..., 1:4], sigma)[..., 2:3]], -1
+    )
+    near_a = soft[..., 3]
+    tone = soft[..., :3] / np.maximum(near_a[..., None], 1e-4)
+    # The strands around the gap thin out too, so aim a little above them.
+    lift = np.clip(np.minimum(1.0, near_a * 1.3) - alpha, 0.0, None) * patch
+    return premul + tone * lift[..., None], alpha + lift
+
+
+def _paint_hair_v3(rig: V24Rig, width: int, height: int, t: float):
+    key = (width, height, float(t))
+    if key in _LAST:
+        return _LAST[key]
+    static = _hair_static(rig, width, height)
+    back_cv = _canvas(width, height)
+    rig.draw_back(back_cv, t, POSE)
+    bp, ba = _hair_premul(back_cv, HAIR_TONE["back_exp"])
+    bp, ba = _soften_slits(back_cv, bp, ba)
+    front_cv = _canvas(width, height)
+    rig.splat_front_hair(front_cv, t, POSE)
+    fp, fa = _hair_premul(front_cv, HAIR_TONE["front_exp"])
+    fp, fa = _fill_crown(front_cv, fp, fa, _face_matte(rig, width, height))
+    # Front over back, not added, so the side locks do not burn to white.
+    # On the skin, strands stay inside the approved fringe footprint.
+    on_face = static["on_face"]
+    off = 1.0 - static["face_zone"]
+    # Through the translucent neck and jaw rim the hair must read the same as
+    # e8488a1, so only there (face matte) the approved back plate shows. Around
+    # it the new strands are pulled to that plate's local tone, so no seam.
+    zone = static["zone"]
+    if zone is not None:
+        old = static["old"]
+        bp = bp * static["gain"]
+        ba = np.maximum(ba, old[..., 3] * static["near"] * 0.9)
+        bp = old[..., :3] * zone[..., None] + bp * (1 - zone[..., None])
+        ba = old[..., 3] * zone + ba * (1 - zone)
+    fpo, fao = fp * off[..., None], fa * off
+    back_p = fpo + bp * (1.0 - fao[..., None])
+    back_a = fao + ba * (1.0 - fao)
+    back = _pack_hair(back_p, back_a)
+    # Over the bright skin the screen add burns to white. Keep it soft lavender.
+    # The crown has no skin under it, so it keeps full tone there; dimmed, it
+    # read as a dark bald scalp under the hair.
+    lift = 1.0 - (1.0 - HAIR_TONE["on_face"]) * static["skin"]
+    result = back, _pack_hair(fp * (on_face * lift)[..., None], fa * on_face)
+    _LAST.clear()
+    _LAST[key] = result
+    return result
+
+
+_MATTE: dict = {}
+
+
+def _new_hair_cover(cover: np.ndarray) -> np.ndarray:
+    """The skin under the old front hair was cut and shaded by its cover.
+
+    The painted hair (HAIR_V4) lies over a whole forehead instead, so the
+    old cover must not carve the skin: its sheer bang edge would show the
+    old cuts and shadows through it.
+    """
+    return np.zeros_like(cover) if HAIR_V4 else cover
+
+
+def _face_matte(rig: V24Rig, width: int, height: int) -> np.ndarray:
+    """Skin alpha at rest (read only), so hair knows where the neck and jaw see through."""
+    key = (width, height)
+    if key not in _MATTE:
+        saved = getattr(rig, "_cover", None)
+        rig.splat_front_hair(_canvas(width, height), FACE_T, POSE, cover_only=True)
+        skin = _skin_canvas(rig, width, height, _new_hair_cover(rig._cover))
+        _MATTE.clear()
+        _MATTE[key] = to_premul(skin, 1.02, face=True, bottom=False)[..., 3].astype(np.float32)
+        if saved is not None:
+            rig._cover = saved
+    return _MATTE[key]
+
+
+def _paint_back(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
+    if HAIR_V4:
+        return hair_paint.plates(VIEW, width, height, t)[0]
+    if face2.HAIR_V3:
+        return _paint_hair_v3(rig, width, height, t)[0]
+    return _paint_back_e8488a1(rig, width, height, t)
+
+
+def _paint_back_e8488a1(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
+    cv = _canvas(width, height)
+    rig.draw_back(cv, t, POSE, getattr(rig, "back_e8488a1", None))
+    return _soften_hem(_close_hem_gap(to_premul(cv, 3.2, floor=0.06, bottom=False)))
+
+
+def _fade_outer_left_lock(plate: np.ndarray) -> np.ndarray:
+    """Fade the outer left lock out before it crosses the ring.
+
+    Its tips left the head together and read as one flat ribbon below the ring.
+    The back hair still fills that side, so the front lock simply thins to
+    nothing there over a wide ramp. Premultiplied, so all four channels scale.
+    """
+    cv = _canvas(plate.shape[1], plate.shape[0])
+    side = np.clip((-0.32 - cv.X) / 0.16, 0.0, 1.0)
+    below = np.clip((cv.Y - 0.30) / 0.16, 0.0, 1.0)
+    keep = 1.0 - face2.smooth(side) * face2.smooth(below)
+    out = plate.astype(np.float32) * keep[..., None]
+    return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+
+
+def _paint_front(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
+    if HAIR_V4:
+        return hair_paint.plates(VIEW, width, height, t)[1]
+    if face2.HAIR_V3:
+        return _paint_hair_v3(rig, width, height, t)[1]
+    return _paint_front_e8488a1(rig, width, height, t)
+
+
+def _paint_front_e8488a1(rig: V24Rig, width: int, height: int, t: float) -> np.ndarray:
+    cv = _canvas(width, height)
+    rig.splat_front_hair(cv, t, POSE, hair=getattr(rig, "cover_hair", None))
+    return _fade_outer_left_lock(_soften_hem(to_premul(cv, 1.0, bottom=False)))
+
+
+def _paint_wisps(rig: V24Rig, width: int, height: int) -> np.ndarray:
+    cv = _canvas(width, height)
+    moved = rig.wisp + 0.035 * rig.d_wisp(rig.wisp, FACE_T)
+    # Keep the cloud on the figure. A full-frame veil reads as a rectangle.
+    near = np.hypot(moved[:, 0], moved[:, 1] - 0.05) < 0.72
+    cv.splat(moved[near], rig.wisp_w[near] * 0.55, rig.wisp_c[near], 9.0)
+    return to_premul(cv, 0.7)
+
+
+def _paint_ring(rig: V24Rig, width: int, height: int) -> np.ndarray:
+    cv = _canvas(width, height)
+    rng = np.random.default_rng(5)
+    orbit_ring(cv, face2.PAL, rig.noise, rng, 0.85, c=(0.0, 0.30), rx=0.70, ry=0.165, tilt=-0.15)
+    return to_premul(cv, 1.0)
+
+
+def _paint_star(rig: V24Rig, width: int, height: int) -> np.ndarray:
+    cv = _canvas(width, height)
+    spot = rig.to_world(np.array([[face2.STAR_AT[0], face2.STAR_AT[1]]]), POSE)[0]
+    sparkle(cv, spot, 0.078, hexrgb(face2.PAL["star"]), 0.85 + 0.12 * math.sin(FACE_T * 1.7))
+    return to_premul(cv, 1.05, ink="star")
+
+
+def _body(rig: V24Rig, cv: Canvas2, mouth: float) -> None:
+    """Gas, glow dust and neck. The same pass the approved draw uses before the skin."""
+    pal = face2.PAL
+    gas = rig.gas + 0.004 * rig.d_gas(rig.gas, FACE_T)
+    gas = gas.copy()
+    gas[:, 1] += mouth * 0.016 * face2.ss(face2.MOUTH_Y - 0.03, face2.CHIN, gas[:, 1])
+    cv.splat(rig.to_world(gas, POSE), rig.gas_w, face2.lerpc(pal["face"], pal["hair0"], 0.3), 2.0)
+    if face2.GLOW:
+        dust = rig.gas[rig._dust]
+        tw = 0.5 + 0.5 * np.sin(FACE_T * 1.9 + np.arange(len(dust)) * 2.3)
+        cv.splat(
+            rig.to_world(dust + 0.003 * rig.d_gas(dust, FACE_T), POSE),
+            0.05 * tw,
+            hexrgb("#ffffff"),
+            0.8,
+        )
+    if face2.NECK:
+        neck = rig.neck_gas + 0.012 * rig.d_wisp(rig.neck_gas, FACE_T) * rig.neck_amp[:, None]
+        cv.splat(
+            rig.to_world(neck, POSE),
+            rig.neck_w,
+            face2.lerpc(pal["face"], pal["hair0"], 0.35 + 0.25 * rig.neck_c),
+            2.0,
+        )
+
+
+def _fields(rig: V24Rig, cv: Canvas2, mouth: float, blink: float, gaze) -> None:
+    rig._pose = POSE
+    local_x, local_y = rig.to_local(cv.X, cv.Y, POSE)
+    rig.face_fields(cv, local_x, local_y, FACE_T, mouth, blink, gaze, 0.0)
+
+
+def _skin_canvas(rig: V24Rig, width: int, height: int, cover: np.ndarray) -> Canvas2:
+    cv = _canvas(width, height)
+    _body(rig, cv, 0.0)
+    rig._cover = cover
+    rig.skip_eyes = True
+    rig.skip_mouth = True
+    try:
+        _fields(rig, cv, 0.0, 0.0, (0.0, 0.0))
+    finally:
+        rig.skip_eyes = False
+        rig.skip_mouth = False
+    return cv
+
+
+def _draw_eyes(
+    rig: V24Rig,
+    cv: Canvas2,
+    blink: float,
+    gaze: tuple[float, float],
+    wink: float | None = None,
+) -> None:
+    rig._pose = POSE
+    local_x, local_y = rig.to_local(cv.X, cv.Y, POSE)
+    stretched = face2.EYE_Y + (local_y - face2.EYE_Y) * face2.VSTRETCH
+    edge = cv.px * 1.2
+    for sign in (-1, 1):
+        lid = wink if (wink is not None and sign == WINK_SIDE) else blink
+        rig.eye(cv, local_x, stretched, sign, lid, gaze, edge)
+
+
+def _draw_mouth(rig: V24Rig, cv: Canvas2, mouth: float, smile: float = 0.0) -> None:
+    rig._pose = POSE
+    local_x, local_y = rig.to_local(cv.X, cv.Y, POSE)
+    stretched = face2.MOUTH_Y + (local_y - face2.MOUTH_Y) * face2.VSTRETCH
+    if smile:
+        rig.mouth(cv, local_x, stretched, mouth, cv.px * 1.2, smile=smile)
+        return
+    rig.mouth(cv, local_x, stretched, mouth, cv.px * 1.2)
+
+
+def _feature_patch(
+    rig: V24Rig,
+    skin: Canvas2,
+    cover: np.ndarray,
+    *,
+    mouth: float,
+    blink: float,
+    gaze: tuple[float, float],
+    box: tuple[float, float, float, float],
+    eyes: bool,
+    lips: bool,
+    wink: float | None = None,
+    smile: float = 0.0,
+) -> np.ndarray:
+    cv = _clone(skin)
+    rig._cover = cover
+    if eyes:
+        rig.skip_eyes = False
+        _draw_eyes(rig, cv, blink, gaze, wink)
+    if lips:
+        rig.skip_mouth = False
+        _draw_mouth(rig, cv, mouth, smile)
+    return _world_box(to_premul(cv, 1.02, face=True), box)
+
+
+def _stopped(cancel: threading.Event | None) -> bool:
+    return cancel is not None and cancel.is_set()
+
+
+def bake_layers(
+    size: int,
+    cancel: threading.Event | None = None,
+    publish=None,
+) -> dict[str, np.ndarray]:
+    """Face first, then hair phases. Size is the width in pixels.
+
+    publish(layers_copy, phases_ready, rest_or_none) may run after phase 0
+    and again as later phases land. The caller blends only the phases it has.
+    The shared rig is not safe to draw from two threads, so the whole bake
+    holds the rig lock.
+    """
+    with _LOCK:
+        return _bake_layers(size, cancel, publish)
+
+
+def _bake_layers(
+    size: int,
+    cancel: threading.Event | None,
+    publish,
+) -> dict[str, np.ndarray]:
+    width, height = raster_size(int(size))
+    rig = shared_rig()
+    cover_cv = _canvas(width, height)
+    rig.splat_front_hair(cover_cv, FACE_T, POSE, cover_only=True)
+    cover = rig._cover
+    cover = _new_hair_cover(cover)
+    skin = _skin_canvas(rig, width, height, cover)
+    layers: dict[str, np.ndarray] = {
+        "wisps": _paint_wisps(rig, width, height),
+        "face": to_premul(skin, 1.02, face=True, bottom=False),
+    }
+    # The hair reads the skin's alpha as its neck matte. Reuse it, do not redraw it.
+    _MATTE.clear()
+    _MATTE[(width, height)] = layers["face"][..., 3].astype(np.float32)
+    layers |= {
+        "back_0": _paint_back(rig, width, height, float(PHASE_T[0])),
+        "front_0": _paint_front(rig, width, height, float(PHASE_T[0])),
+    }
+    eye_box = (-0.28, 0.28, -0.10, 0.10)
+    mouth_box = (-0.16, 0.16, 0.12, 0.30)
+    for index, blink in enumerate(BLINK_LEVELS):
+        layers[f"eye_{index}"] = _feature_patch(
+            rig,
+            skin,
+            cover,
+            mouth=0.0,
+            blink=blink,
+            gaze=(0.0, 0.0),
+            box=eye_box,
+            eyes=True,
+            lips=False,
+        )
+    layers["gaze_0"] = layers["eye_0"]
+    for index, gaze in enumerate(GAZE_LEVELS[1:], start=1):
+        layers[f"gaze_{index}"] = _feature_patch(
+            rig, skin, cover, mouth=0.0, blink=0.0, gaze=gaze, box=eye_box, eyes=True, lips=False
+        )
+    for index, openness in enumerate(MOUTH_LEVELS):
+        layers[f"mouth_{index}"] = _feature_patch(
+            rig,
+            skin,
+            cover,
+            mouth=openness,
+            blink=0.0,
+            gaze=(0.0, 0.0),
+            box=mouth_box,
+            eyes=False,
+            lips=True,
+        )
+    # Motion frames: a one-eye wink, a closed warm smile, and wide glances.
+    for index, lid in enumerate(WINK_LEVELS, start=1):
+        layers[f"wink_{index}"] = _feature_patch(
+            rig,
+            skin,
+            cover,
+            mouth=0.0,
+            blink=0.0,
+            gaze=(0.0, 0.0),
+            box=eye_box,
+            eyes=True,
+            lips=False,
+            wink=lid,
+        )
+    for index, warm in enumerate(SMILE_LEVELS, start=1):
+        layers[f"smile_{index}"] = _feature_patch(
+            rig,
+            skin,
+            cover,
+            mouth=0.0,
+            blink=0.0,
+            gaze=(0.0, 0.0),
+            box=mouth_box,
+            eyes=False,
+            lips=True,
+            smile=warm,
+        )
+    for index, look in enumerate(GLANCE_LEVELS):
+        layers[f"glance_{index}"] = _feature_patch(
+            rig, skin, cover, mouth=0.0, blink=0.0, gaze=look, box=eye_box, eyes=True, lips=False
+        )
+    layers["ring"] = _paint_ring(rig, width, height)
+    layers["star"] = _paint_star(rig, width, height)
+    if publish is not None and not _stopped(cancel):
+        publish(dict(layers), 1)
+    for index in range(1, PHASE_COUNT):
+        if _stopped(cancel):
+            break
+        t = float(PHASE_T[index])
+        layers[f"back_{index}"] = _paint_back(rig, width, height, t)
+        layers[f"front_{index}"] = _paint_front(rig, width, height, t)
+        if publish is not None and not _stopped(cancel):
+            publish(
+                {
+                    f"back_{index}": layers[f"back_{index}"],
+                    f"front_{index}": layers[f"front_{index}"],
+                },
+                index + 1,
+            )
+    return layers
+
+
+def paint_face(rig, width: int) -> np.ndarray:
+    """Skin plate. Alpha is the adult outline so the jaw width can be measured."""
+    del rig
+    with _LOCK:
+        return _paint_face_locked(width)
+
+
+def _paint_face_locked(width: int) -> np.ndarray:
+    real = shared_rig()
+    wide, high = raster_size(width)
+    real.splat_front_hair(_canvas(wide, high), FACE_T, POSE, cover_only=True)
+    cover = real._cover
+    cover = _new_hair_cover(cover)
+    skin = _skin_canvas(real, wide, high, cover)
+    image = to_premul(skin, 1.02, face=True, bottom=False)
+    xs = face2.Canvas2(wide, high, view=VIEW)
+    local_y = unstretch_y(xs.Y)
+    local_x = xs.X
+    # Hard outline at the adult jaw, in the unstretched head the tests measure.
+    hw = face2.face_w(local_y)
+    inside = (np.abs(local_x) < hw) & (hw > 0)
+    image = image.copy()
+    image[..., 3] = np.where(inside, 255, image[..., 3]).astype(np.uint8)
+    return image
+
+
+def paint_eyes(rig, width: int, blink: float, gaze: tuple[float, float]) -> np.ndarray:
+    del rig
+    with _LOCK:
+        return _paint_eyes_locked(width, blink, gaze)
+
+
+def _paint_eyes_locked(width: int, blink: float, gaze: tuple[float, float]) -> np.ndarray:
+    real = shared_rig()
+    wide, high = raster_size(width)
+    real.splat_front_hair(_canvas(wide, high), FACE_T, POSE, cover_only=True)
+    cover = real._cover
+    cover = _new_hair_cover(cover)
+    skin = _skin_canvas(real, wide, high, cover)
+    image = _feature_patch(
+        real,
+        skin,
+        cover,
+        mouth=0.0,
+        blink=blink,
+        gaze=gaze,
+        box=(-0.40, 0.40, -0.16, 0.14),
+        eyes=True,
+        lips=False,
+    )
+    image = image.copy()
+    image[..., 3] = _eye_opening(wide, high, blink)
+    return image
+
+
+def _eye_opening(width: int, height: int, blink: float) -> np.ndarray:
+    """Lid opening in the adult eye, opaque, so the span can be measured."""
+    from arelis.ui.persona_face.adult import EYE_SCALE
+
+    x0, x1, y0, y1 = VIEW
+    xs = x0 + (np.arange(width) + 0.5) * (x1 - x0) / width
+    ys = y0 + (np.arange(height) + 0.5) * (y1 - y0) / height
+    local_x = xs[None, :]
+    local_y = face2.VY + (ys[:, None] - face2.VY) / face2.VSTRETCH
+    seen_y = face2.EYE_Y + (local_y - face2.EYE_Y) * face2.VSTRETCH
+    mask = np.zeros((height, width), dtype=np.uint8)
+    edge = (x1 - x0) / width * 1.2
+    blink = float(blink)
+    for sign in (-1.0, 1.0):
+        cx = sign * face2.EYE_X
+        cy = face2.EYE_Y
+        xs_eye = cx + (local_x - cx) / EYE_SCALE
+        ys_eye = cy + (seen_y - cy) / EYE_SCALE
+        u = (xs_eye - cx) * sign / face2.EYE_HW
+        ey = ys_eye - cy
+        uc = np.clip(u, -1.0, 1.0)
+        q = np.clip(1.0 - uc**2, 0.0, 1.0)
+        tilt = 0.007
+        upper = -0.0300 * q**0.75 * (1.0 - 0.12 * uc) - tilt * uc
+        lower = 0.0115 * q**1.25 - tilt * uc * 0.55
+        closed = 0.008 * q - tilt * uc * 0.75
+        up = upper * (1.0 - blink) + closed * blink
+        lo = lower * (1.0 - blink) + closed * blink
+        inside = face2.smooth((1.0 - np.abs(u)) / 0.05)
+        opening = face2.smooth((ey - up) / edge) * face2.smooth((lo - ey) / edge) * inside
+        mask = np.where(opening > 0.28, np.uint8(255), mask)
+    return mask
+
+
+def paint_mouth(rig, width: int, openness: float) -> np.ndarray:
+    del rig
+    with _LOCK:
+        return _paint_mouth_locked(width, openness)
+
+
+def _paint_mouth_locked(width: int, openness: float) -> np.ndarray:
+    real = shared_rig()
+    wide, high = raster_size(width)
+    real.splat_front_hair(_canvas(wide, high), FACE_T, POSE, cover_only=True)
+    cover = real._cover
+    cover = _new_hair_cover(cover)
+    skin = _skin_canvas(real, wide, high, cover)
+    return _feature_patch(
+        real,
+        skin,
+        cover,
+        mouth=openness,
+        blink=0.0,
+        gaze=(0.0, 0.0),
+        box=(-0.20, 0.20, 0.10, 0.32),
+        eyes=False,
+        lips=True,
+    )
+
+
+class Rig:
+    """Tests construct one of these. The art lives on the shared adult rig."""
+
+    def __init__(self, size: int) -> None:
+        self.size = int(size)
+        apply_v23()
+        shared_rig()
