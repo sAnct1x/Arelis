@@ -6,6 +6,7 @@ head stays inside its limits; and nothing ever snaps back like a loop.
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 
@@ -95,6 +96,14 @@ def test_the_neutral_frame_matches_the_approved_target_match_render(qt_app):
 
     if not _REF.exists():
         pytest.skip("no reference render")
+    if not sys.platform.startswith("linux"):
+        # The fixture is a Linux raster. Qt's smooth scaling and soft edges are
+        # not bit-identical across platforms, so a 2-level lock only means
+        # something on the platform that made it. The look itself is pinned on
+        # every platform by the persona shape and colour tests.
+        pytest.skip(
+            "pixel lock is a Linux raster; other platforms rasterize soft edges differently"
+        )
     apply_theme("night")
     panel = PersonaPanel()
     panel.resize(280, 360)
@@ -110,7 +119,10 @@ def test_the_neutral_frame_matches_the_approved_target_match_render(qt_app):
     panel._timer.stop()
     panel._mode = "face"
     panel.avatar.reveal = 1.0
-    panel.avatar.frame = Frame(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, False, 0, 0)
+    # hair_tip -1 reads the first baked hair phase. At 0 the frame lands mid
+    # sweep, and which phases that is depends on how many the bake thread had
+    # published by now, so the grab raced the bake.
+    panel.avatar.frame = Frame(0, 0, 0, 0, 0, -1.0, 0, 0, 0, 0, 1, 1, 0, False, 0, 0)
     panel.avatar.repaint()
     qt_app.processEvents()
     image = panel.avatar.grab().toImage().convertToFormat(QImage.Format.Format_RGBA8888)

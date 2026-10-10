@@ -306,6 +306,8 @@ def _image_rgba(image: QImage) -> np.ndarray:
     width = converted.width()
     height = converted.height()
     raw = converted.bits()
-    # bits() is a memoryview of the frame, including row padding.
+    # bits() is a memoryview of the frame, including row padding. Copy before
+    # `converted` goes out of scope: with no row padding the slice is already
+    # contiguous, so without the copy the array would point at freed pixels.
     buf = np.asarray(raw).reshape(height, converted.bytesPerLine())
-    return np.ascontiguousarray(buf[:, : width * 4]).reshape(height, width, 4)
+    return buf[:, : width * 4].copy().reshape(height, width, 4)
