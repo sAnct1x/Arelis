@@ -55,6 +55,9 @@ def pytest_sessionfinish(session, exitstatus):
     ignore_errors because a test that left a SQLite connection open holds a lock Windows
     honours, and a suite that passed must not report failure over scratch files in TEMP.
     """
+    from arelis.ui.live_threads import drain_parked_threads
+
+    drain_parked_threads()
     shutil.rmtree(_TESTS_DATA_ROOT, ignore_errors=True)
 
 
@@ -206,6 +209,12 @@ def _dispose_arelis_windows():
 
     Autouse and cheap: for the ~800 tests that never touch Qt this is one
     ``sys.modules`` lookup.
+
+    Before the drain, any QThread still inside ``run()`` under those widgets
+    is waited out or unparented. Deleting a running QThread aborts the
+    process. The pre-upgrade backup worker is parented to its prompt, a
+    timeout leaves that worker running on purpose, and the macOS run died
+    in this drain with Abort trap 6.
     """
     yield
 
@@ -219,6 +228,10 @@ def _dispose_arelis_windows():
     app = QApplication.instance()
     if app is None:
         return
+
+    from arelis.ui.live_threads import quiesce_widget_threads
+
+    quiesce_widget_threads(app)
 
     window_cls = getattr(sys.modules.get("arelis.ui.app"), "ArelisWindow", None)
 
