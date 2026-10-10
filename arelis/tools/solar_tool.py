@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from arelis.guard.watch import EgressMutedError
 from arelis.physics.constants import AU_M, BODIES, BODY_BY_NAME, G_SI, GM_SUN
 from arelis.physics.engine import rebound_available
 from arelis.physics.hohmann import hohmann
@@ -14,7 +15,7 @@ from arelis.physics.runtime import get_system, set_system
 from arelis.physics.scene import SolarSystem
 from arelis.spatial.grant import world_stage_allowed
 from arelis.tools.base import ToolResult
-from arelis.tools.catalog import CatalogTool, ephemeris_day
+from arelis.tools.catalog import SITE_PAUSED, CatalogTool, ephemeris_day
 
 WRITE_ACTIONS = frozenset(
     {
@@ -373,15 +374,19 @@ class SolarTool:
         n = len(queue)
         for i, spec in enumerate(queue, 1):
             self._progress(f"JPL Horizons {spec.name}  {i}/{n}")
-            result = await self._catalog.run(
-                action="horizons",
-                target=spec.horizons_id,
-                date=day_iso,
-                table="vectors",
-            )
+            try:
+                result = await self._catalog.run(
+                    action="horizons",
+                    target=spec.horizons_id,
+                    date=day_iso,
+                    table="vectors",
+                )
+            except EgressMutedError:
+                errors.append(f"{spec.name}: {SITE_PAUSED}")
+                break
             if not result.ok:
                 errors.append(f"{spec.name}: {result.output}")
-                if spec.name == "Sun":
+                if spec.name == "Sun" or (result.data or {}).get("paused"):
                     break
                 continue
             data = result.data or {}
@@ -412,7 +417,12 @@ class SolarTool:
                 ),
                 data={"saved": [], "errors": []},
             )
-        saved, errors = download_maps()
+        try:
+            saved, errors = download_maps()
+        except EgressMutedError:
+            return _site_paused()
+        if _mentions_pause(errors):
+            return _site_paused(errors)
         if not saved:
             return ToolResult(
                 ok=False,
@@ -469,7 +479,12 @@ class SolarTool:
             from_cache = True
             self._progress(f"JPL Horizons VECTORS from disk cache for {day_iso}")
         else:
-            states, errors = await self._fetch_vectors(day_iso)
+            try:
+                states, errors = await self._fetch_vectors(day_iso)
+            except EgressMutedError:
+                return _site_paused()
+            if _mentions_pause(errors):
+                return _site_paused(errors)
             if all(b.name in states for b in BODIES):
                 save_cached(day_iso, states)
         if "Sun" not in states:
@@ -759,6 +774,17 @@ def _vector_fetch_order():
     ]
     rest = [b for b in BODIES if b.name != "Sun" and b not in core]
     return sun + core + rest
+
+
+def _mentions_pause(errors: list[str]) -> bool:
+    return any(SITE_PAUSED in item for item in errors)
+
+
+def _site_paused(errors: list[str] | None = None) -> ToolResult:
+    data: dict[str, Any] = {"fail_class": "fail:http"}
+    if errors:
+        data["errors"] = errors
+    return ToolResult(ok=False, output=SITE_PAUSED, data=data)
 
 
 def _horizons_fail_output(errors: list[str]) -> str:

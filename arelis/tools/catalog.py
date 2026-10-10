@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 
 from arelis import __source_url__, __version__
+from arelis.guard.watch import EgressMutedError
 from arelis.physics.constants import BODY_BY_NAME
 from arelis.science.keys import ScienceKeys, load_science_keys
 from arelis.tools.base import ToolResult
@@ -37,6 +38,13 @@ _SAFE_TARGET = re.compile(r"^[A-Za-z0-9_@+.\-\s]{1,80}$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _USER_AGENT = (
     f"Arelis/{__version__} (+{__source_url__}; local research assistant)"
+)
+
+# What the model can say when the house watch has paused a host. No paths,
+# config names, or the name of the watch itself.
+SITE_PAUSED = (
+    "That site has been paused for now because Arelis asked it too many times, "
+    "so try again later."
 )
 
 ARXIV_URL = "https://export.arxiv.org/api/query"
@@ -141,6 +149,12 @@ class CatalogTool:
             if action == "apod":
                 return await self._apod(str(kwargs.get("date") or ""))
             return await self._ads(str(kwargs.get("query") or ""))
+        except EgressMutedError:
+            return ToolResult(
+                ok=False,
+                output=SITE_PAUSED,
+                data={"fail_class": "fail:http", "action": action, "paused": True},
+            )
         except httpx.HTTPError as exc:
             return ToolResult(
                 ok=False,
@@ -191,6 +205,9 @@ class CatalogTool:
                         params=params,
                         wait_s=_HORIZONS_TIMEOUT_S,
                     )
+                except EgressMutedError:
+                    # Paused is not a busy host. Do not wait and ask again.
+                    raise
                 except httpx.HTTPError:
                     if attempt + 1 >= tries:
                         raise
