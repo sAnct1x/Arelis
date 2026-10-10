@@ -580,6 +580,27 @@ class _LiveAnswer:
         return visible
 
 
+def _place_turn_tail(
+    messages: list[dict[str, Any]],
+    turn_tail: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Put this turn's system lines after history and before the latest user line.
+
+    Later rounds append assistant and tool messages after that user line.
+    The tail stays where it was placed, so the bytes in front of it do not move.
+    """
+    if not turn_tail:
+        return messages
+    last_user = None
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index].get("role") == "user":
+            last_user = index
+            break
+    if last_user is None:
+        return [*messages, *turn_tail]
+    return [*messages[:last_user], *turn_tail, *messages[last_user:]]
+
+
 class AgentLoop:
     """One user turn: alternate model steps and tool calls until an answer.
 
@@ -1062,14 +1083,28 @@ class AgentLoop:
         role: ModelRole,
         *,
         user_text: str = "",
+        turn_tail: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Pin system content, fold overflow into a summary, return the prompt.
 
         Summarization uses the turn's own role so a research or code turn does
         not bounce through the fast model and pay a VRAM swap before it starts.
         On the common fast path that is the warm model already.
+
+        ``turn_tail`` is this turn's system text (clock, preflight, goal, and
+        the rest). It is inserted after history and before the latest user
+        line so a later turn can keep the bytes in front of it.
         """
         agent_cfg = self.config.get("agent") or {}
+        # Not named tail: split_recent_history assigns that name below.
+        turn_lines = [dict(item) for item in (turn_tail or [])]
+
+        def _with_tail(
+            pinned_msgs: list[dict[str, Any]],
+            kept_msgs: list[dict[str, Any]],
+        ) -> list[dict[str, Any]]:
+            return _place_turn_tail([*pinned_msgs, *kept_msgs], turn_lines)
+
         pinned = list(system_messages)
         if self.memory.summary:
             pinned.append(
@@ -1101,7 +1136,9 @@ class AgentLoop:
             capped_drop = list(history[:-max_msgs])
             history = list(history[-max_msgs:])
         older, tail = split_recent_history(history, min_recent)
-        pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned)
+        pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned) + sum(
+            message_tokens(m, chars_per_token=ratio) for m in turn_lines
+        )
         tail_cost = sum(message_tokens(m, chars_per_token=ratio) for m in tail)
         remaining = budget - pinned_cost - tail_cost
         if remaining <= 0 or not older:
@@ -1125,7 +1162,7 @@ class AgentLoop:
                     max_messages=max_msgs,
                 )
         if not dropped:
-            return [*pinned, *kept]
+            return _with_tail(pinned, kept)
 
         # Conversation mode: a second model pass to fold two old turns costs
         # ~1-2s and shows up in turns.log every spoken reply. The archive
@@ -1152,7 +1189,7 @@ class AgentLoop:
                     {"text": f"phase=drop dropped={n_drop} mode={mode}"},
                 )
             )
-            return [*pinned, *kept]
+            return _with_tail(pinned, kept)
 
         # Re-allocate against a smaller budget, because a summary pin is about to
         # take room the first pass did not reserve. Same older/tail split: the
@@ -1171,7 +1208,7 @@ class AgentLoop:
         if capped_drop:
             dropped = [*capped_drop, *dropped]
         if not dropped:
-            return [*pinned, *kept]
+            return _with_tail(pinned, kept)
 
         await self.bus.publish(
             Event(
@@ -1218,7 +1255,7 @@ class AgentLoop:
                     },
                 )
             )
-            return [*pinned, *kept]
+            return _with_tail(pinned, kept)
         if summary:
             self.memory.set_summary(summary)
             # Dropped prefix is now in the summary; keeping it in messages would
@@ -1237,7 +1274,9 @@ class AgentLoop:
                     "content": f"[earlier in this conversation: {self.memory.summary}]",
                 }
             )
-        pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned)
+        pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned) + sum(
+            message_tokens(m, chars_per_token=ratio) for m in turn_lines
+        )
         remaining_history = self.memory.as_ollama(
             include_notes=not bool(self.config.get("_speak_replies"))
         )
@@ -1251,7 +1290,7 @@ class AgentLoop:
                 older, max(0, room), chars_per_token=ratio
             )
             kept = [*kept_older, *tail]
-        return [*pinned, *kept]
+        return _with_tail(pinned, kept)
 
     async def _summarize_dropped(
         self,

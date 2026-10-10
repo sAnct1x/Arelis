@@ -19,6 +19,7 @@ user's words.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -256,12 +257,85 @@ def prefix_warmup_for(
         return None
 
 
+# Last startup seed, so a chat-model look can run the same one again.
+_seed_bus: EventBus | None = None
+_seed_prefix: PrefixWarmup | None = None
+_reseed_task: Any = None
+_turn_done: list[Any] = []
+_hooked_buses: set[int] = set()
+
+
+def _remember_prefix_seed(bus: EventBus, prefix: PrefixWarmup) -> None:
+    global _seed_bus, _seed_prefix
+    _seed_bus = bus
+    _seed_prefix = prefix
+
+
+def _hook_turn_end(bus: Any) -> None:
+    """Wake a pending reseed when the turn that is in progress finishes."""
+    if id(bus) in _hooked_buses:
+        return
+    subscribe = getattr(bus, "subscribe", None)
+    if not callable(subscribe):
+        return
+    from arelis.core.events import EventType
+
+    def _ping(_event: Any) -> None:
+        waiters = list(_turn_done)
+        _turn_done.clear()
+        for waiter in waiters:
+            waiter.set()
+
+    _hooked_buses.add(id(bus))
+    subscribe(EventType.ASSISTANT_DONE, _ping)
+    subscribe(EventType.ERROR, _ping)
+
+
+async def _wait_turn_end(bus: Any) -> None:
+    _hook_turn_end(bus)
+    waiter = asyncio.Event()
+    _turn_done.append(waiter)
+    await waiter.wait()
+
+
+def schedule_prefix_reseed(runner: Any) -> None:
+    """Re-seed after a chat-model look. Does not wait, so the tool result returns.
+
+    A turn normally asks the chat model again as soon as the look comes back.
+    That round needs the only model slot, so the seed waits until the turn
+    finishes. With no turn in progress, it runs on the next loop turn.
+    """
+    global _reseed_task
+    if runner is None or not getattr(runner, "warm_on_start", False):
+        return
+    prefix = getattr(runner, "prefix_warmup", None) or _seed_prefix
+    bus = getattr(runner, "bus", None) or _seed_bus
+    if prefix is None or bus is None:
+        return
+    if _reseed_task is not None and not _reseed_task.done():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    async def _go() -> None:
+        # think_sink is bound for the life of a chat turn. Seeding first would
+        # sit on the only slot and hold the reply.
+        if getattr(runner, "think_sink", None) is not None:
+            await _wait_turn_end(bus)
+        await seed_prefix_cache(bus, runner, prefix)
+
+    _reseed_task = loop.create_task(_go())
+
+
 async def seed_prefix_cache(
     bus: EventBus,
     router: ModelRouter,
     prefix: PrefixWarmup,
 ) -> None:
     """Prefill the static prefix so the first real turn reuses it."""
+    _remember_prefix_seed(bus, prefix)
     model = router.active_model or router.model_for(router.default_role)
     started = time.perf_counter()
     try:

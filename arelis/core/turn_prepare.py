@@ -335,6 +335,7 @@ async def _attach_tool_schemas_and_history(
     offer_tools: bool,
     expect_tool_round: bool,
     ollama_tools: list[dict[str, Any]],
+    turn_tail: list[dict[str, str]],
 ) -> None:
     """Pay for tool schemas, then append as much conversation history as fits."""
     budget = context_budget(
@@ -348,7 +349,12 @@ async def _attach_tool_schemas_and_history(
     ctx.expect_tool_round = expect_tool_round
     ctx.ollama_tools = ollama_tools
     ctx.messages = await loop._messages_for_turn(
-        system_messages, budget, ratio, role, user_text=text
+        system_messages,
+        budget,
+        ratio,
+        role,
+        user_text=text,
+        turn_tail=turn_tail,
     )
 
 
@@ -737,18 +743,19 @@ async def prepare_turn(
     active_room = start.active_room
     available = start.available
     visible = start.visible
-    # Static prefix first (persona + telegraph policy) so the front of
-    # the prompt is byte-stable across turns. Turn-specific lines trail it,
-    # never precede it.
+    # Persona and the tool policy stay at the front so they can be cached.
+    # Everything that changes per turn is collected on its own list and placed
+    # after history, immediately before this ask.
     system_messages = static_system_prefix(loop.persona)
-    append_stopped_turn_note(system_messages, stopped_ask)
+    turn_tail: list[dict[str, str]] = []
+    append_stopped_turn_note(turn_tail, stopped_ask)
     drafts = _reconstruct_turn_drafts(loop, text)
     sms_draft = drafts.sms
     email_draft = drafts.email
     agenda_draft = drafts.agenda
     skip_sms_draft = drafts.skip_sms
     preflight_kinds = append_preflight_guidance(
-        system_messages,
+        turn_tail,
         loop,
         text,
         agent_cfg,
@@ -773,7 +780,7 @@ async def prepare_turn(
         loop._expected_tools.discard("weather")
         loop._expected_tools.discard("web_search")
     turn_goal = append_turn_goal(
-        system_messages,
+        turn_tail,
         loop,
         text,
         role,
@@ -818,7 +825,7 @@ async def prepare_turn(
         return None
     loop._active_plan = active_plan
     append_plan_and_lessons(
-        system_messages,
+        turn_tail,
         loop,
         text,
         agent_cfg,
@@ -827,14 +834,14 @@ async def prepare_turn(
         active_plan=active_plan,
     )
     append_operating_context(
-        system_messages,
+        turn_tail,
         loop,
         role=role,
         model=model,
         skill_ids=skill_ids,
         active_room=active_room,
     )
-    append_delivery_context(system_messages, loop, speak=speak)
+    append_delivery_context(turn_tail, loop, speak=speak)
     num_ctx, tool_reserve_chars = _context_limits(
         loop,
         role,
@@ -939,6 +946,7 @@ async def prepare_turn(
         offer_tools=offer_tools,
         expect_tool_round=expect_tool_round,
         ollama_tools=ollama_tools,
+        turn_tail=turn_tail,
     )
     await _prepare_sms_first_move(loop, ctx, text, agent_cfg)
     _prepare_email_first_move(ctx, agent_cfg)

@@ -93,9 +93,12 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
     )
     captured: dict[str, object] = {}
 
-    async def messages_for_turn(messages, budget, ratio, role, *, user_text):
+    async def messages_for_turn(messages, budget, ratio, role, *, user_text, turn_tail=None):
         captured["history_args"] = (budget, ratio, role, user_text)
-        return [*messages, {"role": "user", "content": user_text}]
+        # The real assembler puts this block after history and before the ask.
+        # This fake has no history, so the block still sits just before the ask.
+        tail = list(turn_tail or [])
+        return [*messages, *tail, {"role": "user", "content": user_text}]
 
     loop._messages_for_turn = messages_for_turn
     loop.tools = SimpleNamespace(
