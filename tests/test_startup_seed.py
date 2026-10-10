@@ -1,4 +1,4 @@
-"""A chat-model look reseeds the prefix. A separate vision model does not."""
+"""A chat-model look does not reseed the prefix. That seed held the only slot."""
 
 from __future__ import annotations
 
@@ -75,23 +75,20 @@ async def _settle() -> None:
     """Let a reseed scheduled after the tool result actually run."""
     from arelis.llm import startup as startup_mod
 
-    task = startup_mod._reseed_task
+    task = getattr(startup_mod, "_reseed_task", None)
     if task is not None and not task.done():
         await task
 
 
 @pytest.mark.asyncio
-async def test_vision_on_chat_model_reseeds_prefix(tmp_path) -> None:
+async def test_vision_on_chat_model_does_not_reseed_prefix(tmp_path) -> None:
     prefix = _prefix()
     router = _Router(warm=True, prefix=prefix)
     tool = VisionTool(WorkspaceRoots.from_paths([str(tmp_path)]), router)
     result = await tool.run(path=_png(tmp_path / "shot.png"), question="what is this")
     assert result.ok
     await _settle()
-    assert router.provider.calls
-    _model, messages, kwargs = router.provider.calls[0]
-    assert messages == prefix.messages
-    assert kwargs.get("tools") == prefix.tools
+    assert router.provider.calls == []
 
     cold = _Router(warm=False, prefix=prefix)
     cold_tool = VisionTool(WorkspaceRoots.from_paths([str(tmp_path)]), cold)

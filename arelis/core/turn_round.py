@@ -569,10 +569,9 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             available, visible = apply_expected(
                 loop, available, text=text, available_all=available_all
             )
-            ollama_tools = loop.tools.ollama_tools(
-                visible,
-                param_hints=native_tool_calling(agent_cfg),
-            )
+            from arelis.core.tool_surface import session_tool_schemas
+
+            ollama_tools = session_tool_schemas(loop.tools, agent_cfg)
             ctx.tool_names.clear()
             ctx.tool_names.update(visible)
             ctx.ollama_tools = ollama_tools
@@ -607,10 +606,9 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 text=ctx.text,
                 trace=getattr(loop, "_trace", ()),
             ):
+                # Schemas stay. Clearing tool_names still rejects another call.
                 offer_tools = False
-                ollama_tools = []
                 ctx.offer_tools = False
-                ctx.ollama_tools = []
                 ctx.tool_names.clear()
                 tool_names = ctx.tool_names
 
@@ -628,16 +626,9 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 have_document=loop.tools.get("document") is not None,
                 have_workspace=loop.tools.get("workspace") is not None,
             )
-            if keep:
-                ollama_tools = loop.tools.ollama_tools(
-                    keep,
-                    param_hints=native_tool_calling(agent_cfg),
-                )
-                offer_tools = True
-            else:
-                ollama_tools = []
-                offer_tools = False
-            ctx.ollama_tools = ollama_tools
+            # Closing still steers with the nudge. The schema list stays the
+            # session list so this request matches the one before it.
+            offer_tools = bool(keep)
             ctx.offer_tools = offer_tools
 
         tools_arg = None if ctx.fallback_mode else (ollama_tools or None)

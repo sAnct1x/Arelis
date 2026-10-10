@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import re
@@ -601,6 +602,34 @@ def _place_turn_tail(
     return [*messages[:last_user], *turn_tail, *messages[last_user:]]
 
 
+def _pin_tool_round_hint(messages: list[dict[str, Any]]) -> None:
+    """Put the tool-round note just after the latest real user line, once.
+
+    Appending it at the end of every round makes the next round diverge
+    where the previous round ended. Leaving it in place lets the tool
+    result extend the previous request.
+    """
+    last_user = None
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index].get("role") != "user":
+            continue
+        content = str(messages[index].get("content") or "").strip()
+        if content.startswith("<tool_response>"):
+            continue
+        last_user = index
+        break
+    if last_user is None:
+        return
+    slot = last_user + 1
+    if (
+        slot < len(messages)
+        and messages[slot].get("role") == "system"
+        and messages[slot].get("content") == _TOOL_ROUND_HINT
+    ):
+        return
+    messages.insert(slot, {"role": "system", "content": _TOOL_ROUND_HINT})
+
+
 class AgentLoop:
     """One user turn: alternate model steps and tool calls until an answer.
 
@@ -743,6 +772,7 @@ class AgentLoop:
     ) -> None:
         self._horizons_distance_text = ""
         self._horizons_distance_ask = ""
+        self._last_sent_messages = None
         ctx = await self._prepare_turn(
             text,
             role,
@@ -1114,7 +1144,8 @@ class AgentLoop:
                 }
             )
         history = self.memory.as_ollama(
-            include_notes=not bool(self.config.get("_speak_replies"))
+            include_notes=not bool(self.config.get("_speak_replies")),
+            include_latest_block=False,
         )
         # A backstop on message count. The token budget below is the real limit;
         # this only stops the trailer growing without bound in a session long
@@ -1278,7 +1309,8 @@ class AgentLoop:
             message_tokens(m, chars_per_token=ratio) for m in turn_lines
         )
         remaining_history = self.memory.as_ollama(
-            include_notes=not bool(self.config.get("_speak_replies"))
+            include_notes=not bool(self.config.get("_speak_replies")),
+            include_latest_block=False,
         )
         older, tail = split_recent_history(remaining_history, min_recent)
         tail_cost = sum(message_tokens(m, chars_per_token=ratio) for m in tail)
@@ -1414,10 +1446,12 @@ class AgentLoop:
         hold_paint = tool_round and bool(
             agent_cfg.get("stream_answer_after_tools", True)
         )
-        stream_messages = _normalize_ollama_messages(list(messages))
         if tool_round:
-            # Trailing hint only — must not sit in the static cached prefix.
-            stream_messages.append({"role": "system", "content": _TOOL_ROUND_HINT})
+            # Stable spot, just after the user line. A trailing copy would
+            # move every round and throw away the previous request.
+            _pin_tool_round_hint(messages)
+        stream_messages = _normalize_ollama_messages(list(messages))
+        self._last_sent_messages = copy.deepcopy(stream_messages)
         prompt_chars = prompt_char_count(stream_messages, tools=tools)
         await self.bus.publish(
             Event(
@@ -1577,6 +1611,26 @@ class AgentLoop:
         """
         return {"role": "tool", "tool_name": name, "content": content}
 
+    def _remember_sent_follow(self) -> None:
+        """Store the tool round that the last request sent after the user line."""
+        sent = getattr(self, "_last_sent_messages", None)
+        if not sent:
+            return
+        ask = ""
+        for message in reversed(self.memory.messages):
+            if message.role == "user":
+                ask = message.content
+                break
+        cut = None
+        for index in range(len(sent) - 1, -1, -1):
+            item = sent[index]
+            if item.get("role") == "user" and item.get("content") == ask:
+                cut = index
+                break
+        if cut is None:
+            return
+        self.memory.remember_turn_follow(list(sent[cut + 1 :]))
+
     async def _finish(
         self,
         text: str,
@@ -1657,6 +1711,7 @@ class AgentLoop:
         if passthrough_tool:
             passthrough = tool_passthrough_note(passthrough_tool)
             note = f"{note}\n{passthrough}" if note else passthrough
+        self._remember_sent_follow()
         self.memory.add("assistant", final, note=note)
 
         # Usually the answer was already streamed and only the appended Sources

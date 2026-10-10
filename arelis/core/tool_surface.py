@@ -32,10 +32,22 @@ from arelis.core.agent_loop import (
 )
 from arelis.core.intent_catalog import profile_place_ask, weather_intent_matches
 from arelis.core.look import LOOK_TOOL_SUBSET
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.sms_complete import looks_like_stale_sms_skip
 from arelis.core.tool_subset import filter_tool_names
 
 log = logging.getLogger(__name__)
+
+
+def session_tool_schemas(tools: Any, agent_cfg: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Every tool registered this session, in registry order.
+
+    The startup warmup and every chat request call this with the same
+    param_hints flag. Routing may still decide which calls are allowed.
+    That decision does not add or remove schemas here.
+    """
+    # names omitted: the registry's full list, same call the warmup uses.
+    return list(tools.ollama_tools(param_hints=native_tool_calling(agent_cfg)))
 
 
 def cap_to_room(available_all: set[str], active_room: Any) -> set[str]:

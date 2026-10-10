@@ -57,7 +57,6 @@ from arelis.core.intent_catalog import (
     weather_intent_matches,
 )
 from arelis.core.look import LookTurn, classify_look, frame_sha256
-from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.other_work import looks_like_other_work
 from arelis.core.preflight import draft_browser_args, looks_like_room_create
 from arelis.core.prompt_sections import (
@@ -82,7 +81,12 @@ from arelis.core.tool_subset import (
     is_research_mode,
     turn_round_budget,
 )
-from arelis.core.tool_surface import apply_expected, base_surface, cap_to_room
+from arelis.core.tool_surface import (
+    apply_expected,
+    base_surface,
+    cap_to_room,
+    session_tool_schemas,
+)
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer, turn_telemetry_enabled
 from arelis.llm.router import ModelRole
@@ -897,11 +901,8 @@ async def prepare_turn(
     # A YouTube / Chrome drive is not a scrape-the-web turn.
     if "browser" in loop._expected_tools:
         wants_fresh_page = False
-    # Chat fast-path: skip tool schemas + hold_paint when nothing suggests
-    # a tool. Cuts prefill and lets short replies stream (felt TTFT).
-    # Must still arm tools for ANY exactness warrant (vision/inbox/…) —
-    # calc+web alone left describe/regen turns schema-blind, so the 7B
-    # invented captions or claimed it cannot generate images.
+    # Chat fast path still skips the tool round and hold-paint. Schemas stay
+    # on anyway: dropping them changes the front of the prompt.
     offer_tools = should_offer_tools(
         chat_fast_path=bool(agent_cfg.get("chat_fast_path", True)),
         skill_ids=skill_ids,
@@ -923,14 +924,8 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         active_plan=active_plan,
     )
-    ollama_tools = (
-        loop.tools.ollama_tools(
-            visible,
-            param_hints=native_tool_calling(agent_cfg),
-        )
-        if offer_tools
-        else []
-    )
+    ollama_tools = session_tool_schemas(loop.tools, agent_cfg)
+    loop.memory.remember_turn_block(turn_tail)
     if loop._timer is not None and not offer_tools:
         loop._timer.mark("chat_fast_path", tools=0)
     await _attach_tool_schemas_and_history(

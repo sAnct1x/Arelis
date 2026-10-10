@@ -9,7 +9,7 @@ import pytest
 
 import arelis.core.agent_loop as agent_loop_mod
 import arelis.core.turn_prepare as subject
-from arelis.core.agent_loop import AgentLoop, static_system_prefix
+from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.memory import SessionMemory
 from arelis.core.turn_prepare import prepare_turn
@@ -51,7 +51,9 @@ def _loop() -> AgentLoop:
             "lessons": True,
             "max_rounds": 4,
         },
-        "ollama": {"num_ctx": 4096},
+        # 65k is the normal window. The replayed notes do not fit in 4096
+        # beside the persona, so that smaller window trims and the front moves.
+        "ollama": {"num_ctx": 65536},
     }
     registry = ToolRegistry()
     for name in ("weather", "web_search", "calculator"):
@@ -77,16 +79,6 @@ def _before_first_user(messages: list[dict]) -> list[dict]:
         if message.get("role") == "user":
             return messages[:index]
     return list(messages)
-
-
-def _without_turn_tail(messages: list[dict]) -> list[dict]:
-    """Drop per-turn system lines. The static prefix stays, and so does history."""
-    static = len(static_system_prefix("PERSONA"))
-    return [
-        message
-        for index, message in enumerate(messages)
-        if message.get("role") != "system" or index < static
-    ]
 
 
 @pytest.fixture
@@ -134,13 +126,14 @@ async def test_second_turn_extends_first_turn(frozen_clock) -> None:
     _stamp(21, 32)
     second = await prepare_turn(loop, "hello again", "fast")
     assert second is not None
-    stable = _without_turn_tail(first.messages)
-    assert json.dumps(second.messages[: len(stable)]) == json.dumps(stable)
-    history_end = len(stable) + 1
-    assert second.messages[len(stable)]["role"] == "assistant"
-    assert second.messages[len(stable)]["content"] == "Hi."
+    # The first turn's notes stay in the next prompt, so the next request
+    # starts with the previous one. Round 1 dropped those notes on purpose.
+    assert json.dumps(second.messages[: len(first.messages)]) == json.dumps(first.messages)
+    history_end = len(first.messages) + 1
+    assert second.messages[len(first.messages)]["role"] == "assistant"
+    assert second.messages[len(first.messages)]["content"] == "Hi."
     assert json.dumps(second.messages[:history_end]) == json.dumps(
-        [*stable, second.messages[len(stable)]]
+        [*first.messages, second.messages[len(first.messages)]]
     )
     clock = "9:32 PM"
     hits = [
@@ -149,11 +142,11 @@ async def test_second_turn_extends_first_turn(frozen_clock) -> None:
         if clock in str(message.get("content") or "")
     ]
     assert hits == [hits[0]]
-    assert len(stable) < hits[0] < len(second.messages) - 1
+    assert len(first.messages) < hits[0] < len(second.messages) - 1
     assert second.messages[hits[0]]["role"] == "system"
     assert second.messages[-1]["role"] == "user"
     assert second.messages[-1]["content"] == "hello again"
-    assert "9:31 PM" not in json.dumps(second.messages)
+    assert "9:31 PM" in json.dumps(second.messages)
 
 
 def _record(real, bucket):

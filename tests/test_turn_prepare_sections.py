@@ -93,16 +93,22 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
     )
     captured: dict[str, object] = {}
 
+    def remember_turn_block(block):
+        captured["block"] = list(block)
+
+    loop.memory.remember_turn_block = remember_turn_block
+
     async def messages_for_turn(messages, budget, ratio, role, *, user_text, turn_tail=None):
         captured["history_args"] = (budget, ratio, role, user_text)
-        # The real assembler puts this block after history and before the ask.
+        # The block is stored on the user message now, not passed in turn_tail.
         # This fake has no history, so the block still sits just before the ask.
-        tail = list(turn_tail or [])
+        del turn_tail
+        tail = list(captured.get("block") or [])
         return [*messages, *tail, {"role": "user", "content": user_text}]
 
     loop._messages_for_turn = messages_for_turn
     loop.tools = SimpleNamespace(
-        ollama_tools=lambda visible, *, param_hints=False: [{"name": sorted(visible)[0]}],
+        ollama_tools=lambda names=None, *, param_hints=False: [{"name": "weather"}],
     )
 
     async def begin(*_args, **_kwargs):

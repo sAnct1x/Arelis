@@ -183,8 +183,6 @@ class VisionTool:
         )
         if len(paths) > 1:
             result = await self._look_pages(paths, question, edge=edge)
-            if chat_sees:
-                self._schedule_prefix_reseed()
             return result
 
         try:
@@ -200,8 +198,6 @@ class VisionTool:
             timeout_s=_PAGE_LOOK_S if ink else 0.0,
             think=False if ink else None,
         )
-        if chat_sees:
-            self._schedule_prefix_reseed()
         if fatal is not None:
             return fatal
         answer = (text or "").strip()
@@ -212,12 +208,6 @@ class VisionTool:
                 data={"model": self.model, "path": str(path), **prepared},
             )
         return self._ok_result(path, answer, prepared)
-
-    def _schedule_prefix_reseed(self) -> None:
-        """Put the chat prefix back after this look, without holding the result."""
-        from arelis.llm.startup import schedule_prefix_reseed
-
-        schedule_prefix_reseed(self.runner)
 
     def _cancelled(self) -> bool:
         probe = getattr(self, "is_cancelled", None)

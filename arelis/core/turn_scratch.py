@@ -130,17 +130,14 @@ FIELD_NAMES: tuple[str, ...] = tuple(RoundScratch.__dataclass_fields__)
 
 
 def strip_tool_schemas(ctx: TurnContext, r: RoundScratch) -> None:
-    """Take the tool array away for the rest of the turn.
+    """Stop another call without changing the schema list.
 
     Every caller is a "you already ran the tool, now write the chat line"
-    nudge. Both copies have to move: the round still reads ``r`` for this
-    pass, and the next round rebuilds from ``ctx``. Leaving either one
-    populated is how a 7B re-emits the same call until the round cap.
+    nudge. tool_names is cleared so a repeat is rejected. The schema list
+    stays, because taking it away changes the front of the next request.
     """
     r.offer_tools = False
-    r.ollama_tools = []
     ctx.offer_tools = False
-    ctx.ollama_tools = []
     ctx.tool_names.clear()
     r.tool_names = ctx.tool_names
 

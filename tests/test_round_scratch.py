@@ -184,10 +184,11 @@ async def test_a_page_nudge_takes_the_schemas_away_before_it_can_be_interrupted(
 
     assert ctx.page_write_nudge_used is True
     assert r.offer_tools is False
-    assert r.ollama_tools == []
+    # Schemas stay so the next request can reuse the prefix. Calls are still blocked.
+    assert r.ollama_tools == [{"name": "scrape"}]
     assert not r.tool_names
     assert ctx.offer_tools is False
-    assert ctx.ollama_tools == []
+    assert ctx.ollama_tools == [{"name": "scrape"}]
     assert not ctx.tool_names
 
 
@@ -214,10 +215,11 @@ async def test_a_blocked_cas_repeat_strips_both_copies_of_the_surface() -> None:
 
     assert await dispatch_calls(loop, ctx, r, 2) is False
     assert r.offer_tools is False
-    assert r.ollama_tools == []
+    # Schemas stay. tool_names is what blocks the repeat call.
+    assert r.ollama_tools == [{"name": "cas"}]
     assert not r.tool_names
     assert ctx.offer_tools is False
-    assert ctx.ollama_tools == []
+    assert ctx.ollama_tools == [{"name": "cas"}]
     assert not ctx.tool_names
 
 
@@ -484,7 +486,8 @@ async def test_round_two_after_a_preinjected_sms_offers_no_tools() -> None:
 
     await run_round(loop, ctx, 2)
     assert ctx.offer_tools is False
-    assert ctx.ollama_tools == []
+    # Schemas stay so the next request matches. tool_names blocks another send.
+    assert ctx.ollama_tools == [{"name": "send_sms"}]
     assert ctx.tool_names == set()
 
 
@@ -746,7 +749,7 @@ async def test_a_preinjected_email_is_spent_before_a_scripted_search() -> None:
 
     await run_round(loop, ctx, 2)
     assert ctx.offer_tools is False
-    assert ctx.ollama_tools == []
+    assert ctx.ollama_tools == [{"name": "send_email"}, {"name": "web_search"}]
     assert ctx.tool_names == set()
 
 
@@ -889,7 +892,7 @@ async def test_a_preinjected_tile_call_is_spent_by_the_round_that_calls_it() -> 
 
     await run_round(loop, ctx, 2)
     assert ctx.offer_tools is False
-    assert ctx.ollama_tools == []
+    assert ctx.ollama_tools == [{"name": "tile"}, {"name": "browser"}]
     assert ctx.tool_names == set()
 
 
@@ -959,7 +962,7 @@ async def test_a_preinjected_workspace_read_is_spent_by_the_round_that_calls_it(
     await run_round(loop, ctx, 2)
     assert "web_search" not in loop.tools_used
     assert ctx.offer_tools is False
-    assert ctx.ollama_tools == []
+    assert ctx.ollama_tools == [{"name": "workspace"}, {"name": "web_search"}]
     assert ctx.tool_names == set()
 
 
@@ -1023,7 +1026,7 @@ async def test_a_preinjected_run_script_is_spent_by_the_round_that_calls_it() ->
     await run_round(loop, ctx, 2)
     assert "python" not in loop.tools_used
     assert ctx.offer_tools is False
-    assert ctx.ollama_tools == []
+    assert ctx.ollama_tools == [{"name": "run_script"}, {"name": "python"}]
     assert ctx.tool_names == set()
 
 

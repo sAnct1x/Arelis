@@ -80,7 +80,6 @@ async def execute_call(
     weather_ok_places = r.weather_ok_places
     weather_days_retried = r.weather_days_retried
     exact_need = r.exact_need
-    offer_tools = r.offer_tools
     ollama_tools = r.ollama_tools
     messages = r.messages
     sms_draft = r.sms_draft
@@ -172,11 +171,6 @@ async def execute_call(
                         ctx.tool_names.clear()
                         ctx.tool_names.update(visible)
                         tool_names = ctx.tool_names
-                        if offer_tools:
-                            ollama_tools = loop.tools.ollama_tools(
-                                visible,
-                                param_hints=native_tool_calling(agent_cfg),
-                            )
         if result.ok:
             loop.tools_used.add(name)
             fail_counts.pop(call_fp, None)
