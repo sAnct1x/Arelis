@@ -21,7 +21,6 @@ BLOOM_S = 2.6
 FOLD_S = 1.25
 _BLOOM_S = BLOOM_S
 _FOLD_S = FOLD_S
-_QUIET_S = 60.0
 _DONE_S = 2.0
 _STATUS_S = 8.0
 _TEXT_H = 92
@@ -146,7 +145,8 @@ class PersonaPanel(QWidget):
         self._push(now, 0.0)
         self._apply_interval()
         self.state_changed.emit(self._state)
-        self.update()
+        self.avatar.update()
+        self._invalidate_caption()
 
     def set_model_busy(self, busy: bool) -> None:
         self._busy = bool(busy)
@@ -181,7 +181,7 @@ class PersonaPanel(QWidget):
     def show_status(self, text: str) -> None:
         self._status = " ".join(text.split())
         self._status_at = self._now()
-        self.update()
+        self._invalidate_caption()
 
     def form(self) -> str:
         if self._mode == "orb":
@@ -196,8 +196,6 @@ class PersonaPanel(QWidget):
             return "done"
         if self._speaking or self._state == "speaking":
             return "speaking"
-        if self._state == "thinking":
-            return "thinking"
         return ""
 
     def hint_text(self) -> str:
@@ -312,7 +310,35 @@ class PersonaPanel(QWidget):
         self._push(now, dt)
         self._apply_interval()
         self.avatar.update()
-        self.update()
+        self._invalidate_caption()
+
+    def _caption_signature(self) -> tuple:
+        return (self.caption_text(), self.hint_text(), self.status_text(), self._status_fade_step())
+
+    def _status_fade_step(self) -> int:
+        if not self._status:
+            return 0
+        age = self._now() - self._status_at
+        if age <= _STATUS_S - 1.5:
+            return 0
+        return int(age * 10)
+
+    def _invalidate_caption(self) -> None:
+        """Repaint the strip under her only when the words or the fade step changed."""
+        sig = self._caption_signature()
+        if sig == getattr(self, "_caption_sig", None):
+            return
+        self._caption_sig = sig
+        self.update(0, max(0, self.height() - _TEXT_H), self.width(), _TEXT_H)
+
+    def wake_for_window(self) -> None:
+        """Start the bake and the bloom once the window is up. Not from showEvent."""
+        if not self._bake_armed:
+            self._bake_armed = True
+            self._bake_arm.start(int(self._bake_delay * 1000))
+        if self._mode == "orb" and self._quiet is None:
+            self._begin("bloom", self._now())
+            self._apply_interval()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -410,7 +436,7 @@ class PersonaPanel(QWidget):
             self._quiet = None
             self._apply_interval()
             self.avatar.update()
-            self.update()
+            self._invalidate_caption()
 
     def _animations_on(self) -> bool:
         if self._force_motion is not None:
@@ -497,11 +523,9 @@ class PersonaPanel(QWidget):
             self._fold_begin()
 
     def _fold_due(self, now: float) -> bool:
-        if self._speaking or self._busy or self._state not in {"rest", "done"}:
-            return False
-        if self._quiet is None:
-            return False
-        return (now - self._quiet) >= _QUIET_S
+        """She stays out. A quiet minute does not fold her back into the orb."""
+        del now
+        return False
 
     def _push(self, now: float, dt: float) -> None:
         level = None

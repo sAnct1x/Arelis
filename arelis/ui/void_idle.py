@@ -156,8 +156,10 @@ class OrbitCanvas(QWidget):
             return
         self._thinking = want
         self._dim = 0.92 if want else 0.42
-        if want and not self._timer.isActive():
+        if want and self.isVisible() and not self._timer.isActive():
             self._timer.start()
+        elif not want and not self.isVisible():
+            self._timer.stop()
         self.update()
 
     def set_animating(self, on: bool) -> None:
@@ -363,6 +365,11 @@ class OrbitIdle(QWidget):
         self.hint = QLabel("talk or type whenever you're ready", self)
         self.hint.setObjectName("VoidListenWord")
         self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.phone_note = QLabel("", self)
+        self.phone_note.setObjectName("VoidPhoneNote")
+        self.phone_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.phone_note.setWordWrap(True)
+        self.phone_note.hide()
         self.apply_theme_face()
 
     def apply_theme_face(self) -> None:
@@ -581,6 +588,15 @@ class OrbitIdle(QWidget):
             QPoint(int(win.width() * BLOOM_X), int(win.height() * BLOOM_Y)),
         )
 
+    def set_phone_note(self, text: str) -> None:
+        """Welcome-screen note on the orb's axis, under the hint."""
+        note = getattr(self, "phone_note", None)
+        if note is None:
+            return
+        note.setText(text or "")
+        note.setVisible(bool((text or "").strip()))
+        self._layout_idle()
+
     def _layout_idle(self) -> None:
         """Pin orbit core to the bloom; side chrome overlays and never shoves."""
         w, h = self.width(), self.height()
@@ -634,8 +650,19 @@ class OrbitIdle(QWidget):
 
         hint_x = bloom.x() - self.hint.width() // 2
         hint_x = max(margin, min(hint_x, w - self.hint.width() - margin))
-        self.hint.move(hint_x, h - self.hint.height() - 20)
+        # Room under the hint is always reserved, so the hint does not jump
+        # when the phone line appears.
+        band = 56
+        self.hint.move(hint_x, h - self.hint.height() - 8 - band)
         self.hint.raise_()
+        note = getattr(self, "phone_note", None)
+        if note is not None and not note.isHidden():
+            note.setFixedWidth(min(420, max(80, w - 2 * margin)))
+            note.adjustSize()
+            nx = bloom.x() - note.width() // 2
+            nx = max(margin, min(nx, w - note.width() - margin))
+            note.move(nx, self.hint.y() + self.hint.height() + 6)
+            note.raise_()
 
         ghost_layout = self._ghosts.layout()
         if ghost_layout is not None:

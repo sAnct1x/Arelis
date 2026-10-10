@@ -133,6 +133,7 @@ def test_phone_notify_bind_failure_lands_in_conversation(arelis_window) -> None:
         [
             window.persona_panel.status_text(),
             window.chat.progress.text(),
+            window.chat.empty.phone_note.text(),
             *[line for thought in window.chat._thoughts for line in thought.lines],
         ]
     )
@@ -160,6 +161,7 @@ def test_phone_notify_listen_url_stays_off_the_transcript(arelis_window) -> None
         [
             window.persona_panel.status_text(),
             window.chat.progress.text(),
+            window.chat.empty.phone_note.text(),
             *[line for thought in window.chat._thoughts for line in thought.lines],
         ]
     )

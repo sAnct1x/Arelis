@@ -35,9 +35,8 @@ class ThinkingPanel(QObject):
     """Same append / extend_stream / clear entry the rest of the window already calls.
 
     Nothing is painted in a dock anymore. Trace and tool lines go to the current
-    turn's thought block. Status and model lines show on her caption when the
-    dock is open, in that thought block while a turn runs, and on the chat
-    status line for a few seconds when she is closed and idle.
+    turn's thought block. Other status goes into that block while a turn runs,
+    and onto the welcome screen when she is idle. Internal lines are logged only.
     """
 
     def __init__(self, parent=None) -> None:
@@ -62,12 +61,6 @@ class ThinkingPanel(QObject):
             self._last_status = line
             if internal_status(line):
                 log.info("%s", line)
-                # A window with no face has nowhere else to show the line.
-                # Location redaction is checked on that thought text.
-                if getattr(window, "persona_panel", None) is None:
-                    window.chat.add_thought_line(line, keep_internal=True)
-                    return
-                self._show_aside(window, line)
                 return
             self._route_status(window, line)
             return
@@ -84,7 +77,6 @@ class ThinkingPanel(QObject):
             return
         if internal_status(chunk):
             log.info("%s", chunk.strip())
-            self._show_aside(self._window, chunk.strip())
             return
         self._window.chat.extend_thought(chunk)
 
@@ -92,25 +84,9 @@ class ThinkingPanel(QObject):
         self._last_status = ""
         self._last_essay = ""
 
-    def _show_aside(self, window, line: str) -> None:
-        """Internal lines stay on her caption, or the chat status line when she is closed."""
-        dock = getattr(window, "persona_dock", None)
-        panel = getattr(window, "persona_panel", None)
-        open_dock = dock is not None and not dock.isHidden()
-        if open_dock and panel is not None:
-            panel.show_status(line)
-            return
-        window.chat.show_idle_note(line)
-
     def _route_status(self, window, line: str) -> None:
-        dock = getattr(window, "persona_dock", None)
-        panel = getattr(window, "persona_panel", None)
-        open_dock = dock is not None and not dock.isHidden()
-        if open_dock and panel is not None:
-            panel.show_status(line)
         busy = bool(getattr(window, "_turn_busy", False))
         if busy:
             window.chat.add_thought_line(line)
             return
-        if not open_dock:
-            window.chat.show_idle_note(line)
+        window.chat.show_idle_note(line)

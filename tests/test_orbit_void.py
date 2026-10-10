@@ -276,7 +276,7 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
         assert not idle_eligible(window)
         assert not window.conversation._idle_mode
         assert window.conversation.input.parent() is window.conversation._composer
-        assert not window.conversation._parked_orbit.isHidden()
+        assert window.conversation._parked_orbit.isHidden()
         window.chat.clear()
         window.conversation.input.clear()
         sync_idle_mode(window)
@@ -362,6 +362,7 @@ def test_parked_orbit_sits_in_a_chat_gutter(qt_app) -> None:
     )
     try:
         window.resize(800, 600)
+        window.persona_dock.hide()
         window.chat.add_user("hello")
         sync_idle_mode(window)
         window.conversation._place_parked_orbit()
@@ -396,6 +397,7 @@ def test_parked_orbit_lifts_above_drive_strip(qt_app) -> None:
     try:
         window.resize(800, 600)
         window.show()
+        window.persona_dock.hide()
         window.chat.add_user("hello")
         sync_idle_mode(window)
         qt_app.processEvents()

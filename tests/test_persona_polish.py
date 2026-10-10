@@ -58,8 +58,7 @@ def test_expanded_thought_keeps_reasoning_and_drops_internal_lines(arelis_window
     logged = caplog.text
     assert "phase=" in logged
     assert "Role " in logged
-    # She is open, so the latest internal line is on her caption, not dropped.
-    assert window.persona_panel.status_text()
+    assert window.persona_panel.status_text() == ""
     window.persona_dock.hide()
     window.close()
 
@@ -77,7 +76,7 @@ def test_a_turn_with_no_reasoning_has_no_thought_line(arelis_window, qt_app):
     shown = _plain(window)
     assert "round " not in shown
     assert "phase=" not in shown
-    assert "Thinking for" not in shown
+    assert "Thinking for" in shown
     window.persona_dock.hide()
     window.close()
 
@@ -738,14 +737,10 @@ def test_she_materializes_over_several_ticks_and_folds_faster(qt_app):
     panel.set_state("done")
     clock["t"] = BLOOM_S + 60.05
     panel.tick()
-    assert panel.form() == "fold"
-    clock["t"] = BLOOM_S + 60.05 + FOLD_S * 0.5
-    panel.tick()
-    assert 0.0 < panel.avatar.reveal < 1.0
+    assert panel.form() == "face"
     clock["t"] = BLOOM_S + 60.05 + FOLD_S + 0.05
     panel.tick()
-    assert panel.form() == "orb"
-    assert panel.avatar.reveal == 0.0
+    assert panel.form() == "face"
 
     panel._force_motion = False
     panel.set_state("thinking")

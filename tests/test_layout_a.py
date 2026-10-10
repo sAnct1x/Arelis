@@ -53,7 +53,7 @@ def test_a_turn_reveals_her_and_a_hand_close_sticks(arelis_window, qt_app) -> No
     window = arelis_window()
     window.show()
     qt_app.processEvents()
-    assert window.persona_dock.isHidden()
+    assert not window.persona_dock.isHidden()
     dispatch_event(window, Event(EventType.THINKING, {"text": "the moon pulls the water"}))
     qt_app.processEvents()
     assert not window.persona_dock.isHidden()
@@ -169,14 +169,14 @@ def test_every_status_kind_lands_somewhere_visible(arelis_window, qt_app) -> Non
     assert "checking the tide table" in shown
     assert "model swapped to the fast one" in shown
     assert "status while she works" in shown
-    assert "status while she works" in window.persona_panel.status_text()
+    assert window.persona_panel.status_text() == ""
 
     window._set_busy(False)
     window.persona_dock.hide()
     qt_app.processEvents()
     window.thinking.append("status while she rests", kind="status")
     qt_app.processEvents()
-    assert "status while she rests" in window.chat.progress.text()
+    assert "status while she rests" in window.chat.empty.phone_note.text()
     assert window.chat._idle_note_timer.interval() == 6000
 
 
@@ -254,6 +254,7 @@ def test_old_thinking_layouts_open_on_her_dock(
             lambda p=ini: p,
         )
         window = arelis_window()
+        window.resize(1440, 900)
         window.show()
         qt_app.processEvents()
         names = [item.objectName() for item in window.findChildren(QDockWidget)]
@@ -264,7 +265,7 @@ def test_old_thinking_layouts_open_on_her_dock(
         assert not dock.isFloating()
         assert window.dockWidgetArea(dock) == Qt.DockWidgetArea.RightDockWidgetArea
         assert 330 <= dock.width() <= 420
-        assert dock.isHidden()
+        assert not dock.isHidden()
         for item in window.findChildren(QDockWidget):
             assert item.widget() is not None
         window.hide()
@@ -280,14 +281,14 @@ def test_the_corner_orbit_shows_only_while_her_dock_is_hidden(arelis_window, qt_
 
     sync_idle_mode(window)
     qt_app.processEvents()
-    assert window.persona_dock.isHidden()
-    assert not window.conversation._parked_orbit.isHidden()
-    window.persona_dock.show()
-    qt_app.processEvents()
+    assert not window.persona_dock.isHidden()
     assert window.conversation._parked_orbit.isHidden()
     window.persona_dock.hide()
     qt_app.processEvents()
     assert not window.conversation._parked_orbit.isHidden()
+    window.persona_dock.show()
+    qt_app.processEvents()
+    assert window.conversation._parked_orbit.isHidden()
 
 
 def test_speaking_follows_playback_and_a_click_stops_it(arelis_window, qt_app, monkeypatch) -> None:
@@ -335,7 +336,7 @@ def test_three_themes_keep_the_thought_line_and_caption_readable(arelis_window, 
         qt_app.processEvents()
         window.persona_dock.show()
         qt_app.processEvents()
-        window.persona_panel.set_state("thinking")
+        window.persona_panel.set_state("speaking")
         window.persona_panel.repaint()
         dim = QColor(COLORS["text_dim"])
         cursor = window.chat.view.textCursor()

@@ -828,7 +828,7 @@ ui:
   # First run and "reset layout": conversation glass only. Instruments open from
   # the View menu, or when content arrives (thinking on tools/traces, workspace
   # on writes/images). After first run, data/ui_layout.ini wins.
-  thinking_open: false
+  thinking_open: true
   workspace_open: false
   camera_open: false
   # Wall-clock ceiling on a busy turn. Arms when the turn starts and shows

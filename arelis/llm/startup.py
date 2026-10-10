@@ -204,14 +204,16 @@ async def _run_model_warmup(
                 },
             )
         )
-        return
-    log.info("Chat model pinned (%s)", model)
-    await bus.publish(
-        Event(
-            EventType.STATUS,
-            {"message": WARMUP_PINNED},
+    else:
+        log.info("Chat model pinned (%s)", model)
+        await bus.publish(
+            Event(
+                EventType.STATUS,
+                {"message": WARMUP_PINNED},
+            )
         )
-    )
+    # A failed pin used to return here and open the gate with no seed, so the
+    # first turn prefills cold. The seed still has to finish before that gate opens.
     if prefix is not None:
         await seed_prefix_cache(bus, router, prefix)
 
@@ -274,8 +276,16 @@ async def seed_prefix_cache(
             keep_alive=router.default_keep_alive,
             options={"num_ctx": prefix.num_ctx, "num_predict": 1},
         )
-        async for _kind, _payload in stream:
-            pass
+        try:
+            async for _kind, _payload in stream:
+                pass
+        finally:
+            close = getattr(stream, "aclose", None)
+            if callable(close):
+                try:
+                    await close()
+                except Exception:
+                    pass
     except Exception as exc:
         # Nothing is broken by this failing; the first turn just pays the
         # prefill itself, exactly as it did before.

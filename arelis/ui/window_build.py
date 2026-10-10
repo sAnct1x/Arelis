@@ -416,6 +416,8 @@ class WindowBuild:
         restored = restore_window_layout(self, opening)
         if not restored:
             self._apply_calm_instrument_defaults()
+        else:
+            self._open_persona_saved_by_old_default()
         self._adopt_old_thinking_layout()
         # Seal restored floats now, before the first show. Do not redock them
         # after paint — that shrink used to leave a second orbit on the right.
@@ -631,6 +633,6 @@ class WindowBuild:
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
             self.resizeDocks([dock], [370], Qt.Orientation.Horizontal)
             ui_cfg = self.config.get("ui", {}) or {}
-            dock.setVisible(bool(ui_cfg.get("thinking_open", False)))
+            dock.setVisible(bool(ui_cfg.get("thinking_open", True)))
         finally:
             self._persona_adjusting = False

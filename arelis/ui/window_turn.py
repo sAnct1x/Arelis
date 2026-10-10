@@ -188,19 +188,8 @@ class WindowTurn:
         )
 
     def _show_model_loading(self, role: str) -> None:
-        """Composer hint while waiting for first token (L1 cold TTFT)."""
-        pending = getattr(self.router, "warmup_pending", None)
-        if callable(pending) and pending():
-            tip = "loading the model: first reply after that is quick"
-        else:
-            model = str((self.config.get("models") or {}).get(role) or self._current_model or "")
-            tip = f"thinking… ({role}" + (f":{model}" if model else "") + ")"
-        self.thinking.append(tip, kind="status")
-        if self.conversation.confirm_open():
-            return
-        if self.conversation.input.text().strip():
-            return
-        self.conversation.input.setPlaceholderText(tip)
+        """The in-chat thought line is the only cue while she works."""
+        _ = role
 
     def _clear_model_loading(self) -> None:
         self.conversation._sync_composer_buttons()
@@ -398,7 +387,6 @@ class WindowTurn:
         if busy:
             self._busy_epoch += 1
             self._busy_watchdog.stop()
-            self.chat.show_progress(self._busy_status_line())
             if not was:
                 arm_hung_turn(self)
         else:
