@@ -285,6 +285,8 @@ async def seed_prefix_cache(
                 try:
                     await close()
                 except Exception:
+                    # The stream is already drained. A close error is not a
+                    # failed seed, and it must not hide one either.
                     pass
     except Exception as exc:
         # Nothing is broken by this failing; the first turn just pays the
