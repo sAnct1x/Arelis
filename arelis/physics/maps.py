@@ -459,6 +459,9 @@ def download_maps() -> tuple[list[str], list[str]]:
         return saved, errors
     import httpx
 
+    from arelis.guard.watch import EgressMutedError
+    from arelis.tools.catalog import SITE_PAUSED
+
     headers = {
         "User-Agent": "Arelis/research (NASA public-domain albedo; personal lab)"
     }
@@ -483,9 +486,12 @@ def download_maps() -> tuple[list[str], list[str]]:
                     errors.append(f"{body}: {err}")
                     continue
                 saved.append(body)
+            except EgressMutedError:
+                errors.append(SITE_PAUSED)
+                break
             except httpx.HTTPError as exc:
                 errors.append(f"{body}: {exc}")
-        if want_hi:
+        if want_hi and SITE_PAUSED not in errors:
             try:
                 response = client.get(EARTH_HI_URL)
                 if response.status_code >= 400:
@@ -498,6 +504,8 @@ def download_maps() -> tuple[list[str], list[str]]:
                         errors.append(f"Earth-8192: {err}")
                     else:
                         saved.append("Earth-8192")
+            except EgressMutedError:
+                errors.append(SITE_PAUSED)
             except httpx.HTTPError as exc:
                 errors.append(f"Earth-8192: {exc}")
     return saved, errors

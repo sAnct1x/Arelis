@@ -14,6 +14,7 @@ import httpx
 
 from arelis.briefing.calendar import resolve_calendar_path
 from arelis.calendar.secrets import load_ics_url
+from arelis.guard.watch import EgressMutedError
 from arelis.tools.fetch import BlockedUrlError, guarded_get, reject_non_http_url
 
 log = logging.getLogger(__name__)
@@ -59,6 +60,10 @@ async def sync_ics_from_url(
                 headers=headers,
                 block_private=block_private_urls,
             )
+    except EgressMutedError:
+        from arelis.tools.catalog import SITE_PAUSED
+
+        return {"ok": False, "error": SITE_PAUSED}
     except BlockedUrlError as exc:
         return {"ok": False, "error": str(exc), "url": feed}
     except httpx.HTTPError as exc:

@@ -240,8 +240,17 @@ class AgendaTool:
         provider = str(kwargs.get("provider") or "all").strip().lower()
         if provider == "ics":
             from arelis.briefing.ics_sync import sync_ics_from_url
+            from arelis.guard.watch import EgressMutedError
+            from arelis.tools.catalog import SITE_PAUSED
 
-            summary = await sync_ics_from_url(self._config)
+            try:
+                summary = await sync_ics_from_url(self._config)
+            except EgressMutedError:
+                return ToolResult(
+                    ok=False,
+                    output=SITE_PAUSED,
+                    data={"fail_class": "fail:http", "action": "sync"},
+                )
             if summary.get("missing_secret"):
                 return ToolResult(
                     ok=True,
@@ -249,9 +258,16 @@ class AgendaTool:
                     data=summary,
                 )
             if not summary.get("ok"):
+                error = str(summary.get("error") or "unknown")
+                if error == SITE_PAUSED:
+                    return ToolResult(
+                        ok=False,
+                        output=SITE_PAUSED,
+                        data={"fail_class": "fail:http", "action": "sync"},
+                    )
                 return ToolResult(
                     ok=False,
-                    output=f"ICS sync failed: {summary.get('error') or 'unknown'}",
+                    output=f"ICS sync failed: {error}",
                     data=summary,
                 )
             path = summary.get("path") or resolve_calendar_path(self._config)
