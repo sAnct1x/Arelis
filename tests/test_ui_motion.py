@@ -25,6 +25,16 @@ def _motion():
     return motion_mod, theme_tokens
 
 
+def _motion_on(monkeypatch) -> None:
+    """Ask for motion even when this PC has window animation turned off.
+
+    The Windows runners ship that way. An off switch later in the test still wins.
+    """
+    monkeypatch.delenv("ARELIS_MOTION", raising=False)
+    motion_mod, _tokens = _motion()
+    monkeypatch.setattr(motion_mod, "_windows_animations_enabled", lambda: True)
+
+
 def _alpha_of(view, needle: str) -> int:
     found = view.document().find(needle)
     assert not found.isNull(), needle
@@ -39,8 +49,9 @@ def _running(anim) -> bool:
     )
 
 
-def test_widget_fade_duration_follows_the_slow_token(qt_app) -> None:
+def test_widget_fade_duration_follows_the_slow_token(qt_app, monkeypatch) -> None:
     """A plate fade takes the shared slow duration, not a private number."""
+    _motion_on(monkeypatch)
     motion_mod, tokens = _motion()
     from arelis.ui import theme
 
@@ -163,9 +174,9 @@ def test_caption_fade_uses_the_fast_token_and_snaps_when_off(qt_app, monkeypatch
     from arelis.ui import caption_fade as fade_mod
     from arelis.ui.caption_fade import CaptionTool, watch_caption
 
+    _motion_on(monkeypatch)
     motion_mod, tokens = _motion()
     saved_tokens = dict(tokens.MOTION)
-    monkeypatch.delenv("ARELIS_MOTION", raising=False)
     cursor = {"at": QPoint(-4000, -4000)}
     original = fade_mod.QCursor.pos
     fade_mod.QCursor.pos = staticmethod(lambda: cursor["at"])
@@ -202,7 +213,7 @@ def test_caption_fade_uses_the_fast_token_and_snaps_when_off(qt_app, monkeypatch
 
 def test_dock_slides_on_geometry_and_stays_opaque(qt_app, monkeypatch) -> None:
     """Showing a dock slides it. Opacity stays put, including a floating one."""
-    monkeypatch.delenv("ARELIS_MOTION", raising=False)
+    _motion_on(monkeypatch)
     motion_mod, tokens = _motion()
     saved = dict(tokens.MOTION)
     from arelis.ui.window_chrome import WindowChrome
@@ -253,7 +264,7 @@ def test_dock_slides_on_geometry_and_stays_opaque(qt_app, monkeypatch) -> None:
 
 def test_dock_hide_slides_then_closes_and_snaps_when_off(qt_app, monkeypatch) -> None:
     """Hiding a dock slides away, unless motion is off, in which case it is gone."""
-    monkeypatch.delenv("ARELIS_MOTION", raising=False)
+    _motion_on(monkeypatch)
     _motion_mod, tokens = _motion()
     saved = dict(tokens.MOTION)
     from arelis.ui.window_chrome import WindowChrome
@@ -291,7 +302,7 @@ def test_dock_hide_slides_then_closes_and_snaps_when_off(qt_app, monkeypatch) ->
 
 def test_new_chat_message_fades_and_snaps_with_the_same_gate(qt_app, monkeypatch) -> None:
     """A new line fades in. With motion off it is solid immediately."""
-    monkeypatch.delenv("ARELIS_MOTION", raising=False)
+    _motion_on(monkeypatch)
     _motion_mod, tokens = _motion()
     saved = dict(tokens.MOTION)
     from arelis.ui.panels.chat import ChatPanel
@@ -325,7 +336,7 @@ def test_new_chat_message_fades_and_snaps_with_the_same_gate(qt_app, monkeypatch
 
 def test_finished_answer_fades_without_losing_math_or_find(qt_app, monkeypatch) -> None:
     """The finished answer fades. A formula and find still work on that line."""
-    monkeypatch.delenv("ARELIS_MOTION", raising=False)
+    _motion_on(monkeypatch)
     _motion_mod, tokens = _motion()
     saved = dict(tokens.MOTION)
     from arelis.ui.chat_find import ChatFindBar
