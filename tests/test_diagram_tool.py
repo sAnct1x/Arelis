@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -39,6 +42,30 @@ _VEGA = json.dumps(
     }
 )
 _TYPST = '#set page(width: 160pt, height: 60pt, margin: 8pt)\nDepth delta approx 1.5%\n'
+# Vega and typst load native libraries into this interpreter. On the Ubuntu
+# runner that makes the next math picture miss its time budget, so those
+# checks run in a fresh process and then go away.
+_CHILD = "ARELIS_DIAGRAM_CHILD"
+
+
+def _fresh_interpreter(nodeid: str) -> bool:
+    if os.environ.get(_CHILD) == "1":
+        return False
+    repo = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env[_CHILD] = "1"
+    env.setdefault("QT_QPA_PLATFORM", "offscreen")
+    proc = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "--tb=short", nodeid],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert proc.returncode == 0, (proc.stdout + proc.stderr)[-4000:]
+    return True
 
 
 def _tool(tmp_path: Path, *, room: bool = True) -> tuple[DiagramTool, Path]:
@@ -88,6 +115,10 @@ async def test_invalid_mermaid_returns_the_parser_line(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_vegalite_and_typst_round_trip(tmp_path: Path) -> None:
+    if _fresh_interpreter(
+        "tests/test_diagram_tool.py::test_vegalite_and_typst_round_trip"
+    ):
+        return
     tool, root = _tool(tmp_path)
     chart = await tool.run(kind="vegalite", source=_VEGA, out="lightcurve")
     slide = await tool.run(kind="typst", source=_TYPST, out="slide")
@@ -186,6 +217,10 @@ def test_sha_mismatch_deletes_the_file(tmp_path: Path, monkeypatch: pytest.Monke
 
 
 def test_typst_package_failure_offline_is_plain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    if _fresh_interpreter(
+        "tests/test_diagram_tool.py::test_typst_package_failure_offline_is_plain"
+    ):
+        return
     import typst
 
     def _boom(*args: object, **kwargs: object) -> None:
