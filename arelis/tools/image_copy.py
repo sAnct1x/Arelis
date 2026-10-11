@@ -39,6 +39,10 @@ def image_errand(args: dict[str, Any] | None = None) -> str:
 def image_edit_errand(args: dict[str, Any] | None = None) -> str:
     """What the shimmer says while Pillow runs."""
     args = args or {}
+    if _truthy(args.get("remove_background")):
+        return "cutting out the background"
+    if str(args.get("upscale") or "") in {"2", "4"}:
+        return "enlarging the picture"
     if str(args.get("text") or "").strip():
         return "adding text to the picture"
     if str(args.get("crop") or args.get("crop_box") or "").strip():
@@ -90,6 +94,13 @@ def image_confirm_headline(args: dict[str, Any] | None = None) -> str:
 
 def image_edit_confirm_headline(args: dict[str, Any] | None = None) -> str:
     args = args or {}
+    if _truthy(args.get("remove_background")):
+        from arelis.tools.image_models import allow_headline
+
+        pending = allow_headline(args)
+        return pending or "cut out the background"
+    if str(args.get("upscale") or "") in {"2", "4"}:
+        return "enlarge this picture"
     overlay = str(args.get("text") or "").strip()
     if overlay:
         shown = overlay if len(overlay) <= 24 else overlay[:23] + "…"
