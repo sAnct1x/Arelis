@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
 from arelis.llm.ollama import OllamaProvider
 from arelis.llm.router import ModelRouter
+from arelis.llm.startup import vl_model_installed
 from arelis.location import build_location
 from arelis.mail import Mailer, load_account
 from arelis.memory import MemoryStore
@@ -100,6 +102,11 @@ def build_tool_registry(
     schedule, which exists to deliver mail). ``attended`` is "a person is
     here to read an Allow card": archive, vision, browser, desktop, solar, earth,
     plot, diagram, document, clipboard, OCR, tile, research, agenda, contacts.
+
+    Desktop registers only on Windows. Vision and camera register only when
+    the configured VL model is already installed, checked once per model name
+    at startup. Mail and SMS stay on their own accounts. A tool left out here
+    is not in the session list at all.
 
     When ``attended`` is omitted it follows ``allow_send``, so every existing
     caller keeps the same registry. Jobs pass ``allow_send=False`` and get
@@ -477,7 +484,13 @@ def build_tool_registry(
     if (tools_cfg.get("image_edit") or {}).get("enabled", True):
         registry.register(ImageEditTool(workspace))
     # Single-frame VL: attended only (Allow card). Jobs skip (attended=False).
-    if attended and vision_cfg.get("enabled", True) and router is not None:
+    # The install check is once per model name, not once per turn.
+    if (
+        attended
+        and vision_cfg.get("enabled", True)
+        and router is not None
+        and vl_model_installed(config)
+    ):
         ollama_cfg = config.get("ollama") or {}
         models_cfg = config.get("models") or {}
         vl_model = str(
@@ -535,7 +548,11 @@ def build_tool_registry(
             BrowserTool(session, aliases=aliases, workspace=workspace)
         )
     desktop_cfg = tools_cfg.get("desktop") or {}
-    if attended and desktop_cfg.get("enabled", True):
+    if (
+        attended
+        and desktop_cfg.get("enabled", True)
+        and _session_platform(config) == "win32"
+    ):
         aliases_raw = desktop_cfg.get("aliases") or {}
         aliases = {
             str(k).strip().lower(): str(v).strip()
@@ -549,3 +566,11 @@ def build_tool_registry(
     if attended:
         registry.register(TileTool())
     return registry
+
+
+def _session_platform(config: dict[str, Any]) -> str:
+    """Host platform, unless a profile test pinned one for this build."""
+    forced = config.get("_session_platform")
+    if isinstance(forced, str) and forced.strip():
+        return forced.strip()
+    return sys.platform

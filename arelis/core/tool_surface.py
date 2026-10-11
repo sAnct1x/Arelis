@@ -38,16 +38,61 @@ from arelis.core.tool_subset import filter_tool_names
 
 log = logging.getLogger(__name__)
 
+# Comms stay in the expected set when they are not registered. The turn
+# then says the account is missing. Desktop, vision, and camera have no
+# such line: a hint that names them on a machine where they were not
+# registered is skipped, not raised.
+_ABSENT_HINT_KEEP = frozenset(
+    {
+        "send_sms",
+        "inbound_sms",
+        "send_email",
+        "inbox",
+        "agenda",
+    }
+)
+
 
 def session_tool_schemas(tools: Any, agent_cfg: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Every tool registered this session, in registry order.
 
-    The startup warmup and every chat request call this with the same
-    param_hints flag. Routing may still decide which calls are allowed.
+    Built once for this registry and reused. The startup warmup and every
+    turn read that same list, so the bytes stay put until Settings builds
+    a new registry. Routing may still decide which calls are allowed.
     That decision does not add or remove schemas here.
     """
+    hints = bool(native_tool_calling(agent_cfg))
+    frozen = getattr(tools, "_session_schema_freeze", None)
+    if (
+        isinstance(frozen, tuple)
+        and len(frozen) == 2
+        and frozen[0] == hints
+        and isinstance(frozen[1], list)
+    ):
+        return frozen[1]
     # names omitted: the registry's full list, same call the warmup uses.
-    return list(tools.ollama_tools(param_hints=native_tool_calling(agent_cfg)))
+    built = list(tools.ollama_tools(param_hints=hints))
+    try:
+        tools._session_schema_freeze = (hints, built)
+    except Exception:
+        # A stand-in registry may refuse the attribute. The list is still valid.
+        return built
+    return built
+
+
+def omit_unregistered_hints(expected: set[str], available_all: set[str]) -> set[str]:
+    """Drop hint names this session did not register.
+
+    Keeps mail, SMS, and agenda so a missing account still gets its
+    reply. Everything else (desktop on a Mac, vision without the VL
+    model) is skipped.
+    """
+    available = set(available_all)
+    return {
+        name
+        for name in expected
+        if name in available or name in _ABSENT_HINT_KEEP
+    }
 
 
 def cap_to_room(available_all: set[str], active_room: Any) -> set[str]:
@@ -141,7 +186,22 @@ def apply_expected(
     Must run after `_expected_tools` is final. In `turn_prepare` that is after
     the preflight hints, the weather narrowing and the turn goal have all had
     their say.
+
+    A hint may name a tool this session never registered. Those names are
+    dropped here so a later step does not try to call them.
     """
+    dropped = [
+        name
+        for name in list(loop._expected_tools)
+        if name not in available_all and name not in _ABSENT_HINT_KEEP
+    ]
+    for name in dropped:
+        loop._expected_tools.discard(name)
+    if dropped:
+        log.info(
+            "Skipped hint tools that are not in this session: %s",
+            ", ".join(sorted(dropped)),
+        )
     if loop._expected_tools & _HIDE_WANDER_FOR:
         available = _hide_daily_wander(set(available), loop._expected_tools)
     # A saved-place ask with the planet and the browser still on the menu
@@ -162,3 +222,85 @@ def apply_expected(
         available.discard("send_sms")
         available.discard("send_email")
     return set(available), set(available)
+
+
+def refresh_session_tools(window: Any, *, recheck_vl: bool = False) -> bool:
+    """Rebuild the session registry after Settings turns a tool on or off.
+
+    Returns True only when the registered names changed. That path reseeds
+    the prefix cache once. A save that does not change the set does neither.
+    """
+    try:
+        return _refresh_session_tools(window, recheck_vl=recheck_vl)
+    except Exception:
+        log.exception("Session tool list was not rebuilt")
+        return False
+
+
+def _refresh_session_tools(window: Any, *, recheck_vl: bool) -> bool:
+    orchestrator = getattr(window, "orchestrator", None)
+    if orchestrator is None:
+        return False
+    old = getattr(orchestrator, "tools", None)
+    if old is None:
+        return False
+    config = getattr(window, "config", None) or getattr(orchestrator, "config", None)
+    if not isinstance(config, dict):
+        return False
+    if recheck_vl:
+        from arelis.llm.startup import vl_model_installed
+
+        vl_model_installed(config, refresh=True)
+    from arelis.memory import MemoryStore
+    from arelis.tools import build_tool_registry
+
+    router = getattr(window, "router", None) or getattr(orchestrator, "router", None)
+    provider = getattr(router, "provider", None)
+    sink = getattr(getattr(orchestrator, "memory", None), "sink", None)
+    store = sink if isinstance(sink, MemoryStore) else None
+    workspace = getattr(orchestrator, "workspace", None) or config.get("_workspace")
+    new = build_tool_registry(
+        config,
+        workspace,
+        allow_send=True,
+        attended=True,
+        memory_store=store,
+        provider=provider,
+        router=router,
+    )
+    if set(old.names()) == set(new.names()):
+        return False
+    _copy_transcribe_stt(old, new)
+    orchestrator.tools = new
+    _reseed_session_prefix(window, new)
+    return True
+
+
+def _copy_transcribe_stt(old: Any, new: Any) -> None:
+    previous = old.get("transcribe") if hasattr(old, "get") else None
+    current = new.get("transcribe") if hasattr(new, "get") else None
+    if previous is None or current is None:
+        return
+    stt = getattr(previous, "_stt", None)
+    if stt is not None and getattr(current, "_stt", None) is None:
+        current._stt = stt
+
+
+def _reseed_session_prefix(window: Any, tools: Any) -> None:
+    import asyncio
+
+    from arelis.llm.startup import prefix_warmup_for, seed_prefix_cache
+
+    loop = getattr(window, "loop", None)
+    router = getattr(window, "router", None)
+    bus = getattr(window, "bus", None)
+    config = getattr(window, "config", None)
+    if loop is None or router is None or bus is None or not isinstance(config, dict):
+        return
+    prefix = prefix_warmup_for(config, tools)
+    if prefix is None:
+        return
+    asyncio.run_coroutine_threadsafe(
+        seed_prefix_cache(bus, router, prefix, announce=False),
+        loop,
+    )

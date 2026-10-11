@@ -90,8 +90,11 @@ def test_forbidden_tools_are_never_also_expected() -> None:
 @pytest.fixture(scope="module")
 def registered() -> set[str]:
     router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
+    config = load_config()
+    config["_vl_model_installed"] = True
+    config["_session_platform"] = "win32"
     registry = build_tool_registry(
-        load_config(), allow_send=True, attended=True, router=router
+        config, allow_send=True, attended=True, router=router
     )
     return set(registry.names())
 
