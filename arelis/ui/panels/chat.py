@@ -33,6 +33,7 @@ from arelis.core.document_refs import files_in_turn
 from arelis.local_open import open_local_file, reveal_local_file
 from arelis.ui.attach_bar import ATTACH_TILE
 from arelis.ui.chat_browser import CHART_SCHEME, ChatBrowser
+from arelis.ui.chat_find import ChatFindBar
 from arelis.ui.markdown import render_markdown
 from arelis.ui.math_images import math_html, prewarm
 from arelis.ui.theme import COLORS, SPACE, color
@@ -253,6 +254,7 @@ class ChatPanel(QWidget):
         self.view.document().contentsChange.connect(self._wash_bubbles)
         self.view.hide()
         layout.addWidget(self.view, stretch=1)
+        layout.addWidget(ChatFindBar(self.view, self))
 
         # In-chat loading gate — shimmer, not a console window. Clickable so
         # the Thinking dock can stay closed until she asks for it.

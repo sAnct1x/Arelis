@@ -338,6 +338,7 @@ class WindowChrome:
         self.act_shortcuts.triggered.connect(self._open_shortcuts)
         self.addAction(self.act_shortcuts)
 
+        from arelis.ui.chat_find import open_chat_find
         from arelis.ui.history_host import focus_history_search, on_history_new
         from arelis.ui.quick_switch import open_quick_switch
 
@@ -358,6 +359,13 @@ class WindowChrome:
         self.act_search_history.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_search_history.triggered.connect(lambda: focus_history_search(self))
         self.addAction(self.act_search_history)
+
+        self.act_find = QAction("find in this chat", self)
+        self.act_find.setShortcut(QKeySequence(QKeySequence.StandardKey.Find))
+        self.act_find.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_find.setToolTip("find in this chat (Ctrl+F)")
+        self.act_find.triggered.connect(lambda: open_chat_find(self))
+        self.addAction(self.act_find)
 
         self._theme_group = QActionGroup(self)
         self._theme_group.setExclusive(True)
@@ -673,6 +681,7 @@ class WindowChrome:
         menu.setAccessibleName("View")
         menu.addAction(self.act_new_chat)
         menu.addAction(self.act_quick_switch)
+        menu.addAction(self.act_find)
         menu.addAction(self.act_search_history)
         menu.addSeparator()
         menu.addAction(self.act_persona)
