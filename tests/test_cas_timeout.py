@@ -197,6 +197,22 @@ async def test_a_pathological_series_is_killed_with_its_child(
     assert not _cas_worker_still_inside_compute()
 
 
+def test_windows_spawn_gets_time_to_import_before_the_deadline(monkeypatch) -> None:
+    """A cold Windows child can spend the whole 8s importing SymPy.
+
+    series(sin(x)) then looks like it has no closed form. The extra wait
+    is only for a full budget, so a short deadline still kills fast.
+    """
+    import arelis.tools.cas as cas
+
+    monkeypatch.setattr(cas.sys, "platform", "win32")
+    assert cas._spawn_join_timeout(cas._TIMEOUT_S) == cas._TIMEOUT_S * 2
+    assert cas._spawn_join_timeout(0.4) == 0.4
+
+    monkeypatch.setattr(cas.sys, "platform", "linux")
+    assert cas._spawn_join_timeout(cas._TIMEOUT_S) == cas._TIMEOUT_S
+
+
 @pytest.mark.asyncio
 async def test_series_of_sine_is_the_opening_terms() -> None:
     result = await CasTool().run(action="series", expr="sin(x)", n=6)

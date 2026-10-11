@@ -674,13 +674,28 @@ def _run_bounded(
         pool.shutdown(wait=False, cancel_futures=True)
 
 
+def _spawn_join_timeout(timeout: float) -> float:
+    """How long to wait before killing a child.
+
+    The budget is the work. On Windows the child is a new interpreter, and
+    importing SymPy can spend a whole 8s before series() starts. A busy
+    runner then says a 6-term sine series did not finish. The extra wait is
+    only for a full budget, so a test that sets a short deadline still
+    kills the child on that short number.
+    """
+    wait = max(0.1, float(timeout))
+    if sys.platform == "win32" and _TIMEOUT_S >= 8.0 and wait + 1e-6 >= _TIMEOUT_S:
+        wait += _TIMEOUT_S
+    return wait
+
+
 def _run_in_process(target: Any, *args: Any, timeout: float = _TIMEOUT_S) -> _CasResult:
     ctx = multiprocessing.get_context("spawn")
     queue = ctx.Queue(maxsize=1)
     proc = ctx.Process(target=target, args=(queue, *args), daemon=True)
     try:
         proc.start()
-        proc.join(timeout=max(0.1, float(timeout)))
+        proc.join(timeout=_spawn_join_timeout(timeout))
         if proc.is_alive():
             proc.terminate()
             proc.join(timeout=1.0)
