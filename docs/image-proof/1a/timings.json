@@ -1,20 +1,17 @@
 {
   "phase": "1a",
   "warm_seconds": {
-    "diagram_pipeline": 0.0473,
-    "lightcurve": 0.0558,
-    "slide": 0.0446
+    "diagram_pipeline": 0.0445,
+    "lightcurve": 0.0487,
+    "slide": 0.044
   },
   "target_seconds": 1.0,
   "files": [
     "diagram_pipeline.mmd",
     "diagram_pipeline.png",
-    "diagram_pipeline.svg",
     "lightcurve.json",
     "lightcurve.png",
-    "lightcurve.svg",
     "slide.png",
-    "slide.svg",
     "slide.typ"
   ]
 }

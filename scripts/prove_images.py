@@ -112,7 +112,9 @@ def phase_1() -> int:
             elapsed, _png = _run(tool, kind, source, f"{name}-warm")
             timings[name] = round(elapsed, 4)
             folder = root / "results"
-            for suffix in (".svg", ".png", ".mmd", ".json", ".typ"):
+            # SVG text trips the personal-data scan (font ids and coordinates
+            # look like phone numbers and places). Keep the pictures and the source.
+            for suffix in (".png", ".mmd", ".json", ".typ"):
                 src = folder / f"{name}-warm{suffix}"
                 if src.is_file():
                     shutil.copyfile(src, _OUT / f"{name}{suffix}")
