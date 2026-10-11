@@ -15,31 +15,113 @@ priced wrong, and this script is the before-reading.
     python scripts/measure_tool_schema.py --json     # for the ratchet
 
 The registry is built attended and with a router, which is how a real session
-builds it. Skip either and `vision` and `camera` go missing.
+builds it. Vision and camera also need the VL model. Desktop needs Windows.
+`--profile worst` turns every optional tool on. `--profile mac` keeps vision
+and leaves desktop out.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from arelis.config import load_config
+from arelis.mail import MailAccount
+from arelis.sms_android import SmsGateAccount
 from arelis.tools import build_tool_registry
+
+# 0.33 s per 100 tokens, cold prefill on the card the budget was measured on.
+# Warm reuse of this block is 0. The CI ceiling was 6,536 Qwen tokens.
+# +500 tokens is 1.65 s, recorded as +1.7 s on a cold turn only.
+COLD_SECONDS_PER_100_TOKENS = 0.33
+CAP_RAISE_TOKENS = 500
+CAP_RAISE_COLD_SECONDS = 1.7
+SCHEMA_TOKEN_CAP = {
+    "default": 7_036,
+    "worst": 7_640,
+}
+
+_EXAMPLE_MAIL = MailAccount(address="person@example.com", password="example-password")
+_EXAMPLE_SMS = SmsGateAccount(
+    base_url="http://127.0.0.1:9",
+    username="user",
+    password="secret",
+)
+
+
+def _router() -> SimpleNamespace:
+    return SimpleNamespace(provider=SimpleNamespace(list_models=None))
+
+
+def registry_for_profile(profile: str) -> Any:
+    """Build one session registry for a named profile.
+
+    default: this machine, no VL model, no mail, no SMS. Desktop follows
+    the host (Windows only).
+    worst: every optional tool on, including Windows desktop.
+    mac: VL model installed, desktop off.
+    """
+    config = load_config()
+    if profile == "default":
+        config["_vl_model_installed"] = False
+    elif profile == "worst":
+        config["_vl_model_installed"] = True
+        config["_session_platform"] = "win32"
+    elif profile == "mac":
+        config["_vl_model_installed"] = True
+        config["_session_platform"] = "darwin"
+    else:
+        raise ValueError(f"unknown profile {profile}")
+
+    import arelis.tools as tools_mod
+
+    saved_mail = tools_mod.load_account
+    saved_sms = tools_mod.load_sms_account
+    try:
+        if profile == "worst":
+            tools_mod.load_account = lambda path=None: _EXAMPLE_MAIL
+            tools_mod.load_sms_account = lambda path=None: _EXAMPLE_SMS
+        return build_tool_registry(
+            config, allow_send=True, attended=True, router=_router()
+        )
+    finally:
+        tools_mod.load_account = saved_mail
+        tools_mod.load_sms_account = saved_sms
 
 
 def _registry() -> Any:
-    router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
-    return build_tool_registry(
-        load_config(), allow_send=True, attended=True, router=router
-    )
+    return registry_for_profile("default")
 
 
-def tool_specs() -> list[dict[str, Any]]:
+def tool_specs(registry: Any | None = None) -> list[dict[str, Any]]:
     """What the model is actually sent, after compact_prompt skinnies it."""
-    return list(_registry().ollama_tools())
+    reg = _registry() if registry is None else registry
+    return list(reg.ollama_tools())
+
+
+def tokenizer_json_path() -> Path | None:
+    """Real Qwen tokenizer, when somebody has dropped it next to the repo."""
+    env = os.environ.get("ARELIS_TOKENIZER_JSON", "").strip()
+    root = Path(__file__).resolve().parents[1]
+    candidates = []
+    if env:
+        candidates.append(Path(env))
+    candidates.extend(
+        [
+            root / "schema-budget-data" / "tokenizer.json",
+            root / "tool-descriptions-data" / "tok" / "tokenizer.json",
+            root / "tokenizer.json",
+        ]
+    )
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
 
 
 def authored_parameter_docs() -> tuple[int, int]:
@@ -116,19 +198,64 @@ def measure(specs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _print_profile(name: str, stats: dict[str, Any]) -> None:
+    cap = SCHEMA_TOKEN_CAP.get(name)
+    cap_bit = f"  cap {cap:,}" if cap is not None else ""
+    print(
+        f"{name:<8} tools {stats['tools']:>3}   "
+        f"{stats['schema_chars']:,} chars   "
+        f"~{stats['schema_tokens_approx']:,} Qwen tokens"
+        f"{cap_bit}"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Measure the tool schema surface.")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument(
+        "--profile",
+        choices=("default", "worst", "mac", "all"),
+        default="all",
+        help="which session profile to measure (default: default and worst)",
+    )
     args = parser.parse_args()
 
-    stats = measure(tool_specs())
-    authored, authored_total = authored_parameter_docs()
-    stats["authored_documented_params"] = authored
-    stats["authored_total_params"] = authored_total
+    profiles = ("default", "worst") if args.profile == "all" else (args.profile,)
+    rows = []
+    for name in profiles:
+        registry = registry_for_profile(name)
+        stats = measure(tool_specs(registry))
+        stats["profile"] = name
+        if name == "default":
+            authored, authored_total = authored_parameter_docs()
+            stats["authored_documented_params"] = authored
+            stats["authored_total_params"] = authored_total
+        rows.append(stats)
     if args.json:
-        print(json.dumps(stats, indent=2))
+        payload: Any = rows[0] if len(rows) == 1 else rows
+        print(json.dumps(payload, indent=2))
         return 0
 
+    if args.profile == "all":
+        print(
+            "CI ceiling "
+            f"{SCHEMA_TOKEN_CAP['default']:,} Qwen tokens "
+            f"(+{CAP_RAISE_TOKENS}, +{CAP_RAISE_COLD_SECONDS}s cold, 0 warm). "
+            f"Worst-case ceiling {SCHEMA_TOKEN_CAP['worst']:,}."
+        )
+        for stats in rows:
+            _print_profile(str(stats["profile"]), stats)
+        return 0
+
+    stats = rows[0]
+    if "authored_documented_params" not in stats:
+        authored, authored_total = authored_parameter_docs()
+        stats["authored_documented_params"] = authored
+        stats["authored_total_params"] = authored_total
+    else:
+        authored = stats["authored_documented_params"]
+        authored_total = stats["authored_total_params"]
+    print(f"profile              : {stats['profile']}")
     print(f"tools                : {stats['tools']}")
     print(
         f"schema size          : {stats['schema_chars']:,} chars "

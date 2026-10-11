@@ -222,7 +222,13 @@ def test_policy_desktop_confirm_and_destructive() -> None:
     set_confirm_mode("card")
 
 
-def test_jobs_omit_desktop() -> None:
+def test_jobs_omit_desktop(monkeypatch) -> None:
+    import sys
+
+    import arelis.tools as tools_mod
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(tools_mod.sys, "platform", "win32")
     config = {"tools": {}, "agent": {}, "workspace": {"roots": ["."]}}
     jobs = build_tool_registry(config, allow_send=False, attended=False)
     assert "desktop" not in jobs.names()

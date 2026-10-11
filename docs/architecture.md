@@ -86,11 +86,13 @@ window attaches over loopback.
    model does not own them.
 4. Risky actions pause for your input. A drive you already asked for
    doesn't need to pause again. On **sodium** mail and texts always
-   pause, no exceptions. The **filament** desk is the one exception in
-   the app: there the spoken ask is the grant, so a send goes without a
-   card and only destructive calls (delete, forget, Pay, Checkout,
-   a UAC prompt on the desk), plus `run_script` stop and wait. See
-   Themes below.
+   pause, no exceptions. **Filament** confirms sends, deletes, and
+   calendar writes the same way. She asks out loud, and a spoken yes
+   is the approval. A calendar change you already named stays light,
+   the same as sodium, except a delete, which always pauses. Image,
+   opening a page, a workspace write, and opening something on the
+   desk stay free on filament. `run_script` still stops and waits.
+   See Themes below.
 
    Pay and Checkout follow the browser allow switch. With that switch
    on, the card still shows when you named the job. With it off, no
@@ -265,7 +267,7 @@ you do, you land in the full workbench: chat, composer, and docks.
 | Contacts | People you can text, under View → Contacts / Ctrl+6 |
 | Calendar | Local tile, Ctrl+7: month / week / day / agenda views, plus tasks and jobs. Empty of any Google events until you authorize |
 | Settings | Audio / window / allow / notify / roots / memory. Mail is a form on Notify: Gmail address and app password. The password is not shown again after Apply, and it is stored in `data/secrets.yaml`. Phone pairing (the QR and a token) is on that same tab. Calendar OAuth is not a Settings tab. Use `arelis --auth-calendar` (see [calendar-oauth.md](calendar-oauth.md)) |
-| Themes | View → Themes. **sodium** is the shipped face. **filament (testing)** is a checkout experiment for a row of desks: three monitors is the intended layout; 1 and 2 still work. Saved to `data/config.local.yaml`. Confirms change with the face: sodium raises the Allow card, filament treats the spoken ask as the grant and only pauses on destructive calls (delete / forget / Pay / Checkout / a UAC prompt on the desk) and `run_script`. Switching theme switches that policy. A send that would have shown you a card on sodium does not on filament. Filament is a desk presence: coil at first rest or away-idle, unwrapped once in use. Slim title bar, say “hey arelis”, and 1 / 2 / 3 stay on the primary desk. 1 / 2 / 3 are desk counts, not Windows monitor numbers; default is one primary desk. Text lives on the chat plate. The thinking title breathes while a turn is running. Each title has its own particle on the current (same motion as the word). Click the bead or the word. HWND stays opaque; tiles are floating resizable plates. The field paints a horizontal band and remasks only on span / resize, not every atmosphere tick. Dust stamps live in RAM; camera preview convert is a worker, not the HWND thread |
+| Themes | View → Themes. **sodium** is the shipped face. **filament (testing)** is a checkout experiment for a row of desks: three monitors is the intended layout; 1 and 2 still work. Saved to `data/config.local.yaml`. Confirms change with the face: sodium raises the Allow card, filament asks out loud. Sends, deletes, and calendar writes pause on filament the same as the other themes, and a spoken yes is the approval. A calendar change you already named stays light, the same as sodium, except a delete, which always pauses. Image, opening a page, a workspace write, and opening something on the desk stay free on filament. Switching theme switches that policy. Filament is a desk presence: coil at first rest or away-idle, unwrapped once in use. Slim title bar, say “hey arelis”, and 1 / 2 / 3 stay on the primary desk. 1 / 2 / 3 are desk counts, not Windows monitor numbers; default is one primary desk. Text lives on the chat plate. The thinking title breathes while a turn is running. Each title has its own particle on the current (same motion as the word). Click the bead or the word. HWND stays opaque; tiles are floating resizable plates. The field paints a horizontal band and remasks only on span / resize, not every atmosphere tick. Dust stamps live in RAM; camera preview convert is a worker, not the HWND thread |
 | Display | Same model as Chrome / VS Code / Office. Qt 6 per-monitor DPI: a 4K panel at 150% is ~2560×1440 logical, not a second 4K mode. First-launch size (1440×900) shrinks to the current work area so 1080p fits; 2K and 4K stay that size until you maximize. Restored geometry that landed on an unplugged monitor moves back. Settings → window → Interface scale is an optional zoom on top of the OS (`ui.scale`, default 1.0, needs a restart). Chat text size is just the transcript (Ctrl+= / − / 0). |
 | Reality | A floating 3D window. View → Reality / Ctrl+8. Only appears while the Reality room is active, and only on a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hand tracking and `.[astro]` for REBOUND. None of it ships in the installer. Default size 1280×800. The solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (an offscreen FBO). The Earth view renders the planet through Cesium, with Arelis handling stars and the HUD; contacts there use `earth_marks.py`. It's inspect-only: a WASD fly camera, with H reciting the live key bindings. There's no piloted chase-cam |
 
@@ -315,7 +317,7 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `pdf` | Merge / split / rotate. Always a new file. No form fill | Yes |
 | `calculator` | Arithmetic | No |
 | `python` | Short numerics cell (math / sympy / numpy). No file or shell access | No |
-| `run_script` | A project `.py` under a workspace root. Not a shell. Not her own tests | Yes (card / spoken on filament) |
+| `run_script` | A project `.py` under a workspace root. Not a shell. Not her own tests | Yes (card on sodium, spoken on filament) |
 | `cas` / `units` | Closed forms, conversions, constants | No |
 | `diagnostics` | Her own pytest suite. Source checkout with `tests/` needed | No |
 | `watch` | House watch snapshot: listeners, inbound limits, outbound API volume. Not antivirus, and it does not scan the rest of the PC | No |
@@ -340,11 +342,11 @@ She can `workspace`-read her package to answer "how do you work"
 from the file. Installed copies get a read-only `source` root at
 the package.
 
-\* Writes a local file. On sodium, outbound mail and texts always need
-their own separate allow / deny prompt. On neither face are they ever
-batched into "allow the rest of this ask". That exemption is the same
-in both. On filament there is no card at all for a send: it rides the
-spoken grant like any other non-destructive call.
+\* Writes a local file. Outbound mail and texts always need their own
+allow or deny, on sodium and on filament. On neither face are they ever
+batched into "allow the rest of this ask". On filament she asks out
+loud and a spoken yes is the approval. A calendar write you already
+named stays light, the same as sodium, except a delete.
 `research_report` writes a file under `outputs/research/` and answers
 to the writes toggle: same Allow card as any other local artifact.
 `external_read` is a session-grant confirm token for a typed

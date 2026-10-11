@@ -32,6 +32,8 @@ from arelis.tools.policy import (
 )
 from arelis.ui.theme import THEME_IDS, apply_theme
 
+# Voice-mode themes. The send floor applies here too. The drift guard
+# below still pins this set to filament.
 FLOOR_EXEMPT_THEMES = frozenset({"filament"})
 
 _TOGGLE_KEYS = (
@@ -456,15 +458,15 @@ def test_theme_confirm_mode_drift_guard() -> None:
         apply_theme("sodium")
 
 
-def test_filament_floor_exemption_unchanged() -> None:
+def test_filament_keeps_the_send_floor() -> None:
     try:
         apply_theme("filament")
         assert confirm_mode() == "voice"
         for flags in _toggle_flag_sets():
             for asked, ask_is_grant in itertools.product((True, False), repeat=2):
                 kwargs = dict(flags, asked=asked, ask_is_grant=ask_is_grant)
-                assert not evaluate_confirm("send_email", {}, **kwargs)
-                assert not evaluate_confirm("send_sms", {}, **kwargs)
+                assert evaluate_confirm("send_email", {}, **kwargs)
+                assert evaluate_confirm("send_sms", {}, **kwargs)
                 assert not evaluate_confirm(
                     "workspace", {"action": "write"}, **kwargs
                 )

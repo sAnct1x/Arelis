@@ -40,9 +40,17 @@ log = logging.getLogger(__name__)
 MATH_SCHEME = "arelis-math"
 
 # One reply may spend this long, or this many formulas, on images. The rest
-# stay unicode so a huge answer cannot stall the bubble.
+# stay unicode so a huge answer cannot stall the bubble. The first few are
+# drawn even when they are slow. One cold formula used to spend the whole
+# cap, and the rest of a short answer came out as unicode. A fast machine
+# finishes those inside the cap, so a long answer still stops where it used to.
 _FORMULA_CAP = 60
 _TIME_CAP_S = 0.200
+_DRAW_FLOOR = 8
+
+# A reply that arrives while warm-up still holds the engine waits at most
+# this long. Giving up at once left the formula as unicode.
+_LOCK_WAIT_S = 2.0
 
 # Anything longer than this stays unicode. A few hundred sums already cost
 # more than a frame, and a 30-deep fraction raises inside ziamath.
@@ -145,7 +153,7 @@ _WARM_DONE.set()
 
 
 class _BusyError(Exception):
-    """The warm-up thread still holds the engine. This reply stays unicode."""
+    """The engine is busy and the short wait is over. This formula stays unicode."""
 
 
 @dataclass(frozen=True)
@@ -175,7 +183,11 @@ class _Budget:
         self.spent = 0.0
 
     def allow(self) -> bool:
-        return self.count < _FORMULA_CAP and self.spent < _TIME_CAP_S
+        if self.count >= _FORMULA_CAP:
+            return False
+        if self.count < _DRAW_FLOOR:
+            return True
+        return self.spent < _TIME_CAP_S
 
     def add(self, seconds: float) -> None:
         self.count += 1
@@ -325,7 +337,8 @@ def prewarm() -> None:
     """Import ziamath and draw one formula off the GUI thread.
 
     The first import is about a tenth of a second. A reply that arrives
-    while this still holds the lock stays unicode instead of waiting.
+    while this still holds the lock waits for it, up to ``_LOCK_WAIT_S``,
+    and then draws.
     """
     global _PREWARMED
     if _PREWARMED:
@@ -494,10 +507,23 @@ def _svg_for(tex: str, px: int, display: bool) -> str:
     return drawn.svg()
 
 
+def _acquire_engine() -> bool:
+    """Take the engine. During warm-up, wait until that thread lets go.
+
+    Warm-up releases the lock before it marks itself done, so waiting on
+    the event cannot deadlock. Once warm-up has finished, a busy lock is
+    this thread already inside a render. Waiting there would deadlock, so
+    that miss stays unicode.
+    """
+    if _LOCK.acquire(blocking=False):
+        return True
+    if not _WARM_DONE.is_set():
+        _WARM_DONE.wait(_LOCK_WAIT_S)
+    return _LOCK.acquire(blocking=False)
+
+
 def _build_mask(tex: str, display: bool, px: int, dpr: float) -> np.ndarray | None:
-    # The GUI thread must not wait. A busy lock means the warm-up import
-    # is still running, and this formula stays unicode.
-    if not _LOCK.acquire(blocking=False):
+    if not _acquire_engine():
         raise _BusyError()
     try:
         prepared = prepare_tex(tex)

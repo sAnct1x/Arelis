@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from arelis.tools.base import ToolResult
+from arelis.tools.child_proc import child_env
 from arelis.tools.confirm_preview import run_script_confirm
 from arelis.tools.safety import redact_secrets
 from arelis.workspace import WorkspaceRoots
@@ -131,10 +132,10 @@ class RunScriptTool:
         interpreter = resolve_interpreter(resolved.root, self.python)
         cwd = resolved.root
         cmd = [interpreter, str(path), *argv_extra]
-        env = os.environ.copy()
+        # child_env drops every ARELIS_* name. The nest flag is ours.
+        env = child_env({"PYTHONIOENCODING": "utf-8"})
         env[_NEST_ENV] = "1"
         env.setdefault("PYTHONUNBUFFERED", "1")
-        env["PYTHONIOENCODING"] = "utf-8"
 
         started = time.monotonic()
         try:
