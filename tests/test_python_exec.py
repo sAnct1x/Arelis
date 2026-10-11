@@ -31,8 +31,10 @@ checked on the AST, before anything runs.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -370,47 +372,76 @@ async def test_output_is_capped() -> None:
 # --------------------------------------------------------------------------
 
 
-async def _power_stall() -> tuple[bool, str, float, int]:
-    """The integer power that held the GIL. Ticks only advance when this process can run."""
-    ticks = 0
-    stop = threading.Event()
-
-    def _beat() -> None:
-        nonlocal ticks
-        # A 50ms wait is the wrong clock here. On the macOS runner those waits
-        # landed about 120ms apart, so an 11s kill produced 87 to 96 ticks and
-        # missed 100 even though this process was running the whole time. A
-        # yield still cannot run while a C call holds this process's GIL,
-        # which is the freeze the count is there to catch.
-        while not stop.is_set():
-            ticks += 1
-            time.sleep(0)
-
-    beater = threading.Thread(target=_beat, name="arelis-cell-heartbeat", daemon=True)
-    beater.start()
+async def _power_stall() -> tuple[bool, str, float]:
+    """The integer power that held the GIL."""
     started = time.monotonic()
-    try:
-        ok, out = await _run("x = 7**(10**8)")
-    finally:
-        stop.set()
-        beater.join(timeout=1)
-    return ok, out, time.monotonic() - started, ticks
+    ok, out = await _run("x = 7**(10**8)")
+    return ok, out, time.monotonic() - started
+
+
+def _max_gap(start: float, stamps: list[float], end: float) -> float:
+    points = [start, *stamps, end]
+    return max(b - a for a, b in pairwise(points))
 
 
 @pytest.mark.asyncio
 async def test_c_stall_does_not_freeze_app() -> None:
-    """A long C call used to freeze this process. It has to come back, and the heartbeat with it."""
-    ok, out, elapsed, ticks = await _power_stall()
+    """A long C call used to freeze this process. It has to come back, and the heartbeat with it.
+
+    The bar is this run's own idle heartbeat, not a fixed tick count. A loaded
+    runner wakes a 50ms wait late (macOS CI did that about every 120ms, so an
+    11s kill scored 87 and 96). A GIL hold does not wake late. It goes silent
+    for the whole call.
+    """
+    ticks: list[float] = []
+    stop = threading.Event()
+
+    def _beat() -> None:
+        while not stop.wait(0.05):
+            ticks.append(time.monotonic())
+
+    beater = threading.Thread(target=_beat, name="arelis-cell-heartbeat", daemon=True)
+    beater.start()
+    idle_start = time.monotonic()
+    await asyncio.sleep(1.0)
+    idle_end = time.monotonic()
+    started = time.monotonic()
+    try:
+        ok, out = await _run("x = 7**(10**8)")
+    finally:
+        ended = time.monotonic()
+        stop.set()
+        beater.join(timeout=1)
+    elapsed = ended - started
+    idle = [t for t in ticks if idle_start <= t < idle_end]
+    during = [t for t in ticks if started <= t <= ended]
+    idle_span = idle_end - idle_start
+    assert idle_span > 0 and len(idle) >= 2, f"idle heartbeat did not run ({len(idle)} ticks)"
+    idle_rate = len(idle) / idle_span
+    stall_rate = len(during) / elapsed if elapsed else 0.0
+    idle_gap = _max_gap(idle_start, idle, idle_end)
+    stall_gap = _max_gap(started, during, ended)
+    # Several times this run's own idle gap, with a floor so one late wake is
+    # not a failure, and a cap a multi-second GIL hold cannot sneak under.
+    gap_limit = min(max(idle_gap * 4, 1.0), 2.0)
+
     assert not ok, out
     assert elapsed < 15, f"the cell returned in {elapsed:.1f}s"
-    assert ticks >= 100, f"only {ticks} heartbeats, the process was stuck"
+    assert stall_rate >= idle_rate * 0.5, (
+        f"heartbeat fell from {idle_rate:.1f}/s idle to {stall_rate:.1f}/s "
+        f"during the stall ({len(during)} ticks in {elapsed:.1f}s)"
+    )
+    assert stall_gap <= gap_limit, (
+        f"longest silent gap was {stall_gap:.2f}s during the stall "
+        f"(idle max {idle_gap:.2f}s, limit {gap_limit:.2f}s)"
+    )
 
 
 @pytest.mark.asyncio
 async def test_timeout_leaves_no_thread() -> None:
     """The old timeout abandoned the worker. A child can be killed, so the count stays put."""
     before = threading.active_count()
-    ok, out, elapsed, _ticks = await _power_stall()
+    ok, out, elapsed = await _power_stall()
     assert not ok, out
     assert "timed out" in out.lower()
     assert elapsed < 15, f"the cell returned in {elapsed:.1f}s"
