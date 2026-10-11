@@ -182,7 +182,7 @@ def _stop_slide(dock: QWidget) -> None:
 def slide_dock(dock: QWidget, *, show: bool = True) -> QPropertyAnimation | None:
     """Slide a dock in or out. Never fades it.
 
-    When motion is off the dock jumps to the end, and a hide closes at once.
+    When motion is off the dock stays put, and a hide closes at once.
     """
     clear_dock_opacity(dock)
     _hold_opaque(dock)
@@ -191,8 +191,9 @@ def slide_dock(dock: QWidget, *, show: bool = True) -> QPropertyAnimation | None
         return None
     rest = QRect(dock.geometry())
     if not motion_enabled() or rest.width() < 2 or rest.height() < 2:
-        if rest.width() >= 2 and rest.height() >= 2:
-            dock.setGeometry(rest)
+        # Writing geometry here is a no-op on the numbers and still wakes the
+        # dock layout. That layout pass can pull the cursor out of a box that
+        # was just focused, so a snap leaves the widget where it already is.
         _hold_opaque(dock)
         if not show:
             dock.hide()

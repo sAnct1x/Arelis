@@ -294,6 +294,23 @@ def test_dock_hide_slides_then_closes_and_snaps_when_off(qt_app, monkeypatch) ->
         leftover = getattr(dock, "_arelis_dock_slide", None)
         assert leftover is None or not _running(leftover)
         assert dock.graphicsEffect() is None
+
+        dock.show()
+        qt_app.processEvents()
+        before = dock.geometry()
+        writes: list = []
+        original = dock.setGeometry
+
+        def _spy(rect) -> None:
+            writes.append(rect)
+            original(rect)
+
+        dock.setGeometry = _spy  # type: ignore[method-assign]
+        WindowChrome._animate_dock(object(), dock, show=True)
+        assert writes == []
+        assert dock.geometry() == before
+        assert not dock.isHidden()
+        assert getattr(dock, "_arelis_dock_slide", None) is None
     finally:
         tokens.MOTION.clear()
         tokens.MOTION.update(saved)
