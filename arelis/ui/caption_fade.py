@@ -22,11 +22,13 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QCursor, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QPushButton, QToolButton, QWidget
 
+from arelis.ui.theme_tokens import MOTION
+
 _APPROACH_X = 48
 _APPROACH_Y = 6
-_HIDE_MS = 220
-_FADE_IN_MS = 140
-_FADE_OUT_MS = 180
+_FADE_IN_MS = int(MOTION["fast"])
+_FADE_OUT_MS = int(MOTION["base"])
+_HIDE_MS = int(MOTION["base"])
 _POLL_MS = 16
 
 # Names the tests patch. Kept as module globals so a zero-duration check can
@@ -215,7 +217,14 @@ class CaptionHover(QObject):
 
     def _fade(self, show: bool) -> None:
         target = 1.0 if show else 0.0
+        ms = _caption_ms(show)
         anim = self.anim
+        if ms <= 0:
+            anim.stop()
+            self.opacity = target
+            self._on_opacity(target)
+            self._set_hit(show)
+            return
         running = anim.state() == QAbstractAnimation.State.Running
         end = anim.endValue()
         if running and end is not None and abs(float(end) - target) < 0.001:
@@ -224,10 +233,8 @@ class CaptionHover(QObject):
             self._set_hit(show)
             return
         anim.stop()
-        anim.setDuration(_CAPTION_FADE_IN_MS if show else _CAPTION_FADE_OUT_MS)
-        anim.setEasingCurve(
-            QEasingCurve.Type.OutCubic if show else QEasingCurve.Type.InCubic
-        )
+        anim.setDuration(ms)
+        anim.setEasingCurve(_caption_curve())
         anim.setStartValue(self.opacity)
         anim.setEndValue(target)
         self._set_hit(show)
@@ -289,6 +296,30 @@ class CaptionHover(QObject):
         if not self.hide_timer.isActive():
             self.hide_timer.setInterval(_CAPTION_HIDE_MS)
             self.hide_timer.start()
+
+
+def _caption_ms(show: bool) -> int:
+    """Fade length for the window buttons.
+
+    The shared tokens are the default. A test may shorten the fade by writing
+    the module global. Motion off means the buttons snap.
+    """
+    from arelis.ui.motion import motion_enabled
+
+    if not motion_enabled():
+        return 0
+    token = int(MOTION["fast"] if show else MOTION["base"])
+    hooked = _CAPTION_FADE_IN_MS if show else _CAPTION_FADE_OUT_MS
+    original = _FADE_IN_MS if show else _FADE_OUT_MS
+    if hooked != original:
+        return int(hooked)
+    return token
+
+
+def _caption_curve() -> QEasingCurve:
+    from arelis.ui.motion import easing_curve
+
+    return easing_curve()
 
 
 def watch_caption(

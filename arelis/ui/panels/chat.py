@@ -383,6 +383,17 @@ class ChatPanel(QWidget):
         # Qt rich-text tables ignore stylesheet padding-right.
         self.view.setStyleSheet(f"font-size: {body}px; padding-right: {SPACE['plate']}px;")
 
+    def _fade_new_message(self, start: int) -> None:
+        """Ease a just-inserted message in. Images in that range stay as they are."""
+        from arelis.ui.motion import fade_new_transcript
+
+        fade_new_transcript(self.view, start)
+
+    def _cancel_message_fade(self) -> None:
+        from arelis.ui.motion import cancel_transcript_fade
+
+        cancel_transcript_fade(self.view, restore=False)
+
     def _ensure_view(self) -> None:
         if not self._has_messages:
             self.empty.hide()
@@ -638,7 +649,9 @@ class ChatPanel(QWidget):
         self._strip_last_acts()
         self._last_user_text = text
         self._last_user_attachments = list(attachments or [])
+        origin = self._end_position()
         self.view.append(_user_bubble_html(text, attachments=attachments))
+        self._fade_new_message(origin)
         self._scroll(follow=follow)
 
     def begin_assistant(self) -> None:
@@ -699,6 +712,8 @@ class ChatPanel(QWidget):
             self._ensure_view()
             self._label_at = self._end_position()
             self._anchor = self._end_position()
+        origin = self._anchor if self._anchor is not None else self._end_position()
+        if not self._stream_open:
             self._replace_from_anchor(_assistant_bubble_html(body))
         else:
             answer = _assistant_open() + render_markdown(body, math=math_html) + _ASSISTANT_CLOSE
@@ -710,6 +725,7 @@ class ChatPanel(QWidget):
         self._last_assistant_body = body
         self._flush_pending_notices()
         self._place_last_acts()
+        self._fade_new_message(origin)
         self._scroll(follow=follow)
 
     def discard_stream(self) -> None:
@@ -923,6 +939,7 @@ class ChatPanel(QWidget):
         """
         self._stop_caret()
         self.clear_progress()
+        self._cancel_message_fade()
         self._stream_open = False
         self._has_messages = False
         self._anchor = None
