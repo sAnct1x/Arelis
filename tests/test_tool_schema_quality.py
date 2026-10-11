@@ -38,12 +38,18 @@ from scripts.measure_tool_schema import (
 # Raise the floors, never lower them. The ceiling moved when Phase 5
 # registered notes/remind/transcribe/sql/pdf (38 → 43), then again when
 # run_task registered beside run_script (43 → 44). Re-measured, not
-# guessed: skinny schema ≈ 5821 tokens. Tier A hides 64 parameters from
-# the model-facing schema on this profile (66 names in the constant;
-# memory text and limit stay visible) and retargets the ceiling: 5,400
-# on the old chars/4 scale, which is 6,536 Qwen tokens at the calibrated
-# ratio.
-EXPECTED_TOOLS = 45
+# guessed: skinny schema ≈ 5821 tokens. Tier A hides parameters from
+# the model-facing schema on this profile and retargets the ceiling:
+# 5,400 on the old chars/4 scale, which is 6,536 Qwen tokens at the
+# calibrated ratio. Diagram (45 → 46) stays under that ceiling by also
+# hiding negative, format, fit, text_align, and warmth. Class description
+# text does not move this count: the one-line catalog overrides it.
+# Re-measured on top of #181: before diagram 21,523 chars, 6,513 Qwen
+# tokens (5,380 at chars/4); after 21,582 chars, 6,530 Qwen tokens
+# (5,395 at chars/4). Ceiling stays 6,536. On this profile that is 69
+# hidden parameters (71 names in the constant; memory text and limit
+# stay visible).
+EXPECTED_TOOLS = 46
 MAX_SCHEMA_TOKENS = schema_token_estimate(5_400 * 4)
 MIN_DESCRIPTION_CHARS = 12
 MIN_MEDIAN_DESCRIPTION = 41
@@ -74,6 +80,7 @@ SESSION_TOOL_ORDER = (
     "solar",
     "earth",
     "plot",
+    "diagram",
     "data_cell",
     "document",
     "pdf",
@@ -231,7 +238,7 @@ def test_the_hide_list_is_a_fixed_constant() -> None:
     assert list(inspect.signature(model_parameters).parameters) == ["tool_name", "params"]
     assert "environ" not in model_parameters.__code__.co_names
     assert "memory" not in MODEL_HIDDEN_PARAMS
-    assert sum(len(names) for names in MODEL_HIDDEN_PARAMS.values()) == 66
+    assert sum(len(names) for names in MODEL_HIDDEN_PARAMS.values()) == 71
 
 
 def test_hidden_params_leave_the_model_schema_and_stay_accepted() -> None:
@@ -283,7 +290,7 @@ def test_hidden_params_leave_the_model_schema_and_stay_accepted() -> None:
             is None
         )
     assert not missing, missing
-    assert hidden_on_profile == 64
+    assert hidden_on_profile == 69
     assert "text" in visible["memory"] and "limit" in visible["memory"]
 
     notes = visible["notes"]

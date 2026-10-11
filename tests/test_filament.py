@@ -79,7 +79,7 @@ def test_filament_is_a_theme() -> None:
     assert confirm_mode() == "card"
 
 
-def test_voice_grant_only_pauses_on_delete() -> None:
+def test_voice_mode_pauses_sends_and_frees_ordinary_work() -> None:
     set_confirm_mode("voice")
     try:
         assert action_is_delete("agenda", {"action": "delete"})
@@ -95,7 +95,7 @@ def test_voice_grant_only_pauses_on_delete() -> None:
             "browser", {"action": "click", "text": "Checkout"}, risk="side_effect"
         )
         assert not evaluate_confirm("workspace", {"action": "write"}, risk="read")
-        assert not evaluate_confirm("send_sms", {}, risk="side_effect")
+        assert evaluate_confirm("send_sms", {}, risk="side_effect")
         assert not evaluate_confirm("image", {"prompt": "x"}, risk="side_effect")
         assert not evaluate_confirm(
             "browser", {"action": "open", "url": "youtube"}, risk="side_effect"
@@ -110,9 +110,9 @@ def test_voice_grant_only_pauses_on_delete() -> None:
         assert not evaluate_confirm(
             "image", {"prompt": "x"}, asked=True, risk="side_effect"
         )
-        # Settings Allow boxes off (the filament default): voice is still
-        # the grant. ask-is-grant / wander / ask-me-everything do not
-        # reopen cards here. Only delete, Pay, and run_script pause.
+        # Settings Allow boxes off (the filament default). Sends and
+        # deletes still pause. Ordinary writes, pictures, and opening
+        # a page stay free. Pay and run_script still pause.
         off = dict(
             confirm_writes=False,
             confirm_image=False,
@@ -126,7 +126,7 @@ def test_voice_grant_only_pauses_on_delete() -> None:
         assert not evaluate_confirm(
             "image", {"prompt": "x"}, risk="side_effect", **off
         )
-        assert not evaluate_confirm("send_sms", {}, risk="side_effect", **off)
+        assert evaluate_confirm("send_sms", {}, risk="side_effect", **off)
         assert not evaluate_confirm(
             "workspace", {"action": "write"}, risk="read", **off
         )

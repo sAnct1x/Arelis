@@ -1,0 +1,5 @@
+flowchart TD
+  raw[Telescope raw FITS] --> bias[Bias and dark]
+  bias --> flat[Flat field]
+  flat --> decide{Stack decision}
+  decide --> photo[Photometry]
