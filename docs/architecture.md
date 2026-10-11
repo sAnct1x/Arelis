@@ -380,8 +380,10 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
 
 ## Memory and safety
 
-- Chat history is a sliding window (`agent.history_max_messages`,
-  shipped at 120, roughly 60 turns).
+- Chat history is capped at `agent.history_max_messages` (shipped at 600)
+  as a backstop. The token budget is the real limit. When either one
+  trips, a block is dropped down to about half so the prompt prefix
+  breaks once, then holds, instead of sliding every turn.
 - The History dock shows past sessions plus any pending facts
   waiting for approval or rejection.
 - Active facts live in `memory.db`, managed under **Settings →
