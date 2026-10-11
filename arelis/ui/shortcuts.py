@@ -34,6 +34,7 @@ SHORTCUTS: tuple[tuple[str, str, str], ...] = (
     ("conversation", "Ctrl+Shift+A", "attach files"),
     ("conversation", "Ctrl+N", "new conversation"),
     ("conversation", "Ctrl+K", "jump to a conversation"),
+    ("conversation", "Ctrl+F", "find in this chat"),
     ("conversation", "Ctrl+Shift+F", "search past conversations"),
     ("panels", "Ctrl+1", "thinking: what she is doing, in detail"),
     ("panels", "Ctrl+2", "workspace: the desk, notes and files she made"),

@@ -1,8 +1,7 @@
 """The shortcut sheet and the window have to name the same chords.
 
 On main the sheet was missing Ctrl+N, Ctrl+K, Ctrl+Shift+F, and Ctrl+F.
-Find in this chat is a later change, so Ctrl+F stays off the sheet until
-that chord is actually bound.
+Ctrl+F is find in this chat, and it is bound with the others.
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ def _action_chords(window) -> set[str]:
 
 
 def test_shortcut_sheet_lists_comfort_chords() -> None:
-    want = {"ctrl+k", "ctrl+n", "ctrl+shift+f"}
+    want = {"ctrl+f", "ctrl+k", "ctrl+n", "ctrl+shift+f"}
     assert want <= chords()
 
 
@@ -45,7 +44,7 @@ def test_every_window_chord_is_on_the_sheet(arelis_window) -> None:
     sheet = chords()
     assert bound == sheet - _COMPOSER_ONLY
     assert sheet - bound == _COMPOSER_ONLY
-    assert {"ctrl+n", "ctrl+k", "ctrl+shift+f"} <= bound
+    assert {"ctrl+n", "ctrl+k", "ctrl+shift+f", "ctrl+f"} <= bound
 
     installed: set[str] = set()
     for shortcut in window.findChildren(QShortcut):
