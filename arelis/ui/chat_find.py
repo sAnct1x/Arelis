@@ -40,6 +40,7 @@ class ChatFindBar(QWidget):
         super().__init__(parent)
         self.view = view
         self.setObjectName("ChatFindBar")
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
 
@@ -53,6 +54,7 @@ class ChatFindBar(QWidget):
         self.edit.setToolTip("find in this chat (Ctrl+F)")
         self.edit.setAccessibleName("find in this chat")
         self.edit.setFixedHeight(28)
+        self.edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.edit.textChanged.connect(self._on_text)
         self.edit.installEventFilter(self)
         row.addWidget(self.edit, stretch=1)
@@ -67,6 +69,7 @@ class ChatFindBar(QWidget):
         self.prev_btn.setObjectName("InstrumentAction")
         self.prev_btn.setToolTip("previous match (Shift+Enter)")
         self.prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.prev_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.prev_btn.clicked.connect(self._previous)
         row.addWidget(self.prev_btn)
 
@@ -74,6 +77,7 @@ class ChatFindBar(QWidget):
         self.next_btn.setObjectName("InstrumentAction")
         self.next_btn.setToolTip("next match (Enter)")
         self.next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.next_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.next_btn.clicked.connect(self._next)
         row.addWidget(self.next_btn)
 
@@ -92,6 +96,7 @@ class ChatFindBar(QWidget):
 
     def show_find(self) -> None:
         """Open the bar for the current chat and select whatever is already typed."""
+        self.edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.show()
         self.edit.setFocus()
         self.edit.selectAll()
@@ -127,6 +132,7 @@ class ChatFindBar(QWidget):
 
     def close_find(self) -> None:
         """Hide the bar and drop every highlight."""
+        self.edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.hide()
         focus = QApplication.focusWidget()
         if focus is not None and (focus is self or self.isAncestorOf(focus)):
