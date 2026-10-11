@@ -49,6 +49,7 @@ def test_chat_find_selects_match(qt_app) -> None:
 
 def test_typing_highlights_plain_text(qt_app) -> None:
     panel = _panel()
+    panel.show()
     panel.add_user("alpha telescope beta telescope")
     bar = _bar(panel)
     assert bar.edit.toolTip() == "find in this chat (Ctrl+F)"
