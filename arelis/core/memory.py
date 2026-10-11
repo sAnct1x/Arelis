@@ -102,10 +102,13 @@ class SessionMemory:
     the contents.
 
     Trimming is by message count and, when max_tokens is set, by estimated
-    tokens, whichever binds first. That alone is not enough to protect the
-    persona: Ollama still drops overflow from the front of the prompt, and
-    system messages are assembled ahead of this history. fit_messages in the
-    agent loop is what pins those; this class only keeps its own list short.
+    tokens, whichever binds first. Crossing either limit drops a block down
+    to about half, so the front of the next prompt stays put for many turns
+    instead of sliding by one message every time. That alone is not enough
+    to protect the persona: Ollama still drops overflow from the front of
+    the prompt, and system messages are assembled ahead of this history.
+    fit_messages in the agent loop is what pins those; this class only
+    keeps its own list short.
 
     ``max_messages`` must be built from ``agent.history_max_messages``, use
     :meth:`from_config`. Both numbers bound the same history, and the tighter
@@ -123,7 +126,7 @@ class SessionMemory:
     messages: list[ChatMessage] = field(default_factory=list)
     # Matches agent.history_max_messages in default.yaml. See the class docstring
     # for why a smaller number here is not a safe default but a silent override.
-    max_messages: int = 120
+    max_messages: int = 600
     max_tokens: int | None = None
     chars_per_token: float = DEFAULT_CHARS_PER_TOKEN
     # Folded-away turns, injected as a pinned system block. Kept here rather
@@ -222,26 +225,42 @@ class SessionMemory:
         rows.extend(copy.deepcopy(item) for item in message.prompt_after)
         return rows
 
-    def as_ollama(
+    def prompt_groups(
         self, *, include_notes: bool = True, include_latest_block: bool = True
-    ) -> list[dict[str, Any]]:
-        """Prompt rows. The latest user block can be omitted when the caller pins it."""
+    ) -> list[list[dict[str, Any]]]:
+        """Prompt rows grouped by the chat message that owns them.
+
+        Notices and blank cancelled lines are omitted. A block drop cuts on
+        these boundaries so the next turn starts on the same row this turn kept.
+        """
         latest_user = None
         if not include_latest_block:
             for index in range(len(self.messages) - 1, -1, -1):
                 if self.messages[index].role == "user":
                     latest_user = index
                     break
-        out: list[dict[str, Any]] = []
+        groups: list[list[dict[str, Any]]] = []
         for index, message in enumerate(self.messages):
-            out.extend(
-                self._rows_for(
-                    message,
-                    include_notes=include_notes,
-                    skip_before=index == latest_user,
-                )
+            rows = self._rows_for(
+                message,
+                include_notes=include_notes,
+                skip_before=index == latest_user,
             )
-        return out
+            if rows:
+                groups.append(rows)
+        return groups
+
+    def as_ollama(
+        self, *, include_notes: bool = True, include_latest_block: bool = True
+    ) -> list[dict[str, Any]]:
+        """Prompt rows. The latest user block can be omitted when the caller pins it."""
+        rows: list[dict[str, Any]] = []
+        for group in self.prompt_groups(
+            include_notes=include_notes,
+            include_latest_block=include_latest_block,
+        ):
+            rows.extend(group)
+        return rows
 
     def drop_prompt_prefix(self, n: int) -> None:
         """Drop the oldest *n* prompt-visible messages. Notices stay.
@@ -310,11 +329,20 @@ class SessionMemory:
         self.pending_facts.clear()
 
     def _trim(self) -> None:
-        if len(self.messages) > self.max_messages:
-            self.messages = self.messages[-self.max_messages :]
-        if self.max_tokens is None:
+        """Drop a block down to about half when the count or token cap trips.
+
+        Keeping exactly the cap trims one message off the front on the next
+        add, which breaks a cached prompt prefix every turn.
+        """
+        if self.max_messages > 0 and len(self.messages) > self.max_messages:
+            keep = max(1, self.max_messages // 2)
+            self.messages = self.messages[-keep:]
+        if self.max_tokens is None or len(self.messages) <= 1:
             return
-        while len(self.messages) > 1 and self._token_count() > self.max_tokens:
+        if self._token_count() <= self.max_tokens:
+            return
+        target = max(1, self.max_tokens // 2)
+        while len(self.messages) > 1 and self._token_count() > target:
             self.messages.pop(0)
 
     def _token_count(self) -> int:

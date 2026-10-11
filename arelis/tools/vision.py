@@ -196,7 +196,7 @@ class VisionTool:
             encoded,
             prepared,
             timeout_s=_PAGE_LOOK_S if ink else 0.0,
-            think=False if ink else None,
+            think=False,
         )
         if fatal is not None:
             return fatal

@@ -259,19 +259,29 @@ agent:
   # summary. Speak, slash and research turns still skip it entirely.
   summarize_max_ms: 8000
   summarize_skip_slash: true
-  # A backstop on message count, not the real limit — the token budget above is.
-  # 24 was the binding constraint and cost roughly twelve turns of memory for no
-  # reason: a session hit the cap long before it filled the window, and dropping
-  # from the front of the prompt is the one edit that invalidates the whole
-  # prefix cache. 120 is ~60 turns, which the budget can genuinely hold, and it
-  # still bounds the worst case rather than growing without limit.
+  # A backstop on message count, not the real limit. The token budget above
+  # is what bounds a session (~60,000 tokens after the persona, the telegraph
+  # policy and the skinny schemas).
+  #
+  # 24 was the binding constraint and cost roughly twelve turns of memory for
+  # no reason. 120 was supposed to be ~60 turns. It is not. A tool turn
+  # replays about a dozen prompt rows (the call, the result, the trace), so
+  # 120 trips after about ten questions. The trim then took two or three rows
+  # off the front of every later turn, which invalidates the prefix cache
+  # right after the persona and the tools. About 8,400 tokens were re-read
+  # on every turn after that.
+  #
+  # 600 is high enough that the token budget binds first on a normal session.
+  # When this cap or that budget does trip, the loop and SessionMemory drop
+  # a block down to about half, so the prefix breaks once and then holds for
+  # many turns instead of breaking on every one.
   #
   # This is also the size of the in-process working set: SessionMemory.from_config
   # reads it, so there is one number rather than two bounding the same history.
   # There used to be two. SessionMemory defaulted to 40 and won, which meant the
   # oldest turns were deleted there — with no summary, no fold and no telemetry —
   # while the fold-instead-of-forget path below could never reach them.
-  history_max_messages: 120
+  history_max_messages: 600
   # Always keep this many recent prompt-visible messages, even when the
   # system prefix has already spent the token budget. 6 = prior 2 turns
   # plus the current user line. Conversation mode used to keep only the
