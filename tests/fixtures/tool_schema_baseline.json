@@ -14,17 +14,8 @@
             ],
             "type": "string"
           },
-          "body": {
-            "type": "string"
-          },
-          "content": {
-            "type": "string"
-          },
           "id": {
             "type": "string"
-          },
-          "limit": {
-            "type": "integer"
           },
           "path": {
             "type": "string"
@@ -80,12 +71,6 @@
           "glob": {
             "type": "string"
           },
-          "max_chars": {
-            "type": "integer"
-          },
-          "max_results": {
-            "type": "integer"
-          },
           "new": {
             "type": "string"
           },
@@ -124,7 +109,7 @@
   },
   {
     "function": {
-      "description": "short list. action=list|add|update|done|drop. fix a typo with update, not remove+add",
+      "description": "short list. action=list|add|update|done|reopen|remove|attach|detach. fix a typo with update, not remove+add",
       "name": "tasks",
       "parameters": {
         "properties": {
@@ -148,9 +133,6 @@
             "type": "integer"
           },
           "id": {
-            "type": "integer"
-          },
-          "limit": {
             "type": "integer"
           },
           "parent_id": {

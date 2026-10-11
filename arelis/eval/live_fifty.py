@@ -71,6 +71,8 @@ BOARD_SKIP_TOOLS = frozenset(
         "transcribe",
         "sql",
         "pdf",
+        # Short description exists; the board has no data_cell turn yet.
+        "data_cell",
     }
 )
 
