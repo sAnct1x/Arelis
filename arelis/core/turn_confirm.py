@@ -260,9 +260,9 @@ async def confirm_call(
             )
             if drop:
                 notice = (
-                    f"The user declined `{name}` and it is not "
-                    "available for the rest of this turn. Do not "
-                    "call it again."
+                    f"The user said no to this {name} call, so it was not done. "
+                    "Tell them you skipped it because they said no. "
+                    "Do not call it again this turn."
                 )
                 if (
                     "send_sms" in loop._expected_tools

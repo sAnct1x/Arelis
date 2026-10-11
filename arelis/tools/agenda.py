@@ -61,6 +61,21 @@ def _local_now() -> datetime:
     return datetime.now().astimezone()
 
 
+def _calendar_destination(provider: str) -> str:
+    """Plain name of the calendar the event actually landed on.
+
+    A local row is the Arelis calendar. Google or Outlook is named only
+    when the event is on that connected calendar. Mentioning Google on a
+    local save makes the model tell the user it was added there.
+    """
+    which = (provider or "").strip().lower()
+    if which == "google":
+        return "your Google calendar"
+    if which == "outlook":
+        return "your Outlook calendar"
+    return "your Arelis calendar"
+
+
 class AgendaTool:
     name = "agenda"
     description = (
@@ -593,10 +608,13 @@ class AgendaTool:
             )
             for hit in cached:
                 if _same_event(summary, starts_at, hit):
+                    where = _calendar_destination(
+                        str(getattr(hit, "provider", "") or "")
+                    )
                     return ToolResult(
                         ok=True,
                         output=(
-                            f"Already on {provider}: {hit.summary} @ "
+                            f"Already on {where}: {hit.summary} at "
                             f"{hit.starts_at.isoformat()}, not creating a duplicate."
                         ),
                         data={
@@ -637,16 +655,13 @@ class AgendaTool:
             )
         except Exception as exc:
             return ToolResult(ok=False, output=f"create failed: {exc}")
-        where = ev.provider
-        extra = ""
-        if ev.provider == "local" or ev.sync_state == "pending":
-            extra = " It will sync to Google or Outlook when that calendar is connected."
+        where = _calendar_destination(str(getattr(ev, "provider", "") or ""))
         clash = f" {overlap_note}" if overlap_note else ""
         return ToolResult(
             ok=True,
             output=(
-                f"Created on {where}: {ev.summary} @ {ev.starts_at.isoformat()}."
-                f"{extra}{clash}"
+                f"Added to {where}: {ev.summary} at {ev.starts_at.isoformat()}."
+                f"{clash}"
             ),
             data={
                 "event": ev.as_dict(),
@@ -698,9 +713,12 @@ class AgendaTool:
             )
         except Exception as exc:
             return ToolResult(ok=False, output=f"update failed: {exc}")
+        where = _calendar_destination(
+            str(getattr(ev, "provider", "") or provider)
+        )
         return ToolResult(
             ok=True,
-            output=f"Updated on {provider}: {ev.summary} (id={ev.id})",
+            output=f"Updated {ev.summary} on {where} (id={ev.id}).",
             data={"event": ev.as_dict(), "action": "update"},
         )
 
