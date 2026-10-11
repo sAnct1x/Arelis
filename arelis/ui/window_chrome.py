@@ -845,16 +845,19 @@ class WindowChrome:
         self.update()
         invalidate_window_surface(self)
 
-    def _animate_dock(self, dock: QDockWidget) -> None:
-        # Docked instruments are type in the void (fill 0). An opacity fade
-        # on that glass caches a pixmap and ghosts ticks/strips across the
-        # resize that opening a dock just caused. Floating plates are already
-        # opaque — fading them punches a hole through to chat.
-        if dock.graphicsEffect() is not None:
-            dock.setGraphicsEffect(None)
-        target = dock.widget()
-        if target is not None and target.graphicsEffect() is not None:
-            target.setGraphicsEffect(None)
+    def _animate_dock(self, dock: QDockWidget, *, show: bool = True) -> None:
+        # Opacity on this glass caches a pixmap and ghosts across the resize
+        # that opening a dock just caused. Slide the geometry instead, and
+        # keep a floating window solid. Filament already grows its own plate.
+        from arelis.ui.motion import clear_dock_opacity, slide_dock
+        from arelis.ui.theme import active_theme
+
+        if active_theme() == "filament":
+            clear_dock_opacity(dock)
+            if not show and not dock.isHidden():
+                dock.hide()
+            return
+        slide_dock(dock, show=show)
 
     def _reset_layout(self) -> None:
         self.camera.stop()
