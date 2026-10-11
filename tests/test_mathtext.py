@@ -146,16 +146,32 @@ def test_research_report_flattens_tex(tmp_path) -> None:
     assert "√(x+1)" in text
 
 
-def test_chat_bubble_shows_unicode_math(qt_app) -> None:
+def test_chat_bubble_draws_display_math(qt_app) -> None:
+    """A display formula in the bubble is an image. The words around it stay."""
+    from PySide6.QtGui import QTextCursor, QTextFormat
+
     from arelis.ui.panels.chat import ChatPanel
 
+    tex = r"\int x^2 \, dx = \frac{x^3}{3} + C"
     panel = ChatPanel()
-    panel.finish_assistant(r"The integral is $$\int x^2 \, dx = \frac{x^3}{3} + C$$")
+    panel.finish_assistant(f"The integral is $${tex}$$")
     text = panel.view.toPlainText()
-    assert "∫" in text
-    assert "x³" in text
+    assert "The integral is" in text
     assert r"\frac" not in text
     assert "$$" not in text
+    doc = panel.view.document()
+    cur = QTextCursor(doc)
+    images = []
+    for pos in range(doc.characterCount() - 1):
+        cur.setPosition(pos)
+        cur.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor)
+        if cur.selectedText() != "\ufffc":
+            continue
+        fmt = cur.charFormat()
+        if fmt.isImageFormat() and fmt.toImageFormat().name().startswith("arelis-math:"):
+            images.append(fmt.toImageFormat())
+    assert len(images) == 1
+    assert images[0].stringProperty(QTextFormat.Property.ImageAltText) == tex
 
 
 @pytest.fixture

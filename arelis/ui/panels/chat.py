@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,7 +20,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QLabel,
-    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -32,7 +32,9 @@ from arelis.attachments import (
 from arelis.core.document_refs import files_in_turn
 from arelis.local_open import open_local_file, reveal_local_file
 from arelis.ui.attach_bar import ATTACH_TILE
+from arelis.ui.chat_browser import CHART_SCHEME, ChatBrowser
 from arelis.ui.markdown import render_markdown
+from arelis.ui.math_images import math_html, prewarm
 from arelis.ui.theme import COLORS, SPACE, color
 from arelis.ui.void_idle import OrbitIdle
 
@@ -236,7 +238,7 @@ class ChatPanel(QWidget):
         self.empty.new_requested.connect(self.new_requested.emit)
         layout.addWidget(self.empty, stretch=1)
 
-        self.view = QTextBrowser()
+        self.view = ChatBrowser()
         self.view.setObjectName("ChatView")
         self.view.setReadOnly(True)
         # A visible I-beam in the transcript reads as leftover carets between
@@ -310,6 +312,7 @@ class ChatPanel(QWidget):
         self._idle_note_timer.setSingleShot(True)
         self._idle_note_timer.setInterval(6000)
         self._idle_note_timer.timeout.connect(self._clear_idle_note)
+        prewarm()
 
     @property
     def has_messages(self) -> bool:
@@ -331,6 +334,8 @@ class ChatPanel(QWidget):
             thought.painted = ""
             if thought.start is not None:
                 self._repaint_thought(thought)
+        body = max(10, min(24, round(14 * self._text_scale)))
+        self.view.refresh_math(COLORS["text"], body)
 
     def _on_idle_session(self, session_id: str) -> None:
         self.session_clicked.emit(session_id)
@@ -368,6 +373,7 @@ class ChatPanel(QWidget):
         font = self.view.font()
         font.setPointSize(body)
         self.view.setFont(font)
+        self.view.refresh_math(COLORS["text"], body)
 
     def _apply_view_style(self) -> None:
         body = max(10, min(24, round(14 * self._text_scale)))
@@ -686,13 +692,14 @@ class ChatPanel(QWidget):
             self._flush_pending_notices()
             return
         follow = self._near_bottom()
+        self.view.arm_math()
         if not self._stream_open:
             self._ensure_view()
             self._label_at = self._end_position()
             self._anchor = self._end_position()
             self._replace_from_anchor(_assistant_bubble_html(body))
         else:
-            answer = _assistant_open() + render_markdown(body) + _ASSISTANT_CLOSE
+            answer = _assistant_open() + render_markdown(body, math=math_html) + _ASSISTANT_CLOSE
             self._replace_from_anchor(answer)
         self._label_at = None
         self._stream_open = False
@@ -778,6 +785,26 @@ class ChatPanel(QWidget):
             f"show in folder</a>"
             f'</div></td><td width="18%"></td></tr></table>'
         )
+
+    def add_chart_image(self, name: str, path: str) -> None:
+        """Register a chart file and show it through the math resource hook.
+
+        Data tools still hand back a file card. Nothing in the turn path
+        calls this. The loader test uses it to prove an unknown chart token
+        is not served.
+        """
+        abs_path = (path or "").strip()
+        if not abs_path:
+            return
+        token = self.view.register_chart(abs_path)
+        label = html.escape((name or "chart").strip() or "chart", quote=True)
+        self._ensure_view()
+        follow = self._near_bottom()
+        self.view.append(
+            f'<p style="margin:4px 0 4px 0;">'
+            f'<img src="{CHART_SCHEME}://c/{token}" alt="{label}" /></p>'
+        )
+        self._scroll(follow=follow)
 
     def _on_anchor(self, url: QUrl) -> None:
         scheme = (url.scheme() or "").lower()
@@ -920,6 +947,7 @@ class ChatPanel(QWidget):
         Document paths in the note still rebuild the open / show-in-folder chip.
         """
         self.clear()
+        self.view.arm_math()
         chunks: list[str] = []
         last_assistant: str | None = None
         last_user = ""
@@ -1163,4 +1191,9 @@ def _user_bubble_html(
 
 
 def _assistant_bubble_html(body: str) -> str:
-    return _assistant_label() + _assistant_open() + render_markdown(body) + _ASSISTANT_CLOSE
+    return (
+        _assistant_label()
+        + _assistant_open()
+        + render_markdown(body, math=math_html)
+        + _ASSISTANT_CLOSE
+    )
