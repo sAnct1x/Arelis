@@ -37,7 +37,9 @@ from arelis.core.email_complete import (
 )
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import (
+    answer_is_raw_tool_line,
     followup_passthrough_tool,
+    replace_raw_tool_line,
     reply_is_done_without_answer,
     should_nudge_write_after_algebra,
     should_nudge_write_after_page,
@@ -74,15 +76,55 @@ from arelis.core.turn_goal import (
 )
 from arelis.core.turn_scratch import (
     RoundScratch,
+    chain_unfinished,
     close_tools_after_progress,
     closing_call_ok,
     closing_tool_names,
     named_tools_owed,
     strip_tool_schemas,
+    uncovered_named_steps,
 )
 from arelis.llm.errors import classify_ollama_failure, is_vram_failure
 from arelis.tools.pdf_pages import ink_vision_walk
 from arelis.tools.weather import weather_places_missing
+
+_CHAIN_STILL_OPEN = "That result does not finish what they asked."
+
+
+def _chain_continue_notice(owed: list[str]) -> str:
+    """Ask for the step the last receipt did not cover. Tools stay on."""
+    if owed:
+        names = ", ".join(owed)
+        return (
+            f"{_CHAIN_STILL_OPEN} "
+            f"Call {names} for the step still open, then answer in your own words. "
+            "Do not paste the tool output as the answer."
+        )
+    return (
+        f"{_CHAIN_STILL_OPEN} "
+        "Do the next step before you answer. "
+        "Do not paste the tool output as the answer."
+    )
+
+
+def _asked_to_continue(messages: list[dict[str, Any]]) -> bool:
+    return any(
+        str(item.get("content") or "").startswith(_CHAIN_STILL_OPEN) for item in messages
+    )
+
+
+async def _ask_for_next_step(loop: Any, ctx: TurnContext, r: RoundScratch) -> None:
+    """Hold the turn open. Do not add the plain-answer line that forbids calls."""
+    owed = uncovered_named_steps(loop, ctx)
+    await loop._retract()
+    r.messages.append({"role": "assistant", "content": r.content or ""})
+    r.messages.append({"role": "user", "content": _chain_continue_notice(owed)})
+    await loop.bus.publish(
+        Event(
+            EventType.THINKING,
+            {"text": "chain still open; asking for the next step"},
+        )
+    )
 
 
 def _write_round(ctx: TurnContext, r: RoundScratch) -> None:
@@ -169,9 +211,17 @@ async def apply_no_call_path(
 
         no_words = not (r.content or "").strip()
         # A blank bubble is not an answer. Neither is a bare Done, or
-        # Done plus a link, once a tool has already run.
+        # Done plus a link, once a tool has already run. A copy of the
+        # tool line is the same hole: it is not a written reply.
+        pasted = " ".join((r.content or "").split())
+        source = " ".join((ctx.last_ok_tool_out or "").split())
+        # A paste of the receipt is not a written reply. On an open chain it
+        # has to keep going; on a finished ask it is the status-line case.
+        echo = answer_is_raw_tool_line(
+            ctx.last_ok_tool_name, r.content, ctx.last_ok_tool_out
+        ) or bool(pasted and source and pasted == source and chain_unfinished(loop, ctx))
         done_instead = bool(ctx.last_ok_tool_out) and reply_is_done_without_answer(r.content)
-        if (no_words or done_instead) and not ctx.fallback_mode:
+        if (no_words or done_instead or echo) and not ctx.fallback_mode:
             # Qwen3.5 often puts the wrap-up in thinking and leaves
             # chat content empty. Native calling still worked, a tool
             # already ran, so do not enter the sticky-note protocol
@@ -326,6 +376,9 @@ async def apply_no_call_path(
                         )
                     )
                     return None
+                if chain_unfinished(loop, ctx) and not _asked_to_continue(r.messages):
+                    await _ask_for_next_step(loop, ctx, r)
+                    return False
                 line = _tool_followup_fallback(
                     ctx.last_ok_tool_out,
                     ctx.last_ok_tool_name,
@@ -341,6 +394,10 @@ async def apply_no_call_path(
                         or (raw and line.strip() in raw)
                     )
                 )
+                # A status line that happens to be a sentence is still the
+                # tool's text. Ask for a written reply instead of shipping it.
+                if answer_is_raw_tool_line(ctx.last_ok_tool_name, line, raw):
+                    already_plain = False
                 if (
                     not already_plain
                     and not ctx.page_write_nudge_used
@@ -372,6 +429,7 @@ async def apply_no_call_path(
                     )
                     return False
                 # Composed plain fallback is her words, not a tool paste.
+                line = replace_raw_tool_line(ctx.last_ok_tool_name, line, raw)
                 passthrough = followup_passthrough_tool(
                     ctx.last_ok_tool_name, line, raw
                 )
@@ -1002,11 +1060,17 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 )
                 return False
             prose = (content or "").strip()
+            if answer_is_raw_tool_line(ctx.last_ok_tool_name, prose, ctx.last_ok_tool_out):
+                prose = ""
             if not prose and ctx.last_ok_tool_out:
-                prose = _tool_followup_fallback(
-                    ctx.last_ok_tool_out,
+                prose = replace_raw_tool_line(
                     ctx.last_ok_tool_name,
-                    ask=ctx.text,
+                    _tool_followup_fallback(
+                        ctx.last_ok_tool_out,
+                        ctx.last_ok_tool_name,
+                        ask=ctx.text,
+                    ),
+                    ctx.last_ok_tool_out,
                 )
                 await loop.bus.publish(
                     Event(

@@ -46,14 +46,24 @@ def test_history_panel_puts_pinned_first(qt_app) -> None:
 def test_ctrl_shift_f_focuses_history_search(qt_app, arelis_window) -> None:
     window = arelis_window()
     window.show()
+    window.activateWindow()
     qt_app.processEvents()
     window.history.search.setText("kept")
     focus_history_search(window)
     qt_app.processEvents()
+    # A moment after open, the window puts the caret in the composer.
+    # That late pass must not pull it out of search.
+    window.conversation.focus_input()
+    qt_app.processEvents()
+    search = window.history.search
     assert window.history_dock.isVisible()
     assert window.act_history.isChecked()
-    assert window.history.search.hasFocus()
-    assert window.history.search.selectedText() == "kept"
+    assert window.focusWidget() is search
+    assert search.selectedText() == "kept"
+    # hasFocus is also "this window is the active one". Offscreen Windows
+    # sometimes never grants that, so only require it when the window got it.
+    if qt_app.focusWindow() is window.windowHandle():
+        assert search.hasFocus()
 
 
 def test_pin_request_sticks_and_sorts_the_list(qt_app, tmp_path: Path) -> None:

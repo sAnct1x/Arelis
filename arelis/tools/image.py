@@ -193,22 +193,27 @@ def _mask_rgb_bytes(mask_l: Any, name: str) -> tuple[bytes, str]:
 class ImageTool:
     name = "image"
     description = (
-        "Generate a picture with local ComfyUI, or restyle an existing one "
-        "(img2img) when you pass path. A found install starts on the first call. "
-        "The file is saved for the Workspace panel. "
-        "Args: prompt; optional negative, width, height, seed, aspect, style, "
-        "steps, cfg; n is 1 to 4 variations with different seeds; upscale=2 is "
-        "a LANCZOS 2x; path plus denoise to restyle; mask_region or mask_box to "
-        "inpaint; outpaint to grow a side; remove_background needs rembg. "
-        "aspect and style pick a named shape or look. "
-        "Exact resize, crop, rotate, or text overlay is image_edit. Using this "
-        "to resize a file returns a different picture. To look at one, use vision."
+        "Generate pixels via local ComfyUI, or restyle an existing image "
+        "(img2img) when you pass path. "
+        "A discoverable local ComfyUI install is started on the first call. "
+        "The finished file is saved for the Workspace panel. "
+        "Args: prompt; optional negative/width/height/seed/aspect/style/steps/cfg; "
+        "n (1–4 variations, different seeds); upscale=2 (LANCZOS 2×); "
+        "path + optional denoise to restyle; "
+        "mask_region or mask_box to inpaint; outpaint to grow a side; "
+        "remove_background (needs rembg). "
+        "aspect is square, landscape, portrait, 16:9, 9:16, 4:3, 3:2, 21:9. "
+        "style is photoreal, illustration, anime, watercolor, oil, sketch, cinematic. "
+        "This cannot do an exact resize, crop, rotate, or text overlay, those have "
+        "a right answer and belong on image_edit. Using this to 'resize' a file "
+        "returns a different picture. To look at one use vision."
     )
     risk = "side_effect"
     parameters_schema: dict[str, Any] = {
         "type": "object",
         "properties": {
             "prompt": {"type": "string", "description": "Positive image prompt"},
+            "negative": {"type": "string", "description": "Negative prompt"},
             "width": {"type": "integer", "description": "Width in pixels"},
             "height": {"type": "integer", "description": "Height in pixels"},
             "aspect": {
@@ -222,13 +227,16 @@ class ImageTool:
                 "description": "Look to fold into the prompt.",
             },
             "seed": {"type": "integer", "description": "Sampler seed"},
+            "steps": {"type": "integer", "description": "Sampler steps (default from config)."},
+            "cfg": {"type": "number", "description": "Classifier-free guidance."},
             "n": {
                 "type": "integer",
                 "description": "Variations (1–4). Sequential jobs, different seeds.",
             },
             "upscale": {
                 "type": "integer",
-                "description": "2 = Pillow LANCZOS 2x on each result. No extra model.",
+                "enum": [2],
+                "description": "2 = Pillow LANCZOS 2× on each result. No extra model.",
             },
             "path": {
                 "type": "string",
@@ -251,6 +259,9 @@ class ImageTool:
             },
             "mask_box": {
                 "type": "array",
+                "items": {"type": "integer"},
+                "minItems": 4,
+                "maxItems": 4,
                 "description": "Inpaint box [x, y, w, h] in source pixels.",
             },
             "outpaint": {

@@ -388,6 +388,72 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     return cleaned
 
 
+_STATUS_RECEIPT_TOOLS = frozenset({"solar", "earth", "tile"})
+# Output that is already a sentence a person asked for. Shipping it is the
+# answer. Status lines and machine receipts are not in this set.
+_SPOKEN_TOOL_OUTPUT = (
+    frozenset(
+        {
+            "weather",
+            "scrape",
+            "web_search",
+            "web_fetch",
+            "browser",
+            "calculator",
+            "units",
+            "cas",
+            "python",
+            "plot",
+        }
+    )
+    | _CONTENT_PASSTHROUGH_TOOLS
+    | _PERSON_LIST_TOOLS
+)
+
+
+def _collapsed(text: str) -> str:
+    return " ".join((text or "").split())
+
+
+def _looks_like_machine_status(text: str) -> bool:
+    """True for a tool status line: key=value clusters, or a path header."""
+    body = text or ""
+    if re.search(r"(?i)\b(integrator|counterfactual|residual)\b", body):
+        return True
+    if len(re.findall(r"[A-Za-z_]+=\S+", body)) >= 2:
+        return True
+    return bool(
+        re.search(r"(?i)\b(path|pages|source)\s*:", body) and body.count(":") >= 2
+    )
+
+
+def answer_is_raw_tool_line(tool: str, text: str, raw: str) -> bool:
+    """True when chat text is the tool's own line, not a written reply.
+
+    A price, a weather line, or text pulled from a page can be the answer.
+    A solar/earth/tile status line, a receipt, or a machine dump cannot.
+    """
+    body = _collapsed(text)
+    if re.match(r"(?i)^receipt\s+action=", body):
+        return True
+    source = _collapsed(raw)
+    if not body or not source or body != source:
+        return False
+    name = (tool or "").strip()
+    if name in _STATUS_RECEIPT_TOOLS:
+        return True
+    if name in _SPOKEN_TOOL_OUTPUT:
+        return False
+    return _looks_like_data_dump(raw or "") or _looks_like_machine_status(body)
+
+
+def replace_raw_tool_line(tool: str, line: str, raw: str) -> str:
+    """The written fallback when `line` is only the tool's own text."""
+    if answer_is_raw_tool_line(tool, line, raw):
+        return _DATA_FOLLOWUP
+    return line
+
+
 def followup_passthrough_tool(tool: str, line: str, raw: str) -> str:
     """Tool name for memory passthrough only when the shipped line is the tool's text."""
     shipped = (line or "").strip()
@@ -874,12 +940,14 @@ def reply_is_done_without_answer(text: str) -> bool:
 
 __all__ = [
     "TURN_FAILED_NOTICE",
+    "answer_is_raw_tool_line",
     "chat_followup_from_tool",
     "followup_passthrough_tool",
     "is_model_directed",
     "plain_algebra_chat",
     "plain_reason",
     "pretty_calculator_chat",
+    "replace_raw_tool_line",
     "reply_is_done_without_answer",
     "reply_states_algebra_result",
     "should_nudge_write_after_algebra",

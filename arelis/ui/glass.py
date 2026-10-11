@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPropertyAnimation, QRect, QRectF, Qt
+from PySide6.QtCore import QEvent, QObject, QPropertyAnimation, QRect, QRectF, Qt
 from PySide6.QtGui import (
     QColor,
     QLinearGradient,
@@ -14,7 +14,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QFrame, QGraphicsOpacityEffect, QWidget
 
-from arelis.ui.theme import GLASS, HAIRLINE, PLATE, color
+from arelis.ui.motion import easing_curve, motion_enabled
+from arelis.ui.theme import GLASS, HAIRLINE, MOTION, PLATE, color
 
 # The plate is lit from above by the same lamp as everything else. Rim alphas
 # come from GLASS / HAIRLINE so a dock, a float, and the composer line stay
@@ -295,17 +296,30 @@ def seal_tool_window(
         apply_round_window_mask(widget, r)
 
 
-def fade_in_widget(widget: QWidget, duration_ms: int = 280) -> QPropertyAnimation:
+def fade_in_widget(widget: QWidget, duration_ms: int | None = None) -> QPropertyAnimation:
+    if not motion_enabled():
+        ms = 0
+    elif duration_ms is None:
+        ms = int(MOTION["slow"])
+    else:
+        ms = max(0, int(duration_ms))
+    if ms <= 0:
+        effect = widget.graphicsEffect()
+        if isinstance(effect, QGraphicsOpacityEffect):
+            widget.setGraphicsEffect(None)
+        anim = QPropertyAnimation(widget)
+        anim.setDuration(0)
+        return anim
     effect = widget.graphicsEffect()
     if not isinstance(effect, QGraphicsOpacityEffect):
         effect = QGraphicsOpacityEffect(widget)
         widget.setGraphicsEffect(effect)
     effect.setOpacity(0.0)
     anim = QPropertyAnimation(effect, b"opacity", widget)
-    anim.setDuration(duration_ms)
+    anim.setDuration(ms)
     anim.setStartValue(0.0)
     anim.setEndValue(1.0)
-    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+    anim.setEasingCurve(easing_curve())
 
     def _drop() -> None:
         # The effect caches a pixmap. Left on a translucent plate it keeps

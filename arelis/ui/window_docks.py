@@ -137,12 +137,15 @@ def toggle_persona(window, checked: bool) -> None:
         window._persona_user_closed = True
     window._persona_adjusting = True
     try:
-        window.persona_dock.setVisible(checked)
+        if checked:
+            window.persona_dock.setVisible(True)
     finally:
         window._persona_adjusting = False
     if checked:
-        window._animate_dock(window.persona_dock)
+        window._animate_dock(window.persona_dock, show=True)
         window._filament_present_tile(window.persona_dock, "thinking")
+    else:
+        window._animate_dock(window.persona_dock, show=False)
 
 
 def toggle_thinking(window, checked: bool) -> None:
@@ -167,10 +170,12 @@ def toggle_workspace(window, checked: bool) -> None:
         ):
             window.act_workspace.setChecked(True)
             return
-    window.work_dock.setVisible(checked)
     if checked:
-        window._animate_dock(window.work_dock)
+        window.work_dock.setVisible(True)
+        window._animate_dock(window.work_dock, show=True)
         window._filament_present_tile(window.work_dock, "files")
+    else:
+        window._animate_dock(window.work_dock, show=False)
 
 
 def toggle_history(window, checked: bool) -> None:
@@ -178,11 +183,13 @@ def toggle_history(window, checked: bool) -> None:
     from arelis.ui.idle_host import note_engagement
 
     note_engagement(window)
-    window.history_dock.setVisible(checked)
     if checked:
+        window.history_dock.setVisible(True)
         refresh_history(window)
-        window._animate_dock(window.history_dock)
+        window._animate_dock(window.history_dock, show=True)
         window._filament_present_tile(window.history_dock, "history")
+    else:
+        window._animate_dock(window.history_dock, show=False)
     stack_left_instruments(window)
 
 
@@ -215,12 +222,13 @@ def toggle_camera(window, checked: bool) -> None:
     from arelis.ui.idle_host import note_engagement
 
     note_engagement(window)
-    window.camera_dock.setVisible(checked)
     if checked:
+        window.camera_dock.setVisible(True)
         window.camera.start()
-        window._animate_dock(window.camera_dock)
+        window._animate_dock(window.camera_dock, show=True)
         window._filament_present_tile(window.camera_dock, "camera")
     else:
+        window._animate_dock(window.camera_dock, show=False)
         window.camera.stop()
     stack_left_instruments(window)
 

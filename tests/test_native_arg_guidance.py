@@ -97,7 +97,11 @@ def test_flag_on_true():
 
 @pytest.mark.no_ui
 def test_flag_off_schema_unchanged():
-    """Flag-off: tool schema is byte-identical to committed baseline from main."""
+    """Flag-off: notes, workspace, and tasks match the committed baseline.
+
+    The baseline is the model-facing schema. Regenerate it when that schema
+    changes on purpose.
+    """
     fixture_path = Path(__file__).parent / "fixtures" / "tool_schema_baseline.json"
     with open(fixture_path) as f:
         baseline = json.load(f)
