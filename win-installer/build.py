@@ -104,6 +104,7 @@ QT_MODULES = (
     "QtMultimedia",
     "QtMultimediaWidgets",
     "QtOpenGL",
+    "QtSvg",
 )
 
 # One import per dependency this project declares, in the form that actually proves it
@@ -132,6 +133,7 @@ REQUIRED_IMPORTS = (
     "espeakng_loader",
     "phonemizer",
     "playwright.async_api",
+    "ziamath",
 )
 
 
