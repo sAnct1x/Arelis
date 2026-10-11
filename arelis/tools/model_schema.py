@@ -48,8 +48,24 @@ MODEL_HIDDEN_PARAMS: Mapping[str, frozenset[str]] = MappingProxyType(
             {"heading", "focus", "full_page", "x", "y", "to_x", "to_y"}
         ),
         "desktop": frozenset({"x", "y"}),
-        "image": frozenset({"seed", "steps", "cfg", "n", "denoise", "mask_box"}),
-        "image_edit": frozenset({"crop_box", "scale", "pad", "sharpness", "invert"}),
+        "image": frozenset(
+            {"seed", "steps", "cfg", "n", "denoise", "mask_box", "negative"}
+        ),
+        # format, fit, text_align, and warmth stay accepted. They are off the
+        # model schema so diagram fits under the tier A ceiling.
+        "image_edit": frozenset(
+            {
+                "crop_box",
+                "scale",
+                "pad",
+                "sharpness",
+                "invert",
+                "format",
+                "fit",
+                "text_align",
+                "warmth",
+            }
+        ),
         "solar": frozenset({"dvx", "dvy", "dvz", "tracers", "refresh", "epoch_gyr"}),
         "agenda": frozenset({"work_start", "work_end", "keep", "calendar_id"}),
         "contacts": frozenset({"work_phone", "replace_aliases"}),
