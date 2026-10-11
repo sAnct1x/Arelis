@@ -1280,6 +1280,14 @@ class ConversationStage(GlassFrame):
             idle_fn()
 
     def focus_input(self) -> None:
+        """Cursor goes to the composer after the window settles.
+
+        Ctrl+F and Ctrl+Shift+F can land in that same moment. A text field
+        that already has the cursor keeps it.
+        """
+        focus = QApplication.focusWidget()
+        if focus is not None and focus is not self.input and focus.inherits("QLineEdit"):
+            return
         self.input.setFocus()
 
 

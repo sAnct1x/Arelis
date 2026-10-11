@@ -78,6 +78,41 @@ def test_pin_request_sticks_and_sorts_the_list(qt_app, tmp_path: Path) -> None:
     del qt_app
 
 
+def test_ctrl_shift_f_and_ctrl_f_focus_their_own_fields(qt_app, arelis_window) -> None:
+    """Each chord lands in its own field, and launch focus does not steal it."""
+    from arelis.ui.chat_find import ChatFindBar
+
+    window = arelis_window()
+    window.show()
+    qt_app.processEvents()
+    window.conversation.input.setFocus()
+    qt_app.processEvents()
+
+    QTest.keyClick(
+        window.conversation.input,
+        Qt.Key.Key_F,
+        Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+    )
+    qt_app.processEvents()
+    assert window.history_dock.isVisible()
+    assert window.history.search.hasFocus()
+    window.conversation.focus_input()
+    assert window.history.search.hasFocus()
+
+    QTest.keyClick(
+        window.history.search,
+        Qt.Key.Key_F,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    qt_app.processEvents()
+    bar = window.chat.findChild(ChatFindBar)
+    assert bar is not None and bar.isVisible()
+    assert bar.edit.hasFocus()
+    assert not window.history.search.hasFocus()
+    window.conversation.focus_input()
+    assert bar.edit.hasFocus()
+
+
 def test_ctrl_k_from_the_composer_opens_the_list(qt_app, arelis_window) -> None:
     window = arelis_window()
     window.show()

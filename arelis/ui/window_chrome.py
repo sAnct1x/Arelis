@@ -361,7 +361,10 @@ class WindowChrome:
         self.addAction(self.act_search_history)
 
         self.act_find = QAction("find in this chat", self)
-        self.act_find.setShortcut(QKeySequence(QKeySequence.StandardKey.Find))
+        # Explicit Ctrl+F, same spelling as Ctrl+Shift+F. StandardKey.Find
+        # also matches the shifted chord on Windows and macOS, so history
+        # search never gets the key.
+        self.act_find.setShortcut(QKeySequence("Ctrl+F"))
         self.act_find.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_find.setToolTip("find in this chat (Ctrl+F)")
         self.act_find.triggered.connect(lambda: open_chat_find(self))
@@ -426,9 +429,16 @@ class WindowChrome:
             return super().eventFilter(obj, event)
         if et not in {QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress}:
             return super().eventFilter(obj, event)
-        if not isinstance(event, QKeyEvent) or not self._voice_hotkeys_allowed():
+        if not isinstance(event, QKeyEvent):
             return super().eventFilter(obj, event)
-        if not self._is_voice_hotkey(event):
+        # Claim the exact chord before the shortcut map. Ctrl+F must not
+        # also eat Ctrl+Shift+F, which is what a looser Find binding does.
+        if self._voice_hotkeys_allowed() and self._is_find_chord(event):
+            event.accept()
+            if et == QEvent.Type.KeyPress and not event.isAutoRepeat():
+                self._fire_find_chord(event)
+            return True
+        if not self._voice_hotkeys_allowed() or not self._is_voice_hotkey(event):
             return super().eventFilter(obj, event)
         event.accept()
         if et == QEvent.Type.KeyPress and not event.isAutoRepeat():
@@ -464,6 +474,23 @@ class WindowChrome:
         # across windows even when we own them — conversation still lives here.
         parent = aw.parent() if aw is not None else None
         return parent is self
+
+    def _is_find_chord(self, event: QKeyEvent) -> bool:
+        if event.key() != Qt.Key.Key_F:
+            return False
+        mods = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        ctrl = Qt.KeyboardModifier.ControlModifier
+        shift = Qt.KeyboardModifier.ShiftModifier
+        return mods in {ctrl, ctrl | shift}
+
+    def _fire_find_chord(self, event: QKeyEvent) -> None:
+        from arelis.ui.chat_find import open_chat_find
+        from arelis.ui.history_host import focus_history_search
+
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            focus_history_search(self)
+            return
+        open_chat_find(self)
 
     def _is_voice_hotkey(self, event: QKeyEvent) -> bool:
         if event.key() != Qt.Key.Key_M:
