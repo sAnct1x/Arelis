@@ -26,7 +26,7 @@ _DEFAULT_PATH = state_dir() / "memory.db"
 
 # Bump when the on-disk shape changes, and add a _migrate_to_N step. Opening an
 # older file without this is what turns a weekend of chat into a hard error.
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -522,6 +522,21 @@ class MemoryStore:
             )
         self._conn.executescript(_SCHEMA_V11)
 
+    def _migrate_to_12(self) -> None:
+        """Remember which conversations are pinned.
+
+        Older profiles have no such column. Adding it with a default of 0
+        leaves every existing chat in place, and none of them start pinned.
+        """
+        cols = {
+            str(row[1])
+            for row in self._conn.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        if "pinned" not in cols:
+            self._conn.execute(
+                "ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"
+            )
+
     def start_session(self, session_id: str | None = None, *, room_id: str = "") -> str:
         """Begin a new session and make it the sink target for later writes."""
         return sessions.start_session(self, session_id, room_id=room_id)
@@ -815,6 +830,10 @@ class MemoryStore:
         self, *, limit: int = 50, room_id: str | None = None
     ) -> list[dict[str, Any]]:
         return sessions.list_sessions(self, limit=limit, room_id=room_id)
+
+    def set_session_pinned(self, session_id: str, on: bool) -> bool:
+        """Pin or unpin one conversation. False if that chat is not stored."""
+        return sessions.set_session_pinned(self, session_id, on)
 
     def delete_session(self, session_id: str) -> bool:
         """Remove a conversation and cascaded messages/summaries. True if deleted."""

@@ -338,6 +338,27 @@ class WindowChrome:
         self.act_shortcuts.triggered.connect(self._open_shortcuts)
         self.addAction(self.act_shortcuts)
 
+        from arelis.ui.history_host import focus_history_search, on_history_new
+        from arelis.ui.quick_switch import open_quick_switch
+
+        self.act_new_chat = QAction("new conversation", self)
+        self.act_new_chat.setShortcut(QKeySequence(QKeySequence.StandardKey.New))
+        self.act_new_chat.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_new_chat.triggered.connect(lambda: on_history_new(self))
+        self.addAction(self.act_new_chat)
+
+        self.act_quick_switch = QAction("jump to a conversation", self)
+        self.act_quick_switch.setShortcut(QKeySequence("Ctrl+K"))
+        self.act_quick_switch.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_quick_switch.triggered.connect(lambda: open_quick_switch(self))
+        self.addAction(self.act_quick_switch)
+
+        self.act_search_history = QAction("search conversations", self)
+        self.act_search_history.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        self.act_search_history.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_search_history.triggered.connect(lambda: focus_history_search(self))
+        self.addAction(self.act_search_history)
+
         self._theme_group = QActionGroup(self)
         self._theme_group.setExclusive(True)
         self._theme_actions: dict[str, QAction] = {}
@@ -650,6 +671,10 @@ class WindowChrome:
         self._sync_view_checks()
         menu = QMenu(self)
         menu.setAccessibleName("View")
+        menu.addAction(self.act_new_chat)
+        menu.addAction(self.act_quick_switch)
+        menu.addAction(self.act_search_history)
+        menu.addSeparator()
         menu.addAction(self.act_persona)
         menu.addAction(self.act_workspace)
         menu.addAction(self.act_history)
