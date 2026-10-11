@@ -20,6 +20,7 @@ from arelis.presence.ipc import (
     hello_message,
     shutdown_message,
 )
+from arelis.presence.ipc_token import read_token
 from arelis.presence.ports import candidates
 
 log = logging.getLogger(__name__)
@@ -160,7 +161,10 @@ class IpcClient:
         reader, writer = await asyncio.open_connection(self.host, port)
         self._reader = reader
         self._writer = writer
-        writer.write(encode_line(hello_message(role="ui")))
+        # Read at connect time, not at construction, so a token rotated by
+        # the seat that came up first is the one this hello carries. The
+        # value stays in the file. It is not copied into a status line.
+        writer.write(encode_line(hello_message(role="ui", token=read_token())))
         await writer.drain()
         try:
             while not self._stop.is_set():
@@ -187,6 +191,14 @@ class IpcClient:
                 if msg is None:
                     continue
                 op = str(msg.get("op") or "").strip()
+                if op == "error":
+                    log.info(
+                        "IPC hello refused on %s:%s (%s)",
+                        self.host,
+                        port,
+                        msg.get("reason") or "auth",
+                    )
+                    break
                 if op == "hello_ack":
                     if not is_mine(msg.get("instance")):
                         # Another account's core on the shared loopback

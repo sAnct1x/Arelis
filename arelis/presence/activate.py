@@ -15,6 +15,7 @@ from arelis.presence.ipc import (
     hello_message,
     open_ui_request_message,
 )
+from arelis.presence.ipc_token import read_token
 from arelis.presence.ports import candidates
 
 log = logging.getLogger(__name__)
@@ -66,7 +67,9 @@ async def _activate(host: str, port: int) -> bool:
     except Exception:
         return False
     try:
-        writer.write(encode_line(hello_message(role="ui")))
+        # Same file the running seat wrote. A wrong or missing token is
+        # not a successful activation: the caller would exit on a True.
+        writer.write(encode_line(hello_message(role="ui", token=read_token())))
         await writer.drain()
         # The ack is what names the account, so unlike before it is required
         # rather than best-effort. A core that does not answer, or answers as

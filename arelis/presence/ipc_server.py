@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 from typing import Any
 
@@ -17,6 +18,7 @@ from arelis.presence.ipc import (
     event_message,
     open_ui_message,
 )
+from arelis.presence.ipc_token import read_token
 from arelis.presence.ports import candidates
 
 log = logging.getLogger(__name__)
@@ -181,8 +183,10 @@ class IpcServer:
         # walks these ports every few seconds hunting for its ingest server, and
         # logging each one filled the log with hundreds of lines an hour that no
         # UI was ever on the other end of. The hello below is the real event.
+        # The socket stays out of the broadcast set until that hello carries the
+        # session token. Adding it here used to hand confirm cards and inbound
+        # texts to any local program that connected and then said nothing.
         log.debug("IPC connection from %s", peer)
-        self._clients.add(writer)
         greeted = False
         try:
             while not self._closed:
@@ -204,30 +208,40 @@ class IpcServer:
                 if msg is None:
                     continue
                 op = str(msg.get("op") or "").strip()
+                if not greeted:
+                    # Anything but a good hello closes. A wrong or missing token
+                    # is told why; every other op is just hung up, so a probe
+                    # or a stranger cannot confirm, open the window, or quit.
+                    if op != "hello" or not _token_matches(msg):
+                        if op == "hello":
+                            await self._reject_auth(writer)
+                            log.info("IPC hello rejected from %s", peer)
+                        break
+                    greeted = True
+                    self._clients.add(writer)
+                    self._attached += 1
+                    log.info(
+                        "IPC UI attached (role=%s version=%s); clients=%s",
+                        msg.get("role"),
+                        msg.get("version"),
+                        self._attached,
+                    )
+                    writer.write(
+                        encode_line(
+                            {
+                                "op": "hello_ack",
+                                "role": self.seat,
+                                "version": int(msg.get("version") or 1),
+                                # Named so the UI can tell this core apart
+                                # from another account's on the same
+                                # loopback interface. See arelis.identity.
+                                "instance": instance_id(),
+                            }
+                        )
+                    )
+                    await writer.drain()
+                    continue
                 if op == "hello":
-                    if not greeted:
-                        greeted = True
-                        self._attached += 1
-                        log.info(
-                            "IPC UI attached (role=%s version=%s); clients=%s",
-                            msg.get("role"),
-                            msg.get("version"),
-                            self._attached,
-                        )
-                        writer.write(
-                            encode_line(
-                                {
-                                    "op": "hello_ack",
-                                    "role": self.seat,
-                                    "version": int(msg.get("version") or 1),
-                                    # Named so the UI can tell this core apart
-                                    # from another account's on the same
-                                    # loopback interface. See arelis.identity.
-                                    "instance": instance_id(),
-                                }
-                            )
-                        )
-                        await writer.drain()
                     continue
                 if op == "bye":
                     break
@@ -268,3 +282,27 @@ class IpcServer:
         finally:
             self._drop_client(writer)
             log.info("IPC client disconnected from %s", peer)
+
+    async def _reject_auth(self, writer: asyncio.StreamWriter) -> None:
+        try:
+            writer.write(encode_line({"op": "error", "reason": "auth"}))
+            await writer.drain()
+        except OSError:
+            # The peer hung up before the refusal could be written.
+            log.debug("IPC auth reply failed", exc_info=True)
+
+
+def _token_matches(msg: dict[str, Any]) -> bool:
+    """Whether this hello carries the token currently in the state file.
+
+    Read on every hello, not cached, so a rotation is what the next hello
+    sees. The value is not logged.
+    """
+    expected = read_token()
+    provided = msg.get("token")
+    if not expected or not isinstance(provided, str):
+        return False
+    provided = provided.strip()
+    if not provided:
+        return False
+    return hmac.compare_digest(provided, expected)
