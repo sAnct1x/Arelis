@@ -645,6 +645,53 @@ def _pin_tool_round_hint(messages: list[dict[str, Any]]) -> None:
     messages.insert(slot, {"role": "system", "content": _TOOL_ROUND_HINT})
 
 
+def _group_rows(groups: list[list[dict[str, Any]]]) -> int:
+    return sum(len(group) for group in groups)
+
+
+def _group_tokens(groups: list[list[dict[str, Any]]], ratio: float) -> int:
+    return sum(
+        message_tokens(row, chars_per_token=ratio) for group in groups for row in group
+    )
+
+
+def _drop_prompt_block(
+    groups: list[list[dict[str, Any]]],
+    *,
+    max_rows: int,
+    token_budget: int,
+    chars_per_token: float,
+    min_groups: int,
+) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]]]:
+    """When the row cap or the token budget trips, keep about half.
+
+    The cut is on chat-message boundaries. Dropping two or three rows off
+    the front every turn is what makes the prefix cache miss right after
+    the persona and the tools. A block leaves room, so the next many turns
+    extend the same prefix. Under both limits, nothing is dropped.
+    """
+    if not groups:
+        return [], []
+    over_rows = max_rows > 0 and _group_rows(groups) > max_rows
+    over_tokens = token_budget > 0 and _group_tokens(groups, chars_per_token) > token_budget
+    if not over_rows and not over_tokens:
+        return list(groups), []
+    row_limit = (max_rows // 2) if over_rows else None
+    token_limit = (token_budget // 2) if over_tokens else None
+    floor = max(1, min(int(min_groups), len(groups)))
+    kept = list(groups)
+    while len(kept) > floor:
+        too_many = row_limit is not None and _group_rows(kept) > row_limit
+        too_fat = (
+            token_limit is not None and _group_tokens(kept, chars_per_token) > token_limit
+        )
+        if not too_many and not too_fat:
+            break
+        kept.pop(0)
+    dropped = [row for group in groups[: len(groups) - len(kept)] for row in group]
+    return kept, dropped
+
+
 class AgentLoop:
     """One user turn: alternate model steps and tool calls until an answer.
 
@@ -1163,17 +1210,14 @@ class AgentLoop:
                     "content": f"[earlier in this conversation: {self.memory.summary}]",
                 }
             )
-        history = self.memory.as_ollama(
-            include_notes=not bool(self.config.get("_speak_replies")),
-            include_latest_block=False,
-        )
-        # A backstop on message count. The token budget below is the real limit;
-        # this only stops the trailer growing without bound in a session long
-        # enough that the budget alone would keep saying yes.
+        # Message-count backstop. The token budget is the real limit. A tool
+        # turn is about a dozen prompt rows, so a small cap trips after a
+        # handful of questions and then shaves the front every turn. When
+        # the cap or the budget trips, drop a block down to about half.
         try:
-            max_msgs = int(agent_cfg.get("history_max_messages", 120) or 0)
+            max_msgs = int(agent_cfg.get("history_max_messages", 600) or 0)
         except (TypeError, ValueError):
-            max_msgs = 120
+            max_msgs = 600
         try:
             min_recent = int(
                 agent_cfg.get("history_min_recent", _HISTORY_MIN_RECENT)
@@ -1182,14 +1226,26 @@ class AgentLoop:
         except (TypeError, ValueError):
             min_recent = _HISTORY_MIN_RECENT
         min_recent = max(1, min_recent)
-        capped_drop: list[dict[str, Any]] = []
-        if max_msgs > 0 and len(history) > max_msgs:
-            capped_drop = list(history[:-max_msgs])
-            history = list(history[-max_msgs:])
-        older, tail = split_recent_history(history, min_recent)
+        notes = not bool(self.config.get("_speak_replies"))
+
+        def _live_history() -> list[dict[str, Any]]:
+            return self.memory.as_ollama(
+                include_notes=notes,
+                include_latest_block=False,
+            )
+
         pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned) + sum(
             message_tokens(m, chars_per_token=ratio) for m in turn_lines
         )
+        kept_groups, capped_drop = _drop_prompt_block(
+            self.memory.prompt_groups(include_notes=notes, include_latest_block=False),
+            max_rows=max_msgs,
+            token_budget=max(0, budget - pinned_cost),
+            chars_per_token=ratio,
+            min_groups=min_recent,
+        )
+        history = [row for group in kept_groups for row in group]
+        older, tail = split_recent_history(history, min_recent)
         tail_cost = sum(message_tokens(m, chars_per_token=ratio) for m in tail)
         remaining = budget - pinned_cost - tail_cost
         if remaining <= 0 or not older:
@@ -1240,7 +1296,7 @@ class AgentLoop:
                     {"text": f"phase=drop dropped={n_drop} mode={mode}"},
                 )
             )
-            return _with_tail(pinned, kept)
+            return _with_tail(pinned, _live_history())
 
         # Re-allocate against a smaller budget, because a summary pin is about to
         # take room the first pass did not reserve. Same older/tail split: the
@@ -1306,7 +1362,7 @@ class AgentLoop:
                     },
                 )
             )
-            return _with_tail(pinned, kept)
+            return _with_tail(pinned, _live_history())
         if summary:
             self.memory.set_summary(summary)
             # Dropped prefix is now in the summary; keeping it in messages would
@@ -1368,16 +1424,37 @@ class AgentLoop:
         parts: list[str] = []
 
         async def _consume() -> None:
-            async for kind, payload in self.router.stream(
-                role,
+            # Thinking stays off. Left on, the chat model spends summarize_max_ms
+            # on thinking tokens and the drop lands with no summary. router.stream
+            # has no think argument, so this calls the provider the way the
+            # prefix seed does. The fold stays on this path: moving it to after
+            # ASSISTANT_DONE would also have to rebuild the prefix and re-seed
+            # the cache once the turn is idle.
+            router = self.router
+            model = getattr(router, "active_model", None) or router.model_for(role)
+            stream = router.provider.stream_chat(
+                model,
                 messages,
                 tools=None,
+                keep_alive=getattr(router, "default_keep_alive", None),
                 options=self._stream_options(),
-            ):
-                if self.is_cancelled():
-                    raise _StoppedError
-                if kind == "token":
-                    parts.append(str(payload))
+                think=False,
+            )
+            try:
+                async for kind, payload in stream:
+                    if self.is_cancelled():
+                        raise _StoppedError
+                    if kind == "token":
+                        parts.append(str(payload))
+            finally:
+                close = getattr(stream, "aclose", None)
+                if callable(close):
+                    try:
+                        await close()
+                    except Exception:
+                        # The stream is already finished or cancelled. A close
+                        # error is not a failed summary, and it must not hide one.
+                        pass
 
         try:
             await asyncio.wait_for(_consume(), timeout=max(1.0, float(timeout_s)))

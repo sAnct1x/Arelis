@@ -482,6 +482,7 @@ def enable_win32_resize_frame(widget: QWidget) -> None:
     if new_style == style:
         return
     user32.SetWindowLongW(hwnd, GWL_STYLE, new_style)
+    # A style change here must not activate the window.
     user32.SetWindowPos(
         hwnd,
         0,
@@ -489,7 +490,7 @@ def enable_win32_resize_frame(widget: QWidget) -> None:
         0,
         0,
         0,
-        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
     )
 
 

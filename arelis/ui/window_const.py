@@ -24,9 +24,15 @@ BUSY_WATCHDOG_MS = 8000
 
 # Ceiling on a live turn, armed when busy starts. Override with ui.hung_turn_s.
 # The 8s watchdog above is post-Stop recovery; this is the "tool hung" unlock.
+# Hung means no progress, not a long turn. HUNG_TURN_S is the longest gap
+# between progress events while tokens stream. A round with no token yet
+# (prefill of 10k+ tokens sends nothing for 30 to 60 s) or a running tool
+# gets HUNG_FIRST_TOKEN_S. HUNG_TURN_CAP_S bounds the whole turn.
 # If she already has tool results, the ceiling asks her to close. This is how
 # long that close gets before a real hang still cuts the turn.
-HUNG_TURN_S = 90
+HUNG_TURN_S = 60
+HUNG_FIRST_TOKEN_S = 180
+HUNG_TURN_CAP_S = 600
 HUNG_CLOSE_GRACE_S = 180
 HUNG_TURN_MAX_S = 3600
 

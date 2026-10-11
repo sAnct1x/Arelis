@@ -1,7 +1,8 @@
 """Hung-turn ceiling. The 8s busy watchdog only arms after Stop.
 
 A tool that never returns used to shimmer forever. This arms when the turn
-starts. The remaining time stays off the shimmer, "thinking…" is the
+starts. A token or a tool step pushes the clock out, so a long thought is
+not a hang. The remaining time stays off the shimmer, "thinking…" is the
 status, not a countdown. Confirm wait is a person, not a hang, so the
 ceiling pauses.
 
@@ -13,15 +14,33 @@ still cancels like Stop, worded as a hang.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from PySide6.QtCore import QTimer
 
+from arelis.core.events import EventType
 from arelis.ui.status_copy import WRAPUP_STATUS
 from arelis.ui.window_const import (
     HUNG_CLOSE_GRACE_S,
+    HUNG_FIRST_TOKEN_S,
+    HUNG_TURN_CAP_S,
     HUNG_TURN_MAX_S,
     HUNG_TURN_S,
+)
+
+# Tokens are flowing: the next one is due within the idle gap.
+_STREAM_EVENTS = frozenset(
+    {EventType.THINKING, EventType.ASSISTANT_DELTA, EventType.ASSISTANT_RETRACT}
+)
+# Work moved but no token is due yet: a tool runs or a new round prefills.
+_STEP_EVENTS = frozenset(
+    {
+        EventType.TOOL_START,
+        EventType.TOOL_RESULT,
+        EventType.TOOL_CONFIRM_REPLY,
+        EventType.STATUS,
+    }
 )
 
 HUNG_MESSAGE = "Turn stopped because it hung."
@@ -40,6 +59,68 @@ def hung_turn_ms(config: dict[str, Any] | None) -> int:
     return max(1, int(seconds * 1000))
 
 
+def _seconds_ms(config: dict[str, Any] | None, key: str, default: float) -> int:
+    raw = ((config or {}).get("ui") or {}).get(key, default)
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        seconds = float(default)
+    if seconds <= 0:
+        return 0
+    return max(1, int(min(seconds, float(HUNG_TURN_MAX_S)) * 1000))
+
+
+def hung_first_token_ms(config: dict[str, Any] | None) -> int:
+    return _seconds_ms(config, "hung_first_token_s", HUNG_FIRST_TOKEN_S)
+
+
+def hung_idle_ms(config: dict[str, Any] | None) -> int:
+    """ui.hung_turn_s: longest silence while tokens are streaming."""
+    return hung_turn_ms(config)
+
+
+def hung_cap_ms(config: dict[str, Any] | None) -> int:
+    return _seconds_ms(config, "hung_turn_cap_s", HUNG_TURN_CAP_S)
+
+
+def _cap_left_ms(window) -> int | None:
+    started = getattr(window, "_hung_started", None)
+    cap = getattr(window, "_hung_cap_ms", 0)
+    if started is None or not cap:
+        return None
+    return max(1, cap - int((time.monotonic() - started) * 1000))
+
+
+def _restart(window, allowance_ms: int) -> None:
+    left = _cap_left_ms(window)
+    ms = allowance_ms if allowance_ms > 0 else (left or 0)
+    if left is not None:
+        ms = min(ms, left) if ms else left
+    if ms <= 0:
+        return
+    window._hung_watchdog.start(int(ms))
+
+
+def note_turn_progress(window, event) -> None:
+    """A bus event is proof of life. Push the hang clock out.
+
+    Streaming thinking or answer text resets to the idle gap. A tool start,
+    tool result or status line resets to the first-token allowance, because
+    a tool run or a fresh prefill comes next and sends nothing until done.
+    The absolute cap (ui.hung_turn_cap_s) is never extended.
+    """
+    timer = getattr(window, "_hung_watchdog", None)
+    if timer is None or not timer.isActive():
+        return
+    if not getattr(window, "_turn_busy", False) or getattr(window, "_hung_closing", False):
+        return
+    kind = getattr(event, "type", None)
+    if kind in _STREAM_EVENTS:
+        _restart(window, hung_idle_ms(getattr(window, "config", None)))
+    elif kind in _STEP_EVENTS:
+        _restart(window, hung_first_token_ms(getattr(window, "config", None)))
+
+
 def ensure_hung_timers(window) -> None:
     if getattr(window, "_hung_watchdog", None) is not None:
         return
@@ -55,9 +136,17 @@ def arm_hung_turn(window, *, ms: int | None = None) -> None:
     ``ms`` is the grace clock after a close has been asked for. The full
     ceiling is the default.
     """
-    if ms is None:
-        ms = hung_turn_ms(getattr(window, "config", None))
     window._hung_paused_ms = None
+    if ms is None:
+        config = getattr(window, "config", None)
+        if hung_turn_ms(config) <= 0:
+            disarm_hung_turn(window)
+            return
+        window._hung_started = time.monotonic()
+        window._hung_cap_ms = hung_cap_ms(config)
+        ensure_hung_timers(window)
+        _restart(window, hung_first_token_ms(config))
+        return
     if ms <= 0:
         disarm_hung_turn(window)
         return
