@@ -25,7 +25,8 @@ MODEL_HIDDEN_PARAMS: Mapping[str, frozenset[str]] = MappingProxyType(
         "sql": frozenset({"query"}),
         "remind": frozenset({"text", "seconds", "hours", "when"}),
         "cas": frozenset({"symbol"}),
-        "memory": frozenset({"text", "limit"}),
+        # memory text and limit stay visible. Hiding them made the 9B bench
+        # item S18 call action=prefer and sit until the 300s timeout.
         "recall": frozenset({"offset", "page", "limit"}),
         "tasks": frozenset({"limit"}),
         "goals": frozenset({"limit"}),
