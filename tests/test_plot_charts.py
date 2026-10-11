@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from arelis.tools.plot import PlotTool
 from arelis.workspace import RootEntry, WorkspaceRoots
@@ -190,6 +191,99 @@ def test_the_schema_advertises_histogram_bar_and_subplots() -> None:
     assert "histogram" in desc
     assert "bar" in desc
     assert "subplots" in desc
+
+
+def test_the_schema_offers_look() -> None:
+    look = PlotTool.parameters_schema["properties"]["look"]
+    assert set(look["enum"]) == {"default", "poster", "paper", "slide"}
+    assert look.get("description")
+
+
+@pytest.mark.asyncio
+async def test_poster_look_writes_svg_and_pdf_at_300_dpi(tmp_path, monkeypatch) -> None:
+    """poster, paper, and slide are print looks: 300 dpi, plus SVG and PDF."""
+    tool, drop = _tool(tmp_path, monkeypatch)
+
+    result = await tool.run(
+        action="line",
+        xs="1,2,3,4",
+        ys="1,4,2,8",
+        title="Poster",
+        look="poster",
+        out="poster.png",
+    )
+
+    assert result.ok, result.output
+    png = drop / "poster.png"
+    svg = drop / "poster.svg"
+    pdf = drop / "poster.pdf"
+    assert png.is_file() and svg.is_file() and pdf.is_file()
+    assert pdf.read_bytes()[:4] == b"%PDF"
+    assert b"<svg" in svg.read_bytes()[:800]
+    with Image.open(png) as im:
+        dpi = im.info.get("dpi") or (0, 0)
+        assert round(dpi[0]) == 300
+        assert round(dpi[1]) == 300
+        # 8 by 5 inches at 300 dpi. The screen default is 120 dpi.
+        assert im.size == (2400, 1500)
+    # Okabe-Ito blue, not Matplotlib's default C0.
+    assert b"0072b2" in svg.read_bytes().lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("look", ["paper", "slide"])
+async def test_paper_and_slide_looks_write_svg_and_pdf_at_300_dpi(
+    tmp_path, monkeypatch, look: str
+) -> None:
+    tool, drop = _tool(tmp_path, monkeypatch)
+
+    result = await tool.run(
+        action="bar",
+        categories="a,b,c",
+        values="1,5,10",
+        look=look,
+        out=f"{look}.png",
+    )
+
+    assert result.ok, result.output
+    assert (drop / f"{look}.svg").is_file()
+    assert (drop / f"{look}.pdf").read_bytes()[:4] == b"%PDF"
+    with Image.open(drop / f"{look}.png") as im:
+        dpi = im.info.get("dpi") or (0, 0)
+        assert round(dpi[0]) == 300
+        assert round(dpi[1]) == 300
+
+
+@pytest.mark.asyncio
+async def test_unknown_look_is_refused(tmp_path, monkeypatch) -> None:
+    tool, _drop = _tool(tmp_path, monkeypatch)
+
+    result = await tool.run(
+        action="line", xs="1,2", ys="1,2", look="billboard", out="nope.png"
+    )
+
+    assert not result.ok
+    assert "poster" in result.output
+
+
+@pytest.mark.asyncio
+async def test_default_look_stays_a_png(tmp_path, monkeypatch) -> None:
+    tool, drop = _tool(tmp_path, monkeypatch)
+
+    result = await tool.run(
+        action="line",
+        xs="1,2,3",
+        ys="1,4,9",
+        out="screen.png",
+    )
+
+    assert result.ok, result.output
+    assert (drop / "screen.png").is_file()
+    assert not (drop / "screen.svg").exists()
+    assert not (drop / "screen.pdf").exists()
+    with Image.open(drop / "screen.png") as im:
+        dpi = im.info.get("dpi") or (0, 0)
+        assert round(dpi[0]) == 120
 
 
 def test_parse_numbers_accepts_bracketed_and_json_lists() -> None:

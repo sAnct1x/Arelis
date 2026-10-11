@@ -502,6 +502,75 @@ async def test_warmth_changes_pixels(project, tool) -> None:
         assert blue < 120
 
 
+def test_the_schema_offers_annotate_scale_bar_and_stretch() -> None:
+    props = ImageEditTool.parameters_schema["properties"]
+    assert "annotate" in props
+    assert "scale_bar" in props
+    stretch = props["stretch"]
+    assert set(stretch["enum"]) == {"linear", "asinh", "log", "zscale"}
+    assert stretch.get("description")
+    assert props["annotate"].get("description")
+    assert props["scale_bar"].get("description")
+
+
+@pytest.mark.asyncio
+async def test_annotate_leaves_the_original_untouched(project, tool) -> None:
+    """Marks are a new file. The source bytes stay put."""
+    root, _data, _ws = project
+    source = _write(root / "field.png", (80, 60), (20, 20, 20))
+    before = source.read_bytes()
+
+    result = await tool.run(
+        path="project:field.png",
+        annotate=[
+            {"kind": "arrow", "x": 8, "y": 30, "x2": 50, "y2": 16},
+            {"kind": "box", "x": 10, "y": 8, "x2": 40, "y2": 28},
+            {"kind": "label", "x": 12, "y": 34, "text": "mark"},
+        ],
+        scale_bar={"length": 20, "label": "20 px"},
+    )
+
+    assert result.ok, result.output
+    assert source.read_bytes() == before
+    assert result.data["abs_path"] != str(source)
+    written = Path(result.data["abs_path"])
+    with Image.open(written) as out:
+        assert out.size == (80, 60)
+    assert written.read_bytes() != before
+
+
+@pytest.mark.asyncio
+async def test_asinh_stretch_is_monotonic_and_keeps_size(project, tool) -> None:
+    """Display stretch remaps values. It does not resample the grid."""
+    root, _data, _ws = project
+    path = root / "ramp.png"
+    ramp = Image.new("L", (64, 8))
+    ramp.putdata([x * 4 for _y in range(8) for x in range(64)])
+    ramp.save(path)
+    before = path.read_bytes()
+
+    result = await tool.run(path="project:ramp.png", stretch="asinh")
+
+    assert result.ok, result.output
+    assert path.read_bytes() == before
+    with Image.open(result.data["abs_path"]) as out:
+        assert out.size == (64, 8)
+        gray = out.convert("L").crop((0, 0, 64, 1))
+        row = [gray.getpixel((x, 0)) for x in range(64)]
+    assert row == sorted(row)
+    assert row[0] < row[-1]
+    # asinh lifts the middle of a linear ramp. An unchanged copy is already sorted.
+    linear_mid = row[0] + (row[-1] - row[0]) / 2
+    assert row[32] > linear_mid + 5
+
+    for mode in ("linear", "log", "zscale"):
+        other = await tool.run(path="project:ramp.png", stretch=mode)
+        assert other.ok, other.output
+        with Image.open(other.data["abs_path"]) as out:
+            assert out.size == (64, 8)
+    assert path.read_bytes() == before
+
+
 @pytest.mark.asyncio
 async def test_pixel_edits_leave_the_original_untouched(project, tool) -> None:
     root, _data, _ws = project

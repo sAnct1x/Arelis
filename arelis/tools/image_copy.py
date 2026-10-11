@@ -49,6 +49,12 @@ def image_edit_errand(args: dict[str, Any] | None = None) -> str:
         return "rotating the picture"
     if _truthy(args.get("grayscale")):
         return "making the picture black and white"
+    if args.get("annotate"):
+        return "marking the picture"
+    if args.get("scale_bar"):
+        return "adding a scale bar"
+    if str(args.get("stretch") or "").strip():
+        return "stretching the picture"
     return "editing the picture"
 
 
@@ -110,4 +116,10 @@ def image_edit_confirm_headline(args: dict[str, Any] | None = None) -> str:
         return "make this picture black and white"
     if args.get("rotate") is not None:
         return "rotate this picture"
+    if args.get("annotate"):
+        return "mark this picture"
+    if args.get("scale_bar"):
+        return "add a scale bar"
+    if str(args.get("stretch") or "").strip():
+        return "stretch this picture"
     return "edit this picture"

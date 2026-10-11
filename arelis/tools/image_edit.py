@@ -168,7 +168,10 @@ class ImageEditTool:
         "(radius), text (centered overlay), text_align (center/top/bottom), "
         "warmth (-1.0 cooler … +1.0 warmer), and vibrance/contrast/brightness/"
         "sharpness where 1.0 is unchanged, 1.3 is noticeably more and 0.8 is "
-        "less. This is exact pixel work, not generation: 'make this look like "
+        "less. annotate draws arrows, boxes, and labels in pixels. scale_bar "
+        "is a length in pixels plus a label. stretch is linear, asinh, log, "
+        "or zscale and does not resample. This is exact pixel work, not "
+        "generation: 'make this look like "
         "a watercolor' or 'in the style of' is the image tool with path= "
         "(img2img). Use vision to look at one. 'Add text' on a picture is this "
         "tool, never send_sms."
@@ -283,6 +286,38 @@ class ImageEditTool:
                 "type": "string",
                 "enum": ["png", "jpg"],
                 "description": "Output format. Defaults to png (lossless).",
+            },
+            # 1b marks. One block so a parallel image_edit edit can rebase.
+            "annotate": {
+                "type": "array",
+                "description": "Arrow, box, and label marks in pixels from the top left.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["arrow", "box", "label"],
+                        },
+                        "x": {"type": "integer"},
+                        "y": {"type": "integer"},
+                        "x2": {"type": "integer"},
+                        "y2": {"type": "integer"},
+                        "text": {"type": "string"},
+                    },
+                },
+            },
+            "scale_bar": {
+                "type": "object",
+                "description": "Bar length in pixels, plus a label.",
+                "properties": {
+                    "length": {"type": "integer"},
+                    "label": {"type": "string"},
+                },
+            },
+            "stretch": {
+                "type": "string",
+                "enum": ["linear", "asinh", "log", "zscale"],
+                "description": "linear, asinh, log, or zscale. Same size, no resample.",
             },
         },
         "required": ["path"],
@@ -454,6 +489,11 @@ class ImageEditTool:
             warmth = max(-1.0, min(1.0, warmth))
             if abs(warmth) < 1e-6:
                 warmth = None
+        # 1b marks. Parsed here, applied in _edit. Keep this block together.
+        try:
+            marks = _read_marks(kwargs)
+        except ValueError as exc:
+            return ToolResult(ok=False, output=f"[fail:image_edit] {exc}")
         if (
             size is None
             and not adjusting
@@ -468,6 +508,7 @@ class ImageEditTool:
             and scale is None
             and not pad
             and warmth is None
+            and not marks.active
         ):
             return ToolResult(
                 ok=False,
@@ -477,7 +518,8 @@ class ImageEditTool:
                     "warmth=, an adjustment "
                     "(vibrance=1.3, contrast=1.1, brightness=1.1, sharpness=1.4), "
                     "rotate=, flip=horizontal, grayscale=true, blur=, "
-                    "and/or text= to overlay glyphs."
+                    "and/or text= to overlay glyphs. annotate=, scale_bar=, or "
+                    "stretch=asinh also count."
                 ),
             )
 
@@ -515,6 +557,7 @@ class ImageEditTool:
                 scale,
                 pad,
                 warmth,
+                marks,
             )
         except ValueError as exc:
             return ToolResult(ok=False, output=f"[fail:image_edit] {exc}")
@@ -544,6 +587,7 @@ class ImageEditTool:
         scale: float | None = None,
         pad: int = 0,
         warmth: float | None = None,
+        marks: _Marks | None = None,
     ) -> ToolResult:
         from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
@@ -624,8 +668,23 @@ class ImageEditTool:
             frame = frame.filter(ImageFilter.GaussianBlur(radius=blur))
             notes.append(f"blur {blur:g}")
 
+        # 1b: remap values in place, then draw marks on top. No resample.
+        if marks is not None and marks.stretch:
+            before_px = frame.size
+            frame = _apply_stretch(frame, marks.stretch)
+            if frame.size != before_px:
+                raise ValueError("stretch must keep the pixel size.")
+            notes.append(f"{marks.stretch} stretch, same size")
+
         if overlay:
             frame = _draw_overlay_text(frame, overlay, align)
+
+        if marks is not None and (marks.items or marks.bar_length):
+            frame = _draw_marks(frame, marks)
+            if marks.items:
+                notes.append(f"{len(marks.items)} marks")
+            if marks.bar_length:
+                notes.append(f"scale bar {marks.bar_length}px")
 
         directory = ensure(self.output_dir())
         parts = [source.stem]
@@ -653,6 +712,12 @@ class ImageEditTool:
             parts.append("vibrant" if factors["vibrance"] > 1 else "muted")
         if overlay:
             parts.append("text")
+        if marks is not None and marks.stretch:
+            parts.append(marks.stretch)
+        if marks is not None and marks.items:
+            parts.append("annotate")
+        if marks is not None and marks.bar_length:
+            parts.append("bar")
         suffix = ".png" if fmt == "png" else ".jpg"
         if fmt == "jpg" and frame.mode != "RGB":
             frame = frame.convert("RGB")
@@ -696,6 +761,11 @@ class ImageEditTool:
                 "adjustments": {k: round(v, 3) for k, v in factors.items()},
                 "text": overlay,
                 "text_align": align if overlay else "",
+                "stretch": "" if marks is None else marks.stretch,
+                "annotate": 0 if marks is None else len(marks.items),
+                "scale_bar": (
+                    "" if marks is None or not marks.bar_length else marks.bar_label
+                ),
             },
         )
 
@@ -860,4 +930,321 @@ def _draw_overlay_text(frame: Any, text: str, align: str) -> Any:
         stroke_width=stroke,
         stroke_fill=_ink(frame.mode, (16, 13, 11)),
     )
+    return frame
+
+
+# --- 1b marks: annotate, scale_bar, stretch. Keep this block together. ---
+
+_MARK_KINDS = ("arrow", "box", "label")
+_STRETCHES = ("linear", "asinh", "log", "zscale")
+_MAX_MARKS = 40
+_MAX_MARK_TEXT = 80
+
+
+class _Marks:
+    """Parsed annotate / scale_bar / stretch. Inactive when the caller sent none."""
+
+    def __init__(
+        self,
+        items: tuple[dict[str, Any], ...],
+        bar_length: int | None,
+        bar_label: str,
+        stretch: str,
+    ) -> None:
+        self.items = items
+        self.bar_length = bar_length
+        self.bar_label = bar_label
+        self.stretch = stretch
+
+    @property
+    def active(self) -> bool:
+        return bool(self.items or self.bar_length or self.stretch)
+
+
+def _pixel(value: Any, name: str) -> int:
+    if isinstance(value, bool) or value is None or value == "":
+        raise ValueError(f"{name} must be a pixel number.")
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a pixel number.") from None
+    if number < 0:
+        raise ValueError(f"{name} must be zero or more.")
+    return number
+
+
+def _first(item: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = item.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def _load_json(raw: str, what: str) -> Any:
+    import json
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        raise ValueError(what) from None
+
+
+def _one_mark(item: Any, index: int) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        raise ValueError(f"annotate item {index} must be an object.")
+    kind = str(item.get("kind") or item.get("type") or "").strip().lower()
+    if kind not in _MARK_KINDS:
+        raise ValueError(f"annotate item {index} kind must be arrow, box, or label.")
+    x = _pixel(_first(item, "x", "left"), f"annotate item {index} x")
+    y = _pixel(_first(item, "y", "top"), f"annotate item {index} y")
+    if kind == "label":
+        text = str(item.get("text") or "").replace("\n", " ").strip()
+        if not text:
+            raise ValueError(f"annotate item {index} needs text.")
+        return {"kind": "label", "x": x, "y": y, "text": text[:_MAX_MARK_TEXT]}
+    x2 = _pixel(_first(item, "x2", "right"), f"annotate item {index} x2")
+    y2 = _pixel(_first(item, "y2", "bottom"), f"annotate item {index} y2")
+    if kind == "box" and (x2 <= x or y2 <= y):
+        raise ValueError(f"annotate item {index} box needs x < x2 and y < y2.")
+    if kind == "arrow" and x == x2 and y == y2:
+        raise ValueError(f"annotate item {index} arrow needs two different points.")
+    return {"kind": kind, "x": x, "y": y, "x2": x2, "y2": y2}
+
+
+def _read_annotate(raw: Any) -> list[dict[str, Any]]:
+    if raw is None or raw == "" or raw == []:
+        return []
+    if isinstance(raw, str):
+        raw = _load_json(raw, "annotate must be a list of arrow, box, and label items.")
+    if isinstance(raw, dict):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("annotate must be a list of arrow, box, and label items.")
+    if len(raw) > _MAX_MARKS:
+        raise ValueError(f"annotate takes at most {_MAX_MARKS} items.")
+    return [_one_mark(item, index) for index, item in enumerate(raw, start=1)]
+
+
+def _read_scale_bar(raw: Any) -> tuple[int | None, str]:
+    if raw is None or raw == "" or raw == []:
+        return None, ""
+    if raw == {}:
+        raise ValueError("scale_bar needs a length in pixels and a label.")
+    if isinstance(raw, str):
+        raw = _load_json(raw, "scale_bar needs a length in pixels and a label.")
+    label = ""
+    length_raw: Any = None
+    if isinstance(raw, dict):
+        length_raw = _first(raw, "length", "px")
+        label = str(raw.get("label") or raw.get("text") or "").strip()
+    elif isinstance(raw, (list, tuple)):
+        if not raw:
+            raise ValueError("scale_bar needs a length in pixels and a label.")
+        length_raw = raw[0]
+        if len(raw) > 1 and raw[1] is not None:
+            label = str(raw[1]).strip()
+    elif isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        length_raw = raw
+    else:
+        raise ValueError("scale_bar needs a length in pixels and a label.")
+    length = _pixel(length_raw, "scale_bar length")
+    if length < 1:
+        raise ValueError("scale_bar length must be at least 1 pixel.")
+    if length > _MAX_EDGE:
+        raise ValueError("scale_bar length is too long.")
+    label = label.replace("\n", " ").strip()
+    if not label:
+        label = f"{length} px"
+    return length, label[:_MAX_MARK_TEXT]
+
+
+def _read_stretch(raw: Any) -> str:
+    if raw is None or raw == "" or raw is False:
+        return ""
+    mode = str(raw).strip().lower()
+    if mode in {"none", "off"}:
+        return ""
+    if mode not in _STRETCHES:
+        raise ValueError("stretch must be linear, asinh, log, or zscale.")
+    return mode
+
+
+def _read_marks(kwargs: dict[str, Any]) -> _Marks:
+    items = _read_annotate(kwargs.get("annotate"))
+    length, label = _read_scale_bar(kwargs.get("scale_bar"))
+    stretch = _read_stretch(kwargs.get("stretch"))
+    return _Marks(tuple(items), length, label, stretch)
+
+
+def _apply_stretch(frame: Any, mode: str) -> Any:
+    """Pointwise display stretch. The array shape is the pixel grid, unchanged."""
+    import numpy as np
+    from PIL import Image
+
+    try:
+        from astropy.visualization import (
+            AsinhStretch,
+            ImageNormalize,
+            LinearStretch,
+            LogStretch,
+            ZScaleInterval,
+        )
+    except ImportError:
+        raise ValueError(
+            "stretch needs astropy, which is not installed in this copy."
+        ) from None
+
+    alpha = frame.getchannel("A") if frame.mode == "RGBA" else None
+    values = np.asarray(frame.convert("RGB"), dtype=np.float64)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return frame
+    lo = float(finite.min())
+    hi = float(finite.max())
+    if hi <= lo:
+        return frame
+
+    if mode == "zscale":
+        sample = values.mean(axis=-1)
+        vmin, vmax = ZScaleInterval().get_limits(sample)
+        if not np.isfinite(vmin) or not np.isfinite(vmax) or float(vmax) <= float(vmin):
+            vmin, vmax = lo, hi
+        norm = ImageNormalize(
+            values, vmin=float(vmin), vmax=float(vmax), stretch=LinearStretch()
+        )
+    else:
+        stretches = {
+            "linear": LinearStretch(),
+            "asinh": AsinhStretch(),
+            "log": LogStretch(),
+        }
+        norm = ImageNormalize(values, vmin=lo, vmax=hi, stretch=stretches[mode])
+    scaled = np.asarray(norm(values), dtype=np.float64)
+    scaled = np.nan_to_num(scaled, nan=0.0, posinf=1.0, neginf=0.0)
+    scaled = np.clip(np.rint(scaled * 255.0), 0, 255).astype(np.uint8)
+    if scaled.shape != values.shape:
+        raise ValueError("stretch must keep the pixel size.")
+    out = Image.fromarray(scaled, mode="RGB")
+    if alpha is not None:
+        out = out.convert("RGBA")
+        out.putalpha(alpha)
+    return out
+
+
+def _require_inside(width: int, height: int, x: int, y: int, name: str) -> None:
+    if x >= width or y >= height:
+        raise ValueError(f"{name} at {x},{y} is outside the {width}x{height} image.")
+
+
+def _draw_arrow(draw: Any, item: dict[str, Any], mode: str, weight: int) -> None:
+    import math
+
+    x1, y1 = int(item["x"]), int(item["y"])
+    x2, y2 = int(item["x2"]), int(item["y2"])
+    ink = _ink(mode, (248, 241, 234))
+    edge = _ink(mode, (16, 13, 11))
+    draw.line((x1, y1, x2, y2), fill=edge, width=weight + 2)
+    draw.line((x1, y1, x2, y2), fill=ink, width=weight)
+    dx, dy = x2 - x1, y2 - y1
+    length = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / length, dy / length
+    head = max(8, weight * 4)
+    px, py = -uy, ux
+    tip = (x2, y2)
+    left = (x2 - ux * head + px * head * 0.45, y2 - uy * head + py * head * 0.45)
+    right = (x2 - ux * head - px * head * 0.45, y2 - uy * head - py * head * 0.45)
+    draw.polygon((tip, left, right), fill=edge)
+    inset = max(1, weight // 2)
+    draw.polygon(
+        (
+            tip,
+            (left[0] + ux * inset, left[1] + uy * inset),
+            (right[0] + ux * inset, right[1] + uy * inset),
+        ),
+        fill=ink,
+    )
+
+
+def _draw_label(draw: Any, frame: Any, item: dict[str, Any]) -> None:
+    text = str(item["text"])
+    size = max(14, min(frame.size) // 18)
+    font = _load_overlay_font(size)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    x = int(item["x"]) - bbox[0]
+    y = int(item["y"]) - bbox[1]
+    stroke = max(2, size // 16)
+    draw.text(
+        (x, y),
+        text,
+        font=font,
+        fill=_ink(frame.mode, (248, 241, 234)),
+        stroke_width=stroke,
+        stroke_fill=_ink(frame.mode, (16, 13, 11)),
+    )
+
+
+def _draw_scale_bar(draw: Any, frame: Any, length: int, label: str) -> None:
+    width, height = frame.size
+    margin = max(8, min(28, width // 16, height // 16))
+    if length > width - 2 * margin:
+        raise ValueError(
+            f"scale bar of {length}px does not fit in a {width}px wide image."
+        )
+    bar_h = max(4, min(width, height) // 80)
+    x0 = margin
+    y0 = height - margin - bar_h
+    edge = _ink(frame.mode, (16, 13, 11))
+    ink = _ink(frame.mode, (248, 241, 234))
+    draw.rectangle((x0 - 1, y0 - 1, x0 + length + 1, y0 + bar_h + 1), fill=edge)
+    draw.rectangle((x0, y0, x0 + length, y0 + bar_h), fill=ink)
+    size = max(12, min(width, height) // 22)
+    font = _load_overlay_font(size)
+    bbox = draw.textbbox((0, 0), label, font=font)
+    text_h = bbox[3] - bbox[1]
+    text_x = x0 - bbox[0]
+    text_y = y0 - text_h - 4 - bbox[1]
+    if text_y < 2:
+        text_y = 2
+    draw.text(
+        (text_x, text_y),
+        label,
+        font=font,
+        fill=ink,
+        stroke_width=max(1, size // 16),
+        stroke_fill=edge,
+    )
+
+
+def _draw_marks(frame: Any, marks: _Marks) -> Any:
+    from PIL import ImageDraw
+
+    width, height = frame.size
+    draw = ImageDraw.Draw(frame)
+    weight = max(2, min(width, height) // 120)
+    for index, item in enumerate(marks.items, start=1):
+        kind = item["kind"]
+        name = f"annotate item {index}"
+        _require_inside(width, height, int(item["x"]), int(item["y"]), name)
+        if kind == "label":
+            _draw_label(draw, frame, item)
+            continue
+        _require_inside(width, height, int(item["x2"]), int(item["y2"]), name)
+        if kind == "box":
+            draw.rectangle(
+                (item["x"], item["y"], item["x2"], item["y2"]),
+                outline=_ink(frame.mode, (16, 13, 11)),
+                width=weight + 2,
+            )
+            draw.rectangle(
+                (item["x"], item["y"], item["x2"], item["y2"]),
+                outline=_ink(frame.mode, (248, 241, 234)),
+                width=weight,
+            )
+            continue
+        _draw_arrow(draw, item, frame.mode, weight)
+    if marks.bar_length:
+        _draw_scale_bar(draw, frame, marks.bar_length, marks.bar_label)
+    if frame.size != (width, height):
+        raise ValueError("marks must keep the pixel size.")
     return frame

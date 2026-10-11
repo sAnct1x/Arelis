@@ -54,7 +54,10 @@ from scripts.measure_tool_schema import (
 # or SMS is 43 tools, 20,347 chars, 6,157 Qwen tokens. The old ceiling
 # was 6,536. It is now 7,036 (+500 Qwen tokens, +1.7 s cold prefill,
 # 0 when the prefix is warm). Worst case (every optional tool, 51) is
-# 23,803 chars, 7,203 Qwen tokens, capped at 7,640. Both caps live in
+# 23,803 chars, 7,203 Qwen tokens, capped at 7,640. Poster look plus
+# annotate, scale_bar, and stretch measured 20,883 chars / 6,319 tokens
+# on that profile and 24,339 chars / 7,365 on the worst case. Caps
+# unchanged. Both caps live in
 # SCHEMA_TOKEN_CAP. This order is that non-Windows profile. Windows CI
 # inserts desktop in front of tile. Hidden parameters on the
 # non-Windows profile are 67 (69 with desktop's x and y).
