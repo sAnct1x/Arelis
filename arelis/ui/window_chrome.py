@@ -688,6 +688,10 @@ class WindowChrome:
 
     def _open_shortcuts(self) -> None:
         """Show the chord sheet, reusing the one window rather than stacking."""
+        from arelis.ui.foreground import release_quiet_launch
+
+        # Opening the sheet is the user asking. Unlock before activate.
+        release_quiet_launch(self)
         sheet = getattr(self, "_shortcuts_sheet", None)
         if sheet is None:
             sheet = ShortcutsSheet(self)

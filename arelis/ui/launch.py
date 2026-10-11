@@ -12,7 +12,7 @@ from collections.abc import MutableMapping
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QGuiApplication, QIcon
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from arelis.config import load_config
@@ -30,7 +30,7 @@ from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
 from arelis.setup.state import needs_model_setup, try_quiet_complete_model_setup
 from arelis.ui.first_run import prompt_for_workspace_root
-from arelis.ui.foreground import show_without_activating
+from arelis.ui.foreground import arm_quiet_launch, show_without_activating
 from arelis.ui.scale import configure_display_scale
 from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.theme import (
@@ -146,20 +146,7 @@ def _mark_launch(window: Any, background: bool) -> None:
     window._launched_in_background = bool(background)
     if not background:
         return
-    app = QGuiApplication.instance()
-    if app is None:
-        return
-
-    def _clear_on_active(state: object) -> None:
-        if state != Qt.ApplicationState.ApplicationActive:
-            return
-        window._launched_in_background = False
-        try:
-            app.applicationStateChanged.disconnect(_clear_on_active)
-        except (RuntimeError, TypeError):
-            pass
-
-    app.applicationStateChanged.connect(_clear_on_active)
+    arm_quiet_launch(window)
 
 
 def _core_open_ui_handler(window: Any) -> Any:

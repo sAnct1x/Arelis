@@ -71,6 +71,14 @@ SWP_NOMOVE = 0x0002
 SWP_NOSIZE = 0x0001
 SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
+
+
+def with_no_activate(flags: int) -> int:
+    """OR SWP_NOACTIVATE into every SetWindowPos on an Arelis HWND.
+
+    A move or a style change without this flag activates the window.
+    """
+    return int(flags) | SWP_NOACTIVATE
 SWP_NOSENDCHANGING = 0x0400
 
 SM_XVIRTUALSCREEN = 76
@@ -372,7 +380,7 @@ def _set_hwnd_rect(hwnd: int, rect: QRect, scale: float) -> None:
         ny,
         nw,
         nh,
-        SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING,
+        with_no_activate(SWP_NOZORDER | SWP_NOSENDCHANGING),
     )
 
 
@@ -490,7 +498,7 @@ def enable_win32_resize_frame(widget: QWidget) -> None:
         0,
         0,
         0,
-        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        with_no_activate(SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER),
     )
 
 
