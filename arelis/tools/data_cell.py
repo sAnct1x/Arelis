@@ -17,13 +17,12 @@ import asyncio
 import json
 import os
 import re
-import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
 from arelis.tools.base import ToolResult
+from arelis.tools.child_proc import _close_job, _drain, _spawn, _wait
 from arelis.tools.data_cell_runner import (
     MEMORY_REFUSAL,
     READ_REFUSAL,
@@ -42,10 +41,6 @@ MAX_PNG_BYTES = 8 * 1024 * 1024
 MAX_WRITE_BYTES = 16 * 1024 * 1024
 _MAX_SUMMARY = 12_000
 _TOO_LONG = "That took too long, so I stopped it."
-_POLL_S = 0.2
-_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-_CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-_RUNNER = Path(__file__).with_name("data_cell_runner.py")
 _MEMORY_CODES = {
     0xC0000017,  # STATUS_NO_MEMORY
     0xC000009A,  # STATUS_INSUFFICIENT_RESOURCES
@@ -329,144 +324,6 @@ def _child_env(python: str, results: Path) -> dict[str, str]:
         if "TEMP" not in env and os.environ.get("TMP"):
             env["TEMP"] = os.environ["TMP"]
     return env
-
-
-def _spawn(
-    python: str, room: Path, env: dict[str, str]
-) -> tuple[subprocess.Popen[str] | None, int | None]:
-    kwargs: dict[str, Any] = {
-        "cwd": str(room),
-        "env": env,
-        "stdin": subprocess.PIPE,
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-    }
-    if sys.platform == "win32":
-        kwargs["creationflags"] = _CREATE_NO_WINDOW | _CREATE_NEW_PROCESS_GROUP
-    else:
-        kwargs["start_new_session"] = True
-    try:
-        proc = subprocess.Popen([python, "-I", "-B", str(_RUNNER)], **kwargs)
-    except OSError:
-        return None, None
-    job = _assign_job(proc.pid) if sys.platform == "win32" else None
-    return proc, job
-
-
-def _assign_job(pid: int) -> int | None:
-    if sys.platform != "win32" or pid <= 0:
-        return None
-    import ctypes
-    from ctypes import wintypes
-
-    job_object_limit_kill_on_job_close = 0x2000
-    job_object_limit_process_memory = 0x100
-    job_object_extended_limit_information = 9
-    process_set_quota = 0x0100
-    process_terminate = 0x0001
-
-    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801
-        _fields_ = [
-            ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
-            ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
-            ("LimitFlags", wintypes.DWORD),
-            ("MinimumWorkingSetSize", ctypes.c_size_t),
-            ("MaximumWorkingSetSize", ctypes.c_size_t),
-            ("ActiveProcessLimit", wintypes.DWORD),
-            ("Affinity", ctypes.c_size_t),
-            ("PriorityClass", wintypes.DWORD),
-            ("SchedulingClass", wintypes.DWORD),
-        ]
-
-    class IO_COUNTERS(ctypes.Structure):  # noqa: N801
-        _fields_ = [
-            ("ReadOperationCount", ctypes.c_uint64),
-            ("WriteOperationCount", ctypes.c_uint64),
-            ("OtherOperationCount", ctypes.c_uint64),
-            ("ReadTransferCount", ctypes.c_uint64),
-            ("WriteTransferCount", ctypes.c_uint64),
-            ("OtherTransferCount", ctypes.c_uint64),
-        ]
-
-    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801
-        _fields_ = [
-            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
-            ("IoInfo", IO_COUNTERS),
-            ("ProcessMemoryLimit", ctypes.c_size_t),
-            ("JobMemoryLimit", ctypes.c_size_t),
-            ("PeakProcessMemoryUsed", ctypes.c_size_t),
-            ("PeakJobMemoryUsed", ctypes.c_size_t),
-        ]
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
-    kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
-    job = kernel32.CreateJobObjectW(None, None)
-    if not job:
-        return None
-    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-    info.BasicLimitInformation.LimitFlags = (
-        job_object_limit_kill_on_job_close | job_object_limit_process_memory
-    )
-    info.ProcessMemoryLimit = int(DATA_CELL_MEMORY_BYTES)
-    if not kernel32.SetInformationJobObject(
-        job,
-        job_object_extended_limit_information,
-        ctypes.byref(info),
-        ctypes.sizeof(info),
-    ):
-        kernel32.CloseHandle(job)
-        return None
-    proc = kernel32.OpenProcess(process_set_quota | process_terminate, False, pid)
-    if not proc:
-        kernel32.CloseHandle(job)
-        return None
-    ok = kernel32.AssignProcessToJobObject(job, proc)
-    kernel32.CloseHandle(proc)
-    if not ok:
-        kernel32.CloseHandle(job)
-        return None
-    return int(job)
-
-
-def _close_job(handle: int | None) -> None:
-    if not handle or sys.platform != "win32":
-        return
-    try:
-        import ctypes
-
-        ctypes.windll.kernel32.CloseHandle(handle)
-    except Exception:
-        # The handle was already closed with the job.
-        return
-
-
-def _wait(proc: subprocess.Popen[str], timeout_s: float) -> tuple[str, str, str]:
-    deadline = time.monotonic() + max(0.1, float(timeout_s))
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            _kill_tree(proc)
-            _drain(proc)
-            return "timeout", "", ""
-        try:
-            stdout, stderr = proc.communicate(timeout=min(_POLL_S, remaining))
-            return "ok", stdout or "", stderr or ""
-        except subprocess.TimeoutExpired:
-            continue
-
-
-def _drain(proc: subprocess.Popen[str]) -> None:
-    # Same as _wait: never flush a pipe the parent already closed.
-    proc.stdin = None
-    try:
-        proc.communicate(timeout=2.0)
-    except Exception:
-        # The child is already dead, so there is nothing left to read.
-        return
 
 
 def _parse_stdout(stdout: str) -> dict[str, Any] | None:

@@ -16,9 +16,9 @@ change is recorded.
 
 The counts here are the ones seen under pytest, where conftest points
 ARELIS_DATA_DIR at a throwaway root and the four credential-gated tools
-(send_sms, send_email, inbox, inbound_sms) plus schedule do not register. A
-shell run against a real profile reports 43 tools and 280 parameters. Both are
-deterministic; this file pins the isolated one so CI and a laptop agree.
+(send_sms, send_email, inbox, inbound_sms) plus schedule do not register.
+Desktop is out unless the host is Windows, and vision and camera are out
+unless the VL model is installed. This file pins that isolated profile.
 """
 
 from __future__ import annotations
@@ -26,11 +26,17 @@ from __future__ import annotations
 import inspect
 import json
 import re
+import sys
+
+import pytest
 
 from scripts.measure_tool_schema import (
+    CAP_RAISE_TOKENS,
+    SCHEMA_TOKEN_CAP,
     authored_parameter_docs,
     measure,
     schema_token_estimate,
+    tokenizer_json_path,
     tool_specs,
 )
 
@@ -38,13 +44,21 @@ from scripts.measure_tool_schema import (
 # Raise the floors, never lower them. The ceiling moved when Phase 5
 # registered notes/remind/transcribe/sql/pdf (38 → 43), then again when
 # run_task registered beside run_script (43 → 44). Re-measured, not
-# guessed: skinny schema ≈ 5821 tokens. Tier A hides 64 parameters from
-# the model-facing schema on this profile (66 names in the constant;
-# memory text and limit stay visible) and retargets the ceiling: 5,400
-# on the old chars/4 scale, which is 6,536 Qwen tokens at the calibrated
-# ratio.
-EXPECTED_TOOLS = 45
-MAX_SCHEMA_TOKENS = schema_token_estimate(5_400 * 4)
+# guessed: skinny schema ≈ 5821 tokens. Tier A hides parameters from
+# the model-facing schema on this profile and retargets the ceiling:
+# 5,400 on the old chars/4 scale, which is 6,536 Qwen tokens at the
+# calibrated ratio. Diagram (45 → 46) stays under that ceiling by also
+# hiding negative, format, fit, text_align, and warmth. Class description
+# text does not move this count: the one-line catalog overrides it.
+# Re-measured after the session set: non-Windows, no VL model, no mail
+# or SMS is 43 tools, 20,347 chars, 6,157 Qwen tokens. The old ceiling
+# was 6,536. It is now 7,036 (+500 Qwen tokens, +1.7 s cold prefill,
+# 0 when the prefix is warm). Worst case (every optional tool, 51) is
+# 23,803 chars, 7,203 Qwen tokens, capped at 7,640. Both caps live in
+# SCHEMA_TOKEN_CAP. This order is that non-Windows profile. Windows CI
+# inserts desktop in front of tile. Hidden parameters on the
+# non-Windows profile are 67 (69 with desktop's x and y).
+MAX_SCHEMA_TOKENS = SCHEMA_TOKEN_CAP["default"]
 MIN_DESCRIPTION_CHARS = 12
 MIN_MEDIAN_DESCRIPTION = 41
 
@@ -74,6 +88,7 @@ SESSION_TOOL_ORDER = (
     "solar",
     "earth",
     "plot",
+    "diagram",
     "data_cell",
     "document",
     "pdf",
@@ -91,21 +106,28 @@ SESSION_TOOL_ORDER = (
     "weather",
     "image",
     "image_edit",
-    "vision",
-    "camera",
     "browser",
-    "desktop",
     "tile",
 )
+
+
+def default_session_order() -> tuple[str, ...]:
+    """CI profile for this host. Desktop is in the list only on Windows."""
+    if sys.platform != "win32":
+        return SESSION_TOOL_ORDER
+    names = list(SESSION_TOOL_ORDER)
+    names.insert(names.index("tile"), "desktop")
+    return tuple(names)
 
 
 def test_the_tool_count_is_deliberate() -> None:
     """Tools arrive by decision, not by accident. Update the number knowingly."""
     stats = measure(tool_specs())
-    assert stats["tools"] == EXPECTED_TOOLS, (
+    expected = len(default_session_order())
+    assert stats["tools"] == expected, (
         f"tool count moved to {stats['tools']}. If that was intended, update "
-        "EXPECTED_TOOLS and check measure_tool_surface_prefill.py — every tool "
-        "is in the constant prefix of every single turn."
+        "SESSION_TOOL_ORDER and check measure_tool_surface_prefill.py. Every "
+        "tool is in the constant prefix of every single turn."
     )
 
 
@@ -183,10 +205,12 @@ def test_records_that_none_of_them_reach_the_model() -> None:
 
 
 def test_schema_token_estimate_is_the_qwen_ratio() -> None:
-    """5,400 chars/4-tokens is the tier A ceiling, restated in Qwen tokens."""
+    """The calibrated ratio stays. The ceiling is that ratio plus 500."""
     assert schema_token_estimate(23_570) == 7_132
-    assert MAX_SCHEMA_TOKENS == 6_536
-    assert MAX_SCHEMA_TOKENS == schema_token_estimate(5_400 * 4)
+    assert SCHEMA_TOKEN_CAP["default"] == 7_036
+    assert SCHEMA_TOKEN_CAP["worst"] == 7_640
+    assert MAX_SCHEMA_TOKENS == SCHEMA_TOKEN_CAP["default"]
+    assert MAX_SCHEMA_TOKENS == schema_token_estimate(5_400 * 4) + CAP_RAISE_TOKENS
 
 
 def test_session_tool_order_is_pinned() -> None:
@@ -200,7 +224,7 @@ def test_session_tool_order_is_pinned() -> None:
         for spec in session_tool_schemas(_registry(), config.get("agent"))
     ]
     assert names == [spec.get("function", spec)["name"] for spec in tool_specs()]
-    assert names == list(SESSION_TOOL_ORDER)
+    assert names == list(default_session_order())
 
 
 def test_warmup_schema_bytes_match_the_turn_schema() -> None:
@@ -231,11 +255,12 @@ def test_the_hide_list_is_a_fixed_constant() -> None:
     assert list(inspect.signature(model_parameters).parameters) == ["tool_name", "params"]
     assert "environ" not in model_parameters.__code__.co_names
     assert "memory" not in MODEL_HIDDEN_PARAMS
-    assert sum(len(names) for names in MODEL_HIDDEN_PARAMS.values()) == 66
+    assert sum(len(names) for names in MODEL_HIDDEN_PARAMS.values()) == 71
 
 
 def test_hidden_params_leave_the_model_schema_and_stay_accepted() -> None:
     from arelis.core.tool_args import cross_tool_arg_error, schema_keys
+    from arelis.tools.desktop_tool import DesktopTool
     from arelis.tools.inbound_sms import InboundSmsTool
     from arelis.tools.inbox import InboxTool
     from arelis.tools.model_schema import MODEL_HIDDEN_PARAMS, model_parameters
@@ -252,6 +277,7 @@ def test_hidden_params_leave_the_model_schema_and_stay_accepted() -> None:
     }
     source_schemas.setdefault("inbox", InboxTool.parameters_schema)
     source_schemas.setdefault("inbound_sms", InboundSmsTool.parameters_schema)
+    source_schemas.setdefault("desktop", DesktopTool.parameters_schema)
 
     missing = []
     hidden_on_profile = 0
@@ -283,7 +309,10 @@ def test_hidden_params_leave_the_model_schema_and_stay_accepted() -> None:
             is None
         )
     assert not missing, missing
-    assert hidden_on_profile == 64
+    # 69 on the old profile, which included desktop. x and y are the two
+    # hidden desktop parameters. A non-Windows session does not register it.
+    expected_hidden = 67 + (2 if "desktop" in visible else 0)
+    assert hidden_on_profile == expected_hidden
     assert "text" in visible["memory"] and "limit" in visible["memory"]
 
     notes = visible["notes"]
@@ -327,3 +356,19 @@ def test_short_descriptions_name_real_actions() -> None:
     data_cell = _SHORT_DESC["data_cell"]
     assert len(data_cell) > 13
     assert "not weather" in data_cell
+
+
+def test_calibrated_ratio_stays_within_two_percent_of_the_real_tokenizer() -> None:
+    """Opt-in. Runs only when tokenizers and a tokenizer.json are present."""
+    pytest.importorskip("tokenizers")
+    path = tokenizer_json_path()
+    if path is None:
+        pytest.skip("tokenizer.json is not present")
+    from tokenizers import Tokenizer
+
+    blob = json.dumps(tool_specs())
+    real = len(Tokenizer.from_file(str(path)).encode(blob).ids)
+    estimate = schema_token_estimate(len(blob))
+    assert real > 0
+    drift = abs(estimate - real) / real
+    assert drift <= 0.02, (estimate, real, round(drift, 4))

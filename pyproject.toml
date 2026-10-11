@@ -67,6 +67,11 @@ dependencies = [
   # model's context at all. A core dependency rather than an extra because
   # without it a pasted screenshot cannot be looked at, which is not a niche.
   "Pillow>=10.0",
+  # Diagrams from text. vl-convert is BSD-3, one wheel per OS. typst is
+  # Apache-2.0. Core, not an extra: asking for a diagram should not need a
+  # second install. The flowchart helper downloads the first time it is used.
+  "vl-convert-python>=1.9",
+  "typst>=0.15",
   # Pairing QR on Settings → Notify. Local; no network. BSD.
   "segno>=1.6",
   "google-auth>=2.0",

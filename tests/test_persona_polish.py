@@ -255,7 +255,11 @@ def test_hair_tips_move_and_roots_stay_and_busy_is_quieter(qt_app):
     """A few seconds of flow moves the tips. The roots and the face barely move.
 
     Busy cuts the same drive, so the tip shift is smaller than calm.
+    The pixel grab waits until every hair phase exists, on a clock the test
+    owns. A slow runner used to stop at eight phases, and those two frames
+    then landed on nearly the same plates.
     """
+    from arelis.ui.persona_face.engine import PHASE_COUNT
     from arelis.ui.persona_face.motion import Motion
     from arelis.ui.persona_face.panel import PersonaPanel
 
@@ -284,18 +288,21 @@ def test_hair_tips_move_and_roots_stay_and_busy_is_quieter(qt_app):
     panel = PersonaPanel()
     panel.resize(220, 300)
     panel.set_bake_delay(0)
+    clock = {"t": 0.0}
+    panel.set_clock(lambda: clock["t"])
     panel.show()
     deadline = time.monotonic() + 40.0
     while not panel.bake_ready and time.monotonic() < deadline:
         QApplication.processEvents()
         time.sleep(0.02)
     assert panel.bake_ready
-    deadline = time.monotonic() + 90.0
-    while panel.avatar.phases_ready() < 8 and time.monotonic() < deadline:
+    deadline = time.monotonic() + 70.0
+    while panel.avatar.phases_ready() < PHASE_COUNT and time.monotonic() < deadline:
         QApplication.processEvents()
         time.sleep(0.02)
-    assert panel.avatar.phases_ready() >= 8
+    assert panel.avatar.phases_ready() >= PHASE_COUNT
     panel._timer.stop()
+    panel._timer.blockSignals(True)
     panel._mode = "face"
     panel.avatar.reveal = 1.0
 
