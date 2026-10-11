@@ -80,6 +80,7 @@ def enter_room_from_menu(window, room_id: str) -> None:
 
 
 def refresh_history(window) -> None:
+    bind_history_pins(window)
     if window.store is None:
         return
     window.history.set_store(window.store)
@@ -89,6 +90,7 @@ def refresh_history(window) -> None:
             "id": str(row.get("id") or ""),
             "started_at": str(row.get("started_at") or ""),
             "title": str(row.get("title") or ""),
+            "pinned": bool(row.get("pinned")),
         }
         for row in window.store.list_sessions(limit=100)
         if keep_history_row(row, current_id=current)
@@ -167,6 +169,37 @@ def on_history_delete(window, session_id: str) -> None:
         )
 
 
+def on_history_pin(window, session_id: str, on: bool) -> None:
+    if window.store is None:
+        return
+    if window._turn_busy:
+        toast_finish_or_stop(
+            window,
+            "Finish or stop the current turn before pinning a conversation.",
+        )
+        return
+    sid = str(session_id or "").strip()
+    if not sid:
+        return
+    if not window.store.set_session_pinned(sid, bool(on)):
+        window.chat.add_system("Could not update that conversation.")
+        return
+    refresh_history(window)
+
+
+def focus_history_search(window) -> None:
+    """Open past conversations and put the cursor in the search box."""
+    from arelis.ui.window_docks import toggle_history
+
+    toggle_history(window, True)
+    act = getattr(window, "act_history", None)
+    if act is not None:
+        act.setChecked(True)
+    search = window.history.search
+    search.setFocus()
+    search.selectAll()
+
+
 def on_history_new(window) -> None:
     if window._turn_busy:
         toast_finish_or_stop(
@@ -218,7 +251,24 @@ def leave_room(window) -> None:
     )
 
 
+def bind_history_pins(window) -> None:
+    """Listen for pin and unpin. Once per window.
+
+    The list is filled from refresh_history, so that is where the listener
+    is attached. A second call does not add another one.
+    """
+    if getattr(window, "_history_pin_bound", False):
+        return
+    history = getattr(window, "history", None)
+    signal = getattr(history, "session_pin_requested", None)
+    if signal is None:
+        return
+    signal.connect(lambda session_id, on: on_history_pin(window, session_id, on))
+    window._history_pin_bound = True
+
+
 def bind_history(window) -> None:
+    bind_history_pins(window)
     window.history.session_selected.connect(
         lambda session_id: on_history_selected(window, session_id)
     )

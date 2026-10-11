@@ -29,6 +29,10 @@ from arelis.ui.dialog import confirm
 # thread ate the quota and another body match sits further down.
 _BODY_SEARCH_LIMIT = 200
 
+# Leading mark on a pinned row. The desk face has no pushpin, so this is
+# the pin character and the tooltip still says the word.
+PIN_MARK = "\U0001F4CC"
+
 
 def filter_history_sessions(
     sessions: Sequence[Mapping[str, Any]],
@@ -61,6 +65,13 @@ def filter_history_sessions(
     return rows
 
 
+def _pinned_first(sessions: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Pinned conversations first, keeping the order inside each group."""
+    pinned = [session for session in sessions if session.get("pinned")]
+    rest = [session for session in sessions if not session.get("pinned")]
+    return pinned + rest
+
+
 def _session_ids_from_hits(hits: Iterable[Any]) -> set[str]:
     ids: set[str] = set()
     for hit in hits:
@@ -82,6 +93,7 @@ class HistoryPanel(QWidget):
 
     session_selected = Signal(str)
     session_delete_requested = Signal(str)
+    session_pin_requested = Signal(str, bool)
     new_requested = Signal()
     # One or many fact ids + status (active|rejected). Batch so multi-select
     # and reject-all refresh History once, not once per row.
@@ -91,7 +103,7 @@ class HistoryPanel(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
-        self._sessions: list[dict[str, str]] = []
+        self._sessions: list[dict[str, Any]] = []
         self._store: Any | None = None
         self._active_id = ""
         self._list_fp: tuple[tuple[str, str, str], ...] | None = None
@@ -105,13 +117,14 @@ class HistoryPanel(QWidget):
         self.search = QLineEdit()
         self.search.setObjectName("InstrumentSearch")
         self.search.setPlaceholderText("search sessions…")
+        self.search.setToolTip("search titles and messages (Ctrl+Shift+F)")
         self.search.setFixedHeight(28)
         self.search.textChanged.connect(self._apply_filter)
         self.new_btn = QPushButton("new")
         self.new_btn.setObjectName("InstrumentAction")
         self.new_btn.setFixedHeight(28)
         self.new_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.new_btn.setToolTip("Start a fresh conversation")
+        self.new_btn.setToolTip("Start a fresh conversation (Ctrl+N)")
         self.new_btn.clicked.connect(self.new_requested.emit)
         row.addWidget(self.search, stretch=1)
         row.addWidget(self.new_btn)
@@ -196,7 +209,7 @@ class HistoryPanel(QWidget):
         self._store = store
         self._apply_filter(self.search.text())
 
-    def set_sessions(self, sessions: list[dict[str, str]]) -> None:
+    def set_sessions(self, sessions: list[dict[str, Any]]) -> None:
         self._sessions = list(sessions)
         self._apply_filter(self.search.text())
 
@@ -229,13 +242,14 @@ class HistoryPanel(QWidget):
         tip = "" if enabled else "Finish or stop the current turn first"
         self.list.setToolTip(tip)
         self.new_btn.setToolTip(
-            "Start a fresh conversation" if enabled else tip
+            "Start a fresh conversation (Ctrl+N)" if enabled else tip
         )
 
     def recent_sessions(self, limit: int = 3) -> list[tuple[str, str]]:
-        """Most recent sessions for the Orbit idle ghosts."""
+        """Most recent sessions for the Orbit idle ghosts. Pinned ones first."""
         out: list[tuple[str, str]] = []
-        for session in self._sessions[: max(0, int(limit))]:
+        ordered = _pinned_first(self._sessions)
+        for session in ordered[: max(0, int(limit))]:
             sid = str(session.get("id") or "")
             if not sid:
                 continue
@@ -273,14 +287,15 @@ class HistoryPanel(QWidget):
 
     def _apply_filter(self, text: str) -> None:
         needle = text.strip()
-        filtered = filter_history_sessions(
-            self._sessions, text, store=self._store
+        filtered = _pinned_first(
+            filter_history_sessions(self._sessions, text, store=self._store)
         )
-        rows: list[tuple[str, str, str]] = []
+        rows: list[tuple[str, str, str, str]] = []
         for session in filtered:
             title = _display_session_title(str(session.get("title") or ""))
             started = _format_when(str(session.get("started_at") or ""))
-            rows.append((str(session.get("id") or ""), title, started))
+            pinned = "1" if session.get("pinned") else "0"
+            rows.append((str(session.get("id") or ""), title, started, pinned))
         fingerprint = tuple(rows)
         empty = not rows
         self.empty_hint.setVisible(empty)
@@ -291,11 +306,15 @@ class HistoryPanel(QWidget):
             return
         self._list_fp = fingerprint
         self.list.clear()
-        for sid, title, started in rows:
+        for sid, title, started, pinned in rows:
             # Title first (what you scan); date second — no H-scroll dump.
-            item = QListWidgetItem(f"{title}\n{started}")
+            shown = f"{PIN_MARK} {title}" if pinned == "1" else title
+            item = QListWidgetItem(f"{shown}\n{started}")
             item.setData(Qt.ItemDataRole.UserRole, sid)
-            item.setToolTip(f"{title}\n{started}")
+            if pinned == "1":
+                item.setToolTip(f"{title}\npinned\n{started}")
+            else:
+                item.setToolTip(f"{title}\n{started}")
             item.setSizeHint(QSize(0, 48))
             self.list.addItem(item)
         self.set_active(self._active_id)
@@ -318,18 +337,24 @@ class HistoryPanel(QWidget):
         if not sid:
             return
         title = ""
+        pinned = False
         for session in self._sessions:
             if str(session.get("id") or "") == sid:
                 title = _display_session_title(str(session.get("title") or ""))
+                pinned = bool(session.get("pinned"))
                 break
         menu = QMenu(self)
         open_act = QAction("Open", menu)
+        pin_act = QAction("Unpin" if pinned else "Pin", menu)
         delete_act = QAction("Delete…", menu)
         menu.addAction(open_act)
+        menu.addAction(pin_act)
         menu.addAction(delete_act)
         chosen = menu.exec(self.list.mapToGlobal(pos))
         if chosen is open_act:
             self.session_selected.emit(sid)
+        elif chosen is pin_act:
+            self.session_pin_requested.emit(sid, not pinned)
         elif chosen is delete_act:
             if confirm(
                 self,
