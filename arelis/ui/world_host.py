@@ -25,6 +25,11 @@ if TYPE_CHECKING:
     from arelis.spatial.scene import WorldScene
     from arelis.ui.world_window import WorldWindow
 
+_PLATE_ONLY = (
+    "The 3D view is only there when you're running from source. "
+    "It is not in the installed app."
+)
+
 _DOCK_TILES = (
     "thinking",
     "workspace",
@@ -98,10 +103,7 @@ def toggle_world(window, checked: bool, page: str = "", *, force: bool = False) 
     if not world_available():
         window.act_world.setChecked(False)
         if checked:
-            window.thinking.append(
-                "Reality's plate is a source-checkout stage, not in the installer.",
-                kind="status",
-            )
+            window.thinking.append(_PLATE_ONLY, kind="status")
         return
     if checked:
         if not force and not should_offer_world(window.conversation.room.room_id):
@@ -404,10 +406,7 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
             )
             return
         if not world_available():
-            window.thinking.append(
-                "Reality's plate is a source-checkout stage, not in the installer.",
-                kind="status",
-            )
+            window.thinking.append(_PLATE_ONLY, kind="status")
             return
         toggle_world(window, True, page="solar", force=True)
         if not zone.active:

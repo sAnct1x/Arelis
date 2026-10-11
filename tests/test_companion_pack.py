@@ -110,8 +110,9 @@ def test_status_hint_says_how_to_build_when_missing(monkeypatch) -> None:
     )
     hint = companion_pack.status().hint()
     assert "0.3.3" in hint
-    assert "build_companion.py" in hint
-    assert "will not shell out" in hint
+    assert "running from source" in hint
+    assert "will not build it for you" in hint
+    assert "build_companion.py" not in hint
 
 
 def test_manifest_omits_apk_when_missing(monkeypatch) -> None:
@@ -167,7 +168,8 @@ def test_landing_html_has_download_and_pair_links() -> None:
 def test_landing_html_without_apk_tells_the_truth() -> None:
     html = landing_html(pair="x", ticket="A1|x", apk=None, arelis_version="0.2.9")
     assert "no companion APK" in html
-    assert "build_companion.py" in html
+    assert "running from source" in html
+    assert "build_companion.py" not in html
     assert "Download the app" not in html
 
 

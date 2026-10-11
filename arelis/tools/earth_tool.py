@@ -85,7 +85,8 @@ class EarthTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    "The Earth zone is source-checkout only, same as the solar stage."
+                    "The Earth view is only there when you're running from source, "
+                    "same as the solar system view."
                 ),
                 data={"fail_class": "fail:stage"},
             )
@@ -293,7 +294,9 @@ class EarthTool:
         if not stage_ok():
             return ToolResult(
                 ok=True,
-                output="Earth zone is source-checkout only.",
+                output=(
+                    "The Earth view is only there when you're running from source."
+                ),
                 data={"stage": False, "active": False},
             )
         earth = require_earth()

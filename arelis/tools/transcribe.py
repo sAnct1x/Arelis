@@ -27,8 +27,8 @@ _ENGINE_NOT_LOADED = (
     "voice engine not loaded, I will not pull Whisper onto the GPU mid-turn."
 )
 _VIDEO_REFUSED = (
-    "Video is not supported, this checkout has no ffmpeg/imageio to extract "
-    "audio. Use wav, mp3, flac, m4a, or ogg."
+    "Video is not supported. This copy cannot pull the audio out of a video. "
+    "Use wav, mp3, flac, m4a, or ogg."
 )
 
 TranscribeFn = Callable[[Path], str]

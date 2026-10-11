@@ -47,7 +47,8 @@ class NBody:
     ) -> NBody:
         if not rebound_available():
             raise RuntimeError(
-                "REBOUND is not installed. From a checkout: pip install -e \".[astro]\"."
+                "The orbit library is not installed. "
+                "Install the astronomy extra, then try again."
             )
         import rebound
 
