@@ -189,6 +189,16 @@ SPACE = {
     "stage": 24,  # empty states, shortcuts, stage breath
 }
 
+# Shared timing for chrome and chat. fast is a small control, base is a dock
+# or a caption leaving, slow is a plate or a new message. One curve for all
+# of them. Floating windows stay opaque; these numbers are not an opacity fade.
+MOTION = {
+    "fast": 140,
+    "base": 220,
+    "slow": 280,
+    "easing": "OutCubic",
+}
+
 # Dock gutters. Neighbors each contribute half so the visible gap is inset.
 # bottom used to be 14 — the extra 2px was a sitting, not a step.
 SHELL = {

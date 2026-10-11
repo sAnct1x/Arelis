@@ -5,7 +5,10 @@ tinted with the theme text colour. Unicode from mathtext.py is the fallback
 when a formula is simple, too long, too wide, or the engine fails.
 
 matplotlib mathtext is not in this chain. Matrices, cases, aligned, array,
-and underbrace are drawn here.
+and underbrace are drawn here. Row spacing written ``\\\\[6pt]`` or
+``\\\\[0.5em]`` is removed, because ziamath draws that bracket as text.
+``\\hline`` is drawn on a table. ``tabular`` is drawn as ``array``, which
+is the form ziamath accepts.
 
 The HTML address is ``arelis-math://f/<sha1>`` with no colour and no size
 in it, so a theme change recolours the cached mask and a text-scale change
@@ -23,6 +26,7 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from PySide6.QtCore import QByteArray, QRectF, Qt
@@ -87,6 +91,50 @@ _ENVS: tuple[tuple[str, str], ...] = (
     ("multline*", "gathered"),
     ("gather", "gathered"),
     ("multline", "gathered"),
+)
+
+# ``\\[6pt]`` and ``\\[0.5em]``. The break stays. The length is not a
+# glyph. A star form ``\\*[6pt]`` is the same break in a chat bubble.
+_ROW_SKIP = re.compile(
+    r"\\\\(?:\*)?\s*\[\s*[-+]?(?:\d+(?:\.\d*)?|\.\d+)\s*"
+    r"(?:pt|em|ex|mu|px|bp|pc|dd|cc|cm|mm|in|sp)\s*\]",
+    re.IGNORECASE,
+)
+_HLINE = re.compile(r"\\(?:hline|hdashline)(?![A-Za-z])")
+_BEGIN_ENV = re.compile(r"\\begin\{([A-Za-z*]+)\}")
+_END_ENV = re.compile(r"\\end\{([A-Za-z*]+)\}")
+# Environments latex2mathml turns into an mtable, after the renames above.
+# ``gathered`` is not one of them. A rule there would be the word hline.
+_RULE_ENVS = frozenset(
+    {
+        "array",
+        "matrix",
+        "pmatrix",
+        "bmatrix",
+        "Bmatrix",
+        "vmatrix",
+        "Vmatrix",
+        "smallmatrix",
+        "cases",
+        "aligned",
+        "align",
+        "align*",
+        "split",
+        "eqnarray",
+        "eqnarray*",
+        "flalign",
+        "flalign*",
+        "substack",
+        "matrix*",
+        "pmatrix*",
+        "bmatrix*",
+        "Bmatrix*",
+        "vmatrix*",
+        "Vmatrix*",
+        "eqalign",
+        "eqalignno",
+        "displaylines",
+    }
 )
 
 _FAIL = object()
@@ -215,11 +263,19 @@ def prepare_tex(tex: str) -> str:
     ``gathered``, and ``equation`` is unwrapped. ``\\tag``, ``\\label``,
     ``\\nonumber``, ``\\notag``, and ``\\color`` are removed. The theme
     owns the ink, and a chat bubble is not a numbered paper.
+
+    ``\\\\[6pt]`` loses the length and keeps the row break. ``tabular``
+    becomes ``array``. ``\\hline`` stays inside a table so the picture
+    can draw it, and is removed anywhere else so the command name is
+    not drawn.
     """
     text = _DROP.sub("", tex or "")
     text = _EQUATION.sub(r"\1", text)
     for name, dest in _ENVS:
         text = _rename_env(text, name, dest)
+    text = _rewrite_tabular(text)
+    text = _ROW_SKIP.sub(_keep_row_break, text)
+    text = _drop_loose_hlines(text)
     return text.strip()
 
 
@@ -418,12 +474,24 @@ def render_qimage(
 
 
 def _svg_for(tex: str, px: int, display: bool) -> str:
-    """Black SVG. ``svg2`` stays off or Qt drops the glyphs."""
+    """Black SVG. ``svg2`` stays off or Qt drops the glyphs.
+
+    ziamath reads ``rowlines`` and does not draw it. The rule is added
+    here. A rule under the last row hangs out of the box, so the box
+    grows downward until the viewBox contains the stroke.
+    """
     import ziamath
+    from ziafont.fonttypes import BBox
 
     ziamath.config.svg2 = False
     size = float(px) * (1.15 if display else 1.0)
-    return ziamath.Latex(tex, size=size, color="black", inline=not display).svg()
+    drawn = ziamath.Latex(tex, size=size, color="black", inline=not display)
+    stick = _paint_row_rules(drawn.node)
+    extra = stick - float(drawn.margin) + 0.4
+    if extra > 0:
+        box = drawn.node.bbox
+        drawn.node.bbox = BBox(box.xmin, box.xmax, box.ymin - extra, box.ymax)
+    return drawn.svg()
 
 
 def _build_mask(tex: str, display: bool, px: int, dpr: float) -> np.ndarray | None:
@@ -476,6 +544,124 @@ def _mask_from_svg(svg: str, dpr: float, xheight: float) -> np.ndarray:
     if alpha.size == 0 or int(alpha.max()) == 0:
         raise ValueError("blank formula")
     return alpha
+
+
+def _keep_row_break(_match: re.Match[str]) -> str:
+    return "\\\\"
+
+
+def _rewrite_tabular(text: str) -> str:
+    """ziamath rejects ``tabular``. The column spec is the same as array."""
+    text = re.sub(
+        r"\\begin\{tabular\*\}\s*\{[^{}]*\}",
+        r"\\begin{array}",
+        text,
+    )
+    text = re.sub(r"\\begin\{tabular\}", r"\\begin{array}", text)
+    return re.sub(r"\\end\{tabular\*?\}", r"\\end{array}", text)
+
+
+def _drop_loose_hlines(text: str) -> str:
+    """Remove ``\\hline`` that would be drawn as the word hline.
+
+    Inside an environment that becomes a table, the command stays. The
+    renderer turns that into a rule.
+    """
+    depth = 0
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        began = _BEGIN_ENV.match(text, index)
+        if began:
+            if began.group(1) in _RULE_ENVS:
+                depth += 1
+            out.append(began.group(0))
+            index = began.end()
+            continue
+        ended = _END_ENV.match(text, index)
+        if ended:
+            if ended.group(1) in _RULE_ENVS and depth:
+                depth -= 1
+            out.append(ended.group(0))
+            index = ended.end()
+            continue
+        rule = _HLINE.match(text, index)
+        if rule and depth == 0:
+            index = rule.end()
+            continue
+        out.append(text[index])
+        index += 1
+    return "".join(out)
+
+
+def _paint_row_rules(node: Any) -> float:
+    """Draw table rules. Returns how far a rule hangs below a table box."""
+    from ziamath.nodes.mnode import Mnode
+    from ziamath.nodes.mtable import Mtable
+
+    stick = 0.0
+    children = [child for child in getattr(node, "nodes", ()) if isinstance(child, Mnode)]
+    for child in children:
+        stick = max(stick, _paint_row_rules(child))
+    if isinstance(node, Mtable):
+        stick = max(stick, _paint_table_rules(node))
+    return stick
+
+
+def _paint_table_rules(table: Any) -> float:
+    from ziamath.drawable import HLine
+
+    specs = (table.element.get("rowlines") or "").split()
+    if not specs or all(spec == "none" for spec in specs):
+        return 0.0
+    rows = _rule_rows(table)
+    if not rows:
+        return 0.0
+    lw = float(table.units_to_points(table.font.math.consts.radicalRuleThickness))
+    if lw < 0.6:
+        lw = 0.6
+    width = float(table.bbox.xmax - table.bbox.xmin)
+    if width <= 0:
+        return 0.0
+    x0 = float(table.bbox.xmin)
+    gaps = len(rows) - 1
+    for index in range(gaps):
+        spec = specs[index] if index < len(specs) else specs[-1]
+        if spec == "none":
+            continue
+        mid = (rows[index]["bottom"] + rows[index + 1]["top"]) / 2
+        _add_hline(table, HLine, width, lw, x0, mid - lw / 2)
+    if len(specs) <= gaps or specs[gaps] == "none":
+        return 0.0
+    # latex2mathml records one entry per ``\\hline``, then drops the empty
+    # row a trailing break leaves behind. That extra entry is the rule
+    # under the last row. The rowlines attribute has no slot for it, and
+    # ziamath does not paint the attribute anyway.
+    y = rows[-1]["bottom"] + max(lw * 0.35, 0.35)
+    _add_hline(table, HLine, width, lw, x0, y)
+    hang = (y + lw) - (-float(table.bbox.ymin))
+    return hang if hang > 0 else 0.0
+
+
+def _rule_rows(table: Any) -> list[dict[str, float]]:
+    grouped: dict[float, list[Any]] = {}
+    for (_x, y), node in zip(table.nodexy, table.nodes, strict=True):
+        grouped.setdefault(round(float(y), 3), []).append(node)
+    rows = []
+    for y in sorted(grouped):
+        cells = grouped[y]
+        rows.append(
+            {
+                "bottom": y - min(float(cell.bbox.ymin) for cell in cells),
+                "top": y - max(float(cell.bbox.ymax) for cell in cells),
+            }
+        )
+    return rows
+
+
+def _add_hline(table: Any, hline_cls: type, width: float, lw: float, x: float, y: float) -> None:
+    table.nodes.append(hline_cls(width, lw, style=table.style))
+    table.nodexy.append((x, y))
 
 
 def _rename_env(text: str, name: str, dest: str) -> str:
