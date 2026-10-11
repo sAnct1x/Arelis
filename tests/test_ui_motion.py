@@ -317,6 +317,50 @@ def test_dock_hide_slides_then_closes_and_snaps_when_off(qt_app, monkeypatch) ->
         dock.close()
 
 
+def test_fast_dock_toggle_finishes_on_the_rest_geometry(qt_app, monkeypatch) -> None:
+    """Toggling a dock mid-slide still leaves it on the rectangle it started from.
+
+    A slide that treats the rectangle it is already moving through as rest
+    stacks another 36px of travel on every quick toggle. The dock then
+    finishes offset from the spot it left.
+    """
+    _motion_on(monkeypatch)
+    _motion_mod, tokens = _motion()
+    saved = dict(tokens.MOTION)
+    from arelis.ui.window_chrome import WindowChrome
+
+    dock = QDockWidget()
+    dock.setWidget(QLabel("notes"))
+    # Wide enough that the slide uses the full 36px travel.
+    dock.setGeometry(120, 80, 320, 180)
+    dock.show()
+    qt_app.processEvents()
+    try:
+        tokens.MOTION["base"] = 400
+        rest = dock.geometry()
+        assert rest.width() >= 288
+        moved = False
+        toggles = (False, True, False, True)
+        for index, show in enumerate(toggles):
+            WindowChrome._animate_dock(object(), dock, show=show)
+            anim = getattr(dock, "_arelis_dock_slide", None)
+            assert _running(anim)
+            if index < len(toggles) - 1:
+                anim.setCurrentTime(anim.duration() // 2)
+                if dock.geometry() != rest:
+                    moved = True
+                continue
+            anim.setCurrentTime(anim.duration())
+            qt_app.processEvents()
+        assert moved
+        assert dock.geometry() == rest
+        assert not dock.isHidden()
+    finally:
+        tokens.MOTION.clear()
+        tokens.MOTION.update(saved)
+        dock.close()
+
+
 def test_new_chat_message_fades_and_snaps_with_the_same_gate(qt_app, monkeypatch) -> None:
     """A new line fades in. With motion off it is solid immediately."""
     _motion_on(monkeypatch)

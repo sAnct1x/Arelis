@@ -189,7 +189,11 @@ def slide_dock(dock: QWidget, *, show: bool = True) -> QPropertyAnimation | None
     _stop_slide(dock)
     if not show and dock.isHidden():
         return None
-    rest = QRect(dock.geometry())
+    # Geometry after a stop is wherever the slide had got to. The first slide
+    # records the real rest, and every slide in that run moves to and from it,
+    # so a fast toggle cannot stack the travel on top of itself.
+    stored = getattr(dock, "_arelis_dock_rest", None)
+    rest = QRect(dock.geometry() if stored is None else stored)
     if not motion_enabled() or rest.width() < 2 or rest.height() < 2:
         # Writing geometry here is a no-op on the numbers and still wakes the
         # dock layout. That layout pass can pull the cursor out of a box that
@@ -198,6 +202,8 @@ def slide_dock(dock: QWidget, *, show: bool = True) -> QPropertyAnimation | None
         if not show:
             dock.hide()
         return None
+    if stored is None:
+        dock._arelis_dock_rest = QRect(rest)  # type: ignore[attr-defined]
     travel = min(36, max(16, rest.width() // 8))
     if show:
         start = QRect(rest)
@@ -218,6 +224,7 @@ def slide_dock(dock: QWidget, *, show: bool = True) -> QPropertyAnimation | None
         if getattr(dock, "_arelis_dock_slide", None) is not anim:
             return
         dock._arelis_dock_slide = None  # type: ignore[attr-defined]
+        dock._arelis_dock_rest = None  # type: ignore[attr-defined]
         _hold_opaque(dock)
         if show:
             dock.setGeometry(rest)
