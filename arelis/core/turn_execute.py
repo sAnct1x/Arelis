@@ -38,7 +38,7 @@ from arelis.core.turn_prepare import (
     calculator_blocked_for_date_ask,
     python_blocked_for_date_ask,
 )
-from arelis.core.turn_scratch import RoundScratch, named_tools_owed
+from arelis.core.turn_scratch import RoundScratch, chain_unfinished, named_tools_owed
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_data, redact_secrets, truncate_tool_output
@@ -50,13 +50,21 @@ from arelis.tools.weather import (
 
 
 def _pin_plain_user(
-    messages: list[dict[str, Any]], ctx: TurnContext, name: str, out: str
+    messages: list[dict[str, Any]],
+    ctx: TurnContext,
+    name: str,
+    out: str,
+    loop: Any,
 ) -> None:
     """Put the write-up line on this request, after the tool result.
 
     A later request that adds it would move the last real user line, and
     the tool call above would render differently. Weather writes its own
     line. A result that is already a sentence does not need one.
+
+    Goal kind none is not a finished lookup. Pinning there tells the next
+    step of a chain not to call anything. An open chain is the same even
+    when the goal kind is specific: the receipt does not cover the rest.
     """
     from arelis.core.agent_loop import _WRITE_AFTER_TOOL_NOTICE, _tool_followup_fallback
     from arelis.core.failure_copy import (
@@ -65,6 +73,10 @@ def _pin_plain_user(
     )
     from arelis.core.turn_goal import receipt_serves_goal
 
+    if getattr(ctx.goal, "kind", "none") == "none":
+        return
+    if chain_unfinished(loop, ctx):
+        return
     if should_nudge_write_after_page(name, out) or should_nudge_write_after_algebra(name):
         return
     if not receipt_serves_goal(ctx.goal, name, out):
@@ -811,7 +823,7 @@ async def execute_call(
                 out = f"{out.rstrip()}\n\n{DISTANCE_MODEL_NOTE}"
         messages.append(loop._tool_message(name, out))
         if result.ok and name != "weather":
-            _pin_plain_user(messages, ctx, name, out)
+            _pin_plain_user(messages, ctx, name, out, loop)
         if name == "weather" and not result.ok:
             asked = str(args.get("place") or "").strip()
             if asked:
