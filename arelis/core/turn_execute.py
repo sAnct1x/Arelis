@@ -31,7 +31,11 @@ from arelis.core.sms_complete import (
     looks_like_contacts_followup,
     looks_like_contacts_utterance,
 )
-from arelis.core.tool_results import PreparedToolOutput, prepare_tool_output
+from arelis.core.tool_results import (
+    PreparedToolOutput,
+    prepare_tool_output,
+    publish_tool_result,
+)
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_goal import NEED_LOGIN, browser_errand_done
 from arelis.core.turn_prepare import (
@@ -41,7 +45,7 @@ from arelis.core.turn_prepare import (
 from arelis.core.turn_scratch import RoundScratch, chain_unfinished, named_tools_owed
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
-from arelis.tools.safety import redact_data, redact_secrets, truncate_tool_output
+from arelis.tools.safety import redact_secrets, truncate_tool_output
 from arelis.tools.weather import (
     weather_place_key,
     weather_places_missing,
@@ -574,21 +578,14 @@ async def execute_call(
                     },
                 )
             )
-        await loop.bus.publish(
-            Event(
-                EventType.TOOL_RESULT,
-                {
-                    "tool": name,
-                    "ok": result.ok,
-                    "output": out,
-                    # `out` is already scrubbed; `data` was not, and the python
-                    # tool carries its whole cell output in data["result"].
-                    "data": redact_data(result.data),
-                    "truncated": trunc.truncated,
-                    "original_chars": trunc.original_chars,
-                    "kept_chars": trunc.kept_chars,
-                },
-            )
+        await publish_tool_result(
+            loop.bus,
+            name,
+            result,
+            output=out,
+            truncated=trunc.truncated,
+            original_chars=trunc.original_chars,
+            kept_chars=trunc.kept_chars,
         )
         wall_kind = ""
         if name == "browser" and data_dict:
@@ -1144,17 +1141,7 @@ async def _login_check_hop(
         ctx.last_browser_snapshot = str(result.output or "")
         if str(hop.get("action") or "").strip().lower() == "click":
             ctx.browser_clicked = True
-    await loop.bus.publish(
-        Event(
-            EventType.TOOL_RESULT,
-            {
-                "tool": "browser",
-                "ok": result.ok,
-                "output": str(result.output or ""),
-                "data": result.data,
-            },
-        )
-    )
+    await publish_tool_result(loop.bus, "browser", result)
     wall = str(data.get("wall") or "")
     if str(data.get("code") or "") in {"YOUR_TURN", "SECRET_FIELD"}:
         await loop.bus.publish(

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from arelis.tools.base import ToolResult
+from arelis.tools.child_proc import child_env
 from arelis.tools.confirm_preview import run_task_confirm
 from arelis.tools.project_tasks import load_tasks, resolve_argv, task_named, unsafe_arg
 from arelis.tools.run_script import (
@@ -177,10 +178,10 @@ class RunTaskTool:
         if argv is None:
             return ToolResult(ok=False, output=err)
 
-        env = os.environ.copy()
+        # child_env drops every ARELIS_* name. The nest flag is ours.
+        env = child_env({"PYTHONIOENCODING": "utf-8"})
         env[_NEST_ENV] = "1"
         env.setdefault("PYTHONUNBUFFERED", "1")
-        env["PYTHONIOENCODING"] = "utf-8"
         started = time.monotonic()
         try:
             proc = _spawn(argv, cwd=root.path, env=env)

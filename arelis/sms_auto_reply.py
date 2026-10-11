@@ -16,6 +16,7 @@ from typing import Any
 from arelis.contacts import load_contacts, resolve_contact
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
+from arelis.core.tool_results import publish_tool_result
 from arelis.sms import format_sms_confirm
 from arelis.tools.base import NEVER_BATCH
 from arelis.tools.sms_send import SendSmsTool
@@ -279,17 +280,11 @@ class SmsAutoReply:
             return
         assert self.send_tool is not None
         result = await self.send_tool.run(**args)
-        await self.bus.publish(
-            Event(
-                EventType.TOOL_RESULT,
-                {
-                    "tool": "send_sms",
-                    "ok": result.ok,
-                    "output": result.output,
-                    "data": result.data or {},
-                    "source": "sms_auto_reply",
-                },
-            )
+        await publish_tool_result(
+            self.bus,
+            "send_sms",
+            result,
+            source="sms_auto_reply",
         )
         await self.bus.publish(
             Event(
