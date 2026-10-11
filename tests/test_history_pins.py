@@ -51,6 +51,10 @@ def test_ctrl_shift_f_focuses_history_search(qt_app, arelis_window) -> None:
     window.history.search.setText("kept")
     focus_history_search(window)
     qt_app.processEvents()
+    # A moment after open, the window puts the caret in the composer.
+    # That late pass must not pull it out of search.
+    window.conversation.focus_input()
+    qt_app.processEvents()
     search = window.history.search
     assert window.history_dock.isVisible()
     assert window.act_history.isChecked()
