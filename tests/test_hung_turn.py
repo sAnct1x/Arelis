@@ -22,6 +22,7 @@ def _status_line(window) -> str:
 def _short_ceiling(window, seconds: float = 0.08) -> None:
     ui = window.config.setdefault("ui", {})
     ui["hung_turn_s"] = seconds
+    ui["hung_first_token_s"] = seconds
 
 
 def test_countdown_is_not_armed_when_idle(arelis_window) -> None:

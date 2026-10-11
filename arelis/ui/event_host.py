@@ -206,6 +206,9 @@ def dispatch_event(window: Any, event: Event) -> None:
     """
     t = event.type
     p = event.payload
+    from arelis.ui.turn_watchdog import note_turn_progress
+
+    note_turn_progress(window, event)
     if t == EventType.USER_MESSAGE:
         # Typed messages are already on screen: _on_submit paints them
         # before publishing. A spoken one has no such moment, so this is

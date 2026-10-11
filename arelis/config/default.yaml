@@ -841,11 +841,15 @@ ui:
   thinking_open: true
   workspace_open: false
   camera_open: false
-  # Wall-clock ceiling on a busy turn. Arms when the turn starts and shows
-  # a countdown on the shimmer. If tool results are already in hand, she
-  # closes from those instead of being cancelled. If that close stalls, or
-  # nothing has come back yet, the turn stops. 0 disables.
-  hung_turn_s: 90
+  # Hung means no progress, not a long turn. hung_turn_s is the longest
+  # silence while thinking or answer tokens stream. A round that has not sent
+  # its first token yet (a 10k token prefill sends nothing for 30 to 60 s) or a
+  # running tool gets hung_first_token_s. hung_turn_cap_s bounds the whole
+  # turn. If tool results are in hand she closes from those; otherwise the
+  # turn stops. Confirm waits pause the clock. hung_turn_s 0 disables.
+  hung_turn_s: 60
+  hung_first_token_s: 180
+  hung_turn_cap_s: 600
   # Away rest (collapse unused panels) lives in ui_layout.ini via Settings →
   # Window, off by default. Not a shipped-on timer.
   notifications:
