@@ -156,10 +156,15 @@ def redact_data(value: Any, *, _depth: int = 0, _budget: list[int] | None = None
     Keys are left alone deliberately. A key is a field name chosen by us, not
     content returned by a service, and rewriting one would break every UI
     reader that looks for it.
+
+    Past either cap the value is replaced with a marker. Returning it
+    unchanged would publish a secret this walk never read.
     """
     budget = [_REDACT_MAX_ITEMS] if _budget is None else _budget
-    if _depth > _REDACT_MAX_DEPTH or budget[0] <= 0:
-        return value
+    if _depth > _REDACT_MAX_DEPTH:
+        return "[redacted: too deep]"
+    if budget[0] <= 0:
+        return "[redacted: too large]"
     budget[0] -= 1
     if isinstance(value, str):
         return redact_secrets(value)

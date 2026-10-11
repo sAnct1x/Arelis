@@ -125,3 +125,24 @@ def test_a_cycle_does_not_spin() -> None:
     node: dict = {"name": "root"}
     node["self"] = node
     redact_data(node)  # must return, not recurse forever
+
+
+def test_secret_eight_deep_is_redacted() -> None:
+    """Past the depth cap the walk used to return the value raw."""
+    node: object = _ASSIGNMENT
+    for _ in range(8):
+        node = {"n": node}
+    cleaned = redact_data(node)
+    assert _SECRET not in str(cleaned)
+    assert "[redacted: too deep]" in str(cleaned)
+
+
+def test_item_601_is_redacted() -> None:
+    """Past the item cap the walk used to return the rest raw."""
+    rows = ["plain"] * 600
+    rows.append(_ASSIGNMENT)
+    cleaned = redact_data(rows)
+    assert isinstance(cleaned, list)
+    assert cleaned[0] == "plain"
+    assert _SECRET not in str(cleaned[600])
+    assert cleaned[600] == "[redacted: too large]"
