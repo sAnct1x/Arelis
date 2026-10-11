@@ -34,6 +34,7 @@ from arelis.tools.contacts_tool import ContactsTool
 from arelis.tools.data_cell import DataCellTool
 from arelis.tools.desktop_tool import DesktopTool
 from arelis.tools.diagnostics import DiagnosticsTool
+from arelis.tools.diagram import DiagramTool
 from arelis.tools.doc_extract import DocExtractTool
 from arelis.tools.document import DocumentTool
 from arelis.tools.earth_tool import EarthTool
@@ -98,7 +99,7 @@ def build_tool_registry(
     Two flags used to be one. ``allow_send`` is outbound mail and SMS (and
     schedule, which exists to deliver mail). ``attended`` is "a person is
     here to read an Allow card": archive, vision, browser, desktop, solar, earth,
-    plot, document, clipboard, OCR, tile, research, agenda, contacts.
+    plot, diagram, document, clipboard, OCR, tile, research, agenda, contacts.
 
     When ``attended`` is omitted it follows ``allow_send``, so every existing
     caller keeps the same registry. Jobs pass ``allow_send=False`` and get
@@ -380,6 +381,9 @@ def build_tool_registry(
     # Charts write a PNG (Allow). Jobs skip — nobody is there to approve the file.
     if attended and (tools_cfg.get("plot") or {}).get("enabled", True):
         registry.register(PlotTool(workspace, config["_rooms"]))
+    # Text diagrams write SVG and PNG (Allow). Jobs skip.
+    if attended and (tools_cfg.get("diagram") or {}).get("enabled", True):
+        registry.register(DiagramTool(workspace, config["_rooms"]))
     # Room files only, charts under that room's results/. Allow. Jobs skip.
     if attended and (tools_cfg.get("data_cell") or {}).get("enabled", True):
         registry.register(DataCellTool(workspace, config["_rooms"]))

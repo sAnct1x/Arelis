@@ -148,30 +148,25 @@ def _unique_dest(directory: Path, stem: str, suffix: str) -> Path:
 class ImageEditTool:
     name = "image_edit"
     description = (
-        "Edit a local image that already exists: resize, crop, scale or pad it, "
-        "rotate or flip it, overlay text, convert to grayscale, blur, invert, "
-        "shift warmth, and make it more (or less) vibrant, contrasty, bright or "
-        "sharp. Use this for 'resize this', 'make this more vibrant', 'crop the "
-        "left half', 'crop this to 16:9', 'upscale this 2×', 'add a border', "
-        "'warm it up', 'rotate 90', 'flip it', 'make it black and white', 'add "
-        "text in the middle that says Arelis', 'turn this into a YouTube "
-        "thumbnail'. Writes a NEW file and never changes the original. "
-        "Args: path, then any of width+height or preset (youtube_thumbnail, "
-        "youtube_banner, instagram_square, instagram_story, tiktok, twitter_post, "
-        "linkedin_post, wallpaper_1080p, wallpaper_1440p, phone_wallpaper, icon), "
-        "fit (cover crops to fill, contain pads, stretch distorts), crop "
-        "(left/right/top/bottom/center, keep that half; center is the middle "
-        "50% on both axes), crop_box (left, top, right, bottom in pixels on the "
-        "source), scale (2.0 is 2×, clamped 0.1–4.0, arithmetic, not a model), "
+        "Edit a local image that already exists: resize, crop, scale, pad, "
+        "rotate, flip, overlay text, grayscale, blur, invert, warmth, vibrance, "
+        "contrast, brightness, or sharpness. Use this for resize, crop, a "
+        "YouTube thumbnail, a border, warmth, rotate, flip, black and white, "
+        "or text on the picture. Writes a new file and never changes the "
+        "original. Args: path, then width and height or a named preset, "
+        "fit (cover fills and crops, contain pads, stretch distorts), "
+        "crop (left, right, top, bottom, or center; center keeps the middle "
+        "half), crop_box (left, top, right, bottom in pixels), "
+        "scale (2.0 is 2x, clamped 0.1 to 4.0, arithmetic, not a model), "
         "pad (border pixels, black or transparent PNG), rotate (degrees "
-        "clockwise), flip (horizontal/vertical), grayscale, invert, blur "
-        "(radius), text (centered overlay), text_align (center/top/bottom), "
-        "warmth (-1.0 cooler … +1.0 warmer), and vibrance/contrast/brightness/"
-        "sharpness where 1.0 is unchanged, 1.3 is noticeably more and 0.8 is "
-        "less. This is exact pixel work, not generation: 'make this look like "
-        "a watercolor' or 'in the style of' is the image tool with path= "
-        "(img2img). Use vision to look at one. 'Add text' on a picture is this "
-        "tool, never send_sms."
+        "clockwise), flip (horizontal or vertical), grayscale, invert, blur "
+        "(radius), text (centered overlay), text_align (center, top, or bottom), "
+        "warmth (-1.0 cooler to +1.0 warmer), and vibrance, contrast, brightness, "
+        "or sharpness where 1.0 is unchanged, 1.3 is more, and 0.8 is less. "
+        "format is png or jpg, and png if you leave it out. "
+        "This is exact pixel work. A watercolor or 'in the style of' is the "
+        "image tool with path. Use vision to look. Adding text to a picture is "
+        "this tool, never send_sms."
     )
     risk = "side_effect"
     parameters_schema: dict[str, Any] = {
@@ -210,9 +205,6 @@ class ImageEditTool:
             },
             "crop_box": {
                 "type": "array",
-                "items": {"type": "integer"},
-                "minItems": 4,
-                "maxItems": 4,
                 "description": (
                     "Pixel rectangle on the source: left, top, right, bottom. "
                     "An object or four numbers. Must be a valid rectangle inside "
@@ -278,11 +270,6 @@ class ImageEditTool:
                 "type": "string",
                 "enum": list(TEXT_ALIGNS),
                 "description": "Where to place text: center (default), top, or bottom.",
-            },
-            "format": {
-                "type": "string",
-                "enum": ["png", "jpg"],
-                "description": "Output format. Defaults to png (lossless).",
             },
         },
         "required": ["path"],

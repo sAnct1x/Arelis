@@ -28,9 +28,11 @@ from scripts.measure_tool_schema import authored_parameter_docs, measure, tool_s
 # Measured under conftest's isolated data root.
 # Raise the floors, never lower them. The ceiling moved when Phase 5
 # registered notes/remind/transcribe/sql/pdf (38 → 43), then again when
-# run_task registered beside run_script (43 → 44). Re-measured, not
-# guessed: skinny schema ≈ 5821 tokens.
-EXPECTED_TOOLS = 45
+# run_task registered beside run_script (43 → 44), then diagram (45 → 46).
+# Re-measured, not guessed. Before diagram: 23,559 chars, 5,889 tokens.
+# After, with image and image_edit trimmed to pay for the new tool:
+# 23,597 chars, 5,899 tokens.
+EXPECTED_TOOLS = 46
 MAX_SCHEMA_TOKENS = 5_900
 MIN_DESCRIPTION_CHARS = 12
 MIN_MEDIAN_DESCRIPTION = 41

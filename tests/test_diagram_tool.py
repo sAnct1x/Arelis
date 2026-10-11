@@ -1,0 +1,252 @@
+"""Text diagrams: a picture plus the text that made it, inside the room."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
+from arelis.tools import build_tool_registry
+from arelis.tools.diagram import DiagramTool
+from arelis.tools.diagram_bins import (
+    MISMATCH,
+    OFFLINE,
+    HelperError,
+    accept_download,
+    ensure_binary,
+)
+from arelis.tools.diagram_render import render_mermaid, render_svg, render_typst, render_vegalite
+from arelis.workspace import RootEntry, WorkspaceRoots
+
+_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40">'
+    '<rect width="80" height="40" fill="#123456"/></svg>'
+)
+_FLOW = "flowchart LR\n  raw[Telescope raw FITS] --> bias[Bias and dark] --> flat[Flat field]\n"
+_BAD_FLOW = "flowchart LR\n  A -->\n"
+_VEGA = json.dumps(
+    {
+        "data": {"values": [{"x": 1, "y": 2}, {"x": 2, "y": 1}, {"x": 3, "y": 3}]},
+        "mark": "line",
+        "encoding": {
+            "x": {"field": "x", "type": "quantitative"},
+            "y": {"field": "y", "type": "quantitative"},
+        },
+    }
+)
+_TYPST = '#set page(width: 160pt, height: 60pt, margin: 8pt)\nDepth delta approx 1.5%\n'
+
+
+def _tool(tmp_path: Path, *, room: bool = True) -> tuple[DiagramTool, Path]:
+    root = tmp_path / "proj"
+    root.mkdir()
+    workspace = WorkspaceRoots([RootEntry(name="proj", path=root.resolve())])
+    rooms = SimpleNamespace(active=SimpleNamespace(root="proj")) if room else None
+    return DiagramTool(workspace, rooms), root
+
+
+def _assert_picture(svg: Path, png: Path) -> None:
+    assert svg.is_file() and svg.stat().st_size > 1024
+    assert png.is_file() and png.stat().st_size > 1024
+    assert png.read_bytes().startswith(b"\x89PNG")
+    assert b"<svg" in svg.read_bytes()[:200].lower() or b"<svg" in svg.read_bytes().lower()
+
+
+@pytest.mark.asyncio
+async def test_mermaid_flowchart_writes_svg_and_png(tmp_path: Path) -> None:
+    tool, root = _tool(tmp_path)
+    result = await tool.run(kind="mermaid", source=_FLOW, out="pipeline")
+
+    assert result.ok, result.output
+    folder = root / "results"
+    svg = folder / "pipeline.svg"
+    png = folder / "pipeline.png"
+    source = folder / "pipeline.mmd"
+    _assert_picture(svg, png)
+    assert source.read_text(encoding="utf-8") == _FLOW
+    assert "vision" in result.output
+    assert result.data["abs_path"] == str(png.resolve())
+
+
+@pytest.mark.asyncio
+async def test_invalid_mermaid_returns_the_parser_line(tmp_path: Path) -> None:
+    tool, root = _tool(tmp_path)
+    result = await tool.run(kind="mermaid", source=_BAD_FLOW, out="broken")
+
+    assert not result.ok
+    assert result.output.strip()
+    assert "offline" not in result.output.lower()
+    assert not (root / "results" / "broken.png").exists()
+    assert not (root / "results" / "broken.svg").exists()
+    lowered = result.output.lower()
+    assert any(token in lowered for token in ("line", "parse", "expect", "error", "syntax"))
+
+
+@pytest.mark.asyncio
+async def test_vegalite_and_typst_round_trip(tmp_path: Path) -> None:
+    tool, root = _tool(tmp_path)
+    chart = await tool.run(kind="vegalite", source=_VEGA, out="lightcurve")
+    slide = await tool.run(kind="typst", source=_TYPST, out="slide")
+
+    assert chart.ok, chart.output
+    assert slide.ok, slide.output
+    folder = root / "results"
+    _assert_picture(folder / "lightcurve.svg", folder / "lightcurve.png")
+    _assert_picture(folder / "slide.svg", folder / "slide.png")
+    assert (folder / "lightcurve.json").read_text(encoding="utf-8") == _VEGA
+    assert (folder / "slide.typ").read_text(encoding="utf-8") == _TYPST
+
+
+@pytest.mark.asyncio
+async def test_svg_drawing_lands_in_the_room_results_folder(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    workspace = WorkspaceRoots([RootEntry(name="proj", path=root.resolve())])
+    rooms = SimpleNamespace(active=SimpleNamespace(root="proj"))
+    tool = DiagramTool(workspace, rooms)
+
+    result = await tool.run(kind="svg", source=_SVG, out="../outside")
+
+    assert result.ok, result.output
+    png = Path(result.data["abs_path"])
+    results = (root / "results").resolve()
+    assert png.resolve().is_relative_to(results)
+    assert png.stat().st_size > 32
+    assert not (tmp_path / "outside.png").exists()
+    assert "this room's results folder" in result.output
+
+
+@pytest.mark.asyncio
+async def test_no_room_uses_the_diagrams_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tool, _root = _tool(tmp_path, room=False)
+    drop = tmp_path / "diagrams"
+    monkeypatch.setattr(tool, "drop_dir", lambda: drop)
+    drop.mkdir()
+
+    result = await tool.run(kind="svg", source=_SVG, out="loose")
+
+    assert result.ok, result.output
+    assert (drop / "loose.png").is_file()
+    assert "your diagrams folder" in result.output
+
+
+def test_missing_helper_offline_is_plain_english(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "arelis.tools.diagram_bins.install_dir", lambda: tmp_path / "mmdr-missing"
+    )
+
+    class _Down:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+        def stream(self, *args: object, **kwargs: object):
+            raise httpx.ConnectError("connection failed")
+
+    monkeypatch.setattr(httpx, "Client", lambda *args, **kwargs: _Down())
+    svg = tmp_path / "out.svg"
+    png = tmp_path / "out.png"
+    message = render_mermaid("flowchart LR\nA-->B\n", svg, png)
+
+    assert message == OFFLINE
+    assert "http" not in (message or "")
+    assert "mmdr" not in (message or "").lower()
+    assert "/" not in (message or "")
+    assert not svg.exists()
+    assert not png.exists()
+
+
+def test_sha_mismatch_deletes_the_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    archive = tmp_path / "mmdr.zip.part"
+    archive.write_bytes(b"this is not the release")
+
+    with pytest.raises(HelperError, match="deleted"):
+        accept_download(archive, "ab" * 32)
+
+    assert not archive.exists()
+    assert "sha" not in MISMATCH.lower()
+
+    root = tmp_path / "install"
+    monkeypatch.setattr("arelis.tools.diagram_bins.install_dir", lambda: root)
+
+    def _bad_download(_url: str, dest: Path) -> None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"still wrong")
+
+    monkeypatch.setattr("arelis.tools.diagram_bins._download", _bad_download)
+    with pytest.raises(HelperError, match="deleted"):
+        ensure_binary()
+    assert not any(root.rglob("mmdr*"))
+
+
+def test_typst_package_failure_offline_is_plain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import typst
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("failed to download package @preview/cetz:0.3.1: connection failed")
+
+    monkeypatch.setattr(typst, "compile", _boom)
+    message = render_typst("#import \"@preview/cetz:0.3.1\"\n", tmp_path / "a.svg", tmp_path / "a.png")
+
+    assert message == OFFLINE
+    assert "@preview" not in (message or "")
+    assert "http" not in (message or "")
+
+
+def test_no_shell_in_diagram_sources() -> None:
+    root = Path(__file__).resolve().parents[1] / "arelis" / "tools"
+    for name in ("diagram.py", "diagram_render.py", "diagram_bins.py"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "shell=True" not in text
+        assert "shell = True" not in text
+
+
+def test_diagram_is_attended_only_and_can_be_turned_off(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    workspace = WorkspaceRoots([RootEntry(name="proj", path=root.resolve())])
+    config = {"tools": {}, "agent": {}}
+
+    attended = build_tool_registry(config, workspace, attended=True)
+    jobs = build_tool_registry(config, workspace, allow_send=False, attended=False)
+    off = build_tool_registry(
+        {"tools": {"diagram": {"enabled": False}}, "agent": {}},
+        workspace,
+        attended=True,
+    )
+
+    assert "diagram" in attended.names()
+    assert "diagram" not in jobs.names()
+    assert "diagram" not in off.names()
+    assert attended.needs_confirm("diagram", {"kind": "svg", "source": _SVG})
+
+
+def test_render_helpers_reject_empty_and_bad_chart(tmp_path: Path) -> None:
+    svg = tmp_path / "a.svg"
+    png = tmp_path / "a.png"
+    assert render_vegalite("not json", svg, png)
+    assert render_svg("   ", svg, png)
+    assert not svg.exists()
+
+
+def test_preview_path_stays_inside_the_room(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    workspace = WorkspaceRoots([RootEntry(name="proj", path=root.resolve())])
+    rooms = SimpleNamespace(active=SimpleNamespace(root="proj"))
+    tool = DiagramTool(workspace, rooms)
+    preview = tool.preview_path({"kind": "mermaid", "out": "pipeline.png"})
+    assert preview.is_relative_to((root / "results").resolve())
+    assert preview.suffix == ".png"
+    assert not preview.exists()
+
+
+def test_event_loop_runs_the_tool() -> None:
+    """Import side: the coroutine is a real awaitable, not a sync leak."""
+    assert asyncio.iscoroutinefunction(DiagramTool.run)
