@@ -18,7 +18,7 @@ ruff, where a floor meant a new lint rule turned an untouched tree red on somebo
 else's pull request; shipping an interpreter and 76 libraries to strangers is the same
 mistake with a worse blast radius.
 
-So the Mac app installs from `requirements-macos-arm64-cp314.txt`, every line pinned
+So the Mac app installs from `requirements-macos-arm64-cp313.txt`, every line pinned
 with `==` and carrying a sha256, and the build passes `--require-hashes`. Which buys a
 second thing beyond reproducibility: pip refuses to install an archive whose hash does
 not match, so a compromised mirror or a corrupted download fails the build instead of
@@ -170,7 +170,7 @@ def sdist_wheelhouse(scratch: Path) -> tuple[Path, dict[str, tuple[str, str]]]:
 
 
 def resolve(wheel: Path, scratch: Path, find_links: Path | None = None) -> list[dict]:
-    """Ask pip what it would install on Windows for cp314, and to fail if it cannot.
+    """Ask pip what it would install on macOS for cp313, and to fail if it cannot.
 
     `--only-binary=:all:` is the point rather than an optimisation: the installer build
     has no compiler, so a dependency that exists only as a source distribution for this

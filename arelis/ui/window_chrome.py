@@ -67,6 +67,13 @@ _PANEL_HALF = SHELL["half"]
 _PANEL_TOP = SHELL["top"]
 _PANEL_BOTTOM = SHELL["bottom"]
 
+_FILAMENT_DETAIL = (
+    "sodium is the app. filament is a test for a desk with three "
+    "screens, and you only get it when you're running from source. "
+    "1 and 2 still work. talk does not need a chat tile. plates "
+    "float, drag them. right click for themes. sodium is one click."
+)
+
 
 class WindowChrome:
     def _schedule_readiness_probe(self) -> None:
@@ -754,12 +761,7 @@ class WindowChrome:
                 self,
                 "filament (testing)",
                 "a test face. it wants a row of desks, three is the intended layout.",
-                detail=(
-                    "sodium is the app. filament is a checkout experiment for a "
-                    "three-monitor desk; 1 and 2 still work. talk does not need a "
-                    "chat tile. plates float, drag them. right-click for themes. "
-                    "sodium is one click."
-                ),
+                detail=_FILAMENT_DETAIL,
                 confirm_text="enter filament",
                 cancel_text="stay in sodium",
             )

@@ -9,6 +9,13 @@ from arelis import __license__, __source_url__, __version__
 from arelis.config import load_config
 from arelis.logging_setup import configure_logging, install_unhandled_hook
 
+_INSTALL_LOGIN_HELP = "On Mac, start Arelis in the background when you log in."
+_REMOVE_LOGIN_HELP = "On Mac, stop Arelis from starting when you log in."
+_PURGE_HELP = (
+    "Uninstall wipe: scheduled tasks plus the data this app saved. "
+    "Refuses if you're running from source. Does not touch a system Ollama install."
+)
+
 
 def main(argv: list[str] | None = None) -> int:
     # Before any subsystem that might log.exception into the void. --run-job
@@ -56,12 +63,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--install-login-start",
         action="store_true",
-        help="On Mac, start Arelis in the background when you log in.",
+        help=_INSTALL_LOGIN_HELP,
     )
     parser.add_argument(
         "--remove-login-start",
         action="store_true",
-        help="On Mac, stop Arelis from starting when you log in.",
+        help=_REMOVE_LOGIN_HELP,
     )
     parser.add_argument(
         "--run-job",
@@ -82,11 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--purge-user-data",
         action="store_true",
-        help=(
-            "Uninstall wipe: scheduled tasks plus published data "
-            "(%%LOCALAPPDATA%%\\Arelis, Arelis-runtime, Documents\\Arelis). "
-            "Refuses a source checkout. Does not touch a system Ollama install."
-        ),
+        help=_PURGE_HELP,
     )
     parser.add_argument(
         "--check-update",

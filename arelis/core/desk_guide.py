@@ -54,7 +54,7 @@ Hold the pinch still, then open your fingers. That is a click, on the spot where
 Pinch a gold word or a bead and that tile opens.
 
 Pinch a button or a row and it clicks. Pinch that same row again and it
-opens, the way a double-click does.
+opens, the way a double click does.
 
 Move while the pinch is still closed and you are grabbing. Grab empty
 glass, the edge, or the title and the window follows. A list, a button,
@@ -80,7 +80,7 @@ On the solar view, a moving pinch looks around. A still pinch does not.
 The mouse still works. On a disc it is the same pinch.
 
 Turn hands on from the chip in the title bar. Rest, minimize, or leave
-filament and the camera turns off. Hands run in this dev checkout.
+filament and the camera turns off. Hands run when you're running from source.
 The installed app does not track them.
 
 Voice
@@ -104,7 +104,7 @@ What still takes a normal sentence
 
 Mail, the browser, calendar events, settings, and quitting. Ask for those the usual way.
 
-A form, a right-click menu, and dragging a tile's edge to resize it are still the mouse.
+A form, a right click menu, and dragging a tile's edge to resize it are still the mouse.
 
 Ask "how do hands work" anytime and I will say this again.
 """

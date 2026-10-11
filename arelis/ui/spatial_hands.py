@@ -22,6 +22,10 @@ from arelis.spatial.video import POSE_MAX_WIDTH
 
 log = logging.getLogger(__name__)
 
+_HANDS_MISSING = (
+    "Hand tracking needs MediaPipe. Install the hands extra, then try again."
+)
+
 
 class PoseWorker(QThread):
     """Latest-frame-only. Drops stale frames instead of queueing a backlog."""
@@ -60,9 +64,7 @@ class PoseWorker(QThread):
     def run(self) -> None:
         self._backend = load_backend()
         if isinstance(self._backend, StubBackend):
-            self.status.emit(
-                "Hands need MediaPipe. In this checkout: pip install -e \".[spatial]\""
-            )
+            self.status.emit(_HANDS_MISSING)
         else:
             self.status.emit(f"Hands: {self._backend.name}")
         try:

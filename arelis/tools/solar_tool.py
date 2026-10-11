@@ -150,8 +150,8 @@ class SolarTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    "The solar-system stage is source-checkout only. "
-                    "Reality still works for chat and Horizons observer."
+                    "The solar system view is only there when you're running from source. "
+                    "Chat and planet position lookups still work."
                 ),
                 data={"fail_class": "fail:stage"},
             )
@@ -402,7 +402,10 @@ class SolarTool:
         if not world_stage_allowed():
             return ToolResult(
                 ok=False,
-                output="Map cache is for a source checkout.",
+                output=(
+                    "Planet map pictures are not in the installed app. "
+                    "You only get them when you're running from source."
+                ),
                 data={"fail_class": "fail:stage"},
             )
         from arelis.physics.maps import MAPS, download_maps, missing_maps
@@ -444,15 +447,17 @@ class SolarTool:
         if not world_stage_allowed():
             return ToolResult(
                 ok=False,
-                output="The solar-system stage is source-checkout only.",
+                output=(
+                    "The solar system view is only there when you're running from source."
+                ),
                 data={"fail_class": "fail:stage"},
             )
         if not rebound_available():
             return ToolResult(
                 ok=False,
                 output=(
-                    "REBOUND is not installed. From a checkout: "
-                    'pip install -e ".[astro]".'
+                    "The orbit library is not installed. "
+                    "Install the astronomy extra, then try again."
                 ),
                 data={"fail_class": "fail:dep"},
             )
