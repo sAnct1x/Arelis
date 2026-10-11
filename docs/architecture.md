@@ -126,8 +126,9 @@ your approval regardless of which path she took to get there.
 
 The confirmation card itself is written in plain human language:
 "text wife," "write note.txt". Nothing cryptic. **Deny** only
-blocks that one step. **Stop** ends the whole turn. A busy turn has a ceiling
-(`ui.hung_turn_s`, 90s). If she already
+blocks that one step. **Stop** ends the whole turn. A busy turn is cut when it goes quiet
+(`ui.hung_turn_s` 60s with no new text, 180s before the first token
+or during a tool, 600s for the whole turn). If she already
 has tool results, that ceiling tells her to close from what she has,
 and a shorter second clock hard-stops only if that close never comes
 back. If she has nothing yet, it cancels like Stop, worded as a hang.
@@ -380,8 +381,10 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
 
 ## Memory and safety
 
-- Chat history is a sliding window (`agent.history_max_messages`,
-  shipped at 120, roughly 60 turns).
+- Chat history is capped at `agent.history_max_messages` (shipped at 600)
+  as a backstop. The token budget is the real limit. When either one
+  trips, a block is dropped down to about half so the prompt prefix
+  breaks once, then holds, instead of sliding every turn.
 - The History dock shows past sessions plus any pending facts
   waiting for approval or rejection.
 - Active facts live in `memory.db`, managed under **Settings →
@@ -404,7 +407,8 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
 - There's a loop cap on reasoning rounds (`agent.max_rounds`: 8
   normally, 32 in research mode, 16 when she is reading her own
   source / assessing the solar-system sim). Weather and SMS stay at 8.
-  A busy turn has a separate ceiling (`ui.hung_turn_s`, 90s) so the
+  A busy turn has a separate ceiling (60s with no new text, 180s before
+  the first token or during a tool, 600s for the whole turn) so the
   shimmer cannot sit forever. Work already in hand closes into an
   answer; a close that itself stalls still hard-stops.
   "Deeply research" is research mode even on the default fast chip.

@@ -18,10 +18,11 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.paths import display_path, ensure, outputs_dir
 from arelis.rooms import RoomStore
 from arelis.tools.base import ToolResult
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import ResolvedPath, WorkspaceRoots
 
 if TYPE_CHECKING:
     import numpy as np
@@ -579,6 +580,30 @@ class PlotTool:
             },
         )
 
+    def _resolve_table(self, path_str: str) -> ResolvedPath:
+        """Workspace read, then the path document reports, then the drop tray.
+
+        Same order as analyze. Document writes land in the drop tray, which
+        sits outside the project, so a bare workspace read joins that string
+        onto the project and misses the file. Parent segments are refused by
+        the reported-path check, same as analyze.
+        """
+        try:
+            hit = self.workspace.resolve_read(path_str)
+        except Exception as first:
+            drop = resolve_drop_file(path_str, suffixes=set(_TABLE_SUFFIXES))
+            if drop:
+                path = Path(drop)
+                return ResolvedPath(path=path, root_name="outputs", root=path.parent)
+            raise first
+        if hit.path.is_file():
+            return hit
+        reported = resolve_reported_document_path(path_str)
+        if reported:
+            path = Path(reported)
+            return ResolvedPath(path=path, root_name="outputs", root=path.parent)
+        return hit
+
     def _series(self, kwargs: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, str, str, str]:
         path_str = str(kwargs.get("path") or "").strip()
         png_as_path = bool(path_str and _looks_like_chart_out(path_str))
@@ -587,7 +612,7 @@ class PlotTool:
                 kwargs["out"] = Path(path_str.replace("\\", "/")).name
             path_str = ""
         if path_str:
-            resolved = self.workspace.resolve_read(path_str)
+            resolved = self._resolve_table(path_str)
             path = resolved.path
             if not path.is_file():
                 raise ValueError(f"Not a file: {path_str}")
@@ -670,7 +695,7 @@ class PlotTool:
                 kwargs["out"] = Path(path_str.replace("\\", "/")).name
             path_str = ""
         if path_str:
-            resolved = self.workspace.resolve_read(path_str)
+            resolved = self._resolve_table(path_str)
             path = resolved.path
             if not path.is_file():
                 raise ValueError(f"Not a file: {path_str}")
@@ -715,7 +740,7 @@ class PlotTool:
                 kwargs["out"] = Path(path_str.replace("\\", "/")).name
             path_str = ""
         if path_str:
-            resolved = self.workspace.resolve_read(path_str)
+            resolved = self._resolve_table(path_str)
             path = resolved.path
             if not path.is_file():
                 raise ValueError(f"Not a file: {path_str}")
@@ -784,7 +809,7 @@ class PlotTool:
         if needs_bar:
             path_str = str(kwargs.get("path") or "").strip()
             if path_str and not _looks_like_chart_out(path_str):
-                frame = _load_table(self.workspace.resolve_read(path_str).path)
+                frame = _load_table(self._resolve_table(path_str).path)
                 x_name = str(kwargs.get("x") or "").strip()
                 if x_name and x_name in frame.columns:
                     cats = _column_labels(frame, x_name)

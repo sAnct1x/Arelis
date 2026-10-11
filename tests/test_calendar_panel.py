@@ -418,15 +418,24 @@ def test_schedule_tool_result_opens_the_jobs_tab(arelis_window, qt_app) -> None:
 
 
 def test_hung_calendar_sync_clears_inflight(arelis_window, qt_app) -> None:
+    """A sync that never comes back still unlocks.
+
+    The timer is 50 ms. A busy Mac can deliver that late, so this pumps
+    until the flag drops instead of trusting one short wait.
+    """
     from PySide6.QtTest import QTest
 
     window = arelis_window()
     window._toggle_calendar(True)
+    window._atmosphere_timer.stop()
     window._calendar_sync_timeout_ms = 50
     window._calendar_sync_inflight = True
     window.calendar.set_status("syncing…")
     window._calendar_sync_watchdog.start(50)
-    QTest.qWait(120)
+    for _ in range(40):
+        if window._calendar_sync_inflight is False:
+            break
+        QTest.qWait(50)
     assert window._calendar_sync_inflight is False
     assert window.calendar.status.text() == "sync failed"
     assert "syncing" not in window.calendar.status.text().lower()
