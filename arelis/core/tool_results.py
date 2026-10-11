@@ -1,6 +1,7 @@
-"""Normalize fat tool outputs: store full body, inject a summary card.
+"""Normalize fat tool outputs, and publish one scrubbed TOOL_RESULT.
 
 Stops the model pretending it saw an entire DOM/PDF when only a head was kept.
+Output and data are scrubbed in this module before they reach the window or the log.
 """
 
 from __future__ import annotations
@@ -13,7 +14,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from arelis.core.bus import EventBus
+from arelis.core.events import Event, EventType
 from arelis.paths import state_dir
+from arelis.tools.safety import redact_data, redact_secrets
 
 log = logging.getLogger(__name__)
 
@@ -208,3 +212,39 @@ def prepare_tool_output(
         summarized=True,
         original_chars=len(raw),
     )
+
+
+async def publish_tool_result(
+    bus: EventBus,
+    tool: str,
+    result: Any,
+    **extra: Any,
+) -> None:
+    """Publish one TOOL_RESULT. Output and data are scrubbed here.
+
+    Callers that already trimmed or summarized the text pass it as output.
+    A secret still cannot ride through on either field. The login hop, slash
+    commands, and auto-reply used to publish the raw result.
+    """
+    if "output" in extra:
+        raw_output = extra.pop("output")
+    else:
+        raw_output = getattr(result, "output", "") or ""
+    if "data" in extra:
+        raw_data = extra.pop("data")
+    else:
+        raw_data = getattr(result, "data", None)
+    if raw_data is None:
+        raw_data = {}
+    if "ok" in extra:
+        ok = extra.pop("ok")
+    else:
+        ok = getattr(result, "ok", False)
+    payload: dict[str, Any] = {
+        "tool": tool,
+        "ok": bool(ok),
+        "output": redact_secrets(str(raw_output or "")),
+        "data": redact_data(raw_data),
+    }
+    payload.update(extra)
+    await bus.publish(Event(EventType.TOOL_RESULT, payload))
