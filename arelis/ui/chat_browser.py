@@ -30,6 +30,12 @@ CHART_SCHEME = "arelis-chart"
 _IMAGE = int(QTextDocument.ResourceType.ImageResource)
 
 
+def _blank_math_image() -> QImage:
+    image = QImage(1, 1, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    return image
+
+
 class ChatBrowser(QTextBrowser):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -120,7 +126,13 @@ class ChatBrowser(QTextBrowser):
                 return None
             if scheme == MATH_SCHEME:
                 self.arm_math()
-                return image_for_url(url.toString())
+                image = image_for_url(url.toString())
+                # A miss must not paint the broken-image icon. The HTML only
+                # names a formula we already accepted, so a later failure is
+                # a blank pixel, not a missing file.
+                if image is None or image.isNull():
+                    return _blank_math_image()
+                return image
             return self._chart_image(url)
         return super().loadResource(typ, name)
 

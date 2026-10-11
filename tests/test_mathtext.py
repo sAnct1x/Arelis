@@ -150,7 +150,10 @@ def test_chat_bubble_draws_display_math(qt_app) -> None:
     """A display formula in the bubble is an image. The words around it stay."""
     from PySide6.QtGui import QTextCursor, QTextFormat
 
+    from arelis.ui.math_images import wait_prewarm
     from arelis.ui.panels.chat import ChatPanel
+
+    wait_prewarm()
 
     tex = r"\int x^2 \, dx = \frac{x^3}{3} + C"
     panel = ChatPanel()

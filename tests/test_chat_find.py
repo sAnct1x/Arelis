@@ -72,6 +72,9 @@ def test_typing_highlights_plain_text(qt_app) -> None:
 
 
 def test_find_formula_image_by_latex(qt_app) -> None:
+    from arelis.ui.math_images import wait_prewarm
+
+    wait_prewarm()
     panel = _panel()
     panel.begin_assistant()
     panel.finish_assistant(f"See ${FRAC}$ now.")
