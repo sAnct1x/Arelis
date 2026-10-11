@@ -31,6 +31,8 @@ checked on the AST, before anything runs.
 
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -361,3 +363,101 @@ async def test_output_is_capped() -> None:
     assert ok, out
     assert len(out) < 20000
     assert "truncated" in out.lower()
+
+
+# --------------------------------------------------------------------------
+# The cell has to die when it is stuck in C, and it has to die in a child
+# --------------------------------------------------------------------------
+
+
+async def _power_stall() -> tuple[bool, str, float, int]:
+    """The integer power that held the GIL. Ticks only advance when this process can run."""
+    ticks = 0
+    stop = threading.Event()
+
+    def _beat() -> None:
+        nonlocal ticks
+        while not stop.wait(0.05):
+            ticks += 1
+
+    beater = threading.Thread(target=_beat, name="arelis-cell-heartbeat", daemon=True)
+    beater.start()
+    started = time.monotonic()
+    try:
+        ok, out = await _run("x = 7**(10**8)")
+    finally:
+        stop.set()
+        beater.join(timeout=1)
+    return ok, out, time.monotonic() - started, ticks
+
+
+@pytest.mark.asyncio
+async def test_c_stall_does_not_freeze_app() -> None:
+    """A long C call used to freeze this process. It has to come back, and the heartbeat with it."""
+    ok, out, elapsed, ticks = await _power_stall()
+    assert not ok, out
+    assert elapsed < 15, f"the cell returned in {elapsed:.1f}s"
+    assert ticks >= 100, f"only {ticks} heartbeats, the process was stuck"
+
+
+@pytest.mark.asyncio
+async def test_timeout_leaves_no_thread() -> None:
+    """The old timeout abandoned the worker. A child can be killed, so the count stays put."""
+    before = threading.active_count()
+    ok, out, elapsed, _ticks = await _power_stall()
+    assert not ok, out
+    assert "timed out" in out.lower()
+    assert elapsed < 15, f"the cell returned in {elapsed:.1f}s"
+    assert threading.active_count() == before
+
+
+@pytest.mark.asyncio
+async def test_cell_cannot_read_user_file(tmp_path: Path) -> None:
+    """numpy.load spelled so the attribute denylist cannot see it.
+
+    On the in-process cell this dies as a banned vars() call, which is a name
+    rule. The child hook has to refuse the open, and the number stays unread.
+    """
+    pytest.importorskip("numpy")
+    import numpy as np
+
+    target = tmp_path / "notes.npy"
+    np.save(target, np.array([97531]))
+    ok, out = await _run(
+        "import numpy as numpy\n"
+        f"print(vars(numpy)['lo' + 'ad']({str(target)!r}))"
+    )
+    assert not ok, out
+    assert "97531" not in out
+    assert "call 'vars' is not allowed" not in out
+    assert "file" in out.lower()
+
+
+def test_python_cell_job_cap_is_one_gigabyte() -> None:
+    from arelis.tools.python_exec import _MEMORY_BYTES
+
+    assert _MEMORY_BYTES == 1024 * 1024 * 1024
+
+
+def test_a_user_file_is_not_a_library_read(tmp_path: Path) -> None:
+    from arelis.tools.python_cell_runner import _library_read
+
+    secret = tmp_path / "notes.txt"
+    secret.write_text("private", encoding="utf-8")
+    assert not _library_read(secret)
+
+
+def test_embeddable_installer_libraries_are_a_library_read(tmp_path: Path) -> None:
+    """The Windows installer is python.exe beside Lib/site-packages, not a venv."""
+    from arelis.tools.python_cell_runner import _library_read
+
+    app = tmp_path / "Arelis"
+    library = app / "Lib" / "site-packages" / "numpy" / "core.py"
+    library.parent.mkdir(parents=True)
+    library.write_text("x = 1\n", encoding="utf-8")
+    exe = app / "python.exe"
+    exe.write_bytes(b"")
+    secret = tmp_path / "notes.txt"
+    secret.write_text("private", encoding="utf-8")
+    assert _library_read(library, exe)
+    assert not _library_read(secret, exe)
