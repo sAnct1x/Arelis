@@ -1,8 +1,13 @@
 """Math images in chat.
 
-The eleven behaviour tests failed on main before formulas were drawn. The four
-guard tests passed there and still must. Offscreen, same app as the rest of
-the suite.
+ziamath draws the picture. Unicode stays the fallback. matplotlib mathtext
+is not in this chain.
+
+On main 377d9b4, five of these tests failed: a matrix stayed unicode, there
+was no engine hook to patch, ``e^{i\\pi}`` stayed text, ``prepare_tex`` did
+not exist, and the installer did not name QtSvg or ziamath. The other
+behaviour tests already passed. The four guards passed and still must.
+Offscreen, same app as the rest of the suite.
 """
 from __future__ import annotations
 
@@ -19,11 +24,16 @@ from PySide6.QtWidgets import QApplication
 
 @pytest.fixture(autouse=True)
 def _qt(qt_app):
+    from arelis.ui.math_images import clear_cache, wait_prewarm
+
+    assert wait_prewarm(), "math warm-up did not finish"
+    clear_cache()
     return qt_app
 
 FRAC = r"\frac{a}{b}"
 SUM = r"\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}"
 PMATRIX = r"\begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}"
+NESTED = r"\frac{" * 30 + "x" + "}" * 30
 
 
 def _panel():
@@ -95,15 +105,114 @@ def test_copying_a_formula_gives_its_latex():
     assert f"${FRAC}$" in text and "\ufffc" not in text
 
 
-def test_a_formula_that_cannot_render_falls_back_to_readable_unicode():
-    """FAILFIRST (via the first assert). pmatrix is outside mathtext; the reply still shows
-    the fraction as an image and the matrix as Unicode text, never raw TeX or an empty box."""
+def test_a_matrix_renders_as_one_image():
+    """pmatrix, cases and aligned are images with ziamath."""
     p = _panel()
-    _reply(p, f"First ${FRAC}$ then $${PMATRIX}$$")
+    _reply(p, f"$${PMATRIX}$$")
+    assert len(_math_images(p.view.document())) == 1
+    assert "(1 2; 3 4)" not in p.view.toPlainText()
+
+
+def test_cases_aligned_array_and_underbrace_render():
+    body = "\n\n".join(
+        f"$${tex}$$"
+        for tex in (
+            r"f(x) = \begin{cases} x & x \geq 0 \\ -x & x < 0 \end{cases}",
+            r"\begin{aligned} a &= b \\ c &= d \end{aligned}",
+            r"\begin{array}{cc} 1 & 0 \\ 0 & 1 \end{array}",
+            r"\underbrace{a+b}_{n}",
+        )
+    )
+    p = _panel()
+    _reply(p, body)
+    assert len(_math_images(p.view.document())) == 4
+
+
+def test_a_formula_that_cannot_render_falls_back_to_readable_unicode():
+    """The fraction is an image. A 30-deep fraction raises inside ziamath and
+    stays unicode, never raw TeX or a broken-image box."""
+    p = _panel()
+    _reply(p, f"First ${FRAC}$ then $${NESTED}$$")
     assert len(_math_images(p.view.document())) == 1
     text = p.view.toPlainText()
-    assert "\\begin" not in text and "pmatrix" not in text
-    assert "1" in text and "4" in text
+    assert "\\frac" not in text and "x" in text
+
+
+def test_engine_exception_falls_back_to_unicode(monkeypatch):
+    """Any exception from the engine, including AssertionError, stays unicode."""
+    import arelis.ui.math_images as mi
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("boom")
+
+    monkeypatch.setattr(mi, "_svg_for", _boom)
+    p = _panel()
+    _reply(p, f"$${FRAC}$$")
+    assert _math_images(p.view.document()) == []
+    assert "a/b" in p.view.toPlainText()
+
+
+def test_simple_inline_math_stays_text_and_structured_inline_becomes_an_image():
+    from arelis.ui.math_images import wants_image
+
+    for tex in (r"x^2", r"\alpha + \beta", r"A \cup B", r"x_n", r"p \implies q", r"30^\circ"):
+        assert not wants_image(tex, display=False), tex
+    for tex in (
+        FRAC,
+        r"\sqrt{2}",
+        r"\sum_{i=1}^n i",
+        r"e^{i\pi}",
+        r"\binom{n}{k}",
+        PMATRIX,
+        r"\overline{z}",
+    ):
+        assert wants_image(tex, display=False), tex
+    assert wants_image(r"x^2", display=True)
+    assert wants_image("x" * 1001, display=True) is False
+
+
+def test_overline_rule_takes_the_theme_colour():
+    """The overline rule is hard-coded black in ziamath 0.13. Tint it."""
+    from arelis.ui.theme import COLORS
+
+    p = _panel()
+    _reply(p, r"$$\overline{z}$$")
+    img = _resource(p.view, _math_images(p.view.document())[0]).convertToFormat(
+        QImage.Format.Format_RGBA8888
+    )
+    raw = np.frombuffer(img.constBits(), np.uint8)
+    stride = img.bytesPerLine()
+    rows = raw.reshape(img.height(), stride)
+    pixels = rows[:, : img.width() * 4].reshape(img.height(), img.width(), 4)
+    top = pixels[: max(1, pixels.shape[0] // 3)]
+    solid = top[top[..., 3] > 200][:, :3]
+    want = np.array([int(COLORS["text"][i : i + 2], 16) for i in (1, 3, 5)])
+    assert len(solid) > 0 and np.abs(np.median(solid, axis=0) - want).max() <= 8
+
+
+def test_align_and_equation_lose_their_numbers():
+    from arelis.ui.math_images import prepare_tex
+
+    assert "aligned" in prepare_tex(r"\begin{align} a &= b \\ c &= d \end{align}")
+    assert "\\tag" not in prepare_tex(r"E = mc^2 \tag{1}")
+    assert "\\color" not in prepare_tex(r"\color{red} x")
+
+
+def test_installer_ships_qtsvg_ziamath_and_the_stix_licence():
+    import importlib.util
+    from pathlib import Path
+
+    root = Path(__import__("arelis").__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location("_b", root / "win-installer" / "build.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert "QtSvg" in module.QT_MODULES and "ziamath" in module.REQUIRED_IMPORTS
+    lock = (root / "win-installer" / "requirements-win-amd64-cp314.txt").read_text()
+    mac = (root / "mac-installer" / "requirements-macos-arm64-cp313.txt").read_text()
+    for pkg in ("ziamath==", "ziafont==", "latex2mathml=="):
+        assert pkg in lock
+        assert pkg in mac
+    assert (root / "arelis" / "ui" / "fonts" / "OFL-STIXTwoMath.txt").is_file()
 
 
 def test_formulas_match_the_theme_text_colour_and_follow_a_theme_switch():
@@ -170,12 +279,18 @@ def test_history_reload_renders_formula_images():
 
 
 def test_inline_formula_sits_on_the_text_baseline():
-    """FAILFIRST. Within 1 px of the text baseline (vertical-align:middle plus padding)."""
+    """Within 1 px of the text baseline (vertical-align:middle plus padding)."""
+    from PySide6.QtGui import QFont
+
     p = _panel()
     _reply(p, r"xx $x_n^2$")
     fmt = _math_images(p.view.document())[0]
-    assert fmt.verticalAlignment().name in {"AlignMiddle", "AlignBaseline"}
-    # pixel check lives in math-images-data/proto_baseline.py; port it with the fix
+    assert fmt.verticalAlignment().name == "AlignMiddle"
+    image = _resource(p.view, fmt)
+    font = QFont(p.view.font())
+    font.setPixelSize(p.view._math_px)
+    gap = _baseline_gap(image, font)
+    assert abs(gap) <= 1.0, gap
 
 
 def test_chart_image_rides_the_same_resource_hook():
@@ -191,6 +306,70 @@ def test_chart_image_rides_the_same_resource_hook():
     names = [f.name() for f in _all_images(p.view.document())]
     assert any(n.startswith("arelis-chart:") for n in names)
     assert p.view.loadResource(2, QUrl("arelis-chart://c/not-registered")) is None
+
+
+def _baseline_gap(image: QImage, font) -> float:
+    """Text x bottom minus formula x bottom, in logical pixels.
+
+    Same measurement as the ziamath baseline sweep: paint ``xx`` beside the
+    padded image at 2x and compare the lowest ink in each run.
+    """
+    from PySide6.QtGui import QColor, QPainter, QTextDocument
+
+    document = QTextDocument()
+    document.setDefaultFont(font)
+    document.addResource(
+        QTextDocument.ResourceType.ImageResource,
+        QUrl("arelis-math://b"),
+        image,
+    )
+    document.setHtml(
+        '<p style="color:#ffffff; margin:0;">'
+        'xx<img src="arelis-math://b" style="vertical-align:middle"/>'
+        "</p>"
+    )
+    document.setTextWidth(400)
+    scale = 2
+    canvas = QImage(400 * scale, 160 * scale, QImage.Format.Format_RGBA8888)
+    canvas.setDevicePixelRatio(scale)
+    canvas.fill(QColor("#000000"))
+    painter = QPainter(canvas)
+    document.drawContents(painter)
+    painter.end()
+    plane = _luma(canvas)
+    ink = plane.max(axis=0) > 128
+    cols = np.flatnonzero(ink)
+    assert cols.size > 0
+    start = int(cols[0])
+
+    def run_end(col: int, want: bool) -> int:
+        while col < ink.shape[0] and bool(ink[col]) is want:
+            col += 1
+        return col
+
+    text_end = run_end(start, True)
+    gap_end = run_end(text_end, False)
+    formula_end = run_end(gap_end, True)
+
+    def bottom(c0: int, c1: int) -> int:
+        rows = np.flatnonzero(plane[:, c0:c1].max(axis=1) > 128)
+        assert rows.size > 0
+        return int(rows.max())
+
+    text_bottom = bottom(start, min(start + 4 * scale, text_end))
+    formula_bottom = bottom(gap_end, min(gap_end + 4 * scale, formula_end))
+    return (formula_bottom - text_bottom) / scale
+
+
+def _luma(image: QImage) -> np.ndarray:
+    converted = image.convertToFormat(QImage.Format.Format_RGBA8888)
+    height = converted.height()
+    width = converted.width()
+    stride = converted.bytesPerLine()
+    raw = np.frombuffer(converted.constBits(), dtype=np.uint8, count=stride * height)
+    rows = raw.reshape(height, stride)
+    pixels = rows[:, : width * 4].reshape(height, width, 4)
+    return pixels[..., :3].max(axis=2)
 
 
 def _all_images(doc):
