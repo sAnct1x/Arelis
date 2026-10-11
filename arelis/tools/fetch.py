@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Any
+from urllib.parse import urljoin, urlsplit, urlunsplit
+
 import httpx
 
 from arelis.tools.safety import check_url_allowed
@@ -91,6 +94,60 @@ def sanitize_headers(headers: dict[str, str] | None) -> dict[str, str]:
     return clean
 
 
+def _reason_and_ip(verdict: Any) -> tuple[str | None, str | None]:
+    """Accept the verdict, or the older reason-or-None shape tests still stub."""
+    if verdict is None:
+        return None, None
+    if isinstance(verdict, str):
+        return verdict, None
+    reason = getattr(verdict, "reason", None)
+    ip = getattr(verdict, "ip", None)
+    return (str(reason) if reason else None), (str(ip) if ip else None)
+
+
+def _pinned_url(url: str, ip: str) -> tuple[str, str]:
+    """Rewrite the connect target to ``ip``. Return that URL and the real host."""
+    parsed = urlsplit(url)
+    host = parsed.hostname or ""
+    literal = f"[{ip}]" if ":" in ip else ip
+    netloc = f"{literal}:{parsed.port}" if parsed.port else literal
+    pinned = urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+    return pinned, host
+
+
+def _host_header(host: str, port: int | None, scheme: str) -> str:
+    default = 443 if (scheme or "").lower() == "https" else 80
+    if port and port != default:
+        return f"{host}:{port}"
+    return host
+
+
+async def _send(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    ip: str | None,
+    headers: dict[str, str] | None,
+    content: str | bytes | None = None,
+) -> httpx.Response:
+    """Send one hop. With an IP, connect there and keep the name on Host and SNI."""
+    if not ip:
+        if method == "GET":
+            return await client.get(url, headers=headers, follow_redirects=False)
+        return await client.request(
+            method, url, headers=headers, content=content, follow_redirects=False
+        )
+    pinned, host = _pinned_url(url, ip)
+    parsed = urlsplit(url)
+    merged = {str(key): str(value) for key, value in (headers or {}).items()}
+    merged["Host"] = _host_header(host, parsed.port, parsed.scheme)
+    request = client.build_request(method, pinned, headers=merged, content=content)
+    if (parsed.scheme or "").lower() == "https" and host:
+        request.extensions["sni_hostname"] = host
+    return await client.send(request, follow_redirects=False)
+
+
 async def guarded_request(
     client: httpx.AsyncClient,
     method: str,
@@ -113,11 +170,11 @@ async def guarded_request(
     verb = (method or "GET").strip().upper()
     if verb in {"GET", "HEAD"}:
         return await guarded_get(client, url, headers=headers, block_private=block_private)
-    reason = await check_url_allowed(url, block_private=block_private)
+    reason, ip = _reason_and_ip(await check_url_allowed(url, block_private=block_private))
     if reason:
         raise BlockedUrlError(reason)
-    response = await client.request(
-        verb, url, headers=headers, content=content, follow_redirects=False
+    response = await _send(
+        client, verb, url, ip=ip, headers=headers, content=content
     )
     if response.is_redirect:
         location = response.headers.get("location", "?")
@@ -151,12 +208,22 @@ async def guarded_get(
     """
     current = url
     for _ in range(_MAX_REDIRECTS + 1):
-        reason = await check_url_allowed(current, block_private=block_private)
+        reason, ip = _reason_and_ip(
+            await check_url_allowed(current, block_private=block_private)
+        )
         if reason:
             raise BlockedUrlError(reason)
-        response = await client.get(current, headers=headers, follow_redirects=False)
+        response = await _send(client, "GET", current, ip=ip, headers=headers)
         if not response.is_redirect or response.next_request is None:
             return response
-        # Resolve relative Location headers against the URL just requested.
-        current = str(response.next_request.url)
+        if ip:
+            # The request URL is the pinned address. Resolve Location against
+            # the name we meant, then check and pin that hop on its own.
+            location = response.headers.get("location", "")
+            if not location:
+                return response
+            current = urljoin(current, location)
+        else:
+            # Resolve relative Location headers against the URL just requested.
+            current = str(response.next_request.url)
     raise BlockedUrlError(f"Too many redirects (>{_MAX_REDIRECTS}) starting at {url}")

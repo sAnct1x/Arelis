@@ -11,6 +11,7 @@ from typing import Any
 
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
+from arelis.core.tool_results import publish_tool_result
 from arelis.presence.confirm_exec import execute_pending_confirm
 from arelis.presence.pending_confirms import PendingConfirm
 
@@ -28,16 +29,13 @@ async def emit_restored_confirm(
             {"message": output if ok else f"Pending send failed: {output}"},
         )
     )
-    await bus.publish(
-        Event(
-            EventType.TOOL_RESULT,
-            {
-                "tool": item.tool,
-                "ok": ok,
-                "output": output,
-                "data": {},
-                "source": "pending_confirm",
-            },
-        )
+    await publish_tool_result(
+        bus,
+        item.tool,
+        None,
+        ok=ok,
+        output=output,
+        data={},
+        source="pending_confirm",
     )
     return ok, output

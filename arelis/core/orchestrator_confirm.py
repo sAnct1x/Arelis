@@ -32,6 +32,7 @@ class OrchestratorConfirm:
             "summary": summary,
         }
         preview_args = {k: redact_secrets(str(v))[:200] for k, v in args.items()}
+        private = bool(self._private_note())
         await self.bus.publish(
             Event(
                 EventType.TOOL_CONFIRM,
@@ -48,9 +49,11 @@ class OrchestratorConfirm:
                     # the thinking dock and the CLI, which want one line.
                     "detail": self.tools.describe_call(tool, args),
                     "note": self._confirm_note(tool),
-                    "batch_ok": batch_ok(tool, args),
-                    "persist_ok": persist_ok(tool, args),
-                    "persist_label": persist_label(tool, args),
+                    # A private-text URL is one host, this time. No "rest of
+                    # this ask", and no don't-ask-again.
+                    "batch_ok": False if private else batch_ok(tool, args),
+                    "persist_ok": False if private else persist_ok(tool, args),
+                    "persist_label": "" if private else persist_label(tool, args),
                 },
             )
         )
@@ -102,13 +105,26 @@ class OrchestratorConfirm:
             if self._confirm_latest == confirm_id:
                 self._confirm_latest = ""
 
+    def _private_note(self) -> str:
+        """The private-URL line, when this call is the one that set it."""
+        loop = self._agent_loop
+        if loop is None:
+            return ""
+        return str(getattr(loop, "_private_url_note", "") or "")
+
     def _confirm_note(self, tool: str) -> str:
         """A warning to put on the card, when this particular call deserves one.
 
         Read straight off the running loop rather than off the bus. This is
         called from inside the agent loop's own coroutine, so the set is exactly
         up to date; a TOOL_RESULT subscriber would race with it.
+
+        A URL that carries private text speaks first. The external-content
+        warning is for a later send, not for this address.
         """
+        private = self._private_note()
+        if private:
+            return private
         used = set()
         loop = self._agent_loop
         if loop is not None:

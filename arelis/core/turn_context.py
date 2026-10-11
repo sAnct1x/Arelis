@@ -15,6 +15,7 @@ from typing import Any
 
 from arelis.core.claims import ExactnessNeed
 from arelis.core.evidence import EvidenceLedger
+from arelis.core.private_marks import PrivateMarks
 from arelis.core.turn_goal import NONE, TurnGoal
 from arelis.llm.router import ModelRole
 
@@ -158,6 +159,8 @@ class TurnContext:
     same_ok: set[str] = field(default_factory=set)
     goal: TurnGoal = NONE
     goal_unlock_used: bool = False
+    # Tokens and phrases from this turn's private reads. Reset with the turn.
+    private_marks: PrivateMarks = field(default_factory=PrivateMarks)
 
     def is_send_path(self, expected_tools: set[str]) -> bool:
         """True when finishing on a compose/send turn must not die on web warrants."""

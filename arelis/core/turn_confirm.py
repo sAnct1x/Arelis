@@ -13,6 +13,7 @@ from arelis.core.events import Event, EventType
 from arelis.core.loop_helpers import _SKIP_NOTICE, _tool_fail_fingerprint
 from arelis.core.native_tool_calling import native_arg_problem, native_tool_calling
 from arelis.core.preflight import user_asked_for_browser, user_asked_for_desktop
+from arelis.core.private_marks import private_url_hit
 from arelis.core.turn_context import TurnContext
 from arelis.tools.base import confirm_args_blocked
 from arelis.tools.policy import (
@@ -187,6 +188,14 @@ async def confirm_call(
         asked=asked,
         ask_is_grant=bool(getattr(loop, "ask_is_grant", True)),
     )
+    # A URL carrying text from this turn's mail, files, or memory asks
+    # even when the rest of the turn was already allowed, and in every theme.
+    hit = private_url_hit(ctx, name, args)
+    if hit is not None:
+        needs = True
+        loop._private_url_note = hit.note
+    else:
+        loop._private_url_note = ""
     if (
         loop._look is not None
         and name in {"ocr", "vision"}
@@ -223,6 +232,7 @@ async def confirm_call(
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat
+            loop._private_url_note = ""
         confirm_ms = int((time.perf_counter() - confirm_t0) * 1000)
         if loop._timer is not None:
             loop._timer.confirm_ms += confirm_ms
@@ -244,11 +254,16 @@ async def confirm_call(
             )
         )
         if decision == "allow_always":
-            persist_confirm_off(loop, name, args)
+            # This card does not offer don't-ask-again. A stray always
+            # must not turn the browser or files switch off.
+            if hit is None:
+                persist_confirm_off(loop, name, args)
             decision = "allow"
         if decision == "allow_turn":
             ctx.allow_writes_this_turn = True
             decision = "allow"
+        if decision == "allow" and hit is not None:
+            ctx.private_marks.allow_host(hit.host)
         if decision != "allow":
             await loop.bus.publish(
                 Event(EventType.THINKING, {"text": f"skip  {summary}"})
