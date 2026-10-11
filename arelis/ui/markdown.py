@@ -24,11 +24,18 @@ from __future__ import annotations
 
 import contextvars
 import html
+import logging
 import re
+from collections.abc import Callable
 
 from arelis.mathtext import flatten_for_render
 from arelis.mathtext import flatten_latex as flatten_latex
 from arelis.ui.theme import COLORS, FONTS, SPACE
+
+log = logging.getLogger(__name__)
+
+# index, tex, unicode fallback, display flag. None means keep the unicode.
+MathHook = Callable[[int, str, str, bool], str | None]
 
 # Only schemes worth making clickable. Anything else renders as plain text, so a
 # link a model invented cannot become a live handler for some other protocol.
@@ -121,6 +128,10 @@ _IMATH = re.compile(r"\[\[ARELIS_IMATH_(\d+)\]\]")
 _CODE_SPAN = re.compile(r"`[^`\n]+`")
 _STAR = "\ue000"
 _SLOTS: contextvars.ContextVar[tuple[str, ...]] = contextvars.ContextVar("math_slots", default=())
+_RAW: contextvars.ContextVar[tuple[tuple[str, bool], ...]] = contextvars.ContextVar(
+    "math_raw", default=()
+)
+_MATH: contextvars.ContextVar[MathHook | None] = contextvars.ContextVar("math_hook", default=None)
 
 
 def _style_math() -> str:
@@ -130,16 +141,37 @@ def _style_math() -> str:
     )
 
 
-def render_markdown(text: str) -> str:
-    """Render markdown as Qt rich text. Always returns escaped, safe HTML."""
+def _style_math_image() -> str:
+    return (
+        f"text-align:center; color:{COLORS['text']}; "
+        f"margin:{SPACE['gap']}px 0 {SPACE['gap']}px 0;"
+    )
+
+
+def render_markdown(text: str, *, math: MathHook | None = None) -> str:
+    """Render markdown as Qt rich text. Always returns escaped, safe HTML.
+
+    ``math`` is optional. Leave it unset and every formula stays the unicode
+    line this function has always returned. Chat passes a hook that may turn
+    one span into an image tag; None from the hook keeps the unicode.
+    """
     if not text:
         return ""
-    text, slots = flatten_for_render(text)
+    raw: list[tuple[str, bool]] | None = [] if math is not None else None
+    text, slots = flatten_for_render(text, raw=raw)
+    if math is not None:
+        from arelis.ui.math_images import begin_reply
+
+        begin_reply()
     token = _SLOTS.set(tuple(slots))
+    raw_token = _RAW.set(tuple(raw or ()))
+    math_token = _MATH.set(math)
     try:
         return _render_lines(text)
     finally:
         _SLOTS.reset(token)
+        _RAW.reset(raw_token)
+        _MATH.reset(math_token)
 
 
 def _render_lines(text: str) -> str:
@@ -153,7 +185,11 @@ def _render_lines(text: str) -> str:
             idx = int(math.group(1))
             slots = _SLOTS.get()
             body = slots[idx] if 0 <= idx < len(slots) else line.strip()
-            out.append(f'<p style="{_style_math()}">{_escape(body)}</p>')
+            image = _formula_html(idx)
+            if image:
+                out.append(f'<p style="{_style_math_image()}">{image}</p>')
+            else:
+                out.append(f'<p style="{_style_math()}">{_escape(body)}</p>')
             i += 1
             continue
 
@@ -208,13 +244,37 @@ def _shield_stars(text: str) -> str:
     return "".join(parts)
 
 
+def _formula_html(idx: int) -> str | None:
+    """Image tag for one math span, or None to keep today's unicode."""
+    hook = _MATH.get()
+    if hook is None:
+        return None
+    raws = _RAW.get()
+    if idx < 0 or idx >= len(raws):
+        return None
+    slots = _SLOTS.get()
+    plain = slots[idx] if 0 <= idx < len(slots) else ""
+    tex, display = raws[idx]
+    try:
+        html_text = hook(idx, tex, plain, display)
+    except Exception:
+        log.exception("math image hook failed")
+        return None
+    if not html_text:
+        return None
+    return html_text
+
+
 def _put_math(html_text: str) -> str:
     slots = _SLOTS.get()
-    if not slots:
+    if not slots and _MATH.get() is None:
         return html_text
 
     def put(match: re.Match[str]) -> str:
         idx = int(match.group(1))
+        image = _formula_html(idx)
+        if image:
+            return image
         if 0 <= idx < len(slots):
             return _escape(slots[idx])
         return match.group(0)

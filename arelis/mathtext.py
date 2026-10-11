@@ -363,8 +363,15 @@ def flatten_latex(text: str) -> str:
     return "".join(parts)
 
 
-def flatten_for_render(text: str) -> tuple[str, list[str]]:
-    """Flatten TeX and lift math spans into tokens markdown will not restyle."""
+def flatten_for_render(
+    text: str, *, raw: list[tuple[str, bool]] | None = None
+) -> tuple[str, list[str]]:
+    """Flatten TeX and lift math spans into tokens markdown will not restyle.
+
+    The returned slots are still the unicode lines PDF, Word, and CSV already
+    share. Pass ``raw`` to also keep ``(tex, display)`` in that same order, so
+    chat can draw a formula without changing this function's default result.
+    """
     if not text:
         return text, []
     slots: list[str] = []
@@ -373,7 +380,7 @@ def flatten_for_render(text: str) -> tuple[str, list[str]]:
         if kind == "code":
             parts.append(chunk)
             continue
-        parts.append(_shield_math(chunk, slots))
+        parts.append(_shield_math(chunk, slots, raw))
     return "".join(parts), slots
 
 
@@ -495,27 +502,50 @@ def _on_list_line(text: str, pos: int) -> bool:
     return _LISTISH.match(text[start:end]) is not None
 
 
-def _hold(slots: list[str], body: str) -> int:
+def _hold(
+    slots: list[str],
+    body: str,
+    *,
+    display: bool,
+    raw: list[tuple[str, bool]] | None,
+) -> int:
     slots.append(tex_to_plain(body))
+    if raw is not None:
+        raw.append((body.strip(), display))
     return len(slots) - 1
 
 
-def _shield_span(text: str, pattern: re.Pattern[str], slots: list[str], *, display: bool) -> str:
+def _shield_span(
+    text: str,
+    pattern: re.Pattern[str],
+    slots: list[str],
+    raw: list[tuple[str, bool]] | None,
+    *,
+    display: bool,
+) -> str:
     def repl(match: re.Match[str]) -> str:
-        idx = _hold(slots, match.group(1))
-        if display and not _on_list_line(text, match.start()):
+        # A display span on a list line stays in the item, so it is inline
+        # for both the token and the image decision.
+        as_display = display and not _on_list_line(text, match.start())
+        idx = _hold(slots, match.group(1), display=as_display, raw=raw)
+        if as_display:
             return f"\n\n[[ARELIS_MATH_{idx}]]\n\n"
         return f"[[ARELIS_IMATH_{idx}]]"
 
     return pattern.sub(repl, text)
 
 
-def _shield_math(text: str, slots: list[str]) -> str:
+def _shield_math(
+    text: str, slots: list[str], raw: list[tuple[str, bool]] | None = None
+) -> str:
     """Pull math out before markdown can treat * and | as markup."""
-    text = _shield_span(text, _DISPLAY_DOLLARS, slots, display=True)
-    text = _shield_span(text, _DISPLAY_BRACKETS, slots, display=True)
-    text = _shield_span(text, _INLINE_PARENS, slots, display=False)
-    text = _replace_inline_dollars(text, lambda inner: f"[[ARELIS_IMATH_{_hold(slots, inner)}]]")
+    text = _shield_span(text, _DISPLAY_DOLLARS, slots, raw, display=True)
+    text = _shield_span(text, _DISPLAY_BRACKETS, slots, raw, display=True)
+    text = _shield_span(text, _INLINE_PARENS, slots, raw, display=False)
+    text = _replace_inline_dollars(
+        text,
+        lambda inner: f"[[ARELIS_IMATH_{_hold(slots, inner, display=False, raw=raw)}]]",
+    )
     if "\\" in text:
         text = _flatten_bare(text)
     return text
