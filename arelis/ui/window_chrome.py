@@ -67,6 +67,13 @@ _PANEL_HALF = SHELL["half"]
 _PANEL_TOP = SHELL["top"]
 _PANEL_BOTTOM = SHELL["bottom"]
 
+_FILAMENT_DETAIL = (
+    "sodium is the app. filament is a test for a desk with three "
+    "screens, and you only get it when you're running from source. "
+    "1 and 2 still work. talk does not need a chat tile. plates "
+    "float, drag them. right click for themes. sodium is one click."
+)
+
 
 class WindowChrome:
     def _schedule_readiness_probe(self) -> None:
@@ -331,6 +338,38 @@ class WindowChrome:
         self.act_shortcuts.triggered.connect(self._open_shortcuts)
         self.addAction(self.act_shortcuts)
 
+        from arelis.ui.chat_find import open_chat_find
+        from arelis.ui.history_host import focus_history_search, on_history_new
+        from arelis.ui.quick_switch import open_quick_switch
+
+        self.act_new_chat = QAction("new conversation", self)
+        self.act_new_chat.setShortcut(QKeySequence(QKeySequence.StandardKey.New))
+        self.act_new_chat.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_new_chat.triggered.connect(lambda: on_history_new(self))
+        self.addAction(self.act_new_chat)
+
+        self.act_quick_switch = QAction("jump to a conversation", self)
+        self.act_quick_switch.setShortcut(QKeySequence("Ctrl+K"))
+        self.act_quick_switch.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_quick_switch.triggered.connect(lambda: open_quick_switch(self))
+        self.addAction(self.act_quick_switch)
+
+        self.act_search_history = QAction("search conversations", self)
+        self.act_search_history.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        self.act_search_history.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_search_history.triggered.connect(lambda: focus_history_search(self))
+        self.addAction(self.act_search_history)
+
+        self.act_find = QAction("find in this chat", self)
+        # Explicit Ctrl+F, same spelling as Ctrl+Shift+F. StandardKey.Find
+        # also matches the shifted chord on Windows and macOS, so history
+        # search never gets the key.
+        self.act_find.setShortcut(QKeySequence("Ctrl+F"))
+        self.act_find.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.act_find.setToolTip("find in this chat (Ctrl+F)")
+        self.act_find.triggered.connect(lambda: open_chat_find(self))
+        self.addAction(self.act_find)
+
         self._theme_group = QActionGroup(self)
         self._theme_group.setExclusive(True)
         self._theme_actions: dict[str, QAction] = {}
@@ -390,9 +429,16 @@ class WindowChrome:
             return super().eventFilter(obj, event)
         if et not in {QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress}:
             return super().eventFilter(obj, event)
-        if not isinstance(event, QKeyEvent) or not self._voice_hotkeys_allowed():
+        if not isinstance(event, QKeyEvent):
             return super().eventFilter(obj, event)
-        if not self._is_voice_hotkey(event):
+        # Claim the exact chord before the shortcut map. Ctrl+F must not
+        # also eat Ctrl+Shift+F, which is what a looser Find binding does.
+        if self._voice_hotkeys_allowed() and self._is_find_chord(event):
+            event.accept()
+            if et == QEvent.Type.KeyPress and not event.isAutoRepeat():
+                self._fire_find_chord(event)
+            return True
+        if not self._voice_hotkeys_allowed() or not self._is_voice_hotkey(event):
             return super().eventFilter(obj, event)
         event.accept()
         if et == QEvent.Type.KeyPress and not event.isAutoRepeat():
@@ -428,6 +474,23 @@ class WindowChrome:
         # across windows even when we own them — conversation still lives here.
         parent = aw.parent() if aw is not None else None
         return parent is self
+
+    def _is_find_chord(self, event: QKeyEvent) -> bool:
+        if event.key() != Qt.Key.Key_F:
+            return False
+        mods = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        ctrl = Qt.KeyboardModifier.ControlModifier
+        shift = Qt.KeyboardModifier.ShiftModifier
+        return mods in {ctrl, ctrl | shift}
+
+    def _fire_find_chord(self, event: QKeyEvent) -> None:
+        from arelis.ui.chat_find import open_chat_find
+        from arelis.ui.history_host import focus_history_search
+
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            focus_history_search(self)
+            return
+        open_chat_find(self)
 
     def _is_voice_hotkey(self, event: QKeyEvent) -> bool:
         if event.key() != Qt.Key.Key_M:
@@ -643,6 +706,11 @@ class WindowChrome:
         self._sync_view_checks()
         menu = QMenu(self)
         menu.setAccessibleName("View")
+        menu.addAction(self.act_new_chat)
+        menu.addAction(self.act_quick_switch)
+        menu.addAction(self.act_find)
+        menu.addAction(self.act_search_history)
+        menu.addSeparator()
         menu.addAction(self.act_persona)
         menu.addAction(self.act_workspace)
         menu.addAction(self.act_history)
@@ -754,12 +822,7 @@ class WindowChrome:
                 self,
                 "filament (testing)",
                 "a test face. it wants a row of desks, three is the intended layout.",
-                detail=(
-                    "sodium is the app. filament is a checkout experiment for a "
-                    "three-monitor desk; 1 and 2 still work. talk does not need a "
-                    "chat tile. plates float, drag them. right-click for themes. "
-                    "sodium is one click."
-                ),
+                detail=_FILAMENT_DETAIL,
                 confirm_text="enter filament",
                 cancel_text="stay in sodium",
             )

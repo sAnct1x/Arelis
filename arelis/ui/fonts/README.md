@@ -26,3 +26,6 @@ Source: [IBM/plex](https://github.com/IBM/plex) releases
 
 If those are missing too, Arelis falls back to Segoe UI / Consolas on Windows
 and logs a warning once at startup.
+
+Chat formulas are drawn with STIX Two Math, which ships inside ziamath.
+The license text is `OFL-STIXTwoMath.txt`.

@@ -129,6 +129,7 @@ class TitleBar(QWidget):
         self.view_btn = QToolButton()
         self.view_btn.setObjectName("ChromeViewBtn")
         self.view_btn.setText("view")
+        self.view_btn.setToolTip("panels and layout")
         self.view_btn.setAccessibleName("View")
         self.view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_btn.clicked.connect(lambda: self.view_menu_requested.emit(self.view_btn))
@@ -137,6 +138,7 @@ class TitleBar(QWidget):
         self.rooms_btn = QToolButton()
         self.rooms_btn.setObjectName("ChromeRoomsBtn")
         self.rooms_btn.setText("rooms")
+        self.rooms_btn.setToolTip("rooms: places she can work in")
         self.rooms_btn.setAccessibleName("Rooms")
         self.rooms_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.rooms_btn.clicked.connect(

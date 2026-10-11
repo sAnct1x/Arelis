@@ -352,6 +352,113 @@ def test_history_hides_unused_shells_except_the_open_one() -> None:
     assert keep_history_row(used, current_id="a") is True
 
 
+def test_history_keeps_a_pinned_chat_with_no_messages() -> None:
+    pinned = {"id": "p", "has_user": False, "pinned": 1}
+    assert keep_history_row(pinned, current_id="other") is True
+
+
+def test_pinned_session_lists_first(tmp_path: Path) -> None:
+    """On main this died because the store had no way to pin a chat."""
+    store = MemoryStore(tmp_path / "memory.db")
+    old = store.start_session()
+    store.start_session()
+    assert store.set_session_pinned(old, True) is True
+    rows = store.list_sessions(limit=10)
+    assert rows[0]["id"] == old and rows[0]["pinned"] is True
+    assert rows[1]["pinned"] is False
+    store.close()
+
+    again = MemoryStore(tmp_path / "memory.db")
+    kept = again.list_sessions(limit=10)
+    assert kept[0]["id"] == old and kept[0]["pinned"] is True
+    assert again.set_session_pinned(old, False) is True
+    unpinned = again.list_sessions(limit=10)
+    assert unpinned[0]["id"] != old
+    assert again.set_session_pinned("missing", True) is False
+    again.close()
+
+
+def test_schema_11_upgrade_keeps_every_chat(tmp_path: Path) -> None:
+    """An existing profile at schema 11 opens at 12 with every chat still there."""
+    import sqlite3
+
+    path = tmp_path / "memory.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            title TEXT NOT NULL DEFAULT '',
+            room_id TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            ordinal INTEGER NOT NULL
+        );
+        INSERT INTO sessions (id, started_at, ended_at, title, room_id) VALUES
+            ('chat-a', '2024-01-01T00:00:00+00:00', NULL, 'kettle notes', ''),
+            ('chat-b', '2024-06-01T00:00:00+00:00', '2024-06-02T00:00:00+00:00',
+             'telescope night', 'physics');
+        INSERT INTO messages
+            (session_id, role, content, note, created_at, ordinal)
+        VALUES
+            ('chat-a', 'user', 'put the kettle on', '', '2024-01-01T00:01:00+00:00', 1),
+            ('chat-b', 'user', 'where is the telescope', '', '2024-06-01T00:01:00+00:00', 1),
+            ('chat-b', 'assistant', 'On the desk.', '', '2024-06-01T00:02:00+00:00', 2);
+        PRAGMA user_version = 11;
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = MemoryStore(path)
+    try:
+        assert store.schema_version == 12
+        rows = {row["id"]: row for row in store.list_sessions(limit=10)}
+        assert set(rows) == {"chat-a", "chat-b"}
+        assert rows["chat-a"]["title"] == "kettle notes"
+        assert rows["chat-a"]["room_id"] == ""
+        assert rows["chat-a"]["pinned"] is False
+        assert rows["chat-b"]["title"] == "telescope night"
+        assert rows["chat-b"]["room_id"] == "physics"
+        assert rows["chat-b"]["ended_at"] == "2024-06-02T00:00:00+00:00"
+        assert rows["chat-b"]["pinned"] is False
+        assert [m["content"] for m in store.get_messages("chat-a")] == ["put the kettle on"]
+        assert [m["content"] for m in store.get_messages("chat-b")] == [
+            "where is the telescope",
+            "On the desk.",
+        ]
+    finally:
+        store.close()
+
+    reopened = MemoryStore(path)
+    try:
+        assert reopened.schema_version == 12
+        assert {row["id"] for row in reopened.list_sessions(limit=10)} == {"chat-a", "chat-b"}
+        assert reopened.get_session("chat-a")["pinned"] is False
+    finally:
+        reopened.close()
+
+
+def test_pinned_empty_chat_is_not_thrown_away(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    pinned = store.start_session()
+    assert store.set_session_pinned(pinned, True) is True
+    other = store.start_session()
+    again = store.start_or_reuse_empty_session(room_id="")
+    assert again == other
+    assert store.get_session(pinned) is not None
+    assert store.get_session(pinned)["pinned"] is True
+    store.close()
+
+
 def test_cancelled_user_turn_is_marked_stopped_in_the_prompt() -> None:
     """Stop keeps the bubble. The next turn can see it existed, marked dead.
 

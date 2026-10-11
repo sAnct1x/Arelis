@@ -92,6 +92,7 @@ def _unused_session_ids(store: MemoryStore, *, room_id: str) -> list[str]:
         SELECT s.id
         FROM sessions s
         WHERE s.room_id = ?
+          AND COALESCE(s.pinned, 0) = 0
           AND NOT EXISTS (
               SELECT 1 FROM messages m
               WHERE m.session_id = s.id AND m.role = 'user'
@@ -104,9 +105,15 @@ def _unused_session_ids(store: MemoryStore, *, room_id: str) -> list[str]:
 
 
 def keep_history_row(row: dict[str, Any], *, current_id: str = "") -> bool:
-    """Blank unused shells stay out of History except the one you are on."""
+    """Blank unused shells stay out of History except the one you are on.
+
+    A pinned conversation stays even when it has no messages yet. Otherwise
+    the next refresh would drop the chat you just asked to keep.
+    """
     sid = str(row.get("id") or "")
     if current_id and sid == current_id:
+        return True
+    if row.get("pinned"):
         return True
     return bool(row.get("has_user"))
 
@@ -235,14 +242,14 @@ def list_sessions(
     params.append(limit)
     rows = store._conn.execute(
         f"""
-        SELECT s.id, s.started_at, s.ended_at, s.title, s.room_id,
+        SELECT s.id, s.started_at, s.ended_at, s.title, s.room_id, s.pinned,
                EXISTS (
                    SELECT 1 FROM messages m
                    WHERE m.session_id = s.id AND m.role = 'user'
                ) AS has_user
         FROM sessions s
         {where}
-        ORDER BY s.started_at DESC, s.rowid DESC
+        ORDER BY s.pinned DESC, s.started_at DESC, s.rowid DESC
         LIMIT ?
         """,
         params,
@@ -251,8 +258,22 @@ def list_sessions(
     for row in rows:
         item = dict(row)
         item["has_user"] = bool(item.get("has_user"))
+        item["pinned"] = bool(item.get("pinned"))
         out.append(item)
     return out
+
+
+def set_session_pinned(store: MemoryStore, session_id: str, on: bool) -> bool:
+    """Pin or unpin one conversation. False if that chat is not stored."""
+    sid = (session_id or "").strip()
+    if not sid or get_session(store, sid) is None:
+        return False
+    store._conn.execute(
+        "UPDATE sessions SET pinned = ? WHERE id = ?",
+        (1 if on else 0, sid),
+    )
+    store._conn.commit()
+    return True
 
 def delete_session(store: MemoryStore, session_id: str) -> bool:
     """Remove a conversation and cascaded messages/summaries. True if deleted."""
@@ -271,13 +292,17 @@ def delete_session(store: MemoryStore, session_id: str) -> bool:
 def get_session(store: MemoryStore, session_id: str) -> dict[str, Any] | None:
     row = store._conn.execute(
         """
-        SELECT id, started_at, ended_at, title, room_id
+        SELECT id, started_at, ended_at, title, room_id, pinned
         FROM sessions
         WHERE id = ?
         """,
         (session_id,),
     ).fetchone()
-    return dict(row) if row else None
+    if row is None:
+        return None
+    item = dict(row)
+    item["pinned"] = bool(item.get("pinned"))
+    return item
 
 def get_messages(store: MemoryStore, session_id: str) -> list[dict[str, Any]]:
     rows = store._conn.execute(

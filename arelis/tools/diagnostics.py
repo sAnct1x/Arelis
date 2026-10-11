@@ -194,7 +194,10 @@ def _run_suite(kwargs: dict[str, Any] | None = None) -> ToolResult:
     if not tests_dir.is_dir():
         return ToolResult(
             ok=False,
-            output=(f"No tests/ directory at {root}. This checkout cannot run diagnostics."),
+            output=(
+                "There is no test folder here. "
+                "Diagnostics only run when you're running from source."
+            ),
         )
     decided = _pytest_path(kwargs, tests_dir=tests_dir, root=root)
     if isinstance(decided, ToolResult):

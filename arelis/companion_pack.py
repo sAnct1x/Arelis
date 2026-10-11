@@ -121,14 +121,14 @@ class CompanionStatus:
                 )
             return " ".join(bits)
         want = (
-            f"This checkout wants companion {self.expected.version_name}."
+            f"This copy wants companion {self.expected.version_name}."
             if self.expected
-            else "No companion version is pinned in this tree."
+            else "No companion version is set for this copy."
         )
         return (
-            f"{want} No APK is sitting next to this Arelis. From a source "
-            "checkout run python scripts/build_companion.py, then this page "
-            "grows a download QR. The UI will not shell out to Gradle."
+            f"{want} No phone app is sitting next to this Arelis. "
+            "You're running from source. Build the phone app, then this page "
+            "grows a download code. The app will not build it for you."
         )
 
     def snapshot(self) -> dict[str, Any]:
@@ -509,8 +509,8 @@ def landing_html(
     if apk is None:
         body = (
             "<p>This Arelis has no companion APK to hand over.</p>"
-            "<p>On the PC, from a source checkout: "
-            "<code>python scripts/build_companion.py</code></p>"
+            "<p>You're running from source. Build the phone app on the PC, "
+            "then open this page again.</p>"
         )
     else:
         apk_href = f"/companion/apk?pair={quote(pair, safe='')}"
