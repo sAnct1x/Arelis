@@ -416,3 +416,119 @@ def test_second_process_reads_not_rotates(
             core.release()
     finally:
         ui.release()
+
+
+def _old_token(label: str) -> bytes:
+    """A token already on disk, so a no-op startup is visible."""
+    token = f"old-{label}-token-0123456789abcdef"
+    _plant_token(token)
+    from arelis.presence.ipc_token import token_path
+
+    return token_path().read_bytes()
+
+
+def _assert_rotated(previous: bytes) -> None:
+    from arelis.presence.ipc_token import read_token, token_path
+
+    current = token_path().read_bytes()
+    assert current != previous, "seat start left the old session token in place"
+    text = read_token()
+    assert text is not None
+    assert len(text) >= 32
+    assert text.encode("ascii") == current
+
+
+def test_starting_a_seat_rotates_the_session_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, qt_app
+) -> None:
+    """run_core and run_ui are what rotate the token. The helper is not.
+
+    The other tests call claim_session_token themselves. Deleting the call
+    in presence/core.py or ui/launch.py left them green. Each seat is
+    started here the way production starts it, with ingest, the tray, and
+    the window faked, and the file on disk has to change.
+    """
+    import threading as thread_mod
+
+    from arelis.presence import core as core_mod
+    from arelis.ui import launch as launch_mod
+
+    real_event = thread_mod.Event
+
+    class _Event(real_event):
+        def wait(self, timeout: float | None = None):
+            # The core sits in stop.wait(3600) until quit. Return at once
+            # so this test observes the token and lets the seat shut down.
+            # Every other wait, including thread startup, stays real.
+            if timeout == 3600:
+                return True
+            return super().wait(timeout)
+
+    loops: list[asyncio.AbstractEventLoop] = []
+    real_new_loop = core_mod.asyncio.new_event_loop
+
+    def _capture_loop() -> asyncio.AbstractEventLoop:
+        loop = real_new_loop()
+        loops.append(loop)
+        return loop
+
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "core"))
+    previous = _old_token("core")
+
+    class _QuietInbound:
+        status_messages: list[str] = []
+
+        async def stop(self) -> None:
+            return None
+
+    async def _bus_done(self) -> None:
+        # run_core stops the loop while bus.run is still blocked on the
+        # queue. That pending read becomes an unraisable error once the
+        # loop is closed. The token claim happens before the bus starts,
+        # so this stand-in does not weaken the assertion.
+        return None
+
+    monkeypatch.setattr(thread_mod, "Event", _Event)
+    monkeypatch.setattr(core_mod.asyncio, "new_event_loop", _capture_loop)
+    monkeypatch.setattr(core_mod.EventBus, "run", _bus_done)
+    monkeypatch.setattr(core_mod, "attach_event_audit", lambda *_a, **_k: None)
+    monkeypatch.setattr(core_mod, "attach_inbound", lambda *_a, **_k: _QuietInbound())
+    monkeypatch.setattr("arelis.guard.attach_watch", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "arelis.jobs.schedule.repoint_moved_tasks_on_launch", lambda: []
+    )
+    assert (
+        core_mod.run_core(
+            {"presence": {"ipc_enabled": False, "core_tray": False}}
+        )
+        == 0
+    )
+    for loop in loops:
+        loop.close()
+    _assert_rotated(previous)
+    monkeypatch.setattr(thread_mod, "Event", real_event)
+
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "glass"))
+    previous = _old_token("glass")
+    monkeypatch.setattr(launch_mod, "configure_native_windows", lambda: None)
+    monkeypatch.setattr(launch_mod, "configure_display_scale", lambda _cfg: None)
+    monkeypatch.setattr(launch_mod, "force_windows_qt_platform", lambda _env: None)
+    monkeypatch.setattr("arelis.core.seat.bind_workspace", lambda _cfg: None)
+    monkeypatch.setattr("arelis.ui.solar_gl.prepare_desktop_gl", lambda _env: None)
+    monkeypatch.setattr("arelis.ui.solar_gl.gl_wanted", lambda: False)
+    monkeypatch.setattr(launch_mod, "qt_font_directory", lambda: tmp_path)
+    monkeypatch.setattr(launch_mod, "apply_theme", lambda _t: None)
+    monkeypatch.setattr(launch_mod, "load_fonts", lambda: {})
+    monkeypatch.setattr(launch_mod, "app_font", lambda _families: qt_app.font())
+    monkeypatch.setattr(launch_mod, "stylesheet", lambda: "")
+    monkeypatch.setattr(launch_mod, "theme_from_config", lambda _c: None)
+    monkeypatch.setattr(launch_mod, "app_icon_path", lambda: tmp_path / "missing.ico")
+    monkeypatch.setattr(
+        launch_mod,
+        "apply_first_run_glass",
+        lambda config, config_was_given=False: None,
+    )
+    monkeypatch.setattr("arelis.ui.dialog.notice", lambda *_a, **_k: None)
+
+    assert launch_mod.run_ui({"presence": {}}) == 1
+    _assert_rotated(previous)
