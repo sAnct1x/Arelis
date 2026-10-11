@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QFont, QFontDatabase
 
 from arelis.paths import cache_dir, ensure
 from arelis.ui import theme_tokens as _tokens
+from arelis.ui.motion import motion_enabled
 from arelis.ui.theme_qss import dock_tab_bar_qss, stylesheet
 from arelis.ui.theme_tokens import (
     BLOOM,
@@ -18,6 +19,7 @@ from arelis.ui.theme_tokens import (
     GLASS,
     HAIRLINE,
     METRICS,
+    MOTION,
     PLATE,
     SHELL,
     SPACE,
@@ -42,6 +44,7 @@ __all__ = [
     "GLASS",
     "HAIRLINE",
     "METRICS",
+    "MOTION",
     "PLATE",
     "SHELL",
     "SPACE",
@@ -55,6 +58,7 @@ __all__ = [
     "control_pad_y",
     "dock_tab_bar_qss",
     "load_fonts",
+    "motion_enabled",
     "polish_combo_popup",
     "qt_font_directory",
     "resolve_theme_id",

@@ -198,6 +198,152 @@ def test_align_and_equation_lose_their_numbers():
     assert "\\color" not in prepare_tex(r"\color{red} x")
 
 
+def _ink_span(mask: np.ndarray) -> tuple[int, int]:
+    ink = mask > 64
+    cols = np.flatnonzero(ink.any(axis=0))
+    rows = np.flatnonzero(ink.any(axis=1))
+    if cols.size == 0 or rows.size == 0:
+        return (0, 0)
+    return (int(cols[-1] - cols[0] + 1), int(rows[-1] - rows[0] + 1))
+
+
+def _max_row_coverage(mask: np.ndarray) -> float:
+    """Share of the ink width covered by the fullest row.
+
+    A rule crosses the gap between columns. A row of glyphs does not.
+    """
+    ink = mask > 64
+    cols = np.flatnonzero(ink.any(axis=0))
+    if cols.size == 0:
+        return 0.0
+    body = ink[:, int(cols[0]) : int(cols[-1]) + 1]
+    return float(body.mean(axis=1).max())
+
+
+def test_row_spacing_argument_is_not_literal_text():
+    """FAILFIRST on b757d3c. ``\\\\[6pt]`` stayed in prepare_tex, and the
+    aligned picture was wider than the same rows without the bracket.
+    A trailing ``\\\\[6pt]`` added a text row, so the picture was taller."""
+    from arelis.ui.math_images import prepare_tex, render_mask
+
+    spaced = r"\begin{aligned} a &= b \\[6pt] c &= d \end{aligned}"
+    plain = r"\begin{aligned} a &= b \\ c &= d \end{aligned}"
+    problems = []
+    prepared = prepare_tex(spaced)
+    if "[6pt]" in prepared:
+        problems.append(prepared)
+    em = prepare_tex(r"\begin{array}{cc} a & b \\[0.5em] c & d \end{array}")
+    if "[0.5em]" in em or "0.5em" in em:
+        problems.append(em)
+    neg = prepare_tex(r"a \\[-2pt] b")
+    if "-2pt" in neg:
+        problems.append(neg)
+    dotted = prepare_tex(r"a \\[.5em] b")
+    if ".5em" in dotted:
+        problems.append(dotted)
+    starred = prepare_tex(r"a \\*[6pt] b")
+    if "6pt" in starred:
+        problems.append(starred)
+    gapped = prepare_tex(r"a \\ [12pt] b")
+    if "12pt" in gapped:
+        problems.append(gapped)
+    if "[note]" not in prepare_tex(r"a \\[note] b"):
+        problems.append("ate a bracket that is not a length")
+    if prepare_tex(r"\sqrt[3]{x}") != r"\sqrt[3]{x}":
+        problems.append(prepare_tex(r"\sqrt[3]{x}"))
+
+    wide = render_mask(spaced, True, 16, 2.0)
+    slim = render_mask(plain, True, 16, 2.0)
+    if wide is None or slim is None:
+        problems.append("aligned spacing did not render")
+    elif _ink_span(wide)[0] > _ink_span(slim)[0] * 1.15:
+        problems.append(f"aligned width {_ink_span(wide)[0]} vs {_ink_span(slim)[0]}")
+
+    em_wide = render_mask(r"\begin{array}{cc} a & b \\[0.5em] c & d \end{array}", True, 16, 2.0)
+    em_slim = render_mask(r"\begin{array}{cc} a & b \\ c & d \end{array}", True, 16, 2.0)
+    if em_wide is None or em_slim is None:
+        problems.append("em spacing did not render")
+    elif _ink_span(em_wide)[0] > _ink_span(em_slim)[0] * 1.15:
+        problems.append(f"em width {_ink_span(em_wide)[0]} vs {_ink_span(em_slim)[0]}")
+
+    trail = render_mask(
+        r"\begin{aligned} a &= b \\ c &= d \\[6pt] \end{aligned}",
+        True,
+        16,
+        2.0,
+    )
+    if trail is None or slim is None:
+        problems.append("trailing spacing did not render")
+    elif _ink_span(trail)[1] > _ink_span(slim)[1] * 1.35:
+        problems.append(f"trailing height {_ink_span(trail)[1]} vs {_ink_span(slim)[1]}")
+    assert not problems, problems
+
+
+def test_hline_draws_a_rule_instead_of_disappearing():
+    """FAILFIRST on b757d3c. ``\\hline`` in array and aligned matched the
+    picture with the command deleted. tabular did not render. gathered
+    drew the command name."""
+    from arelis.ui.math_images import prepare_tex, render_mask
+
+    problems = []
+    kept = prepare_tex(r"\begin{array}{cc} a & b \\ \hline c & d \end{array}")
+    if r"\hline" not in kept:
+        problems.append(f"array dropped hline: {kept}")
+    outside = prepare_tex(r"\begin{gathered} a \\ \hline b \end{gathered}")
+    if "hline" in outside:
+        problems.append(f"gathered kept the command: {outside}")
+    tabular = prepare_tex(r"\begin{tabular}{cc} a & b \\ \hline c & d \end{tabular}")
+    if "tabular" in tabular or r"\hline" not in tabular:
+        problems.append(f"tabular: {tabular}")
+
+    pairs = (
+        (
+            r"\begin{array}{cc} a & b \\ \hline c & d \end{array}",
+            r"\begin{array}{cc} a & b \\ c & d \end{array}",
+        ),
+        (
+            r"\begin{aligned} a &= b \\ c &= d \\ \hline \end{aligned}",
+            r"\begin{aligned} a &= b \\ c &= d \end{aligned}",
+        ),
+        (
+            r"\begin{aligned} x + y &= 5 \\ x - y &= 1 \\[6pt] \hline \end{aligned}",
+            r"\begin{aligned} x + y &= 5 \\ x - y &= 1 \end{aligned}",
+        ),
+    )
+    for raw, bare_tex in pairs:
+        ruled = render_mask(raw, True, 16, 2.0)
+        bare = render_mask(bare_tex, True, 16, 2.0)
+        if ruled is None or bare is None:
+            problems.append(f"missing picture for {raw}")
+            continue
+        coverage = _max_row_coverage(ruled)
+        if coverage < 0.85:
+            problems.append(f"no rule in {raw} ({coverage:.2f})")
+        if _max_row_coverage(bare) >= 0.85:
+            problems.append(f"bare table looks ruled: {bare_tex}")
+        if "[6pt]" in prepare_tex(raw):
+            problems.append(f"spacing still in {prepare_tex(raw)}")
+        raw_h = _ink_span(ruled)[1]
+        bare_h = _ink_span(bare)[1]
+        if bare_h and raw_h > bare_h * 1.45:
+            problems.append(f"still a text row in {raw}: {raw_h} vs {bare_h}")
+
+    tab = render_mask(r"\begin{tabular}{cc} a & b \\ \hline c & d \end{tabular}", True, 16, 2.0)
+    if tab is None or _max_row_coverage(tab) < 0.85:
+        got = None if tab is None else f"{_max_row_coverage(tab):.2f}"
+        problems.append(f"tabular rule {got}")
+
+    gathered = render_mask(r"\begin{gathered} a \\ \hline b \end{gathered}", True, 16, 2.0)
+    gathered_plain = render_mask(r"\begin{gathered} a \\ b \end{gathered}", True, 16, 2.0)
+    if gathered is None or gathered_plain is None:
+        problems.append("gathered did not render")
+    elif _ink_span(gathered)[0] > _ink_span(gathered_plain)[0] * 1.3:
+        problems.append(
+            f"gathered width {_ink_span(gathered)[0]} vs {_ink_span(gathered_plain)[0]}"
+        )
+    assert not problems, problems
+
+
 def test_installer_ships_qtsvg_ziamath_and_the_stix_licence():
     import importlib.util
     from pathlib import Path

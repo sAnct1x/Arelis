@@ -60,6 +60,17 @@ def authored_parameter_docs() -> tuple[int, int]:
     return documented, total
 
 
+# Qwen3.5-9B hello-profile tool block at 738c021: 23,570 chars, 7,132 tokens.
+# chars/4 undercounted that JSON by about 20%. No tokenizer at runtime.
+_QWEN_BLOCK_CHARS = 23_570
+_QWEN_BLOCK_TOKENS = 7_132
+
+
+def schema_token_estimate(n_chars: int) -> int:
+    """Qwen3.5-9B tokens for schema JSON, from the fixed chars/token ratio."""
+    return (n_chars * _QWEN_BLOCK_TOKENS + _QWEN_BLOCK_CHARS // 2) // _QWEN_BLOCK_CHARS
+
+
 def measure(specs: list[dict[str, Any]]) -> dict[str, Any]:
     blob = json.dumps(specs)
     descriptions: list[int] = []
@@ -89,7 +100,8 @@ def measure(specs: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "tools": len(specs),
         "schema_chars": len(blob),
-        "schema_tokens_approx": len(blob) // 4,
+        "schema_tokens_approx": schema_token_estimate(len(blob)),
+        "schema_tokens_chars4": len(blob) // 4,
         "description_min": min(descriptions) if descriptions else 0,
         "description_median": int(statistics.median(descriptions)) if descriptions else 0,
         "description_mean": round(statistics.mean(descriptions), 1) if descriptions else 0,
@@ -120,7 +132,8 @@ def main() -> int:
     print(f"tools                : {stats['tools']}")
     print(
         f"schema size          : {stats['schema_chars']:,} chars "
-        f"(~{stats['schema_tokens_approx']:,} tokens)"
+        f"(~{stats['schema_tokens_approx']:,} Qwen tokens, "
+        f"{stats['schema_tokens_chars4']:,} at chars/4)"
     )
     print()
     print(

@@ -297,6 +297,57 @@ def close_tools_after_progress(
     return True
 
 
+def _same_step_alternative(text: str, pending: str, done: set[str]) -> bool:
+    """True when `pending` is only an or-choice beside a tool that already ran.
+
+    "solar or Earth" is one question. A later "then" keeps the next name owed.
+    """
+    raw = text or ""
+    if re.search(r"(?i)\bthen\b", raw):
+        return False
+    low = raw.lower()
+    spoken = pending.replace("_", " ")
+    if not re.search(rf"\b{re.escape(spoken)}\b", low):
+        return False
+    for name in done:
+        other = str(name).replace("_", " ")
+        if other == spoken:
+            continue
+        pair = (
+            rf"\b{re.escape(other)}\b.{{0,40}}\bor\b.{{0,40}}\b{re.escape(spoken)}\b"
+            rf"|\b{re.escape(spoken)}\b.{{0,40}}\bor\b.{{0,40}}\b{re.escape(other)}\b"
+        )
+        if re.search(pair, low):
+            return True
+    return False
+
+
+def uncovered_named_steps(loop: Any, ctx: TurnContext) -> list[str]:
+    """Named tools still open, ignoring an or-choice the receipt already covered."""
+    done = set(getattr(loop, "tools_used", ()) or ())
+    return [
+        name
+        for name in named_tools_owed(loop, ctx)
+        if not _same_step_alternative(ctx.text, name, done)
+    ]
+
+
+def chain_unfinished(loop: Any, ctx: TurnContext) -> bool:
+    """True when the ask still has a step this receipt does not cover.
+
+    A second named tool, a missing exactness kind, or a file they asked to
+    read back means the turn is not ready to stop on the last receipt.
+    """
+    if uncovered_named_steps(loop, ctx):
+        return True
+    need = getattr(ctx, "exact_need", None)
+    ledger = getattr(ctx, "ledger", None)
+    kinds = getattr(need, "kinds", ()) if need is not None else ()
+    if ledger is not None and kinds and ledger.missing_kinds(tuple(kinds)):
+        return True
+    return read_back_still_owed(ctx.text, getattr(loop, "_trace", ()))
+
+
 def named_tools_owed_runnable(
     loop: Any, ctx: TurnContext, fail_counts: dict[str, int]
 ) -> list[str]:

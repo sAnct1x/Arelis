@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from arelis.tools.model_schema import model_parameters
 from arelis.tools.policy import (
     CONTACTS_WRITE_ACTIONS,
     GOALS_WRITE_ACTIONS,  # noqa: F401 — re-exported
@@ -138,8 +139,10 @@ class ToolRegistry:
 
         When ``names`` is set, only those tools are offered (per-turn subset).
         Descriptions are one line; param essays are stripped. Names, enums,
-        and required stay, that is what structured calling needs.
-        
+        and required stay, that is what structured calling needs. Aliases,
+        paging knobs, and expert knobs listed in ``MODEL_HIDDEN_PARAMS`` are
+        left out of this array only. The tool still accepts them.
+
         When ``param_hints`` is True (native_tool_calling mode), specific
         parameter descriptions are kept to guide the model.
         """
@@ -149,14 +152,15 @@ class ToolRegistry:
         for tool in self._tools.values():
             if names is not None and tool.name not in names:
                 continue
-            out.append(
-                skinny_ollama_tool(
-                    tool.name,
-                    getattr(tool, "description", "") or "",
-                    getattr(tool, "parameters_schema", None),
-                    param_hints=param_hints,
-                )
+            spec = skinny_ollama_tool(
+                tool.name,
+                getattr(tool, "description", "") or "",
+                getattr(tool, "parameters_schema", None),
+                param_hints=param_hints,
             )
+            fn = spec["function"]
+            fn["parameters"] = model_parameters(tool.name, fn["parameters"])
+            out.append(spec)
         return out
 
     def needs_confirm(
