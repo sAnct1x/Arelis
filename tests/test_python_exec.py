@@ -377,8 +377,14 @@ async def _power_stall() -> tuple[bool, str, float, int]:
 
     def _beat() -> None:
         nonlocal ticks
-        while not stop.wait(0.05):
+        # A 50ms wait is the wrong clock here. On the macOS runner those waits
+        # landed about 120ms apart, so an 11s kill produced 87 to 96 ticks and
+        # missed 100 even though this process was running the whole time. A
+        # yield still cannot run while a C call holds this process's GIL,
+        # which is the freeze the count is there to catch.
+        while not stop.is_set():
             ticks += 1
+            time.sleep(0)
 
     beater = threading.Thread(target=_beat, name="arelis-cell-heartbeat", daemon=True)
     beater.start()
