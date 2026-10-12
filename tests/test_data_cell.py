@@ -461,6 +461,18 @@ while True:
     assert not _alive(grand_pid)
 
 
+def test_the_job_cap_still_follows_the_data_cell_constant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Moving the job into child_proc must not freeze the cap at import time."""
+    from arelis.tools.child_proc import _job_memory_bytes
+
+    assert DATA_CELL_MEMORY_BYTES == 2 * 1024 * 1024 * 1024
+    monkeypatch.setattr("arelis.tools.data_cell.DATA_CELL_MEMORY_BYTES", 1234)
+    assert _job_memory_bytes(None) == 1234
+    assert _job_memory_bytes(5) == 5
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="the memory cap is a Windows job limit")
 async def test_a_memory_bomb_is_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert DATA_CELL_MEMORY_BYTES == 2 * 1024 * 1024 * 1024

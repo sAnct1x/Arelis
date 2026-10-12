@@ -26,7 +26,7 @@ from typing import Any
 
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
-from arelis.llm.ollama import OllamaProvider
+from arelis.llm.ollama import OllamaProvider, list_installed_models
 from arelis.llm.router import ModelRouter
 
 log = logging.getLogger(__name__)
@@ -35,6 +35,61 @@ log = logging.getLogger(__name__)
 # while the prefix seed is still running.
 WARMUP_PINNED = "Chat model loaded, preparing the first reply."
 WARMUP_READY = "Ready for the first reply."
+
+
+def vision_model_name(config: dict[str, Any] | None) -> str:
+    """Configured VL tag. Empty config still has the shipped default."""
+    config = config or {}
+    vision_cfg = (config.get("tools") or {}).get("vision") or {}
+    models_cfg = config.get("models") or {}
+    name = str(
+        vision_cfg.get("model") or models_cfg.get("vision") or "qwen2.5vl:3b"
+    ).strip()
+    return name or "qwen2.5vl:3b"
+
+
+# (model name, installed). One lookup per name until Settings asks again.
+_VL_INSTALL_CACHE: tuple[str, bool] | None = None
+
+
+def clear_vl_install_cache() -> None:
+    """Drop the startup VL check. Tests and a Settings re-check use this."""
+    global _VL_INSTALL_CACHE
+    _VL_INSTALL_CACHE = None
+
+
+def vl_model_installed(
+    config: dict[str, Any] | None,
+    *,
+    refresh: bool = False,
+) -> bool:
+    """True when the configured VL model is already pulled.
+
+    Checked once per model name. A later Settings change passes
+    ``refresh=True``. ``config["_vl_model_installed"]`` skips the network
+    so a test can force the gate. Ollama down means not installed.
+    """
+    config = config or {}
+    override = config.get("_vl_model_installed")
+    if isinstance(override, bool):
+        return override
+    global _VL_INSTALL_CACHE
+    name = vision_model_name(config)
+    if (
+        not refresh
+        and _VL_INSTALL_CACHE is not None
+        and _VL_INSTALL_CACHE[0] == name
+    ):
+        return _VL_INSTALL_CACHE[1]
+    ollama_cfg = config.get("ollama") or {}
+    base = str(ollama_cfg.get("base_url") or "http://127.0.0.1:11434")
+    try:
+        installed = model_is_available(list_installed_models(base), name)
+    except Exception:
+        log.warning("VL model check failed; treating it as not installed", exc_info=True)
+        installed = False
+    _VL_INSTALL_CACHE = (name, installed)
+    return installed
 
 
 def model_is_available(available: list[str], wanted: str) -> bool:
@@ -259,8 +314,14 @@ async def seed_prefix_cache(
     bus: EventBus,
     router: ModelRouter,
     prefix: PrefixWarmup,
+    *,
+    announce: bool = True,
 ) -> None:
-    """Prefill the static prefix so the first real turn reuses it."""
+    """Prefill the static prefix so the next turn reuses it.
+
+    ``announce`` is for the startup seed. A mid-session rebuild stays quiet:
+    the first-reply line would be wrong in the middle of a chat.
+    """
     model = router.active_model or router.model_for(router.default_role)
     started = time.perf_counter()
     try:
@@ -294,6 +355,8 @@ async def seed_prefix_cache(
         return
     elapsed = time.perf_counter() - started
     log.info("Seeded prefix cache for %s in %.1fs", model, elapsed)
+    if not announce:
+        return
     await bus.publish(
         Event(
             EventType.STATUS,

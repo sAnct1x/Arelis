@@ -39,6 +39,10 @@ def image_errand(args: dict[str, Any] | None = None) -> str:
 def image_edit_errand(args: dict[str, Any] | None = None) -> str:
     """What the shimmer says while Pillow runs."""
     args = args or {}
+    if _truthy(args.get("remove_background")):
+        return "cutting out the background"
+    if str(args.get("upscale") or "") in {"2", "4"}:
+        return "enlarging the picture"
     if str(args.get("text") or "").strip():
         return "adding text to the picture"
     if str(args.get("crop") or args.get("crop_box") or "").strip():
@@ -49,6 +53,12 @@ def image_edit_errand(args: dict[str, Any] | None = None) -> str:
         return "rotating the picture"
     if _truthy(args.get("grayscale")):
         return "making the picture black and white"
+    if args.get("annotate"):
+        return "marking the picture"
+    if args.get("scale_bar"):
+        return "adding a scale bar"
+    if str(args.get("stretch") or "").strip():
+        return "stretching the picture"
     return "editing the picture"
 
 
@@ -90,6 +100,13 @@ def image_confirm_headline(args: dict[str, Any] | None = None) -> str:
 
 def image_edit_confirm_headline(args: dict[str, Any] | None = None) -> str:
     args = args or {}
+    if _truthy(args.get("remove_background")):
+        from arelis.tools.image_models import allow_headline
+
+        pending = allow_headline(args)
+        return pending or "cut out the background"
+    if str(args.get("upscale") or "") in {"2", "4"}:
+        return "enlarge this picture"
     overlay = str(args.get("text") or "").strip()
     if overlay:
         shown = overlay if len(overlay) <= 24 else overlay[:23] + "…"
@@ -110,4 +127,10 @@ def image_edit_confirm_headline(args: dict[str, Any] | None = None) -> str:
         return "make this picture black and white"
     if args.get("rotate") is not None:
         return "rotate this picture"
+    if args.get("annotate"):
+        return "mark this picture"
+    if args.get("scale_bar"):
+        return "add a scale bar"
+    if str(args.get("stretch") or "").strip():
+        return "stretch this picture"
     return "edit this picture"

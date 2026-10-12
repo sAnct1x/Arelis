@@ -71,6 +71,14 @@ SWP_NOMOVE = 0x0002
 SWP_NOSIZE = 0x0001
 SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
+
+
+def with_no_activate(flags: int) -> int:
+    """OR SWP_NOACTIVATE into every SetWindowPos on an Arelis HWND.
+
+    A move or a style change without this flag activates the window.
+    """
+    return int(flags) | SWP_NOACTIVATE
 SWP_NOSENDCHANGING = 0x0400
 
 SM_XVIRTUALSCREEN = 76
@@ -372,7 +380,7 @@ def _set_hwnd_rect(hwnd: int, rect: QRect, scale: float) -> None:
         ny,
         nw,
         nh,
-        SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING,
+        with_no_activate(SWP_NOZORDER | SWP_NOSENDCHANGING),
     )
 
 
@@ -490,7 +498,7 @@ def enable_win32_resize_frame(widget: QWidget) -> None:
         0,
         0,
         0,
-        SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        with_no_activate(SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER),
     )
 
 
@@ -582,6 +590,32 @@ def cursor_for_hit(ht: int | None) -> Qt.CursorShape | None:
         HTTOPRIGHT: Qt.CursorShape.SizeBDiagCursor,
         HTBOTTOMLEFT: Qt.CursorShape.SizeBDiagCursor,
     }.get(ht)
+
+
+def start_system_move(window: QWidget | None) -> bool:
+    """Ask the system to drag this window.
+
+    Wayland ignores a plain move. Windows keeps the old drag, so this
+    returns False there and the caller moves the window itself.
+    """
+    if sys.platform == "win32" or window is None:
+        return False
+    handle_fn = getattr(window, "windowHandle", None)
+    if not callable(handle_fn):
+        return False
+    try:
+        handle = handle_fn()
+    except Exception:
+        # No window handle yet. The plain drag still moves the window.
+        return False
+    start = getattr(handle, "startSystemMove", None)
+    if not callable(start):
+        return False
+    try:
+        return bool(start())
+    except Exception:
+        # The system move is optional. The plain drag still moves the window.
+        return False
 
 
 def try_system_resize(widget: QWidget, global_pos: QPoint, *, border: int = _BORDER) -> bool:

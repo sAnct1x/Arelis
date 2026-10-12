@@ -240,15 +240,16 @@ def chrome_executable() -> str | None:
 
 
 def edge_executable() -> str | None:
-    return _first_existing(
-        [
-            os.environ.get("ARELIS_EDGE"),
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-            shutil.which("msedge"),
-            shutil.which("microsoft-edge"),
-        ]
-    )
+    candidates: list[str | None] = [
+        os.environ.get("ARELIS_EDGE"),
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        shutil.which("msedge"),
+        shutil.which("microsoft-edge"),
+    ]
+    if sys.platform != "win32":
+        candidates.append(shutil.which("microsoft-edge-stable"))
+    return _first_existing(candidates)
 
 
 def firefox_executable() -> str | None:
@@ -722,6 +723,11 @@ def _first_existing(candidates: list[str | None]) -> str | None:
         if not raw:
             continue
         path = Path(raw)
-        if path.is_file():
+        if not path.is_file():
+            continue
+        # Windows keeps the resolved path. Elsewhere, resolving a snap
+        # launcher turns it into the snap command and drops the app name.
+        if sys.platform == "win32":
             return str(path.resolve())
+        return str(path)
     return None

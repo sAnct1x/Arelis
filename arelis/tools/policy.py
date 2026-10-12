@@ -83,8 +83,7 @@ REMIND_WRITE_ACTIONS = frozenset({"in", "at", "cancel"})
 # web_fetch keys on `method`, not `action`, so it is handled by name below
 # rather than through the action table. GET and HEAD read; everything else
 # changes something on a server that is not ours, and cannot be undone from
-# here. DELETE is treated as destructive so it pauses on the filament face too,
-# where a spoken ask is otherwise the grant.
+# here. DELETE is on the send/delete floor, so it pauses on filament too.
 WEB_FETCH_WRITE_METHODS = frozenset({"post", "put", "patch", "delete"})
 WEB_FETCH_DELETE_METHODS = frozenset({"delete"})
 INBOX_WRITE_ACTIONS = frozenset(
@@ -145,7 +144,10 @@ def _http_method(args: dict[str, Any] | None) -> str:
 
 
 # Card mode (every theme except Filament): send and delete always pause.
-# Filament: the spoken ask is the grant. Only a destructive call pauses.
+# Filament asks out loud. Sends and deletes always pause there too.
+# Other external writes (agenda create and update, inbox moves and marks)
+# pause unless the user's own ask named the tool and ask_is_grant is on.
+# Image, browser open, workspace writes, and desktop open stay free.
 _CONFIRM_MODE = "card"
 
 FLOOR_SEND_TOOLS = frozenset({"send_email", "send_sms"})
@@ -167,8 +169,9 @@ DELETE_ACTIONS = {
 def set_confirm_mode(mode: str) -> None:
     """card (every theme except Filament) or voice (filament, testing).
 
-    The send/delete floor applies in card mode. Voice is exempt while
-    Filament is under testing. Tests reset this via apply_theme.
+    Sends and deletes always pause in both modes. In voice, other external
+    writes pause unless the user's own ask named the tool and ask_is_grant
+    is on. Tests reset this via apply_theme.
     """
     global _CONFIRM_MODE
     _CONFIRM_MODE = "voice" if (mode or "").strip().lower() == "voice" else "card"
@@ -240,7 +243,16 @@ def always_pause(name: str, args: dict[str, Any] | None = None) -> bool:
         return True
     if tool == "browser" and _action(args) == "upload":
         return True
+    if tool == "image_edit" and _image_download_pause(args):
+        return True
     return action_is_destructive(name, args)
+
+
+def _image_download_pause(args: dict[str, Any] | None) -> bool:
+    """A missing model over 50 MB is not covered by the ask alone."""
+    from arelis.tools.image_models import download_needs_allow
+
+    return download_needs_allow(args)
 
 
 def persist_ok(name: str, args: dict[str, Any] | None = None) -> bool:
@@ -400,10 +412,11 @@ def evaluate_confirm(
     and a read action both return False. The loop rejects unknown names
     before it reaches here.
 
-    Voice mode (filament) skips the card: saying the ask is the grant.
-    Destructive calls still pause so she can ask out loud. Running a
-    project program is not ordinary; it pauses on voice too.
-    Filament is exempt from the send/delete floor while it is under testing.
+    Voice mode (filament) pauses on sends and deletes, and on other
+    external writes unless the user's own ask named the tool and
+    ask_is_grant is on. Destructive calls still pause so she can ask
+    out loud. Running a project program pauses on voice too. Image,
+    browser open, workspace writes, and desktop open stay free.
 
     Card mode (every theme except Filament): send and delete always pause,
     ignoring confirm_send, confirm_writes, ask_is_grant, asked, and
@@ -416,7 +429,10 @@ def evaluate_confirm(
             return True
         if (name or "").strip() == "run_task" and _action(args) != "list":
             return True
-        return action_is_destructive(name, args)
+        if floor_call(name, args):
+            return True
+        if evaluate_capability(name, args) != "WRITE_EXTERNAL":
+            return action_is_destructive(name, args)
     if floor_call(name, args):
         return True
     toggle = confirm_toggle(name, args, risk=risk)

@@ -40,12 +40,44 @@ _LOUD = re.compile(
     r")"
 )
 
+# The preview shows the first 40 lines. These are the reasons a later line
+# still belongs on the card: it opens the network, reads the environment,
+# or touches a credential store.
+_NETWORK = re.compile(
+    r"(?i)("
+    r"\burllib\b|"
+    r"\brequests\b|"
+    r"\bhttpx\b|"
+    r"\baiohttp\b|"
+    r"\bsocket\b|"
+    r"\bhttp\.client\b|"
+    r"\bsmtplib\b|"
+    r"\bftplib\b|"
+    r"\bwebsocket\b|"
+    r"\burlopen\b"
+    r")"
+)
+_ENVIRON = re.compile(r"(?i)\bos\.environ\b|\bos\.getenv\b")
+_SECRETS = re.compile(
+    r"(?i)("
+    r"\bsecrets\b|"
+    r"\bkeyring\b|"
+    r"\bdotenv\b|"
+    r"load_dotenv"
+    r")"
+)
 
-def loud_lines(text: str, *, limit: int = 12) -> list[str]:
-    """Lines that look like a delete. Empty when the text is quiet."""
+
+def _matching_lines(
+    text: str,
+    pattern: re.Pattern[str],
+    *,
+    after: int = 0,
+    limit: int = 12,
+) -> list[str]:
     found: list[str] = []
     for lineno, line in enumerate((text or "").splitlines(), start=1):
-        if not _LOUD.search(line):
+        if lineno <= after or not pattern.search(line):
             continue
         body = line.strip()
         if len(body) > 200:
@@ -54,6 +86,11 @@ def loud_lines(text: str, *, limit: int = 12) -> list[str]:
         if len(found) >= limit:
             break
     return found
+
+
+def loud_lines(text: str, *, limit: int = 12) -> list[str]:
+    """Lines that look like a delete. Empty when the text is quiet."""
+    return _matching_lines(text, _LOUD, limit=limit)
 
 
 def unified_preview(before: str, after: str, label: str) -> str:
@@ -220,11 +257,24 @@ def _write_confirm(
 
 def _append_loud(lines: list[str], text: str) -> None:
     found = loud_lines(text)
-    if not found:
-        return
-    lines.append("")
-    lines.append("Delete-looking lines:")
-    lines.extend(found)
+    if found:
+        lines.append("")
+        lines.append("Delete-looking lines:")
+        lines.extend(found)
+    # The head of the file is already on the card. Lines past it are not,
+    # unless they are the kind of line the card exists to show.
+    hidden = (
+        ("Network-looking lines:", _NETWORK),
+        ("Environment-looking lines:", _ENVIRON),
+        ("Secret-looking lines:", _SECRETS),
+    )
+    for label, pattern in hidden:
+        hits = _matching_lines(text, pattern, after=_HEAD_LINES)
+        if not hits:
+            continue
+        lines.append("")
+        lines.append(label)
+        lines.extend(hits)
 
 
 def _added_only(diff_text: str) -> list[str]:

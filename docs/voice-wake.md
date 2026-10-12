@@ -21,7 +21,7 @@ There are exactly three listen modes (no fourth hiding somewhere):
 | **Stop**, **be quiet**, **shut up** | She cuts off mid-turn. Works in conversation, on a one-shot wake, and while you are dictating, if a turn or a card is live. |
 | **Pause**, **hold on** | Freezes her Chrome drive. The page stays. In Reality with no live drive, **pause** is still the sim. |
 | **Go**, **resume**, **keep going** | Continues a held drive. After a stop, **keep going** is ordinary talk. |
-| **Yes** / **no** (or **allow** / **deny**) | Resolves an open card. Sodium paints it; filament (testing) hides it and the spoken ask is the grant. Deletes and Pay still wait for this. |
+| **Yes** / **no** (or **allow** / **deny**) | Resolves an open card. Sodium paints it. Filament (testing) asks out loud, and a spoken yes is the approval. Sends, deletes, and calendar writes wait for that yes. A calendar change you already named does not, except a delete. Pay still waits. |
 | **What did you say**, **I didn't hear that**, **say that again** | Replays the last spoken answer. No new turn. "What did I say about X" still searches History. |
 | A bare **Arelis**, **Hi Arelis**, **Okay Arelis**, or her name mentioned in passing | Nothing happens. Those trigger too easily during a call or while you're just talking in a room. |
 

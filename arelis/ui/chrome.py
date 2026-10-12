@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import sys
-
 from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QCursor, QMouseEvent
 from PySide6.QtWidgets import (
@@ -50,24 +48,9 @@ def _chrome_btn(
 
 def _start_system_move(window) -> bool:
     """Wayland ignores a plain move(). Windows keeps the old drag."""
-    if sys.platform == "win32" or window is None:
-        return False
-    handle_fn = getattr(window, "windowHandle", None)
-    if not callable(handle_fn):
-        return False
-    try:
-        handle = handle_fn()
-    except Exception:
-        # No window handle yet. The plain drag still moves the window.
-        return False
-    start = getattr(handle, "startSystemMove", None)
-    if not callable(start):
-        return False
-    try:
-        return bool(start())
-    except Exception:
-        # The system move is optional. The plain drag still moves the window.
-        return False
+    from arelis.ui.window_resize import start_system_move
+
+    return start_system_move(window)
 
 
 class TitleBar(QWidget):

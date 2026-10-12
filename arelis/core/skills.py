@@ -1168,10 +1168,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - "Make this look like a watercolor" / "in the style of" / restyle an existing
   file: call image with path= that file (or the latest outputs/images/ file)
   and a prompt that names the look. That is img2img, not image_edit.
-- Cut out / remove the background: image with remove_background=true and path=.
-  Extend the canvas / outpaint / uncrop: outpaint=all and path=. Change or
+- Cut out / remove the background: image_edit with remove_background=true and path=.
+- Extend the canvas / outpaint / uncrop: outpaint=all and path=. Change or
   remove the left/right/top/bottom/center of the picture: mask_region= and
-  path=. Those are Comfy, not image_edit.
+  path=. Those two are Comfy, not image_edit.
 - After one successful image this turn, stop — do not call image again.
 - To describe or answer questions about an existing local image/screenshot,
   use vision — not image.
@@ -1195,6 +1195,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "crop the right",
             "crop to the center",
             "upscale this",
+            "upscale this 4",
             "make it bigger",
             "make this 2x",
             "youtube thumbnail",
@@ -1230,7 +1231,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "make this look like",
             "watercolor",
             "restyle",
-            # Surgical Comfy work — not a pixel crop/scale.
+            # Surgical Comfy routing still owns these phrases. The image card
+            # tells the model to call image_edit for a cutout.
             "remove the background",
             "cut out the background",
             "outpaint",
@@ -1244,8 +1246,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
   preset=youtube_thumbnail, vibrance/contrast/brightness/sharpness where
   1.0 is unchanged and 1.3 is noticeably more, rotate=90, flip=horizontal,
   grayscale=true, blur=4, crop=left/right/center, scale=2, and text= for
-  an overlay. "Crop the left half" is crop=left. "Upscale this" / "make
-  it bigger" / 2x is scale=2. Do not call the calculator for a resolution.
+  an overlay. "Crop the left half" is crop=left. "Make it bigger" / exact
+  2x is scale=2 (arithmetic). "Remove the background" is
+  remove_background=true. "Upscale this 4x" is upscale=4 (2 or 4, a small
+  model, not scale=). Do not call the calculator for a resolution.
 - "Add text in the middle that says Arelis" is image_edit(text=Arelis),
   never send_sms. If they gave no path, use the latest outputs/images/ file
   from the image you just generated ("the picture you just created").

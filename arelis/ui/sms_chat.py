@@ -37,12 +37,16 @@ from arelis.sms_media import (
     sms_body_html,
 )
 from arelis.ui.caption_fade import CaptionTool, watch_caption
-from arelis.ui.foreground import process_owns_foreground
+from arelis.ui.foreground import focus_if_allowed, process_owns_foreground
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon, window_minimize_icon
 from arelis.ui.sms_store import cap_messages, load_threads, save_threads
 from arelis.ui.theme import GLASS, METRICS, SPACE, space_box
-from arelis.ui.window_resize import enable_win32_resize_frame, handle_native_resize
+from arelis.ui.window_resize import (
+    enable_win32_resize_frame,
+    handle_native_resize,
+    start_system_move,
+)
 
 MAX_TILES = 8
 MAX_IMAGE_WIDTH = 400
@@ -412,7 +416,7 @@ class SmsChatWindow(QWidget):
         self._set_heading(self._base_title)
         self.clear_attention()
         self._rim_pulse.start()
-        self.input.setFocus()
+        focus_if_allowed(self.input)
         self.shown.emit()
 
     def changeEvent(self, event) -> None:  # type: ignore[override]
@@ -604,6 +608,9 @@ class SmsChatWindow(QWidget):
             if event.type() == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
                 if event.button() == Qt.MouseButton.LeftButton:
                     self.clear_attention()
+                    if start_system_move(self):
+                        self._drag_origin = None
+                        return True
                     self._drag_origin = (
                         event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                     )

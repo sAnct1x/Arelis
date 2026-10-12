@@ -1,0 +1,2197 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "recall",
+      "description": "search memory. action=docs (+ kind=pdf|docx|md) for local files. miss is a miss",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "search",
+              "docs",
+              "session",
+              "index"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "all",
+              "chat",
+              "docs",
+              "mail"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "docx",
+              "md"
+            ]
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "memory",
+      "description": "durable facts / prefs. action=list to read them back, remember, forget",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "remember",
+              "forget",
+              "prefer",
+              "decide",
+              "episode"
+            ]
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "fact": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "fact",
+              "preference",
+              "episode",
+              "decision"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "tasks",
+      "description": "short list. action=list|add|update|done|reopen|remove|attach|detach. fix a typo with update, not remove+add",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "add",
+              "update",
+              "done",
+              "reopen",
+              "remove",
+              "attach",
+              "detach"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "due": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "normal",
+              "low"
+            ]
+          },
+          "recurrence": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "weekdays",
+              "monthly"
+            ]
+          },
+          "parent_id": {
+            "type": "integer"
+          },
+          "goal_id": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "done",
+              "all"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "goals",
+      "description": "long-lived goals. action=list|add|done|drop",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "add",
+              "update",
+              "pause",
+              "resume",
+              "done",
+              "drop",
+              "remove"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "goal",
+              "commitment"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "normal",
+              "low"
+            ]
+          },
+          "horizon": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "done",
+              "dropped",
+              "all"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "contacts",
+      "description": "local address book. action=list|get|add|update|remove",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "get",
+              "add",
+              "update",
+              "remove"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "who": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "aliases": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "rooms",
+      "description": "list / go to a room. Reality is physics",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "get",
+              "create",
+              "update",
+              "forget"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "test": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "analysis",
+              "code",
+              "general",
+              "research",
+              "writing"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web_fetch",
+      "description": "http(s) APIs / JSON. not pages. method=POST|PUT|PATCH|DELETE + headers/body for a real API; non-GET asks first",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "HEAD",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "scrape",
+      "description": "readable page text. Prefer scrape for news/docs",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web_search",
+      "description": "search first. never guess a url",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "recency": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week",
+              "month",
+              "year"
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "research_report",
+      "description": "multi-source writeup under outputs/research",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "recency": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week",
+              "month",
+              "year"
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inbound_sms",
+      "description": "recent inbound texts. do not invent replies",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "send_sms",
+      "description": "text via the user's phone. confirm card. to= a nickname (wife, mom, me) or a number they gave, body= their words. contacts optional; never invent a number",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "to",
+          "body"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "send_email",
+      "description": "send mail. confirm card. never invent sent",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "attach": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "body"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "inbox",
+      "description": "Gmail list/search/trash/archive. action=download saves attachments. never claim delete without a tool",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "search",
+              "read",
+              "summarize",
+              "folders",
+              "download",
+              "reply",
+              "trash",
+              "delete",
+              "archive",
+              "mark_read",
+              "mark_unread",
+              "move",
+              "create_folder"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "string"
+          },
+          "sender": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "unread_only": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "schedule",
+      "description": "local jobs. action=create|create_briefing|list|update|delete|run_now. move a time with update, not delete+create",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "create_briefing",
+              "list",
+              "update",
+              "delete",
+              "run_now"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "days": {
+            "type": "string"
+          },
+          "day_of_month": {
+            "type": "string"
+          },
+          "every": {
+            "type": "string"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "agenda",
+      "description": "local calendar. action=today|tomorrow|list|free|busy|create|update|delete|close",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "today",
+              "tomorrow",
+              "range",
+              "list",
+              "free",
+              "busy",
+              "sync",
+              "open",
+              "close",
+              "create",
+              "update",
+              "delete"
+            ]
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "day": {
+            "type": "string"
+          },
+          "duration_min": {
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "all",
+              "google",
+              "outlook",
+              "local",
+              "ics"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "all_day": {
+            "type": "boolean"
+          },
+          "location": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "clipboard",
+      "description": "OS clipboard. action=read (default) | write with text=",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ocr",
+      "description": "read text in an image",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "text",
+              "screen"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "lang": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "calculator",
+      "description": "exact arithmetic. expression required. takes '15% of 84', '30% off 59.99', '$4.50+$2'. not unit conversion (units), not equations (cas)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expression"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "python",
+      "description": "short numerics (numpy). no matplotlib. print xs,ys then plot with out=",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "diagnostics",
+      "description": "local pytest / doctor. not a web search",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "watch",
+      "description": "house doors snapshot. not antivirus",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "cas",
+      "description": "symbolic math. action=simplify|solve|diff|integrate|limit|series|sum|gradient|directional|factor|expand; n= order, at= point, dir= vector",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "integrate",
+              "diff",
+              "simplify",
+              "solve",
+              "dsolve",
+              "limit",
+              "series",
+              "sum",
+              "gradient",
+              "directional",
+              "factor",
+              "expand"
+            ]
+          },
+          "expr": {
+            "type": "string"
+          },
+          "wrt": {
+            "type": "string"
+          },
+          "lo": {
+            "type": "string"
+          },
+          "hi": {
+            "type": "string"
+          },
+          "n": {
+            "type": "integer"
+          },
+          "at": {
+            "type": "string"
+          },
+          "dir": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expr"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "units",
+      "description": "unit convert",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "convert",
+              "constant"
+            ]
+          },
+          "quantity": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "catalog",
+      "description": "arxiv, horizons, apod. table=local, target=body name. closest: omit date and query. do not add a closest or farthest.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "arxiv",
+              "horizons",
+              "apod",
+              "ads"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "table": {
+            "type": "string",
+            "enum": [
+              "observer",
+              "vectors",
+              "local"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "solar",
+      "description": "Reality sim. body/status/load. live lab is one source",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "load",
+              "pause",
+              "resume",
+              "step",
+              "rate",
+              "lock",
+              "impulse",
+              "add_probe",
+              "add_planet",
+              "hohmann",
+              "lagrange",
+              "toggle",
+              "fetch_maps",
+              "craft",
+              "inspect",
+              "realtime",
+              "tracer",
+              "l4",
+              "epoch",
+              "travel",
+              "dump",
+              "body"
+            ]
+          },
+          "date": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "r1_au": {
+            "type": "number"
+          },
+          "r2_au": {
+            "type": "number"
+          },
+          "rate": {
+            "type": "number"
+          },
+          "flag": {
+            "type": "string",
+            "enum": [
+              "osculating",
+              "trails",
+              "graphs",
+              "lagrange",
+              "gravity",
+              "magnetic",
+              "wind",
+              "grid",
+              "warp"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "earth",
+      "description": "Reality look / bands. not a web search",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "enter",
+              "leave",
+              "layer",
+              "track",
+              "ride",
+              "search",
+              "dump",
+              "live",
+              "coverage",
+              "goto"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "layer": {
+            "type": "string"
+          },
+          "on": {
+            "type": "boolean"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "plot",
+      "description": "chart PNG. histogram|bar|subplots|line|scatter; expr=sin(x)+xmin/xmax; or path=CSV. path is the table, not the picture",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "line",
+              "scatter",
+              "residuals",
+              "histogram",
+              "bar",
+              "subplots"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "x": {
+            "type": "string"
+          },
+          "y": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "string"
+          },
+          "values": {
+            "type": "string"
+          },
+          "bins": {
+            "type": "integer"
+          },
+          "panels": {
+            "type": "string"
+          },
+          "expr": {
+            "type": "string"
+          },
+          "xmin": {
+            "type": "string"
+          },
+          "xmax": {
+            "type": "string"
+          },
+          "xs": {
+            "type": "string"
+          },
+          "ys": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "xlabel": {
+            "type": "string"
+          },
+          "ylabel": {
+            "type": "string"
+          },
+          "out": {
+            "type": "string"
+          },
+          "look": {
+            "type": "string",
+            "enum": [
+              "default",
+              "poster",
+              "paper",
+              "slide"
+            ]
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "diagram",
+      "description": "Draw a diagram from text",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "mermaid",
+              "vegalite",
+              "typst",
+              "svg"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "out": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "source"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "data_cell",
+      "description": "run Python on a data file already in this room (CSV, FITS). not weather",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "document",
+      "description": "write md/pdf/csv under outputs",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "docx",
+              "xlsx",
+              "csv",
+              "md",
+              "txt"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "replace": {
+            "type": "string"
+          },
+          "from_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "format"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "pdf",
+      "description": "merge/split/rotate local PDFs. writes a new file. no form fill",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "merge",
+              "split",
+              "rotate"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "paths": {
+            "type": "string"
+          },
+          "pages": {
+            "type": "string"
+          },
+          "degrees": {
+            "type": "integer",
+            "enum": [
+              90,
+              180,
+              270
+            ]
+          },
+          "dest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "workspace",
+      "description": "sandbox files: list/read/grep/find/write/edit/patch/delete/move/rename/copy. patch=unified diff. writes confirm",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "read",
+              "grep",
+              "find",
+              "write",
+              "edit",
+              "patch",
+              "apply",
+              "delete",
+              "move",
+              "rename",
+              "copy",
+              "keep"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "patch": {
+            "type": "string"
+          },
+          "old": {
+            "type": "string"
+          },
+          "new": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "glob": {
+            "type": "string"
+          },
+          "regex": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "notes",
+      "description": "desk notes. action=add|list|search|read. same folder as keep this",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "list",
+              "search",
+              "read"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "remind",
+      "description": "in-process timer. action=in minutes= + message; at=local time; list; cancel. max 7 days",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "in",
+              "at",
+              "list",
+              "cancel"
+            ]
+          },
+          "minutes": {
+            "type": "number"
+          },
+          "at": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "transcribe",
+      "description": "local audio file via the warm voice engine. never loads Whisper mid-turn",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "git_info",
+      "description": "git status/log/diff/branch/blame/show, stash list, stage, commit. no push/reset/checkout",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "diff",
+              "log",
+              "branch",
+              "stash",
+              "blame",
+              "show",
+              "stage",
+              "commit"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "n": {
+            "type": "integer"
+          },
+          "rev": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "run_script",
+      "description": "run a project .py under workspace. not a shell; not diagnostics; not schedule run_now",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "run_task",
+      "description": "Run a program the project already named",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "run"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "analyze",
+      "description": "CSV / table. path required. action=query + where/group_by/agg/on to answer a data question; never add up rows from head yourself",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "head",
+              "describe",
+              "query"
+            ]
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "where": {
+            "type": "string"
+          },
+          "group_by": {
+            "type": "string"
+          },
+          "agg": {
+            "type": "string",
+            "enum": [
+              "sum",
+              "mean",
+              "median",
+              "min",
+              "max",
+              "count",
+              "nunique",
+              "std"
+            ]
+          },
+          "on": {
+            "type": "string"
+          },
+          "select": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "sql",
+      "description": "read-only SELECT on memory.db or a workspace CSV. never INSERT/UPDATE/DELETE",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "sql": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sql"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "doc_extract",
+      "description": "text from a local PDF, including handwritten/scanned pages",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "page_start": {
+            "type": "integer"
+          },
+          "page_end": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "user_location",
+      "description": "user's saved place. not a web guess",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "refresh": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "weather",
+      "description": "forecast. defaults to the user's own place, omit place for home, never look up their location first. place=city name, not coords",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer"
+          },
+          "hours": {
+            "type": "integer"
+          },
+          "past_days": {
+            "type": "integer"
+          },
+          "place": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "image",
+      "description": "generate an image. confirm first",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "aspect": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "21:9",
+              "3:2",
+              "4:3",
+              "9:16",
+              "landscape",
+              "portrait",
+              "square"
+            ]
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "anime",
+              "cinematic",
+              "illustration",
+              "oil",
+              "photoreal",
+              "sketch",
+              "watercolor"
+            ]
+          },
+          "upscale": {
+            "type": "integer",
+            "enum": [
+              2
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "mask_region": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right",
+              "top",
+              "bottom",
+              "center"
+            ]
+          },
+          "outpaint": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right",
+              "up",
+              "down",
+              "all"
+            ]
+          },
+          "remove_background": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "image_edit",
+      "description": "edit a local image or overlay text. confirm first",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "icon",
+              "instagram_square",
+              "instagram_story",
+              "linkedin_post",
+              "phone_wallpaper",
+              "tiktok",
+              "twitter_post",
+              "wallpaper_1080p",
+              "wallpaper_1440p",
+              "youtube_banner",
+              "youtube_thumbnail"
+            ]
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "crop": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right",
+              "top",
+              "bottom",
+              "center"
+            ]
+          },
+          "vibrance": {
+            "type": "number"
+          },
+          "contrast": {
+            "type": "number"
+          },
+          "brightness": {
+            "type": "number"
+          },
+          "rotate": {
+            "type": "number"
+          },
+          "flip": {
+            "type": "string",
+            "enum": [
+              "horizontal",
+              "vertical"
+            ]
+          },
+          "grayscale": {
+            "type": "boolean"
+          },
+          "blur": {
+            "type": "number"
+          },
+          "text": {
+            "type": "string"
+          },
+          "annotate": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "arrow",
+                    "box",
+                    "label"
+                  ]
+                },
+                "x": {
+                  "type": "integer"
+                },
+                "y": {
+                  "type": "integer"
+                },
+                "x2": {
+                  "type": "integer"
+                },
+                "y2": {
+                  "type": "integer"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "scale_bar": {
+            "type": "object",
+            "properties": {
+              "length": {
+                "type": "integer"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          },
+          "stretch": {
+            "type": "string",
+            "enum": [
+              "linear",
+              "asinh",
+              "log",
+              "zscale"
+            ]
+          },
+          "remove_background": {
+            "type": "boolean"
+          },
+          "upscale": {
+            "type": "integer",
+            "enum": [
+              2,
+              4
+            ]
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "vision",
+      "description": "describe a local image",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "camera",
+      "description": "webcam snapshot. inspect only",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "snapshot"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "browser",
+      "description": "her Chrome. no passwords/OTP. stop captcha|Pay. click text|ref|nth",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "open",
+              "navigate",
+              "snapshot",
+              "read",
+              "maps",
+              "search",
+              "reserve",
+              "click",
+              "type",
+              "tabs",
+              "relaunch",
+              "screenshot",
+              "scroll",
+              "press",
+              "select",
+              "wait",
+              "back",
+              "forward",
+              "reload",
+              "find",
+              "download",
+              "upload",
+              "pdf",
+              "hover",
+              "dblclick",
+              "right_click",
+              "drag",
+              "watch"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "into": {
+            "type": "string"
+          },
+          "who": {
+            "type": "string"
+          },
+          "nth": {
+            "type": "integer"
+          },
+          "select": {
+            "type": "string"
+          },
+          "tab": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string",
+            "enum": [
+              "default",
+              "chrome",
+              "edge",
+              "firefox"
+            ]
+          },
+          "private": {
+            "type": "boolean"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "number"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "place": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "party": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "desktop",
+      "description": "your Windows session. look=screenshot (grabs+reads). no shell. no raw exe. stop Pay|delete|UAC",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "open",
+              "windows",
+              "monitors",
+              "focus",
+              "snapshot",
+              "read",
+              "click",
+              "type",
+              "press",
+              "hotkey",
+              "scroll",
+              "screenshot",
+              "wait"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "find": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "into": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "string"
+          },
+          "nth": {
+            "type": "integer"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "integer"
+          },
+          "seconds": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "tile",
+      "description": "View menu. action=open|close name=thinking|history|chat|\u2026",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "open",
+              "close"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "enum": [
+              "thinking",
+              "workspace",
+              "history",
+              "notifications",
+              "camera",
+              "contacts",
+              "calendar",
+              "world",
+              "chat"
+            ]
+          },
+          "page": {
+            "type": "string",
+            "enum": [
+              "solar",
+              "hands"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  }
+]

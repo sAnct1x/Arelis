@@ -67,6 +67,14 @@ dependencies = [
   # model's context at all. A core dependency rather than an extra because
   # without it a pasted screenshot cannot be looked at, which is not a niche.
   "Pillow>=10.0",
+  # Background cutout and 4x upscale. CPU only, so the chat model keeps the
+  # GPU. MIT. Already pinned in the Windows and Mac installer locks.
+  "onnxruntime>=1.16",
+  # Diagrams from text. vl-convert is BSD-3, one wheel per OS. typst is
+  # Apache-2.0. Core, not an extra: asking for a diagram should not need a
+  # second install. The flowchart helper downloads the first time it is used.
+  "vl-convert-python>=1.9",
+  "typst>=0.15",
   # Pairing QR on Settings → Notify. Local; no network. BSD.
   "segno>=1.6",
   "google-auth>=2.0",
@@ -84,7 +92,8 @@ dependencies = [
 voice = [
   "faster-whisper>=1.0",
   "sherpa-onnx>=1.10",
-  "onnxruntime>=1.16",
+  # onnxruntime is a core dependency (image cutout and upscale). Voice uses
+  # the same library.
   "espeakng-loader>=0.2.4",
   "phonemizer-fork>=3.3.2",
   # Mandarin G2P for Kokoro v1.0 (zf_* voices). English stays on espeak.

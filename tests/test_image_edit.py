@@ -502,6 +502,75 @@ async def test_warmth_changes_pixels(project, tool) -> None:
         assert blue < 120
 
 
+def test_the_schema_offers_annotate_scale_bar_and_stretch() -> None:
+    props = ImageEditTool.parameters_schema["properties"]
+    assert "annotate" in props
+    assert "scale_bar" in props
+    stretch = props["stretch"]
+    assert set(stretch["enum"]) == {"linear", "asinh", "log", "zscale"}
+    assert stretch.get("description")
+    assert props["annotate"].get("description")
+    assert props["scale_bar"].get("description")
+
+
+@pytest.mark.asyncio
+async def test_annotate_leaves_the_original_untouched(project, tool) -> None:
+    """Marks are a new file. The source bytes stay put."""
+    root, _data, _ws = project
+    source = _write(root / "field.png", (80, 60), (20, 20, 20))
+    before = source.read_bytes()
+
+    result = await tool.run(
+        path="project:field.png",
+        annotate=[
+            {"kind": "arrow", "x": 8, "y": 30, "x2": 50, "y2": 16},
+            {"kind": "box", "x": 10, "y": 8, "x2": 40, "y2": 28},
+            {"kind": "label", "x": 12, "y": 34, "text": "mark"},
+        ],
+        scale_bar={"length": 20, "label": "20 px"},
+    )
+
+    assert result.ok, result.output
+    assert source.read_bytes() == before
+    assert result.data["abs_path"] != str(source)
+    written = Path(result.data["abs_path"])
+    with Image.open(written) as out:
+        assert out.size == (80, 60)
+    assert written.read_bytes() != before
+
+
+@pytest.mark.asyncio
+async def test_asinh_stretch_is_monotonic_and_keeps_size(project, tool) -> None:
+    """Display stretch remaps values. It does not resample the grid."""
+    root, _data, _ws = project
+    path = root / "ramp.png"
+    ramp = Image.new("L", (64, 8))
+    ramp.putdata([x * 4 for _y in range(8) for x in range(64)])
+    ramp.save(path)
+    before = path.read_bytes()
+
+    result = await tool.run(path="project:ramp.png", stretch="asinh")
+
+    assert result.ok, result.output
+    assert path.read_bytes() == before
+    with Image.open(result.data["abs_path"]) as out:
+        assert out.size == (64, 8)
+        gray = out.convert("L").crop((0, 0, 64, 1))
+        row = [gray.getpixel((x, 0)) for x in range(64)]
+    assert row == sorted(row)
+    assert row[0] < row[-1]
+    # asinh lifts the middle of a linear ramp. An unchanged copy is already sorted.
+    linear_mid = row[0] + (row[-1] - row[0]) / 2
+    assert row[32] > linear_mid + 5
+
+    for mode in ("linear", "log", "zscale"):
+        other = await tool.run(path="project:ramp.png", stretch=mode)
+        assert other.ok, other.output
+        with Image.open(other.data["abs_path"]) as out:
+            assert out.size == (64, 8)
+    assert path.read_bytes() == before
+
+
 @pytest.mark.asyncio
 async def test_pixel_edits_leave_the_original_untouched(project, tool) -> None:
     root, _data, _ws = project
@@ -515,3 +584,138 @@ async def test_pixel_edits_leave_the_original_untouched(project, tool) -> None:
     assert result.ok, result.output
     assert source.read_bytes() == before
     assert result.data["abs_path"] != str(source)
+
+
+def _circle(path, size=64, radius=18, centre=(32, 32)):
+    """White circle on black. The cutout should keep the circle and drop the rest."""
+    img = Image.new("RGB", (size, size), (0, 0, 0))
+    pixels = img.load()
+    cx, cy = centre
+    for y in range(size):
+        for x in range(size):
+            if (x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2:
+                pixels[x, y] = (255, 255, 255)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(path)
+    return path
+
+
+class _MaskSession:
+    """Stand-in for u2netp: bright pixels are the subject."""
+
+    def get_inputs(self):
+        return [type("Input", (), {"name": "input"})()]
+
+    def run(self, _names, feeds):
+        batch = next(iter(feeds.values()))
+        score = batch.mean(axis=1, keepdims=True)
+        return [score]
+
+
+class _NearestSession:
+    """Stand-in for the 4x upscaler: repeat each pixel four times."""
+
+    def get_inputs(self):
+        return [type("Input", (), {"name": "image"})()]
+
+    def run(self, _names, feeds):
+        import numpy as np
+
+        tile = feeds["image"]
+        return [np.repeat(np.repeat(tile, 4, axis=2), 4, axis=3)]
+
+
+@pytest.mark.asyncio
+async def test_remove_background_keeps_the_circle(project, tool, monkeypatch) -> None:
+    root, _data, _ws = project
+    source = _circle(root / "dot.png")
+    before = source.read_bytes()
+    monkeypatch.setattr(
+        "arelis.tools.image_models.matting_model_name",
+        lambda *_args, **_kwargs: "u2netp",
+    )
+    monkeypatch.setattr(
+        "arelis.tools.image_models.session_for",
+        lambda _name: _MaskSession(),
+    )
+
+    result = await tool.run(path="project:dot.png", remove_background=True)
+
+    assert result.ok, result.output
+    assert source.read_bytes() == before
+    assert result.data["abs_path"] != str(source)
+    with Image.open(result.data["abs_path"]) as out:
+        assert out.mode == "RGBA"
+        assert out.size == (64, 64)
+        inside = out.getpixel((32, 32))[3] / 255
+        outside = out.getpixel((2, 2))[3] / 255
+        assert inside > 0.9
+        assert outside < 0.1
+
+
+@pytest.mark.asyncio
+async def test_upscale_4_quadruples_the_size(project, tool, monkeypatch) -> None:
+    root, _data, _ws = project
+    source = _write(root / "tiny.png", (40, 30), (20, 40, 80))
+    before = source.read_bytes()
+    monkeypatch.setattr(
+        "arelis.tools.image_models.session_for",
+        lambda _name: _NearestSession(),
+    )
+
+    result = await tool.run(path="project:tiny.png", upscale=4)
+
+    assert result.ok, result.output
+    assert source.read_bytes() == before
+    assert result.data["result_px"] == [160, 120]
+    with Image.open(result.data["abs_path"]) as out:
+        assert out.size == (160, 120)
+
+
+def test_tiling_has_no_seam_at_tile_borders() -> None:
+    """A smooth ramp must not jump where one 128px tile meets the next."""
+    import numpy as np
+
+    from arelis.tools.image_upscale import OVERLAP, TILE, tiled_upscale
+
+    height, width = 300, 240
+    ramp = np.linspace(0.05, 0.95, height, dtype=np.float32)
+    rgb = np.broadcast_to(ramp[:, None, None], (height, width, 3)).copy()
+
+    def predict(feed):
+        return np.repeat(np.repeat(feed, 4, axis=2), 4, axis=3)
+
+    out = tiled_upscale(rgb, predict, tile=TILE, overlap=OVERLAP, scale=4)
+    assert out.shape == (height * 4, width * 4, 3)
+    reference = np.repeat(np.repeat(rgb, 4, axis=0), 4, axis=1)
+    assert np.max(np.abs(out - reference)) < 1e-5
+
+    row_mean = out.mean(axis=(1, 2))
+    step = (TILE - 2 * OVERLAP) * 4
+    jumps = []
+    for y in range(step, out.shape[0], step):
+        jumps.append(abs(float(row_mean[y] - row_mean[y - 1])))
+    assert jumps
+    assert max(jumps) < 0.02
+
+
+@pytest.mark.asyncio
+async def test_science_upscale_is_marked_cosmetic(project, tool, monkeypatch) -> None:
+    root, _data, _ws = project
+    source = _write(root / "frame.png", (32, 24), (8, 8, 8))
+    source.with_suffix(".json").write_text(
+        '{"kind": "telescope", "note": "fits stack"}', encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "arelis.tools.image_models.session_for",
+        lambda _name: _NearestSession(),
+    )
+
+    result = await tool.run(path="project:frame.png", upscale=4)
+
+    assert result.ok, result.output
+    assert "not for measurement" in result.output
+    sidecar = Path(result.data["abs_path"]).with_suffix(".json")
+    assert '"cosmetic":true' in sidecar.read_text(encoding="utf-8").replace(" ", "")
+    assert source.read_bytes()  # original still there
+

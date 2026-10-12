@@ -1,0 +1,43 @@
+{
+  "phase": "2",
+  "jobs": [
+    {
+      "kind": "isnet",
+      "model": "isnet-general-use",
+      "download_s": 1.56,
+      "warm_s": 1.12,
+      "peak_rss_mb": 875,
+      "file": "cat-nobg-isnet.png",
+      "size": [
+        500,
+        499
+      ]
+    },
+    {
+      "kind": "upscale",
+      "model": "realesrgan-x4v3",
+      "download_s": 0.87,
+      "warm_s": 3.28,
+      "peak_rss_mb": 281,
+      "file": "pillars-x4.png",
+      "size": [
+        2000,
+        2084
+      ],
+      "lanczos_crop": "pillars-crop-compare.jpg"
+    }
+  ],
+  "magenta": "cat-magenta-compare.jpg",
+  "skipped": "BiRefNet needs 8 GB free and this machine had 4867 MB, so it was skipped.",
+  "targets_s": {
+    "isnet": 2.5,
+    "birefnet": 15.0,
+    "upscale": 4.0
+  },
+  "files": [
+    "cat-magenta-compare.jpg",
+    "cat-nobg-isnet.png",
+    "pillars-crop-compare.jpg",
+    "pillars-x4.png"
+  ]
+}

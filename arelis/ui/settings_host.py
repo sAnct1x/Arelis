@@ -92,6 +92,8 @@ def apply_settings(window, values: dict[str, Any]) -> None:
 
         sync_notify_surface(window)
 
+    vision_before = str((window.config.get("models") or {}).get("vision") or "")
+
     agent_patch = values.get("agent") or {}
     if agent_patch:
         deep_merge(window.config.setdefault("agent", {}), agent_patch)
@@ -192,6 +194,13 @@ def apply_settings(window, values: dict[str, Any]) -> None:
             address=str(mail_patch.get("address") or ""),
             app_password=str(mail_patch.get("app_password") or ""),
         )
+
+    vision_after = str((window.config.get("models") or {}).get("vision") or "")
+    mail_set = bool(mail_patch.get("address") or mail_patch.get("app_password"))
+    if mail_set or vision_after != vision_before:
+        from arelis.core.tool_surface import refresh_session_tools
+
+        refresh_session_tools(window, recheck_vl=vision_after != vision_before)
 
 
 def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
