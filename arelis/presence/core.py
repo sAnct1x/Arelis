@@ -19,7 +19,8 @@ from arelis.core.event_audit import attach_event_audit
 from arelis.core.events import Event, EventType
 from arelis.presence.inbound_runtime import attach_inbound
 from arelis.presence.ipc_server import IpcServer
-from arelis.presence.lock import PresenceLock, core_lock_path
+from arelis.presence.ipc_token import claim_session_token
+from arelis.presence.lock import PresenceLock, core_lock_path, ui_lock_path
 from arelis.presence.open_ui import ensure_ui_open
 from arelis.presence.pending_confirms import (
     PendingConfirmStore,
@@ -40,6 +41,11 @@ def run_core(config: dict[str, Any]) -> int:
             lock.path,
         )
         return 2
+
+    # First seat of the session rotates the IPC token. A core that starts
+    # while the glass is already up reads the file the glass wrote, so the
+    # two processes keep speaking the same hello.
+    claim_session_token(PresenceLock(ui_lock_path(config)))
 
     # Same repair as the UI does at launch: a task registered against a checkout's
     # virtualenv is stranded once a packaged build is installed, and the core is the

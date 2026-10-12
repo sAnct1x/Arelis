@@ -393,13 +393,17 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     # Per-monitor DPI + optional ui.scale. Must land before QApplication.
     configure_display_scale(config)
     # Single glass: a second launch raises the first rather than opening again.
-    from arelis.presence.lock import PresenceLock, ui_lock_path
+    from arelis.presence.ipc_token import claim_session_token
+    from arelis.presence.lock import PresenceLock, core_lock_path, ui_lock_path
 
     ui_lock = PresenceLock(ui_lock_path(config))
     if not ui_lock.acquire():
         handed = _second_launch(config, ui_lock)
         if handed is not None:
             return handed
+    # First process of the session rotates the token. A glass that starts
+    # while a core is already up reads the file the core wrote.
+    claim_session_token(PresenceLock(core_lock_path(config)))
 
     _ui_lock_gate = threading.Lock()
     _ui_lock_out = False

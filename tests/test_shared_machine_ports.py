@@ -59,6 +59,23 @@ from arelis.presence.ports import PORT_SEARCH_SPAN, candidates
 STRANGER = "0123456789abcdef"
 
 
+@pytest.fixture
+def ipc_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """One account's data root, with the session token the bridge requires.
+
+    The UI client and the second-instance path read this file when they
+    connect. Without it the server closes the hello, and every test below
+    that expects a live bridge would fail for that reason instead of the
+    one it names.
+    """
+    root = tmp_path / "me"
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(root))
+    from arelis.presence.ipc_token import ensure_token
+
+    ensure_token(rotate=True)
+    return root
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -312,7 +329,7 @@ def test_an_echoed_health_request_is_not_listening(
 
 
 async def test_the_bridge_refuses_another_accounts_core(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, ipc_home: Path
 ) -> None:
     """The leak, stated as the thing that must not happen.
 
@@ -321,8 +338,8 @@ async def test_the_bridge_refuses_another_accounts_core(
     confirmation prompts onto this bus -- noise at best, and somebody else's
     messages when the other copy belongs to another person.
     """
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
     monkeypatch.setattr("arelis.presence.ipc_server.instance_id", lambda: STRANGER)
+    assert ipc_home.is_dir()
 
     their_bus = EventBus()
     their_task = asyncio.create_task(their_bus.run())
@@ -349,15 +366,13 @@ async def test_the_bridge_refuses_another_accounts_core(
                 await task
 
 
-async def test_the_bridge_still_attaches_to_its_own_core(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_the_bridge_still_attaches_to_its_own_core(ipc_home: Path) -> None:
     """The check must not be so strict that ordinary use breaks.
 
     One account, one core, one UI: the overwhelmingly common case, and the one it
     would be catastrophic to regress in the name of the rare one.
     """
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
+    assert ipc_home.is_dir()
     core_bus = EventBus()
     ui_bus = EventBus()
     core_task = asyncio.create_task(core_bus.run())
@@ -384,9 +399,7 @@ async def test_the_bridge_still_attaches_to_its_own_core(
                 await task
 
 
-async def test_the_core_bridge_moves_up_a_port_and_the_ui_finds_it(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_the_core_bridge_moves_up_a_port_and_the_ui_finds_it(ipc_home: Path) -> None:
     """The bind failure that used to vanish, and the search that recovers it.
 
     ``IpcServer.start()`` is launched as a task in ``arelis.presence.core``, so
@@ -395,7 +408,7 @@ async def test_the_core_bridge_moves_up_a_port_and_the_ui_finds_it(
     The UI scans because it cannot know in advance whether its own core got the
     configured port.
     """
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
+    assert ipc_home.is_dir()
     preferred = _free_port()
     occupied = _hold(preferred)
 
@@ -434,15 +447,13 @@ async def test_the_core_bridge_moves_up_a_port_and_the_ui_finds_it(
                 await task
 
 
-async def test_a_client_given_one_port_does_not_wander(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_a_client_given_one_port_does_not_wander(ipc_home: Path) -> None:
     """Searching is opt-in, because a caller naming a port means that port.
 
     Otherwise a client could silently attach to a neighbouring service that had
     nothing to do with what it was asked to connect to.
     """
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
+    assert ipc_home.is_dir()
     core_bus = EventBus()
     ui_bus = EventBus()
     core_task = asyncio.create_task(core_bus.run())
@@ -469,11 +480,9 @@ async def test_a_client_given_one_port_does_not_wander(
                 await task
 
 
-async def test_the_bridge_skips_a_glass_activate_listener(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_the_bridge_skips_a_glass_activate_listener(ipc_home: Path) -> None:
     """A UI hello_ack is not a core. Attaching would skip binding ingest."""
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
+    assert ipc_home.is_dir()
     glass_bus = EventBus()
     ui_bus = EventBus()
     glass_task = asyncio.create_task(glass_bus.run())
@@ -498,11 +507,9 @@ async def test_the_bridge_skips_a_glass_activate_listener(
                 await task
 
 
-async def test_the_bridge_skips_the_glass_and_finds_its_core(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_the_bridge_skips_the_glass_and_finds_its_core(ipc_home: Path) -> None:
     """Search must walk past seat=ui and land on the real core."""
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
+    assert ipc_home.is_dir()
     preferred = _free_port()
     glass_bus = EventBus()
     core_bus = EventBus()
@@ -545,11 +552,9 @@ async def test_the_bridge_skips_the_glass_and_finds_its_core(
                 await task
 
 
-async def test_second_click_raises_a_glass_that_is_attaching(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_second_click_raises_a_glass_that_is_attaching(ipc_home: Path) -> None:
     """Activate must succeed against seat=ui, or shortcut clicks do nothing."""
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
+    assert ipc_home.is_dir()
     bus = EventBus()
     bus_task = asyncio.create_task(bus.run())
     raised = {"n": 0}

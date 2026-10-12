@@ -2,16 +2,21 @@
 
 Protocol (one JSON object per line), presence design 2026-08-08:
 
-- hello: UI → core (subscribe)
-- event: core → UI (allowlisted bus events)
-- confirm_reply: UI → core (allow/skip for a confirm id)
+- hello: UI → core (subscribe). Carries the session token from the state file.
+- event: core → UI (allowlisted bus events), only after a good hello
+- confirm_reply: UI → core (allow/skip for a confirm id), only after a good hello
 - open_ui: core → UI (bring window to front / show pending confirms)
 - open_ui_request: UI → core (second-instance activate; core rebroadcasts open_ui)
-- shutdown: UI/tray → core (full core quit; no silent send)
+- shutdown: UI/tray → core (full core quit; no silent send), only after a good hello
 - bye: either side, optional clean close
 
+A hello with a missing or wrong token gets ``{"op": "error", "reason": "auth"}``
+and the socket closes. Any other op before a good hello closes the socket.
+Nothing is broadcast to a socket that has not authenticated.
+
 Never bind 0.0.0.0. No silent send, confirm_reply only carries a human decision.
-No named pipes, loopback TCP is enough for open_ui.
+No named pipes, loopback TCP is enough for open_ui. The token is not shown to
+the user.
 """
 
 from __future__ import annotations
@@ -65,8 +70,16 @@ def decode_line(raw: bytes | str) -> dict[str, Any] | None:
     return data
 
 
-def hello_message(*, role: str = "ui") -> dict[str, Any]:
-    return {"op": "hello", "role": role, "version": PROTOCOL_VERSION}
+def hello_message(*, role: str = "ui", token: str | None = None) -> dict[str, Any]:
+    """UI to core: subscribe. ``token`` is the session file, read by the client."""
+    msg: dict[str, Any] = {
+        "op": "hello",
+        "role": role,
+        "version": PROTOCOL_VERSION,
+    }
+    if token:
+        msg["token"] = token
+    return msg
 
 
 def bye_message() -> dict[str, Any]:
