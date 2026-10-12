@@ -82,7 +82,7 @@ def test_a_titled_event_with_a_time_becomes_a_complete_draft() -> None:
     assert draft is not None
     assert draft.complete
     assert draft.summary == "Dentist"
-    assert draft.provider == "google"
+    assert draft.provider == "local"
     assert _parse_dt(draft.start, field="start").hour == 15
 
 
@@ -429,7 +429,7 @@ def test_a_delete_call_is_never_rewritten_into_a_create() -> None:
 def test_a_relative_start_is_normalized_even_with_no_draft_to_lock() -> None:
     out = fill_agenda_args({"action": "create", "start": "tomorrow at 9am"}, None)
     assert _parse_dt(out["start"], field="start").hour == 9
-    assert out["provider"] == "google"
+    assert out["provider"] == "local"
 
 
 def test_the_inject_args_are_the_draft_and_nothing_else() -> None:
@@ -438,7 +438,7 @@ def test_the_inject_args_are_the_draft_and_nothing_else() -> None:
         "action": "create",
         "summary": "Dentist",
         "start": "2026-01-05T15:00:00-05:00",
-        "provider": "google",
+        "provider": "local",
     }
 
 

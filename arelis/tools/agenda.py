@@ -655,12 +655,20 @@ class AgendaTool:
             )
         except Exception as exc:
             return ToolResult(ok=False, output=f"create failed: {exc}")
-        where = _calendar_destination(str(getattr(ev, "provider", "") or ""))
+        landed = str(getattr(ev, "provider", "") or "")
+        where = _calendar_destination(landed)
         clash = f" {overlap_note}" if overlap_note else ""
+        # A named Google or Outlook create that could not sign in still
+        # saves here. Say that. Never describe the local row as Google.
+        if provider in {"google", "outlook"} and landed == "local":
+            cloud = "Google" if provider == "google" else "Outlook"
+            lead = f"{cloud} is not connected, so this is on {where}"
+        else:
+            lead = f"Added to {where}"
         return ToolResult(
             ok=True,
             output=(
-                f"Added to {where}: {ev.summary} at {ev.starts_at.isoformat()}."
+                f"{lead}: {ev.summary} at {ev.starts_at.isoformat()}."
                 f"{clash}"
             ),
             data={

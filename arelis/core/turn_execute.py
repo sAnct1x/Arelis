@@ -320,6 +320,12 @@ async def execute_call(
                     )
                 )
                 ctx.agenda_create_ok = True
+                loop._agenda_create_ok = True
+                event = data_dict.get("event") if isinstance(data_dict, dict) else None
+                if isinstance(event, dict):
+                    landed = str(event.get("provider") or "").strip().lower()
+                    if landed:
+                        loop._agenda_create_where = landed
             if (
                 name == "agenda"
                 and str(args.get("action") or "").lower()
@@ -353,6 +359,8 @@ async def execute_call(
             ctx.last_fail_tool_out = str(result.output or "")
             if name == "send_sms":
                 ctx.sms_failed = True
+            if name == "agenda" and str(args.get("action") or "").lower() == "create":
+                loop._agenda_create_failed = True
             if loop._look is not None and name == "camera":
                 loop._look.camera_snaps += 1
         if (not result.ok) and (

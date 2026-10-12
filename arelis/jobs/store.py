@@ -237,6 +237,11 @@ def normalize_time(value: str) -> str:
     instead of loudly at the prompt.
     """
     text = value.strip()
+    folded = text.casefold().rstrip(".")
+    if folded in {"noon", "midday"}:
+        return "12:00"
+    if folded == "midnight":
+        return "00:00"
     match = _TIME_24.match(text)
     if match:
         hour, minute = int(match.group(1)), int(match.group(2))

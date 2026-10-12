@@ -755,6 +755,11 @@ class AgentLoop:
         # while building a confirm card, to warn when a send is being approved
         # in the same turn that read the inbox.
         self.tools_used: set[str] = set()
+        # Set from agenda create results this turn. _finish uses them so a
+        # reply cannot say the event was added after every create failed.
+        self._agenda_create_ok = False
+        self._agenda_create_failed = False
+        self._agenda_create_where = ""
         # What is currently painted in the chat bubble, so a hard cancel can
         # keep it instead of replacing a half-written answer with "Stopped."
         self._painted = ""
@@ -1748,6 +1753,26 @@ class AgentLoop:
         is what stops the next turn reading it as her prose.
         """
         final = strip_thinking_text(text).strip()
+        from arelis.core.claims import (
+            guard_false_calendar_add,
+            guard_local_calendar_destination,
+        )
+
+        revised = guard_false_calendar_add(
+            final,
+            created=bool(getattr(self, "_agenda_create_ok", False)),
+            failed=bool(getattr(self, "_agenda_create_failed", False)),
+        )
+        if revised != final:
+            final = revised
+            streamed = ""
+        placed = guard_local_calendar_destination(
+            final,
+            where=str(getattr(self, "_agenda_create_where", "") or ""),
+        )
+        if placed != final:
+            final = placed
+            streamed = ""
         if not final:
             # An empty model reply used to end the turn with an empty bubble:
             # no answer, no error, no explanation. Say something actionable.

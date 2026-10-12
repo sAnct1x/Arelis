@@ -143,7 +143,8 @@ async def test_create_and_update_name_the_calendar_they_actually_used(
     )
     assert created.ok, created.output
     assert "your Arelis calendar" in created.output
-    assert "Google" not in created.output
+    assert "your Google calendar" not in created.output
+    assert "not connected" in created.output
     assert "Lunch" in created.output
 
     updated = await tool.run(
