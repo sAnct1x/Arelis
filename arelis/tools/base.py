@@ -55,7 +55,10 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
     if tool == "workspace" and action == "write":
         content = str(args.get("content") or "")
         if not content.strip():
-            return "workspace write has empty content, nothing to Allow."
+            return (
+                "workspace write has empty content. "
+                "Pass content= with the file body."
+            )
     if tool == "document":
         body = str(args.get("body") or "")
         rows = str(args.get("rows") or "")

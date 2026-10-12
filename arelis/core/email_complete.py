@@ -67,6 +67,35 @@ _MEDIA_ATTACH_CUE = re.compile(
 _WITH_SUBJECT = re.compile(
     r"(?i)\b(?:with\s+)?subject\s*[:=]?\s*(?P<subject>.+)$"
 )
+# "with the subject Lunch", "subject: Lunch", "with subject \"Lunch\"".
+# "titled" only counts when it leads the remainder, so "about the movie
+# titled Inception" stays an about-clause.
+_NAMED_SUBJECT_MARK = re.compile(
+    r"(?i)(?:\bwith\s+(?:the\s+)?subject\b|\bsubject\s*[:=])"
+)
+_TITLED_SUBJECT_LEAD = re.compile(r"(?i)^\s*titled\b")
+_QUOTED_SUBJECT_TAIL = re.compile(
+    r"(?is)^[\"'“”‘’](?P<subject>[^\"'“”‘’]+)[\"'“”‘’]\s*(?P<body>.*)$"
+)
+_PLAIN_SUBJECT_BODY = re.compile(
+    r"(?is)^(?P<subject>.+?)\s+(?:"
+    r"and\s+(?:the\s+)?body\s*[:=]?\s*|"
+    r"body\s*[:=]\s*|"
+    r"and\s+(?:just\s+|please\s+)?tell(?:ing)?\s+(?:him|her|them)\s+|"
+    r"(?:just\s+|please\s+)?tell(?:ing)?\s+(?:him|her|them)\s+|"
+    r"and\s+say(?:ing)?\s*|"
+    r"saying\s+|"
+    r",\s*"
+    r")(?P<body>.*)$"
+)
+_NAMED_BODY_LEAD = re.compile(
+    r"(?is)^(?:"
+    r"(?:and\s+)?(?:the\s+)?body\s*[:=]\s*|"
+    r"(?:and\s+)?(?:just\s+|please\s+)?tell(?:ing)?\s+(?:him|her|them)\s+|"
+    r"(?:and\s+)?say(?:ing)?\s+|"
+    r"that\s+"
+    r")"
+)
 # The curly quotes are the point, not a typo: Windows autocorrect and phone
 # keyboards produce them, and a user who typed a smart quote must still get their
 # subject parsed. RUF001 flags them as ambiguous, which is exactly why they are
@@ -852,6 +881,61 @@ def _attach_under_allowed(path: Path, data_root: Path) -> bool:
     return False
 
 
+def _clean_subject(raw: str) -> str:
+    return _clean_text(raw).strip().rstrip(".,!;:").strip()
+
+
+def _clean_named_body(raw: str) -> str:
+    """Drop the instruction wrapper. Keep the words that belong in the mail."""
+    text = (raw or "").strip().strip(",")
+    for _ in range(3):
+        nxt = _NAMED_BODY_LEAD.sub("", text, count=1).strip()
+        if nxt == text:
+            break
+        text = nxt
+    return _clean_text(text).strip()
+
+
+def _split_named_subject(fragment: str) -> tuple[str, str] | None:
+    """Pull a named subject out of a compose remainder. None when unnamed.
+
+    The default subject stays the caller's job. This only fires when they
+    actually named one: with the subject X, subject: X, titled X, or a
+    quoted with subject "X". Everything after that name is the body.
+    """
+    raw = fragment or ""
+    mark = _NAMED_SUBJECT_MARK.search(raw)
+    titled = _TITLED_SUBJECT_LEAD.match(raw)
+    if mark is None and titled is None:
+        return None
+    if mark is not None and (titled is None or mark.start() < titled.start()):
+        end = mark.end()
+    elif titled is not None:
+        end = titled.end()
+    else:
+        return None
+    tail = raw[end:].strip()
+    if not tail:
+        return None
+    quoted = _QUOTED_SUBJECT_TAIL.match(tail)
+    if quoted:
+        subject = _clean_subject(quoted.group("subject") or "")
+        body = _clean_named_body(quoted.group("body") or "")
+        if not subject:
+            return None
+        return subject, body
+    split = _PLAIN_SUBJECT_BODY.match(tail)
+    if split:
+        subject = _clean_subject(split.group("subject") or "")
+        body = _clean_named_body(split.group("body") or "")
+        if subject:
+            return subject, body
+    subject = _clean_subject(tail)
+    if not subject:
+        return None
+    return subject, ""
+
+
 def parse_email_utterance(text: str) -> EmailDraft | None:
     """Parse a single user utterance into an email draft (maybe incomplete)."""
     raw = (text or "").strip()
@@ -872,14 +956,16 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
             to_addr = _clean_to(file_to.group("to") or "")
             body = ""
             subject = ""
-            subj_m = _WITH_SUBJECT.search(raw)
-            if subj_m:
-                subject = _clean_text(subj_m.group("subject") or "")
-            if attach:
+            named = _split_named_subject(raw)
+            if named:
+                subject, named_body = named
+                if named_body:
+                    body = named_body
+            if attach and not body:
                 from pathlib import Path
 
                 body = f"Please see the attached file ({Path(attach).name})."
-            elif _MEDIA_ATTACH_CUE.search(raw):
+            elif _MEDIA_ATTACH_CUE.search(raw) and not body:
                 body = "Please see the attached file."
             return EmailDraft(
                 to=to_addr,
@@ -933,9 +1019,9 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
                     source="current",
                     attach_path=attach,
                 )
-            subj_m = _WITH_SUBJECT.search(raw)
-            if subj_m:
-                subject = _clean_text(subj_m.group("subject") or "")
+            named = _split_named_subject(raw)
+            if named:
+                subject, body = named
             else:
                 after = raw[addr_m.end() :]
                 body_only = _BODY_ONLY.match(after)
@@ -999,40 +1085,46 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
         body = _clean_text(inline.group("body") or "")
         explicit_body = True
     else:
-        about = _ABOUT_SUBJECT.match(rest)
-        if about:
-            payload = (about.group("rest") or "").strip()
-            explicit_body = True
-            # "about Dinner plans: See you at 7" → subject / body on first colon.
-            if ":" in payload and not re.search(r"(?i)\bbody\s*[:=]", payload):
-                left, right = payload.split(":", 1)
-                subject = _clean_text(left)
-                body = _clean_text(right)
-            else:
-                # "email Sarah about the trip this weekend", no colon used to
-                # leave body empty so force never fired until a second ask.
-                # Use the about-clause as body; short subject from the lead.
-                body = _clean_text(payload)
-                words = body.split()
-                subject = " ".join(words[:6]) if words else "Message"
-                if len(words) > 6:
-                    subject = subject.rstrip(",.;:") + "…"
+        named = _split_named_subject(rest)
+        if named:
+            subject, body = named
+            if body:
+                explicit_body = True
         else:
-            with_subj = _WITH_SUBJECT.match(rest)
-            if with_subj:
-                subject = _clean_text(with_subj.group("subject") or "")
+            about = _ABOUT_SUBJECT.match(rest)
+            if about:
+                payload = (about.group("rest") or "").strip()
+                explicit_body = True
+                # "about Dinner plans: See you at 7" → subject / body on first colon.
+                if ":" in payload and not re.search(r"(?i)\bbody\s*[:=]", payload):
+                    left, right = payload.split(":", 1)
+                    subject = _clean_text(left)
+                    body = _clean_text(right)
+                else:
+                    # "email Sarah about the trip this weekend", no colon used to
+                    # leave body empty so force never fired until a second ask.
+                    # Use the about-clause as body; short subject from the lead.
+                    body = _clean_text(payload)
+                    words = body.split()
+                    subject = " ".join(words[:6]) if words else "Message"
+                    if len(words) > 6:
+                        subject = subject.rstrip(",.;:") + "…"
             else:
-                body_only = _BODY_ONLY.match(rest)
-                if body_only:
-                    body = _clean_text(body_only.group("body") or "")
-                    if re.match(r"(?i)^\s*(?:that|saying)\b", rest):
-                        explicit_body = True
-                elif rest.strip():
-                    # Trailing text without a clear marker, treat as body when short.
-                    # Drop a trailing path from the body when we already captured it.
-                    body = _clean_text(rest)
-                    if attach and attach in body:
-                        body = body.replace(attach, "").strip(" \t\"'")
+                with_subj = _WITH_SUBJECT.match(rest)
+                if with_subj:
+                    subject = _clean_text(with_subj.group("subject") or "")
+                else:
+                    body_only = _BODY_ONLY.match(rest)
+                    if body_only:
+                        body = _clean_text(body_only.group("body") or "")
+                        if re.match(r"(?i)^\s*(?:that|saying)\b", rest):
+                            explicit_body = True
+                    elif rest.strip():
+                        # Trailing text without a clear marker, treat as body when short.
+                        # Drop a trailing path from the body when we already captured it.
+                        body = _clean_text(rest)
+                        if attach and attach in body:
+                            body = body.replace(attach, "").strip(" \t\"'")
     if attach and not body:
         from pathlib import Path
 
