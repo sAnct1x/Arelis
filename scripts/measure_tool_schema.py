@@ -34,6 +34,7 @@ from arelis.config import load_config
 from arelis.mail import MailAccount
 from arelis.sms_android import SmsGateAccount
 from arelis.tools import build_tool_registry
+from arelis.tools.groups import CORE, GROUPS
 
 # 0.33 s per 100 tokens, cold prefill on the card the budget was measured on.
 # Warm reuse of this block is 0. The CI ceiling was 6,536 Qwen tokens.
@@ -198,6 +199,76 @@ def measure(specs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+_TOKENIZER: Any | None = None
+_TOKENIZER_TRIED = False
+
+
+def _qwen_tokenizer() -> Any | None:
+    """Real Qwen tokenizer when tokenizers and tokenizer.json are both present."""
+    global _TOKENIZER, _TOKENIZER_TRIED
+    if _TOKENIZER_TRIED:
+        return _TOKENIZER
+    _TOKENIZER_TRIED = True
+    path = tokenizer_json_path()
+    if path is None:
+        return None
+    try:
+        from tokenizers import Tokenizer
+    except ImportError:
+        return None
+    _TOKENIZER = Tokenizer.from_file(str(path))
+    return _TOKENIZER
+
+
+def group_token_report(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Token totals for core, each group, and the full loaded list.
+
+    Counts use schema_token_estimate. When a real tokenizer is available,
+    each row also carries schema_tokens_real. Tools not loaded in this
+    profile are left out of that group's row.
+    """
+    by_name = {
+        str((spec.get("function") or spec).get("name") or ""): spec for spec in specs
+    }
+    tokenizer = _qwen_tokenizer()
+
+    def row(label: str, chosen: list[dict[str, Any]]) -> dict[str, Any]:
+        blob = json.dumps(chosen)
+        item: dict[str, Any] = {
+            "group": label,
+            "tools": len(chosen),
+            "schema_chars": len(blob),
+            "schema_tokens_approx": schema_token_estimate(len(blob)),
+        }
+        if tokenizer is not None:
+            item["schema_tokens_real"] = len(tokenizer.encode(blob).ids)
+        return item
+
+    rows = [row("core", [by_name[name] for name in CORE if name in by_name])]
+    for name, tools in GROUPS.items():
+        rows.append(row(name, [by_name[tool] for tool in tools if tool in by_name]))
+    rows.append(row("all_loaded", list(specs)))
+    return rows
+
+
+def _print_group_tokens(stats: dict[str, Any]) -> None:
+    rows = stats.get("group_tokens") or []
+    if not rows:
+        return
+    real = "schema_tokens_real" in rows[0]
+    print()
+    print(f"group tokens, {stats['profile']} (loaded tools only):")
+    for row in rows:
+        label = "all loaded" if row["group"] == "all_loaded" else str(row["group"])
+        line = (
+            f"  {label:<12} tools {row['tools']:>3}   "
+            f"~{row['schema_tokens_approx']:,} Qwen tokens"
+        )
+        if real:
+            line += f"   real {row['schema_tokens_real']:,}"
+        print(line)
+
+
 def _print_profile(name: str, stats: dict[str, Any]) -> None:
     cap = SCHEMA_TOKEN_CAP.get(name)
     cap_bit = f"  cap {cap:,}" if cap is not None else ""
@@ -224,12 +295,14 @@ def main() -> int:
     rows = []
     for name in profiles:
         registry = registry_for_profile(name)
-        stats = measure(tool_specs(registry))
+        specs = tool_specs(registry)
+        stats = measure(specs)
         stats["profile"] = name
         if name == "default":
             authored, authored_total = authored_parameter_docs()
             stats["authored_documented_params"] = authored
             stats["authored_total_params"] = authored_total
+        stats["group_tokens"] = group_token_report(specs)
         rows.append(stats)
     if args.json:
         payload: Any = rows[0] if len(rows) == 1 else rows
@@ -245,6 +318,8 @@ def main() -> int:
         )
         for stats in rows:
             _print_profile(str(stats["profile"]), stats)
+        for stats in rows:
+            _print_group_tokens(stats)
         return 0
 
     stats = rows[0]
@@ -315,6 +390,7 @@ def main() -> int:
         print("no required field (every argument optional):")
         for name, count in stats["tools_with_no_required_field"]:
             print(f"  {name:<22} {count} params")
+    _print_group_tokens(stats)
     return 0
 
 
