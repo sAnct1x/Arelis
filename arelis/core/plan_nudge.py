@@ -368,8 +368,8 @@ _PLAN_AGENDA_DELETE = PlanSpec(
 _PLAN_AGENDA_CREATE = PlanSpec(
     id="agenda_create",
     message=(
-        "Plan: 1) Call agenda with action=create, provider=google "
-        "(or outlook if asked), summary and start from the user's wording. "
+        "Plan: 1) Call agenda with action=create, a short title, and start. "
+        "Use provider=local unless they named Google or Outlook. "
         "2) A calendar reminder to text someone later is the event title/"
         "description, do not call send_sms unless they asked to text now. "
         "Allow required; do not give manual calendar-app steps only."

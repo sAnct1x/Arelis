@@ -235,8 +235,11 @@ class CalendarService:
                 location=location,
                 description=description,
             )
-        client = self.client(which)
         try:
+            # client() raises before create_event when the named cloud is
+            # not signed in. That used to escape this function, so the
+            # agenda tool reported failure and nothing was saved.
+            client = self.client(which)
             ev = await client.create_event(
                 summary=summary,
                 starts_at=starts_at,

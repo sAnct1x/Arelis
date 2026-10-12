@@ -1566,6 +1566,45 @@ def unsupported_exactness_reply(
     return f"I don't know — I'm missing required {joined} and won't guess."
 
 
+# The live miss was "is added to your calendar" after every create failed.
+# Any "added" on that turn is the same lie. "add" without the -ed is not.
+_CALENDAR_ADDED_CLAIM = re.compile(r"(?i)\badded\b")
+
+_CALENDAR_ADD_LIE = "I could not add that, so it is not on your calendar."
+
+
+# "on your Google calendar" / "added to Outlook" after a local save.
+_CLOUD_SAVED_CLAIM = re.compile(
+    r"(?i)\b(?:on|to|in)\s+(?:your\s+|the\s+|my\s+)?(?:google|outlook)\b"
+)
+
+
+def guard_local_calendar_destination(text: str, *, where: str) -> str:
+    """A local save must not be described as Google or Outlook."""
+    if (where or "").strip().lower() != "local":
+        return text
+    if not _CLOUD_SAVED_CLAIM.search(text or ""):
+        return text
+    return (
+        "That is on your Arelis calendar. "
+        "It was not saved to Google or Outlook."
+    )
+
+
+def guard_false_calendar_add(text: str, *, created: bool, failed: bool) -> str:
+    """Replace a success claim when every calendar create this turn failed.
+
+    A create that landed is allowed to say so. No create attempt is left
+    alone. Only a turn that tried and missed is rewritten, so "is added"
+    cannot follow a string of not-authorized failures.
+    """
+    if created or not failed:
+        return text
+    if not _CALENDAR_ADDED_CLAIM.search(text or ""):
+        return text
+    return _CALENDAR_ADD_LIE
+
+
 def unsupported_send_claim_reply() -> str:
     """Deterministic rewrite when the answer claims send without a warrant."""
     return (

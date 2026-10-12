@@ -100,13 +100,13 @@ _WHEN = re.compile(
     r"|"
     r"(?P<rel>"
     r"(?:in\s+)?(?P<weeks>a|one|two|three|four|\d+)\s+weeks?\s+from\s+(?:today|now)"
-    r"(?:\s+at\s+(?P<weeks_time>\d{1,2}(?::\d{2})?\s*(?:am|pm)?))?"
+    r"(?:\s+at\s+(?P<weeks_time>noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm)?))?"
     r"|"
     r"(?:today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|"
     r"saturday|sunday|next\s+\w+)"
-    r"(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?"
+    r"(?:\s+at\s+(?:noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm)?))?"
     r"|"
-    r"at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)"
+    r"at\s+(?:noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm))"
     r")"
     r")\b"
 )
@@ -151,7 +151,9 @@ _PROVIDER = re.compile(r"(?i)\b(?:provider\s*=\s*|on\s+)(?P<p>google|outlook)\b"
 # Tuesday" — so it only goes when a clock follows it, and the clock is the
 # thing that makes it a when rather than a name.
 _MONTH_DAY_TAIL = r"(?:" + _MONTH + r")\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*\d{4})?"
-_CLOCK_TAIL = r"\d{1,2}(?::\d{2}\s*(?:am|pm)?|\s*(?:am|pm))"
+_CLOCK_TAIL = (
+    r"(?:noon|midnight|\d{1,2}(?::\d{2}\s*(?:am|pm)?|\s*(?:am|pm)))"
+)
 _TITLE_TAIL_TIME = re.compile(
     r"(?i)\s+(?:(?:on|for|this|next)\s+)?"
     r"(?:(?:today|tonight|tomorrow|"
@@ -266,7 +268,7 @@ class AgendaDraft:
     summary: str
     start: str
     end: str = ""
-    provider: str = "google"
+    provider: str = "local"
     description: str = ""
     source: str = "current"
 
@@ -843,7 +845,12 @@ def _when_has_clock(match: re.Match[str]) -> bool:
         return bool(match.group("md_time"))
     if match.group("weeks"):
         return bool(match.group("weeks_time"))
-    return bool(re.search(r"(?i)\bat\s+\d", match.group("rel") or ""))
+    return bool(
+        re.search(
+            r"(?i)\bat\s+(?:\d|noon\b|midnight\b)",
+            match.group("rel") or "",
+        )
+    )
 
 
 def _pick_when(raw: str) -> re.Match[str] | None:
@@ -928,7 +935,7 @@ def parse_agenda_utterance(text: str) -> AgendaDraft | None:
         return AgendaDraft(
             summary="",
             start=normalize_agenda_start(start),
-            provider="google",
+            provider="local",
             source="current",
         )
     start = normalize_agenda_start(start)
@@ -939,7 +946,7 @@ def parse_agenda_utterance(text: str) -> AgendaDraft | None:
         except ValueError:
             end = ""
     prov_m = _PROVIDER.search(raw)
-    provider = (prov_m.group("p") if prov_m else "google").lower()
+    provider = (prov_m.group("p") if prov_m else "local").lower()
     return AgendaDraft(
         summary=summary,
         start=start,
@@ -991,7 +998,7 @@ def fill_agenda_args(
             if start:
                 out["start"] = normalize_agenda_start(start)
             if not str(out.get("provider") or "").strip():
-                out["provider"] = "google"
+                out["provider"] = "local"
         return out
     out = dict(args)
     action = str(out.get("action") or "").strip().lower()
@@ -1006,8 +1013,9 @@ def fill_agenda_args(
         out["end"] = draft.end
     if draft.description and not str(out.get("description") or "").strip():
         out["description"] = draft.description
-    if not str(out.get("provider") or "").strip():
-        out["provider"] = draft.provider or "google"
+    # The ask names the calendar. A model that always passes Google would
+    # skip the local calendar on a machine that is not signed in.
+    out["provider"] = draft.provider or "local"
     return out
 
 
@@ -1032,14 +1040,16 @@ def agenda_preflight_nudge(draft: AgendaDraft | None) -> str:
     if draft is not None and draft.start:
         return (
             "Intent preflight: create a calendar event now. Call agenda with "
-            f'action=create provider="google" start="{draft.start}" and a short '
+            f'action=create provider="{draft.provider or "local"}" '
+            f'start="{draft.start}" and a short '
             "summary from the user's reminder wording. Do not send_sms unless "
             "they asked to text someone right now. Do not web_search. "
             "The confirm card is the Allow step."
         )
     return (
         "Intent preflight: the user asked to create a calendar event. Call "
-        "agenda with action=create (provider=google unless they named Outlook). "
+        "agenda with action=create. Use provider=local unless they named "
+        "Google or Outlook. "
         "Do not send_sms for a reminder-about-texting. Do not web_search. "
         "Do not only instruct them to open their calendar app. "
         "The confirm card is the Allow step."

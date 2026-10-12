@@ -150,6 +150,9 @@ async def _begin_turn(
     clear_look_pending()
     hold_look_files(keep_look_files(text))
     loop._trace = []
+    loop._agenda_create_ok = False
+    loop._agenda_create_failed = False
+    loop._agenda_create_where = ""
     loop._painted = ""
     # Mutable so mid-turn escalate (W2) can retarget the hot model.
     loop._turn_role = role
