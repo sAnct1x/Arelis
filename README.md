@@ -182,8 +182,7 @@ python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
 pip install -e . -c qt-constraints.txt
 ```
 
-Install Ollama the official way, with the install script from the Ollama
-website. Then run:
+Install Ollama from ollama.com. Then run:
 
 ```bash
 python -m arelis

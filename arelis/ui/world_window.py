@@ -29,6 +29,7 @@ from arelis.ui.window_resize import (
     enable_win32_resize_frame,
     handle_native_resize,
     hit_test_resize,
+    start_system_move,
     try_system_resize,
 )
 
@@ -439,6 +440,9 @@ class WorldWindow(QWidget):
             return super().eventFilter(watched, event)
         if event.type() == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
             if event.button() == Qt.MouseButton.LeftButton:
+                if start_system_move(self):
+                    self._drag_origin = None
+                    return True
                 self._drag_origin = (
                     event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                 )

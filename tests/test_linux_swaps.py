@@ -110,7 +110,8 @@ def test_linux_setup_explains_ollama_instead_of_downloading_the_exe(
     assert download.called is False
     assert failed
     text = failed[0].lower()
-    assert "install script" in text
+    assert "ollama.com" in text
+    assert "install script" not in text
     assert "ollama" in text
     assert ".exe" not in text
 
@@ -554,6 +555,217 @@ def test_title_bar_windows_drag_does_not_ask_the_system(
         assert moved
     finally:
         host.close()
+
+
+def test_linux_readme_points_at_ollama_dot_com() -> None:
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    start = text.index("## Run from source on Linux")
+    end = text.index("## Run from source on Mac")
+    section = text[start:end]
+    assert "ollama.com" in section
+    assert "install script" not in section.lower()
+
+
+def test_linux_ollama_message_names_the_website(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    from arelis.setup.engine import ollama_install_help
+
+    text = ollama_install_help() or ""
+    assert "ollama.com" in text.lower()
+    assert "install script" not in text.lower()
+    assert ".exe" not in text
+    assert "/" not in text
+    assert "\u2013" not in text and "\u2014" not in text
+
+
+def test_linux_finds_ollama_when_it_is_not_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+
+    def is_file(self: Path) -> bool:
+        return str(self).replace("\\", "/") == "/usr/local/bin/ollama"
+
+    monkeypatch.setattr(Path, "is_file", is_file)
+    from arelis.setup.engine import find_ollama_exe
+
+    found = find_ollama_exe()
+    assert found is not None
+    assert str(found).replace("\\", "/") == "/usr/local/bin/ollama"
+
+
+def test_windows_ollama_lookup_stays_in_local_programs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    monkeypatch.setenv("LOCALAPPDATA", r"D:\Local")
+    expected = "D:/Local/Programs/Ollama/ollama.exe"
+
+    def is_file(self: Path) -> bool:
+        return str(self).replace("\\", "/") == expected
+
+    monkeypatch.setattr(Path, "is_file", is_file)
+    from arelis.setup.engine import find_ollama_exe
+
+    found = find_ollama_exe()
+    assert found is not None
+    assert str(found).replace("\\", "/") == expected
+
+
+def test_linux_setup_reads_system_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    from arelis.setup import hardware
+
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+
+    def read_text(self: Path, encoding: str | None = None, errors: str | None = None) -> str:
+        del encoding, errors
+        if self.as_posix() == "/proc/meminfo":
+            return "MemTotal:        32768000 kB\nMemFree: 1 kB\n"
+        raise OSError("not meminfo")
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    snap = hardware.probe_hardware()
+    assert snap.ram_bytes == 32768000 * 1024
+
+
+def test_windows_setup_memory_stays_on_the_windows_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "win32")
+    from arelis.setup import hardware
+
+    def read_text(self: Path, encoding: str | None = None, errors: str | None = None) -> str:
+        del encoding, errors
+        if self.as_posix() == "/proc/meminfo":
+            raise AssertionError("windows read meminfo")
+        raise OSError("no")
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(hardware, "_sample_ram_windows", lambda: (100, 200))
+    monkeypatch.setattr(hardware, "_probe_vram", lambda: ("", None, []))
+    monkeypatch.setattr(hardware, "_disk_free", lambda: 5)
+    snap = hardware.probe_hardware()
+    assert snap.ram_bytes == 200
+
+
+def test_linux_browser_which_is_not_resolved_away(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("ARELIS_CHROME", raising=False)
+    monkeypatch.delenv("ARELIS_EDGE", raising=False)
+    launchers = {
+        "google-chrome": "/usr/bin/google-chrome",
+        "chromium": "/snap/bin/chromium",
+        "microsoft-edge-stable": "/usr/bin/microsoft-edge-stable",
+    }
+
+    def which(name: str) -> str | None:
+        return launchers.get(name)
+
+    def is_file(self: Path) -> bool:
+        text = str(self).replace("\\", "/")
+        return text in set(launchers.values()) or text == "/usr/bin/snap"
+
+    def resolve(self: Path, strict: bool = False) -> Path:
+        del strict
+        text = str(self).replace("\\", "/")
+        if text == "/snap/bin/chromium":
+            return Path("/usr/bin/snap")
+        if text == "/usr/bin/google-chrome":
+            return Path("/opt/google/chrome/google-chrome")
+        return Path(text)
+
+    monkeypatch.setattr(shutil, "which", which)
+    monkeypatch.setattr(Path, "is_file", is_file)
+    monkeypatch.setattr(Path, "resolve", resolve)
+    from arelis.browser.launch import chrome_executable, edge_executable
+
+    chrome = chrome_executable()
+    assert chrome is not None
+    assert chrome.replace("\\", "/") == "/usr/bin/google-chrome"
+
+    launchers.pop("google-chrome")
+    found = chrome_executable()
+    assert found is not None
+    assert found.replace("\\", "/") == "/snap/bin/chromium"
+
+    edge = edge_executable()
+    assert edge is not None
+    assert edge.replace("\\", "/") == "/usr/bin/microsoft-edge-stable"
+
+
+def test_dialog_drag_uses_system_move_on_linux(monkeypatch: pytest.MonkeyPatch, qt_app) -> None:
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QLabel
+
+    from arelis.ui.dialog import GlassDialog
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    dialog = GlassDialog("Hi")
+    calls = {"n": 0, "ok": True}
+    moved: list[object] = []
+
+    def start_system_move() -> bool:
+        calls["n"] += 1
+        return calls["ok"]
+
+    dialog.windowHandle = lambda: SimpleNamespace(startSystemMove=start_system_move)  # type: ignore[method-assign]
+    original_move = dialog.move
+
+    def track_move(*args):
+        moved.append(args)
+        return original_move(*args)
+
+    dialog.move = track_move  # type: ignore[method-assign]
+    heading = dialog.findChild(QLabel, "GlassDialogHeading")
+    assert heading is not None
+    try:
+        dialog.eventFilter(heading, _mouse(QEvent.Type.MouseButtonPress, 8, 8, grab=True))
+        dialog.eventFilter(heading, _mouse(QEvent.Type.MouseMove, 30, 16, grab=True))
+        assert calls["n"] >= 1
+        assert moved == []
+
+        calls["ok"] = False
+        calls["n"] = 0
+        moved.clear()
+        dialog.eventFilter(heading, _mouse(QEvent.Type.MouseButtonPress, 8, 8, grab=True))
+        dialog.eventFilter(heading, _mouse(QEvent.Type.MouseMove, 40, 20, grab=True))
+        assert calls["n"] >= 1
+        assert moved
+    finally:
+        dialog.close()
+
+
+def test_dialog_drag_on_windows_does_not_ask_the_system(
+    monkeypatch: pytest.MonkeyPatch, qt_app
+) -> None:
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QLabel
+
+    from arelis.ui.dialog import GlassDialog
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    dialog = GlassDialog("Hi")
+    calls = {"n": 0}
+    moved: list[object] = []
+
+    def start_system_move() -> bool:
+        calls["n"] += 1
+        return True
+
+    dialog.windowHandle = lambda: SimpleNamespace(startSystemMove=start_system_move)  # type: ignore[method-assign]
+    original_move = dialog.move
+
+    def track_move(*args):
+        moved.append(args)
+        return original_move(*args)
+
+    dialog.move = track_move  # type: ignore[method-assign]
+    heading = dialog.findChild(QLabel, "GlassDialogHeading")
+    assert heading is not None
+    try:
+        dialog.eventFilter(heading, _mouse(QEvent.Type.MouseButtonPress, 8, 8, grab=True))
+        dialog.eventFilter(heading, _mouse(QEvent.Type.MouseMove, 30, 16, grab=True))
+        assert calls["n"] == 0
+        assert moved
+    finally:
+        dialog.close()
 
 
 def test_ci_jobs_that_install_arelis_use_the_qt_constraint() -> None:

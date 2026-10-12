@@ -1,9 +1,10 @@
 """Find, start, and pull through the local Ollama engine.
 
 The installer is not rebuilt here. If Ollama is already on the PC we use it
-(an older installed copy and this one share tags). If it is missing we download
-the official Windows setup into %LOCALAPPDATA%\\Arelis-runtime, never into the
-git checkout, and run it. Models still land in the default Ollama store.
+(an older installed copy and this one share tags). On Windows, if it is
+missing, we download the official setup into %LOCALAPPDATA%\\Arelis-runtime,
+never into the git checkout, and run it. On Linux and Mac we say how to
+install it instead. Models still land in the default Ollama store.
 """
 
 from __future__ import annotations
@@ -52,10 +53,7 @@ def ollama_install_help() -> str | None:
             "Ollama is not installed. Download the Ollama app from the Ollama "
             "website, or run brew install ollama, then try again."
         )
-    return (
-        "Ollama is not installed. Install it with the official install script "
-        "from the Ollama website, then try again."
-    )
+    return "Ollama is not installed. Install Ollama from ollama.com, then try again."
 
 
 def find_ollama_exe() -> Path | None:
@@ -64,11 +62,20 @@ def find_ollama_exe() -> Path | None:
         path = Path(which)
         if path.is_file():
             return path
-    local = os.environ.get("LOCALAPPDATA") or ""
-    candidates = [
-        Path(local) / "Programs" / "Ollama" / "ollama.exe",
-        Path.home() / "AppData" / "Local" / "Programs" / "Ollama" / "ollama.exe",
-    ]
+    if sys.platform == "linux":
+        # A desktop launch often misses /usr/local/bin, which is where the
+        # Ollama website install puts the program.
+        candidates = [
+            Path("/usr/local/bin/ollama"),
+            Path("/usr/bin/ollama"),
+            Path.home() / ".local" / "bin" / "ollama",
+        ]
+    else:
+        local = os.environ.get("LOCALAPPDATA") or ""
+        candidates = [
+            Path(local) / "Programs" / "Ollama" / "ollama.exe",
+            Path.home() / "AppData" / "Local" / "Programs" / "Ollama" / "ollama.exe",
+        ]
     for item in candidates:
         if item.is_file():
             return item
