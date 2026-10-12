@@ -223,6 +223,11 @@ async def execute_call(
                         ctx.tool_names.update(visible)
                         tool_names = ctx.tool_names
         if result.ok:
+            ctx.private_marks.record(
+                name,
+                args if isinstance(args, dict) else {},
+                str(result.output or ""),
+            )
             loop.tools_used.add(name)
             fail_counts.pop(call_fp, None)
             record_same_call(ctx.same_ok, name, args)

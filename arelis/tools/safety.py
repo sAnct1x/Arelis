@@ -8,6 +8,21 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+
+@dataclass(frozen=True)
+class UrlVerdict:
+    """What the URL check decided.
+
+    ``reason`` is why the URL is blocked, or None when it may be opened.
+    ``ip`` is the address the check already accepted. Callers connect to
+    that address so a later DNS answer cannot point the same name at a
+    private host. None when this check did not resolve one.
+    """
+
+    reason: str | None = None
+    ip: str | None = None
+
+
 # Redaction runs on every tool output before it reaches the model, the UI, or a
 # confirm card. Patterns are deliberately broad: a false positive costs one
 # unreadable line, a false negative leaks a live credential into model context.
@@ -83,8 +98,13 @@ def _resolved_ips(host: str, port: int) -> list[str]:
     return [info[4][0] for info in infos]
 
 
-async def check_url_allowed(url: str, *, block_private: bool = True) -> str | None:
-    """Full URL policy check including DNS. Return a reason to block, or None.
+async def check_url_allowed(url: str, *, block_private: bool = True) -> UrlVerdict:
+    """Full URL policy check including DNS.
+
+    ``reason`` is set when the URL must not be opened. ``ip`` is one public
+    address the check accepted, and the fetch layer connects to that address
+    with the original name left on Host and SNI. A DNS answer that changes
+    between this check and the connect cannot retarget the request.
 
     The textual check alone is bypassable three ways: a hostname whose DNS
     record points at 127.0.0.1 or 192.168.x.x, a non-dotted literal such as
@@ -97,9 +117,9 @@ async def check_url_allowed(url: str, *, block_private: bool = True) -> str | No
     """
     textual = is_blocked_url(url, block_private=block_private)
     if textual is not None:
-        return textual
+        return UrlVerdict(textual, None)
     if not block_private:
-        return None
+        return UrlVerdict(None, None)
 
     parsed = urlparse((url or "").strip())
     host = (parsed.hostname or "").lower()
@@ -109,23 +129,27 @@ async def check_url_allowed(url: str, *, block_private: bool = True) -> str | No
         pass
     else:
         # Literal IP already validated by the textual pass.
-        return None
+        return UrlVerdict(None, host)
 
     port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
     try:
         addresses = await asyncio.to_thread(_resolved_ips, host, port)
     except OSError as exc:
-        return f"Could not resolve host {host}: {exc}"
+        return UrlVerdict(f"Could not resolve host {host}: {exc}", None)
+    vetted: str | None = None
     for address in addresses:
         # getaddrinfo can return a scoped v6 literal such as fe80::1%eth0.
+        bare = address.split("%", 1)[0]
         try:
-            ip = ipaddress.ip_address(address.split("%", 1)[0])
+            ip = ipaddress.ip_address(bare)
         except ValueError:
             continue
         reason = _ip_reason(ip, host)
         if reason is not None:
-            return reason
-    return None
+            return UrlVerdict(reason, None)
+        if vetted is None:
+            vetted = bare
+    return UrlVerdict(None, vetted)
 
 
 def redact_secrets(text: str) -> str:

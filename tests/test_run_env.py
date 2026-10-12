@@ -8,6 +8,7 @@ TOOL_RESULT. These tests are the ones that fail there.
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
 from pathlib import Path
 
@@ -27,9 +28,6 @@ _ASSIGNMENT = "api_key=sk-live-abcdefghijklmnopqrstuvwx"
 _ROOT = Path(__file__).resolve().parents[1]
 _PACKAGE = _ROOT / "arelis"
 _HELPER = "arelis/core/tool_results.py"
-# Restored Allow cards publish from the window. That file is outside this
-# change. A new builder anywhere else, including the rest of the window, fails.
-_KNOWN_OTHER = frozenset({"arelis/ui/confirm_host.py"})
 
 
 def _roots(tmp_path: Path) -> WorkspaceRoots:
@@ -132,13 +130,47 @@ async def test_login_hop_scrubs() -> None:
 def test_one_tool_result_publisher() -> None:
     """A source scan finds no TOOL_RESULT publish outside the helper."""
     sites = _tool_result_sites()
-    outside = [
-        site
-        for site in sites
-        if site.rsplit(":", 1)[0] not in {_HELPER, *_KNOWN_OTHER}
-    ]
+    outside = [site for site in sites if site.rsplit(":", 1)[0] != _HELPER]
     assert not outside, "TOOL_RESULT built outside the helper:\n" + "\n".join(outside)
     assert any(site.startswith(_HELPER + ":") for site in sites)
+
+
+async def test_restored_allow_scrubs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A card brought back after restart used to publish the send raw."""
+    from arelis.core.bus import EventBus
+    from arelis.presence.pending_confirms import PendingConfirm
+    from arelis.ui.confirm_host import emit_restored_confirm
+
+    async def _fake(item: object, config: object) -> tuple[bool, str]:
+        del item, config
+        return True, f"sent {_ASSIGNMENT}"
+
+    monkeypatch.setattr("arelis.ui.confirm_host.execute_pending_confirm", _fake)
+    bus = EventBus()
+    seen: list[object] = []
+
+    async def _capture(event: object) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, _capture)
+    item = PendingConfirm(
+        id="c-restored",
+        tool="send_email",
+        args={"to": "you@example.com"},
+        summary="send the note",
+    )
+    runner = asyncio.create_task(bus.run())
+    try:
+        await emit_restored_confirm(bus, item, {})
+        await bus.drain()
+    finally:
+        bus.stop()
+        runner.cancel()
+    results = [e for e in seen if getattr(e, "type", None) == EventType.TOOL_RESULT]
+    assert results, "the restored card published no tool result"
+    blob = json.dumps(results[-1].payload)
+    assert _SECRET not in blob
+    assert results[-1].payload.get("source") == "pending_confirm"
 
 
 async def test_run_script_env_is_filtered(
