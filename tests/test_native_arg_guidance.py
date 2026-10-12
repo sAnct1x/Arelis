@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from arelis.core.compact_prompt import skinny_ollama_tool
+from arelis.core.loop_helpers import _tool_fail_fingerprint
 from arelis.core.native_tool_calling import (
     NATIVE_PARAM_HINTS,
     append_native_task_hint,
@@ -542,7 +543,9 @@ async def test_confirm_call_native_blocked_notes():
     assert action == "skip"
     assert len(messages) == 1
     assert "text=" in messages[0]["content"]
-    assert fail_counts[_fp] == 1
+    assert "failed twice" not in messages[0]["content"].lower()
+    # Missing text is a hint to fill the arg, not a failed call.
+    assert fail_counts.get(_fp, 0) == 0
 
 
 @pytest.mark.no_ui
@@ -635,26 +638,30 @@ async def test_confirm_call_flag_off_workspace_reaches_confirm():
 
 @pytest.mark.no_ui
 async def test_confirm_call_repeat_fail():
-    """Native mode: repeat failures (fail_counts >= 2) trigger skip_repeat_fail."""
+    """Native mode: a call that truly failed twice triggers skip_repeat_fail.
+
+    Missing required args do not count, so they cannot be what trips this.
+    """
     loop = MockLoopMinimal()
     loop.bus = MockBus()
     ctx = TurnContext(text="test", role="fast")
     ctx.agent_cfg = {"native_tool_calling": True}
 
+    args = {"action": "add", "title": "Test", "text": "hello"}
+    fp = _tool_fail_fingerprint("notes", args)
     messages: list[dict[str, Any]] = []
-    fail_counts: dict[str, int] = {}
+    fail_counts: dict[str, int] = {fp: 2}
     skip_counts: dict[str, int] = {}
     tool_names = {"notes"}
 
     def drop_wander(name: str) -> None:
         pass
 
-    # First call
-    action1, _, fp = await confirm_call(
+    action, _, seen = await confirm_call(
         loop,
         ctx,
         "notes",
-        {"action": "add", "title": "Test"},
+        args,
         text="",
         fail_counts=fail_counts,
         skip_counts=skip_counts,
@@ -662,42 +669,9 @@ async def test_confirm_call_repeat_fail():
         tool_names=tool_names,
         drop_wander=drop_wander,
     )
-    assert action1 == "skip"
-    assert fail_counts[fp] == 1
-
-    # Second call with same args
-    messages.clear()
-    action2, _, _ = await confirm_call(
-        loop,
-        ctx,
-        "notes",
-        {"action": "add", "title": "Test"},
-        text="",
-        fail_counts=fail_counts,
-        skip_counts=skip_counts,
-        messages=messages,
-        tool_names=tool_names,
-        drop_wander=drop_wander,
-    )
-    assert action2 == "skip"
+    assert action == "skip"
+    assert seen == fp
     assert fail_counts[fp] == 2
-
-    # Third call should trigger skip_repeat_fail
-    messages.clear()
-    action3, _, _ = await confirm_call(
-        loop,
-        ctx,
-        "notes",
-        {"action": "add", "title": "Test"},
-        text="",
-        fail_counts=fail_counts,
-        skip_counts=skip_counts,
-        messages=messages,
-        tool_names=tool_names,
-        drop_wander=drop_wander,
-    )
-    assert action3 == "skip"
-    # Message should mention "already failed twice"
     assert any("already failed twice" in str(m.get("content", "")) for m in messages)
 
 
