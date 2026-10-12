@@ -30,7 +30,7 @@ from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
 from arelis.setup.state import needs_model_setup, try_quiet_complete_model_setup
 from arelis.ui.first_run import prompt_for_workspace_root
-from arelis.ui.foreground import arm_quiet_launch, show_without_activating
+from arelis.ui.foreground import arm_quiet_launch, quiet_launch, show_without_activating
 from arelis.ui.scale import configure_display_scale
 from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.theme import (
@@ -125,7 +125,12 @@ def apply_first_run_glass(
 
 def _present_at_startup(window: Any) -> None:
     """Show the glass at launch without taking keyboard focus."""
-    window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
+    state = window.windowState() & ~Qt.WindowState.WindowMinimized
+    # A maximized restore is SW_SHOWMAXIMIZED, which activates. A quiet
+    # launch stays at normal size until the user asks for the window.
+    if quiet_launch(window):
+        state &= ~Qt.WindowState.WindowMaximized
+    window.setWindowState(state)
     show_without_activating(window)
 
 

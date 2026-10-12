@@ -361,7 +361,10 @@ class WindowLifetime:
         # setWindowState before show, so the window is only ever mapped once and
         # at its final size. Showing first and correcting afterwards is what put
         # a full-screen frame on screen underneath a restored-size one.
-        self.setWindowState(self._tray_window_state)
+        state = self._tray_window_state
+        if not activate and quiet_launch(self):
+            state &= ~Qt.WindowState.WindowMaximized
+        self.setWindowState(state)
         if activate:
             # Second shortcut / tray Open is the user asking. Unlock before
             # the raise, or the quiet lock keeps the glass in the back.

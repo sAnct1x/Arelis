@@ -282,9 +282,10 @@ def show_without_activating(widget: Any) -> None:
     ``SetForegroundWindow``, or ``AllowSetForegroundWindow``.
 
     A quiet launch also sets ``WindowDoesNotAcceptFocus`` before ``show()``
-    and, if the window is maximized, clears that bit first. Qt maps a
-    maximized window with ``SW_SHOWMAXIMIZED``, which activates even when
-    show-without-activating is set. The inactive maximize runs after.
+    and drops the maximized bit. Qt maps a maximized window with
+    ``SW_SHOWMAXIMIZED``, which activates and comes to the front. A quiet
+    launch does not put that maximized rect back. A user launch still
+    maximizes without activating.
     """
     if widget is None:
         return
@@ -304,7 +305,9 @@ def show_without_activating(widget: Any) -> None:
         widget.show()
     finally:
         widget.setAttribute(attr, previous)
-    if wants_max:
+    # Quiet launch must not put the maximized rect back. That restore is
+    # what comes to the front. A user launch still maximizes without activate.
+    if wants_max and not quiet:
         _win32_maximize_inactive(widget)
 
 

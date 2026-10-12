@@ -171,9 +171,28 @@ def test_quiet_maximized_show_is_not_sw_maximize(monkeypatch) -> None:
     _present_at_startup(window)
     show = next(c for c in window.calls if c[0] == "show")
     assert not (show[2] & Qt.WindowState.WindowMaximized)
-    assert maxed == [window]
+    assert maxed == []
+    states = [c[1] for c in window.calls if c[0] == "setWindowState"]
+    assert states
+    assert all(not (s & Qt.WindowState.WindowMaximized) for s in states)
     assert "activateWindow" not in _names(window.calls)
     assert "raise_" not in _names(window.calls)
+
+
+def test_quiet_late_show_does_not_run_focus(monkeypatch) -> None:
+    """The 80ms composer focus must not run at all on a quiet launch."""
+    from arelis.ui.window_build import WindowBuild
+
+    calls: list[str] = []
+    window = _QuietWindow(quiet=True, state=Qt.WindowState.WindowNoState)
+    window.conversation = SimpleNamespace(focus_input=lambda: calls.append("focus"))
+    WindowBuild._focus_composer_after_show(window)  # type: ignore[arg-type]
+    assert calls == []
+
+    user = _QuietWindow(quiet=False, state=Qt.WindowState.WindowNoState)
+    user.conversation = SimpleNamespace(focus_input=lambda: calls.append("focus"))
+    WindowBuild._focus_composer_after_show(user)  # type: ignore[arg-type]
+    assert calls == ["focus"]
 
 
 def test_quiet_late_focus_does_not_call_set_focus(qt_app, monkeypatch) -> None:
