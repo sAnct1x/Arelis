@@ -15,6 +15,7 @@ import asyncio
 import json
 import math
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +30,23 @@ if TYPE_CHECKING:
     import pandas as pd
 
 _ACTIONS = frozenset({"line", "scatter", "residuals", "histogram", "bar", "subplots"})
+_LOOKS = ("default", "poster", "paper", "slide")
+# Okabe-Ito. Black is left out so a line does not vanish into the axes.
+_COLORBLIND = (
+    "#0072B2",
+    "#E69F00",
+    "#009E73",
+    "#D55E00",
+    "#CC79A7",
+    "#56B4E9",
+    "#F0E442",
+)
+# title, axis label, tick. All larger than Matplotlib's 12 / 10 / 10.
+_LOOK_FONTS = {
+    "poster": (22, 18, 16),
+    "paper": (16, 14, 12),
+    "slide": (26, 20, 18),
+}
 _SUBPLOT_KINDS = frozenset({"line", "scatter", "histogram", "bar"})
 _MAX_SUBPLOTS = 4
 _MAX_ROWS = 20_000
@@ -65,6 +83,95 @@ def _figure() -> tuple[Any, Any]:
     from matplotlib.figure import Figure
 
     return Figure, FigureCanvasAgg
+
+
+def _parse_look(raw: Any) -> str:
+    look = str(raw or "default").strip().lower()
+    if not look:
+        return "default"
+    if look not in _LOOKS:
+        raise ValueError("look must be default, poster, paper, or slide.")
+    return look
+
+
+def _look_rc(look: str) -> dict[str, Any]:
+    if look == "default":
+        return {}
+    from cycler import cycler
+
+    title, label, tick = _LOOK_FONTS[look]
+    return {
+        "font.size": tick,
+        "axes.titlesize": title,
+        "axes.labelsize": label,
+        "xtick.labelsize": tick,
+        "ytick.labelsize": tick,
+        "legend.fontsize": label,
+        "axes.prop_cycle": cycler(color=list(_COLORBLIND)),
+    }
+
+
+@contextmanager
+def _look_context(look: str):
+    from matplotlib import rc_context
+
+    with rc_context(_look_rc(look)):
+        yield
+
+
+def _figure_size(look: str, *, tall: bool = False) -> tuple[float, float]:
+    """Inches. Poster keeps the screen size so 300 dpi is the only scale-up."""
+    if look == "paper":
+        return (6.5, 5.8) if tall else (6.5, 4.2)
+    if look == "slide":
+        return (13.333, 7.5)
+    return (8.0, 7.0) if tall else (8.0, 5.0)
+
+
+def _open_figure(figsize: tuple[float, float], look: str) -> Any:
+    figure_cls, canvas_cls = _figure()
+    dpi = 300 if look != "default" else 120
+    fig = figure_cls(figsize=figsize, dpi=dpi)
+    canvas_cls(fig)
+    return fig
+
+
+def _mark_color(look: str, index: int = 0) -> dict[str, str]:
+    if look == "default":
+        return {}
+    return {"color": _COLORBLIND[index % len(_COLORBLIND)]}
+
+
+def _stroke(look: str) -> tuple[float, float]:
+    """Line width and marker size. Print looks are heavier so they read across a room."""
+    if look in {"poster", "slide"}:
+        return 2.0, 5.5
+    if look == "paper":
+        return 1.6, 4.0
+    return 1.4, 3.5
+
+
+def _save_figure(fig: Any, dest: Path, look: str) -> str:
+    """Write the PNG (or the asked suffix) and, for a print look, SVG and PDF."""
+    dpi = 300 if look != "default" else 120
+    fig.savefig(dest, dpi=dpi)
+    if look == "default":
+        return ""
+    names: list[str] = []
+    for suffix in (".svg", ".pdf"):
+        sibling = dest.with_suffix(suffix)
+        if sibling.resolve() == dest.resolve():
+            continue
+        fig.savefig(sibling, dpi=dpi)
+        names.append(sibling.name)
+    if dest.suffix.lower() != ".png":
+        png = dest.with_suffix(".png")
+        if png.resolve() != dest.resolve():
+            fig.savefig(png, dpi=dpi)
+            names.append(png.name)
+    if not names:
+        return ""
+    return f"Also wrote {', '.join(names)} at 300 dpi ({look} look)."
 
 
 def _unique_dest(directory: Path, stem: str, suffix: str) -> Path:
@@ -291,6 +398,8 @@ class PlotTool:
         "bins. bar draws categories against values, not a line chart. "
         "subplots combines two or more panels in one figure, pass panels as "
         "comma-separated kinds (e.g. line,histogram) with the same data. "
+        "look=poster, paper, or slide is 300 dpi, larger type, a colour-blind "
+        "palette, and an SVG and a PDF beside the PNG. "
         "residuals fits a straight line (least squares) and plots data+fit "
         "plus residuals, do not invent a trend or draw an ASCII chart. This "
         "is not Python: do not pass code or matplotlib. Allow is required. Do "
@@ -404,7 +513,16 @@ class PlotTool:
                 "type": "string",
                 "description": (
                     "Output file name only (png). Lands in the room's plots/ "
-                    "folder, or outputs/plots/ in orbit"
+                    "folder, or outputs/plots/ in orbit. poster, paper, and "
+                    "slide also write svg and pdf beside it"
+                ),
+            },
+            "look": {
+                "type": "string",
+                "enum": ["default", "poster", "paper", "slide"],
+                "description": (
+                    "default, poster, paper, or slide. Print looks are 300 dpi "
+                    "plus SVG and PDF."
                 ),
             },
         },
@@ -473,6 +591,15 @@ class PlotTool:
                 ),
                 data={"fail_class": "fail:action"},
             )
+        try:
+            look = _parse_look(kwargs.get("look"))
+        except ValueError as exc:
+            return ToolResult(
+                ok=False,
+                output=str(exc),
+                data={"fail_class": "fail:args"},
+            )
+        kwargs["look"] = look
         title = str(kwargs.get("title") or "").strip()
         try:
             if action == "histogram":
@@ -563,7 +690,10 @@ class PlotTool:
             )
         shown = display_path(dest)
         _folder, where = self.out_dir()
-        bits = [f"Wrote {shown} ({action}, {n} points) in {where}."]
+        kind = f"{action}, {n} points"
+        if look != "default":
+            kind = f"{kind}, {look} look"
+        bits = [f"Wrote {shown} ({kind}) in {where}."]
         if extra:
             bits.append(extra)
         bits.append("Open that file, that chart is from this turn, not a picture I imagined.")
@@ -577,6 +707,8 @@ class PlotTool:
                 "n": n,
                 "source": source,
                 "where": where,
+                "look": look,
+                "dpi": 300 if look != "default" else 120,
             },
         )
 
@@ -832,20 +964,26 @@ class PlotTool:
         folder, _where = self.out_dir()
         dest = self._dest(kwargs, "histogram", folder)
         ensure(dest.parent)
+        look = str(kwargs.get("look") or "default")
         bins = _parse_bins(kwargs.get("bins"))
-        figure_cls, canvas_cls = _figure()
-        fig = figure_cls(figsize=(8.0, 5.0), dpi=120)
-        canvas_cls(fig)
-        ax = fig.add_subplot(111)
-        ax.hist(values, bins=bins, edgecolor="0.3", linewidth=0.6)
-        if title:
-            ax.set_title(title)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel or "count")
-        ax.grid(True, alpha=0.3, axis="y")
-        fig.tight_layout()
-        fig.savefig(dest)
-        return dest, ""
+        with _look_context(look):
+            fig = _open_figure(_figure_size(look), look)
+            ax = fig.add_subplot(111)
+            ax.hist(
+                values,
+                bins=bins,
+                edgecolor="0.3",
+                linewidth=0.6,
+                **_mark_color(look),
+            )
+            if title:
+                ax.set_title(title)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel or "count")
+            ax.grid(True, alpha=0.3, axis="y")
+            fig.tight_layout()
+            note = _save_figure(fig, dest, look)
+        return dest, note
 
     def _draw_bar(
         self,
@@ -860,22 +998,29 @@ class PlotTool:
         folder, _where = self.out_dir()
         dest = self._dest(kwargs, "bar", folder)
         ensure(dest.parent)
-        figure_cls, canvas_cls = _figure()
-        fig = figure_cls(figsize=(8.0, 5.0), dpi=120)
-        canvas_cls(fig)
-        ax = fig.add_subplot(111)
-        positions = _numpy().arange(len(cats))
-        ax.bar(positions, values, width=0.65, edgecolor="0.3", linewidth=0.6)
-        ax.set_xticks(positions)
-        ax.set_xticklabels(cats, rotation=0 if len(cats) <= 6 else 25, ha="center")
-        if title:
-            ax.set_title(title)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        ax.grid(True, alpha=0.3, axis="y")
-        fig.tight_layout()
-        fig.savefig(dest)
-        return dest, ""
+        look = str(kwargs.get("look") or "default")
+        with _look_context(look):
+            fig = _open_figure(_figure_size(look), look)
+            ax = fig.add_subplot(111)
+            positions = _numpy().arange(len(cats))
+            ax.bar(
+                positions,
+                values,
+                width=0.65,
+                edgecolor="0.3",
+                linewidth=0.6,
+                **_mark_color(look),
+            )
+            ax.set_xticks(positions)
+            ax.set_xticklabels(cats, rotation=0 if len(cats) <= 6 else 25, ha="center")
+            if title:
+                ax.set_title(title)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            ax.grid(True, alpha=0.3, axis="y")
+            fig.tight_layout()
+            note = _save_figure(fig, dest, look)
+        return dest, note
 
     def _draw_subplots(
         self,
@@ -892,20 +1037,33 @@ class PlotTool:
         folder, _where = self.out_dir()
         dest = self._dest(kwargs, "subplots", folder)
         ensure(dest.parent)
+        look = str(kwargs.get("look") or "default")
         n = len(panels)
         rows, cols = _subplot_grid(n)
-        figure_cls, canvas_cls = _figure()
-        fig = figure_cls(figsize=(4.2 * cols, 4.0 * rows), dpi=120)
-        canvas_cls(fig)
         bins = _parse_bins(kwargs.get("bins"))
-        for idx, kind in enumerate(panels):
-            ax = fig.add_subplot(rows, cols, idx + 1)
-            _draw_panel(ax, kind, x, y, cats=cats, bins=bins, xlabel=xlabel, ylabel=ylabel)
-        if title:
-            fig.suptitle(title)
-        fig.tight_layout()
-        fig.savefig(dest)
-        return dest, f"Panels: {', '.join(panels)}."
+        with _look_context(look):
+            fig = _open_figure((4.2 * cols, 4.0 * rows), look)
+            for idx, kind in enumerate(panels):
+                ax = fig.add_subplot(rows, cols, idx + 1)
+                _draw_panel(
+                    ax,
+                    kind,
+                    x,
+                    y,
+                    cats=cats,
+                    bins=bins,
+                    xlabel=xlabel,
+                    ylabel=ylabel,
+                    look=look,
+                )
+            if title:
+                fig.suptitle(title)
+            fig.tight_layout()
+            note = _save_figure(fig, dest, look)
+        panels_note = f"Panels: {', '.join(panels)}."
+        if note:
+            panels_note = f"{panels_note} {note}"
+        return dest, panels_note
 
     def _draw(
         self,
@@ -921,25 +1079,40 @@ class PlotTool:
         folder, _where = self.out_dir()
         dest = self._dest(kwargs, action, folder)
         ensure(dest.parent)
-        extra = ""
+        look = str(kwargs.get("look") or "default")
         if action == "residuals":
-            extra = _residuals_figure(dest, x, y, title=title, xlabel=xlabel, ylabel=ylabel)
+            extra = _residuals_figure(
+                dest, x, y, title=title, xlabel=xlabel, ylabel=ylabel, look=look
+            )
         else:
-            figure_cls, canvas_cls = _figure()
-            fig = figure_cls(figsize=(8.0, 5.0), dpi=120)
-            canvas_cls(fig)
-            ax = fig.add_subplot(111)
-            if action == "scatter":
-                ax.scatter(x, y, s=18, alpha=0.85)
-            else:
-                ax.plot(x, y, marker="o", linewidth=1.4, markersize=3.5)
-            if title:
-                ax.set_title(title)
-            ax.set_xlabel(xlabel)
-            ax.set_ylabel(ylabel)
-            ax.grid(True, alpha=0.3)
-            fig.tight_layout()
-            fig.savefig(dest)
+            width, marker = _stroke(look)
+            with _look_context(look):
+                fig = _open_figure(_figure_size(look), look)
+                ax = fig.add_subplot(111)
+                if action == "scatter":
+                    ax.scatter(
+                        x,
+                        y,
+                        s=18 if look == "default" else 28,
+                        alpha=0.85,
+                        **_mark_color(look),
+                    )
+                else:
+                    ax.plot(
+                        x,
+                        y,
+                        marker="o",
+                        linewidth=width,
+                        markersize=marker,
+                        **_mark_color(look),
+                    )
+                if title:
+                    ax.set_title(title)
+                ax.set_xlabel(xlabel)
+                ax.set_ylabel(ylabel)
+                ax.grid(True, alpha=0.3)
+                fig.tight_layout()
+                extra = _save_figure(fig, dest, look)
         return dest, extra
 
     def _dest(self, kwargs: dict[str, Any], action: str, folder: Path) -> Path:
@@ -1008,9 +1181,12 @@ def _draw_panel(
     bins: int | None,
     xlabel: str,
     ylabel: str,
+    look: str = "default",
 ) -> None:
+    color = _mark_color(look)
+    width, marker = _stroke(look)
     if kind == "histogram":
-        ax.hist(y, bins=bins, edgecolor="0.3", linewidth=0.6)
+        ax.hist(y, bins=bins, edgecolor="0.3", linewidth=0.6, **color)
         ax.set_xlabel(ylabel or "value")
         ax.set_ylabel("count")
         ax.grid(True, alpha=0.3, axis="y")
@@ -1019,7 +1195,7 @@ def _draw_panel(
         labels = cats if cats is not None else [str(v) for v in x]
         np = _numpy()
         positions = np.arange(len(y))
-        ax.bar(positions, y, width=0.65, edgecolor="0.3", linewidth=0.6)
+        ax.bar(positions, y, width=0.65, edgecolor="0.3", linewidth=0.6, **color)
         ax.set_xticks(positions)
         ax.set_xticklabels(labels[: len(y)])
         ax.set_xlabel(xlabel or "category")
@@ -1027,9 +1203,9 @@ def _draw_panel(
         ax.grid(True, alpha=0.3, axis="y")
         return
     if kind == "scatter":
-        ax.scatter(x, y, s=18, alpha=0.85)
+        ax.scatter(x, y, s=18 if look == "default" else 28, alpha=0.85, **color)
     else:
-        ax.plot(x, y, marker="o", linewidth=1.4, markersize=3.5)
+        ax.plot(x, y, marker="o", linewidth=width, markersize=marker, **color)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.grid(True, alpha=0.3)
@@ -1077,40 +1253,57 @@ def _residuals_figure(
     title: str,
     xlabel: str,
     ylabel: str,
+    look: str = "default",
 ) -> str:
     if len(x) < 3:
         raise ValueError("residuals needs at least three numeric points.")
     np = _numpy()
     pd = _pandas()
-    figure_cls, canvas_cls = _figure()
     slope, intercept = np.polyfit(x, y, 1)
     yhat = slope * x + intercept
     resid = y - yhat
     ss_res = float(np.sum(resid**2))
     ss_tot = float(np.sum((y - np.mean(y)) ** 2))
     r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
-    fig = figure_cls(figsize=(8.0, 7.0), dpi=120)
-    canvas_cls(fig)
-    ax = fig.add_subplot(211)
-    ax.scatter(x, y, s=18, alpha=0.85, label="data")
-    order = np.argsort(x)
-    ax.plot(x[order], yhat[order], color="C1", label="fit")
-    ax.set_title(title or "Fit")
-    ax.set_ylabel(ylabel)
-    ax.legend(frameon=False)
-    ax.grid(True, alpha=0.3)
-    bx = fig.add_subplot(212, sharex=ax)
-    bx.axhline(0.0, color="0.5", linewidth=0.8)
-    bx.scatter(x, resid, s=18, alpha=0.85)
-    bx.set_xlabel(xlabel)
-    bx.set_ylabel("residual")
-    bx.grid(True, alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(dest)
+    fit_color = "C1" if look == "default" else _COLORBLIND[1]
+    with _look_context(look):
+        fig = _open_figure(_figure_size(look, tall=True), look)
+        ax = fig.add_subplot(211)
+        ax.scatter(
+            x,
+            y,
+            s=18 if look == "default" else 28,
+            alpha=0.85,
+            label="data",
+            **_mark_color(look),
+        )
+        order = np.argsort(x)
+        ax.plot(x[order], yhat[order], color=fit_color, label="fit")
+        ax.set_title(title or "Fit")
+        ax.set_ylabel(ylabel)
+        ax.legend(frameon=False)
+        ax.grid(True, alpha=0.3)
+        bx = fig.add_subplot(212, sharex=ax)
+        bx.axhline(0.0, color="0.5", linewidth=0.8)
+        bx.scatter(
+            x,
+            resid,
+            s=18 if look == "default" else 28,
+            alpha=0.85,
+            **_mark_color(look),
+        )
+        bx.set_xlabel(xlabel)
+        bx.set_ylabel("residual")
+        bx.grid(True, alpha=0.3)
+        fig.tight_layout()
+        note = _save_figure(fig, dest, look)
     table = dest.with_suffix(".csv")
     pd.DataFrame({"x": x, "y": y, "yhat": yhat, "residual": resid}).to_csv(table, index=False)
     shown = display_path(table)
-    return (
+    text = (
         f"Least-squares line y = {slope:.6g} x + {intercept:.6g}; "
         f"R^2 = {r2:.4f}. Residuals table: {shown}."
     )
+    if note:
+        text = f"{text} {note}"
+    return text

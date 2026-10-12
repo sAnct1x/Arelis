@@ -1,17 +1,22 @@
-"""Draw the phase 1 diagram samples and record how long they took.
+"""Draw image samples and record how long they took.
 
     python scripts/prove_images.py --phase 1
+    python scripts/prove_images.py --phase 1b
+    python scripts/prove_images.py --phase 2
 
-Phase 1 here is the diagram tool only. Poster charts and picture notes are a
-later change. Files land in docs/image-proof/1a/.
+Phase 1 is the diagram tool. Files land in docs/image-proof/1a/.
+Phase 1b is a poster chart and picture marks. Files land in docs/image-proof/1b/.
+Phase 2 is cutout and upscale. Files land in docs/image-proof/2/.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -132,6 +137,142 @@ def phase_1() -> int:
     (_OUT / "timings.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     (_OUT / "commands.txt").write_text(
         "python scripts/prove_images.py --phase 1\n",
+        encoding="utf-8",
+    )
+    print(json.dumps(report, indent=2))
+    slow = [name for name, seconds in timings.items() if seconds > 1.0]
+    if slow:
+        print("over a second:", ", ".join(slow))
+        return 1
+    return 0
+
+
+def _svg_one_token_per_line(text: str) -> str:
+    """Put flagged path lines on one token per line.
+
+    A run of coordinates can look like a phone number to the personal-data
+    scan. SVG treats a newline as a space, so the picture stays put. The
+    diagram proof leaves its SVG out for the same reason.
+    """
+    phone = re.compile(
+        r"(?<![\d.])(?:\+?1[\s.-]?)?"
+        r"\(?([2-9]\d{2})\)?[\s.-]?([2-9]\d{2})[\s.-]?(\d{4})(?!\d)"
+    )
+
+    def flagged(line: str) -> bool:
+        return bool(phone.search(line))
+
+    out: list[str] = []
+    for line in text.splitlines():
+        if flagged(line):
+            out.extend(line.split(" "))
+        else:
+            out.append(line)
+    rewritten = "\n".join(out) + "\n"
+    if any(flagged(line) for line in rewritten.splitlines()):
+        raise SystemExit("poster.svg still trips the personal-data scan.")
+    return rewritten
+
+
+def _flux_csv(path: Path) -> None:
+    rows = ["wave,flux,err"]
+    for i in range(24):
+        wave = 400 + i * 15
+        flux = 1.0 + 0.08 * math.sin(i / 3.0)
+        rows.append(f"{wave},{flux:.4f},0.010")
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def phase_1b() -> int:
+    """Poster chart plus arrow, label, scale bar, and asinh on the Pillars JPEG."""
+    from PIL import Image
+
+    from arelis.tools.image_edit import ImageEditTool
+    from arelis.tools.plot import PlotTool
+
+    proof = _REPO / "docs" / "image-proof" / "1b"
+    proof.mkdir(parents=True, exist_ok=True)
+    pillars = proof / "pillars.jpg"
+    if not pillars.is_file():
+        raise SystemExit("docs/image-proof/1b/pillars.jpg is missing.")
+
+    with tempfile.TemporaryDirectory(prefix="arelis-proof-") as raw:
+        root = Path(raw) / "room"
+        root.mkdir()
+        _flux_csv(root / "flux.csv")
+        shutil.copyfile(pillars, root / "pillars.jpg")
+        rooms = SimpleNamespace(active=SimpleNamespace(root="room"))
+        workspace = WorkspaceRoots([RootEntry(name="room", path=root.resolve())])
+        plot = PlotTool(workspace, rooms)
+        edit = ImageEditTool(workspace, output_dir=root / "images")
+        plot_args = {
+            "action": "line",
+            "path": "flux.csv",
+            "x": "wave",
+            "y": "flux",
+            "title": "Sample flux",
+            "xlabel": "wave",
+            "ylabel": "flux",
+            "look": "poster",
+            "out": "poster.png",
+        }
+        edit_args = {
+            "path": "room:pillars.jpg",
+            "stretch": "asinh",
+            "annotate": [
+                {"kind": "arrow", "x": 70, "y": 48, "x2": 145, "y2": 210},
+                {"kind": "label", "x": 168, "y": 36, "text": "Pillar I"},
+            ],
+            "scale_bar": {"length": 100, "label": "100 px"},
+        }
+        # First pass warms font caches. The times below are the second pass.
+        plot._run(plot_args)
+        asyncio.run(edit.run(**edit_args))
+        timings: dict[str, float] = {}
+        start = time.perf_counter()
+        drawn = plot._run(dict(plot_args, out="poster-warm.png"))
+        timings["poster"] = round(time.perf_counter() - start, 4)
+        if not drawn.ok:
+            raise SystemExit(drawn.output)
+        start = time.perf_counter()
+        marked = asyncio.run(edit.run(**edit_args))
+        timings["pillars"] = round(time.perf_counter() - start, 4)
+        if not marked.ok:
+            raise SystemExit(marked.output)
+        folder = root / "plots"
+        for suffix in (".png", ".svg", ".pdf"):
+            src = folder / f"poster-warm{suffix}"
+            if not src.is_file():
+                raise SystemExit(f"poster {suffix} was not written.")
+            if suffix == ".svg":
+                safe = _svg_one_token_per_line(src.read_text(encoding="utf-8"))
+                (proof / f"poster{suffix}").write_text(safe, encoding="utf-8")
+            else:
+                shutil.copyfile(src, proof / f"poster{suffix}")
+        annotated = Path(str(marked.data.get("abs_path") or ""))
+        if not annotated.is_file():
+            raise SystemExit("annotated image was not written.")
+        with Image.open(annotated) as im:
+            if im.size != (500, 521):
+                raise SystemExit(
+                    f"annotated size {im.size[0]}x{im.size[1]}, expected 500x521."
+                )
+        shutil.copyfile(annotated, proof / "pillars_annotated.png")
+
+    report = {
+        "phase": "1b",
+        "warm_seconds": timings,
+        "target_seconds": 1.0,
+        "files": sorted(
+            p.name
+            for p in proof.iterdir()
+            if p.is_file()
+            and p.name not in {"timings.json", "commands.txt", "pillars.jpg"}
+        ),
+    }
+    (proof / "timings.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    (proof / "commands.txt").write_text(
+        "python scripts/prove_images.py --phase 1b\n",
         encoding="utf-8",
     )
     print(json.dumps(report, indent=2))
@@ -348,10 +489,12 @@ def phase_2(data: str, job: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Draw image samples and time them.")
-    parser.add_argument("--phase", default="1", choices=("1", "1a", "2"))
+    parser.add_argument("--phase", default="1", choices=("1", "1a", "1b", "2"))
     parser.add_argument("--job", default="", choices=("", "isnet", "birefnet", "upscale"))
     parser.add_argument("--data", default="")
     args = parser.parse_args(argv)
+    if args.phase == "1b":
+        return phase_1b()
     if args.phase in {"1", "1a"}:
         return phase_1()
     if args.phase == "2":
