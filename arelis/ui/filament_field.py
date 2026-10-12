@@ -1374,11 +1374,14 @@ class FilamentChatWindow(QWidget):
         from PySide6.QtCore import QEvent
         from PySide6.QtGui import QMouseEvent
 
-        from arelis.ui.window_resize import try_system_resize
+        from arelis.ui.window_resize import start_system_move, try_system_resize
 
         if event.type() == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
             if event.button() == Qt.MouseButton.LeftButton:
                 if try_system_resize(self, event.globalPosition().toPoint()):
+                    return True
+                if start_system_move(self):
+                    self._drag = None
                     return True
                 self._drag = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                 return True

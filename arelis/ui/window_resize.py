@@ -592,6 +592,32 @@ def cursor_for_hit(ht: int | None) -> Qt.CursorShape | None:
     }.get(ht)
 
 
+def start_system_move(window: QWidget | None) -> bool:
+    """Ask the system to drag this window.
+
+    Wayland ignores a plain move. Windows keeps the old drag, so this
+    returns False there and the caller moves the window itself.
+    """
+    if sys.platform == "win32" or window is None:
+        return False
+    handle_fn = getattr(window, "windowHandle", None)
+    if not callable(handle_fn):
+        return False
+    try:
+        handle = handle_fn()
+    except Exception:
+        # No window handle yet. The plain drag still moves the window.
+        return False
+    start = getattr(handle, "startSystemMove", None)
+    if not callable(start):
+        return False
+    try:
+        return bool(start())
+    except Exception:
+        # The system move is optional. The plain drag still moves the window.
+        return False
+
+
 def try_system_resize(widget: QWidget, global_pos: QPoint, *, border: int = _BORDER) -> bool:
     """Fallback: startSystemResize when pressing near an edge."""
     if widget.isMaximized() or widget.isFullScreen():

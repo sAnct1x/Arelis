@@ -18,7 +18,11 @@ from arelis.ui.caption_fade import CaptionTool, watch_caption
 from arelis.ui.glass import GlassFrame, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.theme import GLASS, METRICS, SPACE, space_box
-from arelis.ui.window_resize import enable_win32_resize_frame, handle_native_resize
+from arelis.ui.window_resize import (
+    enable_win32_resize_frame,
+    handle_native_resize,
+    start_system_move,
+)
 
 
 class MailPeekWindow(QWidget):
@@ -150,6 +154,9 @@ class MailPeekWindow(QWidget):
         if watched is self.heading:
             if event.type() == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
                 if event.button() == Qt.MouseButton.LeftButton:
+                    if start_system_move(self):
+                        self._drag_origin = None
+                        return True
                     self._drag_origin = (
                         event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                     )

@@ -112,7 +112,10 @@ def probe_hardware() -> HardwareSnapshot:
     notes: list[str] = []
     gpu_name, vram, gpu_notes = _probe_vram()
     notes.extend(gpu_notes)
-    _used, ram_total = _sample_ram_windows()
+    if sys.platform == "linux":
+        ram_total = _linux_ram_bytes()
+    else:
+        _used, ram_total = _sample_ram_windows()
     if ram_total is None:
         notes.append("ram unread")
     disk = _disk_free()
@@ -129,7 +132,23 @@ def probe_hardware() -> HardwareSnapshot:
 
 _ROCM_VRAM = re.compile(r"VRAM Total Memory \(B\):\s*(\d+)")
 _ROCM_SERIES = re.compile(r"Card series:\s*(.+)")
+_MEMINFO_TOTAL = re.compile(r"^MemTotal:\s+(\d+)\s+kB", re.MULTILINE)
 _PROBE_TIMEOUT_S = 5
+
+
+def _linux_ram_bytes() -> int | None:
+    """System memory from the kernel. None when it cannot be read."""
+    try:
+        text = Path("/proc/meminfo").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    found = _MEMINFO_TOTAL.search(text)
+    if not found:
+        return None
+    size = int(found.group(1)) * 1024
+    if size <= 0:
+        return None
+    return size
 
 
 def _probe_vram() -> tuple[str, int | None, list[str]]:
