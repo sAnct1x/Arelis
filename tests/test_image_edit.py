@@ -584,3 +584,138 @@ async def test_pixel_edits_leave_the_original_untouched(project, tool) -> None:
     assert result.ok, result.output
     assert source.read_bytes() == before
     assert result.data["abs_path"] != str(source)
+
+
+def _circle(path, size=64, radius=18, centre=(32, 32)):
+    """White circle on black. The cutout should keep the circle and drop the rest."""
+    img = Image.new("RGB", (size, size), (0, 0, 0))
+    pixels = img.load()
+    cx, cy = centre
+    for y in range(size):
+        for x in range(size):
+            if (x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2:
+                pixels[x, y] = (255, 255, 255)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(path)
+    return path
+
+
+class _MaskSession:
+    """Stand-in for u2netp: bright pixels are the subject."""
+
+    def get_inputs(self):
+        return [type("Input", (), {"name": "input"})()]
+
+    def run(self, _names, feeds):
+        batch = next(iter(feeds.values()))
+        score = batch.mean(axis=1, keepdims=True)
+        return [score]
+
+
+class _NearestSession:
+    """Stand-in for the 4x upscaler: repeat each pixel four times."""
+
+    def get_inputs(self):
+        return [type("Input", (), {"name": "image"})()]
+
+    def run(self, _names, feeds):
+        import numpy as np
+
+        tile = feeds["image"]
+        return [np.repeat(np.repeat(tile, 4, axis=2), 4, axis=3)]
+
+
+@pytest.mark.asyncio
+async def test_remove_background_keeps_the_circle(project, tool, monkeypatch) -> None:
+    root, _data, _ws = project
+    source = _circle(root / "dot.png")
+    before = source.read_bytes()
+    monkeypatch.setattr(
+        "arelis.tools.image_models.matting_model_name",
+        lambda *_args, **_kwargs: "u2netp",
+    )
+    monkeypatch.setattr(
+        "arelis.tools.image_models.session_for",
+        lambda _name: _MaskSession(),
+    )
+
+    result = await tool.run(path="project:dot.png", remove_background=True)
+
+    assert result.ok, result.output
+    assert source.read_bytes() == before
+    assert result.data["abs_path"] != str(source)
+    with Image.open(result.data["abs_path"]) as out:
+        assert out.mode == "RGBA"
+        assert out.size == (64, 64)
+        inside = out.getpixel((32, 32))[3] / 255
+        outside = out.getpixel((2, 2))[3] / 255
+        assert inside > 0.9
+        assert outside < 0.1
+
+
+@pytest.mark.asyncio
+async def test_upscale_4_quadruples_the_size(project, tool, monkeypatch) -> None:
+    root, _data, _ws = project
+    source = _write(root / "tiny.png", (40, 30), (20, 40, 80))
+    before = source.read_bytes()
+    monkeypatch.setattr(
+        "arelis.tools.image_models.session_for",
+        lambda _name: _NearestSession(),
+    )
+
+    result = await tool.run(path="project:tiny.png", upscale=4)
+
+    assert result.ok, result.output
+    assert source.read_bytes() == before
+    assert result.data["result_px"] == [160, 120]
+    with Image.open(result.data["abs_path"]) as out:
+        assert out.size == (160, 120)
+
+
+def test_tiling_has_no_seam_at_tile_borders() -> None:
+    """A smooth ramp must not jump where one 128px tile meets the next."""
+    import numpy as np
+
+    from arelis.tools.image_upscale import OVERLAP, TILE, tiled_upscale
+
+    height, width = 300, 240
+    ramp = np.linspace(0.05, 0.95, height, dtype=np.float32)
+    rgb = np.broadcast_to(ramp[:, None, None], (height, width, 3)).copy()
+
+    def predict(feed):
+        return np.repeat(np.repeat(feed, 4, axis=2), 4, axis=3)
+
+    out = tiled_upscale(rgb, predict, tile=TILE, overlap=OVERLAP, scale=4)
+    assert out.shape == (height * 4, width * 4, 3)
+    reference = np.repeat(np.repeat(rgb, 4, axis=0), 4, axis=1)
+    assert np.max(np.abs(out - reference)) < 1e-5
+
+    row_mean = out.mean(axis=(1, 2))
+    step = (TILE - 2 * OVERLAP) * 4
+    jumps = []
+    for y in range(step, out.shape[0], step):
+        jumps.append(abs(float(row_mean[y] - row_mean[y - 1])))
+    assert jumps
+    assert max(jumps) < 0.02
+
+
+@pytest.mark.asyncio
+async def test_science_upscale_is_marked_cosmetic(project, tool, monkeypatch) -> None:
+    root, _data, _ws = project
+    source = _write(root / "frame.png", (32, 24), (8, 8, 8))
+    source.with_suffix(".json").write_text(
+        '{"kind": "telescope", "note": "fits stack"}', encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "arelis.tools.image_models.session_for",
+        lambda _name: _NearestSession(),
+    )
+
+    result = await tool.run(path="project:frame.png", upscale=4)
+
+    assert result.ok, result.output
+    assert "not for measurement" in result.output
+    sidecar = Path(result.data["abs_path"]).with_suffix(".json")
+    assert '"cosmetic":true' in sidecar.read_text(encoding="utf-8").replace(" ", "")
+    assert source.read_bytes()  # original still there
+

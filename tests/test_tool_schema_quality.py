@@ -56,7 +56,9 @@ from scripts.measure_tool_schema import (
 # 0 when the prefix is warm). Worst case (every optional tool, 51) is
 # 23,803 chars, 7,203 Qwen tokens, capped at 7,640. Poster look plus
 # annotate, scale_bar, and stretch measured 20,883 chars / 6,319 tokens
-# on that profile and 24,339 chars / 7,365 on the worst case. Caps
+# on that profile and 24,339 chars / 7,365 on the worst case. With
+# remove_background and upscale as well: 20,973 chars / 6,346 tokens
+# and 24,429 chars / 7,392. Caps
 # unchanged. Both caps live in
 # SCHEMA_TOKEN_CAP. This order is that non-Windows profile. Windows CI
 # inserts desktop in front of tile. Hidden parameters on the
