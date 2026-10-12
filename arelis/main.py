@@ -123,7 +123,8 @@ def main(argv: list[str] | None = None) -> int:
         "--background",
         action="store_true",
         help=(
-            "Started by the updater or by Arelis itself. Open quietly without taking the keyboard."
+            "Started without the user (login, tray, updater, or a no-activate test). "
+            "Open quietly and do not take the foreground."
         ),
     )
     # Before parse_args: --version exits inside argparse, and the GPU flag has to

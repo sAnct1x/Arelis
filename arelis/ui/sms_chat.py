@@ -37,7 +37,7 @@ from arelis.sms_media import (
     sms_body_html,
 )
 from arelis.ui.caption_fade import CaptionTool, watch_caption
-from arelis.ui.foreground import process_owns_foreground
+from arelis.ui.foreground import focus_if_allowed, process_owns_foreground
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon, window_minimize_icon
 from arelis.ui.sms_store import cap_messages, load_threads, save_threads
@@ -412,7 +412,7 @@ class SmsChatWindow(QWidget):
         self._set_heading(self._base_title)
         self.clear_attention()
         self._rim_pulse.start()
-        self.input.setFocus()
+        focus_if_allowed(self.input)
         self.shown.emit()
 
     def changeEvent(self, event) -> None:  # type: ignore[override]

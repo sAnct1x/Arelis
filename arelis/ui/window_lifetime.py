@@ -25,7 +25,12 @@ from PySide6.QtWidgets import (
 
 from arelis.core.bus import bind_app_bus
 from arelis.paths import app_icon_path
-from arelis.ui.foreground import flash_taskbar, show_without_activating
+from arelis.ui.foreground import (
+    flash_taskbar,
+    quiet_launch,
+    release_quiet_launch,
+    show_without_activating,
+)
 from arelis.ui.idle_host import wake_from_away_rest
 from arelis.ui.layout_store import (
     save_window_layout,
@@ -291,6 +296,16 @@ class WindowLifetime:
 
     def _unpark_floating_docks(self) -> None:
         """Bring parked floating instruments back with the glass."""
+        # raise_() activates. A quiet launch may show the docks again, but
+        # must not pull the foreground over to do it.
+        quiet = quiet_launch(self)
+
+        def _back(dock: Any) -> None:
+            dock._arelis_parked = False
+            dock.show()
+            if not quiet:
+                dock.raise_()
+
         for dock in (
             self.think_dock,
             self.work_dock,
@@ -299,20 +314,14 @@ class WindowLifetime:
         ):
             if not getattr(dock, "_arelis_parked", False):
                 continue
-            dock._arelis_parked = False
-            dock.show()
-            dock.raise_()
+            _back(dock)
             invalidate_window_surface(dock)
         cal = getattr(self, "calendar_window", None)
         if cal is not None and getattr(cal, "_arelis_parked", False):
-            cal._arelis_parked = False
-            cal.show()
-            cal.raise_()
+            _back(cal)
         world = getattr(self, "world_window", None)
         if world is not None and getattr(world, "_arelis_parked", False):
-            world._arelis_parked = False
-            world.show()
-            world.raise_()
+            _back(world)
 
     def _remember_window_state(self) -> None:
         """Record maximized/full-screen before hiding, ignoring Minimized.
@@ -352,8 +361,14 @@ class WindowLifetime:
         # setWindowState before show, so the window is only ever mapped once and
         # at its final size. Showing first and correcting afterwards is what put
         # a full-screen frame on screen underneath a restored-size one.
-        self.setWindowState(self._tray_window_state)
+        state = self._tray_window_state
+        if not activate and quiet_launch(self):
+            state &= ~Qt.WindowState.WindowMaximized
+        self.setWindowState(state)
         if activate:
+            # Second shortcut / tray Open is the user asking. Unlock before
+            # the raise, or the quiet lock keeps the glass in the back.
+            release_quiet_launch(self)
             self.show()
             self.raise_()
             self.activateWindow()

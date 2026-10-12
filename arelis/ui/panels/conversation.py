@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 from arelis.attachments import stage_files, stage_image_bytes
 from arelis.core.confirm_speech import classify_confirm_utterance
 from arelis.ui.attach_bar import AttachBar, DropOverlay
+from arelis.ui.foreground import focus_if_allowed
 from arelis.ui.glass import GlassFrame, Hairline
 from arelis.ui.icons import (
     conversation_icon,
@@ -716,7 +717,7 @@ class ConversationStage(GlassFrame):
             win = self.window()
             if win is not None and not getattr(win, "_filament_chat_open", False):
                 return
-        self.input.setFocus(Qt.FocusReason.OtherFocusReason)
+        focus_if_allowed(self.input, Qt.FocusReason.OtherFocusReason)
         self.input.ensureCursorVisible()
 
     def _place_composer(self, idle: bool) -> None:
@@ -830,7 +831,7 @@ class ConversationStage(GlassFrame):
                 voice_host.hide()
             self._fit_workbench_prompt()
         if moved and focused:
-            self.input.setFocus(Qt.FocusReason.OtherFocusReason)
+            focus_if_allowed(self.input, Qt.FocusReason.OtherFocusReason)
             self.input.setCursorPosition(cursor)
             self.input.ensureCursorVisible()
         self._place_parked_orbit()
@@ -1124,7 +1125,7 @@ class ConversationStage(GlassFrame):
         existing = self.input.text().strip()
         self.input.setText(f"{existing} {text}".strip() if existing else text)
         self.input.setCursorPosition(len(self.input.text()))
-        self.input.setFocus()
+        focus_if_allowed(self.input)
 
     def _on_suggestion(self, text: str) -> None:
         """Put an opening suggestion in the composer. Never send it.
@@ -1139,7 +1140,7 @@ class ConversationStage(GlassFrame):
             return
         self.input.setText(text)
         self.input.setCursorPosition(len(text))
-        self.input.setFocus()
+        focus_if_allowed(self.input)
 
     def ask_confirm(
         self,
@@ -1288,7 +1289,7 @@ class ConversationStage(GlassFrame):
         focus = QApplication.focusWidget()
         if focus is not None and focus is not self.input and focus.inherits("QLineEdit"):
             return
-        self.input.setFocus()
+        focus_if_allowed(self.input)
 
 
 def _qimage_png_bytes(image: QImage) -> bytes:

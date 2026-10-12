@@ -592,7 +592,7 @@ class WindowBuild:
         self._sync_filament_face()
 
         self._later(0, self._schedule_readiness_probe)
-        self._later(80, self.conversation.focus_input)
+        self._later(80, self._focus_composer_after_show)
         # The duplicate-paint bug is on screen from the first frame, so a dump
         # once the window has settled catches it. See surface_report for why
         # these three lists are the ones worth printing.
@@ -602,6 +602,18 @@ class WindowBuild:
             # window is shown; a zero-delay shot waits one event-loop pass so
             # the bridge is connected before SESSION_LOADED comes back.
             self._later(0, lambda: request_session_load(self, self._restore_session_id or ""))
+
+    def _focus_composer_after_show(self) -> None:
+        """Cursor to the composer after show. A quiet launch skips this.
+
+        setFocus activates the top-level window. The 80ms pass is late
+        enough to steal the foreground after a no-activate show.
+        """
+        from arelis.ui.foreground import quiet_launch
+
+        if quiet_launch(self):
+            return
+        self.conversation.focus_input()
 
     def _on_persona_stop_speaking(self) -> None:
         from arelis.ui.voice_host import stop_speech

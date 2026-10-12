@@ -392,7 +392,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
         self._tick_t = time.perf_counter()
         self._clock.start()
         self._watch.start()
-        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        from arelis.ui.foreground import focus_if_allowed
+
+        focus_if_allowed(self, Qt.FocusReason.OtherFocusReason)
         self._ensure_ic()
         self._ensure_space()
 
