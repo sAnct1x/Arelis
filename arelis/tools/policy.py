@@ -243,7 +243,16 @@ def always_pause(name: str, args: dict[str, Any] | None = None) -> bool:
         return True
     if tool == "browser" and _action(args) == "upload":
         return True
+    if tool == "image_edit" and _image_download_pause(args):
+        return True
     return action_is_destructive(name, args)
+
+
+def _image_download_pause(args: dict[str, Any] | None) -> bool:
+    """A missing model over 50 MB is not covered by the ask alone."""
+    from arelis.tools.image_models import download_needs_allow
+
+    return download_needs_allow(args)
 
 
 def persist_ok(name: str, args: dict[str, Any] | None = None) -> bool:

@@ -615,6 +615,8 @@ tools:
   # Generative restyle ("make this a watercolor") is tools.image with path=.
   image_edit:
     enabled: true
+    # auto: ISNet under 32 GB of RAM, BiRefNet-lite at 32 GB or more.
+    matting_model: auto
   # See one image (VL). Attended turns only; unload chat → VL → rewarm fast.
   vision:
     enabled: true

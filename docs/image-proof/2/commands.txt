@@ -1,0 +1,1 @@
+python scripts/prove_images.py --phase 2

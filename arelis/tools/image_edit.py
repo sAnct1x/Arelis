@@ -8,9 +8,10 @@ prompt and produced an unrelated picture at the right size, and the calculator
 was forced in at the end because "1280 x 720" reads as arithmetic. Three Allow
 cards, three minutes, and nothing the user asked for.
 
-Nothing here involves a model. Resizing and saturation are arithmetic on pixels
-with an exactly right answer, so they are done in-process by Pillow, take
-milliseconds, and produce the same result every time. The source file is never
+Resizing and saturation are arithmetic on pixels with an exactly right answer,
+so they are done in-process by Pillow. remove_background and upscale are the
+exception: a small ONNX model on the CPU, downloaded the first time, with the
+GPU left for the chat model. The source file is never
 modified: every edit is written as a new file, because the input is usually the
 only copy of something somebody sent you. Generative restyle ("make this a
 watercolor") is the image tool with path=, not this module.
@@ -67,6 +68,49 @@ _MAX_EDGE = 8192
 _MAX_PIXELS = 40_000_000
 
 _ADJUSTMENTS = ("vibrance", "contrast", "brightness", "sharpness")
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _apply_learned(
+    frame: Any,
+    source: Path,
+    *,
+    remove_background: bool,
+    upscale: int | None,
+) -> tuple[Any, list[str], bool]:
+    """Cutout, then model upscale. Raises ValueError with a plain sentence."""
+    from arelis.tools.image_models import ModelError
+
+    notes: list[str] = []
+    cosmetic = False
+    try:
+        if remove_background:
+            from arelis.config import load_config
+            from arelis.tools.image_matting import cutout
+            from arelis.tools.image_models import matting_model_name, total_ram_bytes
+
+            tools = load_config().get("tools") or {}
+            setting = str((tools.get("image_edit") or {}).get("matting_model") or "auto")
+            model = matting_model_name(setting, total_ram_bytes())
+            frame = cutout(frame, model)
+            notes.append("background removed")
+        if upscale:
+            from arelis.tools.image_upscale import source_is_science, upscale_image
+
+            _reject_huge(frame.width * upscale, frame.height * upscale)
+            frame = upscale_image(frame, upscale)
+            notes.append(f"upscaled {upscale}x")
+            if source_is_science(source):
+                cosmetic = True
+                notes.append("This is cosmetic only. It is not for measurement.")
+    except ModelError as exc:
+        raise ValueError(str(exc)) from None
+    return frame, notes, cosmetic
 
 
 def _clamp_factor(value: Any, name: str) -> float:
@@ -168,7 +212,9 @@ class ImageEditTool:
         "(radius), text (centered overlay), text_align (center/top/bottom), "
         "warmth (-1.0 cooler … +1.0 warmer), and vibrance/contrast/brightness/"
         "sharpness where 1.0 is unchanged, 1.3 is noticeably more and 0.8 is "
-        "less. This is exact pixel work, not generation: 'make this look like "
+        "less. remove_background cuts the background out (a PNG with "
+        "transparency). upscale is 2 or 4 with a small model. scale stays "
+        "arithmetic. This is exact pixel work, not generation: 'make this look like "
         "a watercolor' or 'in the style of' is the image tool with path= "
         "(img2img). Use vision to look at one. 'Add text' on a picture is this "
         "tool, never send_sms."
@@ -284,6 +330,15 @@ class ImageEditTool:
                 "enum": ["png", "jpg"],
                 "description": "Output format. Defaults to png (lossless).",
             },
+            "remove_background": {
+                "type": "boolean",
+                "description": "Cut out the background. Writes a PNG with transparency.",
+            },
+            "upscale": {
+                "type": "integer",
+                "enum": [2, 4],
+                "description": "Model enlarge, 2 or 4. scale stays arithmetic.",
+            },
         },
         "required": ["path"],
     }
@@ -291,6 +346,11 @@ class ImageEditTool:
     def __init__(self, workspace: WorkspaceRoots, *, output_dir: str | Path = "") -> None:
         self.workspace = workspace
         self._output_dir = Path(output_dir) if output_dir else None
+
+    def confirm_detail(self, args: dict[str, Any]) -> str:
+        from arelis.tools.image_models import allow_detail
+
+        return allow_detail(args)
 
     def output_dir(self) -> Path:
         """Resolved late so a test that moves the data root is believed."""
@@ -454,6 +514,24 @@ class ImageEditTool:
             warmth = max(-1.0, min(1.0, warmth))
             if abs(warmth) < 1e-6:
                 warmth = None
+        # Learned edits. One block so a parallel arithmetic change can rebase.
+        remove_background = _truthy(kwargs.get("remove_background"))
+        upscale = None
+        if kwargs.get("upscale") is not None and kwargs.get("upscale") != "":
+            try:
+                upscale = int(kwargs.get("upscale"))
+            except (TypeError, ValueError):
+                return ToolResult(
+                    ok=False, output="[fail:image_edit] upscale must be 2 or 4."
+                )
+            if upscale not in (2, 4):
+                return ToolResult(
+                    ok=False, output="[fail:image_edit] upscale must be 2 or 4."
+                )
+        if remove_background:
+            fmt_forced = "png"
+        else:
+            fmt_forced = ""
         if (
             size is None
             and not adjusting
@@ -468,6 +546,8 @@ class ImageEditTool:
             and scale is None
             and not pad
             and warmth is None
+            and not remove_background
+            and upscale is None
         ):
             return ToolResult(
                 ok=False,
@@ -477,7 +557,8 @@ class ImageEditTool:
                     "warmth=, an adjustment "
                     "(vibrance=1.3, contrast=1.1, brightness=1.1, sharpness=1.4), "
                     "rotate=, flip=horizontal, grayscale=true, blur=, "
-                    "and/or text= to overlay glyphs."
+                    "and/or text= to overlay glyphs. remove_background=true "
+                    "cuts the background out. upscale=4 enlarges with a model."
                 ),
             )
 
@@ -487,7 +568,10 @@ class ImageEditTool:
                 ok=False,
                 output=f"[fail:image_edit] fit must be one of {', '.join(FIT_MODES)}.",
             )
-        fmt = str(kwargs.get("format") or "png").strip().lower().lstrip(".")
+        if not fmt_forced:
+            fmt = str(kwargs.get("format") or "png").strip().lower().lstrip(".")
+        else:
+            fmt = fmt_forced
         if fmt in {"jpeg"}:
             fmt = "jpg"
         if fmt not in {"png", "jpg"}:
@@ -515,6 +599,8 @@ class ImageEditTool:
                 scale,
                 pad,
                 warmth,
+                remove_background=remove_background,
+                upscale=upscale,
             )
         except ValueError as exc:
             return ToolResult(ok=False, output=f"[fail:image_edit] {exc}")
@@ -544,6 +630,9 @@ class ImageEditTool:
         scale: float | None = None,
         pad: int = 0,
         warmth: float | None = None,
+        *,
+        remove_background: bool = False,
+        upscale: int | None = None,
     ) -> ToolResult:
         from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
@@ -627,6 +716,17 @@ class ImageEditTool:
         if overlay:
             frame = _draw_overlay_text(frame, overlay, align)
 
+        # Learned edits stay after the arithmetic ones, in this one block.
+        cosmetic = False
+        if remove_background or upscale:
+            frame, learned, cosmetic = _apply_learned(
+                frame,
+                source,
+                remove_background=remove_background,
+                upscale=upscale,
+            )
+            notes.extend(learned)
+
         directory = ensure(self.output_dir())
         parts = [source.stem]
         if size is not None:
@@ -653,6 +753,10 @@ class ImageEditTool:
             parts.append("vibrant" if factors["vibrance"] > 1 else "muted")
         if overlay:
             parts.append("text")
+        if remove_background:
+            parts.append("nobg")
+        if upscale:
+            parts.append(f"x{upscale}")
         suffix = ".png" if fmt == "png" else ".jpg"
         if fmt == "jpg" and frame.mode != "RGB":
             frame = frame.convert("RGB")
@@ -661,6 +765,10 @@ class ImageEditTool:
         if fmt == "jpg":
             save_args = {"quality": 92, "optimize": True}
         frame.save(dest, **save_args)
+        if cosmetic:
+            from arelis.tools.image_upscale import mark_cosmetic
+
+            mark_cosmetic(dest)
 
         changes: list[str] = []
         if size is not None:
