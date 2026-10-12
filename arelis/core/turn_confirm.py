@@ -76,6 +76,61 @@ async def _emit_skip_repeat_fail(
     return SKIP, "", call_fp
 
 
+def _counts_toward_repeat_fail(reason: str) -> bool:
+    """Empty or missing required args are a hint, not a failed call.
+
+    Counting them makes the next identical call say it failed twice, and
+    the model stops instead of filling the body (bench C05). A placeholder
+    or any other refusal still counts.
+    """
+    text = " ".join(str(reason).split())
+    return not text.startswith(
+        (
+            "workspace write has empty content",
+            "document has empty body",
+            "inbox create_folder needs",
+            "inbox move needs",
+            "inbox change needs",
+            "notes add needs text",
+            "workspace write needs content",
+        )
+    )
+
+
+async def _refuse_confirm_block(
+    loop: Any,
+    name: str,
+    call_fp: str,
+    reason: str,
+    *,
+    messages: list[dict[str, Any]],
+    tool_names: set[str],
+    fail_counts: dict[str, int],
+    trace_kind: str,
+) -> tuple[str, str, str]:
+    counts = _counts_toward_repeat_fail(reason)
+    if counts:
+        fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
+    clipped = _clip_confirm_reason(reason)
+    await loop.bus.publish(
+        Event(
+            EventType.THINKING,
+            {"text": f"phase=confirm {trace_kind}  {clipped}"},
+        )
+    )
+    messages.append(loop._tool_message(name, f"[fail:other] {clipped}"))
+    loop._trace.append(f"{name} {trace_kind}: {clipped}")
+    if counts and fail_counts[call_fp] >= 2:
+        return await _emit_skip_repeat_fail(
+            loop,
+            name,
+            call_fp,
+            messages=messages,
+            tool_names=tool_names,
+        )
+    return SKIP, "", call_fp
+
+
 async def confirm_call(
     loop: Any,
     ctx: TurnContext,
@@ -105,49 +160,31 @@ async def confirm_call(
     ):
         blocked = None
     if blocked:
-        fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
-        clipped = _clip_confirm_reason(blocked)
-        await loop.bus.publish(
-            Event(
-                EventType.THINKING,
-                {"text": f"phase=confirm blocked  {clipped}"},
-            )
+        return await _refuse_confirm_block(
+            loop,
+            name,
+            call_fp,
+            blocked,
+            messages=messages,
+            tool_names=tool_names,
+            fail_counts=fail_counts,
+            trace_kind="blocked",
         )
-        messages.append(loop._tool_message(name, f"[fail:other] {clipped}"))
-        loop._trace.append(f"{name} blocked: {clipped}")
-        if fail_counts[call_fp] >= 2:
-            return await _emit_skip_repeat_fail(
-                loop,
-                name,
-                call_fp,
-                messages=messages,
-                tool_names=tool_names,
-            )
-        return SKIP, "", call_fp
 
     # Check native-mode-specific argument problems
     if native_tool_calling(ctx.agent_cfg):
         native_blocked = native_arg_problem(name, args)
         if native_blocked:
-            fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
-            clipped = _clip_confirm_reason(native_blocked)
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": f"phase=confirm native_blocked  {clipped}"},
-                )
+            return await _refuse_confirm_block(
+                loop,
+                name,
+                call_fp,
+                native_blocked,
+                messages=messages,
+                tool_names=tool_names,
+                fail_counts=fail_counts,
+                trace_kind="native_blocked",
             )
-            messages.append(loop._tool_message(name, f"[fail:other] {clipped}"))
-            loop._trace.append(f"{name} native_blocked: {clipped}")
-            if fail_counts[call_fp] >= 2:
-                return await _emit_skip_repeat_fail(
-                    loop,
-                    name,
-                    call_fp,
-                    messages=messages,
-                    tool_names=tool_names,
-                )
-            return SKIP, "", call_fp
 
     if fail_counts.get(call_fp, 0) >= 2:
         return await _emit_skip_repeat_fail(
@@ -275,9 +312,9 @@ async def confirm_call(
             )
             if drop:
                 notice = (
-                    f"The user declined `{name}` and it is not "
-                    "available for the rest of this turn. Do not "
-                    "call it again."
+                    f"The user said no to this {name} call, so it was not done. "
+                    "Tell them you skipped it because they said no. "
+                    "Do not call it again this turn."
                 )
                 if (
                     "send_sms" in loop._expected_tools

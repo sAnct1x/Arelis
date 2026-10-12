@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.tools.confirm_copy import confirm_headline
+from arelis.ui.foreground import focus_if_allowed
 from arelis.ui.theme import SPACE, space_box
 
 # Enough to read a short email in full without the card taking over the window.
@@ -126,7 +127,7 @@ class ConfirmCard(QWidget):
         self.allow_always.setToolTip(tr("turn off this Allow gate in Settings"))
         self.allow_always.setVisible(persist_ok)
         self.show()
-        self.allow_btn.setFocus()
+        focus_if_allowed(self.allow_btn)
 
     def arm(self, confirm_id: str, headline: str = "") -> None:
         """Hold a decision without painting the card, voice or typed allow."""

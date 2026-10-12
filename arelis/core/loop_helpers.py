@@ -403,14 +403,14 @@ _MALFORMED_CALL_NOTICE = (
 )
 
 # What the model is told when the user declines a call. The wording matters more
-# than it looks. A bare "user skipped tool X" reads as "you lack permission", and
-# models respond by apologizing, refusing to use tools for the rest of the
-# session, and suggesting the user run a shell command instead. This says what
-# actually happened and what is still allowed.
+# than it looks. "Not available" and "you lack permission" both get repeated
+# as if the tool were missing. Say they said no, and that the call was not done.
 _SKIP_NOTICE = (
-    "The user declined this specific `{tool}` call. This is not a permissions "
-    "error and the tool is still available. Either propose a different call, or "
-    "ask what they would prefer. Do not tell the user to run commands themselves, "
+    "The user said no to this specific {tool} call, so it was not done. "
+    "Tell them you skipped it because they said no. "
+    "This is not a permissions error. "
+    "Either propose a different call, or ask what they would prefer. "
+    "Do not tell the user to run commands themselves, "
     "and do not claim the change was made."
 )
 

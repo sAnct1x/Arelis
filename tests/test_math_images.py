@@ -24,11 +24,19 @@ from PySide6.QtWidgets import QApplication
 
 @pytest.fixture(autouse=True)
 def _qt(qt_app):
-    from arelis.ui.math_images import clear_cache, wait_prewarm
+    """A finished warm-up, an empty picture cache, and a fresh reply budget.
+
+    Those three are process globals. A previous test can leave a cached
+    miss or a budget already spent, and the next reply then draws unicode.
+    """
+    from arelis.ui.math_images import begin_reply, clear_cache, wait_prewarm
 
     assert wait_prewarm(), "math warm-up did not finish"
     clear_cache()
-    return qt_app
+    begin_reply()
+    yield qt_app
+    clear_cache()
+    begin_reply()
 
 FRAC = r"\frac{a}{b}"
 SUM = r"\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}"
@@ -126,6 +134,93 @@ def test_cases_aligned_array_and_underbrace_render():
     p = _panel()
     _reply(p, body)
     assert len(_math_images(p.view.document())) == 4
+
+
+def test_a_slow_first_formula_does_not_drop_the_rest_of_a_short_reply(monkeypatch):
+    """The reply budget used to stop after one slow draw. The other three
+    stayed unicode. A short answer still draws them."""
+    import time
+
+    import arelis.ui.math_images as mi
+
+    real = mi._svg_for
+    calls = {"n": 0}
+
+    def slow(tex, px, display):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            time.sleep(0.25)
+        return real(tex, px, display)
+
+    monkeypatch.setattr(mi, "_svg_for", slow)
+    body = "\n\n".join(
+        f"$${tex}$$"
+        for tex in (
+            r"f(x) = \begin{cases} x & x \geq 0 \\ -x & x < 0 \end{cases}",
+            r"\begin{aligned} a &= b \\ c &= d \end{aligned}",
+            r"\begin{array}{cc} 1 & 0 \\ 0 & 1 \end{array}",
+            r"\underbrace{a+b}_{n}",
+        )
+    )
+    p = _panel()
+    _reply(p, body)
+    assert len(_math_images(p.view.document())) == 4
+    assert calls["n"] == 4
+
+
+def test_a_reply_during_warm_up_still_draws():
+    """Warm-up holds the engine. The reply waits for that, then draws.
+    After warm-up a busy lock does not wait: this thread would deadlock
+    on itself."""
+    import threading
+    import time
+
+    import arelis.ui.math_images as mi
+
+    mi.clear_cache()
+    mi.begin_reply()
+    assert mi._LOCK.acquire(timeout=2)
+    mi._WARM_DONE.clear()
+
+    def release() -> None:
+        time.sleep(0.05)
+        mi._LOCK.release()
+        mi._WARM_DONE.set()
+
+    helper = threading.Thread(target=release, daemon=True)
+    helper.start()
+    try:
+        image = mi.render_qimage(
+            FRAC, True, color="#f8f1ea", px=14, dpr=2.0, max_width=400, give_up=True
+        )
+        assert image is not None and not image.isNull()
+    finally:
+        helper.join(2)
+        mi._WARM_DONE.set()
+        if mi._LOCK.locked():
+            mi._LOCK.release()
+
+    assert mi._LOCK.acquire(blocking=False)
+    try:
+        started = time.perf_counter()
+        missed = mi.render_qimage(
+            r"\sqrt{2}", True, color="#f8f1ea", px=14, dpr=2.0, max_width=400, give_up=True
+        )
+        waited = time.perf_counter() - started
+    finally:
+        mi._LOCK.release()
+    assert missed is None
+    assert waited < 0.2
+
+
+def test_a_long_reply_still_stops_when_the_time_cap_is_spent():
+    """The floor does not cancel the cap. Past the floor, a spent budget stays unicode."""
+    import arelis.ui.math_images as mi
+
+    mi.begin_reply()
+    mi._BUDGET.count = mi._DRAW_FLOOR
+    mi._BUDGET.spent = mi._TIME_CAP_S
+    assert mi.math_html(0, FRAC, "a/b", True) is None
 
 
 def test_a_formula_that_cannot_render_falls_back_to_readable_unicode():

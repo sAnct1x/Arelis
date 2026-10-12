@@ -6,9 +6,11 @@ that mirror honest: the harness docstring has promised this file since the
 mirror was written, and the file did not exist. A stub that accepts arguments
 the real tool rejects turns every scenario using it into decoration.
 
-The registry here is built the way an attended session builds it — `vision`
-and `camera` only register with `attended=True` and a router, and a check that
-forgets that reports two false missing tools.
+The registry here is the full shippable set: attended, with a router, the VL
+model treated as installed, and desktop included. A live session can omit
+desktop (not Windows) or vision and camera (no VL model). This file is
+checking that the stubs still match tools that ship, not that this machine
+would offer them.
 """
 
 from __future__ import annotations
@@ -31,15 +33,13 @@ CREDENTIAL_GATED = frozenset({"send_sms", "send_email", "inbox", "inbound_sms"})
 
 @pytest.fixture(scope="module")
 def real_tools() -> dict[str, Any]:
-    """The attended registry: every tool a person at the glass can reach.
-
-    `vision` and `camera` register only with `attended=True` *and* a router, so
-    a check that builds the plain registry reports two tools missing that ship
-    in every real session.
-    """
+    """Every tool that can ship, not the smaller set this host would offer."""
     router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
+    config = load_config()
+    config["_vl_model_installed"] = True
+    config["_session_platform"] = "win32"
     registry = build_tool_registry(
-        load_config(), allow_send=True, attended=True, router=router
+        config, allow_send=True, attended=True, router=router
     )
     return {name: registry.get(name) for name in registry.names()}
 

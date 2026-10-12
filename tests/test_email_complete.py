@@ -102,6 +102,47 @@ def test_about_without_colon_fills_body_for_force() -> None:
     assert draft.subject
 
 
+@pytest.mark.parametrize(
+    "ask",
+    [
+        "Email sam@example.com with the subject Lunch and tell him I'm running ten minutes late.",
+        "Email sam@example.com subject: Lunch and tell him I'm running ten minutes late.",
+        "Email sam@example.com titled Lunch and tell him I'm running ten minutes late.",
+        'Email sam@example.com with subject "Lunch" and tell him I\'m running ten minutes late.',
+    ],
+)
+def test_named_subject_lands_on_the_confirm_card(ask: str) -> None:
+    """A named subject is the subject. The rest is the body.
+
+    The email force preinject used to keep the default subject and stuff
+    'with the subject Lunch and tell him...' into the body, so the Allow
+    card showed 'A message from Arelis'.
+    """
+    from arelis.core.turn_context import TurnContext
+    from arelis.core.turn_prepare import _prepare_email_first_move
+    from arelis.tools.policy import describe_call
+
+    draft = complete_email_draft(ask)
+    assert draft is not None
+    assert draft.complete
+    assert draft.subject == "Lunch"
+    assert "running ten minutes late" in draft.body
+    assert "subject" not in draft.body.lower()
+    assert "titled" not in draft.body.lower()
+    assert draft.tool_subject == "Lunch"
+
+    ctx = TurnContext(text=ask, role="fast")
+    ctx.email_draft = draft
+    ctx.tool_names = {"send_email"}
+    _prepare_email_first_move(ctx, {})
+    assert ctx.email_preinject is not None
+    assert ctx.email_preinject["subject"] == "Lunch"
+    card = describe_call("send_email", ctx.email_preinject)
+    assert any(line.strip() == "Subject: Lunch" for line in card.splitlines())
+    assert "A message from Arelis" not in card
+    assert "running ten minutes late" in card
+
+
 def test_address_plus_body_without_subject_is_complete() -> None:
     """Missing subject alone must not skip force — default subject at send."""
     draft = parse_email_utterance("Email bob@example.com that I'll be late")

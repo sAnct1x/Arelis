@@ -549,6 +549,11 @@ tools:
   # outputs/plots/. Always Allow (confirm_writes). Off for unattended jobs.
   plot:
     enabled: true
+  # Text diagrams: a flowchart, a chart, a slide, or a drawing. SVG and PNG.
+  # A room with a folder saves under that project's results folder. Otherwise
+  # outputs/diagrams/. Always Allow. Off for unattended jobs.
+  diagram:
+    enabled: true
   # Analysis and charts of files in the current room, including FITS.
   # Writes under that room's results/. Always Allow. Off for unattended jobs.
   data_cell:
@@ -610,6 +615,8 @@ tools:
   # Generative restyle ("make this a watercolor") is tools.image with path=.
   image_edit:
     enabled: true
+    # auto: ISNet under 32 GB of RAM, BiRefNet-lite at 32 GB or more.
+    matting_model: auto
   # See one image (VL). Attended turns only; unload chat → VL → rewarm fast.
   vision:
     enabled: true

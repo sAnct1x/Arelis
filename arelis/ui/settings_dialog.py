@@ -56,6 +56,7 @@ from arelis.ui.scale import (
     scale_preset_label,
 )
 from arelis.ui.theme import GLASS, SPACE, polish_combo_popup, space_box
+from arelis.ui.window_resize import start_system_move
 
 log = logging.getLogger(__name__)
 
@@ -858,6 +859,9 @@ class SettingsDialog(QDialog):
                 event.type() == QEvent.Type.MouseButtonPress
                 and event.button() == Qt.MouseButton.LeftButton
             ):
+                if start_system_move(self):
+                    self._drag_origin = None
+                    return True
                 self._drag_origin = (
                     event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                 )

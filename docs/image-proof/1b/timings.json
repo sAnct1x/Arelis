@@ -1,0 +1,14 @@
+{
+  "phase": "1b",
+  "warm_seconds": {
+    "poster": 0.2149,
+    "pillars": 0.1234
+  },
+  "target_seconds": 1.0,
+  "files": [
+    "pillars_annotated.png",
+    "poster.pdf",
+    "poster.png",
+    "poster.svg"
+  ]
+}
