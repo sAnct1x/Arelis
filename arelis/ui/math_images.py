@@ -65,8 +65,9 @@ _BASELINE_K = 0.35
 # the unicode line can wrap, so give up.
 _SHRINK_LIMIT = 3.0
 
-# Inline structure unicode cannot draw. Simple ``x^2`` and Greek are absent
-# on purpose. ``(?![A-Za-z])`` keeps ``\int`` from eating ``\iint``.
+# Inline structure unicode cannot draw. Simple ``x^2`` stays text.
+# Greek is drawn: Zen Kaku has no Greek, so ``\theta`` and ``\Delta`` vanished.
+# ``(?![A-Za-z])`` keeps ``\int`` from eating ``\iint``.
 _STRUCTURE = re.compile(
     r"\\(?:[dtc]?frac|[dt]?binom|sqrt|over|choose|sum|prod|coprod|"
     r"int|iint|iiint|oint|lim|limsup|liminf|bigcup|bigcap|"
@@ -291,6 +292,14 @@ def prepare_tex(tex: str) -> str:
     return text.strip()
 
 
+def _needs_greek_glyph(plain: str) -> bool:
+    """True when the unicode line needs a Greek glyph the desk face lacks."""
+    for ch in plain:
+        if "\u0370" <= ch <= "\u03ff" or "\u1f00" <= ch <= "\u1fff":
+            return True
+    return False
+
+
 def wants_image(tex: str, display: bool) -> bool:
     """True when this span should try an image instead of unicode."""
     src = (tex or "").strip()
@@ -301,6 +310,9 @@ def wants_image(tex: str, display: bool) -> bool:
     if _STRUCTURE.search(src):
         return True
     plain = tex_to_plain(src)
+    # A missing Greek glyph is a blank, not a character. Draw it.
+    if _needs_greek_glyph(plain):
+        return True
     if "^" in plain or "_" in plain:
         return True
     return _STACKED.search(src) is not None

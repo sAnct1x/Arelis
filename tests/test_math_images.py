@@ -250,8 +250,9 @@ def test_engine_exception_falls_back_to_unicode(monkeypatch):
 def test_simple_inline_math_stays_text_and_structured_inline_becomes_an_image():
     from arelis.ui.math_images import wants_image
 
-    for tex in (r"x^2", r"\alpha + \beta", r"A \cup B", r"x_n", r"p \implies q", r"30^\circ"):
+    for tex in (r"x^2", r"A \cup B", r"x_n", r"p \implies q", r"30^\circ"):
         assert not wants_image(tex, display=False), tex
+    # Greek is an image. The desk face has no Greek, so the unicode line vanishes.
     for tex in (
         FRAC,
         r"\sqrt{2}",
@@ -260,6 +261,9 @@ def test_simple_inline_math_stays_text_and_structured_inline_becomes_an_image():
         r"\binom{n}{k}",
         PMATRIX,
         r"\overline{z}",
+        r"\alpha + \beta",
+        r"\theta",
+        r"\Delta > 0",
     ):
         assert wants_image(tex, display=False), tex
     assert wants_image(r"x^2", display=True)
