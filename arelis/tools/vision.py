@@ -168,10 +168,7 @@ class VisionTool:
             if not ok:
                 return ToolResult(
                     ok=False,
-                    output=(
-                        f"Vision model `{self.model}` is not installed. "
-                        f"Run: ollama pull {self.model}"
-                    ),
+                    output=f"The vision model {self.model} isn't downloaded yet.",
                     data={"model": self.model, "code": "MODEL_MISSING"},
                 )
 
@@ -265,10 +262,7 @@ class VisionTool:
         if _MODEL_MISSING.search(msg):
             return ToolResult(
                 ok=False,
-                output=(
-                    f"Vision model `{self.model}` is not available. "
-                    f"Run: ollama pull {self.model}\n({msg[:300]})"
-                ),
+                output=f"The vision model {self.model} isn't downloaded yet.",
                 data={"model": self.model, "code": "MODEL_MISSING"},
             )
         if _CONTEXT_FULL.search(msg):
