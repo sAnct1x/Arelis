@@ -156,9 +156,11 @@ def load_fonts() -> dict[str, str]:
     for filename in weights:
         _register_font(filename)
     for filename, key in fallback:
+        # Register even when the desk face already filled the role. Chat math
+        # falls back to IBM Plex for Greek, which Zen Kaku does not contain.
+        name = _register_font(filename)
         if key in filled:
             continue
-        name = _register_font(filename)
         if not name:
             missing_required.append(filename)
             continue
@@ -191,7 +193,10 @@ def app_font(families: dict[str, str] | None = None) -> QFont:
     third of a pixel smaller than widgets it does not, which is invisible until
     a fractional scale factor rounds the two apart.
     """
-    font = QFont((families or {}).get("body", "Segoe UI"))
+    body = (families or {}).get("body", "Segoe UI")
+    font = QFont()
+    # Plex covers Greek the desk face drops. Segoe is the Windows floor.
+    font.setFamilies([body, "IBM Plex Sans", "Segoe UI"])
     font.setPixelSize(FONT_PX)
     return font
 

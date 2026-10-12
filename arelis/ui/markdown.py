@@ -134,9 +134,15 @@ _RAW: contextvars.ContextVar[tuple[tuple[str, bool], ...]] = contextvars.Context
 _MATH: contextvars.ContextVar[MathHook | None] = contextvars.ContextVar("math_hook", default=None)
 
 
+# Zen Kaku has no Greek. IBM Plex and Segoe do, so a formula that stays
+# unicode (simple math, or an image the engine refused) is still readable.
+_MATH_FACE = "'IBM Plex Sans', 'Segoe UI', sans-serif"
+
+
 def _style_math() -> str:
     return (
-        f"text-align:center; font-style:italic; color:{COLORS['text']}; "
+        f"text-align:center; font-style:italic; font-family:{_MATH_FACE}; "
+        f"color:{COLORS['text']}; "
         f"margin:{SPACE['gap']}px 0 {SPACE['gap']}px 0;"
     )
 
@@ -189,7 +195,7 @@ def _render_lines(text: str) -> str:
             if image:
                 out.append(f'<p style="{_style_math_image()}">{image}</p>')
             else:
-                out.append(f'<p style="{_style_math()}">{_escape(body)}</p>')
+                out.append(f'<p style="{_style_math()}">{_visible_math(body)}</p>')
             i += 1
             continue
 
@@ -265,6 +271,11 @@ def _formula_html(idx: int) -> str | None:
     return html_text
 
 
+def _visible_math(body: str) -> str:
+    """Unicode math in a face that actually has the glyphs."""
+    return f'<span style="font-family:{_MATH_FACE};">{_escape(body)}</span>'
+
+
 def _put_math(html_text: str) -> str:
     slots = _SLOTS.get()
     if not slots and _MATH.get() is None:
@@ -276,7 +287,7 @@ def _put_math(html_text: str) -> str:
         if image:
             return image
         if 0 <= idx < len(slots):
-            return _escape(slots[idx])
+            return _visible_math(slots[idx])
         return match.group(0)
 
     return _IMATH.sub(put, html_text)

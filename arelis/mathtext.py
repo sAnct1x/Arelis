@@ -16,9 +16,17 @@ _DISPLAY_BRACKETS = re.compile(r"\\\[(.+?)\\\]", re.S)
 _INLINE_PARENS = re.compile(r"\\\((.+?)\\\)", re.S)
 # A real math signal. A letter is not enough: "$5 and $10" has letters.
 _MATH_SIGNAL = re.compile(r"[\\^_=<>|*]")
-# "$ x $" and "$ x_n $" with nothing else in the span.
-_SPACED_NAME = re.compile(r"\s*[A-Za-z](?:[A-Za-z0-9]|_[A-Za-z0-9]+)*\s*")
-_PLAIN_MATH = re.compile(r"[\\^_{]|[A-Za-z]")
+# "$ x $" with nothing else in the span. A word (" and ") is prose.
+_SPACED_NAME = re.compile(r"\s*[A-Za-z]\s*")
+# TeX, a script, or a group. A bare letter is not this.
+_TEX_MARK = re.compile(r"[\\^_{}]")
+# "$1, and0$": a price closer was reused and the space before the next
+# number was stripped. Put the two prices back. The comma is the separator,
+# not part of a thousands group, so the head cannot swallow it.
+_GLUED_COMMA = re.compile(
+    r"^(?P<head>\d+(?:,\d{3})*(?:\.\d+)?)\s*,\s*and\s*(?P<tail>\d+(?:,\d{3})*(?:\.\d+)?)$"
+)
+_GLUED_AND = re.compile(r"^(?P<head>\d+(?:\.\d+)?)and(?P<tail>\d+(?:\.\d+)?)$")
 # A list item line. Display math on one of these stays in the item.
 _LISTISH = re.compile(r"^\s*(?:[-*+]\s+\S|\d{1,9}[.)]\s+\S)")
 
@@ -458,15 +466,81 @@ def _inline_dollar_ok(inner: str) -> bool:
     """True when a $...$ span is math, including digit-led and spaced forms.
 
     Prices stay literal. "$5", "$10", and "$5 and $10" have no math signal
-    between the dollars, so they are not consumed.
+    between the dollars, so they are not consumed. A letter in passing is
+    not a signal either: the closer of "$1$" used to pair with the next
+    "$", and ", and " was treated as math because it contains letters.
     """
     if not inner or "\n" in inner:
         return False
+    stripped = inner.strip()
+    if not stripped:
+        return False
+    # The glued fragment is not a formula. The caller puts the prices back.
+    if not _TEX_MARK.search(inner) and (
+        _GLUED_COMMA.fullmatch(stripped) or _GLUED_AND.fullmatch(stripped)
+    ):
+        return False
+    if _TEX_MARK.search(inner):
+        return True
+    # "$ x $" and "$n$". " and " has spaces and more than one letter.
+    if re.fullmatch(r"[A-Za-z]", stripped):
+        return True
+    if inner == stripped and re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", stripped):
+        return True
     if inner[0].isdigit() or inner[0].isspace():
-        if _MATH_SIGNAL.search(inner):
+        if inner[0].isspace() and _SPACED_NAME.fullmatch(inner):
             return True
-        return inner[0].isspace() and _SPACED_NAME.fullmatch(inner) is not None
-    return _PLAIN_MATH.search(inner) is not None
+        if inner[0].isdigit() and _MATH_SIGNAL.search(inner):
+            return True
+        # $2x$ and $3y + 1$. A word after a comma is not a variable.
+        if inner[0].isdigit() and re.search(r"\d[A-Za-z]", stripped):
+            if re.search(r"[=+\-*/<>|]", stripped) or re.fullmatch(
+                r"\d[\d,]*(?:\.\d+)?[A-Za-z][A-Za-z0-9]*", stripped
+            ):
+                return True
+        return False
+    has_letter = re.search(r"[A-Za-z]", stripped) is not None
+    has_operator = re.search(r"[=+\-*/<>|]", stripped) is not None
+    return has_letter and has_operator
+
+
+def _repair_glued_price(inner: str) -> str | None:
+    """"$1, and0$" back into "$1$, and $0$". None when it is not that shape."""
+    stripped = inner.strip()
+    comma = _GLUED_COMMA.fullmatch(stripped)
+    if comma:
+        return f"${comma.group('head')}$, and ${comma.group('tail')}$"
+    glued = _GLUED_AND.fullmatch(stripped)
+    if glued:
+        return f"${glued.group('head')}$ and ${glued.group('tail')}$"
+    return None
+
+
+def _inline_closer(text: str, i: int) -> int:
+    """Index of the closing $ for an opener at i, or -1.
+
+    A $ that starts another price is not a closer. "$5 and $10" and
+    "$5 > $10" stay plain text instead of one span.
+    """
+    n = len(text)
+    price = i + 1 < n and text[i + 1].isdigit()
+    j = i + 1
+    while j < n:
+        j = text.find("$", j)
+        if j < 0:
+            return -1
+        if j + 1 < n and text[j + 1] == "$":
+            return -1
+        inner = text[i + 1 : j]
+        if "\n" in inner:
+            return -1
+        if price and j + 1 < n and text[j + 1].isdigit() and not _TEX_MARK.search(inner):
+            j += 1
+            continue
+        if j == i + 1:
+            return -1
+        return j
+    return -1
 
 
 def _replace_inline_dollars(text: str, convert) -> str:
@@ -482,13 +556,18 @@ def _replace_inline_dollars(text: str, convert) -> str:
             out.append("$")
             i += 1
             continue
-        j = text.find("$", i + 1)
+        j = _inline_closer(text, i)
         inner = text[i + 1 : j] if j >= 0 else ""
-        closer_ok = j > i + 1 and "\n" not in inner and not (j + 1 < n and text[j + 1] == "$")
-        if closer_ok and _inline_dollar_ok(inner):
+        if j > i + 1 and _inline_dollar_ok(inner):
             out.append(convert(inner))
             i = j + 1
             continue
+        if j > i + 1:
+            repaired = _repair_glued_price(inner)
+            if repaired is not None:
+                out.append(repaired)
+                i = j + 1
+                continue
         out.append("$")
         i += 1
     return "".join(out)
