@@ -304,6 +304,27 @@ def test_feed_miss_does_not_count_as_fetched(monkeypatch: pytest.MonkeyPatch) ->
     assert earth.misses == {}
 
 
+def test_empty_camera_hole_uses_a_comma() -> None:
+    from types import SimpleNamespace
+
+    zone = SimpleNamespace(
+        active=True,
+        live=True,
+        layers={"cameras": True},
+        last_fetch_unix={"cameras": 1.0},
+        _live_inflight=set(),
+        misses={},
+        visible=lambda: [],
+    )
+    line = layer_hole_line(zone) or ""
+    assert line == (
+        "No published cameras in this look. OSM webcams and keyed "
+        "511 only, not every phone on Wi-Fi."
+    )
+    assert "\u2014" not in line
+    assert "\u2013" not in line
+
+
 def test_camera_chip_on_empty_look_is_a_hole() -> None:
     earth = EarthRuntime()
     earth.enter(unix=1.0)

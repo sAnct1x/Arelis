@@ -281,7 +281,7 @@ def layer_hole_line(zone: Any) -> str | None:
         if "cameras" not in have:
             return (
                 "No published cameras in this look. OSM webcams and keyed "
-                "511 only — not every phone on Wi-Fi."
+                "511 only, not every phone on Wi-Fi."
             )
     if layers.get("traffic"):
         if "traffic" in inflight or "traffic" not in fetched:
