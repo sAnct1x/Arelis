@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from arelis.core.tool_loading import tool_loading
 from arelis.llm.ollama import OllamaProvider
 from arelis.llm.router import ModelRouter
 from arelis.llm.startup import vl_model_installed
@@ -49,7 +48,6 @@ from arelis.tools.image_edit import ImageEditTool
 from arelis.tools.image_io import CHAT_MAX_EDGE, DEFAULT_MAX_EDGE
 from arelis.tools.inbound_sms import InboundSmsTool
 from arelis.tools.inbox import InboxTool
-from arelis.tools.load_tools import LoadTools
 from arelis.tools.memory_tool import MemoryTool
 from arelis.tools.notes import NotesTool
 from arelis.tools.ocr import OcrTool
@@ -567,10 +565,6 @@ def build_tool_registry(
     # View-menu tiles. Attended only — there is no window in a job.
     if attended:
         registry.register(TileTool())
-    # Off by default, so the session list is unchanged. On, this one tool
-    # is added. Calling it reports a group and does not register the rest.
-    if tool_loading(agent_cfg):
-        registry.register(LoadTools())
     return registry
 
 
