@@ -120,6 +120,7 @@ def _frozen_loading_list(
     try:
         tools._session_schema_freeze = (hints, mode, built)
     except Exception:
+        # A stand-in registry may refuse the attribute. The list is still valid.
         return built
     return built
 
