@@ -202,6 +202,11 @@ async def execute_call(
                 tool_fields["arg_keys"] = sorted(args.keys()) if args else []
             loop._timer.mark("tool", **tool_fields)
         data_dict = result.data if isinstance(result.data, dict) else None
+        if name == "python" and isinstance(data_dict, dict):
+            # One extra plot round keys off this field. The output text is not read.
+            nxt = data_dict.get("next_tool")
+            if nxt == "plot":
+                ctx.python_result_next_tool = "plot"
         if name in {"scrape", "web_fetch"} and not result.ok:
             tag = ""
             if isinstance(data_dict, dict):

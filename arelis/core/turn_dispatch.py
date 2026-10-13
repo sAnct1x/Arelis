@@ -903,14 +903,27 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         await loop._finish(ctx.skip_finish_text, r.sources, streamed="")
         return True
 
-    from arelis.core.loop_helpers import chart_failed_reply, python_blocked_a_chart
+    from arelis.core.loop_helpers import python_plot_round_pending, python_plot_stop_line
 
-    # Python refused to draw the chart. Another model pass here is the one
-    # that sits until the read times out with no words. That includes the
-    # pass where Python went first and no plot call has failed yet.
-    python_out = ctx.last_fail_tool_out if ctx.last_fail_tool_name == "python" else ""
-    reply = chart_failed_reply(ctx.ledger, ask=r.text, python_output=python_out)
-    if reply and python_blocked_a_chart(python_out):
+    # A python result with next_tool=plot gets one more round so plot can run.
+    # Another pass after that sits until the read times out with no words, so
+    # plot already tried, or that one round already spent, ends the turn here.
+    # The field on the tool result is the whole decision.
+    if python_plot_round_pending(
+        next_tool=ctx.python_result_next_tool,
+        ledger=ctx.ledger,
+        plot_available="plot" in r.tool_names,
+        extra_rounds=ctx.python_plot_extra_rounds,
+    ):
+        ctx.python_plot_extra_rounds += 1
+        return False
+    reply = python_plot_stop_line(
+        next_tool=ctx.python_result_next_tool,
+        ledger=ctx.ledger,
+        plot_available="plot" in r.tool_names,
+        extra_rounds=ctx.python_plot_extra_rounds,
+    )
+    if reply:
         await loop._finish(reply, r.sources, streamed="")
         return True
 

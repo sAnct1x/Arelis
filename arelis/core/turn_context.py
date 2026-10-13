@@ -113,6 +113,11 @@ class TurnContext:
     last_ok_tool_name: str = ""
     last_fail_tool_name: str = ""
     last_fail_tool_out: str = ""
+    # Copied from a python ToolResult data field. Empty unless that result
+    # set next_tool to plot. The loop reads this, not the refusal sentence.
+    python_result_next_tool: str = ""
+    # Model rounds already granted so that marker can call plot. One is the cap.
+    python_plot_extra_rounds: int = 0
     inbox_mutated_ok: bool = False
     inbox_empty_ok: bool = False
     last_browser_snapshot: str = ""

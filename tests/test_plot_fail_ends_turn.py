@@ -61,7 +61,11 @@ class _FailPython:
 
     async def run(self, **kwargs: Any) -> ToolResult:
         del kwargs
-        return ToolResult(ok=False, output=_MATPLOTLIB)
+        return ToolResult(
+            ok=False,
+            output=_MATPLOTLIB,
+            data={"refusal": "chart_import", "next_tool": "plot"},
+        )
 
 
 class _CloseAfterSecond(_ScriptedRouter):
