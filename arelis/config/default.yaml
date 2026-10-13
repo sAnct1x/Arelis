@@ -160,6 +160,12 @@ agent:
   # tool calling (Qwen3 30B-A3B, Qwen3.6-27B+) to avoid regex layer fighting
   # native selection. See docs/models.md.
   native_tool_calling: false
+  # Separate from native_tool_calling. True is today's regex and keyword
+  # routing. False skips those paths so the model picks tools itself.
+  # Schema hints, native argument blocks, and the native tools-owed nudge
+  # stay on native_tool_calling only.
+  compensation:
+    regex_routing: true
   # off, tail, or front. tail is the mode used when turned on.
   # Quoted: an unquoted off is YAML boolean false.
   tool_loading: "off"

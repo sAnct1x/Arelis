@@ -23,6 +23,7 @@ from arelis.core.claims import (
     file_answer_force_notice,
     unsupported_exactness_reply,
 )
+from arelis.core.compensation import regex_routing
 from arelis.core.events import Event, EventType
 from arelis.core.evidence import dual_hit_notice, quote_first_notice
 from arelis.core.failure_copy import (
@@ -357,15 +358,11 @@ FINISH_STEPS: tuple[StepFn, ...] = (
 
 
 async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    # When native_tool_calling is enabled, skip the regex finish nudges but keep
-    # refuse logic — and still hold the turn when the user named tools that
-    # have not run (and are not twice-failed / exhausted).
-    if not native_tool_calling(r.agent_cfg):
-        for step in FINISH_STEPS:
-            hit = await step(loop, ctx, r, round_i)
-            if hit != SKIP:
-                return hit
-    else:
+    # Native tool calling skips the regex finish nudges but keeps refuse
+    # logic, and still holds the turn when the user named tools that have
+    # not run. regex_routing false skips the nudges too, and does not turn
+    # on the native owed nudge.
+    if native_tool_calling(r.agent_cfg):
         owed = named_tools_owed_runnable(loop, ctx, r.fail_counts)
         # Native-only: do not nudge for tools the user only mentioned under
         # negation ("do not use the document tool"). Flag-off finish path
@@ -393,6 +390,11 @@ async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i
                 )
             )
             return NUDGE
+    elif regex_routing(r.agent_cfg):
+        for step in FINISH_STEPS:
+            hit = await step(loop, ctx, r, round_i)
+            if hit != SKIP:
+                return hit
     fixed = theme_reply_if_needed(ctx.text, r.content)
     if fixed is not None:
         await loop._retract()

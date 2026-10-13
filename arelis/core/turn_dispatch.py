@@ -19,6 +19,7 @@ from arelis.core.agent_loop import (
 )
 from arelis.core.call_redirects import apply_redirects
 from arelis.core.claims import document_force_notice, lock_memory_forget_args
+from arelis.core.compensation import agent_cfg_of, regex_routing
 from arelis.core.document_refs import fill_doc_extract_args, fill_document_args
 from arelis.core.email_complete import (
     fill_send_email_args,
@@ -87,23 +88,25 @@ def fill_round_calls(
     hits = getattr(inbox, "last_hits", None) if inbox is not None else None
     history = getattr(getattr(loop, "memory", None), "messages", None)
     receipts = getattr(loop, "_receipts", None)
-    calls = rewrite_desktop_calls(calls, text=text)
+    route = regex_routing(agent_cfg_of(loop))
+    if route:
+        calls = rewrite_desktop_calls(calls, text=text)
     out: list[tuple[str, dict[str, Any]]] = []
     for name, args in calls:
         payload = dict(args or {})
-        if name == "weather":
+        if route and name == "weather":
             payload = fill_weather_args(payload, text)
-        elif name == "catalog":
+        elif route and name == "catalog":
             from arelis.tools.catalog import normalize_horizons_distance_args
 
             payload = normalize_horizons_distance_args(payload, text)
-        elif name == "inbox":
+        elif route and name == "inbox":
             payload = fill_inbox_args(
                 payload,
                 user_text=text,
                 last_hits=hits if isinstance(hits, list) else None,
             )
-        elif name == "doc_extract":
+        elif route and name == "doc_extract":
             payload = fill_doc_extract_args(
                 payload,
                 user_text=text,
@@ -302,8 +305,12 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         await loop._hold_if_paused()
 
         if name not in r.tool_names:
-            # Skip daily_miss check when native_tool_calling is enabled
-            daily_miss = not native_tool_calling(r.agent_cfg) and (
+            # Hidden wander is a free pass only while regex routing is on
+            # and native tool calling is off. Otherwise it is an unknown tool.
+            daily_miss = (
+                regex_routing(r.agent_cfg)
+                and not native_tool_calling(r.agent_cfg)
+                and (
                 (
                     name in {
                         "web_search",
@@ -331,6 +338,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     }
                     and "agenda" in loop._expected_tools
                 )
+            )
             )
             if not daily_miss:
                 err = (
@@ -372,7 +380,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         # arriving as calculator(to=…, body=…). Tools take **kwargs and
         # read only the keys they know, so without this the call looks
         # like a silent miss and the model retries it.
-        if name == "weather":
+        if name == "weather" and regex_routing(r.agent_cfg):
             args = fill_weather_args(args, r.text)
         tool_obj = loop.tools.get(name)
         cross = cross_tool_arg_error(
@@ -501,7 +509,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             action = str(args.get("action") or "").strip().lower()
             if action == "forget":
                 args = lock_memory_forget_args(args, r.text)
-            elif action == "remember":
+            elif action == "remember" and regex_routing(r.agent_cfg):
                 from arelis.core.memory_fill import fill_memory_remember_args
 
                 args = fill_memory_remember_args(
@@ -511,10 +519,11 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
 
         if name == "agenda":
-            if r.agenda_draft is not None:
-                args = fill_agenda_args(args, r.agenda_draft)
-            else:
-                args = fill_agenda_args(args, None)
+            if regex_routing(r.agent_cfg):
+                if r.agenda_draft is not None:
+                    args = fill_agenda_args(args, r.agenda_draft)
+                else:
+                    args = fill_agenda_args(args, None)
             if str(args.get("action") or "").strip().lower() == "delete":
                 args = lock_agenda_delete_args(
                     args,
@@ -543,20 +552,20 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     loop._trace.append(f"{name} duplicate create blocked")
                     continue
 
-        if name == "image_edit":
+        if name == "image_edit" and regex_routing(r.agent_cfg):
             args = fill_image_edit_args(
                 args,
                 history=loop.memory.messages,
                 user_text=r.text,
             )
-        if name == "image":
+        if name == "image" and regex_routing(r.agent_cfg):
             args = fill_image_gen_args(
                 args,
                 history=loop.memory.messages,
                 user_text=r.text,
             )
 
-        if name == "vision":
+        if name == "vision" and regex_routing(r.agent_cfg):
             args = fill_vision_args(
                 args,
                 history=loop.memory.messages,
@@ -573,7 +582,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 if not asked or asked.lower().startswith("describe"):
                     args["question"] = PASTED_IDENTIFY_QUESTION
 
-        if name == "inbox":
+        if name == "inbox" and regex_routing(r.agent_cfg):
             inbox = loop.tools.get("inbox")
             hits = getattr(inbox, "last_hits", None) if inbox is not None else None
             args = fill_inbox_args(
@@ -582,7 +591,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 last_hits=hits if isinstance(hits, list) else None,
             )
 
-        if name == "document":
+        if name == "document" and regex_routing(r.agent_cfg):
             room_kind = ""
             if r.active_room is not None:
                 room_kind = str(r.active_room.kind or "")
@@ -594,7 +603,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 room_kind=room_kind,
             )
 
-        if name == "doc_extract":
+        if name == "doc_extract" and regex_routing(r.agent_cfg):
             args = fill_doc_extract_args(
                 args,
                 user_text=r.text,
