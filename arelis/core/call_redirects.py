@@ -23,6 +23,7 @@ from arelis.core.agent_loop import (
     should_redirect_wander_to_sms,
 )
 from arelis.core.claims import local_store_inject_args
+from arelis.core.compensation import regex_routing
 from arelis.core.email_complete import email_remaining
 from arelis.core.events import Event, EventType
 from arelis.core.intent_catalog import (
@@ -269,8 +270,8 @@ async def apply_redirects(
     drop_wander: Any,
 ) -> tuple[Any, ...]:
     """Return ``(\"run\", name, args)`` or ``(\"skip\",)``."""
-    # When native_tool_calling is enabled, skip all redirects
-    if native_tool_calling(r.agent_cfg):
+    # Native tool calling, or regex_routing false, skips the redirects.
+    if native_tool_calling(r.agent_cfg) or not regex_routing(r.agent_cfg):
         return ("run", name, args)
     for step in REDIRECT_STEPS:
         hit = await step(loop, ctx, r, name, args, drop_wander)

@@ -31,6 +31,7 @@ from arelis.core.agent_loop import (
     write_after_algebra_notice,
 )
 from arelis.core.claims import document_force_notice
+from arelis.core.compensation import regex_routing
 from arelis.core.email_complete import (
     looks_like_bare_confirm,
     rewrite_schedule_calls,
@@ -508,22 +509,26 @@ async def apply_no_call_path(
             n == "schedule" and str((a or {}).get("action") or "").lower() == "run_now"
             for n, a in before_sched
         )
-        r.calls = rewrite_schedule_calls(
-            r.text,
-            r.calls,
-            schedule_used="schedule" in loop.tools_used,
-            schedule_available="schedule" in r.tool_names,
-        )
-        if r.calls != before_sched:
-            r.tool_calls = [_native_tool_call(n, a) for n, a in r.calls]
-            if not before_sched and r.calls:
-                await loop._retract()
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": "inject  schedule briefing from intent"},
+        # Bare "yes" still strips schedule run_now. That is the approval
+        # guard, not the timer router. The timer inject itself is the
+        # regex path.
+        if regex_routing(r.agent_cfg) or looks_like_bare_confirm(r.text):
+            r.calls = rewrite_schedule_calls(
+                r.text,
+                r.calls,
+                schedule_used="schedule" in loop.tools_used,
+                schedule_available="schedule" in r.tool_names,
+            )
+            if r.calls != before_sched:
+                r.tool_calls = [_native_tool_call(n, a) for n, a in r.calls]
+                if not before_sched and r.calls:
+                    await loop._retract()
+                    await loop.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "inject  schedule briefing from intent"},
+                        )
                     )
-                )
         if stripped_run_now and not r.calls:
             await loop._finish(
                 "The job is already scheduled. It will run at the time "
@@ -533,16 +538,17 @@ async def apply_no_call_path(
             )
             return True
 
-        before_browser = list(r.calls)
-        r.calls = rewrite_browser_calls(r.calls, text=r.text)
-        if r.calls != before_browser:
-            r.tool_calls = [_native_tool_call(n, a) for n, a in r.calls]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "rewrite  invented browser action → snapshot"},
+        if regex_routing(r.agent_cfg):
+            before_browser = list(r.calls)
+            r.calls = rewrite_browser_calls(r.calls, text=r.text)
+            if r.calls != before_browser:
+                r.tool_calls = [_native_tool_call(n, a) for n, a in r.calls]
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {"text": "rewrite  invented browser action → snapshot"},
+                    )
                 )
-            )
 
         before_desk = list(r.calls)
         r.calls = rewrite_desktop_calls(r.calls, text=r.text)

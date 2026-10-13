@@ -8,6 +8,7 @@ from typing import Any
 
 from arelis.contacts import format_contact_spoken
 from arelis.core.agenda_complete import looks_like_calendar_delete
+from arelis.core.compensation import regex_routing
 from arelis.core.events import Event, EventType
 from arelis.core.evidence import classify_fetch_failure
 from arelis.core.fail_tags import tool_fail_replan_notice
@@ -630,8 +631,12 @@ async def execute_call(
                     snapshot=str(result.output or ""),
                     signed_in=bool(data_dict.get("signed_in")),
                 )
-                # Skip errand-done shortcut when native_tool_calling is enabled
-                if errand.done and not native_tool_calling(agent_cfg):
+                # Skip the errand shortcut when native is on, or regex routing is off.
+                if (
+                    errand.done
+                    and regex_routing(agent_cfg)
+                    and not native_tool_calling(agent_cfg)
+                ):
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -653,8 +658,12 @@ async def execute_call(
                 snapshot=str(result.output or ""),
                 signed_in=bool((data_dict or {}).get("signed_in")),
             )
-            # Skip errand-done shortcut when native_tool_calling is enabled
-            if errand.done and not native_tool_calling(agent_cfg):
+            # Skip the errand shortcut when native is on, or regex routing is off.
+            if (
+                errand.done
+                and regex_routing(agent_cfg)
+                and not native_tool_calling(agent_cfg)
+            ):
                 # Don't finish if the ask named other tools we still owe (e.g.,
                 # "open and screenshot" or "open then call screenshot" shouldn't
                 # end after the open). Same pattern as the image_edit fix: check
@@ -712,10 +721,14 @@ async def execute_call(
                 # Not when the ask goes on to a tool it named (OCR the new
                 # file, vision on it): that chain still owes its second step,
                 # so fall through to the normal tool-message path.
-                # Skip named_tools_owed check when native_tool_calling is enabled
-                if not native_tool_calling(agent_cfg) and not [
-                    n for n in named_tools_owed(loop, ctx) if n != "image_edit"
-                ]:
+                # Native on, or regex routing off, lets the model write the edit up.
+                if (
+                    regex_routing(agent_cfg)
+                    and not native_tool_calling(agent_cfg)
+                    and not [
+                        n for n in named_tools_owed(loop, ctx) if n != "image_edit"
+                    ]
+                ):
                     # Its own sentence already names the sizes and the
                     # adjustments, which is the part worth reading.
                     await loop._finish(str(result.output).strip(), sources, streamed="")
@@ -1172,8 +1185,13 @@ async def _login_check_hop(
         snapshot=str(result.output or ""),
         signed_in=bool(data.get("signed_in")),
     )
-    # Skip errand-done shortcut when native_tool_calling is enabled
-    if errand.done and not native_tool_calling(loop.agent_cfg):
+    # Skip the errand shortcut when native is on, or regex routing is off.
+    # loop.agent_cfg is read the same way as before: missing still raises.
+    if (
+        errand.done
+        and regex_routing(loop.agent_cfg)
+        and not native_tool_calling(loop.agent_cfg)
+    ):
         await loop._finish(errand.reply, sources, streamed="")
         return True
     await loop._finish(
