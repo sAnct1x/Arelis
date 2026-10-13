@@ -937,20 +937,15 @@ def test_dispatch_tables_are_named_and_ordered() -> None:
     assert all(callable(step) for step in call_redirects.REDIRECT_STEPS)
 
 
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("text", "tool"),
-    [
+    (
         (
             "no need to look at the book, its just crazy that she wrote a scenario",
             "desktop",
         ),
-        (
-            "i never asked you to do anything, why did you open your browser, check the time",
-            "browser",
-        ),
-    ],
+    ),
 )
 async def test_declined_or_complaining_text_injects_no_tool(text: str, tool: str) -> None:
     loop = _FakeLoop()

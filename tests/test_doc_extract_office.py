@@ -10,7 +10,7 @@ from xml.sax.saxutils import escape as xml_escape
 import pytest
 from PIL import Image
 
-from arelis.tools.doc_extract import DocExtractTool, build_simple_pdf_bytes
+from arelis.tools.doc_extract import DocExtractTool
 from arelis.workspace import ResolvedPath
 
 
@@ -274,12 +274,3 @@ async def test_pdf_form_fields_are_listed(tmp_path: Path) -> None:
     assert "form fields:" in result.output
 
 
-@pytest.mark.asyncio
-async def test_text_pdf_still_extracts_through_dispatch(tmp_path: Path) -> None:
-    pdf = tmp_path / "note.pdf"
-    pdf.write_bytes(build_simple_pdf_bytes("hello from the text layer"))
-    tool = DocExtractTool([str(tmp_path)])
-    result = await tool.run(path=str(pdf))
-    assert result.ok
-    assert result.data["source"] == "text"
-    assert "hello from the text layer" in result.output

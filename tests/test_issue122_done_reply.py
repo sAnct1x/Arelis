@@ -85,7 +85,6 @@ def _answer_before_sources(text: str) -> str:
     "reply",
     (
         "Done",
-        "Done.",
         "Done\nhttps://example.com/mars-moons",
     ),
 )

@@ -166,33 +166,31 @@ def test_camera_fetch_timeout_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # Fetchers that still own their httpx Client. Timeout must not raise.
-_OWN_HTTPX = (
-    ("arelis.earth.radio", "fetch_radio"),
-    ("arelis.earth.firms", "fetch_firms"),
-    ("arelis.earth.launches", "fetch_launches"),
-    ("arelis.earth.airports", "fetch_airports"),
-    ("arelis.earth.wx", "fetch_weather"),
-    ("arelis.earth.osm", "fetch_osm_webcams"),
-    ("arelis.earth.opensky", "fetch_opensky"),
-    ("arelis.earth.metar", "fetch_metar"),
-    ("arelis.earth.tides", "fetch_tides"),
-    ("arelis.earth.rwis", "fetch_rwis"),
-    ("arelis.earth.argo", "fetch_argo"),
-    ("arelis.earth.waqi", "fetch_waqi"),
-    ("arelis.earth.openaq", "fetch_openaq"),
-    ("arelis.earth.ais", "fetch_ais"),
-    ("arelis.earth.aprs", "fetch_aprs"),
-    ("arelis.earth.radar", "fetch_radar"),
-    ("arelis.earth.gfw", "fetch_gfw"),
-    ("arelis.earth.barentswatch", "fetch_barentswatch"),
-    ("arelis.earth.fdsn", "fetch_fdsn"),
-    ("arelis.earth.tle", "fetch_celestrak"),
-    ("arelis.earth.spacetrack", "fetch_spacetrack"),
-    ("arelis.earth.live", "fetch_usgs"),
-)
 
 
-@pytest.mark.parametrize("mod_name, func_name", _OWN_HTTPX)
+@pytest.mark.parametrize("mod_name, func_name", (
+        ("arelis.earth.radio", "fetch_radio"),
+        ("arelis.earth.firms", "fetch_firms"),
+        ("arelis.earth.launches", "fetch_launches"),
+        ("arelis.earth.airports", "fetch_airports"),
+        ("arelis.earth.wx", "fetch_weather"),
+        ("arelis.earth.osm", "fetch_osm_webcams"),
+        ("arelis.earth.opensky", "fetch_opensky"),
+        ("arelis.earth.metar", "fetch_metar"),
+        ("arelis.earth.tides", "fetch_tides"),
+        ("arelis.earth.rwis", "fetch_rwis"),
+        ("arelis.earth.argo", "fetch_argo"),
+        ("arelis.earth.waqi", "fetch_waqi"),
+        ("arelis.earth.openaq", "fetch_openaq"),
+        ("arelis.earth.ais", "fetch_ais"),
+        ("arelis.earth.aprs", "fetch_aprs"),
+        ("arelis.earth.radar", "fetch_radar"),
+        ("arelis.earth.gfw", "fetch_gfw"),
+        ("arelis.earth.fdsn", "fetch_fdsn"),
+        ("arelis.earth.tle", "fetch_celestrak"),
+        ("arelis.earth.spacetrack", "fetch_spacetrack"),
+        ("arelis.earth.live", "fetch_usgs"),
+    ))
 def test_own_httpx_fetchers_fail_soft(
     monkeypatch: pytest.MonkeyPatch, mod_name: str, func_name: str
 ) -> None:

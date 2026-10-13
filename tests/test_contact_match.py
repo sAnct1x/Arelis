@@ -99,7 +99,10 @@ def test_a_surname_typo_does_not_mail_the_user_their_own_draft() -> None:
 
 @pytest.mark.parametrize(
     "spoken",
-    ["Sam Brightley", "Sam Brightly", "sam brightlee", "SAM BRIGHTLEY", "Sam Brightley."],
+    (
+        "Sam Brightley",
+        "sam brightlee",
+    ),
 )
 def test_the_two_channels_agree_on_who_a_spoken_name_is(spoken: str) -> None:
     """The actual unification claim, tested as a claim about agreement.

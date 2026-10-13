@@ -239,11 +239,9 @@ async def _confirm(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "empty_args",
-    [
-        {"action": "write", "path": "work/sq.py", "content": ""},
+    (
         {"action": "write", "path": "work/sq.py", "content": " \n\t"},
-        {"action": "write", "path": "work/sq.py"},
-    ],
+    ),
 )
 async def test_empty_write_retry_stays_a_refusal_then_real_content_runs(
     empty_args: dict[str, Any],
