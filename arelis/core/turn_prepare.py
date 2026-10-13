@@ -33,6 +33,7 @@ from arelis.core.claims import (
     detect_math_ask,
     detect_units_ask,
 )
+from arelis.core.compensation import regex_routing
 from arelis.core.context import context_budget
 from arelis.core.email_complete import (
     complete_email_draft,
@@ -804,12 +805,15 @@ async def prepare_turn(
     # it — "what is this?" beside a fresh attachment — left the model
     # schema-blind and it invented a caption.
     available, visible = apply_expected(loop, available, text=text, available_all=available_all)
-    active_plan = choose_active_plan(
-        text,
-        preflight_kinds=preflight_kinds,
-        plan_ids=plan_ids,
-        available_all=available_all,
-    )
+    if regex_routing(agent_cfg):
+        active_plan = choose_active_plan(
+            text,
+            preflight_kinds=preflight_kinds,
+            plan_ids=plan_ids,
+            available_all=available_all,
+        )
+    else:
+        active_plan = None
     disconnected = disconnected_integration_reply(
         expected=loop._expected_tools,
         available=available_all,
@@ -946,14 +950,15 @@ async def prepare_turn(
         ollama_tools=ollama_tools,
         turn_tail=turn_tail,
     )
-    await _prepare_sms_first_move(loop, ctx, text, agent_cfg)
-    _prepare_email_first_move(ctx, agent_cfg)
-    _prepare_weather_first_move(ctx, text, agent_cfg)
-    _prepare_agenda_first_move(ctx, text, agent_cfg)
-    _prepare_calculator_first_move(ctx, text)
-    _prepare_units_first_move(ctx, text)
-    _prepare_browser_first_move(ctx, text, loop._expected_tools)
-    _prepare_tile_first_move(ctx, text)
-    _prepare_inspect_first_move(ctx, text)
-    _prepare_run_script_first_move(ctx, text)
+    if regex_routing(agent_cfg):
+        await _prepare_sms_first_move(loop, ctx, text, agent_cfg)
+        _prepare_email_first_move(ctx, agent_cfg)
+        _prepare_weather_first_move(ctx, text, agent_cfg)
+        _prepare_agenda_first_move(ctx, text, agent_cfg)
+        _prepare_calculator_first_move(ctx, text)
+        _prepare_units_first_move(ctx, text)
+        _prepare_browser_first_move(ctx, text, loop._expected_tools)
+        _prepare_tile_first_move(ctx, text)
+        _prepare_inspect_first_move(ctx, text)
+        _prepare_run_script_first_move(ctx, text)
     return ctx

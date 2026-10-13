@@ -38,6 +38,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from arelis.core.compensation import regex_routing
 from arelis.core.intent_catalog import (
     DIAGNOSTICS,
     FULL_SURFACE_KINDS,
@@ -258,8 +259,8 @@ def _skill_subset(
 ) -> set[str]:
     """Shrink to skill + preflight tools, or return *available* when unsure."""
     expected: set[str] = set()
-    # When native_tool_calling is enabled, skip regex-based intent detection
-    use_intent_routing = not native_tool_calling(agent_cfg)
+    # Native tool calling, or regex_routing false, skips intent widening.
+    use_intent_routing = not native_tool_calling(agent_cfg) and regex_routing(agent_cfg)
     veto_sms = sms_negative_hit(text or "")
     if use_intent_routing:
         for hint in detect_intents(text, history=history):
@@ -362,7 +363,7 @@ def filter_tool_names(
     """
     names = set(available)
     extra = set(tools_for_skill_ids(extra_skill_ids or ()))
-    use_intent_routing = not native_tool_calling(agent_cfg)
+    use_intent_routing = not native_tool_calling(agent_cfg) and regex_routing(agent_cfg)
     if not enabled and not skill_subset:
         # The full surface still owes the authorization filter. Skipping it here
         # is what let a stale SMS draft ride an unrelated turn.

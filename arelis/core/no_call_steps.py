@@ -41,6 +41,7 @@ from arelis.core.claims import (
     local_store_inject_args,
     weather_force_notice,
 )
+from arelis.core.compensation import regex_routing
 from arelis.core.email_complete import (
     draft_send_email_args,
     email_force_call_notice,
@@ -1015,8 +1016,8 @@ INJECT_STEPS: tuple[StepFn, ...] = (
 
 async def run_inject_steps(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     """First matching step wins. ``nudge`` / ``inject`` / ``none``."""
-    # When native_tool_calling is enabled, skip all inject steps
-    if native_tool_calling(r.agent_cfg):
+    # Native tool calling, or regex_routing false, skips the inject steps.
+    if native_tool_calling(r.agent_cfg) or not regex_routing(r.agent_cfg):
         return "none"
     for step in INJECT_STEPS:
         hit = await step(loop, ctx, r)
