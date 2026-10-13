@@ -21,8 +21,12 @@ _SPACED_NAME = re.compile(r"\s*[A-Za-z]\s*")
 # TeX, a script, or a group. A bare letter is not this.
 _TEX_MARK = re.compile(r"[\\^_{}]")
 # "$1, and0$": a price closer was reused and the space before the next
-# number was stripped. Put the two prices back. The comma is the separator,
-# not part of a thousands group, so the head cannot swallow it.
+# number was stripped. Put the two numbers back without dollars. The comma
+# is the separator, not part of a thousands group, so the head cannot
+# swallow it.
+# A lone number tight against both dollars: $1$, $-3$, $2.5$, $1,000$.
+# A space just inside either dollar is not this.
+_BARE_NUMBER = re.compile(r"-?\d+(?:,\d{3})*(?:\.\d+)?")
 _GLUED_COMMA = re.compile(
     r"^(?P<head>\d+(?:,\d{3})*(?:\.\d+)?)\s*,\s*and\s*(?P<tail>\d+(?:,\d{3})*(?:\.\d+)?)$"
 )
@@ -348,6 +352,53 @@ _PATH_BEFORE = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.:
 _TEX_AFTER = frozenset("{[_^ \t\n,.;:!)]}") | {"("}
 
 
+def _is_greek_char(ch: str) -> bool:
+    if len(ch) != 1:
+        return False
+    code = ord(ch)
+    return 0x0370 <= code <= 0x03FF or 0x1F00 <= code <= 0x1FFF
+
+
+_GREEK_NAME: dict[str, str] | None = None
+
+
+def _command_for_greek(ch: str) -> str:
+    global _GREEK_NAME
+    if _GREEK_NAME is None:
+        found: dict[str, str] = {}
+        for name, glyph in _SYMBOLS.items():
+            if _is_greek_char(glyph) and glyph not in found:
+                found[glyph] = name
+        _GREEK_NAME = found
+    return _GREEK_NAME.get(ch, "")
+
+
+# ^ plus one letter plus a Greek letter, tight. e^iθ and e^i\theta.
+# A space, a brace, or any other character leaves the script alone.
+_UNBRACED_GREEK_SCRIPT = re.compile(r"\^(?P<letter>[A-Za-z])(?P<tail>\\[A-Za-z]+|\S)")
+
+
+def _group_unbraced_greek(src: str) -> str:
+    """Read e^iθ as one exponent e^{i\\theta}. Braced spans are left alone."""
+
+    def repl(match: re.Match[str]) -> str:
+        letter = match.group("letter")
+        tail = match.group("tail")
+        if tail.startswith("\\"):
+            glyph = _SYMBOLS.get(tail[1:], "")
+            if not _is_greek_char(glyph):
+                return match.group(0)
+            return "^{" + letter + tail + "}"
+        if not _is_greek_char(tail):
+            return match.group(0)
+        command = _command_for_greek(tail)
+        if not command:
+            return match.group(0)
+        return "^{" + letter + "\\" + command + "}"
+
+    return _UNBRACED_GREEK_SCRIPT.sub(repl, src)
+
+
 def tex_to_plain(src: str, *, unknown: str = "keep") -> str:
     """Convert a TeX math body (no delimiters) to unicode.
 
@@ -355,7 +406,7 @@ def tex_to_plain(src: str, *, unknown: str = "keep") -> str:
     only when a caller still wants the old drop-the-command behaviour.
     Chat and the default flattener keep the name.
     """
-    return _convert((src or "").strip(), unknown=unknown).strip()
+    return _convert(_group_unbraced_greek((src or "").strip()), unknown=unknown).strip()
 
 
 def flatten_latex(text: str) -> str:
@@ -475,7 +526,10 @@ def _inline_dollar_ok(inner: str) -> bool:
     stripped = inner.strip()
     if not stripped:
         return False
-    # The glued fragment is not a formula. The caller puts the prices back.
+    # "$1$" and "$-3$" are math. "$ 1 $" keeps its spaces, so it stays text.
+    if _BARE_NUMBER.fullmatch(inner):
+        return True
+    # The glued fragment is not a formula. The caller puts the numbers back.
     if not _TEX_MARK.search(inner) and (
         _GLUED_COMMA.fullmatch(stripped) or _GLUED_AND.fullmatch(stripped)
     ):
@@ -505,14 +559,14 @@ def _inline_dollar_ok(inner: str) -> bool:
 
 
 def _repair_glued_price(inner: str) -> str | None:
-    """"$1, and0$" back into "$1$, and $0$". None when it is not that shape."""
+    """"$1, and0$" back into "1, and 0". None when it is not that shape."""
     stripped = inner.strip()
     comma = _GLUED_COMMA.fullmatch(stripped)
     if comma:
-        return f"${comma.group('head')}$, and ${comma.group('tail')}$"
+        return f"{comma.group('head')}, and {comma.group('tail')}"
     glued = _GLUED_AND.fullmatch(stripped)
     if glued:
-        return f"${glued.group('head')}$ and ${glued.group('tail')}$"
+        return f"{glued.group('head')} and {glued.group('tail')}"
     return None
 
 

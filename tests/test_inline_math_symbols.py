@@ -165,7 +165,7 @@ def test_glued_price_fragment_is_not_shown_raw() -> None:
     assert "1" in out and "0" in out and "and" in out
     produced = flatten_latex("$1$, and $0$")
     assert "$1, and0$" not in produced
-    assert produced.count("$") >= 2
+    assert "$" not in produced
 
 
 def test_currency_stays_plain_text() -> None:
@@ -179,7 +179,7 @@ def test_price_closer_does_not_swallow_the_next_formula() -> None:
     assert r"\theta" not in out
     assert "θ" in out
     assert "$1, and" not in out
-    assert "$1$" in out
+    assert "$" not in out
 
     delta = flatten_latex(r"if $1$ and $\Delta > 0$ then")
     assert r"\Delta" not in delta
