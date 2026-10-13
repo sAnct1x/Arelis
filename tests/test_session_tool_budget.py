@@ -291,3 +291,23 @@ def test_enabling_mail_rebuilds_once_and_reseeds(monkeypatch: pytest.MonkeyPatch
     assert "inbox" in {spec["function"]["name"] for spec in frozen}
     assert refresh_session_tools(window) is False
     assert len(scheduled) == 1
+
+
+def test_tail_session_budget_is_the_core_list() -> None:
+    """tail sends core plus load_tools, not the full worst-profile list."""
+    from arelis.core.tool_surface import session_tool_schemas
+    from arelis.tools.groups import CORE
+    from scripts.measure_tool_schema import (
+        registry_for_profile,
+        schema_token_estimate,
+        tool_specs,
+    )
+
+    reg = registry_for_profile("worst")
+    registered = [spec["function"]["name"] for spec in tool_specs(reg)]
+    core = [name for name in registered if name in set(CORE)]
+    specs = session_tool_schemas(reg, {"tool_loading": "tail"})
+    names = [spec["function"]["name"] for spec in specs]
+    assert names == [*core, "load_tools"]
+    tokens = schema_token_estimate(len(json.dumps(specs)))
+    assert tokens <= 2000, tokens
