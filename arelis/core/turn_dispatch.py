@@ -498,8 +498,17 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 loop._trace.append(f"{name} duplicate send blocked")
                 continue
         if name == "memory":
-            if str(args.get("action") or "").strip().lower() == "forget":
+            action = str(args.get("action") or "").strip().lower()
+            if action == "forget":
                 args = lock_memory_forget_args(args, r.text)
+            elif action == "remember":
+                from arelis.core.memory_fill import fill_memory_remember_args
+
+                args = fill_memory_remember_args(
+                    args,
+                    messages=r.messages,
+                    user_text=r.text,
+                )
 
         if name == "agenda":
             if r.agenda_draft is not None:
@@ -887,14 +896,12 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
 
     from arelis.core.loop_helpers import chart_failed_reply, python_blocked_a_chart
 
-    # Plot already failed, and Python just refused to draw it. Another model
-    # pass here is the one that sits until the read times out with no words.
-    reply = chart_failed_reply(ctx.ledger)
-    if (
-        reply
-        and ctx.last_fail_tool_name == "python"
-        and python_blocked_a_chart(ctx.last_fail_tool_out)
-    ):
+    # Python refused to draw the chart. Another model pass here is the one
+    # that sits until the read times out with no words. That includes the
+    # pass where Python went first and no plot call has failed yet.
+    python_out = ctx.last_fail_tool_out if ctx.last_fail_tool_name == "python" else ""
+    reply = chart_failed_reply(ctx.ledger, ask=r.text, python_output=python_out)
+    if reply and python_blocked_a_chart(python_out):
         await loop._finish(reply, r.sources, streamed="")
         return True
 
