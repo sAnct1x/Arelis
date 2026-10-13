@@ -167,7 +167,9 @@ def _parse_json(text: str, kind: type[Any]) -> Any | None:
         return None
     try:
         parsed = json.loads(token)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
+        # JSONDecodeError is a ValueError. Deep nesting raises
+        # RecursionError instead, and that must not escape a tool call.
         return None
     if not isinstance(parsed, kind):
         return None

@@ -309,3 +309,179 @@ def test_front_does_not_grow_the_tools_array() -> None:
     assert reg.loaded_groups == ["images"]
     assert session_tool_schemas(reg, agent) is frozen
     assert _names(session_tool_schemas(reg, agent)) == before
+
+
+def test_deep_nesting_string_does_not_crash_the_call() -> None:
+    """A nested JSON string must not raise, even with the flag off.
+
+    json.loads raises RecursionError, not JSONDecodeError, once the
+    brackets get deep. That used to escape the tool call and kill the turn.
+    """
+    from arelis.tools.coerce import _parse_json
+    from scripts.measure_tool_schema import registry_for_profile
+
+    nested = "[" * 100_000 + "]" * 100_000
+    assert _parse_json(nested, list) is None
+
+    reg = registry_for_profile("worst")
+    image = _stub(reg.get("image"))
+    result = asyncio.run(reg.call("image", prompt="x", mask_box=nested))
+    assert result.ok is True
+    assert image[-1]["mask_box"] is nested
+
+
+def test_coerce_exception_falls_back_to_raw_args(caplog: Any, monkeypatch: Any) -> None:
+    """A crash inside conversion leaves the raw args and does not kill the call."""
+    import logging
+
+    import arelis.tools.base as base
+    from scripts.measure_tool_schema import registry_for_profile
+
+    def _boom(schema: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("coerce blew up")
+
+    monkeypatch.setattr(base, "coerce_arguments", _boom)
+    reg = registry_for_profile("worst")
+    image = _stub(reg.get("image"))
+    raw_width = "512"
+    with caplog.at_level(logging.WARNING):
+        result = asyncio.run(reg.call("image", prompt="x", width=raw_width))
+    assert result.ok is True
+    assert image[-1]["width"] is raw_width
+    assert image[-1]["prompt"] == "x"
+    warnings = [
+        rec for rec in caplog.records if "left as the model sent them" in rec.message
+    ]
+    assert len(warnings) == 1
+
+
+def test_string_params_stay_exact_strings() -> None:
+    """A string field is never parsed, including digit and bool-looking text."""
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    weather = _stub(reg.get("weather"))
+    for sample in ("007", "02134", "true"):
+        result = asyncio.run(reg.call("weather", place=sample))
+        assert result.ok is True
+        assert weather[-1]["place"] is sample
+
+    phone = "+1 614 555 0100"
+    sms = _stub(reg.get("send_sms"))
+    sent = asyncio.run(reg.call("send_sms", to=phone, body="ok"))
+    assert sent.ok is True
+    assert sms[-1]["to"] is phone
+    assert sms[-1]["body"] == "ok"
+
+
+def test_bool_words_other_than_true_and_false_stay_strings() -> None:
+    """Only true and false convert. off, no, and yes stay the text that arrived."""
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    image = _stub(reg.get("image"))
+    for word in ("off", "no", "yes"):
+        result = asyncio.run(reg.call("image", prompt="x", remove_background=word))
+        assert result.ok is True
+        assert image[-1]["remove_background"] is word
+
+    yes = asyncio.run(reg.call("image", prompt="x", remove_background="true"))
+    assert yes.ok is True
+    assert image[-1]["remove_background"] is True
+    no = asyncio.run(reg.call("image", prompt="x", remove_background="FALSE"))
+    assert no.ok is True
+    assert image[-1]["remove_background"] is False
+
+
+def test_number_text_strips_sign_and_leading_zeros() -> None:
+    """Number params take padded numeric text. None of these fields is an id."""
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    weather = _stub(reg.get("weather"))
+    image = _stub(reg.get("image"))
+    for raw, expected in ((" 5 ", 5), ("+1", 1), ("007", 7)):
+        result = asyncio.run(reg.call("weather", days=raw))
+        assert result.ok is True
+        assert weather[-1]["days"] == expected
+        assert type(weather[-1]["days"]) is int
+    cfg = asyncio.run(reg.call("image", prompt="x", cfg="007"))
+    assert cfg.ok is True
+    assert image[-1]["cfg"] == 7
+    assert type(image[-1]["cfg"]) is int
+
+
+def test_confirm_card_shows_the_converted_args() -> None:
+    """The Allow card and the tool run see the same converted values."""
+    from unittest.mock import AsyncMock
+
+    from arelis.core.turn_confirm import RUN, confirm_call
+    from arelis.core.turn_context import TurnContext
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    seen = _stub(reg.get("image"))
+    width = "512"
+    flag = "false"
+    args = {"prompt": "a cat", "width": width, "remove_background": flag}
+
+    class _Bus:
+        async def publish(self, event: Any) -> None:
+            return None
+
+    class _Loop:
+        def __init__(self) -> None:
+            self.bus = _Bus()
+            self.tools = reg
+            self.memory = None
+            self._trace: list[str] = []
+            self._expected_tools: set[str] = set()
+            self._look = None
+            self._timer = None
+            self.confirm_writes = True
+            self.confirm_image = True
+            self.confirm_send = True
+            self.confirm_browser = True
+            self.confirm_desktop = True
+            self.confirm_vision = True
+            self.confirm_run = True
+            self.ask_is_grant = True
+            self.tools_used: set[str] = set()
+            self._private_url_note = ""
+            self.request_confirm = AsyncMock(return_value="allow")
+
+        def _tool_message(self, name: str, content: str) -> dict[str, Any]:
+            return {"role": "tool", "name": name, "content": content}
+
+        async def _confirm_wait_heartbeat(self, name: str, started: float) -> None:
+            await asyncio.sleep(3600)
+
+    loop = _Loop()
+
+    async def _run() -> None:
+        action, _summary, _fp = await confirm_call(
+            loop,
+            TurnContext(text="draw a cat", role="fast"),
+            "image",
+            args,
+            text="draw a cat",
+            fail_counts={},
+            skip_counts={},
+            messages=[],
+            tool_names={"image"},
+            drop_wander=lambda _name: None,
+        )
+        assert action == RUN
+        card = loop.request_confirm.await_args
+        assert card is not None
+        card_args = card.args[2]
+        assert card_args is args
+        assert type(card_args["width"]) is int
+        assert card_args["width"] == 512
+        assert card_args["remove_background"] is False
+        result = await reg.call("image", **args)
+        assert result.ok is True
+        assert seen[-1]["width"] is card_args["width"]
+        assert seen[-1]["remove_background"] is False
+
+    asyncio.run(_run())
