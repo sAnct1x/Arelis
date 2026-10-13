@@ -251,6 +251,19 @@ _EXPLICIT_SMS_VERB = re.compile(
     r"senatic'?s?|semantic'?s?|message\s+to)\b"
 )
 
+# Writing about text ("alt-text options", "rewrite this text"), not a recipient.
+_WRITING_ABOUT_TEXT = re.compile(
+    r"(?i)(?:"
+    r"\balt[\s-]?text\b|"
+    r"\btext\s+options\b|"
+    r"\b(?:rewrite|reword|shorten|edit|fix|proofread|translate)\s+"
+    r"(?:this|the|that)\s+text\b|"
+    r"\btext\s+summary\b|"
+    r"\bsummary\s+of\s+(?:the\s+)?text\b|"
+    r"\boptions\s+for\s+(?:the\s+)?text\b"
+    r")"
+)
+
 # Buried under chitchat: "chillin, i want you to text 555…"
 _WANT_YOU_TO_TEXT = re.compile(
     r"(?i)\b(?:i\s+want\s+you\s+to|can\s+you|could\s+you|please)\s+"
@@ -547,6 +560,9 @@ def parse_sms_utterance(text: str) -> SmsDraft | None:
         return None
     # "text to image …" matches _SMS_SEND as to="image", never treat as SMS.
     if re.search(r"(?i)\btext[\s\-]?to[\s\-]?image\b", raw):
+        return None
+    # "Give me three alt-text options" matches bare "text" with to="options".
+    if _WRITING_ABOUT_TEXT.search(raw) and not _EXPLICIT_SMS_VERB.match(raw):
         return None
 
     # Pronoun recipient: "send her another text and tell her that …"
