@@ -565,7 +565,20 @@ def build_tool_registry(
     # View-menu tiles. Attended only — there is no window in a job.
     if attended:
         registry.register(TileTool())
+    _register_load_tools(registry, config)
     return registry
+
+
+def _register_load_tools(registry: ToolRegistry, config: dict[str, Any]) -> None:
+    """Register load_tools only for tail and front. Off stays unregistered."""
+    from arelis.core.tool_surface import _tool_loading_mode
+    from arelis.tools.load_tools import LoadTools
+
+    agent = config.get("agent")
+    mode = _tool_loading_mode(agent if isinstance(agent, dict) else None)
+    if mode == "off":
+        return
+    registry.register(LoadTools(registry, config))
 
 
 def _session_platform(config: dict[str, Any]) -> str:

@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from arelis.tools.coerce import coerce_arguments
 from arelis.tools.model_schema import model_parameters
 from arelis.tools.policy import (
     CONTACTS_WRITE_ACTIONS,
@@ -116,6 +117,10 @@ class Tool(Protocol):
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
+        # Groups load_tools has recorded for this session. A settings rebuild
+        # makes a new registry, so the set starts empty again. Turns share
+        # this list: each turn builds a new agent loop.
+        self.loaded_groups: list[str] = []
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
@@ -241,6 +246,14 @@ class ToolRegistry:
         tool = self.get(name)
         if tool is None:
             return ToolResult(ok=False, output=f"Unknown tool: {name}")
+        # Ollama types arguments only for names in the tools array. A loaded
+        # tool is not in that array, so every argument arrives as a string.
+        # Convert from this tool's schema on every call. A value that already
+        # has the right type is left as it is. A conversion that does not
+        # parse is left as it is, and the tool reports it.
+        schema = getattr(tool, "parameters_schema", None)
+        if isinstance(schema, dict):
+            kwargs = coerce_arguments(schema, kwargs)
         try:
             return await tool.run(**kwargs)
         except TypeError as exc:
