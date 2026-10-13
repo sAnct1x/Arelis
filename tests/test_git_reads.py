@@ -58,9 +58,7 @@ def test_write_actions_stay_stage_and_commit_only() -> None:
 
 @pytest.mark.parametrize(
     "action",
-    (
-        "status",
-    ),
+    ["branch", "stash", "blame", "show", "status", "diff", "log"],
 )
 def test_read_actions_are_not_writes(action: str) -> None:
     assert action_is_write("git_info", {"action": action}) is False
@@ -87,9 +85,7 @@ async def test_stash_lists_entries(tmp_path: Path) -> None:
     assert "wip readme" in result.output
 
 
-@pytest.mark.parametrize("action", (
-        "stash_push",
-    ))
+@pytest.mark.parametrize("action", ["stash_apply", "stash_pop", "stash_drop", "stash_push"])
 @pytest.mark.asyncio
 async def test_stash_mutations_stay_refused(tmp_path: Path, action: str) -> None:
     root = _repo(tmp_path)

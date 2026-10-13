@@ -76,14 +76,10 @@ def test_every_phase_runs_once_and_after_what_it_needs(qt_app, monkeypatch) -> N
 
 @pytest.mark.parametrize(
     ("phase", "needed"),
-    (
-        ('_build_secondary_windows', '_build_timers_and_state'),
-        ('_connect_signals_and_bind', '_build_docks'),
-        ('_connect_signals_and_bind', '_build_secondary_windows'),
-    ),
+    [(p, n) for p, needs in REQUIRES.items() for n in needs],
 )
 def test_a_reordered_phase_is_caught(qt_app, monkeypatch, phase, needed) -> None:
-    """These edges in REQUIRES are real: skip the dependency and construction dies.
+    """Every edge in REQUIRES is real: skip the dependency and construction dies.
 
     Proof the table is not decoration. An edge nobody actually depends on would
     let construction finish here, and this test would be the thing that says so
