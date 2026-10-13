@@ -1,8 +1,12 @@
-"""Tool groups for a later loader. Nothing in the product imports this yet.
+"""Tool groups for a later loader.
 
 Core stays in the always-loaded set. Every other tool sits in exactly one
 group. Menu phrases and keywords are plain lowercase text a later menu can
 show and match. Insertion order of GROUPS is the menu order.
+
+load_tools reads this table to report a group. Calling it does not
+add those tools to the session. Nothing else in the product imports
+this module.
 """
 
 from __future__ import annotations

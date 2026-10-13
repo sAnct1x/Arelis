@@ -160,6 +160,10 @@ agent:
   # tool calling (Qwen3 30B-A3B, Qwen3.6-27B+) to avoid regex layer fighting
   # native selection. See docs/models.md.
   native_tool_calling: false
+  # Off: the model still receives every registered tool, same list as before.
+  # On: load_tools is registered and can report which tools sit in a group.
+  # The call does not add or remove any other tool. Default false.
+  tool_loading: false
   # Inject short failure lessons (data/lessons.yaml + built-in seed).
   lessons: true
   # At UI/CLI start, mine logs/turns.log and append curated lessons by signature.
