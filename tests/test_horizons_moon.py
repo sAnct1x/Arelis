@@ -84,10 +84,13 @@ def _fixed_clock(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "name,expected",
-    (
+    [
+        ("Moon", "301"),
         ("moon", "301"),
         ("the Moon", "301"),
-    ),
+        ("Luna", "301"),
+        ("Sun", "10"),
+    ],
 )
 async def test_moon_name_maps_to_301(name: str, expected: str) -> None:
     seen: list[str] = []

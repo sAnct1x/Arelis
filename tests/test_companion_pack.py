@@ -280,9 +280,12 @@ def test_fetch_gemma_skips_when_ready(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     ("phone_code", "house_code", "want"),
-    (
+    [
+        (5, 6, True),
+        (6, 6, False),
         (7, 6, False),
-    ),
+        (6, 0, False),
+    ],
 )
 def test_newer_house_apk_is_an_update(phone_code: int, house_code: int, want: bool) -> None:
     assert companion_update_available(phone_code, house_code) is want

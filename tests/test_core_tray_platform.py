@@ -10,9 +10,7 @@ import pytest
 from arelis.presence.tray import apply_core_tray_platform_default
 
 
-@pytest.mark.parametrize("platform", (
-        "linux",
-    ))
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
 def test_non_windows_does_not_default_qt_platform_to_windows(
     monkeypatch: pytest.MonkeyPatch, platform: str
 ) -> None:

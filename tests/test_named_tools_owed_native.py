@@ -361,10 +361,12 @@ def test_native_image_edit_then_ocr_does_not_finish_early(
 
 @pytest.mark.parametrize(
     "negation",
-    (
+    [
+        "Do not use the document tool, just tell me.",
         "Don't use the document tool, just tell me.",
         "without the document tool, just tell me.",
-    ),
+        "never use the document tool, just tell me.",
+    ],
 )
 def test_native_negated_document_mention_does_not_nudge(negation: str) -> None:
     """Native: purely negated document mention must not trigger owed-tool nudges."""

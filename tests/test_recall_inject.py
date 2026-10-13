@@ -39,9 +39,15 @@ from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
 
 @pytest.mark.parametrize(
     ("utterance", "expected"),
-    (
+    [
+        ("What did I say about the Sherpa work last night?", "Sherpa work"),
+        ("What did I say yesterday?", "yesterday"),
+        ("what did I say about arelis?", "arelis"),
+        ("do you remember the rebar estimate", "rebar estimate"),
         ("you told me about a book on Rust", "book on Rust"),
-    ),
+        ("what did I tell you about my sister's wedding", "sister's wedding"),
+        ("from our chat about the eval harness yesterday", "eval harness"),
+    ],
 )
 def test_the_search_terms_survive_the_question_wrapper(
     utterance: str, expected: str
@@ -56,9 +62,12 @@ def test_the_search_terms_survive_the_question_wrapper(
 
 @pytest.mark.parametrize(
     "utterance",
-    (
+    [
+        "do you remember?",
+        "do you remember",
+        "what did I say",
         "what did i say said something how i don't remember what are you doing to night",
-    ),
+    ],
 )
 def test_a_recall_ask_with_no_subject_yields_no_query(utterance: str) -> None:
     """There is nothing to search for, and a blank query is a tool error."""

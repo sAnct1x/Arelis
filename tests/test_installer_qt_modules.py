@@ -112,9 +112,7 @@ def test_no_other_prefix_eats_a_required_module() -> None:
         )
 
 
-@pytest.mark.parametrize("module", (
-        "QtWebEngineWidgets",
-    ))
+@pytest.mark.parametrize("module", sorted(GUARDED_DROPPED))
 def test_allowlisted_module_is_actually_imported(module: str) -> None:
     assert module in _pyside_qt_modules(), (
         f"{module} is allowlisted but no longer imported under arelis/"
