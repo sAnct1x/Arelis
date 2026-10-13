@@ -61,7 +61,10 @@ def _tool_loading_mode(agent_cfg: dict[str, Any] | None) -> str:
     if not agent_cfg or "tool_loading" not in agent_cfg:
         return "off"
     raw = agent_cfg.get("tool_loading")
-    mode = str(raw).strip().lower() if raw is not None else ""
+    # An unquoted off in YAML is boolean False. That is off, not a typo.
+    if raw is False:
+        return "off"
+    mode = raw.strip().lower() if isinstance(raw, str) else str(raw).strip().lower()
     if mode in _TOOL_LOADING_MODES:
         return mode
     log.info(

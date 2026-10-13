@@ -119,6 +119,26 @@ def test_load_tools_enum_matches_groups() -> None:
     assert tokens <= 2000, tokens
 
 
+def test_shipped_default_is_off_without_a_warning(caplog) -> None:
+    """The real default.yaml must parse as off, and boolean False must too.
+
+    An unquoted off is YAML boolean False. That used to hit the unknown
+    fallback and log on every turn and at warmup.
+    """
+    import yaml
+
+    from arelis.config import DEFAULT_CONFIG_PATH
+    from arelis.core.tool_surface import _tool_loading_mode
+
+    shipped = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    raw = shipped["agent"]["tool_loading"]
+    assert raw == "off"
+    with caplog.at_level(logging.INFO, logger="arelis.core.tool_surface"):
+        assert _tool_loading_mode(shipped["agent"]) == "off"
+        assert _tool_loading_mode({"tool_loading": False}) == "off"
+    assert "not off, tail, or front" not in caplog.text
+
+
 def test_unknown_mode_falls_back_to_off(caplog) -> None:
     from arelis.core.tool_surface import session_tool_schemas
     from scripts.measure_tool_schema import registry_for_profile

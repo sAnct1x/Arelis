@@ -161,7 +161,8 @@ agent:
   # native selection. See docs/models.md.
   native_tool_calling: false
   # off, tail, or front. tail is the mode used when turned on.
-  tool_loading: off
+  # Quoted: an unquoted off is YAML boolean false.
+  tool_loading: "off"
   # Inject short failure lessons (data/lessons.yaml + built-in seed).
   lessons: true
   # At UI/CLI start, mine logs/turns.log and append curated lessons by signature.
