@@ -65,9 +65,21 @@ async def test_horizons_vectors_uses_valid_ref_plane() -> None:
 async def test_horizons_default_table_is_still_observer() -> None:
     seen: list[str] = []
 
+    page = (
+        "*******************************************************************************\n"
+        "Target body name: Mars (499)\n"
+        "*******************************************************************************\n"
+        " Date__(UT)__HR:MN     R.A._____(ICRF)_____DEC  delta     deldot    S-O-T /r    S-T-O\n"
+        "*******************************************************************************\n"
+        "$$SOE\n"
+        " 2026-Aug-19 00:00     06 27 41.12 +23 41 02.4  1.5200  -10.42  45.3 /L  29.8\n"
+        "$$EOE\n"
+        "*******************************************************************************\n"
+    )
+
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(str(request.url))
-        return httpx.Response(200, json={"result": "range 1.52 au"})
+        return httpx.Response(200, json={"result": page})
 
     tool = CatalogTool(
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=5.0)
