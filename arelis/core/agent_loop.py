@@ -875,6 +875,16 @@ class AgentLoop:
 
     async def _close_from_gathered(self, ctx: TurnContext) -> None:
         """One pass, no more searches. Document only if they asked for a file."""
+        from arelis.core.loop_helpers import chart_only_failure
+
+        # A chart that never drew does not need another model pass. That
+        # pass is what used to end as "I did not finish every source."
+        reply = chart_only_failure(ctx.ledger, self)
+        if reply:
+            self._in_close = True
+            self._close_requested = False
+            await self._finish(reply, ctx.sources, streamed="")
+            return
         self._in_close = True
         self._close_requested = False
         await self.bus.publish(

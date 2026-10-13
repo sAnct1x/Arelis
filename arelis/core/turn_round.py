@@ -53,6 +53,8 @@ from arelis.core.json_tools import (
 )
 from arelis.core.loop_helpers import (
     _MALFORMED_CALL_NOTICE,
+    chart_failed_reply,
+    chart_only_failure,
 )
 from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.no_call_finish import NUDGE as FINISH_NUDGE
@@ -210,6 +212,13 @@ async def apply_no_call_path(
             return False
 
         no_words = not (r.content or "").strip()
+        # A failed chart plus a blank bubble used to start another model
+        # pass. That pass is the one that can sit until the read times out.
+        if no_words and not (ctx.last_ok_tool_out or "").strip():
+            reply = chart_failed_reply(ctx.ledger)
+            if reply:
+                await loop._finish(reply, r.sources, streamed="")
+                return True
         # A blank bubble is not an answer. Neither is a bare Done, or
         # Done plus a link, once a tool has already run. A copy of the
         # tool line is the same hole: it is not a written reply.
@@ -1099,7 +1108,9 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 if closing_call_ok(n, a, ctx.text, getattr(loop, "_trace", ()))
             ]
             if not calls:
-                prose = (content or "").strip() or _CLOSE_PARTIAL
+                prose = (content or "").strip()
+                if not prose:
+                    prose = chart_only_failure(ctx.ledger, loop) or _CLOSE_PARTIAL
                 await loop._finish(prose, sources, streamed=streamed)
                 return True
             tool_calls = [_native_tool_call(n, a) for n, a in calls]

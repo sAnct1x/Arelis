@@ -11,6 +11,7 @@ A room with a real project folder lands under that project's plots/.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import math
@@ -201,6 +202,22 @@ def _missing_inline(raw: Any) -> bool:
     return not str(raw).strip()
 
 
+def normalize_plot_args(payload: dict[str, Any]) -> dict[str, Any]:
+    """Take the subplots key the model sends when it means panels.
+
+    The declared argument is panels. A call that says subplots= instead is
+    the same request, and leaving the extra key on the call gets it rejected
+    before this tool can draw.
+    """
+    if not isinstance(payload, dict) or "subplots" not in payload:
+        return payload
+    out = dict(payload)
+    stray = out.pop("subplots")
+    if _missing_inline(out.get("panels")) and not _missing_inline(stray):
+        out["panels"] = stray
+    return out
+
+
 def _inline_pair(
     kwargs: dict[str, Any],
     *,
@@ -259,6 +276,11 @@ def _inline_parts(raw: Any, *, name: str, kind: str = "number") -> list[str]:
 
 
 def _parse_numbers(raw: Any, *, name: str) -> np.ndarray:
+    if _as_nested_lists(raw) is not None:
+        raise ValueError(
+            f"{name} is a list of lists. Send one list like {name}=\"1,2,3\", "
+            "or use action subplots with one list per panel."
+        )
     np = _numpy()
     parts = _inline_parts(raw, name=name, kind="number")
     try:
@@ -581,6 +603,7 @@ class PlotTool:
         return await asyncio.to_thread(self._run, kwargs)
 
     def _run(self, kwargs: dict[str, Any]) -> ToolResult:
+        kwargs = normalize_plot_args(dict(kwargs))
         action = str(kwargs.get("action") or "line").strip().lower()
         if action not in _ACTIONS:
             return ToolResult(
@@ -634,23 +657,12 @@ class PlotTool:
                     )
 
             elif action == "subplots":
-                panels = _parse_panels(kwargs.get("panels"))
-                x, y, cats, xlabel, ylabel, source = self._subplot_series(kwargs, panels)
-                xlabel = str(kwargs.get("xlabel") or xlabel).strip() or xlabel
-                ylabel = str(kwargs.get("ylabel") or ylabel).strip() or ylabel
-                n = len(y)
+                draws, source = self._subplot_draws(kwargs)
+                _apply_axis_labels(draws, kwargs)
+                n = max(len(draw.y) for draw in draws)
 
                 def _draw() -> tuple:
-                    return self._draw_subplots(
-                        panels,
-                        x,
-                        y,
-                        cats,
-                        title=title,
-                        xlabel=xlabel,
-                        ylabel=ylabel,
-                        kwargs=kwargs,
-                    )
+                    return self._draw_subplots(draws, title=title, kwargs=kwargs)
 
             else:
                 x, y, xlabel, ylabel, source = self._series(kwargs)
@@ -952,6 +964,79 @@ class PlotTool:
                 cats = _parse_labels(kwargs.get("categories"), name="categories")
         return x, y, cats, xlabel, ylabel, source
 
+    def _subplot_draws(
+        self, kwargs: dict[str, Any]
+    ) -> tuple[list[_PanelDraw], str]:
+        kinds, specs = _read_panels(kwargs.get("panels"))
+        if specs is not None:
+            draws = [
+                self._panel_from_spec(kind, spec, kwargs)
+                for kind, spec in zip(kinds, specs, strict=True)
+            ]
+            return draws, "inline"
+        ys_raw = _inline_pair(kwargs, primary="ys", alias="y")
+        xs_raw = _inline_pair(kwargs, primary="xs", alias="x")
+        nested_ys = _as_nested_lists(ys_raw)
+        if nested_ys is None:
+            nested_ys = _semicolon_series(ys_raw)
+        nested_xs = _as_nested_lists(xs_raw)
+        if nested_xs is None:
+            nested_xs = _semicolon_series(xs_raw)
+        if nested_ys is None and nested_xs is None:
+            x, y, cats, xlabel, ylabel, source = self._subplot_series(kwargs, kinds)
+            draws = [
+                _PanelDraw(kind, x, y, cats, xlabel, ylabel) for kind in kinds
+            ]
+            return draws, source
+        if nested_ys is not None and len(nested_ys) != len(kinds):
+            raise ValueError(
+                f"ys has {len(nested_ys)} lists and panels has {len(kinds)}. "
+                "Send one ys list per panel, or one flat list for every panel."
+            )
+        if nested_xs is not None and len(nested_xs) != len(kinds):
+            raise ValueError(
+                f"xs has {len(nested_xs)} lists and panels has {len(kinds)}. "
+                "Send one xs list per panel, or one flat list for every panel."
+            )
+        draws: list[_PanelDraw] = []
+        for index, kind in enumerate(kinds):
+            local = dict(kwargs)
+            local.pop("path", None)
+            if nested_ys is not None:
+                local["ys"] = nested_ys[index]
+                local.pop("y", None)
+            if nested_xs is not None:
+                local["xs"] = nested_xs[index]
+                local.pop("x", None)
+            draws.append(self._one_panel(kind, local))
+        return draws, "inline"
+
+    def _panel_from_spec(
+        self, kind: str, spec: dict[str, Any], kwargs: dict[str, Any]
+    ) -> _PanelDraw:
+        local = dict(kwargs)
+        own = False
+        for key in ("xs", "ys", "x", "y", "categories", "values", "expr", "xmin", "xmax"):
+            if key in spec and not _missing_inline(spec.get(key)):
+                local[key] = spec[key]
+                if key in {"xs", "ys", "x", "y", "categories", "values", "expr"}:
+                    own = True
+        if own:
+            local.pop("path", None)
+        return self._one_panel(kind, local)
+
+    def _one_panel(self, kind: str, kwargs: dict[str, Any]) -> _PanelDraw:
+        if kind == "histogram":
+            values, ylabel, _source = self._histogram_series(kwargs)
+            x = _numpy().arange(len(values), dtype=float)
+            return _PanelDraw(kind, x, values, None, "index", ylabel)
+        if kind == "bar":
+            cats, values, xlabel, ylabel, _source = self._bar_series(kwargs)
+            x = _numpy().arange(len(values), dtype=float)
+            return _PanelDraw(kind, x, values, cats, xlabel, ylabel)
+        x, y, xlabel, ylabel, _source = self._series(kwargs)
+        return _PanelDraw(kind, x, y, None, xlabel, ylabel)
+
     def _draw_histogram(
         self,
         values: np.ndarray,
@@ -1024,43 +1109,38 @@ class PlotTool:
 
     def _draw_subplots(
         self,
-        panels: list[str],
-        x: np.ndarray,
-        y: np.ndarray,
-        cats: list[str] | None,
+        draws: list[_PanelDraw],
         *,
         title: str,
-        xlabel: str,
-        ylabel: str,
         kwargs: dict[str, Any],
     ) -> tuple[Path, str]:
         folder, _where = self.out_dir()
         dest = self._dest(kwargs, "subplots", folder)
         ensure(dest.parent)
         look = str(kwargs.get("look") or "default")
-        n = len(panels)
+        n = len(draws)
         rows, cols = _subplot_grid(n)
         bins = _parse_bins(kwargs.get("bins"))
         with _look_context(look):
             fig = _open_figure((4.2 * cols, 4.0 * rows), look)
-            for idx, kind in enumerate(panels):
+            for idx, draw in enumerate(draws):
                 ax = fig.add_subplot(rows, cols, idx + 1)
                 _draw_panel(
                     ax,
-                    kind,
-                    x,
-                    y,
-                    cats=cats,
+                    draw.kind,
+                    draw.x,
+                    draw.y,
+                    cats=draw.cats,
                     bins=bins,
-                    xlabel=xlabel,
-                    ylabel=ylabel,
+                    xlabel=draw.xlabel,
+                    ylabel=draw.ylabel,
                     look=look,
                 )
             if title:
                 fig.suptitle(title)
             fig.tight_layout()
             note = _save_figure(fig, dest, look)
-        panels_note = f"Panels: {', '.join(panels)}."
+        panels_note = f"Panels: {', '.join(draw.kind for draw in draws)}."
         if note:
             panels_note = f"{panels_note} {note}"
         return dest, panels_note
@@ -1145,22 +1225,169 @@ def _parse_bins(raw: Any) -> int | None:
     return min(bins, 200)
 
 
-def _parse_panels(raw: Any) -> list[str]:
+class _PanelDraw:
+    """One panel's own series. Shared charts copy the same arrays onto each."""
+
+    def __init__(
+        self,
+        kind: str,
+        x: Any,
+        y: Any,
+        cats: list[str] | None,
+        xlabel: str,
+        ylabel: str,
+    ) -> None:
+        self.kind = kind
+        self.x = x
+        self.y = y
+        self.cats = cats
+        self.xlabel = xlabel
+        self.ylabel = ylabel
+
+
+def _apply_axis_labels(draws: list[_PanelDraw], kwargs: dict[str, Any]) -> None:
+    xlabel = str(kwargs.get("xlabel") or "").strip()
+    ylabel = str(kwargs.get("ylabel") or "").strip()
+    if not xlabel and not ylabel:
+        return
+    for draw in draws:
+        if xlabel:
+            draw.xlabel = xlabel
+        if ylabel:
+            draw.ylabel = ylabel
+
+
+_KIND_ALIASES = {
+    "line": "line",
+    "line chart": "line",
+    "line plot": "line",
+    "plot": "line",
+    "scatter": "scatter",
+    "scatter plot": "scatter",
+    "histogram": "histogram",
+    "hist": "histogram",
+    "bar": "bar",
+    "bar chart": "bar",
+}
+
+
+def _literal_structure(text: str) -> Any:
+    """A JSON or Python list/dict, or None when the text is a plain series."""
+    if not text or text[0] not in "[{(":
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    try:
+        return ast.literal_eval(text)
+    except (ValueError, SyntaxError, MemoryError, TypeError):
+        return None
+
+
+def _as_nested_lists(raw: Any) -> list[Any] | None:
+    """A list of lists, including a JSON or Python string of that shape."""
+    if isinstance(raw, (list, tuple)):
+        if raw and all(isinstance(part, (list, tuple)) for part in raw):
+            return [list(part) for part in raw]
+        return None
+    if not isinstance(raw, str):
+        return None
+    parsed = _literal_structure(raw.strip())
+    if (
+        isinstance(parsed, (list, tuple))
+        and parsed
+        and all(isinstance(part, (list, tuple)) for part in parsed)
+    ):
+        return [list(part) for part in parsed]
+    return None
+
+
+def _semicolon_series(raw: Any) -> list[str] | None:
+    """'1,2,3;4,5,6' is two series. '1;2;3' stays one series."""
+    if not isinstance(raw, str) or ";" not in raw:
+        return None
+    parts = [part.strip() for part in raw.split(";") if part.strip()]
+    if len(parts) < 2 or not all("," in part for part in parts):
+        return None
+    return parts
+
+
+def _clean_kind(raw: Any) -> str:
     text = str(raw or "").strip().lower()
+    text = text.strip("[]()\"'` ")
+    text = " ".join(text.split())
+    return _KIND_ALIASES.get(text, text)
+
+
+def _coerce_panel_items(raw: Any) -> list[Any]:
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, (list, tuple)):
+        return list(raw)
+    text = str(raw).strip()
     if not text:
+        return []
+    parsed = _literal_structure(text)
+    if isinstance(parsed, dict):
+        return [parsed]
+    if isinstance(parsed, (list, tuple)):
+        return list(parsed)
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _check_panel_kinds(kinds: list[str]) -> None:
+    if any(not kind for kind in kinds):
         raise ValueError(
-            "subplots needs panels= with two or more kinds, e.g. line,histogram."
+            "subplots needs a kind on every panel: line, scatter, histogram, or bar."
         )
-    parts = [p.strip() for p in text.split(",") if p.strip()]
-    if len(parts) < 2:
+    if len(kinds) < 2:
         raise ValueError("subplots needs at least two panels, e.g. line,histogram.")
-    if len(parts) > _MAX_SUBPLOTS:
+    if len(kinds) > _MAX_SUBPLOTS:
         raise ValueError(f"At most {_MAX_SUBPLOTS} panels.")
-    bad = [p for p in parts if p not in _SUBPLOT_KINDS]
+    bad = [kind for kind in kinds if kind not in _SUBPLOT_KINDS]
     if bad:
         allowed = ", ".join(sorted(_SUBPLOT_KINDS))
         raise ValueError(f"Unknown panel kind(s): {', '.join(bad)}. Use: {allowed}.")
-    return parts
+
+
+def _read_panels(raw: Any) -> tuple[list[str], list[dict[str, Any]] | None]:
+    items = _coerce_panel_items(raw)
+    if not items:
+        raise ValueError(
+            "subplots needs panels= with two or more kinds, e.g. line,histogram."
+        )
+    if any(isinstance(item, dict) for item in items):
+        specs: list[dict[str, Any]] = []
+        kinds: list[str] = []
+        for item in items:
+            if isinstance(item, dict):
+                kind = _clean_kind(
+                    item.get("kind")
+                    or item.get("type")
+                    or item.get("action")
+                    or item.get("chart")
+                    or ""
+                )
+                spec = dict(item)
+                spec["kind"] = kind
+            else:
+                kind = _clean_kind(item)
+                spec = {"kind": kind}
+            specs.append(spec)
+            kinds.append(kind)
+        _check_panel_kinds(kinds)
+        return kinds, specs
+    kinds = [_clean_kind(item) for item in items]
+    _check_panel_kinds(kinds)
+    return kinds, None
+
+
+def _parse_panels(raw: Any) -> list[str]:
+    kinds, _specs = _read_panels(raw)
+    return kinds
 
 
 def _subplot_grid(n: int) -> tuple[int, int]:

@@ -356,6 +356,45 @@ _EMPTY_REPLY_NOTICE = (
     "crash or an unload. Say continue, or ask a smaller piece."
 )
 
+CHART_FAILED_REPLY = "The chart did not get drawn. I will not fake one in text."
+
+_CHART_TOOLS = frozenset({"plot", "python", "calculator"})
+
+
+def chart_failed_reply(ledger: EvidenceLedger | None) -> str | None:
+    """A short honest line when a chart was asked for and never drawn."""
+    if ledger is None or ledger.has_ok("plot"):
+        return None
+    failed = any(item.kind == "plot" and not item.ok for item in ledger.items)
+    if not failed:
+        return None
+    return CHART_FAILED_REPLY
+
+
+def python_blocked_a_chart(output: str) -> bool:
+    """True when the Python cell refused a chart library or a file write."""
+    text = (output or "").casefold()
+    if any(name in text for name in ("matplotlib", "pyplot", "seaborn", "plotly")):
+        return True
+    if "not allowed" in text and any(mark in text for mark in ("open", "file", "savefig")):
+        return True
+    return False
+
+
+def chart_only_failure(ledger: EvidenceLedger | None, loop: Any) -> str | None:
+    """The chart line, when this turn only tried to draw and did not."""
+    reply = chart_failed_reply(ledger)
+    if reply is None:
+        return None
+    names = set(getattr(loop, "tools_used", ()) or ())
+    for line in getattr(loop, "_trace", ()) or ():
+        head = str(line).split(None, 1)[0].strip()
+        if head:
+            names.add(head)
+    if not names or not names <= _CHART_TOOLS:
+        return None
+    return reply
+
 def round_limit_notice(
     rounds: int,
     *,

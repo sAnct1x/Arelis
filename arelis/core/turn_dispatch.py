@@ -110,6 +110,10 @@ def fill_round_calls(
                 history=history,
                 receipts=receipts,
             )
+        elif name == "plot":
+            from arelis.tools.plot import normalize_plot_args
+
+            payload = normalize_plot_args(payload)
         out.append((name, payload))
     return out
 
@@ -879,6 +883,19 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
 
     if ctx.skip_finish_text:
         await loop._finish(ctx.skip_finish_text, r.sources, streamed="")
+        return True
+
+    from arelis.core.loop_helpers import chart_failed_reply, python_blocked_a_chart
+
+    # Plot already failed, and Python just refused to draw it. Another model
+    # pass here is the one that sits until the read times out with no words.
+    reply = chart_failed_reply(ctx.ledger)
+    if (
+        reply
+        and ctx.last_fail_tool_name == "python"
+        and python_blocked_a_chart(ctx.last_fail_tool_out)
+    ):
+        await loop._finish(reply, r.sources, streamed="")
         return True
 
     return False

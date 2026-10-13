@@ -1098,26 +1098,139 @@ def _load_json(raw: str, what: str) -> Any:
         raise ValueError(what) from None
 
 
+def _is_unit_fraction(value: Any) -> bool:
+    """A fraction of the image edge. Integers stay pixels, including 0 and 1."""
+    if isinstance(value, bool) or isinstance(value, int) or value is None or value == "":
+        return False
+    if isinstance(value, float):
+        return 0.0 < value <= 1.0
+    text = str(value).strip()
+    if "." not in text:
+        return False
+    try:
+        number = float(text)
+    except ValueError:
+        return False
+    return 0.0 < number <= 1.0
+
+
+def _fraction_value(value: Any) -> float:
+    if isinstance(value, float):
+        return float(value)
+    return float(str(value).strip())
+
+
+def _zero_pixel(value: Any) -> bool:
+    """Missing, or the integer origin. A fraction in (0, 1] is not the origin."""
+    if value is None or value == "":
+        return True
+    if isinstance(value, bool) or _is_unit_fraction(value):
+        return False
+    if isinstance(value, (int, float)):
+        return value == 0
+    return str(value).strip() in {"0", "0.0", "+0"}
+
+
+def _pair_from(value: Any) -> tuple[Any, Any] | None:
+    if isinstance(value, (list, tuple)) and len(value) >= 2:
+        return value[0], value[1]
+    if isinstance(value, dict):
+        x = _first(value, "x", "left")
+        y = _first(value, "y", "top")
+        if x is None or y is None:
+            return None
+        return x, y
+    if isinstance(value, str) and "," in value:
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+        if len(parts) >= 2:
+            return parts[0], parts[1]
+    return None
+
+
+def _alternate_point(item: dict[str, Any]) -> tuple[Any, Any] | None:
+    x1 = item.get("x1")
+    y1 = item.get("y1")
+    if x1 not in (None, "") and y1 not in (None, "") and not (
+        _zero_pixel(x1) and _zero_pixel(y1)
+    ):
+        return x1, y1
+    for key in ("position", "xy", "point", "at", "loc", "coords", "box", "bbox"):
+        pair = _pair_from(item.get(key))
+        if pair is None or (_zero_pixel(pair[0]) and _zero_pixel(pair[1])):
+            continue
+        return pair
+    return None
+
+
+def _read_coord(value: Any, name: str) -> tuple[int, float | None]:
+    if _is_unit_fraction(value):
+        return 0, _fraction_value(value)
+    return _pixel(value, name), None
+
+
+def _placed(item: dict[str, Any], axis: str, span: int) -> int:
+    frac = item.get(f"{axis}_frac")
+    if frac is not None:
+        px = round(float(frac) * span)
+        if px < 0:
+            return 0
+        if px >= span:
+            return span - 1
+        return px
+    return int(item[axis])
+
+
+def _resolve_mark(item: dict[str, Any], width: int, height: int) -> dict[str, Any]:
+    resolved = dict(item)
+    resolved["x"] = _placed(item, "x", width)
+    resolved["y"] = _placed(item, "y", height)
+    if "x2" in item:
+        resolved["x2"] = _placed(item, "x2", width)
+        resolved["y2"] = _placed(item, "y2", height)
+    return resolved
+
+
 def _one_mark(item: Any, index: int) -> dict[str, Any]:
     if not isinstance(item, dict):
         raise ValueError(f"annotate item {index} must be an object.")
     kind = str(item.get("kind") or item.get("type") or "").strip().lower()
     if kind not in _MARK_KINDS:
         raise ValueError(f"annotate item {index} kind must be arrow, box, or label.")
-    x = _pixel(_first(item, "x", "left"), f"annotate item {index} x")
-    y = _pixel(_first(item, "y", "top"), f"annotate item {index} y")
+    raw_x = _first(item, "x", "left")
+    raw_y = _first(item, "y", "top")
+    if _zero_pixel(raw_x) and _zero_pixel(raw_y):
+        alt = _alternate_point(item)
+        if alt is not None:
+            raw_x, raw_y = alt
+    x, x_frac = _read_coord(raw_x, f"annotate item {index} x")
+    y, y_frac = _read_coord(raw_y, f"annotate item {index} y")
+    mark: dict[str, Any] = {
+        "kind": kind,
+        "x": x,
+        "y": y,
+        "x_frac": x_frac,
+        "y_frac": y_frac,
+    }
     if kind == "label":
         text = str(item.get("text") or "").replace("\n", " ").strip()
         if not text:
             raise ValueError(f"annotate item {index} needs text.")
-        return {"kind": "label", "x": x, "y": y, "text": text[:_MAX_MARK_TEXT]}
-    x2 = _pixel(_first(item, "x2", "right"), f"annotate item {index} x2")
-    y2 = _pixel(_first(item, "y2", "bottom"), f"annotate item {index} y2")
-    if kind == "box" and (x2 <= x or y2 <= y):
-        raise ValueError(f"annotate item {index} box needs x < x2 and y < y2.")
-    if kind == "arrow" and x == x2 and y == y2:
-        raise ValueError(f"annotate item {index} arrow needs two different points.")
-    return {"kind": kind, "x": x, "y": y, "x2": x2, "y2": y2}
+        mark["text"] = text[:_MAX_MARK_TEXT]
+        return mark
+    x2, x2_frac = _read_coord(_first(item, "x2", "right"), f"annotate item {index} x2")
+    y2, y2_frac = _read_coord(_first(item, "y2", "bottom"), f"annotate item {index} y2")
+    mark["x2"] = x2
+    mark["y2"] = y2
+    mark["x2_frac"] = x2_frac
+    mark["y2_frac"] = y2_frac
+    fractions = (x_frac, y_frac, x2_frac, y2_frac)
+    if kind == "box" and not any(frac is not None for frac in fractions):
+        if x2 <= x or y2 <= y:
+            raise ValueError(f"annotate item {index} box needs x < x2 and y < y2.")
+    if kind == "arrow" and not any(frac is not None for frac in fractions):
+        if x == x2 and y == y2:
+            raise ValueError(f"annotate item {index} arrow needs two different points.")
+    return mark
 
 
 def _read_annotate(raw: Any) -> list[dict[str, Any]]:
@@ -1331,26 +1444,35 @@ def _draw_marks(frame: Any, marks: _Marks) -> Any:
     draw = ImageDraw.Draw(frame)
     weight = max(2, min(width, height) // 120)
     for index, item in enumerate(marks.items, start=1):
-        kind = item["kind"]
+        resolved = _resolve_mark(item, width, height)
+        kind = resolved["kind"]
         name = f"annotate item {index}"
-        _require_inside(width, height, int(item["x"]), int(item["y"]), name)
+        _require_inside(width, height, int(resolved["x"]), int(resolved["y"]), name)
         if kind == "label":
-            _draw_label(draw, frame, item)
+            _draw_label(draw, frame, resolved)
             continue
-        _require_inside(width, height, int(item["x2"]), int(item["y2"]), name)
+        _require_inside(width, height, int(resolved["x2"]), int(resolved["y2"]), name)
+        if kind == "box" and (
+            int(resolved["x2"]) <= int(resolved["x"]) or int(resolved["y2"]) <= int(resolved["y"])
+        ):
+            raise ValueError(f"{name} box needs x < x2 and y < y2.")
+        if kind == "arrow" and int(resolved["x"]) == int(resolved["x2"]) and int(
+            resolved["y"]
+        ) == int(resolved["y2"]):
+            raise ValueError(f"{name} arrow needs two different points.")
         if kind == "box":
             draw.rectangle(
-                (item["x"], item["y"], item["x2"], item["y2"]),
+                (resolved["x"], resolved["y"], resolved["x2"], resolved["y2"]),
                 outline=_ink(frame.mode, (16, 13, 11)),
                 width=weight + 2,
             )
             draw.rectangle(
-                (item["x"], item["y"], item["x2"], item["y2"]),
+                (resolved["x"], resolved["y"], resolved["x2"], resolved["y2"]),
                 outline=_ink(frame.mode, (248, 241, 234)),
                 width=weight,
             )
             continue
-        _draw_arrow(draw, item, frame.mode, weight)
+        _draw_arrow(draw, resolved, frame.mode, weight)
     if marks.bar_length:
         _draw_scale_bar(draw, frame, marks.bar_length, marks.bar_label)
     if frame.size != (width, height):
