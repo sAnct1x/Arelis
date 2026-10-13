@@ -125,6 +125,20 @@ def test_a_person_is_confirmed_in_a_sentence(tmp_path) -> None:
     assert "remember" in text.casefold()
 
 
+def test_my_dentist_is_remembered_as_yours(tmp_path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    store.start_session()
+    script = [
+        [_call("memory", {"action": "remember", "fact": "my dentist is Dr Lee"})],
+        [("token", "")],
+    ]
+    text = asyncio.run(_run("Remember my dentist is Dr Lee.", script, store))
+    store.close()
+    assert "your dentist" in text
+    assert "Dr Lee" in text
+    assert "my dentist" not in text.casefold()
+
+
 def test_a_forget_receipt_stays_as_the_tool_said_it(tmp_path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     store.start_session()

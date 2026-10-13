@@ -245,3 +245,89 @@ async def test_offers_and_old_files_are_not_treated_as_a_new_file(reply: str) ->
     assert router.i == 1
     assert document.calls == 0
     assert all(_NUDGE not in blob for blob in router.seen)
+
+
+async def _untouched_reply(reply: str, *, native: bool) -> tuple[str, _RecordingRouter]:
+    """One plain answer, no file written. Other gates stay off."""
+    document = _Document()
+    router = _RecordingRouter([[("token", reply)]])
+    tools = ToolRegistry()
+    tools.register(_Analyze())
+    tools.register(document)
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["confirm_writes"] = False
+    cfg["agent"]["native_tool_calling"] = native
+    cfg["agent"]["exactness"] = False
+    cfg["agent"]["numeric_gate"] = False
+    cfg["agent"]["evidence_gate"] = False
+    bus = EventBus()
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_allow,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(bus, loop.run("Tell me what you would do with this.", "fast"))
+    done = next(event for event in events if event.type == EventType.ASSISTANT_DONE)
+    return str(done.payload.get("text") or ""), router
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native", [True, False])
+async def test_a_calendar_event_is_not_a_file_claim(native: bool) -> None:
+    reply = "I created a calendar event for the quarterly report review on Friday."
+    text, router = await _untouched_reply(reply, native=native)
+    assert text == reply
+    assert router.i == 1
+    assert all(_NUDGE not in blob for blob in router.seen)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native", [True, False])
+async def test_a_report_written_below_stays_in_the_reply(native: bool) -> None:
+    reply = "I've written a short report below. Revenue rose 10 percent."
+    text, router = await _untouched_reply(reply, native=native)
+    assert text == reply
+    assert router.i == 1
+    assert all(_NUDGE not in blob for blob in router.seen)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "I made a few edits to the document you shared.",
+        "I wrote a summary of the PDF you sent: sales rose.",
+        "I saved the document you shared.",
+    ],
+)
+async def test_a_file_the_user_provided_is_not_a_new_file(reply: str) -> None:
+    text, router = await _untouched_reply(reply, native=True)
+    assert text == reply
+    assert router.i == 1
+    assert all(_NUDGE not in blob for blob in router.seen)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native", [True, False])
+async def test_a_file_from_last_time_is_not_a_new_file(native: bool) -> None:
+    reply = "Here is the file I made last time."
+    text, router = await _untouched_reply(reply, native=native)
+    assert text == reply
+    assert router.i == 1
+    assert all(_NUDGE not in blob for blob in router.seen)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native", [True, False])
+async def test_making_a_list_after_reading_a_file_is_not_a_file_claim(native: bool) -> None:
+    reply = "I read the file and I made a list: apples 3, pears 4."
+    text, router = await _untouched_reply(reply, native=native)
+    assert text == reply
+    assert router.i == 1
+    assert all(_NUDGE not in blob for blob in router.seen)

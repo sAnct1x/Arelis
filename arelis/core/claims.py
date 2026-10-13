@@ -1593,6 +1593,10 @@ def guard_local_calendar_destination(text: str, *, where: str) -> str:
 
 # First person, past or present perfect, plus a file they say exists now.
 # Offers ("I can create"), refusals, and files from another turn stay out.
+# The file word has to be the object of that verb, a few words after it,
+# or sitting right in front of "I made". A list, an event, or a summary
+# does not count. Bare "report" does not count when the next word is a
+# meeting ("report review").
 _FILE_CLAIM = re.compile(
     r"(?i)(?:"
     r"\bi(?:'ve|\s+have)\s+(?:created|saved|made|generated|exported|written)\b"
@@ -1600,16 +1604,46 @@ _FILE_CLAIM = re.compile(
     r"|\bhas\s+been\s+(?:created|saved)\b"
     r")"
 )
-_FILE_OBJECT = re.compile(
-    r"(?i)\b(?:files?|documents?|spreadsheets?|workbooks?|excel|pdf|"
-    r"csvs?|reports?|word\s+docs?)\b"
+_FILE_BEFORE_VERB = re.compile(
+    r"(?i)\b(?:excel\s+files?|pdf\s+files?|word\s+docs?|report\s+files?|"
+    r"pdf\s+reports?|files?|documents?|spreadsheets?|workbooks?|pdfs?|"
+    r"csvs?|reports?)\s+i(?:'ve|\s+have)?\s+"
+    r"(?:created|saved|made|generated|exported|wrote|written)\b"
 )
 _FILE_CLAIM_SKIP = re.compile(
     r"(?i)\b(?:didn't|did\s+not|haven't|have\s+not|hasn't|has\s+not|"
-    r"wasn't|was\s+not|never|earlier|yesterday|previously|"
-    r"last\s+week|last\s+month)\b"
+    r"wasn't|was\s+not|never|earlier|yesterday|previously|before|"
+    r"last\s+time|last\s+week|last\s+month)\b"
     r"|\bno\s+(?:file|document|spreadsheet|workbook|report)\b"
 )
+_USER_PROVIDED_FILE = re.compile(
+    r"(?i)\byou\s+(?:shared|sent|uploaded|gave|attached)\b"
+    r"|\byour\s+(?:files?|documents?)\b"
+)
+_INLINE_FILE_ANSWER = re.compile(
+    r"(?i)\bwritten\s+below\b|\bbelow\b|\bhere it is\b|\bas follows\b"
+)
+_FILE_OBJECT_WORDS = frozenset(
+    {
+        "file",
+        "files",
+        "document",
+        "documents",
+        "spreadsheet",
+        "spreadsheets",
+        "workbook",
+        "workbooks",
+        "excel",
+        "pdf",
+        "pdfs",
+        "csv",
+        "csvs",
+    }
+)
+_NONFILE_OBJECT_WORDS = frozenset(
+    {"event", "events", "list", "lists", "summary", "summaries", "edit", "edits"}
+)
+_FILE_OBJECT_WINDOW = 8
 _RESULT_LIST = re.compile(
     r"(?i)\b[a-z]+\s+\d+(?:\.\d+)?"
     r"(?:\s*,\s*(?:and\s+)?[a-z]+\s+\d+(?:\.\d+)?)+"
@@ -1618,17 +1652,44 @@ _REMEMBERED_RECEIPT = re.compile(r"^Remembered:\s*(?P<fact>.+?)\s*$", re.S)
 _LABEL_VALUE = re.compile(r"^(?P<label>[^:\n]+):\s*(?P<value>.+)$", re.S)
 
 
+def _direct_object_is_file(words: list[str]) -> bool:
+    """True when the verb's object, within a few words, is a file."""
+    for index, word in enumerate(words):
+        token = word.casefold()
+        nxt = words[index + 1].casefold() if index + 1 < len(words) else ""
+        prev = words[index - 1].casefold() if index else ""
+        if token in _NONFILE_OBJECT_WORDS:
+            return False
+        if token in _FILE_OBJECT_WORDS:
+            return True
+        if token == "word" and nxt in {"doc", "docs"}:
+            return True
+        if token in {"doc", "docs"} and prev == "word":
+            return True
+        if token in {"report", "reports"}:
+            # "report review" is a meeting. "report file" and "PDF report"
+            # are files, and so is a report that is the thing just written.
+            if nxt in {"review", "meeting", "call"}:
+                continue
+            return True
+    return False
+
+
 def file_claim_matches(text: str) -> bool:
     """True when this reply says a file was made or saved just now."""
     raw = text or ""
     chunks = re.split(r"(?<=[.!?])\s+|\n+", raw) or [raw]
     for chunk in chunks:
-        if (
-            _FILE_CLAIM.search(chunk)
-            and _FILE_OBJECT.search(chunk)
-            and not _FILE_CLAIM_SKIP.search(chunk)
-        ):
+        if _FILE_CLAIM_SKIP.search(chunk) or _USER_PROVIDED_FILE.search(chunk):
+            continue
+        if _INLINE_FILE_ANSWER.search(chunk):
+            continue
+        if _FILE_BEFORE_VERB.search(chunk):
             return True
+        for match in _FILE_CLAIM.finditer(chunk):
+            words = re.findall(r"[A-Za-z0-9']+", chunk[match.end() :])
+            if _direct_object_is_file(words[:_FILE_OBJECT_WINDOW]):
+                return True
     return False
 
 
@@ -1655,6 +1716,8 @@ def memory_saved_line(text: str) -> str:
     fact = hit.group("fact").strip()
     if not fact:
         return text
+    if fact.lower().startswith("my "):
+        fact = "your " + fact[3:]
     labeled = _LABEL_VALUE.match(fact)
     if labeled is not None:
         label = labeled.group("label").strip()
