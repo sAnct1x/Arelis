@@ -30,7 +30,9 @@ from arelis.core.turn_context import TurnContext
 from arelis.memory.store import MemoryStore
 from arelis.tools.base import ToolRegistry
 from arelis.tools.code_workspace import CodeWorkspaceTool
+from arelis.tools.memory_tool import MemoryTool
 from arelis.tools.notes import NotesTool
+from arelis.tools.sql_query import SqlTool
 from arelis.tools.tasks import TasksTool
 from arelis.workspace import WorkspaceRoots
 
@@ -250,6 +252,56 @@ def test_flag_on_param_hints_workspace():
             ws_off["function"]["parameters"]["required"]
             == ws_on["function"]["parameters"]["required"]
         )
+
+
+@pytest.mark.no_ui
+def test_flag_on_param_hints_sql_path():
+    """Native sql schema keeps a description on path. Flag off still strips it."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tool = SqlTool([tmpdir], memory_path=Path(tmpdir) / "memory.db")
+        off = skinny_ollama_tool(
+            tool.name,
+            tool.description,
+            tool.parameters_schema,
+            param_hints=False,
+        )
+        on = skinny_ollama_tool(
+            tool.name,
+            tool.description,
+            tool.parameters_schema,
+            param_hints=True,
+        )
+        off_path = off["function"]["parameters"]["properties"]["path"]
+        on_path = on["function"]["parameters"]["properties"]["path"]
+        assert "description" not in off_path
+        assert on_path.get("description") == NATIVE_PARAM_HINTS[("sql", "path")]
+
+
+@pytest.mark.no_ui
+def test_flag_on_param_hints_memory_fact():
+    """Native memory schema keeps a description on fact. Flag off still strips it."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = MemoryStore(Path(tmpdir) / "memory.db")
+        try:
+            tool = MemoryTool(store)
+            off = skinny_ollama_tool(
+                tool.name,
+                tool.description,
+                tool.parameters_schema,
+                param_hints=False,
+            )
+            on = skinny_ollama_tool(
+                tool.name,
+                tool.description,
+                tool.parameters_schema,
+                param_hints=True,
+            )
+        finally:
+            store.close()
+        off_fact = off["function"]["parameters"]["properties"]["fact"]
+        on_fact = on["function"]["parameters"]["properties"]["fact"]
+        assert "description" not in off_fact
+        assert on_fact.get("description") == NATIVE_PARAM_HINTS[("memory", "fact")]
 
 
 @pytest.mark.no_ui

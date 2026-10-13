@@ -179,10 +179,12 @@ class RunScriptTool:
         text = redact_secrets(text)
         if len(text) > _MAX_OUTPUT:
             text = text[:_MAX_OUTPUT] + "\n…(truncated)"
+        data = _result_data(resolved, interpreter, cwd, code, duration)
+        data["stdout"] = redact_secrets((stdout or "").rstrip())
         return ToolResult(
             ok=code == 0,
             output=text,
-            data=_result_data(resolved, interpreter, cwd, code, duration),
+            data=data,
         )
 
 

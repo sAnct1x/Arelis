@@ -40,6 +40,12 @@ NATIVE_PARAM_HINTS: dict[tuple[str, str], str] = {
         "Omit for how far, closest, or farthest. APOD or one sky day only."
     ),
     ("catalog", "query"): "arxiv or ads search text only. Not a planet.",
+    ("sql", "path"): (
+        "Workspace CSV/TSV/JSON to query. Set this for a file; it loads as table data."
+    ),
+    ("memory", "fact"): (
+        "The whole statement including any number, e.g. 'weekly run distance: 24.1 km'."
+    ),
 }
 
 # For notes tool, only expose 'text' in native mode, not the aliases
