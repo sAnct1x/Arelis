@@ -70,9 +70,7 @@ def test_a_book_theme_is_not_the_screen() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("theme_id", (
-        'sodium',
-    ))
+@pytest.mark.parametrize("theme_id", list(_LABELS))
 async def test_i_dont_know_on_a_theme_ask_names_the_live_theme(theme_id: str) -> None:
     apply_theme(theme_id)
     loop = _FakeLoop()
