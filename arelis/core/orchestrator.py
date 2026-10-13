@@ -8,6 +8,7 @@ from arelis.browser.hold import set_paused
 from arelis.config import load_persona
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
+from arelis.core.compensation import regex_routing
 from arelis.core.confirm_speech import (
     apply_confirm_edit,
     classify_drive_act,
@@ -150,6 +151,9 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         """
         if explicit == "research":
             return explicit, "chip"
+        agent = self.config.get("agent") if isinstance(self.config, dict) else None
+        if not regex_routing(agent if isinstance(agent, dict) else None):
+            return (explicit or self.router.default_role), "default"
         # Fast is the default chip, not a pin. "deeply research" must still
         # route — there is no way to tell "they chose fast" from "nothing".
         # Deep research-shaped asks before tool/file loops: "write a report"
@@ -219,32 +223,34 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
             payload["text"] = text
             await self.bus.publish(Event(EventType.PHYSICS_VERB, payload))
             return
-        from arelis.core.desk_guide import match_desk_guide
-        from arelis.core.tile_complete import match_desk_intent, match_tile_intent
+        agent = self.config.get("agent") if isinstance(self.config, dict) else None
+        if regex_routing(agent if isinstance(agent, dict) else None):
+            from arelis.core.desk_guide import match_desk_guide
+            from arelis.core.tile_complete import match_desk_intent, match_tile_intent
 
-        if match_desk_guide(text):
-            await self.bus.publish(
-                Event(
-                    EventType.TILE_VERB,
-                    {"text": text, "action": "guide", "name": ""},
+            if match_desk_guide(text):
+                await self.bus.publish(
+                    Event(
+                        EventType.TILE_VERB,
+                        {"text": text, "action": "guide", "name": ""},
+                    )
                 )
-            )
-            return
-        tile = match_tile_intent(text)
-        desk = match_desk_intent(text)
-        # A named tile, "close this", or span / rooms. Same instant path.
-        if desk or (tile and (tile[1] or tile[0] == "close")):
-            await self.bus.publish(
-                Event(
-                    EventType.TILE_VERB,
-                    {
-                        "text": text,
-                        "action": (desk or tile)[0],
-                        "name": (desk or tile)[1],
-                    },
+                return
+            tile = match_tile_intent(text)
+            desk = match_desk_intent(text)
+            # A named tile, "close this", or span / rooms. Same instant path.
+            if desk or (tile and (tile[1] or tile[0] == "close")):
+                await self.bus.publish(
+                    Event(
+                        EventType.TILE_VERB,
+                        {
+                            "text": text,
+                            "action": (desk or tile)[0],
+                            "name": (desk or tile)[1],
+                        },
+                    )
                 )
-            )
-            return
+                return
         if not conversing and not control_only:
             await self.bus.publish(Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"}))
             return

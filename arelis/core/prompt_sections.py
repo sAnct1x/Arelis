@@ -4,6 +4,7 @@ from typing import Any
 
 from arelis.contacts import contacts_prompt_line
 from arelis.core.agent_loop import _wants_project_context, now_line, theme_line
+from arelis.core.compensation import regex_routing
 from arelis.core.episodes import episodes_prompt_line
 from arelis.core.intent_catalog import data_cell_enabled
 from arelis.core.lessons import format_lessons, select_lessons
@@ -60,8 +61,9 @@ def append_preflight_guidance(
     # NASA fact pins are not routing: they stay on even when native tool
     # calling skips the regex intent layer below.
     append_nasa_fact_guidance(messages, text)
-    # native_tool_calling disables regex/intent routing layer entirely
-    if native_tool_calling(agent_cfg):
+    # native_tool_calling, or regex_routing false, skips the intent layer.
+    # NASA fact pins above stay. Native schema hints are not turned on here.
+    if native_tool_calling(agent_cfg) or not regex_routing(agent_cfg):
         return preflight_kinds
     if not bool(agent_cfg.get("intent_preflight", True)):
         return preflight_kinds
