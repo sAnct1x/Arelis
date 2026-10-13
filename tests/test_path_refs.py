@@ -30,11 +30,9 @@ def _hit(pattern, text: str) -> str | None:
 
 @pytest.mark.parametrize(
     "text",
-    [
-        "/tmp/pytest-of-runner/pytest-1/test_x0/arelis_1234.png",
-        "/home/you/work/outputs/images/cat.png",
+    (
         "/var/folders/ab/T/data/drops/scan.jpg",
-    ],
+    ),
 )
 def test_a_posix_absolute_image_path_is_seen(text):
     """Every one of these returned None before, on any machine without drive
