@@ -539,6 +539,35 @@ async def test_installed_package_inspect_root_workspace_tool_cannot_write(
     assert "# shipped" in read.output
 
 
+_UNSAFE_WINDOWS_PATHS = (
+    r"\\evil\share\x.txt",
+    r"\\?\UNC\evil\share",
+    r"\\.\evil\share",
+    r"\??\UNC\evil\share",
+    "//evil/share/x",
+    r"\\/server/share",
+    r"/\server\share",
+    r"\??/UNC/x",
+    r"/??\UNC\x",
+    r"//?/UNC/x",
+    r"\\?\UNC\x",
+    r"//server/share/x.txt",
+    r'  "\\evil\share\x.txt"  ',
+    r"  '\\server\share'  ",
+    "file://server/share/x.txt",
+    "file:////server/share",
+    r"file:\\server\share\x.txt",
+)
+
+_SAFE_WINDOWS_PATHS = (
+    "notes.txt",
+    r"C:\Users\someone\doc.txt",
+    r"C:/Users/someone/doc.txt",
+    "outputs/documents/x.md",
+    r"file:///C:/Users/someone/doc.txt",
+)
+
+
 def _track_path_fs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     """Record Path.resolve / exists / stat / open so UNC checks stay pre-FS."""
     calls: list[tuple[str, str]] = []
@@ -570,30 +599,17 @@ def _track_path_fs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     return calls
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x.txt",
-        r"  '\\server\share'  ",
-        "file:////server/share",
-        r"file:\\server\share\x.txt",
-    ))
+@pytest.mark.parametrize("raw", _UNSAFE_WINDOWS_PATHS)
 def test_is_unsafe_windows_path_prefixes(raw: str) -> None:
     assert is_unsafe_windows_path(raw)
 
 
-@pytest.mark.parametrize("raw", (
-        "outputs/documents/x.md",
-        r"file:///C:/Users/someone/doc.txt",
-    ))
+@pytest.mark.parametrize("raw", _SAFE_WINDOWS_PATHS)
 def test_is_unsafe_windows_path_allows_local(raw: str) -> None:
     assert not is_unsafe_windows_path(raw)
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x.txt",
-        r"  '\\server\share'  ",
-        "file:////server/share",
-        r"file:\\server\share\x.txt",
-    ))
+@pytest.mark.parametrize("raw", _UNSAFE_WINDOWS_PATHS)
 def test_resolve_refuses_unc_before_filesystem(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -613,11 +629,7 @@ def test_resolve_refuses_unc_before_filesystem(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("raw", (
-        r"  '\\server\share'  ",
-        "file:////server/share",
-        r"file:\\server\share\x.txt",
-    ))
+@pytest.mark.parametrize("raw", _UNSAFE_WINDOWS_PATHS)
 async def test_workspace_tool_refuses_unc_without_fs(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -678,9 +690,14 @@ def _boom_fs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "stat", boom_os_stat)
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x.txt",
-    ))
+_ENTRY_UNC = (
+    r"\\evil\share\x.txt",
+    r"\\/server/share",
+    r"\??/UNC/x",
+)
+
+
+@pytest.mark.parametrize("raw", _ENTRY_UNC)
 def test_image_io_refuses_unc_before_filesystem(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -696,9 +713,7 @@ def test_image_io_refuses_unc_before_filesystem(
         resolve_image(None, raw)
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x.txt",
-    ))
+@pytest.mark.parametrize("raw", _ENTRY_UNC)
 def test_ocr_refuses_unc_before_filesystem(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -711,9 +726,7 @@ def test_ocr_refuses_unc_before_filesystem(
         tool._resolve_image(raw)
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x.txt",
-    ))
+@pytest.mark.parametrize("raw", (*_ENTRY_UNC, "//evil/share/x"))
 def test_docs_resolve_under_refuses_unc_before_filesystem(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -726,9 +739,7 @@ def test_docs_resolve_under_refuses_unc_before_filesystem(
         indexer._resolve_under(raw)
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\/server/share",
-    ))
+@pytest.mark.parametrize("raw", _ENTRY_UNC)
 def test_attachments_refuse_unc_before_filesystem(
     raw: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -739,9 +750,7 @@ def test_attachments_refuse_unc_before_filesystem(
     assert any(UNSAFE_WINDOWS_PATH_MSG in err for err in result.errors)
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x.txt",
-    ))
+@pytest.mark.parametrize("raw", _ENTRY_UNC)
 def test_document_read_source_refuses_unc_before_filesystem(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -23,6 +23,12 @@ from arelis.look_scratch import (
 from arelis.tools.comfy_lifecycle import discover_comfy, resolve_launch
 from arelis.workspace import is_unsafe_windows_path
 
+_UNC = (
+    r"\\evil\share\x",
+    r"\\/evil/share",
+    r"\\?\UNC\evil\share\x",
+)
+
 
 def _unsafe_text(text: str) -> bool:
     if is_unsafe_windows_path(text):
@@ -73,11 +79,7 @@ def _block_unsafe_fs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, "stat", boom_os_stat)
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_usable_file_refuses_unc(raw: str, monkeypatch: pytest.MonkeyPatch) -> None:
     _block_unsafe_fs(monkeypatch)
     assert _usable_file(raw) == ""
@@ -91,11 +93,7 @@ def test_usable_file_reads_a_local_file(tmp_path: Path, monkeypatch: pytest.Monk
     assert _usable_file(str(tmp_path / "missing.txt")) == ""
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_denied_file_path_refuses_unc(raw: str, monkeypatch: pytest.MonkeyPatch) -> None:
     _block_unsafe_fs(monkeypatch)
     assert is_denied_file_path(raw) is True
@@ -110,11 +108,7 @@ def test_denied_file_path_allows_a_local_file(
     assert is_denied_file_path(note) is False
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_look_scratch_refuses_unc(raw: str, monkeypatch: pytest.MonkeyPatch) -> None:
     clear_look_pending()
     _block_unsafe_fs(monkeypatch)
@@ -142,11 +136,7 @@ def test_look_scratch_still_forgets_a_local_still(
     clear_look_pending()
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_discover_comfy_skips_unc(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -176,11 +166,7 @@ def test_resolve_launch_uses_a_local_folder(
     assert "8188" in " ".join(argv)
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_resolve_launch_refuses_unc_paths(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

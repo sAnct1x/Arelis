@@ -22,6 +22,11 @@ from arelis.local_open import open_local_file, open_local_file_as, reveal_local_
 from arelis.tools.image_meta import read_named_sidecar
 from arelis.workspace import UNSAFE_WINDOWS_PATH_MSG, WorkspaceRoots, is_unsafe_windows_path
 
+_UNC = (
+    r"\\evil\share\x",
+    r"\\/evil/share",
+    r"\\?\UNC\evil\share\x",
+)
 _DRIVE = r"C:\Users\example\note.txt"
 
 
@@ -114,11 +119,7 @@ def _capture_openers(monkeypatch: pytest.MonkeyPatch) -> list:
     return calls
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_resolve_upload_path_refuses_unc(raw: str, monkeypatch: pytest.MonkeyPatch) -> None:
     _block_unsafe_fs(monkeypatch)
     hit, err = resolve_upload_path(raw)
@@ -144,11 +145,7 @@ def test_resolve_upload_path_allows_a_local_file(
     assert "Not a file" in miss_err
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_resolve_attach_path_refuses_unc(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -179,11 +176,7 @@ def test_resolve_attach_path_allows_a_local_file(
     assert resolve_attach_path(str(kept), workspace=workspace) == str(kept.resolve())
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_frame_sha256_refuses_unc_without_reading(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -202,11 +195,7 @@ def test_frame_sha256_hashes_a_local_file(tmp_path: Path) -> None:
     assert frame_sha256(str(note)) == hashlib.sha256(payload).hexdigest()
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_normalize_abs_refuses_unc(raw: str, monkeypatch: pytest.MonkeyPatch) -> None:
     _block_unsafe_fs(monkeypatch)
     assert _normalize_abs(raw) == ""
@@ -222,11 +211,7 @@ def test_normalize_abs_keeps_a_drive_letter_and_a_real_file(tmp_path: Path) -> N
     assert "note.txt" in drive
 
 
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_read_named_sidecar_refuses_unc(raw: str, monkeypatch: pytest.MonkeyPatch) -> None:
     _block_unsafe_fs(monkeypatch)
     assert read_named_sidecar(raw) == {}
@@ -255,11 +240,7 @@ def test_read_named_sidecar_reads_a_local_file(
     [open_local_file, open_local_file_as, reveal_local_file],
     ids=["open", "open-as", "reveal"],
 )
-@pytest.mark.parametrize("raw", (
-        r"\\evil\share\x",
-    ), ids=(
-        "unc",
-    ))
+@pytest.mark.parametrize("raw", _UNC, ids=["unc", "mixed-slash", "device-unc"])
 def test_local_open_refuses_unc(opener, raw: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _capture_openers(monkeypatch)
     _block_unsafe_fs(monkeypatch)
@@ -282,14 +263,8 @@ def test_local_open_drive_letter_is_a_missing_file(opener, monkeypatch: pytest.M
 
 @pytest.mark.parametrize(
     "opener",
-    (
-        open_local_file_as,
-        reveal_local_file,
-    ),
-    ids=(
-        "open-as",
-        "reveal",
-    ),
+    [open_local_file, open_local_file_as, reveal_local_file],
+    ids=["open", "open-as", "reveal"],
 )
 def test_local_open_reaches_the_opener_for_a_real_file(
     opener, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
