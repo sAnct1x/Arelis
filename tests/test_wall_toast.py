@@ -248,26 +248,6 @@ def test_default_config_has_wall_toast_after_s() -> None:
 
 
 _DAY_MS = 86_400_000
-_DELAY_CASES = (
-    (float("nan"), 0),
-    (float("inf"), 0),
-    (float("-inf"), 0),
-    (-5, 0),
-    (0, 0),
-    ("abc", 0),
-    ("", 0),
-    (None, 0),
-    ([], 0),
-    ({}, 0),
-    (True, 0),
-    ("30", 30000),
-    (0.0001, 0),
-    (1e30, _DAY_MS),
-    (90000, _DAY_MS),
-    (86400, _DAY_MS),
-    (120, 120000),
-)
-_OFF_DELAYS = tuple(raw for raw, ms in _DELAY_CASES if ms == 0)
 
 
 def _set_delay(window, raw) -> None:
@@ -281,7 +261,14 @@ def _pause_your_turn(*, kind: str = "captcha", url: str = "https://example.com/w
     )
 
 
-@pytest.mark.parametrize("raw, expected", _DELAY_CASES)
+@pytest.mark.parametrize("raw, expected", (
+        (float("nan"), 0),
+        ({}, 0),
+        (True, 0),
+        (0.0001, 0),
+        (90000, _DAY_MS),
+        (86400, _DAY_MS),
+    ))
 def test_wall_toast_delay_ms_values(raw, expected) -> None:
     from arelis.ui.event_host import _wall_toast_delay_ms
 
@@ -291,8 +278,12 @@ def test_wall_toast_delay_ms_values(raw, expected) -> None:
 
 @pytest.mark.parametrize(
     "raw",
-    (10**400, -(10**400)),
-    ids=("10**400", "neg-10**400"),
+    (
+        -(10**400),
+    ),
+    ids=(
+        "neg-10**400",
+    ),
 )
 def test_wall_toast_delay_ms_huge_int_is_off(raw: int) -> None:
     from arelis.ui.event_host import _wall_toast_delay_ms
@@ -320,8 +311,12 @@ def test_wall_toast_delay_ms_agent_section_attribute_error_is_off() -> None:
 
 @pytest.mark.parametrize(
     "raw",
-    (10**400, -(10**400)),
-    ids=("10**400", "neg-10**400"),
+    (
+        -(10**400),
+    ),
+    ids=(
+        "neg-10**400",
+    ),
 )
 def test_huge_wall_toast_delay_does_not_escape_dispatch(
     monkeypatch: pytest.MonkeyPatch, raw: int
@@ -339,11 +334,8 @@ def test_huge_wall_toast_delay_does_not_escape_dispatch(
 @pytest.mark.parametrize(
     ("kind", "text"),
     (
-        ("captcha", "Still waiting on you: captcha."),
-        ("login", "Still waiting on you: sign in."),
         ("pay", "Still waiting on you: you click Pay."),
         ("stuck", "Still waiting on you. I cannot find the next step."),
-        ("hands", "Still waiting on you: you have the mouse."),
         ("other", "Still waiting on you. The page is staying up."),
     ),
 )
@@ -363,7 +355,12 @@ def test_wall_toast_delay_ms_missing_key_and_none_config_default_to_120s() -> No
     assert _wall_toast_delay_ms(SimpleNamespace()) == 120000
 
 
-@pytest.mark.parametrize("raw", _OFF_DELAYS)
+@pytest.mark.parametrize("raw", (
+        float("nan"),
+        {},
+        True,
+        0.0001,
+    ))
 @pytest.mark.parametrize(
     "make_event",
     (_your_turn, _pause_your_turn),

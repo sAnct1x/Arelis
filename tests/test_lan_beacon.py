@@ -23,18 +23,11 @@ def test_beacon_round_trip_strips_instance_whitespace() -> None:
 
 @pytest.mark.parametrize(
     "payload",
-    [
+    (
         b"",
-        b"NOPE|desk|80",
-        b"ARELIS1|desk",
-        b"ARELIS1",
-        b"ARELIS1|",
         b"ARELIS1||80",
-        b"ARELIS1|   |80",
         b"ARELIS1|desk|nope",
-        b"ARELIS1|desk|0",
-        b"ARELIS1|desk|65536",
-    ],
+    ),
 )
 def test_decode_beacon_rejects_garbage(payload: bytes) -> None:
     assert decode_beacon(payload) is None

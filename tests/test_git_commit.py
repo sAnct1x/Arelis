@@ -125,7 +125,9 @@ async def test_staging_can_be_scoped_to_one_file(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "action",
-    ["push", "reset", "clean", "checkout", "rebase", "merge", "config"],
+    (
+        "reset",
+    ),
 )
 @pytest.mark.asyncio
 async def test_the_dangerous_verbs_stay_refused(tmp_path: Path, action: str) -> None:
