@@ -114,10 +114,14 @@ class TurnContext:
     last_fail_tool_name: str = ""
     last_fail_tool_out: str = ""
     # Copied from a python ToolResult data field. Empty unless that result
-    # set next_tool to plot. The loop reads this, not the refusal sentence.
+    # set next_tool to plot. Later python calls do not clear it. The loop
+    # reads this, not the refusal sentence.
     python_result_next_tool: str = ""
-    # Model rounds already granted so that marker can call plot. One is the cap.
+    # Model rounds already granted so that marker can call plot. Two is the cap.
     python_plot_extra_rounds: int = 0
+    # A python call ran while plot was already owed and that result had no
+    # result field. The marker stays. This only ends the extra rounds.
+    python_plot_data_failed: bool = False
     inbox_mutated_ok: bool = False
     inbox_empty_ok: bool = False
     last_browser_snapshot: str = ""

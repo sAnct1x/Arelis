@@ -382,18 +382,17 @@ def test_chart_import_refusal_is_a_typed_error() -> None:
         runner._import_refusal("matplotlib")
     assert caught.value.next_tool == "plot"
     assert caught.value.refusal == "chart_import"
+    assert "call plot" in str(caught.value).lower()
+    assert "compute xs" not in str(caught.value).lower()
 
 
 def test_os_import_refusal_is_not_the_chart_marker() -> None:
     from arelis.tools import python_cell_runner as runner
 
-    try:
+    with pytest.raises(ValueError) as caught:
         runner._import_refusal("os")
-    except ValueError as exc:
-        assert getattr(exc, "next_tool", None) != "plot"
-        return
-    text = runner._import_refusal("os")
-    assert "os" in text
+    assert getattr(caught.value, "next_tool", None) != "plot"
+    assert not isinstance(caught.value, runner._ChartImportError)
 
 
 @pytest.mark.asyncio

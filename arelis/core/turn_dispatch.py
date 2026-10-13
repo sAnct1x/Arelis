@@ -905,15 +905,15 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
 
     from arelis.core.loop_helpers import python_plot_round_pending, python_plot_stop_line
 
-    # A python result with next_tool=plot gets one more round so plot can run.
-    # Another pass after that sits until the read times out with no words, so
-    # plot already tried, or that one round already spent, ends the turn here.
-    # The field on the tool result is the whole decision.
+    # Plot stays owed across later python calls until plot is tried.
+    # Two extra rounds is the cap. A python call with no result data ends
+    # sooner. The field on the tool result is the whole decision.
     if python_plot_round_pending(
         next_tool=ctx.python_result_next_tool,
         ledger=ctx.ledger,
         plot_available="plot" in r.tool_names,
         extra_rounds=ctx.python_plot_extra_rounds,
+        python_returned_data=not ctx.python_plot_data_failed,
     ):
         ctx.python_plot_extra_rounds += 1
         return False
@@ -922,6 +922,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         ledger=ctx.ledger,
         plot_available="plot" in r.tool_names,
         extra_rounds=ctx.python_plot_extra_rounds,
+        python_returned_data=not ctx.python_plot_data_failed,
     )
     if reply:
         await loop._finish(reply, r.sources, streamed="")

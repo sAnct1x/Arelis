@@ -214,9 +214,8 @@ class _ChartImportError(ValueError):
         self.import_name = name
         super().__init__(
             f"import {name!r} is not allowed in this cell. "
-            "Compute xs and ys here (print comma-separated numbers), "
-            "then call plot with those series and out='name.png'. "
-            "path= is a CSV table, not the PNG."
+            "Call plot with the data: pass xs and ys as comma-separated numbers "
+            "and out='name.png'. path= is a CSV table, not the PNG."
         )
 
 

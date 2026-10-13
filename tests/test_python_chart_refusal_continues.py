@@ -1,7 +1,9 @@
-"""A python chart refusal owes one plot round, then today's ending.
+"""A python chart refusal keeps plot owed until plot is tried.
 
 The marker is ``data["next_tool"] == "plot"`` on the python tool result.
-The refusal sentence and the user text are not consulted.
+Later python calls do not clear it. Two extra rounds is the cap. A python
+call that returns no result data ends sooner. The refusal sentence and the
+user text are not consulted.
 """
 
 from __future__ import annotations
@@ -117,8 +119,8 @@ class _Python:
         if self.words:
             output = (
                 "Python refused: import 'matplotlib' is not allowed in this cell. "
-                "Compute xs and ys here (print comma-separated numbers), "
-                "then call plot with those series and out='name.png'."
+                "Call plot with the data: pass xs and ys as comma-separated numbers "
+                "and out='name.png'."
             )
         else:
             output = "Python refused: blocked."
@@ -128,6 +130,59 @@ class _Python:
         result = ToolResult(ok=False, output=output, data=data)
         self.rec.last = result
         return result
+
+
+class _PythonSteps:
+    """Scripted python results. Each call takes the next result."""
+
+    name = "python"
+    description = "run python"
+    risk = "read"
+    parameters_schema = {
+        "type": "object",
+        "properties": {"code": {"type": "string"}},
+    }
+
+    def __init__(self, rec: _Rec, steps: list[ToolResult]) -> None:
+        self.rec = rec
+        self.steps = steps
+        self.i = 0
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        del kwargs
+        self.rec.calls.append("python")
+        result = self.steps[min(self.i, len(self.steps) - 1)]
+        self.i += 1
+        self.rec.last = result
+        return result
+
+
+def _refusal(*, words: bool) -> ToolResult:
+    if words:
+        output = (
+            "Python refused: import 'matplotlib' is not allowed in this cell. "
+            "Call plot with the data: pass xs and ys as comma-separated numbers "
+            "and out='name.png'."
+        )
+    else:
+        output = "Python refused: blocked."
+    return ToolResult(
+        ok=False,
+        output=output,
+        data={"refusal": "chart_import", "next_tool": "plot"},
+    )
+
+
+def _redo(text: str = "1, 4, 9, 16, 25, 36, 49, 64") -> ToolResult:
+    return ToolResult(
+        ok=True,
+        output=text,
+        data={"code": "print(squares)", "result": text},
+    )
+
+
+def _no_data() -> ToolResult:
+    return ToolResult(ok=False, output="Python failed: the cell stopped.", data={})
 
 
 class _RealPython(PythonTool):
@@ -219,13 +274,15 @@ async def test_real_matplotlib_refusal_gets_one_plot_round(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("regex_routing", "native"), _MODES)
-async def test_marker_without_chart_words_still_allows_plot(
+async def test_refusal_then_python_redo_then_plot(
     regex_routing: bool, native: bool
 ) -> None:
+    """A python call that returns data keeps plot owed, so plot still runs."""
     rec = _Rec()
     router = _ScriptedRouter(
         [
             [("tool_calls", [_call("python", {"code": "import matplotlib"})])],
+            [("tool_calls", [_call("python", {"code": "print(squares)"})])],
             [("tool_calls", [_call("plot", _PLOT)])],
             [("tool_calls", [_call("document", _DOC)])],
             [("token", "The chart and the note are ready.")],
@@ -233,15 +290,16 @@ async def test_marker_without_chart_words_still_allows_plot(
     )
     bus, loop = _loop(
         router,
-        _tools(rec, _Python(rec, marker=True, words=False)),
+        _tools(rec, _PythonSteps(rec, [_refusal(words=True), _redo()])),
         regex_routing=regex_routing,
         native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
     assert rec.last is not None
-    assert "matplotlib" not in (rec.last.output or "")
-    assert "plot" not in (rec.last.output or "").casefold()
-    assert rec.calls == ["python", "plot", "document"]
+    assert rec.last.ok is True
+    assert "result" in rec.last.data
+    assert "next_tool" not in rec.last.data
+    assert rec.calls == ["python", "python", "plot", "document"]
     assert CHART_FAILED_REPLY not in _done(events)
 
 
@@ -286,12 +344,70 @@ async def test_no_extra_round_when_plot_was_already_tried(
     )
     bus, loop = _loop(
         router,
-        _tools(rec, _Python(rec, marker=True, words=True), plot_ok=False),
+        _tools(rec, _Python(rec, marker=True, words=False), plot_ok=False),
         regex_routing=regex_routing,
         native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
     assert rec.calls == ["plot", "python"]
+    assert _done(events) == CHART_FAILED_REPLY
+    assert router.i == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("regex_routing", "native"), _MODES)
+async def test_two_data_redos_spend_the_cap_before_plot(
+    regex_routing: bool, native: bool
+) -> None:
+    """Two python calls that return data use the cap. Plot does not get a third."""
+    rec = _Rec()
+    router = _ScriptedRouter(
+        [
+            [("tool_calls", [_call("python", {"code": "import matplotlib"})])],
+            [("tool_calls", [_call("python", {"code": "print(squares)"})])],
+            [("tool_calls", [_call("python", {"code": "print(list(squares))"})])],
+            [("tool_calls", [_call("plot", _PLOT)])],
+            [("token", "The chart is ready.")],
+        ]
+    )
+    bus, loop = _loop(
+        router,
+        _tools(rec, _PythonSteps(rec, [_refusal(words=True), _redo(), _redo()])),
+        regex_routing=regex_routing,
+        native=native,
+    )
+    events = await _collect(bus, loop.run(_ASK, "fast"))
+    assert rec.calls == ["python", "python", "python"]
+    assert _done(events) == CHART_FAILED_REPLY
+    assert router.i == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("regex_routing", "native"), _MODES)
+async def test_python_redo_without_data_ends_before_plot(
+    regex_routing: bool, native: bool
+) -> None:
+    """A later python call with no result data ends the owed plot."""
+    rec = _Rec()
+    router = _ScriptedRouter(
+        [
+            [("tool_calls", [_call("python", {"code": "import matplotlib"})])],
+            [("tool_calls", [_call("python", {"code": "print(squares)"})])],
+            [("tool_calls", [_call("plot", _PLOT)])],
+            [("token", "The chart is ready.")],
+        ]
+    )
+    bus, loop = _loop(
+        router,
+        _tools(rec, _PythonSteps(rec, [_refusal(words=True), _no_data()])),
+        regex_routing=regex_routing,
+        native=native,
+    )
+    events = await _collect(bus, loop.run(_ASK, "fast"))
+    assert rec.last is not None
+    assert rec.last.ok is False
+    assert "result" not in rec.last.data
+    assert rec.calls == ["python", "python"]
     assert _done(events) == CHART_FAILED_REPLY
     assert router.i == 2
 
@@ -359,12 +475,28 @@ def test_pending_round_reads_the_field_not_a_sentence() -> None:
         plot_available=True,
         extra_rounds=0,
     )
+    assert python_plot_round_pending(
+        next_tool="plot",
+        ledger=ledger,
+        plot_available=True,
+        extra_rounds=1,
+    )
     assert (
         python_plot_round_pending(
             next_tool="",
             ledger=ledger,
             plot_available=True,
             extra_rounds=0,
+        )
+        is False
+    )
+    assert (
+        python_plot_round_pending(
+            next_tool="plot",
+            ledger=ledger,
+            plot_available=True,
+            extra_rounds=1,
+            python_returned_data=False,
         )
         is False
     )
@@ -383,6 +515,26 @@ def test_pending_round_reads_the_field_not_a_sentence() -> None:
             ledger=ledger,
             plot_available=True,
             extra_rounds=1,
+            python_returned_data=False,
+        )
+        == CHART_FAILED_REPLY
+    )
+    assert (
+        python_plot_stop_line(
+            next_tool="plot",
+            ledger=ledger,
+            plot_available=True,
+            extra_rounds=1,
+            idle_round=True,
+        )
+        == CHART_FAILED_REPLY
+    )
+    assert (
+        python_plot_stop_line(
+            next_tool="plot",
+            ledger=ledger,
+            plot_available=True,
+            extra_rounds=2,
         )
         == CHART_FAILED_REPLY
     )

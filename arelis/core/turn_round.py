@@ -182,13 +182,15 @@ async def apply_no_call_path(
     time this returns, or raises.
     """
     if not r.calls:
-        # The python result owed plot, and this round did not call it.
-        # Stop before a nudge spends another model pass on the same refusal.
+        # Plot is still owed and this round called nothing. Stop before a
+        # nudge spends another model pass. A python call can keep the round.
         owed = python_plot_stop_line(
             next_tool=ctx.python_result_next_tool,
             ledger=ctx.ledger,
             plot_available="plot" in r.tool_names,
             extra_rounds=ctx.python_plot_extra_rounds,
+            python_returned_data=not ctx.python_plot_data_failed,
+            idle_round=True,
         )
         if owed:
             await loop._finish(owed, r.sources, streamed="")

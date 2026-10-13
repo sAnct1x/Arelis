@@ -202,11 +202,18 @@ async def execute_call(
                 tool_fields["arg_keys"] = sorted(args.keys()) if args else []
             loop._timer.mark("tool", **tool_fields)
         data_dict = result.data if isinstance(result.data, dict) else None
-        if name == "python" and isinstance(data_dict, dict):
-            # One extra plot round keys off this field. The output text is not read.
-            nxt = data_dict.get("next_tool")
-            if nxt == "plot":
+        if name == "python":
+            # The marker stays until plot is tried. A later python call that
+            # has no result field ends the owed plot. The output text is not read.
+            from arelis.core.loop_helpers import python_result_returned_data
+
+            owed_plot = ctx.python_result_next_tool == "plot"
+            if isinstance(data_dict, dict) and data_dict.get("next_tool") == "plot":
                 ctx.python_result_next_tool = "plot"
+            if owed_plot:
+                ctx.python_plot_data_failed = not python_result_returned_data(
+                    result.ok, data_dict
+                )
         if name in {"scrape", "web_fetch"} and not result.ok:
             tag = ""
             if isinstance(data_dict, dict):
