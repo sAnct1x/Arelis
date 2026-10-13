@@ -83,7 +83,11 @@ async def _scrape(**kwargs: object) -> ToolResult:
 async def test_document_path_opens_in_pdf_workspace_and_doc_extract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Fail-before: the path document returns is missing for pdf and workspace."""
+    """The reported pdf path opens in pdf and doc_extract.
+
+    workspace read of that same path must not return the bytes as text.
+    It refuses and names doc_extract, once the file has been found.
+    """
     data, project, roots = _split(tmp_path, monkeypatch)
     wrote = await DocumentTool(roots).run(
         format="pdf",
@@ -112,8 +116,17 @@ async def test_document_path_opens_in_pdf_workspace_and_doc_extract(
     assert Path(str((listed.data or {})["abs_path"])).resolve() == real.resolve()
 
     read = await CodeWorkspaceTool(roots).run(action="read", path=reported)
-    assert read.ok, read.output
+    assert read.ok is False
+    assert "is not text" in read.output
+    assert "Call doc_extract path=" in read.output
+    assert _PDF_MARKER not in read.output
+    assert not read.output.startswith("%PDF")
+    assert (read.data or {}).get("next_tool") == "doc_extract"
     assert Path(str((read.data or {})["abs_path"])).resolve() == real.resolve()
+    named = read.output.split("path=", 1)[1].strip().rstrip(".")
+    pointed = await DocExtractTool(roots).run(path=named)
+    assert pointed.ok, pointed.output
+    assert "4419" in pointed.output
 
     extracted = await DocExtractTool(roots).run(path=reported)
     assert extracted.ok, extracted.output

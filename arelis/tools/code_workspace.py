@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from arelis.core.document_refs import resolve_reported_output_path
+from arelis.paths import user_data_dir
 from arelis.tools.base import ToolResult
 from arelis.tools.confirm_preview import workspace_confirm
 from arelis.tools.safety import redact_secrets
@@ -319,6 +320,22 @@ def _apply_hunks(original: str, hunks: list[_Hunk], *, label: str) -> str:
     return text
 
 
+def _output_hit(path: Path) -> ResolvedPath:
+    """A reported output file, labeled the way the other file tools open it.
+
+    Rooting the hit at the file's parent makes qualified() the bare filename.
+    That name joins onto the workspace and misses the data folder. The data
+    folder relative form (outputs/documents/Name.pdf) is the path pdf,
+    workspace, and doc_extract already accept.
+    """
+    root = user_data_dir().resolve()
+    try:
+        path.resolve().relative_to(root)
+    except (OSError, ValueError):
+        root = path.parent
+    return ResolvedPath(path=path, root_name="outputs", root=root)
+
+
 class CodeWorkspaceTool:
     name = "workspace"
     description = (
@@ -460,15 +477,13 @@ class CodeWorkspaceTool:
             reported = resolve_reported_output_path(path_str)
             if not reported:
                 raise
-            path = Path(reported)
-            return ResolvedPath(path=path, root_name="outputs", root=path.parent)
+            return _output_hit(Path(reported))
         if resolved.path.exists():
             return resolved
         reported = resolve_reported_output_path(path_str)
         if not reported:
             return resolved
-        path = Path(reported)
-        return ResolvedPath(path=path, root_name="outputs", root=path.parent)
+        return _output_hit(Path(reported))
 
     async def run(self, **kwargs: Any) -> ToolResult:
         action = (kwargs.get("action") or "").lower()
