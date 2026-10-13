@@ -86,7 +86,7 @@ class WeatherTool:
             "place": {
                 "type": "string",
                 "description": (
-                    "City to forecast, e.g. 'Springfield, Illinois'. Geocoded here. "
+                    "City to forecast, e.g. 'Lyon, France'. Geocoded here. "
                     "Omit for the user's own location. Never pass coordinates."
                 ),
             },
