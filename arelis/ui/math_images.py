@@ -33,7 +33,7 @@ from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QFont, QFontMetricsF, QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
-from arelis.mathtext import tex_to_plain
+from arelis.mathtext import _group_unbraced_greek, tex_to_plain
 
 log = logging.getLogger(__name__)
 
@@ -289,6 +289,7 @@ def prepare_tex(tex: str) -> str:
     text = _rewrite_tabular(text)
     text = _ROW_SKIP.sub(_keep_row_break, text)
     text = _drop_loose_hlines(text)
+    text = _group_unbraced_greek(text)
     return text.strip()
 
 
