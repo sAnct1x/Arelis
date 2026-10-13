@@ -53,6 +53,81 @@ _ABSENT_HINT_KEEP = frozenset(
 )
 
 
+_TOOL_LOADING_MODES = frozenset({"off", "tail", "front"})
+
+
+def _tool_loading_mode(agent_cfg: dict[str, Any] | None) -> str:
+    """off, tail, or front. A missing key is off. Anything else logs and is off."""
+    if not agent_cfg or "tool_loading" not in agent_cfg:
+        return "off"
+    raw = agent_cfg.get("tool_loading")
+    # An unquoted off in YAML is boolean False. That is off, not a typo.
+    if raw is False:
+        return "off"
+    mode = raw.strip().lower() if isinstance(raw, str) else str(raw).strip().lower()
+    if mode in _TOOL_LOADING_MODES:
+        return mode
+    log.info(
+        "agent.tool_loading %r is not off, tail, or front; using off",
+        raw,
+    )
+    return "off"
+
+
+def _load_tools_spec(param_hints: bool) -> dict[str, Any]:
+    """The load_tools schema, shaped like the registry's other tools."""
+    from arelis.core.compact_prompt import skinny_ollama_tool
+    from arelis.tools.load_tools import LoadTools
+    from arelis.tools.model_schema import model_parameters
+
+    tool = LoadTools()
+    spec = skinny_ollama_tool(
+        tool.name,
+        tool.description,
+        tool.parameters_schema,
+        param_hints=param_hints,
+    )
+    fn = spec["function"]
+    fn["parameters"] = model_parameters(tool.name, fn["parameters"])
+    return spec
+
+
+def _core_plus_load_tools(tools: Any, hints: bool) -> list[dict[str, Any]]:
+    """Registered core tools, registry order, then the load_tools schema."""
+    from arelis.tools.groups import CORE
+
+    core = set(CORE)
+    full = list(tools.ollama_tools(param_hints=hints))
+    kept = [
+        spec
+        for spec in full
+        if str((spec.get("function") or {}).get("name") or "") in core
+    ]
+    return [*kept, _load_tools_spec(hints)]
+
+
+def _frozen_loading_list(
+    tools: Any, hints: bool, mode: str
+) -> list[dict[str, Any]]:
+    """tail or front. Same mode returns the same list. A new mode rebuilds."""
+    frozen = getattr(tools, "_session_schema_freeze", None)
+    if (
+        isinstance(frozen, tuple)
+        and len(frozen) == 3
+        and frozen[0] == hints
+        and frozen[1] == mode
+        and isinstance(frozen[2], list)
+    ):
+        return frozen[2]
+    built = _core_plus_load_tools(tools, hints)
+    try:
+        tools._session_schema_freeze = (hints, mode, built)
+    except Exception:
+        # A stand-in registry may refuse the attribute. The list is still valid.
+        return built
+    return built
+
+
 def session_tool_schemas(tools: Any, agent_cfg: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Every tool registered this session, in registry order.
 
@@ -60,8 +135,14 @@ def session_tool_schemas(tools: Any, agent_cfg: dict[str, Any] | None) -> list[d
     turn read that same list, so the bytes stay put until Settings builds
     a new registry. Routing may still decide which calls are allowed.
     That decision does not add or remove schemas here.
+
+    agent.tool_loading off is that full list. tail and front send the
+    registered core tools plus load_tools. A mode change rebuilds once.
     """
     hints = bool(native_tool_calling(agent_cfg))
+    mode = _tool_loading_mode(agent_cfg)
+    if mode != "off":
+        return _frozen_loading_list(tools, hints, mode)
     frozen = getattr(tools, "_session_schema_freeze", None)
     if (
         isinstance(frozen, tuple)
