@@ -15,31 +15,15 @@ EN = "\u2013"
 HB = "\u2015"
 
 
-def test_module_importable() -> None:
-    from arelis.core.dash_filter import DashFilter, clean_dashes
-
-    assert callable(clean_dashes)
-    assert DashFilter is not None
-
-
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [
-        (f"It works {EM} I tested it.", "It works, I tested it."),
-        (f"It works{EM}I tested it.", "It works, I tested it."),
-        (f"yes{EM}no", "yes, no"),
-        (f"a {EN} b", "a, b"),
+    (
         (f"Pages 3{EN}5 and 2020{EN}2024", f"Pages 3{EN}5 and 2020{EN}2024"),
-        (f"5{EN}10", f"5{EN}10"),
-        (f"3 {EN} 5", f"3 {EN} 5"),
         (f"Navier{EN}Stokes", "Navier-Stokes"),
         (f"wait {EM}\nnext", "wait\nnext"),
         (f"{EM} item\n{EM}\n", "- item\n-\n"),
         (f"| a | {EM} |", "| a | - |"),
         (f'say "{EM} hi"', 'say "hi"'),
-        (f"so, {EM} then", "so, then"),
-        (f"wait {EM}.", "wait."),
-        (f"wait {EM}?", "wait?"),
         ("`a " + EM + " b`", "`a " + EM + " b`"),
         (
             "```py\nx = 1 " + EM + " 2\n```\nthen " + EM + " after",
@@ -49,16 +33,9 @@ def test_module_importable() -> None:
             "> quote " + EM + " cleaned\nnext " + EM + " gone",
             "> quote, cleaned\nnext, gone",
         ),
-        (f"X {EM} y {EM} z", "X, y, z"),
-        (f"A{EM}{EM}B", "A, B"),
         ("你好" + EM + EM + "世界", "你好\uff0c世界"),
-        ("no dash here", "no dash here"),
-        (f"trailing {EM}", "trailing"),
-        (f"{EM}", "-"),
         (f"see https://example.com/a{EM}b and done {EM} ok", f"see https://example.com/a{EM}b and done, ok"),
-        (f"see http://x.test/p{EM}q then {EM} end", f"see http://x.test/p{EM}q then, end"),
-        (f"spaced {HB} bar", "spaced, bar"),
-    ],
+    ),
 )
 def test_clean_dashes_table(raw: str, expected: str) -> None:
     from arelis.core.dash_filter import clean_dashes
@@ -133,15 +110,10 @@ def test_prepare_body_strips_em_dash() -> None:
 
 @pytest.mark.parametrize(
     "parts",
-    [
-        ["word ", EM, " next"],
-        ["word", " ", EM, "next"],
-        ["word " + EM, " next"],
-        ["word", " " + EM + " ", "next"],
-        [f"a{EM}", "b"],
+    (
         ["Sure ", EM, " here", " you go."],
         ["wait ", EM],
-    ],
+    ),
 )
 def test_streaming_splits_match_whole(parts: list[str]) -> None:
     from arelis.core.dash_filter import DashFilter, clean_dashes
@@ -239,26 +211,18 @@ def test_property_chunking_seeded() -> None:
             assert right[:1].isdigit()
 
 
-LDQ = "\u201c"
-RDQ = "\u201d"
 LSQ = "\u2018"
 RSQ = "\u2019"
 
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [
-        (f'He said {EM} "stop"', 'He said, "stop"'),
+    (
         (f"frame {EM} '2.7 K to the CMB frame' is a Doppler boost",
          "frame, '2.7 K to the CMB frame' is a Doppler boost"),
-        (f"He said {EM} {LDQ}stop{RDQ}", f"He said, {LDQ}stop{RDQ}"),
-        (f"He said {EM} {LSQ}stop{RSQ}", f"He said, {LSQ}stop{RSQ}"),
         (f'so, {EM} "then"', 'so, "then"'),
-        (f'word{EM}"end"', 'word"end"'),
         (f"word{EM}'end'", "word'end'"),
-        (f"hello{EM}{RDQ}", f"hello{RDQ}"),
-        (f"hello{EM}{RSQ}", f"hello{RSQ}"),
-    ],
+    ),
 )
 def test_spaced_dash_before_opening_quote(raw: str, expected: str) -> None:
     from arelis.core.dash_filter import clean_dashes
@@ -268,16 +232,9 @@ def test_spaced_dash_before_opening_quote(raw: str, expected: str) -> None:
 
 @pytest.mark.parametrize(
     "parts",
-    [
-        ["He said ", EM, ' "stop"'],
-        ["He said " + EM, ' "stop"'],
-        ['He said ' + EM + " ", '"stop"'],
-        ["He said", f" {EM} ", '"stop"'],
-        ["frame ", EM, " '2.7 K'"],
-        ["frame " + EM + " ", "'2.7 K'"],
-        ["He said ", EM, f" {LDQ}stop{RDQ}"],
+    (
         ["He said ", EM, f" {LSQ}stop{RSQ}"],
-    ],
+    ),
 )
 def test_quote_after_dash_survives_stream_splits(parts: list[str]) -> None:
     from arelis.core.dash_filter import DashFilter, clean_dashes

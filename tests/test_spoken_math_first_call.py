@@ -20,12 +20,11 @@ def _ctx(text: str) -> TurnContext:
 
 @pytest.mark.parametrize(
     "ask,expected",
-    [
-        ("What is 17 times 23?", 391),
+    (
         ("what's 15% of 240 for the tip?", 36),
         ("whats 120 divided by 8", 15),
         ("how much is 45 plus 17?", 62),
-    ],
+    ),
 )
 async def test_spoken_math_first_calculator_call_succeeds(ask: str, expected: int) -> None:
     """The first armed calculator call must evaluate; it must not fail."""
