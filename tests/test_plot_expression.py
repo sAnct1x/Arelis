@@ -77,11 +77,13 @@ def test_a_constant_still_draws() -> None:
 
 @pytest.mark.parametrize(
     "hostile",
-    (
+    [
         '__import__("os").system("echo hi")',
         "open('/etc/passwd').read()",
+        "().__class__.__bases__",
         "lambda: 1",
-    ),
+        "[x for x in range(3)]",
+    ],
 )
 def test_the_expression_is_not_a_python_escape_hatch(hostile: str) -> None:
     """Inherited from cas.parse_cas_expr's AST whitelist, and it must stay that way.

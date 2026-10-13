@@ -38,9 +38,13 @@ def _vis(src: str) -> str:
 
 @pytest.mark.parametrize(
     ("src", "want"),
-    (
+    [
         (r"$A \cup B$", "\u222a"),
-    ),
+        (r"$A \cap B$", "\u2229"),
+        (r"$\langle v, w \rangle$", "\u27e8"),
+        (r"$p \implies q$", "\u21d2"),
+        (r"$x \perp y$", "\u22a5"),
+    ],
 )
 def test_known_symbols_are_not_deleted(src: str, want: str) -> None:
     assert want in _vis(src)
@@ -85,9 +89,10 @@ def test_display_math_in_list_does_not_restart_numbering() -> None:
 
 @pytest.mark.parametrize(
     ("src", "bad"),
-    (
+    [
         ("So x = \u20133.", "=,"),
-    ),
+        ("(x \u2013 1)", "(x,"),
+    ],
 )
 def test_dash_filter_keeps_minus_in_math(src: str, bad: str) -> None:
     assert bad not in clean_dashes(src)
@@ -99,10 +104,14 @@ def test_line_start_negative_number_is_not_a_bullet() -> None:
 
 @pytest.mark.parametrize(
     "src",
-    (
+    [
         "$5",
+        "$10",
         "costs $5 and $10",
-    ),
+        "$5 to $10",
+        "$1,200.50",
+        "between $3 and $4 each",
+    ],
 )
 def test_prices_stay_unchanged(src: str) -> None:
     assert src in _vis(src)

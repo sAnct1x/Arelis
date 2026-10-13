@@ -15,11 +15,17 @@ def _run(**kwargs: str):
 
 @pytest.mark.parametrize(
     ("text", "expected"),
-    (
+    [
+        ("10 in to cm", ("10 in", "cm")),
+        ("10 in into cm", ("10 in", "cm")),
         ("90 degrees Fahrenheit to Celsius", ("90 degrees Fahrenheit", "Celsius")),
         ("90 degrees Fahrenheit in Celsius", ("90 degrees Fahrenheit", "Celsius")),
+        ("5 miles in km", ("5 miles", "km")),
+        ("5 ft 8 in in cm", ("5 ft 8 in", "cm")),
+        ("10 in", None),
+        ("speed of light", None),
         ("2 apples in bananas", None),
-    ),
+    ],
 )
 def test_split_conversion(text: str, expected: tuple[str, str] | None) -> None:
     assert _split_conversion(text) == expected
