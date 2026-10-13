@@ -8,6 +8,7 @@ from typing import Any
 
 from arelis.core.claims import (
     answer_looks_like_refusal,
+    detect_plot_ask,
     duration_days_claim_missing_kinds,
     send_claim_missing_kinds,
     unsupported_exactness_reply,
@@ -361,14 +362,25 @@ CHART_FAILED_REPLY = "The chart did not get drawn. I will not fake one in text."
 _CHART_TOOLS = frozenset({"plot", "python", "calculator"})
 
 
-def chart_failed_reply(ledger: EvidenceLedger | None) -> str | None:
-    """A short honest line when a chart was asked for and never drawn."""
+def chart_failed_reply(
+    ledger: EvidenceLedger | None,
+    *,
+    ask: str = "",
+    python_output: str = "",
+) -> str | None:
+    """A short honest line when a chart was asked for and never drawn.
+
+    A failed plot is the usual case. Python refusing a chart library first
+    is the same ending: the chart was asked for, and nothing drew it.
+    """
     if ledger is None or ledger.has_ok("plot"):
         return None
     failed = any(item.kind == "plot" and not item.ok for item in ledger.items)
-    if not failed:
-        return None
-    return CHART_FAILED_REPLY
+    if failed:
+        return CHART_FAILED_REPLY
+    if python_blocked_a_chart(python_output) and detect_plot_ask(ask):
+        return CHART_FAILED_REPLY
+    return None
 
 
 def python_blocked_a_chart(output: str) -> bool:
