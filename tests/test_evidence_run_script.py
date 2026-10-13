@@ -76,3 +76,22 @@ async def test_a_real_script_print_satisfies_the_math_gate(tmp_path: Path) -> No
     )
     assert "144" in " ".join(item.span for item in ledger.items if item.ok)
     assert _refuse(ledger) is None
+
+
+@pytest.mark.asyncio
+async def test_stored_stdout_matches_the_python_warrant_cap(tmp_path: Path) -> None:
+    script = tmp_path / "wide.py"
+    script.write_text("print('x' * 500)\n", encoding="utf-8")
+    result = await RunScriptTool([str(tmp_path)]).run(path="wide.py")
+    assert result.ok, result.output
+    assert result.data["stdout"] == "x" * 200
+    ledger = EvidenceLedger()
+    ledger.record_tool(
+        "run_script",
+        ok=result.ok,
+        output=result.output,
+        data=result.data,
+    )
+    spans = [item.span for item in ledger.items if item.ok and item.kind == "calc"]
+    assert spans == ["x" * 200]
+    assert ledger.has_ok("calc")

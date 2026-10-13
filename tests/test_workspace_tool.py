@@ -86,6 +86,19 @@ async def test_read_refuses_a_pdf_that_has_no_nul(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_refuses_other_binaries_without_doc_extract(tmp_path: Path) -> None:
+    """A png is not text, and doc_extract cannot read it."""
+    tool = CodeWorkspaceTool([str(tmp_path)])
+    blob = tmp_path / "shot.png"
+    blob.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+    result = await tool.run(action="read", path="shot.png")
+    assert result.ok is False
+    assert result.output == "shot.png is not text."
+    assert "doc_extract" not in result.output
+    assert "next_tool" not in (result.data or {})
+
+
+@pytest.mark.asyncio
 async def test_read_still_returns_plain_text(tmp_path: Path) -> None:
     tool = CodeWorkspaceTool([str(tmp_path)])
     note = tmp_path / "work" / "memo.txt"

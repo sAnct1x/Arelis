@@ -767,14 +767,20 @@ class CodeWorkspaceTool:
         path = resolved.path
         if not path.is_file():
             return ToolResult(ok=False, output=f"Not a file: {path}")
-        if path.suffix.lower() in _DOC_EXTRACT_SUFFIXES or _is_probably_binary(path):
-            label = resolved.qualified(multi=len(self.workspace) > 1)
+        label = resolved.qualified(multi=len(self.workspace) > 1)
+        if path.suffix.lower() in _DOC_EXTRACT_SUFFIXES:
             data = self._path_data(resolved)
             data["next_tool"] = "doc_extract"
             return ToolResult(
                 ok=False,
                 output=f"{label} is not text. Call doc_extract path={label}.",
                 data=data,
+            )
+        if _is_probably_binary(path):
+            return ToolResult(
+                ok=False,
+                output=f"{label} is not text.",
+                data=self._path_data(resolved),
             )
         text = redact_secrets(path.read_text(encoding="utf-8", errors="replace"))
         out = text[:max_chars]

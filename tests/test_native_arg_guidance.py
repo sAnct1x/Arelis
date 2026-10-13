@@ -255,8 +255,8 @@ def test_flag_on_param_hints_workspace():
 
 
 @pytest.mark.no_ui
-def test_flag_on_param_hints_sql_path():
-    """Native sql schema keeps a description on path. Flag off still strips it."""
+def test_sql_path_has_no_native_hint():
+    """path= and FROM data live on the sqlite error. A hint does not fit."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tool = SqlTool([tmpdir], memory_path=Path(tmpdir) / "memory.db")
         off = skinny_ollama_tool(
@@ -274,7 +274,8 @@ def test_flag_on_param_hints_sql_path():
         off_path = off["function"]["parameters"]["properties"]["path"]
         on_path = on["function"]["parameters"]["properties"]["path"]
         assert "description" not in off_path
-        assert on_path.get("description") == NATIVE_PARAM_HINTS[("sql", "path")]
+        assert "description" not in on_path
+        assert ("sql", "path") not in NATIVE_PARAM_HINTS
 
 
 @pytest.mark.no_ui
