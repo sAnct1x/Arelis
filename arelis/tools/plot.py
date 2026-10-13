@@ -338,6 +338,151 @@ def plot_range_value(raw: str, *, name: str) -> float:
     return value
 
 
+def _split_top_level_commas(text: str) -> list[str]:
+    """Commas outside (), [], {}, and quotes. atan2(y, x) stays one piece."""
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    quote = ""
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            buf.append(ch)
+            if ch == "\\":
+                if i + 1 < len(text):
+                    buf.append(text[i + 1])
+                    i += 2
+                    continue
+            elif ch == quote:
+                quote = ""
+            i += 1
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            buf.append(ch)
+        elif ch in "([{":
+            depth += 1
+            buf.append(ch)
+        elif ch in ")]}":
+            if depth:
+                depth -= 1
+            buf.append(ch)
+        elif ch == "," and depth == 0:
+            piece = "".join(buf).strip()
+            if piece:
+                parts.append(piece)
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    piece = "".join(buf).strip()
+    if piece:
+        parts.append(piece)
+    return parts
+
+
+def _unwrap_parens(text: str) -> str | None:
+    """The inside of a wrapping (...) pair, or None when the parens are not a wrapper."""
+    if len(text) < 2 or text[0] != "(" or text[-1] != ")":
+        return None
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                if i != len(text) - 1:
+                    return None
+                return text[1:-1].strip()
+    return None
+
+
+def _expression_pieces(text: str) -> list[str]:
+    parsed = _literal_structure(text)
+    if isinstance(parsed, (list, tuple)) and parsed and all(
+        isinstance(part, (str, int, float)) and not isinstance(part, bool) for part in parsed
+    ):
+        return [str(part).strip() for part in parsed if str(part).strip()]
+    inner = _unwrap_parens(text)
+    if inner is not None:
+        inner_parts = _split_top_level_commas(inner)
+        if len(inner_parts) > 1:
+            return inner_parts
+    return _split_top_level_commas(text)
+
+
+def _split_plot_expressions(raw: Any) -> list[str]:
+    """One expression, or several the model joined with a comma or a tuple.
+
+    Each piece is still parsed by parse_cas_expr. This only separates them.
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple)):
+        parts: list[str] = []
+        for item in raw:
+            if isinstance(item, (list, tuple)):
+                parts.extend(_split_plot_expressions(item))
+            else:
+                one = str(item).strip()
+                if one:
+                    parts.append(one)
+        return parts
+    text = str(raw).strip()
+    if not text:
+        return []
+    return _expression_pieces(text) or [text]
+
+
+def _missing_bound(raw: Any) -> bool:
+    if raw is None:
+        return True
+    if isinstance(raw, str):
+        return not raw.strip()
+    if isinstance(raw, (list, tuple)):
+        return len(raw) == 0
+    return False
+
+
+def _bound_pair(raw: Any) -> tuple[Any, Any] | None:
+    """xmin='(0, 10)' or xmin='0, 10' names both ends. A single endpoint stays None."""
+    if isinstance(raw, (list, tuple)):
+        if len(raw) == 2:
+            return raw[0], raw[1]
+        return None
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    parsed = _literal_structure(text)
+    if isinstance(parsed, (list, tuple)) and len(parsed) == 2:
+        return parsed[0], parsed[1]
+    pieces = _split_top_level_commas(_unwrap_parens(text) or text)
+    if len(pieces) == 2:
+        return pieces[0], pieces[1]
+    return None
+
+
+def _plot_bounds(xmin: Any, xmax: Any) -> tuple[float, float]:
+    """lo, hi. One key may hold both ends; two single endpoints stay as they were."""
+    left = _bound_pair(xmin)
+    right = _bound_pair(xmax)
+    if left is not None and (_missing_bound(xmax) or right is not None):
+        lo_raw, hi_raw = left
+    elif right is not None and _missing_bound(xmin):
+        lo_raw, hi_raw = right
+    else:
+        lo_raw = "" if xmin is None else xmin
+        hi_raw = "" if xmax is None else xmax
+    return (
+        plot_range_value(lo_raw, name="xmin"),
+        plot_range_value(hi_raw, name="xmax"),
+    )
+
+
 def sample_expression(
     expr: str,
     *,
@@ -665,21 +810,49 @@ class PlotTool:
                     return self._draw_subplots(draws, title=title, kwargs=kwargs)
 
             else:
-                x, y, xlabel, ylabel, source = self._series(kwargs)
-                xlabel = str(kwargs.get("xlabel") or xlabel).strip() or xlabel
-                ylabel = str(kwargs.get("ylabel") or ylabel).strip() or ylabel
-                n = len(x)
-
-                def _draw() -> tuple:
-                    return self._draw(
-                        action,
-                        x,
-                        y,
-                        title=title,
-                        xlabel=xlabel,
-                        ylabel=ylabel,
-                        kwargs=kwargs,
+                path_str = str(kwargs.get("path") or "").strip()
+                if path_str and _looks_like_chart_out(path_str):
+                    path_str = ""
+                exprs = (
+                    _split_plot_expressions(kwargs.get("expr")) if not path_str else []
+                )
+                if len(exprs) > 1 and action in {"line", "scatter"}:
+                    lines, lo, hi = self._sample_lines(kwargs, exprs)
+                    xlabel = str(kwargs.get("xlabel") or kwargs.get("var") or "x").strip() or "x"
+                    ylabel = str(kwargs.get("ylabel") or "").strip() or ", ".join(
+                        label for _x, _y, label in lines
                     )
+                    n = max(len(x) for x, _y, _label in lines)
+                    source = "; ".join(
+                        f"{label} over [{lo:g}, {hi:g}]" for _x, _y, label in lines
+                    )
+
+                    def _draw() -> tuple:
+                        return self._draw_lines(
+                            action,
+                            lines,
+                            title=title,
+                            xlabel=xlabel,
+                            ylabel=ylabel,
+                            kwargs=kwargs,
+                        )
+
+                else:
+                    x, y, xlabel, ylabel, source = self._series(kwargs)
+                    xlabel = str(kwargs.get("xlabel") or xlabel).strip() or xlabel
+                    ylabel = str(kwargs.get("ylabel") or ylabel).strip() or ylabel
+                    n = len(x)
+
+                    def _draw() -> tuple:
+                        return self._draw(
+                            action,
+                            x,
+                            y,
+                            title=title,
+                            xlabel=xlabel,
+                            ylabel=ylabel,
+                            kwargs=kwargs,
+                        )
         except (ValueError, PermissionError, OSError) as exc:
             return ToolResult(
                 ok=False,
@@ -783,15 +956,20 @@ class PlotTool:
                 x, y = x[:_MAX_ROWS], y[:_MAX_ROWS]
             display = resolved.qualified(multi=len(self.workspace) > 1)
             return x, y, x_name, y_name, display
-        expr = str(kwargs.get("expr") or "").strip()
-        if expr:
-            lo = plot_range_value(kwargs.get("xmin", ""), name="xmin")
-            hi = plot_range_value(kwargs.get("xmax", ""), name="xmax")
+        exprs = _split_plot_expressions(kwargs.get("expr"))
+        if exprs:
+            if len(exprs) != 1:
+                raise ValueError(
+                    "Send one expression for this chart, or subplots with "
+                    "one expression per panel."
+                )
+            lo, hi = _plot_bounds(kwargs.get("xmin", ""), kwargs.get("xmax", ""))
             var = str(kwargs.get("var") or "x").strip() or "x"
             try:
                 samples = int(kwargs.get("samples") or _DEFAULT_SAMPLES)
             except (TypeError, ValueError):
                 samples = _DEFAULT_SAMPLES
+            expr = exprs[0]
             x, y = sample_expression(expr, var=var, lo=lo, hi=hi, samples=samples)
             return x, y, var, expr, f"{expr} over [{lo:g}, {hi:g}]"
         xs = _inline_pair(kwargs, primary="xs", alias="x")
@@ -934,6 +1112,21 @@ class PlotTool:
             raise ValueError("Need at least one bar.")
         return cats, values, "category", "value", "inline"
 
+    def _sample_lines(
+        self, kwargs: dict[str, Any], exprs: list[str]
+    ) -> tuple[list[tuple[Any, Any, str]], float, float]:
+        lo, hi = _plot_bounds(kwargs.get("xmin", ""), kwargs.get("xmax", ""))
+        var = str(kwargs.get("var") or "x").strip() or "x"
+        try:
+            samples = int(kwargs.get("samples") or _DEFAULT_SAMPLES)
+        except (TypeError, ValueError):
+            samples = _DEFAULT_SAMPLES
+        lines: list[tuple[Any, Any, str]] = []
+        for expr in exprs:
+            x, y = sample_expression(expr, var=var, lo=lo, hi=hi, samples=samples)
+            lines.append((x, y, expr))
+        return lines, lo, hi
+
     def _subplot_series(
         self, kwargs: dict[str, Any], panels: list[str]
     ) -> tuple[np.ndarray, np.ndarray, list[str] | None, str, str, str]:
@@ -983,6 +1176,20 @@ class PlotTool:
         if nested_xs is None:
             nested_xs = _semicolon_series(xs_raw)
         if nested_ys is None and nested_xs is None:
+            exprs = _split_plot_expressions(kwargs.get("expr"))
+            if len(exprs) > 1:
+                if len(exprs) != len(kinds):
+                    raise ValueError(
+                        f"expr has {len(exprs)} expressions and panels has {len(kinds)}. "
+                        "Send one expression per panel."
+                    )
+                draws = []
+                for kind, one in zip(kinds, exprs, strict=True):
+                    local = dict(kwargs)
+                    local["expr"] = one
+                    local.pop("path", None)
+                    draws.append(self._one_panel(kind, local))
+                return draws, "inline"
             x, y, cats, xlabel, ylabel, source = self._subplot_series(kwargs, kinds)
             draws = [
                 _PanelDraw(kind, x, y, cats, xlabel, ylabel) for kind in kinds
@@ -1193,6 +1400,57 @@ class PlotTool:
                 ax.grid(True, alpha=0.3)
                 fig.tight_layout()
                 extra = _save_figure(fig, dest, look)
+        return dest, extra
+
+    def _draw_lines(
+        self,
+        action: str,
+        lines: list[tuple[Any, Any, str]],
+        *,
+        title: str,
+        xlabel: str,
+        ylabel: str,
+        kwargs: dict[str, Any],
+    ) -> tuple[Path, str]:
+        """Several expressions on one chart. No new argument: expr already held them."""
+        folder, _where = self.out_dir()
+        dest = self._dest(kwargs, action, folder)
+        ensure(dest.parent)
+        look = str(kwargs.get("look") or "default")
+        width, marker = _stroke(look)
+        with _look_context(look):
+            fig = _open_figure(_figure_size(look), look)
+            ax = fig.add_subplot(111)
+            for index, (x, y, label) in enumerate(lines):
+                style = _mark_color(look, index)
+                if action == "scatter":
+                    ax.scatter(
+                        x,
+                        y,
+                        s=18 if look == "default" else 28,
+                        alpha=0.85,
+                        label=label,
+                        **style,
+                    )
+                else:
+                    ax.plot(
+                        x,
+                        y,
+                        marker="o",
+                        linewidth=width,
+                        markersize=marker,
+                        label=label,
+                        **style,
+                    )
+            if len(lines) > 1:
+                ax.legend()
+            if title:
+                ax.set_title(title)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            ax.grid(True, alpha=0.3)
+            fig.tight_layout()
+            extra = _save_figure(fig, dest, look)
         return dest, extra
 
     def _dest(self, kwargs: dict[str, Any], action: str, folder: Path) -> Path:
