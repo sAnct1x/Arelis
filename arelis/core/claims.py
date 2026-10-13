@@ -1591,6 +1591,81 @@ def guard_local_calendar_destination(text: str, *, where: str) -> str:
     )
 
 
+# First person, past or present perfect, plus a file they say exists now.
+# Offers ("I can create"), refusals, and files from another turn stay out.
+_FILE_CLAIM = re.compile(
+    r"(?i)(?:"
+    r"\bi(?:'ve|\s+have)\s+(?:created|saved|made|generated|exported|written)\b"
+    r"|\bi\s+(?:created|saved|made|generated|exported|wrote)\b"
+    r"|\bhas\s+been\s+(?:created|saved)\b"
+    r")"
+)
+_FILE_OBJECT = re.compile(
+    r"(?i)\b(?:files?|documents?|spreadsheets?|workbooks?|excel|pdf|"
+    r"csvs?|reports?|word\s+docs?)\b"
+)
+_FILE_CLAIM_SKIP = re.compile(
+    r"(?i)\b(?:didn't|did\s+not|haven't|have\s+not|hasn't|has\s+not|"
+    r"wasn't|was\s+not|never|earlier|yesterday|previously|"
+    r"last\s+week|last\s+month)\b"
+    r"|\bno\s+(?:file|document|spreadsheet|workbook|report)\b"
+)
+_RESULT_LIST = re.compile(
+    r"(?i)\b[a-z]+\s+\d+(?:\.\d+)?"
+    r"(?:\s*,\s*(?:and\s+)?[a-z]+\s+\d+(?:\.\d+)?)+"
+)
+_REMEMBERED_RECEIPT = re.compile(r"^Remembered:\s*(?P<fact>.+?)\s*$", re.S)
+_LABEL_VALUE = re.compile(r"^(?P<label>[^:\n]+):\s*(?P<value>.+)$", re.S)
+
+
+def file_claim_matches(text: str) -> bool:
+    """True when this reply says a file was made or saved just now."""
+    raw = text or ""
+    chunks = re.split(r"(?<=[.!?])\s+|\n+", raw) or [raw]
+    for chunk in chunks:
+        if (
+            _FILE_CLAIM.search(chunk)
+            and _FILE_OBJECT.search(chunk)
+            and not _FILE_CLAIM_SKIP.search(chunk)
+        ):
+            return True
+    return False
+
+
+def guard_false_file_claim(text: str, *, made: bool) -> str:
+    """Replace a made-a-file claim when this turn never wrote one.
+
+    Numbers already in the reply stay, so a table total is not thrown away
+    with the lie. The replacement never says a file was created.
+    """
+    if made or not file_claim_matches(text):
+        return text
+    found = _RESULT_LIST.search(text or "")
+    if found:
+        bit = found.group(0).strip().rstrip(".")
+        return f"I did not make the file. Here are the results: {bit}."
+    return "I did not make that file, so nothing was saved."
+
+
+def memory_saved_line(text: str) -> str:
+    """Turn a Remembered receipt into one sentence. Other lines stay."""
+    hit = _REMEMBERED_RECEIPT.match((text or "").strip())
+    if hit is None:
+        return text
+    fact = hit.group("fact").strip()
+    if not fact:
+        return text
+    labeled = _LABEL_VALUE.match(fact)
+    if labeled is not None:
+        label = labeled.group("label").strip()
+        value = labeled.group("value").strip().rstrip(".")
+        if label and value:
+            owned = label.lower().startswith(("my ", "your ", "the ", "a ", "an "))
+            whose = label if owned else f"your {label}"
+            return f"Got it, I'll remember that {whose} is {value}."
+    return f"Got it, I'll remember that {fact.rstrip('.')}."
+
+
 def guard_false_calendar_add(text: str, *, created: bool, failed: bool) -> str:
     """Replace a success claim when every calendar create this turn failed.
 

@@ -30,7 +30,7 @@ from arelis.core.agent_loop import (
     append_tool_free_nudge,
     write_after_algebra_notice,
 )
-from arelis.core.claims import document_force_notice
+from arelis.core.claims import document_force_notice, file_claim_matches
 from arelis.core.email_complete import (
     looks_like_bare_confirm,
     rewrite_schedule_calls,
@@ -556,6 +556,37 @@ async def apply_no_call_path(
             )
 
         if not r.calls:
+            if (
+                not getattr(loop, "_file_made", False)
+                and not ctx.file_claim_nudge_used
+                and ctx.nudges < _MAX_TOOL_NUDGES
+                and "document" in r.tool_names
+                and file_claim_matches(r.content or "")
+            ):
+                ctx.file_claim_nudge_used = True
+                ctx.nudges += 1
+                await loop._retract()
+                r.messages.append({"role": "assistant", "content": r.content})
+                r.messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "No file was made yet. Call the document tool now "
+                            "to create it with those contents."
+                        ),
+                    }
+                )
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {
+                            "text": (
+                                "file claimed but none was made; asking to create it"
+                            )
+                        },
+                    )
+                )
+                return False
             hit = await run_finish_steps(loop, ctx, r, round_i)
             if hit == FINISH_NUDGE:
                 return False

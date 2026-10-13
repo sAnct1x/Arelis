@@ -326,6 +326,8 @@ async def execute_call(
                     landed = str(event.get("provider") or "").strip().lower()
                     if landed:
                         loop._agenda_create_where = landed
+            if name in {"document", "plot", "image", "image_edit"}:
+                loop._file_made = True
             if (
                 name == "agenda"
                 and str(args.get("action") or "").lower()
