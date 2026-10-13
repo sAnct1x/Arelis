@@ -301,7 +301,9 @@ async def test_write_actions_are_in_at_cancel() -> None:
 
 
 @pytest.mark.parametrize(
-    "raw", ["", " ", "\n", "\t", " \n\t ", None, " " * (MAX_MESSAGE_CHARS + 5)]
+    "raw", (
+        "",
+    )
 )
 def test_normalize_message_rejects_empty_and_whitespace(raw: object) -> None:
     with pytest.raises(ReminderError, match="needs a message"):

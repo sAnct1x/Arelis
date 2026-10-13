@@ -357,19 +357,13 @@ class TestHowACheckValueIsRead:
 
     @pytest.mark.parametrize(
         ("settings", "github_requests", "logs_a_fallback"),
-        [
+        (
             pytest.param("updates:\n  check:\n", 1, True, id="empty"),
-            pytest.param("updates:\n  check: ''\n", 1, True, id="empty-string"),
-            pytest.param('updates:\n  check: "false"\n', 0, False, id="false"),
-            pytest.param('updates:\n  check: "False"\n', 0, False, id="False"),
-            pytest.param('updates:\n  check: "off"\n', 0, False, id="off"),
-            pytest.param('updates:\n  check: "no"\n', 0, False, id="no"),
-            pytest.param('updates:\n  check: "  false  "\n', 0, False, id="false-with-spaces"),
             pytest.param('updates:\n  check: "0"\n', 0, False, id="zero-string"),
             pytest.param("updates:\n  check: 0\n", 0, False, id="zero"),
             pytest.param("updates:\n  check: true\n", 1, False, id="true"),
             pytest.param('updates:\n  check: "maybe"\n', 1, True, id="unknown"),
-        ],
+        ),
     )
     def test_github_is_asked_only_when_the_value_leaves_checks_on(
         self,

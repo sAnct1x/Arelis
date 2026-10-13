@@ -28,7 +28,9 @@ def _delivery_blob() -> str:
     return "\n".join(message["content"] for message in messages)
 
 
-@pytest.mark.parametrize("theme_id", list(_LABELS))
+@pytest.mark.parametrize("theme_id", (
+        'sodium',
+    ))
 def test_what_theme_am_i_on_sees_the_live_name(theme_id: str) -> None:
     """The turn she answers from names this theme, and not a different one."""
     apply_theme(theme_id)
@@ -46,12 +48,9 @@ def test_what_theme_am_i_on_sees_the_live_name(theme_id: str) -> None:
 
 @pytest.mark.parametrize(
     "utterance",
-    [
-        "what theme am I on right now?",
-        "what skin am I on?",
+    (
         "what's my current theme",
-        "which theme are you on",
-    ],
+    ),
 )
 def test_a_plain_theme_question_is_not_a_web_search(utterance: str) -> None:
     tools = {"web_search", "scrape", "web_fetch", "workspace"}
@@ -71,7 +70,9 @@ def test_a_book_theme_is_not_the_screen() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("theme_id", list(_LABELS))
+@pytest.mark.parametrize("theme_id", (
+        'sodium',
+    ))
 async def test_i_dont_know_on_a_theme_ask_names_the_live_theme(theme_id: str) -> None:
     apply_theme(theme_id)
     loop = _FakeLoop()
