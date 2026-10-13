@@ -189,6 +189,12 @@ async def test_agenda_ics_returns_a_pause_when_the_guard_mutes(
         "arelis.briefing.ics_sync.load_ics_url",
         lambda path=None: "https://ssd.jpl.nasa.gov/calendar.ics",
     )
+    # Answer DNS here. A sandbox resolver that hands out 198.18.0.0/15 made
+    # the private address check fire before the mute, so the result
+    # depended on the network the suite ran on.
+    monkeypatch.setattr(
+        "arelis.tools.safety._resolved_ips", lambda host, port: ["93.184.215.14"]
+    )
     tool = AgendaTool({"tools": {"briefing": {"calendar_path": str(tmp_path / "cal.ics")}}})
     before = muted_outbound["n"]
     result = await tool.run(action="sync", provider="ics")
