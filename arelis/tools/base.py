@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import builtins
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from arelis.tools.coerce import coerce_arguments
 from arelis.tools.model_schema import model_parameters
 from arelis.tools.policy import (
     CONTACTS_WRITE_ACTIONS,
@@ -22,6 +24,8 @@ from arelis.tools.policy import (
     describe_call as render_confirm_detail,
 )
 from arelis.tools.safety import redact_secrets
+
+log = logging.getLogger(__name__)
 
 # Template tokens the model uses when it has not filled a real value (U7).
 # Do not match raw "<...>" — that flags comparison text ("<30 Hz ... >30 Hz")
@@ -116,6 +120,10 @@ class Tool(Protocol):
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
+        # Groups load_tools has recorded for this session. A settings rebuild
+        # makes a new registry, so the set starts empty again. Turns share
+        # this list: each turn builds a new agent loop.
+        self.loaded_groups: list[str] = []
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
@@ -230,6 +238,28 @@ class ToolRegistry:
             name, args, lookup=self.get, summarize=self.summarize_call
         )
 
+    def coerce_call_args(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Convert string arguments from this tool's schema.
+
+        Any failure returns the original dict and logs once. The turn
+        keeps going with the values the model sent.
+        """
+        tool = self.get(name)
+        if tool is None:
+            return args
+        schema = getattr(tool, "parameters_schema", None)
+        if not isinstance(schema, dict):
+            return args
+        try:
+            return coerce_arguments(schema, args)
+        except Exception:
+            log.warning(
+                "Tool arguments for %s were left as the model sent them",
+                name,
+                exc_info=True,
+            )
+            return args
+
     async def call(self, name: str, /, **kwargs: Any) -> ToolResult:
         """Invoke a tool by name.
 
@@ -241,6 +271,13 @@ class ToolRegistry:
         tool = self.get(name)
         if tool is None:
             return ToolResult(ok=False, output=f"Unknown tool: {name}")
+        # Ollama types arguments only for names in the tools array. A loaded
+        # tool is not in that array, so every argument arrives as a string.
+        # Convert from this tool's schema on every call. A value that already
+        # has the right type is left as it is. A conversion that does not
+        # parse is left as it is, and the tool reports it. A crash inside
+        # conversion leaves the raw arguments and the call still runs.
+        kwargs = self.coerce_call_args(name, kwargs)
         try:
             return await tool.run(**kwargs)
         except TypeError as exc:

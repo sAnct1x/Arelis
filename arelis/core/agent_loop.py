@@ -725,6 +725,10 @@ class AgentLoop:
         if hasattr(router, "think_sink"):
             router.think_sink = self._publish_think_stream
         self.tools = tools
+        # The registry outlives this loop. A later turn builds a new loop
+        # and must still see the groups load_tools recorded.
+        shared = getattr(self.tools, "loaded_groups", None)
+        self.loaded_groups: list[str] = shared if isinstance(shared, list) else []
         self.memory = memory
         self.persona = persona
         self.config = config

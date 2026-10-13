@@ -1,0 +1,503 @@
+"""load_tools in tail mode, and argument types on every tool call.
+
+Off stays the shipped tools list, byte for byte, and load_tools is not
+registered. tail returns a group's schemas as the tool result and leaves
+the frozen tools array alone. A later call to one of those tools still
+runs, even though its name is not in that array. String arguments are
+converted from the tool's own schema. Values that already have the right
+type are left alone. Front does not grow the array in this change.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from pathlib import Path
+from typing import Any
+
+_GOLDEN = Path(__file__).parent / "fixtures" / "worst_profile_tools.json"
+
+
+def _names(specs: list[dict[str, Any]]) -> list[str]:
+    return [spec["function"]["name"] for spec in specs]
+
+
+def _registry(mode: str) -> Any:
+    """Worst-profile registry with agent.tool_loading set to mode.
+
+    The copy keeps this from writing the flag into the cached config.
+    """
+    import arelis.tools as tools_mod
+    from arelis.config import load_config
+    from arelis.tools import build_tool_registry
+    from scripts.measure_tool_schema import _EXAMPLE_MAIL, _EXAMPLE_SMS, _router
+
+    config = dict(load_config())
+    agent = dict(config.get("agent") or {})
+    agent["tool_loading"] = mode
+    config["agent"] = agent
+    config["_vl_model_installed"] = True
+    config["_session_platform"] = "win32"
+    saved_mail = tools_mod.load_account
+    saved_sms = tools_mod.load_sms_account
+    try:
+        tools_mod.load_account = lambda path=None: _EXAMPLE_MAIL
+        tools_mod.load_sms_account = lambda path=None: _EXAMPLE_SMS
+        return build_tool_registry(
+            config, allow_send=True, attended=True, router=_router()
+        )
+    finally:
+        tools_mod.load_account = saved_mail
+        tools_mod.load_sms_account = saved_sms
+
+
+def _stub(tool: Any) -> list[dict[str, Any]]:
+    seen: list[dict[str, Any]] = []
+
+    async def run(**kwargs: Any) -> Any:
+        from arelis.tools.base import ToolResult
+
+        seen.append(kwargs)
+        return ToolResult(ok=True, output="ok")
+
+    tool.run = run
+    return seen
+
+
+def test_flag_off_byte_identical_and_load_tools_absent() -> None:
+    from arelis.core.tool_surface import session_tool_schemas
+    from scripts.measure_tool_schema import registry_for_profile, tool_specs
+
+    golden = _GOLDEN.read_text(encoding="utf-8")
+    reg = registry_for_profile("worst")
+    assert "load_tools" not in reg.names()
+    sent = session_tool_schemas(reg, {"tool_loading": "off"})
+    absent = session_tool_schemas(registry_for_profile("worst"), {})
+    assert json.dumps(sent, indent=2) + "\n" == golden
+    assert json.dumps(absent, indent=2) + "\n" == golden
+    assert json.dumps(tool_specs(reg), indent=2) + "\n" == golden
+    assert "load_tools" not in _names(sent)
+    assert "load_tools" not in _names(absent)
+
+
+def test_unknown_group_lists_valid_names() -> None:
+    from arelis.tools.groups import GROUPS
+
+    reg = _registry("tail")
+    result = asyncio.run(reg.call("load_tools", groups=["nope", "images"]))
+    assert result.ok is False
+    assert "nope" in result.output
+    for name in GROUPS:
+        assert name in result.output
+    assert reg.loaded_groups == []
+
+    empty = asyncio.run(reg.call("load_tools", groups=[]))
+    assert empty.ok is False
+    assert "images" in empty.output
+    assert reg.loaded_groups == []
+
+
+def test_load_is_idempotent_and_tools_array_stays_frozen() -> None:
+    from arelis.core.tool_surface import session_tool_schemas
+    from arelis.tools.groups import GROUPS
+
+    reg = _registry("tail")
+    agent = {"tool_loading": "tail"}
+    frozen = session_tool_schemas(reg, agent)
+    before = _names(frozen)
+    assert "image" not in before
+    assert before[-1] == "load_tools"
+
+    first = asyncio.run(reg.call("load_tools", groups=["images", "images", "astro"]))
+    assert first.ok is True
+    assert reg.loaded_groups == ["images", "astro"]
+    again = asyncio.run(reg.call("load_tools", groups='["images"]'))
+    assert again.ok is True
+    assert reg.loaded_groups == ["images", "astro"]
+
+    lines = [line for line in first.output.splitlines() if line.strip()]
+    parsed = [json.loads(line) for line in lines]
+    got = _names(parsed)
+    want = [name for name in (*GROUPS["images"], *GROUPS["astro"]) if name in reg.names()]
+    assert got == want
+    image_lines = [line for line in again.output.splitlines() if line.strip()]
+    assert _names([json.loads(line) for line in image_lines]) == [
+        name for name in GROUPS["images"] if name in reg.names()
+    ]
+
+    after = session_tool_schemas(reg, agent)
+    assert after is frozen
+    assert _names(after) == before
+    assert "image" not in _names(after)
+
+
+def test_tail_loaded_call_string_args_coerced() -> None:
+    """Loaded image tools are absent from the tools array and still run.
+
+    "512" becomes 512. A JSON object string becomes an object, including
+    integer fields inside it. A JSON array string becomes a list.
+    """
+    from arelis.core.tool_surface import session_tool_schemas
+
+    reg = _registry("tail")
+    agent = {"tool_loading": "tail"}
+    frozen = session_tool_schemas(reg, agent)
+    assert "image" not in _names(frozen)
+    assert "image_edit" not in _names(frozen)
+
+    loaded = asyncio.run(reg.call("load_tools", groups=["images"]))
+    assert loaded.ok is True
+    assert '"name": "image"' in loaded.output
+    assert reg.loaded_groups == ["images"]
+    assert session_tool_schemas(reg, agent) is frozen
+
+    image = _stub(reg.get("image"))
+    prompt = "a red fox"
+    box = asyncio.run(
+        reg.call(
+            "image",
+            prompt=prompt,
+            width="512",
+            height="512",
+            remove_background="false",
+            mask_box="[1, 2, 3, 4]",
+        )
+    )
+    assert box.ok is True
+    got = image[-1]
+    assert got["prompt"] is prompt
+    assert got["width"] == 512 and type(got["width"]) is int
+    assert got["height"] == 512 and type(got["height"]) is int
+    assert got["remove_background"] is False
+    assert got["mask_box"] == [1, 2, 3, 4]
+
+    edit = _stub(reg.get("image_edit"))
+    path = "pic.png"
+    edited = asyncio.run(
+        reg.call(
+            "image_edit",
+            path=path,
+            upscale="2",
+            blur="1.5",
+            grayscale="true",
+            scale_bar='{"length": "40", "label": "1 km"}',
+        )
+    )
+    assert edited.ok is True
+    args = edit[-1]
+    assert args["path"] is path
+    assert args["upscale"] == 2 and type(args["upscale"]) is int
+    assert args["blur"] == 1.5 and type(args["blur"]) is float
+    assert args["grayscale"] is True
+    assert args["scale_bar"] == {"length": 40, "label": "1 km"}
+    assert type(args["scale_bar"]["length"]) is int
+    assert session_tool_schemas(reg, agent) is frozen
+
+
+def test_typed_args_are_not_rewritten() -> None:
+    """Conversion runs on every call and does not rebuild typed values."""
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    assert "load_tools" not in reg.names()
+    edit = _stub(reg.get("image_edit"))
+    path = "pic.png"
+    scale = {"length": 40, "label": "1 km"}
+    marks = [{"kind": "label", "x": 3, "y": 4, "text": "a"}]
+    blur = 1.5
+    result = asyncio.run(
+        reg.call(
+            "image_edit",
+            path=path,
+            upscale=2,
+            blur=blur,
+            grayscale=False,
+            scale_bar=scale,
+            annotate=marks,
+        )
+    )
+    assert result.ok is True
+    args = edit[-1]
+    assert args["path"] is path
+    assert args["upscale"] == 2 and type(args["upscale"]) is int
+    assert args["blur"] is blur
+    assert args["grayscale"] is False
+    assert args["scale_bar"] is scale
+    assert args["annotate"] is marks
+    assert args["annotate"][0] is marks[0]
+
+
+def test_coercion_applies_with_the_flag_off() -> None:
+    """A core tool is in the tools array. String integers still convert."""
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    weather = _stub(reg.get("weather"))
+    place = "2"
+    result = asyncio.run(reg.call("weather", days="2", place=place))
+    assert result.ok is True
+    args = weather[-1]
+    assert args["days"] == 2 and type(args["days"]) is int
+    assert args["place"] is place
+
+
+def test_failed_conversion_leaves_the_value() -> None:
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    image = _stub(reg.get("image"))
+    bad_width = "nope"
+    bad_box = "[1, 2"
+    result = asyncio.run(
+        reg.call("image", prompt="x", width=bad_width, mask_box=bad_box)
+    )
+    assert result.ok is True
+    args = image[-1]
+    assert args["width"] is bad_width
+    assert args["mask_box"] is bad_box
+
+    edit = _stub(reg.get("image_edit"))
+    bad_upscale = "3"
+    edited = asyncio.run(reg.call("image_edit", path="pic.png", upscale=bad_upscale))
+    assert edited.ok is True
+    assert edit[-1]["upscale"] is bad_upscale
+
+
+def test_loaded_groups_stick_on_the_session_registry() -> None:
+    """A new turn builds a new loop. The loaded set stays on the registry."""
+    from arelis.core.agent_loop import AgentLoop
+    from arelis.core.bus import EventBus
+    from arelis.core.memory import SessionMemory
+
+    reg = _registry("tail")
+    loaded = asyncio.run(reg.call("load_tools", groups=["code"]))
+    assert loaded.ok is True
+
+    def _loop() -> Any:
+        return AgentLoop(
+            EventBus(),
+            object(),
+            reg,
+            SessionMemory(),
+            "persona",
+            {"agent": {"tool_loading": "tail"}},
+            request_confirm=lambda *_a, **_k: None,
+            is_cancelled=lambda: False,
+        )
+
+    first = _loop()
+    second = _loop()
+    assert first.loaded_groups is reg.loaded_groups
+    assert second.loaded_groups is first.loaded_groups
+    assert list(first.loaded_groups) == ["code"]
+
+
+def test_front_does_not_grow_the_tools_array() -> None:
+    """Front keeps the frozen core list. Schemas come back on the result."""
+    from arelis.core.tool_surface import session_tool_schemas
+
+    reg = _registry("front")
+    agent = {"tool_loading": "front"}
+    frozen = session_tool_schemas(reg, agent)
+    before = _names(frozen)
+    assert before[-1] == "load_tools"
+    assert "image" not in before
+
+    result = asyncio.run(reg.call("load_tools", groups=["images"]))
+    assert result.ok is True
+    assert '"name": "image"' in result.output
+    assert reg.loaded_groups == ["images"]
+    assert session_tool_schemas(reg, agent) is frozen
+    assert _names(session_tool_schemas(reg, agent)) == before
+
+
+def test_deep_nesting_string_does_not_crash_the_call(monkeypatch: Any) -> None:
+    """A nested JSON string must not raise, even with the flag off.
+
+    json.loads raises RecursionError, not JSONDecodeError, once the
+    brackets outrun the stack. A large stack parses the nest instead,
+    and the value that comes back crashes the next walk. Either way
+    the call keeps the original string.
+    """
+    from arelis.tools import coerce as coerce_mod
+    from scripts.measure_tool_schema import registry_for_profile
+
+    def _explode(*_args: Any, **_kwargs: Any) -> Any:
+        raise RecursionError("nested")
+
+    monkeypatch.setattr(coerce_mod.json, "loads", _explode)
+    assert coerce_mod._parse_json("[1, 2]", list) is None
+    monkeypatch.undo()
+
+    # 32 levels is still a real array. One more is left as text.
+    shallow = "[" * 32 + "1" + "]" * 32
+    assert isinstance(coerce_mod._parse_json(shallow, list), list)
+    assert coerce_mod._parse_json("[" * 33 + "1" + "]" * 33, list) is None
+    # A bracket inside a string is not another level.
+    assert coerce_mod._parse_json('["["]', list) == ["["]
+
+    nested = "[" * 100_000 + "]" * 100_000
+    assert coerce_mod._parse_json(nested, list) is None
+
+    reg = registry_for_profile("worst")
+    image = _stub(reg.get("image"))
+    result = asyncio.run(reg.call("image", prompt="x", mask_box=nested))
+    assert result.ok is True
+    assert image[-1]["mask_box"] is nested
+
+
+def test_coerce_exception_falls_back_to_raw_args(caplog: Any, monkeypatch: Any) -> None:
+    """A crash inside conversion leaves the raw args and does not kill the call."""
+    import logging
+
+    import arelis.tools.base as base
+    from scripts.measure_tool_schema import registry_for_profile
+
+    def _boom(schema: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("coerce blew up")
+
+    monkeypatch.setattr(base, "coerce_arguments", _boom)
+    reg = registry_for_profile("worst")
+    image = _stub(reg.get("image"))
+    raw_width = "512"
+    with caplog.at_level(logging.WARNING):
+        result = asyncio.run(reg.call("image", prompt="x", width=raw_width))
+    assert result.ok is True
+    assert image[-1]["width"] is raw_width
+    assert image[-1]["prompt"] == "x"
+    warnings = [
+        rec for rec in caplog.records if "left as the model sent them" in rec.message
+    ]
+    assert len(warnings) == 1
+
+
+def test_string_params_stay_exact_strings() -> None:
+    """A string field is never parsed, including digit and bool-looking text."""
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    weather = _stub(reg.get("weather"))
+    for sample in ("007", "02134", "true"):
+        result = asyncio.run(reg.call("weather", place=sample))
+        assert result.ok is True
+        assert weather[-1]["place"] is sample
+
+    phone = "+1 614 555 0100"
+    sms = _stub(reg.get("send_sms"))
+    sent = asyncio.run(reg.call("send_sms", to=phone, body="ok"))
+    assert sent.ok is True
+    assert sms[-1]["to"] is phone
+    assert sms[-1]["body"] == "ok"
+
+
+def test_bool_words_other_than_true_and_false_stay_strings() -> None:
+    """Only true and false convert. off, no, and yes stay the text that arrived."""
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    image = _stub(reg.get("image"))
+    for word in ("off", "no", "yes"):
+        result = asyncio.run(reg.call("image", prompt="x", remove_background=word))
+        assert result.ok is True
+        assert image[-1]["remove_background"] is word
+
+    yes = asyncio.run(reg.call("image", prompt="x", remove_background="true"))
+    assert yes.ok is True
+    assert image[-1]["remove_background"] is True
+    no = asyncio.run(reg.call("image", prompt="x", remove_background="FALSE"))
+    assert no.ok is True
+    assert image[-1]["remove_background"] is False
+
+
+def test_number_text_strips_sign_and_leading_zeros() -> None:
+    """Number params take padded numeric text. None of these fields is an id."""
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    weather = _stub(reg.get("weather"))
+    image = _stub(reg.get("image"))
+    for raw, expected in ((" 5 ", 5), ("+1", 1), ("007", 7)):
+        result = asyncio.run(reg.call("weather", days=raw))
+        assert result.ok is True
+        assert weather[-1]["days"] == expected
+        assert type(weather[-1]["days"]) is int
+    cfg = asyncio.run(reg.call("image", prompt="x", cfg="007"))
+    assert cfg.ok is True
+    assert image[-1]["cfg"] == 7
+    assert type(image[-1]["cfg"]) is int
+
+
+def test_confirm_card_shows_the_converted_args() -> None:
+    """The Allow card and the tool run see the same converted values."""
+    from unittest.mock import AsyncMock
+
+    from arelis.core.turn_confirm import RUN, confirm_call
+    from arelis.core.turn_context import TurnContext
+    from scripts.measure_tool_schema import registry_for_profile
+
+    reg = registry_for_profile("worst")
+    seen = _stub(reg.get("image"))
+    width = "512"
+    flag = "false"
+    args = {"prompt": "a cat", "width": width, "remove_background": flag}
+
+    class _Bus:
+        async def publish(self, event: Any) -> None:
+            return None
+
+    class _Loop:
+        def __init__(self) -> None:
+            self.bus = _Bus()
+            self.tools = reg
+            self.memory = None
+            self._trace: list[str] = []
+            self._expected_tools: set[str] = set()
+            self._look = None
+            self._timer = None
+            self.confirm_writes = True
+            self.confirm_image = True
+            self.confirm_send = True
+            self.confirm_browser = True
+            self.confirm_desktop = True
+            self.confirm_vision = True
+            self.confirm_run = True
+            self.ask_is_grant = True
+            self.tools_used: set[str] = set()
+            self._private_url_note = ""
+            self.request_confirm = AsyncMock(return_value="allow")
+
+        def _tool_message(self, name: str, content: str) -> dict[str, Any]:
+            return {"role": "tool", "name": name, "content": content}
+
+        async def _confirm_wait_heartbeat(self, name: str, started: float) -> None:
+            await asyncio.sleep(3600)
+
+    loop = _Loop()
+
+    async def _run() -> None:
+        action, _summary, _fp = await confirm_call(
+            loop,
+            TurnContext(text="draw a cat", role="fast"),
+            "image",
+            args,
+            text="draw a cat",
+            fail_counts={},
+            skip_counts={},
+            messages=[],
+            tool_names={"image"},
+            drop_wander=lambda _name: None,
+        )
+        assert action == RUN
+        card = loop.request_confirm.await_args
+        assert card is not None
+        card_args = card.args[2]
+        assert card_args is args
+        assert type(card_args["width"]) is int
+        assert card_args["width"] == 512
+        assert card_args["remove_background"] is False
+        result = await reg.call("image", **args)
+        assert result.ok is True
+        assert seen[-1]["width"] is card_args["width"]
+        assert seen[-1]["remove_background"] is False
+
+    asyncio.run(_run())

@@ -148,7 +148,16 @@ async def confirm_call(
 
     Returns ``(action, summary, call_fp)``. ``action`` is ``skip`` (next
     call), ``stop`` (break the call loop), or ``run`` (execute).
+
+    The card is built from converted arguments, and this same dict is
+    what the tool runs. Approving the card approves the values that run.
     """
+    prepare = getattr(getattr(loop, "tools", None), "coerce_call_args", None)
+    if callable(prepare) and isinstance(args, dict):
+        prepared = prepare(name, args)
+        if isinstance(prepared, dict) and prepared is not args:
+            args.clear()
+            args.update(prepared)
     call_fp = _tool_fail_fingerprint(name, args)
     blocked = confirm_args_blocked(name, args)
     # Flag-off keeps the empty-content block. Native mode allows content=""
