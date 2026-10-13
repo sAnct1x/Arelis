@@ -17,6 +17,10 @@ from typing import Any
 
 _INT = re.compile(r"[+-]?\d+")
 _NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
+# Tool arguments are a few levels deep. Past this, json.loads either
+# raises RecursionError or, on a large stack, returns a value whose next
+# walk crashes the turn. The text stays as it arrived.
+_MAX_JSON_DEPTH = 32
 
 
 def coerce_arguments(
@@ -159,11 +163,41 @@ def _parse_number(text: str) -> int | float | None:
     return parsed
 
 
+def _nesting_deeper_than(text: str, limit: int = _MAX_JSON_DEPTH) -> bool:
+    """True when brackets nest past limit. Brackets inside strings do not count."""
+    depth = 0
+    in_string = False
+    escape = False
+    for ch in text:
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch in "[{":
+            depth += 1
+            if depth > limit:
+                return True
+            continue
+        if ch in "]}":
+            if depth:
+                depth -= 1
+    return False
+
+
 def _parse_json(text: str, kind: type[Any]) -> Any | None:
     token = text.strip()
     if kind is list and not token.startswith("["):
         return None
     if kind is dict and not token.startswith("{"):
+        return None
+    if _nesting_deeper_than(token):
         return None
     try:
         parsed = json.loads(token)

@@ -311,17 +311,33 @@ def test_front_does_not_grow_the_tools_array() -> None:
     assert _names(session_tool_schemas(reg, agent)) == before
 
 
-def test_deep_nesting_string_does_not_crash_the_call() -> None:
+def test_deep_nesting_string_does_not_crash_the_call(monkeypatch: Any) -> None:
     """A nested JSON string must not raise, even with the flag off.
 
     json.loads raises RecursionError, not JSONDecodeError, once the
-    brackets get deep. That used to escape the tool call and kill the turn.
+    brackets outrun the stack. A large stack parses the nest instead,
+    and the value that comes back crashes the next walk. Either way
+    the call keeps the original string.
     """
-    from arelis.tools.coerce import _parse_json
+    from arelis.tools import coerce as coerce_mod
     from scripts.measure_tool_schema import registry_for_profile
 
+    def _explode(*_args: Any, **_kwargs: Any) -> Any:
+        raise RecursionError("nested")
+
+    monkeypatch.setattr(coerce_mod.json, "loads", _explode)
+    assert coerce_mod._parse_json("[1, 2]", list) is None
+    monkeypatch.undo()
+
+    # 32 levels is still a real array. One more is left as text.
+    shallow = "[" * 32 + "1" + "]" * 32
+    assert isinstance(coerce_mod._parse_json(shallow, list), list)
+    assert coerce_mod._parse_json("[" * 33 + "1" + "]" * 33, list) is None
+    # A bracket inside a string is not another level.
+    assert coerce_mod._parse_json('["["]', list) == ["["]
+
     nested = "[" * 100_000 + "]" * 100_000
-    assert _parse_json(nested, list) is None
+    assert coerce_mod._parse_json(nested, list) is None
 
     reg = registry_for_profile("worst")
     image = _stub(reg.get("image"))
