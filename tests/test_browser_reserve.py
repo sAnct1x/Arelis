@@ -45,10 +45,20 @@ def _filled_party(output: str) -> int:
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    (
+    [
+        (0, 1),
+        ("0", 1),
+        (0.0, 1),
+        (None, 2),
+        ("", 2),
+        ("  ", 2),
         ("abc", 2),
+        (1, 1),
+        (3, 3),
         ("party of 4", 4),
-    ),
+        (20, 20),
+        (21, 20),
+    ],
 )
 def test_normalize_party_table(raw: object, expected: int) -> None:
     assert normalize_party(raw) == expected
@@ -76,11 +86,15 @@ def test_reserve_url_party_zero_google() -> None:
 
 @pytest.mark.parametrize(
     ("candidates", "expected"),
-    (
+    [
+        ((0, 5), 1),
         ((None, 5), 5),
         (("", None), 2),
         (("", 5), 5),
-    ),
+        ((None, None), 2),
+        ((3, None), 3),
+        (("0", 4), 1),
+    ],
 )
 def test_resolve_party(candidates: tuple[object, ...], expected: int) -> None:
     assert resolve_party(*candidates) == expected
@@ -88,9 +102,15 @@ def test_resolve_party(candidates: tuple[object, ...], expected: int) -> None:
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    (
+    [
+        ("opentable", "opentable"),
+        ("ot", "opentable"),
+        ("resy", "resy"),
+        ("google", "google"),
+        ("maps", "google"),
+        ("", "opentable"),
         ("unknown", "opentable"),
-    ),
+    ],
 )
 def test_normalize_reserve_site_table(raw: str, expected: str) -> None:
     assert normalize_reserve_site(raw) == expected
@@ -98,12 +118,13 @@ def test_normalize_reserve_site_table(raw: str, expected: str) -> None:
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    (
+    [
         ("2026-10-05", "2026-10-05"),
         ("10/5/2026", "2026-10-05"),
+        ("10-5-2026", "2026-10-05"),
         ("", None),
         ("not-a-date", None),
-    ),
+    ],
 )
 def test_normalize_date_table(raw: str, expected: str | None) -> None:
     assert normalize_date(raw) == expected
@@ -111,12 +132,13 @@ def test_normalize_date_table(raw: str, expected: str | None) -> None:
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    (
+    [
         ("19:00", "19:00"),
         ("7pm", "19:00"),
+        ("7:30 PM", "19:30"),
         ("", None),
         ("lunch", None),
-    ),
+    ],
 )
 def test_normalize_time_table(raw: str, expected: str | None) -> None:
     assert normalize_time(raw) == expected
@@ -217,17 +239,40 @@ def test_browser_reserve_nothing_given_defaults_two() -> None:
 
 
 # The 28 edge inputs from the PR #128 review: the card and the link must agree.
+_PARITY_CASES: list[tuple[dict[str, object], int]] = [
+    ({"party": 0}, 1),
+    ({"party": "0"}, 1),
+    ({"party": None}, 2),
+    ({"party": ""}, 2),
+    ({"party": "   "}, 2),
+    ({"party": -3}, 3),
+    ({"party": 1}, 1),
+    ({"party": 20}, 20),
+    ({"party": 21}, 20),
+    ({"party": 50}, 20),
+    ({"party": 100}, 20),
+    ({"party": "3 people"}, 3),
+    ({"party": 2.5}, 2),
+    ({"party": "2.5"}, 2),
+    ({"party": 0.5}, 1),
+    ({"party": "twelve"}, 2),
+    ({"party": "abc"}, 2),
+    ({"party": True}, 2),
+    ({"party": "1e3"}, 1),
+    ({"party": "-"}, 2),
+    ({}, 2),
+    ({"party": "", "covers": 5}, 5),
+    ({"party": None, "covers": 5}, 5),
+    ({"covers": 0}, 1),
+    ({"party": "", "covers": 0}, 1),
+    ({"party": 4, "covers": 6}, 4),
+    ({"party": 0, "covers": 5}, 1),
+    ({"covers": 50}, 20),
+]
 
 
 @pytest.mark.parametrize(("site", "key"), [("opentable", "covers"), ("resy", "seats")])
-@pytest.mark.parametrize(("args", "expected"), (
-        ({"party": "   "}, 2),
-        ({"party": True}, 2),
-        ({"party": "-"}, 2),
-        ({"covers": 0}, 1),
-        ({"party": "", "covers": 0}, 1),
-        ({"covers": 50}, 20),
-    ))
+@pytest.mark.parametrize(("args", "expected"), _PARITY_CASES)
 def test_card_and_booking_link_agree_on_party_size(
     site: str, key: str, args: dict[str, object], expected: int
 ) -> None:

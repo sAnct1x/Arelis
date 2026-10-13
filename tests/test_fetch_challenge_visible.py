@@ -195,7 +195,7 @@ def _fixture_body(name: str) -> str:
     raise AssertionError("labelled page is missing")
 
 
-@pytest.mark.parametrize("name,is_wall,status,body", [row for i, row in enumerate(_fixture_params()) if i in {1, 2, 5, 6, 8, 11}])
+@pytest.mark.parametrize("name,is_wall,status,body", _fixture_params())
 def test_labelled_wall_fixtures(
     name: str, is_wall: bool, status: int, body: str
 ) -> None:
@@ -212,6 +212,7 @@ def test_short_gate_inside_main_is_still_a_wall() -> None:
     "html",
     (
         "<main><h1>One more step</h1><p>Please complete the security check to access example.com. Verify you are human to continue.</p></main>",
+        "<main><h1>Access check</h1><p>Please verify you are human. This helps us keep the site safe for everyone who visits it each day.</p></main>",
     ),
 )
 def test_a_gate_explanation_inside_main_is_still_a_wall(html: str) -> None:
