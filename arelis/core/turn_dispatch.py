@@ -498,8 +498,17 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 loop._trace.append(f"{name} duplicate send blocked")
                 continue
         if name == "memory":
-            if str(args.get("action") or "").strip().lower() == "forget":
+            action = str(args.get("action") or "").strip().lower()
+            if action == "forget":
                 args = lock_memory_forget_args(args, r.text)
+            elif action == "remember":
+                from arelis.core.memory_fill import fill_memory_remember_args
+
+                args = fill_memory_remember_args(
+                    args,
+                    messages=r.messages,
+                    user_text=r.text,
+                )
 
         if name == "agenda":
             if r.agenda_draft is not None:
