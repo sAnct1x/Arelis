@@ -20,7 +20,11 @@ _SHORT_DESC: dict[str, str] = {
     "browser": "her Chrome. no passwords/OTP. stop captcha|Pay. click text|ref|nth",
     "calculator": "exact arithmetic. expression required. takes '15% of 84', '30% off 59.99', '$4.50+$2'. not unit conversion (units), not equations (cas)",
     "camera": "webcam snapshot. inspect only",
-    "cas": "symbolic math. action=simplify|solve|diff|integrate|limit|series|sum|gradient|directional|factor|expand; n= order, at= point, dir= vector",
+    # Verbs stay in the action enum, including dsolve. This line only keeps
+    # the parameters that enum does not explain. The old verb list was cut
+    # so document, workspace, research_report, and web_search can say when
+    # to use each one without growing the schema.
+    "cas": "symbolic math. n= order, at= point, dir= vector",
     "catalog": (
         "arxiv, horizons, apod. table=local, target=body name. "
         "closest: omit date and query. do not add a closest or farthest."
@@ -31,7 +35,7 @@ _SHORT_DESC: dict[str, str] = {
     "diagnostics": "local pytest / doctor. not a web search",
     "desktop": "your Windows session. look=screenshot (grabs+reads). no shell. no raw exe. stop Pay|delete|UAC",
     "doc_extract": "text from a local PDF, including handwritten/scanned pages",
-    "document": "write md/pdf/csv under outputs",
+    "document": "create a formatted document file (md, docx, or pdf). use this, not workspace",
     "earth": "Reality look / bands. not a web search",
     "git_info": "git status/log/diff/branch/blame/show, stash list, stage, commit. no push/reset/checkout",
     "goals": "long-lived goals. action=list|add|done|drop",
@@ -47,7 +51,7 @@ _SHORT_DESC: dict[str, str] = {
     "python": "short numerics (numpy). no matplotlib. print xs,ys then plot with out=",
     "recall": "search memory. action=docs (+ kind=pdf|docx|md) for local files. miss is a miss",
     "remind": "in-process timer. action=in minutes= + message; at=local time; list; cancel. max 7 days",
-    "research_report": "multi-source writeup under outputs/research",
+    "research_report": "first choice for a sourced multi-source report. searches and scrapes",
     "rooms": "list / go to a room. Reality is physics",
     "run_script": "run a project .py under workspace. not a shell; not diagnostics; not schedule run_now",
     "schedule": "local jobs. action=create|create_briefing|list|update|delete|run_now. move a time with update, not delete+create",
@@ -73,8 +77,9 @@ _SHORT_DESC: dict[str, str] = {
     # refuses coordinates. Only the arms carrying this sentence got it right.
     "weather": "forecast. defaults to the user's own place, omit place for home, never look up their location first. place=city name, not coords",
     "web_fetch": "http(s) APIs / JSON. not pages. method=POST|PUT|PATCH|DELETE + headers/body for a real API; non-GET asks first",
-    "web_search": "search first. never guess a url",
-    "workspace": "sandbox files: list/read/grep/find/write/edit/patch/delete/move/rename/copy. patch=unified diff. writes confirm",
+    "web_search": "quick lookup. sourced report is research_report. never guess a url",
+    # Action names stay in the enum. patch= and writes confirm do not.
+    "workspace": "plain files in the code workspace, not a formatted document. patch=unified diff. writes confirm",
 }
 
 

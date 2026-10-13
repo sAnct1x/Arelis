@@ -40,7 +40,7 @@
   },
   {
     "function": {
-      "description": "sandbox files: list/read/grep/find/write/edit/patch/delete/move/rename/copy. patch=unified diff. writes confirm",
+      "description": "plain files in the code workspace, not a formatted document. patch=unified diff. writes confirm",
       "name": "workspace",
       "parameters": {
         "properties": {

@@ -363,6 +363,38 @@ def test_short_descriptions_name_real_actions() -> None:
     assert "not weather" in data_cell
 
 
+def test_native_one_liners_separate_documents_from_lookups() -> None:
+    """Native mode reads these lines, not the long class descriptions.
+
+    A formatted document file is document. Plain files in the code
+    workspace are workspace. A sourced multi-source report starts with
+    research_report, which does its own searching. web_search is a quick
+    lookup.
+    """
+    from arelis.core.compact_prompt import _SHORT_DESC
+
+    document = _SHORT_DESC["document"]
+    workspace = _SHORT_DESC["workspace"]
+    research = _SHORT_DESC["research_report"]
+    web = _SHORT_DESC["web_search"]
+
+    assert "formatted document" in document
+    assert "md" in document and "docx" in document and "pdf" in document
+    assert "not workspace" in document
+    assert "code workspace" in workspace
+    assert "not a formatted document" in workspace
+    assert "patch=unified diff" in workspace
+    assert "writes confirm" in workspace
+    assert "first choice" in research
+    assert "sourced" in research and "multi-source" in research
+    assert "searches" in research and "scrapes" in research
+    assert web.startswith("quick lookup")
+    assert "sourced report" in web
+    assert "research_report" in web
+    assert "never guess a url" in web
+    assert "search first" not in web
+
+
 def test_calibrated_ratio_stays_within_two_percent_of_the_real_tokenizer() -> None:
     """Opt-in. Runs only when tokenizers and a tokenizer.json are present."""
     pytest.importorskip("tokenizers")

@@ -397,7 +397,7 @@
     "type": "function",
     "function": {
       "name": "web_search",
-      "description": "search first. never guess a url",
+      "description": "quick lookup. sourced report is research_report. never guess a url",
       "parameters": {
         "type": "object",
         "properties": {
@@ -424,7 +424,7 @@
     "type": "function",
     "function": {
       "name": "research_report",
-      "description": "multi-source writeup under outputs/research",
+      "description": "first choice for a sourced multi-source report. searches and scrapes",
       "parameters": {
         "type": "object",
         "properties": {
@@ -814,7 +814,7 @@
     "type": "function",
     "function": {
       "name": "cas",
-      "description": "symbolic math. action=simplify|solve|diff|integrate|limit|series|sum|gradient|directional|factor|expand; n= order, at= point, dir= vector",
+      "description": "symbolic math. n= order, at= point, dir= vector",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1184,7 +1184,7 @@
     "type": "function",
     "function": {
       "name": "document",
-      "description": "write md/pdf/csv under outputs",
+      "description": "create a formatted document file (md, docx, or pdf). use this, not workspace",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1271,7 +1271,7 @@
     "type": "function",
     "function": {
       "name": "workspace",
-      "description": "sandbox files: list/read/grep/find/write/edit/patch/delete/move/rename/copy. patch=unified diff. writes confirm",
+      "description": "plain files in the code workspace, not a formatted document. patch=unified diff. writes confirm",
       "parameters": {
         "type": "object",
         "properties": {
