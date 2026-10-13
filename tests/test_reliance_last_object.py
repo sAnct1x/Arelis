@@ -15,9 +15,19 @@ _IMAGE = "shots/desk.png"
 
 @pytest.mark.parametrize(
     "phrase",
-    (
+    [
+        "that file",
+        "the file",
+        "this file",
+        "that pdf",
+        "the pdf",
+        "that spreadsheet",
+        "that doc",
+        "that document",
+        "THAT PDF",
+        "summarize budget",
         "what about Budget",
-    ),
+    ],
 )
 def test_file_phrases_and_stem(phrase: str) -> None:
     desk = StickyDesk()
@@ -31,9 +41,7 @@ def test_file_phrases_and_stem(phrase: str) -> None:
 
 @pytest.mark.parametrize(
     "phrase",
-    (
-        "the page",
-    ),
+    ["that page", "the page", "that site", "that article", "that link", "That Site"],
 )
 def test_page_phrases(phrase: str) -> None:
     desk = StickyDesk()
@@ -46,10 +54,14 @@ def test_page_phrases(phrase: str) -> None:
 
 @pytest.mark.parametrize(
     "phrase",
-    (
+    [
+        "that email",
         "that thread",
+        "that message",
         "reply to that",
-    ),
+        "reply to it",
+        "That Thread",
+    ],
 )
 def test_mail_phrases(phrase: str) -> None:
     desk = StickyDesk()
@@ -62,9 +74,7 @@ def test_mail_phrases(phrase: str) -> None:
 
 @pytest.mark.parametrize(
     "phrase",
-    (
-        "text them",
-    ),
+    ["text them", "text him", "text her", "tell them", "Text Them"],
 )
 def test_person_phrases(phrase: str) -> None:
     desk = StickyDesk()
@@ -77,9 +87,7 @@ def test_person_phrases(phrase: str) -> None:
 
 @pytest.mark.parametrize(
     "phrase",
-    (
-        "that screenshot",
-    ),
+    ["that image", "that picture", "that screenshot", "That Screenshot"],
 )
 def test_image_phrases(phrase: str) -> None:
     desk = StickyDesk()

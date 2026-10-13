@@ -311,10 +311,24 @@ def test_slugs_stay_sayable(store: RoomStore) -> None:
 
 @pytest.mark.parametrize(
     "said",
-    (
+    [
+        "let's work on physics",
+        "lets work on physics",
+        "let's work on some physics",
+        "Arelis, let's work on physics",
+        "hey arelis lets work on the physics room",
+        "open the physics room",
+        "switch to physics",
+        "go to the physics room",
         "work in physics",
+        "can we work on physics?",
+        "let's work on Reality",
+        "open Reality",
+        "enter Reality",
+        "open the Reality room",
         "open world",
-    ),
+        "open the solar lab",
+    ],
 )
 def test_these_are_asking_for_a_room(said: str) -> None:
     assert match_enter_intent(said) is not None
@@ -322,10 +336,14 @@ def test_these_are_asking_for_a_room(said: str) -> None:
 
 @pytest.mark.parametrize(
     "said",
-    (
+    [
         "what is the physics of a pendulum",
+        "tell me about the physics room in the library",
+        "I was working on physics yesterday",
+        "how does interference work",
         "open the file physics.py",
-    ),
+        "",
+    ],
 )
 def test_these_are_not(said: str) -> None:
     """A false positive silently changes which conversation she is in.
@@ -373,9 +391,12 @@ def test_some_physics_is_the_physics_room(store: RoomStore) -> None:
 
 @pytest.mark.parametrize(
     "said, name",
-    (
+    [
+        ("make a physics room", "physics"),
+        ("make me a physics room", "physics"),
+        ("create a new chemistry room", "chemistry"),
         ("set up a room called Lab Notes", "lab notes"),
-    ),
+    ],
 )
 def test_these_are_asking_to_make_a_room(said: str, name: str) -> None:
     assert (match_make_room_intent(said) or "").lower() == name
@@ -389,9 +410,13 @@ def test_listing_rooms_is_the_same_spoken_or_typed() -> None:
 
 @pytest.mark.parametrize(
     "said",
-    (
+    [
         "leave the room",
-    ),
+        "exit the room",
+        "close the room",
+        "back to general",
+        "go back to the main conversation",
+    ],
 )
 def test_these_are_asking_to_come_out(said: str) -> None:
     assert match_leave_intent(said)
@@ -399,9 +424,7 @@ def test_these_are_asking_to_come_out(said: str) -> None:
 
 @pytest.mark.parametrize(
     "said",
-    (
-        "leave the door open",
-    ),
+    ["leave the door open", "close the file", "general relativity", "back to work"],
 )
 def test_these_are_not_asking_to_come_out(said: str) -> None:
     assert not match_leave_intent(said)

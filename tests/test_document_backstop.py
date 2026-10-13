@@ -41,10 +41,17 @@ PROSE = (
 
 @pytest.mark.parametrize(
     ("ask", "fmt"),
-    (
+    [
+        ("create a pdf about the dirac equation", "pdf"),
+        ("export this as a csv", "csv"),
+        ("make me a word doc about rebar", "docx"),
+        ("build a spreadsheet of the numbers", "xlsx"),
         ("write it up in markdown", "md"),
+        ("save that as a text file", "txt"),
+        # No format named. PDF is what "make me a document" means to almost
+        # everyone, and every other type here gets asked for explicitly.
         ("write me a report on the dirac equation", "pdf"),
-    ),
+    ],
 )
 def test_the_format_comes_from_the_ask(ask: str, fmt: str) -> None:
     assert document_format_from_ask(ask) == fmt
@@ -52,9 +59,12 @@ def test_the_format_comes_from_the_ask(ask: str, fmt: str) -> None:
 
 @pytest.mark.parametrize(
     ("ask", "title"),
-    (
+    [
+        ("create a pdf about the dirac equation", "the dirac equation"),
+        ("make a document titled Board log", "Board log"),
         ("write a report on rebar corrosion", "rebar corrosion"),
-    ),
+        ("create a pdf about the dirac equation please", "the dirac equation"),
+    ],
 )
 def test_the_title_comes_from_the_ask(ask: str, title: str) -> None:
     assert document_title_from_ask(ask) == title
