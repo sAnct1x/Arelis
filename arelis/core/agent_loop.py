@@ -792,6 +792,7 @@ class AgentLoop:
         # so the same flag does not abort the answer it just asked for.
         self._close_requested = False
         self._in_close = False
+        self._active_turn: TurnContext | None = None
         from arelis.browser.live import set_hit_sink
 
         set_hit_sink(self._on_watch_hit)
@@ -853,20 +854,24 @@ class AgentLoop:
         )
         if ctx is None:
             return
-        for round_i in range(1, self.max_rounds + 1):
+        self._active_turn = ctx
+        try:
+            for round_i in range(1, self.max_rounds + 1):
+                if self._wants_close():
+                    await self._close_from_gathered(ctx)
+                    return
+                try:
+                    if await self._run_round(ctx, round_i):
+                        return
+                except _CloseError:
+                    await self._close_from_gathered(ctx)
+                    return
             if self._wants_close():
                 await self._close_from_gathered(ctx)
                 return
-            try:
-                if await self._run_round(ctx, round_i):
-                    return
-            except _CloseError:
-                await self._close_from_gathered(ctx)
-                return
-        if self._wants_close():
-            await self._close_from_gathered(ctx)
-            return
-        await self._force_final_answer(ctx)
+            await self._force_final_answer(ctx)
+        finally:
+            self._active_turn = None
 
     def request_close(self) -> None:
         """Finish from work already in hand. Stop still cancels outright."""
@@ -1005,6 +1010,8 @@ class AgentLoop:
             numeric_gate=ctx.numeric_gate,
             evidence_gate=ctx.evidence_gate,
             send_path=ctx.is_send_path(self._expected_tools),
+            declined_tools=ctx.declined_tools,
+            declined_calls=ctx.declined_calls,
         )
         if refuse is None:
             refuse = self._look_refuse(final_content)
@@ -1819,6 +1826,21 @@ class AgentLoop:
             final, n_dash = clean_dashes_counted(final)
             if n_dash > 0 and self._timer is not None:
                 self._timer.mark("dash_filter", replaced=n_dash)
+        unverified: list[str] = []
+        turn = getattr(self, "_active_turn", None)
+        if turn is not None:
+            from arelis.core.loop_helpers import (
+                declined_memory_unverified,
+                memory_save_skipped_line,
+            )
+
+            unverified = declined_memory_unverified(
+                turn.declined_tools, turn.ledger
+            )
+            skipped = memory_save_skipped_line(unverified)
+            if skipped and skipped not in final:
+                final = f"{final.rstrip()}\n{skipped}" if final.strip() else skipped
+                streamed = ""
         final = _append_sources(final, sources)
 
         # Preflight expected a tool but none of those succeeded this turn.
@@ -1877,9 +1899,10 @@ class AgentLoop:
         # already have armed on the first clip; this covers the gap when the
         # first sentence was held until VOICE_SPEAK. Other producers of
         # ASSISTANT_DONE (slash commands, the cancel notice) omit it.
-        await self.bus.publish(
-            Event(EventType.ASSISTANT_DONE, {"text": final, "speak": will_speak})
-        )
+        done_payload: dict[str, Any] = {"text": final, "speak": will_speak}
+        if unverified:
+            done_payload["unverified"] = unverified
+        await self.bus.publish(Event(EventType.ASSISTANT_DONE, done_payload))
         # The answer goes out as written. Reducing it to something speakable is
         # the voice service's job, not the loop's: the bus carries the real
         # text, and only the branch that ends in a speaker changes it.

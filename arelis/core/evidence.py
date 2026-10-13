@@ -121,6 +121,7 @@ class EvidenceLedger:
         When native_tools=True, additional tool mappings for native tool calling:
         - sql → analyze warrant (when successful with non-empty output)
         - memory read actions → recall warrant (when successful)
+        - memory remember and forget → memory_write warrant (when successful)
         """
         data = data or {}
         args = args or {}
@@ -402,16 +403,24 @@ class EvidenceLedger:
             span = " | ".join(parts) if parts else "sql"
             self.add(source=path[:200], kind="analyze", span=span[:300], ok=True)
             return
-        # Native tool calling: memory read → recall warrant
+        # Native tool calling: memory read → recall, remember/forget → memory_write
         if native_tools and name == "memory":
             if not ok:
                 return
             action = str(data.get("action") or args.get("action") or "").lower()
-            # Only read-type actions record recall warrants
-            if action not in {"recall", "search", "list"}:
-                return
             output_text = (output or "").strip()
             if not output_text:
+                return
+            if action in {"remember", "forget"}:
+                self.add(
+                    source="memory",
+                    kind="memory_write",
+                    span=output_text[:300],
+                    ok=True,
+                )
+                return
+            # Only read-type actions record recall warrants
+            if action not in {"recall", "search", "list"}:
                 return
             self.add(source="memory", kind="recall", span=output_text[:300], ok=True)
             return

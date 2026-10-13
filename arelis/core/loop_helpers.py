@@ -245,6 +245,59 @@ def decide_mid_turn_escalate(
     return None
 
 
+_MEMORY_SAVE_SKIPPED = "The value was not saved because the save was skipped."
+
+
+def declined_memory_unverified(
+    declined_tools: set[str] | None,
+    ledger: EvidenceLedger,
+) -> list[str]:
+    """memory_write is unverified when the confirm card skipped the save.
+
+    A successful remember or forget this turn is the warrant. Reply text
+    is not consulted.
+    """
+    if not declined_tools or "memory" not in declined_tools:
+        return []
+    if ledger.has_ok("memory_write"):
+        return []
+    return ["memory_write"]
+
+
+def memory_save_skipped_line(unverified: list[str]) -> str:
+    """Fixed line appended when the save itself was skipped."""
+    if "memory_write" in unverified:
+        return _MEMORY_SAVE_SKIPPED
+    return ""
+
+
+def declined_finish_reply(
+    declined_tools: set[str] | None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None,
+) -> str:
+    """Name the skipped call instead of blaming the calculator.
+
+    Built from the confirm card's tool and target. For a workspace write
+    of work/sq2.py: "I did not write work/sq2.py because the write was
+    skipped, so I could not run it."
+    """
+    tool = ""
+    args: dict[str, Any] = {}
+    calls = declined_calls or []
+    if calls:
+        tool, args = calls[-1]
+    elif declined_tools:
+        tool = sorted(declined_tools)[0]
+    action = str(args.get("action") or "").strip()
+    target = str(args.get("path") or args.get("fact") or "").strip()
+    verb = action or tool or "write"
+    named = target or tool or "it"
+    return (
+        f"I did not {verb} {named} because the {verb} was skipped, "
+        "so I could not run it."
+    )
+
+
 def _exactness_finish_refuse(
     content: str,
     *,
@@ -253,6 +306,8 @@ def _exactness_finish_refuse(
     numeric_gate: bool,
     evidence_gate: bool,
     send_path: bool = False,
+    declined_tools: set[str] | None = None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None = None,
 ) -> str | None:
     """Return a refusal when finishing would ship an unsupported exact claim."""
     # Side-effect honesty runs before refusal escape so hedge-then-claim
@@ -299,6 +354,8 @@ def _exactness_finish_refuse(
             return unsupported_exactness_reply(
                 missing, calc_failed=True, calc_detail=calc_fail.span
             )
+        if declined_tools:
+            return declined_finish_reply(declined_tools, declined_calls)
     if "symbolic" in missing:
         cas_fail = next(
             (w for w in ledger.items if w.kind == "cas" and not w.ok),
