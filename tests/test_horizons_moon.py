@@ -241,8 +241,20 @@ async def test_distance_sentence_with_a_date_still_uses_the_now_summary() -> Non
 async def test_a_named_day_is_still_a_sky_table() -> None:
     """RA/Dec on a day the caller named stays the one-day table."""
 
+    page = (
+        "*******************************************************************************\n"
+        "Target body name: Mars (499)\n"
+        "*******************************************************************************\n"
+        " Date__(UT)__HR:MN     R.A._____(ICRF)_____DEC  delta     deldot    S-O-T /r    S-T-O\n"
+        "*******************************************************************************\n"
+        "$$SOE\n"
+        " 2026-Oct-01 00:00     08 15 08.50 +20 51 15.6  1.2734  -15.81  77.1 /L  45.0\n"
+        "$$EOE\n"
+        "*******************************************************************************\n"
+    )
+
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"result": "RA 12 Dec -4"})
+        return httpx.Response(200, json={"result": page})
 
     result = await _tool(handler).run(
         action="horizons", target="Mars", date="2026-10-01"

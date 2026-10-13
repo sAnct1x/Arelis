@@ -350,7 +350,7 @@ class CatalogTool:
                 "START_TIME": start.isoformat(),
                 "STOP_TIME": stop.isoformat(),
                 "STEP_SIZE": "1d",
-                "QUANTITIES": "20,23,24",
+                "QUANTITIES": "1,20,23,24",
             }
         # Never attach EMAIL. JPL treats that as a mailbox to ping.
         if "EMAIL" in params:
@@ -450,15 +450,40 @@ class CatalogTool:
                     "basis": "distance from Earth's center",
                 },
             )
-        clipped = blob if len(blob) <= 3500 else blob[:3500] + "\n[truncated]"
-        return ToolResult(
-            ok=True,
-            output=(
+        parsed = _observer_rows(blob)
+        if parsed is None:
+            who = _body_plain_name(body, raw)
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"Horizons sent back no table rows for {who} "
+                    f"on {start.isoformat()}."
+                ),
+                data={
+                    "fail_class": "fail:parse",
+                    "action": "horizons",
+                    "target": body,
+                    "date": start.isoformat(),
+                },
+            )
+        header, rows = parsed
+        shown = rows[:_OBSERVER_ROW_CAP]
+        extra = len(rows) - len(shown)
+        lines = [
+            (
                 f"JPL Horizons observer table for {body} on {start.isoformat()} "
                 f"(geocentric Earth). Source: ssd.jpl.nasa.gov. "
-                "Not a measurement this turn.\n\n"
-                f"{clipped}"
-            ),
+                "Not a measurement this turn."
+            )
+        ]
+        if header:
+            lines.append(header)
+        lines.extend(shown)
+        if extra:
+            lines.append(f"({extra} more rows not shown)")
+        return ToolResult(
+            ok=True,
+            output="\n".join(lines),
             data={
                 "action": "horizons",
                 "table": "observer",
@@ -916,6 +941,26 @@ def catalog_place(config: dict[str, Any]) -> Any | None:
     if loc is None:
         loc = build_location(config)
     return loc
+
+
+_OBSERVER_ROW_CAP = 48
+
+
+def _observer_rows(blob: str) -> tuple[str, list[str]] | None:
+    """Column header and data rows, or None when $$SOE is missing."""
+    if "$$SOE" not in blob:
+        return None
+    head, rest = blob.split("$$SOE", 1)
+    block = rest.split("$$EOE", 1)[0]
+    header = ""
+    for line in reversed(head.splitlines()):
+        text = line.strip()
+        if not text or set(text) <= {"*"}:
+            continue
+        header = text
+        break
+    rows = [line.rstrip() for line in block.splitlines() if line.strip()]
+    return header, rows
 
 
 def _horizons_http_message(response: httpx.Response) -> str:
