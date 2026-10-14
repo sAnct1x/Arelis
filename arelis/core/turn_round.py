@@ -38,6 +38,7 @@ from arelis.core.email_complete import (
 )
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import (
+    _CONTENT_PASSTHROUGH_TOOLS,
     answer_is_raw_tool_line,
     followup_passthrough_tool,
     replace_raw_tool_line,
@@ -108,6 +109,29 @@ def _chain_continue_notice(owed: list[str]) -> str:
         f"{_CHAIN_STILL_OPEN} "
         "Do the next step before you answer. "
         "Do not paste the tool output as the answer."
+    )
+
+
+async def _ask_for_tool_writeup(loop: Any, ctx: TurnContext, r: RoundScratch) -> None:
+    """One write-up round. Schemas stay off. The model answers in words."""
+    ctx.tool_answer_nudge_used = True
+    strip_tool_schemas(ctx, r)
+    await loop._retract()
+    # The write-up line is already on the request that carried the tool
+    # result. Adding it here, after that request was sent, would change
+    # how the call renders.
+    if not any(
+        item.get("content") == _WRITE_AFTER_TOOL_NOTICE for item in r.messages
+    ):
+        r.messages.append({"role": "assistant", "content": r.content})
+        r.messages.append(
+            {"role": "user", "content": _WRITE_AFTER_TOOL_NOTICE}
+        )
+    await loop.bus.publish(
+        Event(
+            EventType.THINKING,
+            {"text": "empty after tool; asking for a write-up"},
+        )
     )
 
 
@@ -403,6 +427,16 @@ async def apply_no_call_path(
                 if chain_unfinished(loop, ctx) and not _asked_to_continue(r.messages):
                     await _ask_for_next_step(loop, ctx, r)
                     return False
+                # Text pulled from a page is not a written answer yet. Ask
+                # once. Ship the raw text only if that round is empty too.
+                if (
+                    ctx.last_ok_tool_name in _CONTENT_PASSTHROUGH_TOOLS
+                    and not ctx.page_write_nudge_used
+                    and not ctx.algebra_write_nudge_used
+                    and not ctx.tool_answer_nudge_used
+                ):
+                    await _ask_for_tool_writeup(loop, ctx, r)
+                    return False
                 line = _tool_followup_fallback(
                     ctx.last_ok_tool_out,
                     ctx.last_ok_tool_name,
@@ -428,29 +462,7 @@ async def apply_no_call_path(
                     and not ctx.algebra_write_nudge_used
                     and not ctx.tool_answer_nudge_used
                 ):
-                    ctx.tool_answer_nudge_used = True
-                    strip_tool_schemas(ctx, r)
-                    await loop._retract()
-                    # The write-up line is already on the request that
-                    # carried the tool result. Adding it here, after that
-                    # request was sent, would change how the call renders.
-                    if not any(
-                        item.get("content") == _WRITE_AFTER_TOOL_NOTICE
-                        for item in r.messages
-                    ):
-                        r.messages.append({"role": "assistant", "content": r.content})
-                        r.messages.append(
-                            {
-                                "role": "user",
-                                "content": _WRITE_AFTER_TOOL_NOTICE,
-                            }
-                        )
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": ("empty after tool; asking for a write-up")},
-                        )
-                    )
+                    await _ask_for_tool_writeup(loop, ctx, r)
                     return False
                 # Composed plain fallback is her words, not a tool paste.
                 line = replace_raw_tool_line(ctx.last_ok_tool_name, line, raw)

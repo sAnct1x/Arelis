@@ -155,6 +155,10 @@ class TurnContext:
     agenda_created: set[str] = field(default_factory=set)
     fail_counts: dict[str, int] = field(default_factory=dict)
     skip_counts: dict[str, int] = field(default_factory=dict)
+    # Confirm cards skipped or declined this turn. Filled only from that
+    # card's own decision, never from anything the model wrote.
+    declined_tools: set[str] = field(default_factory=set)
+    declined_calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     web_search_ok: set[str] = field(default_factory=set)
     page_ok: set[str] = field(default_factory=set)
     # URLs returned by web_search this turn, and which of them were opened.

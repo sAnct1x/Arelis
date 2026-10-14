@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from arelis.core.document_refs import resolve_reported_output_path
 from arelis.mathtext import display_math_plain, flatten_latex
 from arelis.paths import display_path, ensure, outputs_dir, user_data_dir
 from arelis.rooms import RoomStore
@@ -670,6 +671,10 @@ class DocumentTool:
             fallback = self._under_document_roots(text)
             if fallback is not None and fallback.is_file():
                 path = fallback
+        if path is None or not path.is_file():
+            reported = resolve_reported_output_path(text)
+            if reported:
+                path = Path(reported)
         if path is None or not path.is_file():
             allowed = ", ".join(display_path(root) for root in self._source_roots())
             if self.workspace is not None:

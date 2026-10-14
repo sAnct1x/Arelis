@@ -244,6 +244,231 @@ def decide_mid_turn_escalate(
     return None
 
 
+_MEMORY_SAVE_SKIPPED = "The value was not saved because the save was skipped."
+_SEND_SKIPPED = "The message was not sent because the send was skipped."
+_SCRIPT_RUN_KIND = "run_script_error"
+
+
+def declined_memory_unverified(
+    declined_tools: set[str] | None,
+    ledger: EvidenceLedger,
+) -> list[str]:
+    """memory_write is unverified when the confirm card skipped the save.
+
+    A successful remember or forget this turn is the warrant. Reply text
+    is not consulted.
+    """
+    if not declined_tools or "memory" not in declined_tools:
+        return []
+    if ledger.has_ok("memory_write"):
+        return []
+    return ["memory_write"]
+
+
+def memory_save_skipped_line(unverified: list[str]) -> str:
+    """Fixed line appended when the save itself was skipped."""
+    if "memory_write" in unverified:
+        return _MEMORY_SAVE_SKIPPED
+    return ""
+
+
+def declined_run_unverified(
+    declined_tools: set[str] | None,
+    ledger: EvidenceLedger,
+) -> list[str]:
+    """run_script is unverified when the card skipped it or the call errored.
+
+    A successful run_script result is the warrant. A python result is not.
+    Reply text is not consulted.
+    """
+    if ledger.has_ok("run_script_ok"):
+        return []
+    declined = bool(declined_tools and "run_script" in declined_tools)
+    errored = any(
+        item.kind == "run_script_error" and not item.ok for item in ledger.items
+    )
+    if not declined and not errored:
+        return []
+    return ["run_script"]
+
+
+def _run_script_target(
+    declined_tools: set[str] | None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None,
+    ledger: EvidenceLedger,
+) -> str:
+    """Path from the skipped card, else from the failed result."""
+    if declined_tools and "run_script" in declined_tools:
+        for tool, args in reversed(declined_calls or []):
+            if tool != "run_script":
+                continue
+            path = str((args or {}).get("path") or "").strip()
+            if path:
+                return path
+    for item in reversed(ledger.items):
+        if item.kind != "run_script_error" or item.ok:
+            continue
+        source = (item.source or "").strip()
+        if source and source != "run_script":
+            return source
+    return "the script"
+
+
+def run_script_not_run_line(
+    unverified: list[str],
+    declined_tools: set[str] | None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None,
+    ledger: EvidenceLedger,
+) -> str:
+    """Fixed line naming the script that did not actually run."""
+    if "run_script" not in unverified:
+        return ""
+    target = _run_script_target(declined_tools, declined_calls, ledger)
+    if declined_tools and "run_script" in declined_tools:
+        return f"{target} was not run because the run was skipped."
+    return f"{target} was not run because the run failed."
+
+
+def _python_result(ledger: EvidenceLedger) -> str:
+    """Last successful python cell value, capped at 200 characters."""
+    span = ""
+    for item in ledger.items:
+        if item.ok and item.source == "python" and item.kind == "calc":
+            span = (item.span or "").strip()
+    if not span or span == "(empty)":
+        return ""
+    return span[:200]
+
+
+def run_script_state_finish(
+    unverified: list[str],
+    declined_tools: set[str] | None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None,
+    ledger: EvidenceLedger,
+) -> str | None:
+    """Replace the model reply when the script did not actually run.
+
+    Order is the ledger, then the not-run line, then a python result
+    labeled as the cell. Reply text is not consulted. None means the
+    model reply still ships, which is also the memory-declined path.
+    """
+    if "run_script" not in unverified:
+        return None
+    lines: list[str] = []
+    for item in ledger.items:
+        if not item.ok:
+            continue
+        if item.kind == "file_write":
+            path = (item.source or "").strip()
+            if path:
+                lines.append(f"Wrote {path}.")
+        elif item.kind == "memory_write" and item.source == "remember":
+            fact = (item.span or "").strip()
+            if fact and fact != "(empty)":
+                lines.append(f"Saved: {fact}.")
+    not_run = run_script_not_run_line(
+        unverified, declined_tools, declined_calls, ledger
+    )
+    if not_run:
+        lines.append(not_run)
+    python_result = _python_result(ledger)
+    if python_result:
+        lines.append(f"Calculated with python (not the script): {python_result}")
+    text = "\n".join(lines).strip()
+    return text or None
+
+
+def _declined_call(
+    declined_tools: set[str] | None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None,
+) -> tuple[str, dict[str, Any]]:
+    """Tool and args of the call the confirm card skipped."""
+    calls = declined_calls or []
+    if calls:
+        tool, args = calls[-1]
+        return str(tool or ""), args if isinstance(args, dict) else {}
+    if declined_tools:
+        return sorted(declined_tools)[0], {}
+    return "", {}
+
+
+def _run_script_wanted(
+    declined_tools: set[str] | None,
+    ledger: EvidenceLedger | None,
+    requested_tools: set[str] | None,
+) -> bool:
+    """True when a script run is in the declined set, the owed tools, or the ledger.
+
+    A failed run_script result is kind run_script_error. A successful
+    run_script_ok is not a reason to say the script could not be run.
+    Reply text is not consulted.
+    """
+    if declined_tools and "run_script" in declined_tools:
+        return True
+    if requested_tools and "run_script" in requested_tools:
+        return True
+    if ledger is None:
+        return False
+    return any(item.kind == _SCRIPT_RUN_KIND for item in ledger.items)
+
+
+def _turn_requested_tools(loop: Any, ctx: Any | None = None) -> set[str]:
+    """Tool names this turn already owes, from plan steps and tool state.
+
+    Expected tools, tools that ran, and the active plan's steps. Preflight
+    kinds are included when they are themselves tool names. No scan of the
+    reply.
+    """
+    names: set[str] = set()
+    for source in (
+        getattr(loop, "_expected_tools", None),
+        getattr(loop, "tools_used", None),
+    ):
+        if source:
+            names.update(str(name) for name in source)
+    plan = getattr(loop, "_active_plan", None)
+    if plan is None and ctx is not None:
+        plan = getattr(ctx, "active_plan", None)
+    steps = getattr(plan, "steps", None) or ()
+    names.update(str(step) for step in steps)
+    if ctx is not None:
+        for kind in getattr(ctx, "preflight_kinds", None) or ():
+            names.add(str(kind))
+    return names
+
+
+def declined_finish_reply(
+    declined_tools: set[str] | None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None,
+    ledger: EvidenceLedger | None = None,
+    requested_tools: set[str] | None = None,
+) -> str:
+    """Name the skipped call instead of blaming the calculator.
+
+    Built from the confirm card's tool and target. The clause "so I could
+    not run it" is added only for a workspace write when run_script was
+    declined, owed, or left a failed run in the ledger. A skipped memory
+    save or a skipped SMS or email says only what was skipped.
+    """
+    tool, args = _declined_call(declined_tools, declined_calls)
+    action = str(args.get("action") or "").strip()
+    if tool == "memory":
+        sentence = _MEMORY_SAVE_SKIPPED
+    elif tool in {"send_sms", "send_email"}:
+        sentence = _SEND_SKIPPED
+    else:
+        target = str(args.get("path") or args.get("fact") or "").strip()
+        verb = action or tool or "write"
+        named = target or tool or "it"
+        sentence = f"I did not {verb} {named} because the {verb} was skipped."
+    wanted = _run_script_wanted(declined_tools, ledger, requested_tools)
+    if tool == "workspace" and action.lower() == "write" and wanted:
+        if sentence.endswith("."):
+            sentence = sentence[:-1]
+        sentence = f"{sentence}, so I could not run it."
+    return sentence
+
+
 def _exactness_finish_refuse(
     content: str,
     *,
@@ -252,6 +477,9 @@ def _exactness_finish_refuse(
     numeric_gate: bool,
     evidence_gate: bool,
     send_path: bool = False,
+    declined_tools: set[str] | None = None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None = None,
+    requested_tools: set[str] | None = None,
 ) -> str | None:
     """Return a refusal when finishing would ship an unsupported exact claim."""
     # Side-effect honesty runs before refusal escape so hedge-then-claim
@@ -297,6 +525,13 @@ def _exactness_finish_refuse(
         if calc_fail is not None:
             return unsupported_exactness_reply(
                 missing, calc_failed=True, calc_detail=calc_fail.span
+            )
+        if declined_tools:
+            return declined_finish_reply(
+                declined_tools,
+                declined_calls,
+                ledger=ledger,
+                requested_tools=requested_tools,
             )
     if "symbolic" in missing:
         cas_fail = next(

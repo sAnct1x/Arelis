@@ -33,7 +33,11 @@ from arelis.core.failure_copy import (
     should_nudge_write_after_algebra,
 )
 from arelis.core.gates import FORCE_GATE_KINDS, apply_force_gates
-from arelis.core.loop_helpers import _answer_has_quote_span, _exactness_finish_refuse
+from arelis.core.loop_helpers import (
+    _answer_has_quote_span,
+    _exactness_finish_refuse,
+    _turn_requested_tools,
+)
 from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.plan_nudge import plan_progress_notice
 from arelis.core.turn_context import TurnContext
@@ -412,6 +416,9 @@ async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i
         numeric_gate=ctx.numeric_gate,
         evidence_gate=ctx.evidence_gate,
         send_path=ctx.is_send_path(loop._expected_tools),
+        declined_tools=ctx.declined_tools,
+        declined_calls=ctx.declined_calls,
+        requested_tools=_turn_requested_tools(loop, ctx),
     )
     if refuse is None:
         refuse = loop._look_refuse(r.content)

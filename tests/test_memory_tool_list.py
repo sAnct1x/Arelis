@@ -178,3 +178,37 @@ async def test_the_list_is_capped_so_a_full_memory_cannot_flood_the_turn(
         assert shown == 5, f"asked for 5, got {shown}"
     finally:
         store.close()
+
+
+@pytest.mark.asyncio
+async def test_remember_keeps_value_beside_the_fact(tmp_path: Path) -> None:
+    """fact and value both set must store the number, not only the label."""
+    tool, store = _tool(tmp_path)
+    try:
+        result = await tool.run(
+            action="remember",
+            fact="weekly run distance",
+            value="24.14016 km",
+        )
+        assert result.ok
+        assert "24.14016" in result.output
+        listed = await tool.run(action="list")
+        assert "24.14016" in listed.output
+        stored = [str(row["text"]) for row in store.list_facts(status="active")]
+        assert stored == ["weekly run distance: 24.14016 km"]
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_remember_does_not_repeat_a_value_already_in_the_fact(
+    tmp_path: Path,
+) -> None:
+    tool, store = _tool(tmp_path)
+    try:
+        fact = "weekly run distance: 24.14016 km"
+        result = await tool.run(action="remember", fact=fact, value="24.14016 km")
+        assert result.ok
+        assert result.output == f"Remembered: {fact}"
+    finally:
+        store.close()

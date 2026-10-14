@@ -25,6 +25,8 @@ from arelis.workspace import WorkspaceRoots
 _DEFAULT_TIMEOUT_S = 120.0
 _MAX_TIMEOUT_S = 600.0
 _MAX_OUTPUT = 12_000
+# Same span the python calc warrant keeps. The ledger reads data["stdout"].
+_STDOUT_WARRANT_CHARS = 200
 _POLL_S = 0.2
 _NEST_ENV = "ARELIS_IN_RUN_SCRIPT"
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
@@ -179,10 +181,12 @@ class RunScriptTool:
         text = redact_secrets(text)
         if len(text) > _MAX_OUTPUT:
             text = text[:_MAX_OUTPUT] + "\n…(truncated)"
+        data = _result_data(resolved, interpreter, cwd, code, duration)
+        data["stdout"] = redact_secrets((stdout or "").rstrip())[:_STDOUT_WARRANT_CHARS]
         return ToolResult(
             ok=code == 0,
             output=text,
-            data=_result_data(resolved, interpreter, cwd, code, duration),
+            data=data,
         )
 
 

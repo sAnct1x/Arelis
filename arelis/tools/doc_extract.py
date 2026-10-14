@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
+from arelis.core.document_refs import resolve_drop_file, resolve_reported_output_path
 from arelis.core.look import OcrInspect, inspect_ocr_text, ocr_deferral
 from arelis.paths import outputs_dir
 from arelis.tools.base import ToolResult
@@ -32,6 +32,15 @@ _DROP_SUFFIXES = _SUPPORTED
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 _TABLEISH_LINE = re.compile(r"\S(?:\t|  +)\S")
 _OFFICE_KINDS = frozenset({"docx", "pptx"})
+
+
+def _reported_output(path_str: str) -> ResolvedPath | None:
+    """The file document or research_report named, when it is one of theirs."""
+    reported = resolve_reported_output_path(path_str)
+    if not reported:
+        return None
+    path = Path(reported)
+    return ResolvedPath(path=path, root_name="outputs", root=path.parent)
 
 
 def _fail(tag: str, message: str, **extra: Any) -> ToolResult:
@@ -96,6 +105,9 @@ class DocExtractTool:
         try:
             hit = self.workspace.resolve_read(path_str)
         except Exception as first:
+            opened = _reported_output(path_str)
+            if opened is not None:
+                return opened
             drop = resolve_drop_file(path_str, suffixes=_DROP_SUFFIXES)
             if drop:
                 path = Path(drop)
@@ -107,14 +119,9 @@ class DocExtractTool:
             raise first
         if hit.path.is_file():
             return hit
-        reported = resolve_reported_document_path(path_str)
-        if reported:
-            path = Path(reported)
-            return ResolvedPath(
-                path=path,
-                root_name="outputs",
-                root=path.parent,
-            )
+        opened = _reported_output(path_str)
+        if opened is not None:
+            return opened
         return hit
 
     async def run(self, **kwargs: Any) -> ToolResult:
