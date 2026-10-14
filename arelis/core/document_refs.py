@@ -217,20 +217,76 @@ def resolve_reported_document_path(path_str: str) -> str:
     returns empty for anything else. Unsafe Windows prefixes are refused
     here and are not resolved.
     """
+    return _relative_output_file(path_str, "documents")
+
+
+# Folders these tools write, and the only data-folder paths a later file
+# tool may open from the path they reported. Not the rest of the data folder.
+_REPORTED_OUTPUT_DIRS = ("documents", "research")
+
+
+def resolve_reported_output_path(path_str: str) -> str:
+    """Open the path document or research_report reported, and nothing else.
+
+    document reports ``outputs/documents/<file>`` relative to the data
+    folder. research_report reports the absolute path of a file under
+    ``outputs/research``. Both are accepted, and so is the same relative
+    form for a research file. A parent segment, an unsafe Windows prefix,
+    or a file that does not stay inside one of those two folders returns
+    empty and is not resolved further.
+    """
     raw = (path_str or "").strip().strip("\"'`")
     if not raw or is_unsafe_windows_path(raw):
         return ""
-    if Path(raw).is_absolute() or (len(raw) >= 2 and raw[1] == ":"):
+    if Path(raw).is_absolute() or _drive_path(raw):
+        return _absolute_output_file(raw)
+    for folder in _REPORTED_OUTPUT_DIRS:
+        found = _relative_output_file(raw, folder)
+        if found:
+            return found
+    return ""
+
+
+def _drive_path(raw: str) -> bool:
+    return len(raw) >= 2 and raw[1] == ":"
+
+
+def _relative_output_file(path_str: str, folder_name: str) -> str:
+    raw = (path_str or "").strip().strip("\"'`")
+    if not raw or is_unsafe_windows_path(raw):
+        return ""
+    if Path(raw).is_absolute() or _drive_path(raw):
         return ""
     parts = [part for part in raw.replace("\\", "/").split("/") if part and part != "."]
     if ".." in parts or len(parts) < 3:
         return ""
-    if parts[0] != "outputs" or parts[1] != "documents":
+    if parts[0] != "outputs" or parts[1] != folder_name:
         return ""
+    return _file_inside(folder_name, parts[2:])
+
+
+def _absolute_output_file(raw: str) -> str:
     try:
-        drop = (outputs_dir() / "documents").resolve()
-        resolved = drop.joinpath(*parts[2:]).resolve()
-        resolved.relative_to(drop)
+        resolved = Path(raw).resolve()
+    except OSError:
+        return ""
+    if not resolved.is_file():
+        return ""
+    for folder_name in _REPORTED_OUTPUT_DIRS:
+        try:
+            folder = (outputs_dir() / folder_name).resolve()
+            resolved.relative_to(folder)
+        except (OSError, ValueError):
+            continue
+        return str(resolved)
+    return ""
+
+
+def _file_inside(folder_name: str, rest: list[str]) -> str:
+    try:
+        folder = (outputs_dir() / folder_name).resolve()
+        resolved = folder.joinpath(*rest).resolve()
+        resolved.relative_to(folder)
     except (OSError, ValueError):
         return ""
     if not resolved.is_file():

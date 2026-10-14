@@ -27,7 +27,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from arelis.paths import ensure
+from arelis.core.document_refs import resolve_reported_output_path
+from arelis.paths import display_path, ensure
 from arelis.tools.base import ToolResult
 from arelis.workspace import WorkspaceRoots
 
@@ -236,12 +237,7 @@ class PdfAssembleTool:
                 "pages": picked,
                 "n_pages": n_pages,
                 "degrees": degrees,
-                "sources": [
-                    self.workspace.resolve(str(path), for_write=False).qualified(
-                        multi=len(self.workspace) > 1
-                    )
-                    for path in sources
-                ],
+                "sources": [self._label(path) for path in sources],
             },
         )
 
@@ -258,8 +254,7 @@ class PdfAssembleTool:
             items = [raw_path]
         found: list[Path] = []
         for item in items:
-            resolved = self.workspace.resolve_read(item)
-            path = resolved.path
+            path = self._open_source(item)
             if not path.is_file():
                 raise ValueError(f"No PDF at {item!r}.")
             if path.suffix.lower() != ".pdf":
@@ -274,6 +269,45 @@ class PdfAssembleTool:
                 )
             found.append(path)
         return found
+
+    def _label(self, path: Path) -> str:
+        """Name a source the model can pass back.
+
+        A file inside a workspace root keeps the workspace label. A file
+        opened from the data-folder output path keeps that short form.
+        Anything else still raises, so a label cannot point outside both.
+        """
+        try:
+            hit = self.workspace.resolve(str(path), for_write=False)
+        except PermissionError:
+            reported = resolve_reported_output_path(str(path))
+            if not reported or Path(reported).resolve() != path.resolve():
+                raise
+            return display_path(path)
+        return hit.qualified(multi=len(self.workspace) > 1)
+
+    def _open_source(self, item: str) -> Path:
+        """Workspace read, then the path document or research_report reported.
+
+        A relative outputs/documents path is joined onto the project and
+        misses the drop tray. An absolute research file sits in the data
+        folder, outside the project on an install. Parent segments and
+        other outside paths still raise from the workspace check.
+        """
+        try:
+            resolved = self.workspace.resolve_read(item)
+        except PermissionError:
+            reported = resolve_reported_output_path(item)
+            if not reported:
+                raise
+            return Path(reported)
+        path = resolved.path
+        if path.is_file():
+            return path
+        reported = resolve_reported_output_path(item)
+        if reported:
+            return Path(reported)
+        return path
 
     def _page_picks(
         self,

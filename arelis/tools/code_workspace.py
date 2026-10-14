@@ -10,10 +10,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from arelis.core.document_refs import resolve_reported_output_path
+from arelis.paths import user_data_dir
 from arelis.tools.base import ToolResult
 from arelis.tools.confirm_preview import workspace_confirm
 from arelis.tools.safety import redact_secrets
-from arelis.workspace import FOLDER_CHOICE_HELP, WorkspaceRoots
+from arelis.workspace import FOLDER_CHOICE_HELP, ResolvedPath, WorkspaceRoots
 
 # Directory listings are capped so a node_modules-sized folder cannot flood the
 # model's context. The cap is reported in the output, otherwise the model treats
@@ -318,6 +320,22 @@ def _apply_hunks(original: str, hunks: list[_Hunk], *, label: str) -> str:
     return text
 
 
+def _output_hit(path: Path) -> ResolvedPath:
+    """A reported output file, labeled the way the other file tools open it.
+
+    Rooting the hit at the file's parent makes qualified() the bare filename.
+    That name joins onto the workspace and misses the data folder. The data
+    folder relative form (outputs/documents/Name.pdf) is the path pdf,
+    workspace, and doc_extract already accept.
+    """
+    root = user_data_dir().resolve()
+    try:
+        path.resolve().relative_to(root)
+    except (OSError, ValueError):
+        root = path.parent
+    return ResolvedPath(path=path, root_name="outputs", root=root)
+
+
 class CodeWorkspaceTool:
     name = "workspace"
     description = (
@@ -444,6 +462,28 @@ class CodeWorkspaceTool:
         if for_read:
             return self.workspace.resolve_read(path_str)
         return self.workspace.resolve(path_str, for_create=False)
+
+    def _resolve_open(self, path_str: str) -> ResolvedPath:
+        """Read and list only. Writes stay on ``_resolve``.
+
+        When the workspace join misses, open the path document or
+        research_report reported if that file stays inside outputs/documents
+        or outputs/research. A parent segment and any other outside path
+        still raise, same as a plain workspace read.
+        """
+        try:
+            resolved = self._resolve(path_str, for_read=True)
+        except PermissionError:
+            reported = resolve_reported_output_path(path_str)
+            if not reported:
+                raise
+            return _output_hit(Path(reported))
+        if resolved.path.exists():
+            return resolved
+        reported = resolve_reported_output_path(path_str)
+        if not reported:
+            return resolved
+        return _output_hit(Path(reported))
 
     async def run(self, **kwargs: Any) -> ToolResult:
         action = (kwargs.get("action") or "").lower()
@@ -740,7 +780,7 @@ class CodeWorkspaceTool:
         return file.name
 
     def _list(self, path_str: str) -> ToolResult:
-        resolved = self._resolve(path_str, for_read=True)
+        resolved = self._resolve_open(path_str)
         target = resolved.path
         if not target.exists():
             label = resolved.qualified(multi=len(self.workspace) > 1)
@@ -763,7 +803,7 @@ class CodeWorkspaceTool:
         )
 
     def _read(self, path_str: str, max_chars: int) -> ToolResult:
-        resolved = self._resolve(path_str, for_read=True)
+        resolved = self._resolve_open(path_str)
         path = resolved.path
         if not path.is_file():
             return ToolResult(ok=False, output=f"Not a file: {path}")
