@@ -169,8 +169,12 @@ class MemoryTool:
                     output=f"Unknown type {typ!r}. Use fact, preference, or episode.",
                 )
             fact = str(kwargs.get("fact") or "").strip()
+            raw_value = kwargs.get("value")
+            value = "" if raw_value is None else str(raw_value).strip()
             if not fact:
                 return ToolResult(ok=False, output="memory needs a fact.")
+            if value and value not in fact:
+                fact = f"{fact}: {value}"
             if len(fact) > 400:
                 return ToolResult(
                     ok=False,

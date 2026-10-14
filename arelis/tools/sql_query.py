@@ -171,7 +171,7 @@ class SqlTool:
         except ValueError as exc:
             return ToolResult(ok=False, output=f"sql refused: {exc}")
         except sqlite3.Error as exc:
-            return ToolResult(ok=False, output=f"sql refused: {exc}")
+            return ToolResult(ok=False, output=_sqlite_refusal(exc))
         except Exception as exc:
             return ToolResult(ok=False, output=f"sql failed: {exc}")
 
@@ -243,6 +243,23 @@ class SqlTool:
             },
             notes=notes,
         )
+
+
+def _sqlite_refusal(exc: sqlite3.Error) -> str:
+    """Table and file errors name the fix. Other SQLite errors stay as they are.
+
+    The text comes from SQLite, not from the ask. A missing table, or a
+    syntax error that quoted a slash, is the model putting a file path in
+    FROM instead of passing path=.
+    """
+    text = str(exc)
+    folded = text.casefold()
+    missed_table = "no such table" in folded
+    path_in_sql = "syntax error" in folded and "/" in text
+    hint = ""
+    if missed_table or path_in_sql:
+        hint = " To query a workspace file, pass path=<file> and use FROM data."
+    return f"sql refused: {text}{hint}"
 
 
 def denied_reason(sql: str) -> str | None:

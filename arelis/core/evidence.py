@@ -136,6 +136,14 @@ class EvidenceLedger:
             span = str(data.get("result") or output or "")[:200]
             self.add(source="python", kind="calc", span=span, ok=ok)
             return
+        if name == "run_script":
+            # Same trust as python: a script that actually printed something
+            # is a computed value. A crash or a silent exit is not.
+            exit_code = data.get("exit")
+            stdout = str(data.get("stdout") or "").strip()
+            if ok and exit_code == 0 and stdout:
+                self.add(source="run_script", kind="calc", span=stdout[:200], ok=True)
+            return
         if name == "diagnostics":
             span = str(data.get("summary") or output or "")[:300]
             self.add(source="diagnostics", kind="diagnostics", span=span, ok=ok)

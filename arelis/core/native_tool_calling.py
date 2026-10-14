@@ -31,15 +31,16 @@ def native_tool_calling(agent_cfg: dict[str, Any] | None) -> bool:
 # Parameter descriptions to keep when native_tool_calling is on.
 # Maps (tool_name, param_name) to the description string.
 NATIVE_PARAM_HINTS: dict[tuple[str, str], str] = {
-    ("notes", "text"): "Note body. REQUIRED for action=add.",
-    ("workspace", "content"): "File body. REQUIRED for action=write.",
-    ("tasks", "goal_id"): "Attach to a GOAL id (from goals).",
-    ("tasks", "parent_id"): "ONLY a parent TASK id (subtask), never a goal id.",
-    ("catalog", "target"): "Body name only (Moon, Mars, 499). Not a sentence.",
+    ("notes", "text"): "Note body REQUIRED for action=add.",
+    ("workspace", "content"): "File body REQUIRED for action=write.",
+    ("tasks", "goal_id"): "Attach to a GOAL id from goals.",
+    ("tasks", "parent_id"): "ONLY parent TASK id, never goal id.",
+    ("catalog", "target"): "Body name (Moon, Mars, 499) not a sentence.",
     ("catalog", "date"): (
-        "Omit for how far, closest, or farthest. APOD or one sky day only."
+        "Omit for how far/closest/farthest. APOD or one sky day only."
     ),
-    ("catalog", "query"): "arxiv or ads search text only. Not a planet.",
+    ("catalog", "query"): "arxiv or ads text, not a planet.",
+    ("memory", "fact"): "Whole fact, any number.",
 }
 
 # For notes tool, only expose 'text' in native mode, not the aliases
