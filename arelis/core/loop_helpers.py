@@ -328,6 +328,55 @@ def run_script_not_run_line(
     return f"{target} was not run because the run failed."
 
 
+def _python_result(ledger: EvidenceLedger) -> str:
+    """Last successful python cell value, capped at 200 characters."""
+    span = ""
+    for item in ledger.items:
+        if item.ok and item.source == "python" and item.kind == "calc":
+            span = (item.span or "").strip()
+    if not span or span == "(empty)":
+        return ""
+    return span[:200]
+
+
+def run_script_state_finish(
+    unverified: list[str],
+    declined_tools: set[str] | None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None,
+    ledger: EvidenceLedger,
+) -> str | None:
+    """Replace the model reply when the script did not actually run.
+
+    Order is the ledger, then the not-run line, then a python result
+    labeled as the cell. Reply text is not consulted. None means the
+    model reply still ships, which is also the memory-declined path.
+    """
+    if "run_script" not in unverified:
+        return None
+    lines: list[str] = []
+    for item in ledger.items:
+        if not item.ok:
+            continue
+        if item.kind == "file_write":
+            path = (item.source or "").strip()
+            if path:
+                lines.append(f"Wrote {path}.")
+        elif item.kind == "memory_write" and item.source == "remember":
+            fact = (item.span or "").strip()
+            if fact and fact != "(empty)":
+                lines.append(f"Saved: {fact}.")
+    not_run = run_script_not_run_line(
+        unverified, declined_tools, declined_calls, ledger
+    )
+    if not_run:
+        lines.append(not_run)
+    python_result = _python_result(ledger)
+    if python_result:
+        lines.append(f"Calculated with python (not the script): {python_result}")
+    text = "\n".join(lines).strip()
+    return text or None
+
+
 def declined_finish_reply(
     declined_tools: set[str] | None,
     declined_calls: list[tuple[str, dict[str, Any]]] | None,

@@ -20,8 +20,12 @@ from arelis.tools.base import ToolRegistry, ToolResult
 from tests.hardening_helpers import _collect, _config, _ScriptedRouter
 
 _CLAIM = "The file was written and executed. It prints 144"
+_WROTE = "Wrote work/sq2.py."
 _SKIPPED = "work/sq2.py was not run because the run was skipped."
 _FAILED = "work/sq2.py was not run because the run failed."
+_PYTHON = "Calculated with python (not the script): 144"
+_FACT = "weekly run distance is 24.14016 km"
+_SAVED = f"Saved: {_FACT}."
 _P05 = (
     "Use workspace action=write to create work/sq2.py containing "
     "exactly: print(12*12). Then call run_script on work/sq2.py. "
@@ -58,6 +62,30 @@ class _WorkspaceStub:
     async def run(self, **kwargs: Any) -> ToolResult:
         self.runs += 1
         return ToolResult(ok=True, output=f"Wrote {kwargs.get('path')}")
+
+
+class _MemoryStub:
+    name = "memory"
+    description = "memory"
+    risk = "write"
+    parameters_schema = {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string"},
+            "fact": {"type": "string"},
+        },
+        "required": ["action"],
+    }
+    runs = 0
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        self.runs += 1
+        fact = str(kwargs.get("fact") or "")
+        return ToolResult(
+            ok=True,
+            output=f"Remembered: {fact}",
+            data={"fact": fact, "kind": "fact", "status": "active"},
+        )
 
 
 class _PythonStub:
@@ -216,32 +244,84 @@ async def test_write_approved_run_skipped_python_144_is_not_a_run() -> None:
     assert workspace.runs == 1
     assert script.runs == 0
     assert python.runs == 1
-    assert _CLAIM in text
-    assert _SKIPPED in text
+    assert text == "\n".join((_WROTE, _SKIPPED, _PYTHON))
+    assert _CLAIM not in text
     assert payload.get("unverified") == ["run_script"]
 
 
 @pytest.mark.asyncio
 async def test_run_script_error_is_not_a_run() -> None:
-    """A run_script error leaves the same unverified gap."""
+    """A failed run replaces the reply with the same three state lines."""
+    workspace = _WorkspaceStub()
+    python = _PythonStub()
     script = _RunScriptStub(ok=False)
     router = _ScriptedRouter(
         [
+            [
+                _call(
+                    "workspace",
+                    {
+                        "action": "write",
+                        "path": "work/sq2.py",
+                        "content": "print(12*12)\n",
+                    },
+                )
+            ],
+            [_call("run_script", {"path": "work/sq2.py"})],
+            [_call("python", {"code": "print(12*12)"})],
+            [("token", _CLAIM)],
+        ]
+    )
+    bus = EventBus()
+    loop = _loop(router, workspace, script, python, confirm=_allow)
+    loop.bus = bus
+    events = await _collect(bus, loop.run(_P05, "fast"))
+    payload = _done(events)
+    text = str(payload["text"])
+    assert workspace.runs == 1
+    assert script.runs == 1
+    assert python.runs == 1
+    assert text == "\n".join((_WROTE, _FAILED, _PYTHON))
+    assert _CLAIM not in text
+    assert payload.get("unverified") == ["run_script"]
+
+
+@pytest.mark.asyncio
+async def test_write_and_memory_save_are_both_listed_when_the_run_is_skipped() -> None:
+    """Successes come from the ledger. The model's sentence does not ship."""
+    workspace = _WorkspaceStub()
+    memory = _MemoryStub()
+    script = _RunScriptStub(ok=True)
+    router = _ScriptedRouter(
+        [
+            [
+                _call(
+                    "workspace",
+                    {
+                        "action": "write",
+                        "path": "work/sq2.py",
+                        "content": "print(12*12)\n",
+                    },
+                )
+            ],
+            [_call("memory", {"action": "remember", "fact": _FACT})],
             [_call("run_script", {"path": "work/sq2.py"})],
             [("token", _CLAIM)],
         ]
     )
     bus = EventBus()
-    loop = _loop(router, script, confirm=_allow)
-    loop.bus = bus
-    events = await _collect(
-        bus,
-        loop.run("Call run_script on work/sq2.py and tell me the output.", "fast"),
+    loop = _loop(
+        router, workspace, memory, script, confirm=_allow_write_skip_run
     )
+    loop.bus = bus
+    events = await _collect(bus, loop.run(_P05, "fast"))
     payload = _done(events)
     text = str(payload["text"])
-    assert script.runs == 1
-    assert _FAILED in text
+    assert workspace.runs == 1
+    assert memory.runs == 1
+    assert script.runs == 0
+    assert text == "\n".join((_WROTE, _SAVED, _SKIPPED))
+    assert _CLAIM not in text
     assert payload.get("unverified") == ["run_script"]
 
 
@@ -265,6 +345,5 @@ async def test_run_script_success_adds_no_not_run_line() -> None:
     payload = _done(events)
     text = str(payload["text"])
     assert script.runs == 1
-    assert "was not run" not in text
+    assert text.strip() == "It prints 144."
     assert "unverified" not in payload
-    assert "144" in text

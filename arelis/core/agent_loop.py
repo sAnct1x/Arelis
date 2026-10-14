@@ -1833,7 +1833,7 @@ class AgentLoop:
                 declined_memory_unverified,
                 declined_run_unverified,
                 memory_save_skipped_line,
-                run_script_not_run_line,
+                run_script_state_finish,
             )
 
             unverified = declined_memory_unverified(
@@ -1842,19 +1842,22 @@ class AgentLoop:
             unverified.extend(
                 declined_run_unverified(turn.declined_tools, turn.ledger)
             )
-            notes = (
-                memory_save_skipped_line(unverified),
-                run_script_not_run_line(
-                    unverified,
-                    turn.declined_tools,
-                    turn.declined_calls,
-                    turn.ledger,
-                ),
+            # A skipped or failed script replaces the model reply. A
+            # declined memory save still appends its own line.
+            state = run_script_state_finish(
+                unverified,
+                turn.declined_tools,
+                turn.declined_calls,
+                turn.ledger,
             )
-            for note in notes:
-                if note and note not in final:
+            if state is not None:
+                final = state
+                streamed = ""
+            else:
+                skipped = memory_save_skipped_line(unverified)
+                if skipped and skipped not in final:
                     final = (
-                        f"{final.rstrip()}\n{note}" if final.strip() else note
+                        f"{final.rstrip()}\n{skipped}" if final.strip() else skipped
                     )
                     streamed = ""
         final = _append_sources(final, sources)

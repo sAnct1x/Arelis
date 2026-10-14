@@ -126,6 +126,7 @@ class EvidenceLedger:
         A successful run_script result also records kind run_script_ok.
         A python result never does. A failed run_script records
         run_script_error instead, which is not a script-run warrant.
+        A successful workspace write records kind file_write.
         """
         data = data or {}
         args = args or {}
@@ -165,6 +166,15 @@ class EvidenceLedger:
                 )
             if ok and exit_code == 0 and stdout:
                 self.add(source="run_script", kind="calc", span=stdout[:200], ok=True)
+            return
+        if name == "workspace":
+            # A write that landed is an action. The path is the warrant.
+            # Reads record nothing.
+            action = str(args.get("action") or "").strip().lower()
+            if ok and action == "write":
+                path = str(data.get("path") or args.get("path") or "").strip()
+                if path:
+                    self.add(source=path, kind="file_write", span=path, ok=True)
             return
         if name == "diagnostics":
             span = str(data.get("summary") or output or "")[:300]
@@ -433,10 +443,11 @@ class EvidenceLedger:
             if not output_text:
                 return
             if action in {"remember", "forget"}:
+                fact = str(args.get("fact") or data.get("fact") or "").strip()
                 self.add(
-                    source="memory",
+                    source=action if fact else "memory",
                     kind="memory_write",
-                    span=output_text[:300],
+                    span=(fact or output_text)[:300],
                     ok=True,
                 )
                 return
