@@ -1012,6 +1012,7 @@ class AgentLoop:
             send_path=ctx.is_send_path(self._expected_tools),
             declined_tools=ctx.declined_tools,
             declined_calls=ctx.declined_calls,
+            requested_tools=_turn_requested_tools(self, ctx),
         )
         if refuse is None:
             refuse = self._look_refuse(final_content)
@@ -2043,6 +2044,7 @@ from arelis.core.loop_helpers import (  # noqa: E402, F401
     _looks_like_durable_fact,
     _parse_summary_response,
     _tool_fail_fingerprint,
+    _turn_requested_tools,
     _wants_project_context,
     decide_mid_turn_escalate,
     disconnected_integration_reply,
