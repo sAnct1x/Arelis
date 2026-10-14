@@ -121,6 +121,12 @@ class EvidenceLedger:
         When native_tools=True, additional tool mappings for native tool calling:
         - sql → analyze warrant (when successful with non-empty output)
         - memory read actions → recall warrant (when successful)
+        - memory remember and forget → memory_write warrant (when successful)
+
+        A successful run_script result also records kind run_script_ok.
+        A python result never does. A failed run_script records
+        run_script_error instead, which is not a script-run warrant.
+        A successful workspace write records kind file_write.
         """
         data = data or {}
         args = args or {}
@@ -139,10 +145,36 @@ class EvidenceLedger:
         if name == "run_script":
             # Same trust as python: a script that actually printed something
             # is a computed value. A crash or a silent exit is not.
+            # run_script_ok is the run itself. Only a successful result of
+            # this tool sets it. The python cell's calc warrant is not one.
             exit_code = data.get("exit")
             stdout = str(data.get("stdout") or "").strip()
+            path = str(args.get("path") or data.get("path") or "").strip() or "run_script"
+            if ok:
+                self.add(
+                    source=path,
+                    kind="run_script_ok",
+                    span=(stdout or str(output or "") or path)[:200],
+                    ok=True,
+                )
+            else:
+                self.add(
+                    source=path,
+                    kind="run_script_error",
+                    span=str(output or "")[:200],
+                    ok=False,
+                )
             if ok and exit_code == 0 and stdout:
                 self.add(source="run_script", kind="calc", span=stdout[:200], ok=True)
+            return
+        if name == "workspace":
+            # A write that landed is an action. The path is the warrant.
+            # Reads record nothing.
+            action = str(args.get("action") or "").strip().lower()
+            if ok and action == "write":
+                path = str(data.get("path") or args.get("path") or "").strip()
+                if path:
+                    self.add(source=path, kind="file_write", span=path, ok=True)
             return
         if name == "diagnostics":
             span = str(data.get("summary") or output or "")[:300]
@@ -402,16 +434,25 @@ class EvidenceLedger:
             span = " | ".join(parts) if parts else "sql"
             self.add(source=path[:200], kind="analyze", span=span[:300], ok=True)
             return
-        # Native tool calling: memory read → recall warrant
+        # Native tool calling: memory read → recall, remember/forget → memory_write
         if native_tools and name == "memory":
             if not ok:
                 return
             action = str(data.get("action") or args.get("action") or "").lower()
-            # Only read-type actions record recall warrants
-            if action not in {"recall", "search", "list"}:
-                return
             output_text = (output or "").strip()
             if not output_text:
+                return
+            if action in {"remember", "forget"}:
+                fact = str(args.get("fact") or data.get("fact") or "").strip()
+                self.add(
+                    source=action if fact else "memory",
+                    kind="memory_write",
+                    span=(fact or output_text)[:300],
+                    ok=True,
+                )
+                return
+            # Only read-type actions record recall warrants
+            if action not in {"recall", "search", "list"}:
                 return
             self.add(source="memory", kind="recall", span=output_text[:300], ok=True)
             return

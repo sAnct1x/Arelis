@@ -247,7 +247,7 @@ def test_record_tool_memory_list_records_warrant() -> None:
 
 
 def test_record_tool_memory_remember_records_nothing() -> None:
-    """Memory remember (write) action doesn't record recall warrant."""
+    """Memory remember does not record a recall warrant. It records memory_write."""
     ledger = EvidenceLedger()
     
     ledger.record_tool(
@@ -260,11 +260,11 @@ def test_record_tool_memory_remember_records_nothing() -> None:
     )
     
     assert not ledger.has_ok("recall")
-    assert len(ledger.items) == 0
+    assert ledger.has_ok("memory_write")
 
 
 def test_record_tool_memory_forget_records_nothing() -> None:
-    """Memory forget action doesn't record recall warrant."""
+    """Memory forget does not record a recall warrant. It records memory_write."""
     ledger = EvidenceLedger()
     
     ledger.record_tool(
@@ -277,6 +277,7 @@ def test_record_tool_memory_forget_records_nothing() -> None:
     )
     
     assert not ledger.has_ok("recall")
+    assert ledger.has_ok("memory_write")
 
 
 def test_record_tool_memory_without_native_tools_records_nothing() -> None:

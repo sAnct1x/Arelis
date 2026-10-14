@@ -26,6 +26,24 @@ STOP = "stop"
 RUN = "run"
 
 
+def _declined_target(args: dict[str, Any]) -> dict[str, Any]:
+    """Action and target from the call the card declined.
+
+    The file body stays out. Finish names the path or the fact, not the text.
+    """
+    kept: dict[str, Any] = {}
+    action = args.get("action")
+    if action is not None and str(action).strip():
+        kept["action"] = str(action).strip()
+    path = args.get("path")
+    if path is not None and str(path).strip():
+        kept["path"] = str(path).strip()
+    fact = args.get("fact")
+    if fact is not None and str(fact).strip():
+        kept["fact"] = str(fact).strip()
+    return kept
+
+
 def _clip_confirm_reason(text: str, limit: int = 160) -> str:
     """Thinking / tool-fail copy must not echo an 8k document body."""
     clipped = " ".join(str(text).split())
@@ -311,6 +329,9 @@ async def confirm_call(
         if decision == "allow" and hit is not None:
             ctx.private_marks.allow_host(hit.host)
         if decision != "allow":
+            # The card said skip or decline. Do not infer this from reply text.
+            ctx.declined_tools.add(name)
+            ctx.declined_calls.append((name, _declined_target(args)))
             await loop.bus.publish(
                 Event(EventType.THINKING, {"text": f"skip  {summary}"})
             )
