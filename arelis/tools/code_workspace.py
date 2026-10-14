@@ -56,6 +56,9 @@ _SEARCH_DEFAULT_RESULTS = 50
 _SEARCH_LINE_CHARS = 200
 # Enough to catch a NUL in any real binary header without reading the file.
 _BINARY_SNIFF = 8192
+# Zip containers usually trip the NUL sniff. A short PDF often does not,
+# and it is still not text. Suffix only, never the words in the ask.
+_DOC_EXTRACT_SUFFIXES = frozenset({".docx", ".xlsx", ".pptx", ".pdf"})
 
 
 def _is_probably_binary(path: Path) -> bool:
@@ -764,6 +767,21 @@ class CodeWorkspaceTool:
         path = resolved.path
         if not path.is_file():
             return ToolResult(ok=False, output=f"Not a file: {path}")
+        label = resolved.qualified(multi=len(self.workspace) > 1)
+        if path.suffix.lower() in _DOC_EXTRACT_SUFFIXES:
+            data = self._path_data(resolved)
+            data["next_tool"] = "doc_extract"
+            return ToolResult(
+                ok=False,
+                output=f"{label} is not text. Call doc_extract path={label}.",
+                data=data,
+            )
+        if _is_probably_binary(path):
+            return ToolResult(
+                ok=False,
+                output=f"{label} is not text.",
+                data=self._path_data(resolved),
+            )
         text = redact_secrets(path.read_text(encoding="utf-8", errors="replace"))
         out = text[:max_chars]
         if len(text) > max_chars:

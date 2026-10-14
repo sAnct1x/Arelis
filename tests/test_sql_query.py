@@ -284,6 +284,26 @@ def test_denied_reason_masks_strings_and_comments() -> None:
     assert denied_reason("SELECT 1; SELECT 2") is not None
 
 
+@pytest.mark.asyncio
+async def test_a_missing_table_says_to_pass_path_and_use_data(tmp_path: Path) -> None:
+    """FROM sales with no path is a table miss. The error has to say how to fix it."""
+    tool, _project, _memory = _tool(tmp_path)
+    result = await tool.run(sql="SELECT max(revenue) FROM sales")
+    assert result.ok is False
+    assert "path=" in result.output
+    assert "FROM data" in result.output
+
+
+@pytest.mark.asyncio
+async def test_a_slash_in_from_says_to_pass_path_and_use_data(tmp_path: Path) -> None:
+    """A file path stuffed into FROM is a SQLite syntax error, not a query."""
+    tool, _project, _memory = _tool(tmp_path)
+    result = await tool.run(sql="SELECT max(revenue) FROM work/sales.csv")
+    assert result.ok is False
+    assert "path=" in result.output
+    assert "FROM data" in result.output
+
+
 def test_source_does_not_eval() -> None:
     text = Path("arelis/tools/sql_query.py").read_text(encoding="utf-8")
     assert "eval(" not in text
