@@ -393,23 +393,103 @@ async def test_user_stop_mid_stream_aborts_immediately() -> None:
     assert text != _CLOSE_PARTIAL
 
 
-class _GraceTimer:
+class _ArmStopAndClose(_ScriptedRouter):
+    """Stop and close land after the step boundary, before the stream."""
+
+    def __init__(self, cancel: list[bool]) -> None:
+        super().__init__([[("token", "should not be asked")]])
+        self.cancel = cancel
+        self.loop: AgentLoop | None = None
+        self.model_calls = 0
+
+    def model_for(self, role=None):
+        del role
+        self.model_calls += 1
+        # Prepare asks once. The next ask is inside the step, before stream.
+        if self.model_calls == 2 and self.loop is not None:
+            self.loop.request_close()
+            self.cancel[0] = True
+        return "mock"
+
+
+@pytest.mark.asyncio
+async def test_stop_and_close_before_the_step_stops() -> None:
+    """Both flags are set before the model step starts.
+
+    The pre-stream close raises, and the handler must turn that into Stop.
+    A close pass would stream again and say it is closing.
+    """
+    plot = _CountingTool(
+        "plot",
+        "write",
+        {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "xs": {"type": "string"},
+                "ys": {"type": "string"},
+                "out": {"type": "string"},
+            },
+        },
+    )
+    cancel = [False]
+    router = _ArmStopAndClose(cancel)
+
+    async def allow(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
+        del cid, tool, args, summary
+        return "allow"
+
+    bus, loop = _agent(router, plot, confirm=allow, cancel=cancel)
+    router.loop = loop
+    events = await _collect(bus, loop.run("make a plot of these counts", "fast"))
+    text = _done_text(events)
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert router.model_calls >= 2
+    assert cancel[0] is True
+    assert router.i == 0
+    assert "closing with what I have" not in thinking
+    assert plot.runs == 0
+    assert text == "Stopped."
+    assert text != _CLOSE_PARTIAL
+
+
+class _GraceClock:
+    """Single-shot stand-in for the grace QTimer. fire() is its timeout."""
+
     def __init__(self) -> None:
-        self.started: int | None = None
+        self.ms: int | None = None
+        self.active = False
+        self.fired = 0
+        self._cb = None
 
     def start(self, ms: int) -> None:
-        self.started = int(ms)
+        self.ms = int(ms)
+        self.active = True
 
     def isActive(self) -> bool:
-        return self.started is not None
+        return self.active
 
     def stop(self) -> None:
-        self.started = None
+        self.active = False
+
+    def remainingTime(self) -> int:
+        return int(self.ms or 0)
+
+    def fire(self) -> None:
+        self.fired += 1
+        callback = self._cb
+        self.active = False
+        if callable(callback):
+            callback()
 
 
-def _grace_window() -> SimpleNamespace:
+def _grace_window(clock: _GraceClock) -> SimpleNamespace:
     return SimpleNamespace(
-        _hung_watchdog=_GraceTimer(),
+        _hung_watchdog=clock,
         _hung_paused_ms=None,
         _hung_closing=False,
         _turn_busy=True,
@@ -425,24 +505,12 @@ def _grace_window() -> SimpleNamespace:
 
 @pytest.mark.asyncio
 async def test_hung_close_grace_fires_when_the_stream_hangs() -> None:
+    """The 180s grace clock is what ends a stream that stays hung after close.
+
+    The loop is blocked inside the original stream. Firing the armed grace
+    clock hard-cancels that task. Nothing else releases the hang.
+    """
     assert HUNG_CLOSE_GRACE_S == 180
-    window = _grace_window()
-    armed = SimpleNamespace(request_close=lambda: None)
-    _begin_close(window, armed)
-    assert window._hung_watchdog.started == HUNG_CLOSE_GRACE_S * 1000
-    assert window._hung_closing is True
-
-    hard: dict[str, str] = {}
-
-    def _cancel_turn(*, schedule_next: bool, reason: str = "stop") -> None:
-        del schedule_next
-        hard["reason"] = reason
-
-    window._cancel_turn = _cancel_turn
-    window._set_busy = lambda _busy: None
-    on_hung_turn(window)
-    assert hard.get("reason") == "hung"
-
     plot = _CountingTool(
         "plot",
         "read",
@@ -465,6 +533,24 @@ async def test_hung_close_grace_fires_when_the_stream_hangs() -> None:
 
     bus, loop = _agent(router, plot, confirm=allow, cancel=cancel)
     router.loop = loop
+    clock = _GraceClock()
+    window = _grace_window(clock)
+    task_box: dict[str, asyncio.Task[None]] = {}
+
+    def _cancel_turn(*, schedule_next: bool, reason: str = "stop") -> None:
+        del schedule_next
+        if reason != "hung":
+            return
+        cancel[0] = True
+        running = task_box.get("task")
+        if running is not None and not running.done():
+            running.cancel()
+
+    window._cancel_turn = _cancel_turn
+    window._set_busy = lambda _busy: None
+    window._on_hung_turn = lambda: on_hung_turn(window)
+    clock._cb = window._on_hung_turn
+
     events: list[Any] = []
 
     async def capture(event: Any) -> None:
@@ -473,20 +559,32 @@ async def test_hung_close_grace_fires_when_the_stream_hangs() -> None:
     bus.subscribe(None, capture)
     runner = asyncio.create_task(bus.run())
     task = asyncio.create_task(loop.run("make a plot of these counts", "fast"))
+    task_box["task"] = task
     try:
         await asyncio.wait_for(router.entered.wait(), timeout=5)
-        # Still the original stream. A close on the keepalive would have
-        # started a second one and left this hang for the grace clock.
+        # Close already landed and the original stream is still hung.
         assert router.streams == 1
+        _begin_close(window, loop)
+        assert window._hung_closing is True
+        assert clock.ms == HUNG_CLOSE_GRACE_S * 1000
+        assert clock.isActive()
+        # The grace interval elapsed. This is the clock's timeout.
+        clock.fire()
+        assert clock.fired == 1
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=2)
     finally:
-        cancel[0] = True
+        if not task.done():
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
         router.release.set()
-    await task
     await bus.drain()
     bus.stop()
     runner.cancel()
     text = _done_text(events)
     assert plot.runs == 0
+    assert router.streams == 1
     assert text == "Stopped."
     assert text != _CLOSE_PARTIAL
 
