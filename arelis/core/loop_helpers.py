@@ -398,12 +398,16 @@ def _run_script_wanted(
     ledger: EvidenceLedger | None,
     requested_tools: set[str] | None,
 ) -> bool:
-    """True when a script run is in the declined set, the owed tools, or the ledger.
+    """True when a script run is still owed.
 
-    A failed run_script result is kind run_script_error. A successful
-    run_script_ok is not a reason to say the script could not be run.
-    Reply text is not consulted.
+    A successful run_script result is kind run_script_ok. That run already
+    happened, so it is not owed, even if the turn still lists the tool.
+    A failed result is kind run_script_error and is still owed. No run at
+    all is still owed when the tool was declined or requested. Reply text
+    is not consulted.
     """
+    if ledger is not None and ledger.has_ok("run_script_ok"):
+        return False
     if declined_tools and "run_script" in declined_tools:
         return True
     if requested_tools and "run_script" in requested_tools:
@@ -447,9 +451,11 @@ def declined_finish_reply(
     """Name the skipped call instead of blaming the calculator.
 
     Built from the confirm card's tool and target. The clause "so I could
-    not run it" is added only for a workspace write when run_script was
-    declined, owed, or left a failed run in the ledger. A skipped memory
-    save or a skipped SMS or email says only what was skipped.
+    not run it" is added only for a workspace write when run_script is
+    still owed: declined, requested, or left a failed run in the ledger.
+    A run_script_ok warrant means the run already happened, so the clause
+    stays off. A skipped memory save or a skipped SMS or email says only
+    what was skipped.
     """
     tool, args = _declined_call(declined_tools, declined_calls)
     action = str(args.get("action") or "").strip()

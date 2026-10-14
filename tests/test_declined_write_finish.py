@@ -89,6 +89,29 @@ class _WorkspaceStub:
         return ToolResult(ok=True, output=f"Wrote {kwargs.get('path')}")
 
 
+class _RunScriptStub:
+    name = "run_script"
+    description = "run a script"
+    risk = "side_effect"
+    parameters_schema = {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"],
+    }
+    runs = 0
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        self.runs += 1
+        path = str(kwargs.get("path") or "")
+        # Success with no stdout: run_script_ok, and no calc warrant.
+        # Math stays missing, so finish still goes through the skip reply.
+        return ToolResult(
+            ok=True,
+            output="",
+            data={"exit": 0, "stdout": "", "path": path},
+        )
+
+
 class _ExtractStub:
     name = "doc_extract"
     description = "read a document"
@@ -113,6 +136,15 @@ async def _skip(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
 async def _allow(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
     del cid, tool, args, summary
     return "allow"
+
+
+async def _allow_script_skip_write(
+    cid: str, tool: str, args: dict[str, Any], summary: str
+) -> str:
+    del cid, args, summary
+    if tool == "run_script":
+        return "allow"
+    return "skip"
 
 
 def _loop(router: _ScriptedRouter, *tools: Any, confirm: Any) -> AgentLoop:
@@ -523,6 +555,98 @@ def test_skipped_workspace_write_keeps_could_not_run_when_the_ledger_records_a_f
     assert text == _WRITE_LINE
 
 
+def _script_ledger(*, ok: bool, stdout: str = "") -> EvidenceLedger:
+    """A real run_script result. Success is run_script_ok. Failure is run_script_error."""
+    ledger = EvidenceLedger()
+    ledger.record_tool(
+        "run_script",
+        ok=ok,
+        output=stdout if ok else "exit: 1",
+        data={
+            "exit": 0 if ok else 1,
+            "stdout": stdout,
+            "path": "work/sq2.py",
+        },
+        args={"path": "work/sq2.py"},
+    )
+    return ledger
+
+
+_SKIPPED_WRITE = [("workspace", {"action": "write", "path": "work/sq2.py"})]
+
+
+def test_successful_run_then_skipped_write_drops_could_not_run() -> None:
+    """A later skipped write does not owe a run that already succeeded.
+
+    requested_tools still names run_script because the turn used it. The
+    run_script_ok warrant is what clears the debt. Reply text is not read.
+    """
+    ledger = _script_ledger(ok=True, stdout="144")
+    assert ledger.has_ok("run_script_ok")
+    text = declined_finish_reply(
+        {"workspace"},
+        _SKIPPED_WRITE,
+        ledger=ledger,
+        requested_tools={"run_script", "workspace"},
+    )
+    assert text == "I did not write work/sq2.py because the write was skipped."
+    assert "could not run" not in text
+
+
+def test_failed_run_then_skipped_write_keeps_could_not_run() -> None:
+    """A run_script_error leaves the run owed, so the skipped write keeps the clause."""
+    ledger = _script_ledger(ok=False)
+    assert not ledger.has_ok("run_script_ok")
+    assert any(item.kind == "run_script_error" and not item.ok for item in ledger.items)
+    text = declined_finish_reply(
+        {"workspace"},
+        _SKIPPED_WRITE,
+        ledger=ledger,
+        requested_tools={"run_script", "workspace"},
+    )
+    assert text == _WRITE_LINE
+
+
+def test_no_run_yet_and_run_script_wanted_keeps_could_not_run() -> None:
+    """No run_script result yet. A wanted run still adds the clause."""
+    text = declined_finish_reply(
+        {"workspace"},
+        _SKIPPED_WRITE,
+        ledger=EvidenceLedger(),
+        requested_tools={"run_script"},
+    )
+    assert text == _WRITE_LINE
+
+
+def test_memory_and_send_skips_ignore_a_finished_script_run() -> None:
+    """A successful run does not change the skipped memory or send lines."""
+    ledger = _script_ledger(ok=True, stdout="144")
+    memory = declined_finish_reply(
+        {"memory"},
+        [("memory", {"action": "remember", "fact": "12*12 is 144"})],
+        ledger=ledger,
+        requested_tools={"run_script", "memory"},
+    )
+    sms = declined_finish_reply(
+        {"send_sms"},
+        [("send_sms", {})],
+        ledger=ledger,
+        requested_tools={"run_script", "send_sms"},
+    )
+    email = declined_finish_reply(
+        {"send_email"},
+        [("send_email", {})],
+        ledger=ledger,
+        requested_tools={"run_script", "send_email"},
+    )
+    assert memory == _MEMORY_LINE
+    assert sms == _SEND_LINE
+    assert email == _SEND_LINE
+    assert "could not run" not in memory
+    assert "could not run" not in sms
+    assert "could not run" not in email
+
+
 @pytest.mark.asyncio
 async def test_declined_memory_on_a_math_ask_does_not_say_it_could_not_run() -> None:
     """Math is missing and the save was skipped. Do not blame a script run."""
@@ -585,4 +709,44 @@ async def test_declined_workspace_write_without_a_run_has_no_could_not_run_claus
     text = str(_done(events)["text"]).strip()
     assert workspace.runs == 0
     assert text == _WRITE_ONLY_LINE
+    assert "could not run" not in text
+
+
+@pytest.mark.asyncio
+async def test_successful_run_then_skipped_write_does_not_say_it_could_not_run() -> None:
+    """run_script already succeeded. A later skipped write must not say it could not run."""
+    script = _RunScriptStub()
+    workspace = _WorkspaceStub()
+    router = _ScriptedRouter(
+        [
+            [_call("run_script", {"path": "work/sq2.py"})],
+            [
+                _call(
+                    "workspace",
+                    {
+                        "action": "write",
+                        "path": "work/sq2.py",
+                        "content": "print(12*12)\n",
+                    },
+                )
+            ],
+            [("token", "The output is 144.")],
+        ]
+    )
+    bus = EventBus()
+    loop = _loop(router, script, workspace, confirm=_allow_script_skip_write)
+    loop.bus = bus
+    events = await _collect(
+        bus,
+        loop.run(
+            "Use workspace action=write to create work/sq2.py containing "
+            "exactly: print(12*12). Then call run_script on work/sq2.py. "
+            "Then tell me the output.",
+            "fast",
+        ),
+    )
+    text = str(_done(events)["text"]).strip()
+    assert script.runs == 1
+    assert workspace.runs == 0
+    assert text == "I did not write work/sq2.py because the write was skipped."
     assert "could not run" not in text
