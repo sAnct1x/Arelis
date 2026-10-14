@@ -1083,7 +1083,14 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             elif parsed and parsed["kind"] == "final":
                 content = parsed["text"]
 
-        if ctx.plain_only and not ctx.fallback_mode and calls:
+        # A close pass does not get the re-ask. The block below owns that
+        # round, and a menu that progress already closed stays closed.
+        if (
+            ctx.plain_only
+            and not ctx.fallback_mode
+            and calls
+            and not getattr(loop, "_in_close", False)
+        ):
             if not ctx.plain_reask_used:
                 ctx.plain_reask_used = True
                 assistant_msg: dict[str, Any] = {
@@ -1154,11 +1161,16 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         if getattr(loop, "_in_close", False):
             kept_calls = bool(getattr(loop, "_close_kept_calls", False))
             loop._close_kept_calls = False
-            calls = [
-                (n, a)
-                for n, a in (calls or [])
-                if closing_call_ok(n, a, ctx.text, getattr(loop, "_trace", ()))
-            ]
+            # plain_only means a send (or another finished step) already took
+            # the menu. The wrap-up allow-list must not hand it back.
+            if ctx.plain_only:
+                calls = []
+            else:
+                calls = [
+                    (n, a)
+                    for n, a in (calls or [])
+                    if closing_call_ok(n, a, ctx.text, getattr(loop, "_trace", ()))
+                ]
             if not calls:
                 prose = (content or "").strip()
                 if not prose:

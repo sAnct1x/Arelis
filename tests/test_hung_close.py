@@ -103,17 +103,27 @@ def _native(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 class _CountingTool:
-    def __init__(self, name: str, risk: str, schema: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        name: str,
+        risk: str,
+        schema: dict[str, Any],
+        *,
+        output: str | None = None,
+    ) -> None:
         self.name = name
         self.description = name
         self.risk = risk
         self.parameters_schema = schema
+        self.output = output
         self.runs = 0
         self.kwargs: list[dict[str, Any]] = []
 
     async def run(self, **kwargs: Any) -> ToolResult:
         self.runs += 1
         self.kwargs.append(dict(kwargs))
+        if self.output is not None:
+            return ToolResult(ok=True, output=self.output)
         if self.name == "plot":
             return ToolResult(
                 ok=True,
@@ -201,10 +211,14 @@ def _agent(
     confirm,
     cancel,
     ask_is_grant: bool = True,
+    extra: list[_CountingTool] | None = None,
+    router_removed: bool = False,
 ) -> tuple[EventBus, AgentLoop]:
     bus = EventBus()
     tools = ToolRegistry()
     tools.register(tool)
+    for other in extra or []:
+        tools.register(other)
     cfg = _config()
     cfg["agent"]["chat_fast_path"] = False
     cfg["agent"]["intent_preflight"] = False
@@ -212,6 +226,9 @@ def _agent(
     cfg["agent"]["sms_preinject"] = False
     cfg["agent"]["sms_force_call"] = False
     cfg["agent"]["ask_is_grant"] = ask_is_grant
+    # PR 234 removes the router, so round 1 is a model call. Preinject stays off.
+    if router_removed:
+        cfg["agent"]["compensation"] = {"regex_routing": False}
     loop = AgentLoop(
         bus,
         router,  # type: ignore[arg-type]
@@ -472,3 +489,98 @@ async def test_hung_close_grace_fires_when_the_stream_hangs() -> None:
     assert plot.runs == 0
     assert text == "Stopped."
     assert text != _CLOSE_PARTIAL
+
+
+class _SendThenShutTools(_ScriptedRouter):
+    """Round 1 is the model. Close lands on a finished send. Later rounds
+    try tools the send already shut off, including one the wrap-up list allows.
+    """
+
+    def __init__(self, send_call: dict[str, Any], later: list[dict[str, Any]]) -> None:
+        super().__init__([[]])
+        self.send_call = send_call
+        self.later = later
+        self.loop: AgentLoop | None = None
+
+    async def stream(self, role, messages, **kwargs):
+        del role, messages, kwargs
+        self.i += 1
+        if self.i == 1:
+            yield ("tool_calls", [self.send_call])
+            assert self.loop is not None
+            self.loop.request_close()
+            yield ("metrics", {"prompt_eval_count": 4})
+            return
+        yield ("tool_calls", list(self.later))
+        yield ("metrics", {"prompt_eval_count": 2})
+
+
+@pytest.mark.asyncio
+async def test_closed_toolset_stays_closed_after_send_and_after_close() -> None:
+    """A confirmed send shuts the menu. A close after that must not open it.
+
+    document is on the wrap-up allow-list. web_search is the wander tool a
+    send hides. Neither runs. Round 1 is the model call, not a preinject.
+    """
+    send_out = "Sent."
+    send = _CountingTool(
+        "send_sms",
+        "side_effect",
+        {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string"},
+                "body": {"type": "string"},
+            },
+        },
+        output=send_out,
+    )
+    document = _CountingTool(
+        "document",
+        "write",
+        {
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+        },
+    )
+    search = _CountingTool(
+        "web_search",
+        "read",
+        {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+        },
+    )
+    router = _SendThenShutTools(
+        _native("send_sms", {"to": "brian", "body": "running late"}),
+        [
+            _native("document", {"path": "notes/later.txt", "content": "nope"}),
+            _native("web_search", {"query": "weather"}),
+        ],
+    )
+    confirmed: list[str] = []
+
+    async def allow(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
+        del cid, args, summary
+        confirmed.append(tool)
+        return "allow"
+
+    bus, loop = _agent(
+        router,
+        send,
+        confirm=allow,
+        cancel=[False],
+        extra=[document, search],
+        router_removed=True,
+    )
+    router.loop = loop
+    events = await _collect(bus, loop.run("text brian: running late", "fast"))
+    text = _done_text(events)
+    assert send.runs == 1
+    assert document.runs == 0
+    assert search.runs == 0
+    assert confirmed == ["send_sms"]
+    assert router.i == 2
+    assert text != _CLOSE_PARTIAL
+    assert _CLOSE_PARTIAL not in text
+    assert send_out in text
