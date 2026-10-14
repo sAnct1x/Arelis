@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from arelis.core.claims import ExactnessNeed
+from arelis.core.claims import ExactnessNeed, detect_exactness_need
 from arelis.core.evidence import EvidenceLedger
 from arelis.core.json_tools import parse_text_tool_call
 from arelis.core.loop_helpers import _exactness_finish_refuse
@@ -145,8 +145,8 @@ def test_record_tool_sql_with_native_tools_records_analyze() -> None:
     assert ledger.items[0].kind == "analyze"
 
 
-def test_record_tool_sql_without_native_tools_records_nothing() -> None:
-    """With native_tools=False, sql records nothing (unchanged behavior)."""
+def test_record_tool_sql_without_native_tools_records_analyze() -> None:
+    """With native_tools=False, a successful sql read still records analyze."""
     ledger = EvidenceLedger()
     
     ledger.record_tool(
@@ -158,8 +158,9 @@ def test_record_tool_sql_without_native_tools_records_nothing() -> None:
         native_tools=False,
     )
     
-    assert not ledger.has_ok("analyze")
-    assert len(ledger.items) == 0
+    assert ledger.has_ok("analyze")
+    assert len(ledger.items) == 1
+    assert ledger.items[0].kind == "analyze"
 
 
 def test_record_tool_sql_failed_records_nothing() -> None:
@@ -280,8 +281,8 @@ def test_record_tool_memory_forget_records_nothing() -> None:
     assert ledger.has_ok("memory_write")
 
 
-def test_record_tool_memory_without_native_tools_records_nothing() -> None:
-    """With native_tools=False, memory records nothing (unchanged)."""
+def test_record_tool_memory_without_native_tools_records_recall() -> None:
+    """With native_tools=False, a successful memory read still records recall."""
     ledger = EvidenceLedger()
     
     ledger.record_tool(
@@ -293,8 +294,9 @@ def test_record_tool_memory_without_native_tools_records_nothing() -> None:
         native_tools=False,
     )
     
-    assert not ledger.has_ok("recall")
-    assert len(ledger.items) == 0
+    assert ledger.has_ok("recall")
+    assert len(ledger.items) == 1
+    assert ledger.items[0].kind == "recall"
 
 
 def test_record_tool_memory_failed_records_nothing() -> None:
@@ -389,13 +391,12 @@ def test_exactness_refuse_with_memory_warrant_from_native_tools() -> None:
     assert refuse is None
 
 
-def test_exactness_refuse_without_native_tools_still_refuses() -> None:
-    """Without native_tools, sql/memory don't record warrants and exactness refuses."""
+def test_exactness_refuse_without_native_tools_accepts_sql() -> None:
+    """Flag off, a successful sql read is enough for a row-count answer."""
     content = "The table has 250 rows."
     exact_need = _need(kinds=("analyze",))
     ledger = EvidenceLedger()
     
-    # Simulate sql tool with native_tools=False (default)
     ledger.record_tool(
         "sql",
         ok=True,
@@ -413,9 +414,7 @@ def test_exactness_refuse_without_native_tools_still_refuses() -> None:
         evidence_gate=True,
     )
     
-    # Should refuse since no analyze warrant was recorded
-    assert refuse is not None
-    assert "I don't know" in refuse
+    assert refuse is None
 
 
 # ============================================================================
@@ -441,6 +440,65 @@ def test_scenario_s27_sql_with_native_tools() -> None:
     refuse = _exactness_finish_refuse(
         "The table has 250 rows.",
         exact_need=_need(kinds=("analyze",)),
+        ledger=ledger,
+        numeric_gate=True,
+        evidence_gate=True,
+    )
+    assert refuse is None
+
+
+def _shipped_native_flag() -> bool:
+    """The flag in arelis/config/default.yaml, not a local override."""
+    import yaml
+
+    from arelis.config import DEFAULT_CONFIG_PATH
+
+    shipped = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    return bool(shipped["agent"]["native_tool_calling"])
+
+
+def test_default_flag_memory_list_satisfies_recall() -> None:
+    """S18: memory list containing the fact leaves nothing missing for recall."""
+    assert _shipped_native_flag() is False
+    ledger = EvidenceLedger()
+    ledger.record_tool(
+        "memory",
+        ok=True,
+        output="Facts:\n  - favorite color is teal",
+        data={"action": "list"},
+        args={"action": "list"},
+        native_tools=_shipped_native_flag(),
+    )
+    assert ledger.missing_kinds(("recall",)) == []
+    refuse = _exactness_finish_refuse(
+        "Your favorite color is teal.",
+        exact_need=_need(kinds=("recall",)),
+        ledger=ledger,
+        numeric_gate=True,
+        evidence_gate=True,
+    )
+    assert refuse is None
+
+
+def test_default_flag_sql_row_count_satisfies_analyze() -> None:
+    """S27: a 250-row sql result satisfies a row-count question with the flag off."""
+    assert _shipped_native_flag() is False
+    question = "How many rows are in work/sales.csv?"
+    exact_need = detect_exactness_need(question)
+    assert "analyze" in exact_need.kinds
+    ledger = EvidenceLedger()
+    ledger.record_tool(
+        "sql",
+        ok=True,
+        output="row_count\n250",
+        data={},
+        args={"database": "work/sales.csv", "query": "SELECT COUNT(*) AS row_count FROM sales"},
+        native_tools=_shipped_native_flag(),
+    )
+    assert ledger.missing_kinds(("analyze",)) == []
+    refuse = _exactness_finish_refuse(
+        "The table has 250 rows.",
+        exact_need=exact_need,
         ledger=ledger,
         numeric_gate=True,
         evidence_gate=True,

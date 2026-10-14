@@ -417,7 +417,9 @@ async def test_http_400_on_tools_still_json_falls_back() -> None:
     assert "JSON fallback" in thinking
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
     assert "here without native schemas" in done.payload["text"]
-    assert router.calls == 2
+    # The ask names workspace, which has not run. The finish path holds
+    # for that (two nudges) after the fallback line, then ships it.
+    assert router.calls == 4
 
 
 @pytest.mark.asyncio

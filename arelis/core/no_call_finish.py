@@ -2,8 +2,8 @@
 
 The model already chose not to call. This path does not invent a call
 from the user's words. It can name the screen theme, refuse an exact
-claim that has no warrant, and (when native tool calling is on) ask
-again for a tool the user named and that has not run.
+claim that has no warrant, and ask again for a tool the user named
+that has not run and still has no evidence.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from arelis.core.failure_copy import (
     should_nudge_write_after_algebra,
 )
 from arelis.core.loop_helpers import _exactness_finish_refuse, _turn_requested_tools
-from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_scratch import (
     RoundScratch,
@@ -30,6 +29,38 @@ from arelis.core.turn_scratch import (
 
 NUDGE = "nudge"
 FINISH = "finish"
+
+
+def _still_owed(
+    owed: list[str],
+    *,
+    kinds: tuple[str, ...],
+    missing: list[str],
+    used: set[str],
+) -> list[str]:
+    """Named tools that have not run and still have no evidence.
+
+    ``owed`` is already the not-yet-run, still-runnable, not-negated set.
+    When the tool name is one of this turn's evidence kinds, a successful
+    warrant for that kind means it is not owed. A name that is not a kind
+    on this turn stays owed until the tool runs. Document beside a weather
+    ask is that case: exactness only tagged weather, and the file is still
+    missing.
+
+    A shorter name is not still owed when a longer tool that extends it
+    already ran. "grayscale image" mentions image after image_edit ran.
+    That is the edit, not a second tool.
+    """
+    kind_set = set(kinds)
+    missing_set = set(missing)
+    kept: list[str] = []
+    for name in owed:
+        if name in kind_set and name not in missing_set:
+            continue
+        if any(other.startswith(name + "_") for other in used):
+            continue
+        kept.append(name)
+    return kept
 
 
 async def _ship_algebra_result_if_missing(
@@ -63,33 +94,37 @@ async def _ship_algebra_result_if_missing(
 
 
 async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    # Native tool calling holds the turn when the user named tools that
-    # have not run. It does not invent a tool call from the wording.
-    if native_tool_calling(r.agent_cfg):
-        owed = named_tools_owed_runnable(loop, ctx, r.fail_counts)
-        negated = negated_tool_mentions(ctx.text, owed)
-        owed = [n for n in owed if n not in negated]
-        if owed and ctx.nudges < _MAX_TOOL_NUDGES:
-            ctx.nudges += 1
-            await loop._retract()
-            r.messages.append({"role": "assistant", "content": r.content})
-            r.messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "You still need to call these tools the user named: "
-                        + ", ".join(owed)
-                        + ". Call them now before answering."
-                    ),
-                }
+    # Hold while a tool the user named has not run and its evidence is
+    # still missing. Turn state decides this. The native flag does not.
+    # Negation and the nudge cap still do. This does not invent a call.
+    owed = named_tools_owed_runnable(loop, ctx, r.fail_counts)
+    negated = negated_tool_mentions(ctx.text, owed)
+    owed = [n for n in owed if n not in negated]
+    kinds = tuple(getattr(ctx.exact_need, "kinds", ()) or ())
+    missing = ctx.ledger.missing_kinds(kinds)
+    used = {str(name) for name in (getattr(loop, "tools_used", ()) or ())}
+    owed = _still_owed(owed, kinds=kinds, missing=missing, used=used)
+    if owed and ctx.nudges < _MAX_TOOL_NUDGES:
+        ctx.nudges += 1
+        await loop._retract()
+        r.messages.append({"role": "assistant", "content": r.content})
+        r.messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "You still need to call these tools the user named: "
+                    + ", ".join(owed)
+                    + ". Call them now before answering."
+                ),
+            }
+        )
+        await loop.bus.publish(
+            Event(
+                EventType.THINKING,
+                {"text": "named tools owed; asking to continue"},
             )
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "named tools owed; asking to continue"},
-                )
-            )
-            return NUDGE
+        )
+        return NUDGE
     if await _ship_algebra_result_if_missing(loop, ctx, r):
         return FINISH
     fixed = theme_reply_if_needed(ctx.text, r.content)

@@ -297,6 +297,70 @@ def test_native_owed_nudge_respects_max_tool_nudges() -> None:
     assert final_text.strip(), "turn must terminate with an answer"
 
 
+def test_flag_off_plain_question_still_runs_owed_document() -> None:
+    """Flag off: weather, then a plain question, must not end the turn.
+
+    C02/P09. Round 1 calls weather. Round 2 is a question, not a call.
+    Document is still owed, so the finish path holds and round 3 runs it.
+    """
+    script = [
+        _call("weather", {"place": "Springfield, Illinois", "days": 3}),
+        [("token", "Should I save the Springfield forecast now?")],
+        _call(
+            "document",
+            {
+                "format": "md",
+                "title": "Springfield Weather Brief",
+                "body": "Springfield forecast: sunny.",
+            },
+        ),
+        [("token", "Saved Springfield Weather Brief.md")],
+    ]
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            "Call the weather tool for Springfield, Illinois. Then call the document "
+            "tool with format=md and title Springfield Weather Brief and a body "
+            "summarizing the forecast.",
+            script,
+            ["weather", "document"],
+            _FLAG_OFF,
+            capture_thinking=True,
+        )
+    )
+    assert [n for n, _ in tool_results] == ["weather", "document"], tool_results
+    assert tool_results[1][1] is True
+    assert any(_OWED_NUDGE in t for t in thinking), thinking
+    assert "springfield" in final_text.lower()
+
+
+def test_flag_off_owed_nudge_respects_max_tool_nudges() -> None:
+    """Flag off: the owed-tool hold still stops at _MAX_TOOL_NUDGES."""
+    script = [
+        [("token", "Should I call the tools?")],
+        [("token", "Still asking instead of calling?")],
+        [("token", "Third question without a call?")],
+        [("token", "Fourth question?")],
+        [("token", "Fifth question?")],
+        [("token", "Sixth question?")],
+    ]
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            "Call the weather tool for Springfield, Illinois. Then call the document "
+            "tool with format=md and title Springfield Weather Brief and a body "
+            "summarizing the forecast.",
+            script,
+            ["weather", "document"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            capture_thinking=True,
+        )
+    )
+    del tool_results
+    owed_nudges = [t for t in thinking if _OWED_NUDGE in t]
+    assert len(owed_nudges) <= _MAX_TOOL_NUDGES, thinking
+    assert len(owed_nudges) == _MAX_TOOL_NUDGES, thinking
+    assert final_text.strip(), "turn must terminate with an answer"
+
+
 def test_flag_off_units_calc_memory_unchanged() -> None:
     """Flag-off regression: C01 chain still runs all three tools."""
     script = [

@@ -117,11 +117,12 @@ class EvidenceLedger:
         native_tools: bool = False,
     ) -> None:
         """Map a tool result into zero or more warrants.
-        
-        When native_tools=True, additional tool mappings for native tool calling:
-        - sql → analyze warrant (when successful with non-empty output)
-        - memory read actions → recall warrant (when successful)
-        - memory remember and forget → memory_write warrant (when successful)
+
+        A successful sql result records an analyze warrant (table evidence).
+        A successful memory read (list, recall, or search) records a recall
+        warrant. remember and forget record memory_write. These count
+        whether or not native_tools is set. The argument stays so callers
+        that still pass the flag do not change.
 
         A successful run_script result also records kind run_script_ok.
         A python result never does. A failed run_script records
@@ -420,8 +421,8 @@ class EvidenceLedger:
             span = (output or "")[:300] if ok else (output or "ocr failed")[:300]
             self.add(source=path[:200], kind="vision", span=span, ok=ok)
             return
-        # Native tool calling: sql → analyze warrant
-        if native_tools and name == "sql":
+        # Sql results are table evidence. The native flag does not gate this.
+        if name == "sql":
             if not ok:
                 return
             output_text = (output or "").strip()
@@ -434,8 +435,8 @@ class EvidenceLedger:
             span = " | ".join(parts) if parts else "sql"
             self.add(source=path[:200], kind="analyze", span=span[:300], ok=True)
             return
-        # Native tool calling: memory read → recall, remember/forget → memory_write
-        if native_tools and name == "memory":
+        # Memory reads are recall evidence. The native flag does not gate this.
+        if name == "memory":
             if not ok:
                 return
             action = str(data.get("action") or args.get("action") or "").lower()
