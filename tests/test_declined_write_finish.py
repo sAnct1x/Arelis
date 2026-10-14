@@ -423,7 +423,9 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     )
     text = str(_done(events)["text"])
     assert workspace.runs == 0
-    assert text.strip() == _WRITE_LINE
+    assert text.strip() == (
+        "I did not write work/sq2.py because the write was skipped."
+    )
     assert "calculator" not in text.lower()
 
 

@@ -369,8 +369,9 @@ def test_native_image_edit_then_ocr_does_not_finish_early(
     ],
 )
 def test_native_negated_document_mention_does_not_nudge(negation: str) -> None:
-    """Native: purely negated document mention must not trigger owed-tool nudges."""
+    """Native: a negated document mention must not become an owed-tool nudge."""
     script = [
+        _call("weather", {"place": "Springfield, Illinois"}),
         [("token", "ANSWER_1: Mild and clear in Springfield.")],
         [("token", "ANSWER_2: still mild.")],
         [("token", "ANSWER_3: third.")],
@@ -387,8 +388,8 @@ def test_native_negated_document_mention_does_not_nudge(negation: str) -> None:
             capture_thinking=True,
         )
     )
-    # Weather force may preinject a weather call; that is fine. The owed-nudge
-    # must not discard ANSWER_1 — that is the negation-filter contract.
+    # The model called weather. Document was only named under negation, so
+    # the owed-tool nudge must not fire and the answer must ship.
     assert final_text.startswith("ANSWER_1"), (final_text, thinking, tool_results)
     assert not any(_OWED_NUDGE in t for t in thinking), thinking
 

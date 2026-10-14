@@ -195,36 +195,18 @@ on the same PC.
 For how the router, rooms, and vision unloading tie into everything
 else, see [architecture.md](architecture.md).
 
-## Experiment: Native Tool Calling
+## Native tool calling
 
-Arelis is heavily tuned around qwen3.5:9b with a large regex/intent routing layer
-that shortcuts tool selection based on patterns in the user's text. That layer was
-built because smaller models (7B-9B) need help picking the right tool from 34 options.
+Tool choice is the model's, from the tool descriptions it was given, which tools
+are loaded, and what a tool result already showed. There is no regex layer that
+picks a tool from the wording of the ask.
 
-**The hypothesis:** Larger local models (Qwen3 30B-A3B, later Qwen3.6-27B) may underperform
-when the regex layer fights native tool calling. This is a hypothesis being tested, not a measured
-result. A model with strong tool-calling ability may not need prompt nudges forcing specific tools.
-Those hints could override better native choices.
+`agent.native_tool_calling` (default `false`) only adds a few parameter hints
+and a nudge when the user named a tool that has not run yet. It does not choose
+the tool. Confirm cards, send locks, and the honesty floor stay on either way.
 
-**The experiment:** `agent.native_tool_calling` (config flag) disables the regex/intent
-routing layer so the model uses native tool calling exclusively:
-- Default: `false` (current qwen3.5:9b tuned behavior with regex routing ON)
-- Set to `true` for models with strong native tool calling (Qwen3 30B+, future Qwen3.6-27B+)
-
-When enabled:
-- Skips regex-based intent detection (`detect_intents()`)
-- Skips preflight system nudges that force tool choices
-- Model selects tools through native function calling only
-- Safety gates stay active (SMS/email bans, confirm-before-write, etc.)
-
-This is a **staged experiment**, not a deletion of the regex layer. The flag lets you measure
-performance with and without regex routing. Eventually the regex layer may become a small-model
-fallback only, but that decision waits on measured results from my own benchmarks.
-
-To try it, add to `data/config.local.yaml`:
+To try the hints, add to `data/config.local.yaml`:
 ```yaml
 agent:
   native_tool_calling: true
 ```
-
-Then run your own comparison tests.

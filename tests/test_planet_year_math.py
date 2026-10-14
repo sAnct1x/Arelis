@@ -20,8 +20,6 @@ from arelis.core.claims import (
 )
 from arelis.core.evidence import EvidenceLedger
 from arelis.core.loop_helpers import _exactness_finish_refuse
-from arelis.core.turn_context import TurnContext
-from arelis.core.turn_prepare import _prepare_calculator_first_move
 from arelis.tools.calculator import (
     evaluate_expression,
     normalize_expression,
@@ -53,15 +51,7 @@ def _kepler_days(a_au: float) -> float:
     return _kepler_years(a_au) * _JULIAN_DAYS
 
 
-def _ctx(text: str) -> TurnContext:
-    return TurnContext(
-        text=text,
-        role="fast",
-        tool_names={"calculator"},
-    )
-
-
-# --- ask-side routing -------------------------------------------------------
+# --- ask-side detection -----------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -123,13 +113,6 @@ def test_how_many_days_until_a_meeting_is_not_math() -> None:
     """Calendar waiting is not years-to-days arithmetic."""
     ask = "how many days until the review meeting on friday"
     assert not detect_math_ask(ask)
-
-
-def test_calculator_preinjects_a_spoken_jupiter_year() -> None:
-    text = "how many days is a year on jupiter"
-    ctx = _ctx(text)
-    _prepare_calculator_first_move(ctx, text)
-    assert ctx.calculator_preinject == {"expression": text}
 
 
 # --- calculator evaluation --------------------------------------------------

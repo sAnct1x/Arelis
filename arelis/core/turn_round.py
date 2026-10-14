@@ -31,7 +31,6 @@ from arelis.core.agent_loop import (
     write_after_algebra_notice,
 )
 from arelis.core.claims import document_force_notice
-from arelis.core.compensation import regex_routing
 from arelis.core.email_complete import (
     looks_like_bare_confirm,
     rewrite_schedule_calls,
@@ -46,7 +45,6 @@ from arelis.core.failure_copy import (
     should_nudge_write_after_algebra,
     should_nudge_write_after_page,
 )
-from arelis.core.intent_catalog import should_inject_saved_place
 from arelis.core.json_tools import (
     extract_native_tool_calls,
     parse_fallback_payload,
@@ -63,10 +61,7 @@ from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.no_call_finish import NUDGE as FINISH_NUDGE
 from arelis.core.no_call_finish import run_finish_steps
 from arelis.core.no_call_steps import NUDGE, run_inject_steps
-from arelis.core.preflight import (
-    rewrite_browser_calls,
-    rewrite_desktop_calls,
-)
+from arelis.core.preflight import rewrite_desktop_calls
 from arelis.core.tool_subset import (
     is_research_mode,
     turn_round_budget,
@@ -535,10 +530,8 @@ async def apply_no_call_path(
             n == "schedule" and str((a or {}).get("action") or "").lower() == "run_now"
             for n, a in before_sched
         )
-        # Bare "yes" still strips schedule run_now. That is the approval
-        # guard, not the timer router. The timer inject itself is the
-        # regex path.
-        if regex_routing(r.agent_cfg) or looks_like_bare_confirm(r.text):
+        # Bare "yes" strips schedule run_now. That is the approval guard.
+        if looks_like_bare_confirm(r.text):
             r.calls = rewrite_schedule_calls(
                 r.text,
                 r.calls,
@@ -563,18 +556,6 @@ async def apply_no_call_path(
                 streamed="",
             )
             return True
-
-        if regex_routing(r.agent_cfg):
-            before_browser = list(r.calls)
-            r.calls = rewrite_browser_calls(r.calls, text=r.text)
-            if r.calls != before_browser:
-                r.tool_calls = [_native_tool_call(n, a) for n, a in r.calls]
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": "rewrite  invented browser action → snapshot"},
-                    )
-                )
 
         before_desk = list(r.calls)
         r.calls = rewrite_desktop_calls(r.calls, text=r.text)
@@ -751,319 +732,133 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         if ctx.plain_only and not ctx.fallback_mode:
             append_tool_free_nudge(messages)
         round_ms = 0
-        if sms_preinject is not None:
-            injected = sms_preinject
-            sms_preinject = None
-            content = ""
-            streamed = ""
-            calls = [("send_sms", injected)]
-            tool_calls = [_native_tool_call("send_sms", injected)]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  send_sms from a complete draft (pre-model)"},
-                )
+        try:
+            round_t0 = time.perf_counter()
+            raw_content, tool_calls, streamed = await loop._stream_round(
+                role,
+                messages,
+                tools_arg,
+                round_n=round_i,
+                expect_tools=(
+                    bool(tools_arg)
+                    and ctx.expect_tool_round
+                    and not ctx.plain_only
+                ),
             )
-            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling send_sms…"}))
+            round_ms = int((time.perf_counter() - round_t0) * 1000)
             if loop._timer is not None:
-                loop._timer.mark("exactness", gate="sms_force", action="preinject")
-        elif email_preinject is not None:
-            injected = email_preinject
-            email_preinject = None
-            content = ""
-            streamed = ""
-            calls = [("send_email", injected)]
-            tool_calls = [_native_tool_call("send_email", injected)]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  send_email from a complete draft (pre-model)"},
+                loop._timer.rounds += 1
+                loop._timer.model_ms += round_ms
+        except _StoppedError:
+            raise
+        except _CloseError:
+            raise
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Some model/Ollama combinations reject the tools array
+            # outright. Retry once without it and let the JSON protocol
+            # carry the call. A dead or missing Ollama is not that case —
+            # don't spend a second stream on JSON fallback while the chip
+            # is already red.
+            await loop._retract()
+            failure = classify_ollama_failure(
+                exc,
+                model=model,
+                base_url=str((loop.config.get("ollama") or {}).get("base_url") or ""),
+                role=str(loop._turn_role or ""),
+            )
+            if ctx.last_ok_tool_out and _is_ollama_object_400(exc):
+                # A result is already in hand. Another request does not
+                # phrase it: the same 400 comes back. Ship the sentence.
+                four_line = _tool_followup_fallback(
+                    ctx.last_ok_tool_out,
+                    ctx.last_ok_tool_name,
+                    ask=ctx.text,
                 )
-            )
-            await loop.bus.publish(
-                Event(EventType.STATUS, {"message": "Calling send_email…"})
-            )
-            if loop._timer is not None:
-                loop._timer.mark("exactness", gate="email_force", action="preinject")
-        elif weather_preinject is not None:
-            injected = weather_preinject
-            weather_preinject = None
-            content = ""
-            streamed = ""
-            calls = [("weather", injected)]
-            tool_calls = [_native_tool_call("weather", injected)]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  weather from intent (pre-model)"},
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {"text": ("ollama 400 after tool; answering from result")},
+                    )
                 )
-            )
-            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling weather…"}))
-            if loop._timer is not None:
-                loop._timer.mark("exactness", gate="weather_force", action="preinject")
-        elif agenda_preinject is not None:
-            injected = agenda_preinject
-            agenda_preinject = None
-            content = ""
-            streamed = ""
-            calls = [("agenda", injected)]
-            tool_calls = [_native_tool_call("agenda", injected)]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  agenda from intent (pre-model)"},
-                )
-            )
-            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling agenda…"}))
-            if loop._timer is not None:
-                loop._timer.mark("exactness", gate="agenda_force", action="preinject")
-        elif calculator_preinject is not None:
-            injected = calculator_preinject
-            calculator_preinject = None
-            content = ""
-            streamed = ""
-            calls = [("calculator", injected)]
-            tool_calls = [_native_tool_call("calculator", injected)]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  calculator from intent (pre-model)"},
-                )
-            )
-            await loop.bus.publish(
-                Event(EventType.STATUS, {"message": "Calling calculator…"})
-            )
-            if loop._timer is not None:
-                loop._timer.mark("exactness", gate="math", action="preinject")
-        elif units_preinject is not None:
-            injected = units_preinject
-            units_preinject = None
-            content = ""
-            streamed = ""
-            calls = [("units", injected)]
-            tool_calls = [_native_tool_call("units", injected)]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  units from intent (pre-model)"},
-                )
-            )
-            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling units…"}))
-            if loop._timer is not None:
-                loop._timer.mark("exactness", gate="units", action="preinject")
-        elif browser_preinject is not None:
-            injected = browser_preinject
-            browser_preinject = None
-            content = ""
-            streamed = ""
-            calls = [("browser", injected)]
-            tool_calls = [_native_tool_call("browser", injected)]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  browser from intent (pre-model)"},
-                )
-            )
-            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling browser…"}))
-            if loop._timer is not None:
-                loop._timer.mark("exactness", gate="browser", action="preinject")
-        elif tile_preinject is not None:
-            injected = tile_preinject
-            tile_preinject = None
-            content = ""
-            streamed = ""
-            calls = [("tile", injected)]
-            tool_calls = [_native_tool_call("tile", injected)]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  tile from intent (pre-model)"},
-                )
-            )
-            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling tile…"}))
-            if loop._timer is not None:
-                loop._timer.mark("exactness", gate="tile", action="preinject")
-        elif workspace_preinject is not None:
-            injected = workspace_preinject
-            workspace_preinject = None
-            content = ""
-            streamed = ""
-            calls = [("workspace", injected)]
-            tool_calls = [_native_tool_call("workspace", injected)]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  workspace from inspect ask (pre-model)"},
-                )
-            )
-            await loop.bus.publish(
-                Event(EventType.STATUS, {"message": "Calling workspace…"})
-            )
-            if loop._timer is not None:
-                loop._timer.mark("exactness", gate="inspect_force", action="preinject")
-        elif run_script_preinject is not None:
-            injected = run_script_preinject
-            run_script_preinject = None
-            content = ""
-            streamed = ""
-            calls = [("run_script", injected)]
-            tool_calls = [_native_tool_call("run_script", injected)]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  run_script from named script (pre-model)"},
-                )
-            )
-            await loop.bus.publish(
-                Event(EventType.STATUS, {"message": "Calling run_script…"})
-            )
-            if loop._timer is not None:
-                loop._timer.mark("exactness", gate="run_script", action="preinject")
-        elif should_inject_saved_place(text, tool_names, loop.tools_used):
-            content = ""
-            streamed = ""
-            calls = [("user_location", {})]
-            tool_calls = [_native_tool_call("user_location", {})]
-            await loop.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": "inject  user_location from saved place (pre-model)"},
-                )
-            )
-            await loop.bus.publish(
-                Event(EventType.STATUS, {"message": "Calling user_location…"})
-            )
-            if loop._timer is not None:
-                loop._timer.mark("exactness", gate="location", action="preinject")
-        else:
-            try:
-                round_t0 = time.perf_counter()
-                raw_content, tool_calls, streamed = await loop._stream_round(
-                    role,
-                    messages,
-                    tools_arg,
-                    round_n=round_i,
-                    expect_tools=(
-                        bool(tools_arg)
-                        and ctx.expect_tool_round
-                        and not ctx.plain_only
+                await loop._finish(
+                    four_line,
+                    sources,
+                    streamed="",
+                    passthrough_tool=followup_passthrough_tool(
+                        ctx.last_ok_tool_name,
+                        four_line,
+                        ctx.last_ok_tool_out,
                     ),
                 )
-                round_ms = int((time.perf_counter() - round_t0) * 1000)
-                if loop._timer is not None:
-                    loop._timer.rounds += 1
-                    loop._timer.model_ms += round_ms
-            except _StoppedError:
-                raise
-            except _CloseError:
-                raise
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                # Some model/Ollama combinations reject the tools array
-                # outright. Retry once without it and let the JSON protocol
-                # carry the call. A dead or missing Ollama is not that case —
-                # don't spend a second stream on JSON fallback while the chip
-                # is already red.
-                await loop._retract()
-                failure = classify_ollama_failure(
-                    exc,
-                    model=model,
-                    base_url=str((loop.config.get("ollama") or {}).get("base_url") or ""),
-                    role=str(loop._turn_role or ""),
-                )
-                if ctx.last_ok_tool_out and _is_ollama_object_400(exc):
-                    # A result is already in hand. Another request does not
-                    # phrase it: the same 400 comes back. Ship the sentence.
-                    four_line = _tool_followup_fallback(
-                        ctx.last_ok_tool_out,
-                        ctx.last_ok_tool_name,
-                        ask=ctx.text,
-                    )
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": ("ollama 400 after tool; answering from result")},
-                        )
-                    )
-                    await loop._finish(
-                        four_line,
-                        sources,
-                        streamed="",
-                        passthrough_tool=followup_passthrough_tool(
-                            ctx.last_ok_tool_name,
-                            four_line,
-                            ctx.last_ok_tool_out,
-                        ),
-                    )
-                    return True
-                if (
-                    loop.json_fallback
-                    and not ctx.fallback_mode
-                    and ollama_tools
-                    and not failure.skip_tool_fallback
-                ):
-                    ctx.fallback_mode = True
-                    messages[:] = _normalize_ollama_messages(messages)
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": (f"native tools failed ({exc}); JSON fallback")},
-                        )
-                    )
-                    return False
-                if (
-                    is_vram_failure(exc)
-                    and ctx.last_ok_tool_out
-                    and "research_report" in loop.tools_used
-                ):
-                    vram_line = _tool_followup_fallback(
-                        ctx.last_ok_tool_out,
-                        ctx.last_ok_tool_name,
-                        ask=ctx.text,
-                    )
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": ("research_report ready; answering from artifact")},
-                        )
-                    )
-                    await loop._finish(
-                        vram_line,
-                        sources,
-                        streamed="",
-                        passthrough_tool=followup_passthrough_tool(
-                            ctx.last_ok_tool_name,
-                            vram_line,
-                            ctx.last_ok_tool_out,
-                        ),
-                    )
-                    return True
-                await loop._publish_error(failure.chat, detail=failure.detail)
                 return True
-
-            content = strip_thinking_text(raw_content)
-            calls = extract_native_tool_calls(tool_calls)
-            
-            # When native_tool_calling is enabled and the model wrote a text-form
-            # tool call (e.g. <tool_call>{"name":..., "arguments":...}</tool_call>),
-            # parse and execute it.
             if (
-                not calls
-                and native_tool_calling(agent_cfg)
-                and content
+                loop.json_fallback
+                and not ctx.fallback_mode
+                and ollama_tools
+                and not failure.skip_tool_fallback
             ):
-                # Names are cleared on a plain round, so pass none and
-                # reject the call below instead of missing it.
-                text_call = parse_text_tool_call(
-                    content,
-                    registered_tools=None if ctx.plain_only else tool_names,
+                ctx.fallback_mode = True
+                messages[:] = _normalize_ollama_messages(messages)
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {"text": (f"native tools failed ({exc}); JSON fallback")},
+                    )
                 )
-                if text_call and text_call.get("kind") == "tool":
-                    name = text_call["name"]
-                    args = text_call["args"]
-                    calls = [(name, args)]
-                    tool_calls = [_native_tool_call(name, args)]
+                return False
+            if (
+                is_vram_failure(exc)
+                and ctx.last_ok_tool_out
+                and "research_report" in loop.tools_used
+            ):
+                vram_line = _tool_followup_fallback(
+                    ctx.last_ok_tool_out,
+                    ctx.last_ok_tool_name,
+                    ask=ctx.text,
+                )
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {"text": ("research_report ready; answering from artifact")},
+                    )
+                )
+                await loop._finish(
+                    vram_line,
+                    sources,
+                    streamed="",
+                    passthrough_tool=followup_passthrough_tool(
+                        ctx.last_ok_tool_name,
+                        vram_line,
+                        ctx.last_ok_tool_out,
+                    ),
+                )
+                return True
+            await loop._publish_error(failure.chat, detail=failure.detail)
+            return True
+
+        content = strip_thinking_text(raw_content)
+        calls = extract_native_tool_calls(tool_calls)
+        # When native_tool_calling is enabled and the model wrote a text-form
+        # tool call (e.g. <tool_call>{"name":..., "arguments":...}</tool_call>),
+        # parse and execute it.
+        if (
+            not calls
+            and native_tool_calling(agent_cfg)
+            and content
+        ):
+            # Names are cleared on a plain round, so pass none and
+            # reject the call below instead of missing it.
+            text_call = parse_text_tool_call(
+                content,
+                registered_tools=None if ctx.plain_only else tool_names,
+            )
+            if text_call and text_call.get("kind") == "tool":
+                name = text_call["name"]
+                args = text_call["args"]
+                calls = [(name, args)]
+                tool_calls = [_native_tool_call(name, args)]
 
         if not calls and loop.json_fallback:
             # strict while native tool calling is working: only a trailing

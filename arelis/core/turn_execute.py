@@ -8,7 +8,6 @@ from typing import Any
 
 from arelis.contacts import format_contact_spoken
 from arelis.core.agenda_complete import looks_like_calendar_delete
-from arelis.core.compensation import regex_routing
 from arelis.core.events import Event, EventType
 from arelis.core.evidence import classify_fetch_failure
 from arelis.core.fail_tags import tool_fail_replan_notice
@@ -43,7 +42,7 @@ from arelis.core.turn_prepare import (
     calculator_blocked_for_date_ask,
     python_blocked_for_date_ask,
 )
-from arelis.core.turn_scratch import RoundScratch, chain_unfinished, named_tools_owed
+from arelis.core.turn_scratch import RoundScratch, chain_unfinished
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_secrets, truncate_tool_output
@@ -634,29 +633,6 @@ async def execute_call(
                     receipt = await _pay_checkout_receipt(loop, ctx, data_dict)
                     await loop._finish(receipt, sources, streamed="")
                     return True
-                errand = browser_errand_done(
-                    text,
-                    action=str(args.get("action") or ""),
-                    requested_url=str(args.get("url") or args.get("target") or ""),
-                    landed_url=str(data_dict.get("url") or ctx.last_browser_url),
-                    wall=wall_kind or "login",
-                    snapshot=str(result.output or ""),
-                    signed_in=bool(data_dict.get("signed_in")),
-                )
-                # Skip the errand shortcut when native is on, or regex routing is off.
-                if (
-                    errand.done
-                    and regex_routing(agent_cfg)
-                    and not native_tool_calling(agent_cfg)
-                ):
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "browser errand done; stopping"},
-                        )
-                    )
-                    await loop._finish(errand.reply, sources, streamed="")
-                    return True
                 await loop._await_your_turn(wall_kind)
                 wall_kind = ""
         if name == "browser" and result.ok:
@@ -670,26 +646,6 @@ async def execute_call(
                 snapshot=str(result.output or ""),
                 signed_in=bool((data_dict or {}).get("signed_in")),
             )
-            # Skip the errand shortcut when native is on, or regex routing is off.
-            if (
-                errand.done
-                and regex_routing(agent_cfg)
-                and not native_tool_calling(agent_cfg)
-            ):
-                # Don't finish if the ask named other tools we still owe (e.g.,
-                # "open and screenshot" or "open then call screenshot" shouldn't
-                # end after the open). Same pattern as the image_edit fix: check
-                # named_tools_owed to see if the chain continues.
-                owed = [n for n in named_tools_owed(loop, ctx) if n != "browser"]
-                if not owed:
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "browser errand done; stopping"},
-                        )
-                    )
-                    await loop._finish(errand.reply, sources, streamed="")
-                    return True
             if errand.status == NEED_LOGIN and not ctx.browser_login_hop:
                 ended = await _login_check_hop(
                     loop,
@@ -723,29 +679,11 @@ async def execute_call(
             await loop.bus.publish(
                 Event(EventType.IMAGE_READY, {"path": data_dict["path"]})
             )
-            # Finish now — otherwise the 7B often re-calls image and
-            # spams Allow (same class of bug as double-SMS). image_edit
-            # joins it because the round after a finished edit is where
-            # she reached for vision to check her own work and then the
-            # calculator to verify the pixel count.
-            path = str(data_dict["path"])
-            if name == "image_edit":
-                # Not when the ask goes on to a tool it named (OCR the new
-                # file, vision on it): that chain still owes its second step,
-                # so fall through to the normal tool-message path.
-                # Native on, or regex routing off, lets the model write the edit up.
-                if (
-                    regex_routing(agent_cfg)
-                    and not native_tool_calling(agent_cfg)
-                    and not [
-                        n for n in named_tools_owed(loop, ctx) if n != "image_edit"
-                    ]
-                ):
-                    # Its own sentence already names the sizes and the
-                    # adjustments, which is the part worth reading.
-                    await loop._finish(str(result.output).strip(), sources, streamed="")
-                    return True
-            else:
+            # A finished generate ends the turn. Otherwise the model
+            # re-calls image and spams Allow, the same class as a double send.
+            # An edit stays open so the model can write it up.
+            if name == "image":
+                path = str(data_dict["path"])
                 await loop._finish(
                     f"Image ready: open in Workspace ({path}).",
                     sources,
@@ -1188,24 +1126,6 @@ async def _login_check_hop(
                 {"reason": "your_turn", "kind": wall or "login"},
             )
         )
-    errand = browser_errand_done(
-        text,
-        action=str(hop.get("action") or ""),
-        requested_url=str(hop.get("url") or ""),
-        landed_url=str(data.get("url") or landed_url),
-        wall=wall,
-        snapshot=str(result.output or ""),
-        signed_in=bool(data.get("signed_in")),
-    )
-    # Skip the errand shortcut when native is on, or regex routing is off.
-    # loop.agent_cfg is read the same way as before: missing still raises.
-    if (
-        errand.done
-        and regex_routing(loop.agent_cfg)
-        and not native_tool_calling(loop.agent_cfg)
-    ):
-        await loop._finish(errand.reply, sources, streamed="")
-        return True
     await loop._finish(
         LOGIN_READY_REPLY if result.ok else (
             "I could not open the login page. The tab is still there."

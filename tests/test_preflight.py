@@ -346,8 +346,6 @@ def test_tasks_and_goal_delete_intents() -> None:
     # 6.3: must not become a browser drive.
     assert "browser" not in web_tools
 
-    from arelis.core.preflight import rewrite_browser_calls
-
     for phrase in (
         "go to sign in",
         "click on the sign in the top right corner",
@@ -361,30 +359,8 @@ def test_tasks_and_goal_delete_intents() -> None:
         hints = detect_intents(phrase)
         assert any(h.kind == "browser_click" for h in hints), phrase
         assert draft_browser_args(phrase) == {"action": "click", "text": "Sign in"}
-        nudge = next(h.nudge for h in hints if h.kind == "browser_click")
-        assert "click" in nudge.lower()
-        assert "goto_sign_in" in nudge
     howto = detect_intents("how do I sign in to github from the terminal")
     assert not any(h.kind == "browser_click" for h in howto)
-    rewritten = rewrite_browser_calls(
-        [("browser", {"action": "goto_sign_in"})]
-    )
-    assert rewritten == [("browser", {"action": "snapshot"})]
-    kept = rewrite_browser_calls([("browser", {"action": "click", "ref": "e3"})])
-    assert kept == [("browser", {"action": "click", "ref": "e3"})]
-    navigated = rewrite_browser_calls(
-        [
-            (
-                "browser",
-                {
-                    "action": "navigate",
-                    "url": "https://www.youtube.com/account_signin",
-                },
-            )
-        ],
-        text="go to signin",
-    )
-    assert navigated == [("browser", {"action": "snapshot"})]
 
     from arelis.core.preflight import draft_signin_click_args, signin_ref_from_snapshot
 

@@ -17,8 +17,6 @@ from arelis.core.email_complete import complete_email_draft, parse_email_utteran
 from arelis.core.memory import ChatMessage
 from arelis.core.preflight import detect_intents
 from arelis.core.sms_complete import complete_sms_draft, parse_sms_utterance
-from arelis.core.turn_prepare import _prepare_sms_first_move
-from tests.test_no_call_path import _ctx, _FakeLoop
 
 
 @pytest.fixture(autouse=True)
@@ -164,20 +162,3 @@ async def test_curly_apostrophe_decline_does_not_arm_a_send(
         tools = {t for h in detect_intents(text) for t in h.expected_tools}
         assert "send_sms" not in tools, text
         assert "send_email" not in tools, text
-
-    loop = _FakeLoop()
-    ctx = _ctx(text=sms_text)
-    ctx.tool_names = {"send_sms"}
-    ctx.available_all = {"send_sms"}
-    ctx.sms_draft = complete_sms_draft(sms_text, history=[], contacts=_book())
-    await _prepare_sms_first_move(loop, ctx, sms_text, {})
-    assert ctx.sms_preinject is None
-
-    # Control: the same arming path does arm for the real request.
-    real_text = "text mom that I'm running late"
-    real = _ctx(text=real_text)
-    real.tool_names = {"send_sms"}
-    real.available_all = {"send_sms"}
-    real.sms_draft = complete_sms_draft(real_text, history=[], contacts=_book())
-    await _prepare_sms_first_move(_FakeLoop(), real, real_text, {})
-    assert real.sms_preinject is not None

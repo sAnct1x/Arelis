@@ -8,7 +8,6 @@ from arelis.browser.hold import set_paused
 from arelis.config import load_persona
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
-from arelis.core.compensation import regex_routing
 from arelis.core.confirm_speech import (
     apply_confirm_edit,
     classify_drive_act,
@@ -47,12 +46,6 @@ from arelis.core.orchestrator_slash import (  # noqa: F401
     _tokenize,
 )
 from arelis.core.orchestrator_turns import OrchestratorTurns
-from arelis.core.route_hints import (
-    FILE_LOOP_HINT,
-    RESEARCH_HINTS,  # noqa: F401  re-exported; classify_role uses is_research_hint
-    TOOL_LOOP_HINT,
-    is_research_hint,
-)
 from arelis.desk import DeskStore
 from arelis.llm.router import ModelRole, ModelRouter
 from arelis.memory.store import MemoryStore
@@ -144,28 +137,12 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
     def classify_role(self, text: str, explicit: ModelRole | None = None) -> tuple[ModelRole, str]:
         """Pick a model role and a short reason code for telemetry.
 
-        An explicit research chip always wins. The fast chip does not,
-        because it is also the default, so there is no way to tell "the user
-        chose fast" from "the user chose nothing" and auto-routing stays useful.
-        File/git/debug asks stay on fast (workspace/code skills), not a third role.
+        An explicit research chip wins. Anything else stays on the configured
+        default. The words of the ask do not pick a model.
         """
+        del text
         if explicit == "research":
             return explicit, "chip"
-        agent = self.config.get("agent") if isinstance(self.config, dict) else None
-        if not regex_routing(agent if isinstance(agent, dict) else None):
-            return (explicit or self.router.default_role), "default"
-        # Fast is the default chip, not a pin. "deeply research" must still
-        # route — there is no way to tell "they chose fast" from "nothing".
-        # Deep research-shaped asks before tool/file loops: "write a report"
-        # must not lose to the bare "write" file hint.
-        if is_research_hint(text):
-            return "research", "research_hint"
-        if explicit == "fast":
-            return "fast", "chip"
-        if TOOL_LOOP_HINT.search(text):
-            if FILE_LOOP_HINT.search(text):
-                return "fast", "file_loop"
-            return "fast", "tool_loop"
         return (explicit or self.router.default_role), "default"
 
     async def on_voice_transcript(self, event: Event) -> None:
@@ -223,34 +200,6 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
             payload["text"] = text
             await self.bus.publish(Event(EventType.PHYSICS_VERB, payload))
             return
-        agent = self.config.get("agent") if isinstance(self.config, dict) else None
-        if regex_routing(agent if isinstance(agent, dict) else None):
-            from arelis.core.desk_guide import match_desk_guide
-            from arelis.core.tile_complete import match_desk_intent, match_tile_intent
-
-            if match_desk_guide(text):
-                await self.bus.publish(
-                    Event(
-                        EventType.TILE_VERB,
-                        {"text": text, "action": "guide", "name": ""},
-                    )
-                )
-                return
-            tile = match_tile_intent(text)
-            desk = match_desk_intent(text)
-            # A named tile, "close this", or span / rooms. Same instant path.
-            if desk or (tile and (tile[1] or tile[0] == "close")):
-                await self.bus.publish(
-                    Event(
-                        EventType.TILE_VERB,
-                        {
-                            "text": text,
-                            "action": (desk or tile)[0],
-                            "name": (desk or tile)[1],
-                        },
-                    )
-                )
-                return
         if not conversing and not control_only:
             await self.bus.publish(Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"}))
             return

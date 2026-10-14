@@ -327,6 +327,27 @@ def test_relaunch_with_url_opens_after_restart() -> None:
     asyncio.run(_run())
 
 
+def test_invented_goto_sign_in_is_a_tool_error() -> None:
+    """A made-up goto_sign_in is a tool error, even if snapshot would crash."""
+    session = BrowserSession.fake()
+
+    async def _boom(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("no sign-in state and no page")
+
+    session.snapshot = _boom  # type: ignore[method-assign]
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        result = await tool.run(action="goto_sign_in")
+        assert result.ok is False
+        text = result.output or ""
+        assert "goto_sign_in" in text
+        assert "no sign-in state" in text
+        assert "Traceback" not in text
+
+    asyncio.run(_run())
+
+
 def test_profile_locked_screenshot_writes_no_file(tmp_path, monkeypatch) -> None:
     from arelis.config import PROJECT_ROOT
 

@@ -118,8 +118,6 @@ def test_named_subject_lands_on_the_confirm_card(ask: str) -> None:
     'with the subject Lunch and tell him...' into the body, so the Allow
     card showed 'A message from Arelis'.
     """
-    from arelis.core.turn_context import TurnContext
-    from arelis.core.turn_prepare import _prepare_email_first_move
     from arelis.tools.policy import describe_call
 
     draft = complete_email_draft(ask)
@@ -131,13 +129,12 @@ def test_named_subject_lands_on_the_confirm_card(ask: str) -> None:
     assert "titled" not in draft.body.lower()
     assert draft.tool_subject == "Lunch"
 
-    ctx = TurnContext(text=ask, role="fast")
-    ctx.email_draft = draft
-    ctx.tool_names = {"send_email"}
-    _prepare_email_first_move(ctx, {})
-    assert ctx.email_preinject is not None
-    assert ctx.email_preinject["subject"] == "Lunch"
-    card = describe_call("send_email", ctx.email_preinject)
+    locked = fill_send_email_args(
+        {"to": "wrong@example.com", "subject": "WRONG", "body": "WRONG"},
+        draft,
+    )
+    assert locked["subject"] == "Lunch"
+    card = describe_call("send_email", locked)
     assert any(line.strip() == "Subject: Lunch" for line in card.splitlines())
     assert "A message from Arelis" not in card
     assert "running ten minutes late" in card

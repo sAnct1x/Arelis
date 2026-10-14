@@ -14,7 +14,6 @@ from typing import Any
 import pytest
 
 from arelis.core.events import Event
-from arelis.core.sms_complete import SmsDraft
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_dispatch import dispatch_calls
 from arelis.core.turn_round import apply_no_call_path
@@ -180,70 +179,8 @@ async def test_empty_after_tool_finishes_from_the_result() -> None:
     assert "72" in str(loop.finished[0])
 
 
-@pytest.mark.asyncio
-async def test_sms_draft_nudges_once_then_injects() -> None:
-    draft = SmsDraft(to="brian", body="Running late", alias="brian")
-    loop = _FakeLoop()
-    r = _scratch(sms_draft=draft, content="Sure.")
-    ctx = _ctx()
-    ctx.sms_draft = draft
-    assert await apply_no_call_path(loop, ctx, r, 0) is False
-    assert ctx.sms_nudge_used == 1
-
-    r2 = _scratch(sms_draft=draft, content="Sure.")
-    ctx2 = _ctx()
-    ctx2.sms_draft = draft
-    ctx2.sms_nudge_used = 1
-    assert await apply_no_call_path(loop, ctx2, r2, 1) is None
-    assert r2.calls and r2.calls[0][0] == "send_sms"
 
 
-@pytest.mark.asyncio
-async def test_quote_first_stays_quiet_once_the_pdf_is_written() -> None:
-    """Live 2026-09-26: the PDF was saved, then quote-first pasted the sources."""
-    from arelis.core.claims import ExactnessNeed
-    from arelis.core.no_call_finish import NUDGE, SKIP, try_quote_first
-
-    loop = _FakeLoop()
-    need = ExactnessNeed(
-        False,
-        True,
-        False,
-        False,
-        needs_document=True,
-        kinds=("document", "web"),
-    )
-    r = _scratch(
-        content="The PDF is on the desk.",
-        exact_need=need,
-    )
-    r.ledger.add(
-        source="https://arxiv.org/abs/2309.05566",
-        kind="web",
-        span="methane at 5 sigma",
-        ok=True,
-    )
-    r.ledger.add(
-        source="document",
-        kind="document",
-        span="outputs/documents/JWST-and-the-atmosphere-of-K2-18-b.pdf",
-        ok=True,
-    )
-    ctx = _ctx()
-    ctx.exact_need = need
-    assert await try_quote_first(loop, ctx, r, 10) == SKIP
-    assert ctx.quote_nudge_used is False
-    assert loop.retracts == 0
-    chat = _scratch(content="Here is what the pages say.", exact_need=need)
-    chat.ledger.add(
-        source="https://arxiv.org/abs/2309.05566",
-        kind="web",
-        span="methane at 5 sigma",
-        ok=True,
-    )
-    bare = _ctx()
-    bare.exact_need = need
-    assert await try_quote_first(loop, bare, chat, 10) == NUDGE
 
 
 @pytest.mark.asyncio
@@ -256,15 +193,6 @@ async def test_plain_thanks_finishes_the_turn() -> None:
     assert loop.finished[0] == "You're welcome."
 
 
-@pytest.mark.asyncio
-async def test_scrape_after_search_asks_for_a_page() -> None:
-    loop = _FakeLoop()
-    loop.tools_used = {"web_search"}
-    r = _scratch(content="Here are some links.", wants_fresh_page=True)
-    ctx = _ctx()
-    ctx.wants_fresh_page = True
-    assert await apply_no_call_path(loop, ctx, r, 0) is False
-    assert ctx.scrape_nudge_used is True
 
 
 @pytest.mark.asyncio
@@ -675,108 +603,12 @@ async def test_dispatch_unknown_tool_does_not_end_the_turn() -> None:
     assert "reject" in thinking
 
 
-def test_fill_round_calls_bumps_weather_days() -> None:
-    from arelis.core.turn_dispatch import fill_round_calls
-
-    loop = _FakeLoop()
-    filled = fill_round_calls(
-        loop,
-        [
-            ("weather", {"place": "Austin"}),
-            ("weather", {"place": "Dallas"}),
-        ],
-        text="what's the weather tomorrow in Austin and Dallas",
-    )
-    assert filled[0][1].get("days") == 3
-    assert filled[1][1].get("days") == 3
-    assert filled[0][1].get("place") == "Austin"
 
 
-@pytest.mark.asyncio
-async def test_show_all_goals_does_not_inject_remove() -> None:
-    loop = _FakeLoop()
-    loop._expected_tools = {"goals"}
-    loop._receipts = [{"tool": "goals", "action": "goals.list", "ids": ["1", "2"]}]
-    r = _scratch(
-        text="show all my goals",
-        content="Sure.",
-        tool_names={"goals"},
-        available={"goals"},
-        visible={"goals"},
-        available_all={"goals"},
-    )
-    ctx = _ctx(text="show all my goals")
-    ctx.tool_names = {"goals"}
-    hit = await apply_no_call_path(loop, ctx, r, 0)
-    assert hit is None
-    assert r.calls
-    assert all(args.get("action") != "remove" for _name, args in r.calls)
 
 
-@pytest.mark.asyncio
-async def test_a_question_about_her_own_code_gets_a_workspace_read() -> None:
-    """She must not answer questions about her own behaviour from memory.
-
-    Measured 2026-09-17 with scripts/measure_tool_choice.py: six phrasings of
-    this ask ("how does confirm work", "what does tool_subset do?", "where is
-    the Drive strip?") fail 50-70% of runs, in every schema arm, usually by
-    calling no tool at all and answering in prose.
-
-    The intent is detected — `looks_like_source_inspect` matches all six, and
-    preflight already maps them to a file via `inspect_read_path`. What is
-    missing is the backstop. Every other intent of this weight has one in
-    no_call_steps.INJECT_STEPS; source-inspect had none, so ignoring the nudge
-    cost nothing and prose was the end of the turn.
-
-    Two stages, like every sibling step: ask once, then fill it in.
-    """
-    loop = _FakeLoop()
-    r = _scratch(
-        text="how does confirm work",
-        content="My confirm gate asks before writes.",
-        tool_names={"workspace"},
-        available={"workspace"},
-        visible={"workspace"},
-        available_all={"workspace"},
-    )
-    ctx = _ctx(text="how does confirm work")
-    ctx.tool_names = {"workspace"}
-
-    assert await apply_no_call_path(loop, ctx, r, 0) is False
-    assert ctx.inspect_nudge_used is True
-    assert not r.calls, "the first pass asks; it must not fabricate a call"
-    thinking = " ".join(str(e.payload.get("text") or "") for e in loop.bus.events)
-    assert "source ask" in thinking
-    # The nudge must name the file, not wave at the package.
-    nudge = " ".join(str(m.get("content") or "") for m in r.messages)
-    assert "arelis/tools/policy.py" in nudge
-
-    assert await apply_no_call_path(loop, ctx, r, 1) is None
-    assert r.calls, "she ignored the nudge and nothing forced the read"
-    name, args = r.calls[0]
-    assert name == "workspace"
-    assert args.get("action") == "read"
-    assert args.get("path") == "arelis/tools/policy.py"
 
 
-@pytest.mark.asyncio
-async def test_the_drive_strip_ask_reads_the_panel_source() -> None:
-    """Second phrasing, different mapped path, same backstop."""
-    loop = _FakeLoop()
-    r = _scratch(
-        text="where is the Drive strip?",
-        content="It lives on the conversation face.",
-        tool_names={"workspace"},
-        available={"workspace"},
-        visible={"workspace"},
-        available_all={"workspace"},
-    )
-    ctx = _ctx(text="where is the Drive strip?")
-    ctx.tool_names = {"workspace"}
-    ctx.inspect_nudge_used = True
-    await apply_no_call_path(loop, ctx, r, 1)
-    assert r.calls
-    assert r.calls[0][1].get("path") == "arelis/ui/panels/drive.py"
 
 
 @pytest.mark.asyncio
@@ -825,22 +657,6 @@ async def test_a_plain_chat_line_is_not_dragged_into_a_source_read() -> None:
     assert not r.calls
 
 
-@pytest.mark.asyncio
-async def test_monitor_screenshot_ask_injects_desktop_screenshot() -> None:
-    loop = _FakeLoop()
-    text = "screenshot my primary monitor and tell me what you can see"
-    r = _scratch(
-        text=text,
-        content="Sure.",
-        tool_names={"desktop"},
-        available={"desktop"},
-        visible={"desktop"},
-        available_all={"desktop"},
-    )
-    ctx = _ctx(text=text)
-    ctx.tool_names = {"desktop"}
-    assert await apply_no_call_path(loop, ctx, r, 0) is None
-    assert r.calls == [("desktop", {"action": "screenshot", "target": "primary"})]
 
 
 def test_fake_loop_finish_matches_the_real_signature() -> None:
@@ -925,16 +741,6 @@ async def test_empty_after_a_page_asks_for_the_pdf_without_stripping_it() -> Non
     assert "report still needs a file" in thinking
 
 
-def test_dispatch_tables_are_named_and_ordered() -> None:
-    """The extract must keep a table, not hide the chain in one blob."""
-    from arelis.core import call_redirects, no_call_finish, no_call_steps
-
-    assert len(no_call_steps.INJECT_STEPS) >= 8
-    assert all(callable(step) for step in no_call_steps.INJECT_STEPS)
-    assert no_call_steps.try_desktop_look in no_call_steps.INJECT_STEPS
-    assert len(no_call_finish.FINISH_STEPS) >= 6
-    assert len(call_redirects.REDIRECT_STEPS) >= 4
-    assert all(callable(step) for step in call_redirects.REDIRECT_STEPS)
 
 
 
@@ -969,22 +775,6 @@ async def test_declined_or_complaining_text_injects_no_tool(text: str, tool: str
     assert loop._expected_tools == set()
 
 
-@pytest.mark.asyncio
-async def test_real_look_request_still_injects_desktop_screenshot() -> None:
-    loop = _FakeLoop()
-    text = "look at the book on my right monitor"
-    r = _scratch(
-        text=text,
-        content="Sure.",
-        tool_names={"desktop"},
-        available={"desktop"},
-        visible={"desktop"},
-        available_all={"desktop"},
-    )
-    ctx = _ctx(text=text)
-    ctx.tool_names = {"desktop"}
-    assert await apply_no_call_path(loop, ctx, r, 0) is None
-    assert [name for name, _args in r.calls] == ["desktop"]
 
 
 _MOON_DUMP = (

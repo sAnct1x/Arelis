@@ -32,12 +32,13 @@ def stream_calls(monkeypatch: pytest.MonkeyPatch) -> list[int]:
 
 
 def test_open_site_then_plain_answer_ends_in_two_rounds(stream_calls: list[int]) -> None:
+    call = _tool_call("browser", {"action": "open", "url": "https://x.com"})
     scenario = Scenario(
         id="t_open_site_terminates",
         user="open x.com",
         expect_tools=("browser",),
         script=[
-            [("token", "Opened x.com for you.")],
+            [("tool_calls", [call])],
             [("token", "Opened x.com for you.")],
         ],
     )

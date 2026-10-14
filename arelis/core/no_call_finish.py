@@ -1,204 +1,45 @@
-"""Finish-path nudges after inject steps left ``r.calls`` empty.
+"""Finish a turn that made no tool call.
 
-Order matches the original tail of ``apply_no_call_path``. First hit wins.
+The model already chose not to call. This path does not invent a call
+from the user's words. It can name the screen theme, refuse an exact
+claim that has no warrant, and (when native tool calling is on) ask
+again for a tool the user named and that has not run.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from typing import Any
 
-from arelis.core.agent_loop import (
-    _FILE_ANSWER_TOOLS,
-    _JS_SHELL_BROWSER_NOTICE,
-    _MAX_TOOL_NUDGES,
-    _SCRAPE_AFTER_SEARCH_NOTICE,
-    _WEB_TOOLS,
-    theme_reply_if_needed,
-)
-from arelis.core.claims import (
-    answer_looks_like_ack_only,
-    answer_looks_like_refusal,
-    evidence_force_notice,
-    file_answer_force_notice,
-    unsupported_exactness_reply,
-)
-from arelis.core.compensation import regex_routing
+from arelis.core.agent_loop import _MAX_TOOL_NUDGES, theme_reply_if_needed
+from arelis.core.claims import answer_looks_like_refusal
 from arelis.core.events import Event, EventType
-from arelis.core.evidence import dual_hit_notice, quote_first_notice
 from arelis.core.failure_copy import (
     _algebra_was_asked,
     chat_followup_from_tool,
     reply_states_algebra_result,
     should_nudge_write_after_algebra,
 )
-from arelis.core.gates import FORCE_GATE_KINDS, apply_force_gates
-from arelis.core.loop_helpers import (
-    _answer_has_quote_span,
-    _exactness_finish_refuse,
-    _turn_requested_tools,
-)
+from arelis.core.loop_helpers import _exactness_finish_refuse, _turn_requested_tools
 from arelis.core.native_tool_calling import native_tool_calling
-from arelis.core.plan_nudge import plan_progress_notice
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_scratch import (
     RoundScratch,
     named_tools_owed_runnable,
     negated_tool_mentions,
-    read_back_still_owed,
 )
 
-SKIP = "skip"
 NUDGE = "nudge"
 FINISH = "finish"
 
-StepFn = Callable[[Any, TurnContext, RoundScratch, int], Awaitable[str]]
 
-
-async def try_scrape_after_search(
-    loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int
-) -> str:
-    if not (
-        bool(r.agent_cfg.get("scrape_after_search", True))
-        and r.wants_fresh_page
-        and not ctx.scrape_nudge_used
-        and "web_search" in loop.tools_used
-        and "browser" not in loop._expected_tools
-        and "browser" not in loop.tools_used
-        and not (loop.tools_used & _WEB_TOOLS)
-        and ("scrape" in r.tool_names or "research_report" in r.tool_names)
-    ):
-        return SKIP
-    ctx.scrape_nudge_used = True
-    await loop._retract()
-    r.messages.append({"role": "assistant", "content": r.content})
-    r.messages.append({"role": "user", "content": _SCRAPE_AFTER_SEARCH_NOTICE})
-    await loop.bus.publish(
-        Event(EventType.THINKING, {"text": "search without scrape; asking for a page read"})
-    )
-    if loop._timer is not None:
-        loop._timer.mark("exactness", gate="scrape_after_search", action="nudge")
-    return NUDGE
-
-
-async def try_js_shell_browser(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    if not (
-        bool(r.agent_cfg.get("browser_after_js_shell", True))
-        and ctx.js_shell_url
-        and not ctx.js_shell_nudge_used
-        and "browser" in r.available_all
-        and "browser" not in loop.tools_used
-        and not (loop._expected_tools & {"weather", "send_sms", "send_email"})
-    ):
-        return SKIP
-    ctx.js_shell_nudge_used = True
-    if "browser" not in r.tool_names:
-        r.visible = set(r.visible) | {"browser"}
-        r.available = set(r.available) | {"browser"}
-        ctx.tool_names.clear()
-        ctx.tool_names.update(r.visible)
-        r.tool_names = ctx.tool_names
-    await loop._retract()
-    r.messages.append({"role": "assistant", "content": r.content})
-    r.messages.append(
-        {"role": "user", "content": _JS_SHELL_BROWSER_NOTICE.format(url=ctx.js_shell_url)}
-    )
-    await loop.bus.publish(
-        Event(EventType.THINKING, {"text": "js shell; asking to open the page in her window"})
-    )
-    if loop._timer is not None:
-        loop._timer.mark("exactness", gate="browser_after_js_shell", action="nudge")
-    return NUDGE
-
-
-async def try_plan_progress(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    if not (
-        bool(r.agent_cfg.get("plan_progress", True))
-        and loop._active_plan is not None
-        and not ctx.plan_progress_used
-        and not answer_looks_like_refusal(r.content)
-    ):
-        return SKIP
-    progress = plan_progress_notice(
-        loop._active_plan,
-        loop.tools_used,
-        available_tools=r.tool_names,
-    )
-    if not progress:
-        return SKIP
-    ctx.plan_progress_used = True
-    await loop._retract()
-    r.messages.append({"role": "assistant", "content": r.content})
-    r.messages.append({"role": "user", "content": progress})
-    await loop.bus.publish(
-        Event(EventType.THINKING, {"text": f"plan_progress  {loop._active_plan.id}"})
-    )
-    if loop._timer is not None:
-        loop._timer.mark("plan_progress", plan=loop._active_plan.id)
-    return NUDGE
-
-
-async def try_force_gates(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    if await apply_force_gates(loop, ctx, r.content, refused=answer_looks_like_refusal(r.content)):
-        return NUDGE
-    return SKIP
-
-
-async def try_evidence(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    if not (
-        r.evidence_gate
-        and r.exact_need.kinds
-        and not ctx.evidence_nudge_used
-        and not answer_looks_like_refusal(r.content)
-    ):
-        return SKIP
-    missing = r.ledger.missing_kinds(r.exact_need.kinds)
-    missing = [k for k in missing if k not in FORCE_GATE_KINDS]
-    if not missing:
-        return SKIP
-    ctx.evidence_nudge_used = True
-    await loop._retract()
-    r.messages.append({"role": "assistant", "content": r.content})
-    r.messages.append({"role": "user", "content": evidence_force_notice()})
-    await loop.bus.publish(
-        Event(
-            EventType.THINKING,
-            {"text": "phase=verify missing-warrants " + ",".join(missing)},
-        )
-    )
-    if loop._timer is not None:
-        loop._timer.mark("verify", gate="evidence", missing=",".join(missing))
-    return NUDGE
-
-
-async def try_ink_vision(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    """Ink PDF extract is not an answer, vision the page images next."""
-    if not (
-        ctx.ink_page_images
-        and "vision" not in loop.tools_used
-        and "vision" in r.tool_names
-        and not answer_looks_like_refusal(r.content)
-    ):
-        return SKIP
-    from arelis.tools.pdf_pages import ink_vision_notice
-
-    if not ctx.ink_vision_nudge_used:
-        ctx.ink_vision_nudge_used = True
-        await loop._retract()
-        r.messages.append({"role": "assistant", "content": r.content})
-        r.messages.append({"role": "user", "content": ink_vision_notice(ctx.ink_page_images)})
-        await loop.bus.publish(Event(EventType.THINKING, {"text": "plan_progress  ink-vision"}))
-        return NUDGE
-    return SKIP
-
-
-async def try_algebra_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
+async def _ship_algebra_result_if_missing(
+    loop: Any, ctx: TurnContext, r: RoundScratch
+) -> bool:
     """Ship the calculator line when chat is filler without the number.
 
-    Live dump: tool returns `14-6 = 8`, thinking has 8, bubble is
-    "What's next?". Empty-after-algebra only fires on blank content.
+    This does not pick a tool. The calculator already ran. A filler that
+    leaves the number out is replaced with the plain result.
     """
-    del round_i
     name = ctx.last_ok_tool_name
     out = ctx.last_ok_tool_out
     if not (
@@ -208,7 +49,7 @@ async def try_algebra_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round
         and not answer_looks_like_refusal(r.content)
         and not reply_states_algebra_result(r.content, name, out)
     ):
-        return SKIP
+        return False
     line = chat_followup_from_tool(name, out, ask=ctx.text)
     await loop._retract()
     await loop.bus.publish(
@@ -217,160 +58,15 @@ async def try_algebra_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round
             {"text": "algebra result missing from chat; shipping a plain answer"},
         )
     )
-    await loop._finish(
-        line,
-        r.sources,
-        streamed="",
-    )
-    return FINISH
-
-
-async def try_file_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    if ctx.ink_page_images and "vision" not in loop.tools_used:
-        return SKIP
-    if not (
-        not ctx.file_answer_nudge_used
-        and (loop.tools_used & _FILE_ANSWER_TOOLS)
-        and answer_looks_like_ack_only(r.content)
-        and not answer_looks_like_refusal(r.content)
-    ):
-        return SKIP
-    ctx.file_answer_nudge_used = True
-    await loop._retract()
-    r.messages.append({"role": "assistant", "content": r.content})
-    r.messages.append({"role": "user", "content": file_answer_force_notice()})
-    await loop.bus.publish(Event(EventType.THINKING, {"text": "phase=verify file-answer"}))
-    if loop._timer is not None:
-        loop._timer.mark("verify", gate="file_answer", action="nudge")
-    return NUDGE
-
-
-async def try_quote_first(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    if r.exact_need.needs_document and r.ledger.has_ok("document"):
-        # The report is already in the file. Quote-first is what pasted
-        # the K2-18 b sources into chat after the PDF was saved.
-        return SKIP
-    if not (
-        r.evidence_gate
-        and r.ledger.has_ok("web")
-        and not ctx.quote_nudge_used
-        and r.exact_need.needs_web_evidence
-        and not _answer_has_quote_span(r.content)
-        and not answer_looks_like_refusal(r.content)
-    ):
-        return SKIP
-    ctx.quote_nudge_used = True
-    await loop._retract()
-    r.messages.append({"role": "assistant", "content": r.content})
-    quotes = r.ledger.quote_lines()
-    notice = quote_first_notice()
-    if quotes:
-        notice += "\nEvidence spans:\n" + "\n".join(quotes)
-    r.messages.append({"role": "user", "content": notice})
-    await loop.bus.publish(Event(EventType.THINKING, {"text": "phase=verify quote-first"}))
-    if loop._timer is not None:
-        loop._timer.mark("verify", gate="quote", action="nudge")
-    return NUDGE
-
-
-async def try_research_dual(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    web_ok_n = len(r.ledger.ok_web_sources()) if r.ledger.has_ok("web") else 0
-    if not (
-        r.research_dual
-        and r.research_mode
-        and r.exact_need.needs_web_evidence
-        and web_ok_n < r.research_min_sources
-        and not answer_looks_like_refusal(r.content)
-    ):
-        return SKIP
-    if not ctx.dual_hit_nudge_used and web_ok_n >= 1:
-        ctx.dual_hit_nudge_used = True
-        await loop._retract()
-        r.messages.append({"role": "assistant", "content": r.content})
-        r.messages.append({"role": "user", "content": dual_hit_notice()})
-        await loop.bus.publish(Event(EventType.THINKING, {"text": "phase=verify dual-hit"}))
-        if loop._timer is not None:
-            loop._timer.mark("verify", gate="dual_hit", action="nudge")
-        return NUDGE
-    if web_ok_n == 0:
-        await loop._retract()
-        thin = unsupported_exactness_reply(["web"])
-        if loop._timer is not None:
-            loop._timer.mark(
-                "exactness",
-                gate="research_min_sources",
-                action="refuse",
-                have=web_ok_n,
-                need=r.research_min_sources,
-            )
-        await loop._finish(thin, [], streamed="")
-        return FINISH
-    if ctx.dual_hit_nudge_used and web_ok_n >= 1:
-        if loop._timer is not None:
-            loop._timer.mark(
-                "exactness",
-                gate="dual_hit",
-                action="soft_fail",
-                have=web_ok_n,
-                need=r.research_min_sources,
-            )
-        return SKIP
-    return SKIP
-
-
-async def try_read_back(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    """Hold the turn when they asked to read a file and nothing has read it."""
-    del round_i
-    if not read_back_still_owed(ctx.text, getattr(loop, "_trace", ())):
-        return SKIP
-    if "workspace" not in r.tool_names and "workspace" not in ctx.available_all:
-        return SKIP
-    if getattr(ctx, "read_back_nudge_used", False):
-        return SKIP
-    ctx.read_back_nudge_used = True
-    await loop._retract()
-    r.messages.append({"role": "assistant", "content": r.content})
-    r.messages.append(
-        {
-            "role": "user",
-            "content": (
-                "Read that file with the workspace tool, action read, before you answer. "
-                "The read is available this turn. Do not say it is unavailable, "
-                "and do not guess the file contents."
-            ),
-        }
-    )
-    await loop.bus.publish(
-        Event(EventType.THINKING, {"text": "file read still owed; asking for workspace read"})
-    )
-    return NUDGE
-
-
-FINISH_STEPS: tuple[StepFn, ...] = (
-    try_read_back,
-    try_scrape_after_search,
-    try_js_shell_browser,
-    try_plan_progress,
-    try_ink_vision,
-    try_force_gates,
-    try_evidence,
-    try_algebra_answer,
-    try_file_answer,
-    try_quote_first,
-    try_research_dual,
-)
+    await loop._finish(line, r.sources, streamed="")
+    return True
 
 
 async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    # Native tool calling skips the regex finish nudges but keeps refuse
-    # logic, and still holds the turn when the user named tools that have
-    # not run. regex_routing false skips the nudges too, and does not turn
-    # on the native owed nudge.
+    # Native tool calling holds the turn when the user named tools that
+    # have not run. It does not invent a tool call from the wording.
     if native_tool_calling(r.agent_cfg):
         owed = named_tools_owed_runnable(loop, ctx, r.fail_counts)
-        # Native-only: do not nudge for tools the user only mentioned under
-        # negation ("do not use the document tool"). Flag-off finish path
-        # is unchanged above.
         negated = negated_tool_mentions(ctx.text, owed)
         owed = [n for n in owed if n not in negated]
         if owed and ctx.nudges < _MAX_TOOL_NUDGES:
@@ -394,11 +90,8 @@ async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i
                 )
             )
             return NUDGE
-    elif regex_routing(r.agent_cfg):
-        for step in FINISH_STEPS:
-            hit = await step(loop, ctx, r, round_i)
-            if hit != SKIP:
-                return hit
+    if await _ship_algebra_result_if_missing(loop, ctx, r):
+        return FINISH
     fixed = theme_reply_if_needed(ctx.text, r.content)
     if fixed is not None:
         await loop._retract()

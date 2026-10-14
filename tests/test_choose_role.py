@@ -29,94 +29,25 @@ def test_chip_research_wins() -> None:
     assert reason == "chip"
 
 
-def test_file_loop_stays_fast() -> None:
-    role, reason = _orch().classify_role("please edit the python file and lint it")
-    assert role == "fast"
-    assert reason == "file_loop"
-
-
-def test_tool_loop_routes_fast() -> None:
-    role, reason = _orch().classify_role("search the web for lithium prices")
-    assert role == "fast"
-    assert reason == "tool_loop"
-
-
-def test_research_hint() -> None:
-    role, reason = _orch().classify_role(
-        "Investigate recent battery recycling and write a report"
-    )
-    assert role == "research"
-    assert reason == "research_hint"
-
-
-def test_deeply_research_is_a_research_hint() -> None:
-    role, reason = _orch().classify_role(
-        "i want you to deeply research the best piezoelectric material"
-    )
-    assert role == "research"
-    assert reason == "research_hint"
-
-
-def test_short_factual_stays_on_fast() -> None:
-    """H2: bare 'research' / look-up stays 7b+tools, not silent 14b."""
-    role, reason = _orch().classify_role("research cyclospora outbreaks briefly")
-    assert role == "fast"
-    assert reason == "tool_loop"
-
-
-def test_fast_chip_does_not_pin_deep_language() -> None:
-    """The composer defaults to fast. That is not a pin — 'deeply research'
-    still routes. Bare look-ups stay on fast (H2)."""
+def test_wording_does_not_pick_the_model() -> None:
+    """A research-shaped ask, a file ask, and a hello all stay on the default."""
+    for ask in (
+        "Investigate recent battery recycling and write a report",
+        "i want you to deeply research the best piezoelectric material",
+        "please edit the python file and lint it",
+        "search the web for lithium prices",
+        "what's the weather today",
+        "hey how are you",
+        "Write the result as a PDF I can open.",
+    ):
+        role, reason = _orch().classify_role(ask)
+        assert role == "fast", ask
+        assert reason == "default", ask
     role, reason = _orch().classify_role(
         "Investigate and write a report on fusion", "fast"
     )
-    assert role == "research"
-    assert reason == "research_hint"
-    role, reason = _orch().classify_role(
-        "i want you to deeply research the best piezoelectric material",
-        "fast",
-    )
-    assert role == "research"
-    assert reason == "research_hint"
-
-
-def test_default_role() -> None:
-    role, reason = _orch().classify_role("hey how are you")
     assert role == "fast"
     assert reason == "default"
-
-
-def test_derive_stays_on_fast() -> None:
-    """A homework derivation is not a 32-round research loop."""
-    role, reason = _orch().classify_role(
-        "derive the equation for F=ma. show me how it was derived to begin with."
-    )
-    assert role == "fast"
-    assert reason != "research_hint"
-
-
-def test_sourced_pdf_on_the_fast_chip_is_research() -> None:
-    """Search, open the sources, write the file. The default chip is not a pin."""
-    text = (
-        "Research what the lab measured. "
-        "Write the result as a PDF I can open. Put the report in the file. "
-        "Search the web, then open the papers."
-    )
-    role, reason = _orch().classify_role(text, "fast")
-    assert role == "research"
-    assert reason == "research_hint"
-
-
-def test_pdf_without_a_search_stays_on_the_fast_chip() -> None:
-    role, reason = _orch().classify_role("Write the result as a PDF I can open.", "fast")
-    assert role == "fast"
-    assert reason == "chip"
-
-
-def test_weather_is_tool_loop() -> None:
-    role, reason = _orch().classify_role("what's the weather today")
-    assert role == "fast"
-    assert reason == "tool_loop"
 
 
 def test_switch_roles_sentence_is_the_chip() -> None:
