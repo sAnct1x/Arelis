@@ -122,6 +122,10 @@ class EvidenceLedger:
         - sql → analyze warrant (when successful with non-empty output)
         - memory read actions → recall warrant (when successful)
         - memory remember and forget → memory_write warrant (when successful)
+
+        A successful run_script result also records kind run_script_ok.
+        A python result never does. A failed run_script records
+        run_script_error instead, which is not a script-run warrant.
         """
         data = data or {}
         args = args or {}
@@ -140,8 +144,25 @@ class EvidenceLedger:
         if name == "run_script":
             # Same trust as python: a script that actually printed something
             # is a computed value. A crash or a silent exit is not.
+            # run_script_ok is the run itself. Only a successful result of
+            # this tool sets it. The python cell's calc warrant is not one.
             exit_code = data.get("exit")
             stdout = str(data.get("stdout") or "").strip()
+            path = str(args.get("path") or data.get("path") or "").strip() or "run_script"
+            if ok:
+                self.add(
+                    source=path,
+                    kind="run_script_ok",
+                    span=(stdout or str(output or "") or path)[:200],
+                    ok=True,
+                )
+            else:
+                self.add(
+                    source=path,
+                    kind="run_script_error",
+                    span=str(output or "")[:200],
+                    ok=False,
+                )
             if ok and exit_code == 0 and stdout:
                 self.add(source="run_script", kind="calc", span=stdout[:200], ok=True)
             return

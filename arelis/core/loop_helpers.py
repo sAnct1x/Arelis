@@ -271,6 +271,63 @@ def memory_save_skipped_line(unverified: list[str]) -> str:
     return ""
 
 
+def declined_run_unverified(
+    declined_tools: set[str] | None,
+    ledger: EvidenceLedger,
+) -> list[str]:
+    """run_script is unverified when the card skipped it or the call errored.
+
+    A successful run_script result is the warrant. A python result is not.
+    Reply text is not consulted.
+    """
+    if ledger.has_ok("run_script_ok"):
+        return []
+    declined = bool(declined_tools and "run_script" in declined_tools)
+    errored = any(
+        item.kind == "run_script_error" and not item.ok for item in ledger.items
+    )
+    if not declined and not errored:
+        return []
+    return ["run_script"]
+
+
+def _run_script_target(
+    declined_tools: set[str] | None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None,
+    ledger: EvidenceLedger,
+) -> str:
+    """Path from the skipped card, else from the failed result."""
+    if declined_tools and "run_script" in declined_tools:
+        for tool, args in reversed(declined_calls or []):
+            if tool != "run_script":
+                continue
+            path = str((args or {}).get("path") or "").strip()
+            if path:
+                return path
+    for item in reversed(ledger.items):
+        if item.kind != "run_script_error" or item.ok:
+            continue
+        source = (item.source or "").strip()
+        if source and source != "run_script":
+            return source
+    return "the script"
+
+
+def run_script_not_run_line(
+    unverified: list[str],
+    declined_tools: set[str] | None,
+    declined_calls: list[tuple[str, dict[str, Any]]] | None,
+    ledger: EvidenceLedger,
+) -> str:
+    """Fixed line naming the script that did not actually run."""
+    if "run_script" not in unverified:
+        return ""
+    target = _run_script_target(declined_tools, declined_calls, ledger)
+    if declined_tools and "run_script" in declined_tools:
+        return f"{target} was not run because the run was skipped."
+    return f"{target} was not run because the run failed."
+
+
 def declined_finish_reply(
     declined_tools: set[str] | None,
     declined_calls: list[tuple[str, dict[str, Any]]] | None,

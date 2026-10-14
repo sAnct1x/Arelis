@@ -1831,16 +1831,32 @@ class AgentLoop:
         if turn is not None:
             from arelis.core.loop_helpers import (
                 declined_memory_unverified,
+                declined_run_unverified,
                 memory_save_skipped_line,
+                run_script_not_run_line,
             )
 
             unverified = declined_memory_unverified(
                 turn.declined_tools, turn.ledger
             )
-            skipped = memory_save_skipped_line(unverified)
-            if skipped and skipped not in final:
-                final = f"{final.rstrip()}\n{skipped}" if final.strip() else skipped
-                streamed = ""
+            unverified.extend(
+                declined_run_unverified(turn.declined_tools, turn.ledger)
+            )
+            notes = (
+                memory_save_skipped_line(unverified),
+                run_script_not_run_line(
+                    unverified,
+                    turn.declined_tools,
+                    turn.declined_calls,
+                    turn.ledger,
+                ),
+            )
+            for note in notes:
+                if note and note not in final:
+                    final = (
+                        f"{final.rstrip()}\n{note}" if final.strip() else note
+                    )
+                    streamed = ""
         final = _append_sources(final, sources)
 
         # Preflight expected a tool but none of those succeeded this turn.
