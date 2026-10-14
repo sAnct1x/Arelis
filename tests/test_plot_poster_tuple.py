@@ -121,7 +121,8 @@ async def test_a_joined_import_is_still_refused(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_python_refusing_a_chart_first_ends_the_turn() -> None:
+async def test_python_refusing_a_chart_first_gets_one_quiet_round_then_stops() -> None:
+    """The refusal owes one round. An empty follow-up still ends honestly."""
     router = _ScriptedRouter(
         [
             [("tool_calls", [_call("python", {"code": "import matplotlib.pyplot as plt"})])],
@@ -132,7 +133,7 @@ async def test_python_refusing_a_chart_first_ends_the_turn() -> None:
     )
     bus, loop = _loop(router)
     events = await _collect(bus, loop.run(_ASK, "fast"))
-    assert router.i == 1
+    assert router.i == 2
     _assert_honest(_done(events))
 
 
