@@ -150,8 +150,6 @@ agent:
   chat_fast_path: false
   # Tool-bearing model rounds: lower temperature to cut preamble decode bloat.
   tool_round_temperature: 0.1
-  # Older local configs may still set this. It does not choose a tool.
-  intent_preflight: true
   # When true, a few parameter hints and the named-tools nudge are on.
   # The model still chooses the tool. Confirm cards and send locks stay on.
   native_tool_calling: false
@@ -163,21 +161,12 @@ agent:
   # At UI/CLI start, mine logs/turns.log and append curated lessons by signature.
   # Fail soft; never invents free-form text (fixed catalog only).
   auto_lessons: true
-  # Leftover switches. Nothing in the turn reads them, and they do not
-  # choose a tool, nudge, or inject a call. Kept so an older config.local.yaml
-  # that still sets them loads. Confirm cards and send locks are separate.
+  # Leftover switches. Nothing in the turn reads these, and they do not
+  # choose a tool. Kept so an older config.local.yaml that still sets them loads.
   scrape_after_search: true
   browser_after_js_shell: true
   plan_progress: true
-  sms_force_call: true
   sms_preinject: true
-  email_force_call: true
-  agenda_force_call: true
-  image_force_call: true
-  tasks_force_call: true
-  goals_force_call: true
-  weather_force_call: true
-  vision_force_call: true
   browser_relaunch_force: true
   # An argument the tool never declared is dropped in silence, because tools take
   # **kwargs and read only the keys they know. The reply is then built on a belief

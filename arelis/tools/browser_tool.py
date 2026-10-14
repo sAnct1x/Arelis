@@ -326,6 +326,16 @@ class BrowserTool:
         action = str(kwargs.get("action") or "").strip().lower()
         browser = str(kwargs.get("browser") or "default").strip().lower()
         private = bool(kwargs.get("private"))
+        # The model invented this action. There is no sign-in state to open.
+        # Reject it here so a missing page cannot turn the call into a crash.
+        if action == "goto_sign_in":
+            return ToolResult(
+                ok=False,
+                output=(
+                    "There is no action 'goto_sign_in'. "
+                    "There is no sign-in state to open."
+                ),
+            )
         rewritten = rewrite_browser_action(action)
         invented_note = ""
         if rewritten is not None:

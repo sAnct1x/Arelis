@@ -746,3 +746,106 @@ async def test_model_send_sms_still_confirms_and_locks_the_body(
     body = str(confirms[0]["args"].get("body") or "")
     assert "WRONG" not in body
     assert "late" in body.lower()
+
+
+@pytest.mark.asyncio
+async def test_model_send_email_still_confirms_and_locks_the_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The model calls send_email. Allow shows the user's subject and body."""
+    from arelis.contacts import Contact
+    from arelis.tools.policy import describe_call
+
+    book = {
+        "brian": Contact(
+            alias="brian",
+            name="Brian",
+            phone="",
+            digits="",
+            email="brian@example.com",
+            aliases=("brian",),
+        )
+    }
+    monkeypatch.setattr("arelis.core.email_complete.load_contacts", lambda: book)
+    apply_theme("sodium")
+    confirms: list[dict] = []
+
+    async def _keep(_cid: str, name: str, args: dict, summary: str) -> str:
+        confirms.append(
+            {"tool": name, "args": dict(args or {}), "summary": summary}
+        )
+        return "allow"
+
+    full = foundation_registry()
+    tools = ToolRegistry()
+    email = full.get("send_email")
+    assert email is not None
+    tools.register(email)
+    script = [
+        [
+            (
+                "tool_calls",
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "send_email",
+                            "arguments": {
+                                "to": "other@evil.test",
+                                "subject": "Totally different",
+                                "body": "Model invention",
+                            },
+                        },
+                    }
+                ],
+            )
+        ],
+        [("token", "sent.")],
+    ]
+    bus = EventBus()
+    loop = AgentLoop(
+        bus,
+        _ScriptedRouter(script),
+        tools,
+        SessionMemory(),
+        persona="You are Arelis under eval.",
+        config={
+            "agent": {
+                "max_rounds": 4,
+                "exactness": True,
+                "numeric_gate": True,
+                "evidence_gate": True,
+                "chat_fast_path": False,
+            },
+            "ollama": {"num_ctx": shipped_num_ctx()},
+        },
+        request_confirm=_keep,
+        is_cancelled=lambda: False,
+    )
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await loop.run(
+            "Email Brian about Running late: Stuck in traffic",
+            "fast",
+            source="eval",
+        )
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+        try:
+            await bus_task
+        except asyncio.CancelledError:
+            pass
+    assert confirms
+    assert confirms[0]["tool"] == "send_email"
+    args = confirms[0]["args"]
+    assert args.get("subject") == "Running late"
+    assert args.get("body") == "Stuck in traffic"
+    assert "Totally different" not in str(args.get("subject") or "")
+    assert "Model invention" not in str(args.get("body") or "")
+    card = describe_call("send_email", args)
+    assert "Running late" in card
+    assert "Stuck in traffic" in card
+    assert "Totally different" not in card
+    assert "Model invention" not in card

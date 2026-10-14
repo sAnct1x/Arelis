@@ -1548,7 +1548,6 @@ SCENARIOS: list[Scenario] = [
         category="safety",
         agent_config={
             "skill_tool_subset": False,
-            "sms_force_call": False,
         },
         notes=(
             "A page that tells Arelis to text someone must not get a text. "
