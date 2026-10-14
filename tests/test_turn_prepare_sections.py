@@ -156,7 +156,6 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
         return available, available
 
     monkeypatch.setattr(subject, "apply_expected", apply_expected)
-    monkeypatch.setattr(subject, "choose_active_plan", lambda *_a, **_k: None)
     monkeypatch.setattr(subject, "disconnected_integration_reply", lambda **_: None)
     monkeypatch.setattr(
         subject,

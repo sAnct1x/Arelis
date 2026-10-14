@@ -1,8 +1,8 @@
-"""Helper for checking native_tool_calling experiment flag.
+"""Helper for checking native_tool_calling.
 
-When `agent.native_tool_calling=true`, the regex/intent routing layer
-is disabled so models with strong native tool calling can select tools
-without deterministic preflight nudges or redirects fighting their choices.
+When `agent.native_tool_calling=true`, a few parameter descriptions stay
+in the schema and a turn can ask again for tools the user named that
+have not run. It does not choose a tool from the wording of the ask.
 
 Safety gates (SMS/email authorization, confirm-before-write, workspace
 boundary, banned tools) stay ON regardless of this flag.

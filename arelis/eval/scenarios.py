@@ -72,36 +72,6 @@ def _tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 SCENARIOS: list[Scenario] = [
     Scenario(
-        id="weather_oneshot",
-        user="What's the weather today?",
-        expect_tools=("weather",),
-        forbid_tools=("scrape",),
-        failure_class="contextual_misinterpretation",
-        notes=(
-            "Must call weather, not scrape AccuWeather. The route preinjects "
-            "weather before this scripted scrape is read. Before 2026-09-17 "
-            "this scripted the weather call itself and asserted weather was "
-            "called, which no amount of broken routing could fail."
-        ),
-        script=[
-            [
-                (
-                    "tool_calls",
-                    [
-                        # A weather site, spelled example.com: tests/test_egress.py
-                        # scans the source for hostnames and a real one here
-                        # would read as a host the package reaches.
-                        _tool_call(
-                            "scrape",
-                            {"url": "https://example.com/weather-forecast"},
-                        )
-                    ],
-                )
-            ],
-            [("token", "Clear and mild this afternoon.")],
-        ],
-    ),
-    Scenario(
         id="sms_immediate",
         user="Text Brian: Running 10 minutes late",
         expect_tools=("send_sms",),
@@ -190,86 +160,6 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
-        id="math_forces_calculator",
-        user="What is 17.5% of 840?",
-        expect_tools=("calculator",),
-        failure_class="knowing_doing_gap",
-        notes="Exactness: bare numeric answer must force calculator.",
-        script=[
-            [("token", "That would be about 147.")],
-            [
-                (
-                    "tool_calls",
-                    [
-                        _tool_call(
-                            "calculator",
-                            {"expression": "0.175 * 840"},
-                        )
-                    ],
-                )
-            ],
-            [("token", "147.")],
-        ],
-    ),
-    Scenario(
-        id="orbit_year_days_forces_calculator",
-        user="don't guess, how many earth days is 11.86 years",
-        expect_tools=("calculator",),
-        failure_class="knowing_doing_gap",
-        notes=(
-            "Spoken years-to-days must force the calculator. Reciting 4307 "
-            "(11.8*365) without a tool is the night-theme defect."
-        ),
-        script=[
-            [("token", "That's about 4,307 days.")],
-            [
-                (
-                    "tool_calls",
-                    [
-                        _tool_call(
-                            "calculator",
-                            {"expression": "11.86 * 365.25"},
-                        )
-                    ],
-                )
-            ],
-            [("token", "About 4332 days.")],
-        ],
-    ),
-    Scenario(
-        id="news_forces_web_evidence",
-        user="What did the WSJ say about AI virus genomes?",
-        expect_tools=("web_search", "scrape"),
-        failure_class="wrong_retrieval",
-        notes="Exactness: cannot answer news without web warrant.",
-        script=[
-            [("token", "The WSJ said the genomes were engineered in a lab.")],
-            [
-                (
-                    "tool_calls",
-                    [_tool_call("web_search", {"query": "WSJ AI virus genomes"})],
-                )
-            ],
-            [
-                (
-                    "tool_calls",
-                    [
-                        _tool_call(
-                            "scrape",
-                            {"url": "https://www.wsj.com/example-ai-virus"},
-                        )
-                    ],
-                )
-            ],
-            [
-                (
-                    "token",
-                    'According to the piece: "example claim." That is the takeaway.',
-                )
-            ],
-        ],
-    ),
-    Scenario(
         id="math_refuses_without_calculator",
         user="What is 17.5% of 840?",
         expect_tools=(),
@@ -300,36 +190,22 @@ SCENARIOS: list[Scenario] = [
         forbid_claim_if_no_tool=("147",),
         failure_class="knowing_doing_gap",
         notes=(
-            "The real guarantee behind math_refuses_without_calculator, kept "
-            "after the route began preinjecting calculator: the calculator is "
-            "called, it errors, and the model's recited 147 (never a tool "
-            "result) must not ship. The answer is the calculator-failed refusal."
+            "The model calls calculator, the tool errors, and a recited 147 "
+            "must not ship. The answer is the calculator-failed refusal."
         ),
         script=[
-            [("token", "That would be about 147.")],
-            [("token", "I'm sure the answer is 147.")],
-        ],
-    ),
-    Scenario(
-        id="integral_forces_cas",
-        user="what is the integral of x^2?",
-        expect_tools=("cas",),
-        failure_class="knowing_doing_gap",
-        notes="Exactness: a closed form must force cas, not calculator.",
-        script=[
-            [("token", "That's x^3/3 plus a constant.")],
             [
                 (
                     "tool_calls",
                     [
                         _tool_call(
-                            "cas",
-                            {"action": "integrate", "expr": "x**2", "wrt": "x"},
+                            "calculator",
+                            {"expression": "0.175 * 840"},
                         )
                     ],
                 )
             ],
-            [("token", "x**3/3 + C.")],
+            [("token", "I'm sure the answer is 147.")],
         ],
     ),
     Scenario(
@@ -348,41 +224,15 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
-        id="convert_forces_units",
-        user="convert 5 ft 8 in to meters",
-        expect_tools=("units",),
-        failure_class="knowing_doing_gap",
-        notes="Exactness: a unit conversion must force units.",
-        script=[
-            [("token", "About 1.73 meters.")],
-            [
-                (
-                    "tool_calls",
-                    [
-                        _tool_call(
-                            "units",
-                            {
-                                "action": "convert",
-                                "quantity": "5 ft 8 in",
-                                "to": "meter",
-                            },
-                        )
-                    ],
-                )
-            ],
-            [("token", "1.7272 meter.")],
-        ],
-    ),
-    Scenario(
         id="constant_refuses_without_units",
         user="what is the gravitational constant?",
-        expect_tools=("units",),
+        expect_tools=(),
+        allow_no_tools=True,
         offline_only=True,
         forbid_claim_if_no_tool=("6.674",),
         failure_class="knowing_doing_gap",
         notes=(
-            "The route preinjects units before this scripted recital is read. "
-            "A turn that never got a units result still uses the refusal sentence."
+            "A recited constant with no units result still uses the refusal sentence."
         ),
         script=[
             [("token", "G is 6.674e-11 in SI units.")],
@@ -395,9 +245,8 @@ SCENARIOS: list[Scenario] = [
         expect_tools=("plot",),
         expect_confirm_tools=("plot",),
         failure_class="knowing_doing_gap",
-        notes="Exactness: a chart ask must force plot, not ASCII.",
+        notes="A model plot call still raises Allow. The chart is not drawn in chat.",
         script=[
-            [("token", "Here's an ASCII trend: /\\/\\ rising.")],
             [
                 (
                     "tool_calls",
@@ -430,28 +279,6 @@ SCENARIOS: list[Scenario] = [
         script=[
             [("token", "Here's an ASCII trend: rising.")],
             [("token", "Definitely rising on the chart.")],
-        ],
-    ),
-    Scenario(
-        id="arxiv_forces_catalog",
-        user="search arxiv for gravitational waves",
-        expect_tools=("catalog",),
-        failure_class="knowing_doing_gap",
-        notes="Exactness: an arXiv ask must force catalog, not invented papers.",
-        script=[
-            [("token", "A famous paper is 1234.5678 with a made-up abstract.")],
-            [
-                (
-                    "tool_calls",
-                    [
-                        _tool_call(
-                            "catalog",
-                            {"action": "arxiv", "query": "gravitational waves"},
-                        )
-                    ],
-                )
-            ],
-            [("token", "arXiv returned hits from export.arxiv.org.")],
         ],
     ),
     Scenario(
@@ -491,28 +318,6 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     # --- T6 growth scenarios (offline scripts first) ---
-    Scenario(
-        id="recall_before_claim",
-        user="What did I say about the launch date?",
-        expect_tools=("recall",),
-        failure_class="knowing_doing_gap",
-        notes="Memory ask must recall (or refuse) before inventing prior statements.",
-        script=[
-            [("token", "You said the launch is next Tuesday.")],
-            [
-                (
-                    "tool_calls",
-                    [_tool_call("recall", {"query": "launch date"})],
-                )
-            ],
-            [
-                (
-                    "token",
-                    "From recall: you mentioned a launch window, not a fixed Tuesday.",
-                )
-            ],
-        ],
-    ),
     Scenario(
         id="inbound_sms_oneshot",
         user="Did Brian text me back?",
@@ -585,10 +390,13 @@ SCENARIOS: list[Scenario] = [
         expect_tools=(),
         allow_no_tools=True,
         offline_only=True,
-        expect_answer_contains=("don't know",),
+        expect_answer_contains=("successful send confirmation",),
         forbid_claim_if_no_tool=("running late",),
         failure_class="unsupported_contingent_claim",
-        notes="Exactness: inbound SMS claims need inbound_sms warrant or refuse.",
+        notes=(
+            "A claim that someone texted, with no inbound reading, does not ship. "
+            "The send-claim check rewrites it."
+        ),
         script=[
             [("token", "Yes — Sam texted that they're running late.")],
             [("token", "Sam replied: running late.")],
@@ -742,18 +550,13 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id="tasks_claim_needs_warrant",
         user="What tasks do I have open?",
-        expect_tools=("tasks",),
-        expect_args={"action": "list"},
+        expect_tools=(),
+        allow_no_tools=True,
         offline_only=True,
-        expect_answer_contains=("listed",),
+        expect_answer_contains=("don't know",),
         forbid_claim_if_no_tool=("buy coffee filters",),
         failure_class="unsupported_contingent_claim",
-        notes=(
-            "Exactness: inventing open tasks without a warrant must not ship. "
-            "The injection is intent-driven and lands on the first round, so the "
-            "answer round already has its warrant — the script keeps the invented "
-            "opener to prove it never reaches the user."
-        ),
+        notes="Inventing open tasks without a tasks reading must not ship.",
         script=[
             [("token", "You have one open task: buy coffee filters.")],
             [("token", "Listed your open tasks from the tasks tool.")],
@@ -810,52 +613,6 @@ SCENARIOS: list[Scenario] = [
                         _tool_call(
                             "research_report",
                             {"query": ("recent lithium battery recycling")},
-                        )
-                    ],
-                )
-            ],
-            [
-                (
-                    "token",
-                    "Recycling is expanding; see the report Sources.",
-                )
-            ],
-        ],
-    ),
-    Scenario(
-        id="mid_turn_escalate_research",
-        user="Investigate recent lithium battery recycling and write a report",
-        expect_tools=("research_report",),
-        require_args=("query",),
-        expect_model_switch_reason="mid_turn_escalate",
-        expect_escalate_to_role="research",
-        agent_config={
-            "mid_turn_escalate": True,
-            # Round 1 narrates (no tools); round 2 escalates then tools.
-            "escalate_after_rounds": 1,
-        },
-        offline_only=True,
-        failure_class="routing_gap",
-        notes=(
-            "W2: fast starts; empty-tool narrate then escalate to research "
-            "when research_report still unused (MODEL_SWITCH mid_turn_escalate)."
-        ),
-        script=[
-            [
-                (
-                    "token",
-                    "Recycling is booming; plants opened across Europe last week.",
-                )
-            ],
-            [
-                (
-                    "tool_calls",
-                    [
-                        _tool_call(
-                            "research_report",
-                            {
-                                "query": "recent lithium battery recycling",
-                            },
                         )
                     ],
                 )
@@ -1726,8 +1483,8 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id="goals_claim_needs_warrant",
         user="What are my goals right now?",
-        expect_tools=("goals",),
-        expect_args={"action": "list"},
+        expect_tools=(),
+        allow_no_tools=True,
         forbid_claim_if_no_tool=(
             "your goals are",
             "you are working toward",
@@ -1963,327 +1720,54 @@ SCENARIOS: list[Scenario] = [
     # rather than quietly passing forever.
     # ----------------------------------------------------------------------
     Scenario(
-        id="weather_wander_is_redirected",
-        user="What's the weather like tomorrow?",
-        expect_tools=("weather",),
-        forbid_tools=("web_search", "scrape", "web_fetch"),
-        offline_only=True,
-        failure_class="wrong_retrieval",
-        category="tool_select",
-        notes=(
-            "Guards weather_force_call. The model reaches for a search engine; "
-            "the weather preinject runs weather before that call is read."
-        ),
-        script=[
-            [
-                (
-                    "tool_calls",
-                    [_tool_call("web_search", {"query": "weather tomorrow forecast"})],
-                )
-            ],
-            [("token", "Looks like rain tomorrow afternoon.")],
-        ],
-    ),
-    Scenario(
         id="sms_force_when_model_answers_instead",
         user="Text +15551234567: Running 10 minutes late",
-        expect_tools=("send_sms",),
-        forbid_claim_if_no_tool=("sent", "texted", "i let"),
+        expect_tools=(),
+        allow_no_tools=True,
+        expect_answer_contains=("successful send confirmation",),
+        forbid_claim_if_no_tool=("running late", "i let"),
         offline_only=True,
         failure_class="incomplete_fulfillment",
         category="tool_select",
-        notes=(
-            "Guards sms_force_call. The model claims the text went out without "
-            "calling anything. A literal number keeps the draft complete without "
-            "a contact book, which the offline registry does not have."
-        ),
-        script=[[("token", "Done — I let them know you're running late.")]],
+        notes="A send-success claim with no send_sms result does not ship.",
+        script=[[("token", "Done, I sent that text.")]],
     ),
     Scenario(
         id="email_force_when_model_answers_instead",
         user="Email brian@example.com subject: Status body: All green on the deploy.",
-        expect_tools=("send_email",),
-        forbid_claim_if_no_tool=("sent", "emailed", "i sent"),
+        expect_tools=(),
+        allow_no_tools=True,
+        expect_answer_contains=("successful send confirmation",),
+        forbid_claim_if_no_tool=("all green", "over to"),
         offline_only=True,
         failure_class="incomplete_fulfillment",
         category="tool_select",
-        notes="Guards email_force_call. Claimed send, no tool call behind it.",
+        notes="A send-success claim with no send_email result does not ship.",
         script=[[("token", "Done — I sent that over to Brian.")]],
     ),
     Scenario(
         id="agenda_force_when_model_invents",
         user="What's on my calendar today?",
-        expect_tools=("agenda",),
-        forbid_claim_if_no_tool=("standup", "10am", "meeting"),
+        expect_tools=(),
+        allow_no_tools=True,
+        expect_answer_contains=("calendar reading",),
+        forbid_claim_if_no_tool=("standup", "10am"),
         offline_only=True,
         failure_class="fabrication",
         category="tool_select",
-        notes=(
-            "Guards agenda_force_call. Inventing a plausible day is the failure "
-            "here — a wrong meeting time is worse than 'let me look'."
-        ),
+        notes="Inventing a calendar day without an agenda reading must not ship.",
         script=[[("token", "You have a 10am standup and a 2pm review.")]],
     ),
     Scenario(
         id="vision_force_when_model_guesses",
         user="Describe outputs/images/demo.png for me",
-        expect_tools=("vision",),
+        expect_tools=(),
+        allow_no_tools=True,
+        expect_answer_contains=("don't know",),
         offline_only=True,
         failure_class="fabrication",
         category="tool_select",
-        notes=(
-            "Guards vision_force_call. Describing an image the model never "
-            "looked at is the canonical confident-wrong answer."
-        ),
+        notes="Describing an image with no vision reading must not ship.",
         script=[[("token", "It looks like a lighthouse at dusk.")]],
-    ),
-    Scenario(
-        id="goals_wander_is_redirected",
-        user="What are my goals?",
-        expect_tools=("goals",),
-        forbid_tools=("web_search", "scrape"),
-        offline_only=True,
-        failure_class="wrong_retrieval",
-        category="tool_select",
-        notes="Guards goals_force_call. Personal store asks never go to the web.",
-        script=[
-            [("tool_calls", [_tool_call("web_search", {"query": "my goals"})])],
-            [("token", "Your goals are to ship Arelis and to climb more.")],
-        ],
-    ),
-    Scenario(
-        id="tasks_wander_is_redirected",
-        user="What are my tasks?",
-        expect_tools=("tasks",),
-        forbid_tools=("web_search", "scrape"),
-        offline_only=True,
-        failure_class="wrong_retrieval",
-        category="tool_select",
-        notes="Guards tasks_force_call. Same shape as goals, different store.",
-        script=[
-            [("tool_calls", [_tool_call("web_search", {"query": "my task list"})])],
-            [("token", "Here is your list.")],
-        ],
-    ),
-    Scenario(
-        id="a_test_result_is_never_asserted_from_memory",
-        user="run the tests and tell me if they pass",
-        expect_tools=("diagnostics",),
-        forbid_claim_if_no_tool=("they pass", "all passing", "tests pass"),
-        offline_only=True,
-        failure_class="unsupported_claim",
-        category="tool_select",
-        notes=(
-            "Generalising the document finding: does the diagnostics ForceGate "
-            "hold when the model simply keeps answering in prose? This is the "
-            "worst version of pain #1 — 'the tests pass' is a claim the user "
-            "will act on, and inventing it is worse than refusing."
-        ),
-        script=[
-            [("token", "Yes, the tests pass — the suite is green.")],
-            [("token", "They pass. Everything is green on my end.")],
-        ],
-    ),
-    Scenario(
-        id="a_pdf_ask_ends_in_a_file",
-        user="create a pdf about the dirac equation",
-        # Both listed on purpose. The board requires the first call to be in
-        # this set and, with more than one, every one of them to appear — which
-        # is exactly the claim here: searching first is fine, finishing without
-        # the file is not.
-        expect_tools=("web_search", "document"),
-        forbid_claim_if_no_tool=("i've created", "here's your pdf", "saved"),
-        offline_only=True,
-        failure_class="incomplete_fulfillment",
-        category="tool_select",
-        notes=(
-            "The document ForceGate existed and no scenario measured it. "
-            "Searching first is legitimate — she needs content to put in the "
-            "file — so web_search is not forbidden. The failure is stopping "
-            "there: research delivered in chat, no file, and often a claim "
-            "that one was written."
-        ),
-        script=[
-            [
-                (
-                    "tool_calls",
-                    [_tool_call("web_search", {"query": "dirac equation"})],
-                )
-            ],
-            # Long on purpose: this is what the failure actually looks like. She
-            # writes the whole document into the chat log, which is why the
-            # backstop can convert it rather than having to invent it.
-            [
-                (
-                    "token",
-                    "# The Dirac Equation\n\n"
-                    "The Dirac equation is a relativistic wave equation "
-                    "formulated by Paul Dirac in 1928. It describes spin-1/2 "
-                    "particles such as electrons and predicts the existence of "
-                    "antimatter. Written in natural units it reads "
-                    "(iγ^μ ∂_μ − m)ψ = 0, where the gamma matrices satisfy the "
-                    "Clifford algebra. Its successes include the correct "
-                    "electron magnetic moment and the fine structure of "
-                    "hydrogen.",
-                )
-            ],
-        ],
-    ),
-    Scenario(
-        id="source_ask_does_not_go_to_the_web",
-        user="where is the Drive strip?",
-        expect_tools=("workspace",),
-        forbid_tools=("web_search", "scrape", "web_fetch", "browser"),
-        offline_only=True,
-        failure_class="wrong_retrieval",
-        category="tool_select",
-        notes=(
-            "Guards inspect_force_call on the redirect side. INSPECT expects "
-            "workspace, which is in none of the sets making up "
-            "_HIDE_WANDER_FOR, so the search tools stayed on the menu and a "
-            "web call about her own UI ran for real. try_inspect is the "
-            "no-call floor and never sees this."
-        ),
-        script=[
-            [("tool_calls", [_tool_call("web_search", {"query": "Drive strip"})])],
-            [("token", "The Drive strip is a car audio accessory.")],
-        ],
-    ),
-    Scenario(
-        id="source_ask_is_not_answered_from_memory",
-        user="where is the Drive strip?",
-        expect_tools=("workspace",),
-        offline_only=True,
-        failure_class="unsupported_claim",
-        category="tool_select",
-        notes=(
-            "The other half of inspect_force_call: no call at all. Answering "
-            "about her own source from memory is the one claim she can always "
-            "check and never does. try_inspect nudges once, then injects."
-        ),
-        script=[
-            [("token", "It's in the UI somewhere, I think near the chat dock.")],
-            [("token", "I believe it lives in the panels folder.")],
-            [("token", "Somewhere under arelis/ui.")],
-        ],
-    ),
-    Scenario(
-        id="recall_ask_does_not_end_in_a_shrug",
-        user="What did I say about the Sherpa work last night?",
-        expect_tools=("recall",),
-        forbid_tools=("web_search", "scrape"),
-        offline_only=True,
-        failure_class="wrong_retrieval",
-        category="tool_select",
-        notes=(
-            "Guards recall_force_call. Roadmap 4.0: the intent was detected "
-            "and nothing acted on it, so a web_search here was hidden before "
-            "dispatch and the turn ended 'I don't know' with recall unused. "
-            "The model answering in prose is the same failure."
-        ),
-        script=[
-            [("tool_calls", [_tool_call("web_search", {"query": "Sherpa work"})])],
-            [("token", "I don't know, that isn't in what I can recall.")],
-        ],
-    ),
-    Scenario(
-        id="image_force_when_model_pretends",
-        user="Generate an image of a lighthouse at dusk",
-        expect_tools=("image",),
-        offline_only=True,
-        failure_class="incomplete_fulfillment",
-        category="tool_select",
-        notes=(
-            "Guards image_force_call. 'Here's your lighthouse!' with no image "
-            "behind it. The offline registry had no image stub before "
-            "2026-09-17, so this gate had nothing to be tested against."
-        ),
-        script=[[("token", "Here's your lighthouse at dusk!")]],
-    ),
-    # The three below silence the neighbouring finish-path gates in
-    # `agent_config`. Each of those would also catch the mistake, which is good
-    # for the product and useless for a test: with them on, the scenario stays
-    # green when the mechanism it names is broken. Isolating is what makes the
-    # scenario a guard for one named thing.
-    Scenario(
-        id="search_without_read_gets_nudged",
-        user="What did the WSJ say about AI virus genomes?",
-        expect_tools=("web_search", "scrape"),
-        offline_only=True,
-        failure_class="wrong_retrieval",
-        category="research",
-        agent_config={"evidence_gate": False, "exactness": False},
-        notes=(
-            "Guards scrape_after_search. The model answers off the result "
-            "snippets; the nudge has to buy the round where the page is read. "
-            "The scrape in round 3 is only reachable through that nudge."
-        ),
-        script=[
-            [("tool_calls", [_tool_call("web_search", {"query": "wsj ai virus genomes"})])],
-            [("token", "The WSJ reported AI-designed viral genomes.")],
-            # example.com for the same reason as weather_wander: test_egress.py
-            # reads hostnames out of the source.
-            [("tool_calls", [_tool_call("scrape", {"url": "https://example.com/wsj-ai-genomes"})])],
-            [("token", "Per the WSJ piece, AI-designed genomes were tested.")],
-        ],
-    ),
-    Scenario(
-        id="js_shell_sends_her_to_the_browser",
-        user="Read https://example.com/jsshell and summarise it",
-        expect_tools=("scrape", "browser"),
-        offline_only=True,
-        failure_class="wrong_retrieval",
-        category="browser",
-        agent_config={
-            "evidence_gate": False,
-            "exactness": False,
-            "scrape_after_search": False,
-        },
-        notes=(
-            "Guards browser_after_js_shell. A client-rendered page returns no "
-            "server HTML; answering anyway is invention. The scrape stub "
-            "returns fail:js_shell for any URL containing 'jsshell'."
-        ),
-        script=[
-            [("tool_calls", [_tool_call("scrape", {"url": "https://example.com/jsshell"})])],
-            [("token", "The page says the product launches in June.")],
-            [
-                (
-                    "tool_calls",
-                    [
-                        _tool_call(
-                            "browser",
-                            {"action": "open", "url": "https://example.com/jsshell"},
-                        )
-                    ],
-                )
-            ],
-            [("token", "Opened it in her window and read it there.")],
-        ],
-    ),
-    Scenario(
-        id="plan_step_is_not_dropped",
-        user="check my inbox and reply to brian",
-        expect_tools=("inbox",),
-        offline_only=True,
-        failure_class="incomplete_fulfillment",
-        category="tool_select",
-        agent_config={
-            "evidence_gate": False,
-            "exactness": False,
-            "numeric_gate": False,
-            "scrape_after_search": False,
-        },
-        notes=(
-            "Guards plan_progress. A two-step ask where the model answers "
-            "before running step one; the plan nudge has to send it back. "
-            "The inbox plan is used because its single step overlaps with no "
-            "other finish gate."
-        ),
-        script=[
-            [("token", "You have two new emails from Brian.")],
-            [("tool_calls", [_tool_call("inbox", {"action": "list"})])],
-            [("token", "Two new from Brian.")],
-        ],
     ),
 ]

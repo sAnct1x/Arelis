@@ -106,7 +106,20 @@ async def test_mars_year_empty_after_calc_is_plain_language() -> None:
     ask = "how long is a year on Mars?"
     router = _ScriptedRouter(
         [
-            [("token", "")],
+            [
+                (
+                    "tool_calls",
+                    [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "calculator",
+                                "arguments": {"expression": ask},
+                            },
+                        }
+                    ],
+                )
+            ],
             [("token", "")],
             [("token", "")],
             [("token", "")],
@@ -188,6 +201,20 @@ async def test_empty_once_then_summarize_sentence_ships() -> None:
     good = "A year on Mars is about 1.88 Earth years."
     router = _ScriptedRouter(
         [
+            [
+                (
+                    "tool_calls",
+                    [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "calculator",
+                                "arguments": {"expression": ask},
+                            },
+                        }
+                    ],
+                )
+            ],
             [("token", "")],
             [("token", good)],
         ]

@@ -124,18 +124,10 @@ def test_desk_look_rewrites_snapshot_to_screenshot() -> None:
     assert named == [("desktop", {"action": "snapshot"})]
 
 
-def test_fill_round_calls_rewrites_desk_snapshot() -> None:
-    from types import SimpleNamespace
+def test_desktop_snapshot_ask_rewrites_to_screenshot() -> None:
+    from arelis.core.preflight import rewrite_desktop_calls
 
-    from arelis.core.turn_dispatch import fill_round_calls
-
-    loop = SimpleNamespace(
-        tools=SimpleNamespace(get=lambda _name: None),
-        memory=SimpleNamespace(messages=[]),
-        _receipts=[],
-    )
-    filled = fill_round_calls(
-        loop,
+    filled = rewrite_desktop_calls(
         [("desktop", {"action": "snapshot"})],
         text="screenshot my primary monitor",
     )

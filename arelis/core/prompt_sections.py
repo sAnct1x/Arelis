@@ -4,21 +4,8 @@ from typing import Any
 
 from arelis.contacts import contacts_prompt_line
 from arelis.core.agent_loop import _wants_project_context, now_line, theme_line
-from arelis.core.compensation import regex_routing
 from arelis.core.episodes import episodes_prompt_line
-from arelis.core.intent_catalog import data_cell_enabled
 from arelis.core.lessons import format_lessons, select_lessons
-from arelis.core.native_tool_calling import native_tool_calling
-from arelis.core.plan_nudge import select_plan
-from arelis.core.preflight import detect_intents, preflight_system_message
-from arelis.core.sms_complete import (
-    looks_like_contacts_followup,
-    looks_like_contacts_utterance,
-    looks_like_goals_utterance,
-    looks_like_memory_utterance,
-    looks_like_tasks_utterance,
-    sms_intent_this_turn,
-)
 from arelis.core.world_state import world_state_prompt_line
 from arelis.memory.store import MemoryStore
 from arelis.profile import standing_profile_prompt_line
@@ -56,61 +43,10 @@ def append_preflight_guidance(
     *,
     see_no_sms_redirect: set[str] | frozenset[str],
 ) -> list[str]:
-    """Append deterministic intent guidance and settle expected tool names."""
-    preflight_kinds: list[str] = []
-    # NASA fact pins are not routing: they stay on even when native tool
-    # calling skips the regex intent layer below.
+    """Pin NASA facts. Tool choice is the model's, from the schemas it was given."""
+    del loop, agent_cfg, see_no_sms_redirect
     append_nasa_fact_guidance(messages, text)
-    # native_tool_calling, or regex_routing false, skips the intent layer.
-    # NASA fact pins above stay. Native schema hints are not turned on here.
-    if native_tool_calling(agent_cfg) or not regex_routing(agent_cfg):
-        return preflight_kinds
-    if not bool(agent_cfg.get("intent_preflight", True)):
-        return preflight_kinds
-
-    tools = getattr(loop, "tools", None)
-    if tools is None:
-        offer_data_cell = None
-    else:
-        offer_data_cell = data_cell_enabled() and "data_cell" in tools.names()
-    intent_hints = detect_intents(
-        text,
-        history=loop.memory.messages,
-        offer_data_cell=offer_data_cell,
-    )
-    preflight_kinds = [hint.kind for hint in intent_hints]
-    for hint in intent_hints:
-        loop._expected_tools.update(hint.expected_tools)
-    if looks_like_memory_utterance(text):
-        loop._expected_tools.add("memory")
-    if looks_like_contacts_utterance(text) or looks_like_contacts_followup(
-        text, loop.memory.messages
-    ):
-        loop._expected_tools.add("contacts")
-    if looks_like_tasks_utterance(text):
-        loop._expected_tools.add("tasks")
-    if looks_like_goals_utterance(text):
-        loop._expected_tools.add("goals")
-    if loop._expected_tools & see_no_sms_redirect and not sms_intent_this_turn(text):
-        loop._expected_tools.discard("send_sms")
-    if "image_edit" in loop._expected_tools:
-        loop._expected_tools.discard("image")
-    if "schedule" in loop._expected_tools:
-        loop._expected_tools.discard("send_email")
-        loop._expected_tools.discard("weather")
-    if "browser" in loop._expected_tools:
-        loop._expected_tools.discard("web_search")
-
-    nudge = preflight_system_message(text, history=loop.memory.messages)
-    if nudge:
-        messages.append({"role": "system", "content": nudge})
-        if loop._timer is not None and preflight_kinds:
-            loop._timer.mark(
-                "preflight",
-                kinds=",".join(preflight_kinds),
-                expected=",".join(sorted(loop._expected_tools)) or "-",
-            )
-    return preflight_kinds
+    return []
 
 
 def append_turn_goal(
@@ -147,28 +83,6 @@ def append_turn_goal(
             dropped=",".join(dropped_for_goal) or "-",
         )
     return turn_goal
-
-
-def choose_active_plan(
-    text: str,
-    *,
-    preflight_kinds: list[str],
-    plan_ids: list[str] | tuple[()],
-    available_all: set[str],
-) -> Any:
-    """Choose a usable plan without yet changing the assembled prompt."""
-    active_plan = select_plan(
-        text,
-        preflight_kinds=preflight_kinds,
-        skill_ids=plan_ids,
-    )
-    if (
-        active_plan is not None
-        and active_plan.steps
-        and not any(step in available_all for step in active_plan.steps)
-    ):
-        active_plan = None
-    return active_plan
 
 
 def append_plan_and_lessons(

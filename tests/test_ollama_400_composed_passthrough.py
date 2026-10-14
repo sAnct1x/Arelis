@@ -16,7 +16,7 @@ from tests.hardening_helpers import _collect, _config, _deny, _ScriptedRouter
 
 
 class _CalcThen400(_ScriptedRouter):
-    """Calculator preinject runs; first model stream raises an Ollama object 400."""
+    """First stream calls calculator. The next stream is an Ollama object 400."""
 
     def __init__(self) -> None:
         super().__init__([[]])
@@ -25,8 +25,21 @@ class _CalcThen400(_ScriptedRouter):
     async def stream(self, role, messages, **kwargs: Any):
         del role, messages, kwargs
         self.calls += 1
+        if self.calls == 1:
+            yield (
+                "tool_calls",
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "calculator",
+                            "arguments": {"expression": "how long is a year on Mars?"},
+                        },
+                    }
+                ],
+            )
+            return
         raise RuntimeError("Ollama returned HTTP 400 for model `mock`: closing '}'")
-        yield  # pragma: no cover
 
 
 @pytest.mark.asyncio
@@ -54,7 +67,7 @@ async def test_ollama_400_after_calc_does_not_mark_composed_as_passthrough() -> 
     text = done.payload["text"]
     assert "1.88" in text
     assert "Earth years" in text
-    assert router.calls == 1
+    assert router.calls == 2
     assistant = [m for m in loop.memory.messages if m.role == "assistant"]
     assert assistant
     note = assistant[-1].note or ""

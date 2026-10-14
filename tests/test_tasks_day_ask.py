@@ -24,9 +24,7 @@ from __future__ import annotations
 
 import pytest
 
-from arelis.core.no_call_steps import try_tasks
 from arelis.core.sms_complete import looks_like_tasks_utterance
-from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
 
 
 @pytest.mark.parametrize(
@@ -87,23 +85,3 @@ def test_an_sms_body_is_not_mistaken_for_a_to_do_ask() -> None:
         "send Sam a message saying what do I need to bring"
     )
 
-
-@pytest.mark.asyncio
-async def test_the_day_ask_now_reaches_the_tasks_backstop() -> None:
-    """Recognising it is only half the fix; the inject has to fire."""
-    loop = _FakeLoop()
-    text = "What do I have to do today?"
-    r = _scratch(
-        text=text,
-        content="You've got a few things on.",
-        tool_names={"tasks"},
-        available={"tasks"},
-        visible={"tasks"},
-        available_all={"tasks"},
-    )
-    ctx = _ctx(text=text)
-    ctx.tool_names = {"tasks"}
-
-    assert await try_tasks(loop, ctx, r) != "skip"
-    assert r.calls, "she answered about the user's day without reading it"
-    assert r.calls[0][0] == "tasks"

@@ -7,8 +7,6 @@ is what chat shows.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from arelis.core.compact_prompt import skinny_description
@@ -68,31 +66,6 @@ def test_distance_call_drops_a_made_up_date_and_odd_query() -> None:
     assert args["action"] == "horizons"
     assert args["target"] == "Mars"
     assert args["table"] == "observer"
-    assert "date" not in args
-    assert "query" not in args
-
-
-def test_fill_round_calls_drops_the_made_up_horizons_date() -> None:
-    from arelis.core.turn_dispatch import fill_round_calls
-
-    loop = SimpleNamespace(tools=_Tools(), memory=None, _receipts=None)
-    filled = fill_round_calls(
-        loop,
-        [
-            (
-                "catalog",
-                {
-                    "action": "horizons",
-                    "target": "Mars",
-                    "date": "2026-11-04",
-                    "query": "closest approach",
-                },
-            )
-        ],
-        text="how far is Mars and when is it closest",
-    )
-    args = filled[0][1]
-    assert args["target"] == "Mars"
     assert "date" not in args
     assert "query" not in args
 

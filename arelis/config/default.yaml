@@ -150,22 +150,11 @@ agent:
   chat_fast_path: false
   # Tool-bearing model rounds: lower temperature to cut preamble decode bloat.
   tool_round_temperature: 0.1
-  # Deterministic nudges for clear weather / SMS intents. Never skips Allow.
+  # Older local configs may still set this. It does not choose a tool.
   intent_preflight: true
-  # EXPERIMENT: Disable regex/intent routing layer so models use native tool
-  # calling instead. When true, skips regex-based intent detection and preflight
-  # nudges that shortcut tool selection. Safety gates (SMS/email bans,
-  # confirm-before-write) stay active. Default false = current qwen3.5:9b
-  # tuned behavior (regex routing ON). Set true for models with strong native
-  # tool calling (Qwen3 30B-A3B, Qwen3.6-27B+) to avoid regex layer fighting
-  # native selection. See docs/models.md.
+  # When true, a few parameter hints and the named-tools nudge are on.
+  # The model still chooses the tool. Confirm cards and send locks stay on.
   native_tool_calling: false
-  # Separate from native_tool_calling. True is today's regex and keyword
-  # routing. False skips those paths so the model picks tools itself.
-  # Schema hints, native argument blocks, and the native tools-owed nudge
-  # stay on native_tool_calling only.
-  compensation:
-    regex_routing: true
   # off, tail, or front. tail is the mode used when turned on.
   # Quoted: an unquoted off is YAML boolean false.
   tool_loading: "off"
@@ -174,46 +163,21 @@ agent:
   # At UI/CLI start, mine logs/turns.log and append curated lessons by signature.
   # Fail soft; never invents free-form text (fixed catalog only).
   auto_lessons: true
-  # If she searched for news/current events but never scraped, nudge once.
+  # Leftover switches. Nothing in the turn reads them, and they do not
+  # choose a tool, nudge, or inject a call. Kept so an older config.local.yaml
+  # that still sets them loads. Confirm cards and send locks are separate.
   scrape_after_search: true
-  # If scrape or web_fetch hit a JavaScript shell, nudge once to open that URL
-  # in her window. Allow still gates the first browser call. Never injects.
   browser_after_js_shell: true
-  # Mid-turn: if a multi-step Plan ran early tools but skipped a later step,
-  # nudge once (e.g. tasks→agenda). Does not call tools or skip Allow.
   plan_progress: true
-  # If to+body are known but she never called send_sms, nudge once (Allow still).
   sms_force_call: true
-  # When to+body are already known, raise the Allow card before the first model
-  # round instead of after it. Tool rounds hold the answer back, so a spoken
-  # "text my wife …" showed an empty thread until the 7B decided, which read as
-  # hung and got Esc'd. Allow is still the only thing that sends.
   sms_preinject: true
-  # Same for email when subject+body are known (Allow still).
   email_force_call: true
-  # Calendar create draft known but she never called agenda (often chats steps
-  # or falsely picks send_sms / web_search for "reminder to text …").
   agenda_force_call: true
-  # Image-gen ask clear but she never called image (often picks web_search).
   image_force_call: true
-  # A task/goal ask that produced no store call gets the call injected. These two
-  # already reported themselves to telemetry as the tasks_force and goals_force
-  # gates, next to five siblings that each had a switch, but they had none: they
-  # were unconditional, so "measure the board with the store forcing off" was a
-  # question the config could not express. Both default on, so nothing moves.
   tasks_force_call: true
   goals_force_call: true
-  # The three below were read from config but never listed here, so they were on
-  # and looked like they were not. Each is a real switch.
-  #
-  # A weather ask that produced no weather call gets one nudge, then a redirect
-  # if she reaches for web_search/scrape/fetch instead.
   weather_force_call: true
-  # An ask about an image she can see, where vision never ran: inject it against
-  # the most recent generated image.
   vision_force_call: true
-  # After a browser CDP failure, tell her once that "open" is a plain OS open and
-  # relaunch is the Allow-gated one, so she does not retry the dead path.
   browser_relaunch_force: true
   # An argument the tool never declared is dropped in silence, because tools take
   # **kwargs and read only the keys they know. The reply is then built on a belief

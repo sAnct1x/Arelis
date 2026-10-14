@@ -661,3 +661,88 @@ async def test_scripted_send_sms_confirms_when_send_toggle_off() -> None:
         except asyncio.CancelledError:
             pass
     assert confirms == ["send_sms"]
+
+
+@pytest.mark.asyncio
+async def test_model_send_sms_still_confirms_and_locks_the_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The model calls send_sms. Allow still shows, and the body is the user's."""
+    from arelis.contacts import Contact, normalize_phone
+
+    phone = "5551112222"
+    book = {
+        "brian": Contact(
+            alias="brian",
+            name="Brian",
+            phone=phone,
+            digits=normalize_phone(phone),
+            aliases=("brian",),
+        )
+    }
+    monkeypatch.setattr("arelis.core.sms_complete.load_contacts", lambda: book)
+    apply_theme("sodium")
+    confirms: list[dict] = []
+
+    async def _keep(_cid: str, name: str, args: dict, _summary: str) -> str:
+        confirms.append({"tool": name, "args": dict(args or {})})
+        return "allow"
+
+    full = foundation_registry()
+    tools = ToolRegistry()
+    sms = full.get("send_sms")
+    assert sms is not None
+    tools.register(sms)
+    script = [
+        [
+            (
+                "tool_calls",
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "send_sms",
+                            "arguments": {"to": "brian", "body": "WRONG"},
+                        },
+                    }
+                ],
+            )
+        ],
+        [("token", "sent.")],
+    ]
+    bus = EventBus()
+    loop = AgentLoop(
+        bus,
+        _ScriptedRouter(script),
+        tools,
+        SessionMemory(),
+        persona="You are Arelis under eval.",
+        config={
+            "agent": {
+                "max_rounds": 4,
+                "exactness": True,
+                "numeric_gate": True,
+                "evidence_gate": True,
+                "chat_fast_path": False,
+            },
+            "ollama": {"num_ctx": shipped_num_ctx()},
+        },
+        request_confirm=_keep,
+        is_cancelled=lambda: False,
+    )
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await loop.run("Text Brian: Running late", "fast", source="eval")
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+        try:
+            await bus_task
+        except asyncio.CancelledError:
+            pass
+    assert confirms
+    assert confirms[0]["tool"] == "send_sms"
+    body = str(confirms[0]["args"].get("body") or "")
+    assert "WRONG" not in body
+    assert "late" in body.lower()

@@ -26,10 +26,8 @@ _ASK = (
     "then write a markdown document."
 )
 _MODES = [
-    pytest.param(True, False, id="routing-on-native-off"),
-    pytest.param(False, False, id="routing-off-native-off"),
-    pytest.param(True, True, id="routing-on-native-on"),
-    pytest.param(False, True, id="routing-off-native-on"),
+    pytest.param(False, id="native-off"),
+    pytest.param(True, id="native-on"),
 ]
 
 
@@ -205,7 +203,6 @@ def _loop(
     router: _ScriptedRouter,
     tools: ToolRegistry,
     *,
-    regex_routing: bool,
     native: bool,
 ) -> tuple[EventBus, AgentLoop]:
     bus = EventBus()
@@ -214,7 +211,6 @@ def _loop(
     cfg["agent"]["max_rounds"] = 6
     cfg["agent"]["intent_preflight"] = False
     cfg["agent"]["native_tool_calling"] = native
-    cfg["agent"]["compensation"] = {"regex_routing": regex_routing}
     loop = AgentLoop(
         bus,
         router,  # type: ignore[arg-type]
@@ -246,9 +242,9 @@ _DOC = {"title": "Squares", "body": "1, 4, 9, 16, 25, 36, 49, 64", "format": "md
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("regex_routing", "native"), _MODES)
+@pytest.mark.parametrize("native", _MODES)
 async def test_real_matplotlib_refusal_gets_one_plot_round(
-    regex_routing: bool, native: bool
+    native: bool
 ) -> None:
     rec = _Rec()
     router = _ScriptedRouter(
@@ -262,7 +258,6 @@ async def test_real_matplotlib_refusal_gets_one_plot_round(
     bus, loop = _loop(
         router,
         _tools(rec, _RealPython(rec)),
-        regex_routing=regex_routing,
         native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
@@ -273,9 +268,9 @@ async def test_real_matplotlib_refusal_gets_one_plot_round(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("regex_routing", "native"), _MODES)
+@pytest.mark.parametrize("native", _MODES)
 async def test_refusal_then_python_redo_then_plot(
-    regex_routing: bool, native: bool
+    native: bool
 ) -> None:
     """A python call that returns data keeps plot owed, so plot still runs."""
     rec = _Rec()
@@ -291,7 +286,6 @@ async def test_refusal_then_python_redo_then_plot(
     bus, loop = _loop(
         router,
         _tools(rec, _PythonSteps(rec, [_refusal(words=True), _redo()])),
-        regex_routing=regex_routing,
         native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
@@ -304,9 +298,9 @@ async def test_refusal_then_python_redo_then_plot(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("regex_routing", "native"), _MODES)
+@pytest.mark.parametrize("native", _MODES)
 async def test_chart_words_without_the_marker_do_not_stop_the_turn(
-    regex_routing: bool, native: bool
+    native: bool
 ) -> None:
     rec = _Rec()
     router = _ScriptedRouter(
@@ -319,7 +313,6 @@ async def test_chart_words_without_the_marker_do_not_stop_the_turn(
     bus, loop = _loop(
         router,
         _tools(rec, _Python(rec, marker=False, words=True)),
-        regex_routing=regex_routing,
         native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
@@ -328,9 +321,9 @@ async def test_chart_words_without_the_marker_do_not_stop_the_turn(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("regex_routing", "native"), _MODES)
+@pytest.mark.parametrize("native", _MODES)
 async def test_no_extra_round_when_plot_was_already_tried(
-    regex_routing: bool, native: bool
+    native: bool
 ) -> None:
     rec = _Rec()
     router = _ScriptedRouter(
@@ -345,7 +338,6 @@ async def test_no_extra_round_when_plot_was_already_tried(
     bus, loop = _loop(
         router,
         _tools(rec, _Python(rec, marker=True, words=False), plot_ok=False),
-        regex_routing=regex_routing,
         native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
@@ -355,9 +347,9 @@ async def test_no_extra_round_when_plot_was_already_tried(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("regex_routing", "native"), _MODES)
+@pytest.mark.parametrize("native", _MODES)
 async def test_two_data_redos_spend_the_cap_before_plot(
-    regex_routing: bool, native: bool
+    native: bool
 ) -> None:
     """Two python calls that return data use the cap. Plot does not get a third."""
     rec = _Rec()
@@ -373,7 +365,6 @@ async def test_two_data_redos_spend_the_cap_before_plot(
     bus, loop = _loop(
         router,
         _tools(rec, _PythonSteps(rec, [_refusal(words=True), _redo(), _redo()])),
-        regex_routing=regex_routing,
         native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
@@ -383,9 +374,9 @@ async def test_two_data_redos_spend_the_cap_before_plot(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("regex_routing", "native"), _MODES)
+@pytest.mark.parametrize("native", _MODES)
 async def test_python_redo_without_data_ends_before_plot(
-    regex_routing: bool, native: bool
+    native: bool
 ) -> None:
     """A later python call with no result data ends the owed plot."""
     rec = _Rec()
@@ -400,7 +391,6 @@ async def test_python_redo_without_data_ends_before_plot(
     bus, loop = _loop(
         router,
         _tools(rec, _PythonSteps(rec, [_refusal(words=True), _no_data()])),
-        regex_routing=regex_routing,
         native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
@@ -413,9 +403,9 @@ async def test_python_redo_without_data_ends_before_plot(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("regex_routing", "native"), _MODES)
+@pytest.mark.parametrize("native", _MODES)
 async def test_only_one_extra_round_when_plot_is_not_called(
-    regex_routing: bool, native: bool
+    native: bool
 ) -> None:
     rec = _Rec()
     router = _ScriptedRouter(
@@ -429,7 +419,6 @@ async def test_only_one_extra_round_when_plot_is_not_called(
     bus, loop = _loop(
         router,
         _tools(rec, _Python(rec, marker=True, words=True)),
-        regex_routing=regex_routing,
         native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
@@ -439,9 +428,9 @@ async def test_only_one_extra_round_when_plot_is_not_called(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("regex_routing", "native"), _MODES)
+@pytest.mark.parametrize("native", _MODES)
 async def test_failed_plot_on_the_extra_round_ends_the_turn(
-    regex_routing: bool, native: bool
+    native: bool
 ) -> None:
     rec = _Rec()
     router = _ScriptedRouter(
@@ -455,7 +444,6 @@ async def test_failed_plot_on_the_extra_round_ends_the_turn(
     bus, loop = _loop(
         router,
         _tools(rec, _Python(rec, marker=True, words=True), plot_ok=False),
-        regex_routing=regex_routing,
         native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))

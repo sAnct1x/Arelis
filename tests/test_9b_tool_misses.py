@@ -105,7 +105,7 @@ def test_speed_of_light_followup_states_the_number() -> None:
     assert "could not put it into words" not in line.lower()
 
 
-def test_profile_city_ask_does_not_offer_the_planet(tmp_path: Path) -> None:
+def test_profile_city_ask_still_offers_the_tools(tmp_path: Path) -> None:
     del tmp_path
     visible = {"earth", "browser", "user_location", "weather", "web_search", "memory"}
     loop = SimpleNamespace(
@@ -120,8 +120,8 @@ def test_profile_city_ask_does_not_offer_the_planet(tmp_path: Path) -> None:
         available_all=set(visible),
     )
     assert "user_location" in offered
-    assert "earth" not in offered
-    assert "browser" not in offered
+    assert "earth" in offered
+    assert "browser" in offered
 
 
 def test_git_log_uses_the_only_repo_one_folder_down(tmp_path: Path) -> None:
