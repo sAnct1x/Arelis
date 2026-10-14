@@ -16,6 +16,7 @@ from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.events import EventType
 from arelis.core.evidence import EvidenceLedger
+from arelis.core.loop_helpers import declined_finish_reply
 from arelis.core.memory import SessionMemory
 from arelis.core.turn_confirm import SKIP, confirm_call
 from arelis.core.turn_context import TurnContext
@@ -23,10 +24,12 @@ from arelis.tools.base import ToolRegistry, ToolResult
 from tests.hardening_helpers import _collect, _config, _ScriptedRouter
 
 _MEMORY_LINE = "The value was not saved because the save was skipped."
+_SEND_LINE = "The message was not sent because the send was skipped."
 _WRITE_LINE = (
     "I did not write work/sq2.py because the write was skipped, "
     "so I could not run it."
 )
+_WRITE_ONLY_LINE = "I did not write work/note.txt because the write was skipped."
 _EXTRACT = "Project codename: falcon-77"
 _EXTRACT_ANSWER = "The project codename is falcon-77."
 
@@ -451,3 +454,135 @@ async def test_empty_extract_ships_raw_text_when_the_writeup_is_empty() -> None:
         "answering from result"
     )
     assert "falcon-77" in text
+
+
+def test_skipped_memory_save_has_no_could_not_run_clause() -> None:
+    """A declined remember names the skipped save and nothing about a run."""
+    text = declined_finish_reply(
+        {"memory"},
+        [("memory", {"action": "remember", "fact": "12*12 is 144"})],
+    )
+    assert text == _MEMORY_LINE
+    assert "could not run" not in text
+
+
+def test_skipped_sms_has_no_could_not_run_clause() -> None:
+    """A declined text says the send was skipped, not that a script could not run."""
+    text = declined_finish_reply(
+        {"send_sms"},
+        [("send_sms", {})],
+    )
+    assert text == _SEND_LINE
+    assert "could not run" not in text
+
+
+def test_skipped_email_has_no_could_not_run_clause() -> None:
+    """A declined email uses the same send line, with no run clause."""
+    text = declined_finish_reply(
+        {"send_email"},
+        [("send_email", {})],
+    )
+    assert text == _SEND_LINE
+    assert "could not run" not in text
+
+
+def test_skipped_workspace_write_without_run_script_has_no_could_not_run_clause() -> None:
+    """A skipped file write with no owed run_script stops after the skip."""
+    text = declined_finish_reply(
+        {"workspace"},
+        [("workspace", {"action": "write", "path": "work/note.txt"})],
+    )
+    assert text == _WRITE_ONLY_LINE
+    assert "could not run" not in text
+
+
+def test_skipped_workspace_write_keeps_could_not_run_when_run_script_was_declined() -> None:
+    """run_script in the declined set is an owed run, so the write keeps the clause."""
+    text = declined_finish_reply(
+        {"workspace", "run_script"},
+        [("workspace", {"action": "write", "path": "work/sq2.py"})],
+    )
+    assert text == _WRITE_LINE
+
+
+def test_skipped_workspace_write_keeps_could_not_run_when_the_ledger_records_a_failed_run() -> None:
+    """A run_script_error warrant is the owed run. Reply text is not read."""
+    ledger = EvidenceLedger()
+    ledger.record_tool(
+        "run_script",
+        ok=False,
+        output="exit: 1",
+        data={"exit": 1, "stdout": "", "path": "work/sq2.py"},
+        args={"path": "work/sq2.py"},
+    )
+    text = declined_finish_reply(
+        {"workspace"},
+        [("workspace", {"action": "write", "path": "work/sq2.py"})],
+        ledger=ledger,
+    )
+    assert text == _WRITE_LINE
+
+
+@pytest.mark.asyncio
+async def test_declined_memory_on_a_math_ask_does_not_say_it_could_not_run() -> None:
+    """Math is missing and the save was skipped. Do not blame a script run."""
+    memory = _MemoryStub()
+    router = _ScriptedRouter(
+        [
+            [
+                _call(
+                    "memory",
+                    {"action": "remember", "fact": "12*12 is 144"},
+                )
+            ],
+            [("token", "12*12 is 144.")],
+        ]
+    )
+    bus = EventBus()
+    loop = _loop(router, memory, confirm=_skip)
+    loop.bus = bus
+    events = await _collect(
+        bus,
+        loop.run("Remember that 12*12 is 144.", "fast"),
+    )
+    text = str(_done(events)["text"])
+    assert memory.runs == 0
+    assert _MEMORY_LINE in text
+    assert "could not run" not in text
+    assert "calculator" not in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_declined_workspace_write_without_a_run_has_no_could_not_run_clause() -> None:
+    """The file was skipped and nobody asked to run a script."""
+    workspace = _WorkspaceStub()
+    router = _ScriptedRouter(
+        [
+            [
+                _call(
+                    "workspace",
+                    {
+                        "action": "write",
+                        "path": "work/note.txt",
+                        "content": "12*12\n",
+                    },
+                )
+            ],
+            [("token", "The product is 144.")],
+        ]
+    )
+    bus = EventBus()
+    loop = _loop(router, workspace, confirm=_skip)
+    loop.bus = bus
+    events = await _collect(
+        bus,
+        loop.run(
+            "Use workspace action=write to create work/note.txt containing "
+            "exactly: the product is 12*12. Then tell me the product.",
+            "fast",
+        ),
+    )
+    text = str(_done(events)["text"]).strip()
+    assert workspace.runs == 0
+    assert text == _WRITE_ONLY_LINE
+    assert "could not run" not in text
