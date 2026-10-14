@@ -6,11 +6,9 @@ import asyncio
 import time
 from typing import Any
 
-from arelis.attachments import wants_person_identify
 from arelis.browser.walls import is_login_url
 from arelis.contacts import web_search_targets_known_contact
 from arelis.core.agenda_complete import (
-    fill_agenda_args,
     lock_agenda_delete_args,
 )
 from arelis.core.agent_loop import (
@@ -19,24 +17,15 @@ from arelis.core.agent_loop import (
 )
 from arelis.core.call_redirects import apply_redirects
 from arelis.core.claims import document_force_notice, lock_memory_forget_args
-from arelis.core.compensation import agent_cfg_of, regex_routing
-from arelis.core.document_refs import fill_doc_extract_args, fill_document_args
 from arelis.core.email_complete import (
     fill_send_email_args,
 )
 from arelis.core.events import Event, EventType
-from arelis.core.image_refs import (
-    fill_image_edit_args,
-    fill_image_gen_args,
-    fill_vision_args,
-)
 from arelis.core.intent_catalog import data_cell_should_reject, room_data_file_names
-from arelis.core.look import PASTED_IDENTIFY_QUESTION, look_call_blocked, vision_question
-from arelis.core.native_tool_calling import native_tool_calling
+from arelis.core.look import look_call_blocked
 from arelis.core.preflight import (
     looks_like_browser_click_signin,
     looks_like_browser_open_ask,
-    rewrite_desktop_calls,
 )
 from arelis.core.read_fanout import should_fanout_reads
 from arelis.core.same_call import (
@@ -65,11 +54,8 @@ from arelis.core.turn_context import TurnContext
 from arelis.core.turn_execute import execute_call
 from arelis.core.turn_goal import LOGIN_READY_REPLY, browser_open_done_reply
 from arelis.core.turn_scratch import RoundScratch, strip_tool_schemas
-from arelis.tools.inbox import INBOX_PEEK_ACTIONS, fill_inbox_args
-from arelis.tools.weather import (
-    fill_weather_args,
-    weather_place_key,
-)
+from arelis.tools.inbox import INBOX_PEEK_ACTIONS
+from arelis.tools.weather import weather_place_key
 
 
 def fill_round_calls(
@@ -78,42 +64,12 @@ def fill_round_calls(
     *,
     text: str,
 ) -> list[tuple[str, dict[str, Any]]]:
-    """Apply the same arg fills fanout would otherwise skip.
-
-    Fanout runs ``tools.call`` before the per-call loop. Weather days,
-    inbox ids, and extract paths have to be on the args *before* gather,
-    or the bookkeeping later reads a filled call against a raw result.
-    """
-    inbox = loop.tools.get("inbox") if loop is not None else None
-    hits = getattr(inbox, "last_hits", None) if inbox is not None else None
-    history = getattr(getattr(loop, "memory", None), "messages", None)
-    receipts = getattr(loop, "_receipts", None)
-    route = regex_routing(agent_cfg_of(loop))
-    if route:
-        calls = rewrite_desktop_calls(calls, text=text)
+    """Remap the model's own plot key. Does not read the user's words."""
+    del loop, text
     out: list[tuple[str, dict[str, Any]]] = []
     for name, args in calls:
         payload = dict(args or {})
-        if route and name == "weather":
-            payload = fill_weather_args(payload, text)
-        elif route and name == "catalog":
-            from arelis.tools.catalog import normalize_horizons_distance_args
-
-            payload = normalize_horizons_distance_args(payload, text)
-        elif route and name == "inbox":
-            payload = fill_inbox_args(
-                payload,
-                user_text=text,
-                last_hits=hits if isinstance(hits, list) else None,
-            )
-        elif route and name == "doc_extract":
-            payload = fill_doc_extract_args(
-                payload,
-                user_text=text,
-                history=history,
-                receipts=receipts,
-            )
-        elif name == "plot":
+        if name == "plot":
             from arelis.tools.plot import normalize_plot_args
 
             payload = normalize_plot_args(payload)
@@ -305,57 +261,21 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         await loop._hold_if_paused()
 
         if name not in r.tool_names:
-            # Hidden wander is a free pass only while regex routing is on
-            # and native tool calling is off. Otherwise it is an unknown tool.
-            daily_miss = (
-                regex_routing(r.agent_cfg)
-                and not native_tool_calling(r.agent_cfg)
-                and (
-                (
-                    name in {
-                        "web_search",
-                        "contacts",
-                        "user_location",
-                        "weather",
-                        "browser",
-                        "scrape",
-                        "web_fetch",
-                    }
-                    and "send_sms" in loop._expected_tools
-                )
-                or (
-                    name in {"web_search", "analyze"}
-                    and "send_email" in loop._expected_tools
-                    and "analyze" not in loop._expected_tools
-                )
-                or (
-                    name in {
-                        "web_search",
-                        "contacts",
-                        "user_location",
-                        "weather",
-                        "schedule",
-                    }
-                    and "agenda" in loop._expected_tools
-                )
+            err = (
+                f"Unknown tool `{name}`. "
+                f"Available: {', '.join(sorted(r.tool_names))}"
             )
+            if name in {"comfyui", "search_images", "generate_image"}:
+                err += (
+                    ". Image generation is the `image` tool. There is "
+                    "no start-ComfyUI tool and no stock-photo search; "
+                    "start ComfyUI yourself or set tools.image.auto_start."
+                )
+            await loop.bus.publish(
+                Event(EventType.THINKING, {"text": f"reject  {err}"})
             )
-            if not daily_miss:
-                err = (
-                    f"Unknown tool `{name}`. "
-                    f"Available: {', '.join(sorted(r.tool_names))}"
-                )
-                if name in {"comfyui", "search_images", "generate_image"}:
-                    err += (
-                        ". Image generation is the `image` tool. There is "
-                        "no start-ComfyUI tool and no stock-photo search; "
-                        "start ComfyUI yourself or set tools.image.auto_start."
-                    )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"reject  {err}"})
-                )
-                r.messages.append(loop._tool_message(name, err))
-                continue
+            r.messages.append(loop._tool_message(name, err))
+            continue
 
         if data_cell_should_reject(name, args, r.text, r.tool_names):
             _drop_wander(name)
@@ -380,8 +300,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         # arriving as calculator(to=…, body=…). Tools take **kwargs and
         # read only the keys they know, so without this the call looks
         # like a silent miss and the model retries it.
-        if name == "weather" and regex_routing(r.agent_cfg):
-            args = fill_weather_args(args, r.text)
         tool_obj = loop.tools.get(name)
         cross = cross_tool_arg_error(
             name,
@@ -509,7 +427,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             action = str(args.get("action") or "").strip().lower()
             if action == "forget":
                 args = lock_memory_forget_args(args, r.text)
-            elif action == "remember" and regex_routing(r.agent_cfg):
+            elif action == "remember":
                 from arelis.core.memory_fill import fill_memory_remember_args
 
                 args = fill_memory_remember_args(
@@ -519,11 +437,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
 
         if name == "agenda":
-            if regex_routing(r.agent_cfg):
-                if r.agenda_draft is not None:
-                    args = fill_agenda_args(args, r.agenda_draft)
-                else:
-                    args = fill_agenda_args(args, None)
             if str(args.get("action") or "").strip().lower() == "delete":
                 args = lock_agenda_delete_args(
                     args,
@@ -551,65 +464,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     r.messages.append(loop._tool_message(name, notice))
                     loop._trace.append(f"{name} duplicate create blocked")
                     continue
-
-        if name == "image_edit" and regex_routing(r.agent_cfg):
-            args = fill_image_edit_args(
-                args,
-                history=loop.memory.messages,
-                user_text=r.text,
-            )
-        if name == "image" and regex_routing(r.agent_cfg):
-            args = fill_image_gen_args(
-                args,
-                history=loop.memory.messages,
-                user_text=r.text,
-            )
-
-        if name == "vision" and regex_routing(r.agent_cfg):
-            args = fill_vision_args(
-                args,
-                history=loop.memory.messages,
-                user_text=r.text,
-            )
-            if loop._look is not None:
-                args["question"] = vision_question(
-                    loop._look.intent, r.text
-                )
-                if loop._look.path and not str(args.get("path") or "").strip():
-                    args["path"] = loop._look.path
-            elif wants_person_identify(r.text):
-                asked = str(args.get("question") or "").strip()
-                if not asked or asked.lower().startswith("describe"):
-                    args["question"] = PASTED_IDENTIFY_QUESTION
-
-        if name == "inbox" and regex_routing(r.agent_cfg):
-            inbox = loop.tools.get("inbox")
-            hits = getattr(inbox, "last_hits", None) if inbox is not None else None
-            args = fill_inbox_args(
-                args,
-                user_text=r.text,
-                last_hits=hits if isinstance(hits, list) else None,
-            )
-
-        if name == "document" and regex_routing(r.agent_cfg):
-            room_kind = ""
-            if r.active_room is not None:
-                room_kind = str(r.active_room.kind or "")
-            args = fill_document_args(
-                args,
-                user_text=r.text,
-                history=loop.memory.messages,
-                receipts=loop._receipts,
-                room_kind=room_kind,
-            )
-
-        if name == "doc_extract" and regex_routing(r.agent_cfg):
-            args = fill_doc_extract_args(
-                args,
-                user_text=r.text,
-                history=loop.memory.messages,
-                receipts=loop._receipts,
-            )
 
         if loop._look is not None:
             blocked_look = look_call_blocked(name, args)

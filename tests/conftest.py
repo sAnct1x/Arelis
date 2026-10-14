@@ -7,6 +7,13 @@ from pathlib import Path
 
 import pytest
 
+# Before any QApplication, including the one pytest-qt builds for qtbot.
+# Linux CI has no display. Windows CI still runs these offscreen so a key
+# test does not depend on a desktop session. pytest-qt reads the binding
+# from this variable when it configures.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("PYTEST_QT_API", "pyside6")
+
 
 def pytest_addoption(parser) -> None:
     parser.addoption(

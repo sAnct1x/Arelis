@@ -92,7 +92,6 @@ __all__ = [
     "looks_like_room_create",
     "preflight_system_message",
     "rewrite_browser_action",
-    "rewrite_browser_calls",
     "rewrite_desktop_calls",
     "signin_ref_from_snapshot",
     "user_asked_for_browser",
@@ -568,37 +567,6 @@ def rewrite_browser_action(action: str) -> str | None:
     if raw in _INVENTED_SIGNIN_ACTIONS or raw.startswith("goto_"):
         return "snapshot"
     return None
-
-
-def rewrite_browser_calls(
-    calls: list[tuple[str, dict[str, Any]]],
-    *,
-    text: str = "",
-) -> list[tuple[str, dict[str, Any]]]:
-    """Replace invented / guessed sign-in drives with snapshot before Allow."""
-    signin = looks_like_browser_click_signin(text)
-    keep = {"snapshot", "click", "type", "wait", "back", "forward", "reload", "find"}
-    out: list[tuple[str, dict[str, Any]]] = []
-    for name, args in calls:
-        if name != "browser":
-            out.append((name, args))
-            continue
-        action = str((args or {}).get("action") or "")
-        rewritten = rewrite_browser_action(action)
-        if rewritten is None and signin:
-            raw = action.strip().lower().replace("-", "_")
-            if raw and raw not in keep:
-                rewritten = "snapshot"
-        if rewritten is None:
-            out.append((name, args))
-            continue
-        merged = dict(args or {})
-        merged["action"] = rewritten
-        if rewritten == "snapshot":
-            merged.pop("url", None)
-            merged.pop("target", None)
-        out.append(("browser", merged))
-    return out
 
 
 _DESK_TARGET = re.compile(

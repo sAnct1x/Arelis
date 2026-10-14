@@ -4,20 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from arelis.core.orchestrator import FILE_LOOP_HINT, RESEARCH_HINTS, TOOL_LOOP_HINT
 from arelis.core.route_hints import (
     is_file_loop,
     is_research_hint,
     is_tool_loop,
 )
-
-
-def test_orchestrator_reexports_the_same_objects() -> None:
-    from arelis.core import route_hints
-
-    assert TOOL_LOOP_HINT is route_hints.TOOL_LOOP_HINT
-    assert FILE_LOOP_HINT is route_hints.FILE_LOOP_HINT
-    assert RESEARCH_HINTS is route_hints.RESEARCH_HINTS
 
 
 @pytest.mark.parametrize(

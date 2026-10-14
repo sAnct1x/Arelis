@@ -154,6 +154,9 @@ dev = [
   # ceiling fails the test instead. Pin a floor, not a star: a new timeout
   # plugin is not a new lint rule.
   "pytest-timeout>=2.3",
+  # Offscreen Allow-card key tests. PySide6 only, same as the app. Dev extra
+  # so the Windows installer lock does not have to carry it.
+  "pytest-qt>=4.4,<5",
   # Exact, same reason as ruff. A floating mypy release changes the baseline
   # error count overnight, and that number is the only reason this extra
   # exists — Phase 0 records it; nothing fails a build on it yet.
@@ -203,6 +206,9 @@ arelis = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# pytest-qt. The app is PySide6. Leaving this blank lets the plugin guess,
+# and a machine with another binding installed would bind the wrong one.
+qt_api = "pyside6"
 # Seconds. A solar-panel test that deadlocks the offscreen Qt event loop used
 # to hold a CI runner until the job timed out at six hours. 90s is far above
 # any honest test in this tree (the whole suite is ~2 minutes locally).

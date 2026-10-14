@@ -5,9 +5,7 @@ import re
 
 import pytest
 
-from arelis.core.turn_context import TurnContext
 from arelis.core.turn_prepare import (
-    _prepare_calculator_first_move,
     calculator_blocked_for_date_ask,
     python_blocked_for_date_ask,
 )
@@ -16,21 +14,18 @@ from arelis.tools.calculator import CalculatorTool, evaluate_expression
 _NUMERIC_RESULT = re.compile(r"=\s*-?\d")
 
 
-def _armed_division(ask: str) -> bool:
-    ctx = TurnContext(text=ask, role="fast", tool_names={"calculator"})
-    _prepare_calculator_first_move(ctx, ask)
-    if ctx.calculator_preinject is None:
-        return False
-    try:
-        evaluate_expression(str(ctx.calculator_preinject.get("expression") or ""))
-    except Exception:
-        return False
-    return True
-
-
 def _no_numeric_eval(expression: str) -> None:
     with pytest.raises(ValueError):
         evaluate_expression(expression)
+
+
+def _date_token(ask: str) -> str:
+    hit = re.search(r"\d{1,2}/\d{1,2}/\d{2,4}", ask)
+    if hit:
+        return hit.group(0)
+    hit = re.search(r"\d{1,2}/\d{1,2}", ask)
+    assert hit is not None
+    return hit.group(0)
 
 
 async def _tool_refuses(expression: str) -> None:
@@ -53,14 +48,12 @@ async def _tool_refuses(expression: str) -> None:
     ],
 )
 def test_past_tense_date_or_event_is_not_computed(ask: str) -> None:
-    assert not _armed_division(ask), f"{ask!r} was armed as division"
-    _no_numeric_eval("9/11")
-
-
-def _preinject_armed(ask: str) -> bool:
-    ctx = TurnContext(text=ask, role="fast", tool_names={"calculator"})
-    _prepare_calculator_first_move(ctx, ask)
-    return ctx.calculator_preinject is not None
+    token = _date_token(ask)
+    if token.count("/") == 2:
+        _no_numeric_eval(token)
+        return
+    assert calculator_blocked_for_date_ask(ask, token)
+    _no_numeric_eval(token)
 
 
 @pytest.mark.parametrize(
@@ -71,16 +64,10 @@ def _preinject_armed(ask: str) -> bool:
         "what is 12/25?",
     ],
 )
-def test_what_is_month_day_event_is_not_computed(ask: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Force evaluable so the preinject skip is the guard under test, not the
-    # calculator refuse (the live path still needs both).
-    monkeypatch.setattr(
-        "arelis.tools.calculator.expression_is_evaluable",
-        lambda _text: True,
-    )
-    assert not _preinject_armed(ask), f"{ask!r} was armed as division"
-    monkeypatch.undo()
-    _no_numeric_eval(ask)
+def test_what_is_month_day_event_is_not_computed(ask: str) -> None:
+    token = _date_token(ask)
+    assert calculator_blocked_for_date_ask(ask, token)
+    _no_numeric_eval(token)
 
 
 @pytest.mark.parametrize(
@@ -90,13 +77,8 @@ def test_what_is_month_day_event_is_not_computed(ask: str, monkeypatch: pytest.M
         "what happened on 9/11?",
     ],
 )
-def test_what_happened_on_slash_is_not_computed(ask: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "arelis.tools.calculator.expression_is_evaluable",
-        lambda _text: True,
-    )
-    assert not _preinject_armed(ask), f"{ask!r} was armed as division"
-    monkeypatch.undo()
+def test_what_happened_on_slash_is_not_computed(ask: str) -> None:
+    assert calculator_blocked_for_date_ask(ask, "9/11")
     _no_numeric_eval("9/11")
 
 
@@ -107,7 +89,7 @@ async def test_bare_calendar_slash_tool_refuses(expression: str) -> None:
 
 async def test_percent_of_still_computes() -> None:
     ask = "What was 17% of 240 back then?"
-    assert _armed_division(ask), f"{ask!r} should still arm calculator"
+    assert calculator_blocked_for_date_ask(ask, "0.17*240") is None
     value = evaluate_expression(ask)
     assert float(value) == pytest.approx(40.8, rel=1e-9)
     result = await CalculatorTool().run(expression=ask)
@@ -124,14 +106,14 @@ async def test_percent_of_still_computes() -> None:
     ],
 )
 def test_plain_fraction_ask_still_computes(ask: str) -> None:
-    assert _armed_division(ask), f"{ask!r} should still compute as a fraction"
+    assert calculator_blocked_for_date_ask(ask, ask) is None
     value = evaluate_expression(ask)
     assert float(value) > 0
 
 
 @pytest.mark.parametrize("ask", ["what is 10/5/2026", "10/5/2026", "what is 10/5/2026?"])
 def test_three_part_date_is_not_computed(ask: str) -> None:
-    assert not _armed_division(ask), f"{ask!r} was armed as division"
+    _no_numeric_eval(ask)
 
 def test_spoken_divided_by_is_division_even_when_the_digits_look_like_a_date() -> None:
     """A clear 'divided by' is arithmetic. A bare 9/11 is still not."""

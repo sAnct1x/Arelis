@@ -454,8 +454,8 @@ async def _allow(*_a: Any, **_k: Any) -> str:
 
 
 @pytest.mark.asyncio
-async def test_loop_nudges_when_model_skips_complete_sms(monkeypatch) -> None:
-    """With pre-inject off, a model that only talks about texting gets nudged."""
+async def test_loop_confirms_when_the_model_calls_send_sms(monkeypatch) -> None:
+    """A model that calls send_sms still hits Allow. Nothing is invented if it only talks."""
     book = _book(brian={"name": "Brian", "aliases": ("brian",)})
     monkeypatch.setattr(
         "arelis.core.sms_complete.load_contacts", lambda: book
@@ -480,7 +480,6 @@ async def test_loop_nudges_when_model_skips_complete_sms(monkeypatch) -> None:
 
     router = _Router(
         [
-            [("token", "Sure, I can text Brian for you.")],
             [
                 (
                     "tool_calls",
@@ -491,7 +490,7 @@ async def test_loop_nudges_when_model_skips_complete_sms(monkeypatch) -> None:
                                 "name": "send_sms",
                                 "arguments": {
                                     "to": "brian",
-                                    "body": "Running late",
+                                    "body": "WRONG",
                                 },
                             },
                         }
@@ -538,27 +537,17 @@ async def test_loop_nudges_when_model_skips_complete_sms(monkeypatch) -> None:
 
     starts = [e.payload.get("tool") for e in events if e.type == EventType.TOOL_START]
     assert starts == ["send_sms"]
-    thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
-    )
-    assert "SMS draft ready" in thinking
     assert sms.calls
     assert sms.calls[0]["to"] == "brian"
+    assert "late" in str(sms.calls[0].get("body") or "").lower()
+    assert "WRONG" not in str(sms.calls[0].get("body") or "")
 
 
 @pytest.mark.asyncio
-async def test_a_complete_draft_raises_allow_before_any_model_round(
+async def test_a_model_send_sms_still_asks_allow_and_locks_the_body(
     monkeypatch,
 ) -> None:
-    """The Allow card must not wait on the model.
-
-    Tool-bearing rounds hold the answer back, so a spoken "text my wife …"
-    showed an empty thread for as long as the 7B took to decide. Three live
-    turns died there: the operator read blank as hung, pressed Esc to clear it,
-    and the send was cancelled before its card existed.
-    """
+    """Allow still gates the send. The draft body wins over a wrong tool argument."""
     book = _book(wife={"name": "Robin", "aliases": ("wife",)})
     monkeypatch.setattr("arelis.core.sms_complete.load_contacts", lambda: book)
     monkeypatch.setattr(
@@ -584,9 +573,30 @@ async def test_a_complete_draft_raises_allow_before_any_model_round(
         asked.append({"tool": tool, "args": dict(args)})
         return "allow"
 
-    # A single unused entry. A sent draft is confirmed deterministically, so a
-    # healthy turn never reaches the router at all.
-    router = _Router([[("token", "should never be asked")]])
+    # The model calls send_sms. Allow still has to happen, and the body stays
+    # the draft, not whatever the call invented.
+    router = _Router(
+        [
+            [
+                (
+                    "tool_calls",
+                    [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "send_sms",
+                                "arguments": {
+                                    "to": "wife",
+                                    "body": "WRONG",
+                                },
+                            },
+                        }
+                    ],
+                )
+            ],
+            [("token", "Confirm card is up.")],
+        ]
+    )
     loop = AgentLoop(
         bus,
         router,  # type: ignore[arg-type]
@@ -624,14 +634,9 @@ async def test_a_complete_draft_raises_allow_before_any_model_round(
     assert [a["tool"] for a in asked] == ["send_sms"], "Allow must still be asked"
     assert asked[0]["args"]["to"] == "wife"
     assert "love" in asked[0]["args"]["body"].lower()
+    assert "WRONG" not in asked[0]["args"]["body"]
     assert sms.calls and sms.calls[0]["to"] == "wife"
-    assert router.i == 0, "the model was asked before the Allow card"
-    thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
-    )
-    assert "pre-model" in thinking
+    assert router.i >= 1
     done = [e for e in events if e.type == EventType.ASSISTANT_DONE]
     assert done and "Sent your text" in str(done[-1].payload.get("text") or "")
 

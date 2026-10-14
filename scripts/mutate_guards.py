@@ -14,7 +14,7 @@ nothing, because 35 of its 68 scenarios hand the loop the tool call they
 then assert was made (see ``scripts/audit_eval_scenarios.py``).
 
     python scripts/mutate_guards.py
-    python scripts/mutate_guards.py --guard intent_preflight   # just one
+    python scripts/mutate_guards.py --guard exactness   # just one
 
 Expect holes until Phase 0.3 inverts the tautologies. The number going down
 is the progress metric for that work.
@@ -47,12 +47,6 @@ class Mutation:
 
 # Ordered loudest-first: the mechanisms the compensation layer leans on most.
 MUTATIONS: tuple[Mutation, ...] = (
-    Mutation(
-        name="intent_preflight",
-        overrides={"intent_preflight": False},
-        guards="preflight.py (1,381 lines) — nudges and _expected_tools seeding",
-        note="Also silences the redirects that read _expected_tools.",
-    ),
     Mutation(
         name="tool_subset",
         overrides={"skill_tool_subset": False, "research_tool_subset": False},
@@ -89,68 +83,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         ),
     ),
     Mutation(
-        name="weather_force_call",
-        overrides={"weather_force_call": False},
-        guards="weather preinject (weather_force_call) + try_weather",
-    ),
-    Mutation(
-        name="sms_force_call",
-        overrides={"sms_force_call": False},
-        guards="no_call_steps SMS inject",
-    ),
-    Mutation(
-        name="email_force_call",
-        overrides={"email_force_call": False},
-        guards="no_call_steps email inject",
-    ),
-    Mutation(
-        name="agenda_force_call",
-        overrides={"agenda_force_call": False},
-        guards="no_call_steps calendar inject",
-    ),
-    Mutation(
-        name="image_force_call",
-        overrides={"image_force_call": False},
-        guards="no_call_steps image gen/edit force",
-    ),
-    Mutation(
-        name="vision_force_call",
-        overrides={"vision_force_call": False},
-        guards="no_call_steps vision inject",
-    ),
-    Mutation(
-        name="tasks_force_call",
-        overrides={"tasks_force_call": False},
-        guards="no_call_steps tasks inject",
-    ),
-    Mutation(
-        name="goals_force_call",
-        overrides={"goals_force_call": False},
-        guards="no_call_steps goals inject",
-    ),
-    Mutation(
-        name="recall_force_call",
-        overrides={"recall_force_call": False},
-        guards="no_call_steps recall inject (roadmap 4.0)",
-    ),
-    Mutation(
-        name="document_force_call",
-        overrides={"document_force_call": False},
-        guards="no_call_steps document inject behind the gates.py nudge",
-    ),
-    Mutation(
-        name="diagnostics_force_call",
-        overrides={"diagnostics_force_call": False},
-        guards="no_call_steps diagnostics inject; stops an invented 'tests pass'",
-    ),
-    Mutation(
-        name="inspect_force_call",
-        overrides={"inspect_force_call": False},
-        guards=(
-            "no_call_steps inspect floor + call_redirects.redirect_inspect_wander"
-        ),
-    ),
-    Mutation(
         name="scrape_after_search",
         overrides={"scrape_after_search": False},
         guards="no_call_finish — search must be followed by a read",
@@ -182,21 +114,12 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         name="everything",
         overrides={
-            "intent_preflight": False,
             "skill_tool_subset": False,
             "research_tool_subset": False,
             "exactness": False,
             "numeric_gate": False,
             "evidence_gate": False,
             "research_dual_hit": False,
-            "weather_force_call": False,
-            "sms_force_call": False,
-            "email_force_call": False,
-            "agenda_force_call": False,
-            "image_force_call": False,
-            "vision_force_call": False,
-            "tasks_force_call": False,
-            "goals_force_call": False,
             "scrape_after_search": False,
             "browser_after_js_shell": False,
             "plan_progress": False,
@@ -213,7 +136,22 @@ MUTATIONS: tuple[Mutation, ...] = (
 # the prompt when compact_tool_policy landed; `skill_tool_subset` is the only
 # live lever. Do not add a mutation for a dead key — it would report a hole
 # that is really a no-op, which is the same lie in the other direction.
-DEAD_KEYS = ("skill_cards",)
+DEAD_KEYS = (
+    "skill_cards",
+    "intent_preflight",
+    "weather_force_call",
+    "sms_force_call",
+    "email_force_call",
+    "agenda_force_call",
+    "image_force_call",
+    "vision_force_call",
+    "tasks_force_call",
+    "goals_force_call",
+    "recall_force_call",
+    "document_force_call",
+    "diagnostics_force_call",
+    "inspect_force_call",
+)
 
 
 @dataclass

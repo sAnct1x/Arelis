@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from arelis.core.preflight import detect_intents, preflight_system_message
 from arelis.core.prompt_sections import append_preflight_guidance
 from arelis.core.tool_subset import filter_tool_names
 
@@ -36,23 +35,29 @@ _EVERYDAY = {
 }
 
 
-def test_default_behavior_uses_regex_routing() -> None:
-    """With default config (native_tool_calling=false), regex routing is active."""
-    # Default agent_cfg has native_tool_calling=false (or missing, defaults false)
+def test_default_does_not_nudge_a_tool_from_the_ask() -> None:
+    """Missing native_tool_calling does not invent a tool or a preflight nudge."""
     agent_cfg: dict[str, bool] = {}
-
-    # detect_intents should return hints for a clear weather ask
     text = "What's the weather today?"
-    hints = detect_intents(text)
-    assert len(hints) > 0
-    assert any(h.kind == "weather" for h in hints)
+    messages: list[dict[str, str]] = []
 
-    # preflight_system_message should generate a nudge
-    nudge = preflight_system_message(text)
-    assert nudge is not None
-    assert "weather" in nudge.lower()
+    class MockLoop:
+        def __init__(self) -> None:
+            self._expected_tools: set[str] = set()
+            self._timer = None
+            self.memory = type("obj", (object,), {"messages": []})()
 
-    # filter_tool_names should use intent routing
+    loop = MockLoop()
+    kinds = append_preflight_guidance(
+        messages,
+        loop,
+        text,
+        agent_cfg,
+        see_no_sms_redirect=frozenset(),
+    )
+    assert kinds == []
+    assert messages == []
+    assert loop._expected_tools == set()
     visible = filter_tool_names(
         _EVERYDAY,
         role="fast",
@@ -61,9 +66,8 @@ def test_default_behavior_uses_regex_routing() -> None:
         skill_subset=True,
         agent_cfg=agent_cfg,
     )
-    # With regex routing, weather tools should be in the subset
     assert "weather" in visible
-    assert "user_location" in visible
+    assert "send_sms" not in visible
 
 
 def test_native_tool_calling_disables_preflight_nudges() -> None:
