@@ -594,21 +594,36 @@ class _SendThenShutTools(_ScriptedRouter):
     try tools the send already shut off, including one the wrap-up list allows.
     """
 
-    def __init__(self, send_call: dict[str, Any], later: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        send_call: dict[str, Any],
+        later: list[dict[str, Any]],
+        *,
+        later_prose: str = "",
+        mark_reask: bool = False,
+    ) -> None:
         super().__init__([[]])
         self.send_call = send_call
         self.later = later
+        self.later_prose = later_prose
+        self.mark_reask = mark_reask
         self.loop: AgentLoop | None = None
 
     async def stream(self, role, messages, **kwargs):
         del role, messages, kwargs
         self.i += 1
         if self.i == 1:
+            if self.mark_reask and self.loop is not None:
+                turn = getattr(self.loop, "_active_turn", None)
+                if turn is not None:
+                    turn.plain_reask_used = True
             yield ("tool_calls", [self.send_call])
             assert self.loop is not None
             self.loop.request_close()
             yield ("metrics", {"prompt_eval_count": 4})
             return
+        if self.later_prose:
+            yield ("token", self.later_prose)
         yield ("tool_calls", list(self.later))
         yield ("metrics", {"prompt_eval_count": 2})
 
@@ -682,3 +697,122 @@ async def test_closed_toolset_stays_closed_after_send_and_after_close() -> None:
     assert text != _CLOSE_PARTIAL
     assert _CLOSE_PARTIAL not in text
     assert send_out in text
+
+
+_CLOSE_PROSE = "Already sent."
+
+
+def _sms_tool() -> _CountingTool:
+    return _CountingTool(
+        "send_sms",
+        "side_effect",
+        {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string"},
+                "body": {"type": "string"},
+            },
+        },
+        output="Sent.",
+    )
+
+
+def _thinking(events) -> str:
+    return " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+
+
+@pytest.mark.asyncio
+async def test_close_pass_uses_prose_instead_of_reasking() -> None:
+    """The close pass must not spend the plain-only re-ask.
+
+    The shut menu already answered. A wander call on that pass is dropped
+    and the model's own line is the reply. Re-asking would throw the line
+    away and finish on the partial close text.
+    """
+    send = _sms_tool()
+    search = _CountingTool(
+        "web_search",
+        "read",
+        {"type": "object", "properties": {"query": {"type": "string"}}},
+    )
+    router = _SendThenShutTools(
+        _native("send_sms", {"to": "brian", "body": "running late"}),
+        [_native("web_search", {"query": "weather"})],
+        later_prose=_CLOSE_PROSE,
+    )
+
+    async def allow(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
+        del cid, tool, args, summary
+        return "allow"
+
+    bus, loop = _agent(
+        router,
+        send,
+        confirm=allow,
+        cancel=[False],
+        extra=[search],
+        router_removed=True,
+    )
+    router.loop = loop
+    events = await _collect(bus, loop.run("text brian: running late", "fast"))
+    text = _done_text(events)
+    assert send.runs == 1
+    assert search.runs == 0
+    assert "plain answer round; asking again" not in _thinking(events)
+    assert text == _CLOSE_PROSE
+    assert text != _CLOSE_PARTIAL
+
+
+@pytest.mark.asyncio
+async def test_close_pass_drops_a_shut_menu_document() -> None:
+    """document stays on the wrap-up list. A shut menu still drops it.
+
+    The plain re-ask was already spent, so this is the close-pass filter
+    and not the re-ask. The model's line is the reply. document does not run.
+    """
+    send = _sms_tool()
+    document = _CountingTool(
+        "document",
+        "write",
+        {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+            },
+        },
+    )
+    router = _SendThenShutTools(
+        _native("send_sms", {"to": "brian", "body": "running late"}),
+        [_native("document", {"path": "notes/later.txt", "content": "nope"})],
+        later_prose=_CLOSE_PROSE,
+        mark_reask=True,
+    )
+    confirmed: list[str] = []
+
+    async def allow(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
+        del cid, args, summary
+        confirmed.append(tool)
+        return "allow"
+
+    bus, loop = _agent(
+        router,
+        send,
+        confirm=allow,
+        cancel=[False],
+        extra=[document],
+        router_removed=True,
+    )
+    router.loop = loop
+    events = await _collect(bus, loop.run("text brian: running late", "fast"))
+    text = _done_text(events)
+    assert send.runs == 1
+    assert document.runs == 0
+    assert confirmed == ["send_sms"]
+    assert "Calling document" not in _thinking(events)
+    assert text == _CLOSE_PROSE
+    assert text != _CLOSE_PARTIAL
