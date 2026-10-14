@@ -752,6 +752,13 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         except _StoppedError:
             raise
         except _CloseError:
+            # Pre-stream only. A close during the stream no longer raises,
+            # so a finished call is not on this exception. Stop still wins
+            # if it landed in the same gap. Stubs used by round tests have
+            # no cancel flag.
+            cancelled = getattr(loop, "is_cancelled", None)
+            if callable(cancelled) and cancelled():
+                raise _StoppedError
             raise
         except asyncio.CancelledError:
             raise
@@ -871,7 +878,14 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             elif parsed and parsed["kind"] == "final":
                 content = parsed["text"]
 
-        if ctx.plain_only and not ctx.fallback_mode and calls:
+        # A close pass does not get the re-ask. The block below owns that
+        # round, and a menu that progress already closed stays closed.
+        if (
+            ctx.plain_only
+            and not ctx.fallback_mode
+            and calls
+            and not getattr(loop, "_in_close", False)
+        ):
             if not ctx.plain_reask_used:
                 ctx.plain_reask_used = True
                 assistant_msg: dict[str, Any] = {
@@ -928,16 +942,42 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             await loop._finish(prose, sources, streamed="")
             return True
 
+        # A close that arrived while this step was still streaming keeps the
+        # calls. They go through the normal confirm and execute path below.
+        # The allow-list applies only once the close pass itself is running.
+        wants_close = getattr(loop, "_wants_close", None)
+        if (
+            calls
+            and callable(wants_close)
+            and wants_close()
+            and not getattr(loop, "_in_close", False)
+        ):
+            loop._close_kept_calls = True
         if getattr(loop, "_in_close", False):
-            calls = [
-                (n, a)
-                for n, a in (calls or [])
-                if closing_call_ok(n, a, ctx.text, getattr(loop, "_trace", ()))
-            ]
+            kept_calls = bool(getattr(loop, "_close_kept_calls", False))
+            loop._close_kept_calls = False
+            # plain_only means a send (or another finished step) already took
+            # the menu. The wrap-up allow-list must not hand it back.
+            if ctx.plain_only:
+                calls = []
+            else:
+                calls = [
+                    (n, a)
+                    for n, a in (calls or [])
+                    if closing_call_ok(n, a, ctx.text, getattr(loop, "_trace", ()))
+                ]
             if not calls:
                 prose = (content or "").strip()
                 if not prose:
-                    prose = chart_only_failure(ctx.ledger, loop) or _CLOSE_PARTIAL
+                    prose = chart_only_failure(ctx.ledger, loop) or ""
+                if not prose and kept_calls and ctx.last_ok_tool_out:
+                    prose = _tool_followup_fallback(
+                        ctx.last_ok_tool_out,
+                        ctx.last_ok_tool_name,
+                        ask=ctx.text,
+                    )
+                if not prose:
+                    prose = _CLOSE_PARTIAL
                 await loop._finish(prose, sources, streamed=streamed)
                 return True
             tool_calls = [_native_tool_call(n, a) for n, a in calls]
