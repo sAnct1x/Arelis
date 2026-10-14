@@ -78,7 +78,8 @@ _FILAMENT_DETAIL = (
 class WindowChrome:
     def _schedule_readiness_probe(self) -> None:
         """Refresh the readiness strip without blocking the UI thread."""
-        if not self.loop.is_running():
+        loop = self.loop
+        if loop is None or not loop.is_running():
             return
 
         async def _run() -> None:
@@ -110,7 +111,7 @@ class WindowChrome:
                 )
             self.readiness_updated.emit(snap)
 
-        asyncio.run_coroutine_threadsafe(_run(), self.loop)
+        asyncio.run_coroutine_threadsafe(_run(), loop)
 
     def _apply_calm_instrument_defaults(self) -> None:
         """Hide instruments for a conversation-first composition."""
