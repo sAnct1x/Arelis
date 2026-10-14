@@ -593,6 +593,45 @@ def test_successful_run_then_skipped_write_drops_could_not_run() -> None:
     assert "could not run" not in text
 
 
+def test_success_then_failure_drops_could_not_run() -> None:
+    """A later run_script_error does not restore the clause after run_script_ok.
+
+    Both results are recorded through the ledger, success first. The
+    skipped write still names only the skip.
+    """
+    ledger = EvidenceLedger()
+    ledger.record_tool(
+        "run_script",
+        ok=True,
+        output="144",
+        data={"exit": 0, "stdout": "144", "path": "work/sq2.py"},
+        args={"path": "work/sq2.py"},
+    )
+    ledger.record_tool(
+        "run_script",
+        ok=False,
+        output="exit: 1",
+        data={"exit": 1, "stdout": "", "path": "work/sq2.py"},
+        args={"path": "work/sq2.py"},
+    )
+    saw_ok = False
+    saw_error_after = False
+    for item in ledger.items:
+        if item.kind == "run_script_ok" and item.ok:
+            saw_ok = True
+        if saw_ok and item.kind == "run_script_error" and not item.ok:
+            saw_error_after = True
+    assert saw_ok and saw_error_after
+    text = declined_finish_reply(
+        {"workspace"},
+        _SKIPPED_WRITE,
+        ledger=ledger,
+        requested_tools={"run_script", "workspace"},
+    )
+    assert text == "I did not write work/sq2.py because the write was skipped."
+    assert "could not run" not in text
+
+
 def test_failed_run_then_skipped_write_keeps_could_not_run() -> None:
     """A run_script_error leaves the run owed, so the skipped write keeps the clause."""
     ledger = _script_ledger(ok=False)

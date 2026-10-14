@@ -400,10 +400,10 @@ def _run_script_wanted(
     """True when a script run is still owed.
 
     A successful run_script result is kind run_script_ok. That run already
-    happened, so it is not owed, even if the turn still lists the tool.
-    A failed result is kind run_script_error and is still owed. No run at
-    all is still owed when the tool was declined or requested. Reply text
-    is not consulted.
+    happened, so it is not owed, even if the turn still lists the tool or
+    a later run_script_error is in the same ledger. A failed result with
+    no run_script_ok is still owed. No run at all is still owed when the
+    tool was declined or requested. Reply text is not consulted.
     """
     if ledger is not None and ledger.has_ok("run_script_ok"):
         return False
@@ -453,8 +453,9 @@ def declined_finish_reply(
     not run it" is added only for a workspace write when run_script is
     still owed: declined, requested, or left a failed run in the ledger.
     A run_script_ok warrant means the run already happened, so the clause
-    stays off. A skipped memory save or a skipped SMS or email says only
-    what was skipped.
+    stays off, including when a later run in the same turn failed. A
+    skipped memory save or a skipped SMS or email says only what was
+    skipped.
     """
     tool, args = _declined_call(declined_tools, declined_calls)
     action = str(args.get("action") or "").strip()
