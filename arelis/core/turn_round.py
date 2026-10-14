@@ -956,6 +956,13 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             except _StoppedError:
                 raise
             except _CloseError:
+                # Pre-stream only. A close during the stream no longer raises,
+                # so a finished call is not on this exception. Stop still wins
+                # if it landed in the same gap. Stubs used by round tests have
+                # no cancel flag.
+                cancelled = getattr(loop, "is_cancelled", None)
+                if callable(cancelled) and cancelled():
+                    raise _StoppedError
                 raise
             except asyncio.CancelledError:
                 raise
@@ -1133,7 +1140,20 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             await loop._finish(prose, sources, streamed="")
             return True
 
+        # A close that arrived while this step was still streaming keeps the
+        # calls. They go through the normal confirm and execute path below.
+        # The allow-list applies only once the close pass itself is running.
+        wants_close = getattr(loop, "_wants_close", None)
+        if (
+            calls
+            and callable(wants_close)
+            and wants_close()
+            and not getattr(loop, "_in_close", False)
+        ):
+            loop._close_kept_calls = True
         if getattr(loop, "_in_close", False):
+            kept_calls = bool(getattr(loop, "_close_kept_calls", False))
+            loop._close_kept_calls = False
             calls = [
                 (n, a)
                 for n, a in (calls or [])
@@ -1142,7 +1162,15 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             if not calls:
                 prose = (content or "").strip()
                 if not prose:
-                    prose = chart_only_failure(ctx.ledger, loop) or _CLOSE_PARTIAL
+                    prose = chart_only_failure(ctx.ledger, loop) or ""
+                if not prose and kept_calls and ctx.last_ok_tool_out:
+                    prose = _tool_followup_fallback(
+                        ctx.last_ok_tool_out,
+                        ctx.last_ok_tool_name,
+                        ask=ctx.text,
+                    )
+                if not prose:
+                    prose = _CLOSE_PARTIAL
                 await loop._finish(prose, sources, streamed=streamed)
                 return True
             tool_calls = [_native_tool_call(n, a) for n, a in calls]

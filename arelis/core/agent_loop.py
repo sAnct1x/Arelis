@@ -792,6 +792,9 @@ class AgentLoop:
         # so the same flag does not abort the answer it just asked for.
         self._close_requested = False
         self._in_close = False
+        # Set when a close lands on a step that already has complete calls.
+        # The close pass reads it so that work is not replaced by the partial.
+        self._close_kept_calls = False
         self._active_turn: TurnContext | None = None
         from arelis.browser.live import set_hit_sink
 
@@ -845,6 +848,7 @@ class AgentLoop:
         self._horizons_distance_text = ""
         self._horizons_distance_ask = ""
         self._last_sent_messages = None
+        self._close_kept_calls = False
         ctx = await self._prepare_turn(
             text,
             role,
@@ -1615,8 +1619,6 @@ class AgentLoop:
         ):
             if self.is_cancelled():
                 raise _StoppedError
-            if self._wants_close():
-                raise _CloseError
             if self.is_paused():
                 await self._hold_if_paused()
             if kind == "thinking":
