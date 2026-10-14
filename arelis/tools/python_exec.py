@@ -294,7 +294,15 @@ def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
     if kind == "syntax":
         return ToolResult(ok=False, output=f"Python syntax error: {message}")
     if kind == "refused":
-        return ToolResult(ok=False, output=f"Python refused: {message}")
+        data: dict[str, Any] = {}
+        # Copied from the child payload. The message text is not inspected.
+        next_tool = payload.get("next_tool")
+        if isinstance(next_tool, str) and next_tool:
+            data["next_tool"] = next_tool
+        refusal = payload.get("refusal")
+        if isinstance(refusal, str) and refusal:
+            data["refusal"] = refusal
+        return ToolResult(ok=False, output=f"Python refused: {message}", data=data)
     return ToolResult(ok=False, output=f"Python failed: {message or 'the cell stopped.'}")
 
 

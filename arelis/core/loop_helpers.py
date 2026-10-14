@@ -8,7 +8,6 @@ from typing import Any
 
 from arelis.core.claims import (
     answer_looks_like_refusal,
-    detect_plot_ask,
     duration_days_claim_missing_kinds,
     send_claim_missing_kinds,
     unsupported_exactness_reply,
@@ -596,36 +595,93 @@ CHART_FAILED_REPLY = "The chart did not get drawn. I will not fake one in text."
 
 _CHART_TOOLS = frozenset({"plot", "python", "calculator"})
 
+# Plot stays owed across later python calls. This many model rounds may
+# follow the refusal. A python call that returns no data ends sooner.
+_PYTHON_PLOT_EXTRA_ROUNDS = 2
+
 
 def chart_failed_reply(
     ledger: EvidenceLedger | None,
     *,
-    ask: str = "",
-    python_output: str = "",
+    python_owes_plot: bool = False,
 ) -> str | None:
-    """A short honest line when a chart was asked for and never drawn.
+    """A short honest line when a chart was owed and never drawn.
 
-    A failed plot is the usual case. Python refusing a chart library first
-    is the same ending: the chart was asked for, and nothing drew it.
+    A failed plot is the usual case. ``python_owes_plot`` is the python tool
+    result's next_tool field, already read by the caller. This function does
+    not look at the refusal sentence or the user text.
     """
     if ledger is None or ledger.has_ok("plot"):
         return None
     failed = any(item.kind == "plot" and not item.ok for item in ledger.items)
-    if failed:
-        return CHART_FAILED_REPLY
-    if python_blocked_a_chart(python_output) and detect_plot_ask(ask):
+    if failed or python_owes_plot:
         return CHART_FAILED_REPLY
     return None
 
 
-def python_blocked_a_chart(output: str) -> bool:
-    """True when the Python cell refused a chart library or a file write."""
-    text = (output or "").casefold()
-    if any(name in text for name in ("matplotlib", "pyplot", "seaborn", "plotly")):
-        return True
-    if "not allowed" in text and any(mark in text for mark in ("open", "file", "savefig")):
-        return True
-    return False
+def python_result_returned_data(ok: bool, data: Any) -> bool:
+    """True when a python tool result carried a cell result.
+
+    ``ok`` and a ``result`` field are the tool result. The output text is not read.
+    """
+    if not ok or not isinstance(data, dict):
+        return False
+    return "result" in data
+
+
+def python_plot_round_pending(
+    *,
+    next_tool: str,
+    ledger: EvidenceLedger | None,
+    plot_available: bool,
+    extra_rounds: int,
+    python_returned_data: bool = True,
+) -> bool:
+    """True when a python result still owes a plot round.
+
+    ``next_tool`` is the field copied off the python tool result. The marker
+    stays until plot is tried. Plot already tried, plot not offered, both
+    extra rounds spent, or a later python call that returned no data, means no.
+    """
+    if next_tool != "plot":
+        return False
+    if ledger is None or ledger.has_ok("plot"):
+        return False
+    if any(item.source == "plot" for item in ledger.items):
+        return False
+    if not plot_available:
+        return False
+    if not python_returned_data:
+        return False
+    return extra_rounds < _PYTHON_PLOT_EXTRA_ROUNDS
+
+
+def python_plot_stop_line(
+    *,
+    next_tool: str,
+    ledger: EvidenceLedger | None,
+    plot_available: bool,
+    extra_rounds: int,
+    python_returned_data: bool = True,
+    idle_round: bool = False,
+) -> str | None:
+    """Chart line when the python marker must end the turn.
+
+    None means there is no marker, the chart was drawn, or another round is
+    still allowed. An idle round ends even when a round is still allowed,
+    because that round made no call.
+    """
+    if next_tool != "plot":
+        return None
+    if not idle_round and python_plot_round_pending(
+        next_tool=next_tool,
+        ledger=ledger,
+        plot_available=plot_available,
+        extra_rounds=extra_rounds,
+        python_returned_data=python_returned_data,
+    ):
+        return None
+    return chart_failed_reply(ledger, python_owes_plot=True)
 
 
 def chart_only_failure(ledger: EvidenceLedger | None, loop: Any) -> str | None:

@@ -57,6 +57,7 @@ from arelis.core.loop_helpers import (
     _MALFORMED_CALL_NOTICE,
     chart_failed_reply,
     chart_only_failure,
+    python_plot_stop_line,
 )
 from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.no_call_finish import NUDGE as FINISH_NUDGE
@@ -205,6 +206,19 @@ async def apply_no_call_path(
     time this returns, or raises.
     """
     if not r.calls:
+        # Plot is still owed and this round called nothing. Stop before a
+        # nudge spends another model pass. A python call can keep the round.
+        owed = python_plot_stop_line(
+            next_tool=ctx.python_result_next_tool,
+            ledger=ctx.ledger,
+            plot_available="plot" in r.tool_names,
+            extra_rounds=ctx.python_plot_extra_rounds,
+            python_returned_data=not ctx.python_plot_data_failed,
+            idle_round=True,
+        )
+        if owed:
+            await loop._finish(owed, r.sources, streamed="")
+            return True
         # The model wrote a call as prose instead of making one, so the
         # strict parser refused it. Executing it anyway is the hole
         # strict mode exists to close, and shipping it means the user

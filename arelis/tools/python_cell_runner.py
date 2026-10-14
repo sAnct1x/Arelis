@@ -20,7 +20,7 @@ import sys
 import time
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 _TIMEOUT_S = 10.0
 _MAX_OUTPUT = 8_000
@@ -201,15 +201,28 @@ class _CellDeadline(BaseException):
     """Raised by the line tracer. BaseException for the same reason."""
 
 
-def _import_refusal(name: str) -> str:
-    if name in _CHART_IMPORTS:
-        return (
+class _ChartImportError(ValueError):
+    """Chart library import. The parent copies these fields onto the tool result.
+
+    The message still tells the model what to do. The loop does not read it.
+    """
+
+    refusal = "chart_import"
+    next_tool = "plot"
+
+    def __init__(self, name: str) -> None:
+        self.import_name = name
+        super().__init__(
             f"import {name!r} is not allowed in this cell. "
-            "Compute xs and ys here (print comma-separated numbers), "
-            "then call plot with those series and out='name.png'. "
-            "path= is a CSV table, not the PNG."
+            "Call plot with the data: pass xs and ys as comma-separated numbers "
+            "and out='name.png'. path= is a CSV table, not the PNG."
         )
-    return (
+
+
+def _import_refusal(name: str) -> NoReturn:
+    if name in _CHART_IMPORTS:
+        raise _ChartImportError(name)
+    raise ValueError(
         f"import {name!r} is not allowed. "
         "math/sympy/numpy are preloaded; os/subprocess are not."
     )
@@ -476,7 +489,7 @@ def _assert_safe(tree: ast.AST) -> None:
                     names = [root]
             for name in names:
                 if name not in _ALLOWED_IMPORTS:
-                    raise ValueError(_import_refusal(name))
+                    _import_refusal(name)
             if isinstance(node, ast.ImportFrom):
                 for alias in node.names:
                     if alias.name in _FORBIDDEN_ATTR_CALLS:
@@ -538,7 +551,7 @@ def _safe_import(
         raise ValueError("relative imports are not allowed")
     root = str(name or "").split(".", 1)[0]
     if root not in _ALLOWED_IMPORTS:
-        raise ValueError(_import_refusal(root))
+        _import_refusal(root)
     return __import__(name, globals, locals, fromlist, 0)
 
 
@@ -743,6 +756,16 @@ def main() -> None:
         text = _execute(code, namespace)
     except _CellDeadline:
         _emit({"ok": False, "kind": "timeout"})
+    except _ChartImportError as exc:
+        _emit(
+            {
+                "ok": False,
+                "kind": "refused",
+                "message": str(exc),
+                "refusal": exc.refusal,
+                "next_tool": exc.next_tool,
+            }
+        )
     except _CellBlocked as exc:
         _emit({"ok": False, "kind": "refused", "message": str(exc)})
     except SyntaxError as exc:

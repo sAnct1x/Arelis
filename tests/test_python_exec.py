@@ -339,6 +339,63 @@ async def test_matplotlib_is_refused_with_the_route_to_plot() -> None:
 
 
 @pytest.mark.asyncio
+async def test_matplotlib_refusal_sets_next_tool_plot() -> None:
+    """The next step is a field on the result, not a phrase in the sentence."""
+    result = await PythonTool().run(code="import matplotlib")
+    assert result.ok is False
+    assert result.data.get("next_tool") == "plot"
+    assert result.data.get("refusal") == "chart_import"
+
+
+def test_tool_result_copies_next_tool_without_reading_the_message() -> None:
+    from arelis.tools.python_exec import _tool_result
+
+    marked = _tool_result(
+        "x",
+        {
+            "ok": False,
+            "kind": "refused",
+            "message": "blocked",
+            "refusal": "chart_import",
+            "next_tool": "plot",
+        },
+    )
+    assert marked.data.get("next_tool") == "plot"
+    assert marked.data.get("refusal") == "chart_import"
+    plain = _tool_result(
+        "x",
+        {
+            "ok": False,
+            "kind": "refused",
+            "message": "then call plot with those series",
+        },
+    )
+    assert "next_tool" not in plain.data
+
+
+def test_chart_import_refusal_is_a_typed_error() -> None:
+    from arelis.tools import python_cell_runner as runner
+
+    kind = getattr(runner, "_ChartImportError", None)
+    assert kind is not None
+    with pytest.raises(kind) as caught:
+        runner._import_refusal("matplotlib")
+    assert caught.value.next_tool == "plot"
+    assert caught.value.refusal == "chart_import"
+    assert "call plot" in str(caught.value).lower()
+    assert "compute xs" not in str(caught.value).lower()
+
+
+def test_os_import_refusal_is_not_the_chart_marker() -> None:
+    from arelis.tools import python_cell_runner as runner
+
+    with pytest.raises(ValueError) as caught:
+        runner._import_refusal("os")
+    assert getattr(caught.value, "next_tool", None) != "plot"
+    assert not isinstance(caught.value, runner._ChartImportError)
+
+
+@pytest.mark.asyncio
 async def test_an_endless_loop_is_stopped() -> None:
     ok, out = await _run("while True:\n    pass")
     assert not ok
