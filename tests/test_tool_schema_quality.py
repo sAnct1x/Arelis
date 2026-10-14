@@ -363,6 +363,99 @@ def test_short_descriptions_name_real_actions() -> None:
     assert "not weather" in data_cell
 
 
+def test_native_one_liners_separate_documents_from_lookups() -> None:
+    """Native mode reads these lines, not the long class descriptions.
+
+    A formatted document file is document. Plain files in the code
+    workspace are workspace. A sourced multi-source report starts with
+    research_report, which does its own searching. web_search is a quick
+    lookup.
+    """
+    from arelis.core.compact_prompt import _SHORT_DESC
+
+    document = _SHORT_DESC["document"]
+    workspace = _SHORT_DESC["workspace"]
+    research = _SHORT_DESC["research_report"]
+    web = _SHORT_DESC["web_search"]
+
+    assert "formatted document" in document
+    assert "md" in document and "csv" in document
+    assert "docx" in document and "pdf" in document
+    assert "not workspace" in document
+    assert "code workspace" in workspace
+    assert "not a formatted document" in workspace
+    assert "patch=unified diff" in workspace
+    assert "writes confirm" in workspace
+    assert "first choice" in research
+    assert "sourced" in research and "multi-source" in research
+    assert "searches" in research and "scrapes" in research
+    assert web.startswith("quick lookup")
+    assert "sourced report" in web
+    assert "research_report" in web
+    assert "never guess a url" in web
+    assert "search first" not in web
+
+
+def test_workspace_actions_stay_in_the_model_enum() -> None:
+    """The one-liner no longer lists verbs. The enum the model sees still does.
+
+    Checked on every session profile, with parameter hints off and on.
+    Tail mode does not send workspace at all, which was already true.
+    """
+    from types import SimpleNamespace
+
+    from arelis.config import load_config
+    from arelis.tools import build_tool_registry
+    from scripts.measure_tool_schema import registry_for_profile, tool_specs
+
+    needed = (
+        "list",
+        "read",
+        "grep",
+        "find",
+        "write",
+        "edit",
+        "patch",
+        "delete",
+        "move",
+        "rename",
+        "copy",
+    )
+    router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
+    windows = load_config()
+    windows["_vl_model_installed"] = False
+    windows["_session_platform"] = "win32"
+    windows_reg = build_tool_registry(
+        windows, allow_send=True, attended=True, router=router
+    )
+    profiles = {
+        "default": registry_for_profile("default"),
+        "mac": registry_for_profile("mac"),
+        "worst": registry_for_profile("worst"),
+        "windows": windows_reg,
+    }
+    missing = []
+    for name, registry in profiles.items():
+        for hints in (False, True):
+            specs = (
+                tool_specs(registry)
+                if not hints
+                else list(registry.ollama_tools(param_hints=True))
+            )
+            action = None
+            for spec in specs:
+                fn = spec["function"]
+                if fn["name"] == "workspace":
+                    action = fn["parameters"]["properties"]["action"]
+                    break
+            assert action is not None, (name, hints)
+            enum = action.get("enum") or []
+            gone = [verb for verb in needed if verb not in enum]
+            if gone:
+                missing.append((name, hints, gone))
+    assert not missing, missing
+
+
 def test_calibrated_ratio_stays_within_two_percent_of_the_real_tokenizer() -> None:
     """Opt-in. Runs only when tokenizers and a tokenizer.json are present."""
     pytest.importorskip("tokenizers")
