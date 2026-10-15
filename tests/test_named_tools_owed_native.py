@@ -16,8 +16,9 @@ from arelis.core.agent_loop import _MAX_TOOL_NUDGES, AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
-from arelis.eval.harness import _FailingStub, _ScriptedRouter, foundation_registry
-from arelis.tools.base import ToolRegistry
+from arelis.core.turn_telemetry import TurnTimer
+from arelis.eval.harness import _FailingStub, _ScriptedRouter, _StubTool, foundation_registry
+from arelis.tools.base import ToolRegistry, ToolResult
 
 pytestmark = pytest.mark.no_ui
 
@@ -62,6 +63,7 @@ async def _run_agent_with_script(
     *,
     registry: ToolRegistry | None = None,
     capture_thinking: bool = False,
+    extras: dict | None = None,
 ) -> tuple[str, list[tuple[str, bool]], list[str]]:
     router = _ScriptedRouter(script)
     tools = registry if registry is not None else _tools_registry(tools_list)
@@ -112,6 +114,9 @@ async def _run_agent_with_script(
     thinking = [str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING]
     done = next((e for e in events if e.type == EventType.ASSISTANT_DONE), None)
     final_text = str((done.payload.get("text") if done else "") or "")
+    if extras is not None:
+        extras["messages"] = list(getattr(loop, "_last_sent_messages", None) or [])
+        extras["max_rounds"] = loop.max_rounds
     return final_text, tool_results, thinking
 
 
@@ -331,6 +336,138 @@ def test_flag_off_plain_question_still_runs_owed_document() -> None:
     assert tool_results[1][1] is True
     assert any(_OWED_NUDGE in t for t in thinking), thinking
     assert "springfield" in final_text.lower()
+
+
+_C02_WEATHER_DOCUMENT = (
+    "Get today's weather forecast for Springfield, Illinois, then save a "
+    "one-paragraph summary of it as a markdown document titled Springfield Weather Brief."
+)
+
+
+class _AmbiguousWeather(_StubTool):
+    """Springfield with no state resolves to Missouri, same as the live tool."""
+
+    async def run(self, **kwargs: object) -> ToolResult:
+        self.calls.append(dict(kwargs))
+        place = "Springfield, Missouri"
+        output = (
+            f"Place: {place}\n"
+            "That name also matched: Springfield, Illinois. "
+            f"Say which one if {place} is not the one you meant.\n"
+            "Now: 72F"
+        )
+        return ToolResult(
+            ok=True,
+            output=output,
+            data={
+                "place": place,
+                "ambiguous": True,
+                "alternatives": ["Springfield, Illinois"],
+            },
+        )
+
+
+def _ambiguous_weather_registry() -> ToolRegistry:
+    full = foundation_registry()
+    reg = ToolRegistry()
+    reg.register(_AmbiguousWeather("weather", risk="read"))
+    document = full.get("document")
+    assert document is not None
+    reg.register(document)
+    return reg
+
+
+def _not_run_tool_messages(messages: list[dict]) -> list[str]:
+    return [
+        str(message.get("content") or "")
+        for message in messages
+        if message.get("role") == "tool" and "did not run" in str(message.get("content") or "").lower()
+    ]
+
+
+def test_flag_off_need_place_blocked_weather_still_runs_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C02: ambiguous weather logs need_place, the retry does not run, document does.
+
+    Round 1 weather resolves Springfield to Missouri and the turn still owes
+    a place. Round 2 calls weather again. That call must come back as a tool
+    result that says it did not run. Round 3 calls document. The turn ends
+    under the step limit.
+    """
+    marks: list[tuple[str, dict]] = []
+    original = TurnTimer.mark
+
+    def _mark(self: TurnTimer, event: str, **fields: object) -> None:
+        marks.append((event, dict(fields)))
+        original(self, event, **fields)
+
+    monkeypatch.setattr(TurnTimer, "mark", _mark)
+    script = [
+        _call("weather", {"place": "Springfield", "days": 1}),
+        _call("weather", {"place": "Springfield", "days": 1}),
+        _call(
+            "document",
+            {
+                "format": "md",
+                "title": "Springfield Weather Brief",
+                "body": "Sunny in Springfield, Missouri.",
+            },
+        ),
+        [("token", "Saved Springfield Weather Brief.md")],
+    ]
+    extras: dict = {}
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            _C02_WEATHER_DOCUMENT,
+            script,
+            ["weather", "document"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            registry=_ambiguous_weather_registry(),
+            capture_thinking=True,
+            extras=extras,
+        )
+    )
+    assert any(
+        event == "weather_once" and fields.get("action") == "need_place"
+        for event, fields in marks
+    ), marks
+    assert [name for name, _ok in tool_results] == ["weather", "document"], tool_results
+    assert tool_results[0][1] is True
+    assert tool_results[1][1] is True
+    not_run = _not_run_tool_messages(extras["messages"])
+    assert len(not_run) == 1, extras["messages"]
+    assert "Springfield, Missouri" in not_run[0]
+    assert "ask the user once" in not_run[0].lower()
+    assert not any("max rounds" in line for line in thinking), thinking
+    assert "tool-step limit" not in final_text.lower()
+    assert "springfield" in final_text.lower()
+
+
+def test_flag_off_repeated_weather_block_ends_before_step_limit() -> None:
+    """Retrying the blocked weather call must not burn the step budget."""
+    script = [_call("weather", {"place": "Springfield", "days": 1}) for _ in range(8)]
+    script.append([("token", "done")])
+    extras: dict = {}
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            _C02_WEATHER_DOCUMENT,
+            script,
+            ["weather", "document"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            registry=_ambiguous_weather_registry(),
+            capture_thinking=True,
+            extras=extras,
+        )
+    )
+    assert [name for name, _ok in tool_results] == ["weather"], tool_results
+    assert tool_results[0][1] is True
+    not_run = _not_run_tool_messages(extras["messages"])
+    assert not_run, extras["messages"]
+    assert "Springfield, Missouri" in not_run[0]
+    assert not any("max rounds" in line for line in thinking), thinking
+    assert "tool-step limit" not in final_text.lower()
+    assert "missouri" in final_text.lower()
 
 
 def test_flag_off_owed_nudge_respects_max_tool_nudges() -> None:

@@ -47,6 +47,7 @@ from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_secrets, truncate_tool_output
 from arelis.tools.weather import (
+    extract_weather_places,
     weather_place_key,
     weather_places_missing,
     weather_wants_beyond_today,
@@ -845,9 +846,28 @@ async def execute_call(
                 )
             else:
                 weather_ok_places.add(wx_key)
+                resolved = ""
+                ambiguous = False
+                if isinstance(data_dict, dict):
+                    resolved = str(data_dict.get("place") or "").strip()
+                    ambiguous = bool(data_dict.get("ambiguous"))
+                if resolved:
+                    ctx.weather_resolved_place = resolved
                 missing = weather_places_missing(
                     text, weather_ok_places, ctx.weather_failed_places
                 )
+                # Springfield resolves to one state and the ask text did not
+                # yield a place, so weather_places_missing reports home. That
+                # is not a second city. Telling the model to call weather
+                # again is what blocked every later round.
+                phantom_home = (
+                    ambiguous
+                    and bool(str(args.get("place") or "").strip())
+                    and missing == [""]
+                    and not extract_weather_places(text)
+                )
+                if phantom_home:
+                    missing = []
                 # A two-city fanout already has the sibling in this batch.
                 # Steering "call the other city" here leaves a stale user
                 # line after the second reading, and 9b re-calls until

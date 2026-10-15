@@ -244,6 +244,17 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             loop._timer.mark("fanout", n=len(r.calls))
 
     call_i = -1
+    blocked_names: list[str] = []
+    ran_calls = 0
+
+    def _record_block(blocked_name: str) -> None:
+        """Count a once-guard block. Repeats must not spend the step budget."""
+        blocked_names.append(blocked_name)
+        counts = getattr(ctx, "guard_block_counts", None)
+        if not isinstance(counts, dict):
+            counts = {}
+            ctx.guard_block_counts = counts
+        counts[blocked_name] = int(counts.get(blocked_name, 0)) + 1
 
     def _drop_wander(*names: str) -> None:
         hide = set(names)
@@ -344,6 +355,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
             )
             r.messages.append(loop._tool_message(name, notice))
+            _record_block(name)
             continue
 
         # A known contact is already in contacts.yaml — never search
@@ -371,6 +383,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     )
                 )
                 r.messages.append(loop._tool_message(name, notice))
+                _record_block(name)
                 continue
 
         if name == "send_sms":
@@ -388,6 +401,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} duplicate send blocked")
+                _record_block(name)
                 continue
             # Block junk follow-up bodies after a locked draft send.
             if (
@@ -406,6 +420,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} extra body blocked")
+                _record_block(name)
                 continue
         if name == "send_email" and r.email_draft is not None:
             args = fill_send_email_args(
@@ -422,6 +437,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} duplicate send blocked")
+                _record_block(name)
                 continue
         if name == "memory":
             action = str(args.get("action") or "").strip().lower()
@@ -463,6 +479,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     )
                     r.messages.append(loop._tool_message(name, notice))
                     loop._trace.append(f"{name} duplicate create blocked")
+                    _record_block(name)
                     continue
 
         if loop._look is not None:
@@ -476,6 +493,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, blocked_look))
                 loop._trace.append(f"{name} look_grant_blocked")
+                _record_block(name)
                 continue
             if name == "camera" and loop._look.camera_snaps >= 1:
                 notice = (
@@ -484,24 +502,33 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append("camera look_cap")
+                _record_block(name)
                 continue
 
-        # One successful weather fetch per place — otherwise the 7B
-        # re-calls weather until max_rounds (83s of duplicate Open-Meteo).
+        # One successful weather fetch per place. A second call for that
+        # place does not run. The model gets a tool result that says so.
         if name == "weather":
             wx_key = weather_place_key(str(args.get("place") or ""))
             if wx_key in r.weather_ok_places:
-                notice = (
-                    "Already fetched weather for that place this turn; "
-                    "not calling it again. Answer the user from the "
-                    "prior weather result in plain prose and stop, or "
-                    "call weather for a city you have not fetched yet."
-                )
+                resolved = str(getattr(ctx, "weather_resolved_place", "") or "").strip()
+                if resolved:
+                    notice = (
+                        "This weather call did not run. "
+                        f"The place was already resolved to {resolved}. "
+                        "Use that result or ask the user once."
+                    )
+                else:
+                    notice = (
+                        "This weather call did not run. "
+                        "Weather for that place was already fetched this turn. "
+                        "Use that result or ask the user once."
+                    )
                 await loop.bus.publish(
                     Event(EventType.THINKING, {"text": f"skip  {notice}"})
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} duplicate fetch blocked")
+                _record_block(name)
                 continue
 
         if name == "workspace":
@@ -518,6 +545,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} tool_cache blocked")
+                _record_block(name)
                 continue
 
         if name in {"scrape", "web_fetch"}:
@@ -529,6 +557,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} url not in search hits")
+                _record_block(name)
                 continue
             page = page_key(raw_url)
             _, scrape_cap = web_read_caps(r.research_mode, r.agent_cfg)
@@ -547,6 +576,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} page budget blocked")
+                _record_block(name)
                 continue
             if page and page in r.page_ok:
                 ctx.duplicate_page_skips += 1
@@ -559,6 +589,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} duplicate url blocked")
+                _record_block(name)
                 continue
             if page:
                 r.page_ok.add(page)
@@ -574,6 +605,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} open a hit first")
+                _record_block(name)
                 continue
             if len(r.web_search_ok) >= search_cap:
                 notice = (
@@ -586,6 +618,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} search budget blocked")
+                _record_block(name)
                 continue
             if q and q in r.web_search_ok:
                 notice = (
@@ -598,6 +631,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} duplicate query blocked")
+                _record_block(name)
                 continue
             if q:
                 r.web_search_ok.add(q)
@@ -618,6 +652,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             )
             r.messages.append(loop._tool_message(name, notice))
             loop._trace.append(f"{name} empty peek blocked")
+            _record_block(name)
             continue
 
         # One successful image per turn — otherwise the 7B re-opens Allow.
@@ -632,6 +667,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             )
             r.messages.append(loop._tool_message(name, notice))
             loop._trace.append(f"{name} duplicate generate blocked")
+            _record_block(name)
             continue
 
         # Same successful args this turn — a loop, not more work.
@@ -704,6 +740,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     )
                 )
                 loop._trace.append(f"{name} repeat held for the file")
+                _record_block(name)
                 continue
             if repeat or stop_open:
                 if stop_open and is_login_url(ctx.last_browser_url):
@@ -735,6 +772,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if action != RUN:
             continue
 
+        ran_calls += 1
         ended = await execute_call(
             loop,
             ctx,
@@ -752,6 +790,25 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         )
         if ended:
             return True
+
+    # A round that only repeated an already explained block used to burn
+    # every remaining step. The first block stays in the transcript so the
+    # model can call whatever is still owed. The next one ends the turn.
+    if (
+        ran_calls == 0
+        and blocked_names
+        and all(ctx.guard_block_counts.get(n, 0) >= 2 for n in blocked_names)
+    ):
+        line = (ctx.last_ok_tool_out or "").strip()
+        if not line:
+            line = f"This {blocked_names[-1]} call did not run."
+        await loop._finish(
+            line,
+            r.sources,
+            streamed="",
+            passthrough_tool=(ctx.last_ok_tool_name or ""),
+        )
+        return True
 
     if ctx.skip_finish_text:
         await loop._finish(ctx.skip_finish_text, r.sources, streamed="")
