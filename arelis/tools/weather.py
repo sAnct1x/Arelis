@@ -71,7 +71,7 @@ class WeatherTool:
                 data={"need_place": True},
             )
         if here.latitude is not None and here.longitude is not None:
-            label = here.place or "Here"
+            label = here.place or "Your location"
             return await self._sentence(label, here.latitude, here.longitude)
         if here.place:
             return await self._for_place(here.place)
@@ -163,26 +163,36 @@ class WeatherTool:
         return await self._from_row(asked, choice)
 
     async def _geocode_rows(self, asked: str) -> list[dict[str, Any]]:
+        names = [name for name in geocode_search_names(asked) if name]
+        if not names:
+            return []
+        if len(names) == 1:
+            return await self._rows_named(names[0])
+        # The shorter name is the city. One lookup is enough when a hit's
+        # own state or country is the trailing word.
+        short = await self._rows_named(names[-1])
+        if any(place_region_match(asked, row) for row in short):
+            return short
+        return await self._rows_named(names[0])
+
+    async def _rows_named(self, query: str) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         seen: set[tuple[str, str, str, str, str]] = set()
-        for name in geocode_search_names(asked):
-            hits = await _maybe_await(self._geocode_fn(name))
-            for row in hits or []:
-                if not isinstance(row, dict):
-                    continue
-                key = (
-                    str(row.get("name") or "").casefold(),
-                    str(row.get("admin1") or "").casefold(),
-                    str(row.get("country") or "").casefold(),
-                    str(row.get("latitude") or ""),
-                    str(row.get("longitude") or ""),
-                )
-                if key in seen:
-                    continue
-                seen.add(key)
-                rows.append(row)
-            if any(place_region_match(asked, row) for row in rows):
-                break
+        hits = await _maybe_await(self._geocode_fn(query))
+        for row in hits or []:
+            if not isinstance(row, dict):
+                continue
+            key = (
+                str(row.get("name") or "").casefold(),
+                str(row.get("admin1") or "").casefold(),
+                str(row.get("country") or "").casefold(),
+                str(row.get("latitude") or ""),
+                str(row.get("longitude") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
         return rows
 
     def _pick_open(
@@ -526,15 +536,58 @@ def _rows_for_named_region(
     return None
 
 
+_US_COUNTRY_NAMES = frozenset(
+    {
+        "us",
+        "usa",
+        "united states",
+        "united states of america",
+    }
+)
+
+
+def _is_us_place(entry: dict[str, Any]) -> bool:
+    code = " ".join(str(entry.get("country_code") or "").split()).casefold()
+    if code in _US_COUNTRY_NAMES:
+        return True
+    country = " ".join(str(entry.get("country") or "").split()).casefold()
+    return country in _US_COUNTRY_NAMES
+
+
 def place_label(entry: dict[str, Any]) -> str:
+    """City, State in the US. City, Country everywhere else.
+
+    The country is the geocoder's country name. A region is not a substitute
+    for it.
+    """
     name = " ".join(str(entry.get("name") or "").split())
     admin = " ".join(str(entry.get("admin1") or "").split())
     country = " ".join(str(entry.get("country") or "").split())
-    if admin and admin.casefold() != name.casefold():
-        return f"{name}, {admin}"
-    if country and country.casefold() != name.casefold():
+    if _is_us_place(entry):
+        if name and admin and admin.casefold() != name.casefold():
+            return f"{name}, {admin}"
+        if name and country and country.casefold() != name.casefold():
+            return f"{name}, {country}"
+        return name
+    if name and country and country.casefold() != name.casefold():
         return f"{name}, {country}"
+    if name and admin and admin.casefold() != name.casefold():
+        return f"{name}, {admin}"
     return name
+
+
+def weather_brief_title(place: str) -> str:
+    """File title from the place the forecast resolved."""
+    return f"{' '.join(place.split())} Weather Brief"
+
+
+def weather_file_summary(place: str, path: str = "") -> str:
+    """Chat line for that file. The place is the resolved one."""
+    title = weather_brief_title(place)
+    shown = " ".join(str(path or "").split())
+    if shown:
+        return f"{title}. The file is at {shown}."
+    return f"{title}."
 
 
 def clarify(labels: list[str]) -> str:

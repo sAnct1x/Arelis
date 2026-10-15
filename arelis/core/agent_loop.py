@@ -417,7 +417,9 @@ def _tool_intent_label(tool_calls: list[dict[str, Any]]) -> str:
             return f"Browser {action}: {target}…"
         return f"Browser {action}…"
     if name:
-        return f"Calling {name}…"
+        from arelis.ui.status_copy import tool_status_line
+
+        return tool_status_line(name, args)
     return ""
 
 

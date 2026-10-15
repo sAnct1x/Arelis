@@ -352,12 +352,10 @@ async def test_paris_with_the_country_is_france(place: str) -> None:
 
     assert result.ok
     assert "?" not in result.output
-    assert result.output.startswith("Paris, Ile-de-France:")
+    assert "Paris, France" in result.output
+    assert "Ile-de-France" not in result.output
     assert "Texas" not in result.output
-    if "," in place:
-        assert calls == ["Paris"]
-    else:
-        assert calls == ["Paris France", "Paris"]
+    assert calls == ["Paris"]
 
 
 @pytest.mark.asyncio
@@ -366,7 +364,7 @@ async def test_a_bare_london_is_the_dominant_city() -> None:
     result = await stand.tool().run(place="London")
 
     assert stand.forecast == [(51.5085, -0.1257)]
-    assert result.output.startswith("London, England:")
+    assert "London, United Kingdom" in result.output
     assert "?" not in result.output
 
 
@@ -394,7 +392,7 @@ async def test_windows_coordinates_without_a_city_still_forecast() -> None:
     assert stand.geo == []
     assert stand.ip == 0
     assert stand.forecast == [(39.7817, -89.6501)]
-    assert result.output.startswith("Here:")
+    assert result.output.startswith("Your location:")
 
 
 @pytest.mark.asyncio
@@ -479,6 +477,44 @@ async def test_enabled_ip_is_the_last_fallback(tmp_path, monkeypatch) -> None:
     assert stand.geo == []
     assert stand.forecast == [(45.76, 4.84)]
     assert result.output.startswith("Lyon:")
+
+
+@pytest.mark.asyncio
+async def test_home_region_breaks_a_population_tie() -> None:
+    """Close populations ask, unless the saved home region matches one of them."""
+    close_mo = dict(_MO, population=170_000, country="United States")
+    close_il = dict(_IL, population=150_000, country="United States")
+    stand = _Standins([close_mo, close_il])
+    stand.home_value = "Chicago, Illinois"
+    result = await stand.tool().run(place="Springfield")
+
+    assert stand.forecast == [(39.7817, -89.6501)]
+    assert result.output.startswith("Springfield, Illinois:")
+    assert "?" not in result.output
+
+
+def test_place_label_uses_state_or_country() -> None:
+    from arelis.tools.weather import place_label
+
+    assert place_label(_PARIS_FR) == "Paris, France"
+    assert place_label(_PARIS_TX) == "Paris, Texas"
+    assert place_label(_LONDON_GB) == "London, United Kingdom"
+    assert place_label(_IL) == "Springfield, Illinois"
+
+
+def test_status_and_spoken_prompt_do_not_say_called_the_tool() -> None:
+    from arelis.core.agent_loop import _tool_intent_label
+    from arelis.talk_language import _SPOKEN_EN
+
+    label = _tool_intent_label(
+        [{"function": {"name": "weather", "arguments": {}}}]
+    ).lower()
+    assert "calling" not in label
+    assert "called the" not in label
+    assert "tool" not in label
+    spoken = _SPOKEN_EN.lower()
+    assert "call the tool" not in spoken
+    assert "called the" not in spoken
 
 
 def test_model_facing_weather_text_names_no_tool_or_api() -> None:

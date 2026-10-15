@@ -424,6 +424,11 @@ def tool_passthrough_note(tool: str) -> str:
     rides into the next prompt the same way the stopped-turn note does.
     """
     name = (tool or "").strip()
+    if name == "weather":
+        return (
+            "[The line above is the forecast, not her own words. "
+            "Do not treat it as an example of how she writes.]"
+        )
     named = f" from {name}" if name else ""
     return (
         f"[The line above is raw tool output{named}, not her own words, the "

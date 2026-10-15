@@ -192,6 +192,16 @@ async def execute_call(
                 tool_fields["arg_keys"] = sorted(args.keys()) if args else []
             loop._timer.mark("tool", **tool_fields)
         data_dict = result.data if isinstance(result.data, dict) else None
+        if (
+            name == "weather"
+            and result.ok
+            and isinstance(data_dict, dict)
+            and not data_dict.get("ambiguous")
+            and not data_dict.get("need_place")
+        ):
+            resolved = " ".join(str(data_dict.get("place") or "").split())
+            if resolved:
+                ctx.weather_resolved_place = resolved
         if name == "python":
             # The marker stays until plot is tried. A later python call that
             # has no result field ends the owed plot. The output text is not read.
@@ -724,6 +734,20 @@ async def execute_call(
                     },
                 )
             )
+        if name == "document" and result.ok:
+            place = " ".join(str(getattr(ctx, "weather_resolved_place", "") or "").split())
+            if place:
+                from arelis.tools.weather import weather_file_summary
+
+                shown = ""
+                if isinstance(data_dict, dict):
+                    shown = str(data_dict.get("path") or "").strip()
+                await loop._finish(
+                    weather_file_summary(place, shown),
+                    sources,
+                    streamed="",
+                )
+                return True
         if name == "research_report" and result.ok and data_dict:
             raw_path = str(
                 data_dict.get("abs_path") or data_dict.get("path") or ""

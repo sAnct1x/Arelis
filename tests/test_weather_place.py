@@ -293,8 +293,9 @@ async def test_ambiguity_is_reported_so_it_can_be_corrected(
     result = await WeatherTool().run(place="Springfield")
 
     assert result.output == (
-        "Did you mean Springfield, Illinois or Springfield, Canterbury?"
+        "Did you mean Springfield, Illinois or Springfield, New Zealand?"
     )
+    assert "Canterbury" not in result.output
     assert result.data["ambiguous"] is True
 
 

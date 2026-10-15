@@ -42,7 +42,14 @@ from tests.hardening_helpers import (
 def test_the_note_says_it_was_not_her():
     note = tool_passthrough_note("weather")
     assert "not her own words" in note
-    assert "weather" in note
+    assert "forecast" in note
+
+
+def test_weather_note_does_not_name_a_tool_call():
+    """The next prompt must not teach 'called the weather tool'."""
+    note = tool_passthrough_note("weather").lower()
+    assert "tool" not in note
+    assert "called the" not in note
 
 
 def test_the_note_survives_an_unnamed_tool():
@@ -174,7 +181,8 @@ async def test_finish_attaches_the_note_to_the_memory_turn():
     last = loop.memory.messages[-1]
     assert last.role == "assistant"
     assert "not her own words" in last.note
-    assert "weather" in last.note
+    assert "forecast" in last.note
+    assert "tool" not in last.note.lower()
 
 
 @pytest.mark.asyncio

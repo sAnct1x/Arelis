@@ -742,7 +742,7 @@ location:
   privacy:
     # How much of the saved place the model sees every turn. Whatever is in the
     # prompt can show up in its visible reasoning (the Thinking dock).
-    #   off   timezone only; the weather tool uses the saved place itself and
+    #   off   timezone only; weather uses the saved place itself and
     #         user_location returns it when something else needs it (default)
     #   city  city, region, country; no postal code or coordinates
     #   full  everything the resolver knows

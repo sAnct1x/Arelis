@@ -157,6 +157,59 @@ def test_native_units_calc_memory_chain_keeps_named_tools() -> None:
     assert "24" in final_text
 
 
+def test_weather_brief_title_and_summary_use_the_resolved_place() -> None:
+    """The file name and the chat line come from the resolved place.
+
+    The model asked for "Springfield Weather Brief" and then said the file
+    was done. The place the forecast actually resolved is what gets written.
+    """
+
+    class _ResolvedWeather(_StubTool):
+        async def run(self, **kwargs: object) -> ToolResult:
+            self.calls.append(dict(kwargs))
+            return ToolResult(
+                ok=True,
+                output="Springfield, Illinois: 61F and overcast, high 66, low 48.",
+                data={"place": "Springfield, Illinois"},
+            )
+
+    weather = _ResolvedWeather("weather")
+    document = _StubTool("document", risk="write")
+    reg = ToolRegistry()
+    reg.register(weather)
+    reg.register(document)
+    script = [
+        _call("weather", {"place": "Springfield"}),
+        _call(
+            "document",
+            {
+                "format": "md",
+                "title": "Springfield Weather Brief",
+                "body": "Sunny.",
+            },
+        ),
+        [("token", "Done. The file is at Springfield-Weather-Brief.md")],
+    ]
+    final_text, tool_results, _ = asyncio.run(
+        _run_agent_with_script(
+            "Get today's weather forecast for Springfield, Illinois, then save a "
+            "one-paragraph summary of it as a markdown document titled "
+            "Springfield Weather Brief.",
+            script,
+            ["weather", "document"],
+            _FLAG_OFF,
+            registry=reg,
+        )
+    )
+    assert [name for name, _ok in tool_results] == ["weather", "document"], tool_results
+    assert document.calls[0]["title"] == "Springfield, Illinois Weather Brief"
+    assert "Springfield, Illinois" in final_text
+    assert not final_text.lower().startswith("done")
+    lowered = final_text.lower()
+    assert "weather tool" not in lowered
+    assert "called the" not in lowered
+
+
 def test_native_early_finish_still_calls_owed_tool() -> None:
     """Native: model tries to answer after weather; document is still owed -> runs."""
     script = [
