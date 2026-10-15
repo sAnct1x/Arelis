@@ -569,11 +569,11 @@ def test_flag_off_need_place_still_writes_owed_document(
 def test_flag_off_repeated_weather_block_still_runs_owed_document(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A repeated weather block must not end while document is still owed.
+    """A repeated weather block must not end while the nudge cap still has room.
 
     Real C02 order: need_place is logged, the place is resolved, the same
-    weather call is blocked again, and document has not run. The plain
-    forecast reply used to finish the turn there. Document still has to run.
+    weather call is blocked again, and document has not run. The model
+    calls document on the next step, still inside the cap, so the file runs.
     """
     marks: list[tuple[str, dict]] = []
     original = TurnTimer.mark
@@ -592,7 +592,9 @@ def test_flag_off_repeated_weather_block_still_runs_owed_document(
             "body": "Sunny at Springfield Station.",
         },
     )
-    script = [weather, weather, weather, weather, weather, document, [("token", "Saved the brief.")]]
+    # Four weather rounds stay inside the nudge cap: one real call, then
+    # blocks that ask for document. The next script step is that file.
+    script = [weather, weather, weather, weather, document, [("token", "Saved the brief.")]]
     extras: dict = {}
     final_text, tool_results, thinking = asyncio.run(
         _run_agent_with_script(
@@ -618,6 +620,36 @@ def test_flag_off_repeated_weather_block_still_runs_owed_document(
     assert not_run, extras["messages"]
     assert "Springfield Station" in not_run[0]
     assert not any("max rounds" in line for line in thinking), thinking
+
+
+def test_flag_off_repeated_weather_block_stops_after_nudge_cap() -> None:
+    """Past the nudge cap, retrying blocked weather must not hit the step limit.
+
+    The ask still owes a document and the script never calls it. The hold
+    asks twice. The next blocked weather call ends in plain words, before
+    max_rounds, instead of the tool-step limit line.
+    """
+    script = [_call("weather", {"place": "Springfield", "days": 1}) for _ in range(12)]
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            _C02_WEATHER_DOCUMENT,
+            script,
+            ["weather", "document"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            registry=_ambiguous_weather_registry(),
+            capture_thinking=True,
+        )
+    )
+    assert final_text.strip() == (
+        "I have the forecast for Springfield Station. I couldn't save the brief."
+    )
+    assert "tool-step limit" not in final_text.lower()
+    assert [name for name, _ok in tool_results] == ["weather"], tool_results
+    assert tool_results[0][1] is True
+    owed_nudges = [line for line in thinking if _OWED_NUDGE in line]
+    assert len(owed_nudges) == _MAX_TOOL_NUDGES, thinking
+    assert not any("max rounds" in line for line in thinking), thinking
+    assert not any(line.startswith("round 8/") for line in thinking), thinking
 
 
 def test_flag_off_repeated_weather_block_without_document_ends() -> None:
