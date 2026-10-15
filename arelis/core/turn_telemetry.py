@@ -7,7 +7,7 @@ or STT, without turning on a special debug flag.
 
 One line per stage, plus a done summary:
 
-    turn 02:01:15.123 start     id=a1b2c3d4 session=… source=voice role=fast speak=1 chars=28
+    turn 02:01:15.123 start     id=a1b2c3d4 session=… source=voice role=fast speak=1 chars=28 sha=…
     turn 02:01:16.900 summarize id=a1b2c3d4 ms=1770 dropped=4
     turn 02:01:19.400 round     id=a1b2c3d4 n=1 ms=2500 kind=tools calls=1
     turn 02:01:19.420 tool      id=a1b2c3d4 name=send_sms ms=18 ok=1
@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from arelis.core.log_meta import text_sha12
 from arelis.location.privacy import LocationLogFilter
 from arelis.location.privacy import redact as redact_location
 from arelis.paths import logs_dir
@@ -124,7 +125,8 @@ class TurnTimer:
         self.route_reason = (route_reason or "default").strip() or "default"
         self.speak = bool(speak)
         self.user_chars = int(user_chars)
-        self.user_preview = _clip_preview(user_text)
+        # The words stay in chat. The log keeps a length and a hash.
+        self.user_sha = text_sha12(user_text)
         self._t0 = time.perf_counter()
         self._first_delta_at: float | None = None
         self.summarize_ms = 0
@@ -157,6 +159,7 @@ class TurnTimer:
                 "route_reason": self.route_reason,
                 "speak": self.speak,
                 "chars": self.user_chars,
+                "sha": self.user_sha,
             }
             self.mark("start", **start_fields)
 
@@ -307,7 +310,7 @@ class TurnTimer:
             "status": status,
             "speak": self.speak,
             "user_chars": self.user_chars,
-            "user_preview": self.user_preview,
+            "user_sha": self.user_sha,
             "total_ms": total,
             "model_ms": self.model_ms,
             "model_prefill_ms": self.model_prefill_ms,
@@ -331,13 +334,6 @@ class TurnTimer:
         if self.last_eval_count is not None:
             record["eval_count"] = self.last_eval_count
         return record
-
-
-def _clip_preview(text: str, limit: int = 160) -> str:
-    cleaned = " ".join((text or "").split())
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 1] + "…"
 
 
 def _jsonl_path(log_dir: Path | None = None) -> Path:
