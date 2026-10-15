@@ -188,18 +188,9 @@ jobs:
         shell: bash
         run: |
           echo "tier=${{ steps.tier.outputs.tier }} area=${{ steps.tier.outputs.area }} reason=${{ steps.tier.outputs.reason }}"
-          mapfile -t paths < "$RUNNER_TEMP/ci-tier-paths.txt"
-          filtered=()
-          for path in "${paths[@]}"; do
-            if [ -n "$path" ]; then
-              filtered+=("$path")
-            fi
-          done
-          if [ "${#filtered[@]}" -eq 0 ]; then
-            python -m pytest -q --tb=short --junitxml=pytest-results.xml -n auto
-          else
-            python -m pytest -q --tb=short --junitxml=pytest-results.xml -n auto "${filtered[@]}"
-          fi
+          # macOS /bin/bash is 3.2 and has no mapfile. Python reads the path
+          # list and runs pytest, so every runner uses the same command.
+          python -c "import os, pathlib, subprocess, sys; p = pathlib.Path(os.environ['RUNNER_TEMP']) / 'ci-tier-paths.txt'; paths = [ln.strip() for ln in p.read_text(encoding='utf-8').splitlines() if ln.strip()] if p.is_file() else []; raise SystemExit(subprocess.call([sys.executable, '-m', 'pytest', '-q', '--tb=short', '--junitxml=pytest-results.xml', '-n', 'auto', *paths]))"
       - name: Pytest not required for this tier
         if: steps.tier.outputs.tier == 'docs'
         run: echo "tier=docs reason=${{ steps.tier.outputs.reason }}; pytest not run"
