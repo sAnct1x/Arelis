@@ -16,7 +16,7 @@ async def read_windows_location() -> Any | None:
         return None
     try:
         return await _read_winrt()
-    except Exception:
+    except Exception:  # no permission or no winsdk means there is no place
         return None
 
 

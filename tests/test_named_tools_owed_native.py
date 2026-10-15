@@ -160,7 +160,7 @@ def test_native_units_calc_memory_chain_keeps_named_tools() -> None:
 def test_native_early_finish_still_calls_owed_tool() -> None:
     """Native: model tries to answer after weather; document is still owed -> runs."""
     script = [
-        _call("weather", {"place": "Springfield, Illinois", "days": 3}),
+        _call("weather", {"place": "Springfield, Illinois"}),
         [("token", "Sunny today in Springfield.")],
         _call(
             "document",
@@ -204,7 +204,7 @@ def test_native_owed_tool_twice_failed_still_terminates() -> None:
         "body": "Sunny.",
     }
     script = [
-        _call("weather", {"place": "Springfield, Illinois", "days": 3}),
+        _call("weather", {"place": "Springfield, Illinois"}),
         _call("document", args),
         _call("document", args),
         [("token", "Could not save the brief; weather was sunny.")],
@@ -242,7 +242,7 @@ def test_native_twice_failed_exemption_skips_owed_nudge() -> None:
         "body": "Sunny.",
     }
     script = [
-        _call("weather", {"place": "Springfield, Illinois", "days": 3}),
+        _call("weather", {"place": "Springfield, Illinois"}),
         _call("document", args),
         _call("document", args),
         [("token", "Could not save the brief; weather was sunny.")],
@@ -311,7 +311,7 @@ def test_flag_off_plain_question_still_runs_owed_document() -> None:
     Document is still owed, so the finish path holds and round 3 runs it.
     """
     script = [
-        _call("weather", {"place": "Springfield, Illinois", "days": 3}),
+        _call("weather", {"place": "Springfield, Illinois"}),
         [("token", "Should I save the Springfield forecast now?")],
         _call(
             "document",
@@ -410,8 +410,8 @@ def test_flag_off_need_place_blocked_weather_still_runs_document() -> None:
     the next step. The turn stays under the step limit.
     """
     script = [
-        _call("weather", {"place": "Springfield", "days": 1}),
-        _call("weather", {"place": "Springfield", "days": 1}),
+        _call("weather", {"place": "Springfield"}),
+        _call("weather", {"place": "Springfield"}),
         _call(
             "document",
             {
@@ -449,8 +449,8 @@ def test_flag_off_need_place_blocked_weather_still_runs_document() -> None:
 def test_flag_off_repeated_weather_block_ends_before_step_limit() -> None:
     """A second weather call runs. The turn does not invent a forecast ending."""
     script = [
-        _call("weather", {"place": "Springfield", "days": 1}),
-        _call("weather", {"place": "Springfield", "days": 1}),
+        _call("weather", {"place": "Springfield"}),
+        _call("weather", {"place": "Springfield"}),
         [("token", "Mild in Springfield.")],
     ]
     extras: dict = {}
@@ -496,7 +496,7 @@ def test_flag_off_need_place_still_writes_owed_document(mode: str) -> None:
         {"format": "md", "title": title, "body": body},
     )
     done = [("token", f"Saved {title}.md")]
-    weather = _call("weather", {"place": "Springfield", "days": 1})
+    weather = _call("weather", {"place": "Springfield"})
     if mode == "blocked":
         script = [weather, weather, weather, document, done]
     else:
@@ -541,7 +541,7 @@ def test_flag_off_repeated_weather_block_still_runs_owed_document() -> None:
     The model calls weather four times, then document. Every weather call
     runs. Document runs. The canned forecast ending does not replace it.
     """
-    weather = _call("weather", {"place": "Springfield", "days": 1})
+    weather = _call("weather", {"place": "Springfield"})
     document = _call(
         "document",
         {
@@ -585,7 +585,7 @@ def test_flag_off_repeated_weather_block_stops_after_nudge_cap() -> None:
     early with the canned "I couldn't save the brief." line. The nudge
     cap itself is test_flag_off_owed_nudge_respects_max_tool_nudges.
     """
-    weather = _call("weather", {"place": "Springfield", "days": 1})
+    weather = _call("weather", {"place": "Springfield"})
     document = _call(
         "document",
         {
@@ -620,8 +620,8 @@ def test_flag_off_repeated_weather_block_stops_after_nudge_cap() -> None:
 def test_flag_off_repeated_weather_block_without_document_ends() -> None:
     """No document owed: both weather calls run, and the model answers."""
     script = [
-        _call("weather", {"place": "Springfield", "days": 1}),
-        _call("weather", {"place": "Springfield", "days": 1}),
+        _call("weather", {"place": "Springfield"}),
+        _call("weather", {"place": "Springfield"}),
         [("token", "Mild in Springfield.")],
     ]
     final_text, tool_results, thinking = asyncio.run(
@@ -704,7 +704,7 @@ def test_flag_off_repeated_send_block_does_not_end_turn() -> None:
 def test_flag_off_repeated_weather_block_ends_in_plain_words() -> None:
     """The model's words stay. A weather retry does not paste the tool dump."""
     script = [
-        _call("weather", {"place": "Springfield", "days": 1}),
+        _call("weather", {"place": "Springfield"}),
         [("token", "Mild and clear.")],
     ]
     final_text, tool_results, thinking = asyncio.run(
@@ -736,7 +736,7 @@ def test_flag_off_ambiguous_resolved_place_is_not_home() -> None:
     forecast it already has.
     """
     script = [
-        _call("weather", {"place": "Springfield", "days": 3}),
+        _call("weather", {"place": "Springfield"}),
         [("token", "Here is the forecast.")],
     ]
     extras: dict = {}
@@ -773,8 +773,8 @@ def test_flag_off_weather_miss_says_so_and_stops() -> None:
     reg = ToolRegistry()
     reg.register(_FailingStub("weather", risk="read"))
     script = [
-        _call("weather", {"place": "Springfield", "days": 1}),
-        _call("weather", {"place": "Springfield", "days": 1}),
+        _call("weather", {"place": "Springfield"}),
+        _call("weather", {"place": "Springfield"}),
         [("token", "trying again")],
     ]
     final_text, tool_results, thinking = asyncio.run(
@@ -802,7 +802,7 @@ def test_flag_off_weather_miss_still_reaches_document() -> None:
     reg.register(_FailingStub("weather", risk="read"))
     reg.register(_StubTool("document", risk="write"))
     script = [
-        _call("weather", {"place": "Springfield", "days": 1}),
+        _call("weather", {"place": "Springfield"}),
         _call(
             "document",
             {

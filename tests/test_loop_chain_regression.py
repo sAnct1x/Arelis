@@ -124,7 +124,7 @@ def test_weather_then_units_chain() -> None:
                         "type": "function",
                         "function": {
                             "name": "weather",
-                            "arguments": {"place": "Springfield, Illinois", "days": 3},
+                            "arguments": {"place": "Springfield, Illinois"},
                         },
                     }
                 ],
@@ -268,7 +268,7 @@ def test_weather_document_chain() -> None:
                         "type": "function",
                         "function": {
                             "name": "weather",
-                            "arguments": {"place": "Springfield, Illinois", "days": 3},
+                            "arguments": {"place": "Springfield, Illinois"},
                         },
                     }
                 ],

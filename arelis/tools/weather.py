@@ -124,7 +124,7 @@ class WeatherTool:
         city, regions = split_place(asked)
         try:
             hits = await _maybe_await(self._geocode_fn(city or asked))
-        except Exception:
+        except Exception:  # a dead lookup is the plain failure line
             return _miss(asked)
         rows = [row for row in (hits or []) if isinstance(row, dict)]
         if regions:
@@ -168,7 +168,7 @@ class WeatherTool:
     ) -> ToolResult:
         try:
             data = await _maybe_await(self._forecast_fn(lat, lon))
-        except Exception:
+        except Exception:  # a dead forecast is the plain failure line
             return _miss(fallback or label)
         if not isinstance(data, dict):
             return _miss(fallback or label)

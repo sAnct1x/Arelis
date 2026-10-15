@@ -134,7 +134,7 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # alternative to `path`, so demanding `path` would reject the multi-page
     # call the document lane actually makes.
     "vision": ((), ("path", "paths", "question")),
-    "weather": ((), ("days", "place")),
+    "weather": ((), ("place",)),
     "web_fetch": (("url",), ("max_chars", "url")),
     "web_search": (("query",), ("max_results", "query", "recency")),
     "workspace": (

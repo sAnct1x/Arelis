@@ -250,7 +250,7 @@ class LocationResolver:
                 continue
             try:
                 found = provider.resolve()
-            except Exception:
+            except Exception:  # a broken settings read is no saved city
                 return ""
             if found is None:
                 return ""

@@ -133,7 +133,7 @@ def production_bounce_turns() -> list[ConversationTurn]:
             expect_tools=("weather",),
             notes="Weather tool only — no AccuWeather scrape.",
             script=[
-                [("tool_calls", [tool_call("weather", {"days": 3})])],
+                [("tool_calls", [tool_call("weather", {"place": "Springfield, Illinois"})])],
                 [
                     (
                         "token",
@@ -326,7 +326,7 @@ def production_bounce_turns() -> list[ConversationTurn]:
                     (
                         "tool_calls",
                         [
-                            tool_call("weather", {"days": 3}),
+                            tool_call("weather", {"place": "Springfield, Illinois"}),
                             tool_call("inbox", {"action": "list"}),
                         ],
                     )
@@ -446,7 +446,7 @@ def limb_catalog_turns() -> list[ConversationTurn]:
             {"action": "get", "who": "wife"},
         ),
         _shot("location", "Where am I?", "user_location", {}),
-        _shot("weather", "What's the weather?", "weather", {"days": 3}),
+        _shot("weather", "What's the weather?", "weather", {}),
         _shot("inbound", "Did anyone text me?", "inbound_sms", {}),
         _shot("inbox", "Check my inbox", "inbox", {"action": "list"}),
         _shot(

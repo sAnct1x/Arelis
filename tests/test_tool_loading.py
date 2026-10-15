@@ -232,13 +232,13 @@ def test_coercion_applies_with_the_flag_off() -> None:
     from scripts.measure_tool_schema import registry_for_profile
 
     reg = registry_for_profile("worst")
-    weather = _stub(reg.get("weather"))
-    place = "2"
-    result = asyncio.run(reg.call("weather", days="2", place=place))
+    fetch = _stub(reg.get("web_fetch"))
+    url = "https://example.com/x"
+    result = asyncio.run(reg.call("web_fetch", url=url, max_chars="2"))
     assert result.ok is True
-    args = weather[-1]
-    assert args["days"] == 2 and type(args["days"]) is int
-    assert args["place"] is place
+    args = fetch[-1]
+    assert args["max_chars"] == 2 and type(args["max_chars"]) is int
+    assert args["url"] is url
 
 
 def test_failed_conversion_leaves_the_value() -> None:
@@ -414,13 +414,13 @@ def test_number_text_strips_sign_and_leading_zeros() -> None:
     from scripts.measure_tool_schema import registry_for_profile
 
     reg = registry_for_profile("worst")
-    weather = _stub(reg.get("weather"))
+    fetch = _stub(reg.get("web_fetch"))
     image = _stub(reg.get("image"))
     for raw, expected in ((" 5 ", 5), ("+1", 1), ("007", 7)):
-        result = asyncio.run(reg.call("weather", days=raw))
+        result = asyncio.run(reg.call("web_fetch", url="https://example.com/x", max_chars=raw))
         assert result.ok is True
-        assert weather[-1]["days"] == expected
-        assert type(weather[-1]["days"]) is int
+        assert fetch[-1]["max_chars"] == expected
+        assert type(fetch[-1]["max_chars"]) is int
     cfg = asyncio.run(reg.call("image", prompt="x", cfg="007"))
     assert cfg.ok is True
     assert image[-1]["cfg"] == 7

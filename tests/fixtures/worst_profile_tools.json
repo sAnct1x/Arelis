@@ -1661,15 +1661,6 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "days": {
-            "type": "integer"
-          },
-          "hours": {
-            "type": "integer"
-          },
-          "past_days": {
-            "type": "integer"
-          },
           "place": {
             "type": "string"
           }
