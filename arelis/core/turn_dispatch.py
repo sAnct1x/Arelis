@@ -23,6 +23,7 @@ from arelis.core.email_complete import (
 from arelis.core.events import Event, EventType
 from arelis.core.intent_catalog import data_cell_should_reject, room_data_file_names
 from arelis.core.look import look_call_blocked
+from arelis.core.no_call_finish import hold_for_owed_tools
 from arelis.core.preflight import (
     looks_like_browser_click_signin,
     looks_like_browser_open_ask,
@@ -793,12 +794,18 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
 
     # A round that only repeated an already explained block used to burn
     # every remaining step. The first block stays in the transcript so the
-    # model can call whatever is still owed. The next one ends the turn.
+    # model can call whatever is still owed. The next one ends the turn
+    # only when nothing named is still owed. A file they asked for is
+    # still owed after a weather block, so ask for that tool. The nudge
+    # cap is the same one the no-call hold uses. Past the cap, ship the
+    # last real result as before.
     if (
         ran_calls == 0
         and blocked_names
         and all(ctx.guard_block_counts.get(n, 0) >= 2 for n in blocked_names)
     ):
+        if await hold_for_owed_tools(loop, ctx, r, note_assistant=False):
+            return False
         line = (ctx.last_ok_tool_out or "").strip()
         if not line:
             line = f"This {blocked_names[-1]} call did not run."
