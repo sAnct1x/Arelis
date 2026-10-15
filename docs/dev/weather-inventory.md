@@ -174,7 +174,7 @@ Added in `b3a8106` (#236) for the weather retry. At #236 it was not weather-only
 
 True when at least one place succeeded and `weather_places_missing` is empty. A days retry or a still-missing city leaves tools up.
 
-First in `5f41e93` (2026-10-01). Called from `run_round` on round 2 and later, together with SMS sent, agenda done, calculator done, and the write nudges. When it is true and `close_tools_after_progress` agrees, the round offers no tools (`plain_only`).
+First in `5f41e93` (2026-10-01). It was called from `run_round` on round 2 and later, together with SMS sent, agenda done, calculator done, and the write nudges. When it was true and `close_tools_after_progress` agreed, the round offered no tools (`plain_only`). The rebuild drops that arm. The weather, chain, and owed-document tests still pass without it. A second weather call is the once-guard, not a hidden menu.
 
 ### `arelis/core/turn_round.py` `run_round` tool strip
 
