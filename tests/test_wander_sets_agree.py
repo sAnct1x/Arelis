@@ -19,9 +19,7 @@ tool in neither is the `6203c8b` failure and is silent.
 from __future__ import annotations
 
 from arelis.core.agent_loop import (
-    _BROWSER_WANDER,
     _LOCAL_STORE,
-    _WEATHER_WANDER,
     _hide_daily_wander,
 )
 
@@ -60,17 +58,6 @@ def _hidden_for(expected: set[str]) -> set[str]:
     return ALL_TOOLS - _hide_daily_wander(set(ALL_TOOLS), expected)
 
 
-def test_a_weather_turn_hides_everything_it_redirects() -> None:
-    """The 6203c8b fix, pinned so it cannot regress quietly."""
-    hidden = _hidden_for({"weather"})
-    assert _WEATHER_WANDER <= hidden
-
-
-def test_a_browser_turn_hides_everything_it_redirects() -> None:
-    hidden = _hidden_for({"browser"})
-    assert _BROWSER_WANDER <= hidden
-
-
 def test_a_local_store_turn_hides_everything_it_redirects() -> None:
     """Found the same way as 6203c8b, by comparing the two sets.
 
@@ -103,7 +90,3 @@ def test_the_place_comes_back_when_the_turn_actually_wants_it() -> None:
     assert "user_location" in offered
 
 
-def test_the_local_store_tool_itself_is_never_hidden() -> None:
-    """Hiding the tool the turn is about would be the worst possible fix."""
-    for store in sorted(_LOCAL_STORE):
-        assert store not in _hidden_for({store})

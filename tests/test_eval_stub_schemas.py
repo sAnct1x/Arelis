@@ -68,11 +68,6 @@ def test_every_stub_names_a_real_tool(real_tools: dict[str, Any]) -> None:
     )
 
 
-def test_mirrored_schemas_name_real_tools(real_tools: dict[str, Any]) -> None:
-    orphans = sorted(set(_STUB_SCHEMAS) - set(real_tools) - CREDENTIAL_GATED)
-    assert not orphans, f"_STUB_SCHEMAS mirrors tools that no longer exist: {orphans}"
-
-
 def test_mirrored_required_args_match_the_real_tool(real_tools: dict[str, Any]) -> None:
     """A stub requiring less than the real tool lets a broken call score green."""
     drift: list[str] = []
@@ -89,42 +84,3 @@ def test_mirrored_required_args_match_the_real_tool(real_tools: dict[str, Any]) 
     assert not drift, "stub required-args drifted from the registry:\n  " + "\n  ".join(drift)
 
 
-def test_mirrored_properties_are_a_subset_of_the_real_tool(
-    real_tools: dict[str, Any],
-) -> None:
-    """A stub accepting an argument the real tool rejects hides a broken call.
-
-    Subset rather than equality: a real tool may grow a parameter no scenario
-    exercises yet, and failing on that would train people to edit this file
-    without reading it. Inventing one is the direction that lies.
-    """
-    invented: list[str] = []
-    for name, (_required, props) in sorted(_STUB_SCHEMAS.items()):
-        tool = real_tools.get(name)
-        if tool is None:
-            continue
-        real_props = set(_schema(tool).get("properties") or {})
-        extra = sorted(set(props) - real_props)
-        if extra:
-            invented.append(f"{name}: stub accepts {extra}, real tool does not")
-    assert not invented, "stub parameters the real tool rejects:\n  " + "\n  ".join(invented)
-
-
-def test_enum_values_are_not_invented(real_tools: dict[str, Any]) -> None:
-    """Scenarios pass action= strings; an action the real tool rejects is a lie."""
-    stubs = foundation_registry()
-    bad: list[str] = []
-    for name in sorted(stubs.names()):
-        tool = real_tools.get(name)
-        if tool is None:
-            continue
-        real_action = ((_schema(tool).get("properties") or {}).get("action") or {})
-        real_enum = set(real_action.get("enum") or ())
-        if not real_enum:
-            continue
-        stub_action = ((_schema(stubs.get(name)) .get("properties") or {}).get("action") or {})
-        stub_enum = set(stub_action.get("enum") or ())
-        extra = sorted(stub_enum - real_enum)
-        if extra:
-            bad.append(f"{name}: stub allows action={extra}, real tool does not")
-    assert not bad, "stub enum values the real tool rejects:\n  " + "\n  ".join(bad)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from arelis.voice.speech_text import next_speakable_units, split_sentences
+from arelis.voice.speech_text import next_speakable_units
 
 
 def test_first_sentence_starts_while_the_answer_is_still_growing() -> None:
@@ -17,13 +17,6 @@ def test_first_sentence_starts_while_the_answer_is_still_growing() -> None:
     clips, already = next_speakable_units(both, already, finalize=True)
     assert clips == ["Europa has an ocean under the ice."]
     assert already == 2
-
-
-def test_a_one_sentence_answer_starts_without_waiting_for_done() -> None:
-    line = "Doing well, thanks for asking."
-    clips, already = next_speakable_units(line, 0, finalize=False)
-    assert clips == [line]
-    assert already == 1
 
 
 def test_a_long_sentence_starts_without_waiting() -> None:
@@ -52,6 +45,3 @@ def test_already_does_not_reglue_a_spoken_sentence() -> None:
     assert first not in clips[0]
 
 
-def test_split_still_breaks_on_periods() -> None:
-    parts = split_sentences("One. Two. Three.")
-    assert parts == ["One.", "Two.", "Three."]

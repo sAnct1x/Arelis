@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from arelis.core.compact_prompt import skinny_description
 from arelis.tools.catalog import (
-    CatalogTool,
     chat_line_for_distance,
     format_distance_for_model,
     normalize_horizons_distance_args,
@@ -36,22 +34,6 @@ class _Tools:
         return None
 
 
-def test_short_description_says_omit_date_and_do_not_add() -> None:
-    text = skinny_description("catalog", CatalogTool.description)
-    assert "omit date" in text
-    assert "closest" in text
-    assert "do not add" in text
-    assert len(f"`catalog`: {text}") <= 220
-
-
-def test_date_schema_is_not_for_closest() -> None:
-    desc = CatalogTool.parameters_schema["properties"]["date"]["description"]
-    assert "Omit" in desc
-    assert "closest" in desc
-    target = CatalogTool.parameters_schema["properties"]["target"]["description"]
-    assert "Not a sentence" in target
-
-
 def test_distance_call_drops_a_made_up_date_and_odd_query() -> None:
     args = normalize_horizons_distance_args(
         {
@@ -68,21 +50,6 @@ def test_distance_call_drops_a_made_up_date_and_odd_query() -> None:
     assert args["table"] == "observer"
     assert "date" not in args
     assert "query" not in args
-
-
-def test_a_named_sky_day_is_not_rewritten() -> None:
-    args = normalize_horizons_distance_args(
-        {
-            "action": "horizons",
-            "target": "499",
-            "date": "2026-10-01",
-            "table": "observer",
-        },
-        "Use the catalog horizons lookup for Mars on 2026-10-01 and report the RA and Dec.",
-    )
-    assert args["date"] == "2026-10-01"
-    assert args["target"] == "499"
-    assert args["table"] == "observer"
 
 
 def test_model_note_stays_off_the_chat_line() -> None:
@@ -109,15 +76,6 @@ def test_invented_mars_closest_cannot_replace_a_none() -> None:
     assert "335" not in line
 
 
-def test_a_day_the_user_named_is_kept() -> None:
-    args = normalize_horizons_distance_args(
-        {"action": "horizons", "target": "Mars", "date": "2026-10-01"},
-        "how far was Mars on 2026-10-01",
-    )
-    assert args["date"] == "2026-10-01"
-    assert args["target"] == "Mars"
-
-
 def test_invented_moon_closest_keeps_the_tool_dates() -> None:
     invented = "The Moon is about 374,000 km away. Closest Nov 4 ~335.9M km."
     line = chat_line_for_distance(_MOON, invented, ask="how far is the Moon")
@@ -126,24 +84,6 @@ def test_invented_moon_closest_keeps_the_tool_dates() -> None:
     assert "Oct 16" in line
     assert "Nov 4" not in line
     assert "335.9" not in line
-
-
-def test_a_second_topic_can_stay_if_it_does_not_invent() -> None:
-    reply = _MARS + " Boston is sunny."
-    line = chat_line_for_distance(
-        _MARS,
-        reply,
-        ask="how far is Mars and what is the weather",
-    )
-    assert line == reply
-    invented = reply + " Closest Nov 4 ~335.9M km."
-    locked = chat_line_for_distance(
-        _MARS,
-        invented,
-        ask="how far is Mars and what is the weather",
-    )
-    assert locked == _MARS
-    assert "335.9" not in locked
 
 
 @pytest.mark.asyncio

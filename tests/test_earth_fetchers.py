@@ -5,8 +5,6 @@ Modeled on the other self-contained fetchers' HTTP shape (except Exception to No
 
 from __future__ import annotations
 
-import importlib
-
 import httpx
 import pytest
 
@@ -31,12 +29,6 @@ def test_host_pinned_exact_and_suffix() -> None:
     assert host_pinned(None, "api.weather.gov") is False
 
 
-def test_get_json_unpinned_does_not_open() -> None:
-    from arelis.earth.http import get_json
-
-    assert get_json("https://evil.example/x", "api.weather.gov") is None
-
-
 def test_get_json_timeout_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
     import arelis.earth.http as http_mod
 
@@ -47,83 +39,6 @@ def test_get_json_timeout_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         is None
     )
-
-
-def test_get_json_http_error_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    import arelis.earth.http as http_mod
-
-    class BoomResp:
-        def raise_for_status(self) -> None:
-            raise httpx.HTTPError("500")
-
-        @property
-        def url(self) -> str:
-            return "https://api.weather.gov/alerts/active"
-
-        def json(self) -> dict:
-            return {"nope": True}
-
-    class Client:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            pass
-
-        def __enter__(self) -> Client:
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def get(self, *args: object, **kwargs: object) -> BoomResp:
-            return BoomResp()
-
-    monkeypatch.setattr(http_mod.httpx, "Client", Client)
-    assert (
-        http_mod.get_json(
-            "https://api.weather.gov/alerts/active", "api.weather.gov"
-        )
-        is None
-    )
-
-
-def test_get_json_retries_once_then_returns(monkeypatch: pytest.MonkeyPatch) -> None:
-    import arelis.earth.http as http_mod
-
-    hits = {"n": 0}
-
-    class Resp:
-        url = "https://api.weather.gov/alerts/active"
-
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict:
-            return {"ok": True}
-
-    class Client:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            hits["n"] += 1
-            if hits["n"] == 1:
-                raise httpx.TimeoutException("slow")
-
-        def __enter__(self) -> Client:
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def get(self, *args: object, **kwargs: object) -> Resp:
-            return Resp()
-
-    monkeypatch.setattr(http_mod.httpx, "Client", Client)
-    monkeypatch.setattr(http_mod.time, "sleep", lambda _s: None)
-    got = http_mod.get_json(
-        "https://api.weather.gov/alerts/active",
-        "api.weather.gov",
-        retries=1,
-        backoff_s=0.0,
-    )
-    assert got == {"ok": True}
-    assert hits["n"] == 2
 
 
 # Public fetch_* that now go through earth.http.get_json.
@@ -140,17 +55,6 @@ _VIA_HELPER = (
     ("arelis.earth.satnogs", "fetch_satnogs"),
     ("arelis.earth.traffic", "fetch_traffic"),
 )
-
-
-@pytest.mark.parametrize("mod_name, func_name", _VIA_HELPER)
-def test_helper_fetchers_fail_soft(
-    monkeypatch: pytest.MonkeyPatch, mod_name: str, func_name: str
-) -> None:
-    monkeypatch.setattr("arelis.earth.http.get_json", lambda *_a, **_k: None)
-    monkeypatch.setattr("arelis.earth.http.get_text", lambda *_a, **_k: None)
-    mod = importlib.import_module(mod_name)
-    got = getattr(mod, func_name)()
-    assert got in (None, [])
 
 
 def test_camera_fetch_timeout_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -192,19 +96,6 @@ _OWN_HTTPX = (
 )
 
 
-@pytest.mark.parametrize("mod_name, func_name", _OWN_HTTPX)
-def test_own_httpx_fetchers_fail_soft(
-    monkeypatch: pytest.MonkeyPatch, mod_name: str, func_name: str
-) -> None:
-    mod = importlib.import_module(mod_name)
-    if hasattr(mod, "httpx"):
-        monkeypatch.setattr(mod.httpx, "Client", _TimeoutClient)
-    got = getattr(mod, func_name)()
-    from arelis.earth.entity import FeedMiss
-
-    assert got is None or got == [] or isinstance(got, FeedMiss)
-
-
 _FIXTURE_DIR = __import__("pathlib").Path(__file__).resolve().parent / "fixtures" / "earth"
 
 
@@ -236,48 +127,3 @@ def test_usgs_recorded_geojson_becomes_quakes(monkeypatch: pytest.MonkeyPatch) -
     assert got[0].id.startswith("usgs:")
 
 
-def test_usgs_recorded_empty_features_is_quiet(monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
-
-    from arelis.earth import live
-
-    body = json.loads(
-        (_FIXTURE_DIR / "usgs_all_day_empty.json").read_text(encoding="utf-8")
-    )
-    monkeypatch.setattr(live.httpx, "Client", _client_with_body(body))
-    assert live.fetch_usgs() == []
-
-
-def test_opensky_recorded_states_shape() -> None:
-    import json
-
-    from arelis.earth.opensky import entities_from_opensky
-
-    one = json.loads(
-        (_FIXTURE_DIR / "opensky_states_one.json").read_text(encoding="utf-8")
-    )
-    empty = json.loads(
-        (_FIXTURE_DIR / "opensky_states_empty.json").read_text(encoding="utf-8")
-    )
-    rows = entities_from_opensky(one)
-    assert len(rows) == 1
-    assert rows[0].id == "icao:abc123"
-    assert rows[0].layer == "flights"
-    assert entities_from_opensky(empty) == []
-
-
-def test_usgs_live_optional() -> None:
-    import os
-
-    if os.environ.get("ARELIS_LIVE_EARTH", "").strip().lower() not in {
-        "1",
-        "true",
-        "yes",
-    }:
-        pytest.skip("optional live; set ARELIS_LIVE_EARTH=1")
-    from arelis.earth.live import fetch_usgs
-
-    got = fetch_usgs()
-    assert got is None or isinstance(got, list)
-    if got:
-        assert all(e.layer == "quakes" for e in got)

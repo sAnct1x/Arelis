@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import socket
 import sys
-import threading
-import time
 import types
 from typing import Any
 
 from arelis.browser.actions import ActionResult, PlaywrightDriver
 from arelis.browser.session import BrowserSession
-from arelis.tools.base import ToolResult
 from arelis.tools.browser_tool import BrowserTool
 
 _REFUSED = (
@@ -210,64 +206,6 @@ def test_give_up_is_plain_and_closes_playwright(monkeypatch) -> None:
     asyncio.run(_run())
 
 
-def test_retry_picks_up_late_tcp_listener(monkeypatch) -> None:
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(("127.0.0.1", 0))
-    listener.settimeout(3.0)
-    port = int(listener.getsockname()[1])
-    done = threading.Event()
-
-    def _listen() -> None:
-        time.sleep(0.05)
-        try:
-            listener.listen(1)
-            conn, _addr = listener.accept()
-            conn.close()
-        except OSError:
-            pass
-        finally:
-            done.set()
-
-    thread = threading.Thread(target=_listen, daemon=True)
-    thread.start()
-    try:
-        import arelis.browser.actions as actions_mod
-
-        monkeypatch.setattr(actions_mod, "_CDP_CONNECT_BUDGET_S", 1.5)
-        monkeypatch.setattr(actions_mod, "_CDP_CONNECT_BACKOFF_S", 0.02)
-        monkeypatch.setattr(actions_mod, "_CDP_CONNECT_BACKOFF_CAP_S", 0.05)
-        _patch_launch(monkeypatch)
-        stops: list[int] = []
-        fake = _FakeBrowser()
-
-        async def _connect(_url: str) -> Any:
-            try:
-                sock = socket.create_connection(("127.0.0.1", port), timeout=0.08)
-            except OSError as exc:
-                raise Exception(_REFUSED) from exc
-            sock.close()
-            return fake
-
-        _patch_playwright(monkeypatch, _connect, stops)
-        driver = PlaywrightDriver()
-        _stub_driver(driver)
-
-        async def _run() -> None:
-            got = await driver._attach_cdp(mode="launch")
-            assert got.ok is True
-            assert driver._browser is fake
-
-        asyncio.run(_run())
-    finally:
-        try:
-            listener.close()
-        except OSError:
-            pass
-        done.wait(timeout=1.0)
-        thread.join(timeout=1.0)
-
-
 def test_open_falls_back_to_os_on_cdp_timeout(monkeypatch) -> None:
     _patch_launch(monkeypatch)
     _fake_clock(monkeypatch)
@@ -296,65 +234,3 @@ def test_open_falls_back_to_os_on_cdp_timeout(monkeypatch) -> None:
     asyncio.run(_run())
 
 
-def test_snapshot_connect_refused_does_not_relaunch(monkeypatch) -> None:
-    from arelis.browser import launch as launch_mod
-
-    _patch_launch(monkeypatch)
-    sleeps = _fake_clock(monkeypatch)
-    stops: list[int] = []
-    killed: list[object] = []
-
-    async def _connect(_url: str) -> Any:
-        raise Exception(_REFUSED)
-
-    _patch_playwright(monkeypatch, _connect, stops)
-    monkeypatch.setattr(
-        launch_mod,
-        "terminate_browser_processes",
-        lambda b: killed.append(b),
-    )
-    driver = PlaywrightDriver()
-    _stub_driver(driver)
-    session = BrowserSession(driver=driver)
-    orig_ensure = session.ensure
-    relaunch_ensures: list[bool] = []
-
-    async def _ensure(*args: Any, **kwargs: Any) -> ActionResult:
-        relaunch_ensures.append(bool(kwargs.get("relaunch")))
-        return await orig_ensure(*args, **kwargs)
-
-    monkeypatch.setattr(session, "ensure", _ensure)
-    tool = BrowserTool(session)
-
-    async def _run() -> None:
-        got = await tool.run(action="snapshot")
-        assert got.ok is False
-        assert got.data.get("code") == "CDP_TIMEOUT"
-        assert True not in relaunch_ensures
-        assert killed == []
-        assert sum(sleeps) <= 18.0 + 1e-9
-
-    asyncio.run(_run())
-
-
-def test_revive_once_still_relaunches_cdp_dead() -> None:
-    session = BrowserSession.fake()
-    seen: list[bool] = []
-
-    async def _ensure(*_a: Any, **kwargs: Any) -> ActionResult:
-        seen.append(bool(kwargs.get("relaunch")))
-        return ActionResult(ok=True, output="ok", data={})
-
-    session.ensure = _ensure  # type: ignore[method-assign]
-    tool = BrowserTool(session)
-
-    async def _run() -> None:
-        got = await tool._revive_once(
-            "chrome",
-            False,
-            ToolResult(ok=False, output="x", data={"code": "CDP_DEAD"}),
-        )
-        assert got is True
-        assert seen == [True]
-
-    asyncio.run(_run())

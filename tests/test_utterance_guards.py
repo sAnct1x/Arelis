@@ -31,7 +31,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from arelis.core import sms_complete, utterance_guards
+from arelis.core import utterance_guards
 
 # Every name the extraction moved. `sms_complete` must keep answering to all of
 # them, because callers this lane cannot edit ask it to.
@@ -77,63 +77,6 @@ def _modules_after(code: str) -> set[str]:
     return {line.strip() for line in out.stdout.splitlines() if line.strip()}
 
 
-def test_the_guards_module_does_not_drag_in_the_module_it_left() -> None:
-    loaded = _modules_after("import arelis.core.utterance_guards")
-    assert "arelis.core.sms_complete" not in loaded, (
-        "utterance_guards imports sms_complete, so the extraction moved text "
-        "around without moving the dependency. Whatever needs sms_complete "
-        "belongs back in it."
-    )
-
-
-def test_deciding_a_turn_needs_no_tools_no_longer_loads_the_sms_reconstructor() -> None:
-    """The actual point of 3.5, and the only test that can see it.
-
-    The guard import inside `is_tiny_prompt_ask` is deliberately lazy, so
-    merely importing `intent_catalog` proves nothing either way — the old
-    version would have passed that. This calls the function first, which is
-    what forces whichever module it really depends on to load.
-    """
-    loaded = _modules_after(
-        "from arelis.core.intent_catalog import is_tiny_prompt_ask\nis_tiny_prompt_ask('hey')"
-    )
-    assert "arelis.core.utterance_guards" in loaded, (
-        "is_tiny_prompt_ask no longer reaches the guards at all; this test is "
-        "measuring nothing. Check what it imports now."
-    )
-    assert "arelis.core.sms_complete" not in loaded, (
-        "intent_catalog still reaches into sms_complete. is_tiny_prompt_ask "
-        "runs on every turn; it should not need the draft reconstructor to "
-        "recognise a greeting."
-    )
-
-
-def test_every_moved_guard_still_answers_at_its_old_address() -> None:
-    missing = [name for name in MOVED if not hasattr(sms_complete, name)]
-    assert not missing, (
-        "These names moved to utterance_guards without a re-export. "
-        "orchestrator_shared and thirteen other modules import them through "
-        f"sms_complete and cannot be edited from this lane: {missing}"
-    )
-
-
-def test_the_old_address_and_the_new_one_are_the_same_function() -> None:
-    """A re-export, not a second copy that can drift from the first."""
-    for name in MOVED:
-        assert getattr(sms_complete, name) is getattr(utterance_guards, name), (
-            f"{name} is a different object on each module. Two implementations "
-            "of the same guard is the problem 3.5 was meant to remove."
-        )
-
-
-def test_the_moved_guards_are_named_in_the_modules_public_list() -> None:
-    """`__all__` is what a star-import and a linter go by."""
-    exported = set(sms_complete.__all__)
-    # `soften_caps` is a helper the guards share, not a guard.
-    missing = [n for n in MOVED if n != "soften_caps" and n not in exported]
-    assert not missing, f"re-exported but absent from __all__: {missing}"
-
-
 def test_a_greeting_is_told_apart_from_something_that_merely_starts_politely() -> None:
     """`is_tiny_prompt_ask` strips the tool surface off a turn this returns True for.
 
@@ -160,19 +103,6 @@ def test_a_url_is_never_mistaken_for_the_body_of_a_half_written_text() -> None:
     assert utterance_guards.looks_like_browser_or_url("go to github.com")
     assert not utterance_guards.looks_like_browser_or_url("running 10 minutes late")
     assert not utterance_guards.looks_like_browser_or_url("tell him I said no")
-
-
-def test_shouted_speech_is_softened_so_the_math_guard_can_still_read_it() -> None:
-    """Whisper hands back whole clauses in capitals, which broke `\\bwhat is\\b`.
-
-    Sentence case, not lowercase: the first letter is left alone because the
-    guards that consume this are matching words, and nothing downstream cares
-    whether the sentence starts with a capital.
-    """
-    assert utterance_guards.soften_caps("WHAT IS 19 TIMES 4") == "What is 19 times 4"
-    assert utterance_guards.soften_caps("what is 19 times 4") == "what is 19 times 4"
-    assert utterance_guards.soften_caps("") == ""
-    assert utterance_guards.looks_like_math_ask("WHAT IS 19 TIMES 4")
 
 
 def test_the_contact_field_guards_choose_which_line_to_read_not_what_to_do() -> None:

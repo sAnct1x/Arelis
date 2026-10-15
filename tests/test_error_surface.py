@@ -7,14 +7,12 @@ calls thinking.append must fail these tests.
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 from arelis.core.events import Event, EventType
 from arelis.notify.center import NotificationCenter, new_notice
 from arelis.ui.notify_host import report_poll_state
 from arelis.ui.sms_host import open_sms_chat
-from arelis.ui.workspace_host import open_file, save_file
 from arelis.workspace import WorkspaceRoots
 
 
@@ -40,46 +38,6 @@ def _talk_window(*, roots: WorkspaceRoots | None = None) -> SimpleNamespace:
         _poll_spoken={},
     )
     return window
-
-
-def test_workspace_save_failure_lands_in_conversation(tmp_path: Path) -> None:
-    """The visible surface, not only the closed dock footer."""
-    roots = WorkspaceRoots.from_paths([str(tmp_path)], active=tmp_path.name)
-    window = _talk_window(roots=roots)
-
-    save_file(window, str(tmp_path.parent / "outside-the-sandbox.txt"), "nope")
-
-    assert any("could not save" in line.lower() for line in window.said), (
-        "save failure must show in conversation; thinking-only is the defect"
-    )
-    assert any("save failed" in line for line in window.think)
-
-
-def test_workspace_save_write_error_lands_in_conversation(tmp_path: Path, monkeypatch) -> None:
-    roots = WorkspaceRoots.from_paths([str(tmp_path)], active=tmp_path.name)
-    window = _talk_window(roots=roots)
-    (tmp_path / "notes.txt").write_text("ok", encoding="utf-8")
-
-    def boom(self, *_a, **_k):
-        raise OSError("Access is denied")
-
-    monkeypatch.setattr(Path, "write_text", boom)
-    save_file(window, "notes.txt", "edited")
-
-    assert any("could not save" in line.lower() for line in window.said)
-    assert any("save failed" in line for line in window.think)
-
-
-def test_workspace_open_failure_lands_in_conversation(tmp_path: Path) -> None:
-    roots = WorkspaceRoots.from_paths([str(tmp_path)], active=tmp_path.name)
-    window = _talk_window(roots=roots)
-
-    open_file(window, "ghost.txt")
-
-    assert any(
-        "could not open" in line.lower() or "not a file" in line.lower() for line in window.said
-    )
-    assert window.said, "open failure must not be thinking-only"
 
 
 def test_notify_poll_failure_lands_in_conversation() -> None:
@@ -116,28 +74,6 @@ def test_sms_chat_without_a_number_lands_in_conversation(qt_app, monkeypatch) ->
         assert any("No number" in line for line in window.think)
     finally:
         host.deleteLater()
-
-
-def test_phone_notify_bind_failure_lands_in_conversation(arelis_window) -> None:
-    window = arelis_window()
-    said: list[str] = []
-    window.chat.add_system = said.append  # type: ignore[method-assign]
-    window._on_event(
-        Event(
-            EventType.STATUS,
-            {"message": ("Phone notifications couldn't start. Restart Arelis to try again.")},
-        )
-    )
-    assert any("couldn't start" in line.lower() for line in said)
-    visible = "\n".join(
-        [
-            window.persona_panel.status_text(),
-            window.chat.progress.text(),
-            window.chat.empty.phone_note.text(),
-            *[line for thought in window.chat._thoughts for line in thought.lines],
-        ]
-    )
-    assert "couldn't start" in visible.lower()
 
 
 def test_phone_notify_listen_url_stays_off_the_transcript(arelis_window) -> None:

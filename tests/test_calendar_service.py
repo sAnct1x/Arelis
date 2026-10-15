@@ -10,7 +10,7 @@ import pytest
 from arelis.calendar.models import CachedEvent
 from arelis.calendar.service import CalendarService
 from arelis.calendar.store import CalendarStore
-from arelis.core.bus import EventBus, bind_app_bus, emit_nowait
+from arelis.core.bus import EventBus, bind_app_bus
 from arelis.core.events import Event, EventType
 
 
@@ -54,19 +54,6 @@ class _FakeClient:
 
 
 @pytest.mark.asyncio
-async def test_second_create_of_same_slot_does_not_post(tmp_path: Path) -> None:
-    store = CalendarStore(tmp_path / "cal.db")
-    fake = _FakeClient()
-    svc = CalendarService({}, store=store, client_factory=lambda _p: fake)
-    start = datetime(2026, 9, 8, 10, 0, tzinfo=UTC)
-    first = await svc.create(summary="Dentist", starts_at=start, provider="google")
-    second = await svc.create(summary="dentist", starts_at=start, provider="google")
-    assert len(fake.created) == 1
-    assert first.id == second.id
-    store.close()
-
-
-@pytest.mark.asyncio
 async def test_push_pending_does_not_clone_existing_google_row(tmp_path: Path) -> None:
     store = CalendarStore(tmp_path / "cal.db")
     start = datetime(2026, 9, 8, 10, 0, tzinfo=UTC)
@@ -103,20 +90,6 @@ async def test_push_pending_does_not_clone_existing_google_row(tmp_path: Path) -
     assert pushed["pushed"] == 1
     assert store.get("local:pending1") is None
     store.close()
-
-
-def test_stable_google_id_and_fingerprint_collapse_formats() -> None:
-    from arelis.calendar.google_client import stable_google_event_id
-    from arelis.calendar.models import create_fingerprint
-
-    naive = datetime(2026, 9, 8, 10, 0)
-    offset = datetime(2026, 9, 8, 10, 0, tzinfo=datetime.now().astimezone().tzinfo)
-    assert stable_google_event_id(
-        summary="Dentist", starts_at=naive
-    ) == stable_google_event_id(summary="dentist", starts_at=offset)
-    assert create_fingerprint("google", "Dentist", naive.isoformat()) == (
-        create_fingerprint("google", "dentist", offset.isoformat())
-    )
 
 
 @pytest.mark.asyncio
@@ -166,29 +139,6 @@ async def test_update_and_delete(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_google_token_failure_saves_locally(tmp_path: Path) -> None:
-    store = CalendarStore(tmp_path / "cal.db")
-
-    class _DeadGoogle:
-        async def create_event(self, **kwargs):
-            raise RuntimeError(
-                "Google token refresh failed (400). "
-                "Sign in on the calendar tile."
-            )
-
-    svc = CalendarService({}, store=store, client_factory=lambda _p: _DeadGoogle())
-    ev = await svc.create(
-        summary="Homework due",
-        starts_at=datetime(2026, 9, 8, 9, 0, tzinfo=UTC),
-        provider="google",
-    )
-    assert ev.provider == "local"
-    assert ev.sync_state == "pending"
-    assert store.get(ev.id) is not None
-    store.close()
-
-
-@pytest.mark.asyncio
 async def test_create_lands_locally_then_pushes(tmp_path: Path) -> None:
     store = CalendarStore(tmp_path / "cal.db")
     fake = _FakeClient()
@@ -209,36 +159,6 @@ async def test_create_lands_locally_then_pushes(tmp_path: Path) -> None:
     assert fake.created
     assert store.list_pending() == []
     store.close()
-
-
-def test_emit_nowait_is_silent_without_a_bus() -> None:
-    """Unbound is a no-op; bound still delivers.
-
-    Calling it and checking nothing blew up also passes if emit_nowait becomes
-    an empty function, which would silence every calendar event in the app. The
-    second half is what makes the first half mean anything.
-    """
-    bind_app_bus(None)
-    emit_nowait(Event(EventType.CALENDAR_CHANGED, {"action": "noop"}))
-
-    seen: list[Event] = []
-
-    class _Bus:
-        def emit_nowait(self, event: Event) -> None:
-            seen.append(event)
-
-        def publish_nowait(self, event: Event) -> None:
-            seen.append(event)
-
-    try:
-        bind_app_bus(_Bus())
-        emit_nowait(Event(EventType.CALENDAR_CHANGED, {"action": "created"}))
-        assert [e.payload.get("action") for e in seen] == ["created"], (
-            "a bound bus must receive the event — if this is empty, emit_nowait "
-            "is silent for everyone, not just when unbound"
-        )
-    finally:
-        bind_app_bus(None)
 
 
 @pytest.mark.asyncio

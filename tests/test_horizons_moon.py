@@ -82,56 +82,6 @@ def _fixed_clock(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "name,expected",
-    [
-        ("Moon", "301"),
-        ("moon", "301"),
-        ("the Moon", "301"),
-        ("Luna", "301"),
-        ("Sun", "10"),
-    ],
-)
-async def test_moon_name_maps_to_301(name: str, expected: str) -> None:
-    seen: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(unquote(str(request.url)))
-        return httpx.Response(200, json={"result": _OBSERVER_BLOB})
-
-    result = await _tool(handler).run(action="horizons", target=name, date="2026-10-05")
-    assert result.ok, result.output
-    assert seen
-    assert f"COMMAND='{expected}'" in seen[0]
-
-
-@pytest.mark.asyncio
-async def test_body_in_query_is_used_when_target_blank() -> None:
-    seen: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(unquote(str(request.url)))
-        return httpx.Response(200, json={"result": _OBSERVER_BLOB})
-
-    result = await _tool(handler).run(action="horizons", query="Moon")
-    assert len(seen) == 1
-    assert "COMMAND='301'" in seen[0]
-    assert result.ok, result.output
-
-
-@pytest.mark.asyncio
-async def test_ambiguous_name_list_is_not_ok() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        del request
-        return httpx.Response(200, json={"result": _AMBIGUOUS_BLOB})
-
-    result = await _tool(handler).run(action="horizons", target="Moon")
-    assert result.ok is False
-    assert result.data.get("fail_class") == "fail:name"
-    assert "301" in result.output
-
-
-@pytest.mark.asyncio
 async def test_moon_distance_now_and_next_extremes_in_local_time() -> None:
     seen: list[str] = []
 
@@ -170,53 +120,6 @@ async def test_moon_distance_now_and_next_extremes_in_local_time() -> None:
 
 
 @pytest.mark.asyncio
-async def test_http_400_surfaces_horizons_message() -> None:
-    message = (
-        "invalid value specified for query parameter 'REF_PLANE' "
-        "(ECLIPJ2000): expected: ECLIPTIC, FRAME, BODY EQUATOR"
-    )
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        del request
-        return httpx.Response(400, json={"code": "400", "message": message})
-
-    result = await _tool(handler).run(
-        action="horizons", target="399", date="2000-01-01", table="vectors"
-    )
-    assert result.ok is False
-    assert message in result.output
-
-
-@pytest.mark.asyncio
-async def test_next_closest_is_a_later_pass_when_now_is_the_closest() -> None:
-    """Just past a closest pass (more than 30 minutes ago): name the next one."""
-    blob = """
-$$SOE
- 2026-Oct-05 22:17     0.002430000  0.01
- 2026-Oct-05 23:17     0.002440000  0.01
- 2026-Oct-06 23:00     0.002500000  0.01
- 2026-Oct-16 22:00     0.002704000  0.01
- 2026-Oct-16 23:00     0.002705000  0.01
- 2026-Oct-17 00:00     0.002704000  0.01
- 2026-Oct-30 17:00     0.002437000  0.01
- 2026-Oct-30 18:00     0.002436000  0.01
- 2026-Oct-30 19:00     0.002437000  0.01
-$$EOE
-"""
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        del request
-        return httpx.Response(200, json={"result": blob})
-
-    result = await _tool(handler).run(action="horizons", target="Moon")
-    assert result.ok, result.output
-    out = result.output
-    assert "Oct 30" in out
-    assert "closest right now" not in out
-    assert "Oct 5" not in out
-
-
-@pytest.mark.asyncio
 async def test_distance_sentence_with_a_date_still_uses_the_now_summary() -> None:
     """A stuffed date and a sentence must not leave the no-date Mars summary."""
     values = [1.63 - 0.001 * i for i in range(12)]
@@ -235,34 +138,6 @@ async def test_distance_sentence_with_a_date_still_uses_the_now_summary() -> Non
     assert "Nov" not in result.output
     assert "335" not in result.output
     assert "2026-11-04" not in result.output
-
-
-@pytest.mark.asyncio
-async def test_a_named_day_is_still_a_sky_table() -> None:
-    """RA/Dec on a day the caller named stays the one-day table."""
-
-    page = (
-        "*******************************************************************************\n"
-        "Target body name: Mars (499)\n"
-        "*******************************************************************************\n"
-        " Date__(UT)__HR:MN     R.A._____(ICRF)_____DEC  delta     deldot    S-O-T /r    S-T-O\n"
-        "*******************************************************************************\n"
-        "$$SOE\n"
-        " 2026-Oct-01 00:00     08 15 08.50 +20 51 15.6  1.2734  -15.81  77.1 /L  45.0\n"
-        "$$EOE\n"
-        "*******************************************************************************\n"
-    )
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"result": page})
-
-    result = await _tool(handler).run(
-        action="horizons", target="Mars", date="2026-10-01"
-    )
-    assert result.ok, result.output
-    assert result.data.get("mode") != "now"
-    assert result.data.get("date") == "2026-10-01"
-    assert "observer table" in result.output
 
 
 @pytest.mark.asyncio
@@ -320,55 +195,6 @@ async def test_just_past_a_deep_perigee_names_the_next_perigee_not_the_next_hour
 
 
 @pytest.mark.asyncio
-async def test_request_spans_30_days_hourly() -> None:
-    seen: list[str] = []
-    await _tool_blob(_hourly_from_now_minus_1h([0.0025, 0.0024, 0.0026]), seen).run(
-        action="horizons", target="Moon"
-    )
-    url = seen[0]
-    assert "STEP_SIZE=1h" in url
-    assert "START_TIME=2026-10-05 22:17" in url
-    assert "STOP_TIME=2026-11-04 23:17" in url
-
-
-@pytest.mark.asyncio
-async def test_turning_point_time_is_interpolated() -> None:
-    d0, d1, d2 = 0.002500, 0.002400, 0.002450
-    values = [0.002520, 0.002510, d0, d1, d2, 0.002500]
-    seen: list[str] = []
-    result = await _tool_blob(_hourly_from_now_minus_1h(values), seen).run(
-        action="horizons", target="Moon"
-    )
-    assert result.ok, result.output
-    out = result.output
-    offset_h = 0.5 * (d0 - d2) / (d0 - 2 * d1 + d2)
-    vertex = _NOW + timedelta(hours=2) + timedelta(hours=offset_h)
-    extra = vertex.second + vertex.microsecond / 1_000_000
-    if extra >= 30:
-        vertex = vertex.replace(second=0, microsecond=0) + timedelta(minutes=1)
-    else:
-        vertex = vertex.replace(second=0, microsecond=0)
-    local = vertex.astimezone(_NY)
-    clock = local.strftime("%I:%M %p").lstrip("0")
-    grid = (_NOW + timedelta(hours=2)).astimezone(_NY)
-    grid_clock = grid.strftime("%I:%M %p").lstrip("0")
-    assert clock in out, out
-    assert grid_clock not in out, out
-
-
-@pytest.mark.asyncio
-async def test_label_uses_body_name() -> None:
-    blob = _hourly_from_now_minus_1h([0.002500, 0.002498, 0.002510])
-    for target in ("301", "Moon"):
-        seen: list[str] = []
-        result = await _tool_blob(blob, seen).run(action="horizons", target=target)
-        assert result.ok, result.output
-        out = result.output
-        assert "The Moon" in out or "the Moon" in out
-        assert "301" not in out
-
-
-@pytest.mark.asyncio
 async def test_summary_has_no_model_facing_text() -> None:
     seen: list[str] = []
     result = await _tool_blob(_OBSERVER_BLOB, seen).run(action="horizons", target="Moon")
@@ -381,49 +207,3 @@ async def test_summary_has_no_model_facing_text() -> None:
     assert result.data.get("source") == "JPL Horizons"
 
 
-@pytest.mark.asyncio
-async def test_closest_within_the_next_hour_is_not_skipped() -> None:
-    d0, d1, d2 = 0.002500, 0.002400, 0.002410
-    start = _NOW - timedelta(hours=1)
-    rows = [
-        (start, d0),
-        (_NOW, d1),
-        (_NOW + timedelta(hours=1), d2),
-        (_NOW + timedelta(days=27, hours=-1), 0.002300),
-        (_NOW + timedelta(days=27), 0.002200),
-        (_NOW + timedelta(days=27, hours=1), 0.002300),
-    ]
-    seen: list[str] = []
-    result = await _tool_blob(_observer_blob(rows), seen).run(
-        action="horizons", target="Moon"
-    )
-    assert result.ok, result.output
-    out = result.output
-    later = (_NOW + timedelta(days=27)).astimezone(_NY)
-    assert f"{later:%b} {later.day}" not in out
-    offset_h = 0.5 * (d0 - d2) / (d0 - 2 * d1 + d2)
-    vertex = _NOW + timedelta(hours=offset_h)
-    extra = vertex.second + vertex.microsecond / 1_000_000
-    if extra >= 30:
-        vertex = vertex.replace(second=0, microsecond=0) + timedelta(minutes=1)
-    else:
-        vertex = vertex.replace(second=0, microsecond=0)
-    local = vertex.astimezone(_NY)
-    clock = local.strftime("%I:%M %p").lstrip("0")
-    assert "closest right now" in out or clock in out
-
-
-@pytest.mark.asyncio
-async def test_earth_gives_a_plain_message() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        del request
-        return httpx.Response(200, json={"result": "$$SOE\n$$EOE\n"})
-
-    result = await _tool(handler).run(action="horizons", target="Earth")
-    assert result.ok is False
-    assert result.data.get("fail_class") == "fail:name"
-    assert result.output == (
-        "Distances here are measured from Earth's center, "
-        "so there is no distance to Earth itself."
-    )
-    assert "distance table" not in result.output

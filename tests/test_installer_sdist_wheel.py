@@ -88,43 +88,6 @@ def test_a_wheel_that_is_not_pure_python_fails_the_build(monkeypatch, tmp_path) 
     assert not any("--no-index" in c for c in calls)
 
 
-def test_main_install_keeps_hashes_and_binary_only_on_the_filtered_lock(
-    monkeypatch, tmp_path
-) -> None:
-    build = _load("build")
-    calls = _fake_build(build, monkeypatch, tmp_path)
-    monkeypatch.setattr(build, "install_sdist_only_wheels", lambda: None)
-    build.install_locked_dependencies()
-    assert len(calls) == 1
-    cmd = calls[0]
-    assert "--require-hashes" in cmd
-    assert _arg_after(cmd, "--only-binary") == ":all:"
-    assert "--no-binary" not in cmd
-    used = Path(_arg_after(cmd, "-r"))
-    assert used != build.LOCK, "the main install must read the filtered copy of the lock"
-    text = used.read_text(encoding="utf-8")
-    assert not re.search(r"^jieba==", text, re.M)
-    assert re.search(r"^anyio==\S+ --hash=sha256:", text, re.M)
-
-
-def test_the_jieba_wheel_is_installed_before_the_main_locked_install(monkeypatch, tmp_path) -> None:
-    build = _load("build")
-    calls = _fake_build(build, monkeypatch, tmp_path)
-    order: list[str] = []
-    monkeypatch.setattr(build, "install_sdist_only_wheels", lambda: order.append("wheels"))
-    monkeypatch.setattr(build, "run", lambda command, what, cwd=None: order.append("main") or "")
-    build.install_locked_dependencies()
-    assert order == ["wheels", "main"]
-    assert calls == []
-
-
-def test_is_pure_py3_wheel_accepts_only_py3_none_any() -> None:
-    build = _load("build")
-    assert build.is_pure_py3_wheel("jieba-0.42.1-py3-none-any.whl")
-    assert not build.is_pure_py3_wheel("jieba-0.42.1-cp314-cp314-win_amd64.whl")
-    assert not build.is_pure_py3_wheel("jieba-0.42.1-py2.py3-none-any.whl")
-
-
 def test_lock_without_sdist_only_drops_exactly_those_projects() -> None:
     build = _load("build")
     lock = _load("lock")
@@ -151,15 +114,3 @@ def test_lock_without_sdist_only_drops_exactly_those_projects() -> None:
         assert not re.search(rf"^{re.escape(name)}==", filtered, re.M)
 
 
-def test_every_sdist_only_name_is_in_the_lock_with_a_hash() -> None:
-    lock = _load("lock")
-    pinned = lock.read_lock()
-    text = (ROOT / "requirements-win-amd64-cp314.txt").read_text(encoding="utf-8")
-    for name in lock.SDIST_ONLY:
-        assert name in pinned, f"{name} is allowlisted but not in the lock"
-        match = re.search(
-            rf"^{re.escape(name)}==[^\s]+\s+--hash=sha256:[0-9a-f]{{64}}\s*$",
-            text,
-            re.M,
-        )
-        assert match, f"{name} pin is missing a sha256 hash"

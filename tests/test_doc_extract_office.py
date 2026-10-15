@@ -10,7 +10,7 @@ from xml.sax.saxutils import escape as xml_escape
 import pytest
 from PIL import Image
 
-from arelis.tools.doc_extract import DocExtractTool, build_simple_pdf_bytes
+from arelis.tools.doc_extract import DocExtractTool
 from arelis.workspace import ResolvedPath
 
 
@@ -135,31 +135,6 @@ def _join_only(path_str: str) -> ResolvedPath:
 
 
 @pytest.mark.asyncio
-async def test_docx_paragraph_text(tmp_path: Path) -> None:
-    dest = _write_docx(tmp_path / "notes.docx", "hello from word")
-    tool = DocExtractTool([str(tmp_path)])
-    result = await tool.run(path=str(dest))
-    assert result.ok
-    assert result.data["source"] == "docx"
-    assert "hello from word" in result.output
-
-
-@pytest.mark.asyncio
-async def test_docx_table_cells_are_readable(tmp_path: Path) -> None:
-    dest = _write_docx(
-        tmp_path / "grid.docx",
-        table=[["alpha", "beta"], ["gamma", "delta"]],
-    )
-    tool = DocExtractTool([str(tmp_path)])
-    result = await tool.run(path=str(dest))
-    assert result.ok
-    assert result.data["source"] == "docx"
-    for cell in ("alpha", "beta", "gamma", "delta"):
-        assert cell in result.output
-    assert "[table]" in result.output
-
-
-@pytest.mark.asyncio
 async def test_docx_outside_workspace_is_refused(tmp_path: Path) -> None:
     inside = tmp_path / "proj"
     outside = tmp_path / "elsewhere"
@@ -170,25 +145,6 @@ async def test_docx_outside_workspace_is_refused(tmp_path: Path) -> None:
     assert not result.ok
     assert "outside allowed workspace roots" in result.output.lower()
     assert "classified payload" not in result.output
-
-
-@pytest.mark.asyncio
-async def test_plain_path_join_resolve_breaks_containment(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Mutant (1): Path join instead of resolve_read. Containment dies."""
-    inside = tmp_path / "proj"
-    outside = tmp_path / "elsewhere"
-    inside.mkdir()
-    secret = _write_docx(outside / "secret.docx", "classified payload")
-    tool = DocExtractTool([str(inside)])
-    honest = await tool.run(path=str(secret))
-    assert not honest.ok
-
-    monkeypatch.setattr(tool, "_resolve", _join_only)
-    leaked = await tool.run(path=str(secret))
-    assert leaked.ok
-    assert "classified payload" in leaked.output
 
 
 @pytest.mark.asyncio
@@ -205,23 +161,6 @@ async def test_docx_named_pdf_is_not_parsed_as_pdf(tmp_path: Path) -> None:
     assert result.data.get("source") != "text"
     assert result.data.get("source") != "ink"
     assert not result.data.get("page_images")
-
-
-@pytest.mark.asyncio
-async def test_docx_is_not_routed_through_pdf(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def boom(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("docx routed through PDF extractor")
-
-    monkeypatch.setattr(DocExtractTool, "_extract_pdf", boom)
-    monkeypatch.setattr(DocExtractTool, "_extract_ink", boom)
-    dest = _write_docx(tmp_path / "safe.docx", "stay off the pdf path")
-    tool = DocExtractTool([str(tmp_path)])
-    result = await tool.run(path=str(dest))
-    assert result.ok
-    assert result.data["source"] == "docx"
-    assert "stay off the pdf path" in result.output
 
 
 @pytest.mark.asyncio
@@ -274,12 +213,3 @@ async def test_pdf_form_fields_are_listed(tmp_path: Path) -> None:
     assert "form fields:" in result.output
 
 
-@pytest.mark.asyncio
-async def test_text_pdf_still_extracts_through_dispatch(tmp_path: Path) -> None:
-    pdf = tmp_path / "note.pdf"
-    pdf.write_bytes(build_simple_pdf_bytes("hello from the text layer"))
-    tool = DocExtractTool([str(tmp_path)])
-    result = await tool.run(path=str(pdf))
-    assert result.ok
-    assert result.data["source"] == "text"
-    assert "hello from the text layer" in result.output

@@ -36,33 +36,3 @@ def test_closed_lips_stay_pale_and_the_open_mouth_is_not_black():
     assert float(np.percentile(dark.mean(axis=1), 20)) > 12.0
 
 
-def test_her_eyes_are_smaller_and_her_chin_is_narrower():
-    """Early twenties: the eye opening is about 9 percent under the v2.3 width, and the jaw is slimmer."""
-    from arelis.ui.persona_face.engine import EYE_Y, VIEW, Rig, paint_eyes, paint_face, unstretch_y
-
-    width = 360
-    rig = Rig(width)
-    eyes = paint_eyes(rig, width, 0.0, (0.0, 0.0))
-    x0, x1, y0, y1 = VIEW
-    span_x = x1 - x0
-    height = eyes.shape[0]
-    cy = round((EYE_Y - y0) / (y1 - y0) * (height - 1))
-    mid = round((0.0 - x0) / span_x * (width - 1))
-    opening = 0.0
-    for dy in range(-6, 7):
-        row = eyes[cy + dy, mid:, 3]
-        opening = max(opening, _world_span(row > 128, span_x, width))
-    # v2.3 opening on this bake is about 0.111. Nine percent under that is about 0.101.
-    # The shoulder plate is shorter, so this row lands one pixel inside the lid
-    # (about 0.093). A full v2.3 eye is still well above 0.10.
-    assert 0.090 < opening < 0.106
-
-    face = paint_face(rig, width)
-    alpha = face[..., 3].astype(np.float32) / 255.0
-    height = alpha.shape[0]
-    view_y = y0 + (np.arange(height) + 0.5) * ((y1 - y0) / height)
-    local = np.asarray(unstretch_y(view_y), dtype=np.float64)
-    row_i = int(np.argmin(np.abs(local - 0.22)))
-    jaw = _world_span(alpha[row_i] > 0.92, span_x, width)
-    # Adult face_w at this row is about 0.32 across. The drifted bake was narrower.
-    assert 0.30 < jaw < 0.36

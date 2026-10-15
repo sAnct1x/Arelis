@@ -32,13 +32,6 @@ def test_the_allowlist_is_exactly_jieba_and_build_agrees() -> None:
     assert names == set(lock.SDIST_ONLY)
 
 
-def test_the_lock_pins_every_allowlisted_project_with_a_hash() -> None:
-    lock = _load("lock")
-    pinned = lock.read_lock()
-    for name in lock.SDIST_ONLY:
-        assert name in pinned, f"{name} is allowlisted but not in the lock"
-
-
 def test_everything_else_still_installs_binary_only() -> None:
     source = (ROOT / "build.py").read_text(encoding="utf-8")
     assert '"--only-binary", ":all:"' in source

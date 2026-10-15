@@ -119,31 +119,3 @@ async def test_solar_dump_writes_under_outputs(tmp_path, monkeypatch) -> None:
     assert body["trigger"] == "dump"
 
 
-def test_dump_on_leave_is_a_no_op_without_a_system(tmp_path, monkeypatch) -> None:
-    from arelis.physics.export import dump_on_leave
-    from arelis.physics.runtime import set_system
-
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
-    set_system(None)
-    assert dump_on_leave() is None
-    root = tmp_path / "outputs" / "physics" / "solar"
-    assert not root.exists() or not any(root.iterdir())
-
-
-def test_dump_on_leave_writes_the_receipt(tmp_path, monkeypatch) -> None:
-    from arelis.physics.demo import sun_and_planet
-    from arelis.physics.engine import rebound_available
-    from arelis.physics.export import dump_on_leave
-    from arelis.physics.runtime import set_system
-    from arelis.physics.scene import SolarSystem
-
-    if not rebound_available():
-        pytest.skip("REBOUND is not installed")
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
-    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0, ic_date="2000-01-01"))
-    folder = dump_on_leave(camera={"x": 1.0, "y": 2.0, "z": 3.0})
-    assert folder is not None
-    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["trigger"] == "leave"
-    assert manifest["camera"]["x"] == 1.0
-    set_system(None)

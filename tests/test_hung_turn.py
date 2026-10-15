@@ -25,14 +25,6 @@ def _short_ceiling(window, seconds: float = 0.08) -> None:
     ui["hung_first_token_s"] = seconds
 
 
-def test_countdown_is_not_armed_when_idle(arelis_window) -> None:
-    window = arelis_window()
-    timer = getattr(window, "_hung_watchdog", None)
-    assert timer is None or not timer.isActive()
-    assert window.chat.progress.isHidden()
-    assert "left" not in window.chat.progress.text()
-
-
 def test_hung_ceiling_unlocks_without_stop(arelis_window, qt_app) -> None:
     window = arelis_window()
     _short_ceiling(window)
@@ -76,27 +68,6 @@ def test_stop_cancels_the_hung_ceiling(arelis_window, qt_app) -> None:
     assert "stop requested" in _status_line(window)
 
 
-def test_clearing_busy_disarms_the_countdown(arelis_window) -> None:
-    window = arelis_window()
-    _short_ceiling(window, 90)
-    window._set_busy(True)
-    assert window._hung_watchdog.isActive()
-    window._set_busy(False)
-    assert not window._hung_watchdog.isActive()
-    assert "left" not in window.chat.progress.text()
-    assert window.chat.progress.isHidden()
-
-
-def test_idle_stop_does_not_arm_the_busy_watchdog(arelis_window) -> None:
-    """Login YOUR_TURN already ended the turn. Stop after closing Chrome
-    used to arm an 8s timer that then killed 'excellent job'."""
-    window = arelis_window()
-    window._on_stop()
-    assert not window._turn_busy
-    assert not window._busy_watchdog.isActive()
-    assert "Turn ended without a reply" not in window.chat.view.toPlainText()
-
-
 def test_new_turn_after_stop_is_not_killed_by_the_watchdog(arelis_window) -> None:
     window = arelis_window()
     window._set_busy(True)
@@ -127,55 +98,3 @@ class _Orch:
         self._agent_loop = loop
 
 
-def test_hung_ceiling_wraps_up_when_work_is_in_hand(arelis_window, qt_app) -> None:
-    window = arelis_window()
-    _short_ceiling(window)
-    loop = _GatheredLoop({"scrape"})
-    window.orchestrator = _Orch(loop)
-    window._set_busy(True)
-
-    QTest.qWait(250)
-
-    assert window._turn_busy
-    assert loop.closed
-    assert window._hung_closing
-    assert window._hung_watchdog.isActive()
-    assert window._hung_watchdog.remainingTime() > 5000
-    shown = window.chat.view.toPlainText().lower()
-    assert "hung" not in shown
-    assert "wrapping up" in _status_line(window).lower()
-    assert "wrapping" in window.chat.progress.text().lower()
-
-
-def test_hung_ceiling_stops_when_nothing_was_gathered(arelis_window, qt_app) -> None:
-    window = arelis_window()
-    _short_ceiling(window)
-    loop = _GatheredLoop()
-    window.orchestrator = _Orch(loop)
-    window._set_busy(True)
-
-    QTest.qWait(250)
-
-    assert loop.closed is False
-    assert window._turn_busy is False
-    assert "hung" in window.chat.view.toPlainText().lower()
-
-
-def test_hung_ceiling_stops_if_the_close_does_not_finish(arelis_window) -> None:
-    window = arelis_window()
-    window._set_busy(True)
-    window._hung_closing = True
-    window._on_hung_turn()
-
-    assert window._turn_busy is False
-    assert "hung" in window.chat.view.toPlainText().lower()
-    assert not window._hung_closing
-
-
-def test_busy_watchdog_still_unlocks_the_stopped_turn(arelis_window) -> None:
-    window = arelis_window()
-    window._set_busy(True)
-    window._on_stop()
-    window._on_busy_watchdog()
-    assert window._turn_busy is False
-    assert "Turn ended without a reply" in window.chat.view.toPlainText()

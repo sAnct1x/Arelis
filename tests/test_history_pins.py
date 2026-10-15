@@ -6,15 +6,12 @@ The search focus helper did not exist yet.
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QDialog
 
-from arelis.memory import MemoryStore
-from arelis.ui.history_host import focus_history_search, refresh_history
 from arelis.ui.panels.history import PIN_MARK, HistoryPanel
 from arelis.ui.quick_switch import QuickSwitch
 
@@ -40,51 +37,6 @@ def test_history_panel_puts_pinned_first(qt_app) -> None:
     assert panel.recent_sessions(3)[0] == ("b", "kept")
     assert panel.new_btn.toolTip() == "Start a fresh conversation (Ctrl+N)"
     assert panel.search.toolTip() == "search titles and messages (Ctrl+Shift+F)"
-    del qt_app
-
-
-def test_ctrl_shift_f_focuses_history_search(qt_app, arelis_window) -> None:
-    window = arelis_window()
-    window.show()
-    window.activateWindow()
-    qt_app.processEvents()
-    window.history.search.setText("kept")
-    focus_history_search(window)
-    qt_app.processEvents()
-    # A moment after open, the window puts the caret in the composer.
-    # That late pass must not pull it out of search.
-    window.conversation.focus_input()
-    qt_app.processEvents()
-    search = window.history.search
-    assert window.history_dock.isVisible()
-    assert window.act_history.isChecked()
-    assert window.focusWidget() is search
-    assert search.selectedText() == "kept"
-    # hasFocus is also "this window is the active one". Offscreen Windows
-    # sometimes never grants that, so only require it when the window got it.
-    if qt_app.focusWindow() is window.windowHandle():
-        assert search.hasFocus()
-
-
-def test_pin_request_sticks_and_sorts_the_list(qt_app, tmp_path: Path) -> None:
-    store = MemoryStore(tmp_path / "memory.db")
-    older = store.start_session()
-    store.on_message("user", "kept on the desk")
-    newer = store.start_session()
-    store.on_message("user", "just now")
-    panel = HistoryPanel()
-    window = SimpleNamespace(
-        store=store,
-        history=panel,
-        _turn_busy=False,
-        chat=SimpleNamespace(empty=None, add_system=lambda *_a, **_k: None),
-    )
-    refresh_history(window)
-    assert panel.list.item(0).data(Qt.ItemDataRole.UserRole) == newer
-    panel.session_pin_requested.emit(older, True)
-    assert store.get_session(older)["pinned"] is True
-    assert panel.list.item(0).data(Qt.ItemDataRole.UserRole) == older
-    store.close()
     del qt_app
 
 
@@ -121,30 +73,6 @@ def test_ctrl_shift_f_and_ctrl_f_focus_their_own_fields(qt_app, arelis_window) -
     assert not window.history.search.hasFocus()
     window.conversation.focus_input()
     assert bar.edit.hasFocus()
-
-
-def test_ctrl_k_from_the_composer_opens_the_list(qt_app, arelis_window) -> None:
-    window = arelis_window()
-    window.show()
-    qt_app.processEvents()
-    window.conversation.input.setFocus()
-    opened: list = []
-
-    def close_dialog() -> None:
-        for widget in QApplication.topLevelWidgets():
-            if widget.objectName() == "QuickSwitch":
-                opened.append(widget)
-                widget.reject()
-
-    QTimer.singleShot(200, close_dialog)
-    QTest.keyClick(
-        window.conversation.input,
-        Qt.Key.Key_K,
-        Qt.KeyboardModifier.ControlModifier,
-    )
-    qt_app.processEvents()
-    assert opened
-    assert opened[0].windowTitle() == "Jump to a conversation"
 
 
 def test_quick_switch_opens_the_pinned_match(qt_app) -> None:

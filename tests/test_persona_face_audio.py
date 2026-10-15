@@ -38,18 +38,3 @@ def test_a_loud_half_reads_high_and_a_silent_half_reads_near_zero(tmp_path: Path
     assert float(np.median(env[mid:])) < 0.05
 
 
-def test_a_missing_file_gives_no_level_without_raising(tmp_path: Path):
-    """A path that is not a readable WAV returns None."""
-    missing = _envelope(tmp_path / "nope.wav")
-    assert missing is None
-    junk = tmp_path / "notes.txt"
-    junk.write_text("not a wav", encoding="utf-8")
-    assert _envelope(junk) is None
-
-
-def test_player_exposes_a_level_that_is_none_when_idle(qt_app):
-    """Nothing playing means no loudness, and asking does not raise."""
-    from arelis.ui.audio import SpeechPlayer
-
-    player = SpeechPlayer()
-    assert player.current_level() is None

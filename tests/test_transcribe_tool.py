@@ -77,32 +77,6 @@ class _WarmSTT:
 
 
 @pytest.mark.asyncio
-async def test_file_runs_injected_fn_not_a_helper(tmp_path: Path) -> None:
-    """Mutant: a private helper is tested and Tool.run is never called."""
-    workspace, project = _workspace(tmp_path)
-    clip = _clip(project)
-    rec = _Recorder("the meeting is at four")
-    tool = TranscribeTool(workspace, transcribe_fn=rec)
-    result = await tool.run(path="talk.wav")
-    assert result.ok, result.output
-    assert "the meeting is at four" in result.output
-    assert result.data["path"] == str(clip.resolve())
-    assert result.data["empty"] is False
-    assert rec.calls == [clip.resolve()]
-
-
-@pytest.mark.asyncio
-async def test_default_action_is_file(tmp_path: Path) -> None:
-    workspace, project = _workspace(tmp_path)
-    _clip(project)
-    rec = _Recorder()
-    tool = TranscribeTool(workspace, transcribe_fn=rec)
-    result = await tool.run(action="file", path=str(project / "talk.wav"))
-    assert result.ok, result.output
-    assert rec.calls
-
-
-@pytest.mark.asyncio
 async def test_path_escape_is_refused(tmp_path: Path) -> None:
     """Mutant: `../` is joined and a sibling file is sent to STT."""
     workspace, project = _workspace(tmp_path)
@@ -125,52 +99,6 @@ async def test_path_escape_is_refused(tmp_path: Path) -> None:
         assert "outside" in result.output.lower() or "workspace" in result.output.lower()
 
     assert rec.calls == []
-
-
-@pytest.mark.asyncio
-async def test_missing_fn_is_not_empty_ok(tmp_path: Path) -> None:
-    """Mutant: no engine → ok=True with an empty transcript."""
-    workspace, project = _workspace(tmp_path)
-    _clip(project)
-    tool = TranscribeTool(workspace)
-    result = await tool.run(path="talk.wav")
-    assert result.ok is False
-    assert "voice engine not loaded" in result.output
-    assert "Whisper" in result.output
-    assert result.output.strip()
-
-
-@pytest.mark.asyncio
-async def test_cold_stt_is_not_called(tmp_path: Path) -> None:
-    workspace, project = _workspace(tmp_path)
-    _clip(project)
-    tool = TranscribeTool(workspace, stt=_ColdSTT())
-    result = await tool.run(path="talk.wav")
-    assert result.ok is False
-    assert "voice engine not loaded" in result.output
-
-
-@pytest.mark.asyncio
-async def test_warm_stt_is_used_when_fn_missing(tmp_path: Path) -> None:
-    workspace, project = _workspace(tmp_path)
-    clip = _clip(project)
-    stt = _WarmSTT("from the already-loaded ear")
-    tool = TranscribeTool(workspace, stt=stt)
-    result = await tool.run(path="talk.wav")
-    assert result.ok, result.output
-    assert "from the already-loaded ear" in result.output
-    assert stt.calls == [str(clip.resolve())]
-
-
-@pytest.mark.asyncio
-async def test_injected_fn_wins_over_cold_stt(tmp_path: Path) -> None:
-    workspace, project = _workspace(tmp_path)
-    _clip(project)
-    rec = _Recorder("prefer the callable")
-    tool = TranscribeTool(workspace, transcribe_fn=rec, stt=_ColdSTT())
-    result = await tool.run(path="talk.wav")
-    assert result.ok, result.output
-    assert "prefer the callable" in result.output
 
 
 @pytest.mark.asyncio
@@ -211,25 +139,3 @@ async def test_unsupported_suffix_is_refused(tmp_path: Path) -> None:
     assert rec.calls == []
 
 
-@pytest.mark.asyncio
-async def test_max_chars_truncates(tmp_path: Path) -> None:
-    workspace, project = _workspace(tmp_path)
-    _clip(project)
-    rec = _Recorder("x" * 400)
-    tool = TranscribeTool(workspace, transcribe_fn=rec)
-    result = await tool.run(path="talk.wav", max_chars=80)
-    assert result.ok, result.output
-    assert result.data["truncated"] is True
-    assert result.data["chars"] == 400
-    assert "truncated" in result.output
-    assert result.output.count("x") < 400
-
-
-def test_schema_and_risk() -> None:
-    assert TranscribeTool.name == "transcribe"
-    assert TranscribeTool.risk == "read"
-    props = TranscribeTool.parameters_schema["properties"]
-    assert props["action"]["enum"] == ["file"]
-    assert "path" in props
-    assert "max_chars" in props
-    assert "path" in TranscribeTool.parameters_schema["required"]

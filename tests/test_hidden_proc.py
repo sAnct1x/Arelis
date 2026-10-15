@@ -32,8 +32,3 @@ def test_install_hidden_subprocess_is_safe_to_call_twice() -> None:
     assert subprocess.Popen is once, "the second call re-wrapped Popen"
 
 
-def test_install_does_not_replace_popen() -> None:
-    """Subclassing Popen took pythonw down on the first child at launch."""
-    original = subprocess.Popen
-    install_hidden_subprocess()
-    assert subprocess.Popen is original

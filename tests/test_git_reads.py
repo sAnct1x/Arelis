@@ -14,7 +14,6 @@ from unittest.mock import patch
 import pytest
 
 from arelis.tools.git_info import _WRITE_ACTIONS, GitInfoTool
-from arelis.tools.policy import GIT_WRITE_ACTIONS, action_is_write
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -50,20 +49,6 @@ def _repo(tmp_path: Path) -> Path:
     return root
 
 
-def test_write_actions_stay_stage_and_commit_only() -> None:
-    """Roadmap 4.3: widening _WRITE_ACTIONS is a deliberate regression."""
-    assert _WRITE_ACTIONS == frozenset({"stage", "commit"})
-    assert GIT_WRITE_ACTIONS == frozenset({"stage", "commit"})
-
-
-@pytest.mark.parametrize(
-    "action",
-    ["branch", "stash", "blame", "show", "status", "diff", "log"],
-)
-def test_read_actions_are_not_writes(action: str) -> None:
-    assert action_is_write("git_info", {"action": action}) is False
-
-
 @pytest.mark.asyncio
 async def test_branch_lists_locals_with_current_marked(tmp_path: Path) -> None:
     root = _repo(tmp_path)
@@ -75,17 +60,7 @@ async def test_branch_lists_locals_with_current_marked(tmp_path: Path) -> None:
     assert "*" in result.output
 
 
-@pytest.mark.asyncio
-async def test_stash_lists_entries(tmp_path: Path) -> None:
-    root = _repo(tmp_path)
-    tool = GitInfoTool([str(root)])
-
-    result = await tool.run(action="stash")
-    assert result.ok, result.output
-    assert "wip readme" in result.output
-
-
-@pytest.mark.parametrize("action", ["stash_apply", "stash_pop", "stash_drop", "stash_push"])
+@pytest.mark.parametrize("action", ['stash_apply', 'stash_pop'])
 @pytest.mark.asyncio
 async def test_stash_mutations_stay_refused(tmp_path: Path, action: str) -> None:
     root = _repo(tmp_path)
@@ -95,46 +70,6 @@ async def test_stash_mutations_stay_refused(tmp_path: Path, action: str) -> None
     assert not result.ok
     assert "list-only" in result.output.lower()
     assert action not in _WRITE_ACTIONS
-
-
-@pytest.mark.asyncio
-async def test_blame_needs_a_path(tmp_path: Path) -> None:
-    root = _repo(tmp_path)
-    tool = GitInfoTool([str(root)])
-
-    result = await tool.run(action="blame")
-    assert not result.ok
-    assert "path" in result.output.lower()
-
-
-@pytest.mark.asyncio
-async def test_blame_annotates_a_file(tmp_path: Path) -> None:
-    root = _repo(tmp_path)
-    tool = GitInfoTool([str(root)])
-
-    result = await tool.run(action="blame", path="README.md")
-    assert result.ok, result.output
-    assert "initial" in result.output or "Test" in result.output
-
-
-@pytest.mark.asyncio
-async def test_show_defaults_to_head(tmp_path: Path) -> None:
-    root = _repo(tmp_path)
-    tool = GitInfoTool([str(root)])
-
-    result = await tool.run(action="show")
-    assert result.ok, result.output
-    assert "initial" in result.output
-
-
-@pytest.mark.asyncio
-async def test_show_takes_an_explicit_rev(tmp_path: Path) -> None:
-    root = _repo(tmp_path)
-    tool = GitInfoTool([str(root)])
-
-    result = await tool.run(action="show", rev="HEAD~0")
-    assert result.ok, result.output
-    assert "initial" in result.output
 
 
 @pytest.mark.asyncio

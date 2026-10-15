@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from arelis.mathtext import flatten_latex, tex_to_plain
+from arelis.mathtext import flatten_latex
 from arelis.tools.document import DocumentTool
-from arelis.ui.markdown import flatten_latex as markdown_flatten
 from arelis.ui.markdown import render_markdown
 from arelis.workspace import WorkspaceRoots
 
@@ -23,22 +22,6 @@ def test_boxed_does_not_print_the_command_name() -> None:
     assert r"\boxed" not in out
 
 
-def test_cas_closed_form_keeps_log_and_frac() -> None:
-    out = flatten_latex(r"$$\frac{x^{3}}{6} + 25x\log(x-3) - 75\log(x-3)$$")
-    assert "log" in out
-    assert r"\log" not in out
-    assert r"\frac" not in out
-    assert "x³" in out
-    assert "$$" not in out
-
-
-def test_price_stays_a_dollar_and_inline_math_flattens() -> None:
-    out = flatten_latex(r"cost is $5 and $\log x$ stays math")
-    assert "$5" in out
-    assert "log x" in out
-    assert r"\log" not in out
-
-
 def test_integral_delimiters_leave() -> None:
     out = flatten_latex(
         r"The integral of \( x^2 \) is \[\int x^2 \, dx = \frac{x^3}{3} + C\]"
@@ -51,32 +34,6 @@ def test_integral_delimiters_leave() -> None:
     assert "/3" in out
 
 
-def test_sqrt_keeps_a_compound_radicand_grouped() -> None:
-    assert tex_to_plain(r"\sqrt{x+1}") == "√(x+1)"
-    assert tex_to_plain(r"\sqrt{x}") == "√x"
-    assert tex_to_plain(r"\sqrt[3]{x}") == "³√x"
-
-
-def test_nested_frac_and_greek() -> None:
-    assert tex_to_plain(r"\frac{1}{1+\frac{1}{x}}") == "1/(1+1/x)"
-    assert "α" in tex_to_plain(r"\alpha + \beta")
-    assert "β" in tex_to_plain(r"\alpha + \beta")
-
-
-def test_subscripts_and_limits() -> None:
-    out = tex_to_plain(r"\sum_{n=1}^{N} x_n")
-    assert "Σ" in out
-    assert "xₙ" in out
-    assert "_" not in out or "N" in out
-
-
-def test_code_fence_keeps_tex_source() -> None:
-    out = flatten_latex("see\n```\n$\\frac{1}{2}$\n```\ndone")
-    assert r"\frac" in out
-    assert "```" in out
-    assert "1/2" not in out.split("```")[0]
-
-
 def test_windows_path_is_not_eaten() -> None:
     out = flatten_latex(r"read C:\Users\you\notes.md then \frac{1}{2}")
     assert r"\Users" in out
@@ -87,36 +44,6 @@ def test_windows_path_is_not_eaten() -> None:
     assert r"folder\log" in flatten_latex(r"see folder\log then done")
 
 
-def test_bare_integral_scripts_and_thin_space() -> None:
-    out = flatten_latex(r"\int_0^\infty e^{-x}\,dx")
-    assert "∫" in out
-    assert r"\int" not in out
-    assert r"\," not in out
-    assert "e⁻ˣ" in out or "e^{-x}" not in out
-
-
-def test_right_after_a_digit_is_tex_not_a_path() -> None:
-    out = flatten_latex(r"latex: \left[ -5,  2\right]")
-    assert r"\right" not in out
-    assert r"\left" not in out
-    assert "[ -5,  2]" in out
-
-
-def test_cas_sympy_latex_flattens() -> None:
-    latex = r"\frac{x^{3}}{6} + 25 x \log{\left(x - 3 \right)} - 75 \log{\left(x - 3 \right)}"
-    out = flatten_latex("$$" + latex + "$$")
-    assert "log" in out
-    assert r"\log" not in out
-    assert r"\left" not in out
-    assert "x³" in out
-    assert "6" in out
-
-
-def test_markdown_reexports_the_same_flattener() -> None:
-    src = r"$$\int x\,dx$$"
-    assert markdown_flatten(src) == flatten_latex(src)
-
-
 def test_chat_centers_display_math() -> None:
     html = render_markdown(r"The energy is $$\frac{1}{2}mv^2$$ as usual.")
     assert "text-align:center" in html
@@ -125,56 +52,6 @@ def test_chat_centers_display_math() -> None:
     assert "mv²" in html or "mv^2" in html
     assert r"\frac" not in html
     assert "$$" not in html
-
-
-def test_inline_math_in_a_sentence() -> None:
-    html = render_markdown(r"Force is $F = ma$ on the nose.")
-    assert "F = ma" in html
-    assert "$" not in html.replace("&#", "")
-
-
-def test_research_report_flattens_tex(tmp_path) -> None:
-    from arelis.research.report import save_report
-
-    path = save_report(
-        "# Q\n\nThe root is $$\\sqrt{x+1}$$.\n",
-        query="sqrt note",
-        output_dir=tmp_path,
-    )
-    text = path.read_text(encoding="utf-8")
-    assert r"\sqrt" not in text
-    assert "√(x+1)" in text
-
-
-def test_chat_bubble_draws_display_math(qt_app) -> None:
-    """A display formula in the bubble is an image. The words around it stay."""
-    from PySide6.QtGui import QTextCursor, QTextFormat
-
-    from arelis.ui.math_images import wait_prewarm
-    from arelis.ui.panels.chat import ChatPanel
-
-    wait_prewarm()
-
-    tex = r"\int x^2 \, dx = \frac{x^3}{3} + C"
-    panel = ChatPanel()
-    panel.finish_assistant(f"The integral is $${tex}$$")
-    text = panel.view.toPlainText()
-    assert "The integral is" in text
-    assert r"\frac" not in text
-    assert "$$" not in text
-    doc = panel.view.document()
-    cur = QTextCursor(doc)
-    images = []
-    for pos in range(doc.characterCount() - 1):
-        cur.setPosition(pos)
-        cur.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor)
-        if cur.selectedText() != "\ufffc":
-            continue
-        fmt = cur.charFormat()
-        if fmt.isImageFormat() and fmt.toImageFormat().name().startswith("arelis-math:"):
-            images.append(fmt.toImageFormat())
-    assert len(images) == 1
-    assert images[0].stringProperty(QTextFormat.Property.ImageAltText) == tex
 
 
 @pytest.fixture

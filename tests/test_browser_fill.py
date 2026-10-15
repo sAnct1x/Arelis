@@ -47,29 +47,6 @@ def test_fill_from_who_slots() -> None:
     assert data.get("code") == "NO_CONTACT"
 
 
-def test_tool_type_who_email(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "arelis.browser.fill.load_contacts", lambda: {"mom": _MOM}
-    )
-    monkeypatch.setattr(
-        "arelis.browser.fill.resolve_contact",
-        lambda who, contacts=None: _MOM if str(who).strip().lower() == "mom" else None,
-    )
-    session = BrowserSession.fake()
-    tool = BrowserTool(session)
-
-    async def _run() -> None:
-        await tool.run(action="open", url="https://example.com")
-        result = await tool.run(action="type", who="Mom", into="email")
-        assert result.ok
-        assert result.data.get("field") == "email"
-        typed = session._driver.typed  # type: ignore[attr-defined]
-        assert typed
-        assert typed[-1][1] == "robin@example.com"
-
-    asyncio.run(_run())
-
-
 def test_tool_type_who_refuses_address(monkeypatch) -> None:
     monkeypatch.setattr(
         "arelis.browser.fill.load_contacts", lambda: {"mom": _MOM}

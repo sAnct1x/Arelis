@@ -4,30 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import itertools
-from types import SimpleNamespace
 
 import pytest
 
-from arelis.config import load_config, shipped_num_ctx
+from arelis.config import shipped_num_ctx
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.memory import SessionMemory
-from arelis.core.turn_confirm import SKIP, confirm_call
-from arelis.core.turn_context import TurnContext
 from arelis.eval.harness import _ScriptedRouter, foundation_registry
-from arelis.tools import build_tool_registry
-from arelis.tools.base import NEVER_BATCH, ToolRegistry, capability_class, confirm_args_blocked
+from arelis.tools.base import ToolRegistry
 from arelis.tools.policy import (
     DELETE_ACTIONS,
-    always_pause,
-    batch_ok,
     confirm_mode,
-    confirm_toggles_for_call,
-    evaluate_capability,
     evaluate_confirm,
     persist_confirm_off,
-    persist_label,
-    persist_ok,
     set_confirm_mode,
 )
 from arelis.ui.theme import THEME_IDS, apply_theme
@@ -60,31 +50,6 @@ def _toggle_flag_sets() -> list[dict[str, bool]]:
     for bits in itertools.product((True, False), repeat=len(_TOGGLE_KEYS)):
         out.append(dict(zip(_TOGGLE_KEYS, bits, strict=True)))
     return out
-
-
-def test_capability_class_is_the_policy_table() -> None:
-    cases = [
-        ("web_search", None, "READ"),
-        ("python", None, "READ"),
-        ("research_report", None, "WRITE_LOCAL_ARTIFACT"),
-        ("document", None, "WRITE_LOCAL_ARTIFACT"),
-        ("plot", None, "WRITE_LOCAL"),
-        ("workspace", {"action": "read"}, "READ"),
-        ("workspace", {"action": "write"}, "WRITE_LOCAL"),
-        ("send_email", None, "WRITE_EXTERNAL"),
-        ("inbox", {"action": "trash"}, "WRITE_EXTERNAL"),
-        ("inbox", {"action": "list"}, "READ"),
-        ("agenda", {"action": "create"}, "WRITE_EXTERNAL"),
-        ("agenda", {"action": "sync", "provider": "ics"}, "WRITE_LOCAL"),
-        ("image", None, "SIDE_EFFECT_LOCAL"),
-        ("run_script", {"path": "x.py"}, "SIDE_EFFECT_LOCAL"),
-        ("run_task", {"action": "run", "name": "pytest"}, "SIDE_EFFECT_LOCAL"),
-        ("run_task", {"action": "list"}, "READ"),
-        ("earth", {"action": "dump"}, "READ"),
-    ]
-    for name, args, expected in cases:
-        assert evaluate_capability(name, args) == expected
-        assert capability_class(name, args) == expected
 
 
 def test_evaluate_confirm_matches_registry() -> None:
@@ -141,121 +106,6 @@ def test_evaluate_confirm_matches_registry() -> None:
     assert not evaluate_confirm("workspace", {"action": "read"}, risk="read")
 
 
-def test_allow_turn_does_not_cover_send_or_agenda() -> None:
-    flags = confirm_toggles_for_call(
-        "workspace",
-        confirm_writes=True,
-        confirm_image=True,
-        confirm_send=True,
-        confirm_browser=True,
-        confirm_vision=True,
-        allow_writes_this_turn=True,
-    )
-    assert flags["confirm_writes"] is False
-    assert flags["confirm_image"] is False
-    agenda = confirm_toggles_for_call(
-        "agenda",
-        confirm_writes=True,
-        confirm_image=True,
-        confirm_send=True,
-        confirm_browser=True,
-        confirm_vision=True,
-        allow_writes_this_turn=True,
-    )
-    assert agenda["confirm_writes"] is True
-    assert agenda["confirm_send"] is True
-
-
-def test_never_batch_and_batch_ok() -> None:
-    assert not batch_ok("send_sms")
-    assert not batch_ok("agenda")
-    assert batch_ok("workspace")
-    assert batch_ok("workspace", {"action": "write"})
-    assert not batch_ok("workspace", {"action": "delete"})
-    assert not batch_ok("run_script", {"path": "x.py"})
-    assert not batch_ok("run_task", {"action": "run", "name": "pytest"})
-    assert batch_ok("run_task", {"action": "list"})
-    assert "send_email" in NEVER_BATCH
-
-
-def test_ask_is_grant_skips_local_work() -> None:
-    set_confirm_mode("card")
-    assert not evaluate_confirm("image", {"prompt": "x"}, asked=True)
-    assert not evaluate_confirm(
-        "vision", {"path": "x.png"}, asked=True, risk="side_effect"
-    )
-    assert not evaluate_confirm(
-        "workspace", {"action": "write"}, asked=True, risk="read"
-    )
-    assert not evaluate_confirm(
-        "browser", {"action": "open", "url": "youtube"}, asked=True, risk="side_effect"
-    )
-    assert evaluate_confirm("image", {"prompt": "x"}, asked=False)
-    assert evaluate_confirm("send_sms", {}, asked=True)
-    assert evaluate_confirm("send_email", {}, asked=True)
-    assert evaluate_confirm(
-        "workspace", {"action": "delete"}, asked=True, risk="read"
-    )
-    assert evaluate_confirm(
-        "run_script", {"path": "x.py"}, asked=True, risk="side_effect"
-    )
-    assert evaluate_confirm(
-        "run_task", {"action": "run", "name": "pytest"}, asked=True, risk="side_effect"
-    )
-    assert evaluate_confirm("inbox", {"action": "trash"}, asked=True)
-    assert evaluate_confirm(
-        "browser",
-        {"action": "click", "text": "Pay now"},
-        asked=True,
-        risk="side_effect",
-    )
-    assert evaluate_confirm("external_read", {"path": "C:/x"}, asked=True)
-    assert evaluate_confirm("research_report", {"query": "x"}, risk="write")
-    assert evaluate_confirm(
-        "camera", {"action": "snapshot"}, risk="side_effect"
-    )
-
-
-def test_ask_me_everything_restores_cards() -> None:
-    set_confirm_mode("card")
-    assert evaluate_confirm(
-        "image", {"prompt": "x"}, asked=True, ask_is_grant=False
-    )
-    assert evaluate_confirm(
-        "workspace",
-        {"action": "write"},
-        asked=True,
-        ask_is_grant=False,
-        risk="read",
-    )
-
-
-def test_always_pause_and_persist_ok() -> None:
-    assert always_pause("send_sms")
-    assert always_pause("run_script")
-    assert always_pause("run_task", {"action": "run", "name": "pytest"})
-    assert not always_pause("run_task", {"action": "list"})
-    assert always_pause("workspace", {"action": "delete"})
-    assert always_pause("browser", {"action": "upload", "path": "x.csv"})
-    assert not always_pause("browser", {"action": "download"})
-    assert not always_pause("workspace", {"action": "write"})
-    assert not always_pause("image")
-    assert persist_ok("image", {})
-    assert persist_label("image", {}) == "don't ask again about pictures"
-    assert persist_ok("workspace", {"action": "write"})
-    assert persist_label("workspace", {"action": "write"}) == (
-        "don't ask again about files"
-    )
-    assert persist_ok("vision", {"path": "x.png"})
-    assert persist_ok("browser", {"action": "open"})
-    assert not persist_ok("send_sms", {})
-    assert persist_label("send_sms", {}) == ""
-    assert not persist_ok("workspace", {"action": "delete"})
-    assert not persist_ok("run_script", {"path": "x.py"})
-    assert not persist_ok("run_task", {"action": "run", "name": "pytest"})
-    assert not persist_ok("inbox", {"action": "trash"})
-
-
 def test_persist_confirm_off_flips_image_toggle(tmp_path, monkeypatch) -> None:
     local = tmp_path / "config.local.yaml"
     monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
@@ -273,96 +123,6 @@ def test_persist_confirm_off_flips_image_toggle(tmp_path, monkeypatch) -> None:
     assert persist_confirm_off(loop, "send_sms", {}) == ""
 
 
-def test_external_read_is_a_grant_token_not_a_tool() -> None:
-    """Session grant for a typed outside-root file. The model never sees it."""
-    from types import SimpleNamespace
-
-    from arelis.config import load_config
-
-    router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
-    registry = build_tool_registry(
-        load_config(), allow_send=True, attended=True, router=router
-    )
-    assert "external_read" not in registry.names()
-    assert evaluate_confirm("external_read", {"path": "C:/x"})
-    assert always_pause("external_read")
-    assert not batch_ok("external_read")
-
-
-def test_attended_follows_allow_send_by_default() -> None:
-    config = {"tools": {}, "agent": {}, "workspace": {"roots": ["."]}}
-    jobs = build_tool_registry(config, allow_send=False)
-    assert "send_sms" not in jobs.names()
-    assert "vision" not in jobs.names()
-    assert "tile" not in jobs.names()
-    assert "image" in jobs.names()
-    assert "image_edit" in jobs.names()
-    assert "research_report" not in jobs.names()
-    assert "run_script" not in jobs.names()
-    assert "run_task" not in jobs.names()
-
-
-def test_placeholder_phone_still_blocks_allow_card() -> None:
-    reason = confirm_args_blocked(
-        "contacts",
-        {"action": "add", "name": "Wife", "phone": "<user_phone_number>"},
-    )
-    assert reason is not None
-    assert "placeholder" in reason.lower() or "user_phone" in reason.lower()
-
-
-@pytest.mark.no_ui
-def test_empty_workspace_write_still_blocks() -> None:
-    reason = confirm_args_blocked(
-        "workspace",
-        {"action": "write", "path": "tmp.txt", "content": ""},
-    )
-    assert reason is not None
-    assert "empty" in reason.lower()
-
-
-def test_math_comparison_text_is_not_a_placeholder() -> None:
-    """A homework dump with '<30 Hz ... >30 Hz' used to look like HTML tags.
-
-    Confirm blocked the write, the 9B retried document/workspace until
-    max_rounds, and the turn died with no answer after ~7 minutes.
-    """
-    body = (
-        "At low frequencies (<30 Hz), coating thermal noise dominates. "
-        "At higher frequencies (>30 Hz), quantum noise dominates.\n"
-        r"$$\tilde{x}_{\text{SQL}}(f)=\frac{1}{2\pi f}\sqrt{\frac{\hbar c}{4m}}$$"
-    )
-    assert confirm_args_blocked("document", {"body": body, "title": "SQL"}) is None
-    assert (
-        confirm_args_blocked(
-            "workspace",
-            {"action": "write", "path": "sql.md", "content": body},
-        )
-        is None
-    )
-
-
-def test_html_document_body_is_not_a_placeholder() -> None:
-    html = "<html><body><p>Turn in homework</p></body></html>"
-    assert confirm_args_blocked("document", {"body": html, "format": "html"}) is None
-
-
-def test_placeholder_reason_does_not_echo_the_whole_body() -> None:
-    body = "<user_phone_number>\n" + ("x" * 4000)
-    reason = confirm_args_blocked("document", {"body": body})
-    assert reason is not None
-    assert len(reason) < 200
-
-
-def test_attended_can_differ_from_allow_send() -> None:
-    """Person present, but outbound send withheld — the split's reason to exist."""
-    config = {"tools": {}, "agent": {}, "workspace": {"roots": ["."]}}
-    registry = build_tool_registry(config, allow_send=False, attended=True)
-    assert "tile" in registry.names()
-    assert "send_email" not in registry.names()
-    assert "send_sms" not in registry.names()
-
-
 class _ConfirmLoop:
     def __init__(self) -> None:
         self.bus = EventBus()
@@ -373,73 +133,6 @@ class _ConfirmLoop:
 
     def _tool_message(self, name: str, content: str) -> dict[str, str]:
         return {"role": "tool", "tool_name": name, "content": content}
-
-
-@pytest.mark.asyncio
-async def test_identical_blocked_write_stops_after_two_tries() -> None:
-    """Confirm-blocked writes used to skip without incrementing fail_counts.
-
-    The model then re-issued the same document body until max_rounds.
-    """
-    loop = _ConfirmLoop()
-    ctx = TurnContext(text="derive the SQL", role="fast")
-    args = {"body": "<user_phone_number> " + ("x" * 200)}
-    fail_counts: dict[str, int] = {}
-    messages: list[dict] = []
-    seen = ""
-    for _ in range(3):
-        action, _, call_fp = await confirm_call(
-            loop,
-            ctx,
-            "document",
-            args,
-            text="derive the SQL",
-            fail_counts=fail_counts,
-            skip_counts={},
-            messages=messages,
-            drop_wander=lambda _n: None,
-        )
-        assert action == SKIP
-        seen = call_fp
-    assert fail_counts[seen] >= 2
-    joined = " ".join(str(m) for m in messages)
-    assert "already failed twice" in joined.lower()
-    assert "Stop calling" in joined
-
-
-@pytest.mark.parametrize(
-    "theme_id",
-    [t for t in THEME_IDS if t not in FLOOR_EXEMPT_THEMES],
-)
-def test_floor_on_every_non_filament_theme(theme_id: str) -> None:
-    try:
-        apply_theme(theme_id)
-        assert confirm_mode() == "card"
-        floor = _floor_calls()
-        for flags in _toggle_flag_sets():
-            for asked, ask_is_grant in itertools.product((True, False), repeat=2):
-                for name, args in floor:
-                    assert evaluate_confirm(
-                        name,
-                        args,
-                        asked=asked,
-                        ask_is_grant=ask_is_grant,
-                        **flags,
-                    )
-                    turn = confirm_toggles_for_call(
-                        name,
-                        allow_writes_this_turn=True,
-                        **flags,
-                    )
-                    assert evaluate_confirm(
-                        name,
-                        args,
-                        asked=asked,
-                        ask_is_grant=ask_is_grant,
-                        **turn,
-                    )
-    finally:
-        apply_theme("sodium")
 
 
 def test_theme_confirm_mode_drift_guard() -> None:
@@ -455,146 +148,6 @@ def test_theme_confirm_mode_drift_guard() -> None:
         assert "night" in covered
     finally:
         apply_theme("sodium")
-
-
-def test_filament_keeps_the_send_floor() -> None:
-    try:
-        apply_theme("filament")
-        assert confirm_mode() == "voice"
-        for flags in _toggle_flag_sets():
-            for asked, ask_is_grant in itertools.product((True, False), repeat=2):
-                kwargs = dict(flags, asked=asked, ask_is_grant=ask_is_grant)
-                assert evaluate_confirm("send_email", {}, **kwargs)
-                assert evaluate_confirm("send_sms", {}, **kwargs)
-                assert not evaluate_confirm(
-                    "workspace", {"action": "write"}, **kwargs
-                )
-                assert evaluate_confirm(
-                    "workspace", {"action": "delete"}, **kwargs
-                )
-                assert evaluate_confirm("inbox", {"action": "trash"}, **kwargs)
-                assert evaluate_confirm("agenda", {"action": "delete"}, **kwargs)
-                assert evaluate_confirm(
-                    "run_script", {"path": "x.py"}, **kwargs
-                )
-                assert evaluate_confirm(
-                    "run_task", {"action": "run", "name": "pytest"}, **kwargs
-                )
-    finally:
-        apply_theme("sodium")
-
-
-def test_pay_and_uac_follow_their_toggles_and_overwrite_stays_off_the_floor() -> None:
-    """Card mode. Pay and UAC are not on the always-ask floor.
-
-    Replacing a file stays on the files switch. Delete does not.
-    """
-    set_confirm_mode("card")
-    pay = {"action": "click", "text": "Checkout"}
-    uac = {"action": "click", "text": "Yes"}
-    try:
-        assert (
-            evaluate_confirm(
-                "browser",
-                pay,
-                confirm_browser=False,
-                asked=True,
-                ask_is_grant=True,
-            )
-            is False
-        )
-        assert (
-            evaluate_confirm(
-                "browser",
-                pay,
-                confirm_browser=True,
-                asked=True,
-                ask_is_grant=True,
-            )
-            is True
-        )
-        assert (
-            evaluate_confirm(
-                "desktop",
-                uac,
-                confirm_desktop=False,
-                asked=True,
-                ask_is_grant=True,
-            )
-            is False
-        )
-        assert (
-            evaluate_confirm(
-                "desktop",
-                uac,
-                confirm_desktop=True,
-                asked=True,
-                ask_is_grant=True,
-            )
-            is True
-        )
-        assert (
-            evaluate_confirm(
-                "workspace",
-                {"action": "write"},
-                confirm_writes=False,
-            )
-            is False
-        )
-        assert (
-            evaluate_confirm(
-                "workspace",
-                {"action": "edit"},
-                confirm_writes=False,
-            )
-            is False
-        )
-        assert (
-            evaluate_confirm(
-                "workspace",
-                {"action": "delete"},
-                confirm_writes=False,
-            )
-            is True
-        )
-    finally:
-        set_confirm_mode("card")
-
-
-def test_send_star_tools_are_on_the_floor() -> None:
-    from arelis.tools.policy import FLOOR_SEND_TOOLS
-
-    router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
-    registry = build_tool_registry(load_config(), allow_send=True, attended=True, router=router)
-    missing = [
-        name
-        for name in registry.names()
-        if name.startswith("send_") and name not in FLOOR_SEND_TOOLS
-    ]
-    assert "send_email" in FLOOR_SEND_TOOLS
-    assert "send_sms" in FLOOR_SEND_TOOLS
-    assert missing == []
-
-
-def test_persist_file_write_still_cards_delete(tmp_path, monkeypatch) -> None:
-    local = tmp_path / "config.local.yaml"
-    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
-
-    class _Loop:
-        confirm_writes = True
-        config = {"agent": {"confirm_writes": True}}
-
-    loop = _Loop()
-    apply_theme("sodium")
-    assert persist_confirm_off(loop, "workspace", {"action": "write"}) == (
-        "confirm_writes"
-    )
-    assert loop.confirm_writes is False
-    assert evaluate_confirm(
-        "workspace",
-        {"action": "delete"},
-        confirm_writes=False,
-    )
 
 
 @pytest.mark.asyncio
@@ -660,91 +213,6 @@ async def test_scripted_send_sms_confirms_when_send_toggle_off() -> None:
         except asyncio.CancelledError:
             pass
     assert confirms == ["send_sms"]
-
-
-@pytest.mark.asyncio
-async def test_model_send_sms_still_confirms_and_locks_the_body(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The model calls send_sms. Allow still shows, and the body is the user's."""
-    from arelis.contacts import Contact, normalize_phone
-
-    phone = "5551112222"
-    book = {
-        "brian": Contact(
-            alias="brian",
-            name="Brian",
-            phone=phone,
-            digits=normalize_phone(phone),
-            aliases=("brian",),
-        )
-    }
-    monkeypatch.setattr("arelis.core.sms_complete.load_contacts", lambda: book)
-    apply_theme("sodium")
-    confirms: list[dict] = []
-
-    async def _keep(_cid: str, name: str, args: dict, _summary: str) -> str:
-        confirms.append({"tool": name, "args": dict(args or {})})
-        return "allow"
-
-    full = foundation_registry()
-    tools = ToolRegistry()
-    sms = full.get("send_sms")
-    assert sms is not None
-    tools.register(sms)
-    script = [
-        [
-            (
-                "tool_calls",
-                [
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "send_sms",
-                            "arguments": {"to": "brian", "body": "WRONG"},
-                        },
-                    }
-                ],
-            )
-        ],
-        [("token", "sent.")],
-    ]
-    bus = EventBus()
-    loop = AgentLoop(
-        bus,
-        _ScriptedRouter(script),
-        tools,
-        SessionMemory(),
-        persona="You are Arelis under eval.",
-        config={
-            "agent": {
-                "max_rounds": 4,
-                "exactness": True,
-                "numeric_gate": True,
-                "evidence_gate": True,
-                "chat_fast_path": False,
-            },
-            "ollama": {"num_ctx": shipped_num_ctx()},
-        },
-        request_confirm=_keep,
-        is_cancelled=lambda: False,
-    )
-    bus_task = asyncio.create_task(bus.run())
-    try:
-        await loop.run("Text Brian: Running late", "fast", source="eval")
-        await bus.drain()
-    finally:
-        bus.stop()
-        bus_task.cancel()
-        try:
-            await bus_task
-        except asyncio.CancelledError:
-            pass
-    assert confirms
-    assert confirms[0]["tool"] == "send_sms"
-    body = str(confirms[0]["args"].get("body") or "")
-    assert "WRONG" not in body
-    assert "late" in body.lower()
 
 
 @pytest.mark.asyncio

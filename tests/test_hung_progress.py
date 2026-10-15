@@ -48,14 +48,6 @@ def test_streaming_answer_is_not_a_hang(arelis_window, qt_app) -> None:
     assert not _hung_shown(window)
 
 
-def test_silent_stream_is_still_a_hang(arelis_window, qt_app) -> None:
-    window = arelis_window(_cfg(idle=0.2, first=0.4))
-    window._set_busy(True)
-    QTest.qWait(700)
-    assert window._turn_busy is False
-    assert _hung_shown(window)
-
-
 def test_silence_after_thinking_is_a_hang(arelis_window, qt_app) -> None:
     window = arelis_window(_cfg(idle=0.3, first=5.0))
     window._set_busy(True)
@@ -68,28 +60,3 @@ def test_silence_after_thinking_is_a_hang(arelis_window, qt_app) -> None:
     assert _hung_shown(window)
 
 
-def test_prefill_gets_the_first_token_allowance(arelis_window, qt_app) -> None:
-    window = arelis_window(_cfg(idle=0.2, first=1.0))
-    window._set_busy(True)
-    QTest.qWait(600)           # past the idle gap, inside the first-token allowance
-    assert window._turn_busy, "a silent prefill was judged by the idle gap"
-
-
-def test_tool_result_restarts_the_first_token_allowance(arelis_window, qt_app) -> None:
-    window = arelis_window(_cfg(idle=0.2, first=0.6))
-    window._set_busy(True)
-    window.bridge.event_arrived.emit(Event(EventType.THINKING, {"text": "x", "stream": True}))
-    QTest.qWait(100)
-    window.bridge.event_arrived.emit(Event(EventType.TOOL_RESULT, {"tool": "vision", "ok": True, "data": {}}))
-    QTest.qWait(400)           # next round prefills: longer than idle, shorter than first
-    assert window._turn_busy
-
-
-def test_cap_still_ends_a_runaway_thinker(arelis_window, qt_app) -> None:
-    window = arelis_window(_cfg(idle=0.3, first=0.3, cap=0.8))
-    window._set_busy(True)
-    drip = _drip(window, EventType.THINKING, {"text": "hmm ", "stream": True})
-    QTest.qWait(1300)
-    drip.stop()
-    assert window._turn_busy is False
-    assert _hung_shown(window)

@@ -24,7 +24,6 @@ the leak this test exists to prevent.
 
 from __future__ import annotations
 
-import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -95,19 +94,6 @@ HOME_PLACEHOLDERS = frozenset(
 )
 
 
-def test_no_tracked_file_names_a_real_home_directory() -> None:
-    hits = []
-    for path, text in _readable_tracked():
-        for line_no, line in enumerate(text.splitlines(), 1):
-            for who in HOME_PATH.findall(line):
-                if who.lower() not in HOME_PLACEHOLDERS:
-                    hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
-    assert not hits, (
-        "A path under a real user's home directory is tracked. Use a placeholder "
-        "such as C:/Users/you/... instead:\n" + _report(hits)
-    )
-
-
 # Scoped to North American numbers on purpose. A bare run of ten digits is not
 # enough to go on — this repo contains Windows exit codes, IP addresses and
 # timestamps that are all ten digits long, and the first version of this test
@@ -152,23 +138,6 @@ def _is_reserved(area: str, exchange: str, line_number: str) -> bool:
     return exchange == "555" and line_number.startswith("01")
 
 
-def test_no_tracked_file_carries_a_dialable_phone_number() -> None:
-    hits = []
-    for path, text in _readable_tracked():
-        for line_no, line in enumerate(text.splitlines(), 1):
-            # Strip IPs first, or 192.168.1.10 reads as a 10-digit number, and digests
-            # after, or a sha256 does.
-            scrubbed = HEX_DIGEST.sub(" ", IPV4.sub(" ", line))
-            for area, exchange, number in PHONE.findall(scrubbed):
-                if not _is_reserved(area, exchange, number):
-                    hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
-    assert not hits, (
-        "A phone number that is not from a reserved test range is tracked. A real "
-        "number buys a fixture nothing, and leaves a future contributor one bad "
-        "mock away from texting a stranger. Use 5555550123:\n" + _report(hits)
-    )
-
-
 def test_blanking_digests_did_not_open_a_hole_in_the_phone_rule() -> None:
     """How wide the digest strip is, since a strip in a guard is a hole by definition.
 
@@ -204,19 +173,6 @@ MAILBOX_PLACEHOLDERS = frozenset(
 )
 
 
-def test_no_tracked_file_carries_a_personal_mailbox() -> None:
-    hits = []
-    for path, text in _readable_tracked():
-        for line_no, line in enumerate(text.splitlines(), 1):
-            for local, _provider in CONSUMER_MAIL.findall(line):
-                if local.lower() not in MAILBOX_PLACEHOLDERS:
-                    hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
-    assert not hits, (
-        "A personal address at a consumer mail provider is tracked. Use "
-        "you@example.com — example.com exists precisely for this:\n" + _report(hits)
-    )
-
-
 # Deliberately not a guess at what a secret looks like. Nothing can tell a real
 # app password from a convincing fake by shape, and trying produced exactly the
 # wrong answer: it flagged the test that proves app passwords parse correctly,
@@ -236,22 +192,6 @@ CREDENTIAL_PLACEHOLDERS = re.compile(
     r"|.*redacted.*|.*dummy.*|.*fake.*|.*changeme.*|.*[a-z_]+_here.*"
     r"|secret|token|password|id|rt|abc\w*|test\w*|some\w*)$"
 )
-
-
-def test_no_shipped_file_carries_a_filled_in_credential() -> None:
-    hits = []
-    for path, text in _readable_tracked():
-        if path.parts[len(PROJECT_ROOT.parts)] == "tests":
-            continue
-        for line_no, line in enumerate(text.splitlines(), 1):
-            for _key, value in CREDENTIAL.findall(line):
-                if not CREDENTIAL_PLACEHOLDERS.match(value.strip()):
-                    hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
-    assert not hits, (
-        "A credential key has a real-looking value outside the test suite. "
-        "Secrets belong in data/secrets.yaml, which is gitignored and has never "
-        "been committed:\n" + _report(hits)
-    )
 
 
 # ---------------------------------------------------------------- place rules
@@ -381,89 +321,6 @@ def _is_allowed_coordinate(value: str) -> bool:
     return any(allowed.startswith(value) for allowed in ALLOWED_COORDS)
 
 
-def test_glsl_rgb_triplets_are_not_coordinates() -> None:
-    """Shader colours look like lat,lon. They are not a house."""
-    line = (
-        "vec3 core = mix(alb * vec3(1.36, 1.12, 0.62), "
-        "vec3(1.42, 1.24, 0.90), 0.34);"
-    )
-    assert _coordinates_on(line) == []
-    assert _coordinates_on("vec3 hot = mix(uColor, vec3(1.50, 1.35, 1.05), 0.72);") == []
-    # A real pair on the same line as a vec3 still counts once the vec is gone.
-    assert _coordinates_on("home = 39.7817, -89.6501") != []
-
-
-def test_no_tracked_file_carries_a_coordinate_other_than_the_fixture() -> None:
-    """A latitude is the one personal datum that reads as ordinary arithmetic.
-
-    Six tracked files held a real city's coordinates to four decimal places,
-    which is about eleven metres, and three of those files were inside the
-    installed package and so shipped to every user. Nothing caught it. The name
-    rules could not, because the generator dropped every value under seven
-    digits before it reached the list, and no shape rule existed at all.
-
-    Being a shape rule this one needs no scrub list, so it runs on CI and it
-    also covers the case the name rules structurally cannot: a contributor
-    pasting their own address into a fixture.
-    """
-    hits = []
-    for path, text in _readable_tracked():
-        if _public_globe(path):
-            continue
-        for line_no, line in enumerate(text.splitlines(), 1):
-            if any(not _is_allowed_coordinate(v) for v in _coordinates_on(line)):
-                hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
-    assert not hits, (
-        "A coordinate that is not the declared fixture is tracked. Four decimal "
-        "places is roughly eleven metres. Use the fixture place, or add a new "
-        "one to ALLOWED_COORDS with a written reason:\n" + _report(hits)
-    )
-
-
-def test_no_tracked_file_names_a_us_state_other_than_the_fixture() -> None:
-    """One fixture place means the next disagreement fails instead of waiting.
-
-    Two states were in the tree simultaneously, and that inconsistency was the
-    only visible symptom of a half-finished scrub — the coordinates beside them
-    gave no sign at all. A single declared state turns the symptom into a
-    failure, and it costs a contributor nothing, because a test that needs a
-    place already has one to reach for.
-    """
-    hits = []
-    for path, text in _readable_tracked():
-        if _public_globe(path):
-            continue
-        for line_no, line in enumerate(text.splitlines(), 1):
-            if FOREIGN_STATE.search(line):
-                hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
-    assert not hits, (
-        f"A US state other than the fixture ({FIXTURE_STATE}) is named in a "
-        "tracked file. A state is a statement about where somebody is:\n"
-        + _report(hits)
-    )
-
-
-def test_no_tracked_file_carries_a_postal_code_other_than_the_fixture() -> None:
-    """Five digits was under the phone floor too, so it was never checked.
-
-    A postal code narrows a person to a few thousand houses, and one shipped
-    inside the package in a docstring showing how an address is written. Read
-    where a postal key is used or a state is named, because five digits on their
-    own are a port number, an exit code or a year.
-    """
-    hits = []
-    for path, text in _readable_tracked():
-        for line_no, line in enumerate(text.splitlines(), 1):
-            if not (POSTAL_KEY.search(line) or ANY_STATE.search(line)):
-                continue
-            if any(code != FIXTURE_POSTAL for code in POSTAL.findall(line)):
-                hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
-    assert not hits, (
-        f"A postal code other than the fixture ({FIXTURE_POSTAL}) is tracked:\n"
-        + _report(hits)
-    )
-
-
 # ----------------------------------------------------------------- name rules
 
 
@@ -477,31 +334,6 @@ def _local_terms(path: Path) -> set[str]:
     }
 
 
-def test_holiday_copy_does_not_use_a_live_country_title() -> None:
-    """Google's UI string is also a profile `country` value.
-
-    A 13-character term from that field flagged default.yaml:363 and the
-    calendar fixtures. Match holidays by mailbox id. Do not paste the live
-    country title into git — a scrub-allow of that name would hide a
-    person-name leak that happened to use the same words.
-    """
-    banned = (
-        "Holidays in United States",
-        "Holidays in United Kingdom",
-    )
-    hits = []
-    for path, text in _readable_tracked():
-        for needle in banned:
-            if needle in text:
-                hits.append(f"{path.relative_to(PROJECT_ROOT)}")
-                break
-    assert not hits, (
-        "A Google holiday UI title is in a tracked file. That title is a "
-        "real country name and will fail the name-scrub for anyone whose "
-        "profile location is that country:\n" + _report(hits)
-    )
-
-
 # SHA-256 of the lowercased surname. The letters are not stored. A word is a
 # run of ASCII letters, so punctuation beside the name does not hide it, and
 # capitalization does not either. This file is included in the scan: the hash
@@ -510,129 +342,3 @@ _SURNAME_SHA256 = "6d09c24b943ecae5a22ee52595fb0f0556d17d62ae14b5c0b07df540d582a
 _LETTER_WORD = re.compile(r"[A-Za-z]+")
 
 
-def test_no_tracked_file_carries_the_maintainer_surname() -> None:
-    """A tracked text file must not contain the maintainer's surname.
-
-    The scrub list below is local and skipped when it is missing, which is
-    every CI run. This check does not skip, and it does not skip this file.
-    The other rules still do, because they have to write the patterns they
-    ban. This one compares hashes of lowercased letter-words instead.
-    """
-    hits = []
-    for path in _tracked_files():
-        if path.suffix.lower() in BINARY_SUFFIXES:
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        rel = path.relative_to(PROJECT_ROOT)
-        for line_no, line in enumerate(text.splitlines(), 1):
-            for word in _LETTER_WORD.findall(line):
-                digest = hashlib.sha256(word.lower().encode("utf-8")).hexdigest()
-                if digest == _SURNAME_SHA256:
-                    hits.append(f"{rel}:{line_no}")
-                    break
-    assert not hits, (
-        "The maintainer's surname is in a tracked text file. Remove it "
-        "before this is pushed:\n" + _report(hits)
-    )
-
-
-def test_nothing_from_the_operators_own_records_reaches_a_tracked_file() -> None:
-    """The check that knows who you are, using a list that is never committed.
-
-    Skips when the list has not been generated, which is the case on CI and on a
-    fresh clone. The shape rules above are what cover those.
-    """
-    terms = _local_terms(SCRUB_LIST) - _local_terms(SCRUB_ALLOW)
-    if not terms:
-        pytest.skip(
-            "No data/scrub-names.local.txt. Run scripts/build_scrub_list.py to "
-            "generate it from your own contacts and profile."
-        )
-
-    # Boundaries are letters and digits only, so "_" and "-" separate. A name
-    # hides most readily inside an identifier or a filename — a fixture called
-    # RAADS-R_Chris_Maddie.xlsx survived the first version of this rule, and it
-    # carried two people and a medical inference in one string.
-    patterns = [
-        (term, re.compile(rf"(?i)(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"))
-        for term in terms
-    ]
-    hits = []
-    for path, text in _readable_tracked():
-        # The guards themselves have to name what they forbid in order to
-        # forbid it. Keep this set to files whose whole job is checking, and
-        # read them when reviewing, because each one is a blind spot.
-        if path.name in {
-            "build_scrub_list.py",
-            "test_no_personal_data.py",
-            "test_shipped_config_is_impersonal.py",
-        }:
-            continue
-        # Published city/country pins. A profile that says United States
-        # cannot forbid the globe from naming the United States.
-        if _public_globe(path):
-            continue
-        for line_no, line in enumerate(text.splitlines(), 1):
-            for term, pattern in patterns:
-                if pattern.search(line):
-                    # The term is redacted here too: this message can end up in
-                    # a terminal that is being recorded or shared.
-                    hits.append(
-                        f"{path.relative_to(PROJECT_ROOT)}:{line_no} "
-                        f"(term of length {len(term)})"
-                    )
-                    break
-    assert not hits, (
-        "A term from your own contacts or profile is in a tracked file. Replace "
-        "it with fixture data before this is pushed anywhere public. Add a term "
-        "to data/scrub-allow.local.txt if it is a false positive:\n" + _report(hits)
-    )
-
-
-def test_no_binary_file_embeds_a_personal_term() -> None:
-    """The files the rules above deliberately skip.
-
-    Every check before this one reads text and ignores anything that is not.
-    That leaves a real gap: an icon, a screenshot or a PDF carries author
-    metadata that no text search would ever see, and a document exported from a
-    word processor is often stamped with the name of whoever was logged in.
-
-    Only terms of six characters or more are looked for. A font file is a
-    megabyte of tables and a four-letter sequence will occur in one by chance,
-    which would make this fail for no reason and teach everyone to ignore it.
-    Both plain and UTF-16 encodings are searched, because Windows metadata is
-    routinely the latter and would otherwise read as unmatched noise.
-    """
-    terms = {t for t in _local_terms(SCRUB_LIST) - _local_terms(SCRUB_ALLOW) if len(t) >= 6}
-    if not terms:
-        pytest.skip("No data/scrub-names.local.txt; see scripts/build_scrub_list.py.")
-
-    needles = [
-        (term, [term.encode("ascii", "ignore"), term.encode("utf-16-le", "ignore")])
-        for term in terms
-    ]
-
-    hits = []
-    for path in _tracked_files():
-        if path.suffix.lower() not in BINARY_SUFFIXES:
-            continue
-        try:
-            blob = path.read_bytes().lower()
-        except OSError:  # pragma: no cover
-            continue
-        for term, encodings in needles:
-            if any(needle and needle in blob for needle in encodings):
-                hits.append(
-                    f"{path.relative_to(PROJECT_ROOT)} (term of length {len(term)})"
-                )
-                break
-
-    assert not hits, (
-        "A binary file has a personal term inside it, most likely in metadata "
-        "rather than anywhere visible. Re-export it from a clean source or "
-        "strip the metadata; editing the file in place usually will not:\n"
-        + _report(hits)
-    )

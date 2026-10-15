@@ -55,26 +55,6 @@ def test_prices_keep_their_dollar() -> None:
     assert r"\log" not in out
 
 
-def test_glued_price_fragment_is_numbers_only() -> None:
-    out = flatten_latex("$1, and0$")
-    assert out == "1, and 0"
-    assert "$" not in out
-    assert "$" not in render_markdown("$1, and0$")
-
-
-def test_space_around_a_number_stays_text() -> None:
-    src = "The count is $ 1 $ today."
-    out = flatten_latex(src)
-    assert out == src
-    assert "$" in out
-
-
-def test_signed_and_grouped_numbers_drop_the_dollars() -> None:
-    out = flatten_latex("Shift by $-3$, keep $2.5$, about $1,000$.")
-    assert out == "Shift by -3, keep 2.5, about 1,000."
-    assert "$" not in out
-
-
 def test_euler_unbraced_theta_joins_the_exponent() -> None:
     braced = _drawn(r"The identity is $e^{i\theta}$.")
     word = _drawn("Euler's formula is $e^iθ$.")

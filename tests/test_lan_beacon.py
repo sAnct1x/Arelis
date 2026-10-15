@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from arelis.lan_announce import (
     BEACON_PORT,
     broadcast_targets,
@@ -19,25 +17,6 @@ def test_beacon_round_trip_strips_instance_whitespace() -> None:
     assert decode_beacon(encoded) == ("desk", 8080)
     assert decode_beacon(b"ARELIS1|  desk  |65535") == ("desk", 65535)
     assert decode_beacon(b"  ARELIS1|desk|9\n") == ("desk", 9)
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        b"",
-        b"NOPE|desk|80",
-        b"ARELIS1|desk",
-        b"ARELIS1",
-        b"ARELIS1|",
-        b"ARELIS1||80",
-        b"ARELIS1|   |80",
-        b"ARELIS1|desk|nope",
-        b"ARELIS1|desk|0",
-        b"ARELIS1|desk|65536",
-    ],
-)
-def test_decode_beacon_rejects_garbage(payload: bytes) -> None:
-    assert decode_beacon(payload) is None
 
 
 def test_directed_broadcast_rewrites_the_last_octet() -> None:

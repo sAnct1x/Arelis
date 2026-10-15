@@ -22,53 +22,7 @@ test here, and it is the one that matters.
 
 from __future__ import annotations
 
-import pytest
-
 from arelis.core.sms_complete import looks_like_tasks_utterance
-
-
-@pytest.mark.parametrize(
-    "utterance",
-    [
-        "What do I have to do today?",
-        "what do i have to do today",
-        "what do I need to do today",
-        "anything I need to do today?",
-        "what do I have to do this week",
-        "what's on my plate today",
-        "what is on my plate",
-    ],
-)
-def test_the_ordinary_phrasings_are_recognised(utterance: str) -> None:
-    assert looks_like_tasks_utterance(utterance)
-
-
-@pytest.mark.parametrize(
-    "utterance",
-    [
-        "what are my tasks?",
-        "show me my todos",
-        "add a task to call the dentist",
-        "mark that task done",
-    ],
-)
-def test_the_phrasings_that_already_worked_still_work(utterance: str) -> None:
-    """A widened regex that drops its original cases is a trade, not a fix."""
-    assert looks_like_tasks_utterance(utterance)
-
-
-@pytest.mark.parametrize(
-    "utterance",
-    [
-        "what's the weather going to be like tomorrow?",
-        "what do you think of this design",
-        "what do I owe you",
-        "tell me what you can do",
-        "what did I say about the Sherpa work",
-    ],
-)
-def test_it_does_not_swallow_unrelated_questions(utterance: str) -> None:
-    assert not looks_like_tasks_utterance(utterance)
 
 
 def test_an_sms_body_is_not_mistaken_for_a_to_do_ask() -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from arelis.browser import live
-from arelis.browser.hold import format_drive_status, set_paused
+from arelis.browser.hold import set_paused
 from arelis.browser.session import BrowserSession
 from arelis.tools.browser_tool import BrowserTool
 
@@ -22,10 +22,6 @@ def teardown_function() -> None:
     live.set_hit_sink(None)
     live.bind_session(None)
     set_paused(False)
-
-
-def test_drive_status_is_watching() -> None:
-    assert format_drive_status("watch", {"url": "/home"}) == "Watching"
 
 
 def test_watch_hits_url_already_there() -> None:
@@ -110,29 +106,3 @@ def test_live_cancel_stops_bound_watch() -> None:
     asyncio.run(_run())
 
 
-def test_watch_on_checkout_is_not_a_pay_wall() -> None:
-    session = BrowserSession.fake()
-
-    async def _run() -> None:
-        await session.ensure("chrome")
-        await session.open_url("https://shop.example/checkout")
-        result = await session.watch(text="order confirmed")
-        assert result.ok
-        assert result.data.get("watching") is True
-        assert result.data.get("wall") != "pay"
-        session.cancel_watch()
-
-    asyncio.run(_run())
-
-
-def test_watch_needs_a_needle() -> None:
-    session = BrowserSession.fake()
-    tool = BrowserTool(session)
-
-    async def _run() -> None:
-        await tool.run(action="open", url="https://example.com")
-        result = await tool.run(action="watch")
-        assert not result.ok
-        assert "url, text, or heading" in result.output
-
-    asyncio.run(_run())

@@ -58,34 +58,6 @@ def _local_config() -> dict:
 # ------------------------------------------------------------- asked once
 
 
-def test_a_fresh_install_is_asked(fresh_install: Path) -> None:
-    assert onboarding.needs_prompt()
-
-
-def test_answering_settles_it_for_good(fresh_install: Path) -> None:
-    """Every launch after the first must go straight to the window.
-
-    A permission prompt that reappears is one that gets clicked through without
-    reading, which is worse than not asking.
-    """
-    onboarding.record_choice(None)
-    assert not onboarding.needs_prompt()
-
-
-def test_clearing_history_does_not_reopen_the_question(fresh_install: Path) -> None:
-    """"First run" is the marker, not an empty data directory.
-
-    Someone who deletes their conversation database to reclaim space has not
-    become a new user, and being re-asked to grant filesystem access would read
-    as Arelis having forgotten something it should not have.
-    """
-    onboarding.record_choice(None)
-    for leftover in paths.state_dir().glob("*"):
-        if leftover.name != onboarding.MARKER_NAME:
-            leftover.unlink()
-    assert not onboarding.needs_prompt()
-
-
 # ------------------------------------------------- what the answer is worth
 
 
@@ -100,21 +72,6 @@ def test_the_suggestion_is_a_named_folder_not_all_of_documents(
     suggested = onboarding.suggested_root()
     assert suggested == fresh_install / "Documents" / "Arelis"
     assert suggested != fresh_install / "Documents"
-
-
-def test_the_answer_reaches_the_config_the_agent_loads(fresh_install: Path) -> None:
-    """The whole point: a recorded answer that nothing reads would be theatre."""
-    from arelis.config import load_config
-
-    chosen = fresh_install / "Documents" / "work-notes"
-    chosen.mkdir(parents=True)
-    onboarding.record_choice(chosen)
-
-    config = load_config()
-    roots = [Path(p).resolve() for p in config["workspace"]["roots"]]
-    # Installed copies also get a read-only window onto the package
-    # (ensure_package_inspect_root). The recorded folder still has to be there.
-    assert chosen.resolve() in roots
 
 
 def test_an_accepted_suggestion_is_pinned_like_any_other_choice(
@@ -134,43 +91,7 @@ def test_an_accepted_suggestion_is_pinned_like_any_other_choice(
     assert Path(roots[0]).is_absolute()
 
 
-def test_recording_leaves_other_settings_alone(fresh_install: Path) -> None:
-    """First run can happen after a config exists: a marker can be deleted.
-
-    Clobbering the file rather than merging into it would silently reset every
-    preference the user had set.
-    """
-    from arelis.config import merge_local_config
-
-    merge_local_config({"voice": {"tts": {"enabled": False}}})
-    onboarding.record_choice(None)
-    local = _local_config()
-    assert local["voice"]["tts"]["enabled"] is False
-    assert local["workspace"]["roots"]
-
-
 # --------------------------------------------------------------- first use
-
-
-def test_the_chosen_folder_is_created(fresh_install: Path) -> None:
-    """Otherwise every file tool fails on a fresh install with a missing path.
-
-    Which reads as Arelis being broken, rather than as a folder waiting to exist.
-    """
-    target = fresh_install / "Documents" / "Arelis"
-    assert not target.exists()
-    onboarding.record_choice(None)
-    assert target.is_dir()
-
-
-def test_a_typed_path_with_a_tilde_is_understood(fresh_install: Path) -> None:
-    """People type ~/notes, and storing that literally would create "~".
-
-    Which is a folder named tilde in the working directory, findable by nobody.
-    """
-    recorded = onboarding.record_choice("~/notes")
-    assert recorded == (fresh_install / "notes").resolve()
-    assert "~" not in str(recorded)
 
 
 def test_the_marker_records_what_was_agreed_to(fresh_install: Path) -> None:

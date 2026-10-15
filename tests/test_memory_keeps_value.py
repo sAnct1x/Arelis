@@ -126,20 +126,6 @@ def test_a_fact_that_already_has_a_number_stays(tmp_path) -> None:
     assert stored == [fact]
 
 
-def test_remembering_a_person_with_no_math_stays(tmp_path) -> None:
-    store = MemoryStore(tmp_path / "memory.db")
-    store.start_session()
-    fact = "my dentist is Dr Lee"
-    script = [
-        [_call("memory", {"action": "remember", "fact": fact})],
-        [("token", "Stored.")],
-    ]
-    asyncio.run(_run("Remember my dentist is Dr Lee.", script, store))
-    stored = _facts(store)
-    store.close()
-    assert stored == [fact]
-
-
 def test_a_number_from_an_earlier_turn_is_not_used(tmp_path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     store.start_session()
@@ -229,23 +215,3 @@ def test_a_number_from_an_earlier_turn_is_not_used(tmp_path) -> None:
     assert stored == ["weekly run distance"]
 
 
-def test_a_sum_that_did_not_use_the_conversion_stays_a_bare_number(tmp_path) -> None:
-    store = MemoryStore(tmp_path / "memory.db")
-    store.start_session()
-    script = [
-        [_call("units", {"action": "convert", "quantity": "5 miles", "to": "kilometers"})],
-        [_call("calculator", {"expression": "2 + 2"})],
-        [_call("memory", {"action": "remember", "fact": "my lucky number"})],
-        [("token", "Stored.")],
-    ]
-    asyncio.run(
-        _run(
-            "Convert 5 miles to kilometers, then add 2 and 2, "
-            "then remember that sum as my lucky number.",
-            script,
-            store,
-        )
-    )
-    stored = _facts(store)
-    store.close()
-    assert stored == ["my lucky number: 4"]

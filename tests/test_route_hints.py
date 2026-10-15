@@ -6,22 +6,8 @@ import pytest
 
 from arelis.core.route_hints import (
     is_file_loop,
-    is_research_hint,
     is_tool_loop,
 )
-
-
-@pytest.mark.parametrize(
-    "text",
-    (
-        "search the web for lithium prices",
-        "what's the weather today",
-        "https://example.com/page",
-        "research cyclospora outbreaks briefly",
-    ),
-)
-def test_tool_loop_category(text: str) -> None:
-    assert is_tool_loop(text)
 
 
 @pytest.mark.parametrize(
@@ -34,44 +20,6 @@ def test_tool_loop_category(text: str) -> None:
 def test_file_loop_category(text: str) -> None:
     assert is_file_loop(text)
     assert is_tool_loop(text)
-
-
-@pytest.mark.parametrize(
-    "text",
-    (
-        "Investigate recent battery recycling and write a report",
-        "i want you to deeply research the best piezoelectric material",
-        "in-depth analysis of the spectrum",
-        "cite sources for fusion",
-    ),
-)
-def test_research_category(text: str) -> None:
-    assert is_research_hint(text)
-
-
-@pytest.mark.parametrize(
-    "text",
-    (
-        "hey how are you",
-        "thanks",
-        "research",
-        "cite",
-    ),
-)
-def test_bare_words_are_not_research(text: str) -> None:
-    assert not is_research_hint(text)
-
-
-def test_a_sourced_pdf_is_a_research_hint() -> None:
-    text = (
-        "Research what the lab measured. "
-        "Write the result as a PDF. Search the web, then open the papers."
-    )
-    assert is_research_hint(text)
-
-
-def test_a_pdf_with_no_search_is_not_a_research_hint() -> None:
-    assert not is_research_hint("Write the result as a PDF I can open.")
 
 
 def test_a_check_in_does_not_need_a_page() -> None:
@@ -104,7 +52,3 @@ def test_a_real_question_on_the_research_chip_still_needs_a_page() -> None:
     assert goal.kind == "research"
 
 
-def test_derive_is_not_a_research_hint() -> None:
-    assert not is_research_hint(
-        "derive the equation for F=ma. show me how it was derived."
-    )

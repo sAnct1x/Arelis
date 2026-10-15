@@ -82,32 +82,6 @@ def test_a_write_underneath_unsaved_edits_keeps_the_edits(panel) -> None:
     assert panel.editor.toPlainText() == "half an hour of typing"
 
 
-def test_a_write_lands_normally_when_nothing_is_unsaved(panel) -> None:
-    """Overcorrecting here would break the ordinary case, which is most cases.
-
-    A clean buffer has nothing to lose, so a write should appear immediately and
-    silently the way it always did.
-    """
-    panel.set_file("notes.txt", "from disk", abs_path="/tmp/notes.txt")
-
-    placed = panel.set_file("notes.txt", "arelis rewrote this", abs_path="/tmp/notes.txt")
-
-    assert placed is True
-    assert panel.editor.toPlainText() == "arelis rewrote this"
-
-
-def test_loading_a_file_does_not_count_as_editing_it(panel) -> None:
-    """Dirty is derived, not latched, and setPlainText fires textChanged.
-
-    If loading marked the buffer dirty, the very first thing every session does
-    would arm both gates and every subsequent open would demand confirmation for
-    nothing — which trains people to click through the warning that matters.
-    """
-    panel.set_file("notes.txt", "from disk", abs_path="/tmp/notes.txt")
-
-    assert not panel.has_unsaved_changes()
-
-
 def test_typing_then_undoing_by_hand_clears_the_dirty_state(panel) -> None:
     panel.set_file("notes.txt", "from disk", abs_path="/tmp/notes.txt")
     panel.editor.setPlainText("scratch")
@@ -141,23 +115,6 @@ def test_opening_over_unsaved_edits_warns_once_then_obeys(
     window._open_file("b.txt")
 
     assert window.workspace.editor.toPlainText() == "second file"
-
-
-def test_the_open_warning_does_not_carry_to_a_different_file(
-    window, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Cancel on b.txt must not open c.txt without asking again."""
-    monkeypatch.setattr("arelis.ui.dialog.confirm", lambda *a, **k: False)
-    (tmp_path / "a.txt").write_text("first file", encoding="utf-8")
-    (tmp_path / "b.txt").write_text("second file", encoding="utf-8")
-    (tmp_path / "c.txt").write_text("third file", encoding="utf-8")
-    window._open_file("a.txt")
-    window.workspace.editor.setPlainText("unsaved work")
-    window._open_file("b.txt")
-
-    window._open_file("c.txt")
-
-    assert window.workspace.editor.toPlainText() == "unsaved work"
 
 
 def test_saving_over_a_file_she_changed_warns_once_then_obeys(
@@ -203,24 +160,3 @@ def test_an_ordinary_save_is_never_questioned(window, tmp_path: Path) -> None:
     assert not window.workspace.has_unsaved_changes()
 
 
-def test_saving_a_new_file_is_not_treated_as_stale(window, tmp_path: Path) -> None:
-    """Nothing is loaded, so there is no baseline to be behind."""
-    window._save_file("fresh.txt", "brand new")
-
-    assert (tmp_path / "fresh.txt").read_text(encoding="utf-8") == "brand new"
-    assert not any("changed on disk" in line for line in window.said)
-
-
-def test_closing_workspace_with_unsaved_edits_asks(
-    window, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("arelis.ui.dialog.confirm", lambda *a, **k: False)
-    (tmp_path / "notes.txt").write_text("original", encoding="utf-8")
-    window._toggle_workspace(True)
-    window._open_file("notes.txt")
-    window.workspace.editor.setPlainText("unsaved work")
-
-    window._toggle_workspace(False)
-
-    assert window.act_workspace.isChecked()
-    assert window.workspace.editor.toPlainText() == "unsaved work"

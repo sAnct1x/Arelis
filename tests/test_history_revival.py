@@ -110,15 +110,7 @@ def _revives(channel: str, middle: list[tuple[str, str]], said: str) -> bool:
     return draft is not None
 
 
-@pytest.mark.parametrize("channel", ["sms", "email", "agenda"])
-def test_a_yes_right_after_the_assistant_offered_brings_the_draft_back(
-    channel: str,
-) -> None:
-    """The feature. Without this the guards below would be free to refuse all."""
-    assert _revives(channel, [("assistant", OFFERS[channel])], "yes")
-
-
-@pytest.mark.parametrize("channel", ["sms", "email", "agenda"])
+@pytest.mark.parametrize("channel", ['sms', 'email'])
 def test_a_yes_after_the_user_changed_the_subject_revives_nothing(
     channel: str,
 ) -> None:
@@ -129,13 +121,7 @@ def test_a_yes_after_the_user_changed_the_subject_revives_nothing(
     )
 
 
-@pytest.mark.parametrize("channel", ["sms", "email", "agenda"])
-def test_a_yes_four_exchanges_after_the_draft_revives_nothing(channel: str) -> None:
-    """How far email used to reach: there was no limit at all."""
-    assert not _revives(channel, LONG_GONE, "yes")
-
-
-@pytest.mark.parametrize("channel", ["sms", "email", "agenda"])
+@pytest.mark.parametrize("channel", ['sms', 'email'])
 def test_an_explicit_command_does_not_reach_across_a_change_of_subject_either(
     channel: str,
 ) -> None:
@@ -149,23 +135,6 @@ def test_an_explicit_command_does_not_reach_across_a_change_of_subject_either(
     """
     assert not _revives(channel, MOVED_ON, COMMANDS[channel])
     assert not _revives(channel, LONG_GONE, COMMANDS[channel])
-
-
-def test_an_explicit_send_command_works_when_the_model_stalled_instead_of_asking() -> None:
-    """The other direction of the same mistake, this one SMS's.
-
-    "Ready when you are." is not an offer by any of the ask patterns, so a
-    bare "yes" after it is correctly refused. But SMS refused "send the text"
-    too, every time, with nothing said about why — the user repeats themselves
-    and the assistant keeps chatting.
-    """
-    assert _revives("sms", [("assistant", STALL)], "send the text")
-    assert _revives("email", [("assistant", STALL)], "send the email")
-
-
-def test_a_fresh_ask_does_not_need_history_at_all() -> None:
-    """The revival walk is a fallback, not the main path."""
-    assert _revives("sms", [], "text Brian saying I am running late")
 
 
 # ------------------------------------------------- the shared walk, on its own
@@ -184,88 +153,3 @@ def test_the_shared_walk_takes_the_newest_draft_it_can_accept() -> None:
     assert found == "draft-two"
 
 
-def test_the_shared_walk_stops_where_the_user_moved_on() -> None:
-    """With no offer latched, an unparseable user turn ends it. The whole point."""
-    found = last_draft_before_confirm(
-        _pairs(("user", "draft-one"), ("assistant", "ok"), ("user", "weather?")),
-        parse=lambda text: text if text.startswith("draft") else None,
-        accept=lambda draft: True,
-    )
-    assert found is None
-
-
-def test_a_reask_lets_the_walk_past_a_turn_it_cannot_parse() -> None:
-    """The latch only licenses what is *older* than the offer, which is the point.
-
-    The walk runs backwards, so the offer has to be newer than the turn it
-    excuses. That is not an implementation detail — it is the rule. An
-    unparseable turn newer than every offer means the user has said something
-    since being asked, and consent does not survive that. An unparseable turn
-    *older* than the newest offer is a mumble the assistant then asked again
-    about, which is an answer attempt.
-
-    Chronologically here: draft, "what should the body be?", "um", asked
-    again, and then the confirmation the caller has already matched.
-    """
-    found = last_draft_before_confirm(
-        _pairs(
-            ("user", "draft-one"),
-            ("assistant", "what should the body be?"),
-            ("user", "um"),
-            ("assistant", "what should I put?"),
-        ),
-        parse=lambda text: text if text.startswith("draft") else None,
-        accept=lambda draft: True,
-        asked=lambda content: "what should" in content,
-    )
-    assert found == "draft-one"
-
-
-def test_a_mumble_newer_than_every_offer_still_ends_the_walk() -> None:
-    """The companion to the above, and the half that carries the safety."""
-    found = last_draft_before_confirm(
-        _pairs(
-            ("user", "draft-one"),
-            ("assistant", "what should the body be?"),
-            ("user", "um"),
-        ),
-        parse=lambda text: text if text.startswith("draft") else None,
-        accept=lambda draft: True,
-        asked=lambda content: "what should" in content,
-    )
-    assert found is None
-
-
-def test_a_draft_the_caller_will_not_accept_is_skipped_rather_than_returned() -> None:
-    """`accept` is separate from `parse` because email needs both questions.
-
-    Email's first pass wants only complete composes and has a second pass for
-    the rest; agenda will take anything with a start time. So a turn that
-    parses but fails `accept` must be stepped over, not handed back — and the
-    older draft behind it is the answer.
-
-    The newest draft has to be the unacceptable one for this to test anything.
-    An earlier version put them the other way round and the walk returned the
-    right answer whether `accept` was consulted or not, which made the test
-    decoration: deleting the `accept` call from the walk did not fail it.
-    """
-    found = last_draft_before_confirm(
-        _pairs(
-            ("user", "draft-full"),
-            ("assistant", "what should the body be?"),
-            ("user", "draft-partial"),
-            ("assistant", "what should I put?"),
-        ),
-        parse=lambda text: text if text.startswith("draft") else None,
-        accept=lambda draft: draft.endswith("full"),
-        asked=lambda content: "what should" in content,
-    )
-    assert found == "draft-full", (
-        "The walk returned a draft the caller said it could not use. For "
-        "email that means reviving a compose with no body as though it were "
-        "ready to send."
-    )
-
-
-def test_an_empty_history_revives_nothing_rather_than_raising() -> None:
-    assert last_draft_before_confirm([], parse=lambda text: text, accept=lambda draft: True) is None

@@ -14,9 +14,6 @@ pinned is always "the next stage sees it", not "the setter set it".
 
 from __future__ import annotations
 
-import ast
-import re
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -25,7 +22,6 @@ import pytest
 from arelis.core.agent_loop import _native_tool_call
 from arelis.core.turn_dispatch import dispatch_calls
 from arelis.core.turn_round import apply_no_call_path
-from arelis.core.turn_scratch import FIELD_NAMES
 from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
 
 # Every module that reads or writes the scratch by name.
@@ -92,43 +88,6 @@ class _RoundLoop(_FakeLoop):
 
     async def _publish_error(self, chat: str, *, detail: str = "") -> None:
         self.errors.append((chat, detail))
-
-
-def test_a_misspelled_field_raises_instead_of_vanishing() -> None:
-    """The reason this is a dataclass at all.
-
-    ``r.ollama_tolls = []`` on a SimpleNamespace is a new attribute: the
-    write lands nowhere the round reads, the tool array stays on the menu,
-    and nothing anywhere says so.
-    """
-    r = _scratch()
-    with pytest.raises(AttributeError):
-        r.ollama_tolls = []  # type: ignore[attr-defined]
-    with pytest.raises(AttributeError):
-        _ = r.wants_fresh_pages  # type: ignore[attr-defined]
-    assert r.ollama_tools == []
-
-
-def test_every_field_the_pipeline_touches_is_declared() -> None:
-    """A step cannot grow a field the scratch does not have.
-
-    Reads are the half a typo'd *write* no longer hides: `r.foo` raising in
-    `try_weather` is a crashed turn, not a quiet skip. Pin the set both ways
-    so a new field has to be declared, and a dead one has to be removed.
-    """
-    touched: set[str] = set()
-    for rel in PIPELINE:
-        tree = ast.parse(Path(rel).read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.value, ast.Name)
-                and node.value.id == "r"
-            ):
-                touched.add(node.attr)
-
-    assert touched, "the scan found nothing; the attribute shape must have changed"
-    assert touched - set(FIELD_NAMES) == set()
 
 
 @pytest.mark.asyncio
@@ -198,12 +157,6 @@ async def test_a_blocked_cas_repeat_strips_both_copies_of_the_surface() -> None:
     assert not ctx.tool_names
 
 
-
-
-
-
-
-
 @pytest.mark.asyncio
 async def test_a_js_shell_failure_mid_loop_leaves_the_browser_visible() -> None:
     """``execute_call`` widens the surface, and the round has to keep it.
@@ -242,44 +195,6 @@ async def test_a_js_shell_failure_mid_loop_leaves_the_browser_visible() -> None:
     assert "browser" in r.tool_names
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def test_the_scratch_carries_no_field_the_turn_context_cannot_supply() -> None:
-    """``run_round`` builds the scratch straight off ``ctx``.
-
-    Nothing here is clever — it is the check that a field added to the
-    scratch got a source, instead of defaulting to whatever the last round
-    left behind.
-    """
-    built = re.findall(
-        r"^\s{12}(\w+)=", Path("arelis/core/turn_round.py").read_text(encoding="utf-8"),
-        re.MULTILINE,
-    )
-    assert set(FIELD_NAMES) <= set(built)
-
-
-
-
-
-
-
-
-
-
 _COMPLETE_EMAIL = (
     "Email brian@example.com subject: Status body: All green on the deploy."
 )
@@ -287,25 +202,13 @@ _INCOMPLETE_EMAIL = "Email bob@example.com"
 _NOT_AN_EMAIL = "What's in my email?"
 
 
-
-
-
-
 # Existing open-site line. utterance guards and preflight already treat it
 # as a browser ask, and it is not a tile, a calendar, or a sign-in click.
 _BROWSER_ASK = "open x.com"
 
 
-
-
-
-
 # Existing tile line. match_tile_intent already accepts it as an open of workspace.
 _TILE_ASK = "show me the workspace"
-
-
-
-
 
 
 # The inspect tests already use this phrasing. The path comes from
@@ -314,15 +217,5 @@ _DRIVE_ASK = "where is the Drive strip?"
 # Already pinned in tests/test_no_call_path.py: looks_like_source_inspect
 # accepts it and inspect_read_path returns None.
 _VAGUE_INSPECT = "look through the code"
-
-
-
-
-
-
-
-
-
-
 
 

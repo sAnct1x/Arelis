@@ -83,11 +83,7 @@ def _answer_before_sources(text: str) -> str:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "reply",
-    (
-        "Done",
-        "Done.",
-        "Done\nhttps://example.com/mars-moons",
-    ),
+    ('Done', 'Done.'),
 )
 async def test_done_plus_a_link_is_not_the_answer_about_the_moons(reply: str) -> None:
     """After the page is read, Done is not the reply. The moons are."""

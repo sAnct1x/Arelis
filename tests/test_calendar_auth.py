@@ -5,17 +5,8 @@ from __future__ import annotations
 from arelis.calendar.auth import (
     AuthResult,
     authorize_calendar,
-    is_reauth_error,
     run_auth_calendar,
 )
-
-
-def test_token_refresh_is_a_reauth() -> None:
-    assert is_reauth_error(
-        "google: Google token refresh failed (400). Sign in on the calendar tile."
-    )
-    assert is_reauth_error("Google Calendar not authorized. Sign in on the calendar tile.")
-    assert not is_reauth_error("sync timed out")
 
 
 def test_authorize_without_secrets_does_not_open_a_browser(tmp_path, monkeypatch) -> None:

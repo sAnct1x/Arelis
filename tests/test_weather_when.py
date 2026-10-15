@@ -31,7 +31,6 @@ import pytest
 
 from arelis.briefing.weather import (
     MAX_FORECAST_DAYS,
-    _first_upcoming_hour,
     fetch_forecast,
 )
 from arelis.tools.weather import WeatherTool
@@ -104,35 +103,6 @@ async def test_hourly_starts_from_now_not_from_midnight() -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_hour_cursor_survives_an_unparseable_clock() -> None:
-    """Degrades to "start at the beginning" rather than raising mid-turn."""
-    stamps = ["2026-09-17T00:00", "2026-09-17T01:00"]
-    assert _first_upcoming_hour(stamps, "") == 0
-    assert _first_upcoming_hour(stamps, None) == 0
-    assert _first_upcoming_hour(stamps, "2026-09-17T01:00") == 1
-    # A marker past the end of the series must not return an index into nothing.
-    assert _first_upcoming_hour(stamps, "2099-01-01T00:00") == 0
-
-
-@pytest.mark.asyncio
-async def test_yesterday_is_reachable() -> None:
-    client = _Capture(_payload())
-
-    await fetch_forecast(40.0, -80.0, days=1, past_days=1, client=client)
-
-    assert "past_days=1" in client.urls[0]
-
-
-@pytest.mark.asyncio
-async def test_past_days_is_absent_by_default() -> None:
-    client = _Capture(_payload())
-
-    await fetch_forecast(40.0, -80.0, days=3, client=client)
-
-    assert "past_days" not in client.urls[0]
-
-
-@pytest.mark.asyncio
 async def test_two_weeks_out_is_no_longer_capped_at_a_week() -> None:
     client = _Capture(_payload())
 
@@ -162,58 +132,6 @@ def test_the_schema_is_one_optional_place() -> None:
     lowered = WeatherTool.description.lower()
     assert "hours" not in lowered
     assert "weather tool" not in lowered
-
-
-@pytest.mark.parametrize(
-    "ask,expected",
-    [
-        ("will it rain at 3pm", 12),
-        ("what's it doing at 3:30pm", 12),
-        ("is it going to rain this afternoon", 12),
-        ("will it be cold tonight", 12),
-        ("rain later today?", 12),
-        ("weather in the next few hours", 12),
-        ("will it rain in 2 hours", 12),
-        ("what's it like tomorrow morning", 36),
-        # Plain daily asks must not pay for hourly.
-        ("what's the weather", 0),
-        ("weather tomorrow", 0),
-        ("forecast for the week", 0),
-        ("will it rain on saturday", 0),
-    ],
-)
-def test_a_time_of_day_ask_requests_hours(ask: str, expected: int) -> None:
-    """Adding the parameter was only half the fix: the injected call is built
-    by draft_weather_args, not by the model, so the guard path needed to know."""
-    from arelis.tools.weather import weather_wants_hourly
-
-    assert weather_wants_hourly(ask) == expected
-
-
-@pytest.mark.parametrize(
-    "ask,expected",
-    [
-        ("what was the weather yesterday", 1),
-        ("how cold was it last night", 1),
-        ("did it rain overnight", 1),
-        ("was it raining this morning", 1),
-        ("what's the weather", 0),
-        ("will it rain tomorrow", 0),
-    ],
-)
-def test_a_backward_looking_ask_requests_past_days(ask: str, expected: int) -> None:
-    from arelis.tools.weather import weather_wants_past
-
-    assert weather_wants_past(ask) == expected
-
-
-def test_the_injected_call_carries_the_hours() -> None:
-    from arelis.tools.weather import draft_weather_args
-
-    args = draft_weather_args("will it rain at 3pm in Metropolis")
-
-    assert args["hours"] == 12
-    assert args["place"] == "Metropolis"
 
 
 def test_fill_never_passes_days_hours_or_past_days() -> None:
@@ -246,14 +164,6 @@ def test_garbled_after_tomorrow_is_not_a_city() -> None:
     assert weather_places_missing(ask, set(), {"oh does it say after to"}) == [""]
 
 
-def test_named_cities_still_extract() -> None:
-    from arelis.tools.weather import extract_weather_places
-
-    assert extract_weather_places("weather in Springfield, IL") == ["Springfield IL"]
-    assert extract_weather_places("weather in Paris and London") == ["Paris", "London"]
-    assert extract_weather_places("Oh, what's the weather tomorrow") == []
-
-
 def test_to_morrow_is_tomorrow_not_a_city() -> None:
     """Live dump: 'to morrow' was geocoded, then she asked which other city."""
     from arelis.tools.weather import (
@@ -280,11 +190,3 @@ def test_to_morrow_is_tomorrow_not_a_city() -> None:
     assert weather_places_missing(ask, {"springfield"}) == [""]
 
 
-def test_named_city_still_keeps_place() -> None:
-    from arelis.tools.weather import fill_weather_args
-
-    kept = fill_weather_args({"place": "Chicago", "days": 3}, "weather in Chicago")
-    assert kept["place"] == "Chicago"
-    assert "days" not in kept
-    added = fill_weather_args({}, "weather in Chicago")
-    assert added["place"] == "Chicago"

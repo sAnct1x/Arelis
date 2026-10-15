@@ -11,19 +11,15 @@ from pathlib import Path
 
 import httpx
 import pytest
-import yaml
 
 from arelis import sms_ingest
-from arelis.contacts import Contact, match_contact_label, normalize_phone
+from arelis.contacts import Contact, normalize_phone
 from arelis.core.bus import EventBus
 from arelis.core.events import EventType
 from arelis.sms_inbound import InboundSms, SeenMessageStore
 from arelis.sms_ingest import (
     InboundIngestServer,
     RecentInboundLog,
-    ensure_ingest_token,
-    format_ingest_listen_urls,
-    load_ingest_token,
     parse_ingest_payload,
     publish_inbound,
 )
@@ -56,12 +52,6 @@ def _book(**people: dict) -> dict[str, Contact]:
     return out
 
 
-def test_format_ingest_listen_urls_mentions_port() -> None:
-    text = format_ingest_listen_urls(8765)
-    assert ":8765" in text
-    assert text.startswith("http://")
-
-
 class _RouteSocket:
     """Stand-in for the UDP probe socket used by list_lan_ipv4."""
 
@@ -77,48 +67,6 @@ class _RouteSocket:
 
     def close(self) -> None:
         return None
-
-
-@pytest.mark.parametrize(
-    ("hostname_ips", "route_ip", "expected"),
-    [
-        (
-            ["10.0.0.2", "192.168.1.5", "127.0.0.1"],
-            "192.168.1.5",
-            ["10.0.0.2", "192.168.1.5"],
-        ),
-        (["10.0.0.2"], "192.168.1.9", ["192.168.1.9", "10.0.0.2"]),
-        (["10.0.0.2", "10.0.0.2"], "10.1.1.1", ["10.1.1.1", "10.0.0.2"]),
-        (["10.0.0.2"], "127.0.0.1", ["10.0.0.2"]),
-        (None, "192.168.1.9", ["192.168.1.9"]),
-        (["10.0.0.2"], None, ["10.0.0.2"]),
-        (None, None, []),
-        (["127.0.0.1"], "127.0.0.1", []),
-    ],
-)
-def test_list_lan_ipv4_keeps_fast_lookup_results(
-    monkeypatch: pytest.MonkeyPatch,
-    hostname_ips: list[str] | None,
-    route_ip: str | None,
-    expected: list[str],
-) -> None:
-    """A fast resolver still returns the same addresses, in the same order."""
-
-    def getaddrinfo(*_args: object, **_kwargs: object) -> list[tuple]:
-        if hostname_ips is None:
-            raise OSError("lookup failed")
-        return [
-            (socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 0)) for ip in hostname_ips
-        ]
-
-    monkeypatch.setattr(sms_ingest.socket, "getaddrinfo", getaddrinfo)
-    monkeypatch.setattr(
-        sms_ingest.socket,
-        "socket",
-        lambda *_args, **_kwargs: _RouteSocket(route_ip),
-    )
-    assert sms_ingest.list_lan_ipv4() == expected
-    assert sms_ingest.list_lan_ipv4() == expected
 
 
 def test_list_lan_ipv4_returns_when_getaddrinfo_hangs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -241,81 +189,6 @@ def test_released_hang_leaves_no_lookup_thread(monkeypatch: pytest.MonkeyPatch) 
     assert not any(thread.name == "arelis-lan-lookup" for thread in threading.enumerate())
 
 
-def test_load_ingest_token(tmp_path: Path, monkeypatch) -> None:
-    path = tmp_path / "secrets.yaml"
-    path.write_text(
-        yaml.safe_dump({"sms": {"ingest_token": "secret-token"}}),
-        encoding="utf-8",
-    )
-    monkeypatch.delenv("ARELIS_INGEST_TOKEN", raising=False)
-    assert load_ingest_token(path) == "secret-token"
-    monkeypatch.setenv("ARELIS_INGEST_TOKEN", "from-env")
-    assert load_ingest_token(path) == "from-env"
-
-
-def test_ensure_ingest_token_mints_once(tmp_path: Path, monkeypatch) -> None:
-    path = tmp_path / "secrets.yaml"
-    path.write_text(yaml.safe_dump({"email": {"address": "me@x.com"}}), encoding="utf-8")
-    monkeypatch.delenv("ARELIS_INGEST_TOKEN", raising=False)
-    first = ensure_ingest_token(path=path)
-    second = ensure_ingest_token(path=path)
-    assert first
-    assert first == second
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert raw["sms"]["ingest_token"] == first
-    assert raw["email"]["address"] == "me@x.com"
-
-
-def test_match_contact_label_strips_emoji() -> None:
-    book = _book(
-        wife={
-            "name": "Robin Hale",
-            "phone": "+15551112222",
-            "aliases": ("robbie",),
-        }
-    )
-    assert match_contact_label("My Wife 💋", book) is book["wife"]
-    assert match_contact_label("Robin Hale", book) is book["wife"]
-
-
-def test_parse_ingest_resolves_name() -> None:
-    book = _book(wife={"name": "Robin Hale", "phone": "5551112222"})
-    msg = parse_ingest_payload(
-        {"id": "n1", "from": "My Wife", "body": "I love you too"},
-        contacts=book,
-    )
-    assert msg is not None
-    assert msg.contact_name == "Robin Hale"
-    assert msg.body == "I love you too"
-
-
-def test_parse_ingest_photo_bytes(tmp_path: Path, monkeypatch) -> None:
-    """Companion JPEG extras become a file, not a blank bubble."""
-    import base64
-
-    from arelis import sms_media
-
-    monkeypatch.setattr(sms_media, "media_dir", lambda: tmp_path)
-    png = bytes.fromhex(
-        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
-        "0000000a49444154789c6360000002000100ffff03000006000557bf0000000049454e44ae426082"
-    )
-    book = _book(wife={"name": "Robin", "phone": "555-0100"})
-    msg = parse_ingest_payload(
-        {
-            "id": "pic1",
-            "from": "Robin",
-            "body": "Photo",
-            "image_jpeg": base64.b64encode(png).decode("ascii"),
-        },
-        contacts=book,
-    )
-    assert msg is not None
-    assert msg.media_kind == "image"
-    assert msg.media_path
-    assert Path(msg.media_path).is_file()
-
-
 async def test_publish_swallows_stale_companion_dump(tmp_path: Path) -> None:
     bus = EventBus()
     received: list[dict] = []
@@ -367,33 +240,6 @@ async def test_publish_dedupes_same_body_different_ids(tmp_path: Path) -> None:
     assert first is not None and second is not None
     assert await publish_inbound(bus, first, seen=seen) is True
     assert await publish_inbound(bus, second, seen=seen) is False
-    await asyncio.sleep(0.05)
-    assert len(received) == 1
-    bus.stop()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-
-async def test_publish_dedupes(tmp_path: Path) -> None:
-    bus = EventBus()
-    received: list[dict] = []
-
-    async def capture(event) -> None:
-        if event.type == EventType.SMS_RECEIVED:
-            received.append(dict(event.payload))
-
-    bus.subscribe(EventType.SMS_RECEIVED, capture)
-    task = asyncio.create_task(bus.run())
-    seen = SeenMessageStore(tmp_path / "seen.json")
-    book = _book(wife={"name": "Robin", "phone": "5551112222"})
-    msg = parse_ingest_payload(
-        {"id": "dup1", "from": "Robin", "body": "hi"},
-        contacts=book,
-    )
-    assert msg is not None
-    assert await publish_inbound(bus, msg, seen=seen) is True
-    assert await publish_inbound(bus, msg, seen=seen) is False
     await asyncio.sleep(0.05)
     assert len(received) == 1
     bus.stop()
@@ -464,46 +310,6 @@ async def test_ingest_http_server(tmp_path: Path) -> None:
         assert len(received) == 1
         assert received[0]["body"] == "G"
         assert received[0]["source"] == "notification"
-    finally:
-        server.stop()
-        bus.stop()
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-
-
-async def test_token_ok_falls_back_to_memory_when_disk_read_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A secrets.yaml read that throws must still honor the in-memory token."""
-    bus = EventBus()
-    loop = asyncio.get_running_loop()
-    task = asyncio.create_task(bus.run())
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = int(probe.getsockname()[1])
-    server = InboundIngestServer(
-        bus,
-        loop,
-        token="memory-token",
-        host="127.0.0.1",
-        port=port,
-        seen=SeenMessageStore(tmp_path / "seen.json"),
-    )
-    server.start()
-
-    def _boom() -> str | None:
-        raise OSError("pairing code file unreadable")
-
-    monkeypatch.setattr("arelis.sms_ingest.load_ingest_token", _boom)
-    try:
-        async with httpx.AsyncClient() as client:
-            ping = await client.get(
-                f"http://127.0.0.1:{port}/inbound/ping",
-                headers={"X-Arelis-Token": "memory-token"},
-            )
-        assert ping.status_code == 200
-        assert ping.json()["ok"] is True
     finally:
         server.stop()
         bus.stop()

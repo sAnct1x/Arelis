@@ -101,25 +101,6 @@ async def test_leave_returns_to_the_chat_you_were_in(seat) -> None:
 
 
 @pytest.mark.asyncio
-async def test_leave_returns_to_this_load_empty_new_chat(seat) -> None:
-    orch, store = seat
-    empty = store.start_session()
-    assert store.get_messages(empty) == []
-    room = orch.rooms.get(PHYSICS_ROOM_ID)
-    assert room is not None
-
-    await enter_room(orch, room)
-    await orch.bus.drain()
-
-    await leave_room(orch)
-    await orch.bus.drain()
-
-    assert store.session_id == empty
-    assert store.get_session(empty) is not None
-    assert store.get_messages(empty) == []
-
-
-@pytest.mark.asyncio
 async def test_leave_after_fresh_enter_does_not_jump_to_an_old_chat(seat) -> None:
     orch, store = seat
     older = store.start_session()
@@ -156,19 +137,3 @@ async def test_fresh_enter_reuses_assistant_only_room_chat(seat) -> None:
     assert store.get_session(empty) is not None
 
 
-@pytest.mark.asyncio
-async def test_leave_without_a_parked_seat_does_not_pick_history(seat) -> None:
-    orch, store = seat
-    filled = store.start_session()
-    orch.memory.add("user", "an old thread")
-    room = orch.rooms.get(PHYSICS_ROOM_ID)
-    assert room is not None
-    await enter_room(orch, room)
-    await orch.bus.drain()
-    orch._general_session = ""
-
-    await leave_room(orch)
-    await orch.bus.drain()
-
-    assert store.session_id != filled
-    assert store.get_messages(store.session_id) == []

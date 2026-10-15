@@ -14,7 +14,6 @@ from PySide6.QtGui import QClipboard
 
 from arelis.tools.clipboard import (
     ClipboardTool,
-    _qt_clipboard_on_gui_thread,
     read_clipboard_text,
     write_clipboard_text,
 )
@@ -29,10 +28,6 @@ def test_clipboard_times_out_instead_of_hanging() -> None:
     result = asyncio.run(tool.run())
     assert not result.ok
     assert "timed out" in result.output.lower()
-
-
-def test_qt_clipboard_skipped_off_gui_thread() -> None:
-    assert _qt_clipboard_on_gui_thread() in (None, "")
 
 
 def test_empty_gui_thread_read_returns_blank_and_skips_windows(

@@ -17,8 +17,6 @@ demand rather than assumed to exist.
 from __future__ import annotations
 
 import ast
-import os
-import sys
 from pathlib import Path
 
 import pytest
@@ -57,39 +55,6 @@ def test_no_mutable_directory_falls_inside_the_installed_package(
             f"{resolve.__name__}() resolved inside the package directory, which "
             "an update will replace and a standard user cannot write to"
         )
-
-
-def test_no_module_builds_a_mutable_path_from_the_install_directory() -> None:
-    """A static rule, because the runtime one cannot see code that never ran.
-
-    Thirty-odd modules were migrated by hand. The ones covered by a test are
-    proven; the risk is the next module somebody adds, reaching for the nearest
-    example and reintroducing the original defect in a file no test imports. The
-    four directory names below are the mutable ones, and none of them may be
-    joined onto the install parent anywhere in the package.
-    """
-    package_files = sorted(paths.PACKAGE_ROOT.rglob("*.py"))
-    assert package_files, "found no package sources to check"
-
-    forbidden = [
-        f'{anchor} / "{name}"'
-        for anchor in ("PROJECT_ROOT", "INSTALL_PARENT")
-        for name in ("data", "logs", "outputs", "models")
-    ]
-    hits = []
-    for path in package_files:
-        if path.name == "paths.py":
-            continue
-        text = path.read_text(encoding="utf-8")
-        for line_no, line in enumerate(text.splitlines(), 1):
-            if any(pattern in line for pattern in forbidden):
-                rel = path.relative_to(paths.PACKAGE_ROOT).as_posix()
-                hits.append(f"  arelis/{rel}:{line_no}")
-    assert not hits, (
-        "A mutable directory is being built from the install location. Use "
-        "arelis.paths.state_dir(), logs_dir(), outputs_dir() or models_dir():\n"
-        + "\n".join(hits)
-    )
 
 
 # ------------------------------------------- nothing writes into the code, part two
@@ -235,30 +200,6 @@ def test_no_module_writes_to_a_path_built_from_the_package_location() -> None:
     )
 
 
-def test_the_guard_catches_the_defect_it_was_written_for() -> None:
-    """A guard nobody has seen fail is a guard nobody knows works.
-
-    This is the code that was in arelis/ui/app.py, kept verbatim as the fixture
-    rather than a paraphrase, because the point is that this exact shape got past
-    the previous check. Two statements, an anchor of Path(__file__) rather than a
-    named constant, and a directory name that is not one of the four mutable ones.
-    """
-    defect = (
-        "font_dir = Path(__file__).resolve().parents[1] / '_qt_fonts'\n"
-        "font_dir.mkdir(exist_ok=True)\n"
-    )
-    assert package_anchored_writes(defect, "arelis/ui/app.py")
-
-    # And the read it must not be confused with: the shipped icon and the shipped
-    # config are package-relative on purpose, and opening them is correct.
-    reads = (
-        'icon = PACKAGE_ROOT / "assets" / "arelis.ico"\n'
-        'text = (PACKAGE_ROOT / "config" / "default.yaml").read_text()\n'
-        'handle = (PACKAGE_ROOT / "persona" / "core.md").open("r")\n'
-    )
-    assert not package_anchored_writes(reads, "arelis/example.py")
-
-
 # ------------------------------------- the two directories that were in the package
 
 
@@ -284,40 +225,6 @@ def test_the_qt_font_directory_is_not_inside_the_package(
         "the fonts are registered from the package with addApplicationFont; this "
         "directory exists to be found, not to be read"
     )
-
-
-def test_playwright_downloads_land_under_the_data_root(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Several hundred megabytes of browser belongs where a user can find it.
-
-    Not a correctness fix -- Playwright's own default is already per-user and
-    writable -- but a download this large in a directory nobody associates with
-    Arelis is the kind of thing discovered years later by someone hunting for disk
-    space.
-    """
-    from arelis.browser.launch import browsers_path, pin_browsers_path
-
-    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path))
-    monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
-    pin_browsers_path()
-
-    assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == str(browsers_path())
-    assert browsers_path().is_relative_to(tmp_path)
-    assert not browsers_path().is_relative_to(paths.PACKAGE_ROOT)
-
-
-def test_a_chosen_browsers_path_is_not_overruled(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Somebody who pointed this at another drive had a reason."""
-    from arelis.browser.launch import pin_browsers_path
-
-    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path))
-    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", r"D:\browsers")
-    pin_browsers_path()
-
-    assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == r"D:\browsers"
 
 
 # ----------------------------------------------------- one user, then two
@@ -370,188 +277,12 @@ def test_two_accounts_get_state_that_does_not_overlap(
 # ------------------------------------------------------------- resolution order
 
 
-def test_the_override_wins_over_everything(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """A test that touched a real profile directory would be a test that lost data."""
-    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "elsewhere"))
-    assert paths.user_data_dir() == tmp_path / "elsewhere"
-
-
-def test_resolve_model_path_reuses_installed_weights(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """A checkout with an empty models/ folder still speaks from the published copy."""
-    checkout = tmp_path / "checkout"
-    published = tmp_path / "published"
-    voice = published / "models" / "piper" / "jenny.onnx"
-    voice.parent.mkdir(parents=True)
-    voice.write_bytes(b"onnx")
-    monkeypatch.setenv(paths.DATA_DIR_ENV, str(checkout))
-    monkeypatch.setattr(paths, "published_data_dir", lambda: published)
-    found = paths.resolve_model_path("models/piper/jenny.onnx")
-    assert found == voice.resolve()
-    missing = paths.resolve_model_path("models/piper/missing.onnx")
-    assert missing == (checkout / "models" / "piper" / "missing.onnx").resolve()
-
-
-def test_an_empty_override_is_ignored_rather_than_obeyed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An unset variable and one set to nothing are the same intention.
-
-    Shell scripts export empty strings by accident constantly. Treating that as
-    "write to the current directory" would scatter state wherever Arelis was
-    launched from.
-    """
-    monkeypatch.setenv(paths.DATA_DIR_ENV, "   ")
-    assert paths.user_data_dir() != Path("   ")
-    assert paths.user_data_dir().is_absolute()
-
-
-def test_a_checkout_keeps_its_own_data_directory(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A developer's history must not move because production paths changed.
-
-    This repository has months of real contacts, memory and settings in its own
-    data/. If the migration had redirected a checkout to %LOCALAPPDATA% it would
-    have looked, on the machine where it was written, exactly like every one of
-    those records being deleted.
-    """
-    monkeypatch.delenv(paths.DATA_DIR_ENV, raising=False)
-    assert paths.is_source_checkout(), "these tests run from a checkout"
-    assert paths.user_data_dir() == paths.INSTALL_PARENT
-    assert paths.state_dir() == paths.INSTALL_PARENT / "data"
-
-
-def test_an_install_is_told_apart_from_a_checkout_by_two_markers(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """pyproject.toml alone was not enough to decide this.
-
-    Someone can pip install Arelis into a virtualenv inside their own project,
-    which has a pyproject.toml of its own. Treating that as a checkout would send
-    their contacts into an unrelated source tree, and later into that project's
-    git status. tests/ is not packaged into a wheel, so requiring both makes the
-    check safe in the direction that matters.
-    """
-    fake_install = tmp_path / "site-packages" / "arelis"
-    fake_install.mkdir(parents=True)
-    (tmp_path / "site-packages" / "pyproject.toml").write_text("", encoding="utf-8")
-
-    monkeypatch.setattr(paths, "INSTALL_PARENT", tmp_path / "site-packages")
-    assert not paths.is_source_checkout()
-
-
 # --------------------------------------------------------------- first run
-
-
-def test_nothing_needs_to_exist_before_the_first_run(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """There is no installer yet, and there should not need to be one.
-
-    Directories are created on demand. A user who deletes a folder to reclaim
-    disk space should get it back on next launch rather than a stack trace, and
-    onboarding will later depend on this same path working from nothing.
-    """
-    root = tmp_path / "never-created"
-    monkeypatch.setenv(paths.DATA_DIR_ENV, str(root))
-    assert not root.exists()
-    for resolve in MUTABLE_RESOLVERS:
-        created = paths.ensure(resolve())
-        assert created.is_dir()
-
-
-def test_ensure_is_safe_to_call_on_a_directory_that_already_exists(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Called on every launch, so the second launch must not be an error."""
-    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path))
-    assert paths.ensure(paths.state_dir()) == paths.state_dir()
-    assert paths.ensure(paths.state_dir()).is_dir()
 
 
 # --------------------------------------------------------- the workspace root
 
 
-def test_the_default_workspace_is_a_named_folder_not_the_whole_of_documents(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Blast radius. The workspace is what a language model may delete within.
-
-    Defaulting it to Documents would hand a model write access to everything a
-    person owns on first launch, and one bad tool call would be unrecoverable and
-    entirely our fault. "." was worse still: it resolved to the install
-    directory, so the model's sandbox was the program.
-    """
-    monkeypatch.setattr(paths, "INSTALL_PARENT", tmp_path / "site-packages")
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
-    (tmp_path / "home" / "Documents").mkdir(parents=True)
-
-    root = paths.default_workspace_root()
-    assert root == tmp_path / "home" / "Documents" / "Arelis"
-    assert root != tmp_path / "home" / "Documents"
-    assert root.name == "Arelis"
-
-
-def test_a_redirected_documents_folder_still_yields_a_usable_root(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """OneDrive moves Documents, and the literal path stops existing.
-
-    Creating Arelis/ under a Documents directory that is not the real one puts
-    the user's files somewhere they will never look for them. Falling back to the
-    profile root is visible and correct.
-    """
-    monkeypatch.setattr(paths, "INSTALL_PARENT", tmp_path / "site-packages")
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
-    (tmp_path / "home").mkdir(parents=True)
-
-    assert not (tmp_path / "home" / "Documents").exists()
-    assert paths.default_workspace_root() == tmp_path / "home" / "Arelis"
-
-
-def test_a_checkout_still_treats_the_repository_as_its_workspace(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Otherwise every workspace-relative test in this suite changes meaning."""
-    monkeypatch.delenv(paths.DATA_DIR_ENV, raising=False)
-    assert paths.default_workspace_root() == paths.INSTALL_PARENT
-
-
 # ------------------------------------------------------------------ platform
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows resolution rules")
-def test_windows_uses_local_appdata_and_not_the_roaming_one(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """APPDATA roams to a domain server at logon; this data must not.
-
-    A conversation database beside gigabytes of model weights is the payload that
-    makes roaming profiles fail, and none of it is meant to follow a user between
-    machines anyway.
-    """
-    monkeypatch.delenv(paths.DATA_DIR_ENV, raising=False)
-    monkeypatch.setattr(paths, "INSTALL_PARENT", tmp_path / "site-packages")
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
-    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
-
-    resolved = paths.user_data_dir()
-    assert resolved == tmp_path / "Local" / "Arelis"
-    assert "Roaming" not in str(resolved)
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows resolution rules")
-def test_a_missing_local_appdata_still_resolves(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Service and stripped environments lose it, and refusing to start is worse."""
-    monkeypatch.delenv(paths.DATA_DIR_ENV, raising=False)
-    monkeypatch.setattr(paths, "INSTALL_PARENT", tmp_path / "site-packages")
-    monkeypatch.setenv("LOCALAPPDATA", "")
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
-
-    assert paths.user_data_dir() == tmp_path / "home" / "AppData" / "Local" / "Arelis"

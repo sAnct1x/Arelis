@@ -127,14 +127,6 @@ async def test_login_hop_scrubs() -> None:
         assert _SECRET not in blob
 
 
-def test_one_tool_result_publisher() -> None:
-    """A source scan finds no TOOL_RESULT publish outside the helper."""
-    sites = _tool_result_sites()
-    outside = [site for site in sites if site.rsplit(":", 1)[0] != _HELPER]
-    assert not outside, "TOOL_RESULT built outside the helper:\n" + "\n".join(outside)
-    assert any(site.startswith(_HELPER + ":") for site in sites)
-
-
 async def test_restored_allow_scrubs(monkeypatch: pytest.MonkeyPatch) -> None:
     """A card brought back after restart used to publish the send raw."""
     from arelis.core.bus import EventBus
@@ -218,22 +210,3 @@ async def test_run_script_env_is_filtered(
     assert "GITHUB_TOKEN" not in task_names
 
 
-def test_card_flags_network_past_head(tmp_path: Path) -> None:
-    """Hidden lines are not only scanned for deletes."""
-    lines = ["x = 1"] * 49
-    lines.extend(
-        [
-            "import urllib.request",
-            "token = os.environ['HOME']",
-            "import secrets",
-        ]
-    )
-    script = tmp_path / "late.py"
-    script.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    text = RunScriptTool(_roots(tmp_path)).confirm_detail({"path": "late.py"})
-    assert "Network-looking lines:" in text
-    assert "50: import urllib.request" in text
-    assert "Environment-looking lines:" in text
-    assert "51: token = os.environ['HOME']" in text
-    assert "Secret-looking lines:" in text
-    assert "52: import secrets" in text

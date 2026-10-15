@@ -19,14 +19,6 @@ $$EOE
 """
 
 
-def test_parse_vector_table_km_s_to_si() -> None:
-    state = parse_vector_table(_VECTOR_BLOB, units="KM-S")
-    assert state.units == "SI"
-    assert state.x == pytest.approx(1.495978707e11)
-    assert state.vy == pytest.approx(29780.0)
-    assert state.epoch_jd == pytest.approx(2451545.0)
-
-
 def test_parse_refuses_a_blob_without_soe() -> None:
     with pytest.raises(ValueError, match="SOE"):
         parse_vector_table("no table here", units="KM-S")

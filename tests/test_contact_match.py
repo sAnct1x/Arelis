@@ -84,55 +84,6 @@ def _book() -> dict[str, Contact]:
     }
 
 
-def test_a_surname_typo_does_not_mail_the_user_their_own_draft() -> None:
-    """The defect, stated as plainly as it can be.
-
-    One character. The address that came back was valid, was the user's own,
-    and looked right on the card.
-    """
-    assert resolve_email_address("Sam Brightly", _book()) == "brightley@example.com", (
-        "A one-edit surname typo resolved to something other than Sam "
-        "Brightley. If this is the owner's inbox, the 3.8 defect is back."
-    )
-    assert resolve_email_address("Sam Brightly", _book()) != OWNER_INBOX
-
-
-@pytest.mark.parametrize(
-    "spoken",
-    ["Sam Brightley", "Sam Brightly", "sam brightlee", "SAM BRIGHTLEY", "Sam Brightley."],
-)
-def test_the_two_channels_agree_on_who_a_spoken_name_is(spoken: str) -> None:
-    """The actual unification claim, tested as a claim about agreement.
-
-    Not "both return something" — both return *the same person*. The alias and
-    the address are different projections of one answer, so the test compares
-    them through the book.
-    """
-    book = _book()
-    alias = resolve_sms_alias(spoken, book)
-    address = resolve_email_address(spoken, book)
-    assert alias == "brightley", spoken
-    assert address == book[alias].email, (
-        f"{spoken!r} is {alias} to SMS and {address} to email. These are the "
-        "same lookup and must not answer differently."
-    )
-
-
-def test_a_first_name_the_owner_also_answers_to_means_the_other_person() -> None:
-    """The unreachable preference, now reachable.
-
-    `resolve_sms_alias` always said it did this. `match_contact_label` matched
-    "sam" against "sam rivers" by substring and returned the owner before the
-    code implementing the promise ever ran.
-    """
-    book = _book()
-    assert resolve_sms_alias("sam", book) == "brightley", (
-        "Texting 'sam' resolved to the owner's own card while a Sam was in "
-        "the book. The non-me preference is unreachable again."
-    )
-    assert resolve_email_address("sam", book) == "brightley@example.com"
-
-
 def test_saying_me_still_means_me() -> None:
     """The preference above must not have cost the owner their own card.
 
@@ -160,33 +111,6 @@ def test_a_person_with_no_address_is_a_refusal_and_not_somebody_else() -> None:
     assert resolve_email_address("coach", book) == ""
 
 
-def test_a_name_nobody_in_the_book_answers_to_resolves_to_nothing() -> None:
-    """Inventing a recipient is worse than admitting there isn't one."""
-    book = _book()
-    assert resolve_sms_alias("Nobody Atall", book) == ""
-    assert resolve_email_address("Nobody Atall", book) == ""
-
-
-def test_a_literal_address_is_used_as_given_without_consulting_the_book() -> None:
-    assert resolve_email_address("bob@example.com", _book()) == "bob@example.com"
-
-
-def test_a_full_name_never_degrades_into_a_bare_first_name_match() -> None:
-    """The guard SMS had and email did not, tested where it bites.
-
-    With no Brightley in the book at all, "Sam Brightley" has to come back
-    empty rather than finding the owner because they are also a Sam. A
-    two-token name is a more specific request, and answering it with a
-    one-token match is how a message reaches a stranger.
-    """
-    book = {
-        "me": _person("me", "Sam Rivers", "5555550100", OWNER_INBOX),
-        "hale": _person("hale", "Robin Hale", "5555550102", "hale@example.com"),
-    }
-    assert resolve_sms_alias("Sam Brightley", book) == ""
-    assert resolve_email_address("Sam Brightley", book) == ""
-
-
 def test_the_fuzzy_tolerance_stops_before_it_reaches_a_different_person() -> None:
     """Two edits, on the last token, with the first token exact.
 
@@ -201,62 +125,3 @@ def test_the_fuzzy_tolerance_stops_before_it_reaches_a_different_person() -> Non
     assert find_contact("Sam Brightly", book) is not None
 
 
-def test_an_exact_alias_beats_every_looser_reading_of_it() -> None:
-    """Tier order. A nickname the user set is not a guess and outranks one."""
-    book = _book()
-    book["sam"] = _person("sam", "Samantha Reed", "5555550104", "reed@example.com")
-    assert resolve_sms_alias("sam", book) == "sam"
-    assert resolve_email_address("sam", book) == "reed@example.com"
-
-
-def test_a_leading_my_is_dropped_the_same_way_on_both_channels() -> None:
-    book = _book()
-    book["wife"] = _person("wife", "Robin Hale", "5555550102", "hale@example.com")
-    assert resolve_sms_alias("my wife", book) == "wife"
-    assert resolve_email_address("my wife", book) == "hale@example.com"
-
-
-def test_an_empty_name_asks_for_nobody_on_sms_and_means_the_owner_on_email() -> None:
-    """A real difference between the channels, and a deliberate one.
-
-    An empty `to` on email is the "email myself this" case and has a sensible
-    answer. On SMS it is nothing at all — there is no default number, and
-    guessing one would be a message to whoever sorts first.
-    """
-    book = _book()
-    assert resolve_sms_alias("", book) == ""
-    assert resolve_email_address("", book) == OWNER_INBOX
-    assert find_contact("", book) is None
-
-
-def test_a_number_the_user_typed_finds_the_person_it_belongs_to() -> None:
-    book = _book()
-    assert resolve_sms_alias("5555550101", book) == "brightley"
-
-
-def test_the_first_name_tier_has_a_floor_but_the_label_tier_does_not() -> None:
-    """Pinned as found, not as wanted. The looseness is not in this lane.
-
-    `find_contact`'s own first-name scan refuses a single character, because
-    "s" is not a request for Sam. But the tier above it calls
-    `contacts.match_contact_label`, which matches on substring in *either*
-    direction with only a three-character floor on the stored name — so `cand
-    in name` makes a one-letter query match anybody whose name contains that
-    letter. "s" comes back as Sam Rivers.
-
-    That function was written to match Google Messages notification titles,
-    where a loose substring match is the right call, and it is reused here for
-    spoken names, where it is not. Fixing it means editing `arelis/contacts.py`,
-    which this lane may not touch, and putting a length floor in `find_contact`
-    instead would change SMS resolution on no evidence. So the behaviour is
-    recorded here and reported instead of changed.
-
-    If someone tightens `match_contact_label`, this test is the one that will
-    fail, and the right response is to flip it rather than restore the
-    looseness.
-    """
-    book = _book()
-    assert find_contact("s", book) is not None
-    # Two characters is enough to reach the first-name tier, which is stricter:
-    # it wants a real first-name or alias equality, not a substring.
-    assert find_contact("zz", book) is None

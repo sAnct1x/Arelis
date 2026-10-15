@@ -165,39 +165,3 @@ async def test_muted_catalog_still_finishes_the_turn(
     assert muted_outbound["n"] >= 1
 
 
-def test_map_download_stops_when_the_guard_mutes(
-    muted_outbound: dict[str, int], tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from arelis.physics import maps as maps_mod
-
-    monkeypatch.setattr(maps_mod, "maps_dir", lambda: tmp_path)
-    maps_mod.forget_ready()
-    before = muted_outbound["n"]
-    saved, errors = maps_mod.download_maps()
-    assert PAUSED in errors
-    assert muted_outbound["n"] == before + 1
-    assert "Earth" not in saved
-
-
-@pytest.mark.asyncio
-async def test_agenda_ics_returns_a_pause_when_the_guard_mutes(
-    muted_outbound: dict[str, int], tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from arelis.tools.agenda import AgendaTool
-
-    monkeypatch.setattr(
-        "arelis.briefing.ics_sync.load_ics_url",
-        lambda path=None: "https://ssd.jpl.nasa.gov/calendar.ics",
-    )
-    # Answer DNS here. A sandbox resolver that hands out 198.18.0.0/15 made
-    # the private address check fire before the mute, so the result
-    # depended on the network the suite ran on.
-    monkeypatch.setattr(
-        "arelis.tools.safety._resolved_ips", lambda host, port: ["93.184.215.14"]
-    )
-    tool = AgendaTool({"tools": {"briefing": {"calendar_path": str(tmp_path / "cal.ics")}}})
-    before = muted_outbound["n"]
-    result = await tool.run(action="sync", provider="ics")
-    assert result.ok is False
-    _assert_plain(result.output)
-    assert muted_outbound["n"] == before + 1

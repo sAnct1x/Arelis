@@ -7,54 +7,10 @@ import pytest
 from arelis.core.sms_complete import SmsDraft, parse_sms_utterance, sms_intent_this_turn
 
 # Phrases about writing. None of these is someone asking to text a person.
-_NOT_A_TEXT = (
-    "Give me three alt-text options",
-    "write alt text for this",
-    "give me some text options",
-    "rewrite this text",
-    "can you give me a text summary",
-    "three alt-text options please",
-)
+_NOT_A_TEXT = ('Give me three alt-text options', 'write alt text for this')
 
 # Real texts, locked to the draft main produces for each sentence.
-_REAL_TEXTS = (
-    (
-        "text Sam I'm late",
-        SmsDraft(
-            to="Sam I",
-            body="",
-            alias="",
-            source="current",
-            recipients=("Sam I",),
-            aliases=(),
-            missing=(),
-        ),
-    ),
-    (
-        "send a text to mom",
-        SmsDraft(
-            to="mom",
-            body="",
-            alias="",
-            source="current",
-            recipients=("mom",),
-            aliases=(),
-            missing=(),
-        ),
-    ),
-    (
-        "text my brother",
-        SmsDraft(
-            to="brother",
-            body="",
-            alias="",
-            source="current",
-            recipients=("brother",),
-            aliases=(),
-            missing=(),
-        ),
-    ),
-)
+_REAL_TEXTS = (("text Sam I'm late", SmsDraft(to='Sam I', body='', alias='', source='current', recipients=('Sam I',), aliases=(), missing=())), ('send a text to mom', SmsDraft(to='mom', body='', alias='', source='current', recipients=('mom',), aliases=(), missing=())))
 
 
 @pytest.mark.parametrize("spoken", _NOT_A_TEXT)

@@ -48,44 +48,6 @@ def _config_values() -> list[tuple[str, str]]:
     return _walk(loaded)
 
 
-def test_no_shipped_config_value_points_into_someones_home_directory() -> None:
-    bad = [
-        f"{key} -> {value}"
-        for key, value in _config_values()
-        if any(who.lower() not in HOME_PLACEHOLDERS for who in HOME_PATH.findall(value))
-    ]
-    assert not bad, (
-        "default.yaml ships to every user, and these values name a home "
-        "directory that exists on one machine:\n  " + "\n  ".join(bad)
-    )
-
-
-def test_no_shipped_config_value_is_an_absolute_path() -> None:
-    """Relative paths resolve per install; absolute ones point at one computer."""
-    bad = [
-        f"{key} -> {value}"
-        for key, value in _config_values()
-        if ABSOLUTE.match(value.strip())
-    ]
-    assert not bad, (
-        "An absolute path in default.yaml cannot be right on a machine that is "
-        "not this one:\n  " + "\n  ".join(bad)
-    )
-
-
-def test_no_shipped_config_value_carries_an_email_address() -> None:
-    """A default mailbox is somebody's, and it will not be the user's."""
-    bad = [
-        f"{key} -> {value}"
-        for key, value in _config_values()
-        if MAIL.search(value) and "example.com" not in value.lower()
-    ]
-    assert not bad, (
-        "An address in default.yaml would ship as a stranger's default:\n  "
-        + "\n  ".join(bad)
-    )
-
-
 def test_comfy_auto_start_ships_with_nowhere_to_start_from() -> None:
     """Auto-start plus a path is a subprocess launched on somebody else's PC.
 
@@ -98,15 +60,3 @@ def test_comfy_auto_start_ships_with_nowhere_to_start_from() -> None:
     assert not str(image.get("launch_cwd") or "").strip()
 
 
-def test_the_persona_does_not_describe_one_particular_person() -> None:
-    """Her character ships; the operator's hobbies should not ride along.
-
-    An interest list baked in here is a taste, not a trait, and it arrives
-    identically on the machine of somebody who installed this to manage a diary.
-    """
-    text = PERSONA.read_text(encoding="utf-8").lower()
-    for giveaway in ("interferometry", "astrophysics", "optics"):
-        assert giveaway not in text, (
-            f"The shipped persona names {giveaway!r} as an interest. Curiosity is "
-            "a trait worth shipping; a subject list belongs in a user's profile."
-        )

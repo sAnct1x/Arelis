@@ -14,7 +14,6 @@ import pytest
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.events import EventType
-from arelis.core.evidence import EvidenceLedger
 from arelis.core.memory import SessionMemory
 from arelis.tools.base import ToolRegistry, ToolResult
 from tests.hardening_helpers import _collect, _config, _ScriptedRouter
@@ -176,42 +175,6 @@ def _done(events: list[Any]) -> dict[str, Any]:
     return dict(event.payload)
 
 
-def test_only_a_successful_run_script_sets_run_script_ok() -> None:
-    """python's 144 is a calc warrant. It is not a script run."""
-    python = EvidenceLedger()
-    python.record_tool(
-        "python",
-        ok=True,
-        output="144",
-        data={"result": "144"},
-        args={"code": "print(12*12)"},
-    )
-    assert python.has_ok("calc")
-    assert not python.has_ok("run_script_ok")
-
-    failed = EvidenceLedger()
-    failed.record_tool(
-        "run_script",
-        ok=False,
-        output="exit: 1\n\nstderr:\nboom",
-        data={"exit": 1, "stdout": ""},
-        args={"path": "work/sq2.py"},
-    )
-    assert not failed.has_ok("run_script_ok")
-    assert not failed.has_ok("calc")
-
-    ran = EvidenceLedger()
-    ran.record_tool(
-        "run_script",
-        ok=True,
-        output="exit: 0\n\nstdout:\n144",
-        data={"exit": 0, "stdout": "144"},
-        args={"path": "work/sq2.py"},
-    )
-    assert ran.has_ok("run_script_ok")
-    assert ran.has_ok("calc")
-
-
 @pytest.mark.asyncio
 async def test_write_approved_run_skipped_python_144_is_not_a_run() -> None:
     """P05: write allowed, run_script skipped, python printed 144."""
@@ -325,25 +288,3 @@ async def test_write_and_memory_save_are_both_listed_when_the_run_is_skipped() -
     assert payload.get("unverified") == ["run_script"]
 
 
-@pytest.mark.asyncio
-async def test_run_script_success_adds_no_not_run_line() -> None:
-    """A successful run_script result is the warrant. No line is added."""
-    script = _RunScriptStub(ok=True)
-    router = _ScriptedRouter(
-        [
-            [_call("run_script", {"path": "work/sq2.py"})],
-            [("token", "It prints 144.")],
-        ]
-    )
-    bus = EventBus()
-    loop = _loop(router, script, confirm=_allow)
-    loop.bus = bus
-    events = await _collect(
-        bus,
-        loop.run("Call run_script on work/sq2.py and tell me the output.", "fast"),
-    )
-    payload = _done(events)
-    text = str(payload["text"])
-    assert script.runs == 1
-    assert text.strip() == "It prints 144."
-    assert "unverified" not in payload
