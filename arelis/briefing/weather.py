@@ -46,7 +46,8 @@ def describe_weather_code(code: Any) -> str:
 _GEOCODE_CANDIDATES = 10
 _REGION_KEYS = ("admin1", "admin2", "admin3", "admin4", "country", "country_code")
 
-# A typed place can be a home address. This logger does not propagate, so the
+# A typed place can be a street or a saved home address. The debug line is
+# the city and the HTTP status only. This logger does not propagate, so the
 # line stays out of the app log unless debug logging is turned on for it.
 _lookup_log = logging.getLogger("arelis.weather.lookup")
 _lookup_log.propagate = False
@@ -280,6 +281,35 @@ def _lookup_place(place: str) -> str:
     return _PHONE.sub("[redacted]", text)
 
 
+def _result_rows(payload: object) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    raw = payload.get("results")
+    if not isinstance(raw, list):
+        return []
+    return [row for row in raw if isinstance(row, dict)]
+
+
+def _city_for_log(query: str, results: list[dict[str, Any]] | None) -> str:
+    """Resolved city, or the first comma part when nothing resolved.
+
+    The geocoder's city name, not the typed string. A street, a state, a
+    postal code, or the rest of a saved place stays off the line.
+    """
+    rows = [row for row in (results or []) if isinstance(row, dict)]
+    hit = choose_geocode_hit(query, rows) if rows else None
+    if hit is None:
+        named = [row for row in rows if _folded(row.get("name"))]
+        if len(named) == 1:
+            hit = named[0]
+    if hit is not None:
+        name = _folded(hit.get("name")).split(",", 1)[0].strip()
+        if name:
+            return name
+    city, _rest = _place_query_parts(query)
+    return city
+
+
 def _attach_lookup_file() -> None:
     """Separate debug file. Never a handler on the app log."""
     global _lookup_file_ready
@@ -298,16 +328,22 @@ def _attach_lookup_file() -> None:
     _lookup_log.addHandler(handler)
 
 
-def log_lookup(place: str, status: object) -> None:
-    """Place and HTTP status, debug only.
+def log_lookup(
+    place: str,
+    status: object,
+    results: list[dict[str, Any]] | None = None,
+) -> None:
+    """City and HTTP status, debug only.
 
-    Off unless this logger or the root logger is at debug. The record does
-    not propagate into the normal app log.
+    The city is the resolved hit's name, or the first comma part when the
+    lookup did not resolve. Off unless this logger or the root logger is
+    at debug. The record does not propagate into the normal app log.
     """
     if not _lookup_log.isEnabledFor(logging.DEBUG):
         return
     _attach_lookup_file()
-    _lookup_log.debug("lookup place=%s status=%s", _lookup_place(place), status)
+    city = _lookup_place(_city_for_log(place, results))
+    _lookup_log.debug("lookup place=%s status=%s", city, status)
 
 
 async def search_geocode(
@@ -335,9 +371,15 @@ async def search_geocode(
         except httpx.TransportError:
             log_lookup(query, "connection")
             raise
-        log_lookup(query, response.status_code)
+        try:
+            payload = response.json()
+        except Exception:
+            log_lookup(query, response.status_code)
+            response.raise_for_status()
+            raise
+        log_lookup(query, response.status_code, _result_rows(payload))
         response.raise_for_status()
-        data = response.json()
+        data = payload
     finally:
         if owns:
             await client.aclose()

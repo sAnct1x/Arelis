@@ -553,6 +553,64 @@ def test_debug_log_records_status_and_hides_contacts() -> None:
     assert "[redacted]" in text
 
 
+class _CityLookupClient:
+    def __init__(self, status: int, results: list[dict]) -> None:
+        self.status = status
+        self.results = results
+
+    async def get(self, url: str, params: dict | None = None) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        return httpx.Response(
+            self.status, json={"results": self.results}, request=request
+        )
+
+    async def aclose(self) -> None:
+        return None
+
+
+def test_debug_log_records_the_city_not_the_street() -> None:
+    """A street address logs the resolved city and the status only."""
+    log = logging.getLogger("arelis.weather.lookup")
+    previous = log.level
+    log.setLevel(logging.DEBUG)
+    captured = io.StringIO()
+    handler = logging.StreamHandler(captured)
+    handler.setLevel(logging.DEBUG)
+    log.addHandler(handler)
+    address = "123 Main Street, Springfield, Illinois 62704"
+    try:
+        asyncio.run(
+            search_geocode(
+                address,
+                client=_CityLookupClient(
+                    200,
+                    [
+                        {
+                            "name": "Springfield",
+                            "latitude": 39.7817,
+                            "longitude": -89.6501,
+                            "admin1": "Illinois",
+                            "country": "United States",
+                            "country_code": "US",
+                            "population": 114394,
+                        }
+                    ],
+                ),
+            )
+        )
+    finally:
+        log.removeHandler(handler)
+        log.setLevel(previous)
+    text = captured.getvalue()
+    assert "lookup place=Springfield status=200" in text
+    assert "123 Main Street" not in text
+    assert address not in text
+    assert "Illinois" not in text
+    assert "62704" not in text
+    assert "39.7817" not in text
+    assert "-89.6501" not in text
+
+
 @pytest.mark.asyncio
 async def test_a_bare_london_is_the_dominant_city() -> None:
     stand = _Standins([_LONDON_CA, _LONDON_GB])
