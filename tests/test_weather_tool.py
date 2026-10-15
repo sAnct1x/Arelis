@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from arelis.briefing.weather import search_geocode
+from arelis.briefing.weather import _lookup_place, search_geocode
 from arelis.core.claims import weather_force_notice
 from arelis.core.compact_prompt import COMPACT_TOOL_POLICY
 from arelis.core.intent_catalog import WEATHER
@@ -515,7 +515,12 @@ def test_lookup_log_does_not_propagate_to_the_app_log() -> None:
     log.addHandler(own_handler)
     root.addHandler(root_handler)
     try:
-        asyncio.run(search_geocode("Lookupville", client=_LookupClient(200)))
+        asyncio.run(
+            search_geocode(
+                "Lookupville",
+                client=_CityLookupClient(200, [{"name": "Lookupville"}]),
+            )
+        )
     finally:
         log.removeHandler(own_handler)
         root.removeHandler(root_handler)
@@ -535,7 +540,12 @@ def test_debug_log_records_status_and_hides_contacts() -> None:
     handler.setLevel(logging.DEBUG)
     log.addHandler(handler)
     try:
-        asyncio.run(search_geocode("Lookupville", client=_LookupClient(200)))
+        asyncio.run(
+            search_geocode(
+                "Lookupville",
+                client=_CityLookupClient(200, [{"name": "Lookupville"}]),
+            )
+        )
         with pytest.raises(httpx.HTTPStatusError):
             asyncio.run(search_geocode("you@example.com", client=_LookupClient(503)))
         with pytest.raises(httpx.HTTPStatusError):
@@ -544,13 +554,14 @@ def test_debug_log_records_status_and_hides_contacts() -> None:
         log.removeHandler(handler)
         log.setLevel(previous)
     text = captured.getvalue()
-    assert "Lookupville" in text
-    assert "status=200" in text
+    assert "lookup place=Lookupville status=200" in text
     assert "status=503" in text
     assert "status=429" in text
     assert "you@example.com" not in text
     assert "555-555-0123" not in text
-    assert "[redacted]" in text
+    for line in text.splitlines():
+        if "status=503" in line or "status=429" in line:
+            assert "place=" not in line
 
 
 class _CityLookupClient:
@@ -609,6 +620,116 @@ def test_debug_log_records_the_city_not_the_street() -> None:
     assert "62701" not in text
     assert "39.7817" not in text
     assert "-89.6501" not in text
+
+
+class _TimeoutClient:
+    async def get(self, url: str, params: dict | None = None) -> httpx.Response:
+        raise httpx.TimeoutException("timed out")
+
+    async def aclose(self) -> None:
+        return None
+
+
+def _captured_lookup(query: str, client: object) -> str:
+    log = logging.getLogger("arelis.weather.lookup")
+    previous = log.level
+    log.setLevel(logging.DEBUG)
+    captured = io.StringIO()
+    handler = logging.StreamHandler(captured)
+    handler.setLevel(logging.DEBUG)
+    log.addHandler(handler)
+    try:
+        try:
+            asyncio.run(search_geocode(query, client=client))
+        except httpx.HTTPError:
+            pass
+    finally:
+        log.removeHandler(handler)
+        log.setLevel(previous)
+    return captured.getvalue()
+
+
+def _assert_no_typed_place(text: str, *needles: str) -> None:
+    assert "status=" in text
+    for line in text.splitlines():
+        if "status=" in line:
+            assert "place=" not in line
+    for needle in needles:
+        assert needle not in text
+
+
+def test_timeout_logs_no_typed_place() -> None:
+    """A timeout logs the error class and none of the typed address."""
+    address = "123 Main Street, Springfield, Illinois 62701"
+    text = _captured_lookup(address, _TimeoutClient())
+    assert "status=timeout" in text
+    _assert_no_typed_place(text, "123 Main Street", "62701", address)
+
+
+def test_http_500_logs_no_typed_place() -> None:
+    """An HTTP error logs the status and none of the typed address."""
+    address = "123 Main Street, Springfield, Illinois 62701"
+    text = _captured_lookup(address, _LookupClient(500))
+    assert "status=500" in text
+    _assert_no_typed_place(text, "123 Main Street", "62701", address)
+
+
+def test_no_results_logs_no_typed_place() -> None:
+    """An empty gazetteer result is not a resolved city."""
+    address = "123 Main Street, Springfield, Illinois 62701"
+    text = _captured_lookup(address, _LookupClient(200))
+    assert "status=200" in text
+    _assert_no_typed_place(text, "123 Main Street", "62701", address)
+
+
+def test_unresolved_address_without_commas_logs_no_typed_place() -> None:
+    """No comma means the whole typed line is not a city to log."""
+    address = "123 Main Street Springfield Illinois 62701"
+    text = _captured_lookup(address, _LookupClient(200))
+    assert "status=200" in text
+    _assert_no_typed_place(text, "123 Main Street", "62701", address)
+
+
+def test_unresolved_coordinates_log_no_typed_place() -> None:
+    """Coordinates are typed input. An unresolved lookup does not log them."""
+    typed = "40.7128,-74.0060"
+    text = _captured_lookup(typed, _LookupClient(200))
+    assert "status=200" in text
+    _assert_no_typed_place(text, "40.7128", "74.0060", "7128", "0060", typed)
+
+
+def test_dashed_phone_is_redacted() -> None:
+    text = _lookup_place("555-123-4567 and 555-555-0123")
+    assert "555-123-4567" not in text
+    assert "555-555-0123" not in text
+    assert text.count("[redacted]") == 2
+
+
+def test_parenthesized_phone_is_redacted() -> None:
+    text = _lookup_place("call (555) 123-4567")
+    assert "(555) 123-4567" not in text
+    assert "123-4567" not in text
+    assert "[redacted]" in text
+
+
+def test_dotted_phone_is_redacted() -> None:
+    text = _lookup_place("call 555.123.4567")
+    assert "555.123.4567" not in text
+    assert "[redacted]" in text
+
+
+def test_international_phone_is_redacted() -> None:
+    text = _lookup_place("call +1 555 123 4567")
+    assert "+1 555 123 4567" not in text
+    assert "123 4567" not in text
+    assert "[redacted]" in text
+
+
+def test_email_and_dashed_phone_are_redacted() -> None:
+    text = _lookup_place("ping you@example.com about 555-123-4567")
+    assert "you@example.com" not in text
+    assert "555-123-4567" not in text
+    assert text.count("[redacted]") == 2
 
 
 @pytest.mark.asyncio
