@@ -13,6 +13,7 @@ from arelis.core.agenda_complete import (
 )
 from arelis.core.agent_loop import (
     _MAX_THINKING_SNIPPET,
+    _MAX_TOOL_NUDGES,
     write_after_algebra_notice,
 )
 from arelis.core.call_redirects import apply_redirects
@@ -23,6 +24,7 @@ from arelis.core.email_complete import (
 from arelis.core.events import Event, EventType
 from arelis.core.intent_catalog import data_cell_should_reject, room_data_file_names
 from arelis.core.look import look_call_blocked
+from arelis.core.no_call_finish import hold_for_owed_tools, owed_tool_names
 from arelis.core.preflight import (
     looks_like_browser_click_signin,
     looks_like_browser_open_ask,
@@ -155,6 +157,24 @@ def _hand_off_to_document(
     r.messages.append({"role": "user", "content": document_force_notice()})
 
 
+def _plain_weather_repeat_reply(ctx: Any, *, document_owed: bool) -> str:
+    """Words for the user when a repeated weather block ends the turn.
+
+    The place already stored on the turn is the forecast sentence. When a
+    document is still owed and the nudge cap is already spent, say that
+    the brief was not saved. The raw forecast and the tool name stay out.
+    """
+    place = str(getattr(ctx, "weather_resolved_place", "") or "").strip()
+    if document_owed:
+        saved = "I couldn't save the brief."
+        if place:
+            return f"I have the forecast for {place}. {saved}"
+        return saved
+    if place:
+        return f"I have the forecast for {place}."
+    return "I already have that forecast."
+
+
 async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> bool:
     """Confirm and execute ``r.calls``. True ends the turn.
 
@@ -254,6 +274,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if not isinstance(counts, dict):
             counts = {}
             ctx.guard_block_counts = counts
+        # Counts are kept for every guard. Only weather uses them to end the turn.
         counts[blocked_name] = int(counts.get(blocked_name, 0)) + 1
 
     def _drop_wander(*names: str) -> None:
@@ -791,22 +812,28 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if ended:
             return True
 
-    # A round that only repeated an already explained block used to burn
-    # every remaining step. The first block stays in the transcript so the
-    # model can call whatever is still owed. The next one ends the turn.
-    if (
+    # A round that only repeated an already explained weather block used to
+    # burn every remaining step. The first block stays in the transcript.
+    # Send, look, and camera blocks keep going. If document is still owed,
+    # the hold asks for it while nudges remain, so that call can still run.
+    # Once the nudge cap is spent the hold stops. The reply is the place
+    # already stored on the turn, and the unsaved brief when that file is
+    # still owed.
+    weather_repeat = bool(blocked_names) and all(n == "weather" for n in blocked_names)
+    repeated_weather = (
         ran_calls == 0
-        and blocked_names
+        and weather_repeat
         and all(ctx.guard_block_counts.get(n, 0) >= 2 for n in blocked_names)
-    ):
-        line = (ctx.last_ok_tool_out or "").strip()
-        if not line:
-            line = f"This {blocked_names[-1]} call did not run."
+    )
+    if repeated_weather:
+        if await hold_for_owed_tools(loop, ctx, r, note_assistant=False):
+            return False
+        owed = owed_tool_names(loop, ctx, r)
+        document_owed = "document" in owed and ctx.nudges >= _MAX_TOOL_NUDGES
         await loop._finish(
-            line,
+            _plain_weather_repeat_reply(ctx, document_owed=document_owed),
             r.sources,
             streamed="",
-            passthrough_tool=(ctx.last_ok_tool_name or ""),
         )
         return True
 
