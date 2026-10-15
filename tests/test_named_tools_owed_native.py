@@ -951,6 +951,42 @@ def test_flag_off_weather_miss_says_so_and_stops() -> None:
     assert not any("max rounds" in line for line in thinking), thinking
 
 
+def test_failed_lookup_then_invented_forecast_is_refused() -> None:
+    """A failed lookup does not let an invented temperature through."""
+    sentence = "I couldn't get the forecast for Paris."
+    invented = "It is 72F and sunny in Paris, high 75."
+
+    class _MissWeather(_StubTool):
+        async def run(self, **kwargs: object) -> ToolResult:
+            self.calls.append(dict(kwargs))
+            return ToolResult(ok=False, output=sentence)
+
+    weather = _MissWeather("weather", risk="read")
+    reg = ToolRegistry()
+    reg.register(weather)
+    script = [
+        _call("weather", {"place": "Paris"}),
+        _call("weather", {"place": "Paris"}),
+        [("token", invented)],
+    ]
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            "What is the weather in Paris?",
+            script,
+            ["weather"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            registry=reg,
+            capture_thinking=True,
+        )
+    )
+    assert tool_results == [("weather", False), ("weather", False)], tool_results
+    assert invented not in final_text
+    assert final_text.strip() == (
+        "I don't know. I don't have a forecast for that, so I won't guess."
+    )
+    assert not any("max rounds" in line for line in thinking), thinking
+
+
 def test_flag_off_weather_miss_still_reaches_document() -> None:
     """A failed forecast must not end the turn while document is still owed."""
     reg = ToolRegistry()

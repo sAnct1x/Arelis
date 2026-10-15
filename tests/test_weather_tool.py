@@ -477,6 +477,34 @@ def test_default_log_level_hides_the_place() -> None:
     assert "Lookupville" not in root_captured.getvalue()
 
 
+def test_lookup_log_does_not_propagate_to_the_app_log() -> None:
+    """A debug lookup stays on its own logger. The root log never sees it."""
+    log = logging.getLogger("arelis.weather.lookup")
+    previous = log.level
+    root = logging.getLogger()
+    previous_root = root.level
+    log.setLevel(logging.DEBUG)
+    root.setLevel(logging.DEBUG)
+    own = io.StringIO()
+    own_handler = logging.StreamHandler(own)
+    own_handler.setLevel(logging.DEBUG)
+    root_captured = io.StringIO()
+    root_handler = logging.StreamHandler(root_captured)
+    root_handler.setLevel(logging.DEBUG)
+    log.addHandler(own_handler)
+    root.addHandler(root_handler)
+    try:
+        asyncio.run(search_geocode("Lookupville", client=_LookupClient(200)))
+    finally:
+        log.removeHandler(own_handler)
+        root.removeHandler(root_handler)
+        log.setLevel(previous)
+        root.setLevel(previous_root)
+    assert "lookup place=Lookupville status=200" in own.getvalue()
+    assert "Lookupville" not in root_captured.getvalue()
+    assert log.propagate is False
+
+
 def test_debug_log_records_status_and_hides_contacts() -> None:
     log = logging.getLogger("arelis.weather.lookup")
     previous = log.level
