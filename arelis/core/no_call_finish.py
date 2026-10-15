@@ -63,6 +63,59 @@ def _still_owed(
     return kept
 
 
+def owed_tool_names(loop: Any, ctx: TurnContext, r: RoundScratch) -> list[str]:
+    """Named tools that have not run and still have no evidence.
+
+    Same decision the flag-off finish hold uses. Negated mentions are
+    out. A tool that already failed twice is out. A kind that already
+    has a warrant is out. Anything else the user named stays owed.
+    """
+    owed = named_tools_owed_runnable(loop, ctx, r.fail_counts)
+    negated = negated_tool_mentions(ctx.text, owed)
+    owed = [n for n in owed if n not in negated]
+    kinds = tuple(getattr(ctx.exact_need, "kinds", ()) or ())
+    missing = ctx.ledger.missing_kinds(kinds)
+    used = {str(name) for name in (getattr(loop, "tools_used", ()) or ())}
+    return _still_owed(owed, kinds=kinds, missing=missing, used=used)
+
+
+def _owed_continue_text(owed: list[str]) -> str:
+    return (
+        "You still need to call these tools the user named: "
+        + ", ".join(owed)
+        + ". Call them now before answering."
+    )
+
+
+async def hold_for_owed_tools(
+    loop: Any,
+    ctx: TurnContext,
+    r: RoundScratch,
+    *,
+    note_assistant: bool,
+) -> bool:
+    """Ask again for a tool the turn still owes. False when finishing is allowed.
+
+    Stops at ``_MAX_TOOL_NUDGES``. Does not invent a call. ``note_assistant``
+    records the model line first; a blocked tool round already did that.
+    """
+    owed = owed_tool_names(loop, ctx, r)
+    if not owed or ctx.nudges >= _MAX_TOOL_NUDGES:
+        return False
+    ctx.nudges += 1
+    await loop._retract()
+    if note_assistant:
+        r.messages.append({"role": "assistant", "content": r.content})
+    r.messages.append({"role": "user", "content": _owed_continue_text(owed)})
+    await loop.bus.publish(
+        Event(
+            EventType.THINKING,
+            {"text": "named tools owed; asking to continue"},
+        )
+    )
+    return True
+
+
 async def _ship_algebra_result_if_missing(
     loop: Any, ctx: TurnContext, r: RoundScratch
 ) -> bool:
@@ -97,33 +150,7 @@ async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i
     # Hold while a tool the user named has not run and its evidence is
     # still missing. Turn state decides this. The native flag does not.
     # Negation and the nudge cap still do. This does not invent a call.
-    owed = named_tools_owed_runnable(loop, ctx, r.fail_counts)
-    negated = negated_tool_mentions(ctx.text, owed)
-    owed = [n for n in owed if n not in negated]
-    kinds = tuple(getattr(ctx.exact_need, "kinds", ()) or ())
-    missing = ctx.ledger.missing_kinds(kinds)
-    used = {str(name) for name in (getattr(loop, "tools_used", ()) or ())}
-    owed = _still_owed(owed, kinds=kinds, missing=missing, used=used)
-    if owed and ctx.nudges < _MAX_TOOL_NUDGES:
-        ctx.nudges += 1
-        await loop._retract()
-        r.messages.append({"role": "assistant", "content": r.content})
-        r.messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "You still need to call these tools the user named: "
-                    + ", ".join(owed)
-                    + ". Call them now before answering."
-                ),
-            }
-        )
-        await loop.bus.publish(
-            Event(
-                EventType.THINKING,
-                {"text": "named tools owed; asking to continue"},
-            )
-        )
+    if await hold_for_owed_tools(loop, ctx, r, note_assistant=True):
         return NUDGE
     if await _ship_algebra_result_if_missing(loop, ctx, r):
         return FINISH
