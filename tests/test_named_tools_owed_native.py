@@ -345,11 +345,11 @@ _C02_WEATHER_DOCUMENT = (
 
 
 class _AmbiguousWeather(_StubTool):
-    """Springfield with no state resolves to Missouri, same as the live tool."""
+    """A bare Springfield resolves to one gazetteer label, not the typed string."""
 
     async def run(self, **kwargs: object) -> ToolResult:
         self.calls.append(dict(kwargs))
-        place = "Springfield, Missouri"
+        place = "Springfield Station"
         output = (
             f"Place: {place}\n"
             "That name also matched: Springfield, Illinois. "
@@ -390,7 +390,7 @@ def test_flag_off_need_place_blocked_weather_still_runs_document(
 ) -> None:
     """C02: ambiguous weather logs need_place, the retry does not run, document does.
 
-    Round 1 weather resolves Springfield to Missouri and the turn still owes
+    Round 1 weather resolves Springfield to Springfield Station and the turn still owes
     a place. Round 2 calls weather again. That call must come back as a tool
     result that says it did not run. Round 3 calls document. The turn ends
     under the step limit.
@@ -411,7 +411,7 @@ def test_flag_off_need_place_blocked_weather_still_runs_document(
             {
                 "format": "md",
                 "title": "Springfield Weather Brief",
-                "body": "Sunny in Springfield, Missouri.",
+                "body": "Sunny at Springfield Station.",
             },
         ),
         [("token", "Saved Springfield Weather Brief.md")],
@@ -437,7 +437,7 @@ def test_flag_off_need_place_blocked_weather_still_runs_document(
     assert tool_results[1][1] is True
     not_run = _not_run_tool_messages(extras["messages"])
     assert len(not_run) == 1, extras["messages"]
-    assert "Springfield, Missouri" in not_run[0]
+    assert "Springfield Station" in not_run[0]
     assert "ask the user once" in not_run[0].lower()
     assert not any("max rounds" in line for line in thinking), thinking
     assert "tool-step limit" not in final_text.lower()
@@ -464,10 +464,10 @@ def test_flag_off_repeated_weather_block_ends_before_step_limit() -> None:
     assert tool_results[0][1] is True
     not_run = _not_run_tool_messages(extras["messages"])
     assert not_run, extras["messages"]
-    assert "Springfield, Missouri" in not_run[0]
+    assert "Springfield Station" in not_run[0]
     assert not any("max rounds" in line for line in thinking), thinking
     assert "tool-step limit" not in final_text.lower()
-    assert "missouri" in final_text.lower()
+    assert "springfield station" in final_text.lower()
 
 
 def test_flag_off_owed_nudge_respects_max_tool_nudges() -> None:
