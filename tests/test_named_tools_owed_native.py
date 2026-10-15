@@ -987,6 +987,43 @@ def test_failed_lookup_then_invented_forecast_is_refused() -> None:
     assert not any("max rounds" in line for line in thinking), thinking
 
 
+def test_failure_sentence_plus_a_forecast_is_refused() -> None:
+    """The failed tool sentence plus extra text is still refused.
+
+    The skip lets a reply through only when it equals that sentence. A
+    startswith or contains check would accept this one.
+    """
+    from arelis.core.claims import ExactnessNeed
+    from arelis.core.evidence import EvidenceLedger
+    from arelis.core.loop_helpers import _exactness_finish_refuse
+
+    sentence = "I couldn't get the forecast for Paris."
+    reply = sentence + " It's 72°F."
+    ledger = EvidenceLedger()
+    ledger.record_tool(
+        "weather",
+        ok=False,
+        output=sentence,
+        data={},
+        args={"place": "Paris"},
+    )
+    need = ExactnessNeed(
+        needs_calculator=False,
+        needs_web_evidence=False,
+        needs_weather=True,
+        needs_recall=False,
+        kinds=("weather",),
+    )
+    refuse = _exactness_finish_refuse(
+        reply,
+        exact_need=need,
+        ledger=ledger,
+        numeric_gate=True,
+        evidence_gate=True,
+    )
+    assert refuse == "I don't know. I don't have a forecast for that, so I won't guess."
+
+
 def test_flag_off_weather_miss_still_reaches_document() -> None:
     """A failed forecast must not end the turn while document is still owed."""
     reg = ToolRegistry()

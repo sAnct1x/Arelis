@@ -46,15 +46,17 @@ def describe_weather_code(code: Any) -> str:
 _GEOCODE_CANDIDATES = 10
 _REGION_KEYS = ("admin1", "admin2", "admin3", "admin4", "country", "country_code")
 
-# A typed place can be a home address. This logger does not propagate, so the
-# line stays out of the app log unless debug logging is turned on for it.
+# A typed place can be a street or a saved home address. The debug line is
+# the geocoder's city and the HTTP status, and only when a city resolved.
+# This logger does not propagate, so the line stays out of the app log
+# unless debug logging is turned on for it.
 _lookup_log = logging.getLogger("arelis.weather.lookup")
 _lookup_log.propagate = False
 _lookup_log.addHandler(logging.NullHandler())
 _lookup_file_ready = False
 _EMAIL = re.compile(r"(?i)\b[^\s@]+@[^\s@]+\.[^\s@]+\b")
 _PHONE = re.compile(
-    r"(?<![\d.])(?:\+?1[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]?[2-9]\d{2}[\s.-]?\d{4}(?!\d)"
+    r"(?<![\d.])(?:\+?1[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)"
 )
 
 
@@ -280,6 +282,34 @@ def _lookup_place(place: str) -> str:
     return _PHONE.sub("[redacted]", text)
 
 
+def _result_rows(payload: object) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    raw = payload.get("results")
+    if not isinstance(raw, list):
+        return []
+    return [row for row in raw if isinstance(row, dict)]
+
+
+def _city_for_log(query: str, results: list[dict[str, Any]] | None) -> str:
+    """Geocoder city name, or empty when the lookup did not resolve.
+
+    The typed query is never the line. A street, a postal code, or a
+    coordinate stays off it.
+    """
+    rows = [row for row in (results or []) if isinstance(row, dict)]
+    if not rows:
+        return ""
+    hit = choose_geocode_hit(query, rows)
+    if hit is None:
+        named = [row for row in rows if _folded(row.get("name"))]
+        if len(named) == 1:
+            hit = named[0]
+    if hit is None:
+        return ""
+    return _folded(hit.get("name")).split(",", 1)[0].strip()
+
+
 def _attach_lookup_file() -> None:
     """Separate debug file. Never a handler on the app log."""
     global _lookup_file_ready
@@ -298,16 +328,25 @@ def _attach_lookup_file() -> None:
     _lookup_log.addHandler(handler)
 
 
-def log_lookup(place: str, status: object) -> None:
-    """Place and HTTP status, debug only.
+def log_lookup(
+    place: str,
+    status: object,
+    results: list[dict[str, Any]] | None = None,
+) -> None:
+    """Resolved city and HTTP status, debug only.
 
-    Off unless this logger or the root logger is at debug. The record does
-    not propagate into the normal app log.
+    A lookup that did not resolve logs the status only. The typed place
+    is never written. Off unless this logger or the root logger is at
+    debug. The record does not propagate into the normal app log.
     """
     if not _lookup_log.isEnabledFor(logging.DEBUG):
         return
     _attach_lookup_file()
-    _lookup_log.debug("lookup place=%s status=%s", _lookup_place(place), status)
+    city = _lookup_place(_city_for_log(place, results))
+    if city:
+        _lookup_log.debug("lookup place=%s status=%s", city, status)
+        return
+    _lookup_log.debug("lookup status=%s", status)
 
 
 async def search_geocode(
@@ -335,9 +374,16 @@ async def search_geocode(
         except httpx.TransportError:
             log_lookup(query, "connection")
             raise
-        log_lookup(query, response.status_code)
+        try:
+            payload = response.json()
+        except Exception:
+            log_lookup(query, response.status_code)
+            response.raise_for_status()
+            raise
+        rows = _result_rows(payload) if response.is_success else None
+        log_lookup(query, response.status_code, rows)
         response.raise_for_status()
-        data = response.json()
+        data = payload
     finally:
         if owns:
             await client.aclose()
