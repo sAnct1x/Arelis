@@ -23,7 +23,7 @@ from arelis.core.email_complete import (
 from arelis.core.events import Event, EventType
 from arelis.core.intent_catalog import data_cell_should_reject, room_data_file_names
 from arelis.core.look import look_call_blocked
-from arelis.core.no_call_finish import hold_for_owed_tools
+from arelis.core.no_call_finish import hold_for_owed_tools, owed_tool_names
 from arelis.core.preflight import (
     looks_like_browser_click_signin,
     looks_like_browser_open_ask,
@@ -267,6 +267,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if not isinstance(counts, dict):
             counts = {}
             ctx.guard_block_counts = counts
+        # Counts are kept for every guard. Only weather uses them to end the turn.
         counts[blocked_name] = int(counts.get(blocked_name, 0)) + 1
 
     def _drop_wander(*names: str) -> None:
@@ -805,18 +806,21 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             return True
 
     # A round that only repeated an already explained weather block used to
-    # burn every remaining step. The first block stays in the transcript so
-    # the model can call whatever is still owed. The next weather block ends
-    # the turn only when nothing named is still owed. Send, look, and camera
-    # blocks keep going. A file they asked for is still owed after a weather
-    # block, so ask for that tool. The nudge cap is the same one the no-call
-    # hold uses. Past the cap, say the place already stored on the turn.
+    # burn every remaining step. The first block stays in the transcript.
+    # Send, look, and camera blocks keep going. If document is still owed,
+    # that hold runs first and this end does not fire, so the file step can
+    # still run. Otherwise the nudge cap applies, then the reply is the
+    # place already stored on the turn.
     weather_repeat = bool(blocked_names) and all(n == "weather" for n in blocked_names)
-    if (
+    repeated_weather = (
         ran_calls == 0
         and weather_repeat
         and all(ctx.guard_block_counts.get(n, 0) >= 2 for n in blocked_names)
-    ):
+    )
+    if repeated_weather and "document" in owed_tool_names(loop, ctx, r):
+        await hold_for_owed_tools(loop, ctx, r, note_assistant=False)
+        return False
+    if repeated_weather:
         if await hold_for_owed_tools(loop, ctx, r, note_assistant=False):
             return False
         await loop._finish(

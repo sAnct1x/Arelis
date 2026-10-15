@@ -470,7 +470,7 @@ def test_flag_off_repeated_weather_block_ends_before_step_limit() -> None:
     extras: dict = {}
     final_text, tool_results, thinking = asyncio.run(
         _run_agent_with_script(
-            _C02_WEATHER_DOCUMENT,
+            "How many miles is 5 kilometers? What is the weather in Springfield?",
             script,
             ["weather", "document"],
             {**_FLAG_OFF, "max_rounds": 8},
@@ -566,13 +566,67 @@ def test_flag_off_need_place_still_writes_owed_document(
         assert "Springfield Station" in not_run[0]
 
 
+def test_flag_off_repeated_weather_block_still_runs_owed_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repeated weather block must not end while document is still owed.
+
+    Real C02 order: need_place is logged, the place is resolved, the same
+    weather call is blocked again, and document has not run. The plain
+    forecast reply used to finish the turn there. Document still has to run.
+    """
+    marks: list[tuple[str, dict]] = []
+    original = TurnTimer.mark
+
+    def _mark(self: TurnTimer, event: str, **fields: object) -> None:
+        marks.append((event, dict(fields)))
+        original(self, event, **fields)
+
+    monkeypatch.setattr(TurnTimer, "mark", _mark)
+    weather = _call("weather", {"place": "Springfield", "days": 1})
+    document = _call(
+        "document",
+        {
+            "format": "md",
+            "title": "Springfield Weather Brief",
+            "body": "Sunny at Springfield Station.",
+        },
+    )
+    script = [weather, weather, weather, weather, weather, document, [("token", "Saved the brief.")]]
+    extras: dict = {}
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            _C02_WEATHER_DOCUMENT,
+            script,
+            ["weather", "document"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            registry=_ambiguous_weather_registry(),
+            capture_thinking=True,
+            extras=extras,
+        )
+    )
+    assert any(
+        event == "weather_once" and fields.get("action") == "need_place"
+        for event, fields in marks
+    ), marks
+    assert "I have the forecast" not in final_text
+    assert "Saved the brief." in final_text
+    assert [name for name, ok in tool_results] == ["weather", "document"], tool_results
+    assert tool_results[0][1] is True
+    assert tool_results[1][1] is True
+    not_run = _not_run_tool_messages(extras["messages"])
+    assert not_run, extras["messages"]
+    assert "Springfield Station" in not_run[0]
+    assert not any("max rounds" in line for line in thinking), thinking
+
+
 def test_flag_off_repeated_weather_block_without_document_ends() -> None:
-    """A repeated weather block still ends when the ask never named document."""
+    """A repeated weather block still ends when the ask never owed document."""
     script = [_call("weather", {"place": "Springfield", "days": 1}) for _ in range(6)]
     script.append([("token", "done")])
     final_text, tool_results, thinking = asyncio.run(
         _run_agent_with_script(
-            "What is the weather in Springfield?",
+            "How many miles is 5 kilometers? What is the weather in Springfield?",
             script,
             ["weather", "document"],
             {**_FLAG_OFF, "max_rounds": 8},
@@ -585,7 +639,7 @@ def test_flag_off_repeated_weather_block_without_document_ends() -> None:
     assert not any(line.startswith("round 4/") for line in thinking), thinking
     assert not any("max rounds" in line for line in thinking), thinking
     assert "tool-step limit" not in final_text.lower()
-    assert "springfield station" in final_text.lower()
+    assert final_text.strip() == "I have the forecast for Springfield Station."
 
 
 def test_flag_off_repeated_camera_block_does_not_end_turn() -> None:
@@ -618,13 +672,42 @@ def test_flag_off_repeated_camera_block_does_not_end_turn() -> None:
     assert not any("max rounds" in line for line in thinking), thinking
 
 
+def test_flag_off_repeated_send_block_does_not_end_turn() -> None:
+    """Two duplicate send_sms blocks do not take the weather end path.
+
+    The stub send runs once. The next two calls hit the once-guard and do
+    not send again. Before the repeated-block end existed, that round
+    stayed open and the closing line landed. The weather plain reply must
+    not replace it.
+    """
+    sms = _call("send_sms", {"to": "Ada", "body": "I am on my way"})
+    script = [sms, sms, sms, [("token", "kept going")]]
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            "How many miles is 5 kilometers? Use send_sms to text Ada that I am on my way.",
+            script,
+            ["send_sms", "units"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            capture_thinking=True,
+        )
+    )
+    assert tool_results == [("send_sms", True)], tool_results
+    assert "kept going" in final_text
+    assert "I have the forecast" not in final_text
+    assert "I already have that forecast" not in final_text
+    skips = [line for line in thinking if line.startswith("skip  Already sent SMS")]
+    assert len(skips) == 2, thinking
+    assert any(line.startswith("round 4/") for line in thinking), thinking
+    assert not any("max rounds" in line for line in thinking), thinking
+
+
 def test_flag_off_repeated_weather_block_ends_in_plain_words() -> None:
     """Ending a repeated weather block speaks the stored place, not the tool text."""
     script = [_call("weather", {"place": "Springfield", "days": 1}) for _ in range(6)]
     script.append([("token", "done")])
     final_text, tool_results, thinking = asyncio.run(
         _run_agent_with_script(
-            _C02_WEATHER_DOCUMENT,
+            "How many miles is 5 kilometers? What is the weather in Springfield?",
             script,
             ["weather", "document"],
             {**_FLAG_OFF, "max_rounds": 8},
