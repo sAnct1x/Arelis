@@ -730,7 +730,10 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             continue
 
         resolved = " ".join(str(getattr(ctx, "weather_resolved_place", "") or "").split())
-        if name == "document" and resolved:
+        given_title = " ".join(str(args.get("title") or "").split())
+        # An untitled weather brief takes the resolved place. A title already
+        # on the call stays, including one the user named.
+        if name == "document" and resolved and not given_title:
             args["title"] = weather_brief_title(resolved)
 
         action, summary, call_fp = await confirm_call(

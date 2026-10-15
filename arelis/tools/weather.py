@@ -581,15 +581,6 @@ def weather_brief_title(place: str) -> str:
     return f"{' '.join(place.split())} Weather Brief"
 
 
-def weather_file_summary(place: str, path: str = "") -> str:
-    """Chat line for that file. The place is the resolved one."""
-    title = weather_brief_title(place)
-    shown = " ".join(str(path or "").split())
-    if shown:
-        return f"{title}. The file is at {shown}."
-    return f"{title}."
-
-
 def clarify(labels: list[str]) -> str:
     if len(labels) >= 3:
         return f"Did you mean {', '.join(labels[:-1])}, or {labels[-1]}?"

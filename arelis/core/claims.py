@@ -1499,7 +1499,7 @@ def unsupported_exactness_reply(
             "result this turn, and I will not invent one."
         )
     if "weather" in kinds:
-        return "I don't know — I don't have a weather tool reading for that, so I won't guess."
+        return "I don't know. I don't have a forecast for that, so I won't guess."
     if "web" in kinds:
         return (
             "I don't know — I don't have a retrieved page warrant for that "

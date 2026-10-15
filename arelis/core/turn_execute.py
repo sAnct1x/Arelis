@@ -734,20 +734,6 @@ async def execute_call(
                     },
                 )
             )
-        if name == "document" and result.ok:
-            place = " ".join(str(getattr(ctx, "weather_resolved_place", "") or "").split())
-            if place:
-                from arelis.tools.weather import weather_file_summary
-
-                shown = ""
-                if isinstance(data_dict, dict):
-                    shown = str(data_dict.get("path") or "").strip()
-                await loop._finish(
-                    weather_file_summary(place, shown),
-                    sources,
-                    streamed="",
-                )
-                return True
         if name == "research_report" and result.ok and data_dict:
             raw_path = str(
                 data_dict.get("abs_path") or data_dict.get("path") or ""

@@ -157,22 +157,20 @@ def test_native_units_calc_memory_chain_keeps_named_tools() -> None:
     assert "24" in final_text
 
 
-def test_weather_brief_title_and_summary_use_the_resolved_place() -> None:
-    """The file name and the chat line come from the resolved place.
+class _ResolvedWeather(_StubTool):
+    """Forecast stub whose data.place is the city the code resolved."""
 
-    The model asked for "Springfield Weather Brief" and then said the file
-    was done. The place the forecast actually resolved is what gets written.
-    """
+    async def run(self, **kwargs: object) -> ToolResult:
+        self.calls.append(dict(kwargs))
+        return ToolResult(
+            ok=True,
+            output="Springfield, Illinois: 61F and overcast, high 66, low 48.",
+            data={"place": "Springfield, Illinois"},
+        )
 
-    class _ResolvedWeather(_StubTool):
-        async def run(self, **kwargs: object) -> ToolResult:
-            self.calls.append(dict(kwargs))
-            return ToolResult(
-                ok=True,
-                output="Springfield, Illinois: 61F and overcast, high 66, low 48.",
-                data={"place": "Springfield, Illinois"},
-            )
 
+def test_untitled_weather_brief_uses_the_resolved_place() -> None:
+    """An untitled brief takes the resolved place. The model writes the reply."""
     weather = _ResolvedWeather("weather")
     document = _StubTool("document", risk="write")
     reg = ToolRegistry()
@@ -180,21 +178,13 @@ def test_weather_brief_title_and_summary_use_the_resolved_place() -> None:
     reg.register(document)
     script = [
         _call("weather", {"place": "Springfield"}),
-        _call(
-            "document",
-            {
-                "format": "md",
-                "title": "Springfield Weather Brief",
-                "body": "Sunny.",
-            },
-        ),
-        [("token", "Done. The file is at Springfield-Weather-Brief.md")],
+        _call("document", {"format": "md", "body": "Sunny."}),
+        [("token", "Saved the Springfield brief.")],
     ]
     final_text, tool_results, _ = asyncio.run(
         _run_agent_with_script(
             "Get today's weather forecast for Springfield, Illinois, then save a "
-            "one-paragraph summary of it as a markdown document titled "
-            "Springfield Weather Brief.",
+            "one-paragraph summary of it as a markdown document.",
             script,
             ["weather", "document"],
             _FLAG_OFF,
@@ -203,11 +193,77 @@ def test_weather_brief_title_and_summary_use_the_resolved_place() -> None:
     )
     assert [name for name, _ok in tool_results] == ["weather", "document"], tool_results
     assert document.calls[0]["title"] == "Springfield, Illinois Weather Brief"
-    assert "Springfield, Illinois" in final_text
-    assert not final_text.lower().startswith("done")
-    lowered = final_text.lower()
-    assert "weather tool" not in lowered
-    assert "called the" not in lowered
+    assert final_text.strip() == "Saved the Springfield brief."
+
+
+def test_step_after_weather_doc_still_runs() -> None:
+    """A note after the weather file still runs. The turn does not end on the file."""
+    weather = _ResolvedWeather("weather")
+    document = _StubTool("document", risk="write")
+    memory = _StubTool("memory", risk="write")
+    reg = ToolRegistry()
+    reg.register(weather)
+    reg.register(document)
+    reg.register(memory)
+    script = [
+        _call("weather", {"place": "Springfield, Illinois"}),
+        _call(
+            "document",
+            {
+                "format": "md",
+                "title": "Springfield, Illinois Weather Brief",
+                "body": "61F and overcast.",
+            },
+        ),
+        _call("memory", {"action": "remember", "fact": "done"}),
+        [("token", "Saved the brief and added a note saying done.")],
+    ]
+    final_text, tool_results, _ = asyncio.run(
+        _run_agent_with_script(
+            "Get the weather for Springfield, Illinois, save it as a doc, "
+            "then add a note saying done.",
+            script,
+            ["weather", "document", "memory"],
+            _FLAG_OFF,
+            registry=reg,
+        )
+    )
+    assert [name for name, _ok in tool_results] == [
+        "weather",
+        "document",
+        "memory",
+    ], tool_results
+    assert memory.calls == [{"action": "remember", "fact": "done"}]
+    assert final_text.strip() == "Saved the brief and added a note saying done."
+
+
+def test_user_given_doc_title_survives_weather() -> None:
+    """A title the user already gave stays, even after a forecast resolved."""
+    weather = _ResolvedWeather("weather")
+    document = _StubTool("document", risk="write")
+    reg = ToolRegistry()
+    reg.register(weather)
+    reg.register(document)
+    script = [
+        _call("weather", {"place": "Springfield, Illinois"}),
+        _call(
+            "document",
+            {"format": "md", "title": "Grocery List", "body": "Milk."},
+        ),
+        [("token", "Saved Grocery List.")],
+    ]
+    final_text, tool_results, _ = asyncio.run(
+        _run_agent_with_script(
+            "Get the weather for Springfield, Illinois, then write a doc titled Grocery List.",
+            script,
+            ["weather", "document"],
+            _FLAG_OFF,
+            registry=reg,
+        )
+    )
+    assert [name for name, _ok in tool_results] == ["weather", "document"], tool_results
+    assert document.calls[0]["title"] == "Grocery List"
+    assert final_text.strip() == "Saved Grocery List."
 
 
 def test_native_early_finish_still_calls_owed_tool() -> None:
@@ -817,6 +873,17 @@ def test_flag_off_ambiguous_resolved_place_is_not_home() -> None:
     assert "forecast" in final_text.lower()
 
 
+def test_weather_failure_line_names_no_tool() -> None:
+    """A missing forecast is plain words. No tool name and no dash."""
+    from arelis.core.claims import unsupported_exactness_reply
+
+    line = unsupported_exactness_reply(["weather"])
+    assert "tool" not in line.casefold()
+    assert "\u2014" not in line
+    assert "\u2013" not in line
+    assert line == "I don't know. I don't have a forecast for that, so I won't guess."
+
+
 def test_flag_off_weather_miss_says_so_and_stops() -> None:
     """A failed forecast does not end the turn with a canned line.
 
@@ -842,7 +909,7 @@ def test_flag_off_weather_miss_says_so_and_stops() -> None:
     )
     assert tool_results == [("weather", False), ("weather", False)], tool_results
     assert final_text.strip() == (
-        "I don't know, I don't have a weather tool reading for that, so I won't guess."
+        "I don't know. I don't have a forecast for that, so I won't guess."
     )
     assert "I couldn't get a forecast." not in final_text
     assert "tool-step limit" not in final_text.lower()
