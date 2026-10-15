@@ -4,9 +4,9 @@ ASSISTANT_DELTA and audio clips are intentionally omitted (too noisy). Turn
 latency stays in turns.log; this file answers “what happened on the bus?”
 for confirms, SMS, errors, and tool boundaries.
 
-Typed and spoken user text is a character count plus a short hash. A failed
-tool logs its class or status, not the message, because that message often
-repeats what the user just typed.
+Typed and spoken user text is a character count. A failed tool logs its
+class or status, not the message, because that message often repeats what
+the user just typed.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from uuid import uuid4
 
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
-from arelis.core.log_meta import text_sha12
 from arelis.location.privacy import LocationLogFilter
 from arelis.paths import logs_dir
 
@@ -180,7 +179,6 @@ def _format_event(event: Event) -> str:
         text = str(payload.get("text") or "")
         fields["chars"] = len(text)
         fields["source"] = payload.get("source") or "chat"
-        fields["sha"] = text_sha12(text)
     elif event.type == EventType.ASSISTANT_DONE:
         text = str(payload.get("text") or "")
         fields["chars"] = len(text)
@@ -229,7 +227,6 @@ def _format_event(event: Event) -> str:
     elif event.type == EventType.VOICE_TRANSCRIPT:
         text = str(payload.get("text") or "")
         fields["chars"] = len(text)
-        fields["sha"] = text_sha12(text)
     elif event.type == EventType.PHYSICS_VERB:
         fields["verb"] = payload.get("verb") or "?"
     elif event.type == EventType.TILE_VERB:

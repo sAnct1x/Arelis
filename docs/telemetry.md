@@ -88,7 +88,7 @@ when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
   call succeeded). A failed call logs `status=error` and, when the tool
   recorded one, the exception class or fail status. Not the message.
 - The words of a typed or spoken user message. `events.log` and
-  `turns.jsonl` keep the character count and a 12-hex sha256.
+  `turns.jsonl` keep the character count only.
 - Phone Gemma latency while the house is away
 - Look-from stream URLs (deliberate; pin stays honest)
 
