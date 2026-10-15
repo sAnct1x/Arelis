@@ -47,3 +47,4 @@ Removed comments (bug history and why-this-guard notes). What remains states an 
 - ResolvedPlace essay that a bare coordinate pair hid the wrong city, and the note that a disambiguation line on every forecast is noise
 - `choose_geocode_hit` sentence that the first city is how a different city used to win
 - Weather-wander note with the dated measurement of the wrong first tool
+- Weather-wander test module note that repeated that measurement and the invented-coordinates story
