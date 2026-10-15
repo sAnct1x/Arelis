@@ -585,6 +585,15 @@ def _exactness_finish_refuse(
             return unsupported_exactness_reply(
                 missing, document_failed=True, document_detail=document_fail.span
             )
+    # The forecast tool already said why. The model repeats that sentence.
+    # Code does not write a second reply over it.
+    if "weather" in missing and any(
+        item.kind == "weather" and not item.ok and str(item.span or "").strip()
+        for item in ledger.items
+    ):
+        missing = [kind for kind in missing if kind != "weather"]
+    if not missing:
+        return None
     return unsupported_exactness_reply(missing)
 
 

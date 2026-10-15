@@ -192,16 +192,6 @@ async def execute_call(
                 tool_fields["arg_keys"] = sorted(args.keys()) if args else []
             loop._timer.mark("tool", **tool_fields)
         data_dict = result.data if isinstance(result.data, dict) else None
-        if (
-            name == "weather"
-            and result.ok
-            and isinstance(data_dict, dict)
-            and not data_dict.get("ambiguous")
-            and not data_dict.get("need_place")
-        ):
-            resolved = " ".join(str(data_dict.get("place") or "").split())
-            if resolved:
-                ctx.weather_resolved_place = resolved
         if name == "python":
             # The marker stays until plot is tried. A later python call that
             # has no result field ends the owed plot. The output text is not read.

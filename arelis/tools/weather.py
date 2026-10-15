@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
+
 from arelis.briefing.weather import (
     describe_weather_code,
     fetch_forecast,
@@ -142,7 +144,9 @@ class WeatherTool:
     async def _for_place(self, asked: str) -> ToolResult:
         try:
             rows = await self._geocode_rows(asked)
-        except Exception:  # a dead lookup is the plain failure line
+        except Exception as exc:  # a dead lookup is the plain failure line
+            if _service_down(exc):
+                return _unreachable()
             return _miss(asked)
         named = _rows_for_named_region(asked, rows)
         if named is not None:
@@ -173,7 +177,12 @@ class WeatherTool:
         short = await self._rows_named(names[-1])
         if any(place_region_match(asked, row) for row in short):
             return short
-        return await self._rows_named(names[0])
+        full = await self._rows_named(names[0])
+        # "Paris today" is not a region. The full string comes back empty.
+        # The shorter name already has the cities, so the usual pick runs.
+        if _full_string_usable(asked, full):
+            return full
+        return short
 
     async def _rows_named(self, query: str) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -241,7 +250,9 @@ class WeatherTool:
     ) -> ToolResult:
         try:
             data = await _maybe_await(self._forecast_fn(lat, lon))
-        except Exception:  # a dead forecast is the plain failure line
+        except Exception as exc:  # a dead forecast is the plain failure line
+            if _service_down(exc):
+                return _unreachable()
             return _miss(fallback or label)
         if not isinstance(data, dict):
             return _miss(fallback or label)
@@ -479,6 +490,13 @@ def _miss(place: str) -> ToolResult:
     )
 
 
+def _unreachable() -> ToolResult:
+    return ToolResult(
+        ok=False,
+        output="I couldn't reach the weather service.",
+    )
+
+
 async def _maybe_await(value: Any) -> Any:
     if hasattr(value, "__await__"):
         return await value
@@ -528,12 +546,27 @@ def _rows_for_named_region(
         return matched
     if matched:
         return matched
-    folded = raw.casefold()
-    for row in rows:
-        name = " ".join(str(row.get("name") or "").split()).casefold()
-        if name and folded.startswith(name + " "):
-            return []
     return None
+
+
+def _full_string_usable(asked: str, rows: list[dict[str, Any]]) -> bool:
+    """True when the full-string search itself has a city to use."""
+    if not rows:
+        return False
+    named = _rows_for_named_region(asked, rows)
+    if named is None:
+        return True
+    return bool(named)
+
+
+def _service_down(exc: BaseException) -> bool:
+    """Timeouts, connection errors, 429, and 5xx. Not the error text."""
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = int(getattr(exc.response, "status_code", 0) or 0)
+        return code == 429 or code >= 500
+    return False
 
 
 _US_COUNTRY_NAMES = frozenset(
@@ -574,11 +607,6 @@ def place_label(entry: dict[str, Any]) -> str:
     if name and admin and admin.casefold() != name.casefold():
         return f"{name}, {admin}"
     return name
-
-
-def weather_brief_title(place: str) -> str:
-    """File title from the place the forecast resolved."""
-    return f"{' '.join(place.split())} Weather Brief"
 
 
 def clarify(labels: list[str]) -> str:

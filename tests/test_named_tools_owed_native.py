@@ -169,8 +169,8 @@ class _ResolvedWeather(_StubTool):
         )
 
 
-def test_untitled_weather_brief_uses_the_resolved_place() -> None:
-    """An untitled brief takes the resolved place. The model writes the reply."""
+def test_untitled_weather_doc_keeps_the_models_title() -> None:
+    """Code does not name the file. The model writes the title and the reply."""
     weather = _ResolvedWeather("weather")
     document = _StubTool("document", risk="write")
     reg = ToolRegistry()
@@ -192,8 +192,33 @@ def test_untitled_weather_brief_uses_the_resolved_place() -> None:
         )
     )
     assert [name for name, _ok in tool_results] == ["weather", "document"], tool_results
-    assert document.calls[0]["title"] == "Springfield, Illinois Weather Brief"
+    assert document.calls[0].get("title", "") in ("", None)
+    assert "Weather Brief" not in str(document.calls[0])
     assert final_text.strip() == "Saved the Springfield brief."
+
+
+def test_untitled_non_weather_doc_gets_no_weather_title() -> None:
+    """A file that is not a forecast does not pick up a weather title."""
+    document = _StubTool("document", risk="write")
+    reg = ToolRegistry()
+    reg.register(document)
+    script = [
+        _call("document", {"format": "md", "body": "Milk and eggs."}),
+        [("token", "Saved the list.")],
+    ]
+    final_text, tool_results, _ = asyncio.run(
+        _run_agent_with_script(
+            "Write a markdown document.",
+            script,
+            ["document"],
+            _FLAG_OFF,
+            registry=reg,
+        )
+    )
+    assert [name for name, _ok in tool_results] == ["document"], tool_results
+    assert document.calls[0].get("title", "") in ("", None)
+    assert "Weather Brief" not in str(document.calls[0])
+    assert final_text.strip() == "Saved the list."
 
 
 def test_step_after_weather_doc_still_runs() -> None:
@@ -885,33 +910,43 @@ def test_weather_failure_line_names_no_tool() -> None:
 
 
 def test_flag_off_weather_miss_says_so_and_stops() -> None:
-    """A failed forecast does not end the turn with a canned line.
+    """A failed forecast stays the tool sentence. The generic refusal does not replace it."""
+    sentence = "I couldn't get the forecast for Paris."
 
-    The retry runs. The model then answers. The old "I couldn't get a
-    forecast." finish is not substituted.
-    """
+    class _MissWeather(_StubTool):
+        async def run(self, **kwargs: object) -> ToolResult:
+            self.calls.append(dict(kwargs))
+            return ToolResult(ok=False, output=sentence)
+
+    weather = _MissWeather("weather", risk="read")
     reg = ToolRegistry()
-    reg.register(_FailingStub("weather", risk="read"))
+    reg.register(weather)
     script = [
-        _call("weather", {"place": "Springfield"}),
-        _call("weather", {"place": "Springfield"}),
-        [("token", "trying again")],
+        _call("weather", {"place": "Paris"}),
+        _call("weather", {"place": "Paris"}),
+        [("token", sentence)],
     ]
+    extras: dict = {}
     final_text, tool_results, thinking = asyncio.run(
         _run_agent_with_script(
-            "What is the weather in Springfield?",
+            "What is the weather in Paris?",
             script,
             ["weather"],
             {**_FLAG_OFF, "max_rounds": 8},
             registry=reg,
             capture_thinking=True,
+            extras=extras,
         )
     )
+    tool_lines = [
+        str(message.get("content") or "")
+        for message in extras["messages"]
+        if message.get("role") == "tool"
+    ]
     assert tool_results == [("weather", False), ("weather", False)], tool_results
-    assert final_text.strip() == (
-        "I don't know. I don't have a forecast for that, so I won't guess."
-    )
-    assert "I couldn't get a forecast." not in final_text
+    assert any(sentence in line for line in tool_lines), tool_lines
+    assert final_text.strip() == sentence
+    assert "I don't have a forecast for that" not in final_text
     assert "tool-step limit" not in final_text.lower()
     assert not any("max rounds" in line for line in thinking), thinking
 

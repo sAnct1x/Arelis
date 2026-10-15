@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,6 +45,17 @@ def describe_weather_code(code: Any) -> str:
 
 _GEOCODE_CANDIDATES = 10
 _REGION_KEYS = ("admin1", "admin2", "admin3", "admin4", "country", "country_code")
+
+# A typed place can be a home address. This logger does not propagate, so the
+# line stays out of the app log unless debug logging is turned on for it.
+_lookup_log = logging.getLogger("arelis.weather.lookup")
+_lookup_log.propagate = False
+_lookup_log.addHandler(logging.NullHandler())
+_lookup_file_ready = False
+_EMAIL = re.compile(r"(?i)\b[^\s@]+@[^\s@]+\.[^\s@]+\b")
+_PHONE = re.compile(
+    r"(?<![\d.])(?:\+?1[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]?[2-9]\d{2}[\s.-]?\d{4}(?!\d)"
+)
 
 
 @dataclass(frozen=True)
@@ -261,6 +274,42 @@ async def resolve_place(
     )
 
 
+def _lookup_place(place: str) -> str:
+    """Drop an email or a phone number before a debug line is formatted."""
+    text = _EMAIL.sub("[redacted]", place or "")
+    return _PHONE.sub("[redacted]", text)
+
+
+def _attach_lookup_file() -> None:
+    """Separate debug file. Never a handler on the app log."""
+    global _lookup_file_ready
+    if _lookup_file_ready:
+        return
+    _lookup_file_ready = True
+    try:
+        from arelis.paths import logs_dir
+
+        directory = logs_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(directory / "weather-lookup.log", encoding="utf-8")
+    except OSError:
+        return
+    handler.setLevel(logging.DEBUG)
+    _lookup_log.addHandler(handler)
+
+
+def log_lookup(place: str, status: object) -> None:
+    """Place and HTTP status, debug only.
+
+    Off unless this logger or the root logger is at debug. The record does
+    not propagate into the normal app log.
+    """
+    if not _lookup_log.isEnabledFor(logging.DEBUG):
+        return
+    _attach_lookup_file()
+    _lookup_log.debug("lookup place=%s status=%s", _lookup_place(place), status)
+
+
 async def search_geocode(
     name: str,
     *,
@@ -276,9 +325,17 @@ async def search_geocode(
     if client is None:
         client = httpx.AsyncClient(timeout=timeout_s)
     try:
-        response = await client.get(
-            url, params={"name": query, "count": _GEOCODE_CANDIDATES}
-        )
+        try:
+            response = await client.get(
+                url, params={"name": query, "count": _GEOCODE_CANDIDATES}
+            )
+        except httpx.TimeoutException:
+            log_lookup(query, "timeout")
+            raise
+        except httpx.TransportError:
+            log_lookup(query, "connection")
+            raise
+        log_lookup(query, response.status_code)
         response.raise_for_status()
         data = response.json()
     finally:

@@ -1,6 +1,6 @@
 # Weather path deletions
 
-The forecast tool is one optional `place` argument. Code geocodes that string, keeps a named state or country from the geocoder row, and returns one sentence. A US place is City, State. Anywhere else is City, Country, using the geocoder's country name. A bare name with one clearly larger city is that city. No place uses Windows location, then the saved home city. IP geolocation runs only when `location.network.enabled` is on, and that switch ships off. A named place skips those. An untitled weather brief takes its title from that resolved place. A title already on the file stays. The model writes the reply. None of the old turn guards below are on the path.
+The forecast tool is one optional `place` argument. Code geocodes that string, keeps a named state or country from the geocoder row, and returns one sentence. A US place is City, State. Anywhere else is City, Country, using the geocoder's country name. A bare name with one clearly larger city is that city. No place uses Windows location, then the saved home city. IP geolocation runs only when `location.network.enabled` is on, and that switch ships off. A named place skips those. The model titles any file from the place in the forecast sentence. Code does not name the file. The model writes the reply. A lookup that finds no city says so. A timeout, a connection error, a 429, or a 5xx says the service could not be reached. None of the old turn guards below are on the path.
 
 Deleted:
 

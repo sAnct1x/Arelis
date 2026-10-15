@@ -55,7 +55,6 @@ from arelis.core.turn_execute import execute_call
 from arelis.core.turn_goal import LOGIN_READY_REPLY, browser_open_done_reply
 from arelis.core.turn_scratch import RoundScratch, strip_tool_schemas
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS
-from arelis.tools.weather import weather_brief_title
 
 
 def fill_round_calls(
@@ -728,13 +727,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 await loop._finish(line, r.sources, streamed="")
                 return True
             continue
-
-        resolved = " ".join(str(getattr(ctx, "weather_resolved_place", "") or "").split())
-        given_title = " ".join(str(args.get("title") or "").split())
-        # An untitled weather brief takes the resolved place. A title already
-        # on the call stays, including one the user named.
-        if name == "document" and resolved and not given_title:
-            args["title"] = weather_brief_title(resolved)
 
         action, summary, call_fp = await confirm_call(
             loop,

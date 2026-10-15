@@ -6,10 +6,15 @@ Windows, the saved city, and the IP lookup are the same kind of stand-in.
 
 from __future__ import annotations
 
+import asyncio
+import io
+import logging
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
+from arelis.briefing.weather import search_geocode
 from arelis.core.claims import weather_force_notice
 from arelis.core.compact_prompt import COMPACT_TOOL_POLICY
 from arelis.core.intent_catalog import WEATHER
@@ -66,6 +71,7 @@ class _Standins:
         self.ip_value: object = None
         self.boom_geo = False
         self.boom_forecast = False
+        self.geo_error: BaseException | None = None
 
     def windows_fn(self) -> object:
         self.windows += 1
@@ -81,6 +87,8 @@ class _Standins:
 
     async def geocode(self, query: str) -> list[dict]:
         self.geo.append(query)
+        if self.geo_error is not None:
+            raise self.geo_error
         if self.boom_geo:
             raise RuntimeError("down")
         return list(self.rows)
@@ -338,7 +346,7 @@ def _paris_geocode(calls: list[str]):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("place", ["Paris France", "Paris, France"])
+@pytest.mark.parametrize("place", ["Paris France", "Paris, France", "Paris, FR"])
 async def test_paris_with_the_country_is_france(place: str) -> None:
     calls: list[str] = []
     tool = WeatherTool(
@@ -356,6 +364,144 @@ async def test_paris_with_the_country_is_france(place: str) -> None:
     assert "Ile-de-France" not in result.output
     assert "Texas" not in result.output
     assert calls == ["Paris"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("place", ["Paris today", "Paris tomorrow"])
+async def test_paris_today_keeps_the_shorter_city(place: str) -> None:
+    """A trailing word that is not a region does not throw away the city."""
+    calls: list[str] = []
+    tool = WeatherTool(
+        windows_location=lambda: None,
+        home_city=lambda: "",
+        ip_location=lambda: None,
+        geocode=_paris_geocode(calls),
+        forecast=_Standins().forecast_fn,
+    )
+    result = await tool.run(place=place)
+
+    assert result.ok
+    assert "Paris, France" in result.output
+    assert "Texas" not in result.output
+    assert calls == ["Paris", place]
+
+
+@pytest.mark.asyncio
+async def test_a_bare_paris_is_france() -> None:
+    calls: list[str] = []
+    tool = WeatherTool(
+        windows_location=lambda: None,
+        home_city=lambda: "",
+        ip_location=lambda: None,
+        geocode=_paris_geocode(calls),
+        forecast=_Standins().forecast_fn,
+    )
+    result = await tool.run(place="Paris")
+
+    assert result.ok
+    assert "Paris, France" in result.output
+    assert calls == ["Paris"]
+
+
+def _http_error(status: int, message: str) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", "https://example.invalid/search")
+    response = httpx.Response(status, request=request)
+    return httpx.HTTPStatusError(message, request=request, response=response)
+
+
+@pytest.mark.asyncio
+async def test_a_timeout_says_the_service_could_not_be_reached() -> None:
+    stand = _Standins([_PARIS_FR])
+    stand.geo_error = httpx.ReadTimeout(
+        "place not found",
+        request=httpx.Request("GET", "https://example.invalid/search"),
+    )
+    result = await stand.tool().run(place="Paris")
+
+    assert result.ok is False
+    assert result.output == "I couldn't reach the weather service."
+
+
+@pytest.mark.asyncio
+async def test_a_503_says_the_service_could_not_be_reached() -> None:
+    stand = _Standins([_PARIS_FR])
+    stand.geo_error = _http_error(503, "place not found")
+    result = await stand.tool().run(place="Paris")
+
+    assert result.ok is False
+    assert result.output == "I couldn't reach the weather service."
+
+
+@pytest.mark.asyncio
+async def test_empty_geocode_results_stay_not_found() -> None:
+    stand = _Standins([])
+    result = await stand.tool().run(place="Paris")
+
+    assert result.ok is False
+    assert result.output == "I couldn't get the forecast for Paris."
+
+
+class _LookupClient:
+    def __init__(self, status: int) -> None:
+        self.status = status
+
+    async def get(self, url: str, params: dict | None = None) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        return httpx.Response(self.status, json={"results": []}, request=request)
+
+    async def aclose(self) -> None:
+        return None
+
+
+def test_default_log_level_hides_the_place() -> None:
+    """A typed place stays out of the log unless debug logging is on."""
+    log = logging.getLogger("arelis.weather.lookup")
+    previous = log.level
+    log.setLevel(logging.NOTSET)
+    captured = io.StringIO()
+    handler = logging.StreamHandler(captured)
+    handler.setLevel(logging.DEBUG)
+    root = logging.getLogger()
+    root_captured = io.StringIO()
+    root_handler = logging.StreamHandler(root_captured)
+    root_handler.setLevel(logging.INFO)
+    log.addHandler(handler)
+    root.addHandler(root_handler)
+    try:
+        asyncio.run(search_geocode("Lookupville", client=_LookupClient(200)))
+    finally:
+        log.removeHandler(handler)
+        root.removeHandler(root_handler)
+        log.setLevel(previous)
+    assert "Lookupville" not in captured.getvalue()
+    assert "Lookupville" not in root_captured.getvalue()
+
+
+def test_debug_log_records_status_and_hides_contacts() -> None:
+    log = logging.getLogger("arelis.weather.lookup")
+    previous = log.level
+    log.setLevel(logging.DEBUG)
+    captured = io.StringIO()
+    handler = logging.StreamHandler(captured)
+    handler.setLevel(logging.DEBUG)
+    log.addHandler(handler)
+    try:
+        asyncio.run(search_geocode("Lookupville", client=_LookupClient(200)))
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(search_geocode("you@example.com", client=_LookupClient(503)))
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(search_geocode("555-555-0123", client=_LookupClient(429)))
+    finally:
+        log.removeHandler(handler)
+        log.setLevel(previous)
+    text = captured.getvalue()
+    assert "Lookupville" in text
+    assert "status=200" in text
+    assert "status=503" in text
+    assert "status=429" in text
+    assert "you@example.com" not in text
+    assert "555-555-0123" not in text
+    assert "[redacted]" in text
 
 
 @pytest.mark.asyncio
