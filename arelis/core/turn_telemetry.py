@@ -124,7 +124,8 @@ class TurnTimer:
         self.route_reason = (route_reason or "default").strip() or "default"
         self.speak = bool(speak)
         self.user_chars = int(user_chars)
-        self.user_preview = _clip_preview(user_text)
+        # The words stay in chat. The log keeps the length.
+        del user_text
         self._t0 = time.perf_counter()
         self._first_delta_at: float | None = None
         self.summarize_ms = 0
@@ -307,7 +308,6 @@ class TurnTimer:
             "status": status,
             "speak": self.speak,
             "user_chars": self.user_chars,
-            "user_preview": self.user_preview,
             "total_ms": total,
             "model_ms": self.model_ms,
             "model_prefill_ms": self.model_prefill_ms,
@@ -331,13 +331,6 @@ class TurnTimer:
         if self.last_eval_count is not None:
             record["eval_count"] = self.last_eval_count
         return record
-
-
-def _clip_preview(text: str, limit: int = 160) -> str:
-    cleaned = " ".join((text or "").split())
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 1] + "…"
 
 
 def _jsonl_path(log_dir: Path | None = None) -> Path:

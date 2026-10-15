@@ -3,6 +3,10 @@
 ASSISTANT_DELTA and audio clips are intentionally omitted (too noisy). Turn
 latency stays in turns.log; this file answers “what happened on the bus?”
 for confirms, SMS, errors, and tool boundaries.
+
+Typed and spoken user text is a character count. A failed tool logs its
+class or status, not the message, because that message often repeats what
+the user just typed.
 """
 
 from __future__ import annotations
@@ -149,7 +153,10 @@ def log_side_effect(
         fields["ok"] = ok
     if confirm_id:
         fields["confirm"] = confirm_id
-    if detail:
+    if ok is False:
+        # The detail is the tool's own message, which can repeat typed text.
+        fields["status"] = "error"
+    elif detail:
         fields["detail"] = _clip(detail, 160)
     if session_id and session_id != "-":
         fields["session"] = session_id
@@ -172,7 +179,6 @@ def _format_event(event: Event) -> str:
         text = str(payload.get("text") or "")
         fields["chars"] = len(text)
         fields["source"] = payload.get("source") or "chat"
-        fields["preview"] = _clip(text, 80)
     elif event.type == EventType.ASSISTANT_DONE:
         text = str(payload.get("text") or "")
         fields["chars"] = len(text)
@@ -182,8 +188,15 @@ def _format_event(event: Event) -> str:
         fields["summary"] = _clip(str(payload.get("summary") or ""), 100)
     elif event.type == EventType.TOOL_RESULT:
         fields["tool"] = payload.get("tool") or "?"
-        fields["ok"] = bool(payload.get("ok"))
-        fields["preview"] = _clip(str(payload.get("output") or ""), 400)
+        ok = bool(payload.get("ok"))
+        fields["ok"] = ok
+        if ok:
+            fields["preview"] = _clip(str(payload.get("output") or ""), 400)
+        else:
+            fields["status"] = "error"
+            label = _tool_error_label(payload)
+            if label:
+                fields["error"] = label
     elif event.type in {EventType.TOOL_CONFIRM, EventType.TOOL_CONFIRM_REPLY}:
         fields["confirm"] = payload.get("id") or "?"
         fields["tool"] = payload.get("tool") or "?"
@@ -212,8 +225,8 @@ def _format_event(event: Event) -> str:
         if "ok" in payload:
             fields["ok"] = payload.get("ok")
     elif event.type == EventType.VOICE_TRANSCRIPT:
-        fields["chars"] = len(str(payload.get("text") or ""))
-        fields["preview"] = _clip(str(payload.get("text") or ""), 80)
+        text = str(payload.get("text") or "")
+        fields["chars"] = len(text)
     elif event.type == EventType.PHYSICS_VERB:
         fields["verb"] = payload.get("verb") or "?"
     elif event.type == EventType.TILE_VERB:
@@ -238,6 +251,31 @@ def _stamp() -> str:
     stamp = time.strftime("%H:%M:%S", time.localtime())
     millis = int((time.time() % 1) * 1000)
     return f"{stamp}.{millis:03d}"
+
+
+def _tool_error_label(payload: dict[str, Any]) -> str:
+    """Exception class or fail status. Never the message."""
+    found: list[object] = []
+    if payload.get("error_type") is not None:
+        found.append(payload.get("error_type"))
+    data = payload.get("data")
+    if isinstance(data, dict):
+        for key in ("error_type", "fail_class"):
+            if data.get(key) is not None:
+                found.append(data.get(key))
+    for item in found:
+        token = _status_token(str(item))
+        if token:
+            return token
+    return ""
+
+
+def _status_token(value: str) -> str:
+    """A class or status code. A sentence is a message, so it stays out."""
+    text = value.strip()
+    if not text or any(ch.isspace() for ch in text) or len(text) > 64:
+        return ""
+    return text
 
 
 def _clip(text: str, limit: int) -> str:
