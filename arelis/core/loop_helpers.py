@@ -9,6 +9,7 @@ from typing import Any
 from arelis.core.claims import (
     answer_looks_like_refusal,
     duration_days_claim_missing_kinds,
+    exactness_after_unresolved_weather,
     send_claim_missing_kinds,
     unsupported_exactness_reply,
     unsupported_send_claim_reply,
@@ -510,6 +511,8 @@ def _exactness_finish_refuse(
     # Compose/send turns must not die on "no retrieved page warrant" (R4 / S10).
     if send_path:
         return None
+    if any(item.kind == "weather_not_found" for item in ledger.items):
+        exact_need = exactness_after_unresolved_weather(exact_need)
     kinds = tuple(exact_need.kinds or ())
     if not kinds:
         return None

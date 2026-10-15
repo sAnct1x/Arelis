@@ -1044,6 +1044,18 @@ def detect_exactness_need(text: str, *, data_cell: bool | None = None) -> Exactn
     )
 
 
+def exactness_after_unresolved_weather(need: ExactnessNeed) -> ExactnessNeed:
+    """Drop the calculator warrant after a place lookup came back not_found.
+
+    Callers pass this only when the tool record says the lookup missed.
+    The reply text is not read. Digits in the place are what tripped math.
+    """
+    if not need.needs_calculator and "math" not in need.kinds:
+        return need
+    kinds = tuple(kind for kind in need.kinds if kind != "math")
+    return replace(need, needs_calculator=False, kinds=kinds)
+
+
 def apply_research_web_need(
     need: ExactnessNeed, *, research_mode: bool, text: str = ""
 ) -> ExactnessNeed:

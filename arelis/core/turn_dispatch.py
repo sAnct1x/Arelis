@@ -57,6 +57,25 @@ from arelis.core.turn_scratch import RoundScratch, strip_tool_schemas
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS
 
 
+def _weather_place_outside_ask(
+    calls: list[tuple[str, dict[str, Any]]], text: str
+) -> bool:
+    """True when a weather call names a place the user did not say.
+
+    Those stay serial. A not_found result can end the turn before the
+    guessed place runs. Fanout would run both before that result exists.
+    """
+    from arelis.tools.weather import weather_place_in_user_text
+
+    for name, args in calls:
+        if str(name or "") != "weather":
+            continue
+        place = str((args or {}).get("place") or "")
+        if place and not weather_place_in_user_text(place, text):
+            return True
+    return False
+
+
 def fill_round_calls(
     loop: Any,
     calls: list[tuple[str, dict[str, Any]]],
@@ -197,6 +216,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
     fanout_results: dict[int, tuple[int, Any]] | None = None
     if (
         bool(r.agent_cfg.get("read_fanout", True))
+        and not _weather_place_outside_ask(r.calls, r.text)
         and should_fanout_reads(
             r.calls,
             tool_names=r.tool_names,
@@ -336,6 +356,25 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if redirected[0] == "skip":
             continue
         _, name, args = redirected
+
+        if name == "weather" and ctx.weather_lookup == "not_found":
+            from arelis.tools.weather import weather_place_in_user_text
+
+            place = str(args.get("place") or "")
+            if not weather_place_in_user_text(place, r.text):
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {
+                            "text": (
+                                "weather lookup not_found; "
+                                "ignoring a place that was not asked"
+                            )
+                        },
+                    )
+                )
+                _record_block(name)
+                continue
 
         # After a successful SMS this turn, do not web_search contacts.
         if (

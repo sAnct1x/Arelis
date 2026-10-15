@@ -201,7 +201,8 @@ async def test_a_named_state_with_no_hit_does_not_ask() -> None:
     result = await stand.tool().run(place="Springfield, Illinois")
 
     assert not result.ok
-    assert result.output == "I couldn't get the forecast for Springfield, Illinois."
+    assert result.data.get("status") == "not_found"
+    assert result.output == "I couldn't find that place."
     assert "?" not in result.output
     assert stand.forecast == []
 
@@ -212,7 +213,8 @@ async def test_a_miss_is_the_plain_failure_line() -> None:
     result = await stand.tool().run(place="Springfield, Illinois")
 
     assert not result.ok
-    assert result.output == "I couldn't get the forecast for Springfield, Illinois."
+    assert result.data.get("status") == "not_found"
+    assert result.output == "I couldn't find that place."
     lowered = result.output.lower()
     for banned in _FORBIDDEN:
         assert banned not in lowered
@@ -459,7 +461,8 @@ async def test_empty_geocode_results_stay_not_found() -> None:
     result = await stand.tool().run(place="Paris")
 
     assert result.ok is False
-    assert result.output == "I couldn't get the forecast for Paris."
+    assert result.data.get("status") == "not_found"
+    assert result.output == "I couldn't find that place."
 
 
 class _LookupClient:

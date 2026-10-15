@@ -147,11 +147,13 @@ class WeatherTool:
         except Exception as exc:  # a dead lookup is the plain failure line
             if _service_down(exc):
                 return _unreachable()
+            if _lookup_not_found(exc):
+                return _not_found()
             return _miss(asked)
         named = _rows_for_named_region(asked, rows)
         if named is not None:
             if not named:
-                return _miss(asked)
+                return _not_found()
             return await self._from_row(asked, named[0])
         choice = self._pick_open(rows)
         if isinstance(choice, list):
@@ -163,7 +165,7 @@ class WeatherTool:
                 data={"ambiguous": True, "alternatives": labels[:3]},
             )
         if choice is None:
-            return _miss(asked)
+            return _not_found()
         return await self._from_row(asked, choice)
 
     async def _geocode_rows(self, asked: str) -> list[dict[str, Any]]:
@@ -262,7 +264,12 @@ class WeatherTool:
         return ToolResult(
             ok=True,
             output=line,
-            data={"place": label, "latitude": lat, "longitude": lon},
+            data={
+                "status": LOOKUP_RESOLVED,
+                "place": label,
+                "latitude": lat,
+                "longitude": lon,
+            },
         )
 
     def _geocode_fn(self, query: str) -> Any:
@@ -483,6 +490,20 @@ class Here:
     longitude: float | None = None
 
 
+LOOKUP_NOT_FOUND = "not_found"
+LOOKUP_RESOLVED = "resolved"
+_NOT_FOUND_LINE = "I couldn't find that place."
+
+
+def _not_found() -> ToolResult:
+    """The gazetteer answered and had no place. The status is that fact."""
+    return ToolResult(
+        ok=False,
+        output=_NOT_FOUND_LINE,
+        data={"status": LOOKUP_NOT_FOUND},
+    )
+
+
 def _miss(place: str) -> ToolResult:
     return ToolResult(
         ok=False,
@@ -567,6 +588,22 @@ def _service_down(exc: BaseException) -> bool:
         code = int(getattr(exc.response, "status_code", 0) or 0)
         return code == 429 or code >= 500
     return False
+
+
+def _lookup_not_found(exc: BaseException) -> bool:
+    """404 from the gazetteer. The message is not consulted."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = int(getattr(exc.response, "status_code", 0) or 0)
+        return code == 404
+    return False
+
+
+def weather_place_in_user_text(place: str, text: str) -> bool:
+    """True when the call's place string appears in what the user said."""
+    asked = " ".join(str(place or "").split()).casefold()
+    if not asked:
+        return False
+    return asked in " ".join(str(text or "").split()).casefold()
 
 
 _US_COUNTRY_NAMES = frozenset(
