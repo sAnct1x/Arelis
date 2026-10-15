@@ -152,6 +152,7 @@ def _cas_worker_still_inside_compute() -> bool:
     return False
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_a_pathological_series_is_killed_with_its_child(
     monkeypatch: pytest.MonkeyPatch,
@@ -186,9 +187,8 @@ async def test_a_pathological_series_is_killed_with_its_child(
     assert result.data.get("fail_class") == "fail:timeout"
     assert elapsed < 8.0, f"took {elapsed:.1f}s; the child was not killed"
 
-    # A loaded worker can take more than a second to reap the child.
-    # The asserts stay: no leftover child, and no thread still in cas.py.
-    deadline = time.monotonic() + 5.0
+    # The child is reaped within a second, and no thread is still in cas.py.
+    deadline = time.monotonic() + 1.0
     leftover: list[object] = []
     while time.monotonic() < deadline:
         leftover = [p for p in multiprocessing.active_children() if p.pid not in before]

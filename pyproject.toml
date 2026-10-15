@@ -209,6 +209,9 @@ arelis = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "serial: timing-sensitive; excluded from the xdist step and run right after it",
+]
 # pytest-qt. The app is PySide6. Leaving this blank lets the plugin guess,
 # and a machine with another binding installed would bind the wrong one.
 qt_api = "pyside6"

@@ -40,12 +40,12 @@ def test_ci_runs_ruff_once_before_the_matrix() -> None:
 
 
 # Same block on every workflow that push or pull_request can start.
-# main does not cancel, so a newer main push cannot drop the run already
-# on the branch tip. Nightly and tool choice are schedule-only and keep
-# their own group.
+# A pull request groups on the PR number. A main push groups on the commit
+# SHA, so queued main runs are never cancelled. Nightly and tool choice
+# are schedule-only and keep their own group.
 _PUSH_PR_CONCURRENCY = (
     "concurrency:\n"
-    "  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}\n"
+    "  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.number || github.ref }}\n"
     "  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}\n"
 )
 
@@ -79,6 +79,7 @@ def test_push_and_pull_request_workflows_share_one_concurrency_group() -> None:
         if _push_or_pull_request(text):
             push_pr.append(path.name)
             assert _PUSH_PR_CONCURRENCY in text, path.name
+            assert "github.head_ref" not in text, path.name
     assert "ci.yml" in push_pr
     assert "nightly-live.yml" not in push_pr
     assert "tool-choice.yml" not in push_pr
@@ -89,15 +90,39 @@ def test_push_and_pull_request_workflows_share_one_concurrency_group() -> None:
 
 
 def test_test_job_runs_xdist_and_keeps_pytest_cov() -> None:
+    from scripts.ci_pytest import command, finish
+
     text = CI_YML.read_text(encoding="utf-8")
     test_block = text.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
-    assert "-n auto" in test_block
+    assert "python scripts/ci_pytest.py xdist" in test_block
+    assert "python scripts/ci_pytest.py serial" in test_block
     assert "scripts/ci_tier.py" in test_block
     on_block = text.split("\njobs:", 1)[0]
     assert "paths:" not in on_block
     pyproject = PYPROJECT.read_text(encoding="utf-8")
     assert "pytest-xdist" in pyproject
     assert "pytest-cov" in pyproject
+    assert "serial:" in pyproject
+
+    xdist = command("xdist", coverage=True, paths=[])
+    serial = command("serial", coverage=True, paths=["tests/test_cas.py"])
+    assert xdist[xdist.index("-n") + 1] == "auto"
+    assert "not serial" in xdist
+    assert "--cov=arelis" in xdist
+    assert "--cov-branch" in xdist
+    assert "--cov-append" not in xdist
+    junit = serial.index("--junitxml=pytest-results-serial.xml")
+    assert serial[junit - 2 : junit] == ["-m", "serial"]
+    assert "-n" not in serial
+    assert "--cov=arelis" in serial
+    assert "--cov-branch" in serial
+    assert "--cov-append" in serial
+    plain = command("xdist", coverage=False, paths=["tests/test_earth.py"])
+    assert "--cov=arelis" not in plain
+    assert plain[-1] == "tests/test_earth.py"
+    assert finish("serial", 5) == 0
+    assert finish("serial", 1) == 1
+    assert finish("xdist", 5) == 5
 
 
 def test_ci_ruff_pin_matches_pyproject() -> None:

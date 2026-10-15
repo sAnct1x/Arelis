@@ -4,11 +4,11 @@ on:
   push:
   pull_request:
 
-# One ref, one run. A second commit on a pull request cancels the previous
-# matrix. main does not cancel, so a newer push cannot drop the run that is
-# already the branch tip.
+# A pull request groups on its number, so a second commit cancels the
+# previous matrix. A main push groups on the commit SHA, so a queued main
+# run is never cancelled by the next one.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -181,16 +181,18 @@ jobs:
           python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
           python -m pip install -e ".[dev]" -c qt-constraints.txt
 
-      # -n auto is pytest-xdist. pytest-cov stays installed with the dev
-      # extra, so a --cov run still combines worker coverage.
+      # xdist first, then the serial marker in the same job. Ubuntu records
+      # branch coverage on the xdist step and appends the serial step.
       - name: Pytest
         if: steps.tier.outputs.tier != 'docs'
         shell: bash
         run: |
           echo "tier=${{ steps.tier.outputs.tier }} area=${{ steps.tier.outputs.area }} reason=${{ steps.tier.outputs.reason }}"
-          # macOS /bin/bash is 3.2 and has no mapfile. Python reads the path
-          # list and runs pytest, so every runner uses the same command.
-          python -c "import os, pathlib, subprocess, sys; p = pathlib.Path(os.environ['RUNNER_TEMP']) / 'ci-tier-paths.txt'; paths = [ln.strip() for ln in p.read_text(encoding='utf-8').splitlines() if ln.strip()] if p.is_file() else []; raise SystemExit(subprocess.call([sys.executable, '-m', 'pytest', '-q', '--tb=short', '--junitxml=pytest-results.xml', '-n', 'auto', *paths]))"
+          python scripts/ci_pytest.py xdist
+      - name: Pytest serial
+        if: steps.tier.outputs.tier != 'docs'
+        shell: bash
+        run: python scripts/ci_pytest.py serial
       - name: Pytest not required for this tier
         if: steps.tier.outputs.tier == 'docs'
         run: echo "tier=docs reason=${{ steps.tier.outputs.reason }}; pytest not run"
@@ -201,7 +203,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pytest-${{ matrix.os }}-${{ matrix.python-version }}
-          path: pytest-results.xml
+          path: |
+            pytest-results.xml
+            pytest-results-serial.xml
           if-no-files-found: ignore
 
       # Unit tests can prove the XML says the right thing; only Windows can prove

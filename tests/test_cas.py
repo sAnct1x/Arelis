@@ -128,19 +128,14 @@ async def test_cas_definite_ln_over_one_plus_x_squared(
     assert "8" in closed
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
-async def test_cas_fiftieth_derivative_is_minus_fifty_factorial(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_cas_fiftieth_derivative_is_minus_fifty_factorial() -> None:
     """The closed form, not the 8s quiet-process budget.
 
-    Under pytest-xdist this derivative shares the runner. The 8s budget
-    then returns fail:timeout, and the abandoned in-process worker is
-    still inside cas.py for the kill test that runs next on that worker.
+    Serial: the 8s budget is the real one, and an xdist worker does not
+    have a quiet machine to spend it on.
     """
-    import arelis.tools.cas as cas
-
-    monkeypatch.setattr(cas, "_TIMEOUT_S", 45.0)
     result = await CasTool().run(
         action="diff",
         expr="1/(x**2-1)",

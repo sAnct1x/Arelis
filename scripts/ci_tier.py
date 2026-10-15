@@ -1,14 +1,18 @@
 """Pick which tests a pull request has to run.
 
 Push is not tiered. ``decide`` returns the full suite for every push,
-including push to main, even if the diff is only docs.
+including a branch that is not main, even if the diff is only docs.
 
 Pull requests:
 
-* docs: markdown, docs/, assets, fonts, images, LICENSE. Pytest does not run.
-* area: every non-doc path sits in one mapped area. Pytest runs that area.
-* full: routing, prompts, tool schemas, shared core, workflows, locks,
-  several areas, or anything that is not confidently mapped.
+* docs: ``*.md``, ``docs/``, and non-packaged repo files (LICENSE, the
+  repo-root assets tree, images that do not ship in the package).
+* area: every other path sits in one mapped area. Pytest runs the tests
+  that statically import that area, including any serial tests.
+* full: routing, prompts, tool schemas, shared core, safety gates (SMS,
+  send, confirm, email), packaged fonts and assets, workflows, locks,
+  test fixtures, several areas, an empty file list, or anything that is
+  not confidently mapped.
 
 The workflow calls this from inside the existing jobs. It does not skip
 those jobs, so the required check names still report a conclusion.
@@ -17,9 +21,11 @@ those jobs, so the required check names still report a conclusion.
 from __future__ import annotations
 
 import argparse
+import ast
 import fnmatch
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -32,6 +38,7 @@ _FULL: tuple[tuple[str, tuple[str, ...]], ...] = (
             ".github/",
             "tests/conftest.py",
             "scripts/ci_tier.py",
+            "scripts/ci_pytest.py",
             "tests/test_ci_gate.py",
             "tests/test_ci_tier.py",
         ),
@@ -62,62 +69,33 @@ _FULL: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("routing", ("arelis/llm/", "arelis/eval/")),
     ("prompts", ("arelis/persona/",)),
     ("tools", ("arelis/tools/",)),
+    ("packaged", ("arelis/assets/", "arelis/ui/fonts/")),
 )
 
-# name, paths that belong to the area, pytest targets for that area.
-# A helper can mark the area without itself being a test.
+# name, source prefixes, import-module prefixes.
+# The test list is every tests/test_*.py that imports one of those modules.
+# Calendar booking imports the agenda tool. World physics imports
+# spatial.scene and spatial.depth. Those modules are the area.
 _AREAS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
-    (
-        "browser",
-        ("arelis/browser/", "tests/test_browser_*.py"),
-        ("tests/test_browser_*.py",),
-    ),
-    (
-        "calendar",
-        ("arelis/calendar/", "tests/test_calendar*.py"),
-        ("tests/test_calendar*.py", "tests/test_agenda*.py"),
-    ),
-    (
-        "earth",
-        ("arelis/earth/", "tests/earth_helpers.py", "tests/test_earth*.py"),
-        ("tests/test_earth*.py",),
-    ),
-    (
-        "memory",
-        ("arelis/memory/", "tests/test_memory*.py"),
-        ("tests/test_memory*.py",),
-    ),
+    ("browser", ("arelis/browser/",), ("arelis.browser",)),
+    ("calendar", ("arelis/calendar/",), ("arelis.calendar", "arelis.tools.agenda")),
+    ("earth", ("arelis/earth/",), ("arelis.earth",)),
+    ("memory", ("arelis/memory/",), ("arelis.memory",)),
     (
         "physics",
-        ("arelis/physics/", "tests/test_physics*.py", "tests/test_collision.py"),
-        ("tests/test_physics*.py", "tests/test_collision.py"),
+        ("arelis/physics/",),
+        ("arelis.physics", "arelis.spatial.scene", "arelis.spatial.depth"),
     ),
-    (
-        "sms",
-        ("arelis/sms.py", "arelis/sms_*.py", "tests/test_sms*.py"),
-        ("tests/test_sms*.py",),
-    ),
-    (
-        "voice",
-        (
-            "arelis/voice/",
-            "tests/voice_helpers.py",
-            "tests/test_voice_*.py",
-            "tests/test_wake.py",
-            "tests/test_speech_text.py",
-            "tests/test_stt_repair.py",
-        ),
-        (
-            "tests/test_voice_*.py",
-            "tests/test_wake.py",
-            "tests/test_speech_text.py",
-            "tests/test_stt_repair.py",
-        ),
-    ),
+    ("voice", ("arelis/voice/",), ("arelis.voice",)),
+)
+
+AREA_IMPORTS: tuple[tuple[str, tuple[str, ...]], ...] = tuple(
+    (name, imports) for name, _sources, imports in _AREAS
 )
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp"}
 _TEXT_NAMES = {"LICENSE", "COPYING"}
+_SAFETY_TOKENS = ("sms", "send", "confirm", "email", "mail")
 
 
 @dataclass(frozen=True)
@@ -147,59 +125,101 @@ def _matches(path: str, pattern: str) -> bool:
     return path == pattern
 
 
+def _is_safety(path: str) -> bool:
+    """SMS, send, confirm, and email gates. A miss here runs the full suite."""
+    if not path.startswith("arelis/") or not path.endswith(".py"):
+        return False
+    name = path.rsplit("/", 1)[-1].lower()
+    return any(token in name for token in _SAFETY_TOKENS)
+
+
+def _is_test_infra(path: str) -> bool:
+    parts = path.split("/")
+    if not parts or parts[0] != "tests":
+        return False
+    return parts[-1] == "conftest.py" or "fixtures" in parts
+
+
 def _full_reason(path: str) -> str | None:
+    if _is_safety(path):
+        return "safety"
+    if _is_test_infra(path):
+        return "ci"
     for reason, patterns in _FULL:
         if any(_matches(path, pattern) for pattern in patterns):
             return reason
     return None
 
 
-def _area_name(path: str) -> str | None:
-    found: list[str] = []
-    for name, patterns, _tests in _AREAS:
-        if any(_matches(path, pattern) for pattern in patterns):
-            found.append(name)
-    if len(found) == 1:
-        return found[0]
-    return None
+def _imported_modules(path: Path) -> set[str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return set()
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            found.add(node.module)
+    return found
+
+
+def _imports_any(modules: set[str], roots: tuple[str, ...]) -> bool:
+    return any(mod == root or mod.startswith(root + ".") for root in roots for mod in modules)
+
+
+@lru_cache(maxsize=8)
+def _area_tests(root_text: str) -> dict[str, tuple[str, ...]]:
+    root = Path(root_text)
+    tests_dir = root / "tests"
+    files = sorted(tests_dir.glob("test_*.py")) if tests_dir.is_dir() else []
+    parsed = [(path, _imported_modules(path)) for path in files]
+    listed: dict[str, tuple[str, ...]] = {}
+    for name, _sources, imports in _AREAS:
+        hits = [
+            path.relative_to(root).as_posix()
+            for path, modules in parsed
+            if _imports_any(modules, imports)
+        ]
+        listed[name] = tuple(hits)
+    return listed
+
+
+def area_tests(area: str, root: Path | None = None) -> tuple[str, ...]:
+    """Test files whose static imports reach ``area``. Serial tests stay in."""
+    return _area_tests(str((root or REPO).resolve())).get(area, ())
+
+
+def _areas_for(path: str, listed: dict[str, tuple[str, ...]]) -> list[str]:
+    sources = [
+        name
+        for name, prefixes, _imports in _AREAS
+        if any(_matches(path, prefix) for prefix in prefixes)
+    ]
+    if sources:
+        return sources
+    return [name for name, tests in listed.items() if path in tests]
 
 
 def _is_doc(path: str) -> bool:
-    if path.startswith("tests/"):
+    """Markdown, docs/, and files that do not ship in the package.
+
+    Anything under ``arelis/`` ships or is source. It is never a docs change.
+    """
+    if path.startswith(("arelis/", "tests/")):
         return False
-    if path in _TEXT_NAMES or Path(path).name in _TEXT_NAMES:
+    name = path.rsplit("/", 1)[-1]
+    if name in _TEXT_NAMES:
         return True
     lower = path.lower()
     if lower.endswith((".md", ".markdown", ".rst")):
         return True
     if lower == "docs" or lower.startswith("docs/"):
         return True
-    if lower.startswith("assets/") or lower.startswith("arelis/assets/"):
-        return True
-    if lower.startswith("arelis/ui/fonts/"):
+    if lower.startswith("assets/"):
         return True
     return Path(lower).suffix in _IMAGE_SUFFIXES
-
-
-def _expand(patterns: tuple[str, ...], root: Path) -> tuple[str, ...]:
-    found: list[str] = []
-    for pattern in patterns:
-        if any(ch in pattern for ch in "*?["):
-            matches = sorted(root.glob(pattern))
-        else:
-            candidate = root / pattern
-            matches = [candidate] if candidate.is_file() else []
-        for match in matches:
-            if match.is_file():
-                found.append(match.relative_to(root).as_posix())
-    return tuple(sorted(set(found)))
-
-
-def _tests_for(area: str, root: Path) -> tuple[str, ...]:
-    for name, _patterns, tests in _AREAS:
-        if name == area:
-            return _expand(tests, root)
-    return ()
 
 
 def decide(
@@ -221,6 +241,7 @@ def _from_paths(paths: list[str], root: Path) -> Tier:
     if not cleaned:
         return Tier("full", "unknown")
 
+    listed = _area_tests(str(root.resolve()))
     full_reasons: list[str] = []
     areas: list[str] = []
     saw_doc = False
@@ -229,9 +250,11 @@ def _from_paths(paths: list[str], root: Path) -> Tier:
         if reason is not None:
             full_reasons.append(reason)
             continue
-        area = _area_name(path)
-        if area is not None:
-            areas.append(area)
+        matched = _areas_for(path, listed)
+        if len(matched) > 1:
+            return Tier("full", "mixed")
+        if len(matched) == 1:
+            areas.append(matched[0])
             continue
         if _is_doc(path):
             saw_doc = True
@@ -248,7 +271,7 @@ def _from_paths(paths: list[str], root: Path) -> Tier:
         return Tier("full", "mixed")
     if len(unique_areas) == 1:
         area = unique_areas[0]
-        tests = _tests_for(area, root)
+        tests = listed[area]
         if not tests:
             return Tier("full", "unknown")
         return Tier("area", "area", area=area, tests=tests)
