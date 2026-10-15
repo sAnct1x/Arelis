@@ -156,6 +156,18 @@ def _hand_off_to_document(
     r.messages.append({"role": "user", "content": document_force_notice()})
 
 
+def _plain_weather_repeat_reply(ctx: Any) -> str:
+    """Words for the user when a repeated weather block ends the turn.
+
+    The place already stored on the turn is the whole sentence. The raw
+    forecast and the tool name stay out of the bubble.
+    """
+    place = str(getattr(ctx, "weather_resolved_place", "") or "").strip()
+    if place:
+        return f"I have the forecast for {place}."
+    return "I already have that forecast."
+
+
 async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> bool:
     """Confirm and execute ``r.calls``. True ends the turn.
 
@@ -792,28 +804,25 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if ended:
             return True
 
-    # A round that only repeated an already explained block used to burn
-    # every remaining step. The first block stays in the transcript so the
-    # model can call whatever is still owed. The next one ends the turn
-    # only when nothing named is still owed. A file they asked for is
-    # still owed after a weather block, so ask for that tool. The nudge
-    # cap is the same one the no-call hold uses. Past the cap, ship the
-    # last real result as before.
+    # A round that only repeated an already explained weather block used to
+    # burn every remaining step. The first block stays in the transcript so
+    # the model can call whatever is still owed. The next weather block ends
+    # the turn only when nothing named is still owed. Send, look, and camera
+    # blocks keep going. A file they asked for is still owed after a weather
+    # block, so ask for that tool. The nudge cap is the same one the no-call
+    # hold uses. Past the cap, say the place already stored on the turn.
+    weather_repeat = bool(blocked_names) and all(n == "weather" for n in blocked_names)
     if (
         ran_calls == 0
-        and blocked_names
+        and weather_repeat
         and all(ctx.guard_block_counts.get(n, 0) >= 2 for n in blocked_names)
     ):
         if await hold_for_owed_tools(loop, ctx, r, note_assistant=False):
             return False
-        line = (ctx.last_ok_tool_out or "").strip()
-        if not line:
-            line = f"This {blocked_names[-1]} call did not run."
         await loop._finish(
-            line,
+            _plain_weather_repeat_reply(ctx),
             r.sources,
             streamed="",
-            passthrough_tool=(ctx.last_ok_tool_name or ""),
         )
         return True
 

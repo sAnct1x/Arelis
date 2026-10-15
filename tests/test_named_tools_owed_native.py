@@ -588,6 +588,96 @@ def test_flag_off_repeated_weather_block_without_document_ends() -> None:
     assert "springfield station" in final_text.lower()
 
 
+def test_flag_off_repeated_camera_block_does_not_end_turn() -> None:
+    """A repeated camera cap on a look turn does not take the weather end path.
+
+    The first snapshot runs. The next two hit the camera cap and do not run.
+    That second block used to finish the turn. The calculator call after it
+    still has to run.
+    """
+    script = [
+        _call("camera", {"action": "snapshot"}),
+        _call("camera", {"action": "snapshot"}),
+        _call("camera", {"action": "snapshot"}),
+        _call("calculator", {"expression": "1+1"}),
+        [("token", "kept going")],
+    ]
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            "look at the camera and tell me what you see",
+            script,
+            ["camera", "calculator"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            capture_thinking=True,
+        )
+    )
+    assert tool_results == [("camera", True), ("calculator", True)], tool_results
+    assert any(line.startswith("round 4/") for line in thinking), thinking
+    assert "camera_eval.jpg" not in final_text
+    assert "did not run" not in final_text.lower()
+    assert not any("max rounds" in line for line in thinking), thinking
+
+
+def test_flag_off_repeated_weather_block_ends_in_plain_words() -> None:
+    """Ending a repeated weather block speaks the stored place, not the tool text."""
+    script = [_call("weather", {"place": "Springfield", "days": 1}) for _ in range(6)]
+    script.append([("token", "done")])
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            _C02_WEATHER_DOCUMENT,
+            script,
+            ["weather", "document"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            registry=_ambiguous_weather_registry(),
+            capture_thinking=True,
+        )
+    )
+    assert [name for name, _ok in tool_results] == ["weather"], tool_results
+    lowered = final_text.lower()
+    assert "springfield station" in lowered
+    assert "place:" not in lowered
+    assert "now:" not in lowered
+    assert "72f" not in lowered
+    assert "did not run" not in lowered
+    assert "weather" not in lowered
+    assert not any("max rounds" in line for line in thinking), thinking
+
+
+def test_flag_off_ambiguous_resolved_place_is_not_home() -> None:
+    """An ambiguous resolved place is not a request for the user's home.
+
+    The ask names no city. Weather still ran with a place and came back
+    ambiguous, so the missing-place list would be home. That check has to
+    clear it. The model is told to answer from the reading it has.
+    """
+    script = [
+        _call("weather", {"place": "Springfield", "days": 3}),
+        [("token", "Here is the forecast.")],
+    ]
+    extras: dict = {}
+    final_text, tool_results, _thinking = asyncio.run(
+        _run_agent_with_script(
+            "What's the weather like?",
+            script,
+            ["weather"],
+            _FLAG_OFF,
+            registry=_ambiguous_weather_registry(),
+            extras=extras,
+        )
+    )
+    user_lines = [
+        str(message.get("content") or "")
+        for message in extras["messages"]
+        if message.get("role") == "user"
+    ]
+    assert any("Answer the user now" in line for line in user_lines), user_lines
+    assert not any(
+        "without place for the user's own location" in line for line in user_lines
+    ), user_lines
+    assert tool_results[0] == ("weather", True), tool_results
+    assert "forecast" in final_text.lower()
+
+
 def test_flag_off_owed_nudge_respects_max_tool_nudges() -> None:
     """Flag off: the owed-tool hold still stops at _MAX_TOOL_NUDGES."""
     script = [
