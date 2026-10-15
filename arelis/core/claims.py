@@ -970,18 +970,13 @@ def detect_exactness_need(text: str, *, data_cell: bool | None = None) -> Exactn
     if needs_weather and _TEMP_SCALE.search(text or ""):
         if not re.search(r"(?i)\b(today|tomorrow|tonight|outside|forecast|weather)\b", text or ""):
             needs_weather = False
-    # The hour question names a room file and the word temperature. Exactness
-    # still called that weather, and the force nudge ran after data_cell had
-    # already printed the table. Only when this turn can call the tool and
-    # the room actually has that file.
+    # A room data file that says temperature is not a forecast.
     if needs_weather and data_cell:
         from arelis.core.intent_catalog import data_cell_enabled, room_data_file_ask
 
         if data_cell_enabled() and room_data_file_ask(text or ""):
             needs_weather = False
-    # A weather ask is Open-Meteo, not a news page. Tagging both made a missed
-    # weather call refuse with "no retrieved page warrant" — the 9am job mailed
-    # that sentence instead of a forecast.
+    # A forecast ask is not a page warrant.
     if needs_web and needs_weather:
         needs_web = False
     # Inbox / calendar / chores are not news. "summarize the latest messages"
@@ -1052,11 +1047,9 @@ def detect_exactness_need(text: str, *, data_cell: bool | None = None) -> Exactn
 def apply_research_web_need(
     need: ExactnessNeed, *, research_mode: bool, text: str = ""
 ) -> ExactnessNeed:
-    """Research role adds a page warrant — except weather, which is Open-Meteo.
+    """A research role adds a page warrant.
 
-    Jobs used to default to role=research. That stamped ``web`` onto a forecast
-    prompt, so the 9am mail was a page-warrant refusal instead of a reading.
-    A derivation on the research chip is still algebra, not a page hunt.
+    A forecast, a derivation, and arithmetic do not take one.
     """
     if not research_mode or need.needs_web_evidence:
         return need
@@ -1177,12 +1170,12 @@ def evidence_force_notice() -> str:
 
 
 def weather_force_notice() -> str:
-    """One-shot nudge when a weather ask never called the weather tool."""
+    """One-shot nudge when a weather ask never called weather."""
     return (
         "This turn asks about the weather/forecast/temperature. "
-        "Call the weather tool now. For another city pass place (a name, not "
-        "coordinates). days includes today: tomorrow needs 2 or more (default 3). "
-        "Do not web_search or scrape AccuWeather/weather.com. Do not invent a forecast."
+        "Call weather now. Pass place as they said it, or omit place for "
+        "where they are. Do not web_search or scrape a forecast site. "
+        "Do not invent a forecast."
     )
 
 
@@ -1506,7 +1499,7 @@ def unsupported_exactness_reply(
             "result this turn, and I will not invent one."
         )
     if "weather" in kinds:
-        return "I don't know — I don't have a weather tool reading for that, so I won't guess."
+        return "I don't know. I don't have a forecast for that, so I won't guess."
     if "web" in kinds:
         return (
             "I don't know — I don't have a retrieved page warrant for that "

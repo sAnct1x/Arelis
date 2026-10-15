@@ -319,7 +319,7 @@ async def main() -> int:
         rows=2,
     )
     await step("location", "user_location")
-    await step("weather", "weather", days=1)
+    await step("weather", "weather")
     if me is not None:
         await step("contacts_me", "contacts", action="get", who="me")
     else:
@@ -503,7 +503,7 @@ async def main() -> int:
         ),
         ConversationTurn(
             id="p_weather",
-            user="What's the weather today? Call the weather tool with days=1.",
+            user="What's the weather today? Call weather.",
             expect_tools=("weather",),
         ),
         ConversationTurn(

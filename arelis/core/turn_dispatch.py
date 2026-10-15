@@ -13,7 +13,6 @@ from arelis.core.agenda_complete import (
 )
 from arelis.core.agent_loop import (
     _MAX_THINKING_SNIPPET,
-    _MAX_TOOL_NUDGES,
     write_after_algebra_notice,
 )
 from arelis.core.call_redirects import apply_redirects
@@ -24,7 +23,6 @@ from arelis.core.email_complete import (
 from arelis.core.events import Event, EventType
 from arelis.core.intent_catalog import data_cell_should_reject, room_data_file_names
 from arelis.core.look import look_call_blocked
-from arelis.core.no_call_finish import hold_for_owed_tools, owed_tool_names
 from arelis.core.preflight import (
     looks_like_browser_click_signin,
     looks_like_browser_open_ask,
@@ -57,7 +55,6 @@ from arelis.core.turn_execute import execute_call
 from arelis.core.turn_goal import LOGIN_READY_REPLY, browser_open_done_reply
 from arelis.core.turn_scratch import RoundScratch, strip_tool_schemas
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS
-from arelis.tools.weather import weather_place_key
 
 
 def fill_round_calls(
@@ -155,24 +152,6 @@ def _hand_off_to_document(
         return
     ctx.document_nudge_used = True
     r.messages.append({"role": "user", "content": document_force_notice()})
-
-
-def _plain_weather_repeat_reply(ctx: Any, *, document_owed: bool) -> str:
-    """Words for the user when a repeated weather block ends the turn.
-
-    The place already stored on the turn is the forecast sentence. When a
-    document is still owed and the nudge cap is already spent, say that
-    the brief was not saved. The raw forecast and the tool name stay out.
-    """
-    place = str(getattr(ctx, "weather_resolved_place", "") or "").strip()
-    if document_owed:
-        saved = "I couldn't save the brief."
-        if place:
-            return f"I have the forecast for {place}. {saved}"
-        return saved
-    if place:
-        return f"I have the forecast for {place}."
-    return "I already have that forecast."
 
 
 async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> bool:
@@ -274,7 +253,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if not isinstance(counts, dict):
             counts = {}
             ctx.guard_block_counts = counts
-        # Counts are kept for every guard. Only weather uses them to end the turn.
         counts[blocked_name] = int(counts.get(blocked_name, 0)) + 1
 
     def _drop_wander(*names: str) -> None:
@@ -526,32 +504,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 _record_block(name)
                 continue
 
-        # One successful weather fetch per place. A second call for that
-        # place does not run. The model gets a tool result that says so.
-        if name == "weather":
-            wx_key = weather_place_key(str(args.get("place") or ""))
-            if wx_key in r.weather_ok_places:
-                resolved = str(getattr(ctx, "weather_resolved_place", "") or "").strip()
-                if resolved:
-                    notice = (
-                        "This weather call did not run. "
-                        f"The place was already resolved to {resolved}. "
-                        "Use that result or ask the user once."
-                    )
-                else:
-                    notice = (
-                        "This weather call did not run. "
-                        "Weather for that place was already fetched this turn. "
-                        "Use that result or ask the user once."
-                    )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                )
-                r.messages.append(loop._tool_message(name, notice))
-                loop._trace.append(f"{name} duplicate fetch blocked")
-                _record_block(name)
-                continue
-
         if name == "workspace":
             ws_path = str(args.get("path") or "")
             if is_tool_cache_path(ws_path):
@@ -785,7 +737,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             fail_counts=r.fail_counts,
             skip_counts=r.skip_counts,
             messages=r.messages,
-            tool_names=r.tool_names,
             drop_wander=_drop_wander,
         )
         if action == STOP:
@@ -805,37 +756,9 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             round_i=round_i,
             call_i=call_i,
             fanout_results=fanout_results,
-            later_weather=any(
-                other == "weather" for other, _ in r.calls[call_i + 1 :]
-            ),
         )
         if ended:
             return True
-
-    # A round that only repeated an already explained weather block used to
-    # burn every remaining step. The first block stays in the transcript.
-    # Send, look, and camera blocks keep going. If document is still owed,
-    # the hold asks for it while nudges remain, so that call can still run.
-    # Once the nudge cap is spent the hold stops. The reply is the place
-    # already stored on the turn, and the unsaved brief when that file is
-    # still owed.
-    weather_repeat = bool(blocked_names) and all(n == "weather" for n in blocked_names)
-    repeated_weather = (
-        ran_calls == 0
-        and weather_repeat
-        and all(ctx.guard_block_counts.get(n, 0) >= 2 for n in blocked_names)
-    )
-    if repeated_weather:
-        if await hold_for_owed_tools(loop, ctx, r, note_assistant=False):
-            return False
-        owed = owed_tool_names(loop, ctx, r)
-        document_owed = "document" in owed and ctx.nudges >= _MAX_TOOL_NUDGES
-        await loop._finish(
-            _plain_weather_repeat_reply(ctx, document_owed=document_owed),
-            r.sources,
-            streamed="",
-        )
-        return True
 
     if ctx.skip_finish_text:
         await loop._finish(ctx.skip_finish_text, r.sources, streamed="")

@@ -160,7 +160,6 @@ async def _ask(
         fail_counts={},
         skip_counts={},
         messages=[],
-        tool_names={name},
         drop_wander=lambda _name: None,
     )
     loop.last_action = action  # type: ignore[attr-defined]
@@ -358,7 +357,6 @@ async def test_private_url_card_has_no_batch_or_persist() -> None:
             fail_counts={},
             skip_counts={},
             messages=[],
-            tool_names={"browser"},
             drop_wander=lambda _name: None,
         )
     )

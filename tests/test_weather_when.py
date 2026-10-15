@@ -152,112 +152,16 @@ async def test_the_caps_hold() -> None:
     assert "past_days=7" in client.urls[0]
 
 
-# --------------------------------------------------------------------------
-# Through the tool
-# --------------------------------------------------------------------------
-
-
-class _Snapshot:
-    latitude = 40.0
-    longitude = -80.0
-
-    def has_coordinates(self) -> bool:
-        return True
-
-    def place(self) -> str:
-        return "Springfield, Illinois"
-
-
-class _Location:
-    def snapshot(self) -> _Snapshot:
-        return _Snapshot()
-
-
-def _patch_tool(monkeypatch: pytest.MonkeyPatch, seen: dict[str, Any]) -> None:
-    async def _forecast(lat: float, lon: float, **kw: Any) -> dict[str, Any]:
-        seen.update(kw)
-        return {
-            "current": {
-                "temperature_2m": 70.0,
-                "apparent_temperature": 69.0,
-                "precipitation": 0.0,
-                "weather_code": 0,
-            },
-            "daily": [
-                {
-                    "date": "2026-09-17",
-                    "weather_code": 0,
-                    "temperature_2m_max": 78.0,
-                    "temperature_2m_min": 60.0,
-                    "precipitation_probability_max": 60,
-                }
-            ],
-            "hourly": [
-                {
-                    "time": "2026-09-17T15:00",
-                    "temperature_2m": 74.0,
-                    "precipitation_probability": 80,
-                    "weather_code": 61,
-                }
-            ]
-            if kw.get("hours")
-            else [],
-        }
-
-    monkeypatch.setattr("arelis.tools.weather.fetch_forecast", _forecast)
-
-
-@pytest.mark.asyncio
-async def test_the_tool_reports_the_hour_and_its_own_chance(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A 60% day and an 80% 3pm are different answers; the hour has to win."""
-    seen: dict[str, Any] = {}
-    _patch_tool(monkeypatch, seen)
-
-    result = await WeatherTool(_Location()).run(place="", hours=6)
-
-    assert seen["hours"] == 6
-    assert "15:00" in result.output
-    assert "80%" in result.output
-    assert result.data["hourly"], "hourly never reached the caller"
-
-
-@pytest.mark.asyncio
-async def test_a_worded_hour_count_does_not_fail_the_turn(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The 9B writes hours="this afternoon". That must not raise."""
-    seen: dict[str, Any] = {}
-    _patch_tool(monkeypatch, seen)
-
-    result = await WeatherTool(_Location()).run(place="", hours="this afternoon")
-
-    assert result.ok, result.output
-    assert seen["hours"] == 0
-
-
-@pytest.mark.asyncio
-async def test_past_days_reaches_the_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: dict[str, Any] = {}
-    _patch_tool(monkeypatch, seen)
-
-    await WeatherTool(_Location()).run(place="", past_days=1)
-
-    assert seen["past_days"] == 1
-
-
-@pytest.mark.asyncio
-async def test_a_plain_ask_requests_no_extras(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: dict[str, Any] = {}
-    _patch_tool(monkeypatch, seen)
-
-    await WeatherTool(_Location()).run(place="")
-
-    assert seen["hours"] == 0
-    assert seen["past_days"] == 0
+def test_the_schema_is_one_optional_place() -> None:
+    """Hours and past days are not model-facing. One sentence is the result."""
+    props = WeatherTool.parameters_schema["properties"]
+    assert list(props) == ["place"]
+    assert WeatherTool.parameters_schema["required"] == []
+    assert "hours" not in props
+    assert "past_days" not in props
+    lowered = WeatherTool.description.lower()
+    assert "hours" not in lowered
+    assert "weather tool" not in lowered
 
 
 @pytest.mark.parametrize(
@@ -312,25 +216,18 @@ def test_the_injected_call_carries_the_hours() -> None:
     assert args["place"] == "Metropolis"
 
 
-def test_filling_only_widens_what_the_model_chose() -> None:
-    """A model that asked for 24 hours knows more than the regex does."""
+def test_fill_never_passes_days_hours_or_past_days() -> None:
     from arelis.tools.weather import fill_weather_args
 
-    kept = fill_weather_args({"hours": 24}, "will it rain at 3pm")
-    assert kept["hours"] == 24
+    kept = fill_weather_args({"hours": 24, "days": 3, "past_days": 1}, "will it rain at 3pm")
+    assert "hours" not in kept
+    assert "days" not in kept
+    assert "past_days" not in kept
 
     added = fill_weather_args({}, "will it rain at 3pm")
-    assert added["hours"] == 12
-
-    untouched = fill_weather_args({}, "what's the weather")
-    assert "hours" not in untouched
-
-
-def test_the_schema_offers_the_new_shape() -> None:
-    props = WeatherTool.parameters_schema["properties"]
-    assert "hours" in props
-    assert "past_days" in props
-    assert "hours" in WeatherTool.description
+    assert "hours" not in added
+    assert "days" not in added
+    assert "past_days" not in added
 
 
 def test_garbled_after_tomorrow_is_not_a_city() -> None:
@@ -377,7 +274,7 @@ def test_to_morrow_is_tomorrow_not_a_city() -> None:
     assert weather_wants_beyond_today(ask)
     stripped = fill_weather_args({"place": "Springfield", "days": 2}, ask)
     assert "place" not in stripped
-    assert stripped["days"] == 2
+    assert "days" not in stripped
     assert weather_places_missing(ask, {""}) == []
     # A named-city reading is not home. Profile coords still need a call.
     assert weather_places_missing(ask, {"springfield"}) == [""]
@@ -388,5 +285,6 @@ def test_named_city_still_keeps_place() -> None:
 
     kept = fill_weather_args({"place": "Chicago", "days": 3}, "weather in Chicago")
     assert kept["place"] == "Chicago"
+    assert "days" not in kept
     added = fill_weather_args({}, "weather in Chicago")
     assert added["place"] == "Chicago"

@@ -72,9 +72,6 @@ _SHORT_DESC: dict[str, str] = {
     "user_location": "user's saved place. not a web guess",
     "vision": "describe a local image",
     "watch": "house doors snapshot. not antivirus",
-    # "defaults to their own place" earns its length: measured 7/13 runs
-    # calling user_location first, which weather can never use because it
-    # refuses coordinates. Only the arms carrying this sentence got it right.
     "weather": "forecast. defaults to the user's own place, omit place for home, never look up their location first. place=city name, not coords",
     "web_fetch": "http(s) APIs / JSON. not pages. method=POST|PUT|PATCH|DELETE + headers/body for a real API; non-GET asks first",
     "web_search": "quick lookup. sourced report is research_report. never guess a url",
@@ -90,7 +87,7 @@ confirm: writes/sends = card, not a chat ask. Never claim a side effect unless a
 browser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no goto_sign_in.
 desktop: your Windows session; look=screenshot (grabs+reads); no shell; no raw exe; no password; stop Pay|delete|UAC.
 web: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.
-weather: call the weather tool; not search; not scrape; place=name; two cities = two calls.
+weather: call weather; not search; not scrape; place=their words or omit; two cities = two calls.
 location: user_location; do not web-guess. not before weather, weather resolves its own place.
 sms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.
 email: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.

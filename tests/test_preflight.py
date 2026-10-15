@@ -9,7 +9,8 @@ def test_weather_intent() -> None:
     hints = detect_intents("What's the weather like?")
     assert any(h.kind == "weather" for h in hints)
     msg = preflight_system_message("What's the weather like?")
-    assert msg and "weather tool" in msg.lower()
+    assert msg and "call weather" in msg.lower()
+    assert "weather tool" not in msg.lower()
 
 
 def test_sms_intent_with_body() -> None:

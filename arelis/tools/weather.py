@@ -1,254 +1,279 @@
-"""Local weather via Open-Meteo, no model-invented URLs, no JS weather sites."""
+"""Forecast for a named place, or for where the user is."""
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
+
+import httpx
 
 from arelis.briefing.weather import (
     describe_weather_code,
     fetch_forecast,
-    geocode_place,
-    resolve_place,
+    geocode_search_names,
+    place_region_match,
+    search_geocode,
 )
+from arelis.location.windows import read_windows_location
 from arelis.tools.base import ToolResult
 
 
-def _int_arg(raw: Any, *, default: int, lo: int, hi: int) -> int:
-    """Clamped int from a model-supplied value. Never raises.
-
-    The 9B passes ``days="today"`` and ``hours="this afternoon"`` often enough
-    that a ValueError here would be a routine turn failure rather than an edge
-    case, so a bad value falls back to the default instead.
-    """
-    try:
-        value = int(raw) if raw not in (None, "") else default
-    except (TypeError, ValueError):
-        value = default
-    return max(lo, min(hi, value))
-
-
 class WeatherTool:
-    """Forecast for the user's place, or a named city via ``place``. Confirm not required.
+    """One forecast. ``place`` is their words, or empty for where they are.
 
-    Only the user's place, unless they named another city in ``place``.
-    Coordinates cannot be passed in, and that is on purpose: small models invent
-    the lat/lon of whichever large city they have seen most often for "weather
-    outside", which returns a confident forecast for somewhere the user is not.
-    ``test_weather_ignores_model_invented_coords`` pins that.
-
-    ``run`` used to read latitude/longitude from kwargs as a fallback, which four
-    different places then described four different ways, the schema declared
-    neither, the description forbade both, the skill card said to pass them for a
-    named place, and the failure message asked for them. None of it worked: the
-    profile always won, so a named place silently returned home weather, and once
-    the cross-tool-args gate declared its keys an undeclared latitude would have
-    been rejected outright. A named city is ``place``: this tool geocodes it.
+    Coordinates are not a parameter.
     """
 
     name = "weather"
     description = (
-        "Get current conditions and the next few days of forecast from Open-Meteo. "
-        "Default is the user's profile location. For another city pass place "
-        "(a name this tool geocodes, never coordinates). "
-        "days is how many daily rows including today: 1 is today only, "
-        "tomorrow needs 2 or more, default 3, up to 16. "
-        "For a time of day ('will it rain at 3pm', 'this afternoon') pass "
-        "hours, a daily row only carries the day's maximum chance and cannot "
-        "say when. For 'yesterday' pass past_days. "
-        "Do not scrape AccuWeather, weather.com, or invent Open-Meteo query strings."
+        "Forecast. Pass place as the user said it. "
+        "Leave place empty for where they are."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
         "type": "object",
         "properties": {
-            "days": {
-                "type": "integer",
-                "description": (
-                    "Daily rows including today (1-16). 1=today only. Tomorrow needs 2+. Default 3."
-                ),
-            },
-            "hours": {
-                "type": "integer",
-                "description": (
-                    "Hourly rows from now (1-48). Use this for 'will it rain "
-                    "at 3pm' or 'this afternoon'a daily row only has the "
-                    "day's max chance and cannot say when. 0 (default) for none"
-                ),
-            },
-            "past_days": {
-                "type": "integer",
-                "description": (
-                    "Also include this many days before today (1-7). Use for "
-                    "'what was the weather yesterday'. 0 (default) for none"
-                ),
-            },
             "place": {
                 "type": "string",
-                "description": (
-                    "City to forecast, e.g. 'Lyon, France'. Geocoded here. "
-                    "Omit for the user's own location. Never pass coordinates."
-                ),
+                "description": "The place in the user's words. Empty for where they are.",
             },
         },
         "required": [],
     }
 
-    def __init__(self, location: Any | None = None) -> None:
+    def __init__(
+        self,
+        location: Any | None = None,
+        *,
+        windows_location: Any = None,
+        home_city: Any = None,
+        ip_location: Any = None,
+        ip_enabled: bool | None = None,
+        geocode: Any = None,
+        forecast: Any = None,
+    ) -> None:
         self.location = location
+        self._windows_location = windows_location
+        self._home_city = home_city
+        self._ip_location = ip_location
+        self._ip_enabled = ip_enabled
+        self._geocode = geocode
+        self._forecast = forecast
 
     async def run(self, **kwargs: Any) -> ToolResult:
-        asked = str(kwargs.get("place") or "").strip()
-        snap = None
-        if self.location is not None and hasattr(self.location, "snapshot"):
-            snap = self.location.snapshot()
-        refresh = getattr(self.location, "refresh", None)
-        # Kept so the failure below can name its real cause. "No coordinates on
-        # file" sends the user to edit a profile that was never the problem.
-        refresh_failed = ""
-        lat: float | None = None
-        lon: float | None = None
-        place = ""
-        # What the same name also matched, so a wrong pick is correctable.
-        alternatives: tuple[str, ...] = ()
+        asked = " ".join(str(kwargs.get("place") or "").split())
         if asked:
-            place = asked
-            try:
-                resolved = await resolve_place(place_query_for_geocode(asked))
-            except Exception as exc:
-                return ToolResult(
-                    ok=False,
-                    output=f"[fail:weather] weather failed: {exc}",
-                )
-            if resolved is None:
-                return ToolResult(
-                    ok=False,
-                    output=(
-                        f"[fail:weather] Could not geocode {asked!r}. "
-                        "Name a real city; do not pass coordinates."
-                    ),
-                )
-            # The resolved label, not what they typed. "Springfield" matches
-            # thirty cities; echoing their own string back is what made a
-            # forecast for the wrong state impossible to notice.
-            place = resolved.label or asked
-            lat, lon = resolved.latitude, resolved.longitude
-            alternatives = resolved.alternatives
-        else:
-            if snap is not None and not snap.has_coordinates() and callable(refresh):
-                try:
-                    maybe = refresh()
-                    if hasattr(maybe, "__await__"):
-                        snap = await maybe
-                    else:
-                        snap = maybe
-                except Exception as exc:
-                    refresh_failed = str(exc) or type(exc).__name__
-            place = snap.place() if snap is not None else ""
-            if snap is not None and snap.has_coordinates():
-                lat = float(snap.latitude)
-                lon = float(snap.longitude)
-            elif place:
-                try:
-                    coords = await geocode_place(place)
-                except Exception as exc:
-                    return ToolResult(
-                        ok=False,
-                        output=f"[fail:weather] weather failed: {exc}",
-                    )
-                if coords is not None:
-                    lat, lon = coords
-        if lat is None or lon is None:
-            cause = (
-                f" The location refresh failed first: {refresh_failed}." if refresh_failed else ""
-            )
+            return await self._for_place(asked)
+        here = await self._resolve_here()
+        if here is None:
             return ToolResult(
-                ok=False,
-                output=(
-                    "[fail:weather] No coordinates on file, so there is no "
-                    f"location to forecast.{cause} Set city plus latitude and "
-                    "longitude in data/profile.yaml, or call user_location after "
-                    "enabling location.network. Do not pass coordinates to "
-                    "weather; it does not accept them."
-                ),
+                ok=True,
+                output="I couldn't tell where you are. Which city should I check?",
+                data={"need_place": True},
             )
-
-        raw_days = kwargs.get("days")
-        try:
-            days = int(raw_days) if raw_days not in (None, "") else 3
-        except (TypeError, ValueError):
-            # The 9B often passes days="today" instead of 1.
-            days = 3
-        days = max(1, min(16, days))
-        hours = _int_arg(kwargs.get("hours"), default=0, lo=0, hi=48)
-        past_days = _int_arg(kwargs.get("past_days"), default=0, lo=0, hi=7)
-        try:
-            data = await fetch_forecast(lat, lon, days=days, hours=hours, past_days=past_days)
-        except Exception as exc:
-            return ToolResult(ok=False, output=f"weather failed: {exc}")
-
-        lines: list[str] = []
-        if place:
-            lines.append(f"Place: {place}")
-        lines.append(f"Coordinates: {lat:.4f}, {lon:.4f}")
-        if alternatives:
-            # Stated as a fact about the name, not a question. The forecast
-            # below is real and usually right; this exists so that when it is
-            # wrong, the user can see it and say which one they meant.
-            shown = "; ".join(alternatives[:3])
-            lines.append(
-                f"That name also matched: {shown}. "
-                f"Say which one if {place} is not the one you meant."
-            )
-        current = data.get("current") or {}
-        if current:
-            code = describe_weather_code(current.get("weather_code"))
-            lines.append(
-                "Now: "
-                f"{current.get('temperature_2m')}°F "
-                f"(feels {current.get('apparent_temperature')}°F), "
-                f"{code or 'conditions unknown'}, "
-                f"precip {current.get('precipitation')}."
-            )
-        hourly = data.get("hourly") or []
-        if hourly:
-            # Before the daily rows on purpose: when someone asks for hours,
-            # the hours are the answer and the daily summary is context.
-            lines.append("Hourly:")
-            for row in hourly:
-                stamp = str(row.get("time") or "")
-                clock = stamp.split("T")[-1][:5] or stamp
-                code = describe_weather_code(row.get("weather_code"))
-                lines.append(
-                    f"- {clock}: {row.get('temperature_2m')}°F, "
-                    f"{code or 'conditions unknown'}, "
-                    f"precip chance {row.get('precipitation_probability')}%."
-                )
-        daily = data.get("daily") or []
-        if daily:
-            lines.append("Daily:")
-            for row in daily:
-                code = describe_weather_code(row.get("weather_code"))
-                lines.append(
-                    f"- {row.get('date')}: high {row.get('temperature_2m_max')}°F / "
-                    f"low {row.get('temperature_2m_min')}°F, "
-                    f"{code or 'conditions unknown'}, "
-                    f"precip chance {row.get('precipitation_probability_max')}%."
-                )
+        if here.latitude is not None and here.longitude is not None:
+            label = here.place or "Your location"
+            return await self._sentence(label, here.latitude, here.longitude)
+        if here.place:
+            return await self._for_place(here.place)
         return ToolResult(
             ok=True,
-            output="\n".join(lines),
-            data={
-                "latitude": lat,
-                "longitude": lon,
-                "place": place,
-                "ambiguous": bool(alternatives),
-                "alternatives": list(alternatives),
-                "hourly": hourly,
-                "daily": daily,
-                "current": current,
-            },
+            output="I couldn't tell where you are. Which city should I check?",
+            data={"need_place": True},
         )
+
+    async def _resolve_here(self) -> Here | None:
+        windows = await _maybe_await(self._windows_fn())
+        found = _as_here(windows)
+        if found is not None and (found.place or found.latitude is not None):
+            return found
+        home = self._home_fn()
+        if isinstance(home, str) and home.strip():
+            return Here(place=home.strip())
+        if not self._ip_on():
+            return None
+        ip = await _maybe_await(self._ip_fn())
+        found = _as_here(ip)
+        if found is not None and (found.place or found.latitude is not None):
+            return found
+        return None
+
+    def _windows_fn(self) -> Any:
+        if self._windows_location is not None:
+            return self._windows_location()
+        return read_windows_location()
+
+    def _home_fn(self) -> str:
+        if self._home_city is not None:
+            value = self._home_city()
+            return str(value or "")
+        location = self.location
+        reader = getattr(location, "home_city", None)
+        if callable(reader):
+            return str(reader() or "")
+        return ""
+
+    def _ip_fn(self) -> Any:
+        if self._ip_location is not None:
+            return self._ip_location()
+        location = self.location
+        reader = getattr(location, "lookup_ip", None)
+        if callable(reader):
+            return reader()
+        return None
+
+    def _ip_on(self) -> bool:
+        """IP lookup is opt-in. Missing means off, and the call is not made."""
+        if self._ip_enabled is not None:
+            return bool(self._ip_enabled)
+        flag = getattr(self.location, "network_enabled", None)
+        if callable(flag):
+            return bool(flag())
+        return False
+
+    def _home_region(self) -> str:
+        home = self._home_fn()
+        if not isinstance(home, str):
+            return ""
+        parts = [part.strip() for part in home.split(",") if part.strip()]
+        if len(parts) >= 2:
+            return parts[-1]
+        return ""
+
+    async def _for_place(self, asked: str) -> ToolResult:
+        try:
+            rows = await self._geocode_rows(asked)
+        except Exception as exc:  # a dead lookup is the plain failure line
+            if _service_down(exc):
+                return _unreachable()
+            return _miss(asked)
+        named = _rows_for_named_region(asked, rows)
+        if named is not None:
+            if not named:
+                return _miss(asked)
+            return await self._from_row(asked, named[0])
+        choice = self._pick_open(rows)
+        if isinstance(choice, list):
+            labels = [place_label(row) for row in choice]
+            labels = [label for label in labels if label]
+            return ToolResult(
+                ok=True,
+                output=clarify(labels[:3]),
+                data={"ambiguous": True, "alternatives": labels[:3]},
+            )
+        if choice is None:
+            return _miss(asked)
+        return await self._from_row(asked, choice)
+
+    async def _geocode_rows(self, asked: str) -> list[dict[str, Any]]:
+        names = [name for name in geocode_search_names(asked) if name]
+        if not names:
+            return []
+        if len(names) == 1:
+            return await self._rows_named(names[0])
+        # The shorter name is the city. One lookup is enough when a hit's
+        # own state or country is the trailing word.
+        short = await self._rows_named(names[-1])
+        if any(place_region_match(asked, row) for row in short):
+            return short
+        full = await self._rows_named(names[0])
+        # "Paris today" is not a region. The full string comes back empty.
+        # The shorter name already has the cities, so the usual pick runs.
+        if _full_string_usable(asked, full):
+            return full
+        return short
+
+    async def _rows_named(self, query: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, str, str, str]] = set()
+        hits = await _maybe_await(self._geocode_fn(query))
+        for row in hits or []:
+            if not isinstance(row, dict):
+                continue
+            key = (
+                str(row.get("name") or "").casefold(),
+                str(row.get("admin1") or "").casefold(),
+                str(row.get("country") or "").casefold(),
+                str(row.get("latitude") or ""),
+                str(row.get("longitude") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
+        return rows
+
+    def _pick_open(
+        self, rows: list[dict[str, Any]]
+    ) -> dict[str, Any] | list[dict[str, Any]] | None:
+        distinct: list[dict[str, Any]] = []
+        labels: list[str] = []
+        for row in rows:
+            label = place_label(row)
+            if not label or label in labels:
+                continue
+            labels.append(label)
+            distinct.append(row)
+        if not distinct:
+            return None
+        if len(distinct) == 1:
+            return distinct[0]
+        ranked = sorted(distinct, key=_population, reverse=True)
+        top = _population(ranked[0])
+        nxt = _population(ranked[1])
+        # Five times the next city's population is one clear place.
+        if top > 0 and (nxt <= 0 or top >= 5 * nxt):
+            return ranked[0]
+        home = self._home_region()
+        if home:
+            hits = [row for row in distinct if place_region_match(home, row)]
+            if len(hits) == 1:
+                return hits[0]
+        return distinct
+
+    async def _from_row(self, asked: str, row: dict[str, Any]) -> ToolResult:
+        try:
+            lat = float(row["latitude"])
+            lon = float(row["longitude"])
+        except (KeyError, TypeError, ValueError):
+            return _miss(asked)
+        return await self._sentence(place_label(row) or asked, lat, lon, fallback=asked)
+
+    async def _sentence(
+        self,
+        label: str,
+        lat: float,
+        lon: float,
+        *,
+        fallback: str = "",
+    ) -> ToolResult:
+        try:
+            data = await _maybe_await(self._forecast_fn(lat, lon))
+        except Exception as exc:  # a dead forecast is the plain failure line
+            if _service_down(exc):
+                return _unreachable()
+            return _miss(fallback or label)
+        if not isinstance(data, dict):
+            return _miss(fallback or label)
+        line = forecast_sentence(label, data)
+        if not line:
+            return _miss(fallback or label)
+        return ToolResult(
+            ok=True,
+            output=line,
+            data={"place": label, "latitude": lat, "longitude": lon},
+        )
+
+    def _geocode_fn(self, query: str) -> Any:
+        if self._geocode is not None:
+            return self._geocode(query)
+        return search_geocode(query)
+
+    def _forecast_fn(self, lat: float, lon: float) -> Any:
+        if self._forecast is not None:
+            return self._forecast(lat, lon)
+        return fetch_forecast(lat, lon, days=1)
 
 
 _HOMEISH_PLACE = frozenset(
@@ -430,6 +455,188 @@ _US_STATE_NAME_TO_ABBR = {
     "wisconsin": "wi",
     "wyoming": "wy",
 }
+def _state_display(abbr: str) -> str:
+    if abbr == "dc":
+        return "District of Columbia"
+    for parts, code in _US_STATE_PHRASES.items():
+        if code == abbr:
+            return " ".join(word.capitalize() for word in parts)
+    for name, code in _US_STATE_NAME_TO_ABBR.items():
+        if code == abbr:
+            return name.capitalize()
+    return abbr
+
+
+_ABBR_TO_NAME = {
+    abbr: _state_display(abbr)
+    for abbr in set(_US_STATE_NAME_TO_ABBR.values())
+    | {code for _parts, code in _US_STATE_PHRASES.items()}
+}
+
+
+@dataclass(frozen=True)
+class Here:
+    """A place the machine already knows, before any forecast."""
+
+    place: str = ""
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+def _miss(place: str) -> ToolResult:
+    return ToolResult(
+        ok=False,
+        output=f"I couldn't get the forecast for {place}.",
+    )
+
+
+def _unreachable() -> ToolResult:
+    return ToolResult(
+        ok=False,
+        output="I couldn't reach the weather service.",
+    )
+
+
+async def _maybe_await(value: Any) -> Any:
+    if hasattr(value, "__await__"):
+        return await value
+    return value
+
+
+def _as_here(value: Any) -> Here | None:
+    if value is None:
+        return None
+    if isinstance(value, Here):
+        if value.place.strip() or value.latitude is not None:
+            return value
+        return None
+    city = str(getattr(value, "city", "") or "").strip()
+    region = str(getattr(value, "region", "") or "").strip()
+    place = ", ".join(part for part in (city, region) if part)
+    if not place:
+        place = str(getattr(value, "place", "") or "").strip()
+    lat = getattr(value, "latitude", None)
+    lon = getattr(value, "longitude", None)
+    try:
+        lat_f = float(lat) if lat is not None else None
+        lon_f = float(lon) if lon is not None else None
+    except (TypeError, ValueError):
+        lat_f = lon_f = None
+    if not place and lat_f is None:
+        return None
+    return Here(place=place, latitude=lat_f, longitude=lon_f)
+
+
+def _population(row: dict[str, Any]) -> float:
+    try:
+        return float(row.get("population") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _rows_for_named_region(
+    asked: str, rows: list[dict[str, Any]]
+) -> list[dict[str, Any]] | None:
+    """Matching rows when they named a region. None when they did not."""
+    raw = " ".join((asked or "").split())
+    if not raw:
+        return []
+    matched = [row for row in rows if place_region_match(raw, row)]
+    if "," in raw:
+        return matched
+    if matched:
+        return matched
+    return None
+
+
+def _full_string_usable(asked: str, rows: list[dict[str, Any]]) -> bool:
+    """True when the full-string search itself has a city to use."""
+    if not rows:
+        return False
+    named = _rows_for_named_region(asked, rows)
+    if named is None:
+        return True
+    return bool(named)
+
+
+def _service_down(exc: BaseException) -> bool:
+    """Timeouts, connection errors, 429, and 5xx. Not the error text."""
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = int(getattr(exc.response, "status_code", 0) or 0)
+        return code == 429 or code >= 500
+    return False
+
+
+_US_COUNTRY_NAMES = frozenset(
+    {
+        "us",
+        "usa",
+        "united states",
+        "united states of america",
+    }
+)
+
+
+def _is_us_place(entry: dict[str, Any]) -> bool:
+    code = " ".join(str(entry.get("country_code") or "").split()).casefold()
+    if code in _US_COUNTRY_NAMES:
+        return True
+    country = " ".join(str(entry.get("country") or "").split()).casefold()
+    return country in _US_COUNTRY_NAMES
+
+
+def place_label(entry: dict[str, Any]) -> str:
+    """City, State in the US. City, Country everywhere else.
+
+    The country is the geocoder's country name. A region is not a substitute
+    for it.
+    """
+    name = " ".join(str(entry.get("name") or "").split())
+    admin = " ".join(str(entry.get("admin1") or "").split())
+    country = " ".join(str(entry.get("country") or "").split())
+    if _is_us_place(entry):
+        if name and admin and admin.casefold() != name.casefold():
+            return f"{name}, {admin}"
+        if name and country and country.casefold() != name.casefold():
+            return f"{name}, {country}"
+        return name
+    if name and country and country.casefold() != name.casefold():
+        return f"{name}, {country}"
+    if name and admin and admin.casefold() != name.casefold():
+        return f"{name}, {admin}"
+    return name
+
+
+def clarify(labels: list[str]) -> str:
+    if len(labels) >= 3:
+        return f"Did you mean {', '.join(labels[:-1])}, or {labels[-1]}?"
+    if len(labels) == 2:
+        return f"Did you mean {labels[0]} or {labels[1]}?"
+    if labels:
+        return f"Did you mean {labels[0]}?"
+    return "Which city should I check?"
+
+
+def _whole(value: Any) -> str:
+    try:
+        return str(round(float(value)))
+    except (TypeError, ValueError):
+        return ""
+
+
+def forecast_sentence(label: str, data: dict[str, Any]) -> str:
+    current = data.get("current") or {}
+    daily = data.get("daily") or []
+    today = daily[0] if daily else {}
+    temp = _whole(current.get("temperature_2m"))
+    high = _whole(today.get("temperature_2m_max"))
+    low = _whole(today.get("temperature_2m_min"))
+    if not label or not temp or not high or not low:
+        return ""
+    condition = describe_weather_code(current.get("weather_code")) or "unknown"
+    return f"{label}: {temp}°F and {condition}, high {high}°F, low {low}°F."
 
 
 def place_query_for_geocode(name: str) -> str:
@@ -584,8 +791,6 @@ def extract_weather_place(text: str) -> str:
     return places[0] if places else ""
 
 
-# A time of day, which a daily row cannot answer: its precipitation figure is
-# the maximum over the whole day, so a 60% Tuesday says nothing about 3pm.
 _WEATHER_HOURLY = re.compile(
     r"(?i)(?:"
     r"\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|o'?clock)|"
@@ -602,14 +807,11 @@ _WEATHER_HOURLY = re.compile(
     r")"
 )
 
-# Tomorrow plus a time of day needs to reach past midnight, so the window has
-# to be wider than "the rest of today".
 _WEATHER_HOURLY_TOMORROW = re.compile(
     r"(?i)\btomorrow\s+(?:morning|afternoon|evening|night)\b|"
     r"\b(?:morning|afternoon|evening|night)\s+tomorrow\b"
 )
 
-# Forecast rows start today, so none of these had any route at all.
 _WEATHER_PAST = re.compile(
     r"(?i)(?:"
     r"\byesterday\b|"
@@ -626,13 +828,7 @@ _HOURS_TOMORROW = 36
 
 
 def weather_wants_hourly(text: str) -> int:
-    """Hours of hourly detail this ask needs, or 0 when a daily row will do.
-
-    Roadmap follow-on to the hourly capability: adding the parameter is only
-    half the fix, because the injected call is built here, not by the model. A
-    turn that reaches weather through the force gate would otherwise still ask
-    for daily rows and answer "will it rain at three" from a daily maximum.
-    """
+    """Hours of hourly detail this ask needs, or 0 when a daily row will do."""
     raw = normalize_weather_ask(text)
     if _WEATHER_HOURLY_TOMORROW.search(raw):
         return _HOURS_TOMORROW
@@ -662,38 +858,16 @@ def draft_weather_args(text: str) -> dict[str, Any]:
 
 
 def fill_weather_args(args: dict[str, Any] | None, text: str) -> dict[str, Any]:
-    """Keep days; drop invented coords and a place they never named; bump tomorrow."""
+    """Keep a named place. Days, hours, and past days are not arguments."""
     drafted = draft_weather_args(text)
     out = dict(args or {})
     for key in _COORD_KEYS:
         out.pop(key, None)
-    # Home asks omit place so profile coords win. The model stuffing
-    # place=Baltimore geocodes Maryland first; "that name also matched
-    # Ohio" is not another city in the ask.
+    for key in ("days", "hours", "past_days"):
+        out.pop(key, None)
     if extract_weather_place(text):
         if drafted.get("place") and not str(out.get("place") or "").strip():
             out["place"] = drafted["place"]
     else:
         out.pop("place", None)
-    try:
-        days = int(out.get("days") or 0)
-    except (TypeError, ValueError):
-        days = 0
-    if days < 2 and weather_wants_beyond_today(text):
-        out["days"] = 3
-    elif days < 1:
-        out["days"] = int(drafted.get("days") or 3)
-    # Only ever widen. A model that already asked for hours knows better than
-    # this regex what it is looking at; the point here is the turn where it
-    # asked for none and the ask needed them.
-    for key in ("hours", "past_days"):
-        wanted = int(drafted.get(key) or 0)
-        if not wanted:
-            continue
-        try:
-            have = int(out.get(key) or 0)
-        except (TypeError, ValueError):
-            have = 0
-        if have < wanted:
-            out[key] = wanted
     return out

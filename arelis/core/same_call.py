@@ -138,7 +138,7 @@ def same_call_notice(name: str, args: dict[str, Any]) -> str:
     )
 
 
-_FINISH_ON_REPEAT = frozenset({"calculator", "weather", "browser", "agenda"})
+_FINISH_ON_REPEAT = frozenset({"calculator", "browser", "agenda"})
 # A CAS dump is not chat. After one blocked repeat, take the schemas
 # away so the 9B writes instead of burning three more tool rounds.
 # Calculator is not here — 2+2 ships as the chat line (see finishes_turn).

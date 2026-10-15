@@ -52,7 +52,7 @@ _LINES = {
         "A sourced write-up. Not a forecast, not a login wall, "
         "not the same URL again."
     ),
-    "weather": "A weather-tool forecast for the place they named.",
+    "weather": "A forecast for the place they named.",
     "sms": "Send the recipient a message they should read, then stop.",
     "email": "Send the email they asked for, then stop.",
     "browser": (

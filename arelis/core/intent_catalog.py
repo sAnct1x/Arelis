@@ -153,10 +153,7 @@ _WEATHER_EXACT = (
         r"\b(?:is\s+it|will\s+it)\s+(?:rain(?:ing)?|snow(?:ing)?|cold|hot|warm)\b",
         re.I,
     ),
-    # Scheduled jobs are imperatives: "Get the forecast for Springfield, IL".
-    # The patterns above only heard questions ("what's the weather today")
-    # and "in <place>", so a 9am weather email never forced the weather tool
-    # and then refused with a web-page warrant.
+    # Imperative forecast asks count, not only questions.
     re.compile(
         r"\b(?:get|fetch|look\s+up|pull|give\s+me)\b.{0,60}"
         r"\b(?:weather|forecast|temperature)s?\b",
@@ -623,10 +620,9 @@ WEATHER = IntentSpec(
     expected_tools=("weather",),
     nudge=(
         "Intent preflight: this message asks about weather. "
-        "Call the weather tool now. For another city pass place "
-        "(a name, not coordinates). days includes today; tomorrow "
-        "needs 2 or more. Do not scrape forecast websites "
-        "and do not ask permission in chat."
+        "Call weather now. Pass place as they said it. "
+        "Omit place for where they are. Do not scrape. "
+        "Do not ask permission in chat."
     ),
     schema_tools=frozenset({"weather", "user_location", "web_fetch"}),
     exactness=_WEATHER_EXACT,

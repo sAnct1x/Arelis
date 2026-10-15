@@ -585,6 +585,19 @@ def _exactness_finish_refuse(
             return unsupported_exactness_reply(
                 missing, document_failed=True, document_detail=document_fail.span
             )
+    # A failed lookup stays inside the invented-forecast check.
+    # The reply ships only when it is that failed result's own sentence.
+    if "weather" in missing:
+        reply = (content or "").strip()
+        own_sentences = {
+            str(item.span or "").strip()
+            for item in ledger.items
+            if item.kind == "weather" and not item.ok and str(item.span or "").strip()
+        }
+        if reply and reply in own_sentences:
+            missing = [kind for kind in missing if kind != "weather"]
+    if not missing:
+        return None
     return unsupported_exactness_reply(missing)
 
 

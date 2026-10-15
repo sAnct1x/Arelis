@@ -577,8 +577,6 @@ async def prepare_turn(
         exact_need=exact_need,
         goal=turn_goal,
     )
-    # Research role / deep-dive needs web warrants for contingent claims,
-    # except weather (Open-Meteo). Jobs used to default to research.
     exact_need = apply_research_web_need(exact_need, research_mode=research_mode, text=text)
     ctx.exact_need = exact_need
     # News / current-events turns should not end on search snippets alone.

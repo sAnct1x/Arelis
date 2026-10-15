@@ -43,9 +43,7 @@ def _still_owed(
     ``owed`` is already the not-yet-run, still-runnable, not-negated set.
     When the tool name is one of this turn's evidence kinds, a successful
     warrant for that kind means it is not owed. A name that is not a kind
-    on this turn stays owed until the tool runs. Document beside a weather
-    ask is that case: exactness only tagged weather, and the file is still
-    missing.
+    on this turn stays owed until the tool runs.
 
     A shorter name is not still owed when a longer tool that extends it
     already ran. "grayscale image" mentions image after image_edit ran.

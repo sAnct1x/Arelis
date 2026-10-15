@@ -191,11 +191,11 @@ _PLAN_RESEARCH = PlanSpec(
 _PLAN_WEATHER = PlanSpec(
     id="weather",
     message=(
-        "Plan: 1) Call the weather tool for the user's place. "
-        "2) Answer only from the tool result."
+        "Plan: 1) Call weather. Pass place as they said it, or omit place "
+        "for where they are. 2) Answer with the forecast sentence."
     ),
     steps=("weather",),
-    skip_progress=True,  # weather_force_call owns nudge/inject
+    skip_progress=True,
 )
 
 _PLAN_RECALL = PlanSpec(

@@ -1,20 +1,6 @@
-"""The weather turn must not send her looking for a location she never needs.
+"""A weather turn hides user_location. Weather resolves its own place.
 
-Measured 2026-09-17 with scripts/measure_tool_choice.py against qwen3.5:9b:
-"what's the weather going to be like tomorrow?" calls `user_location`, not
-`weather`, on every unguarded run and with the preflight nudge on as well.
-
-That pick is always wasted work. `WeatherTool` resolves the user's location
-itself, and it deliberately refuses coordinates — see the class docstring in
-arelis/tools/weather.py, which pins that small models invent the lat/lon of
-whichever big city they have seen most often. So there is nothing
-`user_location` can return that `weather` can accept.
-
-`_hide_daily_wander` drops `_WEATHER_WANDER` when weather is expected.
-`user_location` belongs in that set: hiding only the search tools is what
-pushed the model onto it. Weather is forced by the preinject now; this file
-only checks the set. `_SMS_WANDER` already lists `user_location` for the
-same reason.
+`_offer_expected` puts user_location back when the turn also asks where they are.
 """
 
 from __future__ import annotations

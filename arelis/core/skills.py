@@ -156,13 +156,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
         requires_tool="weather",
         body="""
 ### Weather
-- Call the weather tool. Do not scrape AccuWeather, weather.com, or other
-  forecast sites (they are JavaScript shells). Do not hand-build Open-Meteo URLs.
-- Default is the user's own location. If they did not name a city, omit
-  place — do not pass the city from their profile (a city name geocodes
-  the first gazetteer hit). Another city is place (a name this tool geocodes).
-  Never pass coordinates. days includes today: 1 is today only,
-  tomorrow needs 2 or more, default 3.
+- Call weather. Do not scrape a forecast site. Do not hand-build a URL.
+- If they did not name a city, omit place. Do not pass a city from their
+  profile. Another city is place, in their words. Never pass coordinates.
 - Two named cities: call weather once per place, then answer. Do not stop
   after the first city.
 """.strip(),

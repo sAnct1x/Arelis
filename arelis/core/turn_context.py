@@ -106,8 +106,6 @@ class TurnContext:
     weather_ok_places: set[str] = field(default_factory=set)
     weather_failed_places: set[str] = field(default_factory=set)
     weather_days_retried: set[str] = field(default_factory=set)
-    # Label from the last successful weather result (tool data, not the ask).
-    weather_resolved_place: str = ""
     # How many times each tool was blocked by a once-guard this turn.
     guard_block_counts: dict[str, int] = field(default_factory=dict)
     schedule_managed_ok: bool = False

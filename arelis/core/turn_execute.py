@@ -46,12 +46,6 @@ from arelis.core.turn_scratch import RoundScratch, chain_unfinished
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_secrets, truncate_tool_output
-from arelis.tools.weather import (
-    extract_weather_places,
-    weather_place_key,
-    weather_places_missing,
-    weather_wants_beyond_today,
-)
 
 
 def _pin_plain_user(
@@ -64,8 +58,8 @@ def _pin_plain_user(
     """Put the write-up line on this request, after the tool result.
 
     A later request that adds it would move the last real user line, and
-    the tool call above would render differently. Weather writes its own
-    line. A result that is already a sentence does not need one.
+    the tool call above would render differently. A result that is already
+    a sentence does not need one.
 
     Goal kind none is not a finished lookup. Pinning there tells the next
     step of a chain not to call anything. An open chain is the same even
@@ -113,7 +107,6 @@ async def execute_call(
     round_i: int,
     call_i: int,
     fanout_results: dict[int, tuple[int, Any]] | None,
-    later_weather: bool = False,
 ) -> bool:
     """Run the allowed tool and publish the result. True ends the turn."""
     text = r.text
@@ -129,9 +122,6 @@ async def execute_call(
     page_ok = r.page_ok
     sms_sent = r.sms_sent
     agenda_created = r.agenda_created
-    weather_ok_places = r.weather_ok_places
-    weather_days_retried = r.weather_days_retried
-    exact_need = r.exact_need
     ollama_tools = r.ollama_tools
     messages = r.messages
     sms_draft = r.sms_draft
@@ -796,139 +786,14 @@ async def execute_call(
             if DISTANCE_MODEL_NOTE not in out:
                 out = f"{out.rstrip()}\n\n{DISTANCE_MODEL_NOTE}"
         messages.append(loop._tool_message(name, out))
-        if result.ok and name != "weather":
+        if result.ok:
             _pin_plain_user(messages, ctx, name, out, loop)
-        if name == "weather" and not result.ok:
-            asked = str(args.get("place") or "").strip()
-            if asked:
-                ctx.weather_failed_places.add(weather_place_key(asked))
         if (
             name == "schedule"
             and result.ok
             and str(args.get("action") or "").lower() in {"list", "delete"}
         ):
             ctx.schedule_managed_ok = True
-        # Successful weather → answer from it; do not re-fetch all round.
-        # days=1 is today only; if they asked tomorrow, one retry with
-        # days=3. fill_weather_args usually bumps that before the call.
-        # Two named cities are two readings; lock per place, not the tool.
-        if name == "weather" and result.ok:
-            used_days = 3
-            try:
-                used_days = int(args.get("days") or 3)
-            except (TypeError, ValueError):
-                used_days = 3
-            wx_key = weather_place_key(str(args.get("place") or ""))
-            retry_days = (
-                used_days < 2
-                and weather_wants_beyond_today(text)
-                and wx_key not in weather_days_retried
-            )
-            if retry_days:
-                weather_days_retried.add(wx_key)
-                keep_place = str(args.get("place") or "").strip()
-                retry_msg = (
-                    "That reading is today only. Call weather "
-                    "again with days=3 (keep place if you used "
-                    "one). Then answer the user from that."
-                )
-                if keep_place:
-                    retry_msg = (
-                        "That reading is today only. Call weather "
-                        f"again with days=3 and place={keep_place}. "
-                        "Then answer the user from that."
-                    )
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": retry_msg,
-                    }
-                )
-            else:
-                weather_ok_places.add(wx_key)
-                resolved = ""
-                ambiguous = False
-                if isinstance(data_dict, dict):
-                    resolved = str(data_dict.get("place") or "").strip()
-                    ambiguous = bool(data_dict.get("ambiguous"))
-                if resolved:
-                    ctx.weather_resolved_place = resolved
-                missing = weather_places_missing(
-                    text, weather_ok_places, ctx.weather_failed_places
-                )
-                # Springfield resolves to one state and the ask text did not
-                # yield a place, so weather_places_missing reports home. That
-                # is not a second city. Telling the model to call weather
-                # again is what blocked every later round.
-                phantom_home = (
-                    ambiguous
-                    and bool(str(args.get("place") or "").strip())
-                    and missing == [""]
-                    and not extract_weather_places(text)
-                )
-                if phantom_home:
-                    missing = []
-                # A two-city fanout already has the sibling in this batch.
-                # Steering "call the other city" here leaves a stale user
-                # line after the second reading, and 9b re-calls until
-                # max_rounds (~60s).
-                if not later_weather and missing:
-                    nxt = missing[0]
-                    if nxt:
-                        more_msg = (
-                            "You already have a successful weather "
-                            f"reading this turn. Call weather now with "
-                            f"place={nxt} and days=3 for the other city. "
-                            "Then answer from every reading. Do not "
-                            "skip a named city."
-                        )
-                    else:
-                        more_msg = (
-                            "You already have a successful weather "
-                            "reading this turn. Call weather now "
-                            "without place for the user's own location. "
-                            "Then answer from every reading."
-                        )
-                    messages.append(
-                        {"role": "user", "content": more_msg}
-                    )
-                elif not later_weather:
-                    # Keep this round's tool array byte-stable. Stripping
-                    # weather here used to re-prefill the whole 23k prefix
-                    # (~50s) for "answer from the reading you already have."
-                    # The next model round offers no tools at all
-                    # (_weather_answer_ready in run_round). That empty
-                    # array is the other stable shape. A shorter list is not.
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "You already have a successful weather tool "
-                                "result this turn. Answer the user now in plain "
-                                "prose from that reading. Do not call weather "
-                                "again."
-                            ),
-                        }
-                    )
-            if loop._timer is not None:
-                loop._timer.mark(
-                    "weather_once",
-                    action=(
-                        "retry_days"
-                        if retry_days
-                        else (
-                            "batch"
-                            if later_weather
-                            else (
-                                "need_place"
-                                if weather_places_missing(
-                                    text, weather_ok_places, ctx.weather_failed_places
-                                )
-                                else "answer_now"
-                            )
-                        )
-                    ),
-                )
         # Successful SMS to every draft recipient → confirm and stop.
         # Otherwise the model re-opens Allow and double-texts.
         if (
@@ -1043,18 +908,6 @@ async def execute_call(
             replan = tool_fail_replan_notice(
                 name, redacted, ok=False
             )
-            if (
-                replan
-                and name == "web_search"
-                and (
-                    exact_need.needs_weather
-                    or "weather" in loop._expected_tools
-                )
-            ):
-                replan += (
-                    " If they asked about the weather/forecast, call "
-                    "weather, do not web_search again."
-                )
             if replan:
                 loop._fail_replan_used = True
                 if loop._timer is not None:

@@ -109,14 +109,8 @@ _LOCAL_STORE = frozenset({"memory", "tasks", "goals", "contacts", "recall"})
 _SEE_TOOLS = frozenset(
     {"vision", "ocr", "camera", "clipboard", "image", "image_edit", "git_info"}
 )
-# user_location is here because weather resolves the user's place itself and
-# refuses coordinates outright (see WeatherTool's docstring). Asking where she
-# is first can only burn a round. Measured 2026-09-17: it was the model's most
-# common wrong pick on "what's the weather tomorrow", and hiding the three
-# search tools below is what pushed it there. _SMS_WANDER has always listed it.
-# Safe to hide: both call sites run _offer_expected straight after, so a turn
-# that genuinely wants the place ("where am I, and what's the weather") gets it
-# back.
+# Weather resolves its own place. A turn that also asks where they are
+# gets user_location back from _offer_expected.
 _WEATHER_WANDER = frozenset(
     {"web_search", "scrape", "web_fetch", "user_location"}
 )
@@ -423,7 +417,9 @@ def _tool_intent_label(tool_calls: list[dict[str, Any]]) -> str:
             return f"Browser {action}: {target}…"
         return f"Browser {action}…"
     if name:
-        return f"Calling {name}…"
+        from arelis.ui.status_copy import tool_status_line
+
+        return tool_status_line(name, args)
     return ""
 
 

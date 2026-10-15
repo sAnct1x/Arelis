@@ -239,6 +239,44 @@ class LocationResolver:
     def prompt_line(self) -> str | None:
         return self.snapshot().prompt_line(self._prompt_detail)
 
+    def home_city(self) -> str:
+        """Saved city from settings, not a network guess.
+
+        City, then region, as the user wrote them. Empty when settings
+        have no city.
+        """
+        for provider in self._local:
+            if getattr(provider, "name", "") != "profile":
+                continue
+            try:
+                found = provider.resolve()
+            except Exception:  # a broken settings read is no saved city
+                return ""
+            if found is None:
+                return ""
+            city = str(found.city or "").strip()
+            if not city:
+                return ""
+            region = str(found.region or "").strip()
+            if region:
+                return f"{city}, {region}"
+            return city
+        return ""
+
+    async def lookup_ip(self) -> UserLocation | None:
+        """Ask the configured IP service. None when that lookup is off.
+
+        This sends the machine's address to that service. Callers that
+        do not want the request should not call this.
+        """
+        if self._network is None:
+            return None
+        try:
+            return await self._network.resolve()
+        except Exception:
+            log.exception("IP location lookup failed")
+            return None
+
     def network_enabled(self) -> bool:
         return self._network is not None
 

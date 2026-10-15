@@ -267,7 +267,7 @@ async def main() -> int:
         title="overnight squares",
     )
     await step("location", "user_location")
-    await step("weather", "weather", days=1)
+    await step("weather", "weather")
     await step("rooms_list", "rooms", action="list")
     await step("tile_open", "tile", action="open", **{"name": "thinking"})
     await step("tile_close", "tile", action="close")

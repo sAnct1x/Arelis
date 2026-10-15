@@ -26,7 +26,12 @@ from typing import Any
 
 import pytest
 
-from arelis.briefing.weather import ResolvedPlace, geocode_place, resolve_place
+from arelis.briefing.weather import (
+    ResolvedPlace,
+    choose_geocode_hit,
+    geocode_place,
+    resolve_place,
+)
 from arelis.tools.weather import WeatherTool
 
 
@@ -103,6 +108,65 @@ async def test_more_than_one_candidate_is_fetched_so_ambiguity_is_visible() -> N
     assert "New Zealand" in place.alternatives[0]
 
 
+def test_a_named_region_beats_the_first_gazetteer_hit() -> None:
+    """Springfield, Illinois must not become whichever Springfield ranked first."""
+    wrong = {
+        "name": "Springfield",
+        "latitude": -43.3,
+        "longitude": 171.9,
+        "country": "New Zealand",
+        "admin1": "Canterbury",
+    }
+    right = {
+        "name": "Springfield",
+        "latitude": 39.7817,
+        "longitude": -89.6501,
+        "admin1": "Illinois",
+        "country_code": "US",
+    }
+    hit = choose_geocode_hit("Springfield, Illinois", [wrong, right])
+    assert hit is not None
+    assert hit["admin1"] == "Illinois"
+    bare = choose_geocode_hit("Springfield", [wrong, right])
+    assert bare is not None
+    assert bare["admin1"] == "Canterbury"
+    spelled = choose_geocode_hit("Springfield Illinois", [wrong, right])
+    assert spelled is not None
+    assert spelled["admin1"] == "Illinois"
+    missing = choose_geocode_hit("Springfield, Illinois", [wrong])
+    assert missing is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_place_keeps_the_named_region() -> None:
+    wrong_first = {
+        "results": [
+            {
+                "name": "Springfield",
+                "latitude": -43.3,
+                "longitude": 171.9,
+                "country": "New Zealand",
+                "admin1": "Canterbury",
+            },
+            {
+                "name": "Springfield",
+                "latitude": 39.7817,
+                "longitude": -89.6501,
+                "admin1": "Illinois",
+                "country_code": "US",
+            },
+        ]
+    }
+    client = _FakeClient(wrong_first)
+
+    place = await resolve_place("Springfield, Illinois", client=client)
+
+    assert place is not None
+    assert place.label == "Springfield, Illinois"
+    assert place.latitude == pytest.approx(39.7817)
+    assert all("New Zealand" not in alt for alt in place.alternatives)
+
+
 @pytest.mark.asyncio
 async def test_an_unambiguous_place_has_no_alternatives() -> None:
     client = _FakeClient(
@@ -174,30 +238,24 @@ async def test_the_old_tuple_helper_still_works() -> None:
 # --------------------------------------------------------------------------
 
 
-def _patch(monkeypatch: pytest.MonkeyPatch, place: ResolvedPlace | None) -> None:
-    async def _resolve(name: str, **_kw: Any) -> ResolvedPlace | None:
-        return place
+def _patch(monkeypatch: pytest.MonkeyPatch, rows: list[dict[str, Any]]) -> None:
+    async def _search(name: str, **_kw: Any) -> list[dict[str, Any]]:
+        del name
+        return rows
 
     async def _forecast(lat: float, lon: float, **_kw: Any) -> dict[str, Any]:
+        del lat, lon
         return {
-            "current": {
-                "temperature_2m": 71.0,
-                "apparent_temperature": 70.0,
-                "precipitation": 0.0,
-                "weather_code": 0,
-            },
+            "current": {"temperature_2m": 71.0, "weather_code": 0},
             "daily": [
                 {
-                    "date": "2026-09-17",
-                    "weather_code": 0,
                     "temperature_2m_max": 78.0,
                     "temperature_2m_min": 60.0,
-                    "precipitation_probability_max": 5,
                 }
             ],
         }
 
-    monkeypatch.setattr("arelis.tools.weather.resolve_place", _resolve)
+    monkeypatch.setattr("arelis.tools.weather.search_geocode", _search)
     monkeypatch.setattr("arelis.tools.weather.fetch_forecast", _forecast)
 
 
@@ -205,22 +263,24 @@ def _patch(monkeypatch: pytest.MonkeyPatch, place: ResolvedPlace | None) -> None
 async def test_the_answer_names_the_city_it_actually_used(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The whole point. "Place: Springfield" for the wrong hemisphere is a wrong answer
-    the user cannot see; "Springfield, Illinois" is one they can correct."""
+    """A named state is the label in the sentence, not the user's bare word."""
     _patch(
         monkeypatch,
-        ResolvedPlace(
-            label="Springfield, Illinois",
-            latitude=39.7817,
-            longitude=-89.6501,
-            alternatives=("Springfield, Canterbury, New Zealand",),
-        ),
+        [
+            {
+                "name": "Springfield",
+                "latitude": 39.7817,
+                "longitude": -89.6501,
+                "admin1": "Illinois",
+                "country_code": "US",
+            }
+        ],
     )
 
-    result = await WeatherTool().run(place="Springfield")
+    result = await WeatherTool().run(place="Springfield, Illinois")
 
     assert result.ok, result.output
-    assert "Springfield, Illinois" in result.output
+    assert result.output.startswith("Springfield, Illinois:")
     assert result.data["place"] == "Springfield, Illinois"
 
 
@@ -228,19 +288,14 @@ async def test_the_answer_names_the_city_it_actually_used(
 async def test_ambiguity_is_reported_so_it_can_be_corrected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch(
-        monkeypatch,
-        ResolvedPlace(
-            label="Springfield, Illinois",
-            latitude=39.7817,
-            longitude=-89.6501,
-            alternatives=("Springfield, Canterbury, New Zealand",),
-        ),
-    )
+    _patch(monkeypatch, _SPRINGFIELDS["results"])
 
     result = await WeatherTool().run(place="Springfield")
 
-    assert "New Zealand" in result.output
+    assert result.output == (
+        "Did you mean Springfield, Illinois or Springfield, New Zealand?"
+    )
+    assert "Canterbury" not in result.output
     assert result.data["ambiguous"] is True
 
 
@@ -250,22 +305,31 @@ async def test_an_unambiguous_place_does_not_nag(
 ) -> None:
     _patch(
         monkeypatch,
-        ResolvedPlace(label="Reykjavík, Iceland", latitude=64.1, longitude=-21.9),
+        [
+            {
+                "name": "Reykjavík",
+                "latitude": 64.1,
+                "longitude": -21.9,
+                "country": "Iceland",
+            }
+        ],
     )
 
     result = await WeatherTool().run(place="Reykjavik")
 
     assert "also matched" not in result.output.lower()
-    assert result.data["ambiguous"] is False
+    assert result.data.get("ambiguous") is not True
+    assert result.output.startswith("Reykjavík, Iceland:")
 
 
 @pytest.mark.asyncio
 async def test_a_place_that_cannot_be_found_still_says_so(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch(monkeypatch, None)
+    _patch(monkeypatch, [])
 
     result = await WeatherTool().run(place="zzzzzz")
 
     assert not result.ok
-    assert "geocode" in result.output.lower()
+    assert result.output == "I couldn't get the forecast for zzzzzz."
+    assert "geocode" not in result.output.lower()
