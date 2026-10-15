@@ -72,9 +72,6 @@ _SHORT_DESC: dict[str, str] = {
     "user_location": "user's saved place. not a web guess",
     "vision": "describe a local image",
     "watch": "house doors snapshot. not antivirus",
-    # "defaults to their own place" earns its length: measured 7/13 runs
-    # calling user_location first, which weather can never use because it
-    # refuses coordinates. Only the arms carrying this sentence got it right.
     "weather": "forecast. defaults to the user's own place, omit place for home, never look up their location first. place=city name, not coords",
     "web_fetch": "http(s) APIs / JSON. not pages. method=POST|PUT|PATCH|DELETE + headers/body for a real API; non-GET asks first",
     "web_search": "quick lookup. sourced report is research_report. never guess a url",

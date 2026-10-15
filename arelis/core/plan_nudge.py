@@ -195,7 +195,7 @@ _PLAN_WEATHER = PlanSpec(
         "for where they are. 2) Answer with the forecast sentence."
     ),
     steps=("weather",),
-    skip_progress=True,  # weather_force_call owns nudge/inject
+    skip_progress=True,
 )
 
 _PLAN_RECALL = PlanSpec(

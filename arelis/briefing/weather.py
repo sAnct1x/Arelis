@@ -1,8 +1,4 @@
-"""Open-Meteo helpers for the briefing template.
-
-Same API the model is told to use in TOOL_POLICY, but called here without a
-round trip through the chat model.
-"""
+"""Forecast and geocode helpers for the briefing template."""
 
 from __future__ import annotations
 
@@ -51,20 +47,12 @@ _REGION_KEYS = ("admin1", "admin2", "admin3", "admin4", "country", "country_code
 
 @dataclass(frozen=True)
 class ResolvedPlace:
-    """Where the forecast is actually for, in words the user can check.
-
-    The point of the label is that a wrong city becomes *visible*. Returning a
-    bare `(lat, lon)` meant "Springfield" resolved to one of thirty and the
-    answer echoed the user's own string back, so there was no signal anywhere
-    that the forecast was for the wrong state.
-    """
+    """The place the forecast is for, in words the user can check."""
 
     label: str
     latitude: float
     longitude: float
-    # Other cities the same name matched, already formatted. Empty when the
-    # name was unambiguous — worth distinguishing, because a disambiguation
-    # note on every single forecast is noise that gets ignored.
+    # Empty when one city matched.
     alternatives: tuple[str, ...] = ()
 
 
@@ -123,8 +111,7 @@ def choose_geocode_hit(
     """Pick the hit that keeps the state or country they named.
 
     The first hit is only the answer when they named no region. A named
-    region that matches nothing is no hit. Returning the first city anyway
-    is how a different Springfield used to win.
+    region that matches nothing is no hit.
     """
     usable = [entry for entry in results if isinstance(entry, dict)]
     if not usable:

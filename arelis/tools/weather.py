@@ -1,4 +1,4 @@
-"""Local weather via Open-Meteo, no model-invented URLs, no JS weather sites."""
+"""Forecast for a named place, or for where the user is."""
 
 from __future__ import annotations
 
@@ -16,21 +16,9 @@ from arelis.tools.base import ToolResult
 
 
 class WeatherTool:
-    """Forecast for the user's place, or a named city via ``place``. Confirm not required.
+    """One forecast. ``place`` is their words, or empty for where they are.
 
-    Only the user's place, unless they named another city in ``place``.
-    Coordinates cannot be passed in, and that is on purpose: small models invent
-    the lat/lon of whichever large city they have seen most often for "weather
-    outside", which returns a confident forecast for somewhere the user is not.
-    ``test_weather_ignores_model_invented_coords`` pins that.
-
-    ``run`` used to read latitude/longitude from kwargs as a fallback, which four
-    different places then described four different ways, the schema declared
-    neither, the description forbade both, the skill card said to pass them for a
-    named place, and the failure message asked for them. None of it worked: the
-    profile always won, so a named place silently returned home weather, and once
-    the cross-tool-args gate declared its keys an undeclared latitude would have
-    been rejected outright. A named city is ``place``: this tool geocodes it.
+    Coordinates are not a parameter.
     """
 
     name = "weather"
@@ -681,8 +669,6 @@ def extract_weather_place(text: str) -> str:
     return places[0] if places else ""
 
 
-# A time of day, which a daily row cannot answer: its precipitation figure is
-# the maximum over the whole day, so a 60% Tuesday says nothing about 3pm.
 _WEATHER_HOURLY = re.compile(
     r"(?i)(?:"
     r"\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|o'?clock)|"
@@ -699,14 +685,11 @@ _WEATHER_HOURLY = re.compile(
     r")"
 )
 
-# Tomorrow plus a time of day needs to reach past midnight, so the window has
-# to be wider than "the rest of today".
 _WEATHER_HOURLY_TOMORROW = re.compile(
     r"(?i)\btomorrow\s+(?:morning|afternoon|evening|night)\b|"
     r"\b(?:morning|afternoon|evening|night)\s+tomorrow\b"
 )
 
-# Forecast rows start today, so none of these had any route at all.
 _WEATHER_PAST = re.compile(
     r"(?i)(?:"
     r"\byesterday\b|"
@@ -723,13 +706,7 @@ _HOURS_TOMORROW = 36
 
 
 def weather_wants_hourly(text: str) -> int:
-    """Hours of hourly detail this ask needs, or 0 when a daily row will do.
-
-    Roadmap follow-on to the hourly capability: adding the parameter is only
-    half the fix, because the injected call is built here, not by the model. A
-    turn that reaches weather through the force gate would otherwise still ask
-    for daily rows and answer "will it rain at three" from a daily maximum.
-    """
+    """Hours of hourly detail this ask needs, or 0 when a daily row will do."""
     raw = normalize_weather_ask(text)
     if _WEATHER_HOURLY_TOMORROW.search(raw):
         return _HOURS_TOMORROW
@@ -764,9 +741,6 @@ def fill_weather_args(args: dict[str, Any] | None, text: str) -> dict[str, Any]:
     out = dict(args or {})
     for key in _COORD_KEYS:
         out.pop(key, None)
-    # Home asks omit place so profile coords win. The model stuffing
-    # place=Baltimore geocodes Maryland first; "that name also matched
-    # Ohio" is not another city in the ask.
     if extract_weather_place(text):
         if drafted.get("place") and not str(out.get("place") or "").strip():
             out["place"] = drafted["place"]
@@ -780,9 +754,7 @@ def fill_weather_args(args: dict[str, Any] | None, text: str) -> dict[str, Any]:
         out["days"] = 3
     elif days < 1:
         out["days"] = int(drafted.get("days") or 3)
-    # Only ever widen. A model that already asked for hours knows better than
-    # this regex what it is looking at; the point here is the turn where it
-    # asked for none and the ask needed them.
+    # Never shrink a count the caller already set.
     for key in ("hours", "past_days"):
         wanted = int(drafted.get(key) or 0)
         if not wanted:

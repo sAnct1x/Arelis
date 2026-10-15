@@ -153,10 +153,7 @@ _WEATHER_EXACT = (
         r"\b(?:is\s+it|will\s+it)\s+(?:rain(?:ing)?|snow(?:ing)?|cold|hot|warm)\b",
         re.I,
     ),
-    # Scheduled jobs are imperatives: "Get the forecast for Springfield, IL".
-    # The patterns above only heard questions ("what's the weather today")
-    # and "in <place>", so a 9am weather email never forced the weather tool
-    # and then refused with a web-page warrant.
+    # Imperative forecast asks count, not only questions.
     re.compile(
         r"\b(?:get|fetch|look\s+up|pull|give\s+me)\b.{0,60}"
         r"\b(?:weather|forecast|temperature)s?\b",

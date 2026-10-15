@@ -460,11 +460,6 @@ async def apply_no_call_path(
                     return False
                 # Composed plain fallback is her words, not a tool paste.
                 line = replace_raw_tool_line(ctx.last_ok_tool_name, line, raw)
-                # A paste of the forecast, or an empty bubble, is not a
-                # finished ask while a named tool has not run. Shipping
-                # the weather text here used to end the turn before
-                # document. The owed-tool hold is the same cap as a
-                # no-call finish. Past the cap, the receipt can ship.
                 if await hold_for_owed_tools(loop, ctx, r, note_assistant=True):
                     return False
                 passthrough = followup_passthrough_tool(

@@ -253,7 +253,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if not isinstance(counts, dict):
             counts = {}
             ctx.guard_block_counts = counts
-        # Counts are kept for every guard. Nothing here ends the turn on weather.
         counts[blocked_name] = int(counts.get(blocked_name, 0)) + 1
 
     def _drop_wander(*names: str) -> None:
