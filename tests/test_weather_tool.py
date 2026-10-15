@@ -577,7 +577,7 @@ def test_debug_log_records_the_city_not_the_street() -> None:
     handler = logging.StreamHandler(captured)
     handler.setLevel(logging.DEBUG)
     log.addHandler(handler)
-    address = "123 Main Street, Springfield, Illinois 62704"
+    address = "123 Main Street, Springfield, Illinois 62701"
     try:
         asyncio.run(
             search_geocode(
@@ -606,7 +606,7 @@ def test_debug_log_records_the_city_not_the_street() -> None:
     assert "123 Main Street" not in text
     assert address not in text
     assert "Illinois" not in text
-    assert "62704" not in text
+    assert "62701" not in text
     assert "39.7817" not in text
     assert "-89.6501" not in text
 
