@@ -39,13 +39,8 @@ async def _read_winrt() -> Any | None:
     if civic is not None:
         city = str(getattr(civic, "city", "") or "").strip()
         region = str(getattr(civic, "state", "") or "").strip()
-    place = ", ".join(part for part in (city, region) if part)
     lat = float(point.position.latitude)
     lon = float(point.position.longitude)
-    if not place:
-        return None
-
     from arelis.location import UserLocation
 
-    found = UserLocation(city=city, region=region, latitude=lat, longitude=lon)
-    return found
+    return UserLocation(city=city, region=region, latitude=lat, longitude=lon)

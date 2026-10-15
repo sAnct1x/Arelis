@@ -397,7 +397,6 @@ async def test_identical_blocked_write_stops_after_two_tries() -> None:
             fail_counts=fail_counts,
             skip_counts={},
             messages=messages,
-            tool_names={"document"},
             drop_wander=lambda _n: None,
         )
         assert action == SKIP

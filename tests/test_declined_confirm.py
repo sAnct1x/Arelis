@@ -97,7 +97,6 @@ async def test_a_denied_call_says_the_user_said_no() -> None:
         fail_counts={},
         skip_counts={},
         messages=agenda_messages,
-        tool_names={"agenda"},
         drop_wander=lambda _name: None,
     )
     assert action == SKIP
@@ -117,7 +116,6 @@ async def test_a_denied_call_says_the_user_said_no() -> None:
         fail_counts={},
         skip_counts={},
         messages=inbox_messages,
-        tool_names={"inbox"},
         drop_wander=lambda _name: None,
     )
     assert action == SKIP

@@ -575,8 +575,6 @@ async def test_confirm_call_native_blocked_notes():
     messages: list[dict[str, Any]] = []
     fail_counts: dict[str, int] = {}
     skip_counts: dict[str, int] = {}
-    tool_names = {"notes"}
-
     def drop_wander(name: str) -> None:
         pass
 
@@ -589,7 +587,6 @@ async def test_confirm_call_native_blocked_notes():
         fail_counts=fail_counts,
         skip_counts=skip_counts,
         messages=messages,
-        tool_names=tool_names,
         drop_wander=drop_wander,
     )
 
@@ -612,8 +609,6 @@ async def test_confirm_call_native_blocked_workspace():
     messages: list[dict[str, Any]] = []
     fail_counts: dict[str, int] = {}
     skip_counts: dict[str, int] = {}
-    tool_names = {"workspace"}
-
     def drop_wander(name: str) -> None:
         pass
 
@@ -626,7 +621,6 @@ async def test_confirm_call_native_blocked_workspace():
         fail_counts=fail_counts,
         skip_counts=skip_counts,
         messages=messages,
-        tool_names=tool_names,
         drop_wander=drop_wander,
     )
 
@@ -705,8 +699,6 @@ async def test_confirm_call_repeat_fail():
     messages: list[dict[str, Any]] = []
     fail_counts: dict[str, int] = {fp: 2}
     skip_counts: dict[str, int] = {}
-    tool_names = {"notes"}
-
     def drop_wander(name: str) -> None:
         pass
 
@@ -719,7 +711,6 @@ async def test_confirm_call_repeat_fail():
         fail_counts=fail_counts,
         skip_counts=skip_counts,
         messages=messages,
-        tool_names=tool_names,
         drop_wander=drop_wander,
     )
     assert action == "skip"
@@ -753,7 +744,6 @@ async def test_confirm_call_unrelated_tools_unchanged():
         fail_counts=fail_counts,
         skip_counts=skip_counts,
         messages=messages,
-        tool_names={"weather"},
         drop_wander=drop_wander,
     )
     assert action == "run"

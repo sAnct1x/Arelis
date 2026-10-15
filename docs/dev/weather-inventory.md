@@ -1,6 +1,6 @@
 # Weather path deletions
 
-The forecast tool is one optional `place` argument. Code geocodes that string, keeps a named state or country, calls the forecast once, and returns one sentence. No place uses Windows location, then the saved home city, then IP geolocation. A named place skips those. None of the old turn guards below are on the path.
+The forecast tool is one optional `place` argument. Code geocodes that string, keeps a named state or country from the geocoder row, and returns one sentence. A bare name with one clearly larger city is that city. No place uses Windows location, then the saved home city. IP geolocation runs only when `location.network.enabled` is on, and that switch ships off. A named place skips those. None of the old turn guards below are on the path.
 
 Deleted:
 

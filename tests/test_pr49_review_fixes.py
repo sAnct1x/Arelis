@@ -119,7 +119,6 @@ async def test_confirm_call_flag_off_empty_content_blocked() -> None:
             fail_counts={},
             skip_counts={},
             messages=messages,
-            tool_names={"workspace"},
             drop_wander=lambda _x: None,
         )
 
@@ -145,7 +144,6 @@ async def test_confirm_call_flag_off_missing_content_blocked() -> None:
             fail_counts={},
             skip_counts={},
             messages=messages,
-            tool_names={"workspace"},
             drop_wander=lambda _x: None,
         )
 
@@ -173,7 +171,6 @@ async def test_confirm_call_flag_on_empty_string_allowed() -> None:
             fail_counts={},
             skip_counts={},
             messages=messages,
-            tool_names={"workspace"},
             drop_wander=lambda _x: None,
         )
 
@@ -200,7 +197,6 @@ async def test_confirm_call_flag_on_missing_content_native_blocked() -> None:
             fail_counts={},
             skip_counts={},
             messages=messages,
-            tool_names={"workspace"},
             drop_wander=lambda _x: None,
         )
 
@@ -230,7 +226,6 @@ async def _confirm(
         fail_counts=fail_counts,
         skip_counts={},
         messages=messages,
-        tool_names={"workspace"},
         drop_wander=lambda _name: None,
     )
 
@@ -332,7 +327,6 @@ async def test_native_missing_required_args_do_not_become_failed_twice() -> None
                 fail_counts=notes_fail,
                 skip_counts={},
                 messages=notes_messages,
-                tool_names={"notes"},
                 drop_wander=lambda _name: None,
             )
             assert action == SKIP

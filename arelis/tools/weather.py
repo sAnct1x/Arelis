@@ -9,6 +9,8 @@ from typing import Any
 from arelis.briefing.weather import (
     describe_weather_code,
     fetch_forecast,
+    geocode_search_names,
+    place_region_match,
     search_geocode,
 )
 from arelis.location.windows import read_windows_location
@@ -45,6 +47,7 @@ class WeatherTool:
         windows_location: Any = None,
         home_city: Any = None,
         ip_location: Any = None,
+        ip_enabled: bool | None = None,
         geocode: Any = None,
         forecast: Any = None,
     ) -> None:
@@ -52,6 +55,7 @@ class WeatherTool:
         self._windows_location = windows_location
         self._home_city = home_city
         self._ip_location = ip_location
+        self._ip_enabled = ip_enabled
         self._geocode = geocode
         self._forecast = forecast
 
@@ -66,21 +70,30 @@ class WeatherTool:
                 output="I couldn't tell where you are. Which city should I check?",
                 data={"need_place": True},
             )
-        if here.latitude is not None and here.longitude is not None and here.place:
-            return await self._sentence(here.place, here.latitude, here.longitude)
-        return await self._for_place(here.place)
+        if here.latitude is not None and here.longitude is not None:
+            label = here.place or "Here"
+            return await self._sentence(label, here.latitude, here.longitude)
+        if here.place:
+            return await self._for_place(here.place)
+        return ToolResult(
+            ok=True,
+            output="I couldn't tell where you are. Which city should I check?",
+            data={"need_place": True},
+        )
 
     async def _resolve_here(self) -> Here | None:
         windows = await _maybe_await(self._windows_fn())
         found = _as_here(windows)
-        if found is not None and found.place:
+        if found is not None and (found.place or found.latitude is not None):
             return found
         home = self._home_fn()
         if isinstance(home, str) and home.strip():
             return Here(place=home.strip())
+        if not self._ip_on():
+            return None
         ip = await _maybe_await(self._ip_fn())
         found = _as_here(ip)
-        if found is not None and found.place:
+        if found is not None and (found.place or found.latitude is not None):
             return found
         return None
 
@@ -108,35 +121,97 @@ class WeatherTool:
             return reader()
         return None
 
+    def _ip_on(self) -> bool:
+        """IP lookup is opt-in. Missing means off, and the call is not made."""
+        if self._ip_enabled is not None:
+            return bool(self._ip_enabled)
+        flag = getattr(self.location, "network_enabled", None)
+        if callable(flag):
+            return bool(flag())
+        return False
+
+    def _home_region(self) -> str:
+        home = self._home_fn()
+        if not isinstance(home, str):
+            return ""
+        parts = [part.strip() for part in home.split(",") if part.strip()]
+        if len(parts) >= 2:
+            return parts[-1]
+        return ""
+
     async def _for_place(self, asked: str) -> ToolResult:
-        city, regions = split_place(asked)
         try:
-            hits = await _maybe_await(self._geocode_fn(city or asked))
+            rows = await self._geocode_rows(asked)
         except Exception:  # a dead lookup is the plain failure line
             return _miss(asked)
-        rows = [row for row in (hits or []) if isinstance(row, dict)]
-        if regions:
-            matched = [row for row in rows if row_matches(row, regions)]
-            if not matched:
+        named = _rows_for_named_region(asked, rows)
+        if named is not None:
+            if not named:
                 return _miss(asked)
-            return await self._from_row(asked, matched[0])
-        labels: list[str] = []
-        picked: list[dict[str, Any]] = []
-        for row in rows:
-            label = place_label(row)
-            if not label or label in labels:
-                continue
-            labels.append(label)
-            picked.append(row)
-        if len(picked) >= 2:
+            return await self._from_row(asked, named[0])
+        choice = self._pick_open(rows)
+        if isinstance(choice, list):
+            labels = [place_label(row) for row in choice]
+            labels = [label for label in labels if label]
             return ToolResult(
                 ok=True,
                 output=clarify(labels[:3]),
                 data={"ambiguous": True, "alternatives": labels[:3]},
             )
-        if len(picked) == 1:
-            return await self._from_row(asked, picked[0])
-        return _miss(asked)
+        if choice is None:
+            return _miss(asked)
+        return await self._from_row(asked, choice)
+
+    async def _geocode_rows(self, asked: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, str, str, str]] = set()
+        for name in geocode_search_names(asked):
+            hits = await _maybe_await(self._geocode_fn(name))
+            for row in hits or []:
+                if not isinstance(row, dict):
+                    continue
+                key = (
+                    str(row.get("name") or "").casefold(),
+                    str(row.get("admin1") or "").casefold(),
+                    str(row.get("country") or "").casefold(),
+                    str(row.get("latitude") or ""),
+                    str(row.get("longitude") or ""),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
+            if any(place_region_match(asked, row) for row in rows):
+                break
+        return rows
+
+    def _pick_open(
+        self, rows: list[dict[str, Any]]
+    ) -> dict[str, Any] | list[dict[str, Any]] | None:
+        distinct: list[dict[str, Any]] = []
+        labels: list[str] = []
+        for row in rows:
+            label = place_label(row)
+            if not label or label in labels:
+                continue
+            labels.append(label)
+            distinct.append(row)
+        if not distinct:
+            return None
+        if len(distinct) == 1:
+            return distinct[0]
+        ranked = sorted(distinct, key=_population, reverse=True)
+        top = _population(ranked[0])
+        nxt = _population(ranked[1])
+        # Five times the next city's population is one clear place.
+        if top > 0 and (nxt <= 0 or top >= 5 * nxt):
+            return ranked[0]
+        home = self._home_region()
+        if home:
+            hits = [row for row in distinct if place_region_match(home, row)]
+            if len(hits) == 1:
+                return hits[0]
+        return distinct
 
     async def _from_row(self, asked: str, row: dict[str, Any]) -> ToolResult:
         try:
@@ -404,14 +479,14 @@ def _as_here(value: Any) -> Here | None:
     if value is None:
         return None
     if isinstance(value, Here):
-        return value if value.place.strip() else None
+        if value.place.strip() or value.latitude is not None:
+            return value
+        return None
     city = str(getattr(value, "city", "") or "").strip()
     region = str(getattr(value, "region", "") or "").strip()
     place = ", ".join(part for part in (city, region) if part)
     if not place:
         place = str(getattr(value, "place", "") or "").strip()
-    if not place:
-        return None
     lat = getattr(value, "latitude", None)
     lon = getattr(value, "longitude", None)
     try:
@@ -419,61 +494,36 @@ def _as_here(value: Any) -> Here | None:
         lon_f = float(lon) if lon is not None else None
     except (TypeError, ValueError):
         lat_f = lon_f = None
+    if not place and lat_f is None:
+        return None
     return Here(place=place, latitude=lat_f, longitude=lon_f)
 
 
-def _is_us_region(text: str) -> bool:
-    folded = " ".join(text.casefold().split()).strip(" .,")
-    if folded in _US_STATE_NAME_TO_ABBR or folded in _ABBR_TO_NAME:
-        return True
-    return tuple(folded.split()) in _US_STATE_PHRASES
+def _population(row: dict[str, Any]) -> float:
+    try:
+        return float(row.get("population") or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
-def split_place(query: str) -> tuple[str, list[str]]:
-    """City text to look up, and the state or country words they wrote."""
-    raw = " ".join((query or "").split())
-    parts = [part.strip(" .") for part in raw.split(",") if part.strip(" .")]
-    if len(parts) >= 2:
-        return parts[0], parts[1:]
-    tokens = raw.split()
-    for size in (3, 2, 1):
-        if len(tokens) <= size:
-            continue
-        tail = " ".join(tokens[-size:])
-        if _is_us_region(tail):
-            city = " ".join(tokens[:-size]).strip()
-            if city:
-                return city, [tail]
-    return raw, []
-
-
-def _region_values(entry: dict[str, Any]) -> list[str]:
-    values: list[str] = []
-    for key in ("admin1", "admin2", "admin3", "admin4", "country", "country_code"):
-        value = " ".join(str(entry.get(key) or "").split())
-        if value:
-            values.append(value)
-    return values
-
-
-def _same_region(wanted: str, value: str) -> bool:
-    left = " ".join(wanted.casefold().split())
-    right = " ".join(value.casefold().split())
-    if not left or not right:
-        return False
-    if left == right:
-        return True
-    left_name = _ABBR_TO_NAME.get(left, left)
-    right_name = _ABBR_TO_NAME.get(right, right)
-    return left_name.casefold() == right_name.casefold()
-
-
-def row_matches(entry: dict[str, Any], regions: list[str]) -> bool:
-    values = _region_values(entry)
-    for region in regions:
-        if not any(_same_region(region, value) for value in values):
-            return False
-    return True
+def _rows_for_named_region(
+    asked: str, rows: list[dict[str, Any]]
+) -> list[dict[str, Any]] | None:
+    """Matching rows when they named a region. None when they did not."""
+    raw = " ".join((asked or "").split())
+    if not raw:
+        return []
+    matched = [row for row in rows if place_region_match(raw, row)]
+    if "," in raw:
+        return matched
+    if matched:
+        return matched
+    folded = raw.casefold()
+    for row in rows:
+        name = " ".join(str(row.get("name") or "").split()).casefold()
+        if name and folded.startswith(name + " "):
+            return []
+    return None
 
 
 def place_label(entry: dict[str, Any]) -> str:
@@ -736,33 +786,16 @@ def draft_weather_args(text: str) -> dict[str, Any]:
 
 
 def fill_weather_args(args: dict[str, Any] | None, text: str) -> dict[str, Any]:
-    """Keep days; drop invented coords and a place they never named; bump tomorrow."""
+    """Keep a named place. Days, hours, and past days are not arguments."""
     drafted = draft_weather_args(text)
     out = dict(args or {})
     for key in _COORD_KEYS:
+        out.pop(key, None)
+    for key in ("days", "hours", "past_days"):
         out.pop(key, None)
     if extract_weather_place(text):
         if drafted.get("place") and not str(out.get("place") or "").strip():
             out["place"] = drafted["place"]
     else:
         out.pop("place", None)
-    try:
-        days = int(out.get("days") or 0)
-    except (TypeError, ValueError):
-        days = 0
-    if days < 2 and weather_wants_beyond_today(text):
-        out["days"] = 3
-    elif days < 1:
-        out["days"] = int(drafted.get("days") or 3)
-    # Never shrink a count the caller already set.
-    for key in ("hours", "past_days"):
-        wanted = int(drafted.get(key) or 0)
-        if not wanted:
-            continue
-        try:
-            have = int(out.get(key) or 0)
-        except (TypeError, ValueError):
-            have = 0
-        if have < wanted:
-            out[key] = wanted
     return out

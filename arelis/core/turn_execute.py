@@ -58,8 +58,8 @@ def _pin_plain_user(
     """Put the write-up line on this request, after the tool result.
 
     A later request that adds it would move the last real user line, and
-    the tool call above would render differently. Weather writes its own
-    line. A result that is already a sentence does not need one.
+    the tool call above would render differently. A result that is already
+    a sentence does not need one.
 
     Goal kind none is not a finished lookup. Pinning there tells the next
     step of a chain not to call anything. An open chain is the same even
@@ -786,7 +786,7 @@ async def execute_call(
             if DISTANCE_MODEL_NOTE not in out:
                 out = f"{out.rstrip()}\n\n{DISTANCE_MODEL_NOTE}"
         messages.append(loop._tool_message(name, out))
-        if result.ok and name != "weather":
+        if result.ok:
             _pin_plain_user(messages, ctx, name, out, loop)
         if (
             name == "schedule"

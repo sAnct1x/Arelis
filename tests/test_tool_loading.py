@@ -484,7 +484,6 @@ def test_confirm_card_shows_the_converted_args() -> None:
             fail_counts={},
             skip_counts={},
             messages=[],
-            tool_names={"image"},
             drop_wander=lambda _name: None,
         )
         assert action == RUN

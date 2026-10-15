@@ -81,26 +81,67 @@ def _region_values(entry: dict[str, Any]) -> list[str]:
     return values
 
 
-def _qualifier_matches(entry: dict[str, Any], qualifier: str) -> bool:
-    wanted = _folded(qualifier).casefold()
-    if not wanted:
-        return False
-    return any(value.casefold() == wanted for value in _region_values(entry))
+def _region_forms(text: str) -> set[str]:
+    folded = _folded(text).casefold()
+    if not folded:
+        return set()
+    forms = {folded}
+    # Abbreviation and full name are one region. Imported here so this
+    # module can load before the tool module finishes.
+    from arelis.tools.weather import (
+        _ABBR_TO_NAME,
+        _US_STATE_NAME_TO_ABBR,
+        _US_STATE_PHRASES,
+    )
+
+    expanded = _ABBR_TO_NAME.get(folded)
+    if expanded:
+        forms.add(expanded.casefold())
+    abbr = _US_STATE_NAME_TO_ABBR.get(folded)
+    if abbr:
+        forms.add(abbr)
+    code = _US_STATE_PHRASES.get(tuple(folded.split()))
+    if code:
+        forms.add(code)
+        named = _ABBR_TO_NAME.get(code)
+        if named:
+            forms.add(named.casefold())
+    return forms
 
 
-def _named_region_suffix(query: str, entry: dict[str, Any]) -> bool:
-    """True when the query ends with this hit's own state or country.
-
-    Used when they wrote "Springfield Illinois" with no comma. The
-    region text comes from the geocoder row, not from a stored list.
-    """
-    raw = _folded(query).casefold()
-    city = _folded(entry.get("name")).casefold()
+def _hit_region_forms(entry: dict[str, Any]) -> set[str]:
+    forms: set[str] = set()
     for value in _region_values(entry):
-        region = value.casefold()
-        if not region or region == city:
+        forms |= _region_forms(value)
+    return forms
+
+
+def place_region_match(place: str, entry: dict[str, Any]) -> bool:
+    """True when the place string names this hit's own state or country.
+
+    A comma is the city, then the region words. With no comma, the string
+    ends with that hit's admin or country, or is exactly that region.
+    """
+    if not isinstance(entry, dict):
+        return False
+    raw = _folded(place)
+    if not raw:
+        return False
+    _city, quals = _place_query_parts(raw)
+    regions = _hit_region_forms(entry)
+    if not regions:
+        return False
+    if quals:
+        for part in quals:
+            wanted = _region_forms(part)
+            if not wanted or not (wanted & regions):
+                return False
+        return True
+    city_name = _folded(entry.get("name")).casefold()
+    for form in regions:
+        if not form or form == city_name:
             continue
-        if raw.endswith(" " + region):
+        if raw.casefold() == form or raw.casefold().endswith(" " + form):
             return True
     return False
 
@@ -117,20 +158,14 @@ def choose_geocode_hit(
     if not usable:
         return None
     _city, qualifiers = _place_query_parts(query)
-    if qualifiers:
-        matched = [
-            entry
-            for entry in usable
-            if all(_qualifier_matches(entry, part) for part in qualifiers)
-        ]
-        return matched[0] if matched else None
-    hinted = [entry for entry in usable if _named_region_suffix(query, entry)]
-    if hinted:
-        return hinted[0]
+    if qualifiers or any(place_region_match(query, entry) for entry in usable):
+        matched = [entry for entry in usable if place_region_match(query, entry)]
+        if qualifiers or matched:
+            return matched[0] if matched else None
     return usable[0]
 
 
-def _search_names(query: str) -> list[str]:
+def geocode_search_names(query: str) -> list[str]:
     city, qualifiers = _place_query_parts(query)
     names: list[str] = []
     if city:
@@ -176,7 +211,7 @@ async def resolve_place(
     results: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     try:
-        for search_name in _search_names(query):
+        for search_name in geocode_search_names(query):
             response = await client.get(
                 url, params={"name": search_name, "count": _GEOCODE_CANDIDATES}
             )
@@ -197,16 +232,9 @@ async def resolve_place(
     finally:
         if owns:
             await client.aclose()
+    hinted = [entry for entry in results if place_region_match(query, entry)]
     _city, qualifiers = _place_query_parts(query)
-    if qualifiers:
-        pool = [
-            entry
-            for entry in results
-            if all(_qualifier_matches(entry, part) for part in qualifiers)
-        ]
-    else:
-        hinted = [entry for entry in results if _named_region_suffix(query, entry)]
-        pool = hinted or results
+    pool = hinted if hinted or qualifiers else results
     first = choose_geocode_hit(query, results)
     if first is None:
         return None

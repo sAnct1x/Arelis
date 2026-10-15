@@ -91,11 +91,12 @@ class _Standins:
             raise RuntimeError("down")
         return _reading()
 
-    def tool(self) -> WeatherTool:
+    def tool(self, *, ip_enabled: bool | None = None) -> WeatherTool:
         return WeatherTool(
             windows_location=self.windows_fn,
             home_city=self.home_fn,
             ip_location=self.ip_fn,
+            ip_enabled=ip_enabled,
             geocode=self.geocode,
             forecast=self.forecast_fn,
         )
@@ -210,7 +211,7 @@ async def test_no_place_uses_windows_when_it_is_present() -> None:
     stand.home_value = "Lyon"
     stand.ip_value = SimpleNamespace(city="Paris", region="", latitude=1.0, longitude=2.0)
 
-    result = await stand.tool().run()
+    result = await stand.tool(ip_enabled=True).run()
 
     assert stand.windows == 1
     assert stand.home == 0
@@ -226,7 +227,7 @@ async def test_no_place_falls_back_to_the_home_city() -> None:
     stand.home_value = "Springfield, Illinois"
     stand.ip_value = SimpleNamespace(city="Lyon", region="", latitude=45.0, longitude=4.0)
 
-    result = await stand.tool().run(place="")
+    result = await stand.tool(ip_enabled=True).run(place="")
 
     assert stand.windows == 1
     assert stand.home == 1
@@ -246,7 +247,7 @@ async def test_no_place_falls_back_to_ip_after_home() -> None:
         longitude=4.84,
     )
 
-    result = await stand.tool().run(place="   ")
+    result = await stand.tool(ip_enabled=True).run(place="   ")
 
     assert stand.windows == 1
     assert stand.home == 1
@@ -283,9 +284,201 @@ async def test_no_place_and_no_fallback_asks_which_city() -> None:
     assert result.output == _WHERE
     assert stand.windows == 1
     assert stand.home == 1
-    assert stand.ip == 1
+    assert stand.ip == 0
     assert stand.geo == []
     assert stand.forecast == []
+
+
+_PARIS_FR = {
+    "name": "Paris",
+    "latitude": 48.8566,
+    "longitude": 2.3522,
+    "admin1": "Ile-de-France",
+    "country": "France",
+    "country_code": "FR",
+    "population": 2138551,
+}
+_PARIS_TX = {
+    "name": "Paris",
+    "latitude": 33.6609,
+    "longitude": -95.5555,
+    "admin1": "Texas",
+    "country": "United States",
+    "country_code": "US",
+    "population": 24782,
+}
+_LONDON_GB = {
+    "name": "London",
+    "latitude": 51.5085,
+    "longitude": -0.1257,
+    "admin1": "England",
+    "country": "United Kingdom",
+    "country_code": "GB",
+    "population": 8961989,
+}
+_LONDON_CA = {
+    "name": "London",
+    "latitude": 42.9834,
+    "longitude": -81.233,
+    "admin1": "Ontario",
+    "country": "Canada",
+    "country_code": "CA",
+    "population": 422324,
+}
+
+
+def _paris_geocode(calls: list[str]):
+    async def geocode(query: str) -> list[dict]:
+        calls.append(query)
+        if query == "Paris":
+            return [_PARIS_FR, _PARIS_TX]
+        return []
+
+    return geocode
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("place", ["Paris France", "Paris, France"])
+async def test_paris_with_the_country_is_france(place: str) -> None:
+    calls: list[str] = []
+    tool = WeatherTool(
+        windows_location=lambda: None,
+        home_city=lambda: "",
+        ip_location=lambda: None,
+        geocode=_paris_geocode(calls),
+        forecast=_Standins().forecast_fn,
+    )
+    result = await tool.run(place=place)
+
+    assert result.ok
+    assert "?" not in result.output
+    assert result.output.startswith("Paris, Ile-de-France:")
+    assert "Texas" not in result.output
+    if "," in place:
+        assert calls == ["Paris"]
+    else:
+        assert calls == ["Paris France", "Paris"]
+
+
+@pytest.mark.asyncio
+async def test_a_bare_london_is_the_dominant_city() -> None:
+    stand = _Standins([_LONDON_CA, _LONDON_GB])
+    result = await stand.tool().run(place="London")
+
+    assert stand.forecast == [(51.5085, -0.1257)]
+    assert result.output.startswith("London, England:")
+    assert "?" not in result.output
+
+
+@pytest.mark.asyncio
+async def test_close_populations_still_ask() -> None:
+    close_mo = dict(_MO, population=170_000)
+    close_il = dict(_IL, population=150_000)
+    stand = _Standins([close_mo, close_il])
+    result = await stand.tool().run(place="Springfield")
+
+    assert stand.forecast == []
+    assert result.output == (
+        "Did you mean Springfield, Missouri or Springfield, Illinois?"
+    )
+
+
+@pytest.mark.asyncio
+async def test_windows_coordinates_without_a_city_still_forecast() -> None:
+    stand = _Standins([_IL])
+    stand.windows_value = SimpleNamespace(
+        city="", region="", latitude=39.7817, longitude=-89.6501
+    )
+    result = await stand.tool().run()
+
+    assert stand.geo == []
+    assert stand.ip == 0
+    assert stand.forecast == [(39.7817, -89.6501)]
+    assert result.output.startswith("Here:")
+
+
+@pytest.mark.asyncio
+async def test_ip_lookup_off_by_default_is_not_called(tmp_path, monkeypatch) -> None:
+    from arelis.location import build_location
+    from arelis.location.providers import IPGeolocationProvider
+
+    calls: list[str] = []
+
+    async def resolve(self):
+        calls.append("ip")
+        raise AssertionError("ip provider was called")
+
+    monkeypatch.setattr(IPGeolocationProvider, "resolve", resolve)
+    resolver = build_location(
+        {
+            "location": {
+                "profile_path": str(tmp_path / "missing.yaml"),
+                "use_system": False,
+                "network": {"enabled": False},
+            }
+        }
+    )
+    assert resolver.network_enabled() is False
+    stand = _Standins([])
+    tool = WeatherTool(
+        location=resolver,
+        windows_location=lambda: None,
+        geocode=stand.geocode,
+        forecast=stand.forecast_fn,
+    )
+    result = await tool.run()
+
+    assert calls == []
+    assert result.ok
+    assert result.output == _WHERE
+    assert stand.forecast == []
+
+
+def test_shipped_ip_lookup_defaults_off() -> None:
+    from pathlib import Path
+
+    import yaml
+
+    data = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "arelis" / "config" / "default.yaml").read_text()
+    )
+    assert data["location"]["network"]["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_enabled_ip_is_the_last_fallback(tmp_path, monkeypatch) -> None:
+    from arelis.location import UserLocation, build_location
+    from arelis.location.providers import IPGeolocationProvider
+
+    calls: list[str] = []
+
+    async def resolve(self):
+        calls.append("ip")
+        return UserLocation(city="Lyon", latitude=45.76, longitude=4.84)
+
+    monkeypatch.setattr(IPGeolocationProvider, "resolve", resolve)
+    resolver = build_location(
+        {
+            "location": {
+                "profile_path": str(tmp_path / "missing.yaml"),
+                "use_system": False,
+                "network": {"enabled": True, "url": "https://ipapi.co/json/"},
+            }
+        }
+    )
+    stand = _Standins([])
+    tool = WeatherTool(
+        location=resolver,
+        windows_location=lambda: None,
+        geocode=stand.geocode,
+        forecast=stand.forecast_fn,
+    )
+    result = await tool.run()
+
+    assert calls == ["ip"]
+    assert stand.geo == []
+    assert stand.forecast == [(45.76, 4.84)]
+    assert result.output.startswith("Lyon:")
 
 
 def test_model_facing_weather_text_names_no_tool_or_api() -> None:

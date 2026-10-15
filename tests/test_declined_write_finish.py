@@ -281,7 +281,6 @@ async def test_declined_tools_comes_from_the_confirm_decision_only() -> None:
         fail_counts={},
         skip_counts={},
         messages=messages,
-        tool_names={"memory"},
         drop_wander=lambda _name: None,
     )
     assert action == SKIP
@@ -300,7 +299,6 @@ async def test_declined_tools_comes_from_the_confirm_decision_only() -> None:
         fail_counts={},
         skip_counts={},
         messages=[],
-        tool_names={"memory"},
         drop_wander=lambda _name: None,
     )
     assert action != SKIP
@@ -316,7 +314,6 @@ async def test_declined_tools_comes_from_the_confirm_decision_only() -> None:
         fail_counts={},
         skip_counts={},
         messages=[],
-        tool_names={"workspace"},
         drop_wander=lambda _name: None,
     )
     assert action == SKIP

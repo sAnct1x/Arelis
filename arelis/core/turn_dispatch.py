@@ -737,7 +737,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             fail_counts=r.fail_counts,
             skip_counts=r.skip_counts,
             messages=r.messages,
-            tool_names=r.tool_names,
             drop_wander=_drop_wander,
         )
         if action == STOP:

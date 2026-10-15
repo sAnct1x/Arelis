@@ -58,7 +58,6 @@ async def _emit_skip_repeat_fail(
     call_fp: str,
     *,
     messages: list[dict[str, Any]],
-    tool_names: set[str],
 ) -> tuple[str, str, str]:
     notice = (
         f"[fail:other] Already failed twice with the same "
@@ -73,10 +72,7 @@ async def _emit_skip_repeat_fail(
     )
     messages.append(loop._tool_message(name, notice))
     loop._trace.append(f"{name} skip_repeat_fail")
-    # Do not rebuild ollama_tools. Changing the schema array
-    # busts the prefix cache and the next round pays ~50s to
-    # re-read the persona. fail_counts already drops the call.
-    del tool_names
+    # fail_counts drops the repeat. The schema array stays, so the prefix cache holds.
     stop_msg = (
         f"Stop calling `{name}` with those same arguments, it "
         "already failed twice this turn. "
@@ -116,7 +112,6 @@ async def _refuse_confirm_block(
     reason: str,
     *,
     messages: list[dict[str, Any]],
-    tool_names: set[str],
     fail_counts: dict[str, int],
     trace_kind: str,
 ) -> tuple[str, str, str]:
@@ -138,7 +133,6 @@ async def _refuse_confirm_block(
             name,
             call_fp,
             messages=messages,
-            tool_names=tool_names,
         )
     return SKIP, "", call_fp
 
@@ -153,7 +147,6 @@ async def confirm_call(
     fail_counts: dict[str, int],
     skip_counts: dict[str, int],
     messages: list[dict[str, Any]],
-    tool_names: set[str],
     drop_wander: Callable[..., None],
 ) -> tuple[str, str, str]:
     """Decide whether to pause for Allow.
@@ -187,7 +180,6 @@ async def confirm_call(
             call_fp,
             blocked,
             messages=messages,
-            tool_names=tool_names,
             fail_counts=fail_counts,
             trace_kind="blocked",
         )
@@ -202,7 +194,6 @@ async def confirm_call(
                 call_fp,
                 native_blocked,
                 messages=messages,
-                tool_names=tool_names,
                 fail_counts=fail_counts,
                 trace_kind="native_blocked",
             )
@@ -213,7 +204,6 @@ async def confirm_call(
             name,
             call_fp,
             messages=messages,
-            tool_names=tool_names,
         )
 
     asked = name in loop._expected_tools

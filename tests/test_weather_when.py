@@ -216,18 +216,18 @@ def test_the_injected_call_carries_the_hours() -> None:
     assert args["place"] == "Metropolis"
 
 
-def test_filling_only_widens_what_the_model_chose() -> None:
-    """A model that asked for 24 hours knows more than the regex does."""
+def test_fill_never_passes_days_hours_or_past_days() -> None:
     from arelis.tools.weather import fill_weather_args
 
-    kept = fill_weather_args({"hours": 24}, "will it rain at 3pm")
-    assert kept["hours"] == 24
+    kept = fill_weather_args({"hours": 24, "days": 3, "past_days": 1}, "will it rain at 3pm")
+    assert "hours" not in kept
+    assert "days" not in kept
+    assert "past_days" not in kept
 
     added = fill_weather_args({}, "will it rain at 3pm")
-    assert added["hours"] == 12
-
-    untouched = fill_weather_args({}, "what's the weather")
-    assert "hours" not in untouched
+    assert "hours" not in added
+    assert "days" not in added
+    assert "past_days" not in added
 
 
 def test_garbled_after_tomorrow_is_not_a_city() -> None:
@@ -274,7 +274,7 @@ def test_to_morrow_is_tomorrow_not_a_city() -> None:
     assert weather_wants_beyond_today(ask)
     stripped = fill_weather_args({"place": "Springfield", "days": 2}, ask)
     assert "place" not in stripped
-    assert stripped["days"] == 2
+    assert "days" not in stripped
     assert weather_places_missing(ask, {""}) == []
     # A named-city reading is not home. Profile coords still need a call.
     assert weather_places_missing(ask, {"springfield"}) == [""]
@@ -285,5 +285,6 @@ def test_named_city_still_keeps_place() -> None:
 
     kept = fill_weather_args({"place": "Chicago", "days": 3}, "weather in Chicago")
     assert kept["place"] == "Chicago"
+    assert "days" not in kept
     added = fill_weather_args({}, "weather in Chicago")
     assert added["place"] == "Chicago"
