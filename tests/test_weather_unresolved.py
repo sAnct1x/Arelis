@@ -21,6 +21,7 @@ from tests.test_named_tools_owed_native import (
     _call,
     _run_agent_with_script,
 )
+from tests.test_weather_tool import _PARIS_FR
 
 _ASK = "what's the weather at 123 Fakeplace Street 99999"
 _PARIS_ASK = "what's the weather in Paris"
@@ -34,15 +35,6 @@ _SPRINGFIELD = {
     "country": "United States",
     "country_code": "US",
     "population": 116250,
-}
-_PARIS_FR = {
-    "name": "Paris",
-    "latitude": 48.8566,
-    "longitude": 2.3522,
-    "admin1": "Ile-de-France",
-    "country": "France",
-    "country_code": "FR",
-    "population": 2138551,
 }
 
 
@@ -166,7 +158,9 @@ async def test_paris_lookup_is_unchanged() -> None:
     assert result.data.get("status") == "resolved"
     assert result.data.get("place") == "Paris, France"
     assert lookup.queries == ["Paris"]
-    assert lookup.forecasts == [(48.8566, 2.3522)]
+    assert lookup.forecasts == [
+        (_PARIS_FR["latitude"], _PARIS_FR["longitude"])
+    ]
 
     reg = ToolRegistry()
     reg.register(weather)
