@@ -636,7 +636,7 @@ def forecast_sentence(label: str, data: dict[str, Any]) -> str:
     if not label or not temp or not high or not low:
         return ""
     condition = describe_weather_code(current.get("weather_code")) or "unknown"
-    return f"{label}: {temp}F and {condition}, high {high}, low {low}."
+    return f"{label}: {temp}°F and {condition}, high {high}°F, low {low}°F."
 
 
 def place_query_for_geocode(name: str) -> str:

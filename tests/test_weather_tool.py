@@ -143,11 +143,32 @@ async def test_springfield_illinois_beats_the_first_hit() -> None:
     assert stand.ip == 0
     assert result.ok
     assert result.output == (
-        "Springfield, Illinois: 61F and overcast, high 66, low 48."
+        "Springfield, Illinois: 61\u00b0F and overcast, high 66\u00b0F, low 48\u00b0F."
     )
     assert "?" not in result.output
     assert "Did you mean" not in result.output
     assert "say which" not in result.output.lower()
+
+
+def _temperature_slots(sentence: str) -> tuple[str, str, str]:
+    """The current, high, and low slots in the forecast sentence."""
+    head, tail = sentence.split(" and ", 1)
+    temp = head.rsplit(" ", 1)[-1]
+    high = tail.split(", high ", 1)[1].split(", low ", 1)[0]
+    low = tail.split(", low ", 1)[1].removesuffix(".")
+    return temp, high, low
+
+
+@pytest.mark.asyncio
+async def test_each_temperature_carries_degrees_f() -> None:
+    """A bare F is a farad. Temp, high, and low each carry the degree mark."""
+    stand = _Standins([_IL])
+    result = await stand.tool().run(place="Springfield, Illinois")
+
+    temp, high, low = _temperature_slots(result.output)
+    for slot in (temp, high, low):
+        assert slot.endswith("\u00b0F"), slot
+        assert slot[: -len("\u00b0F")].isdigit(), slot
 
 
 @pytest.mark.asyncio

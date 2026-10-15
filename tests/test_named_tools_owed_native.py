@@ -164,7 +164,7 @@ class _ResolvedWeather(_StubTool):
         self.calls.append(dict(kwargs))
         return ToolResult(
             ok=True,
-            output="Springfield, Illinois: 61F and overcast, high 66, low 48.",
+            output="Springfield, Illinois: 61\u00b0F and overcast, high 66\u00b0F, low 48\u00b0F.",
             data={"place": "Springfield, Illinois"},
         )
 
