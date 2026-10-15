@@ -105,6 +105,8 @@ class TurnContext:
     weather_nudge_used: int = 0
     weather_ok_places: set[str] = field(default_factory=set)
     weather_failed_places: set[str] = field(default_factory=set)
+    # "not_found" after a gazetteer miss. Empty until that tool result.
+    weather_lookup: str = ""
     weather_days_retried: set[str] = field(default_factory=set)
     # How many times each tool was blocked by a once-guard this turn.
     guard_block_counts: dict[str, int] = field(default_factory=dict)

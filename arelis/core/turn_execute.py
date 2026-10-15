@@ -785,6 +785,24 @@ async def execute_call(
                 return True
             if DISTANCE_MODEL_NOTE not in out:
                 out = f"{out.rstrip()}\n\n{DISTANCE_MODEL_NOTE}"
+        if (
+            name == "weather"
+            and isinstance(data_dict, dict)
+            and str(data_dict.get("status") or "") == "not_found"
+        ):
+            from arelis.core.claims import exactness_after_unresolved_weather
+
+            ctx.weather_lookup = "not_found"
+            ctx.exact_need = exactness_after_unresolved_weather(ctx.exact_need)
+            r.exact_need = ctx.exact_need
+            line = str(result.output or "").strip()
+            await loop._finish(
+                line,
+                sources,
+                streamed="",
+                passthrough_tool="weather",
+            )
+            return True
         messages.append(loop._tool_message(name, out))
         if result.ok:
             _pin_plain_user(messages, ctx, name, out, loop)

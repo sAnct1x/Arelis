@@ -331,5 +331,6 @@ async def test_a_place_that_cannot_be_found_still_says_so(
     result = await WeatherTool().run(place="zzzzzz")
 
     assert not result.ok
-    assert result.output == "I couldn't get the forecast for zzzzzz."
+    assert result.data.get("status") == "not_found"
+    assert result.output == "I couldn't find that place."
     assert "geocode" not in result.output.lower()

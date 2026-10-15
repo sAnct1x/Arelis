@@ -237,6 +237,14 @@ class EvidenceLedger:
                 span=(output or "")[:300],
                 ok=ok,
             )
+            # Status comes from the tool result, not from the sentence.
+            if str(data.get("status") or "") == "not_found":
+                self.add(
+                    source="weather",
+                    kind="weather_not_found",
+                    span="not_found",
+                    ok=False,
+                )
             return
         if name in {"scrape", "web_fetch"}:
             url = str(data.get("url") or args.get("url") or name)
@@ -461,6 +469,9 @@ class EvidenceLedger:
     def has_ok(self, kind: str) -> bool:
         return any(w.ok and w.kind == kind for w in self._items)
 
+    def _weather_not_found(self) -> bool:
+        return any(item.kind == "weather_not_found" for item in self._items)
+
     def ok_web_sources(self) -> list[str]:
         """Distinct successful web sources (urls or web_search)."""
         seen: list[str] = []
@@ -491,7 +502,10 @@ class EvidenceLedger:
         missing: list[str] = []
         for kind in need_kinds:
             if kind == "math" and not self.has_ok("calc"):
-                missing.append("math")
+                # An unresolved place lookup is not arithmetic. The digits
+                # that matched lived in the place. The tool status says so.
+                if not self._weather_not_found():
+                    missing.append("math")
             elif kind == "symbolic" and not self.has_ok("cas"):
                 missing.append("symbolic")
             elif kind == "units" and not self.has_ok("units"):
