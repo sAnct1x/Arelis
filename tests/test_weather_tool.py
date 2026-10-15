@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 from types import SimpleNamespace
 
@@ -698,11 +699,84 @@ def test_unresolved_coordinates_log_no_typed_place() -> None:
     _assert_no_typed_place(text, "40.7128", "74.0060", "7128", "0060", typed)
 
 
+def test_http_500_for_elm_st_logs_no_typed_place() -> None:
+    """A short street on an HTTP error is still typed input."""
+    typed = "1 Elm St"
+    text = _captured_lookup(typed, _LookupClient(500))
+    assert "status=500" in text
+    _assert_no_typed_place(text, typed, "Elm")
+
+
+class _ConnectionClient:
+    async def get(self, url: str, params: dict | None = None) -> httpx.Response:
+        raise httpx.ConnectError("down")
+
+    async def aclose(self) -> None:
+        return None
+
+
+def test_connection_error_logs_no_typed_place() -> None:
+    """A connection error logs the error class and none of the typed place."""
+    typed = "1 Elm St"
+    text = _captured_lookup(typed, _ConnectionClient())
+    assert "status=connection" in text
+    _assert_no_typed_place(text, typed, "Elm")
+
+
+class _NonJsonClient:
+    async def get(self, url: str, params: dict | None = None) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        return httpx.Response(200, content=b"not-json", request=request)
+
+    async def aclose(self) -> None:
+        return None
+
+
+def test_non_json_reply_logs_no_typed_place() -> None:
+    """A body that is not JSON logs the status and none of the typed place."""
+    typed = "1 Elm St"
+    log = logging.getLogger("arelis.weather.lookup")
+    previous = log.level
+    log.setLevel(logging.DEBUG)
+    captured = io.StringIO()
+    handler = logging.StreamHandler(captured)
+    handler.setLevel(logging.DEBUG)
+    log.addHandler(handler)
+    try:
+        with pytest.raises(json.JSONDecodeError):
+            asyncio.run(search_geocode(typed, client=_NonJsonClient()))
+    finally:
+        log.removeHandler(handler)
+        log.setLevel(previous)
+    text = captured.getvalue()
+    assert "status=200" in text
+    _assert_no_typed_place(text, typed, "Elm")
+
+
+def test_coordinates_with_a_space_log_no_typed_place() -> None:
+    """A space after the comma is still a typed coordinate, not a city."""
+    typed = "40.7128, -74.0060"
+    text = _captured_lookup(typed, _LookupClient(200))
+    assert "status=200" in text
+    _assert_no_typed_place(text, "40.7128", "74.0060", "7128", "0060", typed)
+
+
 def test_dashed_phone_is_redacted() -> None:
     text = _lookup_place("555-123-4567 and 555-555-0123")
     assert "555-123-4567" not in text
     assert "555-555-0123" not in text
     assert text.count("[redacted]") == 2
+
+
+def test_bare_ten_digit_phone_is_redacted() -> None:
+    """Ten digits with no separator are still a phone.
+
+    Requiring a dash, dot, or space between the groups would leave
+    5551234567 in the clear.
+    """
+    text = _lookup_place("5551234567")
+    assert "5551234567" not in text
+    assert text == "[redacted]"
 
 
 def test_parenthesized_phone_is_redacted() -> None:
