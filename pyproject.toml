@@ -150,6 +150,9 @@ dev = [
   "ruff==0.16.9",
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
+  # Workers for the CI test job (`pytest -n auto`). pytest-cov stays in
+  # this extra so `pytest --cov` still combines coverage across workers.
+  "pytest-xdist>=3.6",
   # Hung Qt tests used to sit until GitHub's six-hour job wall. A per-test
   # ceiling fails the test instead. Pin a floor, not a star: a new timeout
   # plugin is not a new lint rule.
@@ -206,6 +209,9 @@ arelis = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "serial: timing-sensitive; excluded from the xdist step and run right after it",
+]
 # pytest-qt. The app is PySide6. Leaving this blank lets the plugin guess,
 # and a machine with another binding installed would bind the wrong one.
 qt_api = "pyside6"

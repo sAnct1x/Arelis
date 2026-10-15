@@ -128,8 +128,14 @@ async def test_cas_definite_ln_over_one_plus_x_squared(
     assert "8" in closed
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_cas_fiftieth_derivative_is_minus_fifty_factorial() -> None:
+    """The closed form, not the 8s quiet-process budget.
+
+    Serial: the 8s budget is the real one, and an xdist worker does not
+    have a quiet machine to spend it on.
+    """
     result = await CasTool().run(
         action="diff",
         expr="1/(x**2-1)",

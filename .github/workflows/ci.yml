@@ -4,12 +4,12 @@ on:
   push:
   pull_request:
 
-# One push, one run. A second commit used to leave the previous 17-job matrix
-# running (once to the six-hour wall) while eight identical ruff failures
-# emailed again. Cancel the leftover.
+# A pull request groups on its number, so a second commit cancels the
+# previous matrix. A main push groups on the commit SHA, so a queued main
+# run is never cancelled by the next one.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # Ruff used to sit inside the 8-way test matrix. One unsorted import then
@@ -79,20 +79,40 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
+      # Same named job on every pull request. Docs and a single mapped area
+      # skip the boards and exit green. Full, and every push, still run them.
+      - name: Pick test tier
+        id: tier
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename' > "$RUNNER_TEMP/ci-changed.txt"
+            python scripts/ci_tier.py --event pull_request --paths-file "$RUNNER_TEMP/ci-changed.txt" --github-output "$GITHUB_OUTPUT" --paths-out "$RUNNER_TEMP/ci-tier-paths.txt"
+          else
+            python scripts/ci_tier.py --event "${{ github.event_name }}" --ref "${{ github.ref }}" --github-output "$GITHUB_OUTPUT" --paths-out "$RUNNER_TEMP/ci-tier-paths.txt"
+          fi
       - name: Install Qt offscreen libraries
+        if: steps.tier.outputs.tier == 'full'
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libxkbcommon-x11-0 libdbus-1-3
       - name: Install package
+        if: steps.tier.outputs.tier == 'full'
         run: |
           python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
           python -m pip install -e ".[dev]" -c qt-constraints.txt
       - name: Eval boards
+        if: steps.tier.outputs.tier == 'full'
         run: |
           python -m pytest -q --tb=short \
             tests/test_eval_board.py \
             tests/test_eval_stub_schemas.py \
             tests/test_tool_schema_quality.py
+      - name: Eval not required for this tier
+        if: steps.tier.outputs.tier != 'full'
+        run: echo "tier=${{ steps.tier.outputs.tier }} reason=${{ steps.tier.outputs.reason }}; eval boards not run"
 
   # Ubuntu 3.11 is the floor requires-python claims. Windows 3.14 is the
   # interpreter the installer ships. The macOS cell is informational.
@@ -121,11 +141,27 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # Docs skip pytest. One mapped area runs that area's files. Everything
+      # else, and every push, runs the suite. The job itself always runs, so
+      # the required check name still gets a conclusion.
+      - name: Pick test tier
+        id: tier
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename' > "$RUNNER_TEMP/ci-changed.txt"
+            python scripts/ci_tier.py --event pull_request --paths-file "$RUNNER_TEMP/ci-changed.txt" --github-output "$GITHUB_OUTPUT" --paths-out "$RUNNER_TEMP/ci-tier-paths.txt"
+          else
+            python scripts/ci_tier.py --event "${{ github.event_name }}" --ref "${{ github.ref }}" --github-output "$GITHUB_OUTPUT" --paths-out "$RUNNER_TEMP/ci-tier-paths.txt"
+          fi
+
       # Offscreen Qt needs a handful of shared libraries that the runner image
       # does not ship. tests/conftest.py already forces QT_QPA_PLATFORM=offscreen;
       # without these the import of PySide6 aborts the process before pytest runs.
       - name: Install Qt offscreen libraries
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.tier.outputs.tier != 'docs'
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libxkbcommon-x11-0 libdbus-1-3
@@ -133,13 +169,33 @@ jobs:
       # Same Qt the Windows installer lock ships. pyproject only says
       # PySide6>=6.6, so an unconstrained install follows PyPI. 6.12.0
       # crashed the Ubuntu 3.11 job at interpreter shutdown after a green run.
+      # No step-level if: every OS that installs uses this one constrained
+      # command. Docs return before pip.
       - name: Install package
+        shell: bash
         run: |
+          if [ "${{ steps.tier.outputs.tier }}" = "docs" ]; then
+            echo "docs-only change; package install skipped"
+            exit 0
+          fi
           python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
           python -m pip install -e ".[dev]" -c qt-constraints.txt
 
+      # xdist first, then the serial marker in the same job. Ubuntu records
+      # branch coverage on the xdist step and appends the serial step.
       - name: Pytest
-        run: python -m pytest -q --tb=short --junitxml=pytest-results.xml
+        if: steps.tier.outputs.tier != 'docs'
+        shell: bash
+        run: |
+          echo "tier=${{ steps.tier.outputs.tier }} area=${{ steps.tier.outputs.area }} reason=${{ steps.tier.outputs.reason }}"
+          python scripts/ci_pytest.py xdist
+      - name: Pytest serial
+        if: steps.tier.outputs.tier != 'docs'
+        shell: bash
+        run: python scripts/ci_pytest.py serial
+      - name: Pytest not required for this tier
+        if: steps.tier.outputs.tier == 'docs'
+        run: echo "tier=docs reason=${{ steps.tier.outputs.reason }}; pytest not run"
 
       # One file instead of eight identical "exit code 1" mails with no body.
       - name: Upload pytest results
@@ -147,13 +203,15 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pytest-${{ matrix.os }}-${{ matrix.python-version }}
-          path: pytest-results.xml
+          path: |
+            pytest-results.xml
+            pytest-results-serial.xml
           if-no-files-found: ignore
 
       # Unit tests can prove the XML says the right thing; only Windows can prove
       # Task Scheduler accepts it. Registers a harmless smoke task and deletes it.
       - name: Task Scheduler smoke
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.tier.outputs.tier != 'docs'
         run: python scripts/schtasks_smoke.py
 
   # Adding a dependency and forgetting to regenerate the lock would ship an installer
@@ -208,20 +266,37 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # Docs have nothing to install. Code changes still build the wheel.
+      # The job always runs so the required check name still concludes.
+      - name: Pick test tier
+        id: tier
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename' > "$RUNNER_TEMP/ci-changed.txt"
+            python scripts/ci_tier.py --event pull_request --paths-file "$RUNNER_TEMP/ci-changed.txt" --github-output "$GITHUB_OUTPUT" --paths-out "$RUNNER_TEMP/ci-tier-paths.txt"
+          else
+            python scripts/ci_tier.py --event "${{ github.event_name }}" --ref "${{ github.ref }}" --github-output "$GITHUB_OUTPUT" --paths-out "$RUNNER_TEMP/ci-tier-paths.txt"
+          fi
+
       # installed_smoke.py imports arelis.ui.theme, because the font directory is one
       # of the two things that used to be written inside the package.
       - name: Install Qt offscreen libraries
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.tier.outputs.tier != 'docs'
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libxkbcommon-x11-0 libdbus-1-3
 
       - name: Build the wheel
+        if: steps.tier.outputs.tier != 'docs'
         run: python -m pip wheel --no-deps --wheel-dir dist .
 
       # A fresh environment rather than the one the wheel was built in, so nothing
       # already imported can stand in for something the wheel forgot to ship.
       - name: Install the wheel into a clean environment
+        if: steps.tier.outputs.tier != 'docs'
         shell: bash
         run: |
           python scripts/qt_constraints_from_installer_lock.py --out "$RUNNER_TEMP/qt-constraints.txt"
@@ -233,6 +308,7 @@ jobs:
           fi
 
       - name: Installed-copy checks
+        if: steps.tier.outputs.tier != 'docs'
         shell: bash
         # Not the repository. From inside it, `import arelis` finds the source tree
         # and every check passes while proving nothing — which the script's first
@@ -242,3 +318,7 @@ jobs:
         run: |
           "$PROBE" -m pip install -c "$RUNNER_TEMP/qt-constraints.txt" "$GITHUB_WORKSPACE"/dist/arelis-*.whl
           "$PROBE" "$GITHUB_WORKSPACE/scripts/installed_smoke.py"
+
+      - name: Installed checks not required for this tier
+        if: steps.tier.outputs.tier == 'docs'
+        run: echo "tier=docs reason=${{ steps.tier.outputs.reason }}; installed checks not run"
