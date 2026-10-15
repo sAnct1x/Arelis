@@ -300,6 +300,25 @@ _CONTENT_PASSTHROUGH_TOOLS = frozenset(
 )
 
 
+def _document_chat_line(output: str) -> str:
+    """Path sentence for an empty reply after a document save.
+
+    The tool result still carries the model instruction. Chat gets the path.
+    """
+    body = " ".join((output or "").split())
+    match = re.match(
+        r"(?i)^(?:Wrote|Replaced)\s+(?P<path>.+?)"
+        r"(?:\s+\(\d+\s+pages?\))?\s+in\s+",
+        body,
+    )
+    if not match:
+        return ""
+    path = match.group("path").strip()
+    if not path:
+        return ""
+    return f"Saved the document to {path}."
+
+
 def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     """Person-facing copy when the model leaves chat empty after a tool.
 
@@ -309,6 +328,10 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     """
     body = (output or "").strip()
     name = (tool or "").strip()
+    if name == "document":
+        saved = _document_chat_line(body)
+        if saved:
+            return saved
     if (
         name in _ALGEBRA_WRITE_TOOLS
         and name != "plot"
