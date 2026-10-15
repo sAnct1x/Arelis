@@ -26,7 +26,12 @@ from typing import Any
 
 import pytest
 
-from arelis.briefing.weather import ResolvedPlace, geocode_place, resolve_place
+from arelis.briefing.weather import (
+    ResolvedPlace,
+    choose_geocode_hit,
+    geocode_place,
+    resolve_place,
+)
 from arelis.tools.weather import WeatherTool
 
 
@@ -101,6 +106,65 @@ async def test_more_than_one_candidate_is_fetched_so_ambiguity_is_visible() -> N
     assert client.calls[0]["count"] > 1
     assert place.alternatives, "nothing recorded that other candidates existed"
     assert "New Zealand" in place.alternatives[0]
+
+
+def test_a_named_region_beats_the_first_gazetteer_hit() -> None:
+    """Springfield, Illinois must not become whichever Springfield ranked first."""
+    wrong = {
+        "name": "Springfield",
+        "latitude": -43.3,
+        "longitude": 171.9,
+        "country": "New Zealand",
+        "admin1": "Canterbury",
+    }
+    right = {
+        "name": "Springfield",
+        "latitude": 39.7817,
+        "longitude": -89.6501,
+        "admin1": "Illinois",
+        "country_code": "US",
+    }
+    hit = choose_geocode_hit("Springfield, Illinois", [wrong, right])
+    assert hit is not None
+    assert hit["admin1"] == "Illinois"
+    bare = choose_geocode_hit("Springfield", [wrong, right])
+    assert bare is not None
+    assert bare["admin1"] == "Canterbury"
+    spelled = choose_geocode_hit("Springfield Illinois", [wrong, right])
+    assert spelled is not None
+    assert spelled["admin1"] == "Illinois"
+    missing = choose_geocode_hit("Springfield, Illinois", [wrong])
+    assert missing is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_place_keeps_the_named_region() -> None:
+    wrong_first = {
+        "results": [
+            {
+                "name": "Springfield",
+                "latitude": -43.3,
+                "longitude": 171.9,
+                "country": "New Zealand",
+                "admin1": "Canterbury",
+            },
+            {
+                "name": "Springfield",
+                "latitude": 39.7817,
+                "longitude": -89.6501,
+                "admin1": "Illinois",
+                "country_code": "US",
+            },
+        ]
+    }
+    client = _FakeClient(wrong_first)
+
+    place = await resolve_place("Springfield, Illinois", client=client)
+
+    assert place is not None
+    assert place.label == "Springfield, Illinois"
+    assert place.latitude == pytest.approx(39.7817)
+    assert all("New Zealand" not in alt for alt in place.alternatives)
 
 
 @pytest.mark.asyncio

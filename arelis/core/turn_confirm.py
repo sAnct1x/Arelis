@@ -76,18 +76,12 @@ async def _emit_skip_repeat_fail(
     # Do not rebuild ollama_tools. Changing the schema array
     # busts the prefix cache and the next round pays ~50s to
     # re-read the persona. fail_counts already drops the call.
+    del tool_names
     stop_msg = (
         f"Stop calling `{name}` with those same arguments, it "
-        "already failed twice this turn."
+        "already failed twice this turn. "
+        "Use a different tool or answer from what you have."
     )
-    if (
-        "weather" in loop._expected_tools
-        and "weather" in tool_names
-        and "weather" not in loop.tools_used
-    ):
-        stop_msg += " Call the weather tool for the forecast instead."
-    else:
-        stop_msg += " Use a different tool or answer from what you have."
     messages.append({"role": "user", "content": stop_msg})
     if loop._timer is not None:
         loop._timer.mark("skip_repeat_fail", tool=name, action="drop_tool")

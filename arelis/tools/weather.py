@@ -114,7 +114,7 @@ class WeatherTool:
         if asked:
             place = asked
             try:
-                resolved = await resolve_place(place_query_for_geocode(asked))
+                resolved = await resolve_place(asked)
             except Exception as exc:
                 return ToolResult(
                     ok=False,

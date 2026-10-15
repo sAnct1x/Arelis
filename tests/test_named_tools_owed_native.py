@@ -759,11 +759,12 @@ def test_flag_off_repeated_weather_block_ends_in_plain_words() -> None:
 
 
 def test_flag_off_ambiguous_resolved_place_is_not_home() -> None:
-    """An ambiguous resolved place is not a request for the user's home.
+    """An ambiguous reading is the forecast. It is not a second home call.
 
-    The ask names no city. Weather still ran with a place and came back
-    ambiguous, so the missing-place list would be home. That check has to
-    clear it. The model is told to answer from the reading it has.
+    The ask names no city. Weather ran with a place and came back
+    ambiguous. The turn must not steer another weather call for home,
+    and it must not paste an answer-now nudge. The model speaks the
+    forecast it already has.
     """
     script = [
         _call("weather", {"place": "Springfield", "days": 3}),
@@ -785,12 +786,73 @@ def test_flag_off_ambiguous_resolved_place_is_not_home() -> None:
         for message in extras["messages"]
         if message.get("role") == "user"
     ]
-    assert any("Answer the user now" in line for line in user_lines), user_lines
+    assert not any("Answer the user now" in line for line in user_lines), user_lines
+    assert not any("That reading is today only" in line for line in user_lines), user_lines
     assert not any(
         "without place for the user's own location" in line for line in user_lines
     ), user_lines
     assert tool_results[0] == ("weather", True), tool_results
     assert "forecast" in final_text.lower()
+
+
+def test_flag_off_weather_miss_says_so_and_stops() -> None:
+    """One failed forecast, nothing else owed: say so and do not retry."""
+    reg = ToolRegistry()
+    reg.register(_FailingStub("weather", risk="read"))
+    script = [
+        _call("weather", {"place": "Springfield", "days": 1}),
+        _call("weather", {"place": "Springfield", "days": 1}),
+        [("token", "trying again")],
+    ]
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            "What is the weather in Springfield?",
+            script,
+            ["weather"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            registry=reg,
+            capture_thinking=True,
+        )
+    )
+    assert tool_results == [("weather", False)], tool_results
+    assert final_text.strip() == "I couldn't get a forecast."
+    assert "tool-step limit" not in final_text.lower()
+    assert not any("max rounds" in line for line in thinking), thinking
+
+
+def test_flag_off_weather_miss_still_reaches_document() -> None:
+    """A failed forecast must not end the turn while document is still owed."""
+    reg = ToolRegistry()
+    reg.register(_FailingStub("weather", risk="read"))
+    reg.register(_StubTool("document", risk="write"))
+    script = [
+        _call("weather", {"place": "Springfield", "days": 1}),
+        _call(
+            "document",
+            {
+                "format": "md",
+                "title": "Springfield Weather Brief",
+                "body": "No forecast.",
+            },
+        ),
+        [("token", "Saved the brief.")],
+    ]
+    final_text, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            _C02_WEATHER_DOCUMENT,
+            script,
+            ["weather", "document"],
+            {**_FLAG_OFF, "max_rounds": 8},
+            registry=reg,
+            capture_thinking=True,
+        )
+    )
+    assert [name for name, _ok in tool_results] == ["weather", "document"], tool_results
+    assert tool_results[0][1] is False
+    assert tool_results[1][1] is True
+    assert "couldn't get a forecast" not in final_text.lower()
+    assert "tool-step limit" not in final_text.lower()
+    assert not any("max rounds" in line for line in thinking), thinking
 
 
 def test_flag_off_owed_nudge_respects_max_tool_nudges() -> None:

@@ -8,7 +8,7 @@ Method: `git log -S` for the symbol or the sentence, then the commit subject and
 
 Not this path, and not in the rebuild: the Earth map layer named weather, filament desk animation state, and the morning briefing template that only formats a forecast it already has. The briefing still calls `resolve_place` / `geocode_place`, and that lookup is in here.
 
-Known bug this inventory is here to pin: `Springfield, Illinois` resolves to Springfield, Missouri. `resolve_place` sends the whole string as the Open-Meteo `name` and keeps `results[0]`. The state or country the user named is never compared to `admin1` or `country`.
+Known bug this inventory is here to pin: `Springfield, Illinois` resolves to a different Springfield. `resolve_place` sends the whole string as the Open-Meteo `name` and keeps `results[0]`. The state or country the user named is never compared to `admin1` or `country`.
 
 ## Place lookup
 
@@ -46,11 +46,11 @@ Home-without-geocoding-the-profile-city is the 0.2.9 fix in `f60aaf9` (2026-09-2
 
 If the last tokens are a US state name, put a comma back in front of them. `Springfield Illinois` becomes `Springfield, Illinois`. Extraction drops commas, and the comment says the gazetteer does not answer the no-comma form.
 
-Added in `72ac2f8` (#165, `Fix 9B tool misses, and use the saved place the same way for weather and sky`). The comma does not fix the Missouri bug. `resolve_place` still ignores the state.
+Added in `72ac2f8` (#165, `Fix 9B tool misses, and use the saved place the same way for weather and sky`). The comma does not fix the wrong-state bug. `resolve_place` still ignores the state.
 
 ### `arelis/tools/weather.py` `weather_place_key`
 
-Fold case, drop punctuation, and shorten a trailing US state name to its abbreviation so `Baltimore, OH` and `baltimore ohio` compare equal.
+Fold case, drop punctuation, and shorten a trailing US state name to its abbreviation so a city plus a state abbreviation compares equal to the spelled state.
 
 First in `91e8479` (2026-08-19 checkout, no PR). Used by the once-per-place guard and by `weather_places_missing`.
 
@@ -98,7 +98,7 @@ First in `91e8479`. Hourly and past fields in `6a9898b`. No production caller af
 
 Drop invented coordinate keys. If the extractor found no city, delete `place` so a stuffed profile city is not geocoded. If the model omitted place but the extractor found one, copy it. If days is under 2 and the ask is beyond today, bump days to 3. Only widen hours and past_days.
 
-First in `91e8479`. The home-place strip is the 0.2.9 behavior (`f60aaf9`): the model stuffing `place=Baltimore` on a home ask geocoded Maryland first. Comment in `execute_call` still says `fill_weather_args` usually bumps days before the call. That call site is gone. Only tests call it.
+First in `91e8479`. The home-place strip is the 0.2.9 behavior (`f60aaf9`): the model stuffing the profile city into `place` on a home ask geocoded the first gazetteer hit. Comment in `execute_call` still says `fill_weather_args` usually bumps days before the call. That call site is gone. Only tests call it.
 
 ### `WeatherTool._int_arg` and the days parse in `run`
 
@@ -166,7 +166,9 @@ The block itself is in the initial squash `37c3b5b` (trace string `duplicate fet
 
 If the round ran zero calls, every name it blocked has a guard count of at least 2, finish the turn with the last successful tool output (or "This {tool} call did not run.").
 
-Added in `b3a8106` (#236) for the weather retry. It is not weather-only. `_record_block` also runs for: web_search after SMS, web_search of a known contact, duplicate `send_sms`, extra SMS body, duplicate `send_email`, duplicate agenda create, look grant block, camera look cap, workspace tool-cache, scrape/web_fetch URL not in hits, page budget, duplicate URL, browser open-a-hit-first, search budget, duplicate search query, empty peek, duplicate image generate, same-call, and "repeat held for the file". A second block of any of those now ends the turn. Pre-#236 they only injected a tool message and continued.
+Added in `b3a8106` (#236) for the weather retry. At #236 it was not weather-only. `_record_block` also runs for: web_search after SMS, web_search of a known contact, duplicate `send_sms`, extra SMS body, duplicate `send_email`, duplicate agenda create, look grant block, camera look cap, workspace tool-cache, scrape/web_fetch URL not in hits, page budget, duplicate URL, browser open-a-hit-first, search budget, duplicate search query, empty peek, duplicate image generate, same-call, and "repeat held for the file". A second block of any of those ended the turn. Pre-#236 they only injected a tool message and continued.
+
+`1b5a485` (#237) limited that end to weather. A second blocked send, look, or camera call keeps going. See the #237 section. Send, camera, and look stay on that #237 behavior.
 
 ### `arelis/core/turn_round.py` `_weather_answer_ready`
 
@@ -408,4 +410,26 @@ Still attached when `detect_intent_hints` emits a weather hint and preflight gui
 - S18 and S27 are memory and sql evidence, not weather. They landed in the same #236 commit as the owed-tool hold. They must keep working. They are not weather guards.
 - C02 and P09 are weather, then write a document brief. Live failure: weather ran, document was stripped or the model asked a question, and no file was written. Tests: `test_weather_document_chain` in `tests/test_loop_chain_regression.py`, and the flag-off owed-document tests in `tests/test_named_tools_owed_native.py`. The turn must still reach document and must not finish on the tool-step limit.
 - The ambiguous Springfield fixture in that file (`need_place`, second weather call does not run, document still runs) is the #236 once-guard case.
-- S16, C02, and C22 ask for Springfield, Illinois. #218 exists so the schema does not contain that city. The Missouri resolution bug is separate and still open.
+- S16, C02, and C22 ask for Springfield, Illinois. #218 exists so the schema does not contain that city. The wrong-state resolution bug is separate and, at inventory time, still open.
+
+## Guards added in #237
+
+`1b5a485` (#237, `Stop the owed-document hold once the nudge cap is spent`) landed on main after the first inventory commit. These three are weather guards. The rebuild strips them and brings one back only when a test fails without it. Send, camera, and look stay as #237 left them: a repeated block of those tools does not end the turn.
+
+### `arelis/core/turn_dispatch.py` `_plain_weather_repeat_reply` and the `repeated_weather` end
+
+A round that ran nothing, and only blocked weather, and each of those blocks is at least the second block of that tool, ends the turn. The reply is the stored place in plain words (`I have the forecast for {place}.`), or `I already have that forecast.` when no place was stored. Send, look, and camera do not take this end.
+
+#236 (`b3a8106`) ended the turn on a second block of any tool. #237 (`1b5a485`) narrowed the end to weather and replaced the raw tool text with the place sentence. Tests: `test_flag_off_repeated_weather_block_ends_before_step_limit`, `test_flag_off_repeated_weather_block_without_document_ends`, `test_flag_off_repeated_weather_block_ends_in_plain_words`. The camera and send tests in the same file pin the non-weather keep-going behavior and are not part of this strip.
+
+### `arelis/core/turn_dispatch.py` owed-document hold before that end, and `arelis/core/turn_round.py` `apply_no_call_path` paste hold
+
+Before the weather end runs, `hold_for_owed_tools` asks again for a named tool that has not run, while nudges remain. The same hold sits in front of shipping a pasted forecast in `apply_no_call_path`. A second blocked weather call, or a second paste of the forecast, used to finish on the weather text while document was still owed.
+
+Added in `1b5a485` (#237). The hold function itself is the #236 finish hold (`b3a8106`). #237 is what calls it from the weather block end and from the paste path. Tests: `test_flag_off_need_place_still_writes_owed_document`, `test_flag_off_repeated_weather_block_still_runs_owed_document`, `test_flag_off_plain_question_still_runs_owed_document`.
+
+### `arelis/core/no_call_finish.py` `hold_for_owed_tools` nudge-cap exit, used by the weather end
+
+The hold returns without asking once `ctx.nudges` has reached `_MAX_TOOL_NUDGES`. On the weather end, that is when the turn stops. If document is still in the owed list, the reply is the place plus `I couldn't save the brief.` A repeated weather block that kept holding after both nudges used to run until the step limit.
+
+The cap check is in `hold_for_owed_tools`, which #236 added. #237 (`1b5a485`) is the weather-end use: past the cap, stop in those plain words instead of holding the turn open. Test: `test_flag_off_repeated_weather_block_stops_after_nudge_cap`. The general owed-nudge cap tests (`test_flag_off_owed_nudge_respects_max_tool_nudges`, `test_native_owed_nudge_respects_max_tool_nudges`) cover the same cap on a no-call finish and are not weather-only.

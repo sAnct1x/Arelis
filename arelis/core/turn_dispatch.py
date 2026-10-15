@@ -526,10 +526,26 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 _record_block(name)
                 continue
 
-        # One successful weather fetch per place. A second call for that
-        # place does not run. The model gets a tool result that says so.
+        # One weather attempt per place. A second call for a place that
+        # already succeeded, or already failed, does not run.
         if name == "weather":
             wx_key = weather_place_key(str(args.get("place") or ""))
+            failed = (
+                wx_key in ctx.weather_failed_places
+                and wx_key not in r.weather_ok_places
+            )
+            if failed:
+                notice = (
+                    "This weather call did not run. "
+                    "A forecast for this turn was already attempted."
+                )
+                await loop.bus.publish(
+                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
+                )
+                r.messages.append(loop._tool_message(name, notice))
+                loop._trace.append(f"{name} duplicate fetch blocked")
+                _record_block(name)
+                continue
             if wx_key in r.weather_ok_places:
                 resolved = str(getattr(ctx, "weather_resolved_place", "") or "").strip()
                 if resolved:
@@ -805,9 +821,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             round_i=round_i,
             call_i=call_i,
             fanout_results=fanout_results,
-            later_weather=any(
-                other == "weather" for other, _ in r.calls[call_i + 1 :]
-            ),
         )
         if ended:
             return True

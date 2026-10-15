@@ -45,7 +45,8 @@ def describe_weather_code(code: Any) -> str:
     return _WMO.get(value, f"conditions code {value}")
 
 
-_GEOCODE_CANDIDATES = 5
+_GEOCODE_CANDIDATES = 10
+_REGION_KEYS = ("admin1", "admin2", "admin3", "admin4", "country", "country_code")
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,95 @@ class ResolvedPlace:
     alternatives: tuple[str, ...] = ()
 
 
+def _folded(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _place_query_parts(query: str) -> tuple[str, tuple[str, ...]]:
+    """City, then the state or country the user actually wrote.
+
+    A comma splits them. "Springfield, Illinois" is the city Springfield
+    and the region Illinois. No word list: the words are theirs.
+    """
+    parts = [part.strip(" ,") for part in (query or "").split(",") if part.strip(" ,")]
+    if len(parts) >= 2:
+        return parts[0], tuple(parts[1:])
+    return _folded(query), ()
+
+
+def _region_values(entry: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in _REGION_KEYS:
+        value = _folded(entry.get(key))
+        if value:
+            values.append(value)
+    return values
+
+
+def _qualifier_matches(entry: dict[str, Any], qualifier: str) -> bool:
+    wanted = _folded(qualifier).casefold()
+    if not wanted:
+        return False
+    return any(value.casefold() == wanted for value in _region_values(entry))
+
+
+def _named_region_suffix(query: str, entry: dict[str, Any]) -> bool:
+    """True when the query ends with this hit's own state or country.
+
+    Used when they wrote "Springfield Illinois" with no comma. The
+    region text comes from the geocoder row, not from a stored list.
+    """
+    raw = _folded(query).casefold()
+    city = _folded(entry.get("name")).casefold()
+    for value in _region_values(entry):
+        region = value.casefold()
+        if not region or region == city:
+            continue
+        if raw.endswith(" " + region):
+            return True
+    return False
+
+
+def choose_geocode_hit(
+    query: str, results: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    """Pick the hit that keeps the state or country they named.
+
+    The first hit is only the answer when they named no region. A named
+    region that matches nothing is no hit. Returning the first city anyway
+    is how a different Springfield used to win.
+    """
+    usable = [entry for entry in results if isinstance(entry, dict)]
+    if not usable:
+        return None
+    _city, qualifiers = _place_query_parts(query)
+    if qualifiers:
+        matched = [
+            entry
+            for entry in usable
+            if all(_qualifier_matches(entry, part) for part in qualifiers)
+        ]
+        return matched[0] if matched else None
+    hinted = [entry for entry in usable if _named_region_suffix(query, entry)]
+    if hinted:
+        return hinted[0]
+    return usable[0]
+
+
+def _search_names(query: str) -> list[str]:
+    city, qualifiers = _place_query_parts(query)
+    names: list[str] = []
+    if city:
+        names.append(city)
+    if not qualifiers:
+        tokens = city.split()
+        if len(tokens) >= 2:
+            shorter = " ".join(tokens[:-1])
+            if shorter and shorter not in names:
+                names.append(shorter)
+    return names
+
+
 def _place_label(entry: dict[str, Any]) -> str:
     """ "Springfield, Canterbury, New Zealand", name, region, country."""
     bits = [str(entry.get("name") or "").strip()]
@@ -83,30 +173,56 @@ async def resolve_place(
     client: httpx.AsyncClient | None = None,
     timeout_s: float = 15.0,
 ) -> ResolvedPlace | None:
-    """Geocode a place name and keep enough of the answer to state it.
+    """Geocode a place name and keep the state or country they named.
 
-    Asks for several candidates rather than one, which is what makes ambiguity
-    detectable at all: with `count=1` there is no way to tell "the only
-    Springfield" from "the first of thirty".
+    Asks for several candidates. When the query names a region, the hit
+    whose admin or country matches that region wins. The first hit is used
+    only when they named no region. A named region with no match is None.
     """
-    query = " ".join((name or "").split())
+    query = _folded(name)
     if not query:
         return None
     url = "https://geocoding-api.open-meteo.com/v1/search"
     owns = client is None
     if client is None:
         client = httpx.AsyncClient(timeout=timeout_s)
+    results: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
     try:
-        response = await client.get(url, params={"name": query, "count": _GEOCODE_CANDIDATES})
-        response.raise_for_status()
-        data = response.json()
+        for search_name in _search_names(query):
+            response = await client.get(
+                url, params={"name": search_name, "count": _GEOCODE_CANDIDATES}
+            )
+            response.raise_for_status()
+            data = response.json()
+            for entry in data.get("results") or []:
+                if not isinstance(entry, dict):
+                    continue
+                key = (
+                    _folded(entry.get("name")).casefold(),
+                    _folded(entry.get("admin1")).casefold(),
+                    _folded(entry.get("country")).casefold(),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append(entry)
     finally:
         if owns:
             await client.aclose()
-    results = [r for r in (data.get("results") or []) if isinstance(r, dict)]
-    if not results:
+    _city, qualifiers = _place_query_parts(query)
+    if qualifiers:
+        pool = [
+            entry
+            for entry in results
+            if all(_qualifier_matches(entry, part) for part in qualifiers)
+        ]
+    else:
+        hinted = [entry for entry in results if _named_region_suffix(query, entry)]
+        pool = hinted or results
+    first = choose_geocode_hit(query, results)
+    if first is None:
         return None
-    first = results[0]
     try:
         lat = float(first["latitude"])
         lon = float(first["longitude"])
@@ -114,7 +230,9 @@ async def resolve_place(
         return None
     chosen = _place_label(first)
     others: list[str] = []
-    for entry in results[1:]:
+    for entry in pool:
+        if entry is first:
+            continue
         label = _place_label(entry)
         # A label equal to the chosen one is the API echoing the same city, not
         # a second place the user might have meant.
