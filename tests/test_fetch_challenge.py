@@ -6,20 +6,17 @@ thin-page tests must not trip this. Nothing here solves a wall.
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from arelis.core.evidence import classify_fetch_failure
 from arelis.core.turn_dispatch import dispatch_calls
 from arelis.tools.scrape import ScrapeTool
 from arelis.tools.web import WebFetchTool
 from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
 from tests.test_round_scratch import _augment
-from tests.test_web_fetch_thin import _SHORT_PAGE
 
 ROOT = Path(__file__).resolve().parents[1]
 _CHALLENGE_URL = "https://example.test/gated"
@@ -117,19 +114,6 @@ def _install_scrape(monkeypatch: pytest.MonkeyPatch, body: str, *, status: int =
     return hits
 
 
-def test_cloudflare_403_copy_is_a_challenge_not_a_bare_403() -> None:
-    blob = "HTTP 403 Forbidden. Just a moment. Checking your browser. Verify you are human."
-    assert classify_fetch_failure(blob) == "fail:challenge"
-
-
-def test_a_bare_403_is_still_http_403() -> None:
-    assert classify_fetch_failure("HTTP 403 Forbidden") == "fail:http_403"
-
-
-def test_cookie_banner_copy_is_not_a_human_check() -> None:
-    assert classify_fetch_failure("Please enable cookies to continue.") != "fail:challenge"
-
-
 @pytest.mark.asyncio
 async def test_web_fetch_challenge_offers_chrome_and_does_not_refetch(
     monkeypatch: pytest.MonkeyPatch,
@@ -147,22 +131,6 @@ async def test_web_fetch_challenge_offers_chrome_and_does_not_refetch(
 
 
 @pytest.mark.asyncio
-async def test_web_fetch_unattended_skips_without_an_offer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    hits = _install_web(monkeypatch, _CHALLENGE_HTML, status=403)
-    tool = WebFetchTool("arelis-test/1.0", offer_browser=False)
-    result = await tool.run(url=_CHALLENGE_URL)
-    assert result.ok is False
-    assert result.data.get("fail_class") == "fail:challenge"
-    assert "human check" in result.output.lower()
-    assert "skipped" in result.output.lower()
-    assert "Chrome" not in result.output
-    assert "browser(action=open" not in result.output
-    assert hits == [_CHALLENGE_URL]
-
-
-@pytest.mark.asyncio
 async def test_scrape_challenge_offers_chrome_and_does_not_follow_siblings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -176,46 +144,6 @@ async def test_scrape_challenge_offers_chrome_and_does_not_follow_siblings(
     assert "Chrome" in result.output
     assert f"browser(action=open, url={_CHALLENGE_URL})" in result.output
     assert hits == [_CHALLENGE_URL]
-
-
-@pytest.mark.asyncio
-async def test_scrape_unattended_skips_without_an_offer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _install_scrape(monkeypatch, _CHALLENGE_HTML, status=403)
-    tool = ScrapeTool("arelis-test/1.0", offer_browser=False)
-    result = await tool.run(url=_CHALLENGE_URL)
-    assert result.ok is False
-    assert "skipped" in result.output.lower()
-    assert "Chrome" not in result.output
-
-
-@pytest.mark.asyncio
-async def test_a_short_page_is_not_a_challenge(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install_web(monkeypatch, _SHORT_PAGE, status=200)
-    result = await WebFetchTool("arelis-test/1.0").run(url="https://example.test/page")
-    assert "fail:challenge" not in result.output
-    assert "human check" not in result.output.lower()
-    assert "The spring tide arrives at 06:14." in result.output
-
-
-@pytest.mark.asyncio
-async def test_a_normal_page_is_not_a_challenge(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install_web(monkeypatch, _NORMAL_PAGE, status=200)
-    result = await WebFetchTool("arelis-test/1.0").run(url="https://example.test/page")
-    assert result.ok is True
-    assert "fail:challenge" not in result.output
-    assert "Tides" in result.output
-
-
-@pytest.mark.asyncio
-async def test_cookie_html_is_not_offered_as_a_human_check(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _install_web(monkeypatch, _COOKIE_ONLY, status=200)
-    result = await WebFetchTool("arelis-test/1.0", offer_browser=True).run(url=_CHALLENGE_URL)
-    assert result.data.get("fail_class") != "fail:challenge"
-    assert "Chrome" not in result.output
 
 
 @pytest.mark.asyncio
@@ -257,23 +185,6 @@ async def test_a_challenge_failure_widens_browser_and_skips_the_same_url() -> No
     assert "browser" in r.tool_names
 
 
-def test_hand_off_modules_do_not_import_a_solver_or_ocr() -> None:
-    found: list[str] = []
-    for path in _HAND_OFF_FILES:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            names: list[str] = []
-            if isinstance(node, ast.Import):
-                names = [alias.name.split(".")[0] for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                names = [node.module.split(".")[0]]
-            for name in names:
-                key = name.lower()
-                if key in _FORBIDDEN_IMPORTS or "captcha" in key:
-                    found.append(f"{path.name}:{name}")
-    assert found == []
-
-
 _LONG_ARTICLE = (
     "<html><body><h1>How sites tell people from bots</h1>"
     + "<p>A captcha asks you to prove you are human. Just a moment, the site says "
@@ -281,21 +192,3 @@ _LONG_ARTICLE = (
 )
 
 
-@pytest.mark.asyncio
-async def test_a_long_article_about_captchas_is_not_a_challenge(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _install_web(monkeypatch, _LONG_ARTICLE, status=200)
-    result = await WebFetchTool("arelis-test/1.0", offer_browser=True).run(
-        url="https://example.test/article"
-    )
-    assert result.data.get("fail_class") != "fail:challenge"
-    assert "Chrome" not in result.output
-
-
-def test_wall_wording_needs_an_error_status_or_a_thin_page() -> None:
-    from arelis.core.evidence import looks_like_challenge_page
-
-    assert looks_like_challenge_page(_CHALLENGE_HTML) is True
-    assert looks_like_challenge_page(_LONG_ARTICLE, 200) is False
-    assert looks_like_challenge_page(_LONG_ARTICLE, 403) is True

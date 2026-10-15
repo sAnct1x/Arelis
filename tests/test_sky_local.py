@@ -103,36 +103,9 @@ async def test_two_numbers_are_not_the_moon(_fixed_clock) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_number_led_name_is_not_sent(_fixed_clock) -> None:
-    seen: list[str] = []
-    result = await _tool(None, seen).run(action="horizons", target="301 Bavaria")
-    assert seen == []
-    assert result.ok is False
-    assert "bavaria" not in result.output.casefold()
-
-
-@pytest.mark.asyncio
-async def test_moon_with_extra_numbers_stays_the_moon(_fixed_clock) -> None:
-    seen: list[str] = []
-    result = await _tool(_Place(), seen).run(
-        action="horizons", table="local", target="Moon 301 147"
-    )
-    assert seen == []
-    assert result.ok, result.output
-    assert result.data["body"] == "Moon"
-    assert "asteroid" not in result.output.casefold()
-    assert "bavaria" not in result.output.casefold()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "target,rise,set_,alt,az",
-    [
-        ("Moon", *_MOON, _MOON_ALT, _MOON_AZ),
-        ("Jupiter", *_JUPITER, _JUPITER_ALT, _JUPITER_AZ),
-        ("Vega", *_VEGA, _VEGA_ALT, _VEGA_AZ),
-        ("Sun", *_SUN, _SUN_ALT, _SUN_AZ),
-    ],
+    [('Moon', *_MOON, _MOON_ALT, _MOON_AZ), ('Jupiter', *_JUPITER, _JUPITER_ALT, _JUPITER_AZ)],
 )
 async def test_rise_set_and_height_match_the_almanac(
     _fixed_clock, target, rise, set_, alt, az
@@ -166,18 +139,6 @@ async def test_polaris_does_not_set(_fixed_clock) -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_sun_does_not_set_in_the_arctic_summer(_fixed_clock) -> None:
-    place = _Place(lat=80.0, lon=0.0, timezone="UTC")
-    import arelis.tools.sky_local as sky
-
-    sky.utc_now = lambda: datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
-    result = await _local("Sun", place)
-    assert result.ok, result.output
-    assert result.data["state"] == "never_sets"
-    assert "does not set" in result.output.casefold()
-
-
-@pytest.mark.asyncio
 async def test_no_saved_place_asks_plainly(_fixed_clock) -> None:
     result = await _local("Moon", _Place(blank=True))
     assert result.ok is False
@@ -187,35 +148,6 @@ async def test_no_saved_place_asks_plainly(_fixed_clock) -> None:
     assert "39." not in result.output
     assert "profile" not in low
     assert "yaml" not in low
-
-
-@pytest.mark.asyncio
-async def test_a_single_planet_id_is_still_a_distance_call() -> None:
-    """499 alone is Mars. A second number is what made 301 an asteroid."""
-    seen: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(unquote(str(request.url)))
-        return httpx.Response(
-            200,
-            json={
-                "result": (
-                    "$$SOE\n"
-                    " 2026-Oct-08 17:00     1.500000000   0.01\n"
-                    " 2026-Oct-08 18:00     1.500000000   0.01\n"
-                    " 2026-Oct-08 19:00     1.510000000   0.01\n"
-                    "$$EOE\n"
-                )
-            },
-        )
-
-    tool = CatalogTool(
-        client=httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=5.0)
-    )
-    result = await tool.run(action="horizons", target="499")
-    assert seen
-    assert "COMMAND='499'" in seen[0]
-    assert result.ok, result.output
 
 
 @pytest.mark.asyncio

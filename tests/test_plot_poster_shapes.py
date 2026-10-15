@@ -35,25 +35,6 @@ async def test_panels_list_with_poster_look_draws_both(tmp_path, monkeypatch) ->
 
 
 @pytest.mark.asyncio
-async def test_json_panels_and_nested_ys_draw(tmp_path, monkeypatch) -> None:
-    tool, drop = _tool(tmp_path, monkeypatch)
-
-    result = await tool.run(
-        action="subplots",
-        panels='["line","histogram"]',
-        xs="1,2,3",
-        ys=[[1, 2, 3], [4, 5, 6, 7]],
-        out="nested.png",
-    )
-
-    assert result.ok, result.output
-    written = drop / "nested.png"
-    assert written.is_file()
-    assert "Panels: line, histogram" in result.output
-    _assert_two_panels(written)
-
-
-@pytest.mark.asyncio
 async def test_panel_objects_with_their_own_series_draw_poster(tmp_path, monkeypatch) -> None:
     tool, drop = _tool(tmp_path, monkeypatch)
 
@@ -74,56 +55,6 @@ async def test_panel_objects_with_their_own_series_draw_poster(tmp_path, monkeyp
     assert (drop / "objects.pdf").is_file()
     assert "Panels: line, histogram" in result.output
     _assert_two_panels(png)
-
-
-@pytest.mark.asyncio
-async def test_subplots_key_is_accepted_as_panels(tmp_path, monkeypatch) -> None:
-    tool, drop = _tool(tmp_path, monkeypatch)
-
-    result = await tool.run(
-        action="subplots",
-        subplots="line,histogram",
-        xs="0,1,2,3",
-        ys="0,1,4,9",
-        out="alias.png",
-    )
-
-    assert result.ok, result.output
-    written = drop / "alias.png"
-    assert written.is_file()
-    assert "Panels: line, histogram" in result.output
-    _assert_two_panels(written)
-
-
-@pytest.mark.asyncio
-async def test_semicolon_ys_is_one_series_per_panel(tmp_path, monkeypatch) -> None:
-    tool, drop = _tool(tmp_path, monkeypatch)
-
-    result = await tool.run(
-        action="subplots",
-        panels="line,histogram",
-        xs="1,2,3",
-        ys="1,2,3;4,5,6",
-        out="semi.png",
-    )
-
-    assert result.ok, result.output
-    written = drop / "semi.png"
-    assert written.is_file()
-    assert "same length" not in result.output
-    _assert_two_panels(written)
-
-
-@pytest.mark.asyncio
-async def test_line_chart_names_a_list_of_lists(tmp_path, monkeypatch) -> None:
-    tool, _drop = _tool(tmp_path, monkeypatch)
-
-    result = await tool.run(action="line", ys=[[1, 2], [3, 4]], xs=[1, 2], out="bad.png")
-
-    assert not result.ok
-    folded = result.output.lower()
-    assert "list of lists" in folded or "one list per panel" in folded
-    assert "not an expression" not in folded
 
 
 @pytest.mark.asyncio

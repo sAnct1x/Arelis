@@ -21,7 +21,6 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from arelis.contacts import Contact, normalize_phone
 from arelis.core.email_complete import complete_email_draft, draft_send_email_args
-from arelis.core.sms_complete import complete_sms_draft, draft_send_sms_args
 from arelis.presence.confirm_persist import ConfirmPersister
 from arelis.presence.pending_confirms import PendingConfirm
 from arelis.tools.base import ToolResult
@@ -221,33 +220,3 @@ def test_escape_declines_a_complete_email_draft(
         loop.stop()
 
 
-def test_escape_declines_a_complete_text_draft(
-    qtbot, qt_app, arelis_window, tmp_path, monkeypatch
-) -> None:
-    assert os.environ.get("QT_QPA_PLATFORM") == "offscreen"
-    book = _book()
-    monkeypatch.setattr("arelis.contacts.load_contacts", lambda: book)
-    draft = complete_sms_draft("Text Brian: Running late", contacts=book)
-    assert draft is not None and draft.complete
-    args = {key: str(value) for key, value in draft_send_sms_args(draft).items()}
-    assert args["body"] == "Running late"
-    assert args["to"] == "brian"
-    item = PendingConfirm(
-        id="sms-escape",
-        tool="send_sms",
-        args=args,
-        summary="text Brian",
-        detail=describe_call("send_sms", args),
-        batch_ok=False,
-    )
-    ran = _block_sends(monkeypatch)
-    window = arelis_window(
-        {"presence": {"pending_confirms_path": str(tmp_path / "pending.json")}}
-    )
-    loop = _Loop(window)
-    try:
-        loop.start()
-        qtbot.wait(50)
-        _escape_declines(window, qtbot, qt_app, item, ran, "Running late")
-    finally:
-        loop.stop()

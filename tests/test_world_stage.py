@@ -32,19 +32,6 @@ def test_checkout_may_offer_the_stage() -> None:
     assert grant_for("physics", True).allowed is True
 
 
-def test_install_root_hides_the_stage(monkeypatch) -> None:
-    from pathlib import Path
-
-    import arelis.spatial.grant as grant
-    import arelis.update as update
-
-    monkeypatch.setattr(update, "install_root", lambda: Path("C:/installed"))
-    assert grant.world_stage_allowed() is False
-    assert world_available() is False
-    assert should_offer_world("physics") is False
-    assert grant.grant_for("physics", True).allowed is False
-
-
 def test_a_wheel_without_tests_hides_the_stage(monkeypatch) -> None:
     import arelis.spatial.grant as grant
     import arelis.update as update

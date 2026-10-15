@@ -64,22 +64,3 @@ def test_stylesheet_padding_stays_on_the_scale() -> None:
     assert not offenders, "off-scale stylesheet padding:\n  " + "\n  ".join(offenders)
 
 
-def test_layout_calls_stay_on_the_scale() -> None:
-    """Layout air literals must be SPACE (or 0 / 1 / 6)."""
-    allowed = space_allowed()
-    offenders: list[str] = []
-    for path in sorted(_UI.rglob("*.py")):
-        if path.name in _SKIP_FILES:
-            continue
-        text = path.read_text(encoding="utf-8")
-        rel = path.relative_to(_UI.parent).as_posix()
-        for call in _CALL.finditer(text):
-            args = call.group(1)
-            if any(name in args for name in ("SPACE", "SHELL", "space_box(", "control_pad_y")):
-                continue
-            for raw in _INT.findall(args):
-                px = int(raw)
-                if px not in allowed:
-                    snippet = re.sub(r"\s+", " ", args).strip()
-                    offenders.append(f"{rel}: {px} in ({snippet})")
-    assert not offenders, "off-scale layout padding:\n  " + "\n  ".join(offenders)

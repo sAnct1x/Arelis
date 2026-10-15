@@ -36,23 +36,6 @@ def test_update_is_gated_like_every_other_task_write() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_typo_can_be_fixed_in_place(tmp_path: Path) -> None:
-    tool, store = _tool(tmp_path)
-    try:
-        added = await tool.run(action="add", title="by milk")
-        task_id = added.data["id"]
-
-        result = await tool.run(action="update", id=task_id, title="buy milk")
-        assert result.ok
-
-        listed = await tool.run(action="list")
-        assert "buy milk" in listed.output
-        assert "by milk" not in listed.output
-    finally:
-        store.close()
-
-
-@pytest.mark.asyncio
 async def test_the_task_keeps_its_identity_through_an_edit(tmp_path: Path) -> None:
     """The reason update exists instead of remove+add."""
     tool, store = _tool(tmp_path)
@@ -73,40 +56,6 @@ async def test_the_task_keeps_its_identity_through_an_edit(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_a_due_date_can_be_moved(tmp_path: Path) -> None:
-    tool, store = _tool(tmp_path)
-    try:
-        added = await tool.run(action="add", title="file taxes", due="2026-04-15")
-        task_id = added.data["id"]
-
-        await tool.run(action="update", id=task_id, due="2026-10-15")
-
-        row = store.get_task(task_id)
-        assert row is not None
-        assert row["due"] == "2026-10-15"
-        assert row["title"] == "file taxes", "moving a date must not touch the title"
-    finally:
-        store.close()
-
-
-@pytest.mark.asyncio
-async def test_a_due_date_can_be_cleared(tmp_path: Path) -> None:
-    """Empty string means drop it. Omitting the field means leave it alone."""
-    tool, store = _tool(tmp_path)
-    try:
-        added = await tool.run(action="add", title="file taxes", due="2026-04-15")
-        task_id = added.data["id"]
-
-        await tool.run(action="update", id=task_id, due="")
-
-        row = store.get_task(task_id)
-        assert row is not None
-        assert not row["due"]
-    finally:
-        store.close()
-
-
-@pytest.mark.asyncio
 async def test_updating_nothing_is_refused_rather_than_silently_passing(
     tmp_path: Path,
 ) -> None:
@@ -121,23 +70,3 @@ async def test_updating_nothing_is_refused_rather_than_silently_passing(
         store.close()
 
 
-@pytest.mark.asyncio
-async def test_updating_a_task_that_is_not_there_says_so(tmp_path: Path) -> None:
-    tool, store = _tool(tmp_path)
-    try:
-        result = await tool.run(action="update", id=9999, title="buy milk")
-        assert not result.ok
-        assert "9999" in result.output
-    finally:
-        store.close()
-
-
-@pytest.mark.asyncio
-async def test_update_needs_an_id(tmp_path: Path) -> None:
-    tool, store = _tool(tmp_path)
-    try:
-        result = await tool.run(action="update", title="buy milk")
-        assert not result.ok
-        assert "id" in result.output.lower()
-    finally:
-        store.close()

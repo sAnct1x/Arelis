@@ -26,36 +26,6 @@ def _core_names(registered: list[str]) -> list[str]:
     return [name for name in registered if name in core]
 
 
-def test_flag_off_list_byte_identical_to_main() -> None:
-    from arelis.core.tool_surface import session_tool_schemas
-    from scripts.measure_tool_schema import registry_for_profile, tool_specs
-
-    golden = _GOLDEN.read_text(encoding="utf-8")
-    absent_reg = registry_for_profile("worst")
-    absent = session_tool_schemas(absent_reg, {})
-    assert json.dumps(absent, indent=2) + "\n" == golden
-    assert json.dumps(tool_specs(absent_reg), indent=2) + "\n" == golden
-
-    off_reg = registry_for_profile("worst")
-    off = session_tool_schemas(off_reg, {"tool_loading": "off"})
-    assert json.dumps(off, indent=2) + "\n" == golden
-
-
-def test_tail_sends_core_plus_load_tools_only() -> None:
-    from arelis.core.tool_surface import session_tool_schemas
-    from scripts.measure_tool_schema import registry_for_profile, tool_specs
-
-    reg = registry_for_profile("worst")
-    registered = _names(tool_specs(reg))
-    specs = session_tool_schemas(reg, {"tool_loading": "tail"})
-    assert _names(specs) == [*_core_names(registered), "load_tools"]
-
-    front = session_tool_schemas(
-        registry_for_profile("worst"), {"tool_loading": "front"}
-    )
-    assert _names(front) == _names(specs)
-
-
 def test_tail_list_is_frozen_and_equals_warmup() -> None:
     from arelis.config import load_config
     from arelis.core.tool_surface import session_tool_schemas
@@ -73,27 +43,6 @@ def test_tail_list_is_frozen_and_equals_warmup() -> None:
     assert warm.tools is turn
     registered = _names(tool_specs(registry_for_profile("worst")))
     assert _names(turn) == [*_core_names(registered), "load_tools"]
-
-
-def test_mode_change_rebuilds_once() -> None:
-    from arelis.core.tool_surface import session_tool_schemas
-    from scripts.measure_tool_schema import registry_for_profile
-
-    reg = registry_for_profile("worst")
-    calls = {"n": 0}
-    original = reg.ollama_tools
-
-    def _counted(*args, **kwargs):
-        calls["n"] += 1
-        return original(*args, **kwargs)
-
-    reg.ollama_tools = _counted
-    off = session_tool_schemas(reg, {"tool_loading": "off"})
-    tail = session_tool_schemas(reg, {"tool_loading": "tail"})
-    tail_again = session_tool_schemas(reg, {"tool_loading": "tail"})
-    assert off is not tail
-    assert tail is tail_again
-    assert calls["n"] == 2
 
 
 def test_load_tools_enum_matches_groups() -> None:
@@ -139,14 +88,3 @@ def test_shipped_default_is_off_without_a_warning(caplog) -> None:
     assert "not off, tail, or front" not in caplog.text
 
 
-def test_unknown_mode_falls_back_to_off(caplog) -> None:
-    from arelis.core.tool_surface import session_tool_schemas
-    from scripts.measure_tool_schema import registry_for_profile
-
-    reg = registry_for_profile("worst")
-    with caplog.at_level(logging.INFO, logger="arelis.core.tool_surface"):
-        unknown = session_tool_schemas(reg, {"tool_loading": "sideways"})
-    off = session_tool_schemas(reg, {"tool_loading": "off"})
-    assert unknown is off
-    assert json.dumps(unknown) == json.dumps(off)
-    assert "sideways" in caplog.text

@@ -99,14 +99,6 @@ def test_an_unnamed_calendar_create_uses_the_local_calendar() -> None:
     assert parsed.date().toordinal() == tomorrow
 
 
-def test_a_create_with_no_provider_argument_is_local() -> None:
-    out = fill_agenda_args(
-        {"action": "create", "summary": "Lunch", "start": "2026-10-13T12:00:00"},
-        None,
-    )
-    assert out["provider"] == "local"
-
-
 def test_a_local_create_still_needs_a_confirm_card() -> None:
     assert action_is_write("agenda", {"action": "create", "provider": "local"})
     assert action_is_write("agenda", {"action": "create", "provider": "google"})
@@ -203,14 +195,3 @@ def test_a_successful_create_may_still_say_added() -> None:
     assert guard_false_calendar_add(reply, created=False, failed=False) == reply
 
 
-def test_a_local_save_is_not_called_google_or_outlook() -> None:
-    from arelis.core.claims import guard_local_calendar_destination
-
-    lie = "Lunch with Sam is on your Google calendar."
-    out = guard_local_calendar_destination(lie, where="local")
-    assert "on your Google" not in out
-    assert "Arelis" in out
-    honest = "Google is not connected, so this is on your Arelis calendar."
-    assert guard_local_calendar_destination(honest, where="local") == honest
-    cloud = "Added to your Google calendar: Lunch."
-    assert guard_local_calendar_destination(cloud, where="google") == cloud

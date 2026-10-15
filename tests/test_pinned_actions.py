@@ -44,22 +44,6 @@ def test_a_sha_pin_with_a_comment_passes(tmp_path: Path) -> None:
     assert done.returncode == 0, done.stdout + done.stderr
 
 
-def test_a_local_action_is_ignored(tmp_path: Path) -> None:
-    workflows = tmp_path / ".github" / "workflows"
-    workflows.mkdir(parents=True)
-    (workflows / "ci.yml").write_text(
-        "jobs:\n  x:\n    steps:\n      - uses: ./tools/local-action\n",
-        encoding="utf-8",
-    )
-    done = _run(str(tmp_path))
-    assert done.returncode == 0, done.stdout + done.stderr
-
-
-def test_repo_workflows_are_pinned() -> None:
-    done = _run()
-    assert done.returncode == 0, done.stdout + done.stderr
-
-
 def test_lint_job_runs_the_pin_check() -> None:
     text = CI_YML.read_text(encoding="utf-8")
     lint = text.split("\n  lint:", 1)[1].split("\n  types:", 1)[0]

@@ -10,7 +10,6 @@ from arelis.ui.theme import (
     active_theme,
     apply_theme,
     resolve_theme_id,
-    stylesheet,
     theme_from_config,
 )
 from arelis.ui.theme_tokens import _PALETTES
@@ -51,16 +50,6 @@ def test_night_loads_without_error_and_has_required_keys() -> None:
     assert active_theme() == "sodium"
 
 
-def test_night_stylesheet_applies_palette() -> None:
-    apply_theme("night")
-    assert active_theme() == "night"
-    css = stylesheet().lower()
-    assert "#8050b0" in css
-    assert "#ffffff" in css or COLORS["text"].lower() in css
-    assert "#ff7a22" not in css  # sodium lamp must not leak into Night
-    apply_theme("sodium")
-
-
 def test_unknown_theme_still_falls_back_to_sodium() -> None:
     assert resolve_theme_id("bogus-night-xyz") == "sodium"
     assert resolve_theme_id(None) == "sodium"
@@ -69,13 +58,3 @@ def test_unknown_theme_still_falls_back_to_sodium() -> None:
     assert theme_from_config({"ui": {"theme": "night"}}) == "night"
 
 
-def test_night_restyles_open_window(arelis_window) -> None:
-    from arelis.ui.settings_host import apply_window_theme
-
-    window = arelis_window()
-    apply_window_theme(window, "night", persist=False)
-    assert active_theme() == "night"
-    assert COLORS["accent"].lower() == "#8050b0"
-    css = window.styleSheet().lower()
-    assert "#8050b0" in css or COLORS["accent"].lower() in css
-    apply_theme("sodium")

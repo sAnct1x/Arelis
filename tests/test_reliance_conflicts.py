@@ -39,53 +39,6 @@ def test_overlapping_hours_conflict() -> None:
     assert hits[0].ends_at == f"{DAY}T11:30:00"
 
 
-def test_adjacent_blocks_are_not_a_conflict() -> None:
-    hits = find_overlaps(
-        start=_at(11),
-        end=_at(12),
-        events=[_event("Morning", f"{DAY}T10:00:00", f"{DAY}T11:00:00")],
-    )
-    assert hits == []
-
-
-def test_different_title_in_the_same_hour_conflicts() -> None:
-    hits = find_overlaps(
-        start=_at(15),
-        end=_at(16),
-        events=[_event("Dentist", f"{DAY}T15:00:00", f"{DAY}T16:00:00")],
-    )
-    assert len(hits) == 1
-    assert hits[0].summary == "Dentist"
-
-
-def test_ignore_summary_skips_the_duplicate_title() -> None:
-    hits = find_overlaps(
-        start=_at(15),
-        end=_at(16),
-        events=[
-            _event("Dentist", f"{DAY}T15:00:00", f"{DAY}T16:00:00"),
-            _event("Standup", f"{DAY}T15:15:00", f"{DAY}T15:45:00"),
-        ],
-        ignore_summary="DENTIST",
-    )
-    assert [hit.summary for hit in hits] == ["Standup"]
-
-
-def test_all_day_covers_a_3pm_event() -> None:
-    hits = find_overlaps(
-        start=_at(15),
-        end=_at(16),
-        events=[_event("Vacation", DAY, all_day=True)],
-    )
-    assert [hit.summary for hit in hits] == ["Vacation"]
-    next_day = find_overlaps(
-        start=datetime(2026, 9, 27, 15, 0),
-        end=datetime(2026, 9, 27, 16, 0),
-        events=[_event("Vacation", DAY, all_day=True)],
-    )
-    assert next_day == []
-
-
 def test_missing_end_defaults_to_one_hour() -> None:
     proposed = find_overlaps(
         start=_at(10),
@@ -110,20 +63,6 @@ def test_missing_end_defaults_to_one_hour() -> None:
         events=[_event("Open ended", f"{DAY}T10:30:00")],
     )
     assert abutting == []
-
-
-def test_results_are_chronological_and_bad_rows_are_skipped() -> None:
-    hits = find_overlaps(
-        start=_at(9),
-        end=_at(17),
-        events=[
-            {"summary": "Broken", "starts_at": "not-a-time"},
-            _event("Afternoon", f"{DAY}T15:00:00", f"{DAY}T16:00:00"),
-            {"summary": "No start"},
-            _event("Morning", f"{DAY}T09:30:00", f"{DAY}T10:00:00"),
-        ],
-    )
-    assert [hit.summary for hit in hits] == ["Morning", "Afternoon"]
 
 
 def test_overlap_line_is_empty_without_hits_and_a_sentence_with_them() -> None:

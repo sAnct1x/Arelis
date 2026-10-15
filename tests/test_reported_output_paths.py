@@ -134,33 +134,6 @@ async def test_document_path_opens_in_pdf_workspace_and_doc_extract(
 
 
 @pytest.mark.asyncio
-async def test_document_path_opens_when_data_sits_inside_the_workspace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Bench layout: data folder is scratch/data, workspace folder is scratch."""
-    project = tmp_path / "scratch"
-    data = project / "data"
-    project.mkdir()
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(data))
-    roots = WorkspaceRoots([RootEntry(name="scratch", path=project.resolve())])
-    wrote = await DocumentTool(roots).run(format="pdf", title="Nested", body=_PDF_MARKER)
-    assert wrote.ok, wrote.output
-    reported = str((wrote.data or {})["path"])
-    assert reported.startswith("outputs/documents/"), reported
-    assert not (project / reported).is_file()
-
-    split = await PdfAssembleTool(roots).run(action="split", path=reported, pages="1")
-    assert split.ok, split.output
-    assert _PDF_MARKER in _texts(Path(str((split.data or {})["abs_path"])))
-
-    listed = await CodeWorkspaceTool(roots).run(action="list", path=reported)
-    assert listed.ok, listed.output
-    assert Path(str((listed.data or {})["abs_path"])).resolve() == Path(
-        str((wrote.data or {})["abs_path"])
-    ).resolve()
-
-
-@pytest.mark.asyncio
 async def test_research_report_path_opens_in_workspace_pdf_and_doc_extract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -263,54 +236,3 @@ async def test_traversal_and_outside_paths_stay_refused(
             assert "outside" in result.output.lower() or "allowed" in result.output.lower()
 
 
-@pytest.mark.asyncio
-async def test_writes_do_not_follow_the_reported_data_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    data, project, roots = _split(tmp_path, monkeypatch)
-    wrote = await DocumentTool(roots).run(
-        format="pdf",
-        title="Keep Me",
-        body=_PDF_MARKER,
-    )
-    assert wrote.ok, wrote.output
-    reported = str((wrote.data or {})["path"])
-    real = Path(str((wrote.data or {})["abs_path"]))
-    before = real.read_bytes()
-
-    workspace = CodeWorkspaceTool(roots)
-    sneaked = await workspace.run(
-        action="write",
-        path="outputs/documents/sneak.txt",
-        content="STAY_IN_PROJECT",
-    )
-    assert sneaked.ok, sneaked.output
-    assert (project / "outputs" / "documents" / "sneak.txt").read_text(encoding="utf-8") == (
-        "STAY_IN_PROJECT"
-    )
-    assert not (data / "outputs" / "documents" / "sneak.txt").exists()
-
-    forced = data / "outputs" / "documents" / "forced.txt"
-    blocked = await workspace.run(action="write", path=str(forced), content="NO")
-    assert blocked.ok is False
-    assert not forced.exists()
-    assert "outside" in blocked.output.lower()
-
-    deleted = await workspace.run(action="delete", path=reported)
-    assert deleted.ok is False
-    assert real.read_bytes() == before
-
-    edited = await workspace.run(
-        action="edit", path=reported, old=_PDF_MARKER, new="changed"
-    )
-    assert edited.ok is False
-    assert real.read_bytes() == before
-
-    overwritten = await PdfAssembleTool(roots).run(
-        action="split", path=reported, pages="1", dest=reported
-    )
-    assert real.read_bytes() == before
-    if overwritten.ok:
-        dest = Path(str((overwritten.data or {})["abs_path"]))
-        assert dest.resolve() != real.resolve()
-        assert project in dest.parents

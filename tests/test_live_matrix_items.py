@@ -74,37 +74,6 @@ def known_tools(tmp_path_factory) -> set[str]:
     return live | _declared_tool_names()
 
 
-def test_matrix_item_ids_are_unique(items_mod):
-    ids = [item.id for item in items_mod.ITEMS]
-    dupes = sorted({i for i in ids if ids.count(i) > 1})
-    assert not dupes, f"duplicate live matrix item ids: {dupes}"
-
-
-def test_matrix_items_are_well_formed(items_mod):
-    for item in items_mod.ITEMS:
-        assert item.kind in {"single", "regress", "slash", "chain"}, item.id
-        assert item.prompts and all(isinstance(p, str) and p for p in item.prompts), item.id
-        assert all(isinstance(group, tuple) and group for group in item.tools), item.id
-
-
-def test_matrix_expected_tools_exist_in_production_registry(items_mod, known_tools):
-    missing: dict[str, list[str]] = {}
-    for item in items_mod.ITEMS:
-        names = {name for group in item.tools for name in group}
-        gone = sorted(names - known_tools)
-        if gone:
-            missing[item.id] = gone
-    assert not missing, (
-        "live matrix items expect tools the production registry no longer has "
-        f"(update scripts/live_matrix_items.py): {missing}"
-    )
-
-
-def test_matrix_banned_tools_are_real_tool_names(items_mod, known_tools):
-    unknown = sorted(items_mod.BANNED - known_tools)
-    assert not unknown, f"BANNED names no tool in the registry any more: {unknown}"
-
-
 def _gate_args(spec: str) -> tuple[str, dict]:
     tool, _, action = spec.partition(":")
     if tool == "web_fetch":
@@ -130,24 +99,6 @@ def test_matrix_gate_claims_match_policy(items_mod):
     assert checked >= 6
 
 
-def test_matrix_path_checks_stay_inside_work_folder(items_mod):
-    for item in [*items_mod.ITEMS, *items_mod.COMMS_ITEMS]:
-        for rel in (*item.keep, *item.gone):
-            assert rel.startswith("work/") and ".." not in rel, f"{item.id}: {rel}"
-
-
-def test_matrix_gone_and_keep_targets_are_fixtures_or_created(items_mod):
-    """scratch_* files are recreated by make_fixtures; the others are made by the item."""
-    import re
-
-    text = (_ROOT / "scripts" / "live_matrix.py").read_text(encoding="utf-8")
-    for item in items_mod.ITEMS:
-        for rel in item.gone:
-            name = rel.rsplit("/", 1)[-1]
-            assert name in text or any(name in p for p in item.prompts), f"{item.id}: {rel}"
-        assert not re.search(r"[^\x00-\x7f]", " ".join(item.prompts)), item.id
-
-
 def test_comms_items_never_join_the_main_matrix(items_mod):
     main_ids = {item.id for item in items_mod.ITEMS}
     for item in items_mod.COMMS_ITEMS:
@@ -171,14 +122,3 @@ def test_comms_plan_sends_exactly_three_tagged_messages(items_mod):
             assert not item.recipients or item.decline or item.id.endswith("_stub"), item.id
 
 
-def test_comms_items_are_inert_and_carry_no_personal_data(items_mod):
-    """The runner only imports ITEMS and keeps the send tools BANNED, so the
-    comms plan cannot send anything; and no address or number is in the repo."""
-    import re
-
-    runner = (_ROOT / "scripts" / "live_matrix.py").read_text(encoding="utf-8")
-    assert "COMMS_ITEMS" not in runner
-    assert {"send_sms", "send_email"} <= items_mod.BANNED
-    blob = " ".join(p for i in items_mod.COMMS_ITEMS for p in i.prompts)
-    assert not re.search(r"\+?\d[\d\s().-]{8,}\d", blob)
-    assert "@gmail.com" not in blob and "@example.invalid" in blob

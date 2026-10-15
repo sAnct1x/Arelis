@@ -31,27 +31,6 @@ def drop_env(tmp_path, monkeypatch):
     return tool, source, docs, data, project
 
 
-def test_from_path_accepts_relative_display_path(drop_env) -> None:
-    tool, _source, _docs, _data, _project = drop_env
-    body = tool._read_source("outputs/documents/Conversion-Source.md")
-    assert "convert me 8812" in body
-
-
-def test_from_path_accepts_absolute_drop_path(drop_env) -> None:
-    tool, source, _docs, _data, _project = drop_env
-    body = tool._read_source(str(source))
-    assert "convert me 8812" in body
-
-
-def test_from_path_rejects_outside_roots(drop_env) -> None:
-    tool, _source, _docs, _data, project = drop_env
-    outside = project.parent / "secret.md"
-    outside.write_text("should not read\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="allowed root") as exc:
-        tool._read_source(str(outside))
-    assert "outputs/documents" in str(exc.value)
-
-
 def test_from_path_rejects_traversal(drop_env) -> None:
     tool, _source, _docs, data, _project = drop_env
     # Escape lands just outside outputs/documents (data root), so

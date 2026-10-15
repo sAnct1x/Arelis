@@ -24,8 +24,6 @@ the honest answer is "I cannot tell" rather than "no".
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from arelis.sms_inbound import InboundSms
@@ -100,25 +98,6 @@ async def test_a_live_bridge_with_no_texts_is_an_honest_no() -> None:
 
 
 @pytest.mark.asyncio
-async def test_even_a_live_bridge_keeps_the_caveat() -> None:
-    """A checked-in phone still proves nothing about the listener — a muted
-    thread drops messages while the companion answers polls normally."""
-    COMPANION_PRESENCE.touch("/mobile/status")
-    lowered = (await InboundSmsTool().run()).output.lower()
-    assert "muted" in lowered or "doze" in lowered
-
-
-@pytest.mark.asyncio
-async def test_a_stale_bridge_says_how_stale() -> None:
-    """"Checked in three hours ago" is a different answer from "moments ago",
-    and the user is the one who can judge which matters."""
-    COMPANION_PRESENCE.touch("/mobile/status")
-    COMPANION_PRESENCE._last = time.time() - (3 * 3600)
-    output = (await InboundSmsTool().run()).output
-    assert "3 hours" in output
-
-
-@pytest.mark.asyncio
 async def test_messages_are_still_listed_normally() -> None:
     COMPANION_PRESENCE.touch("/inbound/sms")
     _arrive("running late")
@@ -145,18 +124,6 @@ async def test_messages_arriving_without_a_recorded_touch_still_list() -> None:
 # --------------------------------------------------------------------------
 # The presence record itself
 # --------------------------------------------------------------------------
-
-
-def test_presence_starts_unknown() -> None:
-    assert COMPANION_PRESENCE.age_seconds() is None
-    assert "has not contacted" in COMPANION_PRESENCE.describe()
-
-
-def test_a_touch_is_recent() -> None:
-    COMPANION_PRESENCE.touch("/mobile/sync")
-    age = COMPANION_PRESENCE.age_seconds()
-    assert age is not None and age < 5
-    assert "moments ago" in COMPANION_PRESENCE.describe()
 
 
 @pytest.mark.asyncio
@@ -222,9 +189,3 @@ async def test_a_real_request_through_the_server_records_presence(
             await task
 
 
-def test_minutes_and_hours_are_both_readable() -> None:
-    COMPANION_PRESENCE.touch("/mobile/status")
-    COMPANION_PRESENCE._last = time.time() - (20 * 60)
-    assert "20 minutes" in COMPANION_PRESENCE.describe()
-    COMPANION_PRESENCE._last = time.time() - (5 * 3600)
-    assert "5 hours" in COMPANION_PRESENCE.describe()

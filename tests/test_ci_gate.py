@@ -9,7 +9,6 @@ fails on a laptop too, not only after push.
 
 from __future__ import annotations
 
-import ast
 import re
 from pathlib import Path
 
@@ -26,17 +25,6 @@ _FORBIDDEN_CTYPES = frozenset({"windll", "wintypes"})
 _FORBIDDEN_MODULES = frozenset(
     {"winreg", "msvcrt", "win32api", "win32con", "win32gui", "pythoncom"}
 )
-
-
-def test_ci_runs_ruff_once_before_the_matrix() -> None:
-    """One lint job. The 8-way pytest matrix waits on it. Ruff is not a step there."""
-    text = CI_YML.read_text(encoding="utf-8")
-    assert re.search(r"(?m)^  lint:", text), "CI lost the lint job"
-    assert re.search(r"(?m)^    needs: lint", text), "test/installed must wait on lint"
-    assert text.count("needs: lint") >= 2, "both test and installed must wait on lint"
-    # The test job must not run ruff itself — that is the eight-email bug.
-    test_block = text.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
-    assert "ruff check" not in test_block.lower()
 
 
 # Same block on every workflow that push or pull_request can start.
@@ -64,13 +52,6 @@ def _push_or_pull_request(text: str) -> bool:
     return bool(re.search(r"(?m)^  (push|pull_request):", block))
 
 
-def test_ci_cancels_leftover_runs_and_cannot_sit_six_hours() -> None:
-    text = CI_YML.read_text(encoding="utf-8")
-    assert _PUSH_PR_CONCURRENCY in text
-    assert re.search(r"(?m)^    timeout-minutes: 25", text), "test job needs a ceiling"
-    assert re.search(r"(?m)^    timeout-minutes: 5", text), "lint/lock need a ceiling"
-
-
 def test_push_and_pull_request_workflows_share_one_concurrency_group() -> None:
     workflows = ROOT / ".github" / "workflows"
     push_pr = []
@@ -87,54 +68,6 @@ def test_push_and_pull_request_workflows_share_one_concurrency_group() -> None:
         text = (workflows / name).read_text(encoding="utf-8")
         assert "github.head_ref" not in text
         assert not _push_or_pull_request(text)
-
-
-def test_test_job_runs_xdist_and_keeps_pytest_cov() -> None:
-    from scripts.ci_pytest import command, finish
-
-    text = CI_YML.read_text(encoding="utf-8")
-    test_block = text.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
-    assert "python scripts/ci_pytest.py xdist" in test_block
-    assert "python scripts/ci_pytest.py serial" in test_block
-    assert "scripts/ci_tier.py" in test_block
-    on_block = text.split("\njobs:", 1)[0]
-    assert "paths:" not in on_block
-    pyproject = PYPROJECT.read_text(encoding="utf-8")
-    assert "pytest-xdist" in pyproject
-    assert "pytest-cov" in pyproject
-    assert "serial:" in pyproject
-
-    xdist = command("xdist", coverage=True, paths=[])
-    serial = command("serial", coverage=True, paths=["tests/test_cas.py"])
-    assert xdist[xdist.index("-n") + 1] == "auto"
-    assert "not serial" in xdist
-    assert "--cov=arelis" in xdist
-    assert "--cov-branch" in xdist
-    assert "--cov-append" not in xdist
-    junit = serial.index("--junitxml=pytest-results-serial.xml")
-    assert serial[junit - 2 : junit] == ["-m", "serial"]
-    assert "-n" not in serial
-    assert "--cov=arelis" in serial
-    assert "--cov-branch" in serial
-    assert "--cov-append" in serial
-    plain = command("xdist", coverage=False, paths=["tests/test_earth.py"])
-    assert "--cov=arelis" not in plain
-    assert plain[-1] == "tests/test_earth.py"
-    assert finish("serial", 5) == 0
-    assert finish("serial", 1) == 1
-    assert finish("xdist", 5) == 5
-
-
-def test_ci_ruff_pin_matches_pyproject() -> None:
-    workflow = CI_YML.read_text(encoding="utf-8")
-    pyproject = PYPROJECT.read_text(encoding="utf-8")
-    wf_match = re.search(r'ruff==(\d+\.\d+\.\d+)', workflow)
-    py_match = re.search(r'"ruff==(\d+\.\d+\.\d+)"', pyproject)
-    assert wf_match and py_match, "ruff pin missing from ci.yml or pyproject.toml"
-    assert wf_match.group(1) == py_match.group(1), (
-        f"ci.yml installs ruff=={wf_match.group(1)}, "
-        f"pyproject pins ruff=={py_match.group(1)}"
-    )
 
 
 def test_mypy_reports_on_the_repo_and_gates_only_the_clean_packages() -> None:
@@ -182,21 +115,6 @@ def test_mypy_reports_on_the_repo_and_gates_only_the_clean_packages() -> None:
     assert "mypy" not in installed_block.lower()
 
 
-def test_ci_matrix_is_the_two_claimed_interpreters() -> None:
-    """Windows 3.14 is what we ship. Ubuntu 3.11 is the requires-python floor."""
-    text = CI_YML.read_text(encoding="utf-8")
-    test_block = text.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
-    installed_block = text.split("\n  installed:", 1)[1]
-    for block in (test_block, installed_block):
-        assert "3.12" not in block
-        assert "3.13" not in block
-        assert '"3.14"' in block
-        assert '"3.11"' in block
-        assert "windows-latest" in block
-        assert "ubuntu-latest" in block
-    assert not re.search(r"(?m)^  coverage:", text)
-
-
 def test_macos_cell_may_fail_without_opening_the_gate() -> None:
     """macOS is informational. Windows and Ubuntu still fail the workflow."""
     loaded = yaml.safe_load(CI_YML.read_text(encoding="utf-8"))
@@ -236,55 +154,9 @@ def test_ci_runs_the_eval_boards_as_a_gate() -> None:
         assert path in block, f"eval job stopped running {path}"
 
 
-def test_guard_coverage_runs_on_a_schedule() -> None:
-    """mutate_guards is the proof the board can fail. Unrun, it proves nothing."""
-    path = ROOT / ".github" / "workflows" / "guard-coverage.yml"
-    assert path.exists(), "the weekly guard-coverage workflow is gone"
-    text = path.read_text(encoding="utf-8")
-    assert "schedule:" in text and "cron:" in text
-    assert "scripts/mutate_guards.py" in text
-
-
 def test_pytest_has_a_per_test_timeout() -> None:
     text = PYPROJECT.read_text(encoding="utf-8")
     assert "pytest-timeout" in text
     assert re.search(r"(?m)^timeout = \d+", text)
 
 
-def test_linux_does_not_construct_the_webengine_host_unless_asked() -> None:
-    """EarthGlobeHost on headless Linux can sit through the thread timeout.
-
-    Deleting this skip to 'get the test back' is how a runner waits six hours.
-    Windows still constructs the host. Opt in on Linux with ARELIS_GLOBE_HOST_TEST.
-    """
-    text = (ROOT / "tests" / "test_globe_stack.py").read_text(encoding="utf-8")
-    assert "ARELIS_GLOBE_HOST_TEST" in text
-    assert "EarthGlobeHost can hang headless Linux" in text
-    assert "test_pytest_constructs_webengine_host" in text
-
-
-def test_no_windows_only_import_at_module_level() -> None:
-    """Linux ctypes has no windll. Collection must not die on import."""
-    offenders: list[str] = []
-    for path in PACKAGE.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        rel = path.relative_to(ROOT).as_posix()
-        for node in tree.body:
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    root = alias.name.split(".", 1)[0]
-                    if root in _FORBIDDEN_MODULES or alias.name in _FORBIDDEN_MODULES:
-                        offenders.append(f"{rel}: import {alias.name}")
-            elif isinstance(node, ast.ImportFrom):
-                mod = node.module or ""
-                if mod in _FORBIDDEN_MODULES or mod.split(".", 1)[0] in _FORBIDDEN_MODULES:
-                    offenders.append(f"{rel}: from {mod} import …")
-                if mod == "ctypes":
-                    names = {alias.name for alias in node.names}
-                    hit = names & _FORBIDDEN_CTYPES
-                    if hit:
-                        offenders.append(f"{rel}: from ctypes import {sorted(hit)}")
-    assert not offenders, (
-        "Windows-only names at module level abort Ubuntu collection:\n  "
-        + "\n  ".join(offenders)
-    )

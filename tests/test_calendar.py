@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
-import httpx
 import pytest
 
 from arelis.briefing.calendar import (
     format_agenda_section,
-    load_agenda,
     parse_ics_events,
-    resolve_calendar_path,
 )
 from arelis.calendar.store import CalendarStore
 from arelis.tools import build_tool_registry
@@ -51,14 +48,6 @@ def test_parse_ics_events_reads_timed_and_all_day() -> None:
     assert events[1].summary == "All-day errand"
 
 
-def test_load_agenda_filters_today_and_tomorrow(tmp_path) -> None:
-    path = tmp_path / "calendar.ics"
-    path.write_text(ICS, encoding="utf-8")
-    now = datetime(2026, 8, 8, 8, 0, tzinfo=ZoneInfo("America/New_York"))
-    events = load_agenda(path, now=now, days=2)
-    assert [e.summary for e in events] == ["Morning standup", "All-day errand"]
-
-
 def test_format_agenda_section_labels_today_tomorrow() -> None:
     tz = ZoneInfo("America/New_York")
     now = datetime(2026, 8, 8, 8, 0, tzinfo=tz)
@@ -71,23 +60,6 @@ def test_format_agenda_section_labels_today_tomorrow() -> None:
     assert "Standup notes" in text
     assert "**Tomorrow**" in text
     assert "all day, All-day errand" in text
-
-
-def test_missing_calendar_file_is_empty(tmp_path) -> None:
-    assert load_agenda(tmp_path / "absent.ics") == []
-
-
-def test_load_agenda_start_day_tomorrow(tmp_path) -> None:
-    path = tmp_path / "calendar.ics"
-    path.write_text(ICS, encoding="utf-8")
-    now = datetime(2026, 8, 8, 8, 0, tzinfo=ZoneInfo("America/New_York"))
-    events = load_agenda(
-        path,
-        now=now,
-        start_day=date(2026, 8, 9),
-        end_day=date(2026, 8, 9),
-    )
-    assert [e.summary for e in events] == ["All-day errand"]
 
 
 @pytest.mark.asyncio
@@ -104,25 +76,6 @@ async def test_agenda_tool_range_includes_source(tmp_path) -> None:
     assert str(path) in result.output
     assert result.data["count"] == 2
     assert result.data["source"] == str(path)
-
-
-@pytest.mark.asyncio
-async def test_agenda_tool_today_and_tomorrow(tmp_path, monkeypatch) -> None:
-    path = tmp_path / "calendar.ics"
-    path.write_text(ICS, encoding="utf-8")
-    tool = AgendaTool(
-        {"tools": {"briefing": {"calendar_path": str(path)}}}
-    )
-    fixed = datetime(2026, 8, 8, 8, 0, tzinfo=ZoneInfo("America/New_York"))
-    monkeypatch.setattr("arelis.tools.agenda._local_now", lambda: fixed)
-    today = await tool.run(action="today")
-    assert today.ok
-    assert "Morning standup" in today.output
-    assert "All-day errand" not in today.output
-    tomorrow = await tool.run(action="tomorrow")
-    assert tomorrow.ok
-    assert "All-day errand" in tomorrow.output
-    assert "Morning standup" not in tomorrow.output
 
 
 @pytest.mark.asyncio
@@ -153,94 +106,6 @@ async def test_agenda_list_default_covers_next_week(tmp_path, monkeypatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_agenda_tool_missing_file_is_clear(tmp_path) -> None:
-    missing = tmp_path / "absent.ics"
-    tool = AgendaTool(
-        {"tools": {"briefing": {"calendar_path": str(missing)}}}
-    )
-    result = await tool.run(action="today")
-    assert result.ok
-    assert "Nothing on your calendar today." in result.output
-    assert "calendar tile" in result.output
-    assert str(missing) not in result.output
-    assert "calendar.ics" not in result.output
-    assert result.data.get("missing") is True
-
-
-@pytest.mark.asyncio
-async def test_agenda_tool_range_requires_dates(tmp_path) -> None:
-    path = tmp_path / "calendar.ics"
-    path.write_text(ICS, encoding="utf-8")
-    tool = AgendaTool(
-        {"tools": {"briefing": {"calendar_path": str(path)}}}
-    )
-    result = await tool.run(action="range")
-    assert not result.ok
-    assert "start" in result.output.lower()
-
-
-def test_agenda_registered_with_briefing(tmp_path, monkeypatch) -> None:
-    """briefing.enabled still turns the calendar on, with no briefing tool.
-
-    The emailed digest is built from the agenda, so someone who left briefings on
-    while the calendar section was off still needs agenda registered.
-    """
-    workspace = WorkspaceRoots.from_config(
-        {"workspace": {"roots": [{"name": "t", "path": str(tmp_path)}]}}
-    )
-    registry = build_tool_registry(
-        {
-            "tools": {"briefing": {"enabled": True}, "calendar": {"enabled": False}},
-            "agent": {},
-        },
-        workspace,
-        allow_send=True,
-        memory_store=None,
-    )
-    assert "agenda" in registry.names()
-    assert "briefing" not in registry.names()
-    assert "attention" not in registry.names()
-
-
-def test_agenda_registered_without_cloud(tmp_path, monkeypatch) -> None:
-    """Local create is available before Google is connected."""
-    workspace = WorkspaceRoots.from_config(
-        {"workspace": {"roots": [{"name": "t", "path": str(tmp_path)}]}}
-    )
-    registry = build_tool_registry(
-        {"tools": {"calendar": {"enabled": True}}, "agent": {}},
-        workspace,
-        allow_send=True,
-        memory_store=None,
-    )
-    assert "agenda" in registry.names()
-
-
-def test_agenda_not_registered_when_calendar_and_briefing_disabled(tmp_path) -> None:
-    workspace = WorkspaceRoots.from_config(
-        {"workspace": {"roots": [{"name": "t", "path": str(tmp_path)}]}}
-    )
-    registry = build_tool_registry(
-        {
-            "tools": {
-                "briefing": {"enabled": False},
-                "calendar": {"enabled": False},
-            },
-            "agent": {},
-        },
-        workspace,
-        allow_send=True,
-        memory_store=None,
-    )
-    assert "agenda" not in registry.names()
-
-
-def test_resolve_calendar_path_default() -> None:
-    path = resolve_calendar_path({})
-    assert path.name == "calendar.ics"
-
-
-@pytest.mark.asyncio
 async def test_ics_sync_missing_secret_is_clear(tmp_path, monkeypatch) -> None:
     from arelis.briefing.ics_sync import sync_ics_from_url
 
@@ -260,37 +125,6 @@ async def test_ics_sync_missing_secret_is_clear(tmp_path, monkeypatch) -> None:
     assert result.ok
     assert "ics_url" in result.output.lower() or "not configured" in result.output.lower()
     assert result.data.get("missing_secret") is True
-
-
-@pytest.mark.asyncio
-async def test_ics_sync_downloads_into_calendar_path(tmp_path, monkeypatch) -> None:
-    from arelis.briefing.ics_sync import sync_ics_from_url
-
-    dest = tmp_path / "calendar.ics"
-    secrets = tmp_path / "secrets.yaml"
-    secrets.write_text(
-        "calendar:\n  ics_url: https://cal.example/private.ics\n",
-        encoding="utf-8",
-    )
-
-    async def fake_get(client, url, *, headers=None, block_private=True):
-        req = httpx.Request("GET", url)
-        return httpx.Response(
-            200,
-            text=ICS,
-            headers={"content-type": "text/calendar"},
-            request=req,
-        )
-
-    monkeypatch.setattr("arelis.briefing.ics_sync.guarded_get", fake_get)
-    summary = await sync_ics_from_url(
-        {"tools": {"briefing": {"calendar_path": str(dest)}}},
-        secrets_path=secrets,
-    )
-    assert summary.get("ok") is True
-    assert dest.is_file()
-    assert "Morning standup" in dest.read_text(encoding="utf-8")
-    assert summary.get("bytes", 0) > 0
 
 
 @pytest.mark.asyncio

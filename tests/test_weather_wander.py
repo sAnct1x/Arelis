@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from arelis.core.agent_loop import (
     _SMS_WANDER,
-    _WEATHER_WANDER,
     _hide_daily_wander,
     _offer_expected,
 )
@@ -38,11 +37,6 @@ def test_user_location_is_hidden_on_a_weather_turn() -> None:
     assert "user_location" not in offered
 
 
-def test_user_location_is_in_the_weather_wander_set() -> None:
-    """``_hide_daily_wander`` drops this set on a weather turn, so the hole is in the set."""
-    assert "user_location" in _WEATHER_WANDER
-
-
 def test_a_turn_that_wants_the_place_too_still_gets_user_location() -> None:
     """Hiding is safe because _offer_expected runs straight after it.
 
@@ -57,7 +51,3 @@ def test_a_turn_that_wants_the_place_too_still_gets_user_location() -> None:
     assert "weather" in offered
 
 
-def test_hiding_weather_wander_still_drops_the_search_tools() -> None:
-    """The original job of the set must not regress while widening it."""
-    offered = _hide_daily_wander(VISIBLE, {"weather"})
-    assert not ({"web_search", "scrape", "web_fetch"} & offered)

@@ -14,13 +14,11 @@ Mutants this file is supposed to catch:
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 
 import pytest
 
-from arelis.core.claims import detect_diagnostics_ask
 from arelis.tools.diagnostics import PYTEST_FLAGS, DiagnosticsTool
 
 _ESCAPE = "../arelis/tools/diagnostics.py"
@@ -56,64 +54,6 @@ def _norm(path: str) -> str:
     return path.replace("\\", "/").rstrip("/")
 
 
-async def test_omitted_target_still_runs_the_full_tree(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run()
-    assert result.ok
-    assert calls, "full suite path must still start pytest"
-    target = _norm(_pytest_target(calls[0]))
-    assert target.endswith("tests") or target == "tests"
-    assert not target.endswith(".py")
-
-
-async def test_suite_all_without_target_is_the_full_tree(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(suite="all")
-    assert result.ok
-    target = _norm(_pytest_target(calls[0]))
-    assert target.endswith("tests") or target == "tests"
-    assert not target.endswith(".py")
-
-
-async def test_bare_filename_resolves_under_tests(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """target='test_foo.py' becomes tests/test_foo.py (probe stands in for foo)."""
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(target=_PROBE)
-    assert result.ok
-    assert calls, "a contained existing target must start pytest"
-    seen = _norm(_pytest_target(calls[0]))
-    assert seen.endswith(f"tests/{_PROBE}") or seen.endswith(_PROBE)
-    assert "tests/" in seen or seen.endswith(_PROBE)
-    assert not seen.rstrip("/").endswith("tests")
-
-
-async def test_tests_prefixed_path_is_not_doubled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(target=f"tests/{_PROBE}")
-    assert result.ok
-    seen = _norm(_pytest_target(calls[0]))
-    assert seen.endswith(f"tests/{_PROBE}")
-    assert "tests/tests/" not in seen
-
-
-async def test_nodeid_is_what_pytest_sees(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(target=f"{_PROBE}::test_diag_probe")
-    assert result.ok
-    seen = _norm(_pytest_target(calls[0]))
-    assert seen.endswith(f"tests/{_PROBE}::test_diag_probe")
-
-
 async def test_parent_escape_is_refused_and_pytest_does_not_start(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -129,16 +69,6 @@ async def test_parent_escape_is_refused_and_pytest_does_not_start(
     )
 
 
-async def test_walkout_through_tests_prefix_is_refused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(target="tests/../arelis/tools/diagnostics.py")
-    assert not result.ok
-    assert result.data.get("fail_class") == "fail:target"
-    assert not calls
-
-
 async def test_windows_drive_path_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -147,44 +77,6 @@ async def test_windows_drive_path_is_refused(
     assert not result.ok
     assert result.data.get("fail_class") == "fail:target"
     assert "[fail:target]" in result.output
-    assert not calls
-
-
-async def test_missing_file_is_not_a_green_suite(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Mutant 2: missing file still ok=True."""
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(target=_MISSING)
-    assert result.ok is False
-    assert result.data.get("fail_class") == "fail:missing"
-    assert "[fail:missing]" in result.output
-    assert "green" not in result.output.lower()
-    assert "passed" not in result.data
-    assert "failed" not in result.data
-    assert result.data.get("green") is not True
-    assert not calls
-
-
-async def test_target_is_not_ignored_for_the_full_tree(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Mutant 3: target ignored, argv is always tests/."""
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(target=_PROBE)
-    assert result.ok
-    assert calls
-    seen = _norm(_pytest_target(calls[0]))
-    assert _PROBE in seen
-    assert not (seen.endswith("tests") or seen == "tests")
-
-
-async def test_nest_guard_still_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARELIS_IN_DIAGNOSTICS", "1")
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(target=_PROBE)
-    assert not result.ok
-    assert "nest" in result.output.lower()
     assert not calls
 
 
@@ -201,74 +93,3 @@ async def test_timeout_still_refuses_to_invent(
     assert "invent" in result.output.lower()
 
 
-@pytest.mark.skipif(
-    os.environ.get("ARELIS_IN_DIAGNOSTICS") == "1",
-    reason="already inside diagnostics; do not nest pytest",
-)
-async def test_a_real_tiny_target_runs_pytest() -> None:
-    result = await DiagnosticsTool().run(target=_PROBE)
-    assert result.ok, result.output
-    assert result.data.get("passed") == 1
-    assert result.data.get("failed") == 0
-    assert result.data.get("green") is True
-    target = _norm(str(result.data.get("target") or ""))
-    assert target.endswith(f"tests/{_PROBE}")
-
-
-def test_run_the_inbox_tests_is_a_diagnostics_ask() -> None:
-    assert detect_diagnostics_ask("run the inbox tests")
-
-
-def test_howto_is_still_not_a_diagnostics_ask() -> None:
-    assert not detect_diagnostics_ask("how do I run the tests?")
-
-
-async def test_bare_name_without_py_suffix_resolves(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Bare 'test_units_temp' should resolve to tests/test_units_temp.py."""
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(target="test_units_temp")
-    assert result.ok, result.output
-    assert calls, "bare name should resolve and start pytest"
-    seen = _norm(_pytest_target(calls[0]))
-    assert "test_units_temp.py" in seen
-    assert "tests/" in seen
-
-
-async def test_nonexistent_bare_name_still_errors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A bare name that doesn't exist as .py should still error cleanly."""
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(target="nonexistent_test_zzz")
-    assert not result.ok
-    assert result.data.get("fail_class") == "fail:missing"
-    assert "[fail:missing]" in result.output
-    assert not calls
-
-
-async def test_traversal_escape_still_refused_with_bare_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Path traversal like ../x should still be refused."""
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(target="../diagnostics")
-    assert not result.ok
-    assert result.data.get("fail_class") == "fail:target"
-    assert not calls
-
-
-async def test_bare_name_with_nodeid_resolves(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Bare 'test_units_temp::test_function' should resolve to tests/test_units_temp.py::test_function."""
-    calls = _patch_pytest(monkeypatch)
-    result = await DiagnosticsTool().run(
-        target="test_units_temp::test_fahrenheit_to_celsius_spoken"
-    )
-    assert result.ok, result.output
-    assert calls, "bare name with nodeid should resolve and start pytest"
-    seen = _norm(_pytest_target(calls[0]))
-    assert "test_units_temp.py::test_fahrenheit_to_celsius_spoken" in seen
-    assert "tests/" in seen

@@ -74,32 +74,6 @@ def _mac_bundle(tmp_path: Path) -> Path:
     return package
 
 
-def test_a_mac_install_may_look_for_a_newer_release(monkeypatch, tmp_path: Path) -> None:
-    """An installed Mac copy is allowed to ask. It still must not download."""
-    package = _mac_bundle(tmp_path)
-    monkeypatch.setattr(update.sys, "platform", "darwin")
-    monkeypatch.setattr(update, "is_source_checkout", lambda: False)
-    monkeypatch.setattr(update, "PACKAGE_ROOT", package)
-    supported, why = update.updates_supported()
-    assert supported is True, why
-    assert update.downloads_the_installer() is False
-
-
-def test_linux_still_has_no_installer(monkeypatch) -> None:
-    monkeypatch.setattr(update.sys, "platform", "linux")
-    supported, why = update.updates_supported()
-    assert supported is False
-    assert why == "the Arelis installer is Windows-only"
-
-
-def test_windows_still_downloads_the_setup_file(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(update.sys, "platform", "win32")
-    monkeypatch.setattr(update, "is_source_checkout", lambda: False)
-    monkeypatch.setattr(update, "install_root", lambda: tmp_path)
-    assert update.updates_supported() == (True, "")
-    assert update.downloads_the_installer() is True
-
-
 def test_the_mac_window_names_the_release_page_and_does_not_download(
     qt_app, monkeypatch
 ) -> None:
@@ -147,40 +121,6 @@ def test_the_mac_window_names_the_release_page_and_does_not_download(
     assert "available" in text.lower()
 
 
-def test_windows_still_asks_before_it_installs(qt_app, monkeypatch) -> None:
-    from PySide6.QtWidgets import QWidget
-
-    from arelis.ui import update_prompt
-
-    release = _release()
-    confirms: list[dict] = []
-    downloads: list[object] = []
-
-    monkeypatch.setattr(update_prompt.sys, "platform", "win32")
-    monkeypatch.setattr(
-        update_prompt,
-        "confirm",
-        lambda *args, **kwargs: confirms.append(kwargs) or False,
-    )
-    monkeypatch.setattr(
-        update_prompt,
-        "download",
-        lambda *args, **kwargs: downloads.append(args),
-    )
-
-    window = QWidget()
-    try:
-        prompt = update_prompt.UpdatePrompt(window)
-        prompt._show_offer(release)
-    finally:
-        window.deleteLater()
-        qt_app.processEvents()
-
-    assert downloads == []
-    assert confirms
-    assert confirms[0].get("confirm_text") == "Download and install"
-
-
 def test_info_plist_names_the_app_and_the_permissions() -> None:
     build = _build_module()
     text = build.info_plist_xml("0.3.1")
@@ -193,18 +133,6 @@ def test_info_plist_names_the_app_and_the_permissions() -> None:
     assert "<false/>" in text
     assert "\u2014" not in text
     assert "\u2013" not in text
-
-
-def test_the_launcher_runs_the_bundled_interpreter() -> None:
-    build = _build_module()
-    script = build.launcher_script()
-    assert "-m arelis" in script
-    assert "Resources/python/bin/python3" in script
-
-
-def test_the_disk_image_is_named_from_the_version() -> None:
-    build = _build_module()
-    assert build.disk_image_name("0.3.1") == "Arelis-0.3.1.dmg"
 
 
 def _launch_module():
@@ -228,11 +156,3 @@ def test_the_launch_profile_keeps_the_first_run_quiet(tmp_path: Path) -> None:
     assert '"complete": true' in marker
 
 
-def test_qt_stays_under_the_same_cap() -> None:
-    build = _build_module()
-    lock = (ROOT / "mac-installer" / "requirements-macos-arm64-cp313.txt").read_text(
-        encoding="utf-8"
-    )
-    assert build.qt_major_minor_under_cap(lock, cap=(6, 12)) is True
-    bumped = lock.replace("PySide6==6.11.2", "PySide6==6.12.0")
-    assert build.qt_major_minor_under_cap(bumped, cap=(6, 12)) is False

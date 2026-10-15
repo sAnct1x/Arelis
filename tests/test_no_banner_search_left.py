@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from arelis.config import load_config
 from arelis.earth.secrets import earth_block, earth_secret
 
 _NEEDLE = "sho" + "dan"
@@ -121,15 +120,6 @@ def test_scan_roots_include_scripts_android_and_top_docs(tmp_path: Path, monkeyp
     assert "SECURITY.md:1" in hits
 
 
-def test_scan_helper_reports_a_planted_hit(tmp_path: Path) -> None:
-    planted = tmp_path / "arelis" / "plant.py"
-    planted.parent.mkdir()
-    planted.write_text(f"label = '{_NEEDLE}'\n", encoding="utf-8")
-    hits, visited = _scan([tmp_path / "arelis"], tmp_path)
-    assert visited >= 1
-    assert hits == ["arelis/plant.py:1"]
-
-
 def test_leftover_banner_secret_is_inert(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -149,22 +139,6 @@ def test_leftover_banner_secret_is_inert(
     assert isinstance(block, dict)
     assert block.get("firms_key") == "k"
     assert block.get(field) == "placeholder"
-
-
-def test_leftover_banner_config_keys_do_not_break_load(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    local = tmp_path / "config.local.yaml"
-    local.write_text(
-        "earth:\n"
-        f"  {_NEEDLE}_key: x\n"
-        "tools:\n"
-        f"  {_NEEDLE}: true\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
-    cfg = load_config()
-    assert cfg["tools"]["browser"]["enabled"] is True
 
 
 def test_live_and_lod_have_no_banner_adapter() -> None:

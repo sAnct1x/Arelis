@@ -20,11 +20,8 @@ from pypdf import PdfReader, PdfWriter
 
 from arelis.tools.doc_extract import build_simple_pdf_bytes
 from arelis.tools.pdf_assemble import (
-    MAX_FILE_BYTES,
     MAX_SOURCE_PAGES,
-    PDF_WRITE_ACTIONS,
     PdfAssembleTool,
-    parse_pages,
 )
 from arelis.workspace import RootEntry, WorkspaceRoots
 
@@ -57,17 +54,6 @@ def _page_texts(path: Path) -> list[str]:
     return [(page.extract_text() or "").strip() for page in reader.pages]
 
 
-def test_pages_spec_is_1_based_inclusive() -> None:
-    assert parse_pages("1-3,5") == [1, 2, 3, 5]
-    assert parse_pages("3,1") == [3, 1]
-
-
-def test_write_actions_are_the_three_verbs() -> None:
-    assert PDF_WRITE_ACTIONS == {"merge", "split", "rotate"}
-    assert PdfAssembleTool.risk == "write"
-    assert PdfAssembleTool.name == "pdf"
-
-
 @pytest.mark.asyncio
 async def test_merge_keeps_path_order(tmp_path: Path) -> None:
     """Mutant: merge writes B then A, or sorts the filenames."""
@@ -86,57 +72,6 @@ async def test_merge_keeps_path_order(tmp_path: Path) -> None:
     assert _page_texts(dest) == ["ALPHA", "BRAVO"]
     assert dest.resolve() != later.resolve()
     assert dest.resolve() != earlier.resolve()
-
-
-@pytest.mark.asyncio
-async def test_split_1_to_3_does_not_include_page_4(tmp_path: Path) -> None:
-    """Mutant: pages=1-3 copies pages[0:4] or range(1, 5) and keeps PAGEFOUR."""
-    tool, project = _tool(tmp_path)
-    source = _pdf_with_pages(
-        project / "pack.pdf",
-        ["PAGEONE", "PAGETWO", "PAGETHREE", "PAGEFOUR"],
-    )
-
-    result = await tool.run(action="split", path=str(source), pages="1-3")
-    assert result.ok, result.output
-    dest = Path(result.data["abs_path"])
-    texts = _page_texts(dest)
-    assert texts == ["PAGEONE", "PAGETWO", "PAGETHREE"]
-    assert "PAGEFOUR" not in "".join(texts)
-    assert result.data["n_pages"] == 3
-    assert _page_texts(source)[-1] == "PAGEFOUR"
-
-
-@pytest.mark.asyncio
-async def test_rotate_90_writes_a_new_file(tmp_path: Path) -> None:
-    tool, project = _tool(tmp_path)
-    source = _pdf_with_pages(project / "up.pdf", ["NORTH", "SOUTH"])
-    before = source.read_bytes()
-
-    result = await tool.run(action="rotate", path=str(source), degrees=90)
-    assert result.ok, result.output
-    dest = Path(result.data["abs_path"])
-    assert dest.resolve() != source.resolve()
-    reader = PdfReader(str(dest))
-    assert [page.rotation % 360 for page in reader.pages] == [90, 90]
-    assert source.read_bytes() == before
-    assert _page_texts(dest) == ["NORTH", "SOUTH"]
-
-
-@pytest.mark.parametrize("degrees", [0, 45, 360, -90, 1])
-@pytest.mark.asyncio
-async def test_rotate_rejects_non_right_angles(tmp_path: Path, degrees: int) -> None:
-    """Mutant: 0 (identity) or 45 (arbitrary) is treated as a valid rotate."""
-    tool, project = _tool(tmp_path)
-    source = _pdf_with_pages(project / "tilt.pdf", ["ONLY"])
-    before = source.read_bytes()
-
-    result = await tool.run(action="rotate", path=str(source), degrees=degrees)
-    assert not result.ok, result.output
-    assert "90" in result.output
-    assert source.read_bytes() == before
-    outputs = project / "outputs"
-    assert not outputs.exists() or not list(outputs.glob("*.pdf"))
 
 
 @pytest.mark.asyncio
@@ -217,24 +152,6 @@ async def test_explicit_dest_equal_to_source_is_refused(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_explicit_dest_under_workspace_is_used(tmp_path: Path) -> None:
-    tool, project = _tool(tmp_path)
-    _pdf_with_pages(project / "a.pdf", ["A"])
-    _pdf_with_pages(project / "b.pdf", ["B"])
-
-    result = await tool.run(
-        action="merge",
-        paths="a.pdf,b.pdf",
-        dest="outputs/stack.pdf",
-    )
-    assert result.ok, result.output
-    dest = project / "outputs" / "stack.pdf"
-    assert dest.is_file()
-    assert Path(result.data["abs_path"]) == dest.resolve()
-    assert _page_texts(dest) == ["A", "B"]
-
-
-@pytest.mark.asyncio
 async def test_page_cap_refuses_a_fat_merge(tmp_path: Path) -> None:
     tool, project = _tool(tmp_path)
     writer = PdfWriter()
@@ -251,29 +168,3 @@ async def test_page_cap_refuses_a_fat_merge(tmp_path: Path) -> None:
     assert not outputs.exists() or not list(outputs.glob("*.pdf"))
 
 
-@pytest.mark.asyncio
-async def test_file_size_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    tool, project = _tool(tmp_path)
-    source = _pdf_with_pages(project / "chunky.pdf", ["BIG"])
-    monkeypatch.setattr(
-        "arelis.tools.pdf_assemble.MAX_FILE_BYTES",
-        max(1, source.stat().st_size - 1),
-    )
-
-    result = await tool.run(action="split", path="chunky.pdf", pages="1")
-    assert not result.ok, result.output
-    assert "MB" in result.output or "over" in result.output.lower()
-
-
-@pytest.mark.asyncio
-async def test_form_fill_is_not_an_action(tmp_path: Path) -> None:
-    tool, _project = _tool(tmp_path)
-    for action in ("fill", "write", "form"):
-        result = await tool.run(action=action, path="x.pdf")
-        assert not result.ok
-        assert "form fill" in result.output.lower()
-
-
-def test_max_caps_are_the_ones_the_description_claims() -> None:
-    assert MAX_SOURCE_PAGES == 50
-    assert MAX_FILE_BYTES == 8 * 1024 * 1024

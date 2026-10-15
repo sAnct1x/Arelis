@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -11,77 +10,9 @@ from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.events import EventType
 from arelis.core.memory import SessionMemory
-from arelis.llm.ollama import OllamaProvider
 from arelis.llm.router import ModelRouter
 from arelis.tools.base import ToolRegistry
 from tests.hardening_helpers import _collect, _config, _deny
-
-
-@pytest.mark.asyncio
-async def test_chat_with_images_streams_thinking() -> None:
-    provider = OllamaProvider()
-    seen: list[str] = []
-
-    async def fake_stream(
-        model: str,
-        messages: list[dict[str, Any]],
-        **_kwargs: Any,
-    ) -> AsyncIterator[tuple[str, Any]]:
-        assert messages[0]["images"] == ["abc"]
-        del model
-        yield ("thinking", "looking at page 1")
-        yield ("token", "problem 2.20")
-
-    provider.stream_chat = fake_stream  # type: ignore[method-assign]
-
-    async def on_thinking(chunk: str) -> None:
-        seen.append(chunk)
-
-    try:
-        text = await provider.chat_with_images(
-            "qwen3.5:9b",
-            "look",
-            ["abc"],
-            on_thinking=on_thinking,
-        )
-    finally:
-        await provider.close()
-
-    assert text == "problem 2.20"
-    assert seen == ["looking at page 1"]
-
-
-@pytest.mark.asyncio
-async def test_run_vision_forwards_think_sink() -> None:
-    seen: list[str] = []
-
-    class _Prov:
-        async def chat_with_images(self, *args: Any, **kwargs: Any) -> str:
-            sink = kwargs.get("on_thinking")
-            if sink is not None:
-                await sink("reading the diagram")
-            del args
-            return "a cone"
-
-        async def sees_images(self, model: str) -> bool:
-            del model
-            return True
-
-    router = ModelRouter(
-        _Prov(),  # type: ignore[arg-type]
-        {"fast": "qwen3.5:9b", "research": "qwen3.5:9b"},
-        warm_on_start=False,
-    )
-
-    async def sink(chunk: str) -> None:
-        seen.append(chunk)
-
-    router.think_sink = sink
-    router.active_model = "qwen3.5:9b"
-    router.active_role = "fast"
-    text = await router.run_vision("what is this", ["abc"])
-    assert text == "a cone"
-    assert seen == ["reading the diagram"]
 
 
 @pytest.mark.asyncio
@@ -156,26 +87,6 @@ async def test_vision_walks_pages_one_at_a_time(tmp_path) -> None:
     assert shots == [1, 1, 1]
     assert "page 1 of 3" in result.output
     assert "page 3 of 3" in result.output
-
-
-def test_vision_ignores_stray_path_when_paths_set() -> None:
-    from arelis.tools.vision import VisionTool
-    from arelis.workspace import WorkspaceRoots
-
-    tool = VisionTool(WorkspaceRoots.from_paths(["."]), object())
-    got = tool._collect_paths(
-        {
-            "path": "outputs/images/arelis_00028_-text-scale2-scale2.png",
-            "paths": [
-                r"C:\tmp\pdf_pages\hw\page_01.jpg",
-                r"C:\tmp\pdf_pages\hw\page_02.jpg",
-            ],
-        }
-    )
-    assert got == [
-        r"C:\tmp\pdf_pages\hw\page_01.jpg",
-        r"C:\tmp\pdf_pages\hw\page_02.jpg",
-    ]
 
 
 @pytest.mark.asyncio

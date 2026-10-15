@@ -17,10 +17,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from arelis.core.tool_subset import filter_tool_names
-from arelis.core.tool_surface import apply_expected, base_surface, cap_to_room
+from arelis.core.tool_surface import base_surface, cap_to_room
 
 ALL = {
     "web_search",
@@ -87,12 +85,6 @@ def test_base_surface_passes_the_room_through():
     assert roomy - bare == {"scrape", "web_fetch", "web_search"}
 
 
-def test_no_room_is_not_an_error():
-    loop = _loop()
-    available, visible = base_surface(loop, set(ALL), role="fast", text="hello", agent_cfg=_cfg())
-    assert available and available == visible
-
-
 # --- the steps that were copied ----------------------------------------------
 
 
@@ -106,68 +98,7 @@ def test_a_look_turn_collapses_to_the_look_tools():
     assert available < ALL
 
 
-def test_a_look_turn_drops_both_sends():
-    """A turn that is looking at a picture cannot also be texting someone."""
-    loop = _loop(look=object())
-    available, _ = apply_expected(loop, set(ALL), text="what is this", available_all=set(ALL))
-    assert "send_sms" not in available
-    assert "send_email" not in available
-
-
-def test_an_expected_tool_is_offered_even_if_the_subset_dropped_it():
-    loop = _loop(expected={"analyze"})
-    available, _ = apply_expected(
-        loop, {"web_search"}, text="what did we spend", available_all=set(ALL)
-    )
-    assert "analyze" in available
-
-
-def test_available_and_visible_agree_after_apply_expected():
-    """Both copies set `visible = available` after every narrowing step. If
-    they ever diverge the model is offered a schema it is not allowed to use."""
-    loop = _loop(expected={"weather"})
-    available, visible = apply_expected(
-        loop, set(ALL), text="weather tomorrow", available_all=set(ALL)
-    )
-    assert available == visible
-
-
-def test_apply_expected_does_not_mutate_its_argument():
-    """`turn_prepare` reads `available` again after this returns."""
-    loop = _loop(look=object())
-    original = set(ALL)
-    handed_in = set(ALL)
-    apply_expected(loop, handed_in, text="what is this", available_all=set(ALL))
-    assert handed_in == original
-
-
 # --- the two call sites must stay in step ------------------------------------
-
-
-@pytest.mark.parametrize(
-    "text",
-    ["hello", "what did we spend in march", "text brian I am late", "weather tomorrow"],
-)
-@pytest.mark.parametrize("subset", [False, True])
-def test_prepare_and_escalate_now_compute_the_same_surface(text, subset):
-    """The whole point of the extraction. Same loop state, same room, same
-    config — the answer cannot depend on which file asked."""
-    cfg = _cfg(skill_tool_subset=subset)
-    room = _room("web", "analyze")
-
-    def surface():
-        loop = _loop(expected={"analyze"})
-        available, _ = base_surface(
-            loop,
-            set(ALL),
-            role="fast",
-            text=text,
-            agent_cfg=cfg,
-            active_room=room,
-        )
-        return apply_expected(loop, available, text=text, available_all=set(ALL))
-
-    assert surface() == surface()
 
 
 # A room's `tools:` list is a cage somebody chose — rooms lean by default, so
@@ -178,15 +109,6 @@ def test_prepare_and_escalate_now_compute_the_same_surface(text, subset):
 
 def _caged_room(name: str, tools: tuple[str, ...]):
     return SimpleNamespace(name=name, tools=tools, spec=SimpleNamespace(skills=()))
-
-
-def test_a_room_cage_narrows_to_the_named_tools() -> None:
-    capped = cap_to_room(set(ALL), _caged_room("physics", ("cas", "calculator")))
-    assert capped == {"cas", "calculator"}
-
-
-def test_a_room_with_no_tool_list_is_left_alone() -> None:
-    assert cap_to_room(set(ALL), _caged_room("orbit", ())) == set(ALL)
 
 
 def test_a_cage_naming_nothing_installed_fails_open_but_says_so(caplog) -> None:

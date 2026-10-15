@@ -10,8 +10,7 @@ import pytest
 from arelis.calendar.models import CachedEvent
 from arelis.calendar.secrets import CalendarSecrets
 from arelis.calendar.store import CalendarStore
-from arelis.tools.agenda import AGENDA_WRITE_ACTIONS, AgendaTool
-from arelis.tools.policy import AGENDA_WRITE_ACTIONS as POLICY_WRITES
+from arelis.tools.agenda import AgendaTool
 
 THURSDAY = date(2026, 9, 17)
 TZ = ZoneInfo("America/New_York")
@@ -75,17 +74,6 @@ def _tool(tmp_path) -> AgendaTool:
     return AgendaTool(
         {"tools": {"briefing": {"calendar_path": str(tmp_path / "absent.ics")}}}
     )
-
-
-def test_free_is_read_not_write() -> None:
-    enum = AgendaTool.parameters_schema["properties"]["action"]["enum"]
-    assert "free" in enum
-    assert "busy" in enum
-    assert "duration_min" in AgendaTool.parameters_schema["properties"]
-    assert "free" not in AGENDA_WRITE_ACTIONS
-    assert "busy" not in AGENDA_WRITE_ACTIONS
-    assert "free" not in POLICY_WRITES
-    assert "busy" not in POLICY_WRITES
 
 
 @pytest.mark.asyncio

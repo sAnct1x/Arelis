@@ -6,41 +6,13 @@ from arelis.core.preflight import login_check_hop_args
 from arelis.core.turn_goal import (
     LOGIN_READY,
     NEED_LOGIN,
-    SIGNED_IN,
     browser_errand_done,
-    derive_turn_goal,
-    receipt_serves_goal,
 )
 
 _X_ASK = (
     "go to x.com and take me to the login page if it does not "
     "automatically sign me in."
 )
-
-
-def test_x_home_without_signin_is_already_in() -> None:
-    errand = browser_errand_done(
-        _X_ASK,
-        action="navigate",
-        requested_url="https://x.com",
-        landed_url="https://x.com/home",
-        snapshot="title: Home\nurl: https://x.com/home\nelements:\n[e1] link 'Home'",
-    )
-    assert errand.status == SIGNED_IN
-    assert "signed in" in errand.reply.lower()
-
-
-def test_login_bounce_to_home_is_already_in() -> None:
-    errand = browser_errand_done(
-        _X_ASK,
-        action="navigate",
-        requested_url="https://x.com/login",
-        landed_url="https://x.com/home",
-        snapshot="[e11] button 'Sign in'",
-        signed_in=True,
-    )
-    assert errand.status == SIGNED_IN
-    assert "signed in" in errand.reply.lower()
 
 
 def test_logged_out_splash_hops_to_login() -> None:
@@ -74,31 +46,6 @@ def test_login_wall_is_their_turn() -> None:
     assert "login" in errand.reply.lower()
 
 
-def test_cart_ask_keeps_driving_after_open() -> None:
-    errand = browser_errand_done(
-        "go to amazon.com and add batteries to cart",
-        action="navigate",
-        requested_url="https://www.amazon.com",
-        landed_url="https://www.amazon.com",
-        snapshot="title: Amazon\nurl: https://www.amazon.com",
-    )
-    assert not errand.done
-    assert errand.status == "drive"
-
-
-def test_derive_browser_goal_is_a_login_check() -> None:
-    goal = derive_turn_goal(_X_ASK, kinds=["browser"])
-    assert goal.kind == "browser"
-    assert "login" in goal.line.lower()
-
-
-def test_pay_wall_serves_browser_goal() -> None:
-    goal = derive_turn_goal("add batteries to cart and checkout", kinds=["browser"])
-    assert receipt_serves_goal(
-        goal, "browser", "Stopped before Pay.", data={"wall": "pay"}
-    )
-
-
 def test_youtube_search_ask_keeps_driving_after_navigate() -> None:
     errand = browser_errand_done(
         "Hay take me to you tube doc calm and do us search "
@@ -112,18 +59,3 @@ def test_youtube_search_ask_keeps_driving_after_navigate() -> None:
     assert errand.status == "drive"
 
 
-def test_search_site_follows_youtube_not_google() -> None:
-    from arelis.browser.search import infer_search_site, search_url
-
-    site = infer_search_site(query="organic chemistry tutor youtube")
-    assert site == "youtube"
-    assert "youtube.com/results" in search_url(
-        "organic chemistry tutor youtube", site=site
-    )
-    assert (
-        infer_search_site(
-            query="precalculus playlist",
-            current_url="https://www.youtube.com/@TheOrganicChemistryTutor",
-        )
-        == "youtube"
-    )

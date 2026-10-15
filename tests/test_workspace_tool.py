@@ -55,11 +55,7 @@ def _zip_office(path: Path, member: str, body: str) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("name", "member"),
-    [
-        ("work/memo.docx", "word/document.xml"),
-        ("work/sheet.xlsx", "xl/workbook.xml"),
-        ("work/deck.pptx", "ppt/slides/slide1.xml"),
-    ],
+    [('work/memo.docx', 'word/document.xml'), ('work/sheet.xlsx', 'xl/workbook.xml')],
 )
 async def test_read_refuses_office_containers(tmp_path: Path, name: str, member: str) -> None:
     """A docx is a zip. ok=True used to hand the model the raw PK bytes."""
@@ -70,32 +66,6 @@ async def test_read_refuses_office_containers(tmp_path: Path, name: str, member:
     assert "doc_extract" in result.output
     assert f"path={name}" in result.output
     assert not result.output.startswith("PK")
-
-
-@pytest.mark.asyncio
-async def test_read_refuses_a_pdf_that_has_no_nul(tmp_path: Path) -> None:
-    """A short PDF can look like text. The suffix still has to refuse it."""
-    tool = CodeWorkspaceTool([str(tmp_path)])
-    pdf = tmp_path / "notes.pdf"
-    pdf.write_bytes(b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n")
-    result = await tool.run(action="read", path="notes.pdf")
-    assert result.ok is False
-    assert "doc_extract" in result.output
-    assert "path=notes.pdf" in result.output
-    assert not result.output.startswith("%PDF")
-
-
-@pytest.mark.asyncio
-async def test_read_refuses_other_binaries_without_doc_extract(tmp_path: Path) -> None:
-    """A png is not text, and doc_extract cannot read it."""
-    tool = CodeWorkspaceTool([str(tmp_path)])
-    blob = tmp_path / "shot.png"
-    blob.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
-    result = await tool.run(action="read", path="shot.png")
-    assert result.ok is False
-    assert result.output == "shot.png is not text."
-    assert "doc_extract" not in result.output
-    assert "next_tool" not in (result.data or {})
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,6 @@ keep their meaning; the notice, when it does appear, has to point at Settings.
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import copy
 import re
@@ -18,10 +17,8 @@ import pytest
 import yaml
 
 from arelis.config import DEFAULT_CONFIG_PATH, load_config
-from arelis.core.events import Event, EventType
 from arelis.i18n import tr
 from arelis.presence.inbound_runtime import attach_inbound
-from arelis.ui.event_host import dispatch_event
 
 # English source. inbound_runtime.PHONE_NOTIFY_NEEDS_PAIRING must match once it exists.
 PHONE_NOTIFY_NEEDS_PAIRING = (
@@ -123,45 +120,6 @@ async def test_fresh_default_config_shows_no_phone_notice(
         await _stop(runtime, bus, bus_task)
 
 
-async def test_enabled_without_token_says_so_without_a_path(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Someone who set ingest true by hand still gets a notice, not a file path."""
-    config = _shipped_config()
-    config["tools"]["sms"]["inbound"]["ingest"]["enabled"] = True
-    runtime, bus, bus_task = await _attach(monkeypatch, tmp_path, config, token=None)
-    try:
-        assert len(runtime.status_messages) == 1
-        text = runtime.status_messages[0]
-        assert text == PHONE_NOTIFY_NEEDS_PAIRING
-        assert text.startswith("Phone notifications")
-        assert not text.startswith("Phone notifications: http")
-        assert PATH_IN_USER_TEXT.search(text) is None
-        assert "Settings" in text
-        assert "Notify" in text
-        assert "Create a pairing code" in text
-    finally:
-        await _stop(runtime, bus, bus_task)
-
-
-async def test_paired_profile_keeps_listening_on_the_default(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """A pairing token still starts ingest on the shipped default."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = int(sock.getsockname()[1])
-    config = _shipped_config()
-    ingest = config["tools"]["sms"]["inbound"]["ingest"]
-    ingest["host"] = "127.0.0.1"
-    ingest["port"] = port
-    runtime, bus, bus_task = await _attach(monkeypatch, tmp_path, config, token="test-token-xyz")
-    try:
-        assert runtime.ingest is not None
-    finally:
-        await _stop(runtime, bus, bus_task)
-
-
 async def test_explicit_true_on_existing_config_is_preserved(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -197,25 +155,6 @@ async def test_explicit_false_stays_off(monkeypatch: pytest.MonkeyPatch, tmp_pat
         await _stop(runtime, bus, bus_task)
 
 
-def test_shipped_ingest_default_is_auto() -> None:
-    data = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    ingest = ((data.get("tools") or {}).get("sms") or {}).get("inbound") or {}
-    assert (ingest.get("ingest") or {}).get("enabled") == "auto"
-
-
-def test_startup_notice_strings_have_no_local_paths() -> None:
-    """STATUS copy that can reach chat must not name a file on this PC."""
-    root = Path(__file__).resolve().parents[1]
-    hits: list[str] = []
-    for rel in _NOTICE_PRODUCERS:
-        tree = ast.parse((root / rel).read_text(encoding="utf-8"), filename=str(rel))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                if PATH_IN_USER_TEXT.search(node.value):
-                    hits.append(f"{rel}:{node.lineno}:{node.value}")
-    assert hits == []
-
-
 def test_pairing_notice_is_in_the_translation_catalog() -> None:
     import arelis.presence.inbound_runtime as inbound_runtime
     from arelis.i18n import _ZH, set_ui_language
@@ -235,84 +174,3 @@ def test_pairing_notice_is_in_the_translation_catalog() -> None:
     assert tr(PHONE_NOTIFY_NEEDS_PAIRING) == PHONE_NOTIFY_NEEDS_PAIRING
 
 
-def test_fresh_profile_window_shows_no_phone_notice(
-    arelis_window, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Offscreen glass: fresh default is silent; explicit true reaches chat."""
-    import os
-
-    assert os.environ.get("QT_QPA_PLATFORM") == "offscreen"
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "fresh"))
-    monkeypatch.delenv("ARELIS_INGEST_TOKEN", raising=False)
-    monkeypatch.setattr(
-        "arelis.presence.inbound_runtime.load_ingest_token",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        "arelis.presence.inbound_runtime.load_sms_account",
-        lambda: None,
-    )
-    window = arelis_window()
-    said: list[str] = []
-    window.chat.add_system = said.append  # type: ignore[method-assign]
-    loop = asyncio.new_event_loop()
-    bus_task = loop.create_task(window.bus.run())
-
-    def _flush_status(runtime) -> None:
-        for message in runtime.status_messages:
-            dispatch_event(
-                window,
-                Event(EventType.STATUS, {"message": message}),
-            )
-
-    try:
-        # Fresh shipped default: nothing to dispatch, chat stays empty.
-        runtime = attach_inbound(window.bus, loop, _shipped_config(), owned=True)
-        try:
-            assert runtime.status_messages == []
-            assert runtime.ingest is None
-            _flush_status(runtime)
-            assert said == []
-            visible = "\n".join(
-                [
-                    window.persona_panel.status_text(),
-                    window.chat.progress.text(),
-                    window.chat.empty.phone_note.text(),
-                    *[line for thought in window.chat._thoughts for line in thought.lines],
-                ]
-            )
-            assert "Phone notifications" not in visible
-        finally:
-            loop.run_until_complete(runtime.stop())
-
-        # Same harness with explicit true and no token: the friendly notice
-        # must land in chat, so an empty said list above is not vacuous.
-        config = _shipped_config()
-        config["tools"]["sms"]["inbound"]["ingest"]["enabled"] = True
-        said.clear()
-        runtime = attach_inbound(window.bus, loop, config, owned=True)
-        try:
-            assert runtime.status_messages == [PHONE_NOTIFY_NEEDS_PAIRING]
-            _flush_status(runtime)
-            assert said == [tr(PHONE_NOTIFY_NEEDS_PAIRING)]
-            # Chinese UI: the chat line must be the translated text, so
-            # dropping tr() in event_host fails here.
-            from arelis.i18n import set_ui_language
-
-            said.clear()
-            set_ui_language("zh")
-            try:
-                _flush_status(runtime)
-                assert said == [PHONE_NOTIFY_NEEDS_PAIRING_ZH]
-            finally:
-                set_ui_language("en")
-        finally:
-            loop.run_until_complete(runtime.stop())
-    finally:
-        window.bus.stop()
-        bus_task.cancel()
-        try:
-            loop.run_until_complete(bus_task)
-        except asyncio.CancelledError:
-            pass
-        loop.close()

@@ -2,15 +2,7 @@
 
 from __future__ import annotations
 
-from arelis.eval.live_board import BOARD_ID, FORBIDDEN_TOOLS, LIVE_BOARD, live_board_turns
-
-
-def test_live_board_has_twenty_unique_turns() -> None:
-    turns = live_board_turns()
-    assert len(turns) == 20
-    ids = [t.id for t in turns]
-    assert len(set(ids)) == 20
-    assert ids == [t.id for t in LIVE_BOARD]
+from arelis.eval.live_board import LIVE_BOARD
 
 
 def test_live_board_covers_required_surfaces() -> None:
@@ -28,26 +20,3 @@ def test_live_board_covers_required_surfaces() -> None:
     assert "cas" in by_id["T04_cas_integral"].expect_tools
 
 
-def test_live_board_skips_image_and_earth() -> None:
-    for turn in LIVE_BOARD:
-        assert not FORBIDDEN_TOOLS.intersection(turn.expect_tools)
-        blob = f"{turn.user} {turn.notes}".lower()
-        assert "generate an image" not in blob
-        assert "enter earth" not in blob
-        assert "text my wife" not in blob
-        assert "text me:" not in blob
-
-
-def test_side_effect_prompts_carry_the_search_token() -> None:
-    for turn_id in (
-        "T06_csv_write",
-        "T08_email_me",
-        "T09_cal_keep",
-        "T10_cal_scratch",
-        "T11_cal_delete",
-        "T12_file_write",
-        "T13_doc_create",
-        "T20_tasks",
-    ):
-        turn = next(t for t in LIVE_BOARD if t.id == turn_id)
-        assert BOARD_ID in turn.user

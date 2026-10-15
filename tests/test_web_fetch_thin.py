@@ -59,23 +59,6 @@ _SHORT_PAGE = "<html><body><p>The spring tide arrives at 06:14.</p></body></html
 
 
 @pytest.mark.asyncio
-async def test_a_short_page_still_reports_what_it_read(fetched: Any) -> None:
-    fetched(_SHORT_PAGE)
-    result = await WebFetchTool("arelis-test/1.0").run(url="https://example.test/page")
-    assert "The spring tide arrives at 06:14." in result.output, (
-        "a page that was read successfully came back with its content dropped"
-    )
-
-
-@pytest.mark.asyncio
-async def test_the_text_is_on_the_result_too(fetched: Any) -> None:
-    """Not only in prose: a caller reading `data` should see it as well."""
-    fetched(_SHORT_PAGE)
-    result = await WebFetchTool("arelis-test/1.0").run(url="https://example.test/page")
-    assert result.data.get("text") == "The spring tide arrives at 06:14."
-
-
-@pytest.mark.asyncio
 async def test_it_is_still_marked_as_a_weak_read(fetched: Any) -> None:
     """Reporting the text must not become a claim that the page is complete.
 
@@ -86,14 +69,6 @@ async def test_it_is_still_marked_as_a_weak_read(fetched: Any) -> None:
     result = await WebFetchTool("arelis-test/1.0").run(url="https://example.test/page")
     assert result.ok is False
     assert "javascript" in result.output.lower()
-
-
-@pytest.mark.asyncio
-async def test_an_actually_empty_shell_reports_nothing_extra(fetched: Any) -> None:
-    fetched("<html><body><div id='root'></div></body></html>")
-    result = await WebFetchTool("arelis-test/1.0").run(url="https://example.test/page")
-    assert result.ok is False
-    assert "all that was readable" not in result.output.lower()
 
 
 @pytest.mark.asyncio

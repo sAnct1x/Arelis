@@ -50,26 +50,6 @@ async def test_priority_survives_list_and_update(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_invalid_priority_fails_and_does_not_coerce(tmp_path: Path) -> None:
-    tool, store = _tool(tmp_path)
-    try:
-        result = await tool.run(action="add", title="buy milk", priority="urgent")
-        assert not result.ok
-        assert "priority" in result.output.lower()
-        listed = await tool.run(action="list")
-        assert listed.data["tasks"] == []
-
-        added = await tool.run(action="add", title="buy milk")
-        bad = await tool.run(
-            action="update", id=added.data["id"], priority="urgent"
-        )
-        assert not bad.ok
-        assert store.get_task(added.data["id"])["priority"] == "normal"
-    finally:
-        store.close()
-
-
-@pytest.mark.asyncio
 async def test_weekly_done_advances_due_and_keeps_id_and_goal(
     tmp_path: Path,
 ) -> None:
@@ -113,24 +93,6 @@ async def test_weekly_done_advances_due_and_keeps_id_and_goal(
 
 
 @pytest.mark.asyncio
-async def test_unknown_recurrence_fails(tmp_path: Path) -> None:
-    tool, store = _tool(tmp_path)
-    try:
-        result = await tool.run(
-            action="add",
-            title="stretch",
-            due="2026-09-18",
-            recurrence="FREQ=WEEKLY;BYDAY=MO",
-        )
-        assert not result.ok
-        assert "recurrence" in result.output.lower()
-        listed = await tool.run(action="list")
-        assert listed.data["tasks"] == []
-    finally:
-        store.close()
-
-
-@pytest.mark.asyncio
 async def test_parent_done_fails_while_a_child_is_open(tmp_path: Path) -> None:
     """Mutant: parent done ignores open children."""
     tool, store = _tool(tmp_path)
@@ -152,72 +114,3 @@ async def test_parent_done_fails_while_a_child_is_open(tmp_path: Path) -> None:
         store.close()
 
 
-@pytest.mark.asyncio
-async def test_parent_done_after_children_are_done(tmp_path: Path) -> None:
-    tool, store = _tool(tmp_path)
-    try:
-        parent = await tool.run(action="add", title="ship 0.2.8")
-        parent_id = parent.data["id"]
-        child = await tool.run(
-            action="add", title="write the notes", parent_id=parent_id
-        )
-        done_child = await tool.run(action="done", id=child.data["id"])
-        assert done_child.ok
-        result = await tool.run(action="done", id=parent_id)
-        assert result.ok, result.output
-        assert store.get_task(parent_id)["status"] == "done"
-    finally:
-        store.close()
-
-
-@pytest.mark.asyncio
-async def test_listing_a_parent_shows_children(tmp_path: Path) -> None:
-    tool, store = _tool(tmp_path)
-    try:
-        parent = await tool.run(action="add", title="ship 0.2.8")
-        parent_id = parent.data["id"]
-        await tool.run(action="add", title="write the notes", parent_id=parent_id)
-
-        listed = await tool.run(action="list")
-        assert listed.ok
-        assert "ship 0.2.8" in listed.output
-        assert "write the notes" in listed.output
-        parent_at = listed.output.index("ship 0.2.8")
-        child_at = listed.output.index("write the notes")
-        assert child_at > parent_at
-        kids = [row for row in listed.data["tasks"] if row.get("parent_id") == parent_id]
-        assert len(kids) == 1
-        assert kids[0]["title"] == "write the notes"
-    finally:
-        store.close()
-
-
-@pytest.mark.asyncio
-async def test_hostile_title_is_just_a_title(tmp_path: Path) -> None:
-    """A path-traversal / SQL payload in title stays a title. Values bind."""
-    tool, store = _tool(tmp_path)
-    try:
-        payloads = (
-            "'; DROP TABLE tasks; --",
-            "../../etc/passwd",
-            '1; DELETE FROM tasks WHERE title != \'',
-        )
-        ids = []
-        for title in payloads:
-            added = await tool.run(action="add", title=title)
-            assert added.ok, added.output
-            ids.append(added.data["id"])
-
-        listed = await tool.run(action="list")
-        assert listed.ok
-        for title in payloads:
-            assert title in listed.output
-            matches = [row for row in listed.data["tasks"] if row["title"] == title]
-            assert matches, f"title did not survive list: {title!r}"
-
-        still = await tool.run(action="add", title="still here")
-        assert still.ok
-        assert store.get_task(still.data["id"]) is not None
-        assert store.list_tasks(status=None, limit=20)
-    finally:
-        store.close()

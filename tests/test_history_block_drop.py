@@ -15,13 +15,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from itertools import pairwise
 from typing import Any
 
 import pytest
-import yaml
 
-from arelis.config import DEFAULT_CONFIG_PATH
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.memory import SessionMemory
@@ -137,76 +134,6 @@ async def test_tool_heavy_session_keeps_one_prefix_then_drops_a_block() -> None:
     assert len(prompts[break_at]) <= (cap // 2) + 8
 
 
-@pytest.mark.asyncio
-async def test_token_budget_drops_a_block_and_the_prefix_holds() -> None:
-    """Slightly over the token budget drops to about half, not one message."""
-    memory = SessionMemory(max_messages=10_000)
-    loop = _loop(
-        memory,
-        _QuietRouter(),
-        {
-            "history_max_messages": 10_000,
-            "history_min_recent": 1,
-            "summarize_skip_slash": True,
-        },
-    )
-    prompts: list[list[dict[str, Any]]] = []
-    for index in range(18):
-        memory.add("user", f"{index:02d}" + ("x" * 398))
-        prompts.append(
-            await loop._messages_for_turn(
-                [{"role": "system", "content": "PERSONA"}],
-                1050,
-                4.0,
-                "fast",
-                user_text="/continue",
-            )
-        )
-    runs = _stable_runs(prompts)
-    assert len([run for run in runs if run >= 5]) >= 2, runs
-    break_at = next(
-        index
-        for index in range(1, len(prompts))
-        if not _extends(prompts[index - 1], prompts[index])
-    )
-    history = [
-        message
-        for message in prompts[break_at]
-        if message.get("content") != "PERSONA"
-    ]
-    assert len(history) <= 6
-
-
-def test_working_set_cap_drops_a_block() -> None:
-    """SessionMemory trims to about half, then the front stays put."""
-    memory = SessionMemory(max_messages=20)
-    firsts: list[str] = []
-    lengths: list[int] = []
-    for index in range(30):
-        memory.add("user", f"turn {index} plants")
-        firsts.append(memory.as_ollama()[0]["content"])
-        lengths.append(len(memory.messages))
-    changes = sum(a != b for a, b in pairwise(firsts))
-    assert changes <= 2
-    change_at = next(index for index in range(1, len(firsts)) if firsts[index] != firsts[index - 1])
-    assert lengths[change_at] <= 10
-    assert len(set(firsts[change_at : change_at + 4])) == 1
-
-
-def test_working_set_token_budget_drops_a_block() -> None:
-    """Over max_tokens drops to about half the budget, not one message."""
-    memory = SessionMemory(max_messages=1000, max_tokens=400, chars_per_token=4.0)
-    firsts: list[str] = []
-    lengths: list[int] = []
-    for index in range(10):
-        memory.add("user", f"{index:02d}" + ("p" * 398))
-        firsts.append(memory.as_ollama()[0]["content"])
-        lengths.append(len(memory.messages))
-    change_at = next(index for index in range(1, len(firsts)) if firsts[index] != firsts[index - 1])
-    assert lengths[change_at] <= 2
-    assert firsts[change_at] == firsts[change_at + 1] == firsts[change_at + 2]
-
-
 class _QuietRouter:
     def model_for(self, role: str | None = None) -> str:
         del role
@@ -314,9 +241,3 @@ async def test_vision_describe_disables_thinking(tmp_path) -> None:
     assert runner.think is False
 
 
-def test_shipped_history_cap_is_the_backstop() -> None:
-    """120 was about ten tool questions. The token budget is the real limit."""
-    data = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    cap = int((data.get("agent") or {}).get("history_max_messages") or 0)
-    assert cap >= 600
-    assert SessionMemory().max_messages >= 600

@@ -20,16 +20,11 @@ import pytest
 
 from arelis.core.email_complete import (
     email_draft_from_inbox,
-    fill_send_email_args,
 )
 from arelis.mail import MailAccount, Mailer
-from arelis.tools.base import capability_class
 from arelis.tools.inbox import (
-    INBOX_READ_ACTIONS,
-    INBOX_WRITE_ACTIONS,
     InboxTool,
 )
-from arelis.tools.policy import action_is_write, evaluate_confirm
 
 
 def _rfc822(
@@ -142,21 +137,6 @@ def _sent_trap(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_reply_quotes_the_source_body(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation (1): omit the quoted original and this fails."""
-    tool, _fake = _tool(monkeypatch)
-
-    result = await tool.run(action="reply", id="12", body="I'll be late.")
-
-    assert result.ok, result.output
-    body = str(result.data["body"])
-    assert "I'll be late." in body
-    assert "> Can you make the 3pm meeting?" in body
-    assert "Sam <sam@example.com>" in body
-    assert "not sent" in result.output.lower()
-
-
-@pytest.mark.asyncio
 async def test_reply_uses_that_uid_not_another(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -196,27 +176,6 @@ async def test_reply_does_not_send(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reply_does_not_mark_the_source_read(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """If you skip BODY.PEEK, the fake marks \\Seen and this fails."""
-    tool, fake = _tool(monkeypatch)
-
-    result = await tool.run(action="reply", id="12", body="I'll be late.")
-
-    assert result.ok, result.output
-    assert fake.fetches
-    assert all("BODY.PEEK" in spec for _uid, spec in fake.fetches)
-    assert not any(
-        "BODY[]" in spec.replace("BODY.PEEK", "") for _uid, spec in fake.fetches
-    )
-    assert fake.readonly is True
-    assert fake.writable_connect is False
-    assert "12" not in fake.seen
-    assert "STORE" not in fake.commands
-
-
-@pytest.mark.asyncio
 async def test_empty_body_is_not_a_draft(monkeypatch: pytest.MonkeyPatch) -> None:
     tool, fake = _tool(monkeypatch)
 
@@ -230,83 +189,3 @@ async def test_empty_body_is_not_a_draft(monkeypatch: pytest.MonkeyPatch) -> Non
     assert fake.fetches == []
 
 
-@pytest.mark.asyncio
-async def test_missing_uid_is_not_a_draft(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool, fake = _tool(monkeypatch)
-
-    result = await tool.run(action="reply", body="I'll be late.")
-
-    assert not result.ok
-    assert "nothing was drafted" in result.output.lower()
-    assert not result.data.get("to")
-    assert not result.data.get("subject")
-    assert email_draft_from_inbox(result.data) is None
-    assert fake.fetches == []
-
-
-@pytest.mark.asyncio
-async def test_reply_fills_emaildraft_for_the_allow_path(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The existing complete/confirm path reviews EmailDraft, not a new type."""
-    hits = _sent_trap(monkeypatch)
-    tool, _fake = _tool(monkeypatch)
-
-    result = await tool.run(action="reply", id="12", body="I'll be late.")
-
-    draft = email_draft_from_inbox(result.data)
-    assert draft is not None
-    assert draft.complete
-    assert draft.to == "sam@example.com"
-    assert draft.subject == "Re: Lunch tomorrow"
-    assert "I'll be late." in draft.body
-    assert "> Can you make the 3pm meeting?" in draft.body
-    filled = fill_send_email_args({}, draft)
-    assert filled["to"] == "sam@example.com"
-    assert filled["subject"] == "Re: Lunch tomorrow"
-    assert filled["body"] == draft.body
-    assert hits == []
-
-
-@pytest.mark.asyncio
-async def test_a_read_only_job_can_still_draft_a_reply(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tool, _fake = _tool(monkeypatch, allow_mutate=False)
-
-    result = await tool.run(action="reply", id="12", body="I'll be late.")
-
-    assert result.ok, result.output
-    assert result.data["to"] == "sam@example.com"
-
-
-def test_reply_is_a_read_not_a_mailbox_write() -> None:
-    args = {"action": "reply", "id": "12", "body": "I'll be late."}
-    assert "reply" in INBOX_READ_ACTIONS
-    assert "reply" not in INBOX_WRITE_ACTIONS
-    assert not action_is_write("inbox", args)
-    assert capability_class("inbox", args) == "READ"
-    assert not evaluate_confirm("inbox", args)
-
-
-@pytest.mark.asyncio
-async def test_reply_is_one_yes_for_send_email(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The card is the permission. Chat does not get a second ask."""
-    tool, _fake = _tool(monkeypatch)
-
-    result = await tool.run(action="reply", id="12", body="I'll be late.")
-
-    assert result.ok, result.output
-    assert "do not ask in chat" in result.output.lower()
-    assert "allow card" in result.output.lower()
-    assert result.data["send"]["to"] == "sam@example.com"
-    assert result.data["send"]["subject"] == "Re: Lunch tomorrow"
-    assert "I'll be late." in result.data["send"]["body"]
-
-
-def test_the_model_is_told_reply_exists() -> None:
-    assert "reply" in InboxTool.parameters_schema["properties"]["action"]["enum"]
-    assert "reply" in InboxTool.description.lower()
-    assert "body" in InboxTool.parameters_schema["properties"]

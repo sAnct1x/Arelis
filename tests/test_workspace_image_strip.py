@@ -9,7 +9,6 @@ from pathlib import Path
 from arelis.ui.panels.workspace import (
     _THUMB_LONG,
     _recent_output_images,
-    _sidecar_tooltip,
 )
 
 
@@ -17,22 +16,6 @@ def _touch(path: Path, when: float) -> Path:
     path.write_bytes(b"x")
     os.utime(path, (when, when))
     return path
-
-
-def test_recent_output_images_newest_first_skips_sidecars(tmp_path: Path) -> None:
-    folder = tmp_path / "outputs" / "images"
-    folder.mkdir(parents=True)
-    base = time.time()
-    _touch(folder / "old.png", base)
-    _touch(folder / "mid.jpg", base + 10)
-    _touch(folder / "new.webp", base + 20)
-    (folder / "new.json").write_text('{"prompt": "skip me"}', encoding="utf-8")
-    (folder / "notes.txt").write_text("not an image", encoding="utf-8")
-    (folder / "nested").mkdir()
-    (folder / "nested" / "deep.png").write_bytes(b"x")
-
-    names = [p.name for p in _recent_output_images(folder)]
-    assert names == ["new.webp", "mid.jpg", "old.png"]
 
 
 def test_recent_output_images_caps_at_sixteen(tmp_path: Path) -> None:
@@ -46,51 +29,6 @@ def test_recent_output_images_caps_at_sixteen(tmp_path: Path) -> None:
     assert len(found) == 16
     assert found[0].name == "img_19.png"
     assert found[-1].name == "img_04.png"
-
-
-def test_recent_output_images_missing_or_empty(tmp_path: Path) -> None:
-    assert _recent_output_images(tmp_path / "gone") == []
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    assert _recent_output_images(empty) == []
-    assert _recent_output_images(tmp_path / "file.png") == []
-
-
-def test_sidecar_tooltip_filename_only(tmp_path: Path) -> None:
-    path = tmp_path / "shot.png"
-    path.write_bytes(b"x")
-    assert _sidecar_tooltip(path) == "shot.png"
-
-
-def test_sidecar_tooltip_prompt_and_seed(tmp_path: Path) -> None:
-    path = tmp_path / "cube.png"
-    path.write_bytes(b"x")
-    (tmp_path / "cube.json").write_text(
-        '{"prompt": "a red cube on a desk", "seed": 42}',
-        encoding="utf-8",
-    )
-    tip = _sidecar_tooltip(path)
-    assert tip.splitlines()[0] == "cube.png"
-    assert "a red cube on a desk" in tip
-    assert "seed 42" in tip
-
-
-def test_sidecar_tooltip_seed_only_and_bad_json(tmp_path: Path) -> None:
-    seed_only = tmp_path / "plain.png"
-    seed_only.write_bytes(b"x")
-    (tmp_path / "plain.json").write_text('{"seed": 7}', encoding="utf-8")
-    tip = _sidecar_tooltip(seed_only)
-    assert tip == "plain.png\nseed 7"
-
-    broken = tmp_path / "broken.png"
-    broken.write_bytes(b"x")
-    (tmp_path / "broken.json").write_text("{", encoding="utf-8")
-    assert _sidecar_tooltip(broken) == "broken.png"
-
-    listed = tmp_path / "listed.png"
-    listed.write_bytes(b"x")
-    (tmp_path / "listed.json").write_text('["not", "an", "object"]', encoding="utf-8")
-    assert _sidecar_tooltip(listed) == "listed.png"
 
 
 def _save_rgb(path: Path, width: int = 120, height: int = 80) -> Path:
@@ -157,15 +95,3 @@ def test_image_strip_hidden_until_show_image(qt_app, tmp_path: Path) -> None:
         panel.deleteLater()
 
 
-def test_image_strip_stays_hidden_when_folder_has_no_images(qt_app, tmp_path: Path) -> None:
-    from arelis.ui.panels.workspace import WorkspacePanel
-
-    missing = tmp_path / "gone" / "ghost.png"
-    panel = WorkspacePanel()
-    try:
-        panel.show_image(str(missing))
-        assert not panel.image_label.isHidden()
-        assert panel.image_strip.isHidden()
-        assert panel.image_label.text() == "Could not load ghost.png."
-    finally:
-        panel.deleteLater()

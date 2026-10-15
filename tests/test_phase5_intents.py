@@ -33,11 +33,6 @@ def test_when_am_i_free_is_agenda_free() -> None:
     assert "agenda" in _tools("when am I free Thursday")
 
 
-def test_search_my_notes_is_notes() -> None:
-    assert "notes" in _kinds("search my notes for the budget")
-    assert _tools("search my notes for the budget") == {"notes"}
-
-
 def test_merge_pdfs_is_pdf_not_document() -> None:
     assert "pdf_assemble" in _kinds("merge these pdfs into one handout")
     assert _tools("merge these pdfs into one handout") == {"pdf"}

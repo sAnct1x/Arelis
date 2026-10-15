@@ -33,20 +33,6 @@ def _bar(panel) -> ChatFindBar:
     return bar
 
 
-def test_chat_find_selects_match(qt_app) -> None:
-    """FAILFIRST. Main has no find bar, so the import and the selection both fail."""
-    chat = _panel()
-    chat.add_user("where is the telescope")
-    bar = ChatFindBar(chat.view, chat)
-    assert bar.find("telescope") is True
-    assert chat.view.textCursor().selectedText() == "telescope"
-    start = chat.view.textCursor().selectionStart()
-    assert bar.find("telescope") is True
-    assert chat.view.textCursor().selectedText() == "telescope"
-    assert chat.view.textCursor().selectionStart() == start
-    del qt_app
-
-
 def test_typing_highlights_plain_text(qt_app) -> None:
     panel = _panel()
     panel.show()

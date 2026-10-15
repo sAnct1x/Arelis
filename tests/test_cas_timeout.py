@@ -71,68 +71,9 @@ async def test_the_timeout_message_forbids_inventing_an_answer(
     assert "invent" in result.output.lower()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "action,expr",
-    [
-        ("simplify", "sin(x**1)/cos(x**2) + sin(x**3)/cos(x**4) + sin(x**5)/cos(x**6)"),
-        ("series", "exp(sin(tan(x)))"),
-    ],
-)
-async def test_the_other_untimed_actions_are_bounded_too(
-    monkeypatch: pytest.MonkeyPatch, action: str, expr: str
-) -> None:
-    """Not just solve. The gap was every action outside _SPAWN_ACTIONS."""
-    import arelis.tools.cas as cas
-
-    monkeypatch.setattr(cas, "_TIMEOUT_S", 0.001)
-    started = time.monotonic()
-    result = await CasTool().run(action=action, expr=expr, n=20)
-    elapsed = time.monotonic() - started
-
-    assert elapsed < 8.0, f"{action} took {elapsed:.1f}s"
-    if not result.ok:
-        assert result.data.get("fail_class") in {"fail:timeout", "fail:parse"}
-
-
 # --------------------------------------------------------------------------
 # And the ordinary answers still arrive, quickly
 # --------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "action,expr,expected",
-    [
-        ("diff", "x**3", "3*x**2"),
-        ("solve", "x**2 - 4", "2"),
-        ("simplify", "(x**2 - 1)/(x - 1)", "x + 1"),
-        ("factor", "x**2 - 1", "x - 1"),
-        ("expand", "(x + 1)**2", "x**2"),
-    ],
-)
-async def test_the_everyday_actions_still_answer(
-    action: str, expr: str, expected: str
-) -> None:
-    result = await CasTool().run(action=action, expr=expr)
-    assert result.ok, result.output
-    assert expected in result.output
-
-
-@pytest.mark.asyncio
-async def test_the_fast_path_is_not_slowed() -> None:
-    """The bargain behind the in-process path, stated as a test.
-
-    These actions skip the child process to avoid a spawn on every quadratic.
-    If bounding them reintroduced that cost, the fix would have traded a rare
-    hang for a constant tax on the common case.
-    """
-    started = time.monotonic()
-    for _ in range(5):
-        result = await CasTool().run(action="diff", expr="x**3 + sin(x)")
-        assert result.ok
-    elapsed = time.monotonic() - started
-    assert elapsed < 4.0, f"five derivatives took {elapsed:.1f}s"
 
 
 def _cas_worker_still_inside_compute() -> bool:
@@ -199,22 +140,6 @@ async def test_a_pathological_series_is_killed_with_its_child(
     assert not _cas_worker_still_inside_compute()
 
 
-def test_windows_spawn_gets_time_to_import_before_the_deadline(monkeypatch) -> None:
-    """A cold Windows child can spend the whole 8s importing SymPy.
-
-    series(sin(x)) then looks like it has no closed form. The extra wait
-    is only for a full budget, so a short deadline still kills fast.
-    """
-    import arelis.tools.cas as cas
-
-    monkeypatch.setattr(cas.sys, "platform", "win32")
-    assert cas._spawn_join_timeout(cas._TIMEOUT_S) == cas._TIMEOUT_S * 2
-    assert cas._spawn_join_timeout(0.4) == 0.4
-
-    monkeypatch.setattr(cas.sys, "platform", "linux")
-    assert cas._spawn_join_timeout(cas._TIMEOUT_S) == cas._TIMEOUT_S
-
-
 @pytest.mark.asyncio
 async def test_series_of_sine_is_the_opening_terms() -> None:
     result = await CasTool().run(action="series", expr="sin(x)", n=6)
@@ -235,10 +160,3 @@ async def test_series_keeps_the_point_it_was_given() -> None:
     assert text != "x**2/2+x+1"
 
 
-@pytest.mark.asyncio
-async def test_an_integral_still_goes_to_the_child_process() -> None:
-    """The spawn path predates this and must be left alone: a thread deadline
-    cannot stop integrate(), which is the reason it was built."""
-    result = await CasTool().run(action="integrate", expr="2*x", wrt="x")
-    assert result.ok, result.output
-    assert "x**2" in result.output

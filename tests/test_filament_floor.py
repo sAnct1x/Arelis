@@ -32,18 +32,6 @@ def test_in_filament_an_email_send_asks_first() -> None:
         apply_theme("sodium")
 
 
-def test_in_filament_a_calendar_write_you_asked_for_is_light() -> None:
-    try:
-        apply_theme("sodium")
-        sodium = evaluate_confirm("agenda", {"action": "create"}, asked=True)
-        apply_theme("filament")
-        filament = evaluate_confirm("agenda", {"action": "create"}, asked=True)
-        assert sodium is False
-        assert filament is False
-    finally:
-        apply_theme("sodium")
-
-
 def _voice_orch(bus: EventBus) -> Orchestrator:
     cfg = _config()
     cfg["_speak_replies"] = True

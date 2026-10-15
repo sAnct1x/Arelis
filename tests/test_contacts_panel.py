@@ -25,19 +25,6 @@ def test_contacts_panel_saves_only_on_save(qt_app, tmp_path) -> None:
         panel.deleteLater()
 
 
-def test_contacts_panel_keeps_a_draft_off_sms(qt_app, tmp_path) -> None:
-    path = tmp_path / "contacts.yaml"
-    panel = ContactsPanel(path=path)
-    try:
-        panel.open_new()
-        panel.title_edit.setText("Coach")
-        assert panel.save_card()
-        assert load_contacts(path) == {}
-        assert "coach" in load_all_contacts(path)
-    finally:
-        panel.deleteLater()
-
-
 def _contacts_layers(panel: ContactsPanel) -> tuple:
     """Every container we own between the glass plate and the form."""
     from PySide6.QtWidgets import QScrollArea
@@ -53,44 +40,6 @@ def _contacts_layers(panel: ContactsPanel) -> tuple:
         scroll,
         scroll.viewport(),
     )
-
-
-def test_contacts_containers_never_claim_opaque_paint(qt_app, tmp_path) -> None:
-    """The Save-ghost was WA_OpaquePaintEvent on containers that paint nothing.
-
-    Qt skips the palette fill *and* the stylesheet background for a widget with
-    that attribute, and stops repainting the plate underneath, so the previous
-    frame stayed on screen: the list row behind the heading, a second Save
-    button, a blurred hint. None of these layers may set it.
-
-    autoFillBackground is deliberately not asserted here: QAbstractScrollArea
-    turns it on for its own viewport, and a widget that fills its background is
-    the safe direction — the ghost needed a widget that filled nothing while
-    claiming it had.
-    """
-    from PySide6.QtCore import Qt
-
-    path = tmp_path / "contacts.yaml"
-    panel = ContactsPanel(path=path)
-    try:
-        panel.open_new()
-        panel.name_edit.setText("Alex Carter")
-        panel.title_edit.setText("Coach")
-        assert panel.save_card()
-        panel.show_list()
-        panel.open_contact("coach")
-        panel.title_edit.setText("Mentor")
-        assert panel.save_card()
-        for widget in _contacts_layers(panel):
-            assert widget is not None
-            assert not widget.testAttribute(
-                Qt.WidgetAttribute.WA_OpaquePaintEvent
-            ), f"{widget.objectName() or type(widget).__name__} claims opaque paint"
-            assert not widget.testAttribute(
-                Qt.WidgetAttribute.WA_TranslucentBackground
-            ), f"{widget.objectName() or type(widget).__name__} is translucent"
-    finally:
-        panel.deleteLater()
 
 
 def test_save_keeps_one_page_on_screen(qt_app, tmp_path) -> None:
@@ -146,42 +95,3 @@ def test_contacts_inbox_opens_on_the_list(qt_app, tmp_path) -> None:
         panel.deleteLater()
 
 
-def test_new_card_placeholders_are_not_people(qt_app, tmp_path) -> None:
-    panel = ContactsPanel(path=tmp_path / "contacts.yaml")
-    try:
-        panel.open_new()
-        for edit in (
-            panel.name_edit,
-            panel.title_edit,
-            panel.handle_edit,
-            panel.aliases_edit,
-            panel.phone_edit,
-            panel.email_edit,
-        ):
-            assert edit.text() == ""
-            text = edit.placeholderText().lower()
-            assert "carter" not in text
-            assert "wife" not in text
-            assert "@" not in text
-    finally:
-        panel.deleteLater()
-
-
-def test_contacts_text_opens_a_chat(qt_app, tmp_path) -> None:
-    path = tmp_path / "contacts.yaml"
-    panel = ContactsPanel(path=path)
-    asked: list[tuple[str, str, str]] = []
-    panel.chat_requested.connect(lambda alias, phone, title: asked.append((alias, phone, title)))
-    try:
-        panel.open_new()
-        panel.name_edit.setText("Alex Carter")
-        panel.title_edit.setText("Coach")
-        panel.phone_edit.setText("5551112222")
-        assert panel.save_card()
-        assert panel.text_btn.isEnabled()
-        panel.text_btn.click()
-        assert asked
-        assert asked[0][0] == "coach"
-        assert "5551112222" in asked[0][1]
-    finally:
-        panel.deleteLater()

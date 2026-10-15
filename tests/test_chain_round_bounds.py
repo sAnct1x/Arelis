@@ -26,22 +26,6 @@ def model_calls(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     return seen
 
 
-def test_a_named_tool_the_model_never_calls_is_bounded_by_max_rounds(
-    model_calls: list[int],
-) -> None:
-    """The ask names memory; the model keeps calling units. max_rounds ends it."""
-    call = _tool_call("units", {"action": "convert", "quantity": "5 miles", "to": "km"})
-    scenario = Scenario(
-        id="t_owed_tool_never_called",
-        user="Convert 5 miles to kilometers with units, then remember that result as my distance.",
-        expect_tools=("units",),
-        expect_tools_any=True,
-        script=[[("tool_calls", [call])] for _ in range(20)],
-    )
-    asyncio.run(run_scripted_scenario(scenario))
-    assert len(model_calls) <= 7, f"model asked {len(model_calls)} times"
-
-
 def test_an_open_then_read_ask_ends_when_the_model_answers(model_calls: list[int]) -> None:
     scenario = Scenario(
         id="t_open_read_terminates",

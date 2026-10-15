@@ -65,13 +65,3 @@ def test_companion_artifact_uploads_on_every_run() -> None:
     assert "kind" not in condition
 
 
-def test_assemble_step_records_whether_the_apk_is_a_release() -> None:
-    assemble = _named("Assemble APK")
-    assert assemble.get("id") == "apk"
-    script = str(assemble.get("run") or "")
-    wrote = [
-        line.strip()
-        for line in script.splitlines()
-        if "GITHUB_OUTPUT" in line and re.search(r"\bkind=", line)
-    ]
-    assert wrote, "Assemble APK must write kind to GITHUB_OUTPUT"

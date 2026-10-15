@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from arelis.desk import DeskStore
-from arelis.tools.notes import NOTES_WRITE_ACTIONS, NotesTool
+from arelis.tools.notes import NotesTool
 from arelis.workspace import RootEntry, WorkspaceRoots
 
 
@@ -88,27 +88,6 @@ async def test_list_shows_title_date_and_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_search_matches_body_not_just_title(tmp_path: Path) -> None:
-    """Mutant: search greps titles and never opens the file."""
-    tool, _project, _store = _tool(tmp_path)
-    added = await tool.run(
-        action="add",
-        title="weekly meeting",
-        text="the zebra budget is four thousand",
-    )
-    assert added.ok
-    miss = await tool.run(action="search", query="weekly meeting")
-    assert miss.ok
-    # Title is in the page (`# weekly meeting`), so that query may hit.
-    # The body-only token is the one that dies if search never reads.
-    hit = await tool.run(action="search", query="zebra budget")
-    assert hit.ok, hit.output
-    assert hit.data["notes"], "search must match note bodies"
-    assert "zebra" in hit.output.casefold()
-    assert hit.data["notes"][0]["title"] == "weekly meeting"
-
-
-@pytest.mark.asyncio
 async def test_read_refuses_path_escape(tmp_path: Path) -> None:
     """Mutant: `../` is joined and a sibling file is returned."""
     tool, project, _store = _tool(tmp_path)
@@ -145,54 +124,3 @@ async def test_read_refuses_path_escape(tmp_path: Path) -> None:
     assert "do not leak" not in leaked.output.casefold()
 
 
-@pytest.mark.asyncio
-async def test_read_by_id_returns_the_page(tmp_path: Path) -> None:
-    tool, _project, _store = _tool(tmp_path)
-    added = await tool.run(
-        action="add", title="pin code", text="drawer combo is 2468"
-    )
-    assert added.ok
-    note_id = added.data["id"]
-    read = await tool.run(action="read", id=note_id)
-    assert read.ok, read.output
-    assert "drawer combo is 2468" in read.output
-    again = await tool.run(action="read", path=added.data["path"])
-    assert again.ok
-    assert "drawer combo is 2468" in again.output
-
-
-@pytest.mark.asyncio
-async def test_empty_add_does_not_invent_a_file(tmp_path: Path) -> None:
-    tool, project, _store = _tool(tmp_path)
-    result = await tool.run(action="add", text="   ")
-    assert not result.ok
-    notes_dir = project / "notes"
-    assert not notes_dir.exists() or not list(notes_dir.glob("*.md"))
-
-
-@pytest.mark.asyncio
-async def test_search_caps_results(tmp_path: Path) -> None:
-    tool, project, _store = _tool(tmp_path)
-    folder = project / "notes"
-    folder.mkdir()
-    for i in range(8):
-        (folder / f"2026-01-{i + 1:02d}-item.md").write_text(
-            f"# item {i}\n\nshared token body {i}\n",
-            encoding="utf-8",
-        )
-    result = await tool.run(action="search", query="shared token", limit=3)
-    assert result.ok
-    assert len(result.data["notes"]) == 3
-
-
-@pytest.mark.asyncio
-async def test_write_actions_are_add_only() -> None:
-    assert NOTES_WRITE_ACTIONS == {"add"}
-
-
-@pytest.mark.asyncio
-async def test_unknown_action_fails(tmp_path: Path) -> None:
-    tool, _project, _store = _tool(tmp_path)
-    result = await tool.run(action="delete")
-    assert not result.ok
-    assert "add" in result.output

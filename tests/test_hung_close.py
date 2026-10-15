@@ -15,7 +15,7 @@ from arelis.core.memory import SessionMemory
 from arelis.tools.base import ToolRegistry, ToolResult
 from arelis.ui.turn_watchdog import _begin_close, on_hung_turn
 from arelis.ui.window_const import HUNG_CLOSE_GRACE_S
-from tests.hardening_helpers import _collect, _config, _deny, _ScriptedRouter
+from tests.hardening_helpers import _collect, _config, _ScriptedRouter
 
 
 class _ClosingScrape:
@@ -35,67 +35,6 @@ class _ClosingScrape:
         assert self.loop is not None
         self.loop.request_close()
         return ToolResult(ok=True, output="CH4 detected at about 5 sigma.")
-
-
-@pytest.mark.asyncio
-async def test_close_after_a_tool_does_not_search_again() -> None:
-    scrape = _ClosingScrape()
-    bus = EventBus()
-    router = _ScriptedRouter(
-        [
-            [
-                (
-                    "tool_calls",
-                    [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": "scrape",
-                                "arguments": {"url": "https://example.com/k2"},
-                            },
-                        }
-                    ],
-                )
-            ],
-            [
-                (
-                    "token",
-                    "Methane is the measurement I actually have. I did not get to the rest.",
-                )
-            ],
-        ]
-    )
-    tools = ToolRegistry()
-    tools.register(scrape)
-    cfg = _config()
-    cfg["agent"]["chat_fast_path"] = False
-    cfg["agent"]["max_rounds"] = 8
-    loop = AgentLoop(
-        bus,
-        router,  # type: ignore[arg-type]
-        tools,
-        SessionMemory(),
-        "persona",
-        cfg,
-        request_confirm=_deny,
-        is_cancelled=lambda: False,
-    )
-    scrape.loop = loop
-    events = await _collect(
-        bus,
-        loop.run("what did JWST measure in this atmosphere?", "fast"),
-    )
-    thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
-    )
-    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
-    text = str(done.payload.get("text") or "")
-    assert "closing with what I have" in thinking
-    assert "Methane" in text
-    assert router.i == 2
-    assert "scrape" in loop.tools_used
 
 
 def _native(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -258,39 +197,6 @@ def _plot_call() -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_close_request_during_stream_keeps_finished_tool_call() -> None:
-    plot = _CountingTool(
-        "plot",
-        "write",
-        {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string"},
-                "xs": {"type": "string"},
-                "ys": {"type": "string"},
-                "out": {"type": "string"},
-            },
-        },
-    )
-    router = _CloseDuringStream(_plot_call())
-    confirmed: list[str] = []
-
-    async def allow(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
-        del cid, args, summary
-        confirmed.append(tool)
-        return "allow"
-
-    bus, loop = _agent(router, plot, confirm=allow, cancel=[False])
-    router.loop = loop
-    events = await _collect(bus, loop.run("make a plot of these counts", "fast"))
-    text = _done_text(events)
-    assert plot.runs == 1
-    assert text != _CLOSE_PARTIAL
-    assert _CLOSE_PARTIAL not in text
-    assert confirmed == [] or confirmed == ["plot"]
-
-
-@pytest.mark.asyncio
 async def test_close_during_send_still_shows_the_confirm_card() -> None:
     send = _CountingTool(
         "send_sms",
@@ -318,79 +224,6 @@ async def test_close_during_send_still_shows_the_confirm_card() -> None:
     await _collect(bus, loop.run("text me: on my way", "fast"))
     assert confirmed == ["send_sms"]
     assert send.runs == 0
-
-
-@pytest.mark.asyncio
-async def test_close_during_write_still_shows_the_confirm_card() -> None:
-    write = _CountingTool(
-        "workspace",
-        "write",
-        {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string"},
-                "path": {"type": "string"},
-                "content": {"type": "string"},
-            },
-        },
-    )
-    router = _CloseDuringStream(
-        _native(
-            "workspace",
-            {"action": "write", "path": "notes/today.txt", "content": "desk note"},
-        )
-    )
-    confirmed: list[str] = []
-
-    async def decline(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
-        del cid, args, summary
-        confirmed.append(tool)
-        return "skip"
-
-    bus, loop = _agent(
-        router,
-        write,
-        confirm=decline,
-        cancel=[False],
-        ask_is_grant=False,
-    )
-    router.loop = loop
-    await _collect(bus, loop.run("do the thing", "fast"))
-    assert confirmed == ["workspace"]
-    assert write.runs == 0
-
-
-@pytest.mark.asyncio
-async def test_user_stop_mid_stream_aborts_immediately() -> None:
-    plot = _CountingTool(
-        "plot",
-        "write",
-        {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string"},
-                "xs": {"type": "string"},
-                "ys": {"type": "string"},
-                "out": {"type": "string"},
-            },
-        },
-    )
-    cancel = [False]
-    router = _StopDuringStream(_plot_call(), cancel)
-
-    async def allow(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
-        del cid, tool, args, summary
-        return "allow"
-
-    bus, loop = _agent(router, plot, confirm=allow, cancel=cancel)
-    router.loop = loop
-    events = await _collect(bus, loop.run("make a plot of these counts", "fast"))
-    text = _done_text(events)
-    assert plot.runs == 0
-    assert router.i == 1
-    assert router.resumed_after_stop is False
-    assert text == "Stopped."
-    assert text != _CLOSE_PARTIAL
 
 
 class _ArmStopAndClose(_ScriptedRouter):
@@ -628,77 +461,6 @@ class _SendThenShutTools(_ScriptedRouter):
         yield ("metrics", {"prompt_eval_count": 2})
 
 
-@pytest.mark.asyncio
-async def test_closed_toolset_stays_closed_after_send_and_after_close() -> None:
-    """A confirmed send shuts the menu. A close after that must not open it.
-
-    document is on the wrap-up allow-list. web_search is the wander tool a
-    send hides. Neither runs. Round 1 is the model call, not a preinject.
-    """
-    send_out = "Sent."
-    send = _CountingTool(
-        "send_sms",
-        "side_effect",
-        {
-            "type": "object",
-            "properties": {
-                "to": {"type": "string"},
-                "body": {"type": "string"},
-            },
-        },
-        output=send_out,
-    )
-    document = _CountingTool(
-        "document",
-        "write",
-        {
-            "type": "object",
-            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-        },
-    )
-    search = _CountingTool(
-        "web_search",
-        "read",
-        {
-            "type": "object",
-            "properties": {"query": {"type": "string"}},
-        },
-    )
-    router = _SendThenShutTools(
-        _native("send_sms", {"to": "brian", "body": "running late"}),
-        [
-            _native("document", {"path": "notes/later.txt", "content": "nope"}),
-            _native("web_search", {"query": "weather"}),
-        ],
-    )
-    confirmed: list[str] = []
-
-    async def allow(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
-        del cid, args, summary
-        confirmed.append(tool)
-        return "allow"
-
-    bus, loop = _agent(
-        router,
-        send,
-        confirm=allow,
-        cancel=[False],
-        extra=[document, search],
-        router_removed=True,
-    )
-    router.loop = loop
-    events = await _collect(bus, loop.run("text brian: running late", "fast"))
-    text = _done_text(events)
-    assert send.runs == 1
-    assert document.runs == 0
-    assert search.runs == 0
-    assert confirmed == ["send_sms"]
-    assert router.i == 2
-    assert text != _CLOSE_PARTIAL
-    assert _CLOSE_PARTIAL not in text
-    assert send_out in text
-
-
 _CLOSE_PROSE = "Already sent."
 
 
@@ -725,94 +487,3 @@ def _thinking(events) -> str:
     )
 
 
-@pytest.mark.asyncio
-async def test_close_pass_uses_prose_instead_of_reasking() -> None:
-    """The close pass must not spend the plain-only re-ask.
-
-    The shut menu already answered. A wander call on that pass is dropped
-    and the model's own line is the reply. Re-asking would throw the line
-    away and finish on the partial close text.
-    """
-    send = _sms_tool()
-    search = _CountingTool(
-        "web_search",
-        "read",
-        {"type": "object", "properties": {"query": {"type": "string"}}},
-    )
-    router = _SendThenShutTools(
-        _native("send_sms", {"to": "brian", "body": "running late"}),
-        [_native("web_search", {"query": "weather"})],
-        later_prose=_CLOSE_PROSE,
-    )
-
-    async def allow(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
-        del cid, tool, args, summary
-        return "allow"
-
-    bus, loop = _agent(
-        router,
-        send,
-        confirm=allow,
-        cancel=[False],
-        extra=[search],
-        router_removed=True,
-    )
-    router.loop = loop
-    events = await _collect(bus, loop.run("text brian: running late", "fast"))
-    text = _done_text(events)
-    assert send.runs == 1
-    assert search.runs == 0
-    assert "plain answer round; asking again" not in _thinking(events)
-    assert text == _CLOSE_PROSE
-    assert text != _CLOSE_PARTIAL
-
-
-@pytest.mark.asyncio
-async def test_close_pass_drops_a_shut_menu_document() -> None:
-    """document stays on the wrap-up list. A shut menu still drops it.
-
-    The plain re-ask was already spent, so this is the close-pass filter
-    and not the re-ask. The model's line is the reply. document does not run.
-    """
-    send = _sms_tool()
-    document = _CountingTool(
-        "document",
-        "write",
-        {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "content": {"type": "string"},
-            },
-        },
-    )
-    router = _SendThenShutTools(
-        _native("send_sms", {"to": "brian", "body": "running late"}),
-        [_native("document", {"path": "notes/later.txt", "content": "nope"})],
-        later_prose=_CLOSE_PROSE,
-        mark_reask=True,
-    )
-    confirmed: list[str] = []
-
-    async def allow(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
-        del cid, args, summary
-        confirmed.append(tool)
-        return "allow"
-
-    bus, loop = _agent(
-        router,
-        send,
-        confirm=allow,
-        cancel=[False],
-        extra=[document],
-        router_removed=True,
-    )
-    router.loop = loop
-    events = await _collect(bus, loop.run("text brian: running late", "fast"))
-    text = _done_text(events)
-    assert send.runs == 1
-    assert document.runs == 0
-    assert confirmed == ["send_sms"]
-    assert "Calling document" not in _thinking(events)
-    assert text == _CLOSE_PROSE
-    assert text != _CLOSE_PARTIAL

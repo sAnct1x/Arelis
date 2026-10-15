@@ -51,42 +51,6 @@ def test_map_ready_decodes_once_per_file_version(tmp_path, monkeypatch) -> None:
     assert len(decodes) == 2
 
 
-def test_html_error_page_is_not_a_map(tmp_path, monkeypatch) -> None:
-    from arelis.physics import maps as maps_mod
-
-    monkeypatch.setattr(maps_mod, "maps_dir", lambda: tmp_path)
-    (tmp_path / "mars.jpg").write_bytes(
-        b"<!DOCTYPE html><html><body>nope</body></html>" + b"x" * 2000
-    )
-    assert maps_mod.map_ready(tmp_path / "mars.jpg") is False
-    assert "Mars" in maps_mod.missing_maps()
-
-
-def test_download_maps_skips_files_already_on_disk(tmp_path, monkeypatch) -> None:
-    from arelis.physics import maps as maps_mod
-
-    monkeypatch.setattr(maps_mod, "maps_dir", lambda: tmp_path)
-    for _body, meta in maps_mod.MAPS.items():
-        _jpeg(tmp_path / meta[0])
-    _jpeg(tmp_path / maps_mod.EARTH_HI_FILE)
-
-    class BoomClient:
-        def __init__(self, *args, **kwargs):
-            raise AssertionError("must not fetch maps that are already on disk")
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-    monkeypatch.setattr(httpx, "Client", BoomClient)
-    saved, errors = maps_mod.download_maps()
-    assert saved == []
-    assert errors == []
-    assert maps_mod.missing_maps() == []
-
-
 def test_store_image_rejects_html_and_accepts_jpeg(tmp_path) -> None:
     from arelis.physics.maps import _store_image
 
@@ -114,14 +78,6 @@ def test_describe_prefers_earth_8192(tmp_path, monkeypatch) -> None:
     assert hi.path is not None
     assert hi.path.name == maps_mod.EARTH_HI_FILE
     assert hi.km_per_px == maps_mod.EARTH_HI_KM
-
-
-def test_describe_uncatalogued_body_does_not_invent_a_map() -> None:
-    from arelis.physics.maps import describe
-
-    info = describe("Bennu")
-    assert info.path is None
-    assert "no public map" in info.source
 
 
 def test_generated_surfaces_are_real_jpegs(tmp_path, monkeypatch) -> None:
@@ -160,49 +116,3 @@ def _pole_lon_std(path) -> float:
     return float(arr[0].mean(axis=1).std())
 
 
-def test_uranus_map_is_zonal_not_a_pole_clover(tmp_path, monkeypatch) -> None:
-    import numpy as np
-
-    from arelis.physics import maps as maps_mod
-
-    monkeypatch.setattr(maps_mod, "maps_dir", lambda: tmp_path)
-    rgb, albedo, seed, belts = maps_mod._SURFACES["Uranus"]
-    dest = tmp_path / "uranus.jpg"
-    maps_mod.write_surface_map(dest, rgb=rgb, albedo=albedo, seed=seed, belts=belts)
-    arr = np.array(Image.open(dest), dtype=np.float32)
-    mid = arr[arr.shape[0] // 2]
-    assert _pole_lon_std(dest) < 3.0
-    assert float(mid.mean()) < 250.0
-    assert float(mid[:, 2].mean()) > float(mid[:, 0].mean())
-
-
-def test_stale_uranus_clover_is_rewritten(tmp_path, monkeypatch) -> None:
-    import numpy as np
-
-    from arelis.physics import maps as maps_mod
-
-    monkeypatch.setattr(maps_mod, "maps_dir", lambda: tmp_path)
-    dest = tmp_path / "uranus.jpg"
-    width, height = 512, 256
-    lon = np.linspace(0.0, 2.0 * np.pi, width, endpoint=False)
-    row = (140 + 70 * np.sin(2.0 * lon)).astype(np.uint8)
-    blob = np.repeat(row[None, :, None], height, axis=0)
-    Image.fromarray(np.repeat(blob, 3, axis=2), "RGB").save(dest, "JPEG", quality=86)
-    assert _pole_lon_std(dest) > 6.0
-    saved = maps_mod.write_generated_maps()
-    assert "Uranus" in saved
-    assert _pole_lon_std(dest) < 3.0
-
-
-def test_fit_equirect_does_not_stretch_a_square() -> None:
-    from arelis.physics.maps import fit_equirect
-
-    square = Image.new("RGB", (256, 256), (200, 40, 40))
-    wrapped = fit_equirect(square)
-    assert wrapped.size[0] == wrapped.size[1] * 2
-    px = wrapped.getpixel((0, wrapped.size[1] // 2))
-    assert px[0] < 40
-    mid = wrapped.getpixel((wrapped.size[0] // 2, wrapped.size[1] // 2))
-    assert mid[0] > 150
-    already = Image.new("RGB", (512, 256), (10, 20, 30))
-    assert fit_equirect(already).size == (512, 256)

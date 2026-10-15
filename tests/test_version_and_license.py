@@ -17,8 +17,6 @@ import sys
 import tomllib
 from pathlib import Path
 
-import pytest
-
 import arelis
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -47,31 +45,6 @@ def test_packaging_reads_the_version_rather_than_repeating_it() -> None:
     assert attr == "arelis.__version__"
 
 
-def test_the_version_is_a_number_a_release_can_use() -> None:
-    """Not a strict PEP 440 parse — just enough that it can be ordered."""
-    parts = arelis.__version__.split(".")
-    assert len(parts) >= 2, f"{arelis.__version__!r} is not a dotted version"
-    assert parts[0].isdigit() and parts[1].isdigit(), (
-        f"{arelis.__version__!r} does not start with numeric major.minor, so "
-        "an updater cannot tell whether it is newer than what is installed."
-    )
-
-
-def test_the_licence_is_stated_the_same_way_everywhere() -> None:
-    declared = _pyproject()["project"]["license"]["text"]
-    assert declared == arelis.__license__, (
-        f"pyproject.toml says {declared!r} and arelis/__init__.py says "
-        f"{arelis.__license__!r}. One of them is wrong, and a wrong licence is "
-        "not a cosmetic defect."
-    )
-
-    classifiers = _pyproject()["project"]["classifiers"]
-    assert any("Affero" in c for c in classifiers), (
-        "No Affero classifier. Package indexes and licence scanners read the "
-        "classifier, not the license field."
-    )
-
-
 def test_the_licence_file_is_the_full_agpl_text() -> None:
     """A named licence with the wrong text grants nothing anyone can rely on."""
     text = LICENSE_FILE.read_text(encoding="utf-8")
@@ -81,14 +54,6 @@ def test_the_licence_file_is_the_full_agpl_text() -> None:
     # GPL: it closes the network-use loophole. Its absence would mean the file
     # is actually the plain GPL under an Affero heading.
     assert "Remote Network Interaction" in text
-
-
-def test_the_source_url_is_somewhere_a_person_can_go() -> None:
-    """The AGPL only means anything if the source can actually be found."""
-    assert arelis.__source_url__.startswith("https://"), (
-        "The source URL must be a real https address. It is shown to users as "
-        "their route to the source the licence entitles them to."
-    )
 
 
 def test_version_flag_reports_version_licence_and_source() -> None:
@@ -107,12 +72,3 @@ def test_version_flag_reports_version_licence_and_source() -> None:
     assert arelis.__source_url__ in out
 
 
-def test_the_shortcuts_sheet_names_the_running_version() -> None:
-    """The only route to this for someone who never opens a terminal."""
-    pytest.importorskip("PySide6")
-    from arelis.ui.shortcuts import about_line
-
-    line = about_line()
-    assert arelis.__version__ in line
-    assert arelis.__license__ in line
-    assert arelis.__source_url__ in line

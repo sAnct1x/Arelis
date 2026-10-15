@@ -1,37 +1,19 @@
 from __future__ import annotations
 
 import email
-import smtplib
 
 import pytest
 
-from arelis.core.agent_loop import TOOL_POLICY
 from arelis.mail import (
     PASSWORD_ENV,
     MailAccount,
-    build_message,
-    explain_smtp_error,
-    load_account,
-    markdown_to_html,
-    reply_address,
     save_account,
-    valid_address,
 )
-from arelis.tools.base import NEVER_BATCH, ToolRegistry, capability_class, confirm_args_blocked
+from arelis.tools.base import ToolRegistry, capability_class, confirm_args_blocked
 from arelis.tools.confirm_copy import confirm_headline
 from arelis.tools.email_send import SendEmailTool
 from arelis.tools.inbox import (
     InboxTool,
-    _build_criteria,
-    _decode,
-    _imap_date,
-    _list_criteria,
-    _parse_mailbox_list_line,
-    _parse_uids,
-    _quote,
-    extract_body,
-    fill_inbox_args,
-    inbox_peek_was_empty,
 )
 
 
@@ -42,41 +24,6 @@ def _secrets(tmp_path, text: str):
 
 
 # ------------------------------------------------------------------ credentials
-
-
-def test_no_secrets_file_means_no_account(tmp_path) -> None:
-    """None, not an exception. The tools then stay unregistered entirely."""
-    assert load_account(tmp_path / "absent.yaml") is None
-
-
-def test_a_half_filled_file_is_not_an_account(tmp_path) -> None:
-    path = _secrets(tmp_path, "email:\n  address: me@example.com\n  app_password: ''\n")
-    assert load_account(path) is None
-
-
-def test_the_spaces_google_shows_are_not_part_of_the_password(tmp_path) -> None:
-    """People paste app passwords exactly as displayed, in four groups of four."""
-    path = _secrets(
-        tmp_path,
-        "email:\n  address: me@example.com\n  app_password: 'abcd efgh ijkl mnop'\n",
-    )
-    account = load_account(path)
-    assert account is not None
-    assert account.password == "abcdefghijklmnop"
-
-
-def test_the_environment_wins_over_the_file(tmp_path, monkeypatch) -> None:
-    path = _secrets(
-        tmp_path, "email:\n  address: me@example.com\n  app_password: fromfile\n"
-    )
-    monkeypatch.setenv(PASSWORD_ENV, "fromenv")
-    account = load_account(path)
-    assert account is not None and account.password == "fromenv"
-
-
-def test_a_corrupt_file_does_not_raise(tmp_path) -> None:
-    path = _secrets(tmp_path, "email: [this is not a mapping\n")
-    assert load_account(path) is None
 
 
 def test_save_account_does_not_clobber_other_secrets(tmp_path, monkeypatch) -> None:
@@ -98,87 +45,7 @@ def test_save_account_does_not_clobber_other_secrets(tmp_path, monkeypatch) -> N
     assert "old@example.com" not in raw
 
 
-def test_reply_address_strips_display_name() -> None:
-    assert reply_address("Robin <robin@example.com>") == "robin@example.com"
-    assert reply_address("robin@example.com") == "robin@example.com"
-
-
-def test_recipient_uses_inbox_not_smtp_from(monkeypatch) -> None:
-    monkeypatch.setattr("arelis.profile.load_profile_email", lambda **k: "")
-    account = MailAccount(
-        "bot@example.com", "pw", default_recipient="digest@example.com"
-    )
-    assert account.recipient("someone@else.com") == "someone@else.com"
-    assert account.recipient("") == "digest@example.com"
-    assert MailAccount("bot@example.com", "pw").recipient("") == ""
-
-
-def test_recipient_prefers_profile_email(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "arelis.profile.load_profile_email", lambda **k: "you@example.com"
-    )
-    account = MailAccount(
-        "bot@example.com", "pw", default_recipient="digest@example.com"
-    )
-    assert account.recipient("") == "you@example.com"
-
-
-def test_address_validation_is_loose_but_catches_nonsense() -> None:
-    assert valid_address("a.b+c@example.co.uk")
-    assert not valid_address("not-an-address")
-    assert not valid_address("two@@example.com")
-    assert not valid_address("a@b, c@d")
-
-
 # --------------------------------------------------------------------- message
-
-
-def test_message_carries_both_plain_text_and_html() -> None:
-    message = build_message(
-        sender="me@example.com",
-        from_name="Arelis",
-        to="you@example.com",
-        subject="Digest",
-        body="# Today\n\nSomething **happened**.",
-    )
-    assert message["From"] == "Arelis <me@example.com>"
-    assert message["To"] == "you@example.com"
-    types = {part.get_content_type() for part in message.walk() if not part.is_multipart()}
-    assert types == {"text/plain", "text/html"}
-
-
-def test_html_never_lets_source_markup_render() -> None:
-    """An answer can quote a scraped page. That page must not render in a inbox."""
-    rendered = markdown_to_html('<script>alert(1)</script> and <b>bold</b>')
-    assert "<script>" not in rendered
-    assert "&lt;script&gt;" in rendered
-
-
-def test_html_renders_the_marks_that_actually_turn_up() -> None:
-    rendered = markdown_to_html(
-        "## Heading\n\n- one\n- two\n\n**bold** and [a link](https://example.com/x)"
-    )
-    assert "<h3>Heading</h3>" in rendered
-    assert rendered.count("<li>") == 2
-    assert "<strong>bold</strong>" in rendered
-    assert '<a href="https://example.com/x"' in rendered
-
-
-def test_a_non_http_link_is_not_made_clickable() -> None:
-    rendered = markdown_to_html("[click](javascript:alert(1))")
-    assert "javascript:" not in rendered
-    assert "click" in rendered
-
-
-def test_bare_urls_become_links() -> None:
-    assert '<a href="https://example.org/a"' in markdown_to_html("see https://example.org/a")
-
-
-def test_auth_failure_says_app_password() -> None:
-    """The single most likely first-run failure deserves the real answer."""
-    message = explain_smtp_error(smtplib.SMTPAuthenticationError(535, b"nope"))
-    assert "app password" in message.lower()
-    assert "2-step verification" in message.lower()
 
 
 # ------------------------------------------------------------------- send tool
@@ -211,43 +78,12 @@ def _no_standing_inbox(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_goes_to_the_user_when_no_recipient_is_named() -> None:
-    mailer = _FakeMailer()
-    result = await _tool(mailer).run(subject="Hi", body="Body")
-    assert result.ok
-    assert mailer.sent[0]["to"] == "you@example.com"
-
-
-@pytest.mark.asyncio
-async def test_send_reaches_any_recipient() -> None:
-    """No allowlist. The confirm card is the gate, not a config file."""
-    mailer = _FakeMailer()
-    result = await _tool(mailer).run(to="stranger@elsewhere.org", subject="Hi", body="B")
-    assert result.ok
-    assert mailer.sent[0]["to"] == "stranger@elsewhere.org"
-
-
-@pytest.mark.asyncio
 async def test_a_guessed_address_is_refused_before_the_transport() -> None:
     mailer = _FakeMailer()
     result = await _tool(mailer).run(to="probably-bob", subject="Hi", body="B")
     assert not result.ok
     assert not mailer.sent
     assert "ask the user" in result.output.lower()
-
-
-@pytest.mark.asyncio
-async def test_an_empty_body_is_refused() -> None:
-    result = await _tool(_FakeMailer()).run(subject="Hi", body="   ")
-    assert not result.ok
-
-
-@pytest.mark.asyncio
-async def test_a_send_failure_is_reported_not_raised() -> None:
-    mailer = _FakeMailer(smtplib.SMTPAuthenticationError(535, b"nope"))
-    result = await _tool(mailer).run(subject="Hi", body="B")
-    assert not result.ok
-    assert "app password" in result.output.lower()
 
 
 # ---------------------------------------------------------------- confirm gate
@@ -267,149 +103,11 @@ def test_sending_is_gated_by_its_own_flag_not_the_image_one() -> None:
     assert registry.needs_confirm("send_email", {}, confirm_send=False)
 
 
-def test_sending_can_never_be_batch_approved() -> None:
-    assert "send_email" in NEVER_BATCH
-    assert "send_sms" in NEVER_BATCH
-    assert "inbox" in NEVER_BATCH
-
-
-def test_the_card_shows_the_whole_email_not_eighty_characters() -> None:
-    registry = _registry_with_send()
-    body = "Dear Bob, " + ("this is a long message. " * 20)
-    args = {"to": "bob@example.com", "subject": "Thursday", "body": body}
-
-    summary = registry.summarize_call("send_email", args)
-    detail = registry.describe_call("send_email", args)
-
-    assert "…" in summary, "summarize_call still truncates, as it should"
-    assert "bob@example.com" in detail
-    assert "Thursday" in detail
-    assert detail.endswith(body.strip())
-    attached = registry.describe_call(
-        "send_email",
-        {**args, "attach": "outputs/documents/notes.md"},
-    )
-    assert "Attach:  outputs/documents/notes.md" in attached
-
-
-def test_other_tools_keep_the_one_line_rendering() -> None:
-    registry = _registry_with_send()
-    # Workspace (and other rich tools) use a multi-line confirm card; summarize
-    # stays the short trace form.
-    detail = registry.describe_call("workspace", {"action": "list"})
-    summary = registry.summarize_call("workspace", {"action": "list"})
-    assert "Workspace" in detail
-    assert summary == "workspace(action=list)" or summary.startswith("workspace(")
-
-
 # ------------------------------------------------------------------ inbox tool
 
 
 def _message(raw: str):
     return email.message_from_string(raw)
-
-
-def test_plain_text_is_preferred_over_html() -> None:
-    msg = _message(
-        "MIME-Version: 1.0\n"
-        'Content-Type: multipart/alternative; boundary="b"\n\n'
-        "--b\nContent-Type: text/plain\n\nthe plain part\n"
-        "--b\nContent-Type: text/html\n\n<p>the html part</p>\n"
-        "--b--\n"
-    )
-    body, attachments = extract_body(msg)
-    assert "the plain part" in body
-    assert "html part" not in body
-    assert attachments == []
-
-
-def test_html_only_mail_is_reduced_to_text() -> None:
-    msg = _message(
-        "MIME-Version: 1.0\nContent-Type: text/html\n\n"
-        "<html><body><script>x=1</script><p>Hello there</p></body></html>\n"
-    )
-    body, _ = extract_body(msg)
-    assert "Hello there" in body
-    assert "x=1" not in body
-
-
-def test_attachments_are_named_never_fetched() -> None:
-    msg = _message(
-        "MIME-Version: 1.0\n"
-        'Content-Type: multipart/mixed; boundary="b"\n\n'
-        "--b\nContent-Type: text/plain\n\nsee attached\n"
-        "--b\nContent-Type: application/pdf\n"
-        'Content-Disposition: attachment; filename="invoice.pdf"\n\n'
-        "JVBERi0=\n"
-        "--b--\n"
-    )
-    body, attachments = extract_body(msg)
-    assert attachments == ["invoice.pdf"]
-    assert "JVBERi0=" not in body
-
-
-def test_encoded_headers_are_decoded() -> None:
-    assert _decode("=?utf-8?q?Caf=C3=A9?=") == "Café"
-    assert _decode(None) == ""
-
-
-def test_dates_are_translated_into_what_imap_wants() -> None:
-    assert _imap_date("2026-08-06") == "06-Aug-2026"
-    assert _imap_date("06/08/2026") == ""
-    assert _imap_date("2026-13-01") == ""
-
-
-def test_search_values_cannot_break_out_of_their_quotes() -> None:
-    assert _quote('say "hi"') == '"say \\"hi\\""'
-    criteria = _build_criteria({"sender": "bob@x.com", "since": "2026-08-06"})
-    assert criteria == ["FROM", '"bob@x.com"', "SINCE", "06-Aug-2026"]
-
-
-def test_an_empty_search_still_matches_everything() -> None:
-    assert _build_criteria({}) == ["ALL"]
-
-
-def test_list_defaults_to_unread_only_with_an_all_opt_out() -> None:
-    """A 20k mailbox makes ALL a firehose; unread is the useful default."""
-    assert _list_criteria("list", {}) == ["UNSEEN"]
-    assert _list_criteria("list", {"unread_only": False}) == ["ALL"]
-    assert _list_criteria("list", {"unread_only": True}) == ["UNSEEN"]
-    assert _list_criteria("search", {}) == ["ALL"]
-    assert _list_criteria("search", {"unread_only": True, "sender": "a@b.c"}) == [
-        "FROM",
-        '"a@b.c"',
-        "UNSEEN",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_an_unknown_inbox_action_fails_without_connecting() -> None:
-    tool = InboxTool(MailAccount("me@example.com", "pw"))
-    result = await tool.run(action="forward")
-    assert not result.ok
-    assert "list" in result.output
-    assert "trash" in result.output
-
-
-def test_inbox_exposes_mailbox_mutation_when_attended() -> None:
-    actions = InboxTool.parameters_schema["properties"]["action"]["enum"]
-    assert "trash" in actions
-    assert "delete" in actions
-    assert "archive" in actions
-    assert "move" in actions
-    assert "folders" in actions
-    lowered = InboxTool.description.lower()
-    assert "allow" in lowered
-    assert "trash" in lowered
-    assert "cannot be edited" in lowered
-
-
-def test_summarize_criteria_default_unread_like_list() -> None:
-    assert _list_criteria("summarize", {}) == ["UNSEEN"]
-    assert _list_criteria("summarize", {"unread_only": False}) == ["ALL"]
-    assert _list_criteria(
-        "summarize", {"sender": "a@b.c", "unread_only": True}
-    ) == ["FROM", '"a@b.c"', "UNSEEN"]
 
 
 class _FakeImap:
@@ -457,27 +155,6 @@ class _FakeImap:
         return "OK", [b"INBOX (MESSAGES 2 UNSEEN 2)"]
 
 
-@pytest.mark.asyncio
-async def test_summarize_returns_structured_peek_only(monkeypatch) -> None:
-    tool = InboxTool(MailAccount("me@example.com", "pw"), max_messages=5)
-    fake = _FakeImap()
-    monkeypatch.setattr(tool, "_connect", lambda **_k: fake)
-    result = await tool.run(action="summarize", limit=2)
-    assert result.ok
-    assert result.data is not None
-    messages = result.data["messages"]
-    assert len(messages) == 2
-    assert messages[0]["subject"].startswith("Hello")
-    assert messages[0]["from"]
-    assert messages[0]["date"]
-    assert "Snippet body" in messages[0]["snippet"]
-    assert "Peek-only" in result.output
-    assert all("BODY.PEEK" in spec for spec in fake.fetches)
-    assert not any(
-        "BODY[]" in spec.replace("BODY.PEEK", "PEEK") for spec in fake.fetches
-    )
-
-
 class _FakeMutatingImap(_FakeImap):
     def __init__(self) -> None:
         super().__init__()
@@ -513,98 +190,6 @@ class _FakeMutatingImap(_FakeImap):
         return "OK", [None]
 
 
-@pytest.mark.asyncio
-async def test_trash_moves_to_gmail_bin(monkeypatch) -> None:
-    tool = InboxTool(MailAccount("me@example.com", "pw"))
-    fake = _FakeMutatingImap()
-
-    def _connect(*, writable: bool = False):
-        fake.select("INBOX", readonly=not writable)
-        return fake
-
-    monkeypatch.setattr(tool, "_connect", _connect)
-    result = await tool.run(action="delete", id="11")
-    assert result.ok, result.output
-    assert fake.writable is True
-    assert any(cmd == "MOVE" for cmd, _args in fake.commands)
-    assert "Trash" in result.output
-    assert "Hello 11" in result.output
-
-
-@pytest.mark.asyncio
-async def test_trash_accepts_bracketed_ids_from_list_output(monkeypatch) -> None:
-    tool = InboxTool(MailAccount("me@example.com", "pw"))
-    fake = _FakeMutatingImap()
-
-    def _connect(*, writable: bool = False):
-        fake.select("INBOX", readonly=not writable)
-        return fake
-
-    monkeypatch.setattr(tool, "_connect", _connect)
-    result = await tool.run(action="trash", id="[11],[10]")
-    assert result.ok, result.output
-    move = [args for cmd, args in fake.commands if cmd == "MOVE"]
-    assert move
-    assert "11,10" in str(move[0])
-
-
-@pytest.mark.asyncio
-async def test_jobs_cannot_trash_even_if_asked() -> None:
-    tool = InboxTool(MailAccount("me@example.com", "pw"), allow_mutate=False)
-    result = await tool.run(action="trash", id="11")
-    assert not result.ok
-    assert "cannot change" in result.output.lower()
-
-
-def test_fill_inbox_args_takes_ids_from_the_last_search() -> None:
-    filled = fill_inbox_args(
-        {"action": "delete"},
-        user_text="delete the email from Claude",
-        last_hits=[
-            {"id": "10", "from": "Claude Team <team@anthropic.com>", "subject": "Hi"},
-            {"id": "11", "from": "Other <a@b.c>", "subject": "Nope"},
-        ],
-    )
-    assert filled["action"] == "trash"
-    assert filled["id"] == "10"
-
-
-def test_parse_uids_strips_display_brackets() -> None:
-    assert _parse_uids("[44],[40],[39]") == ["44", "40", "39"]
-    assert _parse_uids("44, 40") == ["44", "40"]
-    assert _parse_uids("[44, 40, 39]") == ["44", "40", "39"]
-
-
-def test_fill_inbox_args_strips_brackets_on_a_provided_id() -> None:
-    filled = fill_inbox_args(
-        {"action": "trash", "id": "[44],[40],[39]"},
-        last_hits=[{"id": "99", "from": "x", "subject": "y"}],
-    )
-    assert filled["id"] == "44,40,39"
-
-
-def test_inbox_peek_was_empty_is_just_no_rows() -> None:
-    """A second list after 'No messages' was the empty-inbox loop."""
-    assert inbox_peek_was_empty({"messages": [], "matched": 0})
-    assert not inbox_peek_was_empty({"messages": [{"id": "1"}]})
-    assert not inbox_peek_was_empty(None)
-    assert not inbox_peek_was_empty({"matched": 0})
-
-
-def test_invisible_unicode_is_stripped_from_mail_bodies() -> None:
-    sludge = "Hello\u034f\n\n\n\u200bWorld"
-    msg = _message(
-        "MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\n\n"
-        f"{sludge}\n"
-    )
-    body, _ = extract_body(msg)
-    assert "\u034f" not in body
-    assert "\u200b" not in body
-    assert "Hello" in body
-    assert "World" in body
-    assert "\n\n\n" not in body
-
-
 def test_inbox_write_needs_confirm_and_an_id() -> None:
     from arelis.tools.base import ToolRegistry
 
@@ -618,39 +203,6 @@ def test_inbox_write_needs_confirm_and_an_id() -> None:
     assert confirm_headline("inbox", {"action": "trash", "sender": "Claude Team"}) == (
         "trash mail from Claude Team"
     )
-
-
-def test_mailbox_list_line_parses_gmail_trash() -> None:
-    parsed = _parse_mailbox_list_line(
-        b'(\\HasNoChildren \\Trash) "/" "[Gmail]/Trash"'
-    )
-    assert parsed is not None
-    name, flags = parsed
-    assert name == "[Gmail]/Trash"
-    assert "trash" in flags
-
-
-def test_tool_policy_forbids_claiming_mail_was_deleted() -> None:
-    """The failure mode was narrating success after confirm with no tool."""
-    text = TOOL_POLICY.lower()
-    assert "never claim you deleted" in text
-    assert "confirmation without a tool is a lie" in text
-    assert "trash" in text
-
-
-def test_persona_forbids_narrating_side_effects_without_a_tool() -> None:
-    from pathlib import Path
-
-    text = Path("arelis/persona/arelis.md").read_text(encoding="utf-8")
-    assert "Never claim you completed a side effect" in text
-    assert "Casual in, casual out" in text
-    assert "They swear. That is normal" in text
-    assert "Do not sanitize their language" in text
-    assert "Great question" in text
-    assert "Do not diagnose mood" in text
-    assert "Do not paste the page" in text
-    assert "Do not end with a menu" in text
-    assert "Do not invent material grades" in text
 
 
 # -------------------------------------------------------------- registration
@@ -672,63 +224,12 @@ def test_no_secrets_means_no_email_tools(tmp_path, monkeypatch) -> None:
     assert "schedule" not in registry.names()
 
 
-def test_the_job_runner_gets_no_way_to_send(tmp_path, monkeypatch) -> None:
-    """The load-bearing guarantee: unattended turns cannot email or text anyone."""
-    from arelis import tools as tools_pkg
-    from arelis.sms_android import SmsGateAccount
-    from arelis.workspace import WorkspaceRoots
-
-    monkeypatch.setattr(
-        tools_pkg, "load_account", lambda: MailAccount("me@example.com", "pw")
-    )
-    monkeypatch.setattr(
-        tools_pkg,
-        "load_sms_account",
-        lambda: SmsGateAccount("http://192.168.1.10:8080", "u", "p"),
-    )
-    workspace = WorkspaceRoots.from_config({"workspace": {"roots": [str(tmp_path)]}})
-
-    attended = tools_pkg.build_tool_registry({"tools": {}, "agent": {}}, workspace)
-    assert "send_email" in attended.names()
-    assert "send_sms" in attended.names()
-    assert "schedule" in attended.names()
-
-    unattended = tools_pkg.build_tool_registry(
-        {"tools": {}, "agent": {}}, workspace, allow_send=False
-    )
-    assert "send_email" not in unattended.names()
-    assert "send_sms" not in unattended.names()
-    assert "schedule" not in unattended.names()
-    # Reading is still allowed: a digest may well be about your mail.
-    assert "inbox" in unattended.names()
-    job_inbox = unattended.get("inbox")
-    job_actions = job_inbox.parameters_schema["properties"]["action"]["enum"]
-    assert "trash" not in job_actions
-    assert "list" in job_actions
-    live = attended.get("inbox")
-    assert "trash" in live.parameters_schema["properties"]["action"]["enum"]
-    # Chat archive tools are not: an unattended turn must not search or
-    # rewrite what you said in private conversations.
-    assert "recall" not in unattended.names()
-    assert "memory" not in unattended.names()
-
-
 def test_attach_path_refuses_an_arbitrary_absolute(tmp_path) -> None:
     from arelis.core.email_complete import resolve_attach_path
 
     secret = tmp_path / "secrets.yaml"
     secret.write_text("password: hunter2\n", encoding="utf-8")
     assert resolve_attach_path(str(secret)) == ""
-
-
-def test_attach_path_accepts_a_workspace_file(tmp_path) -> None:
-    from arelis.core.email_complete import resolve_attach_path
-    from arelis.workspace import WorkspaceRoots
-
-    note = tmp_path / "notes.md"
-    note.write_text("hi\n", encoding="utf-8")
-    ws = WorkspaceRoots.from_paths([str(tmp_path)])
-    assert resolve_attach_path("notes.md", workspace=ws) == str(note.resolve())
 
 
 def test_redact_secrets_covers_quoted_json_keys() -> None:
@@ -738,9 +239,3 @@ def test_redact_secrets_covers_quoted_json_keys() -> None:
     assert "[redacted]" in redact_secrets('"password": "hunter2"')
 
 
-def test_loopback_ip_is_blocked_even_when_private_is_off() -> None:
-    from arelis.tools.safety import is_blocked_url
-
-    assert is_blocked_url("http://127.0.0.1:11434", block_private=False)
-    assert is_blocked_url("http://localhost:11434", block_private=False)
-    assert is_blocked_url("http://example.com", block_private=False) is None

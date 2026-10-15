@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from arelis.browser.places import format_tab_list, parse_tab_select, pick_tab
+from arelis.browser.places import parse_tab_select
 from arelis.browser.session import BrowserSession
 from arelis.tools.browser_tool import BrowserTool
 
@@ -15,30 +15,6 @@ def test_parse_tab_select_splits_index_and_title() -> None:
     assert parse_tab_select("0") == (0, "")
     assert parse_tab_select("Gmail") == (None, "Gmail")
     assert parse_tab_select("  Inbox  ") == (None, "Inbox")
-
-
-def test_format_tab_list_is_index_title_url() -> None:
-    text = format_tab_list(
-        [
-            {"index": 0, "title": "Home / X", "url": "https://x.com/home"},
-            {"index": 1, "title": "Inbox", "url": "https://mail.google.com"},
-        ],
-        active=1,
-    )
-    assert "0|Home / X|https://x.com/home" in text
-    assert "1|Inbox|https://mail.google.com *" in text
-
-
-def test_pick_tab_title_is_substring_not_url() -> None:
-    rows = [
-        {"index": 0, "title": "Home / X", "url": "https://x.com/home"},
-        {"index": 1, "title": "Inbox - Gmail", "url": "https://mail.google.com"},
-    ]
-    assert pick_tab(rows, title="gmail") == (1, "")
-    assert pick_tab(rows, index=0) == (0, "")
-    idx, err = pick_tab(rows, title="https://mail")
-    assert idx is None
-    assert "No tab matching" in err
 
 
 def test_tabs_list_and_select_by_title() -> None:

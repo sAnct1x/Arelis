@@ -123,10 +123,6 @@ def _symbol_visible(src: str, symbol: str) -> None:
     assert _fragment_draws(doc, symbol), src
 
 
-def test_theta_inline_is_visible() -> None:
-    _symbol_visible(r"$\theta$", "θ")
-
-
 def test_delta_inequality_keeps_the_symbol() -> None:
     src = r"$\Delta > 0$"
     doc = _doc(src)

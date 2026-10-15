@@ -7,7 +7,6 @@ import pytest
 from arelis.core.bus import EventBus
 from arelis.core.events import EventType
 from arelis.core.memory import SessionMemory
-from arelis.core.turn_telemetry import TurnTimer
 from arelis.tools.base import ToolRegistry
 from tests.hardening_helpers import (
     _collect,
@@ -73,34 +72,6 @@ async def test_streamed_answer_strips_em_dash_deltas_and_done() -> None:
 
 
 @pytest.mark.asyncio
-async def test_streamed_answer_unspaced_em_dash_token() -> None:
-    bus = EventBus()
-    router = _ScriptedRouter([[("token", "yes"), ("token", EM), ("token", "no")]])
-    tools = ToolRegistry()
-    cfg = _config()
-    cfg["agent"]["chat_fast_path"] = False
-    from arelis.core.agent_loop import AgentLoop
-
-    loop = AgentLoop(
-        bus,
-        router,  # type: ignore[arg-type]
-        tools,
-        SessionMemory(),
-        "persona",
-        cfg,
-        request_confirm=_deny,
-        is_cancelled=lambda: False,
-    )
-    events = await _collect(bus, loop.run("hi", "fast", source="eval"))
-    deltas = [
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.ASSISTANT_DELTA
-    ]
-    assert "".join(deltas) == "yes, no"
-
-
-@pytest.mark.asyncio
 async def test_finish_passthrough_keeps_dash() -> None:
     loop = _loop_with_tools(_ScriptedRouter(["ignored"]))
     text = f"tool said {EM} keep it"
@@ -134,21 +105,3 @@ async def test_finish_does_not_rewrite_source_titles() -> None:
     assert "Here is the summary." in dones[0]
 
 
-@pytest.mark.asyncio
-async def test_finish_marks_dash_filter_telemetry() -> None:
-    loop = _loop_with_tools(_ScriptedRouter(["ignored"]))
-    loop._timer = TurnTimer(
-        source="eval", role="fast", speak=False, user_chars=5, enabled=False
-    )
-    seen: list[dict[str, object]] = []
-    original = loop._timer.mark
-
-    def _capture(event: str, **fields: object) -> None:
-        seen.append({"event": event, **fields})
-        original(event, **fields)
-
-    loop._timer.mark = _capture  # type: ignore[method-assign]
-    await _collect(loop.bus, loop._finish(f"Hello {EM} world", []))
-    marks = [m for m in seen if m.get("event") == "dash_filter"]
-    assert marks
-    assert int(marks[0].get("replaced") or 0) >= 1

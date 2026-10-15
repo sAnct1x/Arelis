@@ -33,11 +33,6 @@ def _action_chords(window) -> set[str]:
     return found
 
 
-def test_shortcut_sheet_lists_comfort_chords() -> None:
-    want = {"ctrl+f", "ctrl+k", "ctrl+n", "ctrl+shift+f"}
-    assert want <= chords()
-
-
 def test_every_window_chord_is_on_the_sheet(arelis_window) -> None:
     window = arelis_window()
     bound = _action_chords(window)

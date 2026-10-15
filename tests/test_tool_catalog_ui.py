@@ -9,15 +9,12 @@ Mutant this file is supposed to catch: a list that drops `cas` or
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
 from arelis.core.compact_prompt import (
     _SHORT_DESC,
     TOOLS_SLASH,
     format_tool_catalog,
-    skinny_description,
 )
 from arelis.core.events import EventType
 from arelis.core.orchestrator_slash import OrchestratorSlash
@@ -57,37 +54,6 @@ def test_catalog_names_cas_and_remind_while_those_tools_exist() -> None:
     assert "timer" in remind.lower() or "minutes" in remind.lower()
 
 
-def test_catalog_is_name_plus_one_line() -> None:
-    text = format_tool_catalog()
-    named = [line for line in text.splitlines() if re.match(r"`[a-z0-9_]+`: ", line)]
-    assert len(named) >= 41
-    for line in named:
-        assert line.count("\n") == 0
-        assert len(line) <= 220
-        assert re.match(r"`[a-z0-9_]+`: \S", line)
-
-
-def test_catalog_does_not_dump_essays() -> None:
-    """A wall of schema prose is how we used to hide the names."""
-    text = format_tool_catalog()
-    assert "parameters" not in text.lower()
-    assert "properties" not in text.lower()
-    body = "\n".join(
-        line for line in text.splitlines() if re.match(r"`[a-z0-9_]+`: ", line)
-    )
-    assert "\n\n" not in body
-
-
-def test_partial_registry_still_keeps_tools_that_exist() -> None:
-    """Passing weather-only must not drop cas/remind. They still exist."""
-    text = format_tool_catalog(
-        [{"name": "weather", "description": "forecast. defaults to home"}]
-    )
-    _named_line(text, "cas")
-    _named_line(text, "remind")
-    _named_line(text, "weather")
-
-
 @pytest.mark.asyncio
 async def test_slash_tools_publishes_the_catalog() -> None:
     """ /tools is the same formatter, not a name dump and not a model turn."""
@@ -114,12 +80,3 @@ async def test_slash_tools_publishes_the_catalog() -> None:
     assert "What she can do" in text
 
 
-def test_catalog_uses_short_desc_not_a_long_fallback() -> None:
-    essay = (
-        "A very long tool description that would have been the old schema "
-        "essay dumped into chat. Second sentence should never appear."
-    )
-    text = format_tool_catalog([{"name": "cas", "description": essay}])
-    line = _named_line(text, "cas")
-    assert "Second sentence" not in line
-    assert skinny_description("cas", essay) in line

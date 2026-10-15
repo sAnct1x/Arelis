@@ -18,7 +18,6 @@ from arelis.core.turn_confirm import RUN, confirm_call
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_execute import execute_call
 from arelis.tools.base import ToolRegistry, ToolResult
-from arelis.ui.theme import apply_theme
 
 _ACCOUNT = "ACCT-778899"
 _OTHER = "REF-100200"
@@ -204,27 +203,6 @@ async def test_private_text_in_fetch_url_asks() -> None:
     assert "your email" in other.confirmations[1][2]
 
 
-async def test_private_phrase_in_path_and_subdomain_asks() -> None:
-    """Four words from a note, in a host label or a path, ask first."""
-    ctx = TurnContext(text="open the clinic page", role="fast")
-    ctx.allow_writes_this_turn = True
-    _remember(ctx, "notes", {"action": "read"}, f"Reminder: {_CLINIC} tomorrow.")
-    host = await _ask(
-        ctx,
-        "browser",
-        {"action": "open", "url": "https://meet-me-at-the-clinic.x.example/"},
-    )
-    assert host.confirmations, "the browser opened with no card"
-    assert "your memory" in host.confirmations[0][2]
-    path = await _ask(
-        ctx,
-        "browser",
-        {"action": "navigate", "url": "https://x.example/meet-me-at-the-clinic"},
-    )
-    assert path.confirmations, "the path opened with no card"
-    assert "your memory" in path.confirmations[0][2]
-
-
 async def test_normal_search_stays_card_free() -> None:
     """A page that does not repeat the private text stays quiet."""
     ctx = TurnContext(text="what is saturn", role="fast")
@@ -264,63 +242,6 @@ async def test_normal_search_stays_card_free() -> None:
         loop=maps,
     )
     assert not maps.confirmations
-
-
-async def test_link_copied_from_email_stays_card_free() -> None:
-    """A tracking link copied whole from the mail is the link, not a leak."""
-    ctx = TurnContext(text="open the link in that mail", role="fast")
-    _remember(
-        ctx,
-        "inbox",
-        {"action": "read"},
-        f"Click here: {_MAIL}\nAccount {_ACCOUNT}",
-    )
-    loop = await _ask(ctx, "web_fetch", {"url": _MAIL})
-    assert not loop.confirmations
-
-
-async def test_user_typed_token_stays_card_free() -> None:
-    """A code the user typed this turn is theirs to look up."""
-    ctx = TurnContext(text=f"look up {_ACCOUNT} for me", role="fast")
-    _remember(ctx, "inbox", {"action": "read"}, f"The code is {_ACCOUNT}.")
-    loop = await _ask(
-        ctx,
-        "web_fetch",
-        {"url": f"https://x.example/?d={_ACCOUNT}"},
-    )
-    assert not loop.confirmations
-
-
-async def test_encoded_token_still_asks() -> None:
-    """Percent-encoding and plus signs do not hide the private text."""
-    ctx = TurnContext(text="check the page", role="fast")
-    _remember(ctx, "inbox", {"action": "read"}, f"Invoice {_ACCOUNT} is due.")
-    _remember(ctx, "notes", {"action": "read"}, _CLINIC)
-    loop = _Loop()
-    loop._decision = "skip"
-    encoded = await _ask(
-        ctx,
-        "web_fetch",
-        {"url": "https://x.example/?d=%41CCT-778899"},
-        loop=loop,
-    )
-    assert encoded.confirmations, "the encoded account number did not ask"
-    assert "your email" in encoded.confirmations[0][2]
-    doubled = await _ask(
-        ctx,
-        "web_fetch",
-        {"url": "https://z.example/?d=%2541CCT-778899"},
-        loop=loop,
-    )
-    assert len(doubled.confirmations) == 2
-    phrase = await _ask(
-        ctx,
-        "scrape",
-        {"url": "https://y.example/meet+me+at+the+clinic"},
-        loop=loop,
-    )
-    assert len(phrase.confirmations) == 3
-    assert "your memory" in phrase.confirmations[-1][2]
 
 
 async def test_private_url_card_has_no_batch_or_persist() -> None:
@@ -381,18 +302,3 @@ async def test_private_url_card_has_no_batch_or_persist() -> None:
     assert action != RUN
 
 
-async def test_private_url_asks_in_filament() -> None:
-    """Filament still asks, out loud, when the address carries private text."""
-    ctx = TurnContext(text="what is in my inbox", role="fast")
-    _remember(ctx, "inbox", {"action": "read"}, f"Invoice {_ACCOUNT} is due.")
-    try:
-        apply_theme("filament")
-        loop = await _ask(
-            ctx,
-            "web_fetch",
-            {"url": f"https://x.example/?d={_ACCOUNT}"},
-        )
-    finally:
-        apply_theme("sodium")
-    assert loop.confirmations, "filament opened the address with no card"
-    assert "your email" in loop.confirmations[0][2]

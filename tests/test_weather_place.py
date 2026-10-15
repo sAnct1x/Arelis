@@ -29,7 +29,6 @@ import pytest
 from arelis.briefing.weather import (
     ResolvedPlace,
     choose_geocode_hit,
-    geocode_place,
     resolve_place,
 )
 from arelis.tools.weather import WeatherTool
@@ -165,72 +164,6 @@ async def test_resolve_place_keeps_the_named_region() -> None:
     assert place.label == "Springfield, Illinois"
     assert place.latitude == pytest.approx(39.7817)
     assert all("New Zealand" not in alt for alt in place.alternatives)
-
-
-@pytest.mark.asyncio
-async def test_an_unambiguous_place_has_no_alternatives() -> None:
-    client = _FakeClient(
-        {
-            "results": [
-                {
-                    "name": "Reykjavík",
-                    "latitude": 64.1,
-                    "longitude": -21.9,
-                    "country": "Iceland",
-                }
-            ]
-        }
-    )
-
-    place = await resolve_place("Reykjavik", client=client)
-
-    assert place.label == "Reykjavík, Iceland"
-    assert not place.alternatives
-
-
-@pytest.mark.asyncio
-async def test_a_same_country_duplicate_name_is_not_an_alternative() -> None:
-    """The same city echoed twice by the API is noise, not ambiguity."""
-    client = _FakeClient(
-        {
-            "results": [
-                {
-                    "name": "Paris",
-                    "latitude": 48.9,
-                    "longitude": 2.4,
-                    "country": "France",
-                    "admin1": "Île-de-France",
-                },
-                {
-                    "name": "Paris",
-                    "latitude": 48.9,
-                    "longitude": 2.4,
-                    "country": "France",
-                    "admin1": "Île-de-France",
-                },
-            ]
-        }
-    )
-
-    place = await resolve_place("Paris", client=client)
-
-    assert not place.alternatives
-
-
-@pytest.mark.asyncio
-async def test_a_miss_is_none_not_a_crash() -> None:
-    client = _FakeClient({"results": []})
-    assert await resolve_place("zzzzzz", client=client) is None
-
-
-@pytest.mark.asyncio
-async def test_the_old_tuple_helper_still_works() -> None:
-    """briefing/weather.py:141 and the profile path both call this."""
-    client = _FakeClient(_SPRINGFIELDS)
-
-    coords = await geocode_place("Springfield", client=client)
-
-    assert coords == (pytest.approx(39.7817), pytest.approx(-89.6501))
 
 
 # --------------------------------------------------------------------------

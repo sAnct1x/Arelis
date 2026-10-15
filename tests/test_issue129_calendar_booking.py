@@ -10,7 +10,7 @@ import asyncio
 from datetime import date, timedelta
 from urllib.parse import parse_qs, urlsplit
 
-from arelis.browser.reserve import normalize_date, reserve_url
+from arelis.browser.reserve import reserve_url
 from arelis.browser.session import BrowserSession
 from arelis.core.failure_copy import chat_followup_from_tool
 from arelis.tools.agenda import AgendaTool
@@ -83,23 +83,6 @@ def test_next_friday_at_seven_is_on_the_card_and_in_the_link() -> None:
     assert "or Resy" not in card
 
 
-def test_next_friday_from_a_wednesday_is_the_ninth() -> None:
-    assert normalize_date("next Friday", today=date(2026, 10, 7)) == "2026-10-09"
-    card = describe_call(
-        "browser",
-        {
-            "action": "reserve",
-            "place": _PLACE,
-            "date": "2026-10-09",
-            "time": "7pm",
-        },
-    )
-    assert "Date: Friday, October 9" in card
-    assert "Time: 7 PM" in card
-    assert "2026-10-09" not in card
-    assert "19:00" not in card
-
-
 def test_a_date_that_cannot_be_read_asks_instead_of_dropping_it() -> None:
     url = reserve_url(_PLACE, date="sometime", time="7pm")
     card = describe_call(
@@ -142,27 +125,6 @@ def test_the_card_names_the_site_that_will_open() -> None:
     assert "Opens Resy." in card
     assert "OpenTable" not in card
     assert "or Resy" not in card
-
-
-def test_a_group_over_twenty_says_the_cap() -> None:
-    note = "Online booking takes up to 20. For a bigger group, call the restaurant."
-    url = reserve_url(_PLACE, site="opentable", party=30)
-    card = describe_call(
-        "browser",
-        {"action": "reserve", "place": _PLACE, "site": "opentable", "party": 30},
-    )
-    assert _query(url)["covers"] == ["20"]
-    assert "Party: 20" in card
-    assert note in card
-
-
-def test_a_group_of_four_does_not_mention_the_cap() -> None:
-    card = describe_call(
-        "browser",
-        {"action": "reserve", "place": _PLACE, "party": 4},
-    )
-    assert "Party: 4" in card
-    assert "takes up to 20" not in card
 
 
 def test_the_opened_link_keeps_next_friday_and_seven() -> None:

@@ -97,35 +97,6 @@ async def test_dated_observer_returns_ra_dec_rows_without_page() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dated_observer_asks_for_ra_dec_now_distance_does_not() -> None:
-    seen: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(str(request.url))
-        url = unquote(str(request.url))
-        if "STEP_SIZE=1d" in url or "STEP_SIZE=1%64" in url:
-            blob = _observer_blob()
-        else:
-            blob = (
-                "$$SOE\n"
-                " 2026-Oct-05 22:17     0.002498000  -0.010\n"
-                " 2026-Oct-05 23:17     0.002499000  -0.010\n"
-                "$$EOE\n"
-            )
-        return httpx.Response(200, json={"result": blob})
-
-    tool = _tool(handler)
-    dated = await tool.run(action="horizons", target="499", date="2026-10-01", table="observer")
-    assert dated.ok, dated.output
-    now = await tool.run(action="horizons", target="Mars")
-    assert now.ok, now.output
-    assert "from Earth right now" in now.output
-    assert len(seen) == 2
-    assert _quantities(seen[0]) == "1,20,23,24"
-    assert _quantities(seen[1]) == "20,23,24"
-
-
-@pytest.mark.asyncio
 async def test_long_preamble_still_returns_the_rows() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         del request

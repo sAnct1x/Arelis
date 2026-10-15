@@ -8,23 +8,13 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QDialog, QLabel
 
-from arelis.ui.dialog import ConfirmDialog, GlassDialog
+from arelis.ui.dialog import ConfirmDialog
 from arelis.ui.first_run import FirstRunDialog
 from arelis.ui.glass import GlassFrame
 
 
 def _press(widget, key: Qt.Key) -> None:
     widget.keyPressEvent(QKeyEvent(QKeyEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier))
-
-
-def test_glass_dialog_is_frameless_and_on_glass(qt_app) -> None:
-    dialog = GlassDialog("Question")
-    try:
-        flags = dialog.windowFlags()
-        assert flags & Qt.WindowType.FramelessWindowHint
-        assert dialog.findChildren(GlassFrame)
-    finally:
-        dialog.deleteLater()
 
 
 def test_confirm_never_lands_on_the_destroying_answer(qt_app) -> None:

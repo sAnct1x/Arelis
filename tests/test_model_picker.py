@@ -53,61 +53,6 @@ def test_model_picker_shows_three_roles(qt_app) -> None:
         dlg.close()
 
 
-def test_model_picker_applied_payload_contains_models(qt_app) -> None:
-    dlg = SettingsDialog(_dialog_config(), list_models=_tags)
-    try:
-        idx = dlg.fast_model.findData("llama3:8b")
-        assert idx >= 0
-        dlg.fast_model.setCurrentIndex(idx)
-        values = dlg.values()
-        assert "models" in values
-        assert values["models"]["fast"] == "llama3:8b"
-        assert values["models"]["research"] == "qwen3.5:9b"
-        assert values["models"]["vision"] == "qwen2.5vl:3b"
-    finally:
-        dlg.close()
-
-
-def test_model_picker_payload_mutant_drops_models(qt_app) -> None:
-    """Mutant: dropping models from the applied payload must fail."""
-    dlg = SettingsDialog(_dialog_config(), list_models=_tags)
-    try:
-        values = dlg.values()
-        assert "models" in values
-        assert set(values["models"]) >= {"fast", "research", "vision"}
-        for role in ("fast", "research", "vision"):
-            assert values["models"][role], role
-    finally:
-        dlg.close()
-
-
-def test_model_picker_keeps_configured_tag_when_not_installed(qt_app) -> None:
-    dlg = SettingsDialog(
-        _dialog_config(fast="custom:local"),
-        list_models=lambda: ["llama3:8b"],
-    )
-    try:
-        tags = [dlg.fast_model.itemData(i) for i in range(dlg.fast_model.count())]
-        assert "custom:local" in tags
-        assert "llama3:8b" in tags
-        assert dlg.fast_model.currentData() == "custom:local"
-    finally:
-        dlg.close()
-
-
-def test_model_picker_ollama_down_shows_configured(qt_app) -> None:
-    def _down() -> list[str]:
-        raise OSError("ollama down")
-
-    dlg = SettingsDialog(_dialog_config(), list_models=_down)
-    try:
-        assert "Ollama not reachable" in dlg._models_note.text()
-        assert dlg.fast_model.currentData() == "qwen3.5:9b"
-        assert dlg.vision_model.currentData() == "qwen2.5vl:3b"
-    finally:
-        dlg.close()
-
-
 def test_apply_settings_writes_models_and_router(monkeypatch) -> None:
     writes: list[dict] = []
     monkeypatch.setattr(

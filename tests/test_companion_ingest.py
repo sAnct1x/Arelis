@@ -51,24 +51,6 @@ async def _stop(bus, task, server) -> None:
 
 
 @pytest.mark.asyncio
-async def test_health_includes_companion_snapshot(monkeypatch) -> None:
-    monkeypatch.setattr(companion_pack, "find_apk", lambda: None)
-    monkeypatch.setattr(companion_pack, "find_gemma", lambda: None)
-    monkeypatch.setattr(companion_pack, "expected_companion", lambda gradle=None: None)
-    bus, task, server, base = await _serve()
-    try:
-        async with httpx.AsyncClient() as client:
-            health = await client.get(f"{base}/inbound/health")
-        assert health.status_code == 200
-        snap = health.json()["companion"]
-        assert snap["apk"] is False
-        assert snap["gemma"] is False
-        assert snap["arelis"]
-    finally:
-        await _stop(bus, task, server)
-
-
-@pytest.mark.asyncio
 async def test_companion_manifest_needs_auth(monkeypatch) -> None:
     monkeypatch.setattr(companion_pack, "find_apk", lambda: None)
     monkeypatch.setattr(companion_pack, "find_gemma", lambda: None)

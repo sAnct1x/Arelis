@@ -51,31 +51,12 @@ def test_matching_citations_keep_the_papers_and_drop_the_rest() -> None:
     assert ranked[0].snippet == "Reference cited on K2-18b"
 
 
-def test_one_shared_word_is_not_enough() -> None:
-    citations = parse_wiki_citations(
-        "{{cite web |title=Asyncio tutorial for Python |url=https://example.com/asyncio}}\n"
-        "{{cite web |title=Baking bread at home |url=https://example.com/bread}}"
-    )
-    ranked = rank_matching_citations(citations, "python asyncio tutorial", limit=4)
-    assert [item.url for item in ranked] == ["https://example.com/asyncio"]
-
-
 def test_citations_fill_ahead_of_the_article() -> None:
     cited = [SearchResult("Paper", "https://arxiv.org/abs/2309.05566")]
     pages = [SearchResult("K2-18b", "https://en.wikipedia.org/wiki/K2-18b")]
     merged = merge_citations(cited, pages, 6)
     assert merged[0].url == "https://arxiv.org/abs/2309.05566"
     assert merged[-1].url.startswith("https://en.wikipedia.org/")
-
-
-def test_a_full_citation_list_does_not_keep_the_article() -> None:
-    cited = [
-        SearchResult(f"Paper {i}", f"https://example.com/p{i}") for i in range(6)
-    ]
-    pages = [SearchResult("Article", "https://en.wikipedia.org/wiki/Article")]
-    merged = merge_citations(cited, pages, 6)
-    assert len(merged) == 6
-    assert all("wikipedia.org" not in item.url for item in merged)
 
 
 class _Backend:

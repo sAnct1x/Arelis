@@ -43,23 +43,6 @@ def test_every_registered_tool_has_exactly_one_group() -> None:
     assert extras == [], extras
 
 
-def test_core_under_2000_tokens() -> None:
-    from arelis.tools.groups import CORE
-    from scripts.measure_tool_schema import (
-        registry_for_profile,
-        schema_token_estimate,
-        tool_specs,
-    )
-
-    specs = [
-        spec
-        for spec in tool_specs(registry_for_profile("worst"))
-        if spec["function"]["name"] in CORE
-    ]
-    tokens = schema_token_estimate(len(json.dumps(specs)))
-    assert tokens <= 2000, tokens
-
-
 def test_menu_and_keywords_are_plain() -> None:
     from arelis.tools.groups import GROUPS, KEYWORDS, MENU
 

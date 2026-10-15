@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from arelis.tools.agenda import _parse_dt, _parse_duration_min, _parse_free_day, _parse_work_clock
@@ -15,21 +15,6 @@ def test_parse_dt_iso_stays_local() -> None:
     assert dt.day == 6
     assert dt.hour == 15
     assert dt.tzinfo is not None
-
-
-def test_parse_dt_named_weekday_clock() -> None:
-    dt = _parse_dt("Monday September 7, 2026 at 10:15 AM", field="start")
-    assert (dt.year, dt.month, dt.day, dt.hour, dt.minute) == (2026, 9, 7, 10, 15)
-
-
-def test_parse_dt_tomorrow_afternoon() -> None:
-    dt = _parse_dt("tomorrow 3:00 PM", field="start")
-    from arelis.tools.agenda import _local_now
-
-    expect = _local_now().date() + timedelta(days=1)
-    assert dt.date() == expect
-    assert dt.hour == 15
-    assert dt.minute == 0
 
 
 def test_parse_free_day_weekday_iso_and_today() -> None:

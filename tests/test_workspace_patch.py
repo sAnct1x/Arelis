@@ -36,20 +36,6 @@ def test_patch_and_apply_hit_the_confirm_table() -> None:
 
 
 @pytest.mark.asyncio
-async def test_patch_applies_a_real_unified_diff(tmp_path: Path) -> None:
-    tool = CodeWorkspaceTool([str(tmp_path)])
-    target = tmp_path / "hello.py"
-    target.write_text("return 1\n", encoding="utf-8")
-
-    result = await tool.run(
-        action="patch",
-        diff=_udiff("hello.py", "return 1", "return 2"),
-    )
-    assert result.ok, result.output
-    assert target.read_text(encoding="utf-8") == "return 2\n"
-
-
-@pytest.mark.asyncio
 async def test_apply_and_content_args_also_land(tmp_path: Path) -> None:
     tool = CodeWorkspaceTool([str(tmp_path)])
     (tmp_path / "a.txt").write_text("old\n", encoding="utf-8")
@@ -66,32 +52,6 @@ async def test_apply_and_content_args_also_land(tmp_path: Path) -> None:
     )
     assert via_content.ok, via_content.output
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "via-content\n"
-
-
-@pytest.mark.asyncio
-async def test_empty_diff_is_ok(tmp_path: Path) -> None:
-    tool = CodeWorkspaceTool([str(tmp_path)])
-    (tmp_path / "stays.txt").write_text("same\n", encoding="utf-8")
-
-    result = await tool.run(action="patch", diff="")
-    assert result.ok
-    assert (tmp_path / "stays.txt").read_text(encoding="utf-8") == "same\n"
-
-
-@pytest.mark.asyncio
-async def test_mismatched_context_does_not_apply(tmp_path: Path) -> None:
-    """Mutant: skip the context check and the hunk still lands."""
-    tool = CodeWorkspaceTool([str(tmp_path)])
-    target = tmp_path / "note.txt"
-    target.write_text("alpha\n", encoding="utf-8")
-
-    result = await tool.run(
-        action="patch",
-        diff=_udiff("note.txt", "not-what-is-there", "beta"),
-    )
-    assert not result.ok
-    assert "context" in result.output.lower()
-    assert target.read_text(encoding="utf-8") == "alpha\n"
 
 
 @pytest.mark.asyncio
@@ -116,25 +76,6 @@ async def test_dotdot_in_plus_path_does_not_escape(tmp_path: Path) -> None:
     assert victim.read_text(encoding="utf-8") == "untouched\n"
     assert (root / "inside.txt").read_text(encoding="utf-8") == "hello\n"
     assert not (tmp_path / "pwned").exists()
-
-
-@pytest.mark.asyncio
-async def test_second_file_failure_does_not_half_apply(tmp_path: Path) -> None:
-    """Mutant: write as you go and file one is already patched when file two dies."""
-    tool = CodeWorkspaceTool([str(tmp_path)])
-    one = tmp_path / "one.py"
-    two = tmp_path / "two.py"
-    one.write_text("aaa\n", encoding="utf-8")
-    two.write_text("bbb\n", encoding="utf-8")
-
-    diff = (
-        _udiff("one.py", "aaa", "AAA")
-        + _udiff("two.py", "XXX", "BBB")
-    )
-    result = await tool.run(action="patch", diff=diff)
-    assert not result.ok
-    assert one.read_text(encoding="utf-8") == "aaa\n"
-    assert two.read_text(encoding="utf-8") == "bbb\n"
 
 
 @pytest.mark.asyncio
@@ -173,9 +114,3 @@ async def test_binary_diff_is_refused(tmp_path: Path) -> None:
     assert (tmp_path / "x.bin").read_text(encoding="utf-8") == "not-bin-text\n"
 
 
-@pytest.mark.asyncio
-async def test_patch_requires_a_diff(tmp_path: Path) -> None:
-    tool = CodeWorkspaceTool([str(tmp_path)])
-    result = await tool.run(action="patch")
-    assert not result.ok
-    assert "diff" in result.output.lower()

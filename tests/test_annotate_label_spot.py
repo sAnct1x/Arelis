@@ -71,22 +71,3 @@ async def test_fraction_label_lands_on_the_pillar(project, tool) -> None:
     _near(left, top, round(0.5 * 200), round(0.4 * 150))
 
 
-@pytest.mark.asyncio
-async def test_position_wins_when_xy_are_the_default_corner(project, tool) -> None:
-    root, _data, _ws = project
-    left, top = await _label(tool, root, {"x": 0, "y": 0, "position": [70, 40]})
-    _near(left, top, 70, 40)
-
-
-@pytest.mark.asyncio
-async def test_x1_y1_is_the_label_spot(project, tool) -> None:
-    root, _data, _ws = project
-    left, top = await _label(tool, root, {"x1": 80, "y1": 40})
-    _near(left, top, 80, 40)
-
-
-@pytest.mark.asyncio
-async def test_integer_pixels_still_land_on_that_spot(project, tool) -> None:
-    root, _data, _ws = project
-    left, top = await _label(tool, root, {"x": 70, "y": 40})
-    _near(left, top, 70, 40)

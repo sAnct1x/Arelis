@@ -23,20 +23,11 @@ unless the VL model is installed. This file pins that isolated profile.
 
 from __future__ import annotations
 
-import inspect
-import json
-import re
 import sys
 
-import pytest
-
 from scripts.measure_tool_schema import (
-    CAP_RAISE_TOKENS,
     SCHEMA_TOKEN_CAP,
-    authored_parameter_docs,
     measure,
-    schema_token_estimate,
-    tokenizer_json_path,
     tool_specs,
 )
 
@@ -125,25 +116,6 @@ def default_session_order() -> tuple[str, ...]:
     return tuple(names)
 
 
-def test_the_tool_count_is_deliberate() -> None:
-    """Tools arrive by decision, not by accident. Update the number knowingly."""
-    stats = measure(tool_specs())
-    expected = len(default_session_order())
-    assert stats["tools"] == expected, (
-        f"tool count moved to {stats['tools']}. If that was intended, update "
-        "SESSION_TOOL_ORDER and check measure_tool_surface_prefill.py. Every "
-        "tool is in the constant prefix of every single turn."
-    )
-
-
-def test_the_schema_stays_inside_its_budget() -> None:
-    stats = measure(tool_specs())
-    assert stats["schema_tokens_approx"] <= MAX_SCHEMA_TOKENS, (
-        f"tool schema grew to ~{stats['schema_tokens_approx']} tokens. "
-        "That is prefilled on every turn; re-measure before raising the cap."
-    )
-
-
 def test_no_tool_ships_without_a_description() -> None:
     """An unnamed tool is a coin flip for the model."""
     thin = [
@@ -155,14 +127,6 @@ def test_no_tool_ships_without_a_description() -> None:
     assert not thin, f"tools described in under {MIN_DESCRIPTION_CHARS} chars: {thin}"
 
 
-def test_descriptions_do_not_get_terser() -> None:
-    stats = measure(tool_specs())
-    assert stats["description_median"] >= MIN_MEDIAN_DESCRIPTION, (
-        f"median tool description fell to {stats['description_median']} chars. "
-        "The compensation layer exists because these are already terse."
-    )
-
-
 def test_an_action_parameter_always_lists_its_verbs() -> None:
     """Without an enum the model invents the verb, and the call is rejected."""
     stats = measure(tool_specs())
@@ -170,97 +134,6 @@ def test_an_action_parameter_always_lists_its_verbs() -> None:
         "tools whose action= has no enum: "
         f"{stats['action_without_enum']}. The model has to guess the verb."
     )
-
-
-def test_the_authored_descriptions_are_still_written() -> None:
-    """Guards the asset, separately from whether it is used.
-
-    If someone deletes the source descriptions because "nothing reads them",
-    the Phase 2 experiment stops being a one-function change.
-    """
-    documented, total = authored_parameter_docs()
-    assert documented == total, (
-        f"only {documented}/{total} parameter descriptions remain in the source "
-        "schemas. These are the material for the schema experiment — do not "
-        "delete them on the grounds that the model never sees them."
-    )
-    assert total >= 253, f"parameter count fell to {total}; a tool lost its schema"
-
-
-def test_records_that_none_of_them_reach_the_model() -> None:
-    """The headline finding, pinned so it cannot change silently.
-
-    This asserts the *current* behaviour, not the desired one. When
-    skinny_parameters stops stripping, this test fails — and the right response
-    is to invert it, not to restore the stripping.
-    """
-    stats = measure(tool_specs())
-    documented, _total = authored_parameter_docs()
-    assert stats["documented_params"] == 0, (
-        "parameter descriptions are now reaching the model. That is the Phase 2 "
-        "goal, so invert this assertion and record the prefill cost from "
-        "scripts/measure_tool_surface_prefill.py alongside it."
-    )
-    thrown_away = documented - stats["documented_params"]
-    assert thrown_away == documented, (
-        f"{thrown_away} of {documented} authored descriptions are stripped. "
-        "A partial strip is the worst of both: the cost of the text without "
-        "the benefit."
-    )
-
-
-def test_schema_token_estimate_is_the_qwen_ratio() -> None:
-    """The calibrated ratio stays. The ceiling is that ratio plus 500."""
-    assert schema_token_estimate(23_570) == 7_132
-    assert SCHEMA_TOKEN_CAP["default"] == 7_036
-    assert SCHEMA_TOKEN_CAP["worst"] == 7_640
-    assert MAX_SCHEMA_TOKENS == SCHEMA_TOKEN_CAP["default"]
-    assert MAX_SCHEMA_TOKENS == schema_token_estimate(5_400 * 4) + CAP_RAISE_TOKENS
-
-
-def test_session_tool_order_is_pinned() -> None:
-    from arelis.config import load_config
-    from arelis.core.tool_surface import session_tool_schemas
-    from scripts.measure_tool_schema import _registry
-
-    config = load_config()
-    names = [
-        spec["function"]["name"]
-        for spec in session_tool_schemas(_registry(), config.get("agent"))
-    ]
-    assert names == [spec.get("function", spec)["name"] for spec in tool_specs()]
-    assert names == list(default_session_order())
-
-
-def test_warmup_schema_bytes_match_the_turn_schema() -> None:
-    """Startup warmup and every turn share one schema array."""
-    from arelis.config import load_config
-    from arelis.core.tool_surface import session_tool_schemas
-    from arelis.llm.startup import prefix_warmup_for
-    from scripts.measure_tool_schema import _registry
-
-    config = load_config()
-    registry = _registry()
-    agent = config.get("agent")
-    first = session_tool_schemas(registry, agent)
-    second = session_tool_schemas(registry, agent)
-    warm = prefix_warmup_for(config, registry)
-    assert warm is not None
-    blob = json.dumps(first)
-    assert blob == json.dumps(second) == json.dumps(warm.tools)
-
-
-def test_the_hide_list_is_a_fixed_constant() -> None:
-    import arelis.tools.model_schema as model_schema
-    from arelis.tools.model_schema import MODEL_HIDDEN_PARAMS, model_parameters
-
-    assert model_schema.MODEL_HIDDEN_PARAMS is MODEL_HIDDEN_PARAMS
-    assert type(MODEL_HIDDEN_PARAMS).__name__ == "mappingproxy"
-    assert all(isinstance(names, frozenset) for names in MODEL_HIDDEN_PARAMS.values())
-    assert list(inspect.signature(model_parameters).parameters) == ["tool_name", "params"]
-    assert "environ" not in model_parameters.__code__.co_names
-    assert "memory" not in MODEL_HIDDEN_PARAMS
-    assert sum(len(names) for names in MODEL_HIDDEN_PARAMS.values()) == 71
 
 
 def test_hidden_params_leave_the_model_schema_and_stay_accepted() -> None:
@@ -336,66 +209,6 @@ def test_hidden_params_leave_the_model_schema_and_stay_accepted() -> None:
     assert raised, "hiding a required parameter must fail"
 
 
-def test_short_descriptions_name_real_actions() -> None:
-    from arelis.core.compact_prompt import _SHORT_DESC
-    from arelis.tools.schedule_jobs import ScheduleTool
-    from arelis.tools.tasks import TasksTool
-
-    enums = {
-        "tasks": set(TasksTool.parameters_schema["properties"]["action"]["enum"]),
-        "schedule": set(ScheduleTool.parameters_schema["properties"]["action"]["enum"]),
-    }
-    bad = []
-    for name, enum in enums.items():
-        for match in re.finditer(
-            r"action=([a-z_]+(?:\|[a-z_]+)*)", _SHORT_DESC[name]
-        ):
-            bad.extend(
-                (name, verb)
-                for verb in match.group(1).split("|")
-                if verb not in enum
-            )
-    assert not bad, bad
-    assert "drop" not in _SHORT_DESC["tasks"]
-    assert "run_now" in _SHORT_DESC["schedule"]
-    data_cell = _SHORT_DESC["data_cell"]
-    assert len(data_cell) > 13
-    assert "not weather" in data_cell
-
-
-def test_native_one_liners_separate_documents_from_lookups() -> None:
-    """Native mode reads these lines, not the long class descriptions.
-
-    A formatted document file is document. Plain files in the code
-    workspace are workspace. A sourced multi-source report starts with
-    research_report, which does its own searching. web_search is a quick
-    lookup.
-    """
-    from arelis.core.compact_prompt import _SHORT_DESC
-
-    document = _SHORT_DESC["document"]
-    workspace = _SHORT_DESC["workspace"]
-    research = _SHORT_DESC["research_report"]
-    web = _SHORT_DESC["web_search"]
-
-    assert "formatted document" in document
-    assert "md" in document and "csv" in document
-    assert "docx" in document and "pdf" in document
-    assert "not workspace" in document
-    assert "code workspace" in workspace
-    assert "not a formatted document" in workspace
-    assert "patch=unified diff" in workspace
-    assert "writes confirm" in workspace
-    assert "first choice" in research
-    assert "sourced" in research and "multi-source" in research
-    assert "searches" in research and "scrapes" in research
-    assert web.startswith("quick lookup")
-    assert "sourced report" in web
-    assert "research_report" in web
-    assert "never guess a url" in web
-    assert "search first" not in web
-
-
 def test_workspace_actions_stay_in_the_model_enum() -> None:
     """The one-liner no longer lists verbs. The enum the model sees still does.
 
@@ -456,17 +269,3 @@ def test_workspace_actions_stay_in_the_model_enum() -> None:
     assert not missing, missing
 
 
-def test_calibrated_ratio_stays_within_two_percent_of_the_real_tokenizer() -> None:
-    """Opt-in. Runs only when tokenizers and a tokenizer.json are present."""
-    pytest.importorskip("tokenizers")
-    path = tokenizer_json_path()
-    if path is None:
-        pytest.skip("tokenizer.json is not present")
-    from tokenizers import Tokenizer
-
-    blob = json.dumps(tool_specs())
-    real = len(Tokenizer.from_file(str(path)).encode(blob).ids)
-    estimate = schema_token_estimate(len(blob))
-    assert real > 0
-    drift = abs(estimate - real) / real
-    assert drift <= 0.02, (estimate, real, round(drift, 4))

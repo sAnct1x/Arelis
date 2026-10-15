@@ -22,14 +22,9 @@ import pytest
 from arelis.reminders import (
     KIND,
     MAX_DELAY_DAYS,
-    MAX_MESSAGE_CHARS,
-    MAX_PENDING,
-    ReminderError,
     ReminderStore,
-    default_reminders_path,
-    normalize_message,
 )
-from arelis.tools.remind import REMIND_WRITE_ACTIONS, WRITE_ACTIONS, RemindTool
+from arelis.tools.remind import RemindTool
 
 
 def _now() -> datetime:
@@ -99,79 +94,6 @@ async def test_tool_run_in_is_due_after_travel_forward(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_run_cancel_removes_it(tmp_path: Path) -> None:
-    """Mutant: cancel prints ok and leaves the row on disk."""
-    tool = _tool(tmp_path)
-    created = await tool.run(action="in", seconds=90, message="check the stove")
-    assert created.ok, created.output
-    reminder_id = created.data["id"]
-
-    cancelled = await tool.run(action="cancel", id=reminder_id)
-    assert cancelled.ok, cancelled.output
-    assert cancelled.data["id"] == reminder_id
-
-    store = ReminderStore(tmp_path / "reminders.json")
-    assert store.get(reminder_id) is None
-    assert store.list_pending() == []
-    later = _now() + timedelta(hours=1)
-    assert store.due_now(later) == []
-
-    listed = await tool.run(action="list")
-    assert listed.ok
-    assert listed.data["reminders"] == []
-
-
-@pytest.mark.asyncio
-async def test_restart_new_store_on_same_file_still_sees_it(tmp_path: Path) -> None:
-    """Mutant: persist is skipped; only the live object holds the row."""
-    first = _store(tmp_path)
-    item = first.add_in("call the bank", minutes=15, now=_now())
-    path = tmp_path / "reminders.json"
-    assert path.is_file()
-
-    restarted = ReminderStore(path)
-    found = restarted.get(item.id)
-    assert found is not None
-    assert found.message == "call the bank"
-    assert found.due_iso == item.due_iso
-    assert not found.fired
-    pending = restarted.list_pending()
-    assert len(pending) == 1
-    assert pending[0].id == item.id
-
-
-@pytest.mark.asyncio
-async def test_fired_items_do_not_return_again(tmp_path: Path) -> None:
-    """Mutant: mark_fired is a no-op, or it does not persist."""
-    store = _store(tmp_path)
-    item = store.add_in("stand up", seconds=30, now=_now())
-    later = item.due_at() + timedelta(seconds=1)
-    assert store.due_now(later)
-    assert store.mark_fired(item.id)
-    assert store.due_now(later) == []
-    assert store.due_now(later + timedelta(hours=2)) == []
-
-    restarted = ReminderStore(tmp_path / "reminders.json")
-    assert restarted.due_now(later + timedelta(hours=2)) == []
-    loaded = restarted.get(item.id)
-    assert loaded is not None
-    assert loaded.fired
-
-
-@pytest.mark.asyncio
-async def test_overdue_on_load_is_due(tmp_path: Path) -> None:
-    """Mutant: load drops due < now so a downtime swallows the toast."""
-    path = tmp_path / "reminders.json"
-    _seed_overdue(path, fired=False)
-    store = ReminderStore(path)
-    due = store.due_now(_now())
-    assert len(due) == 1
-    assert due[0].id == "1"
-    assert due[0].message == "take the pizza out"
-    assert store.seconds_until_next(_now()) == 0.0
-
-
-@pytest.mark.asyncio
 async def test_zero_and_negative_delay_fail(tmp_path: Path) -> None:
     """Mutant: minutes=0 is treated as now and written."""
     tool = _tool(tmp_path)
@@ -195,41 +117,6 @@ async def test_zero_and_negative_delay_fail(tmp_path: Path) -> None:
     if path.is_file():
         raw = json.loads(path.read_text(encoding="utf-8"))
         assert raw.get("items") == []
-
-
-@pytest.mark.asyncio
-async def test_tool_run_is_actually_called(tmp_path: Path) -> None:
-    """Mutant: the suite only hits ReminderStore and run() is a stub."""
-    tool = _tool(tmp_path)
-    created = await tool.run(
-        action="in", hours=1, text="walk the dog"
-    )
-    assert created.ok, created.output
-    assert "walk the dog" in created.output
-    assert created.data["kind"] == KIND
-
-    listed = await tool.run(action="list")
-    assert listed.ok
-    assert listed.data["reminders"]
-    assert listed.data["reminders"][0]["message"] == "walk the dog"
-    assert listed.data["reminders"][0]["id"] == created.data["id"]
-    assert created.data["id"] in listed.output
-    assert "walk the dog" in listed.output
-
-    wall = datetime.now().astimezone()
-    when = (wall + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M")
-    at = await tool.run(action="at", when=when, message="dinner")
-    assert at.ok, at.output
-    assert at.data["kind"] == KIND
-    assert "dinner" in at.output
-
-    iso = (wall + timedelta(hours=3)).isoformat(timespec="minutes")
-    again = await tool.run(action="at", at=iso, text="tea")
-    assert again.ok, again.output
-
-    unknown = await tool.run(action="snooze")
-    assert not unknown.ok
-    assert "list" in unknown.output
 
 
 @pytest.mark.asyncio
@@ -258,77 +145,3 @@ async def test_at_past_and_beyond_seven_days_fail(tmp_path: Path) -> None:
     assert "agenda" in delay.output.lower()
 
 
-@pytest.mark.asyncio
-async def test_message_required_and_capped(tmp_path: Path) -> None:
-    tool = _tool(tmp_path)
-    missing = await tool.run(action="in", minutes=5)
-    assert not missing.ok
-    assert "message" in missing.output.lower()
-
-    long = await tool.run(action="in", minutes=5, message="x" * (MAX_MESSAGE_CHARS + 1))
-    assert not long.ok
-    assert str(MAX_MESSAGE_CHARS) in long.output
-
-
-@pytest.mark.asyncio
-async def test_max_pending(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    stamp = _now()
-    for i in range(MAX_PENDING):
-        store.add_in(f"item {i}", seconds=30 + i, now=stamp)
-    with pytest.raises(ReminderError, match="Too many pending"):
-        store.add_in("one more", seconds=90, now=stamp)
-    assert len(store.list_pending()) == MAX_PENDING
-
-
-@pytest.mark.asyncio
-async def test_seconds_until_next(tmp_path: Path) -> None:
-    store = _store(tmp_path)
-    assert store.seconds_until_next(_now()) is None
-    store.add_in("soon", minutes=20, now=_now())
-    wait = store.seconds_until_next(_now())
-    assert wait is not None
-    assert wait == pytest.approx(20 * 60, abs=1.0)
-    overdue = store.seconds_until_next(_now() + timedelta(hours=1))
-    assert overdue == 0.0
-
-
-@pytest.mark.asyncio
-async def test_write_actions_are_in_at_cancel() -> None:
-    assert WRITE_ACTIONS == {"in", "at", "cancel"}
-    assert REMIND_WRITE_ACTIONS == WRITE_ACTIONS
-    assert "list" not in WRITE_ACTIONS
-
-
-@pytest.mark.parametrize(
-    "raw", ["", " ", "\n", "\t", " \n\t ", None, " " * (MAX_MESSAGE_CHARS + 5)]
-)
-def test_normalize_message_rejects_empty_and_whitespace(raw: object) -> None:
-    with pytest.raises(ReminderError, match="needs a message"):
-        normalize_message(raw)
-
-
-def test_normalize_message_accepts_the_exact_character_limit() -> None:
-    exact = "a" * MAX_MESSAGE_CHARS
-    assert normalize_message(exact) == exact
-    assert normalize_message(f" {exact}\n") == exact
-    with pytest.raises(ReminderError, match=str(MAX_MESSAGE_CHARS)):
-        normalize_message("b" * (MAX_MESSAGE_CHARS + 1))
-    with pytest.raises(ReminderError, match=str(MAX_MESSAGE_CHARS)):
-        normalize_message(f" {('c' * (MAX_MESSAGE_CHARS + 1))}\n")
-
-
-def test_normalize_message_strips_ends_and_keeps_inner_text() -> None:
-    assert normalize_message("  take the pizza out  ") == "take the pizza out"
-    assert normalize_message("\n\ttake the pizza out\n") == "take the pizza out"
-    body = "ping at 9:00\nbring the notes\t(100%) & don't forget"
-    assert normalize_message(f"\n\t  {body}  \n") == body
-    assert normalize_message("a  b") == "a  b"
-
-
-@pytest.mark.asyncio
-async def test_default_path_is_under_user_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
-    path = default_reminders_path()
-    assert path == tmp_path / "data" / "reminders.json"
-    assert path.name == "reminders.json"

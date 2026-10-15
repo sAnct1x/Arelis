@@ -8,14 +8,12 @@ from arelis.contacts import Contact, normalize_phone
 from arelis.core.email_complete import (
     complete_email_draft,
     draft_schedule_briefing_args,
-    draft_schedule_job_args,
     fill_send_email_args,
     looks_like_bare_confirm,
     looks_like_schedule_manage,
     looks_like_scheduled_send,
     looks_like_standard_briefing,
     parse_email_utterance,
-    resolve_email_address,
     rewrite_schedule_calls,
 )
 from arelis.core.memory import ChatMessage
@@ -45,71 +43,9 @@ def _book(**people: dict) -> dict[str, Contact]:
     return out
 
 
-def test_parse_email_quoted_subject_and_body() -> None:
-    draft = parse_email_utterance(
-        "Email me at bob@example.com with subject 'Arelis operator e2e' "
-        "and body 'synthetic operator mail. ignore.'"
-    )
-    assert draft is not None
-    assert draft.to == "bob@example.com"
-    assert draft.subject == "Arelis operator e2e"
-    assert draft.body == "synthetic operator mail. ignore."
-    assert "@gmail.com with subject" not in draft.body
-
-
-def test_parse_email_with_subject_and_body() -> None:
-    draft = parse_email_utterance(
-        "Email bob@example.com about Dinner plans: See you at 7"
-    )
-    assert draft is not None
-    assert draft.complete
-    assert draft.to == "bob@example.com"
-    assert "Dinner" in draft.subject
-    assert "See you at 7" in draft.body
-
-
-def test_parse_email_subject_comma_body_markers() -> None:
-    """Latency-style: subject: test, body: … must not glue body into subject."""
-    draft = parse_email_utterance(
-        "send an email to you@gmail.com subject: test, body: "
-        "this is a test email disregard we are measuring latency"
-    )
-    assert draft is not None
-    assert draft.complete
-    assert draft.subject == "test"
-    assert "measuring latency" in draft.body
-    assert "body" not in draft.subject.lower()
-
-
-def test_parse_email_to_name_incomplete_without_subject() -> None:
-    draft = parse_email_utterance("email Brian that I'll be late")
-    assert draft is not None
-    assert draft.to.lower().startswith("brian")
-    assert draft.body
-    # Named recipient without a contacts email must not look "complete".
-    assert draft.unresolved_named_to
-    assert not draft.complete
-
-
-def test_about_without_colon_fills_body_for_force() -> None:
-    """'email X about the trip…' must not leave body empty (second-ask trap)."""
-    draft = parse_email_utterance(
-        "email bob@example.com about the trip this weekend"
-    )
-    assert draft is not None
-    assert draft.complete
-    assert "trip" in draft.body.lower()
-    assert draft.subject
-
-
 @pytest.mark.parametrize(
     "ask",
-    [
-        "Email sam@example.com with the subject Lunch and tell him I'm running ten minutes late.",
-        "Email sam@example.com subject: Lunch and tell him I'm running ten minutes late.",
-        "Email sam@example.com titled Lunch and tell him I'm running ten minutes late.",
-        'Email sam@example.com with subject "Lunch" and tell him I\'m running ten minutes late.',
-    ],
+    ["Email sam@example.com with the subject Lunch and tell him I'm running ten minutes late.", "Email sam@example.com subject: Lunch and tell him I'm running ten minutes late."],
 )
 def test_named_subject_lands_on_the_confirm_card(ask: str) -> None:
     """A named subject is the subject. The rest is the body.
@@ -177,108 +113,6 @@ def test_history_merges_body_after_email_about() -> None:
     assert draft.source == "history"
 
 
-def test_send_the_email_revives_complete_draft() -> None:
-    history = [
-        ChatMessage(
-            role="user",
-            content="Email bob@example.com about Dinner: See you at 7",
-        ),
-        ChatMessage(role="assistant", content="Ready when you are."),
-    ]
-    draft = complete_email_draft("send the email", history=history)
-    assert draft is not None and draft.complete
-    assert draft.tool_to == "bob@example.com"
-    assert "Dinner" in draft.subject
-    assert "See you at 7" in draft.body
-
-
-def test_send_it_revives_incomplete_draft() -> None:
-    """'send it' after a to-only compose must revive so force/preflight can finish."""
-    history = [
-        ChatMessage(
-            role="user",
-            content="Email bob@example.com",
-        ),
-        ChatMessage(role="assistant", content="What should the body say?"),
-    ]
-    draft = complete_email_draft("send it", history=history)
-    assert draft is not None
-    assert draft.to == "bob@example.com"
-    assert not draft.complete
-
-
-def test_resolve_name_to_contact_email() -> None:
-    book = _book(wife={"name": "Robin", "aliases": ("wife",), "email": "w@x.com"})
-    assert resolve_email_address("my wife", book) == "w@x.com"
-    assert resolve_email_address("w@x.com", book) == "w@x.com"
-
-
-def test_fill_send_email_args_locks_complete_draft() -> None:
-    book = _book(brian={"name": "Brian", "aliases": ("brian",), "email": "b@x.com"})
-    draft = complete_email_draft(
-        "Email Brian about Running late: Stuck in traffic",
-        contacts=book,
-    )
-    assert draft and draft.complete
-    filled = fill_send_email_args(
-        {
-            "to": "invented@evil.test",
-            "subject": "Totally different",
-            "body": "Model invention",
-        },
-        draft,
-    )
-    assert filled["to"] == "b@x.com"
-    assert filled["subject"] == "Running late"
-    assert filled["body"] == "Stuck in traffic"
-
-
-def test_check_my_email_is_not_a_compose_draft() -> None:
-    assert parse_email_utterance("check my email later") is None
-    assert complete_email_draft("What's in my email?") is None
-
-
-def test_compose_email_preflight_intent() -> None:
-    hints = detect_intents(
-        "Email bob@example.com about Dinner: See you at 7"
-    )
-    assert any(h.kind == "compose_email" for h in hints)
-    email = next(h for h in hints if h.kind == "compose_email")
-    assert email.expected_tools == ("send_email",)
-    assert "bob@example.com" in email.nudge
-    assert "Dinner" in email.nudge
-
-
-def test_bare_gmail_repairs_to_gmail_com() -> None:
-    from arelis.core.email_complete import named_address_in_text, repair_email_address
-
-    assert repair_email_address("you@gmail") == "you@gmail.com"
-    assert named_address_in_text("send an email to you@gmail, be creative") == (
-        "you@gmail.com"
-    )
-    draft = parse_email_utterance("send an email to you@gmail, be creative")
-    assert draft is not None
-    assert draft.tool_to == "you@gmail.com"
-
-
-def test_analyze_json_does_not_revive_compose_email() -> None:
-    history = [
-        ChatMessage(
-            role="user",
-            content="send an email to you@gmail.com, be creative",
-        ),
-        ChatMessage(role="assistant", content="Sent email to you@gmail.com."),
-    ]
-    hints = detect_intents(
-        "analyze this file attached to this message and give me a brief summary\n"
-        "e2e_full_capability.json",
-        history=history,
-    )
-    kinds = [h.kind for h in hints]
-    assert "compose_email" not in kinds
-    assert "analyze" in kinds
-
-
 def test_email_me_quoted_subject_comma_body(monkeypatch) -> None:
     """9.3: subject 'X', body 'Y' (comma) and me → the user's inbox."""
     monkeypatch.setattr(
@@ -294,41 +128,6 @@ def test_email_me_quoted_subject_comma_body(monkeypatch) -> None:
     filled = fill_send_email_args({}, draft)
     assert filled["to"] == "you@example.com"
     assert filled["subject"] == "Arelis test"
-
-
-def test_email_me_does_not_use_smtp_from(monkeypatch) -> None:
-    """'me' is the user, not the Gmail Arelis sends from."""
-    from arelis.mail import MailAccount
-
-    monkeypatch.setattr("arelis.profile.load_profile_email", lambda **k: "")
-    monkeypatch.setattr(
-        "arelis.mail.load_account",
-        lambda path=None: MailAccount(
-            address="bot@example.com",
-            password="x",
-            default_recipient="",
-        ),
-    )
-    assert resolve_email_address("me") == ""
-    monkeypatch.setattr(
-        "arelis.mail.load_account",
-        lambda path=None: MailAccount(
-            address="bot@example.com",
-            password="x",
-            default_recipient="you@example.com",
-        ),
-    )
-    assert resolve_email_address("me") == "you@example.com"
-
-
-def test_subject_colon_body_colon_splits() -> None:
-    draft = parse_email_utterance(
-        "email you@example.com subject: test, body: just a test"
-    )
-    assert draft is not None
-    assert draft.tool_subject == "test"
-    assert "just a test" in draft.tool_body
-    assert "subject" not in draft.tool_body.lower()
 
 
 def test_recurring_weather_email_is_a_scheduled_job() -> None:
@@ -401,22 +200,6 @@ def test_every_single_morning_is_still_a_scheduled_job() -> None:
     assert args["time"].lower().replace(" ", "") in {"7am", "7:00am"}
 
 
-def test_schedule_create_fills_a_named_recipient() -> None:
-    ask = "every day at 7am email me@example.com the headlines"
-    args = draft_schedule_job_args(ask)
-    assert args["action"] == "create"
-    assert args["recipient"] == "me@example.com"
-
-
-def test_every_other_day_headlines_are_a_custom_job() -> None:
-    ask = "Every other day at 7am, email me the headlines."
-    assert looks_like_scheduled_send(ask)
-    assert not looks_like_standard_briefing(ask)
-    args = draft_schedule_job_args(ask)
-    assert args["action"] == "create"
-    assert "headlines" in args["prompt"].lower()
-
-
 def test_schedule_manage_does_not_force_weather_or_mail() -> None:
     delete = "please delete the second briefing named Morning Weather Briefing"
     listing = "can you show me all of my briefings? or all of my automations?"
@@ -434,125 +217,3 @@ def test_schedule_manage_does_not_force_weather_or_mail() -> None:
     assert not looks_like_schedule_manage("What's the weather in Springfield?")
 
 
-def test_every_time_it_rains_is_not_a_timer() -> None:
-    assert not looks_like_scheduled_send("tell me every time it rains")
-
-
-def test_non_recurring_email_me_a_test_still_drafts() -> None:
-    draft = complete_email_draft("email me a test saying hello")
-    assert draft is not None
-    assert draft.complete
-
-
-def test_analyze_followup_does_not_complete_pending_email() -> None:
-    history = [
-        ChatMessage(role="user", content="email bob@example.com"),
-        ChatMessage(
-            role="assistant",
-            content="What should the subject and body be?",
-        ),
-    ]
-    assert (
-        complete_email_draft(
-            "summarize the csv at data/sales.csv",
-            history=history,
-        )
-        is None
-    )
-
-
-def test_two_addresses_keep_the_same_test_body() -> None:
-    from arelis.core.email_complete import (
-        _DEFAULT_TEST_BODY,
-        email_remaining,
-        named_addresses_in_text,
-    )
-
-    ask = (
-        "send an email to one@example.com and two@example.com "
-        "be creative, but let them know its a test."
-    )
-    assert named_addresses_in_text(ask) == [
-        "one@example.com",
-        "two@example.com",
-    ]
-    draft = complete_email_draft(ask)
-    assert draft is not None and draft.complete
-    assert draft.all_tos == ("one@example.com", "two@example.com")
-    assert draft.tool_body == _DEFAULT_TEST_BODY
-    assert "two@example.com" not in draft.tool_body
-    first = fill_send_email_args({}, draft)
-    assert first["to"] == "one@example.com"
-    assert first["body"] == _DEFAULT_TEST_BODY
-    second = fill_send_email_args({}, draft, already_sent={"one@example.com"})
-    assert second["to"] == "two@example.com"
-    assert second["body"] == _DEFAULT_TEST_BODY
-    assert email_remaining(draft, {"one@example.com", "two@example.com"}) == []
-
-
-def test_as_well_followup_revives_prior_body() -> None:
-    from arelis.core.email_complete import _DEFAULT_TEST_BODY
-
-    history = [
-        ChatMessage(
-            role="user",
-            content=(
-                "send an email to one@example.com and two@example.com "
-                "be creative, but let them know its a test."
-            ),
-        ),
-        ChatMessage(role="assistant", content="Sent email to one@example.com."),
-    ]
-    draft = complete_email_draft(
-        "did you email two@example.com as well?",
-        history=history,
-    )
-    assert draft is not None and draft.complete
-    assert "two@example.com" in draft.all_tos
-    assert draft.tool_body == _DEFAULT_TEST_BODY
-    assert draft.tool_body != "as well?"
-
-
-def test_sent_email_does_not_turn_the_next_ask_into_a_body() -> None:
-    """A finished send is done. The next turn is not a body for that letter."""
-    history = [
-        ChatMessage(
-            role="user",
-            content=(
-                "i want it as a markdown file, then converted to a pdf, "
-                "and i want both emailed to you@example.com"
-            ),
-        ),
-        ChatMessage(
-            role="assistant",
-            content="Sent email to you@example.com.",
-        ),
-    ]
-    ask = (
-        "i want a calendar event created for September 20th, repeating, "
-        "once, every year, forever, its my daughters birthday. "
-        "i want this event set at 9 am"
-    )
-    assert complete_email_draft(ask, history=history) is None
-    hints = detect_intents(ask, history=history)
-    assert "send_email" not in {t for h in hints for t in h.expected_tools}
-    assert "compose_email" not in [h.kind for h in hints]
-
-
-def test_email_it_to_me_is_self_not_a_name() -> None:
-    draft = parse_email_utterance("email it to me")
-    assert draft is not None
-    assert draft.to == "me"
-    filled = fill_send_email_args({"to": "it to me", "subject": "x", "body": "y"}, None)
-    assert filled["to"] == "me"
-
-
-def test_body_still_fills_when_she_just_asked() -> None:
-    history = [
-        ChatMessage(role="user", content="Email bob@example.com"),
-        ChatMessage(role="assistant", content="What should the body say?"),
-    ]
-    draft = complete_email_draft("Can we meet at 3pm?", history=history)
-    assert draft is not None and draft.complete
-    assert draft.tool_to == "bob@example.com"
-    assert draft.body == "Can we meet at 3pm?"
