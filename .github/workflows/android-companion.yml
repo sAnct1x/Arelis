@@ -16,6 +16,10 @@ on:
       - "arelis/companion_pack.py"
       - "scripts/build_companion.py"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   unit-tests:
     runs-on: ubuntu-latest

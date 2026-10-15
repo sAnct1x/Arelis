@@ -83,8 +83,10 @@ def _assert_picture(svg: Path, png: Path) -> None:
     assert b"<svg" in svg.read_bytes()[:200].lower() or b"<svg" in svg.read_bytes().lower()
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_mermaid_flowchart_writes_svg_and_png(tmp_path: Path) -> None:
+    """Serial: the 10s render budget is real, and an xdist worker does not have it."""
     tool, root = _tool(tmp_path)
     result = await tool.run(kind="mermaid", source=_FLOW, out="pipeline")
 
@@ -99,6 +101,7 @@ async def test_mermaid_flowchart_writes_svg_and_png(tmp_path: Path) -> None:
     assert result.data["abs_path"] == str(png.resolve())
 
 
+@pytest.mark.serial
 @pytest.mark.asyncio
 async def test_invalid_mermaid_returns_the_parser_line(tmp_path: Path) -> None:
     tool, root = _tool(tmp_path)
