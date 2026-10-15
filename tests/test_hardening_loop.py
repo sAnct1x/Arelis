@@ -1055,7 +1055,10 @@ def test_trace_note_reaches_the_model_but_not_the_chat() -> None:
     memory = SessionMemory()
     memory.add("assistant", "Done.", note="[tools used this turn: workspace write data/n.txt]")
     assert memory.messages[0].content == "Done."
-    assert "data/n.txt" in memory.as_ollama()[0]["content"]
+    rows = memory.as_ollama()
+    assert rows[0] == {"role": "assistant", "content": "Done."}
+    assert rows[1]["role"] == "system"
+    assert "data/n.txt" in rows[1]["content"]
 
 
 def test_messages_without_a_trace_are_unchanged() -> None:

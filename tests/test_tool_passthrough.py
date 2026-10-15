@@ -57,9 +57,12 @@ def test_the_note_reaches_the_next_prompt():
     the path into the next turn's context."""
     memory = SessionMemory()
     memory.add("assistant", '{"temp":41}', note=tool_passthrough_note("web_fetch"))
-    sent = memory.as_ollama()[-1]["content"]
-    assert '{"temp":41}' in sent
-    assert "not her own words" in sent
+    sent = memory.as_ollama()
+    assert sent[0]["role"] == "assistant"
+    assert sent[0]["content"] == '{"temp":41}'
+    assert "not her own words" not in sent[0]["content"]
+    assert sent[-1]["role"] == "system"
+    assert "not her own words" in sent[-1]["content"]
 
 
 def test_the_bubble_text_itself_is_untouched():
