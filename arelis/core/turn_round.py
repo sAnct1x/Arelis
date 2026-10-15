@@ -86,7 +86,6 @@ from arelis.core.turn_scratch import (
 )
 from arelis.llm.errors import classify_ollama_failure, is_vram_failure
 from arelis.tools.pdf_pages import ink_vision_walk
-from arelis.tools.weather import weather_places_missing
 
 _CHAIN_STILL_OPEN = "That result does not finish what they asked."
 
@@ -584,23 +583,6 @@ async def apply_no_call_path(
     return None
 
 
-def _weather_answer_ready(ctx: TurnContext) -> bool:
-    """The forecast this ask needed is already in hand.
-
-    The answer round offers no tools. A shorter list is a new prefix and
-    re-prefills (~50s on the reference card). The two stable shapes are
-    the full list, or nothing. A days retry, or a named city still
-    missing, leaves the full list so that call can still run.
-    """
-    if not ctx.weather_ok_places:
-        return False
-    return not weather_places_missing(
-        ctx.text,
-        ctx.weather_ok_places,
-        ctx.weather_failed_places,
-    )
-
-
 async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
     """One model/tool step. True means the turn is over."""
     # Only the names this coordinator rebinds, or that the write-back below
@@ -688,7 +670,6 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             or ctx.page_write_nudge_used
             or ctx.algebra_write_nudge_used
             or ctx.tool_answer_nudge_used
-            or _weather_answer_ready(ctx)
         ):
             # Only strip tools if all exactness needs are satisfied.
             # Multi-step asks (chains) need tools until all required kinds complete.
