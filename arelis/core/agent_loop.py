@@ -1312,7 +1312,7 @@ class AgentLoop:
         ) or (role or "").strip().lower() == "research"
         if skip_summarize:
             n_drop = len(dropped)
-            self.memory.drop_prompt_prefix(n_drop)
+            self.memory.drop_prompt_prefix(n_drop, include_notes=notes)
             if self.config.get("_speak_replies"):
                 mode = "speak"
             elif (role or "").strip().lower() == "research":
@@ -1380,7 +1380,7 @@ class AgentLoop:
         if not summary and dropped:
             # Budget/timeout: drop without model fold so the turn can proceed.
             n_drop = len(dropped)
-            self.memory.drop_prompt_prefix(n_drop)
+            self.memory.drop_prompt_prefix(n_drop, include_notes=notes)
             if self._timer is not None:
                 self._timer.mark("drop", dropped=n_drop, mode="summarize_timeout")
             await self.bus.publish(
@@ -1400,7 +1400,7 @@ class AgentLoop:
             # re-send it every turn and trigger another summarize immediately.
             # The archive sink has already stored those messages; only the
             # in-process working set shrinks.
-            self.memory.drop_prompt_prefix(len(dropped))
+            self.memory.drop_prompt_prefix(len(dropped), include_notes=notes)
         for fact in facts:
             self.memory.add_pending_fact(fact)
 

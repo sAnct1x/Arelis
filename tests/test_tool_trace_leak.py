@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
+from arelis.core.context import allocate_history
 from arelis.core.events import EventType
 from arelis.core.memory import SessionMemory, tool_trace_entry, tool_trace_note
 from arelis.core.receipts import action_receipt, format_action_receipt
@@ -159,3 +160,91 @@ async def test_copied_history_does_not_reach_the_user() -> None:
         for row in first
         if row.get("role") == "assistant"
     )
+
+
+def _three_turns() -> SessionMemory:
+    memory = SessionMemory(max_messages=10_000)
+    memory.add("user", "q1")
+    memory.add("assistant", "a1", note="[tools used this turn: weather]")
+    memory.add("user", "q2")
+    memory.add("assistant", "a2", note="[tools used this turn: document weather.md]")
+    memory.add("user", "q3")
+    memory.add("assistant", "a3", note="[tools used this turn: notes]")
+    return memory
+
+
+async def test_conversation_trim_starts_on_a_user_row() -> None:
+    """Spoken turns omit trace notes when they count a drop.
+
+    Three turns are six rows without notes. Dropping four of those must
+    leave q3 and a3, and the next history must open on the user. Counting
+    the note rows stops one message early and leaves a2 in front.
+    """
+    cfg = _config()
+    cfg["_speak_replies"] = True
+    cfg["agent"]["history_max_messages"] = 4
+    cfg["agent"]["history_min_recent"] = 1
+    cfg["agent"]["summarize_skip_slash"] = True
+    cfg["agent"]["chat_fast_path"] = False
+    loop = AgentLoop(
+        EventBus(),
+        _CopyLastAssistant(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        _three_turns(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    messages = await loop._messages_for_turn(
+        [{"role": "system", "content": "PERSONA"}],
+        1_000_000,
+        4.0,
+        "fast",
+    )
+    history = [row for row in messages if row.get("content") != "PERSONA"]
+    assert history
+    assert history[0]["role"] == "user"
+    assert [row["content"] for row in history] == ["q3", "a3"]
+
+
+def test_token_budget_keeps_a_note_with_its_answer() -> None:
+    """A budget that fits the note but not the answer drops both, or neither."""
+    answer = "A" * 80
+    note = "[tools used this turn: document weather.md]"
+    history = [
+        {"role": "user", "content": "q1"},
+        {"role": "assistant", "content": answer},
+        {"role": "system", "content": note},
+        {"role": "user", "content": "q2"},
+        {"role": "assistant", "content": "a2"},
+    ]
+    kept, _dropped = allocate_history(history, 15, chars_per_token=4.0)
+    contents = [str(row.get("content") or "") for row in kept]
+    has_answer = answer in contents
+    has_note = note in contents
+    assert has_answer == has_note
+
+
+def test_cancelled_turn_does_not_emit_its_trace_note() -> None:
+    memory = SessionMemory()
+    memory.add("assistant", "Saved it.", note="[tools used this turn: document weather.md]")
+    memory.messages[-1].cancelled = True
+    rows = memory.as_ollama()
+    assert rows
+    assert all("tools used this turn" not in str(row.get("content") or "") for row in rows)
+    assert all(row.get("role") != "system" for row in rows)
+
+
+def test_trace_note_is_before_the_tool_rows() -> None:
+    """The note follows her answer and precedes that message's tool rows."""
+    memory = SessionMemory()
+    memory.add("assistant", "Saved it.", note="[tools used this turn: document weather.md]")
+    memory.messages[-1].prompt_after = (
+        {"role": "tool", "tool_name": "document", "content": "wrote weather.md"},
+    )
+    rows = memory.as_ollama()
+    assert [row["role"] for row in rows] == ["assistant", "system", "tool"]
+    assert rows[0]["content"] == "Saved it."
+    assert rows[1]["content"].startswith("[tools used this turn:")
+    assert rows[2]["content"] == "wrote weather.md"

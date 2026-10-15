@@ -264,19 +264,21 @@ class SessionMemory:
             rows.extend(group)
         return rows
 
-    def drop_prompt_prefix(self, n: int) -> None:
-        """Drop the oldest *n* prompt-visible messages. Notices stay.
+    def drop_prompt_prefix(self, n: int, *, include_notes: bool = True) -> None:
+        """Drop the oldest *n* prompt-visible rows. Notices stay.
 
         ``as_ollama`` skips role ``notice``, so a raw ``messages[n:]`` slice
         drifts whenever an inbound SMS line sits in the working set, it can
         delete the previous user/assistant turn or leave a stale prefix.
         The archive sink already has those rows; this only shrinks the
         in-process list so the next turn does not re-drop the same prefix.
+
+        ``include_notes`` has to match the rows the caller counted. Conversation
+        mode leaves trace notes out of that count. Counting them here stops one
+        message early and the next prompt starts on an assistant row.
         """
         if n <= 0:
             return
-        # Count the rows as_ollama would emit. A turn note rides on its user
-        # message, so it drops with that message and is not split in half.
         kept: list[ChatMessage] = []
         skipped = 0
         dropping = True
@@ -285,7 +287,9 @@ class SessionMemory:
                 kept.append(message)
                 continue
             if dropping:
-                skipped += len(self._rows_for(message, include_notes=True))
+                skipped += len(
+                    self._rows_for(message, include_notes=include_notes)
+                )
                 if skipped >= n:
                     dropping = False
                 continue
