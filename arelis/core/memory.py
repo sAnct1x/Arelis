@@ -72,8 +72,10 @@ class MemorySink(Protocol):
 class ChatMessage:
     role: str
     content: str
-    # Context-only suffix, never shown in the chat. Used for the tool trace: the
-    # model needs to know a file was written, the user already watched it happen.
+    # Tool trace and passthrough attribution. The chat never shows this.
+    # The next prompt sends it as its own system row after this message,
+    # not inside this message's content. Splicing it onto assistant content
+    # made a later turn copy the marker into the reply.
     note: str = ""
     # Stop/Esc: keep the bubble in History. The next prompt sees a stopped
     # stub (sends redacted) so a cancelled ask can still be referred to.
@@ -194,18 +196,13 @@ class SessionMemory:
         if self.sink is not None:
             self.sink.on_pending_fact(cleaned)
 
-    def _own_row(
-        self, message: ChatMessage, *, include_notes: bool
-    ) -> dict[str, Any] | None:
+    def _own_row(self, message: ChatMessage) -> dict[str, Any] | None:
         if message.cancelled:
             content = _stopped_prompt_content(message.content)
             if not content:
                 return None
             return {"role": message.role, "content": content}
-        content = message.content
-        if include_notes and message.note:
-            content = f"{message.content}\n\n{message.note}"
-        return {"role": message.role, "content": content}
+        return {"role": message.role, "content": message.content}
 
     def _rows_for(
         self,
@@ -219,9 +216,14 @@ class SessionMemory:
         rows: list[dict[str, Any]] = []
         if not skip_before:
             rows.extend(dict(item) for item in message.prompt_before)
-        own = self._own_row(message, include_notes=include_notes)
+        own = self._own_row(message)
         if own is not None:
             rows.append(own)
+        # After her words, never inside them. A system row is still in the
+        # next prompt, so "edit that file" can see the path, but it is not
+        # assistant speech for the model to copy into the reply.
+        if include_notes and message.note and not message.cancelled:
+            rows.append({"role": "system", "content": message.note})
         rows.extend(copy.deepcopy(item) for item in message.prompt_after)
         return rows
 
@@ -262,19 +264,21 @@ class SessionMemory:
             rows.extend(group)
         return rows
 
-    def drop_prompt_prefix(self, n: int) -> None:
-        """Drop the oldest *n* prompt-visible messages. Notices stay.
+    def drop_prompt_prefix(self, n: int, *, include_notes: bool = True) -> None:
+        """Drop the oldest *n* prompt-visible rows. Notices stay.
 
         ``as_ollama`` skips role ``notice``, so a raw ``messages[n:]`` slice
         drifts whenever an inbound SMS line sits in the working set, it can
         delete the previous user/assistant turn or leave a stale prefix.
         The archive sink already has those rows; this only shrinks the
         in-process list so the next turn does not re-drop the same prefix.
+
+        ``include_notes`` has to match the rows the caller counted. Conversation
+        mode leaves trace notes out of that count. Counting them here stops one
+        message early and the next prompt starts on an assistant row.
         """
         if n <= 0:
             return
-        # Count the rows as_ollama would emit. A turn note rides on its user
-        # message, so it drops with that message and is not split in half.
         kept: list[ChatMessage] = []
         skipped = 0
         dropping = True
@@ -283,7 +287,9 @@ class SessionMemory:
                 kept.append(message)
                 continue
             if dropping:
-                skipped += len(self._rows_for(message, include_notes=True))
+                skipped += len(
+                    self._rows_for(message, include_notes=include_notes)
+                )
                 if skipped >= n:
                     dropping = False
                 continue
@@ -392,12 +398,14 @@ def tool_trace_entry(
 
 
 def tool_trace_note(trace: list[str]) -> str:
-    """Compact record of a turn's tool use, attached to the assistant message.
+    """Compact record of a turn's tool use, stored on the assistant message.
 
     Without this, "now edit that file" cannot be answered: memory keeps only the
     user's words and the final answer, so the path Arelis just wrote to is gone
     by the next turn unless she happened to name it in her reply. The note is
     capped because it rides along in the context on every turn after this one.
+    The prompt emits it as a system row after her answer, not as part of that
+    answer. Putting it in assistant content made the next reply copy it.
     """
     if not trace:
         return ""
@@ -420,8 +428,9 @@ def tool_passthrough_note(tool: str) -> str:
     example of how she talks, and the model reads its own history as a style
     guide. Whatever shape leaked through once gets imitated.
 
-    So the bubble keeps the result and the note says where it came from. It
-    rides into the next prompt the same way the stopped-turn note does.
+    So the bubble keeps the result and the note says where it came from.
+    The next prompt sends that note as a system row after her message, not
+    as part of the message, so it is not an example of how she writes.
     """
     name = (tool or "").strip()
     if name == "weather":

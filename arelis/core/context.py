@@ -79,6 +79,46 @@ def context_budget(
     )
 
 
+def _is_trace_note(row: dict[str, Any]) -> bool:
+    """True for a system row that SessionMemory emits after an assistant answer."""
+    if row.get("role") != "system":
+        return False
+    text = str(row.get("content") or "")
+    return text.startswith("[tools used this turn:") or text.startswith(
+        "[The line above is raw tool output"
+    )
+
+
+def _history_units(history: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """An assistant answer and the trace note after it trim as one piece.
+
+    The note is its own row so it is not her speech. A token cut that keeps
+    the note and drops the answer (or the reverse) leaves a stray marker.
+    """
+    units: list[list[dict[str, Any]]] = []
+    index = 0
+    last = len(history)
+    while index < last:
+        row = history[index]
+        if (
+            index + 1 < last
+            and row.get("role") == "assistant"
+            and _is_trace_note(history[index + 1])
+        ):
+            units.append([row, history[index + 1]])
+            index += 2
+            continue
+        units.append([row])
+        index += 1
+    return units
+
+
+def _unit_tokens(
+    unit: list[dict[str, Any]], *, chars_per_token: float
+) -> int:
+    return sum(message_tokens(row, chars_per_token=chars_per_token) for row in unit)
+
+
 def allocate_history(
     history: list[dict[str, Any]],
     token_budget: int,
@@ -88,27 +128,32 @@ def allocate_history(
     """Split history into (kept newest, dropped oldest) under a token budget.
 
     The newest message is kept even when it alone exceeds the budget, so the
-    user turn that triggered the request is never the thing discarded.
+    user turn that triggered the request is never the thing discarded. A trace
+    note stays with the answer it follows: both are kept, or both are dropped.
     """
-    if not history or token_budget <= 0:
+    if not history:
+        return [], []
+    units = _history_units(history)
+    if token_budget <= 0:
         # Budget already spent on pinned content: everything is dropped except
-        # we still keep the newest message so the model sees the ask.
-        if not history:
-            return [], []
-        return [history[-1]], list(history[:-1])
+        # we still keep the newest unit so the model sees the ask.
+        kept = list(units[-1])
+        dropped = [row for unit in units[:-1] for row in unit]
+        return kept, dropped
 
-    kept: list[dict[str, Any]] = []
+    kept_units: list[list[dict[str, Any]]] = []
     used = 0
-    for message in reversed(history):
-        cost = message_tokens(message, chars_per_token=chars_per_token)
+    for unit in reversed(units):
+        cost = _unit_tokens(unit, chars_per_token=chars_per_token)
         if used + cost > token_budget:
-            if not kept:
-                kept.append(message)
+            if not kept_units:
+                kept_units.append(unit)
             break
-        kept.append(message)
+        kept_units.append(unit)
         used += cost
-    kept.reverse()
-    dropped = history[: len(history) - len(kept)]
+    kept_units.reverse()
+    kept = [row for unit in kept_units for row in unit]
+    dropped = [row for unit in units[: len(units) - len(kept_units)] for row in unit]
     return kept, dropped
 
 
@@ -127,7 +172,18 @@ def split_recent_history(
         return [], []
     if len(history) <= keep:
         return [], list(history)
-    return list(history[:-keep]), list(history[-keep:])
+    cut = len(history) - keep
+    # The tail is pinned. A cut that starts the tail on a trace note would
+    # leave the answer in the budgeted half, where it can be dropped alone.
+    if (
+        cut > 0
+        and history[cut - 1].get("role") == "assistant"
+        and _is_trace_note(history[cut])
+    ):
+        cut -= 1
+    if cut <= 0:
+        return [], list(history)
+    return list(history[:cut]), list(history[cut:])
 
 
 def fit_messages(
