@@ -246,6 +246,32 @@ async def resolve_place(
     )
 
 
+async def search_geocode(
+    name: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+    timeout_s: float = 15.0,
+) -> list[dict[str, Any]]:
+    """One gazetteer request. The caller filters. No second lookup."""
+    query = " ".join((name or "").split())
+    if not query:
+        return []
+    url = "https://geocoding-api.open-meteo.com/v1/search"
+    owns = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=timeout_s)
+    try:
+        response = await client.get(
+            url, params={"name": query, "count": _GEOCODE_CANDIDATES}
+        )
+        response.raise_for_status()
+        data = response.json()
+    finally:
+        if owns:
+            await client.aclose()
+    return [row for row in (data.get("results") or []) if isinstance(row, dict)]
+
+
 async def geocode_place(
     name: str,
     *,

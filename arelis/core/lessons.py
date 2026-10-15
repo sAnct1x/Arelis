@@ -35,8 +35,8 @@ _SEED: list[dict[str, Any]] = [
         "id": "weather-not-scrape",
         "tags": ["weather"],
         "text": (
-            "Weather questions use the weather tool only, never AccuWeather, "
-            "weather.com, or hand-built Open-Meteo URLs."
+            "Forecast questions call weather only. "
+            "Do not scrape a forecast site or hand-build a URL."
         ),
     },
     {

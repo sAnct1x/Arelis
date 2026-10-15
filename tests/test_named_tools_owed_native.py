@@ -17,7 +17,6 @@ from arelis.core.agent_loop import _MAX_TOOL_NUDGES, AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
-from arelis.core.turn_telemetry import TurnTimer
 from arelis.eval.harness import _FailingStub, _ScriptedRouter, _StubTool, foundation_registry
 from arelis.paths import outputs_dir
 from arelis.tools.base import ToolRegistry, ToolResult
@@ -404,24 +403,12 @@ def _not_run_tool_messages(messages: list[dict]) -> list[str]:
     ]
 
 
-def test_flag_off_need_place_blocked_weather_still_runs_document(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """C02: ambiguous weather logs need_place, the retry does not run, document does.
+def test_flag_off_need_place_blocked_weather_still_runs_document() -> None:
+    """C02: a second weather call runs, and document still runs after it.
 
-    Round 1 weather resolves Springfield to Springfield Station and the turn still owes
-    a place. Round 2 calls weather again. That call must come back as a tool
-    result that says it did not run. Round 3 calls document. The turn ends
-    under the step limit.
+    There is no once-guard. Both weather calls execute. Document runs on
+    the next step. The turn stays under the step limit.
     """
-    marks: list[tuple[str, dict]] = []
-    original = TurnTimer.mark
-
-    def _mark(self: TurnTimer, event: str, **fields: object) -> None:
-        marks.append((event, dict(fields)))
-        original(self, event, **fields)
-
-    monkeypatch.setattr(TurnTimer, "mark", _mark)
     script = [
         _call("weather", {"place": "Springfield", "days": 1}),
         _call("weather", {"place": "Springfield", "days": 1}),
@@ -447,30 +434,29 @@ def test_flag_off_need_place_blocked_weather_still_runs_document(
             extras=extras,
         )
     )
-    assert any(
-        event == "weather_once" and fields.get("action") == "need_place"
-        for event, fields in marks
-    ), marks
-    assert [name for name, _ok in tool_results] == ["weather", "document"], tool_results
-    assert tool_results[0][1] is True
-    assert tool_results[1][1] is True
-    not_run = _not_run_tool_messages(extras["messages"])
-    assert len(not_run) == 1, extras["messages"]
-    assert "Springfield Station" in not_run[0]
-    assert "ask the user once" in not_run[0].lower()
+    assert [name for name, _ok in tool_results] == [
+        "weather",
+        "weather",
+        "document",
+    ], tool_results
+    assert all(ok for _name, ok in tool_results)
+    assert _not_run_tool_messages(extras["messages"]) == []
     assert not any("max rounds" in line for line in thinking), thinking
     assert "tool-step limit" not in final_text.lower()
     assert "springfield" in final_text.lower()
 
 
 def test_flag_off_repeated_weather_block_ends_before_step_limit() -> None:
-    """Retrying the blocked weather call must not burn the step budget."""
-    script = [_call("weather", {"place": "Springfield", "days": 1}) for _ in range(8)]
-    script.append([("token", "done")])
+    """A second weather call runs. The turn does not invent a forecast ending."""
+    script = [
+        _call("weather", {"place": "Springfield", "days": 1}),
+        _call("weather", {"place": "Springfield", "days": 1}),
+        [("token", "Mild in Springfield.")],
+    ]
     extras: dict = {}
     final_text, tool_results, thinking = asyncio.run(
         _run_agent_with_script(
-            "How many miles is 5 kilometers? What is the weather in Springfield?",
+            "What is the weather in Springfield?",
             script,
             ["weather", "document"],
             {**_FLAG_OFF, "max_rounds": 8},
@@ -479,14 +465,13 @@ def test_flag_off_repeated_weather_block_ends_before_step_limit() -> None:
             extras=extras,
         )
     )
-    assert [name for name, _ok in tool_results] == ["weather"], tool_results
-    assert tool_results[0][1] is True
-    not_run = _not_run_tool_messages(extras["messages"])
-    assert not_run, extras["messages"]
-    assert "Springfield Station" in not_run[0]
+    assert [name for name, _ok in tool_results] == ["weather", "weather"], tool_results
+    assert all(ok for _name, ok in tool_results)
+    assert _not_run_tool_messages(extras["messages"]) == []
+    assert final_text.strip() == "Mild in Springfield."
+    assert "I have the forecast" not in final_text
     assert not any("max rounds" in line for line in thinking), thinking
     assert "tool-step limit" not in final_text.lower()
-    assert "springfield station" in final_text.lower()
 
 
 def _brief_path(title: str) -> Path:
@@ -497,25 +482,13 @@ def _brief_path(title: str) -> Path:
 
 
 @pytest.mark.parametrize("mode", ["blocked", "no_call"])
-def test_flag_off_need_place_still_writes_owed_document(
-    mode: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Weather data plus need_place must not finish while document is owed.
+def test_flag_off_need_place_still_writes_owed_document(mode: str) -> None:
+    """Document still has to run after weather, and the markdown file has to land.
 
-    The forecast resolves to Springfield Station and the timer logs need_place.
-    Then the model either repeats the blocked weather call, or pastes the
-    forecast with no call. Either way the turn used to ship that forecast
-    and stop. Document still has to run, and the markdown file has to land.
+    Blocked mode calls weather again before document. Those calls run.
+    No-call mode pastes the forecast. The owed-document hold still nudges,
+    and the file still lands.
     """
-    marks: list[tuple[str, dict]] = []
-    original = TurnTimer.mark
-
-    def _mark(self: TurnTimer, event: str, **fields: object) -> None:
-        marks.append((event, dict(fields)))
-        original(self, event, **fields)
-
-    monkeypatch.setattr(TurnTimer, "mark", _mark)
     title = f"Springfield Weather Brief {mode}"
     body = f"Sunny at Springfield Station ({mode})."
     document = _call(
@@ -546,43 +519,28 @@ def test_flag_off_need_place_still_writes_owed_document(
             extras=extras,
         )
     )
-    assert any(
-        event == "weather_once" and fields.get("action") == "need_place"
-        for event, fields in marks
-    ), marks
-    assert [name for name, ok in tool_results] == ["weather", "document"], tool_results
-    assert tool_results[0][1] is True
-    assert tool_results[1][1] is True
-    assert any(_OWED_NUDGE in line for line in thinking), thinking
     assert not any("max rounds" in line for line in thinking), thinking
     assert "tool-step limit" not in final_text.lower()
     written = _brief_path(title)
     text = written.read_text(encoding="utf-8")
     assert body in text, text
     assert written.is_file()
+    names = [name for name, ok in tool_results]
+    assert all(ok for _name, ok in tool_results)
     if mode == "blocked":
-        not_run = _not_run_tool_messages(extras["messages"])
-        assert not_run, extras["messages"]
-        assert "Springfield Station" in not_run[0]
+        assert names == ["weather", "weather", "weather", "document"], tool_results
+        assert _not_run_tool_messages(extras["messages"]) == []
+    else:
+        assert names == ["weather", "document"], tool_results
+        assert any(_OWED_NUDGE in line for line in thinking), thinking
 
 
-def test_flag_off_repeated_weather_block_still_runs_owed_document(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A repeated weather block must not end while the nudge cap still has room.
+def test_flag_off_repeated_weather_block_still_runs_owed_document() -> None:
+    """Weather calls do not end the turn while document is still owed.
 
-    Real C02 order: need_place is logged, the place is resolved, the same
-    weather call is blocked again, and document has not run. The model
-    calls document on the next step, still inside the cap, so the file runs.
+    The model calls weather four times, then document. Every weather call
+    runs. Document runs. The canned forecast ending does not replace it.
     """
-    marks: list[tuple[str, dict]] = []
-    original = TurnTimer.mark
-
-    def _mark(self: TurnTimer, event: str, **fields: object) -> None:
-        marks.append((event, dict(fields)))
-        original(self, event, **fields)
-
-    monkeypatch.setattr(TurnTimer, "mark", _mark)
     weather = _call("weather", {"place": "Springfield", "days": 1})
     document = _call(
         "document",
@@ -592,8 +550,6 @@ def test_flag_off_repeated_weather_block_still_runs_owed_document(
             "body": "Sunny at Springfield Station.",
         },
     )
-    # Four weather rounds stay inside the nudge cap: one real call, then
-    # blocks that ask for document. The next script step is that file.
     script = [weather, weather, weather, weather, document, [("token", "Saved the brief.")]]
     extras: dict = {}
     final_text, tool_results, thinking = asyncio.run(
@@ -607,29 +563,38 @@ def test_flag_off_repeated_weather_block_still_runs_owed_document(
             extras=extras,
         )
     )
-    assert any(
-        event == "weather_once" and fields.get("action") == "need_place"
-        for event, fields in marks
-    ), marks
     assert "I have the forecast" not in final_text
+    assert "I couldn't save the brief" not in final_text
     assert "Saved the brief." in final_text
-    assert [name for name, ok in tool_results] == ["weather", "document"], tool_results
-    assert tool_results[0][1] is True
-    assert tool_results[1][1] is True
-    not_run = _not_run_tool_messages(extras["messages"])
-    assert not_run, extras["messages"]
-    assert "Springfield Station" in not_run[0]
+    assert [name for name, ok in tool_results] == [
+        "weather",
+        "weather",
+        "weather",
+        "weather",
+        "document",
+    ], tool_results
+    assert all(ok for _name, ok in tool_results)
+    assert _not_run_tool_messages(extras["messages"]) == []
     assert not any("max rounds" in line for line in thinking), thinking
 
 
 def test_flag_off_repeated_weather_block_stops_after_nudge_cap() -> None:
-    """Past the nudge cap, retrying blocked weather must not hit the step limit.
+    """A weather retry does not substitute the old brief-ending sentence.
 
-    The ask still owes a document and the script never calls it. The hold
-    asks twice. The next blocked weather call ends in plain words, before
-    max_rounds, instead of the tool-step limit line.
+    Document is owed and the model does call it. The turn must not stop
+    early with the canned "I couldn't save the brief." line. The nudge
+    cap itself is test_flag_off_owed_nudge_respects_max_tool_nudges.
     """
-    script = [_call("weather", {"place": "Springfield", "days": 1}) for _ in range(12)]
+    weather = _call("weather", {"place": "Springfield", "days": 1})
+    document = _call(
+        "document",
+        {
+            "format": "md",
+            "title": "Springfield Weather Brief",
+            "body": "Sunny at Springfield Station.",
+        },
+    )
+    script = [weather, weather, document, [("token", "Saved the brief.")]]
     final_text, tool_results, thinking = asyncio.run(
         _run_agent_with_script(
             _C02_WEATHER_DOCUMENT,
@@ -640,25 +605,28 @@ def test_flag_off_repeated_weather_block_stops_after_nudge_cap() -> None:
             capture_thinking=True,
         )
     )
-    assert final_text.strip() == (
-        "I have the forecast for Springfield Station. I couldn't save the brief."
-    )
+    assert "I couldn't save the brief" not in final_text
+    assert "I have the forecast" not in final_text
+    assert "Saved the brief." in final_text
+    assert [name for name, _ok in tool_results] == [
+        "weather",
+        "weather",
+        "document",
+    ], tool_results
     assert "tool-step limit" not in final_text.lower()
-    assert [name for name, _ok in tool_results] == ["weather"], tool_results
-    assert tool_results[0][1] is True
-    owed_nudges = [line for line in thinking if _OWED_NUDGE in line]
-    assert len(owed_nudges) == _MAX_TOOL_NUDGES, thinking
     assert not any("max rounds" in line for line in thinking), thinking
-    assert not any(line.startswith("round 8/") for line in thinking), thinking
 
 
 def test_flag_off_repeated_weather_block_without_document_ends() -> None:
-    """A repeated weather block still ends when the ask never owed document."""
-    script = [_call("weather", {"place": "Springfield", "days": 1}) for _ in range(6)]
-    script.append([("token", "done")])
+    """No document owed: both weather calls run, and the model answers."""
+    script = [
+        _call("weather", {"place": "Springfield", "days": 1}),
+        _call("weather", {"place": "Springfield", "days": 1}),
+        [("token", "Mild in Springfield.")],
+    ]
     final_text, tool_results, thinking = asyncio.run(
         _run_agent_with_script(
-            "How many miles is 5 kilometers? What is the weather in Springfield?",
+            "What is the weather in Springfield?",
             script,
             ["weather", "document"],
             {**_FLAG_OFF, "max_rounds": 8},
@@ -666,12 +634,12 @@ def test_flag_off_repeated_weather_block_without_document_ends() -> None:
             capture_thinking=True,
         )
     )
-    assert [name for name, _ok in tool_results] == ["weather"], tool_results
+    assert [name for name, _ok in tool_results] == ["weather", "weather"], tool_results
     assert not any(_OWED_NUDGE in line for line in thinking), thinking
-    assert not any(line.startswith("round 4/") for line in thinking), thinking
     assert not any("max rounds" in line for line in thinking), thinking
     assert "tool-step limit" not in final_text.lower()
-    assert final_text.strip() == "I have the forecast for Springfield Station."
+    assert final_text.strip() == "Mild in Springfield."
+    assert "I have the forecast" not in final_text
 
 
 def test_flag_off_repeated_camera_block_does_not_end_turn() -> None:
@@ -734,12 +702,14 @@ def test_flag_off_repeated_send_block_does_not_end_turn() -> None:
 
 
 def test_flag_off_repeated_weather_block_ends_in_plain_words() -> None:
-    """Ending a repeated weather block speaks the stored place, not the tool text."""
-    script = [_call("weather", {"place": "Springfield", "days": 1}) for _ in range(6)]
-    script.append([("token", "done")])
+    """The model's words stay. A weather retry does not paste the tool dump."""
+    script = [
+        _call("weather", {"place": "Springfield", "days": 1}),
+        [("token", "Mild and clear.")],
+    ]
     final_text, tool_results, thinking = asyncio.run(
         _run_agent_with_script(
-            "How many miles is 5 kilometers? What is the weather in Springfield?",
+            "What is the weather in Springfield?",
             script,
             ["weather", "document"],
             {**_FLAG_OFF, "max_rounds": 8},
@@ -748,13 +718,12 @@ def test_flag_off_repeated_weather_block_ends_in_plain_words() -> None:
         )
     )
     assert [name for name, _ok in tool_results] == ["weather"], tool_results
+    assert final_text.strip() == "Mild and clear."
     lowered = final_text.lower()
-    assert "springfield station" in lowered
     assert "place:" not in lowered
     assert "now:" not in lowered
     assert "72f" not in lowered
     assert "did not run" not in lowered
-    assert "weather" not in lowered
     assert not any("max rounds" in line for line in thinking), thinking
 
 
@@ -796,7 +765,11 @@ def test_flag_off_ambiguous_resolved_place_is_not_home() -> None:
 
 
 def test_flag_off_weather_miss_says_so_and_stops() -> None:
-    """One failed forecast, nothing else owed: say so and do not retry."""
+    """A failed forecast does not end the turn with a canned line.
+
+    The retry runs. The model then answers. The old "I couldn't get a
+    forecast." finish is not substituted.
+    """
     reg = ToolRegistry()
     reg.register(_FailingStub("weather", risk="read"))
     script = [
@@ -814,8 +787,11 @@ def test_flag_off_weather_miss_says_so_and_stops() -> None:
             capture_thinking=True,
         )
     )
-    assert tool_results == [("weather", False)], tool_results
-    assert final_text.strip() == "I couldn't get a forecast."
+    assert tool_results == [("weather", False), ("weather", False)], tool_results
+    assert final_text.strip() == (
+        "I don't know, I don't have a weather tool reading for that, so I won't guess."
+    )
+    assert "I couldn't get a forecast." not in final_text
     assert "tool-step limit" not in final_text.lower()
     assert not any("max rounds" in line for line in thinking), thinking
 

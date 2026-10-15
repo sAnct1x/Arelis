@@ -174,7 +174,8 @@ async def test_routing_still_steers_in_the_turn_text(frozen_clock) -> None:
         for message in weather.messages
         if message.get("role") == "system"
     )
-    assert "A weather-tool forecast" in turn_text
+    assert "A forecast for the place they named." in turn_text
+    assert "weather tool" not in turn_text.lower()
     assert "weather" in loop._expected_tools
     assert "weather" in _names(weather.ollama_tools)
     loop.memory.add("assistant", "Mild tomorrow.")

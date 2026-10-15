@@ -68,7 +68,7 @@ class WebFetchTool:
         "Call an http(s) URL and return the response text (truncated). "
         "Use for APIs, JSON, and plain text. Prefer scrape for HTML pages. "
         "Pass a real URL (from web_search's URL: line), never a page title. "
-        "For weather, prefer the weather tool over hand-built Open-Meteo URLs. "
+        "For a forecast, do not hand-build a URL. "
         "method=POST|PUT|PATCH|DELETE with headers= and body= for a real API; "
         "anything other than GET changes something and asks first."
     )

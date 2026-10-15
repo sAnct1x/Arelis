@@ -623,10 +623,9 @@ WEATHER = IntentSpec(
     expected_tools=("weather",),
     nudge=(
         "Intent preflight: this message asks about weather. "
-        "Call the weather tool now. For another city pass place "
-        "(a name, not coordinates). days includes today; tomorrow "
-        "needs 2 or more. Do not scrape forecast websites "
-        "and do not ask permission in chat."
+        "Call weather now. Pass place as they said it. "
+        "Omit place for where they are. Do not scrape. "
+        "Do not ask permission in chat."
     ),
     schema_tools=frozenset({"weather", "user_location", "web_fetch"}),
     exactness=_WEATHER_EXACT,

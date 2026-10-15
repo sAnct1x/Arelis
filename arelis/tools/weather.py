@@ -3,29 +3,16 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from arelis.briefing.weather import (
     describe_weather_code,
     fetch_forecast,
-    geocode_place,
-    resolve_place,
+    search_geocode,
 )
+from arelis.location.windows import read_windows_location
 from arelis.tools.base import ToolResult
-
-
-def _int_arg(raw: Any, *, default: int, lo: int, hi: int) -> int:
-    """Clamped int from a model-supplied value. Never raises.
-
-    The 9B passes ``days="today"`` and ``hours="this afternoon"`` often enough
-    that a ValueError here would be a routine turn failure rather than an edge
-    case, so a bad value falls back to the default instead.
-    """
-    try:
-        value = int(raw) if raw not in (None, "") else default
-    except (TypeError, ValueError):
-        value = default
-    return max(lo, min(hi, value))
 
 
 class WeatherTool:
@@ -48,207 +35,161 @@ class WeatherTool:
 
     name = "weather"
     description = (
-        "Get current conditions and the next few days of forecast from Open-Meteo. "
-        "Default is the user's profile location. For another city pass place "
-        "(a name this tool geocodes, never coordinates). "
-        "days is how many daily rows including today: 1 is today only, "
-        "tomorrow needs 2 or more, default 3, up to 16. "
-        "For a time of day ('will it rain at 3pm', 'this afternoon') pass "
-        "hours, a daily row only carries the day's maximum chance and cannot "
-        "say when. For 'yesterday' pass past_days. "
-        "Do not scrape AccuWeather, weather.com, or invent Open-Meteo query strings."
+        "Forecast. Pass place as the user said it. "
+        "Leave place empty for where they are."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
         "type": "object",
         "properties": {
-            "days": {
-                "type": "integer",
-                "description": (
-                    "Daily rows including today (1-16). 1=today only. Tomorrow needs 2+. Default 3."
-                ),
-            },
-            "hours": {
-                "type": "integer",
-                "description": (
-                    "Hourly rows from now (1-48). Use this for 'will it rain "
-                    "at 3pm' or 'this afternoon'a daily row only has the "
-                    "day's max chance and cannot say when. 0 (default) for none"
-                ),
-            },
-            "past_days": {
-                "type": "integer",
-                "description": (
-                    "Also include this many days before today (1-7). Use for "
-                    "'what was the weather yesterday'. 0 (default) for none"
-                ),
-            },
             "place": {
                 "type": "string",
-                "description": (
-                    "City to forecast, e.g. 'Lyon, France'. Geocoded here. "
-                    "Omit for the user's own location. Never pass coordinates."
-                ),
+                "description": "The place in the user's words. Empty for where they are.",
             },
         },
         "required": [],
     }
 
-    def __init__(self, location: Any | None = None) -> None:
+    def __init__(
+        self,
+        location: Any | None = None,
+        *,
+        windows_location: Any = None,
+        home_city: Any = None,
+        ip_location: Any = None,
+        geocode: Any = None,
+        forecast: Any = None,
+    ) -> None:
         self.location = location
+        self._windows_location = windows_location
+        self._home_city = home_city
+        self._ip_location = ip_location
+        self._geocode = geocode
+        self._forecast = forecast
 
     async def run(self, **kwargs: Any) -> ToolResult:
-        asked = str(kwargs.get("place") or "").strip()
-        snap = None
-        if self.location is not None and hasattr(self.location, "snapshot"):
-            snap = self.location.snapshot()
-        refresh = getattr(self.location, "refresh", None)
-        # Kept so the failure below can name its real cause. "No coordinates on
-        # file" sends the user to edit a profile that was never the problem.
-        refresh_failed = ""
-        lat: float | None = None
-        lon: float | None = None
-        place = ""
-        # What the same name also matched, so a wrong pick is correctable.
-        alternatives: tuple[str, ...] = ()
+        asked = " ".join(str(kwargs.get("place") or "").split())
         if asked:
-            place = asked
-            try:
-                resolved = await resolve_place(asked)
-            except Exception as exc:
-                return ToolResult(
-                    ok=False,
-                    output=f"[fail:weather] weather failed: {exc}",
-                )
-            if resolved is None:
-                return ToolResult(
-                    ok=False,
-                    output=(
-                        f"[fail:weather] Could not geocode {asked!r}. "
-                        "Name a real city; do not pass coordinates."
-                    ),
-                )
-            # The resolved label, not what they typed. "Springfield" matches
-            # thirty cities; echoing their own string back is what made a
-            # forecast for the wrong state impossible to notice.
-            place = resolved.label or asked
-            lat, lon = resolved.latitude, resolved.longitude
-            alternatives = resolved.alternatives
-        else:
-            if snap is not None and not snap.has_coordinates() and callable(refresh):
-                try:
-                    maybe = refresh()
-                    if hasattr(maybe, "__await__"):
-                        snap = await maybe
-                    else:
-                        snap = maybe
-                except Exception as exc:
-                    refresh_failed = str(exc) or type(exc).__name__
-            place = snap.place() if snap is not None else ""
-            if snap is not None and snap.has_coordinates():
-                lat = float(snap.latitude)
-                lon = float(snap.longitude)
-            elif place:
-                try:
-                    coords = await geocode_place(place)
-                except Exception as exc:
-                    return ToolResult(
-                        ok=False,
-                        output=f"[fail:weather] weather failed: {exc}",
-                    )
-                if coords is not None:
-                    lat, lon = coords
-        if lat is None or lon is None:
-            cause = (
-                f" The location refresh failed first: {refresh_failed}." if refresh_failed else ""
-            )
+            return await self._for_place(asked)
+        here = await self._resolve_here()
+        if here is None:
             return ToolResult(
-                ok=False,
-                output=(
-                    "[fail:weather] No coordinates on file, so there is no "
-                    f"location to forecast.{cause} Set city plus latitude and "
-                    "longitude in data/profile.yaml, or call user_location after "
-                    "enabling location.network. Do not pass coordinates to "
-                    "weather; it does not accept them."
-                ),
+                ok=True,
+                output="I couldn't tell where you are. Which city should I check?",
+                data={"need_place": True},
             )
+        if here.latitude is not None and here.longitude is not None and here.place:
+            return await self._sentence(here.place, here.latitude, here.longitude)
+        return await self._for_place(here.place)
 
-        raw_days = kwargs.get("days")
-        try:
-            days = int(raw_days) if raw_days not in (None, "") else 3
-        except (TypeError, ValueError):
-            # The 9B often passes days="today" instead of 1.
-            days = 3
-        days = max(1, min(16, days))
-        hours = _int_arg(kwargs.get("hours"), default=0, lo=0, hi=48)
-        past_days = _int_arg(kwargs.get("past_days"), default=0, lo=0, hi=7)
-        try:
-            data = await fetch_forecast(lat, lon, days=days, hours=hours, past_days=past_days)
-        except Exception as exc:
-            return ToolResult(ok=False, output=f"weather failed: {exc}")
+    async def _resolve_here(self) -> Here | None:
+        windows = await _maybe_await(self._windows_fn())
+        found = _as_here(windows)
+        if found is not None and found.place:
+            return found
+        home = self._home_fn()
+        if isinstance(home, str) and home.strip():
+            return Here(place=home.strip())
+        ip = await _maybe_await(self._ip_fn())
+        found = _as_here(ip)
+        if found is not None and found.place:
+            return found
+        return None
 
-        lines: list[str] = []
-        if place:
-            lines.append(f"Place: {place}")
-        lines.append(f"Coordinates: {lat:.4f}, {lon:.4f}")
-        if alternatives:
-            # Stated as a fact about the name, not a question. The forecast
-            # below is real and usually right; this exists so that when it is
-            # wrong, the user can see it and say which one they meant.
-            shown = "; ".join(alternatives[:3])
-            lines.append(
-                f"That name also matched: {shown}. "
-                f"Say which one if {place} is not the one you meant."
+    def _windows_fn(self) -> Any:
+        if self._windows_location is not None:
+            return self._windows_location()
+        return read_windows_location()
+
+    def _home_fn(self) -> str:
+        if self._home_city is not None:
+            value = self._home_city()
+            return str(value or "")
+        location = self.location
+        reader = getattr(location, "home_city", None)
+        if callable(reader):
+            return str(reader() or "")
+        return ""
+
+    def _ip_fn(self) -> Any:
+        if self._ip_location is not None:
+            return self._ip_location()
+        location = self.location
+        reader = getattr(location, "lookup_ip", None)
+        if callable(reader):
+            return reader()
+        return None
+
+    async def _for_place(self, asked: str) -> ToolResult:
+        city, regions = split_place(asked)
+        try:
+            hits = await _maybe_await(self._geocode_fn(city or asked))
+        except Exception:
+            return _miss(asked)
+        rows = [row for row in (hits or []) if isinstance(row, dict)]
+        if regions:
+            matched = [row for row in rows if row_matches(row, regions)]
+            if not matched:
+                return _miss(asked)
+            return await self._from_row(asked, matched[0])
+        labels: list[str] = []
+        picked: list[dict[str, Any]] = []
+        for row in rows:
+            label = place_label(row)
+            if not label or label in labels:
+                continue
+            labels.append(label)
+            picked.append(row)
+        if len(picked) >= 2:
+            return ToolResult(
+                ok=True,
+                output=clarify(labels[:3]),
+                data={"ambiguous": True, "alternatives": labels[:3]},
             )
-        current = data.get("current") or {}
-        if current:
-            code = describe_weather_code(current.get("weather_code"))
-            lines.append(
-                "Now: "
-                f"{current.get('temperature_2m')}°F "
-                f"(feels {current.get('apparent_temperature')}°F), "
-                f"{code or 'conditions unknown'}, "
-                f"precip {current.get('precipitation')}."
-            )
-        hourly = data.get("hourly") or []
-        if hourly:
-            # Before the daily rows on purpose: when someone asks for hours,
-            # the hours are the answer and the daily summary is context.
-            lines.append("Hourly:")
-            for row in hourly:
-                stamp = str(row.get("time") or "")
-                clock = stamp.split("T")[-1][:5] or stamp
-                code = describe_weather_code(row.get("weather_code"))
-                lines.append(
-                    f"- {clock}: {row.get('temperature_2m')}°F, "
-                    f"{code or 'conditions unknown'}, "
-                    f"precip chance {row.get('precipitation_probability')}%."
-                )
-        daily = data.get("daily") or []
-        if daily:
-            lines.append("Daily:")
-            for row in daily:
-                code = describe_weather_code(row.get("weather_code"))
-                lines.append(
-                    f"- {row.get('date')}: high {row.get('temperature_2m_max')}°F / "
-                    f"low {row.get('temperature_2m_min')}°F, "
-                    f"{code or 'conditions unknown'}, "
-                    f"precip chance {row.get('precipitation_probability_max')}%."
-                )
+        if len(picked) == 1:
+            return await self._from_row(asked, picked[0])
+        return _miss(asked)
+
+    async def _from_row(self, asked: str, row: dict[str, Any]) -> ToolResult:
+        try:
+            lat = float(row["latitude"])
+            lon = float(row["longitude"])
+        except (KeyError, TypeError, ValueError):
+            return _miss(asked)
+        return await self._sentence(place_label(row) or asked, lat, lon, fallback=asked)
+
+    async def _sentence(
+        self,
+        label: str,
+        lat: float,
+        lon: float,
+        *,
+        fallback: str = "",
+    ) -> ToolResult:
+        try:
+            data = await _maybe_await(self._forecast_fn(lat, lon))
+        except Exception:
+            return _miss(fallback or label)
+        if not isinstance(data, dict):
+            return _miss(fallback or label)
+        line = forecast_sentence(label, data)
+        if not line:
+            return _miss(fallback or label)
         return ToolResult(
             ok=True,
-            output="\n".join(lines),
-            data={
-                "latitude": lat,
-                "longitude": lon,
-                "place": place,
-                "ambiguous": bool(alternatives),
-                "alternatives": list(alternatives),
-                "hourly": hourly,
-                "daily": daily,
-                "current": current,
-            },
+            output=line,
+            data={"place": label, "latitude": lat, "longitude": lon},
         )
+
+    def _geocode_fn(self, query: str) -> Any:
+        if self._geocode is not None:
+            return self._geocode(query)
+        return search_geocode(query)
+
+    def _forecast_fn(self, lat: float, lon: float) -> Any:
+        if self._forecast is not None:
+            return self._forecast(lat, lon)
+        return fetch_forecast(lat, lon, days=1)
 
 
 _HOMEISH_PLACE = frozenset(
@@ -430,6 +371,162 @@ _US_STATE_NAME_TO_ABBR = {
     "wisconsin": "wi",
     "wyoming": "wy",
 }
+def _state_display(abbr: str) -> str:
+    if abbr == "dc":
+        return "District of Columbia"
+    for parts, code in _US_STATE_PHRASES.items():
+        if code == abbr:
+            return " ".join(word.capitalize() for word in parts)
+    for name, code in _US_STATE_NAME_TO_ABBR.items():
+        if code == abbr:
+            return name.capitalize()
+    return abbr
+
+
+_ABBR_TO_NAME = {
+    abbr: _state_display(abbr)
+    for abbr in set(_US_STATE_NAME_TO_ABBR.values())
+    | {code for _parts, code in _US_STATE_PHRASES.items()}
+}
+
+
+@dataclass(frozen=True)
+class Here:
+    """A place the machine already knows, before any forecast."""
+
+    place: str = ""
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+def _miss(place: str) -> ToolResult:
+    return ToolResult(
+        ok=False,
+        output=f"I couldn't get the forecast for {place}.",
+    )
+
+
+async def _maybe_await(value: Any) -> Any:
+    if hasattr(value, "__await__"):
+        return await value
+    return value
+
+
+def _as_here(value: Any) -> Here | None:
+    if value is None:
+        return None
+    if isinstance(value, Here):
+        return value if value.place.strip() else None
+    city = str(getattr(value, "city", "") or "").strip()
+    region = str(getattr(value, "region", "") or "").strip()
+    place = ", ".join(part for part in (city, region) if part)
+    if not place:
+        place = str(getattr(value, "place", "") or "").strip()
+    if not place:
+        return None
+    lat = getattr(value, "latitude", None)
+    lon = getattr(value, "longitude", None)
+    try:
+        lat_f = float(lat) if lat is not None else None
+        lon_f = float(lon) if lon is not None else None
+    except (TypeError, ValueError):
+        lat_f = lon_f = None
+    return Here(place=place, latitude=lat_f, longitude=lon_f)
+
+
+def _is_us_region(text: str) -> bool:
+    folded = " ".join(text.casefold().split()).strip(" .,")
+    if folded in _US_STATE_NAME_TO_ABBR or folded in _ABBR_TO_NAME:
+        return True
+    return tuple(folded.split()) in _US_STATE_PHRASES
+
+
+def split_place(query: str) -> tuple[str, list[str]]:
+    """City text to look up, and the state or country words they wrote."""
+    raw = " ".join((query or "").split())
+    parts = [part.strip(" .") for part in raw.split(",") if part.strip(" .")]
+    if len(parts) >= 2:
+        return parts[0], parts[1:]
+    tokens = raw.split()
+    for size in (3, 2, 1):
+        if len(tokens) <= size:
+            continue
+        tail = " ".join(tokens[-size:])
+        if _is_us_region(tail):
+            city = " ".join(tokens[:-size]).strip()
+            if city:
+                return city, [tail]
+    return raw, []
+
+
+def _region_values(entry: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in ("admin1", "admin2", "admin3", "admin4", "country", "country_code"):
+        value = " ".join(str(entry.get(key) or "").split())
+        if value:
+            values.append(value)
+    return values
+
+
+def _same_region(wanted: str, value: str) -> bool:
+    left = " ".join(wanted.casefold().split())
+    right = " ".join(value.casefold().split())
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    left_name = _ABBR_TO_NAME.get(left, left)
+    right_name = _ABBR_TO_NAME.get(right, right)
+    return left_name.casefold() == right_name.casefold()
+
+
+def row_matches(entry: dict[str, Any], regions: list[str]) -> bool:
+    values = _region_values(entry)
+    for region in regions:
+        if not any(_same_region(region, value) for value in values):
+            return False
+    return True
+
+
+def place_label(entry: dict[str, Any]) -> str:
+    name = " ".join(str(entry.get("name") or "").split())
+    admin = " ".join(str(entry.get("admin1") or "").split())
+    country = " ".join(str(entry.get("country") or "").split())
+    if admin and admin.casefold() != name.casefold():
+        return f"{name}, {admin}"
+    if country and country.casefold() != name.casefold():
+        return f"{name}, {country}"
+    return name
+
+
+def clarify(labels: list[str]) -> str:
+    if len(labels) >= 3:
+        return f"Did you mean {', '.join(labels[:-1])}, or {labels[-1]}?"
+    if len(labels) == 2:
+        return f"Did you mean {labels[0]} or {labels[1]}?"
+    if labels:
+        return f"Did you mean {labels[0]}?"
+    return "Which city should I check?"
+
+
+def _whole(value: Any) -> str:
+    try:
+        return str(round(float(value)))
+    except (TypeError, ValueError):
+        return ""
+
+
+def forecast_sentence(label: str, data: dict[str, Any]) -> str:
+    current = data.get("current") or {}
+    daily = data.get("daily") or []
+    today = daily[0] if daily else {}
+    temp = _whole(current.get("temperature_2m"))
+    high = _whole(today.get("temperature_2m_max"))
+    low = _whole(today.get("temperature_2m_min"))
+    if not label or not temp or not high or not low:
+        return ""
+    condition = describe_weather_code(current.get("weather_code")) or "unknown"
+    return f"{label}: {temp}F and {condition}, high {high}, low {low}."
 
 
 def place_query_for_geocode(name: str) -> str:

@@ -152,112 +152,16 @@ async def test_the_caps_hold() -> None:
     assert "past_days=7" in client.urls[0]
 
 
-# --------------------------------------------------------------------------
-# Through the tool
-# --------------------------------------------------------------------------
-
-
-class _Snapshot:
-    latitude = 40.0
-    longitude = -80.0
-
-    def has_coordinates(self) -> bool:
-        return True
-
-    def place(self) -> str:
-        return "Springfield, Illinois"
-
-
-class _Location:
-    def snapshot(self) -> _Snapshot:
-        return _Snapshot()
-
-
-def _patch_tool(monkeypatch: pytest.MonkeyPatch, seen: dict[str, Any]) -> None:
-    async def _forecast(lat: float, lon: float, **kw: Any) -> dict[str, Any]:
-        seen.update(kw)
-        return {
-            "current": {
-                "temperature_2m": 70.0,
-                "apparent_temperature": 69.0,
-                "precipitation": 0.0,
-                "weather_code": 0,
-            },
-            "daily": [
-                {
-                    "date": "2026-09-17",
-                    "weather_code": 0,
-                    "temperature_2m_max": 78.0,
-                    "temperature_2m_min": 60.0,
-                    "precipitation_probability_max": 60,
-                }
-            ],
-            "hourly": [
-                {
-                    "time": "2026-09-17T15:00",
-                    "temperature_2m": 74.0,
-                    "precipitation_probability": 80,
-                    "weather_code": 61,
-                }
-            ]
-            if kw.get("hours")
-            else [],
-        }
-
-    monkeypatch.setattr("arelis.tools.weather.fetch_forecast", _forecast)
-
-
-@pytest.mark.asyncio
-async def test_the_tool_reports_the_hour_and_its_own_chance(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A 60% day and an 80% 3pm are different answers; the hour has to win."""
-    seen: dict[str, Any] = {}
-    _patch_tool(monkeypatch, seen)
-
-    result = await WeatherTool(_Location()).run(place="", hours=6)
-
-    assert seen["hours"] == 6
-    assert "15:00" in result.output
-    assert "80%" in result.output
-    assert result.data["hourly"], "hourly never reached the caller"
-
-
-@pytest.mark.asyncio
-async def test_a_worded_hour_count_does_not_fail_the_turn(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The 9B writes hours="this afternoon". That must not raise."""
-    seen: dict[str, Any] = {}
-    _patch_tool(monkeypatch, seen)
-
-    result = await WeatherTool(_Location()).run(place="", hours="this afternoon")
-
-    assert result.ok, result.output
-    assert seen["hours"] == 0
-
-
-@pytest.mark.asyncio
-async def test_past_days_reaches_the_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: dict[str, Any] = {}
-    _patch_tool(monkeypatch, seen)
-
-    await WeatherTool(_Location()).run(place="", past_days=1)
-
-    assert seen["past_days"] == 1
-
-
-@pytest.mark.asyncio
-async def test_a_plain_ask_requests_no_extras(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: dict[str, Any] = {}
-    _patch_tool(monkeypatch, seen)
-
-    await WeatherTool(_Location()).run(place="")
-
-    assert seen["hours"] == 0
-    assert seen["past_days"] == 0
+def test_the_schema_is_one_optional_place() -> None:
+    """Hours and past days are not model-facing. One sentence is the result."""
+    props = WeatherTool.parameters_schema["properties"]
+    assert list(props) == ["place"]
+    assert WeatherTool.parameters_schema["required"] == []
+    assert "hours" not in props
+    assert "past_days" not in props
+    lowered = WeatherTool.description.lower()
+    assert "hours" not in lowered
+    assert "weather tool" not in lowered
 
 
 @pytest.mark.parametrize(
@@ -324,13 +228,6 @@ def test_filling_only_widens_what_the_model_chose() -> None:
 
     untouched = fill_weather_args({}, "what's the weather")
     assert "hours" not in untouched
-
-
-def test_the_schema_offers_the_new_shape() -> None:
-    props = WeatherTool.parameters_schema["properties"]
-    assert "hours" in props
-    assert "past_days" in props
-    assert "hours" in WeatherTool.description
 
 
 def test_garbled_after_tomorrow_is_not_a_city() -> None:

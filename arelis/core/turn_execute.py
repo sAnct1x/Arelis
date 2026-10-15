@@ -46,7 +46,6 @@ from arelis.core.turn_scratch import RoundScratch, chain_unfinished
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_secrets, truncate_tool_output
-from arelis.tools.weather import weather_place_key, weather_places_missing
 
 
 def _pin_plain_user(
@@ -96,17 +95,6 @@ def _pin_plain_user(
     append_tool_free_nudge(messages)
 
 
-def _other_tools_owed(loop: Any, ctx: TurnContext, r: RoundScratch) -> bool:
-    """True when a named tool other than weather has not run yet.
-
-    Turn state only: the owed-name list, minus weather. A failed forecast
-    still leaves a document step open. A weather-only ask does not.
-    """
-    from arelis.core.no_call_finish import owed_tool_names
-
-    return any(name != "weather" for name in owed_tool_names(loop, ctx, r))
-
-
 async def execute_call(
     loop: Any,
     ctx: TurnContext,
@@ -134,7 +122,6 @@ async def execute_call(
     page_ok = r.page_ok
     sms_sent = r.sms_sent
     agenda_created = r.agenda_created
-    weather_ok_places = r.weather_ok_places
     ollama_tools = r.ollama_tools
     messages = r.messages
     sms_draft = r.sms_draft
@@ -801,46 +788,12 @@ async def execute_call(
         messages.append(loop._tool_message(name, out))
         if result.ok and name != "weather":
             _pin_plain_user(messages, ctx, name, out, loop)
-        if name == "weather" and not result.ok:
-            asked = str(args.get("place") or "").strip()
-            if asked:
-                ctx.weather_failed_places.add(weather_place_key(asked))
-            if loop._timer is not None:
-                loop._timer.mark("weather_once", action="miss")
-            # One attempt. Say so when nothing else is still owed. A
-            # named document (or any other tool) keeps the turn open.
-            if not _other_tools_owed(loop, ctx, r):
-                await loop._finish(
-                    "I couldn't get a forecast.",
-                    sources,
-                    streamed="",
-                )
-                return True
         if (
             name == "schedule"
             and result.ok
             and str(args.get("action") or "").lower() in {"list", "delete"}
         ):
             ctx.schedule_managed_ok = True
-        # One successful reading for this place. The forecast stays in
-        # the transcript. No days retry, no other-city nudge, no
-        # answer-now line. A later call for the same place does not run.
-        if name == "weather" and result.ok:
-            wx_key = weather_place_key(str(args.get("place") or ""))
-            weather_ok_places.add(wx_key)
-            resolved = ""
-            if isinstance(data_dict, dict):
-                resolved = str(data_dict.get("place") or "").strip()
-            if resolved:
-                ctx.weather_resolved_place = resolved
-            if loop._timer is not None:
-                missing = weather_places_missing(
-                    text, weather_ok_places, ctx.weather_failed_places
-                )
-                loop._timer.mark(
-                    "weather_once",
-                    action="need_place" if missing else "answer_now",
-                )
         # Successful SMS to every draft recipient → confirm and stop.
         # Otherwise the model re-opens Allow and double-texts.
         if (
