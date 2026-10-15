@@ -499,3 +499,67 @@ def test_pending_reminders_list_stays_readable() -> None:
     assert "could not put it into words" not in line.lower()
     assert "call the dentist" in line
     assert "pack for the lab" in line
+
+
+@pytest.mark.asyncio
+async def test_empty_after_document_save_shows_the_path() -> None:
+    """An empty wrap-up after a save shows the path, not the model instruction."""
+    from uuid import uuid4
+
+    from arelis.tools.document import DocumentTool
+
+    filename = f"empty-reply-{uuid4().hex[:8]}.md"
+    expected = f"Saved the document to outputs/documents/{filename}."
+    ask = "Save a markdown note."
+    router = _ScriptedRouter(
+        [
+            [
+                (
+                    "tool_calls",
+                    [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "document",
+                                "arguments": {
+                                    "format": "md",
+                                    "title": "Notes",
+                                    "filename": filename,
+                                    "body": "hello",
+                                },
+                            },
+                        }
+                    ],
+                )
+            ],
+            [("token", "")],
+            [("token", "")],
+            [("token", "")],
+        ]
+    )
+
+    async def _allow(*_args, **_kwargs) -> str:
+        return "allow"
+
+    bus = EventBus()
+    registry = ToolRegistry()
+    registry.register(DocumentTool())
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["max_rounds"] = 8
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        registry,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_allow,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(bus, loop.run(ask, "fast"))
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    text = str(done.payload.get("text") or "")
+    assert text == expected
+    assert "do not paste" not in text.lower()
+    assert _EM_DASH not in text
