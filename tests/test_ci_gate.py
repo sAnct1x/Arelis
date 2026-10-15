@@ -39,11 +39,65 @@ def test_ci_runs_ruff_once_before_the_matrix() -> None:
     assert "ruff check" not in test_block.lower()
 
 
+# Same block on every workflow that push or pull_request can start.
+# main does not cancel, so a newer main push cannot drop the run already
+# on the branch tip. Nightly and tool choice are schedule-only and keep
+# their own group.
+_PUSH_PR_CONCURRENCY = (
+    "concurrency:\n"
+    "  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}\n"
+    "  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}\n"
+)
+
+
+def _trigger_block(text: str) -> str:
+    match = re.search(
+        r"(?m)^on:\n(.*?)(?=^(?:jobs|permissions|concurrency|env):)",
+        text,
+        re.S,
+    )
+    return match.group(1) if match else ""
+
+
+def _push_or_pull_request(text: str) -> bool:
+    block = _trigger_block(text)
+    return bool(re.search(r"(?m)^  (push|pull_request):", block))
+
+
 def test_ci_cancels_leftover_runs_and_cannot_sit_six_hours() -> None:
     text = CI_YML.read_text(encoding="utf-8")
-    assert "cancel-in-progress: true" in text
+    assert _PUSH_PR_CONCURRENCY in text
     assert re.search(r"(?m)^    timeout-minutes: 25", text), "test job needs a ceiling"
     assert re.search(r"(?m)^    timeout-minutes: 5", text), "lint/lock need a ceiling"
+
+
+def test_push_and_pull_request_workflows_share_one_concurrency_group() -> None:
+    workflows = ROOT / ".github" / "workflows"
+    push_pr = []
+    for path in sorted(workflows.glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        if _push_or_pull_request(text):
+            push_pr.append(path.name)
+            assert _PUSH_PR_CONCURRENCY in text, path.name
+    assert "ci.yml" in push_pr
+    assert "nightly-live.yml" not in push_pr
+    assert "tool-choice.yml" not in push_pr
+    for name in ("nightly-live.yml", "tool-choice.yml"):
+        text = (workflows / name).read_text(encoding="utf-8")
+        assert "github.head_ref" not in text
+        assert not _push_or_pull_request(text)
+
+
+def test_test_job_runs_xdist_and_keeps_pytest_cov() -> None:
+    text = CI_YML.read_text(encoding="utf-8")
+    test_block = text.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
+    assert "-n auto" in test_block
+    assert "scripts/ci_tier.py" in test_block
+    on_block = text.split("\njobs:", 1)[0]
+    assert "paths:" not in on_block
+    pyproject = PYPROJECT.read_text(encoding="utf-8")
+    assert "pytest-xdist" in pyproject
+    assert "pytest-cov" in pyproject
 
 
 def test_ci_ruff_pin_matches_pyproject() -> None:
