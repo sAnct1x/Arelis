@@ -396,6 +396,10 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         zone = require_earth()
         hit = resolve_place(query, zone)
         if hit is None:
+            from arelis.earth.geocode import cached_place
+
+            hit = cached_place(query)
+        if hit is None:
             if query.casefold() in {"home", "here"}:
                 window.thinking.append(
                     "Set a home city in your profile first.", kind="status"

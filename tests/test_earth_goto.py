@@ -70,11 +70,12 @@ async def test_earth_tool_goto(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_geocoder_accepts_only_an_extracted_place(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A plain string never geocodes. Only EarthTool goto opens the network."""
+    """A plain string never geocodes. Chat geocodes a clean place name only."""
     from arelis.earth import gazetteer
-    from arelis.earth.geocode import NOMINATIM_HOST, ExtractedPlace, clear_cache, search_address
+    from arelis.earth.geocode import NOMINATIM_HOST, clear_cache, search_address
     from arelis.spatial.verbs import classify_physics_act
     from arelis.ui.earth_find import apply_goto
+    from arelis.ui.world_host import apply_physics_act
 
     clear_cache()
     calls: list[str] = []
@@ -139,14 +140,7 @@ async def test_geocoder_accepts_only_an_extracted_place(
         assert classify_physics_act(short) is None
         assert calls == []
         assert short not in calls
-        assert passed and isinstance(passed[-1], ExtractedPlace)
-        assert passed[-1].text == captured
-
-        passed.clear()
-        assert classify_physics_act("show me Columbus, Ohio") is None
-        assert passed and isinstance(passed[-1], ExtractedPlace)
-        assert passed[-1].text == "Columbus, Ohio"
-        assert calls == []
+        assert captured not in calls
 
         london = resolve_place("London")
         assert london is not None and london.name == "London"
@@ -158,18 +152,40 @@ async def test_geocoder_accepts_only_an_extracted_place(
         assert ohio is not None and ohio.kind == "state"
         assert calls == []
 
-        monkeypatch.setattr("arelis.tools.earth_tool.stage_ok", lambda: True)
+        monkeypatch.setattr("arelis.ui.world_host.world_available", lambda: True)
+        monkeypatch.setattr("arelis.ui.world_host.toggle_world", lambda *a, **k: None)
+        monkeypatch.setattr("arelis.physics.runtime.get_system", lambda: None)
         earth = EarthRuntime()
         set_earth(earth)
-        got = await EarthTool().run(action="goto", query="Columbus, Ohio")
-        assert got.ok, got.output
+
+        class _Window:
+            def __init__(self) -> None:
+                self.thinking = self
+
+            def append(self, *_args: object, **_kwargs: object) -> None:
+                return None
+
+        act = classify_physics_act("show me Columbus, Ohio")
+        assert act is not None and act.verb == "goto_earth"
+        assert act.name == "Columbus, Ohio"
         assert calls == ["Columbus, Ohio"]
-        assert short not in calls
+        assert "show me Columbus, Ohio" not in calls
+        apply_physics_act(_Window(), act)
         dest = earth.take_goto()
         assert dest is not None
         assert dest["name"] == "Columbus, Ohio"
         assert dest["lat"] == 40.0
         assert dest["lon"] == -83.0
+
+        monkeypatch.setattr("arelis.tools.earth_tool.stage_ok", lambda: True)
+        got = await EarthTool().run(action="goto", query="Columbus, Ohio")
+        assert got.ok, got.output
+        assert calls == ["Columbus, Ohio"]
+        assert short not in calls
+        again = earth.take_goto()
+        assert again is not None
+        assert again["lat"] == 40.0
+        assert again["lon"] == -83.0
 
         columbus = _Find("Columbus, Ohio")
         assert apply_goto(columbus) is True

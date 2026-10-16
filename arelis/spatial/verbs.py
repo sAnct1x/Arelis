@@ -115,6 +115,13 @@ _NOT_BODY = re.compile(
     r"\blogin\b|\bsign\s*in\b|\bcalendar\b|\bcamera\b|\bwebcam\b|\bweb\s*cam\b"
 )
 _ARTICLE = re.compile(r"(?i)^(the|a|an)\s+")
+_PLACE_WORD = re.compile(r"[A-Za-z][A-Za-z.'’\-]*\Z")
+_HOUSE_NO = re.compile(r"\d+[A-Za-z]?\Z")
+_STREET_LAST = re.compile(
+    r"(?i)(?:st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|"
+    r"ct|court|way|hwy|highway|pkwy|parkway|pl|place|cir|circle|"
+    r"pike|terrace|ter)\.?\Z"
+)
 
 # Canonical overlay flags match H, the ⋯ tray, and solar action=toggle.
 _OVERLAY_ALIASES: tuple[tuple[str, str], ...] = (
@@ -388,6 +395,59 @@ def match_inspect_body(text: str, *, names: Iterable[str] | None = None) -> str 
     return resolve_body(hit.group("body") or "", names)
 
 
+def _place_parts(blob: str) -> list[str] | None:
+    """Comma-separated place parts, or None when the capture is not that shape."""
+    parts = [part.strip(" .") for part in blob.split(",")]
+    parts = [part for part in parts if part]
+    if len(parts) < 2 or len(parts) > 3:
+        return None
+    return parts
+
+
+def _one_name(part: str) -> bool:
+    words = part.split()
+    return len(words) == 1 and bool(_PLACE_WORD.fullmatch(words[0]))
+
+
+def _street_line(part: str) -> bool:
+    words = part.split()
+    if len(words) < 2 or len(words) > 4:
+        return False
+    rest = words[1:] if _HOUSE_NO.fullmatch(words[0]) else words
+    if not rest or len(rest) > 3:
+        return False
+    if not _STREET_LAST.fullmatch(rest[-1]):
+        return False
+    return all(_PLACE_WORD.fullmatch(word) for word in rest)
+
+
+def _extracted_place(blob: str):
+    """The place name inside a goto capture, or None when words are left over.
+
+    A clean capture is a known catalog place, or one unknown locality (or a
+    street line) qualified by a known region. Anything else is not a place,
+    so the geocoder is not asked.
+    """
+    from arelis.earth.gazetteer import resolve_place
+    from arelis.earth.geocode import ExtractedPlace
+
+    parts = _place_parts(blob)
+    if parts is None:
+        return None
+    known = [resolve_place(part) for part in parts]
+    if not any(hit is not None for hit in known):
+        return None
+    for part, hit in zip(parts, known, strict=True):
+        if hit is not None:
+            continue
+        if _one_name(part) or _street_line(part):
+            continue
+        return None
+    if known[0] is not None:
+        return known[0]
+    return ExtractedPlace(", ".join(parts))
+
+
 def match_earth_place(text: str) -> str | None:
     """A named Earth destination, or None. Bodies stay travel, not here."""
     raw = (text or "").strip()
@@ -402,12 +462,20 @@ def match_earth_place(text: str) -> str | None:
     if not blob or _NOT_BODY.search(blob):
         return None
     from arelis.earth.gazetteer import resolve_place
-    from arelis.earth.geocode import ExtractedPlace
+    from arelis.earth.geocode import ExtractedPlace, search_address
 
-    found = resolve_place(ExtractedPlace(blob))
-    if found is None:
+    found = resolve_place(blob)
+    if found is not None:
+        return found.name
+    place = _extracted_place(blob)
+    if place is None:
         return None
-    return found.name
+    if isinstance(place, ExtractedPlace):
+        hits = search_address(place, limit=1, force=True)
+        if not hits:
+            return None
+        return hits[0].name
+    return place.name
 
 
 def _earth_layer_flag(match: re.Match[str]) -> str:

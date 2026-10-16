@@ -42,9 +42,9 @@ def _block_network() -> bool:
 class ExtractedPlace:
     """Place text already cut out before a geocode.
 
-    The goto extractor, the Find box, and EarthTool action=goto may construct
-    this. ``search_address`` refuses a plain string, so a raw prompt cannot
-    be geocoded.
+    The goto extractor (a clean place only), the Find box, and EarthTool
+    action=goto may construct this. ``search_address`` refuses a plain
+    string, so a raw prompt cannot be geocoded.
     """
 
     __slots__ = ("text",)
@@ -169,6 +169,21 @@ def remember_hits(query: str, hits: list[GotoHit]) -> None:
         _cache[key] = frozen
         for hit in frozen:
             _cache.setdefault(_fold(hit.name), frozen)
+
+
+def cached_place(query: str) -> GotoHit | None:
+    """A hit already stored for this place name. Does not open the network."""
+    key = _fold(query)
+    if not key:
+        return None
+    with _lock:
+        cached = _cache.get(key)
+    if not cached:
+        return None
+    for hit in cached:
+        if abs(hit.lat) >= 1e-5 or abs(hit.lon) >= 1e-5:
+            return hit
+    return None
 
 
 def clear_cache() -> None:
