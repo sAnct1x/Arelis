@@ -166,9 +166,13 @@ _MATH_TOP = (
 _BLOCKED_AUDIT_EVENTS = frozenset(
     {
         "os.system",
+        "os.fork",
+        "os.forkpty",
         "os.exec",
         "os.posix_spawn",
         "os.spawn",
+        # 3.14 audits the launcher Popen uses. It is not the Popen event.
+        "_posixsubprocess.fork_exec",
         "os.chmod",
         "os.link",
         "os.symlink",
@@ -682,6 +686,147 @@ def _install_open_guard() -> None:
 
 
 _LIST_EVENTS = frozenset({"os.listdir", "os.scandir", "os.walk", "os.fwalk"})
+# Metadata events CPython actually raises. os.stat, os.lstat, os.readlink,
+# and os.path.exists do not raise one on 3.12, so those calls are wrapped
+# below. When an interpreter does raise one, the same room rule applies.
+_META_EVENTS = frozenset(
+    {
+        "os.stat",
+        "os.lstat",
+        "os.readlink",
+        "os.access",
+        "os.statvfs",
+        "os.getxattr",
+        "os.listxattr",
+    }
+)
+_IN_META = False
+_OS_LAUNCH_NAMES = (
+    "fork",
+    "forkpty",
+    "posix_spawn",
+    "posix_spawnp",
+    "execl",
+    "execle",
+    "execlp",
+    "execlpe",
+    "execv",
+    "execve",
+    "execvp",
+    "execvpe",
+    "spawnl",
+    "spawnle",
+    "spawnlp",
+    "spawnlpe",
+    "spawnv",
+    "spawnve",
+    "spawnvp",
+    "spawnvpe",
+    "startfile",
+)
+_META_NAMES = ("stat", "lstat", "readlink", "access")
+
+
+def _refuse_process(*_args: Any, **_kwargs: Any) -> NoReturn:
+    raise _CellBlocked("starting a process is not allowed in this cell.")
+
+
+def _replace_functions(targets: dict[int, Any]) -> None:
+    """Point every module alias at the replacement. vars(module) sees it."""
+    if not targets:
+        return
+    for module in list(sys.modules.values()):
+        mapping = getattr(module, "__dict__", None)
+        if not isinstance(mapping, dict):
+            continue
+        for name, value in list(mapping.items()):
+            repl = targets.get(id(value))
+            if repl is None:
+                continue
+            try:
+                mapping[name] = repl
+            except Exception:
+                # A frozen or extension module dict cannot be patched.
+                # The os and _posixsubprocess entries are the ones the
+                # cell reaches through sys.modules.
+                pass
+
+
+def _stub_process_launchers() -> None:
+    """Refuse process launch before the hook. fork_exec never audits as Popen.
+
+    The font scan has already run, so its fc-list still used the real
+    launcher. After this, every alias of these functions raises.
+    """
+    found: dict[int, Any] = {}
+
+    def take(fn: Any) -> None:
+        if callable(fn):
+            found[id(fn)] = _refuse_process
+
+    for name in _OS_LAUNCH_NAMES:
+        take(getattr(os, name, None))
+    for mod_name in ("posix", "nt", "_posixsubprocess", "_winapi"):
+        module = sys.modules.get(mod_name)
+        if module is None:
+            continue
+        if mod_name == "_posixsubprocess":
+            take(getattr(module, "fork_exec", None))
+        elif mod_name == "_winapi":
+            for attr in dir(module):
+                if attr.startswith("CreateProcess"):
+                    take(getattr(module, attr, None))
+        else:
+            for name in _OS_LAUNCH_NAMES:
+                take(getattr(module, name, None))
+    _replace_functions(found)
+
+
+def _metadata_allowed(raw: Any) -> bool:
+    """A stat or readlink may stay in the workspace, the libraries, or the cache."""
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return True
+    if raw is None:
+        return False
+    path = _as_path(raw)
+    if path is None:
+        return False
+    return bool(
+        _library_read(path)
+        or _font_read(path)
+        or _under_roots(path, _WORK_READ)
+        or _cache_path(path)
+    )
+
+
+def _guard_metadata(real: Any) -> Any:
+    def guarded(*args: Any, **kwargs: Any) -> Any:
+        global _IN_META
+        if _IN_META or _IN_HOOK:
+            return real(*args, **kwargs)
+        raw = args[0] if args else kwargs.get("path")
+        _IN_META = True
+        try:
+            allowed = _metadata_allowed(raw)
+        finally:
+            _IN_META = False
+        if not allowed:
+            raise _CellBlocked(
+                "reading file details outside this room is not allowed in this cell."
+            )
+        return real(*args, **kwargs)
+
+    return guarded
+
+
+def _install_metadata_guards() -> None:
+    """Wrap stat, lstat, readlink, and access. exists() goes through stat."""
+    found: dict[int, Any] = {}
+    for name in _META_NAMES:
+        fn = getattr(os, name, None)
+        if callable(fn) and id(fn) not in found:
+            found[id(fn)] = _guard_metadata(fn)
+    _replace_functions(found)
 
 
 def _listing_allowed(raw: Any) -> bool:
@@ -758,6 +903,13 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
         raise _CellBlocked(
             "listing a directory outside this room is not allowed in this cell."
         )
+    if event in _META_EVENTS:
+        raw = args[0] if args else None
+        if _metadata_allowed(raw):
+            return
+        raise _CellBlocked(
+            "reading file details outside this room is not allowed in this cell."
+        )
     if event != "open" or not args:
         return
     mode = args[1] if len(args) > 1 else ""
@@ -787,6 +939,8 @@ def _install_hook() -> None:
     # add a folder the hook will read. The font scan has already finished,
     # so every later Popen is refused.
     _read_roots()
+    _stub_process_launchers()
+    _install_metadata_guards()
     _install_open_guard()
     sys.addaudithook(_audit)
 

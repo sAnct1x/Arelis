@@ -134,7 +134,10 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
         )
     )
     assert relative.ok is False
-    assert "results" in relative.output.lower()
+    # A relative path is the cell's temp directory, outside this room.
+    # Stat refuses it before the write, so the results sentence may not run.
+    lowered = relative.output.lower()
+    assert "results" in lowered or "details" in lowered
 
     outside = tmp_path / "outside.csv"
     in_room = root / "side.csv"
@@ -201,6 +204,63 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
     )
     assert font_scan.ok is False
     assert "popen" in font_scan.output.lower()
+    escaped = tmp_path / "forkexec-pwn"
+    chain = await tool.run(
+        code=(
+            "import matplotlib\n"
+            f"marker = {str(escaped)!r}\n"
+            "osmod = matplotlib.os\n"
+            "launcher = vars(osmod)['sys'].modules['_posixsubprocess']\n"
+            "r, w = osmod.pipe()\n"
+            "cmd = 'touch ' + marker\n"
+            "launcher.fork_exec(\n"
+            "    ['/bin/sh', '-c', cmd],\n"
+            "    [b'/bin/sh'],\n"
+            "    True,\n"
+            "    (w,),\n"
+            "    None,\n"
+            "    None,\n"
+            "    -1, -1, -1, -1, -1, -1,\n"
+            "    r, w,\n"
+            "    True,\n"
+            "    False,\n"
+            "    -1,\n"
+            "    None, None, None, -1,\n"
+            "    None,\n"
+            "    False,\n"
+            ")\n"
+        )
+    )
+    assert chain.ok is False
+    assert "process" in chain.output.lower()
+    assert not escaped.exists()
+    forked = await tool.run(code="import matplotlib\nmatplotlib.os.fork()\n")
+    assert forked.ok is False
+    assert "process" in forked.output.lower() or "fork" in forked.output.lower()
+    spawned = await tool.run(
+        code=(
+            "import matplotlib\n"
+            "matplotlib.os.posix_spawn("
+            "'/bin/sh', ['/bin/sh', '-c', 'true'], {})\n"
+        )
+    )
+    assert spawned.ok is False
+    details = await tool.run(
+        code=(
+            "import matplotlib\n"
+            "print(matplotlib.os.stat('/etc/passwd').st_size)\n"
+        )
+    )
+    assert details.ok is False
+    assert "details" in details.output.lower()
+    present = await tool.run(
+        code=(
+            "import matplotlib\n"
+            f"print(matplotlib.os.path.exists({str(root / 'data.csv')!r}))\n"
+        )
+    )
+    assert present.ok, present.output
+    assert "True" in present.output
     room = await tool.run(
         code=(
             "import matplotlib\n"
