@@ -386,6 +386,36 @@ def static_prefix_text(persona: str) -> str:
     return "\n".join(m["content"] for m in static_system_prefix(persona))
 
 
+def stable_prefix_enabled(config: dict[str, Any] | None) -> bool:
+    """True when this session keeps the chat prefix stable across rounds."""
+    agent = (config or {}).get("agent") or {}
+    return bool(agent.get("stable_prefix", False))
+
+
+def summary_pin_line(summary: str) -> dict[str, str]:
+    """The one system row that carries the running summary."""
+    return {
+        "role": "system",
+        "content": f"[earlier in this conversation: {summary}]",
+    }
+
+
+def full_conversation_messages(
+    persona: str,
+    memory: SessionMemory,
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Static prefix plus the prompt the next turn will extend.
+
+    The running summary is not pinned in front. With the stable prefix on,
+    it already sits in a turn tail inside history, and a new summary belongs
+    at the end of the next turn, not in front of these rows.
+    """
+    notes = not bool(config.get("_speak_replies"))
+    history = memory.as_ollama(include_notes=notes, include_latest_block=True)
+    return [*static_system_prefix(persona), *history]
+
+
 def _tool_intent_label(tool_calls: list[dict[str, Any]]) -> str:
     """Short Thinking/STATUS line once a native tool call is parsed."""
     if not tool_calls:
@@ -641,6 +671,217 @@ def _pin_tool_round_hint(messages: list[dict[str, Any]]) -> None:
     messages.insert(slot, {"role": "system", "content": _TOOL_ROUND_HINT})
 
 
+class _IdlePrefix:
+    """Summary fold and conversation reseed waiting for an idle slot.
+
+    One per SessionMemory, because each turn builds a new AgentLoop on the
+    same memory. A turn start cancels the task. The pending drop and the
+    reseed stay queued for the next idle stretch.
+    """
+
+    def __init__(self) -> None:
+        self.turn_active = False
+        self.task: Any = None
+        self.pending_drop: list[dict[str, Any]] | None = None
+        self.role = "fast"
+        self.loop: Any = None
+        self.reseed: Callable[[], Awaitable[None]] | None = None
+
+
+def _find_idle(memory: Any) -> _IdlePrefix | None:
+    slot = getattr(memory, "_prefix_idle", None)
+    if isinstance(slot, _IdlePrefix):
+        return slot
+    return None
+
+
+def _idle_slot(memory: Any) -> _IdlePrefix:
+    slot = _find_idle(memory)
+    if slot is not None:
+        return slot
+    slot = _IdlePrefix()
+    memory._prefix_idle = slot
+    return slot
+
+
+def _task_done(task: Any) -> bool:
+    done = getattr(task, "done", None)
+    if not callable(done):
+        return False
+    return bool(done())
+
+
+def cancel_idle_prefix(memory: Any) -> None:
+    """A turn is starting. Drop any in-flight summary or reseed."""
+    slot = _idle_slot(memory)
+    slot.turn_active = True
+    task = slot.task
+    slot.task = None
+    if task is not None and not _task_done(task):
+        cancel = getattr(task, "cancel", None)
+        if callable(cancel):
+            cancel()
+
+
+def _note_turn_ended(memory: Any) -> None:
+    """Stop claiming the slot when the turn ended without scheduling work."""
+    slot = _find_idle(memory)
+    if slot is None:
+        return
+    task = slot.task
+    if task is not None and not _task_done(task):
+        return
+    slot.turn_active = False
+
+
+def _summary_timeout_s(loop: Any) -> float:
+    agent = getattr(loop, "config", {}).get("agent") or {}
+    try:
+        max_ms = int(agent.get("summarize_max_ms", 8000) or 8000)
+    except (TypeError, ValueError):
+        max_ms = 8000
+    return max(1.0, max_ms / 1000.0)
+
+
+async def _reseed_parts(
+    *,
+    bus: Any,
+    router: Any,
+    config: dict[str, Any],
+    tools: Any,
+    memory: Any,
+    persona: str,
+    num_ctx: Any,
+) -> None:
+    """Prefill the slot with the conversation the next turn will extend."""
+    from arelis.config import shipped_num_ctx
+    from arelis.core.tool_surface import session_tool_schemas
+    from arelis.llm.startup import PrefixWarmup, seed_prefix_cache
+
+    agent_cfg = config.get("agent") or {}
+    ollama_cfg = config.get("ollama") or {}
+    try:
+        ctx = int(num_ctx or ollama_cfg.get("num_ctx") or 0)
+    except (TypeError, ValueError):
+        ctx = 0
+    if ctx <= 0:
+        ctx = int(ollama_cfg.get("num_ctx") or shipped_num_ctx())
+    prefix = PrefixWarmup(
+        messages=full_conversation_messages(persona, memory, config),
+        tools=session_tool_schemas(tools, agent_cfg),
+        num_ctx=ctx,
+    )
+    await seed_prefix_cache(bus, router, prefix, announce=False)
+
+
+async def _reseed_full_conversation(loop: Any) -> None:
+    await _reseed_parts(
+        bus=loop.bus,
+        router=loop.router,
+        config=loop.config,
+        tools=loop.tools,
+        memory=loop.memory,
+        persona=loop.persona,
+        num_ctx=getattr(loop, "_turn_num_ctx", None),
+    )
+
+
+def queue_conversation_reseed(window: Any, *, aio_loop: Any) -> None:
+    """Remember to reseed once the turn is idle. Do not call the model now."""
+    orch = getattr(window, "orchestrator", None)
+    memory = getattr(orch, "memory", None)
+    if memory is None:
+        return
+    slot = _idle_slot(memory)
+    config = window.config if isinstance(getattr(window, "config", None), dict) else {}
+
+    async def _reseed() -> None:
+        host = slot.loop
+        num_ctx = getattr(host, "_turn_num_ctx", None) if host is not None else None
+        await _reseed_parts(
+            bus=window.bus,
+            router=window.router,
+            config=config or getattr(orch, "config", {}) or {},
+            tools=orch.tools,
+            memory=orch.memory,
+            persona=orch.persona,
+            num_ctx=num_ctx,
+        )
+
+    slot.reseed = _reseed
+    if slot.turn_active:
+        return
+    # Settings can change while no turn is on the stack. The window's loop
+    # is the one the chat model is pinned to.
+    _kick_idle(slot, aio_loop)
+
+
+def _kick_idle(slot: _IdlePrefix, aio_loop: Any) -> None:
+    if slot.turn_active:
+        return
+    if slot.pending_drop is None and slot.reseed is None:
+        return
+    task = slot.task
+    if task is not None and not _task_done(task):
+        return
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is not None and (aio_loop is None or aio_loop is running):
+        slot.task = running.create_task(_idle_prefix_work(slot))
+        return
+    if aio_loop is None:
+        return
+    slot.task = asyncio.run_coroutine_threadsafe(_idle_prefix_work(slot), aio_loop)
+
+
+async def _idle_prefix_work(slot: _IdlePrefix) -> None:
+    """Fold a deferred summary, then put the conversation back in the slot.
+
+    The first await is deliberate. A turn that starts in the same loop
+    iteration cancels this before any request is sent.
+    """
+    try:
+        await asyncio.sleep(0)
+        if slot.turn_active:
+            return
+        loop = slot.loop
+        dropped = slot.pending_drop
+        if dropped and loop is not None:
+            summary, facts = await loop._summarize_dropped(
+                dropped,
+                slot.role,
+                timeout_s=_summary_timeout_s(loop),
+            )
+            if slot.turn_active:
+                return
+            if summary:
+                loop.memory.set_summary(summary)
+            for fact in facts:
+                loop.memory.add_pending_fact(fact)
+            if slot.pending_drop is dropped:
+                slot.pending_drop = None
+            if slot.reseed is None:
+
+                async def _put_conversation_back() -> None:
+                    await _reseed_full_conversation(loop)
+
+                slot.reseed = _put_conversation_back
+        if slot.turn_active:
+            return
+        reseed = slot.reseed
+        if reseed is None:
+            return
+        await reseed()
+        if slot.reseed is reseed and not slot.turn_active:
+            slot.reseed = None
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("Idle prefix work failed")
+
+
 def _group_rows(groups: list[list[dict[str, Any]]]) -> int:
     return sum(len(group) for group in groups)
 
@@ -805,6 +1046,10 @@ class AgentLoop:
         route_reason: str = "default",
         stopped_ask: str = "",
     ) -> None:
+        if stable_prefix_enabled(self.config):
+            # Before any await, so idle work queued by the previous turn
+            # does not reach the model.
+            cancel_idle_prefix(self.memory)
         try:
             await self._run(
                 text,
@@ -831,6 +1076,8 @@ class AgentLoop:
             from arelis.look_scratch import keep_look_files, sweep_look_scratch
 
             sweep_look_scratch(keep=keep_look_files(text))
+            if stable_prefix_enabled(self.config):
+                _note_turn_ended(self.memory)
 
     async def _run(
         self,
@@ -1199,6 +1446,48 @@ class AgentLoop:
             return ""
         return facts_prompt_line(texts)
 
+    def _pin_running_summary(
+        self,
+        pinned: list[dict[str, Any]],
+        turn_lines: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Put the running summary where a later edit does not bust history.
+
+        Off, it stays directly after the static prefix, which is where it
+        has always been. On, it joins this turn's tail, after the kept
+        history, so a new paragraph only changes the tail.
+        """
+        summary = (self.memory.summary or "").strip()
+        if not summary:
+            return pinned
+        line = summary_pin_line(summary)
+        if stable_prefix_enabled(self.config):
+            if not any(item.get("content") == line["content"] for item in turn_lines):
+                turn_lines.append(line)
+            return pinned
+        pinned.append(line)
+        return pinned
+
+    def _defer_summary(self, dropped: list[dict[str, Any]], role: ModelRole) -> None:
+        """Hold the fold until the turn is idle. The rows are already leaving."""
+        slot = _idle_slot(self.memory)
+        batch = copy.deepcopy(dropped)
+        if slot.pending_drop:
+            slot.pending_drop = [*slot.pending_drop, *batch]
+        else:
+            slot.pending_drop = batch
+        slot.role = str(role or "fast")
+        slot.loop = self
+
+    def _release_idle_prefix(self) -> None:
+        """The turn is over. Fold and reseed only while nothing else is running."""
+        if not stable_prefix_enabled(self.config):
+            return
+        slot = _idle_slot(self.memory)
+        slot.turn_active = False
+        slot.loop = self
+        _kick_idle(slot, None)
+
     async def _messages_for_turn(
         self,
         system_messages: list[dict[str, Any]],
@@ -1227,16 +1516,13 @@ class AgentLoop:
             pinned_msgs: list[dict[str, Any]],
             kept_msgs: list[dict[str, Any]],
         ) -> list[dict[str, Any]]:
+            if stable_prefix_enabled(self.config):
+                # The sent tail has to be the one the next turn replays.
+                # prepare stored the tail before the summary line was added.
+                self.memory.remember_turn_block(turn_lines)
             return _place_turn_tail([*pinned_msgs, *kept_msgs], turn_lines)
 
-        pinned = list(system_messages)
-        if self.memory.summary:
-            pinned.append(
-                {
-                    "role": "system",
-                    "content": f"[earlier in this conversation: {self.memory.summary}]",
-                }
-            )
+        pinned = self._pin_running_summary(list(system_messages), turn_lines)
         # Message-count backstop. The token budget is the real limit. A tool
         # turn is about a dozen prompt rows, so a small cap trips after a
         # handful of questions and then shaves the front every turn. When
@@ -1325,6 +1611,17 @@ class AgentLoop:
             )
             return _with_tail(pinned, _live_history())
 
+        if stable_prefix_enabled(self.config):
+            # The fold hits the same model. Doing it here evicts the slot
+            # in the middle of the turn. Drop so this prompt fits, and fold
+            # once the turn is idle.
+            self._defer_summary(dropped, role)
+            n_drop = len(dropped)
+            self.memory.drop_prompt_prefix(n_drop, include_notes=notes)
+            if self._timer is not None:
+                self._timer.mark("drop", dropped=n_drop, mode="summary_idle")
+            return _with_tail(pinned, _live_history())
+
         # Re-allocate against a smaller budget, because a summary pin is about to
         # take room the first pass did not reserve. Same older/tail split: the
         # history has not changed, only what it has to fit inside.
@@ -1400,14 +1697,7 @@ class AgentLoop:
         for fact in facts:
             self.memory.add_pending_fact(fact)
 
-        pinned = list(system_messages)
-        if self.memory.summary:
-            pinned.append(
-                {
-                    "role": "system",
-                    "content": f"[earlier in this conversation: {self.memory.summary}]",
-                }
-            )
+        pinned = self._pin_running_summary(list(system_messages), turn_lines)
         pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned) + sum(
             message_tokens(m, chars_per_token=ratio) for m in turn_lines
         )
@@ -1454,9 +1744,8 @@ class AgentLoop:
             # Thinking stays off. Left on, the chat model spends summarize_max_ms
             # on thinking tokens and the drop lands with no summary. router.stream
             # has no think argument, so this calls the provider the way the
-            # prefix seed does. The fold stays on this path: moving it to after
-            # ASSISTANT_DONE would also have to rebuild the prefix and re-seed
-            # the cache once the turn is idle.
+            # prefix seed does. With agent.stable_prefix the caller waits until
+            # the turn is idle, then reseeds the conversation this call evicts.
             router = self.router
             model = getattr(router, "active_model", None) or router.model_for(role)
             stream = router.provider.stream_chat(
@@ -1570,9 +1859,10 @@ class AgentLoop:
         hold_paint = tool_round and bool(
             agent_cfg.get("stream_answer_after_tools", True)
         )
-        if tool_round:
-            # Stable spot, just after the user line. A trailing copy would
-            # move every round and throw away the previous request.
+        if tool_round or stable_prefix_enabled(self.config):
+            # Same slot from the first round. Inserting it only once a later
+            # round is a tool round puts the row in the middle of a prompt
+            # that was already sent.
             _pin_tool_round_hint(messages)
         stream_messages = _normalize_ollama_messages(list(messages))
         self._last_sent_messages = copy.deepcopy(stream_messages)
@@ -1921,6 +2211,7 @@ class AgentLoop:
         if unverified:
             done_payload["unverified"] = unverified
         await self.bus.publish(Event(EventType.ASSISTANT_DONE, done_payload))
+        self._release_idle_prefix()
         # The answer goes out as written. Reducing it to something speakable is
         # the voice service's job, not the loop's: the bus carries the real
         # text, and only the branch that ends in a speaker changes it.
@@ -2008,6 +2299,7 @@ class AgentLoop:
         self.bus.publish_nowait(Event(EventType.THINKING, {"text": "cancelled"}))
         self.bus.publish_nowait(Event(EventType.ASSISTANT_DONE, {"text": text}))
         self.memory.mark_last_user_cancelled()
+        self._release_idle_prefix()
 
     async def _publish_error(self, message: str, *, detail: str = "") -> None:
         self.terminal_sent = True

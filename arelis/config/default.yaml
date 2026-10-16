@@ -249,6 +249,11 @@ agent:
   # plus the current user line. Conversation mode used to keep only the
   # newest line, so follow-ups forgot the last sentence.
   history_min_recent: 6
+  # Off until measured. On, the rolling summary and a tool-list reseed wait
+  # until the turn is idle, the summary sits after the kept history, and the
+  # tool-round note is pinned from the first round. The summary then arrives
+  # one turn later and sits later in the prompt, so the default stays off.
+  stable_prefix: false
   # Hold ASSISTANT_DELTA until tool rounds settle (H5/R13 retract storms).
   # Schemas still ride every turn (chat_fast_path off). Hold and the
   # "call a tool first" hint only apply when this turn actually expects a
