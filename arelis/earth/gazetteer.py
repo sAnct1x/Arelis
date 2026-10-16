@@ -283,8 +283,16 @@ def catalog() -> list[GotoHit]:
     return out
 
 
-def resolve_place(query: str, zone: Any = None) -> GotoHit | None:
-    """One confident destination, or None — never guess into the wrong country."""
+def resolve_place(query: str | Any, zone: Any = None) -> GotoHit | None:
+    """One confident destination, or None. Free text is never geocoded.
+
+    A plain string is a catalog lookup only. An extracted place from the goto
+    extractor is the same lookup: the network fallback is not here.
+    """
+    from arelis.earth.geocode import ExtractedPlace
+
+    if isinstance(query, ExtractedPlace):
+        query = query.text
     raw_fold = (query or "").strip().strip(".,!?").casefold()
     q = normalize_place(query).casefold()
     if not q or q in _BODIES:
@@ -339,10 +347,4 @@ def resolve_place(query: str, zone: Any = None) -> GotoHit | None:
     if len(names) == 1:
         prefixed.sort(key=lambda h: _KIND_RANK.get(h.kind, 9))
         return prefixed[0]
-    from arelis.earth.geocode import looks_like_address, search_address
-
-    if looks_like_address(query) or (len(q) >= 8 and any(ch.isdigit() for ch in q)):
-        found = search_address(query, limit=1)
-        if found:
-            return found[0]
     return None

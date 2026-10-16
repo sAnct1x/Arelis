@@ -358,6 +358,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Found a security hole? Tell me
 privately, per [SECURITY.md](SECURITY.md). Don't open a public issue
 for that.
 
+Contact: arelis@mail.grokbot.com
+
 Nothing that identifies a real person should ever go into this
 repository. There's a test that enforces it.
 

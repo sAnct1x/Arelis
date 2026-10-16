@@ -66,15 +66,142 @@ async def test_earth_tool_goto(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not miss.ok
 
 
-def test_looks_like_address_is_not_a_city_name() -> None:
-    from arelis.earth.geocode import looks_like_address
+@pytest.mark.asyncio
+async def test_geocoder_accepts_only_an_extracted_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A plain string never geocodes. Chat geocodes a qualified place only."""
+    from arelis.earth import gazetteer
+    from arelis.earth.geocode import NOMINATIM_HOST, clear_cache, search_address
+    from arelis.spatial.verbs import classify_physics_act
+    from arelis.ui.earth_find import apply_goto
+    from arelis.ui.world_host import apply_physics_act
 
-    assert looks_like_address("1600 Pennsylvania Avenue")
-    assert looks_like_address("10 Downing Street, London")
-    assert looks_like_address("Main Street")
-    assert not looks_like_address("Tokyo")
-    assert not looks_like_address("to")
-    assert not looks_like_address("California")
+    clear_cache()
+    calls: list[str] = []
+    passed: list[object] = []
+    real_resolve = gazetteer.resolve_place
+
+    class _Resp:
+        def __init__(self, query: str) -> None:
+            self._query = query
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> list[dict[str, str]]:
+            return [
+                {
+                    "lat": "40.00",
+                    "lon": "-83.00",
+                    "display_name": self._query,
+                    "addresstype": "city",
+                }
+            ]
+
+    def fake_get(url: str, **kwargs: object) -> _Resp:
+        assert NOMINATIM_HOST in str(url)
+        params = kwargs.get("params")
+        query = ""
+        if isinstance(params, dict):
+            query = str(params.get("q") or "")
+        calls.append(query)
+        return _Resp(query)
+
+    def spy(query: object, zone: object = None):
+        passed.append(query)
+        return real_resolve(query, zone)
+
+    monkeypatch.setattr("arelis.earth.geocode.httpx.get", fake_get)
+    monkeypatch.setattr("arelis.earth.geocode._block_network", lambda: False)
+    monkeypatch.setattr(gazetteer, "resolve_place", spy)
+
+    class _Find:
+        def __init__(self, query: str) -> None:
+            self._earth_find_q = query
+            self._earth_find_hits: list[object] = []
+            self._earth_find_ix = 0
+            self._earth_find_on = True
+            self.place: dict[str, object] | None = None
+
+        def update(self) -> None:
+            return None
+
+        def _select_earth_place(self, place: dict[str, object]) -> None:
+            self.place = place
+
+    try:
+        assert search_address("my notes about physics", force=True) == []
+        assert search_address("what is 3 body problem", force=True) == []
+        assert resolve_place("remind me about Main Street") is None
+        short = "show me my notes about the 3 body problem"
+        captured = "my notes about the 3 body problem"
+        assert resolve_place(short) is None
+        assert classify_physics_act(short) is None
+        assert classify_physics_act("show me pictures") is None
+        assert classify_physics_act("show me the weather") is None
+        assert calls == []
+        assert short not in calls
+        assert captured not in calls
+
+        london = resolve_place("London")
+        assert london is not None and london.name == "London"
+        california = resolve_place("California")
+        assert california is not None and california.kind == "state"
+        paris = resolve_place("Paris")
+        assert paris is not None and paris.name == "Paris"
+        ohio = resolve_place("Ohio")
+        assert ohio is not None and ohio.kind == "state"
+        assert calls == []
+
+        monkeypatch.setattr("arelis.ui.world_host.world_available", lambda: True)
+        monkeypatch.setattr("arelis.ui.world_host.toggle_world", lambda *a, **k: None)
+        monkeypatch.setattr("arelis.physics.runtime.get_system", lambda: None)
+        earth = EarthRuntime()
+        set_earth(earth)
+
+        class _Window:
+            def __init__(self) -> None:
+                self.thinking = self
+
+            def append(self, *_args: object, **_kwargs: object) -> None:
+                return None
+
+        window = _Window()
+        act = classify_physics_act("show me Columbus, Ohio")
+        assert act is not None and act.verb == "goto_earth"
+        assert act.name == "Columbus, Ohio"
+        assert calls == []
+        apply_physics_act(window, act)
+        assert calls == ["Columbus, Ohio"]
+        assert "show me Columbus, Ohio" not in calls
+        dest = earth.take_goto()
+        assert dest is not None
+        assert dest["name"] == "Columbus, Ohio"
+        assert dest["lat"] == 40.0
+        assert dest["lon"] == -83.0
+
+        monkeypatch.setattr("arelis.tools.earth_tool.stage_ok", lambda: True)
+        got = await EarthTool().run(action="goto", query="Columbus, Ohio")
+        assert got.ok, got.output
+        assert calls == ["Columbus, Ohio"]
+        assert short not in calls
+        again = earth.take_goto()
+        assert again is not None
+        assert again["lat"] == 40.0
+        assert again["lon"] == -83.0
+
+        columbus = _Find("Columbus, Ohio")
+        assert apply_goto(columbus) is True
+        assert columbus.place is not None
+        assert columbus.place["name"] == "Columbus, Ohio"
+        street = _Find("10 Downing Street, London")
+        assert apply_goto(street) is True
+        assert street.place is not None
+        assert street.place["name"] == "10 Downing Street, London"
+        assert calls == ["Columbus, Ohio", "10 Downing Street, London"]
+    finally:
+        clear_cache()
 
 
 def test_scale_bar_reads_like_a_map() -> None:

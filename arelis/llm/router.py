@@ -48,6 +48,39 @@ _VRAM_STUCK_NOTICE = (
 )
 
 
+def _ps_model_name(row: dict[str, Any]) -> str:
+    return str(row.get("name") or row.get("model") or "").strip()
+
+
+def _ps_size_vram(row: dict[str, Any]) -> int | None:
+    """VRAM bytes for one `/api/ps` row, or None when the field is absent.
+
+    None is not zero. Callers evict a row that did not say, which is the
+    old behavior. An explicit 0 holds no VRAM and must be left alone.
+    """
+    if "size_vram" not in row:
+        return None
+    raw = row.get("size_vram")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _loaded_model_holds_no_vram(name: str, rows: list[dict[str, Any]] | None) -> bool:
+    """True when `/api/ps` reports size_vram 0 for this loaded model."""
+    if not rows:
+        return False
+    for row in rows:
+        raw = _ps_model_name(row)
+        if not raw or not same_ollama_model(raw, name):
+            continue
+        return _ps_size_vram(row) == 0
+    return False
+
+
 class ModelRouter:
     """Maps roles to Ollama models and keeps only one hot when switching."""
 
@@ -229,25 +262,70 @@ class ModelRouter:
         self.active_role = role
         self.active_model = None
 
-    async def _evict_others(self, *, keep: str | None) -> None:
-        """Unload every resident chat model except `keep`, then wait for /api/ps."""
-        names: set[str] = set()
-        if self.active_model and not (
-            keep and same_ollama_model(self.active_model, keep)
-        ):
-            names.add(self.active_model)
+    async def _ps_rows(self) -> list[dict[str, Any]] | None:
+        """`/api/ps` model objects, or None when this provider cannot give them.
+
+        A failed read is logged and returns None. Eviction then uses names
+        only, which have no size_vram, so a missing field still unloads.
+        """
+        ps_fn = getattr(self.provider, "running_ps", None)
+        if not callable(ps_fn):
+            return None
+        try:
+            raw = await ps_fn()
+        except Exception as exc:
+            log.warning("Could not read Ollama /api/ps: %s", exc)
+            return None
+        if not isinstance(raw, list):
+            return None
+        return [item for item in raw if isinstance(item, dict)]
+
+    async def _loaded_names(self, rows: list[dict[str, Any]] | None) -> list[str]:
+        if rows is not None:
+            return [name for name in (_ps_model_name(row) for row in rows) if name]
         running_fn = getattr(self.provider, "running_models", None)
-        if callable(running_fn):
-            try:
-                for name in await running_fn() or []:
-                    raw = str(name or "").strip()
-                    if not raw:
-                        continue
-                    if keep and same_ollama_model(raw, keep):
-                        continue
-                    names.add(raw)
-            except Exception as exc:
-                log.warning("Could not list running Ollama models: %s", exc)
+        if not callable(running_fn):
+            return []
+        try:
+            found = await running_fn() or []
+        except Exception as exc:
+            log.warning("Could not list running Ollama models: %s", exc)
+            return []
+        names: list[str] = []
+        for name in found:
+            raw = str(name or "").strip()
+            if raw:
+                names.append(raw)
+        return names
+
+    def _should_evict(
+        self,
+        name: str,
+        rows: list[dict[str, Any]] | None,
+        keep: str | None,
+    ) -> bool:
+        if keep and same_ollama_model(name, keep):
+            return False
+        # size_vram 0 is resident in system RAM. Unload would not free the
+        # card, and waiting for it to leave /api/ps reports VRAM stuck.
+        if _loaded_model_holds_no_vram(name, rows):
+            return False
+        return True
+
+    async def _evict_others(self, *, keep: str | None) -> None:
+        """Unload every resident model except `keep`, then wait for /api/ps.
+
+        A loaded model whose `/api/ps` size_vram is 0 holds no VRAM, so it
+        stays. A row with no size_vram is evicted, same as before.
+        """
+        rows = await self._ps_rows()
+        loaded = await self._loaded_names(rows)
+        names: set[str] = set()
+        if self.active_model and self._should_evict(self.active_model, rows, keep):
+            names.add(self.active_model)
+        for raw in loaded:
+            if self._should_evict(raw, rows, keep):
+                names.add(raw)
         for name in names:
             try:
                 await self.provider.unload(name)
@@ -265,23 +343,15 @@ class ModelRouter:
             return
         if names:
             await asyncio.sleep(_VRAM_SETTLE_S)
-            if callable(running_fn):
-                leftover: list[str] = []
-                try:
-                    for name in await running_fn() or []:
-                        raw = str(name or "").strip()
-                        if not raw:
-                            continue
-                        if keep and same_ollama_model(raw, keep):
-                            continue
-                        leftover.append(raw)
-                except Exception as exc:
-                    log.warning("Could not re-list running Ollama models: %s", exc)
-                    leftover = []
-                if leftover:
-                    raise RuntimeError(
-                        _VRAM_STUCK_NOTICE.format(still=", ".join(leftover))
-                    )
+            fresh_rows = await self._ps_rows()
+            fresh = await self._loaded_names(fresh_rows)
+            leftover = [
+                raw for raw in fresh if self._should_evict(raw, fresh_rows, keep)
+            ]
+            if leftover:
+                raise RuntimeError(
+                    _VRAM_STUCK_NOTICE.format(still=", ".join(leftover))
+                )
         heavy_models = {
             self.model_for(role)  # type: ignore[arg-type]
             for role in _HEAVY_ROLES
@@ -292,15 +362,10 @@ class ModelRouter:
             # gate is for a 14B cold load, not "research" as a role name.
             if self.same_chat_weights("fast", "research"):
                 return
-            already = False
-            if callable(running_fn):
-                try:
-                    already = any(
-                        same_ollama_model(str(name or ""), keep)
-                        for name in (await running_fn() or [])
-                    )
-                except Exception:
-                    already = False
+            loaded_now = await self._loaded_names(await self._ps_rows())
+            already = any(
+                same_ollama_model(str(name or ""), keep) for name in loaded_now
+            )
             if not already:
                 await self._refuse_if_host_vram_full()
 

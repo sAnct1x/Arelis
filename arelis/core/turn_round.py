@@ -722,10 +722,13 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 messages,
                 tools_arg,
                 round_n=round_i,
+                # Hold paint only until a tool has answered. The write-up
+                # round after that streams, so speech can start per sentence.
                 expect_tools=(
                     bool(tools_arg)
                     and ctx.expect_tool_round
                     and not ctx.plain_only
+                    and not ctx.last_ok_tool_name
                 ),
             )
             round_ms = int((time.perf_counter() - round_t0) * 1000)

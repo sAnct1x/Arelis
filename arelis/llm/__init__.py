@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from arelis.llm.ollama import OllamaProvider
+from arelis.llm.ollama import (
+    DEFAULT_EMBED_KEEP_ALIVE,
+    DEFAULT_EMBED_NUM_GPU,
+    OllamaProvider,
+)
 from arelis.llm.router import ModelRouter
 from arelis.llm.startup import (
     PrefixWarmup,
@@ -35,10 +39,13 @@ def build_router(config: dict[str, Any]) -> ModelRouter:
     """
     ollama_cfg = config.get("ollama", {}) or {}
     router_cfg = config.get("router", {}) or {}
+    memory_cfg = config.get("memory") or {}
 
     provider = OllamaProvider(
         base_url=ollama_cfg.get("base_url", "http://127.0.0.1:11434"),
         timeout_s=ollama_cfg.get("timeout_s", 300),
+        embed_keep_alive=memory_cfg.get("embed_keep_alive", DEFAULT_EMBED_KEEP_ALIVE),
+        embed_num_gpu=int(memory_cfg.get("embed_num_gpu", DEFAULT_EMBED_NUM_GPU)),
     )
 
     options: dict[str, Any] = {}

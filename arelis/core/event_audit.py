@@ -4,9 +4,10 @@ ASSISTANT_DELTA and audio clips are intentionally omitted (too noisy). Turn
 latency stays in turns.log; this file answers “what happened on the bus?”
 for confirms, SMS, errors, and tool boundaries.
 
-Typed and spoken user text is a character count. A failed tool logs its
-class or status, not the message, because that message often repeats what
-the user just typed.
+Typed and spoken user text is a character count. So is a reply, a tool
+result, and a confirm summary. A failed tool logs its class or status, not
+the message, because that message often repeats what the user just typed.
+An inbound sender is the marker ``sender``.
 """
 
 from __future__ import annotations
@@ -182,7 +183,6 @@ def _format_event(event: Event) -> str:
     elif event.type == EventType.ASSISTANT_DONE:
         text = str(payload.get("text") or "")
         fields["chars"] = len(text)
-        fields["preview"] = _clip(text, 240)
     elif event.type == EventType.TOOL_START:
         fields["tool"] = payload.get("tool") or "?"
         fields["summary"] = _clip(str(payload.get("summary") or ""), 100)
@@ -191,7 +191,7 @@ def _format_event(event: Event) -> str:
         ok = bool(payload.get("ok"))
         fields["ok"] = ok
         if ok:
-            fields["preview"] = _clip(str(payload.get("output") or ""), 400)
+            fields["chars"] = len(str(payload.get("output") or ""))
         else:
             fields["status"] = "error"
             label = _tool_error_label(payload)
@@ -203,7 +203,7 @@ def _format_event(event: Event) -> str:
         if event.type == EventType.TOOL_CONFIRM_REPLY:
             fields["decision"] = payload.get("decision") or "?"
         else:
-            fields["summary"] = _clip(str(payload.get("summary") or ""), 100)
+            fields["chars"] = len(str(payload.get("summary") or ""))
     elif event.type == EventType.ERROR:
         fields["scope"] = payload.get("scope") or "turn"
         fields["message"] = _clip(str(payload.get("message") or ""), 160)
@@ -212,14 +212,8 @@ def _format_event(event: Event) -> str:
         fields["to"] = payload.get("to") or "?"
         fields["role"] = payload.get("role") or "?"
     elif event.type == EventType.SMS_RECEIVED:
-        who = (
-            payload.get("contact_name")
-            or payload.get("contact_alias")
-            or payload.get("from")
-            or "?"
-        )
-        fields["from"] = who
-        fields["preview"] = _clip(str(payload.get("body") or ""), 80)
+        fields["from"] = "sender"
+        fields["chars"] = len(str(payload.get("body") or ""))
     elif event.type in {EventType.SESSION_LOAD, EventType.SESSION_LOADED}:
         fields["session"] = payload.get("session_id") or "?"
         if "ok" in payload:
