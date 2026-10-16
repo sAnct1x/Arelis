@@ -64,7 +64,8 @@ class PythonTool:
     description = (
         "Run a short Python cell for numerics, kinematics, linear algebra, or "
         "a multi-step derivation. math is preloaded (sin, cos, radians, sqrt, "
-        "pi). sympy is `sp`, numpy is `np` when installed. Assignments and "
+        "pi). sympy is `sp`, numpy is `np` when installed. emcee is available "
+        "for a short MCMC fit. Assignments and "
         "print() work; the last expression is shown. Do not import os, "
         "subprocess, or open files. sympify/lambdify/parse_expr are refused"
         "build expressions from sp.Symbol, not from strings. Timeout 10s. "

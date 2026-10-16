@@ -45,6 +45,7 @@ _ALLOWED_IMPORTS = frozenset(
         "sympy",
         "numpy",
         "scipy",
+        "emcee",
         "mpmath",
     }
 )
@@ -224,7 +225,7 @@ def _import_refusal(name: str) -> NoReturn:
         raise _ChartImportError(name)
     raise ValueError(
         f"import {name!r} is not allowed. "
-        "math/sympy/numpy are preloaded; os/subprocess are not."
+        "math/sympy/numpy/emcee are preloaded; os/subprocess are not."
     )
 
 
@@ -649,6 +650,12 @@ def _namespace() -> dict[str, Any]:
         import scipy
 
         ns["scipy"] = scipy
+    except ImportError:
+        pass
+    try:
+        import emcee
+
+        ns["emcee"] = emcee
     except ImportError:
         pass
     try:
