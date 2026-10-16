@@ -135,6 +135,12 @@ class VoiceController(QObject):
         if self._smart_turn is None:
             silence_ms = max(silence_ms, 900)
             short_silence_ms = max(short_silence_ms, 550)
+        # Trailing silence after real speech that ends a conversation turn.
+        # Slow talkers pause mid-thought, so this is a floor, and Smart Turn
+        # cannot keep the turn open past it. 0 restores the old behavior.
+        self._end_silence_ms = max(0, int(conversation.get("end_silence_ms", 2500)))
+        silence_ms = max(silence_ms, self._end_silence_ms)
+        short_silence_ms = max(short_silence_ms, self._end_silence_ms)
         agent = config.get("agent") or {}
         self._speculate_preflight = bool(agent.get("voice_speculate_preflight", True))
         vad_cfg = voice.get("vad") or {}
@@ -845,6 +851,8 @@ class VoiceController(QObject):
         if self._smart_turn is None or self._discard_barge_clip:
             return False
         if not self._listening:
+            return False
+        if self._end_silence_ms > 0:
             return False
         peeked = self.recorder.peek() if hasattr(self.recorder, "peek") else b""
         if self._too_short(peeked, _MIN_UTTERANCE_S):
