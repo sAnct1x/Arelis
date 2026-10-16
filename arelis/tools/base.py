@@ -209,12 +209,24 @@ class ToolRegistry:
         # Programs opt-out skips the card only for exact bytes the user
         # already approved. A rename, a new file, or a restart does not
         # make unseen source trusted.
+        # Every confirmation class off is the global cards-off setting.
+        # That path skips this call too, including a script's first run,
+        # and does not hash the file or open the approvals list.
         run_confirm = confirm_run
         if name == "run_script":
             clear = getattr(tool, "clear_run_pin", None)
             if callable(clear):
                 clear(args or {})
-            if not confirm_run:
+            cards_off = not (
+                confirm_writes
+                or confirm_image
+                or confirm_send
+                or confirm_browser
+                or confirm_desktop
+                or confirm_vision
+                or confirm_run
+            )
+            if not confirm_run and not cards_off:
                 approved = getattr(tool, "user_approved_script", None)
                 if not (callable(approved) and approved(args or {})):
                     run_confirm = True

@@ -95,7 +95,8 @@ def test_model_written_script_card_shows_full_source(
     The card shows the whole file and the run executes that source. A rename
     into a .py is not an approval. A fresh process still honors the saved
     hash. The hash lives beside the profile, and a bad approvals file shows
-    the card.
+    the card. Every confirmation class off skips a first run, and that
+    decision does not read the approvals file.
     """
     import asyncio
     import hashlib
@@ -145,6 +146,17 @@ def test_model_written_script_card_shows_full_source(
         )
         assert reg.needs_confirm("run_script", {"path": "user_owned.py"}, confirm_run=False)
         assert reg.needs_confirm("run_script", {"path": "b.py"}, confirm_run=False)
+        assert not reg.needs_confirm(
+            "run_script",
+            {"path": "made.py"},
+            confirm_writes=False,
+            confirm_image=False,
+            confirm_send=False,
+            confirm_browser=False,
+            confirm_desktop=False,
+            confirm_vision=False,
+            confirm_run=False,
+        )
     finally:
         set_confirm_mode(previous)
 
