@@ -547,6 +547,10 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.thinking.append(errand, kind="tool")
         if str(tool or "") == "workspace" and isinstance(args, dict):
             window._workspace_tool_args = dict(args)
+        if str(tool or "") in {"tile", "solar", "earth"}:
+            from arelis.ui.solar_gl_proc import remember_view_tool_args
+
+            remember_view_tool_args(window, str(tool or ""), args)
         # The errand is already in the thought line. Nothing extra above the composer.
         window.conversation.set_turn_visible(True)
         window._reveal_dock(window.persona_dock, window.act_persona)
@@ -577,15 +581,27 @@ def dispatch_event(window: Any, event: Event) -> None:
             if job_id:
                 window.calendar.reload_jobs(select_id=job_id)
         if p.get("tool") == "tile" and p.get("ok"):
-            window._apply_tile(
-                str(data.get("name") or ""),
-                show=bool(data.get("open")) and not data.get("close"),
-                page=str(data.get("page") or ""),
-            )
+            from arelis.ui.solar_gl_proc import may_open_solar_page
+
+            page = str(data.get("page") or "")
+            show = bool(data.get("open")) and not data.get("close")
+            # data["page"] is a copy. It does not by itself open the solar
+            # page or build the offscreen buffer. Stay on the current page.
+            blocked = page == "solar" and show and not may_open_solar_page(window, p)
+            if not blocked:
+                window._apply_tile(
+                    str(data.get("name") or ""),
+                    show=show,
+                    page=page,
+                )
         if p.get("tool") in {"tile", "solar", "earth"}:
-            from arelis.ui.solar_gl_proc import release_solar_gl_after_tool
+            from arelis.ui.solar_gl_proc import (
+                clear_view_tool_args,
+                release_solar_gl_after_tool,
+            )
 
             release_solar_gl_after_tool(window)
+            clear_view_tool_args(window)
         if p.get("tool") in {"browser", "desktop"}:
             if intro:
                 window.chat.add_system(intro)

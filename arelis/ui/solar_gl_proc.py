@@ -119,6 +119,45 @@ def release_solar_gl_after_tool(window: Any) -> None:
     shutdown_solar_gl()
 
 
+def remember_view_tool_args(window: Any, tool: str, args: Any) -> None:
+    """Keep the call's own fields. The result event does not carry them."""
+    if tool not in {"tile", "solar", "earth"} or not isinstance(args, dict):
+        return
+    window._solar_view_args = {"tool": tool, "args": dict(args)}
+
+
+def clear_view_tool_args(window: Any) -> None:
+    window._solar_view_args = None
+
+
+def may_open_solar_page(window: Any, payload: dict) -> bool:
+    """A tile, solar, or earth result may land on solar only in two cases.
+
+    The page is already the one on screen, or this tile call's existing
+    page field is solar. Result text and a copied page on the result are
+    not a request.
+    """
+    plate = getattr(window, "world_window", None)
+    solar = getattr(plate, "solar", None) if plate is not None else None
+    if plate is not None and solar is not None and _solar_page_visible(plate, solar):
+        return True
+    if str(payload.get("tool") or "") != "tile":
+        return False
+    args = _call_args(window, payload)
+    return str(args.get("page") or "").strip().lower() == "solar"
+
+
+def _call_args(window: Any, payload: dict) -> dict:
+    raw = payload.get("args")
+    if isinstance(raw, dict):
+        return raw
+    stashed = getattr(window, "_solar_view_args", None)
+    if not isinstance(stashed, dict) or stashed.get("tool") != payload.get("tool"):
+        return {}
+    args = stashed.get("args")
+    return args if isinstance(args, dict) else {}
+
+
 def shutdown_solar_gl() -> None:
     """App exit, or a tool result with nothing on screen."""
     global _hidden_at
