@@ -19,16 +19,15 @@ python_exec hang found the same afternoon, and for a related reason — a
 timeout that was written down but not wired to the path that needed it.
 
 The fix must not cost latency on the fast path, because avoiding a 2s process
-spawn is precisely why these actions stay in-process. Hence a call-only
-tracer: returning None from the trace function disables per-line tracing,
-where the expense lives, and SymPy makes enough calls that the deadline still
-lands. `test_the_fast_path_is_not_slowed` is the guard on that bargain.
+spawn is precisely why these actions stay in-process. A per-call tracer made
+the deadline land, and it also made a 50th derivative slower than the 8s
+budget, so the deadline is injected when the budget expires instead.
 
-series is the exception that came back. The tracer only runs on Python
-calls, and a series expand spends its time inside integer gcd, which is C.
-The future then gives up and leaves the thread running. That thread kept
-the interpreter busy through a later import and the macOS suite died there.
-series now uses the same killable child as integrate.
+series is the exception that came back. An in-process interrupt only lands
+on Python bytecode, and a series expand spends its time inside integer gcd,
+which is C. The future then gives up and leaves the thread running. That
+thread kept the interpreter busy through a later import and the macOS suite
+died there. series now uses the same killable child as integrate.
 """
 
 from __future__ import annotations
@@ -103,7 +102,7 @@ async def test_a_pathological_series_is_killed_with_its_child(
     interpreter.
 
     Patching gcd to a single long sleep reproduces the hole on a laptop.
-    A call tracer cannot raise during that sleep. If series is still
+    An in-process interrupt cannot land during that sleep. If series is still
     in-process, the worker is alive after the tool has already given up.
     """
     import multiprocessing

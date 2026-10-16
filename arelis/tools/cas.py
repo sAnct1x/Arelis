@@ -8,8 +8,8 @@ That last clause was aspirational until 2026-09-17. integrate, dsolve and sum
 were bounded by a child process that can be killed; every other action ran
 unbounded on the calling thread, and a degree-40 solve or a nested simplify
 would spin a core with the glass unable to answer and Stop unable to help.
-series joined the child later: its expand sits inside integer gcd, which a
-thread tracer cannot interrupt, and walking away from that thread pins the
+series joined the child later: its expand sits inside integer gcd, which an
+in-process interrupt cannot land in, and walking away from that thread pins the
 whole process. A quadratic still stays in-process. See `_run_bounded`.
 """
 
@@ -18,10 +18,11 @@ from __future__ import annotations
 import ast
 import asyncio
 import concurrent.futures
+import ctypes
 import multiprocessing
 import re
 import sys
-import time
+import threading
 from typing import Any
 
 from arelis.tools.base import ToolResult
@@ -612,24 +613,65 @@ class _CasDeadline(BaseException):
     """Raised inside the worker thread when an in-process action overruns."""
 
 
-def _call_deadline_tracer(deadline: float) -> Any:
-    """A deadline check on function *calls*, not lines.
+def _interrupt_worker(ident: int | None) -> None:
+    """Deliver `_CasDeadline` at the next bytecode in the worker.
 
-    Returning None from the global trace function disables per-line tracing,
-    which is where the cost of `sys.settrace` lives. SymPy is call-heavy
-    enough that the deadline still fires promptly, and measured on the fast
-    path the overhead is not distinguishable from noise: diff, solve on a
-    quadratic and a small simplify all came in at or under their untraced
-    times. That matters, because the whole reason these actions stay in this
-    process is that they must not cost a 2s spawn.
+    A per-call tracer also sees the deadline, and on a 50th derivative it
+    costs more than the algebra it is guarding. Injection costs nothing
+    until the budget is already spent. `threading.get_ident` is the id
+    `PyThreadState_SetAsyncExc` takes.
     """
+    if ident is None:
+        return
+    set_async_exc = ctypes.pythonapi.PyThreadState_SetAsyncExc
+    set_async_exc.argtypes = (ctypes.c_ulong, ctypes.py_object)
+    set_async_exc.restype = ctypes.c_int
+    count = set_async_exc(ctypes.c_ulong(ident), ctypes.py_object(_CasDeadline))
+    if count > 1:
+        set_async_exc(ctypes.c_ulong(ident), None)
 
-    def _trace(frame: Any, event: str, arg: Any) -> Any:
-        if time.monotonic() > deadline:
-            raise _CasDeadline()
-        return None
 
-    return _trace
+def _boot_untraced_worker(
+    pool: concurrent.futures.ThreadPoolExecutor,
+    holder: dict[str, int],
+    budget: float,
+) -> None:
+    """Create the pool thread while ambient trace hooks are off.
+
+    Coverage sets `threading.settrace`, and a worker that starts under that
+    hook call-traces every SymPy call. The hook is restored as soon as this
+    thread has booted and SymPy is imported, which is still before the
+    deadline.
+    """
+    trace_hook = threading.gettrace()
+    profile_hook = threading.getprofile()
+    booted = threading.Event()
+
+    def _boot() -> None:
+        # Import only after this thread has booted, so the deadline has
+        # not started and the import is not call-traced.
+        sys.settrace(None)
+        holder["ident"] = threading.get_ident()
+        _ensure_sympy()
+        booted.set()
+
+    if trace_hook is not None:
+        threading.settrace(None)
+    if profile_hook is not None:
+        threading.setprofile(None)
+    try:
+        future = pool.submit(_boot)
+        if not booted.wait(timeout=budget):
+            raise TimeoutError("cas timeout")
+    finally:
+        if trace_hook is not None:
+            threading.settrace(trace_hook)
+        if profile_hook is not None:
+            threading.setprofile(profile_hook)
+    try:
+        future.result(timeout=budget)
+    except TimeoutError as exc:
+        raise TimeoutError("cas timeout") from exc
 
 
 def _run_bounded(
@@ -641,35 +683,49 @@ def _run_bounded(
     child. Every other action used to run unbounded on the calling thread.
     Measured: `solve(x**40 - x**17 + 3*x**5 - 1)` and a nested `simplify`
     each ran past twenty seconds. series did too, and then stayed there
-    after the deadline, inside integer gcd, where this tracer cannot raise.
-    That leftover thread is why series is not on this path.
+    after the deadline, inside integer gcd, where a thread interrupt cannot
+    land. That leftover thread is why series is not on this path.
 
-    Two layers, as in python_exec: the tracer stops SymPy itself, and the
-    future walks away from the thread if the tracer never gets a call event
-    to act on.
+    The budget is the algebra. SymPy is imported and the worker thread is
+    started before the clock, so a cold import is not a timeout. The clock
+    is the wait on the future. When it expires, `_CasDeadline` is injected
+    into the worker. There is no call tracer on this path: tracing every
+    SymPy call made the 50th derivative of 1/(x**2-1) miss the 8s it was
+    given to finish.
     """
 
     # Resolved here rather than as a default argument, which would bind the
     # module constant at import and make the budget impossible to lower in a
     # test without an 8s wait per case.
     budget = float(_TIMEOUT_S if timeout is None else timeout)
+    holder: dict[str, int] = {}
 
     def _traced() -> Any:
-        sys.settrace(_call_deadline_tracer(time.monotonic() + budget))
+        # An ambient tracer (coverage, a debugger) bills every SymPy call
+        # to this same budget. Drop it for the algebra and put it back.
+        previous = sys.gettrace()
+        sys.settrace(None)
         try:
             return target(*args, **kwargs)
         except _CasDeadline as exc:
             raise TimeoutError("cas timeout") from exc
         finally:
-            sys.settrace(None)
+            sys.settrace(previous)
 
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
+        _boot_untraced_worker(pool, holder, budget)
         future = pool.submit(_traced)
         try:
-            return future.result(timeout=budget + _TIMEOUT_GRACE_S)
-        except concurrent.futures.TimeoutError as exc:
-            raise TimeoutError("cas timeout") from exc
+            return future.result(timeout=budget)
+        except TimeoutError:
+            _interrupt_worker(holder.get("ident"))
+            try:
+                return future.result(timeout=_TIMEOUT_GRACE_S)
+            except _CasDeadline as late:
+                raise TimeoutError("cas timeout") from late
+            except TimeoutError as late:
+                raise TimeoutError("cas timeout") from late
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
