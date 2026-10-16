@@ -82,11 +82,14 @@ when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
 
 ## What is still not logged
 
-- Full assistant token streams (thinking dock only. `events.log` keeps a
-  240-char preview on ASSISTANT_DONE)
-- Entire tool result bodies (400-char preview in `events.log` when the
+- Full assistant token streams (thinking dock only. `events.log` keeps the
+  character count on ASSISTANT_DONE)
+- Entire tool result bodies (`events.log` keeps the character count when the
   call succeeded). A failed call logs `status=error` and, when the tool
   recorded one, the exception class or fail status. Not the message.
+- Confirm summaries, reply text, and memory notes in the logs. Those lines
+  keep a character count. An inbound sender is `sender`. A ledger recipient
+  is `to_chars`.
 - The words of a typed or spoken user message. `events.log` and
   `turns.jsonl` keep the character count only.
 - Phone Gemma latency while the house is away
