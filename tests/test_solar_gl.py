@@ -78,6 +78,17 @@ def test_framebuffer_size_caps_readback() -> None:
     assert framebuffer_size(3840, 2160, cap=_FB_CLOSE) == (w, h)
 
 
+def test_earth_atmosphere_is_a_thin_shell() -> None:
+    from arelis.ui.solar_gl import _ATMO, _FS_BODY
+
+    _rgb, scale, gain = _ATMO["Earth"]
+    assert scale < 1.03
+    assert gain < 0.55
+    assert _ATMO["Venus"][1] < 1.03
+    assert "uAlpha" in _FS_BODY
+    assert "0.16" in _FS_BODY
+
+
 class _Quiet:
     def append(self, *_args, **_kwargs) -> None:
         return None
