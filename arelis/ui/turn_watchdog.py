@@ -1,12 +1,12 @@
 """Hung-turn ceiling. The 8s busy watchdog only arms after Stop.
 
 A tool that never returns used to shimmer forever. This arms when the turn
-starts. The clock restarts on real progress: a streamed token, the prompt
-read moving forward, or a tool that is still running. A phase line is not
-a token, and the last tool call is not the clock. Silence with none of
-those is a stall. The allowances are unchanged. The remaining time stays
-off the shimmer, "thinking…" is the status, not a countdown. Confirm wait
-is a person, not a hang, so the ceiling pauses.
+starts. The clock restarts on real progress: a streamed token, or a tool
+that is still running. A phase line is not a token, an empty thinking
+event is not one either, and the last tool call is not the clock. Silence
+with neither of those is a stall. The allowances are unchanged. The
+remaining time stays off the shimmer, "thinking…" is the status, not a
+countdown. Confirm wait is a person, not a hang, so the ceiling pauses.
 
 When the ceiling hits and the turn already has tool results, she closes
 from that work instead of being cancelled. A shorter grace clock then
@@ -99,46 +99,24 @@ def _payload(event) -> dict[str, Any]:
 
 
 def _streamed_token(event) -> bool:
-    """A token that actually arrived. A phase line is not one."""
+    """A token that actually arrived.
+
+    A phase line has no stream flag. An empty thinking event, including one
+    marked stream, has no text. Neither is progress.
+    """
     kind = getattr(event, "type", None)
     payload = _payload(event)
     if kind == EventType.ASSISTANT_DELTA:
         return bool(payload.get("text"))
     if kind == EventType.ASSISTANT_RETRACT:
         return True
-    return kind == EventType.THINKING and bool(payload.get("stream"))
-
-
-def _prompt_advanced(window, event) -> bool:
-    """True when this event's prompt-read cursor moved forward.
-
-    The same count again is not progress. A new round may start lower than
-    the previous round's total, so the cursor resets when the round id changes.
-    """
-    payload = _payload(event)
-    if "prompt_read" not in payload:
+    if kind != EventType.THINKING or not payload.get("stream"):
         return False
-    try:
-        pos = int(payload["prompt_read"])
-    except (TypeError, ValueError):
-        return False
-    if pos <= 0:
-        return False
-    round_id = payload.get("prompt_round")
-    if round_id != getattr(window, "_hung_prompt_round", None):
-        window._hung_prompt_round = round_id
-        window._hung_prompt_read = None
-    last = getattr(window, "_hung_prompt_read", None)
-    if last is not None and pos <= int(last):
-        return False
-    window._hung_prompt_read = pos
-    return True
+    return bool(str(payload.get("text") or "").strip())
 
 
 def _clear_progress(window) -> None:
     window._hung_tool_running = False
-    window._hung_prompt_read = None
-    window._hung_prompt_round = None
 
 
 def _past_cap(window) -> bool:
@@ -152,10 +130,11 @@ def _past_cap(window) -> bool:
 def note_turn_progress(window, event) -> None:
     """Push the hang clock out on real progress.
 
-    A streamed token resets to the idle gap. The prompt read moving forward,
-    a tool that is in flight, a tool result, or a status line resets to the
-    first-token allowance, because the next token is not due yet. A trace
-    line such as ``phase=model`` does not. The absolute cap is never extended.
+    A streamed token resets to the idle gap. A tool that is in flight, a
+    tool result, or a status line resets to the first-token allowance,
+    because the next token is not due yet. A trace line such as
+    ``phase=model``, and a thinking event with no text, do not. The
+    absolute cap is never extended.
     """
     timer = getattr(window, "_hung_watchdog", None)
     if timer is None or not timer.isActive():
@@ -164,9 +143,6 @@ def note_turn_progress(window, event) -> None:
         return
     kind = getattr(event, "type", None)
     config = getattr(window, "config", None)
-    if _prompt_advanced(window, event):
-        _restart(window, hung_first_token_ms(config))
-        return
     if kind == EventType.TOOL_START:
         window._hung_tool_running = True
         _restart(window, hung_first_token_ms(config))

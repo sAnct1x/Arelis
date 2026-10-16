@@ -10,14 +10,11 @@ from typing import Any
 
 import httpx
 
-from arelis.llm.prompt_progress import prompt_read_from_chunk
-
 log = logging.getLogger(__name__)
 
 # Yield kinds from stream_chat
 # ("thinking", str) | ("token", str) | ("tool_calls", list[dict])
 # | ("metrics", dict)  # final chunk only; prompt_eval_count lives here
-# | ("prompt", int)  # prompt-read cursor, only when it moves forward
 
 
 def parse_installed_tags(payload: Any) -> list[str]:
@@ -207,7 +204,6 @@ class OllamaProvider:
 
         accumulated_calls: list[dict[str, Any]] = []
         done_metrics: dict[str, Any] | None = None
-        last_prompt = 0
         async with self._client.stream("POST", "/api/chat", json=payload) as response:
             if response.status_code >= 400:
                 # A streaming response has no body until it is read, and the
@@ -232,10 +228,6 @@ class OllamaProvider:
                     continue
                 if data.get("error"):
                     raise RuntimeError(f"Ollama error: {data['error']}")
-                pos = prompt_read_from_chunk(data)
-                if pos is not None and pos > last_prompt:
-                    last_prompt = pos
-                    yield ("prompt", pos)
                 msg = data.get("message") or {}
                 thinking = msg.get("thinking") or ""
                 content = msg.get("content") or ""

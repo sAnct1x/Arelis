@@ -444,8 +444,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.calendar.reload_jobs(select_id=str(p.get("id") or ""))
     elif t == EventType.THINKING:
         text = str(p.get("text") or "")
-        # Progress only: a swallowed token, or the prompt-read cursor.
-        # Nothing to paint. The watchdog already saw the event.
         if not text:
             return
         if p.get("stream"):

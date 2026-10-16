@@ -1515,90 +1515,20 @@ class AgentLoop:
             opts["temperature"] = temp
         return opts or None
 
-    async def _publish_think_stream(self, chunk: str) -> bool:
-        """Paint one native-thinking slice into the dock. Same as a text turn.
-
-        False means the chunk arrived and was not painted (empty, or held by
-        the redactor). The caller still counts it as a streamed token.
-        """
+    async def _publish_think_stream(self, chunk: str) -> None:
+        """Paint one native-thinking slice into the dock. Same as a text turn."""
         text = str(chunk or "")
         if not text:
-            return False
+            return
         self._last_round_thinking = True
         stream = getattr(self, "_think_redactor", None)
         if stream is not None:
             text = stream.feed(text)
             if not text:
-                return False
+                return
         await self.bus.publish(
             Event(EventType.THINKING, {"text": text, "stream": True})
         )
-        return True
-
-    async def _note_silent_token(self) -> None:
-        """A token arrived but was not painted. Still progress for the stall clock.
-
-        Coalesced so a held tool-round answer does not publish once per token.
-        The idle gap is far longer than this.
-        """
-        now = time.monotonic()
-        if now - float(getattr(self, "_silent_token_at", 0.0) or 0.0) < 1.0:
-            return
-        self._silent_token_at = now
-        await self.bus.publish(Event(EventType.THINKING, {"stream": True}))
-
-    async def _note_prompt_read(self, pos: int, round_n: int) -> None:
-        """The prompt read moved forward. No text, so the glass does not paint it."""
-        await self.bus.publish(
-            Event(
-                EventType.THINKING,
-                {"prompt_read": int(pos), "prompt_round": int(round_n)},
-            )
-        )
-
-    def _start_prompt_follow(
-        self, stop: asyncio.Event, round_n: int
-    ) -> asyncio.Task[None] | None:
-        """Watch the runner log while this round reads the prompt.
-
-        Scripted routers are not Ollama, and a missing log yields nothing.
-        """
-        from arelis.llm.ollama import OllamaProvider
-
-        provider = getattr(self.router, "provider", None)
-        if not isinstance(provider, OllamaProvider):
-            return None
-
-        async def _pump() -> None:
-            from arelis.llm.prompt_progress import follow_prompt_read
-
-            try:
-                async for pos in follow_prompt_read(stop):
-                    if stop.is_set():
-                        return
-                    await self._note_prompt_read(pos, round_n)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                log.warning("prompt progress follow stopped", exc_info=True)
-
-        return asyncio.create_task(_pump())
-
-    async def _stop_prompt_follow(
-        self, stop: asyncio.Event, task: asyncio.Task[None] | None
-    ) -> None:
-        stop.set()
-        if task is None:
-            return
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            # The child's cancel is normal. A cancel of this turn must still
-            # propagate, or Stop during a read would be swallowed here.
-            current = asyncio.current_task()
-            if current is not None and current.cancelling():
-                raise
 
     async def _flush_think_stream(self) -> None:
         """Release a held half-word once the round's thinking has ended."""
@@ -1677,52 +1607,40 @@ class AgentLoop:
 
         if self._wants_close():
             raise _CloseError
-        self._silent_token_at = 0.0
-        stop_prompt = asyncio.Event()
-        prompt_task = self._start_prompt_follow(stop_prompt, round_n)
-        try:
-            async for kind, payload in self.router.stream(
-                role,
-                stream_messages,
-                tools=tools,
-                options=self._stream_options(tools=bool(tools)),
-            ):
-                if self.is_cancelled():
-                    raise _StoppedError
-                if self.is_paused():
-                    await self._hold_if_paused()
-                if kind == "prompt":
-                    await self._note_prompt_read(int(payload), round_n)
-                elif kind == "thinking":
-                    if not await self._publish_think_stream(str(payload)):
-                        await self._note_silent_token()
-                elif kind == "token":
-                    chunk = str(payload)
-                    content_parts.append(chunk)
-                    if hold_paint:
-                        await self._note_silent_token()
-                        continue
-                    visible, retract = live.feed(chunk)
-                    if retract:
-                        await self._retract()
-                    if visible:
-                        await self._publish_delta(visible)
-                    elif chunk:
-                        await self._note_silent_token()
-                elif kind == "tool_calls":
-                    tool_calls = list(payload or [])
-                    if hold_paint and tool_calls:
-                        await self._publish_tool_intent(tool_calls)
-                elif kind == "metrics":
-                    if self._timer is not None and isinstance(payload, dict):
-                        self._timer.note_ollama_metrics(payload, round_n=round_n)
-                    count = payload.get("prompt_eval_count") if isinstance(payload, dict) else None
-                    if isinstance(count, int):
-                        updated = self._token_ratios.observe(model, prompt_chars, count)
-                        if updated is not None:
-                            self.memory.chars_per_token = updated
-        finally:
-            await self._stop_prompt_follow(stop_prompt, prompt_task)
+        async for kind, payload in self.router.stream(
+            role,
+            stream_messages,
+            tools=tools,
+            options=self._stream_options(tools=bool(tools)),
+        ):
+            if self.is_cancelled():
+                raise _StoppedError
+            if self.is_paused():
+                await self._hold_if_paused()
+            if kind == "thinking":
+                await self._publish_think_stream(str(payload))
+            elif kind == "token":
+                chunk = str(payload)
+                content_parts.append(chunk)
+                if hold_paint:
+                    continue
+                visible, retract = live.feed(chunk)
+                if retract:
+                    await self._retract()
+                if visible:
+                    await self._publish_delta(visible)
+            elif kind == "tool_calls":
+                tool_calls = list(payload or [])
+                if hold_paint and tool_calls:
+                    await self._publish_tool_intent(tool_calls)
+            elif kind == "metrics":
+                if self._timer is not None and isinstance(payload, dict):
+                    self._timer.note_ollama_metrics(payload, round_n=round_n)
+                count = payload.get("prompt_eval_count") if isinstance(payload, dict) else None
+                if isinstance(count, int):
+                    updated = self._token_ratios.observe(model, prompt_chars, count)
+                    if updated is not None:
+                        self.memory.chars_per_token = updated
 
         await self._flush_think_stream()
         raw = "".join(content_parts).strip()
