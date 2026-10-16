@@ -170,6 +170,9 @@ async def test_changed_bad_plot_args_stop_once_the_type_repeats(tmp_path: Path) 
     )
     assert not billboard.ok
     assert "poster" in billboard.output
+    ys_nope = await plot.run(action="line", xs="1,2", ys="nope")
+    assert ys_nope.data.get("status") == "bad_args"
+    assert ys_nope.data.get("error_type") == "ValueError"
     router = _ScriptedRouter(
         [
             [

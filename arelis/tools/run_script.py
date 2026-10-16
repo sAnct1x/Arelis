@@ -7,6 +7,7 @@ the user would: argv, project cwd, captured output. Jobs do not get it.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import subprocess
@@ -17,6 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from arelis.tools.arg_error import bad_args_data
 from arelis.tools.base import ToolResult
 from arelis.tools.child_proc import child_env
 from arelis.tools.confirm_preview import run_script_confirm
@@ -40,6 +42,8 @@ _POLL_S = 0.2
 _NEST_ENV = "ARELIS_IN_RUN_SCRIPT"
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 _CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+_HOST = Path(__file__).with_name("run_script_host.py")
+_STATUS_PREFIX = "ARELIS_RUN_STATUS "
 
 
 class RunScriptTool:
@@ -151,7 +155,11 @@ class RunScriptTool:
         try:
             resolved = self.workspace.resolve(path_str, for_write=False)
         except Exception as exc:
-            return ToolResult(ok=False, output=f"run_script path error: {exc}")
+            return ToolResult(
+                ok=False,
+                output=f"run_script path error: {exc}",
+                data=bad_args_data(exc),
+            )
 
         if resolved.root_name == "external":
             return ToolResult(
@@ -198,19 +206,24 @@ class RunScriptTool:
                     ok=False,
                     output=f"Could not run the approved script: {exc}",
                 )
-        cmd = [interpreter, str(script_path), *argv_extra]
+        cmd = [interpreter, str(_HOST), str(script_path), *argv_extra]
 
         started = time.monotonic()
         try:
             try:
                 proc = _spawn(cmd, cwd=cwd, env=env)
-            except FileNotFoundError:
+            except FileNotFoundError as exc:
                 return ToolResult(
                     ok=False,
                     output=f"Could not start {interpreter}. Python is missing.",
+                    data=bad_args_data(exc),
                 )
             except OSError as exc:
-                return ToolResult(ok=False, output=f"Could not start the script: {exc}")
+                return ToolResult(
+                    ok=False,
+                    output=f"Could not start the script: {exc}",
+                    data=bad_args_data(exc),
+                )
 
             try:
                 code, stdout, stderr, stopped = _wait(
@@ -220,7 +233,11 @@ class RunScriptTool:
                 )
             except Exception as exc:
                 _kill_tree(proc)
-                return ToolResult(ok=False, output=f"run_script failed: {exc}")
+                return ToolResult(
+                    ok=False,
+                    output=f"run_script failed: {exc}",
+                    data=bad_args_data(exc),
+                )
         finally:
             if temp is not None:
                 _unlink_quiet(temp)
@@ -233,21 +250,28 @@ class RunScriptTool:
                 data=_result_data(resolved, interpreter, cwd, -1, duration),
             )
         if stopped == "timeout":
+            data = _result_data(resolved, interpreter, cwd, -1, duration)
+            data.update(bad_args_data(error_type="TimeoutError"))
             return ToolResult(
                 ok=False,
                 output=(
                     f"The script timed out after {int(timeout_s)}s. "
                     "I will not invent the result."
                 ),
-                data=_result_data(resolved, interpreter, cwd, -1, duration),
+                data=data,
             )
 
+        stderr, status = _take_run_status(stderr)
         text = _format_output(stdout, stderr, code, interpreter, cwd, path)
         text = redact_secrets(text)
         if len(text) > _MAX_OUTPUT:
             text = text[:_MAX_OUTPUT] + "\n…(truncated)"
         data = _result_data(resolved, interpreter, cwd, code, duration)
         data["stdout"] = redact_secrets((stdout or "").rstrip())[:_STDOUT_WARRANT_CHARS]
+        if code != 0:
+            exc_type = status.get("error_type")
+            typed = exc_type if isinstance(exc_type, str) else None
+            data.update(bad_args_data(error_type=typed))
         return ToolResult(
             ok=code == 0,
             output=text,
@@ -268,6 +292,24 @@ def resolve_interpreter(root: Path, configured: str | None) -> str:
     if posix.is_file():
         return str(posix.resolve())
     return sys.executable
+
+
+def _take_run_status(stderr: str) -> tuple[str, dict[str, Any]]:
+    """Pull the host status line off stderr. The traceback stays."""
+    found: dict[str, Any] = {}
+    kept: list[str] = []
+    for line in (stderr or "").splitlines():
+        if line.startswith(_STATUS_PREFIX):
+            try:
+                parsed = json.loads(line[len(_STATUS_PREFIX) :])
+            except json.JSONDecodeError:
+                kept.append(line)
+                continue
+            if isinstance(parsed, dict) and parsed.get("status") == "bad_args":
+                found = parsed
+                continue
+        kept.append(line)
+    return "\n".join(kept), found
 
 
 def _argv_list(raw: Any) -> list[str]:
@@ -370,12 +412,20 @@ def _kill_tree(proc: subprocess.Popen[str]) -> None:
         )
         return
     try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
+        pgid = os.getpgid(proc.pid)
+    except OSError:
+        pgid = None
+    # killpg(our own group) would take down the caller, including a test worker.
+    if pgid and pgid == proc.pid and pgid != os.getpgrp():
         try:
-            proc.kill()
-        except OSError:
+            os.killpg(pgid, signal.SIGKILL)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
             pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
 
 
 def _format_output(

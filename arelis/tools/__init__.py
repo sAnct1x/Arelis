@@ -369,7 +369,10 @@ def build_tool_registry(
             )
         )
     registry.register(CalculatorTool())
-    registry.register(PythonTool())
+    cell_cfg = tools_cfg.get("python_cell") or {}
+    registry.register(
+        PythonTool(workspace, science_io=bool(cell_cfg.get("science_io", False)))
+    )
     registry.register(DiagnosticsTool())
     registry.register(WatchTool())
     if tools_cfg.get("cas", {}).get("enabled", True):

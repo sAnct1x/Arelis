@@ -57,6 +57,13 @@ dependencies = [
   # with astronomy files should open without a second install. The floor
   # still resolves on the Ubuntu 3.11 CI runner.
   "astropy>=6.1",
+  # Ensemble sampler for a short MCMC fit. MIT, pure Python, numpy only.
+  # Core, not an extra: a light-curve fit should run without a second install.
+  "emcee>=3.1",
+  # Corner plot of an MCMC chain. BSD-2. matplotlib is the only required
+  # dependency (arviz and scipy are extras). Core, not an extra: a fit
+  # should be able to draw its posterior without a second install.
+  "corner>=2.2",
   # Documents the user can double-click: PDF, Word, Excel. Core, not an extra —
   # "make me a pdf" is the ask, not a niche.
   "fpdf2>=2.8",

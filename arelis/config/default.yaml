@@ -523,6 +523,12 @@ tools:
   # Writes under that room's results/. Always Allow. Off for unattended jobs.
   data_cell:
     enabled: true
+  # The short Python cell. science_io adds matplotlib, corner, csv, seaborn,
+  # emcee, and astropy, plus numpy/astropy file IO and savefig into the
+  # room's results folder. Off until the cell runs in an OS job and the
+  # escape probes have passed on Windows. MCMC needs this on.
+  python_cell:
+    science_io: false
   # PDF, Word, Excel, CSV, markdown, text under outputs/documents/. Allow
   # (confirm_writes). Off for unattended jobs.
   document:
