@@ -143,6 +143,12 @@ def _finalize_tool_calls(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+# Embedding residency. keep_alive 0 reloaded nomic-embed-text onto the GPU
+# on every call. These match memory.embed_keep_alive and memory.embed_num_gpu.
+DEFAULT_EMBED_KEEP_ALIVE = "30m"
+DEFAULT_EMBED_NUM_GPU = 0
+
+
 class OllamaProvider:
     """HTTP client for a local Ollama server."""
 
@@ -151,11 +157,21 @@ class OllamaProvider:
     # so unit tests do not shell out to Get-Counter.
     guard_host_vram = True
 
-    def __init__(self, base_url: str = "http://127.0.0.1:11434", timeout_s: float = 300) -> None:
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:11434",
+        timeout_s: float = 300,
+        *,
+        embed_keep_alive: str | int = DEFAULT_EMBED_KEEP_ALIVE,
+        embed_num_gpu: int = DEFAULT_EMBED_NUM_GPU,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout_s)
         # tag -> capabilities from /api/show. See capabilities().
         self._capabilities: dict[str, frozenset[str]] = {}
+        # Resident in system RAM. num_gpu 0 keeps the embed model off the card.
+        self._embed_keep_alive = embed_keep_alive
+        self._embed_num_gpu = int(embed_num_gpu)
 
     async def stream_chat(
         self,
@@ -293,16 +309,22 @@ class OllamaProvider:
     async def embed(self, model: str, texts: list[str]) -> list[list[float]]:
         """Embed texts with /api/embed. Used for recall, not for chat turns.
 
-        keep_alive is 0 so nomic does not sit on the card after a batch or a
-        single recall query. A mid-turn recall still costs a reload of the chat
-        model afterward; that is the price of an explicit memory search, and the
-        background indexer never runs while a turn is in flight.
+        keep_alive stays at 30m and num_gpu is 0 so nomic-embed-text remains
+        resident in system RAM and never takes VRAM from the chat model.
+        keep_alive 0 reloaded it onto the GPU on every call and pushed the
+        9B into shared memory on a full 12 GB card. Both values come from
+        memory.embed_keep_alive and memory.embed_num_gpu.
         """
         if not texts:
             return []
         response = await self._client.post(
             "/api/embed",
-            json={"model": model, "input": texts, "keep_alive": 0},
+            json={
+                "model": model,
+                "input": texts,
+                "keep_alive": self._embed_keep_alive,
+                "options": {"num_gpu": self._embed_num_gpu},
+            },
         )
         if response.status_code >= 400:
             detail = response.text.strip()[:400]
