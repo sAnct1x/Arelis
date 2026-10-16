@@ -708,6 +708,9 @@ voice:
     silence_ms: 280
     short_silence_ms: 280
     short_utterance_ms: 2800
+    # Silence after real speech that ends a turn. Long mid-thought pauses
+    # under this never cut you off; Smart Turn only applies when this is 0.
+    end_silence_ms: 2500
     # Level counted as speech, as a fraction of full scale. The floor is also
     # measured from the room at the start of each listen and the higher of the
     # two wins, so this is a lower bound rather than the whole test.
