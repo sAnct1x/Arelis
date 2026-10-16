@@ -699,6 +699,7 @@ def _run_bounded(
     # test without an 8s wait per case.
     budget = float(_TIMEOUT_S if timeout is None else timeout)
     holder: dict[str, int] = {}
+    done = threading.Event()
 
     def _traced() -> Any:
         # An ambient tracer (coverage, a debugger) bills every SymPy call
@@ -710,8 +711,10 @@ def _run_bounded(
         except _CasDeadline as exc:
             raise TimeoutError("cas timeout") from exc
         finally:
+            done.set()
             sys.settrace(previous)
 
+    # The worst case is now ~8s import wait + 8s + 2s grace.
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
         _boot_untraced_worker(pool, holder, budget)
@@ -719,7 +722,8 @@ def _run_bounded(
         try:
             return future.result(timeout=budget)
         except TimeoutError:
-            _interrupt_worker(holder.get("ident"))
+            if not done.is_set():
+                _interrupt_worker(holder.get("ident"))
             try:
                 return future.result(timeout=_TIMEOUT_GRACE_S)
             except _CasDeadline as late:

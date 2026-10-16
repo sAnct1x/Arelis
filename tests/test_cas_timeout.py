@@ -54,6 +54,14 @@ async def test_a_runaway_solve_gives_up_instead_of_hanging(
     assert result.ok is False
     assert elapsed < 8.0, f"took {elapsed:.1f}s; the deadline did not fire"
     assert result.data.get("fail_class") == "fail:timeout"
+    # Giving up has to stop the worker. A timeout that only unblocks the
+    # caller leaves the solve running, and pytest then sits until it ends.
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        if not _cas_worker_still_inside_compute():
+            break
+        await asyncio.sleep(0.05)
+    assert not _cas_worker_still_inside_compute()
 
 
 @pytest.mark.asyncio
