@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
+
 import pytest
 
 from arelis.core.bus import EventBus
-from arelis.core.events import EventType
+from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
 from arelis.tools.base import ToolRegistry
 from tests.hardening_helpers import (
@@ -142,3 +145,52 @@ async def test_answer_after_a_tool_streams_instead_of_landing_whole() -> None:
     deltas = [str(e.payload.get("text") or "") for e in events if e.type == EventType.ASSISTANT_DELTA]
     assert "".join(deltas) == "It is sunny and 18 degrees in Paris. A good day for a walk."
     assert len(deltas) >= 2
+
+    # A withdrawn chunk is already on the TTS buffer when the real reply is
+    # queued. Speech is the reply alone; the withdrawn word is not glued on.
+    reply = "Boston is sunny today."
+    spoken = await _spoken_after_withdrawn_chunk(reply)
+    assert spoken == [reply]
+
+
+async def _spoken_after_withdrawn_chunk(reply: str) -> list[str]:
+    """Publish withdraw-then-reply the way the bus does: all queued, then handled."""
+    from arelis.voice import VoiceService
+
+    class _FakeTTS:
+        def __init__(self) -> None:
+            self.spoken: list[str] = []
+
+        def problem(self) -> None:
+            return None
+
+        async def synthesize(self, text: str, out: Path, language: str = "") -> Path:
+            self.spoken.append(text)
+            path = Path(out)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"RIFF")
+            return path
+
+    bus = EventBus()
+    voice = VoiceService(
+        bus, {"voice": {"enabled": True, "tts": {"enabled": True, "backend": "piper"}}}
+    )
+    voice.speak_enabled = True
+    fake = _FakeTTS()
+    voice.tts = fake  # type: ignore[assignment]
+    task = asyncio.create_task(bus.run())
+    for event in (
+        Event(EventType.ASSISTANT_DELTA, {"text": "done"}),
+        Event(EventType.ASSISTANT_RETRACT, {}),
+        Event(EventType.ASSISTANT_DELTA, {"text": reply}),
+        Event(EventType.VOICE_SPEAK, {"text": reply}),
+    ):
+        bus.publish_nowait(event)
+    await bus.drain()
+    bus.stop()
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    return list(fake.spoken)

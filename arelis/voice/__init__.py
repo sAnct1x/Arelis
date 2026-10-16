@@ -146,7 +146,12 @@ class VoiceService:
             self._ensure_drain()
 
     async def on_retract(self, event: Event) -> None:
-        """Drop streamed speech when the painted answer was only a preamble."""
+        """Drop buffered and queued speech for text the chat just withdrew.
+
+        The clear has to happen before this handler awaits. A retract and the
+        next delta are both already on the bus, and the drain wait is an await,
+        so the next chunk would otherwise append to the withdrawn text.
+        """
         async with self._stream_lock:
             if not self.tts_enabled or not self.speak_enabled:
                 self._reset_stream(keep_cancel=False)
@@ -154,10 +159,22 @@ class VoiceService:
             was_open = self._stream_open
             utterance = self._stream_utterance
             clips = self._stream_clips
-            self.cancel_speech()
-        await self._await_drain()
-        async with self._stream_lock:
-            self._reset_stream(keep_cancel=True)
+            # Clear before yielding. The bus already has the next delta queued,
+            # and that handler appends to this buffer while we wait on the drain.
+            # Withdrawing only the chat line left "done" here, and the reply
+            # that replaced it was synthesized as "doneBoston...".
+            self._drop_withdrawn_speech()
+            stale = self._drain_task
+        if stale is not None and not stale.done():
+            # Let the in-flight sentence see the cancel flag and drop itself.
+            # Do not cancel the task: the real reply queues onto this same
+            # drain while it is still finishing, and cancelling it drops both.
+            try:
+                await stale
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Voice TTS drain failed")
         if was_open:
             # Conversation mode may already have armed on the first clip. Close
             # the speak cycle even when cancel left nothing more to render.
@@ -337,7 +354,10 @@ class VoiceService:
                     await self._status(f"Voice output failed: {exc}")
                     return
                 if self._speak_cancelled >= utterance:
-                    return
+                    # This sentence was withdrawn. Keep going: a reply that
+                    # arrived while it was synthesizing is queued behind it
+                    # and has a newer utterance the cancel flag does not cover.
+                    continue
                 self._stream_clips += 1
                 if index == 0 and turn_telemetry_enabled(self.config):
                     log_span("tts_first", utterance=utterance, chars=len(sentence))
@@ -353,6 +373,20 @@ class VoiceService:
                         },
                     )
                 )
+
+    def _drop_withdrawn_speech(self) -> None:
+        """Forget TTS state for the utterance being withdrawn.
+
+        Caller holds ``_stream_lock``. Pending clips are dropped and the
+        in-flight sentence is marked cancelled. The text buffer goes too,
+        so a later delta cannot prepend the withdrawn word to the reply.
+        """
+        self._stream_raw = ""
+        self._spoken_count = 0
+        self._stream_open = False
+        self._stream_utterance = 0
+        self._stream_clips = 0
+        self.cancel_speech()
 
     def _reset_stream(self, *, keep_cancel: bool) -> None:
         self._stream_raw = ""
