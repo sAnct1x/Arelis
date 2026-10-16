@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -47,24 +48,53 @@ from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_secrets, truncate_tool_output
 
+# The cell's own refusals. A NameError or a plot ValueError is not one of
+# these, and stays on the class key from #271.
+_SANDBOX_REFUSALS = frozenset(
+    {"_CellRefusedError", "_CellBlocked", "_ChartImportError"}
+)
+# Absolute paths, drive paths, and any token that contains a slash.
+_PATH_TOKEN = re.compile(r"""(?:[A-Za-z]:[\\/]|\\\\|[/\\])[^\s'"]+|\b[\w.-]+[/\\][\w./\\-]*""")
+_NUMBER_TOKEN = re.compile(r"\d+")
+
+
+def _refusal_text(raw: str) -> str:
+    """Collapse whitespace, then drop numbers and paths.
+
+    Two refusals that differ only by a count or a path are the same
+    failure. The reply still shows the original sentence.
+    """
+    text = redact_secrets(raw)
+    text = _PATH_TOKEN.sub(" ", text)
+    text = _NUMBER_TOKEN.sub(" ", text)
+    return " ".join(text.split())
+
 
 def _bad_args_key(name: str, data: dict[str, Any] | None) -> str | None:
     """Count key for one repeated failure.
 
-    The tool name and the exception text are the whole key. A refusal and
-    a raised exception share this. Two different sentences are two
-    failures, even when the class matches. Whitespace is collapsed so a
-    wrapped line still matches.
+    A real exception keeps ``{tool}|bad_args|{Class}``. A sandbox refusal
+    is keyed on its own text, with whitespace collapsed and numbers and
+    paths removed, so a message that only changes a number still repeats.
     """
     if not isinstance(data, dict) or data.get("status") != "bad_args":
         return None
-    raw = data.get("exc_message")
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    message = " ".join(redact_secrets(raw).split())
-    if not message:
-        return None
-    return f"{name}|{message}"
+    error_type = data.get("error_type")
+    if isinstance(error_type, str) and error_type in _SANDBOX_REFUSALS:
+        raw = data.get("exc_message")
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        message = _refusal_text(raw)
+        if not message:
+            return None
+        return f"{name}|{message}"
+    if (
+        isinstance(error_type, str)
+        and error_type.isidentifier()
+        and len(error_type) <= 64
+    ):
+        return f"{name}|bad_args|{error_type}"
+    return None
 
 
 # The cell's own exception text, without the traceback frames. Other tools

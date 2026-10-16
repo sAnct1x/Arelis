@@ -6,9 +6,11 @@ imported the numerics libraries and printed a ready line.
 
 The AST checks are the same allowlist the cell has always had. They are not
 the boundary. The audit hook is. It refuses new processes, sockets, ctypes,
-and any write outside the room's results folder. Reads may stay inside the
-workspace, same as the data cell's room rule. Library and OS font reads stay
-allowed. Matplotlib may use a private cache folder the cell cannot name.
+directory listings outside the workspace, and any write outside the room's
+results folder. A create with execute permission is refused everywhere.
+Reads may stay inside the workspace, same as the data cell's room rule.
+Library and OS font reads stay allowed. Matplotlib may use a private cache
+folder the cell cannot name. The font scan runs before the hook is installed.
 Name rules cannot see ``vars(numpy)["lo" + "ad"]``. The open still shows up here.
 """
 
@@ -189,6 +191,9 @@ _BLOCKED_AUDIT_EVENTS = frozenset(
 
 _IN_HOOK = False
 _READY_SENT = False
+# os.open's audit event passes the permission mode as None. The wrapper
+# stashes the real mode so the hook can refuse an executable create.
+_OS_OPEN_MODE: int | None = None
 _READ_ROOTS: list[Path] | None = None
 _WORK_READ: list[Path] = []
 _WORK_WRITE: list[Path] = []
@@ -230,12 +235,22 @@ class _ChartImportError(ValueError):
         )
 
 
+# What a cell may import. matplotlib and corner load on demand; the rest of
+# this list is either preloaded or imported by name. The refusal names the
+# list so it cannot claim a smaller set is the whole story.
+_ALLOWED_LIST = (
+    "math, cmath, statistics, fractions, decimal, itertools, functools, "
+    "collections, operator, copy, json, re, datetime, sympy, numpy, scipy, "
+    "emcee, astropy, matplotlib, corner, csv, and mpmath"
+)
+
+
 def _import_refusal(name: str) -> NoReturn:
     if name in _CHART_IMPORTS:
         raise _ChartImportError(name)
     raise _CellRefusedError(
         f"import {name!r} is not allowed. "
-        "math/sympy/numpy/emcee are preloaded; os/subprocess are not."
+        f"{_ALLOWED_LIST} are allowed. os and subprocess are not."
     )
 
 
@@ -535,16 +550,6 @@ def _needs_matplotlib(code: str) -> bool:
     return False
 
 
-def _fontconfig_list(args: tuple[Any, ...]) -> bool:
-    """Matplotlib's font scan. Not a general subprocess allow."""
-    if not args:
-        return False
-    raw = args[0]
-    if isinstance(raw, bytes):
-        raw = os.fsdecode(raw)
-    return Path(str(raw)).name.lower() in {"fc-list", "fc-list.exe"}
-
-
 def _warm_matplotlib() -> None:
     """Build the font cache before the hook. ``fc-list`` is a process."""
     try:
@@ -600,16 +605,34 @@ def _enable_sites() -> None:
             site.addsitedir(str(folder))
 
 
+def _as_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
 def _is_write(mode: Any, flags: Any) -> bool:
+    """True when this open writes. An executable create is refused outright.
+
+    ``os.open`` audits ``open(path, None, flags)`` and drops the permission
+    mode. ``_OS_OPEN_MODE`` is that mode, stashed by the wrapper. Any execute
+    bit on a create is refused, including inside the results folder.
+    """
+    try:
+        flag = int(flags or 0)
+    except (TypeError, ValueError):
+        flag = 0
+    perm = _as_int(mode)
+    if perm is None:
+        perm = _as_int(_OS_OPEN_MODE)
+    creat = bool(flag & getattr(os, "O_CREAT", 0))
+    if creat and perm is not None and perm & 0o111:
+        raise _CellBlocked("creating an executable is not allowed in this cell.")
     if isinstance(mode, bytes):
         mode = os.fsdecode(mode)
     text = "" if mode is None else str(mode)
     if any(ch in text for ch in "wax+"):
         return True
-    try:
-        flag = int(flags or 0)
-    except (TypeError, ValueError):
-        flag = 0
     bits = (
         os.O_WRONLY
         | os.O_RDWR
@@ -618,6 +641,62 @@ def _is_write(mode: Any, flags: Any) -> bool:
         | getattr(os, "O_TRUNC", 0)
     )
     return bool(flag & bits)
+
+
+def _install_open_guard() -> None:
+    """Remember os.open's permission mode. The audit event does not carry it."""
+    global _OS_OPEN_MODE
+    real = os.open
+
+    def guarded(
+        path: Any,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        global _OS_OPEN_MODE
+        previous = _OS_OPEN_MODE
+        _OS_OPEN_MODE = mode if _as_int(mode) is not None else None
+        try:
+            if dir_fd is None:
+                return real(path, flags, mode)
+            return real(path, flags, mode, dir_fd=dir_fd)
+        finally:
+            _OS_OPEN_MODE = previous
+
+    for module in list(sys.modules.values()):
+        mapping = getattr(module, "__dict__", None)
+        if not isinstance(mapping, dict):
+            continue
+        for name, value in list(mapping.items()):
+            if value is real:
+                try:
+                    mapping[name] = guarded
+                except Exception:
+                    # A frozen or extension module dict cannot be patched.
+                    # os.open is assigned again below, which is the lookup
+                    # matplotlib.os and the other aliases actually use.
+                    pass
+    os.open = guarded
+
+
+_LIST_EVENTS = frozenset({"os.listdir", "os.scandir", "os.walk", "os.fwalk"})
+
+
+def _listing_allowed(raw: Any) -> bool:
+    """A directory list may stay in the workspace, the libraries, or the cache."""
+    if raw is None:
+        return False
+    path = _as_path(raw)
+    if path is None:
+        return False
+    return bool(
+        _library_read(path)
+        or _font_read(path)
+        or _under_roots(path, _WORK_READ)
+        or _cache_path(path)
+    )
 
 
 def _as_path(raw: Any) -> Path | None:
@@ -666,14 +745,19 @@ def _paths_in_cache(event: str, args: tuple[Any, ...]) -> bool:
 
 
 def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
-    if event == "subprocess.Popen" and _fontconfig_list(args):
-        return
     if event in _CACHE_ONLY_EVENTS:
         if _paths_in_cache(event, args):
             return
         raise _CellBlocked(_refusal(event))
     if event in _BLOCKED_AUDIT_EVENTS:
         raise _CellBlocked(_refusal(event))
+    if event in _LIST_EVENTS:
+        raw = args[0] if args else None
+        if _listing_allowed(raw):
+            return
+        raise _CellBlocked(
+            "listing a directory outside this room is not allowed in this cell."
+        )
     if event != "open" or not args:
         return
     mode = args[1] if len(args) > 1 else ""
@@ -700,8 +784,10 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
 
 def _install_hook() -> None:
     # Roots are fixed before the cell runs. Later edits to sys.path do not
-    # add a folder the hook will read.
+    # add a folder the hook will read. The font scan has already finished,
+    # so every later Popen is refused.
     _read_roots()
+    _install_open_guard()
     sys.addaudithook(_audit)
 
 

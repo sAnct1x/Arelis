@@ -157,22 +157,94 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
     assert peeked.ok is False
     assert "root:" not in peeked.output
 
+    plain = results / "plain.txt"
+    created = await tool.run(
+        code=(
+            "import matplotlib\n"
+            f"fd = matplotlib.os.open({str(plain)!r}, "
+            "matplotlib.os.O_CREAT | matplotlib.os.O_WRONLY, 0o644)\n"
+            "matplotlib.os.write(fd, b'ok')\n"
+            "matplotlib.os.close(fd)\n"
+        )
+    )
+    assert created.ok, created.output
+    assert plain.read_bytes() == b"ok"
+    marker = tmp_path / "pwn3"
+    planted = results / "fc-list"
+    script = "#!/bin/sh\ntouch " + str(marker) + "\n"
+    launched = await tool.run(
+        code=(
+            "import matplotlib\n"
+            "import matplotlib.font_manager\n"
+            f"target = {str(planted)!r}\n"
+            "fd = matplotlib.os.open("
+            "target, matplotlib.os.O_CREAT | matplotlib.os.O_WRONLY, 0o755)\n"
+            f"matplotlib.os.write(fd, {script!r}.encode())\n"
+            "matplotlib.os.close(fd)\n"
+            "proc = vars(matplotlib.font_manager.subprocess)['Po' + 'pen']([target])\n"
+            "proc.wait()\n"
+        )
+    )
+    assert launched.ok is False
+    assert "executable" in launched.output.lower()
+    assert not planted.exists()
+    assert not marker.exists()
+    # The font scan is finished before the hook. A later fc-list, real or
+    # fake, is a process and stays refused.
+    font_scan = await tool.run(
+        code=(
+            "import matplotlib.font_manager\n"
+            "proc = vars(matplotlib.font_manager.subprocess)['Po' + 'pen']"
+            "(['fc-list'])\n"
+            "print(proc.wait())\n"
+        )
+    )
+    assert font_scan.ok is False
+    assert "popen" in font_scan.output.lower()
+    room = await tool.run(
+        code=(
+            "import matplotlib\n"
+            f"print('room', len(matplotlib.os.listdir({str(root)!r})))\n"
+        )
+    )
+    assert room.ok, room.output
+    assert "room" in room.output
+    for snippet in (
+        "import matplotlib\nprint(matplotlib.os.listdir('/'))\n",
+        "import matplotlib\nprint(matplotlib.os.listdir('/home'))\n",
+        "import matplotlib\nmatplotlib.os.scandir('/')\n",
+        "import matplotlib\n"
+        "for item in matplotlib.os.walk('/'):\n"
+        "    print(item)\n"
+        "    break\n",
+    ):
+        denied = await tool.run(code=snippet)
+        assert denied.ok is False, snippet
+        assert "listing" in denied.output.lower()
 
-def test_chart_import_refusal_is_a_typed_error() -> None:
-    from arelis.tools import python_cell_runner as runner
 
-    kind = getattr(runner, "_ChartImportError", None)
-    assert kind is not None
-    assert "matplotlib" in runner._ALLOWED_IMPORTS
-    assert "corner" in runner._ALLOWED_IMPORTS
-    assert "csv" in runner._ALLOWED_IMPORTS
-    assert "matplotlib" not in runner._CHART_IMPORTS
-    with pytest.raises(kind) as caught:
-        runner._import_refusal("seaborn")
-    assert caught.value.next_tool == "plot"
-    assert caught.value.refusal == "chart_import"
-    assert "call plot" in str(caught.value).lower()
-    assert "compute xs" not in str(caught.value).lower()
+@pytest.mark.asyncio
+async def test_chart_import_refusal_is_a_typed_error() -> None:
+    """A chart import is a real refusal. An allowed import still runs."""
+    result = await PythonTool().run(code="import seaborn")
+    assert result.ok is False
+    assert result.data.get("next_tool") == "plot"
+    assert result.data.get("refusal") == "chart_import"
+    assert result.data.get("error_type") == "_ChartImportError"
+    assert "call plot" in result.output.lower()
+    assert "compute xs" not in result.output.lower()
+    allowed = await PythonTool().run(code="import csv\nimport math\nprint(math.sqrt(4))\n")
+    assert allowed.ok, allowed.output
+    assert "2.0" in allowed.output
+    refused = await PythonTool().run(code="import os")
+    assert refused.ok is False
+    text = str(refused.data.get("exc_message") or "")
+    assert "matplotlib" in text
+    assert "corner" in text
+    assert "csv" in text
+    assert "emcee" in text
+    assert "are preloaded" not in text
+    assert "os and subprocess are not" in text
 
 
 def test_os_import_refusal_is_not_the_chart_marker() -> None:

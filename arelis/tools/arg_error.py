@@ -1,9 +1,10 @@
 """One shape for a tool call that failed with a real exception.
 
-The loop counts ``status`` together with ``exc_message`` (the exception
-text). ``error_type`` stays on the payload so a caller can still see the
-class. The output is the traceback (or the tool's existing sentence when
-the caller passes one).
+The loop counts a real exception as ``{tool}|bad_args|{Class}``. A sandbox
+refusal is counted on its own message, with whitespace collapsed and
+numbers and paths removed. ``error_type`` stays on the payload. The output
+is the traceback (or the tool's existing sentence when the caller passes
+one).
 """
 
 from __future__ import annotations

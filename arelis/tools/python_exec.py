@@ -23,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -151,33 +150,11 @@ class PythonTool:
         return await _run_in_child(code, self._root_payload)
 
 
-def _ignore_hangup() -> Any:
-    """A setsid child can hang the parent up when it exits. Ignore that."""
-    if sys.platform == "win32" or not hasattr(signal, "SIGHUP"):
-        return None
-    try:
-        previous = signal.getsignal(signal.SIGHUP)
-        signal.signal(signal.SIGHUP, signal.SIG_IGN)
-    except (OSError, ValueError):
-        return None
-    return previous
-
-
-def _restore_hangup(previous: Any) -> None:
-    if previous is None or not hasattr(signal, "SIGHUP"):
-        return
-    try:
-        signal.signal(signal.SIGHUP, previous)
-    except (OSError, ValueError):
-        return
-
-
 async def _run_in_child(code: str, roots: list[dict[str, Any]]) -> ToolResult:
     """Run the cell off the event loop, and do not leave that thread behind."""
     loop = asyncio.get_running_loop()
     done = asyncio.Event()
     box: dict[str, ToolResult] = {}
-    previous_hangup = _ignore_hangup()
 
     def _target() -> None:
         try:
@@ -189,10 +166,7 @@ async def _run_in_child(code: str, roots: list[dict[str, Any]]) -> ToolResult:
 
     worker = threading.Thread(target=_target, name="arelis-python-cell", daemon=True)
     worker.start()
-    try:
-        await done.wait()
-    finally:
-        _restore_hangup(previous_hangup)
+    await done.wait()
     worker.join(timeout=2)
     return box.get("result") or ToolResult(
         ok=False, output="Python failed: the cell stopped."

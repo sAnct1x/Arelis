@@ -156,7 +156,7 @@ async def test_close_after_plot_failures_does_not_invent_a_partial() -> None:
 
 @pytest.mark.asyncio
 async def test_changed_bad_plot_args_stop_once_the_type_repeats(tmp_path: Path) -> None:
-    """The same bad ys twice is one message. The turn stops on the second."""
+    """Two different bad calls are one ValueError. The turn stops on the second."""
     from arelis.tools.plot import PlotTool
     from arelis.workspace import RootEntry, WorkspaceRoots
 
@@ -178,7 +178,12 @@ async def test_changed_bad_plot_args_stop_once_the_type_repeats(tmp_path: Path) 
             [
                 (
                     "tool_calls",
-                    [_call("plot", {"action": "line", "xs": "1,2", "ys": "nope"})],
+                    [
+                        _call(
+                            "plot",
+                            {"action": "line", "xs": "1,2", "ys": "1,2", "look": "billboard"},
+                        )
+                    ],
                 )
             ],
             [

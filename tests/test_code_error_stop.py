@@ -1,9 +1,10 @@
-"""A cell that keeps failing with the same message must end the turn.
+"""A cell that keeps failing with the same error must end the turn.
 
-fail_counts keys ``{tool}|{message}``. A NameError and a refusal both
-count. Two different sentences do not. The tool result keeps the
-traceback. The reply is the fixed stop line plus that message, after
-the normal finish path.
+A real exception keys ``{tool}|bad_args|{Class}``. A sandbox refusal keys
+its own text, with whitespace collapsed and numbers and paths removed, so
+two refusals that differ only by a number still stop. The tool result
+keeps the traceback. The reply is the fixed stop line plus the real
+message, after the normal finish path.
 """
 
 from __future__ import annotations
@@ -93,10 +94,6 @@ async def test_same_exception_type_ends_on_the_tool_error() -> None:
     assert "was not run because" not in text
     assert "tool-step limit" not in text
 
-    refusal = (
-        "import 'os' is not allowed. "
-        "math/sympy/numpy/emcee are preloaded; os/subprocess are not."
-    )
     os_tool = _RecordingPython()
     os_router = _ScriptedRouter(
         [
@@ -113,8 +110,53 @@ async def test_same_exception_type_ends_on_the_tool_error() -> None:
     assert os_router.i == 2
     assert os_tool.last is not None
     assert os_tool.last.data.get("status") == "bad_args"
+    refusal = str(os_tool.last.data.get("exc_message") or "")
+    assert "matplotlib" in refusal
+    assert "corner" in refusal and "csv" in refusal and "emcee" in refusal
+    assert "are preloaded" not in refusal
     assert os_text == (
         "The code kept failing with the same error, so I stopped: " + refusal
     )
     assert "Traceback" not in os_text
     assert _NOT_THE_ANSWER not in os_text
+
+    from arelis.core.turn_execute import _bad_args_key
+
+    def _refused(text: str, kind: str = "_CellRefusedError") -> dict[str, Any]:
+        return {"status": "bad_args", "error_type": kind, "exc_message": text}
+
+    numbered = _bad_args_key(
+        "python",
+        _refused("blocked write 1 at /tmp/room/results/a.csv"),
+    )
+    renumbered = _bad_args_key(
+        "python",
+        _refused("blocked   write\t2 at /tmp/room/results/b.csv", "_CellBlocked"),
+    )
+    windows = _bad_args_key(
+        "python",
+        _refused(r"blocked write 3 at C:\room\results\a.csv"),
+    )
+    assert numbered and numbered == renumbered == windows
+    other = _bad_args_key(
+        "python",
+        _refused("import 'subprocess' is not allowed. os and subprocess are not."),
+    )
+    assert other and other != numbered
+    name_key = _bad_args_key(
+        "python",
+        {
+            "status": "bad_args",
+            "error_type": "NameError",
+            "exc_message": "name 'flux' is not defined",
+        },
+    )
+    other_name = _bad_args_key(
+        "python",
+        {
+            "status": "bad_args",
+            "error_type": "NameError",
+            "exc_message": "name 'mass' is not defined",
+        },
+    )
+    assert name_key == other_name == "python|bad_args|NameError"
