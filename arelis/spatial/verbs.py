@@ -388,11 +388,6 @@ def match_inspect_body(text: str, *, names: Iterable[str] | None = None) -> str 
     return resolve_body(hit.group("body") or "", names)
 
 
-def still_has_goto_trigger(text: str) -> bool:
-    """True when a goto phrase is still wrapped around the text."""
-    return _GOTO_PLACE.match((text or "").strip()) is not None
-
-
 def match_earth_place(text: str) -> str | None:
     """A named Earth destination, or None. Bodies stay travel, not here."""
     raw = (text or "").strip()
@@ -406,14 +401,10 @@ def match_earth_place(text: str) -> str | None:
     blob = (hit.group("place") or "").strip()
     if not blob or _NOT_BODY.search(blob):
         return None
-    from arelis.earth.geocode import extracted_place
-
-    place = extracted_place(blob)
-    if place is None:
-        return None
     from arelis.earth.gazetteer import resolve_place
+    from arelis.earth.geocode import ExtractedPlace
 
-    found = resolve_place(place)
+    found = resolve_place(ExtractedPlace(blob))
     if found is None:
         return None
     return found.name

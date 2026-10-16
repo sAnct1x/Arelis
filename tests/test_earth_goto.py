@@ -66,15 +66,19 @@ async def test_earth_tool_goto(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not miss.ok
 
 
-def test_sentence_prompt_never_reaches_the_geocoder(
+def test_geocoder_accepts_only_an_extracted_place(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A chat sentence is not a place. A city, region line still resolves."""
-    from arelis.earth.geocode import NOMINATIM_HOST, clear_cache, search_address
+    """Free text never geocodes. Goto must pass the extracted place, not the prompt."""
+    from arelis.earth import gazetteer
+    from arelis.earth.geocode import NOMINATIM_HOST, ExtractedPlace, clear_cache, search_address
     from arelis.spatial.verbs import classify_physics_act
+    from arelis.ui.earth_find import apply_goto
 
     clear_cache()
     calls: list[str] = []
+    passed: list[object] = []
+    real_resolve = gazetteer.resolve_place
 
     class _Resp:
         def __init__(self, query: str) -> None:
@@ -102,17 +106,43 @@ def test_sentence_prompt_never_reaches_the_geocoder(
         calls.append(query)
         return _Resp(query)
 
+    def spy(query: object, zone: object = None):
+        passed.append(query)
+        return real_resolve(query, zone)
+
     monkeypatch.setattr("arelis.earth.geocode.httpx.get", fake_get)
     monkeypatch.setattr("arelis.earth.geocode._block_network", lambda: False)
+    monkeypatch.setattr(gazetteer, "resolve_place", spy)
 
-    prompt = "show me my notes from 2024 about the 3 body problem"
-    remainder = "my notes from 2024 about the 3 body problem"
+    class _Find:
+        def __init__(self, query: str) -> None:
+            self._earth_find_q = query
+            self._earth_find_hits: list[object] = []
+            self._earth_find_ix = 0
+            self._earth_find_on = True
+            self.place: dict[str, object] | None = None
+
+        def update(self) -> None:
+            return None
+
+        def _select_earth_place(self, place: dict[str, object]) -> None:
+            self.place = place
+
     try:
-        assert classify_physics_act(prompt) is None
-        assert resolve_place(prompt) is None
-        assert resolve_place(remainder) is None
-        assert search_address(prompt, force=True) == []
-        assert search_address(remainder, force=True) == []
+        assert search_address("my notes about physics", force=True) == []
+        assert search_address("what is 3 body problem", force=True) == []
+        assert resolve_place("remind me about Main Street") is None
+        short = "show me my notes about the 3 body problem"
+        assert resolve_place(short) is None
+        assert classify_physics_act(short) is None
+        assert calls == []
+        assert passed and isinstance(passed[-1], ExtractedPlace)
+        assert passed[-1].text == "my notes about the 3 body problem"
+
+        passed.clear()
+        classify_physics_act("show me Columbus, Ohio")
+        assert passed and isinstance(passed[-1], ExtractedPlace)
+        assert passed[-1].text == "Columbus, Ohio"
         assert calls == []
 
         london = resolve_place("London")
@@ -121,17 +151,19 @@ def test_sentence_prompt_never_reaches_the_geocoder(
         assert california is not None and california.kind == "state"
         paris = resolve_place("Paris")
         assert paris is not None and paris.name == "Paris"
-        assert resolve_place("Paris France") is None
+        ohio = resolve_place("Ohio")
+        assert ohio is not None and ohio.kind == "state"
         assert calls == []
 
-        columbus = resolve_place("Columbus, Ohio")
-        assert columbus is not None
-        assert columbus.name == "Columbus, Ohio"
-        assert calls == ["Columbus, Ohio"]
-
-        france = search_address("Paris France", force=True)
-        assert france and france[0].name == "Paris France"
-        assert calls == ["Columbus, Ohio", "Paris France"]
+        columbus = _Find("Columbus, Ohio")
+        assert apply_goto(columbus) is True
+        assert columbus.place is not None
+        assert columbus.place["name"] == "Columbus, Ohio"
+        street = _Find("10 Downing Street, London")
+        assert apply_goto(street) is True
+        assert street.place is not None
+        assert street.place["name"] == "10 Downing Street, London"
+        assert calls == ["Columbus, Ohio", "10 Downing Street, London"]
     finally:
         clear_cache()
 
