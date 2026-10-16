@@ -1,15 +1,18 @@
 """Hung-turn ceiling. The 8s busy watchdog only arms after Stop.
 
 A tool that never returns used to shimmer forever. This arms when the turn
-starts. A token or a tool step pushes the clock out, so a long thought is
-not a hang. The remaining time stays off the shimmer, "thinking…" is the
-status, not a countdown. Confirm wait is a person, not a hang, so the
-ceiling pauses.
+starts. The clock restarts on real progress: a streamed token, the prompt
+read moving forward, or a tool that is still running. A phase line is not
+a token, and the last tool call is not the clock. Silence with none of
+those is a stall. The allowances are unchanged. The remaining time stays
+off the shimmer, "thinking…" is the status, not a countdown. Confirm wait
+is a person, not a hang, so the ceiling pauses.
 
 When the ceiling hits and the turn already has tool results, she closes
 from that work instead of being cancelled. A shorter grace clock then
 hard-stops only if that close never comes back. Nothing gathered yet
-still cancels like Stop, worded as a hang.
+still cancels like Stop, worded as a hang. The absolute cap still bounds
+a tool that never returns.
 """
 
 from __future__ import annotations
@@ -29,19 +32,8 @@ from arelis.ui.window_const import (
     HUNG_TURN_S,
 )
 
-# Tokens are flowing: the next one is due within the idle gap.
-_STREAM_EVENTS = frozenset(
-    {EventType.THINKING, EventType.ASSISTANT_DELTA, EventType.ASSISTANT_RETRACT}
-)
-# Work moved but no token is due yet: a tool runs or a new round prefills.
-_STEP_EVENTS = frozenset(
-    {
-        EventType.TOOL_START,
-        EventType.TOOL_RESULT,
-        EventType.TOOL_CONFIRM_REPLY,
-        EventType.STATUS,
-    }
-)
+# A status line or a confirm reply is life, but the next token is not due yet.
+_STEP_EVENTS = frozenset({EventType.TOOL_CONFIRM_REPLY, EventType.STATUS})
 
 HUNG_MESSAGE = "Turn stopped because it hung."
 WRAPUP_NOTE = "wrapping up with what I have"
@@ -101,13 +93,69 @@ def _restart(window, allowance_ms: int) -> None:
     window._hung_watchdog.start(int(ms))
 
 
-def note_turn_progress(window, event) -> None:
-    """A bus event is proof of life. Push the hang clock out.
+def _payload(event) -> dict[str, Any]:
+    raw = getattr(event, "payload", None)
+    return raw if isinstance(raw, dict) else {}
 
-    Streaming thinking or answer text resets to the idle gap. A tool start,
-    tool result or status line resets to the first-token allowance, because
-    a tool run or a fresh prefill comes next and sends nothing until done.
-    The absolute cap (ui.hung_turn_cap_s) is never extended.
+
+def _streamed_token(event) -> bool:
+    """A token that actually arrived. A phase line is not one."""
+    kind = getattr(event, "type", None)
+    payload = _payload(event)
+    if kind == EventType.ASSISTANT_DELTA:
+        return bool(payload.get("text"))
+    if kind == EventType.ASSISTANT_RETRACT:
+        return True
+    return kind == EventType.THINKING and bool(payload.get("stream"))
+
+
+def _prompt_advanced(window, event) -> bool:
+    """True when this event's prompt-read cursor moved forward.
+
+    The same count again is not progress. A new round may start lower than
+    the previous round's total, so the cursor resets when the round id changes.
+    """
+    payload = _payload(event)
+    if "prompt_read" not in payload:
+        return False
+    try:
+        pos = int(payload["prompt_read"])
+    except (TypeError, ValueError):
+        return False
+    if pos <= 0:
+        return False
+    round_id = payload.get("prompt_round")
+    if round_id != getattr(window, "_hung_prompt_round", None):
+        window._hung_prompt_round = round_id
+        window._hung_prompt_read = None
+    last = getattr(window, "_hung_prompt_read", None)
+    if last is not None and pos <= int(last):
+        return False
+    window._hung_prompt_read = pos
+    return True
+
+
+def _clear_progress(window) -> None:
+    window._hung_tool_running = False
+    window._hung_prompt_read = None
+    window._hung_prompt_round = None
+
+
+def _past_cap(window) -> bool:
+    started = getattr(window, "_hung_started", None)
+    cap = int(getattr(window, "_hung_cap_ms", 0) or 0)
+    if started is None or cap <= 0:
+        return False
+    return (time.monotonic() - started) * 1000 >= cap
+
+
+def note_turn_progress(window, event) -> None:
+    """Push the hang clock out on real progress.
+
+    A streamed token resets to the idle gap. The prompt read moving forward,
+    a tool that is in flight, a tool result, or a status line resets to the
+    first-token allowance, because the next token is not due yet. A trace
+    line such as ``phase=model`` does not. The absolute cap is never extended.
     """
     timer = getattr(window, "_hung_watchdog", None)
     if timer is None or not timer.isActive():
@@ -115,10 +163,23 @@ def note_turn_progress(window, event) -> None:
     if not getattr(window, "_turn_busy", False) or getattr(window, "_hung_closing", False):
         return
     kind = getattr(event, "type", None)
-    if kind in _STREAM_EVENTS:
-        _restart(window, hung_idle_ms(getattr(window, "config", None)))
-    elif kind in _STEP_EVENTS:
-        _restart(window, hung_first_token_ms(getattr(window, "config", None)))
+    config = getattr(window, "config", None)
+    if _prompt_advanced(window, event):
+        _restart(window, hung_first_token_ms(config))
+        return
+    if kind == EventType.TOOL_START:
+        window._hung_tool_running = True
+        _restart(window, hung_first_token_ms(config))
+        return
+    if kind == EventType.TOOL_RESULT:
+        window._hung_tool_running = False
+        _restart(window, hung_first_token_ms(config))
+        return
+    if _streamed_token(event):
+        _restart(window, hung_idle_ms(config))
+        return
+    if kind in _STEP_EVENTS:
+        _restart(window, hung_first_token_ms(config))
 
 
 def ensure_hung_timers(window) -> None:
@@ -157,6 +218,7 @@ def arm_hung_turn(window, *, ms: int | None = None) -> None:
 def disarm_hung_turn(window) -> None:
     window._hung_paused_ms = None
     window._hung_closing = False
+    _clear_progress(window)
     timer = getattr(window, "_hung_watchdog", None)
     if timer is not None:
         timer.stop()
@@ -232,6 +294,10 @@ def on_hung_turn(window) -> None:
         return
     if getattr(window, "_hung_closing", False):
         _hard_hung(window)
+        return
+    # Still inside a tool call. That is progress, until the whole-turn cap.
+    if getattr(window, "_hung_tool_running", False) and not _past_cap(window):
+        _restart(window, hung_first_token_ms(getattr(window, "config", None)))
         return
     loop = _live_agent_loop(window)
     if _has_gathered(loop):
