@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from arelis.tools.base import ToolRegistry, capability_class
-from arelis.tools.policy import confirm_toggles_for_call
 
 _REDIRECT_EXPECTED = frozenset({"weather", "send_sms", "send_email", "agenda"})
 _DUP_GATED = frozenset(
@@ -83,17 +82,14 @@ def should_fanout_reads(
         if tools.needs_confirm(
             name,
             args,
-            **confirm_toggles_for_call(
-                name,
-                confirm_writes=confirm_writes,
-                confirm_image=confirm_image,
-                confirm_send=confirm_send,
-                confirm_browser=confirm_browser,
-                confirm_desktop=confirm_desktop,
-                confirm_vision=confirm_vision,
-                confirm_run=confirm_run,
-                allow_writes_this_turn=allow_writes_this_turn,
-            ),
+            confirm_writes=confirm_writes,
+            confirm_image=confirm_image,
+            confirm_send=confirm_send,
+            confirm_browser=confirm_browser,
+            confirm_desktop=confirm_desktop,
+            confirm_vision=confirm_vision,
+            confirm_run=confirm_run,
+            allow_writes_this_turn=allow_writes_this_turn,
         ):
             return False
         if name == "web_search" and redirect_risk:

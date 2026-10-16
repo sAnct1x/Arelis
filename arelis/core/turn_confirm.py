@@ -16,10 +16,7 @@ from arelis.core.preflight import user_asked_for_browser, user_asked_for_desktop
 from arelis.core.private_marks import private_url_hit
 from arelis.core.turn_context import TurnContext
 from arelis.tools.base import confirm_args_blocked
-from arelis.tools.policy import (
-    confirm_toggles_for_call,
-    persist_confirm_off,
-)
+from arelis.tools.policy import persist_confirm_off
 
 SKIP = "skip"
 STOP = "stop"
@@ -218,21 +215,16 @@ async def confirm_call(
     needs = loop.tools.needs_confirm(
         name,
         args,
-        # "allow writes this turn" covers images/files/browser/vision.
-        # It deliberately does not cover mail/SMS (confirm_send) or
-        # calendar mutates (agenda create/update/delete) — those
-        # stay one Allow each.
-        **confirm_toggles_for_call(
-            name,
-            confirm_writes=loop.confirm_writes,
-            confirm_image=loop.confirm_image,
-            confirm_send=loop.confirm_send,
-            confirm_browser=loop.confirm_browser,
-            confirm_desktop=getattr(loop, "confirm_desktop", True),
-            confirm_vision=loop.confirm_vision,
-            confirm_run=loop.confirm_run,
-            allow_writes_this_turn=ctx.allow_writes_this_turn,
-        ),
+        # Saved settings. The one-turn write grant is applied inside
+        # needs_confirm and does not count as all cards off.
+        confirm_writes=loop.confirm_writes,
+        confirm_image=loop.confirm_image,
+        confirm_send=loop.confirm_send,
+        confirm_browser=loop.confirm_browser,
+        confirm_desktop=getattr(loop, "confirm_desktop", True),
+        confirm_vision=loop.confirm_vision,
+        confirm_run=loop.confirm_run,
+        allow_writes_this_turn=ctx.allow_writes_this_turn,
         asked=asked,
         ask_is_grant=bool(getattr(loop, "ask_is_grant", True)),
     )

@@ -15,6 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from arelis.tools.safety import redact_secrets
+from arelis.tools.script_pin import (
+    decode_script,
+    pin_script_bytes,
+    script_import_names,
+)
 from arelis.workspace import WorkspaceRoots
 
 _DIFF_CHARS = 200_000
@@ -157,7 +162,11 @@ def workspace_confirm(roots: WorkspaceRoots, args: dict[str, Any]) -> str:
 
 
 def run_script_confirm(roots: WorkspaceRoots, args: dict[str, Any]) -> str:
-    """Card body for run_script. The process runs as the user."""
+    """Card body for run_script. The process runs as the user.
+
+    The whole file is on the card. The hash is of the bytes that will run,
+    and those bytes are pinned so a later edit cannot replace them.
+    """
     path = str(args.get("path") or "").strip() or "(path)"
     extra = _as_argv(args.get("args"))
     lines = [
@@ -173,13 +182,26 @@ def run_script_confirm(roots: WorkspaceRoots, args: dict[str, Any]) -> str:
     lines.append(f"Working directory: {hit.root}")
     argv = [hit.path.name, *extra]
     lines.append("Argv: " + json.dumps(argv, ensure_ascii=False))
-    file_text = _read_capped(hit.path)
-    _append_loud(lines, file_text)
-    head = "\n".join(file_text.splitlines()[:_HEAD_LINES])
+    raw = _read_bytes(hit.path)
+    if raw is None:
+        lines.append("Could not read the file.")
+        return "\n".join(lines)
+    digest = pin_script_bytes(hit.path, raw)
+    lines.append(f"Source hash: {digest}")
+    if b"\x00" in raw[:8192]:
+        file_text = "(binary file)"
+        names: list[str] = []
+    else:
+        file_text = decode_script(raw)
+        names = script_import_names(file_text)
+    if names:
+        lines.append("Imports: " + ", ".join(names))
+    else:
+        lines.append("Imports: none")
+    _append_loud(lines, "" if file_text == "(binary file)" else file_text)
     lines.append("")
-    lines.append(redact_secrets(head) if head else "(empty file)")
-    if len(file_text.splitlines()) > _HEAD_LINES:
-        lines.append(f"…({len(file_text.splitlines()) - _HEAD_LINES} more lines)")
+    shown = redact_secrets(file_text)
+    lines.append(shown if shown.strip() else "(empty file)")
     return "\n".join(lines)
 
 
@@ -291,11 +313,18 @@ def _clip(text: str) -> str:
     return text[:_DIFF_CHARS] + "\n…(truncated for the card)"
 
 
-def _read_capped(path: Path) -> str:
+def _read_bytes(path: Path) -> bytes | None:
     try:
-        raw = path.read_bytes()[:_SCAN_BYTES]
+        return path.read_bytes()
     except OSError:
+        return None
+
+
+def _read_capped(path: Path) -> str:
+    raw = _read_bytes(path)
+    if raw is None:
         return ""
+    raw = raw[:_SCAN_BYTES]
     if b"\x00" in raw[:8192]:
         return "(binary file)"
     return raw.decode("utf-8", errors="replace")

@@ -8,6 +8,7 @@ Re-reads the file each call so edits apply on the next turn.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,32 @@ def resolve_profile_path(config: dict[str, Any] | None = None) -> Path:
     if not path.is_absolute():
         path = user_data_dir() / path
     return path
+
+
+_APPROVALS_NAME = "approved_scripts.json"
+
+
+def approvals_path(config: dict[str, Any] | None = None) -> Path:
+    """App-owned script approvals, in the profile folder, not inside the profile."""
+    return resolve_profile_path(config).parent / _APPROVALS_NAME
+
+
+def is_approvals_file(path: Path) -> bool:
+    """True when ``path`` is the approvals file, including through a symlink.
+
+    File tools refuse this file the same way they refuse the profile when it
+    sits outside the workspace: the model does not get to edit the allowlist.
+    """
+    if path.name.casefold() != _APPROVALS_NAME.casefold():
+        return False
+    owned = approvals_path()
+    try:
+        left = os.path.normcase(str(path.resolve()))
+        right = os.path.normcase(str(owned.resolve()))
+    except OSError:
+        left = os.path.normcase(str(path))
+        right = os.path.normcase(str(owned))
+    return left == right
 
 
 def load_standing_profile(

@@ -12,6 +12,7 @@ from typing import Any
 
 from arelis.core.document_refs import resolve_reported_output_path
 from arelis.paths import user_data_dir
+from arelis.profile import is_approvals_file
 from arelis.tools.base import ToolResult
 from arelis.tools.confirm_preview import workspace_confirm
 from arelis.tools.safety import redact_secrets
@@ -91,10 +92,13 @@ def _walk_files(root: Path, *, glob: str = "") -> Iterator[Path]:
         for name in sorted(files):
             if glob and not fnmatch.fnmatch(name, glob):
                 continue
+            path = here / name
+            if is_approvals_file(path):
+                continue
             seen += 1
             if seen > _SEARCH_MAX_FILES:
                 return
-            yield here / name
+            yield path
 
 
 # Unified diffs are how a model actually hands over a change. difflib can
