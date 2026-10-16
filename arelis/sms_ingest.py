@@ -848,9 +848,8 @@ class InboundIngestServer:
                 msg = parse_ingest_payload(data)
                 if msg is None:
                     log.info(
-                        "Inbound ingest ignored (filter/empty/self) keys=%s from=%r",
+                        "Inbound ingest ignored (filter/empty/self) keys=%s from=sender",
                         sorted(str(k) for k in data.keys()),
-                        data.get("from") or data.get("sender") or data.get("title"),
                     )
                     self._reply(202, {"ok": True, "accepted": False, "reason": "ignored"})
                     return
@@ -869,16 +868,14 @@ class InboundIngestServer:
                     return
                 if published:
                     log.info(
-                        "Inbound ingest published id=%s from=%s source=%s",
+                        "Inbound ingest published id=%s from=sender source=%s",
                         msg.id,
-                        msg.sender,
                         source,
                     )
                 else:
                     log.info(
-                        "Inbound ingest duplicate id=%s (published=false) from=%s",
+                        "Inbound ingest duplicate id=%s (published=false) from=sender",
                         msg.id,
-                        msg.sender,
                     )
                 self._reply(
                     200,
