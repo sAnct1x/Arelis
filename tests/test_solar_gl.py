@@ -89,3 +89,98 @@ def test_earth_atmosphere_is_a_thin_shell() -> None:
     assert "0.16" in _FS_BODY
 
 
+class _Quiet:
+    def append(self, *_args, **_kwargs) -> None:
+        return None
+
+    def set_turn_visible(self, *_args, **_kwargs) -> None:
+        return None
+
+    def set_drive(self, *_args, **_kwargs) -> None:
+        return None
+
+
+class _PlateHost:
+    """Enough of a window for a tool result to reach show_world."""
+
+    def __init__(self, plate) -> None:
+        self.world_window = plate
+        self.thinking = _Quiet()
+        self.conversation = _Quiet()
+        self.persona_dock = None
+        self.act_persona = None
+        self._workspace_tool_args: dict = {}
+
+    def _reveal_dock(self, *_args, **_kwargs) -> None:
+        return None
+
+    def _apply_tile(self, name: str, *, show: bool, page: str = "") -> None:
+        from arelis.ui.world_host import show_world
+
+        if (name or "").strip().lower() != "world" or not show:
+            return
+        show_world(
+            self.world_window,
+            self.world_window.frameGeometry(),
+            page=page,
+            placed=True,
+        )
+
+
+def test_tool_result_does_not_open_solar_uninvited(qt_app, monkeypatch) -> None:
+    """A tile result must not build the solar page unless the call asked."""
+    from arelis.core.events import Event, EventType
+    from arelis.spatial.scene import WorldScene
+    from arelis.ui.event_host import dispatch_event
+    from arelis.ui.panels.solar import SolarPanel
+    from arelis.ui.world_window import WorldWindow
+
+    monkeypatch.setattr(SolarPanel, "_ensure_ic", lambda self: None)
+    plate = WorldWindow(WorldScene())
+    host = _PlateHost(plate)
+    try:
+        plate.show()
+        qt_app.processEvents()
+        assert plate.stack.currentWidget() is plate.chooser
+
+        def _result(tool: str, data: dict) -> None:
+            dispatch_event(
+                host,
+                Event(
+                    EventType.TOOL_RESULT,
+                    {"tool": tool, "ok": True, "output": "", "data": data},
+                ),
+            )
+            qt_app.processEvents()
+
+        dispatch_event(
+            host,
+            Event(
+                EventType.TOOL_START,
+                {"tool": "tile", "args": {"action": "open", "name": "world"}},
+            ),
+        )
+        _result("tile", {"open": True, "name": "world", "page": "solar"})
+        _result("solar", {"action": "load"})
+        _result("earth", {"action": "enter"})
+        assert plate.stack.currentWidget() is plate.chooser
+        assert plate.solar_active() is False
+
+        dispatch_event(
+            host,
+            Event(
+                EventType.TOOL_START,
+                {
+                    "tool": "tile",
+                    "args": {"action": "open", "name": "world", "page": "solar"},
+                },
+            ),
+        )
+        _result("tile", {"open": True, "name": "world", "page": "solar"})
+        assert plate.solar_active()
+        assert plate.stack.currentWidget() is plate.solar
+    finally:
+        plate.deleteLater()
+        qt_app.processEvents()
+
+
