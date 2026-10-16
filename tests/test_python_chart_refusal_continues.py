@@ -249,7 +249,7 @@ async def test_real_matplotlib_refusal_gets_one_plot_round(
     rec = _Rec()
     router = _ScriptedRouter(
         [
-            [("tool_calls", [_call("python", {"code": "import matplotlib"})])],
+            [("tool_calls", [_call("python", {"code": "import seaborn"})])],
             [("tool_calls", [_call("plot", _PLOT)])],
             [("tool_calls", [_call("document", _DOC)])],
             [("token", "The chart and the note are ready.")],

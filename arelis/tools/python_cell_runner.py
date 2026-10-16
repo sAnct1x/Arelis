@@ -6,7 +6,9 @@ imported the numerics libraries and printed a ready line.
 
 The AST checks are the same allowlist the cell has always had. They are not
 the boundary. The audit hook is. It refuses new processes, sockets, ctypes,
-any write, and any read that is not a Python library. Name rules cannot see
+and any file outside the workspace. Reads of the Python libraries and the
+OS font folders stay allowed. Matplotlib may use a private cache folder the
+cell cannot name. Name rules cannot see
 ``vars(numpy)["lo" + "ad"]``. The open still shows up here.
 """
 
@@ -17,6 +19,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import time
 import traceback
 import warnings
@@ -47,15 +50,20 @@ _ALLOWED_IMPORTS = frozenset(
         "numpy",
         "scipy",
         "emcee",
+        "astropy",
+        "matplotlib",
+        "corner",
+        "csv",
         "mpmath",
     }
 )
 
-_CHART_IMPORTS = frozenset({"matplotlib", "pyplot", "pylab", "seaborn", "plotly"})
+# matplotlib itself runs in the cell (Agg, workspace files only). These
+# names still mean "draw it with the plot tool" rather than a library.
+_CHART_IMPORTS = frozenset({"pyplot", "pylab", "seaborn", "plotly"})
 
 _FORBIDDEN_CALLS = frozenset(
     {
-        "open",
         "eval",
         "exec",
         "compile",
@@ -99,28 +107,20 @@ _FORBIDDEN_ATTR_CALLS = frozenset(
         "check_call",
         "attrgetter",
         "methodcaller",
-        "save",
-        "savetxt",
         "savez",
         "savez_compressed",
-        "load",
-        "loadtxt",
         "genfromtxt",
         "fromfile",
         "tofile",
         "memmap",
         "savemat",
         "mmwrite",
-        "write",
-        "writeto",
         "imsave",
         "imwrite",
-        "savefig",
         "to_csv",
         "to_excel",
         "to_pickle",
         "dump",
-        "open",
         "mkdir",
         "makedirs",
         "remove",
@@ -167,10 +167,6 @@ _BLOCKED_AUDIT_EVENTS = frozenset(
         "os.exec",
         "os.posix_spawn",
         "os.spawn",
-        "os.remove",
-        "os.rename",
-        "os.mkdir",
-        "os.rmdir",
         "os.chmod",
         "os.link",
         "os.symlink",
@@ -193,6 +189,14 @@ _BLOCKED_AUDIT_EVENTS = frozenset(
 
 _IN_HOOK = False
 _READ_ROOTS: list[Path] | None = None
+_WORK_READ: list[Path] = []
+_WORK_WRITE: list[Path] = []
+# Matplotlib's font cache and library temp files. Not a workspace root.
+_CACHE_ROOT: Path | None = None
+_AGG_LOCKED = False
+# These stay refused everywhere except the private cache. A workspace file
+# is written with open(), which the path check below already limits.
+_CACHE_ONLY_EVENTS = {"os.remove": 1, "os.rmdir": 1, "os.mkdir": 1, "os.rename": 2}
 
 
 class _CellBlocked(BaseException):
@@ -390,6 +394,147 @@ def _library_read(path: Path, exe: Path | None = None) -> bool:
     return False
 
 
+def _set_work_roots(raw: Any) -> None:
+    """Workspace folders for this cell. Resolved once, before the snippet runs."""
+    global _WORK_READ, _WORK_WRITE
+    read: list[Path] = []
+    write: list[Path] = []
+    seen_read: set[str] = set()
+    seen_write: set[str] = set()
+    if isinstance(raw, list):
+        for item in raw:
+            path = ""
+            can_write = True
+            if isinstance(item, str):
+                path = item
+            elif isinstance(item, dict):
+                path = str(item.get("path") or "")
+                can_write = bool(item.get("write", True))
+            if not path.strip():
+                continue
+            _add_root(read, seen_read, Path(path))
+            if can_write:
+                _add_root(write, seen_write, Path(path))
+    _WORK_READ = read
+    _WORK_WRITE = write
+
+
+def _under_roots(path: Path, roots: list[Path]) -> bool:
+    """True when the resolved path stays inside one root.
+
+    ``..`` is collapsed by abspath before the check. A symlink or junction
+    that leaves the root is refused.
+    """
+    if is_unsafe_path(str(path)):
+        return False
+    for root in roots:
+        if lexically_inside(path, root) and not reparse_leaves(path, root):
+            return True
+    return False
+
+
+def _font_read(path: Path) -> bool:
+    """Matplotlib opens the OS font folder. That is not the user's files."""
+    roots: list[Path] = []
+    windir = os.environ.get("SYSTEMROOT", "")
+    if windir:
+        roots.append(Path(windir) / "Fonts")
+    for extra in (
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        "/Library/Fonts",
+        "/System/Library/Fonts",
+    ):
+        roots.append(Path(extra))
+    return _under_roots(path, roots)
+
+
+def _force_agg() -> None:
+    """Keep matplotlib on Agg. A later use() call cannot switch it."""
+    global _AGG_LOCKED
+    os.environ["MPLBACKEND"] = "Agg"
+    if _AGG_LOCKED or "matplotlib" not in sys.modules:
+        return
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    real = matplotlib.use
+
+    def _locked(*_args: Any, **_kwargs: Any) -> Any:
+        return real("Agg", force=True)
+
+    matplotlib.use = _locked
+    _AGG_LOCKED = True
+
+
+def _prepare_cache() -> None:
+    """Private folder for the font cache and library temp files.
+
+    The path is a fresh temp directory, not the working directory, so a
+    relative ``savefig("fig.png")`` does not land here.
+    """
+    global _CACHE_ROOT
+    cache = Path(tempfile.mkdtemp(prefix="arelis-mpl-"))
+    root = Path(os.path.abspath(cache))
+    _CACHE_ROOT = root
+    text = str(root)
+    os.environ["MPLBACKEND"] = "Agg"
+    os.environ["MPLCONFIGDIR"] = text
+    os.environ["HOME"] = text
+    os.environ["USERPROFILE"] = text
+    os.environ["APPDATA"] = text
+    os.environ["LOCALAPPDATA"] = text
+    os.environ["XDG_CACHE_HOME"] = text
+    os.environ["XDG_CONFIG_HOME"] = text
+    os.environ["TMPDIR"] = text
+    os.environ["TMP"] = text
+    os.environ["TEMP"] = text
+
+
+def _cache_path(path: Path) -> bool:
+    if _CACHE_ROOT is None:
+        return False
+    return _under_roots(path, [_CACHE_ROOT])
+
+
+def _warm_matplotlib() -> None:
+    """Build the font cache before the hook. ``fc-list`` is a process."""
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as pyplot
+
+        del pyplot
+    except Exception:
+        # No matplotlib: the cell still runs. A later import is refused by the hook
+        # if it tries to start a process.
+        return
+    _force_agg()
+
+
+def _wipe_cache() -> None:
+    """Delete the private cache. The hook is already installed, so no rmtree."""
+    root = _CACHE_ROOT
+    if root is None or not root.is_dir():
+        return
+    for dirpath, dirnames, filenames in os.walk(root, topdown=False):
+        for name in filenames:
+            try:
+                os.remove(os.path.join(dirpath, name))
+            except OSError:
+                pass
+        for name in dirnames:
+            try:
+                os.rmdir(os.path.join(dirpath, name))
+            except OSError:
+                pass
+    try:
+        os.rmdir(root)
+    except OSError:
+        pass
+
+
 def _enable_sites() -> None:
     """Put this interpreter's site-packages back. ``-I`` may have dropped it.
 
@@ -460,20 +605,47 @@ def _audit(event: str, args: tuple[Any, ...]) -> None:
         _IN_HOOK = False
 
 
+def _paths_in_cache(event: str, args: tuple[Any, ...]) -> bool:
+    """True when every path on a cache-only event stays in the private cache."""
+    count = _CACHE_ONLY_EVENTS[event]
+    if len(args) < count:
+        return False
+    for raw in args[:count]:
+        path = _as_path(raw)
+        if path is None or not _cache_path(path):
+            return False
+    return True
+
+
 def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
+    if event in _CACHE_ONLY_EVENTS:
+        if _paths_in_cache(event, args):
+            return
+        raise _CellBlocked(_refusal(event))
     if event in _BLOCKED_AUDIT_EVENTS:
         raise _CellBlocked(_refusal(event))
     if event != "open" or not args:
         return
     mode = args[1] if len(args) > 1 else ""
     flags = args[2] if len(args) > 2 else 0
-    if _is_write(mode, flags):
-        raise _CellBlocked(_refusal("opening a file to write it"))
     path = _as_path(args[0])
     if path is None:
         return
-    if not _library_read(path):
-        raise _CellBlocked(_refusal("reading a file outside the Python libraries"))
+    if _is_write(mode, flags):
+        if _under_roots(path, _WORK_WRITE) or _cache_path(path):
+            return
+        raise _CellBlocked(
+            "opening a file to write it is not allowed in this cell. "
+            "The path has to stay inside the workspace."
+        )
+    if (
+        _library_read(path)
+        or _font_read(path)
+        or _under_roots(path, _WORK_READ)
+        or _cache_path(path)
+    ):
+        return
+    raise _CellBlocked(_refusal("reading a file outside the Python libraries"))
 
 
 def _install_hook() -> None:
@@ -558,13 +730,17 @@ def _safe_import(
     root = str(name or "").split(".", 1)[0]
     if root not in _ALLOWED_IMPORTS:
         _import_refusal(root)
-    return __import__(name, globals, locals, fromlist, 0)
+    module = __import__(name, globals, locals, fromlist, 0)
+    if root == "matplotlib" or "matplotlib" in sys.modules:
+        _force_agg()
+    return module
 
 
 def _namespace() -> dict[str, Any]:
     import cmath
     import collections
     import copy
+    import csv as csv_mod
     import datetime
     import decimal
     import fractions
@@ -595,6 +771,7 @@ def _namespace() -> dict[str, Any]:
         "map": map,
         "max": max,
         "min": min,
+        "open": open,
         "pow": pow,
         "print": print,
         "range": range,
@@ -632,6 +809,7 @@ def _namespace() -> dict[str, Any]:
         "operator": operator,
         "copy": copy,
         "json": json_mod,
+        "csv": csv_mod,
         "re": re,
         "datetime": datetime,
     }
@@ -773,56 +951,64 @@ def _fail(kind: str, exc: BaseException, **extra: Any) -> None:
 
 
 def main() -> None:
-    _enable_sites()
+    _prepare_cache()
     try:
-        sys.stdout.reconfigure(line_buffering=True)
-    except Exception:
-        # Older interpreters have no reconfigure. Buffering still follows -u.
-        pass
-    warnings.filterwarnings("ignore")
-    namespace = _namespace()
-    _install_hook()
-    sys.stdout.write(_READY)
-    sys.stdout.flush()
-    raw = sys.stdin.read()
-    try:
-        payload = json.loads(raw or "{}")
-    except json.JSONDecodeError as exc:
-        _fail("failed", exc, message="the cell could not read its input")
-        return
-    if not isinstance(payload, dict):
-        _emit(
-            {
-                "ok": False,
-                "status": "bad_args",
-                "kind": "failed",
-                "message": "the cell could not read its input",
-            }
-        )
-        return
-    code = str(payload.get("code") or "")
-    try:
-        text = _execute(code, namespace)
-    except _CellDeadline as exc:
-        _fail("timeout", exc)
-    except _ChartImportError as exc:
-        _fail(
-            "refused",
-            exc,
-            message=str(exc),
-            refusal=exc.refusal,
-            next_tool=exc.next_tool,
-        )
-    except _CellBlocked as exc:
-        _fail("refused", exc)
-    except _CellRefusedError as exc:
-        _fail("refused", exc)
-    except SyntaxError as exc:
-        _fail("syntax", exc)
-    except Exception as exc:
-        _fail("failed", exc)
-    else:
-        _emit({"ok": True, "output": text})
+        _enable_sites()
+        try:
+            sys.stdout.reconfigure(line_buffering=True)
+        except Exception:
+            # Older interpreters have no reconfigure. Buffering still follows -u.
+            pass
+        warnings.filterwarnings("ignore")
+        # Font cache first. The hook refuses the fc-list process matplotlib
+        # would otherwise start on the first import.
+        _warm_matplotlib()
+        namespace = _namespace()
+        _install_hook()
+        sys.stdout.write(_READY)
+        sys.stdout.flush()
+        raw = sys.stdin.read()
+        try:
+            payload = json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            _fail("failed", exc, message="the cell could not read its input")
+            return
+        if not isinstance(payload, dict):
+            _emit(
+                {
+                    "ok": False,
+                    "status": "bad_args",
+                    "kind": "failed",
+                    "message": "the cell could not read its input",
+                }
+            )
+            return
+        code = str(payload.get("code") or "")
+        _set_work_roots(payload.get("roots"))
+        try:
+            text = _execute(code, namespace)
+        except _CellDeadline as exc:
+            _fail("timeout", exc)
+        except _ChartImportError as exc:
+            _fail(
+                "refused",
+                exc,
+                message=str(exc),
+                refusal=exc.refusal,
+                next_tool=exc.next_tool,
+            )
+        except _CellBlocked as exc:
+            _fail("refused", exc)
+        except _CellRefusedError as exc:
+            _fail("refused", exc)
+        except SyntaxError as exc:
+            _fail("syntax", exc)
+        except Exception as exc:
+            _fail("failed", exc)
+        else:
+            _emit({"ok": True, "output": text})
+    finally:
+        _wipe_cache()
 
 
 if __name__ == "__main__":

@@ -49,20 +49,22 @@ from arelis.tools.safety import redact_secrets, truncate_tool_output
 
 
 def _bad_args_key(name: str, data: dict[str, Any] | None) -> str | None:
-    """Count key for one class of bad arguments.
+    """Count key for one repeated failure.
 
-    status and the exception class are the whole key. The tool sentence is
-    not read, so two different wordings of the same failure still match.
+    The tool name and the exception text are the whole key. A refusal and
+    a raised exception share this. Two different sentences are two
+    failures, even when the class matches. Whitespace is collapsed so a
+    wrapped line still matches.
     """
-    if not isinstance(data, dict):
+    if not isinstance(data, dict) or data.get("status") != "bad_args":
         return None
-    status = data.get("status")
-    error_type = data.get("error_type")
-    if status != "bad_args" or not isinstance(error_type, str):
+    raw = data.get("exc_message")
+    if not isinstance(raw, str) or not raw.strip():
         return None
-    if not error_type.isidentifier() or len(error_type) > 64:
+    message = " ".join(redact_secrets(raw).split())
+    if not message:
         return None
-    return f"{name}|{status}|{error_type}"
+    return f"{name}|{message}"
 
 
 # The cell's own exception text, without the traceback frames. Other tools
@@ -78,8 +80,8 @@ def _repeated_error_reply(
 ) -> str:
     """Existing line for a repeated bad-args stop. No new sentence.
 
-    A repeated cell error uses the fixed code line plus the exception
-    text. A failed chart uses the chart line. Anything else is the tool
+    A repeated cell error or refusal uses the fixed code line plus that
+    message. A failed chart uses the chart line. Anything else is the tool
     output. The caller passes it through ``_finish``, so the dash filter
     and the script-state check still run.
     """

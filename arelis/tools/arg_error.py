@@ -1,8 +1,9 @@
 """One shape for a tool call that failed with a real exception.
 
-The loop counts ``status`` and ``error_type``. The output is the traceback
-(or the tool's existing sentence when the caller passes one). The message
-text is not what decides a retry.
+The loop counts ``status`` together with ``exc_message`` (the exception
+text). ``error_type`` stays on the payload so a caller can still see the
+class. The output is the traceback (or the tool's existing sentence when
+the caller passes one).
 """
 
 from __future__ import annotations
@@ -54,4 +55,8 @@ def arg_error(
         for key, value in extra.items():
             if key not in {"status", "error_type"}:
                 data[key] = value
+    if exc is not None and "exc_message" not in data:
+        short = str(exc).strip()
+        if short:
+            data["exc_message"] = short
     return ToolResult(ok=False, output=output, data=data)

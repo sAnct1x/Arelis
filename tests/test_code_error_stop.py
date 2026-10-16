@@ -1,8 +1,9 @@
-"""A rewritten cell that keeps raising the same type must end the turn.
+"""A cell that keeps failing with the same message must end the turn.
 
-fail_counts also stores ``{tool}|bad_args|{ExceptionClass}``. Two NameErrors
-with different source are one key. The tool result keeps the traceback. The reply is the fixed stop line
-plus the exception text, after the normal finish path.
+fail_counts keys ``{tool}|{message}``. A NameError and a refusal both
+count. Two different sentences do not. The tool result keeps the
+traceback. The reply is the fixed stop line plus that message, after
+the normal finish path.
 """
 
 from __future__ import annotations
@@ -91,3 +92,29 @@ async def test_same_exception_type_ends_on_the_tool_error() -> None:
     assert _NOT_THE_ANSWER not in text
     assert "was not run because" not in text
     assert "tool-step limit" not in text
+
+    refusal = (
+        "import 'os' is not allowed. "
+        "math/sympy/numpy/emcee are preloaded; os/subprocess are not."
+    )
+    os_tool = _RecordingPython()
+    os_router = _ScriptedRouter(
+        [
+            [("tool_calls", [_call("python", {"code": "import os"})])],
+            [("tool_calls", [_call("python", {"code": "import os"})])],
+            [("token", _NOT_THE_ANSWER)],
+        ]
+    )
+    os_bus, os_loop = _loop(os_router, os_tool)
+    os_events = await _collect(os_bus, os_loop.run(_ASK, "fast"))
+    os_done = next(e for e in os_events if e.type == EventType.ASSISTANT_DONE)
+    os_text = str(os_done.payload.get("text") or "")
+    assert os_tool.runs == 2
+    assert os_router.i == 2
+    assert os_tool.last is not None
+    assert os_tool.last.data.get("status") == "bad_args"
+    assert os_text == (
+        "The code kept failing with the same error, so I stopped: " + refusal
+    )
+    assert "Traceback" not in os_text
+    assert _NOT_THE_ANSWER not in os_text

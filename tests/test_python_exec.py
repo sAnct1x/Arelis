@@ -26,13 +26,15 @@ It did not. Probing it found three escapes, in descending order of severity:
 The fixes are two general rules rather than a longer denylist of modules:
 string literals may not contain `__`, and a small set of attribute names that
 mean "evaluate this text" or "touch the disk" may not be called. Both are
-checked on the AST, before anything runs.
+checked on the AST, before anything runs. numpy.savetxt and savefig are not
+in that set. The hook allows them only when the path stays inside the workspace.
 """
 
 from __future__ import annotations
 
 import time
 from itertools import pairwise
+from pathlib import Path
 
 import pytest
 
@@ -70,9 +72,11 @@ async def _run(code: str) -> tuple[bool, str]:
 
 
 @pytest.mark.asyncio
-async def test_matplotlib_refusal_sets_next_tool_plot() -> None:
-    """The next step is a field on the result, not a phrase in the sentence."""
-    result = await PythonTool().run(code="import matplotlib")
+async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
+    """Seaborn still points at plot. A corner figure may land in the workspace."""
+    from arelis.workspace import RootEntry, WorkspaceRoots
+
+    result = await PythonTool().run(code="import seaborn")
     assert result.ok is False
     assert result.data.get("next_tool") == "plot"
     assert result.data.get("refusal") == "chart_import"
@@ -80,14 +84,81 @@ async def test_matplotlib_refusal_sets_next_tool_plot() -> None:
     assert loaded.ok is True
     assert loaded.data.get("refusal") is None
 
+    root = tmp_path / "proj"
+    root.mkdir()
+    tool = PythonTool(WorkspaceRoots([RootEntry(name="proj", path=root)]))
+    figure = root / "corner.png"
+    table = root / "chain.txt"
+    sheet = root / "rows.csv"
+    saved = await tool.run(
+        code=(
+            "import csv\n"
+            "import numpy as np\n"
+            "import matplotlib\n"
+            "matplotlib.use('Agg')\n"
+            "import matplotlib.pyplot as plt\n"
+            "import corner\n"
+            f"np.savetxt({str(table)!r}, np.array([1.0, 2.0, 3.0]))\n"
+            "loaded = np.loadtxt(" + repr(str(table)) + ")\n"
+            f"with open({str(sheet)!r}, 'w', newline='') as handle:\n"
+            "    csv.writer(handle).writerow(['a', 'b'])\n"
+            "fig, ax = plt.subplots()\n"
+            "ax.plot([1, 2], [3, 4])\n"
+            f"fig.savefig({str(figure)!r})\n"
+            "print('saved', float(loaded[0]))\n"
+        )
+    )
+    assert saved.ok, saved.output
+    assert figure.is_file() and figure.stat().st_size > 0
+    assert table.is_file()
+    assert sheet.is_file()
+    assert "saved" in saved.output
+    backend = await tool.run(
+        code="import matplotlib\nmatplotlib.use('TkAgg')\nprint(matplotlib.get_backend())"
+    )
+    assert backend.ok, backend.output
+    assert "agg" in backend.output.lower()
+    relative = await tool.run(
+        code=(
+            "import matplotlib.pyplot as plt\n"
+            "fig, ax = plt.subplots()\n"
+            "fig.savefig('fig.png')\n"
+        )
+    )
+    assert relative.ok is False
+    assert "workspace" in relative.output.lower()
+
+    outside = tmp_path / "outside.csv"
+    escaped = tmp_path / "escape.csv"
+    link = root / "link.csv"
+    link.symlink_to(outside)
+    for target in (outside, root / ".." / "escape.csv", link):
+        refused = await tool.run(
+            code=f"import numpy as np\nnp.savetxt({str(target)!r}, np.array([1.0]))\n"
+        )
+        assert refused.ok is False, target
+        assert "workspace" in refused.output.lower()
+    assert not outside.exists()
+    assert not escaped.exists()
+    blocked = await tool.run(code="import subprocess\nsubprocess.call(['true'])")
+    assert blocked.ok is False
+    assert "subprocess" in blocked.output
+    peeked = await tool.run(code="print(open('/etc/passwd').read(8))")
+    assert peeked.ok is False
+    assert "root:" not in peeked.output
+
 
 def test_chart_import_refusal_is_a_typed_error() -> None:
     from arelis.tools import python_cell_runner as runner
 
     kind = getattr(runner, "_ChartImportError", None)
     assert kind is not None
+    assert "matplotlib" in runner._ALLOWED_IMPORTS
+    assert "corner" in runner._ALLOWED_IMPORTS
+    assert "csv" in runner._ALLOWED_IMPORTS
+    assert "matplotlib" not in runner._CHART_IMPORTS
     with pytest.raises(kind) as caught:
-        runner._import_refusal("matplotlib")
+        runner._import_refusal("seaborn")
     assert caught.value.next_tool == "plot"
     assert caught.value.refusal == "chart_import"
     assert "call plot" in str(caught.value).lower()
@@ -97,10 +168,11 @@ def test_chart_import_refusal_is_a_typed_error() -> None:
 def test_os_import_refusal_is_not_the_chart_marker() -> None:
     from arelis.tools import python_cell_runner as runner
 
-    with pytest.raises(ValueError) as caught:
-        runner._import_refusal("os")
-    assert getattr(caught.value, "next_tool", None) != "plot"
-    assert not isinstance(caught.value, runner._ChartImportError)
+    for name in ("os", "subprocess"):
+        with pytest.raises(ValueError) as caught:
+            runner._import_refusal(name)
+        assert getattr(caught.value, "next_tool", None) != "plot"
+        assert not isinstance(caught.value, runner._ChartImportError)
 
 
 # --------------------------------------------------------------------------

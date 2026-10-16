@@ -13,8 +13,8 @@ than it does here, so a hung import is killed on its own budget instead of
 being counted against the cell, and instead of waiting forever.
 
 The AST checks and the audit hook live in the child. Name rules still
-refuse the obvious spellings. The hook refuses the operation: a process, a
-socket, ctypes, a write, or a read outside the Python libraries.
+refuse the obvious spellings. The hook refuses a process, a socket, ctypes,
+and any file outside the workspace. Matplotlib stays on the Agg backend.
 """
 
 from __future__ import annotations
@@ -60,8 +60,33 @@ _MEMORY_CODES = {
 _RUNNER = Path(__file__).with_name("python_cell_runner.py")
 
 
+def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
+    """Absolute workspace roots the cell may touch. Read-only roots cannot be written."""
+    roots = getattr(workspace, "roots", None)
+    if not roots:
+        return []
+    payload: list[dict[str, Any]] = []
+    for entry in roots:
+        raw = getattr(entry, "path", None)
+        if raw is None:
+            continue
+        try:
+            path = str(Path(raw).resolve())
+        except OSError:
+            continue
+        payload.append(
+            {"path": path, "write": not bool(getattr(entry, "read_only", False))}
+        )
+    return payload
+
+
 class PythonTool:
     name = "python"
+    # Subclasses that skip __init__ keep an empty list. No workspace, no writes.
+    _root_payload: list[dict[str, Any]] = []
+
+    def __init__(self, workspace: Any = None) -> None:
+        self._root_payload = _workspace_payload(workspace)
     description = (
         "Run a short Python cell for numerics, kinematics, linear algebra, or "
         "a multi-step derivation. math is preloaded (sin, cos, radians, sqrt, "
@@ -113,10 +138,10 @@ class PythonTool:
                 ok=False,
                 output=f"Code is longer than {_MAX_CHARS} characters.",
             )
-        return await _run_in_child(code)
+        return await _run_in_child(code, self._root_payload)
 
 
-async def _run_in_child(code: str) -> ToolResult:
+async def _run_in_child(code: str, roots: list[dict[str, Any]]) -> ToolResult:
     """Run the cell off the event loop, and do not leave that thread behind."""
     loop = asyncio.get_running_loop()
     done = asyncio.Event()
@@ -124,7 +149,7 @@ async def _run_in_child(code: str) -> ToolResult:
 
     def _target() -> None:
         try:
-            box["result"] = _run_in_child_sync(code)
+            box["result"] = _run_in_child_sync(code, roots)
         except Exception as exc:
             box["result"] = arg_error(exc)
         finally:
@@ -139,12 +164,13 @@ async def _run_in_child(code: str) -> ToolResult:
     )
 
 
-def _run_in_child_sync(code: str) -> ToolResult:
+def _run_in_child_sync(code: str, roots: list[dict[str, Any]]) -> ToolResult:
     work = Path(tempfile.mkdtemp(prefix="arelis-py-"))
     env = child_env(
         {
             "PYTHONUNBUFFERED": "1",
             "PYTHONIOENCODING": "utf-8",
+            "MPLBACKEND": "Agg",
         }
     )
     proc: subprocess.Popen[str] | None = None
@@ -166,7 +192,7 @@ def _run_in_child_sync(code: str) -> ToolResult:
             return ToolResult(ok=False, output="Python failed: the cell could not start.")
         ready, lines, errors, threads = _attach_readers(proc)
         try:
-            proc.stdin.write(json.dumps({"code": code}))
+            proc.stdin.write(json.dumps({"code": code, "roots": roots}))
             proc.stdin.close()
         except Exception:
             # The child already exited, so the pipe is gone. The caller is told.
@@ -194,9 +220,17 @@ def _run_in_child_sync(code: str) -> ToolResult:
         if payload is not None:
             return _tool_result(code, payload)
         if _memory_death(proc):
-            return arg_error(output=_MEMORY_OUTPUT, error_type="MemoryError")
+            return arg_error(
+                output=_MEMORY_OUTPUT,
+                error_type="MemoryError",
+                extra={"exc_message": _MEMORY_OUTPUT},
+            )
         if killed:
-            return arg_error(output=_TIMEOUT_OUTPUT, error_type="TimeoutError")
+            return arg_error(
+                output=_TIMEOUT_OUTPUT,
+                error_type="TimeoutError",
+                extra={"exc_message": _TIMEOUT_OUTPUT},
+            )
         return _startup_failure(errors)
     finally:
         if proc is not None and proc.poll() is None:
@@ -304,6 +338,7 @@ def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
     extra: dict[str, Any] = {}
     if kind == "timeout":
         output = _TIMEOUT_OUTPUT
+        extra["exc_message"] = _TIMEOUT_OUTPUT
     elif kind == "refused":
         # Copied from the child payload. The message text is not inspected.
         next_tool = payload.get("next_tool")
@@ -313,6 +348,8 @@ def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
         if isinstance(refusal, str) and refusal:
             extra["refusal"] = refusal
         output = f"Python refused: {message}"
+        if message.strip():
+            extra["exc_message"] = message.strip()
     else:
         output = message or "the cell stopped."
     short = payload.get("exc_message")

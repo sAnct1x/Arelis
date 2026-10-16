@@ -369,7 +369,7 @@ def build_tool_registry(
             )
         )
     registry.register(CalculatorTool())
-    registry.register(PythonTool())
+    registry.register(PythonTool(workspace))
     registry.register(DiagnosticsTool())
     registry.register(WatchTool())
     if tools_cfg.get("cas", {}).get("enabled", True):
