@@ -71,8 +71,11 @@ router:
 
 memory:
   # Semantic recall / doc index. Pulled: ollama pull nomic-embed-text
-  # The indexer never runs mid-turn; a recall search may load it briefly.
+  # Resident in system RAM. keep_alive 0 reloaded nomic onto the GPU on
+  # every call and pushed the 9B into shared memory on a full 12 GB card.
   embed_model: "nomic-embed-text"
+  embed_keep_alive: "30m"
+  embed_num_gpu: 0
   docs:
     # Index readable files under workspace.roots into memory.db between turns.
     # recall(source=docs|all) can then find project notes, not only chat.

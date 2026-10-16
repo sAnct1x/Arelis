@@ -232,9 +232,16 @@ class EarthTool:
             )
         if action == "goto":
             from arelis.earth.gazetteer import resolve_place
+            from arelis.earth.geocode import ExtractedPlace, search_address
 
-            q = str(kwargs.get("query") or kwargs.get("id") or "").strip()
-            hit = resolve_place(q, earth)
+            place = ExtractedPlace(
+                str(kwargs.get("query") or kwargs.get("id") or "")
+            )
+            q = place.text
+            hit = resolve_place(place, earth) if q else None
+            if hit is None and q.casefold() not in {"home", "here"}:
+                found = search_address(place, limit=1, force=True)
+                hit = found[0] if found else None
             if hit is None:
                 if q.casefold() in {"home", "here"}:
                     return ToolResult(

@@ -10,7 +10,9 @@ GitHub's private report:
 
 https://github.com/sAnct1x/arelis/security/advisories/new
 
-That reaches me without publishing anything. Do not open an ordinary
+Or email arelis@mail.grokbot.com.
+
+Either reaches me without publishing anything. Do not open an ordinary
 issue for a security hole, and do not discuss it in a pull request until
 it is fixed.
 

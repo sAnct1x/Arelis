@@ -83,6 +83,38 @@ def show_world(
     return placed
 
 
+def tool_may_show_solar(window: Any, payload: dict) -> bool:
+    """A tool result may land on the solar page in two cases.
+
+    The page is already the visible one, or this tile call's existing
+    page field is solar. Result text is not a request. The result event
+    does not carry the call, so TOOL_START stashes those fields.
+    """
+    plate = getattr(window, "world_window", None)
+    solar = getattr(plate, "solar", None) if plate is not None else None
+    if plate is not None and solar is not None:
+        try:
+            hidden = plate.isHidden() or not solar.isVisible()
+        except RuntimeError:
+            hidden = True
+        if not hidden:
+            active = getattr(plate, "solar_active", None)
+            if not callable(active) or bool(active()):
+                return True
+    if str(payload.get("tool") or "") != "tile":
+        return False
+    raw = payload.get("args")
+    args = raw if isinstance(raw, dict) else None
+    if args is None:
+        stashed = getattr(window, "_solar_view_args", None)
+        if isinstance(stashed, dict) and stashed.get("tool") == payload.get("tool"):
+            stored = stashed.get("args")
+            args = stored if isinstance(stored, dict) else None
+    if not isinstance(args, dict):
+        return False
+    return str(args.get("page") or "").strip().lower() == "solar"
+
+
 def hide_world(window: WorldWindow | None) -> None:
     """Put the plate away. Does not reset the sandbox scene."""
     if window is None:
@@ -395,6 +427,17 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         query = (act.name or "").strip()
         zone = require_earth()
         hit = resolve_place(query, zone)
+        if hit is None:
+            from arelis.earth.geocode import ExtractedPlace, cached_place, search_address
+
+            hit = cached_place(query)
+            if (
+                hit is None
+                and query
+                and query.casefold() not in {"home", "here"}
+            ):
+                found = search_address(ExtractedPlace(query), limit=1, force=True)
+                hit = found[0] if found else None
         if hit is None:
             if query.casefold() in {"home", "here"}:
                 window.thinking.append(

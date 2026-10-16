@@ -193,6 +193,22 @@ def _looks_like_chart_out(path_str: str) -> bool:
     return Path(leaf).suffix.lower() in _CHART_OUT_SUFFIXES
 
 
+def _arg_error(exc: BaseException, *, fail_class: str = "fail:args") -> ToolResult:
+    """A call the chart cannot draw. The loop counts status and the exception class.
+
+    The sentence stays in output for the model. It is not what decides a retry.
+    """
+    return ToolResult(
+        ok=False,
+        output=str(exc),
+        data={
+            "status": "bad_args",
+            "error_type": type(exc).__name__,
+            "fail_class": fail_class,
+        },
+    )
+
+
 def _missing_inline(raw: Any) -> bool:
     """True when xs/ys/values/categories was omitted or empty."""
     if raw is None:
@@ -751,22 +767,17 @@ class PlotTool:
         kwargs = normalize_plot_args(dict(kwargs))
         action = str(kwargs.get("action") or "line").strip().lower()
         if action not in _ACTIONS:
-            return ToolResult(
-                ok=False,
-                output=(
+            return _arg_error(
+                ValueError(
                     "Unknown action. Use line, scatter, residuals, histogram, "
                     "bar, or subplots."
                 ),
-                data={"fail_class": "fail:action"},
+                fail_class="fail:action",
             )
         try:
             look = _parse_look(kwargs.get("look"))
         except ValueError as exc:
-            return ToolResult(
-                ok=False,
-                output=str(exc),
-                data={"fail_class": "fail:args"},
-            )
+            return _arg_error(exc)
         kwargs["look"] = look
         title = str(kwargs.get("title") or "").strip()
         try:
@@ -853,20 +864,12 @@ class PlotTool:
                             ylabel=ylabel,
                             kwargs=kwargs,
                         )
-        except (ValueError, PermissionError, OSError) as exc:
-            return ToolResult(
-                ok=False,
-                output=str(exc),
-                data={"fail_class": "fail:args"},
-            )
+        except (ValueError, TypeError, PermissionError, OSError) as exc:
+            return _arg_error(exc)
         try:
             dest, extra = _draw()
         except ValueError as exc:
-            return ToolResult(
-                ok=False,
-                output=str(exc),
-                data={"fail_class": "fail:draw"},
-            )
+            return _arg_error(exc, fail_class="fail:draw")
         except Exception as exc:
             return ToolResult(
                 ok=False,

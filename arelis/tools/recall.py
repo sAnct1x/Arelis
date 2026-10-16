@@ -5,9 +5,9 @@ can say "you told me this in March" rather than asserting it timelessly, and a
 miss is reported as a miss rather than invented.
 
 When embeddings exist, keyword and vector hits are merged by reciprocal rank.
-Query embedding can briefly load nomic-embed-text; keep_alive is 0 so it does
-not stay resident. If that model is not pulled, search stays keyword-only and
-says so once.
+Query embedding loads nomic-embed-text into system RAM and leaves it resident
+so it does not take VRAM from the chat model. If that model is not pulled,
+search stays keyword-only and says so once.
 """
 
 from __future__ import annotations

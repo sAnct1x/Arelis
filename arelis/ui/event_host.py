@@ -547,6 +547,8 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.thinking.append(errand, kind="tool")
         if str(tool or "") == "workspace" and isinstance(args, dict):
             window._workspace_tool_args = dict(args)
+        if str(tool or "") in {"tile", "solar", "earth"} and isinstance(args, dict):
+            window._solar_view_args = {"tool": str(tool or ""), "args": dict(args)}
         # The errand is already in the thought line. Nothing extra above the composer.
         window.conversation.set_turn_visible(True)
         window._reveal_dock(window.persona_dock, window.act_persona)
@@ -577,11 +579,21 @@ def dispatch_event(window: Any, event: Event) -> None:
             if job_id:
                 window.calendar.reload_jobs(select_id=job_id)
         if p.get("tool") == "tile" and p.get("ok"):
-            window._apply_tile(
-                str(data.get("name") or ""),
-                show=bool(data.get("open")) and not data.get("close"),
-                page=str(data.get("page") or ""),
-            )
+            from arelis.ui.world_host import tool_may_show_solar
+
+            page = str(data.get("page") or "")
+            show = bool(data.get("open")) and not data.get("close")
+            # data["page"] is a copy of the call. It does not by itself
+            # switch the plate onto the solar page.
+            blocked = page == "solar" and show and not tool_may_show_solar(window, p)
+            if not blocked:
+                window._apply_tile(
+                    str(data.get("name") or ""),
+                    show=show,
+                    page=page,
+                )
+        if p.get("tool") in {"tile", "solar", "earth"}:
+            window._solar_view_args = None
         if p.get("tool") in {"browser", "desktop"}:
             if intro:
                 window.chat.add_system(intro)
@@ -751,6 +763,8 @@ def dispatch_event(window: Any, event: Event) -> None:
         if abs_path:
             kind = str(p.get("kind") or "")
             source = str(p.get("source") or "")
+            if kind == "plot":
+                window.chat.add_chart_image(name or Path(abs_path).name, abs_path)
             if kind == "note":
                 source = "keep"
             elif not source:

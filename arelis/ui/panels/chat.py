@@ -286,6 +286,7 @@ class ChatPanel(QWidget):
         self._acts_pos: int | None = None
         self._pending_notices: list[str] = []
         self._pending_files: list[tuple[str, str]] = []
+        self._pending_charts: list[tuple[str, str]] = []
         self._file_tokens: dict[str, tuple[str, str]] = {}
         self._caret_timer = QTimer(self)
         self._caret_timer.setInterval(530)
@@ -805,17 +806,24 @@ class ChatPanel(QWidget):
         )
 
     def add_chart_image(self, name: str, path: str) -> None:
-        """Register a chart file and show it through the math resource hook.
+        """Show a chart PNG in the transcript.
 
-        Data tools still hand back a file card. Nothing in the turn path
-        calls this. The loader test uses it to prove an unknown chart token
-        is not served.
+        The file card is a separate chip. This is the picture. While a
+        bubble is open the picture waits, same as a file card, so finishing
+        or retracting that bubble cannot delete it.
         """
         abs_path = (path or "").strip()
         if not abs_path:
             return
-        token = self.view.register_chart(abs_path)
-        label = html.escape((name or "chart").strip() or "chart", quote=True)
+        label = (name or Path(path).name or "chart").strip() or "chart"
+        if self._stream_open:
+            self._pending_charts.append((label, abs_path))
+            return
+        self._append_chart_image(label, abs_path)
+
+    def _append_chart_image(self, name: str, path: str) -> None:
+        token = self.view.register_chart(path)
+        label = html.escape(name, quote=True)
         self._ensure_view()
         follow = self._near_bottom()
         self.view.append(
@@ -950,6 +958,7 @@ class ChatPanel(QWidget):
         self._acts_pos = None
         self._pending_notices = []
         self._pending_files = []
+        self._pending_charts = []
         self._file_tokens = {}
         self._thoughts = []
         self._label_at = None
@@ -1012,9 +1021,11 @@ class ChatPanel(QWidget):
         """Paint notices that arrived while an assistant bubble was open."""
         pending = self._pending_notices
         files = self._pending_files
+        charts = self._pending_charts
         self._pending_notices = []
         self._pending_files = []
-        if not pending and not files:
+        self._pending_charts = []
+        if not pending and not files and not charts:
             return
         self._ensure_view()
         for line in pending:
@@ -1023,6 +1034,8 @@ class ChatPanel(QWidget):
                 self.view.append(_notice_html(text))
         for name, path in files:
             self.view.append(self._file_card_html(name, path))
+        for name, path in charts:
+            self._append_chart_image(name, path)
 
     def _end_position(self) -> int:
         cursor = self.view.textCursor()
