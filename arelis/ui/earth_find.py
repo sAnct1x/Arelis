@@ -116,7 +116,7 @@ def close_find(panel: Any) -> None:
 
 
 def refresh(panel: Any, *, geocode: bool = False) -> None:
-    from arelis.earth.geocode import looks_like_address, search_address
+    from arelis.earth.geocode import ExtractedPlace, looks_like_address, search_address
     from arelis.earth.runtime import get_earth
 
     ensure_find(panel)
@@ -124,7 +124,7 @@ def refresh(panel: Any, *, geocode: bool = False) -> None:
     q = panel._earth_find_q
     hits = suggest(q, zone) if q.strip() else []
     if geocode and looks_like_address(q):
-        extra = search_address(q)
+        extra = search_address(ExtractedPlace(q))
         seen = {(h.kind, h.name.casefold()) for h in hits}
         merged = []
         for hit in extra:
@@ -298,9 +298,9 @@ def apply_goto(panel: Any, index: int | None = None) -> bool:
 
         hit = resolve_place(q, get_earth())
     if hit is None and q:
-        from arelis.earth.geocode import search_address
+        from arelis.earth.geocode import ExtractedPlace, search_address
 
-        extra = search_address(q, force=True)
+        extra = search_address(ExtractedPlace(q), force=True)
         hit = extra[0] if extra else None
     close_find(panel)
     if hit is not None and abs(float(hit.lat)) < 1e-5 and abs(float(hit.lon)) < 1e-5:

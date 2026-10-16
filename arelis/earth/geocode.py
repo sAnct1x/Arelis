@@ -34,14 +34,32 @@ _cache: dict[str, tuple[GotoHit, ...]] = {}
 _last_unix = 0.0
 
 
+def _block_network() -> bool:
+    """True while pytest is running, so a test is the only way onto the network."""
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+class ExtractedPlace:
+    """Place text already cut out before a geocode.
+
+    The goto extractor (a clean place only), the Find box, EarthTool
+    action=goto, and the globe handler (from that extracted name) may
+    construct this. ``search_address`` refuses a plain string, so a raw
+    prompt cannot be geocoded.
+    """
+
+    __slots__ = ("text",)
+
+    def __init__(self, text: str) -> None:
+        self.text = " ".join((text or "").strip().split())
+
+
 def looks_like_address(query: str) -> bool:
     """True when the text is a street address, not a city name."""
     q = (query or "").strip()
     if len(q) < 5:
         return False
     words = q.split()
-    if any(ch.isdigit() for ch in q) and len(q) >= 6:
-        return True
     if "," in q and len(words) >= 2:
         return True
     return bool(_STREET.search(q) and len(words) >= 2)
@@ -62,11 +80,17 @@ def _kind_for(row: dict[str, Any]) -> str:
     return "address"
 
 
-def search_address(query: str, *, limit: int = 5, force: bool = False) -> list[GotoHit]:
-    """Resolve a typed or spoken place. Empty under pytest unless cached.
+def search_address(
+    place: ExtractedPlace, *, limit: int = 5, force: bool = False
+) -> list[GotoHit]:
+    """Resolve an extracted place. A plain string is refused.
 
-    ``force`` is Enter / take-me-to — city + state, not only a street line.
+    ``force`` is Enter / take-me-to: a city and region, not only a street line.
+    Empty under pytest unless cached.
     """
+    if not isinstance(place, ExtractedPlace):
+        return []
+    query = place.text
     key = _fold(query)
     if not key:
         return []
@@ -80,7 +104,7 @@ def search_address(query: str, *, limit: int = 5, force: bool = False) -> list[G
         ][:limit]
     if not force and not looks_like_address(query):
         return []
-    if os.environ.get("PYTEST_CURRENT_TEST"):
+    if _block_network():
         return []
     global _last_unix
     with _lock:
@@ -91,7 +115,7 @@ def search_address(query: str, *, limit: int = 5, force: bool = False) -> list[G
         response = httpx.get(
             NOMINATIM,
             params={
-                "q": query.strip(),
+                "q": query,
                 "format": "jsonv2",
                 "limit": str(max(1, min(8, int(limit)))),
                 "addressdetails": "0",
@@ -146,6 +170,21 @@ def remember_hits(query: str, hits: list[GotoHit]) -> None:
         _cache[key] = frozen
         for hit in frozen:
             _cache.setdefault(_fold(hit.name), frozen)
+
+
+def cached_place(query: str) -> GotoHit | None:
+    """A hit already stored for this place name. Does not open the network."""
+    key = _fold(query)
+    if not key:
+        return None
+    with _lock:
+        cached = _cache.get(key)
+    if not cached:
+        return None
+    for hit in cached:
+        if abs(hit.lat) >= 1e-5 or abs(hit.lon) >= 1e-5:
+            return hit
+    return None
 
 
 def clear_cache() -> None:
