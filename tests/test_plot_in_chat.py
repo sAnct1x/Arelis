@@ -9,6 +9,7 @@ from PySide6.QtGui import QImage, QTextCursor, QTextDocument
 
 from arelis.core.events import Event, EventType
 from arelis.ui.event_host import dispatch_event
+from tests.test_plot_charts import _tool
 
 
 def _chart_formats(doc):
@@ -43,13 +44,23 @@ def _loaded(view, fmt) -> QImage:
     return res.toImage() if hasattr(res, "toImage") else res
 
 
-def test_plot_file_ready_paints_the_png_in_chat(tmp_path: Path, arelis_window, qt_app) -> None:
+async def test_plot_file_ready_paints_the_png_in_chat(
+    tmp_path: Path, arelis_window, qt_app, monkeypatch
+) -> None:
     """FILE_READY for a plot has to put the PNG in the transcript.
 
     The bubble is open on purpose. A picture appended into that bubble is
     wiped when the answer is finalized, so the image has to wait and land
-    after the reply.
+    after the reply. One subplot panel is still refused here, with the same
+    message the old standalone check used.
     """
+    tool, _drop = _tool(tmp_path, monkeypatch)
+    refused = await tool.run(
+        action="subplots", panels="histogram", ys="1,2,3", out="nope.png"
+    )
+    assert not refused.ok
+    assert "at least two" in refused.output.lower()
+
     png = tmp_path / "fake-plot.png"
     image = QImage(8, 8, QImage.Format.Format_ARGB32)
     image.fill(0xFF336699)
