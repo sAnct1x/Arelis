@@ -216,6 +216,15 @@ def format_action_receipt(receipt: dict[str, Any]) -> str:
     return f"receipt  action={action}  ok={receipt.get('ok')}{id_part}{extra}"
 
 
+def _ledger_fields(receipt: dict[str, Any]) -> dict[str, Any]:
+    """Copy a receipt for the ledger. A recipient is a length."""
+    row = dict(receipt)
+    recipient = row.pop("to", None)
+    if recipient is not None and str(recipient).strip():
+        row["to_chars"] = len(str(recipient).strip())
+    return row
+
+
 def append_action_ledger(
     receipt: dict[str, Any],
     *,
@@ -227,7 +236,7 @@ def append_action_ledger(
     row = {
         "ts": datetime.now(UTC).isoformat(),
         "session_id": session_id or "",
-        **receipt,
+        **_ledger_fields(receipt),
     }
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
