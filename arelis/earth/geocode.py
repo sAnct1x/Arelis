@@ -40,10 +40,11 @@ def _block_network() -> bool:
 
 
 class ExtractedPlace:
-    """Place text already cut out by the goto extractor or the Find box.
+    """Place text already cut out before a geocode.
 
-    Only those two call sites may construct this. ``search_address`` refuses
-    a plain string, so a raw prompt cannot be geocoded.
+    The goto extractor, the Find box, and EarthTool action=goto may construct
+    this. ``search_address`` refuses a plain string, so a raw prompt cannot
+    be geocoded.
     """
 
     __slots__ = ("text",)
@@ -58,8 +59,6 @@ def looks_like_address(query: str) -> bool:
     if len(q) < 5:
         return False
     words = q.split()
-    if any(ch.isdigit() for ch in q) and len(q) >= 6:
-        return True
     if "," in q and len(words) >= 2:
         return True
     return bool(_STREET.search(q) and len(words) >= 2)

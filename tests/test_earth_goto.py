@@ -66,10 +66,11 @@ async def test_earth_tool_goto(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not miss.ok
 
 
-def test_geocoder_accepts_only_an_extracted_place(
+@pytest.mark.asyncio
+async def test_geocoder_accepts_only_an_extracted_place(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A plain string never geocodes. Chat goto sends the extracted place."""
+    """A plain string never geocodes. Only EarthTool goto opens the network."""
     from arelis.earth import gazetteer
     from arelis.earth.geocode import NOMINATIM_HOST, ExtractedPlace, clear_cache, search_address
     from arelis.spatial.verbs import classify_physics_act
@@ -135,21 +136,17 @@ def test_geocoder_accepts_only_an_extracted_place(
         short = "show me my notes about the 3 body problem"
         captured = "my notes about the 3 body problem"
         assert resolve_place(short) is None
-        act = classify_physics_act(short)
-        assert calls == [captured]
+        assert classify_physics_act(short) is None
+        assert calls == []
         assert short not in calls
-        assert act is not None and act.verb == "goto_earth"
-        assert act.name == captured
         assert passed and isinstance(passed[-1], ExtractedPlace)
         assert passed[-1].text == captured
 
         passed.clear()
-        columbus_act = classify_physics_act("show me Columbus, Ohio")
+        assert classify_physics_act("show me Columbus, Ohio") is None
         assert passed and isinstance(passed[-1], ExtractedPlace)
         assert passed[-1].text == "Columbus, Ohio"
-        assert calls[-1] == "Columbus, Ohio"
-        assert "show me Columbus, Ohio" not in calls
-        assert columbus_act is not None and columbus_act.name == "Columbus, Ohio"
+        assert calls == []
 
         london = resolve_place("London")
         assert london is not None and london.name == "London"
@@ -159,7 +156,20 @@ def test_geocoder_accepts_only_an_extracted_place(
         assert paris is not None and paris.name == "Paris"
         ohio = resolve_place("Ohio")
         assert ohio is not None and ohio.kind == "state"
-        assert calls == [captured, "Columbus, Ohio"]
+        assert calls == []
+
+        monkeypatch.setattr("arelis.tools.earth_tool.stage_ok", lambda: True)
+        earth = EarthRuntime()
+        set_earth(earth)
+        got = await EarthTool().run(action="goto", query="Columbus, Ohio")
+        assert got.ok, got.output
+        assert calls == ["Columbus, Ohio"]
+        assert short not in calls
+        dest = earth.take_goto()
+        assert dest is not None
+        assert dest["name"] == "Columbus, Ohio"
+        assert dest["lat"] == 40.0
+        assert dest["lon"] == -83.0
 
         columbus = _Find("Columbus, Ohio")
         assert apply_goto(columbus) is True
@@ -169,11 +179,7 @@ def test_geocoder_accepts_only_an_extracted_place(
         assert apply_goto(street) is True
         assert street.place is not None
         assert street.place["name"] == "10 Downing Street, London"
-        assert calls == [
-            captured,
-            "Columbus, Ohio",
-            "10 Downing Street, London",
-        ]
+        assert calls == ["Columbus, Ohio", "10 Downing Street, London"]
     finally:
         clear_cache()
 
