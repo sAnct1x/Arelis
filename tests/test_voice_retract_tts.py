@@ -88,7 +88,7 @@ async def test_late_ui_retract_still_speaks_the_replacement() -> None:
     from arelis.ui.event_host import dispatch_event
     from arelis.voice import VoiceService
 
-    withdrawn = "72 Fahrenheit is 22."
+    withdrawn = "72 Fahrenheit is 22 degrees."
     reply = "That works out to 27.22."
     bus = EventBus()
     played: list[str] = []
