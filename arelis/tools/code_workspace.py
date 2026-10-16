@@ -15,6 +15,11 @@ from arelis.paths import user_data_dir
 from arelis.tools.base import ToolResult
 from arelis.tools.confirm_preview import workspace_confirm
 from arelis.tools.safety import redact_secrets
+from arelis.tools.script_pin import (
+    forget_model_script,
+    is_model_script,
+    note_model_script,
+)
 from arelis.workspace import FOLDER_CHOICE_HELP, ResolvedPath, WorkspaceRoots
 
 # Directory listings are capped so a node_modules-sized folder cannot flood the
@@ -833,6 +838,7 @@ class CodeWorkspaceTool:
         path = resolved.path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+        note_model_script(path)
         return ToolResult(
             ok=True,
             output=f"Wrote {resolved.qualified(multi=len(self.workspace) > 1)}",
@@ -861,6 +867,7 @@ class CodeWorkspaceTool:
                 ),
             )
         path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        note_model_script(path)
         return ToolResult(
             ok=True,
             output=f"Edited {resolved.qualified(multi=len(self.workspace) > 1)}",
@@ -936,6 +943,11 @@ class CodeWorkspaceTool:
             return ToolResult(ok=False, output=str(exc))
 
         self._commit_patch_plan(planned)
+        for resolved, content in planned:
+            if content is None:
+                forget_model_script(resolved.path)
+            else:
+                note_model_script(resolved.path)
         return ToolResult(
             ok=True,
             output="Patched " + ", ".join(labels),
@@ -1008,6 +1020,7 @@ class CodeWorkspaceTool:
                 data=self._path_data(resolved),
             )
         path.unlink()
+        forget_model_script(path)
         return ToolResult(ok=True, output=f"Deleted {label}", data=self._path_data(resolved))
 
     def _relocate(self, path_str: str, to_str: str, *, copy: bool) -> ToolResult:
@@ -1041,12 +1054,17 @@ class CodeWorkspaceTool:
             )
 
         dst.path.parent.mkdir(parents=True, exist_ok=True)
+        model_src = src.path.suffix.lower() == ".py" and is_model_script(src.path)
         if copy:
             shutil.copy2(src.path, dst.path)
             word = "Copied"
         else:
             shutil.move(str(src.path), str(dst.path))
             word = "Moved"
+        if model_src:
+            if not copy:
+                forget_model_script(src.path)
+            note_model_script(dst.path)
         return ToolResult(
             ok=True,
             output=f"{word} {src_label} → {dst_label}",

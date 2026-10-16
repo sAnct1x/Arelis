@@ -87,6 +87,80 @@ def test_run_task_refuses_a_shell_and_an_absolute_arg(tmp_path: Path) -> None:
     assert "absolute" in refused.output
 
 
+def test_model_written_script_card_shows_full_source(tmp_path: Path) -> None:
+    """A script the model wrote stays on the card, hash and all.
+
+    The programs toggle can hide a script the user already had. It cannot
+    hide one the workspace tool just wrote, and the process runs the bytes
+    the card hashed, not a later edit of the file.
+    """
+    import asyncio
+    import hashlib
+
+    from arelis.tools.policy import confirm_mode, set_confirm_mode
+
+    (tmp_path / "helper_mod.py").write_text("N = 7\n", encoding="utf-8")
+    lines = ["import math", "import helper_mod"]
+    lines.extend(f"n_{i} = {i}" for i in range(1, 49))
+    lines.append("print(helper_mod.N)")
+    lines.append("print('HASHED_OK')")
+    source = "\n".join(lines) + "\n"
+    assert len(source.splitlines()) > 40
+
+    roots = _roots(tmp_path)
+    wrote = asyncio.run(
+        CodeWorkspaceTool(roots).run(action="write", path="made.py", content=source)
+    )
+    assert wrote.ok, wrote.output
+    script = tmp_path / "made.py"
+    approved = script.read_bytes()
+    (tmp_path / "user_owned.py").write_text("print('user')\n", encoding="utf-8")
+
+    tool = RunScriptTool(roots)
+    reg = ToolRegistry()
+    reg.register(tool)
+    previous = confirm_mode()
+    set_confirm_mode("card")
+    try:
+        assert reg.needs_confirm("run_script", {"path": "made.py"}, confirm_run=False)
+        assert reg.needs_confirm(
+            "run_script",
+            {"path": "made.py"},
+            confirm_run=False,
+            asked=True,
+        )
+        assert not reg.needs_confirm(
+            "run_script",
+            {"path": "user_owned.py"},
+            confirm_run=False,
+        )
+    finally:
+        set_confirm_mode(previous)
+
+    text = reg.describe_call("run_script", {"path": "made.py"})
+    digest = hashlib.sha256(approved).hexdigest()[:12]
+    assert f"Source hash: {digest}" in text
+    assert "Imports: math, helper_mod" in text
+    assert "HASHED_OK" in text
+    assert "more lines" not in text
+    assert "\u2014" not in text
+
+    script.write_text("print('MUTATED_NO')\n", encoding="utf-8")
+    assert hashlib.sha256(script.read_bytes()).hexdigest()[:12] != digest
+    first = asyncio.run(tool.run(path="made.py"))
+    assert first.ok, first.output
+    stdout = first.output.split("stdout:", 1)[-1]
+    assert "HASHED_OK" in stdout
+    assert "7" in stdout
+    assert "MUTATED_NO" not in first.output
+
+    second = asyncio.run(tool.run(path="made.py"))
+    assert second.ok, second.output
+    assert "MUTATED_NO" in second.output.split("stdout:", 1)[-1]
+    assert "HASHED_OK" not in second.output
+    assert list(tmp_path.glob(".arelis-src-*")) == []
+
+
 def test_npm_script_body_is_on_the_card(tmp_path: Path) -> None:
     (tmp_path / "package.json").write_text(
         json.dumps({"scripts": {"clean": "Remove-Item -Recurse C:\\Users"}}),

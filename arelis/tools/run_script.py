@@ -11,6 +11,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -20,6 +21,11 @@ from arelis.tools.base import ToolResult
 from arelis.tools.child_proc import child_env
 from arelis.tools.confirm_preview import run_script_confirm
 from arelis.tools.safety import redact_secrets
+from arelis.tools.script_pin import (
+    clear_script_pin,
+    is_model_script,
+    take_script_pin,
+)
 from arelis.workspace import WorkspaceRoots
 
 _DEFAULT_TIMEOUT_S = 120.0
@@ -83,6 +89,29 @@ class RunScriptTool:
     def confirm_detail(self, args: dict[str, Any]) -> str:
         return run_script_confirm(self.workspace, args)
 
+    def clear_run_pin(self, args: dict[str, Any]) -> None:
+        """Drop a pin from an earlier card before this call decides again."""
+        path = self._script_path(args)
+        if path is not None:
+            clear_script_pin(path)
+
+    def model_wrote(self, args: dict[str, Any]) -> bool:
+        """True when the workspace tool wrote or edited this .py."""
+        path = self._script_path(args)
+        return path is not None and is_model_script(path)
+
+    def _script_path(self, args: dict[str, Any]) -> Path | None:
+        path_str = str(args.get("path") or "").strip()
+        if not path_str:
+            return None
+        try:
+            resolved = self.workspace.resolve(path_str, for_write=False)
+        except (OSError, ValueError):
+            return None
+        if resolved.root_name == "external":
+            return None
+        return resolved.path
+
     async def run(self, **kwargs: Any) -> ToolResult:
         return await asyncio.to_thread(self._run_sync, kwargs)
 
@@ -127,38 +156,56 @@ class RunScriptTool:
                 ok=False,
                 output="run_script only starts .py files. Not a shell.",
             )
-        if not path.is_file():
+        # The card pinned these bytes. Run them, not a later read of the path.
+        pinned = take_script_pin(path)
+        if pinned is None and not path.is_file():
             label = resolved.qualified(multi=len(self.workspace) > 1)
             return ToolResult(ok=False, output=f"Not a file: {label}")
 
         interpreter = resolve_interpreter(resolved.root, self.python)
         cwd = resolved.root
-        cmd = [interpreter, str(path), *argv_extra]
         # child_env drops every ARELIS_* name. The nest flag is ours.
         env = child_env({"PYTHONIOENCODING": "utf-8"})
         env[_NEST_ENV] = "1"
         env.setdefault("PYTHONUNBUFFERED", "1")
 
+        script_path = path
+        temp: Path | None = None
+        if pinned is not None:
+            try:
+                temp = _materialize_pinned(path, pinned)
+                script_path = temp
+            except OSError as exc:
+                return ToolResult(
+                    ok=False,
+                    output=f"Could not run the approved script: {exc}",
+                )
+        cmd = [interpreter, str(script_path), *argv_extra]
+
         started = time.monotonic()
         try:
-            proc = _spawn(cmd, cwd=cwd, env=env)
-        except FileNotFoundError:
-            return ToolResult(
-                ok=False,
-                output=f"Could not start {interpreter}. Python is missing.",
-            )
-        except OSError as exc:
-            return ToolResult(ok=False, output=f"Could not start the script: {exc}")
+            try:
+                proc = _spawn(cmd, cwd=cwd, env=env)
+            except FileNotFoundError:
+                return ToolResult(
+                    ok=False,
+                    output=f"Could not start {interpreter}. Python is missing.",
+                )
+            except OSError as exc:
+                return ToolResult(ok=False, output=f"Could not start the script: {exc}")
 
-        try:
-            code, stdout, stderr, stopped = _wait(
-                proc,
-                timeout_s=timeout_s,
-                is_cancelled=self.is_cancelled,
-            )
-        except Exception as exc:
-            _kill_tree(proc)
-            return ToolResult(ok=False, output=f"run_script failed: {exc}")
+            try:
+                code, stdout, stderr, stopped = _wait(
+                    proc,
+                    timeout_s=timeout_s,
+                    is_cancelled=self.is_cancelled,
+                )
+            except Exception as exc:
+                _kill_tree(proc)
+                return ToolResult(ok=False, output=f"run_script failed: {exc}")
+        finally:
+            if temp is not None:
+                _unlink_quiet(temp)
 
         duration = time.monotonic() - started
         if stopped == "cancelled":
@@ -213,6 +260,34 @@ def _argv_list(raw: Any) -> list[str]:
     if isinstance(raw, (list, tuple)):
         return [str(item) for item in raw]
     return [str(raw)]
+
+
+def _unlink_quiet(path: Path) -> None:
+    """Remove the approved-bytes file. Windows may still be releasing it."""
+    for _ in range(8):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except OSError:
+            time.sleep(0.05)
+
+
+def _materialize_pinned(path: Path, source: bytes) -> Path:
+    """Write the approved bytes beside the script.
+
+    The child opens that file, so the program is the hashed source even if
+    the original path changes after the card.
+    """
+    parent = path.parent if path.parent.is_dir() else Path.cwd()
+    fd, name = tempfile.mkstemp(prefix=".arelis-src-", suffix=".py", dir=str(parent))
+    os.close(fd)
+    temp = Path(name)
+    try:
+        temp.write_bytes(source)
+    except OSError:
+        temp.unlink(missing_ok=True)
+        raise
+    return temp
 
 
 def _spawn(cmd: list[str], *, cwd: Path, env: dict[str, str]) -> subprocess.Popen[str]:
