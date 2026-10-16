@@ -311,9 +311,14 @@ def dispatch_event(window: Any, event: Event) -> None:
         # Drop any speech that streamed from that preamble.
         window.chat.discard_stream()
         window._assistant_streaming = False
-        from arelis.ui.voice_host import stop_speech
+        # VoiceService.on_retract already cancelled the withdrawn utterance.
+        # This handler runs later, on the Qt thread, after the replacement
+        # has bumped the speak id. stop_speech would stamp that new id as
+        # cancelled and the reply would never reach TTS. Drop clips the
+        # player already holds; leave synthesis of the new id alone.
+        from arelis.ui.voice_host import stop_playback
 
-        stop_speech(window)
+        stop_playback(window)
     elif t == EventType.ASSISTANT_DONE:
         _cancel_wall_toast(window)
         if window._mobile_foreign:
@@ -444,6 +449,8 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.calendar.reload_jobs(select_id=str(p.get("id") or ""))
     elif t == EventType.THINKING:
         text = str(p.get("text") or "")
+        if not text:
+            return
         if p.get("stream"):
             window.thinking.extend_stream(text)
         else:
