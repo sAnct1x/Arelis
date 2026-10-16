@@ -17,6 +17,7 @@ from arelis.tools.policy import (
     TASKS_WRITE_ACTIONS,  # noqa: F401 — re-exported
     CapabilityClass,
     ToolRisk,
+    confirm_toggles_for_call,
     evaluate_capability,
     evaluate_confirm,
 )
@@ -186,6 +187,7 @@ class ToolRegistry:
         confirm_desktop: bool = True,
         confirm_vision: bool = True,
         confirm_run: bool = True,
+        allow_writes_this_turn: bool = False,
         asked: bool = False,
         ask_is_grant: bool = True,
     ) -> bool:
@@ -209,9 +211,10 @@ class ToolRegistry:
         # Programs opt-out skips the card only for exact bytes the user
         # already approved. A rename, a new file, or a restart does not
         # make unseen source trusted.
-        # Every confirmation class off is the global cards-off setting.
-        # That path skips this call too, including a script's first run,
-        # and does not hash the file or open the approvals list.
+        # All cards off is the user's saved settings, not this turn's
+        # grant. A one-turn write grant does not count. That saved-off
+        # path skips a script's first run without hashing the file or
+        # opening the approvals list.
         run_confirm = confirm_run
         if name == "run_script":
             clear = getattr(tool, "clear_run_pin", None)
@@ -230,17 +233,28 @@ class ToolRegistry:
                 approved = getattr(tool, "user_approved_script", None)
                 if not (callable(approved) and approved(args or {})):
                     run_confirm = True
-        return evaluate_confirm(
+        turn = confirm_toggles_for_call(
             name,
-            args,
-            risk=tool.risk,
             confirm_writes=confirm_writes,
             confirm_image=confirm_image,
             confirm_send=confirm_send,
             confirm_browser=confirm_browser,
-            confirm_desktop=confirm_desktop,
             confirm_vision=confirm_vision,
+            confirm_desktop=confirm_desktop,
             confirm_run=run_confirm,
+            allow_writes_this_turn=allow_writes_this_turn,
+        )
+        return evaluate_confirm(
+            name,
+            args,
+            risk=tool.risk,
+            confirm_writes=turn["confirm_writes"],
+            confirm_image=turn["confirm_image"],
+            confirm_send=turn["confirm_send"],
+            confirm_browser=turn["confirm_browser"],
+            confirm_desktop=turn["confirm_desktop"],
+            confirm_vision=turn["confirm_vision"],
+            confirm_run=turn["confirm_run"],
             asked=asked,
             ask_is_grant=ask_is_grant,
         )
