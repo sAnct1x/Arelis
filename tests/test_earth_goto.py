@@ -165,22 +165,37 @@ async def test_geocoder_accepts_only_an_extracted_place(
             def append(self, *_args: object, **_kwargs: object) -> None:
                 return None
 
+        window = _Window()
         act = classify_physics_act("show me Columbus, Ohio")
         assert act is not None and act.verb == "goto_earth"
         assert act.name == "Columbus, Ohio"
+        assert calls == []
+        apply_physics_act(window, act)
         assert calls == ["Columbus, Ohio"]
         assert "show me Columbus, Ohio" not in calls
-        apply_physics_act(_Window(), act)
         dest = earth.take_goto()
         assert dest is not None
         assert dest["name"] == "Columbus, Ohio"
         assert dest["lat"] == 40.0
         assert dest["lon"] == -83.0
 
+        rey = classify_physics_act("show me Reykjavik")
+        assert rey is not None and rey.verb == "goto_earth"
+        assert rey.name == "Reykjavik"
+        assert calls == ["Columbus, Ohio"]
+        apply_physics_act(window, rey)
+        assert calls == ["Columbus, Ohio", "Reykjavik"]
+        assert "show me Reykjavik" not in calls
+        flown = earth.take_goto()
+        assert flown is not None
+        assert flown["name"] == "Reykjavik"
+        assert flown["lat"] == 40.0
+        assert flown["lon"] == -83.0
+
         monkeypatch.setattr("arelis.tools.earth_tool.stage_ok", lambda: True)
         got = await EarthTool().run(action="goto", query="Columbus, Ohio")
         assert got.ok, got.output
-        assert calls == ["Columbus, Ohio"]
+        assert calls == ["Columbus, Ohio", "Reykjavik"]
         assert short not in calls
         again = earth.take_goto()
         assert again is not None
@@ -195,7 +210,11 @@ async def test_geocoder_accepts_only_an_extracted_place(
         assert apply_goto(street) is True
         assert street.place is not None
         assert street.place["name"] == "10 Downing Street, London"
-        assert calls == ["Columbus, Ohio", "10 Downing Street, London"]
+        assert calls == [
+            "Columbus, Ohio",
+            "Reykjavik",
+            "10 Downing Street, London",
+        ]
     finally:
         clear_cache()
 

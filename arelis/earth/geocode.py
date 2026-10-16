@@ -42,9 +42,10 @@ def _block_network() -> bool:
 class ExtractedPlace:
     """Place text already cut out before a geocode.
 
-    The goto extractor (a clean place only), the Find box, and EarthTool
-    action=goto may construct this. ``search_address`` refuses a plain
-    string, so a raw prompt cannot be geocoded.
+    The goto extractor (a clean place only), the Find box, EarthTool
+    action=goto, and the globe handler (from that extracted name) may
+    construct this. ``search_address`` refuses a plain string, so a raw
+    prompt cannot be geocoded.
     """
 
     __slots__ = ("text",)

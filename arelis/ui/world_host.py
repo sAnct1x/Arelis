@@ -396,9 +396,16 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         zone = require_earth()
         hit = resolve_place(query, zone)
         if hit is None:
-            from arelis.earth.geocode import cached_place
+            from arelis.earth.geocode import ExtractedPlace, cached_place, search_address
 
             hit = cached_place(query)
+            if (
+                hit is None
+                and query
+                and query.casefold() not in {"home", "here"}
+            ):
+                found = search_address(ExtractedPlace(query), limit=1, force=True)
+                hit = found[0] if found else None
         if hit is None:
             if query.casefold() in {"home", "here"}:
                 window.thinking.append(
