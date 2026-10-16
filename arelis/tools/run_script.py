@@ -22,8 +22,11 @@ from arelis.tools.child_proc import child_env
 from arelis.tools.confirm_preview import run_script_confirm
 from arelis.tools.safety import redact_secrets
 from arelis.tools.script_pin import (
+    approved_script_hashes,
     clear_script_pin,
-    is_model_script,
+    pin_script_bytes,
+    remember_approved_script,
+    script_sha256,
     take_script_pin,
 )
 from arelis.workspace import WorkspaceRoots
@@ -95,10 +98,22 @@ class RunScriptTool:
         if path is not None:
             clear_script_pin(path)
 
-    def model_wrote(self, args: dict[str, Any]) -> bool:
-        """True when the workspace tool wrote or edited this .py."""
+    def user_approved_script(self, args: dict[str, Any]) -> bool:
+        """True when these exact bytes are already in the profile.
+
+        Pins them so the run executes the approved source, not a later edit.
+        """
         path = self._script_path(args)
-        return path is not None and is_model_script(path)
+        if path is None or not path.is_file():
+            return False
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return False
+        if script_sha256(raw) not in approved_script_hashes():
+            return False
+        pin_script_bytes(path, raw)
+        return True
 
     def _script_path(self, args: dict[str, Any]) -> Path | None:
         path_str = str(args.get("path") or "").strip()
@@ -172,6 +187,7 @@ class RunScriptTool:
         script_path = path
         temp: Path | None = None
         if pinned is not None:
+            remember_approved_script(pinned)
             try:
                 temp = _materialize_pinned(path, pinned)
                 script_path = temp

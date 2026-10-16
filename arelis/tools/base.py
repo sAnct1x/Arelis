@@ -206,16 +206,18 @@ class ToolRegistry:
         tool = self.get(name)
         if tool is None:
             return False
-        # A script the workspace tool wrote still gets the card when the
-        # programs toggle is off. Seeing the source is not optional then.
+        # Programs opt-out skips the card only for exact bytes the user
+        # already approved. A rename, a new file, or a restart does not
+        # make unseen source trusted.
         run_confirm = confirm_run
         if name == "run_script":
             clear = getattr(tool, "clear_run_pin", None)
             if callable(clear):
                 clear(args or {})
-            wrote = getattr(tool, "model_wrote", None)
-            if not confirm_run and callable(wrote) and wrote(args or {}):
-                run_confirm = True
+            if not confirm_run:
+                approved = getattr(tool, "user_approved_script", None)
+                if not (callable(approved) and approved(args or {})):
+                    run_confirm = True
         return evaluate_confirm(
             name,
             args,
