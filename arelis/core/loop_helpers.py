@@ -616,6 +616,14 @@ _EMPTY_REPLY_NOTICE = (
 
 CHART_FAILED_REPLY = "The chart did not get drawn. I will not fake one in text."
 
+# Same shape as the chart stop: one fixed sentence, then the tool's own text.
+CODE_KEPT_FAILING_REPLY = "The code kept failing with the same error, so I stopped: {error}"
+
+
+def code_kept_failing_reply(error: str) -> str:
+    """Stop line for a repeated cell error. The exception text is copied."""
+    return CODE_KEPT_FAILING_REPLY.format(error=(error or "").strip())
+
 _CHART_TOOLS = frozenset({"plot", "python", "calculator"})
 
 # Plot stays owed across later python calls. This many model rounds may

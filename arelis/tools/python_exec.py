@@ -13,8 +13,9 @@ than it does here, so a hung import is killed on its own budget instead of
 being counted against the cell, and instead of waiting forever.
 
 The AST checks and the audit hook live in the child. Name rules still
-refuse the obvious spellings. The hook refuses the operation: a process, a
-socket, ctypes, a write, or a read outside the Python libraries.
+refuse the obvious spellings. The hook refuses a process, a socket, ctypes,
+and any write outside the room's results folder. Reads stay inside the
+workspace. Matplotlib stays on the Agg backend.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arelis.tools.arg_error import arg_error
 from arelis.tools.base import ToolResult
 from arelis.tools.child_proc import _close_job, _spawn, child_env
 from arelis.tools.run_script import _kill_tree
@@ -59,8 +61,44 @@ _MEMORY_CODES = {
 _RUNNER = Path(__file__).with_name("python_cell_runner.py")
 
 
+def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
+    """Absolute workspace roots the cell may read.
+
+    A writable root also gets a results folder. That is the only directory
+    the cell may write, same as the data cell.
+    """
+    roots = getattr(workspace, "roots", None)
+    if not roots:
+        return []
+    payload: list[dict[str, Any]] = []
+    for entry in roots:
+        raw = getattr(entry, "path", None)
+        if raw is None:
+            continue
+        try:
+            path = Path(raw).resolve()
+        except OSError:
+            continue
+        writable = not bool(getattr(entry, "read_only", False))
+        if writable:
+            try:
+                (path / "results").mkdir(parents=True, exist_ok=True)
+            except OSError:
+                writable = False
+        payload.append({"path": str(path), "write": writable})
+    return payload
+
+
 class PythonTool:
     name = "python"
+    # Subclasses that skip __init__ keep an empty list. No workspace, no writes.
+    # science_io stays off unless the caller or the registry turns it on.
+    _root_payload: list[dict[str, Any]] = []
+    _science_io: bool = False
+
+    def __init__(self, workspace: Any = None, *, science_io: bool = False) -> None:
+        self._root_payload = _workspace_payload(workspace)
+        self._science_io = bool(science_io)
     description = (
         "Run a short Python cell for numerics, kinematics, linear algebra, or "
         "a multi-step derivation. math is preloaded (sin, cos, radians, sqrt, "
@@ -112,10 +150,12 @@ class PythonTool:
                 ok=False,
                 output=f"Code is longer than {_MAX_CHARS} characters.",
             )
-        return await _run_in_child(code)
+        return await _run_in_child(code, self._root_payload, self._science_io)
 
 
-async def _run_in_child(code: str) -> ToolResult:
+async def _run_in_child(
+    code: str, roots: list[dict[str, Any]], science_io: bool
+) -> ToolResult:
     """Run the cell off the event loop, and do not leave that thread behind."""
     loop = asyncio.get_running_loop()
     done = asyncio.Event()
@@ -123,9 +163,9 @@ async def _run_in_child(code: str) -> ToolResult:
 
     def _target() -> None:
         try:
-            box["result"] = _run_in_child_sync(code)
+            box["result"] = _run_in_child_sync(code, roots, science_io)
         except Exception as exc:
-            box["result"] = ToolResult(ok=False, output=f"Python failed: {exc}")
+            box["result"] = arg_error(exc)
         finally:
             loop.call_soon_threadsafe(done.set)
 
@@ -138,12 +178,22 @@ async def _run_in_child(code: str) -> ToolResult:
     )
 
 
-def _run_in_child_sync(code: str) -> ToolResult:
+def _run_in_child_sync(
+    code: str, roots: list[dict[str, Any]], science_io: bool
+) -> ToolResult:
     work = Path(tempfile.mkdtemp(prefix="arelis-py-"))
     env = child_env(
         {
             "PYTHONUNBUFFERED": "1",
             "PYTHONIOENCODING": "utf-8",
+            "MPLBACKEND": "Agg",
+            # Agg ships DejaVu. Without this, macOS matplotlib spawns
+            # system_profiler to list fonts, and every cell has a new cache,
+            # so the scan runs again. A test that imports matplotlib a few
+            # times then sits past pytest's 90s limit. The timeout thread
+            # calls os._exit(1) in the xdist worker: no signal, no
+            # traceback, and the cell process is still alive.
+            "MPL_IGNORE_SYSTEM_FONTS": "1",
         }
     )
     proc: subprocess.Popen[str] | None = None
@@ -165,7 +215,9 @@ def _run_in_child_sync(code: str) -> ToolResult:
             return ToolResult(ok=False, output="Python failed: the cell could not start.")
         ready, lines, errors, threads = _attach_readers(proc)
         try:
-            proc.stdin.write(json.dumps({"code": code}))
+            proc.stdin.write(
+                json.dumps({"code": code, "roots": roots, "science_io": science_io})
+            )
             proc.stdin.close()
         except Exception:
             # The child already exited, so the pipe is gone. The caller is told.
@@ -193,9 +245,17 @@ def _run_in_child_sync(code: str) -> ToolResult:
         if payload is not None:
             return _tool_result(code, payload)
         if _memory_death(proc):
-            return ToolResult(ok=False, output=_MEMORY_OUTPUT)
+            return arg_error(
+                output=_MEMORY_OUTPUT,
+                error_type="MemoryError",
+                extra={"exc_message": _MEMORY_OUTPUT},
+            )
         if killed:
-            return ToolResult(ok=False, output=_TIMEOUT_OUTPUT)
+            return arg_error(
+                output=_TIMEOUT_OUTPUT,
+                error_type="TimeoutError",
+                extra={"exc_message": _TIMEOUT_OUTPUT},
+            )
         return _startup_failure(errors)
     finally:
         if proc is not None and proc.poll() is None:
@@ -283,27 +343,46 @@ def _parse_result(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _error_type(payload: dict[str, Any]) -> str | None:
+    """The exception class on a bad_args payload. The message is not read."""
+    if payload.get("status") != "bad_args":
+        return None
+    exc_type = payload.get("error_type")
+    if isinstance(exc_type, str) and exc_type.isidentifier() and len(exc_type) <= 64:
+        return exc_type
+    return None
+
+
 def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
     if payload.get("ok"):
         text = str(payload.get("output") or "")
         return ToolResult(ok=True, output=text, data={"code": code, "result": text})
     kind = str(payload.get("kind") or "")
     message = str(payload.get("message") or "")
+    error_type = _error_type(payload)
+    extra: dict[str, Any] = {}
     if kind == "timeout":
-        return ToolResult(ok=False, output=_TIMEOUT_OUTPUT)
-    if kind == "syntax":
-        return ToolResult(ok=False, output=f"Python syntax error: {message}")
-    if kind == "refused":
-        data: dict[str, Any] = {}
+        output = _TIMEOUT_OUTPUT
+        extra["exc_message"] = _TIMEOUT_OUTPUT
+    elif kind == "refused":
         # Copied from the child payload. The message text is not inspected.
         next_tool = payload.get("next_tool")
         if isinstance(next_tool, str) and next_tool:
-            data["next_tool"] = next_tool
+            extra["next_tool"] = next_tool
         refusal = payload.get("refusal")
         if isinstance(refusal, str) and refusal:
-            data["refusal"] = refusal
-        return ToolResult(ok=False, output=f"Python refused: {message}", data=data)
-    return ToolResult(ok=False, output=f"Python failed: {message or 'the cell stopped.'}")
+            extra["refusal"] = refusal
+        output = f"Python refused: {message}"
+        if message.strip():
+            extra["exc_message"] = message.strip()
+    else:
+        output = message or "the cell stopped."
+    short = payload.get("exc_message")
+    if isinstance(short, str) and short.strip():
+        extra["exc_message"] = short.strip()
+    if error_type:
+        return arg_error(output=output, error_type=error_type, extra=extra or None)
+    return ToolResult(ok=False, output=output, data=extra)
 
 
 def _startup_failure(errors: list[str]) -> ToolResult:

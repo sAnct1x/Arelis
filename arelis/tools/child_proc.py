@@ -149,7 +149,17 @@ def _spawn(
             _CREATE_NO_WINDOW | _CREATE_NEW_PROCESS_GROUP | _CREATE_SUSPENDED
         )
     else:
-        kwargs["start_new_session"] = True
+        # A new process group, not a new session. start_new_session calls
+        # setsid(), so the cell is a session leader. On macOS that leader's
+        # exit sends SIGHUP to the foreground group of the terminal, and that
+        # group is the pytest worker: xdist reports "Not properly terminated"
+        # with no traceback. The macOS 3.14 jobs on 66bf611 died that way in
+        # test_matplotlib_refusal_sets_next_tool_plot, once the parent stopped
+        # ignoring SIGHUP. process_group 0 stays in the caller's session, so
+        # the exit is not a session-leader exit. The pid is the group leader,
+        # and _kill_tree's killpg only signals a group that is this pid and
+        # not the caller's group.
+        kwargs["process_group"] = 0
     try:
         proc = subprocess.Popen(argv, **kwargs)
     except OSError:
