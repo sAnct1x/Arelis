@@ -9,6 +9,7 @@ stdout stays the script's own prints.
 from __future__ import annotations
 
 import json
+import os
 import runpy
 import sys
 import traceback
@@ -41,6 +42,14 @@ def main() -> None:
         raise exc
     script = sys.argv[1]
     sys.argv = sys.argv[1:]
+    # A direct `python script.py` puts that file's directory on sys.path.
+    # runpy does not, so a sibling import would miss. The approved copy
+    # sits beside the original, and that import has to keep working.
+    script_dir = os.path.dirname(os.path.abspath(script))
+    if sys.path:
+        sys.path[0] = script_dir
+    else:
+        sys.path.append(script_dir)
     try:
         runpy.run_path(script, run_name="__main__")
     except SystemExit as exc:
