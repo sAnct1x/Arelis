@@ -4,8 +4,10 @@ The card hashes the bytes it shows. The process runs those bytes, so a
 later edit on disk cannot swap in a program the card did not show.
 
 With the programs toggle off, the card is skipped only when the file's
-SHA-256 is already in the profile. The profile is the record, so a
-restart does not forget an approval and a rename does not invent one.
+SHA-256 is already in approved_scripts.json, beside the profile. That
+file is the record, so a restart does not forget an approval and a
+rename does not invent one. Saving an approval never rewrites the profile.
+A missing or unreadable record means the card shows.
 """
 
 from __future__ import annotations
@@ -13,20 +15,19 @@ from __future__ import annotations
 import ast
 import hashlib
 import io
+import json
 import logging
 import os
 import tokenize
 from pathlib import Path
 
-import yaml
-
-from arelis.profile import resolve_profile_path
+from arelis.profile import approvals_path
 
 log = logging.getLogger(__name__)
 
 _PINNED: dict[str, bytes] = {}
 _HASH_LEN = 12
-_PROFILE_KEY = "approved_script_hashes"
+_HEX = frozenset("0123456789abcdef")
 
 
 def script_key(path: Path) -> str:
@@ -61,55 +62,66 @@ def short_source_hash(source: bytes) -> str:
     return script_sha256(source)[:_HASH_LEN]
 
 
-def _profile_path() -> Path:
-    return resolve_profile_path()
+def _is_hash(item: object) -> bool:
+    return isinstance(item, str) and len(item) == 64 and set(item) <= _HEX
 
 
-def _read_profile(path: Path) -> dict:
+def _read_hashes(path: Path) -> list[str] | None:
+    """Hashes from the approvals file.
+
+    ``[]`` when the file is missing. ``None`` when it cannot be read or is
+    not a list, so the caller shows the card and does not crash.
+    """
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return {}
-    except (OSError, yaml.YAMLError) as exc:
-        log.warning("Could not read profile for script approvals: %s", exc)
-        return {}
-    if not isinstance(raw, dict):
-        return {}
-    return raw
+        return []
+    except (OSError, ValueError) as exc:
+        log.warning("Could not read approved scripts: %s", exc)
+        return None
+    try:
+        raw = json.loads(text)
+    except ValueError as exc:
+        log.warning("Could not read approved scripts: %s", exc)
+        return None
+    if not isinstance(raw, list):
+        log.warning("Approved scripts file is not a list")
+        return None
+    return [item for item in raw if _is_hash(item)]
 
 
 def approved_script_hashes() -> set[str]:
-    """SHA-256 hex strings the user already allowed, from the profile."""
-    raw = _read_profile(_profile_path())
-    values = raw.get(_PROFILE_KEY)
-    if not isinstance(values, list):
+    """SHA-256 hex strings the user already allowed.
+
+    Any read problem (missing, malformed, bad encoding, unreadable) is an
+    empty set. The card shows. This does not raise.
+    """
+    found = _read_hashes(approvals_path())
+    if not found:
         return set()
-    return {item for item in values if isinstance(item, str) and len(item) == 64}
+    return set(found)
 
 
 def remember_approved_script(source: bytes) -> None:
-    """Record that the user allowed these exact bytes. Survives a restart."""
+    """Record that the user allowed these exact bytes. Survives a restart.
+
+    Writes approved_scripts.json only. A failure is logged and ignored so
+    the approved bytes still run this once.
+    """
     digest = script_sha256(source)
-    path = _profile_path()
+    path = approvals_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        raw = _read_profile(path)
-        current = raw.get(_PROFILE_KEY)
-        if isinstance(current, list):
-            hashes = [item for item in current if isinstance(item, str)]
-        else:
-            hashes = []
-        if digest in hashes:
+        current = _read_hashes(path)
+        hashes = [] if current is None else list(current)
+        if digest in hashes and current is not None:
             return
-        hashes.append(digest)
-        raw[_PROFILE_KEY] = hashes
+        if digest not in hashes:
+            hashes.append(digest)
         tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(
-            yaml.safe_dump(raw, sort_keys=False, allow_unicode=True),
-            encoding="utf-8",
-        )
+        tmp.write_text(json.dumps(hashes, indent=2) + "\n", encoding="utf-8")
         os.replace(tmp, path)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         log.warning("Could not save an approved script hash: %s", exc)
 
 

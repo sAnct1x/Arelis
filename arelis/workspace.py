@@ -300,6 +300,8 @@ class WorkspaceRoots:
             return None
         if not resolved.exists():
             return None
+        if _is_approvals_file(resolved):
+            return None
         self._external_reads.add(resolved)
         return resolved
 
@@ -411,6 +413,7 @@ class WorkspaceRoots:
                     and not for_create
                     and self._external_covers(path)
                 ):
+                    _refuse_approvals_file(path)
                     return ResolvedPath(
                         path=path,
                         root_name="external",
@@ -471,6 +474,7 @@ class WorkspaceRoots:
             raise PermissionError(
                 f"Workspace root `{entry.name}` is read-only; cannot write or edit"
             )
+        _refuse_approvals_file(path)
         return ResolvedPath(path=path, root_name=entry.name, root=entry.path)
 
     def _contain_any(self, path: Path, *, for_write: bool = False) -> ResolvedPath:
@@ -503,6 +507,20 @@ class WorkspaceRoots:
         if ro:
             line += f" Read-only roots (no write/edit): {', '.join(ro)}."
         return line
+
+
+def _is_approvals_file(path: Path) -> bool:
+    from arelis.profile import is_approvals_file
+
+    return is_approvals_file(path)
+
+
+def _refuse_approvals_file(path: Path) -> None:
+    """The allowlist is app-owned. File tools do not open it."""
+    if _is_approvals_file(path):
+        raise PermissionError(
+            "That file belongs to Arelis. I will not read or change it."
+        )
 
 
 def _soften_existing(path: Path) -> Path:

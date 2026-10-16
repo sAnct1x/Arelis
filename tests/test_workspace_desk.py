@@ -93,7 +93,9 @@ def test_model_written_script_card_shows_full_source(
     """Opt-out skips a script only when the user already approved those bytes.
 
     The card shows the whole file and the run executes that source. A rename
-    into a .py is not an approval. A fresh process still honors the profile.
+    into a .py is not an approval. A fresh process still honors the saved
+    hash. The hash lives beside the profile, and a bad approvals file shows
+    the card.
     """
     import asyncio
     import hashlib
@@ -104,6 +106,10 @@ def test_model_written_script_card_shows_full_source(
     from arelis.tools.policy import confirm_mode, set_confirm_mode
 
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "userdata"))
+    profile_path = tmp_path / "userdata" / "data" / "profile.yaml"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_text = "# keep this comment\nuser:\n  name: Ada\n"
+    profile_path.write_text(profile_text, encoding="utf-8")
     (tmp_path / "helper_mod.py").write_text("N = 7\n", encoding="utf-8")
     lines = ["import math", "import helper_mod"]
     lines.extend(f"n_{i} = {i}" for i in range(1, 49))
@@ -158,8 +164,27 @@ def test_model_written_script_card_shows_full_source(
     assert "HASHED_OK" in stdout
     assert "7" in stdout
     assert "MUTATED_NO" not in first.output
-    profile = (tmp_path / "userdata" / "data" / "profile.yaml").read_text(encoding="utf-8")
-    assert full in profile
+    assert profile_path.read_text(encoding="utf-8") == profile_text
+    approvals = tmp_path / "userdata" / "data" / "approved_scripts.json"
+    assert full in json.loads(approvals.read_text(encoding="utf-8"))
+    inside = CodeWorkspaceTool(
+        WorkspaceRoots.from_paths(
+            [str(tmp_path / "userdata")],
+            active=(tmp_path / "userdata").name,
+        )
+    )
+    refused_read = asyncio.run(inside.run(action="read", path="data/approved_scripts.json"))
+    assert not refused_read.ok
+    assert "will not" in refused_read.output
+    refused_write = asyncio.run(
+        inside.run(action="write", path="data/approved_scripts.json", content="[]\n")
+    )
+    assert not refused_write.ok
+    assert full in json.loads(approvals.read_text(encoding="utf-8"))
+    searched = asyncio.run(inside.run(action="grep", path="data", query=full[:12]))
+    assert "approved_scripts.json:" not in searched.output
+    assert searched.output.startswith("No match")
+    assert profile_path.read_text(encoding="utf-8") == profile_text
 
     second = asyncio.run(tool.run(path="made.py"))
     assert second.ok, second.output
@@ -203,6 +228,13 @@ def test_model_written_script_card_shows_full_source(
     assert fresh.returncode == 0, fresh.stderr
     heard = json.loads(fresh.stdout.strip().splitlines()[-1])
     assert heard == {"trusted": False, "renamed": True, "changed": True}
+
+    approvals.write_bytes(b"\xff\xfe")
+    set_confirm_mode("card")
+    try:
+        assert reg.needs_confirm("run_script", {"path": "trusted.py"}, confirm_run=False)
+    finally:
+        set_confirm_mode(previous)
 
 
 def test_npm_script_body_is_on_the_card(tmp_path: Path) -> None:

@@ -99,18 +99,20 @@ class RunScriptTool:
             clear_script_pin(path)
 
     def user_approved_script(self, args: dict[str, Any]) -> bool:
-        """True when these exact bytes are already in the profile.
+        """True when these exact bytes are already approved.
 
         Pins them so the run executes the approved source, not a later edit.
+        A problem reading the approvals file is not an approval.
         """
         path = self._script_path(args)
         if path is None or not path.is_file():
             return False
         try:
             raw = path.read_bytes()
-        except OSError:
+            known = approved_script_hashes()
+        except (OSError, ValueError):
             return False
-        if script_sha256(raw) not in approved_script_hashes():
+        if script_sha256(raw) not in known:
             return False
         pin_script_bytes(path, raw)
         return True
