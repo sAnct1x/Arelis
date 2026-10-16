@@ -9,6 +9,7 @@ the wait. Each tool still builds its own environment and its own runner.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -17,6 +18,8 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 # A script can start, find its interpreter, and speak the user's language
 # with these. Everything else stays in this process.
@@ -71,7 +74,23 @@ def child_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
 _POLL_S = 0.2
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 _CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+# The primary thread does not run until ResumeThread. subprocess has no name for this.
+_CREATE_SUSPENDED = 0x00000004
 _DEFAULT_RUNNER = Path(__file__).with_name("data_cell_runner.py")
+# User-mode CPU cap for the job, in seconds. Same number the data cell runner
+# passes to RLIMIT_CPU. Written into the job as 100-nanosecond ticks.
+# The parent's wall-clock kill is unchanged.
+_CPU_SECONDS = 130
+# 1 keeps the cell as the only process in the job. None leaves the active
+# process limit off so a test can prove a launch still creates a marker.
+_ACTIVE_PROCESS_LIMIT: int | None = 1
+_JOB_OBJECT_LIMIT_PROCESS_TIME = 0x00000002
+_JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
+_JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
+_JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+_TH32CS_SNAPTHREAD = 0x00000004
+_THREAD_SUSPEND_RESUME = 0x0002
 
 
 def _job_memory_bytes(override: int | None) -> int:
@@ -100,6 +119,11 @@ def _spawn(
 
     ``extra_args`` sits between ``-B`` and the script. The data cell passes
     none, so its command line stays ``-I -B``.
+
+    On Windows the child is created suspended. ``_contain`` assigns the job
+    and resumes the primary thread. If that fails the child is killed and
+    this returns ``(None, None)``. Callers already treat that as a cell that
+    did not start.
     """
     script = Path(runner) if runner is not None else _DEFAULT_RUNNER
     argv = [python, "-I", "-B", *[str(arg) for arg in (extra_args or ())], str(script)]
@@ -114,28 +138,91 @@ def _spawn(
         "errors": "replace",
     }
     if sys.platform == "win32":
-        kwargs["creationflags"] = _CREATE_NO_WINDOW | _CREATE_NEW_PROCESS_GROUP
+        kwargs["creationflags"] = (
+            _CREATE_NO_WINDOW | _CREATE_NEW_PROCESS_GROUP | _CREATE_SUSPENDED
+        )
     else:
         kwargs["start_new_session"] = True
     try:
         proc = subprocess.Popen(argv, **kwargs)
     except OSError:
         return None, None
-    job = _assign_job(proc.pid, memory_bytes) if sys.platform == "win32" else None
+    if sys.platform != "win32":
+        return proc, None
+    contained = False
+    job: int | None = None
+    try:
+        job = _contain(proc, memory_bytes)
+        contained = True
+    except Exception as exc:
+        log.warning("refusing to run the cell: %s", exc)
+    finally:
+        if not contained:
+            _abandon(proc)
+    if not contained or job is None:
+        return None, None
     return proc, job
 
 
-def _assign_job(pid: int, memory_bytes: int | None = None) -> int | None:
-    if sys.platform != "win32" or pid <= 0:
-        return None
+def _contain(proc: subprocess.Popen[str], memory_bytes: int | None) -> int:
+    """Assign ``proc`` to a job, then resume its only thread.
+
+    One ``SetInformationJobObject`` call (class 9) sets the active process
+    limit, the per-process user-mode CPU limit, kill-on-close, and the
+    memory cap. The process handle is the one Popen already holds.
+    """
+    import ctypes
+
+    handle = getattr(proc, "_handle", None)
+    pid = int(proc.pid or 0)
+    if handle is None or _bad_handle(int(handle)) or pid <= 0:
+        raise OSError("child process handle is missing")
+    kernel32 = _kernel32()
+    job = kernel32.CreateJobObjectW(None, None)
+    err = ctypes.get_last_error()
+    if _bad_handle(job):
+        raise OSError(f"CreateJobObjectW failed (winerror {err})")
+    try:
+        _set_job_limits(kernel32, job, memory_bytes)
+        if not kernel32.AssignProcessToJobObject(job, int(handle)):
+            err = ctypes.get_last_error()
+            raise OSError(f"AssignProcessToJobObject failed (winerror {err})")
+        _resume_primary_thread(kernel32, pid)
+    except Exception:
+        kernel32.CloseHandle(job)
+        raise
+    return int(job)
+
+
+def _set_job_limits(kernel32: Any, job: int, memory_bytes: int | None) -> None:
+    import ctypes
+
+    info = _extended_limit_info()
+    flags = (
+        _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        | _JOB_OBJECT_LIMIT_PROCESS_MEMORY
+        | _JOB_OBJECT_LIMIT_PROCESS_TIME
+    )
+    active = _ACTIVE_PROCESS_LIMIT
+    if active is not None:
+        flags |= _JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+        info.BasicLimitInformation.ActiveProcessLimit = int(active)
+    info.BasicLimitInformation.LimitFlags = flags
+    info.BasicLimitInformation.PerProcessUserTimeLimit = int(_CPU_SECONDS) * 10_000_000
+    info.ProcessMemoryLimit = _job_memory_bytes(memory_bytes)
+    if not kernel32.SetInformationJobObject(
+        job,
+        _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+    ):
+        err = ctypes.get_last_error()
+        raise OSError(f"SetInformationJobObject failed (winerror {err})")
+
+
+def _extended_limit_info() -> Any:
     import ctypes
     from ctypes import wintypes
-
-    job_object_limit_kill_on_job_close = 0x2000
-    job_object_limit_process_memory = 0x100
-    job_object_extended_limit_information = 9
-    process_set_quota = 0x0100
-    process_terminate = 0x0001
 
     class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):  # noqa: N801
         _fields_ = [
@@ -170,35 +257,154 @@ def _assign_job(pid: int, memory_bytes: int | None = None) -> int | None:
             ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
 
+    return JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+
+
+def _resume_primary_thread(kernel32: Any, pid: int) -> None:
+    """Resume the one thread a suspended CreateProcess leaves behind."""
+    # Toolhelp can miss the new thread for a moment. More than one is fatal.
+    deadline = time.monotonic() + 0.2
+    found: list[int] = []
+    while True:
+        found = _thread_ids(kernel32, pid)
+        if len(found) == 1:
+            break
+        if len(found) > 1 or time.monotonic() >= deadline:
+            raise OSError(f"expected one suspended thread for {pid}, found {len(found)}")
+        time.sleep(0.01)
+    _resume_thread(kernel32, found[0])
+
+
+def _thread_ids(kernel32: Any, pid: int) -> list[int]:
+    import ctypes
+    from ctypes import wintypes
+
+    class THREADENTRY32(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ThreadID", wintypes.DWORD),
+            ("th32OwnerProcessID", wintypes.DWORD),
+            ("tpBasePri", wintypes.LONG),
+            ("tpDeltaPri", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+        ]
+
+    kernel32.Thread32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(THREADENTRY32)]
+    kernel32.Thread32First.restype = wintypes.BOOL
+    kernel32.Thread32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(THREADENTRY32)]
+    kernel32.Thread32Next.restype = wintypes.BOOL
+    snap = kernel32.CreateToolhelp32Snapshot(_TH32CS_SNAPTHREAD, 0)
+    err = ctypes.get_last_error()
+    if _bad_handle(snap):
+        raise OSError(f"CreateToolhelp32Snapshot failed (winerror {err})")
+    try:
+        entry = THREADENTRY32()
+        entry.dwSize = ctypes.sizeof(THREADENTRY32)
+        if entry.dwSize != 28:
+            raise OSError(f"THREADENTRY32 size is {entry.dwSize}, expected 28")
+        found: list[int] = []
+        if not kernel32.Thread32First(snap, ctypes.byref(entry)):
+            err = ctypes.get_last_error()
+            raise OSError(f"Thread32First failed (winerror {err})")
+        while True:
+            if int(entry.th32OwnerProcessID) == pid:
+                found.append(int(entry.th32ThreadID))
+            entry.dwSize = ctypes.sizeof(THREADENTRY32)
+            if not kernel32.Thread32Next(snap, ctypes.byref(entry)):
+                break
+        return found
+    finally:
+        kernel32.CloseHandle(snap)
+
+
+def _resume_thread(kernel32: Any, thread_id: int) -> None:
+    import ctypes
+
+    thread = kernel32.OpenThread(_THREAD_SUSPEND_RESUME, False, int(thread_id))
+    err = ctypes.get_last_error()
+    if _bad_handle(thread):
+        raise OSError(f"OpenThread failed (winerror {err})")
+    previous = -1
+    try:
+        previous = int(kernel32.ResumeThread(thread))
+        if previous == 0xFFFFFFFF:
+            raise OSError(f"ResumeThread failed (winerror {ctypes.get_last_error()})")
+    finally:
+        kernel32.CloseHandle(thread)
+    if previous != 1:
+        raise OSError(f"ResumeThread returned {previous}, expected 1")
+
+
+def _kernel32() -> Any:
+    import ctypes
+    from ctypes import wintypes
+
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
     kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
-    job = kernel32.CreateJobObjectW(None, None)
-    if not job:
-        return None
-    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-    info.BasicLimitInformation.LimitFlags = (
-        job_object_limit_kill_on_job_close | job_object_limit_process_memory
-    )
-    info.ProcessMemoryLimit = _job_memory_bytes(memory_bytes)
-    if not kernel32.SetInformationJobObject(
-        job,
-        job_object_extended_limit_information,
-        ctypes.byref(info),
-        ctypes.sizeof(info),
-    ):
-        kernel32.CloseHandle(job)
-        return None
-    proc = kernel32.OpenProcess(process_set_quota | process_terminate, False, pid)
-    if not proc:
-        kernel32.CloseHandle(job)
-        return None
-    ok = kernel32.AssignProcessToJobObject(job, proc)
-    kernel32.CloseHandle(proc)
-    if not ok:
-        kernel32.CloseHandle(job)
-        return None
-    return int(job)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+    ]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateProcess.restype = wintypes.BOOL
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenThread.restype = wintypes.HANDLE
+    kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
+    kernel32.ResumeThread.restype = wintypes.DWORD
+    return kernel32
+
+
+def _bad_handle(value: int | None) -> bool:
+    if not value:
+        return True
+    import ctypes
+
+    invalid = ctypes.c_void_p(-1).value
+    return invalid is not None and int(value) == int(invalid)
+
+
+def _abandon(proc: subprocess.Popen[str]) -> None:
+    """Kill a child that will not be returned to the caller."""
+    if sys.platform == "win32":
+        handle = getattr(proc, "_handle", None)
+        if handle:
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+                kernel32.TerminateProcess.restype = wintypes.BOOL
+                kernel32.TerminateProcess(int(handle), 1)
+            except Exception:
+                pass
+    try:
+        if proc.poll() is None:
+            proc.kill()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
+    for stream in (proc.stdin, proc.stdout, proc.stderr):
+        if stream is None:
+            continue
+        try:
+            stream.close()
+        except Exception:
+            pass
 
 
 def _close_job(handle: int | None) -> None:
