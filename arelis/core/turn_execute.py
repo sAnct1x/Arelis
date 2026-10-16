@@ -138,7 +138,12 @@ async def execute_call(
         await loop.bus.publish(
             Event(
                 EventType.THINKING,
-                {"text": f"round {round_i}/{loop.max_rounds}  tool  {summary}"},
+                {
+                    "text": (
+                        f"round {round_i}/{loop.max_rounds}  "
+                        f"tool={name} chars={len(summary)}"
+                    )
+                },
             )
         )
         unbind_image = None
