@@ -388,15 +388,18 @@ def _abandon(proc: subprocess.Popen[str]) -> None:
                 kernel32.TerminateProcess.restype = wintypes.BOOL
                 kernel32.TerminateProcess(int(handle), 1)
             except Exception:
+                # The handle is already dead. kill() and wait() still run.
                 pass
     try:
         if proc.poll() is None:
             proc.kill()
     except Exception:
+        # Already dead, or this platform cannot signal it. wait() still runs.
         pass
     try:
         proc.wait(timeout=5)
     except Exception:
+        # The wait timed out. The pipes are closed either way.
         pass
     for stream in (proc.stdin, proc.stdout, proc.stderr):
         if stream is None:
@@ -404,6 +407,7 @@ def _abandon(proc: subprocess.Popen[str]) -> None:
         try:
             stream.close()
         except Exception:
+            # The pipe is already closed.
             pass
 
 
