@@ -404,18 +404,9 @@ def _place_parts(blob: str) -> list[str] | None:
     return parts
 
 
-def _name_words(part: str, *, limit: int) -> list[str] | None:
-    """Name words only, or None when a token is not a name or too many remain."""
-    words = part.split()
-    if not words or len(words) > limit:
-        return None
-    if not all(_PLACE_WORD.fullmatch(word) for word in words):
-        return None
-    return words
-
-
 def _one_name(part: str) -> bool:
-    return _name_words(part, limit=1) is not None
+    words = part.split()
+    return len(words) == 1 and bool(_PLACE_WORD.fullmatch(words[0]))
 
 
 def _street_line(part: str) -> bool:
@@ -433,19 +424,16 @@ def _street_line(part: str) -> bool:
 def _extracted_place(blob: str):
     """The place name inside a goto capture, or None when words are left over.
 
-    A clean capture is a known catalog place, one locality (or a street line)
-    qualified by a known region, or a lone name of a few name words. A clause
-    fails the name-word test, so the geocoder is not asked.
+    A clean capture is a known catalog place, or one locality (or a street
+    line) qualified by a known region. A lone name that misses the catalog
+    is not a place here.
     """
     from arelis.earth.gazetteer import resolve_place
     from arelis.earth.geocode import ExtractedPlace
 
     parts = _place_parts(blob)
     if parts is None:
-        lone = _name_words(blob, limit=3)
-        if lone is None:
-            return None
-        return ExtractedPlace(" ".join(lone))
+        return None
     known = [resolve_place(part) for part in parts]
     if not any(hit is not None for hit in known):
         return None
@@ -483,10 +471,6 @@ def match_earth_place(text: str) -> str | None:
     if place is None:
         return None
     if isinstance(place, ExtractedPlace):
-        from arelis.core.tile_complete import match_tile_intent
-
-        if match_tile_intent(raw):
-            return None
         return place.text
     return place.name
 

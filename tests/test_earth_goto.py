@@ -70,7 +70,7 @@ async def test_earth_tool_goto(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_geocoder_accepts_only_an_extracted_place(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A plain string never geocodes. Chat geocodes a clean place name only."""
+    """A plain string never geocodes. Chat geocodes a qualified place only."""
     from arelis.earth import gazetteer
     from arelis.earth.geocode import NOMINATIM_HOST, clear_cache, search_address
     from arelis.spatial.verbs import classify_physics_act
@@ -138,6 +138,8 @@ async def test_geocoder_accepts_only_an_extracted_place(
         captured = "my notes about the 3 body problem"
         assert resolve_place(short) is None
         assert classify_physics_act(short) is None
+        assert classify_physics_act("show me pictures") is None
+        assert classify_physics_act("show me the weather") is None
         assert calls == []
         assert short not in calls
         assert captured not in calls
@@ -179,23 +181,10 @@ async def test_geocoder_accepts_only_an_extracted_place(
         assert dest["lat"] == 40.0
         assert dest["lon"] == -83.0
 
-        rey = classify_physics_act("show me Reykjavik")
-        assert rey is not None and rey.verb == "goto_earth"
-        assert rey.name == "Reykjavik"
-        assert calls == ["Columbus, Ohio"]
-        apply_physics_act(window, rey)
-        assert calls == ["Columbus, Ohio", "Reykjavik"]
-        assert "show me Reykjavik" not in calls
-        flown = earth.take_goto()
-        assert flown is not None
-        assert flown["name"] == "Reykjavik"
-        assert flown["lat"] == 40.0
-        assert flown["lon"] == -83.0
-
         monkeypatch.setattr("arelis.tools.earth_tool.stage_ok", lambda: True)
         got = await EarthTool().run(action="goto", query="Columbus, Ohio")
         assert got.ok, got.output
-        assert calls == ["Columbus, Ohio", "Reykjavik"]
+        assert calls == ["Columbus, Ohio"]
         assert short not in calls
         again = earth.take_goto()
         assert again is not None
@@ -210,11 +199,7 @@ async def test_geocoder_accepts_only_an_extracted_place(
         assert apply_goto(street) is True
         assert street.place is not None
         assert street.place["name"] == "10 Downing Street, London"
-        assert calls == [
-            "Columbus, Ohio",
-            "Reykjavik",
-            "10 Downing Street, London",
-        ]
+        assert calls == ["Columbus, Ohio", "10 Downing Street, London"]
     finally:
         clear_cache()
 
