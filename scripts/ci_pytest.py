@@ -61,13 +61,6 @@ def main(argv: list[str] | None = None) -> int:
     cmd = command(mode, coverage=coverage, paths=paths_from_env())
     print(" ".join(cmd))
     code = subprocess.call(cmd)
-    diag = Path(os.environ.get("TMPDIR", "/tmp")) / "arelis-pytest-cell-diag.txt"
-    if not diag.is_file():
-        diag = Path(os.environ.get("TEMP", "/tmp")) / "arelis-pytest-cell-diag.txt"
-    if diag.is_file():
-        print("--- cell diag ---")
-        text = diag.read_text(encoding="utf-8", errors="replace")
-        print(text[-20000:])
     if mode == "serial" and code == 5:
         print("no serial tests in this tier")
     return finish(mode, code)

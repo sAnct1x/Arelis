@@ -21,11 +21,8 @@ workspace. Matplotlib stays on the Agg backend.
 from __future__ import annotations
 
 import asyncio
-import faulthandler
 import json
-import os
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -62,51 +59,6 @@ _MEMORY_CODES = {
     -1073741515,
 }
 _RUNNER = Path(__file__).with_name("python_cell_runner.py")
-# Temporary. The macOS worker death left no signal in the CI log.
-_DIAG_PATH = Path(tempfile.gettempdir()) / "arelis-pytest-cell-diag.txt"
-_DIAG_SIGNALS = False
-
-
-def _diag(msg: str) -> None:
-    try:
-        with _DIAG_PATH.open("a", encoding="utf-8") as handle:
-            handle.write(msg.rstrip() + "\n")
-    except OSError:
-        return
-
-
-def _id_text() -> str:
-    pid = os.getpid()
-    pgrp = os.getpgrp() if hasattr(os, "getpgrp") else -1
-    sid = os.getsid(0) if hasattr(os, "getsid") else -1
-    return f"pid={pid} pgrp={pgrp} sid={sid}"
-
-
-def _install_worker_diag() -> None:
-    """Log SIGHUP or SIGTERM in the pytest worker, then keep the default action."""
-    global _DIAG_SIGNALS
-    if _DIAG_SIGNALS:
-        return
-    _DIAG_SIGNALS = True
-    try:
-        handle = _DIAG_PATH.open("a", encoding="utf-8")
-        faulthandler.enable(file=handle, all_threads=True)
-    except OSError:
-        pass
-
-    def _on_signal(signum: int, _frame: Any) -> None:
-        _diag(f"worker signal {signum} " + _id_text())
-        signal.signal(signum, signal.SIG_DFL)
-        os.kill(os.getpid(), signum)
-
-    for name in ("SIGHUP", "SIGTERM"):
-        sig = getattr(signal, name, None)
-        if sig is None:
-            continue
-        try:
-            signal.signal(sig, _on_signal)
-        except (OSError, ValueError):
-            continue
 
 
 def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
@@ -198,7 +150,6 @@ class PythonTool:
                 ok=False,
                 output=f"Code is longer than {_MAX_CHARS} characters.",
             )
-        _install_worker_diag()
         return await _run_in_child(code, self._root_payload, self._science_io)
 
 
@@ -236,7 +187,13 @@ def _run_in_child_sync(
             "PYTHONUNBUFFERED": "1",
             "PYTHONIOENCODING": "utf-8",
             "MPLBACKEND": "Agg",
-            "PYTEST_CELL_DIAG": str(_DIAG_PATH),
+            # Agg ships DejaVu. Without this, macOS matplotlib spawns
+            # system_profiler to list fonts, and every cell has a new cache,
+            # so the scan runs again. A test that imports matplotlib a few
+            # times then sits past pytest's 90s limit. The timeout thread
+            # calls os._exit(1) in the xdist worker: no signal, no
+            # traceback, and the cell process is still alive.
+            "MPL_IGNORE_SYSTEM_FONTS": "1",
         }
     )
     proc: subprocess.Popen[str] | None = None
@@ -255,20 +212,7 @@ def _run_in_child_sync(
             extra_args=("-u",),
         )
         if proc is None or proc.stdin is None or proc.stdout is None or proc.stderr is None:
-            _diag("spawn failed " + _id_text())
             return ToolResult(ok=False, output="Python failed: the cell could not start.")
-        try:
-            child_pgrp = os.getpgid(proc.pid) if hasattr(os, "getpgid") else -1
-            child_sid = os.getsid(proc.pid) if hasattr(os, "getsid") else -1
-        except OSError:
-            child_pgrp = -1
-            child_sid = -1
-        snippet = " ".join(code.split())[:80]
-        _diag(
-            "spawn parent "
-            + _id_text()
-            + f" child={proc.pid} child_pgrp={child_pgrp} child_sid={child_sid} code={snippet!r}"
-        )
         ready, lines, errors, threads = _attach_readers(proc)
         try:
             proc.stdin.write(
@@ -316,10 +260,6 @@ def _run_in_child_sync(
     finally:
         if proc is not None and proc.poll() is None:
             _kill_tree(proc)
-        if proc is not None:
-            _diag(
-                f"child done pid={proc.pid} returncode={proc.returncode} killed={killed}"
-            )
         if proc is not None and threads:
             _finish_io(proc, threads)
         _close_job(job)

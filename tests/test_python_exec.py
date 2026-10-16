@@ -193,7 +193,7 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
     assert "executable" in launched.output.lower()
     assert not planted.exists()
     assert not marker.exists()
-    # The font scan is finished before the hook. A later fc-list, real or
+    # Matplotlib is imported before the hook. A later fc-list, real or
     # fake, is a process and stays refused.
     font_scan = await tool.run(
         code=(

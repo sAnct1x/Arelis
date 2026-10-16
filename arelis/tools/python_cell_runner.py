@@ -11,17 +11,17 @@ The audit hook is the boundary either way. It refuses new processes, sockets,
 ctypes, and directory listings outside the workspace. A create with execute
 permission is refused everywhere. With the flag on, a write has to stay in
 the results folder and a read may stay in the workspace. Library reads stay
-allowed. The font scan, when a snippet imports matplotlib, runs before the hook.
+allowed. Matplotlib is imported before the hook when a snippet asks for
+it. The parent sets MPL_IGNORE_SYSTEM_FONTS, so that import uses the
+bundled fonts and does not spawn system_profiler or fc-list.
 """
 
 from __future__ import annotations
 
 import ast
-import faulthandler
 import io
 import json
 import os
-import signal
 import sys
 import tempfile
 import time
@@ -579,10 +579,10 @@ def _cache_path(path: Path) -> bool:
 
 
 def _needs_matplotlib(code: str) -> bool:
-    """True when the snippet imports matplotlib or corner.
+    """True when the snippet imports matplotlib, corner, or seaborn.
 
-    A NameError cell should not pay for a font scan. The scan is a process,
-    so it has to finish before the hook is installed.
+    A cell that does not plot should not pay for the matplotlib import.
+    That import builds the font cache, so it has to finish before the hook.
     """
     try:
         tree = ast.parse(code)
@@ -602,8 +602,12 @@ def _needs_matplotlib(code: str) -> bool:
 
 
 def _warm_matplotlib() -> None:
-    """Build the font cache before the hook. ``fc-list`` is a process."""
-    _cell_diag("warm begin")
+    """Import pyplot before the hook, on the bundled fonts.
+
+    The parent sets ``MPL_IGNORE_SYSTEM_FONTS``. Without it, macOS lists
+    fonts by spawning ``system_profiler``, and a fresh cache per cell
+    repeats that scan until a test outlives pytest's 90s limit.
+    """
     try:
         import matplotlib
 
@@ -614,10 +618,8 @@ def _warm_matplotlib() -> None:
     except Exception:
         # No matplotlib: the cell still runs. A later import is refused by the hook
         # if it tries to start a process.
-        _cell_diag("warm failed")
         return
     _force_agg()
-    _cell_diag("warm end")
 
 
 def _wipe_cache() -> None:
@@ -789,8 +791,9 @@ def _replace_functions(targets: dict[int, Any]) -> None:
 def _stub_process_launchers() -> None:
     """Refuse process launch before the hook. fork_exec never audits as Popen.
 
-    The font scan has already run, so its fc-list still used the real
-    launcher. After this, every alias of these functions raises.
+    The optional matplotlib import has already finished, so it is not the
+    one spawn this cell allows. After this, every alias of these functions
+    raises.
     """
     found: dict[int, Any] = {}
 
@@ -917,8 +920,8 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
 
 def _install_hook() -> None:
     # Roots are fixed before the cell runs. Later edits to sys.path do not
-    # add a folder the hook will read. The font scan has already finished,
-    # so every later Popen is refused.
+    # add a folder the hook will read. Matplotlib is already imported, so
+    # every later Popen is refused.
     _read_roots()
     _stub_process_launchers()
     _install_open_guard()
@@ -1223,55 +1226,8 @@ def _fail(kind: str, exc: BaseException, **extra: Any) -> None:
     _emit(payload)
 
 
-def _cell_diag(msg: str) -> None:
-    """Temporary. The macOS worker death left no signal in the job log."""
-    path = os.environ.get("PYTEST_CELL_DIAG", "")
-    if not path:
-        return
-    try:
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(msg.rstrip() + "\n")
-    except OSError:
-        return
-
-
-def _id_text() -> str:
-    pid = os.getpid()
-    pgrp = os.getpgrp() if hasattr(os, "getpgrp") else -1
-    sid = os.getsid(0) if hasattr(os, "getsid") else -1
-    ppid = os.getppid() if hasattr(os, "getppid") else -1
-    return f"pid={pid} pgrp={pgrp} sid={sid} ppid={ppid}"
-
-
-def _install_child_diag() -> None:
-    path = os.environ.get("PYTEST_CELL_DIAG", "")
-    if not path:
-        return
-    try:
-        handle = open(path, "a", encoding="utf-8")
-        faulthandler.enable(file=handle, all_threads=True)
-    except OSError:
-        return
-    _cell_diag("child start " + _id_text())
-
-    def _on_signal(signum: int, _frame: Any) -> None:
-        _cell_diag(f"child signal {signum} " + _id_text())
-        signal.signal(signum, signal.SIG_DFL)
-        os.kill(os.getpid(), signum)
-
-    for name in ("SIGHUP", "SIGTERM"):
-        sig = getattr(signal, name, None)
-        if sig is None:
-            continue
-        try:
-            signal.signal(sig, _on_signal)
-        except (OSError, ValueError):
-            continue
-
-
 def main() -> None:
     global _SCIENCE_IO
-    _install_child_diag()
     _prepare_cache()
     try:
         _enable_sites()
