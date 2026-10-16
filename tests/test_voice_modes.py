@@ -5,6 +5,8 @@ from tests.voice_helpers import (
     _chord,
     _controller,
     _hotkey_window,
+    _silence,
+    _tone,
 )
 
 # --------------------------------------------------------------------------
@@ -85,3 +87,19 @@ def test_one_held_chord_latches_conversation_on(qt_app) -> None:
 # --------------------------------------------------------------------------
 
 
+
+
+def test_conversation_turn_survives_two_second_pause_and_ends_at_end_silence(qt_app) -> None:
+    """#260 (a): a 2 s mid-thought pause stays one turn; 2.5 s of silence ends it."""
+    controller, recorder = _controller(qt_app)
+    turns: list[float] = []
+    controller.utterance.connect(
+        lambda pcm, rate, channels, deliver: turns.append(len(pcm) / (2 * rate))
+        if deliver == "turn"
+        else None
+    )
+    controller.set_conversation(True)
+    recorder.push(_silence(0.5) + _tone(1.0) + _silence(2.0) + _tone(1.0) + _silence(2.3))
+    assert turns == []
+    recorder.push(_silence(0.4))
+    assert len(turns) == 1
