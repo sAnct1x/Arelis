@@ -93,6 +93,11 @@ memory:
 
 agent:
   max_rounds: 8            # model/tool steps before Arelis is forced to answer
+  # Same exception type on a tool result (status=error plus exception_type).
+  # fail_counts only sees identical arguments, so a rewritten cell never
+  # trips it. After this many of that type, the turn ends on the tool's
+  # own error. 0 disables. The wall clock is ui.hung_turn_cap_s.
+  same_error_limit: 3
   tool_output_chars: 14000 # per tool result; keep below num_ctx (see above)
   confirm_writes: true     # file write/edit needs approval in the UI
   # Asked about every single send, and never covered by "rest of this ask".

@@ -860,6 +860,15 @@ class AgentLoop:
                 if self._wants_close():
                     await self._close_from_gathered(ctx)
                     return
+                from arelis.core.code_retry import turn_wall_exceeded
+
+                if turn_wall_exceeded(self):
+                    err = (ctx.last_fail_tool_out or "").strip()
+                    if ctx.last_tool_failed and err:
+                        await self._finish(err, ctx.sources, streamed="", keep_error=True)
+                    else:
+                        await self._close_from_gathered(ctx)
+                    return
                 try:
                     if await self._run_round(ctx, round_i):
                         return
@@ -1761,6 +1770,7 @@ class AgentLoop:
         streamed: str = "",
         fallback_text: str = "",
         passthrough_tool: str = "",
+        keep_error: bool = False,
     ) -> None:
         """Publish the single terminal event for this turn.
 
@@ -1771,6 +1781,9 @@ class AgentLoop:
         `passthrough_tool` names the tool when `text` is that tool's own output
         rather than a written answer. The bubble is unchanged; the memory note
         is what stops the next turn reading it as her prose.
+
+        `keep_error` ships `text` as the tool wrote it. The script-state
+        rewrite and the dash filter do not run.
         """
         final = strip_thinking_text(text).strip()
         from arelis.core.claims import (
@@ -1821,13 +1834,13 @@ class AgentLoop:
             self._horizons_distance_text = ""
             self._horizons_distance_ask = ""
         # Clean model prose before Sources so third-party titles stay intact.
-        if not passthrough_tool:
+        if not passthrough_tool and not keep_error:
             final, n_dash = clean_dashes_counted(final)
             if n_dash > 0 and self._timer is not None:
                 self._timer.mark("dash_filter", replaced=n_dash)
         unverified: list[str] = []
         turn = getattr(self, "_active_turn", None)
-        if turn is not None:
+        if turn is not None and not keep_error:
             from arelis.core.loop_helpers import (
                 declined_memory_unverified,
                 declined_run_unverified,

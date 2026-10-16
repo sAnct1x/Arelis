@@ -8,6 +8,7 @@ from typing import Any
 
 from arelis.contacts import format_contact_spoken
 from arelis.core.agenda_complete import looks_like_calendar_delete
+from arelis.core.code_retry import note_same_error, same_error_limit, turn_wall_exceeded
 from arelis.core.events import Event, EventType
 from arelis.core.evidence import classify_fetch_failure
 from arelis.core.fail_tags import tool_fail_replan_notice
@@ -95,6 +96,63 @@ def _pin_plain_user(
     append_tool_free_nudge(messages)
 
 
+def _wall_reply(ctx: TurnContext) -> str:
+    """Text to ship when the turn clock is already spent. No new sentence."""
+    if ctx.last_tool_failed:
+        err = (ctx.last_fail_tool_out or "").strip()
+        if err:
+            return err
+    ok = (ctx.last_ok_tool_out or "").strip()
+    if ok:
+        return ok
+    from arelis.core.agent_loop import _CLOSE_PARTIAL
+
+    return _CLOSE_PARTIAL
+
+
+async def _stop_for_turn_wall(loop: Any, ctx: TurnContext, sources: list[tuple[str, str]]) -> bool:
+    """End the turn when the wall clock is already spent.
+
+    A recent tool error is that tool's own text. A success is that result.
+    """
+    if getattr(loop, "_in_close", False):
+        return False
+    if not turn_wall_exceeded(loop):
+        return False
+    await loop._finish(_wall_reply(ctx), sources, streamed="", keep_error=True)
+    return True
+
+
+async def _stop_for_repeated_error(
+    loop: Any,
+    ctx: TurnContext,
+    data: dict[str, Any] | None,
+    output: str,
+    sources: list[tuple[str, str]],
+    *,
+    agent_cfg: dict[str, Any],
+) -> bool:
+    """End on the tool's own error once one exception type has repeated."""
+    if not note_same_error(
+        ctx.error_type_counts,
+        data,
+        limit=same_error_limit(agent_cfg),
+    ):
+        if (
+            not getattr(loop, "_in_close", False)
+            and turn_wall_exceeded(loop)
+            and ctx.last_tool_failed
+        ):
+            text = (output or ctx.last_fail_tool_out or "").strip()
+            if text:
+                await loop._finish(text, sources, streamed="", keep_error=True)
+                return True
+        return False
+    text = (output or "").strip() or (ctx.last_fail_tool_out or "").strip()
+    await loop._finish(text, sources, streamed="", keep_error=True)
+    return True
+
+
 async def execute_call(
     loop: Any,
     ctx: TurnContext,
@@ -127,6 +185,8 @@ async def execute_call(
     sms_draft = r.sms_draft
     email_draft = r.email_draft
     try:
+        if await _stop_for_turn_wall(loop, ctx, r.sources):
+            return True
         await loop.bus.publish(Event(EventType.TOOL_START, {"tool": name, "args": args}))
         if loop._look is not None and name == "vision":
             await loop.bus.publish(
@@ -232,6 +292,7 @@ async def execute_call(
                 str(result.output or ""),
             )
             loop.tools_used.add(name)
+            ctx.last_tool_failed = False
             fail_counts.pop(call_fp, None)
             record_same_call(ctx.same_ok, name, args)
             ctx.last_ok_tool_out = str(result.output or "")
@@ -358,6 +419,7 @@ async def execute_call(
                 loop._note_look_tool(name, args, result, data_dict)
         else:
             fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
+            ctx.last_tool_failed = True
             ctx.last_fail_tool_name = name
             ctx.last_fail_tool_out = str(result.output or "")
             if name == "send_sms":
@@ -802,6 +864,15 @@ async def execute_call(
                 streamed="",
                 passthrough_tool="weather",
             )
+            return True
+        if await _stop_for_repeated_error(
+            loop,
+            ctx,
+            data_dict,
+            redacted,
+            sources,
+            agent_cfg=agent_cfg,
+        ):
             return True
         messages.append(loop._tool_message(name, out))
         if result.ok:

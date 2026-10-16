@@ -730,6 +730,20 @@ def _emit(payload: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
+def _fail(kind: str, exc: BaseException, **extra: Any) -> None:
+    """Error payload. The type is the class name, not the message text."""
+    payload: dict[str, Any] = {
+        "ok": False,
+        "status": "error",
+        "kind": kind,
+        "exception_type": type(exc).__name__,
+    }
+    payload.update(extra)
+    if "message" not in payload and kind != "timeout":
+        payload["message"] = str(exc)
+    _emit(payload)
+
+
 def main() -> None:
     _enable_sites()
     try:
@@ -745,35 +759,40 @@ def main() -> None:
     raw = sys.stdin.read()
     try:
         payload = json.loads(raw or "{}")
-    except json.JSONDecodeError:
-        _emit({"ok": False, "kind": "failed", "message": "the cell could not read its input"})
+    except json.JSONDecodeError as exc:
+        _fail("failed", exc, message="the cell could not read its input")
         return
     if not isinstance(payload, dict):
-        _emit({"ok": False, "kind": "failed", "message": "the cell could not read its input"})
+        _emit(
+            {
+                "ok": False,
+                "status": "error",
+                "kind": "failed",
+                "message": "the cell could not read its input",
+            }
+        )
         return
     code = str(payload.get("code") or "")
     try:
         text = _execute(code, namespace)
-    except _CellDeadline:
-        _emit({"ok": False, "kind": "timeout"})
+    except _CellDeadline as exc:
+        _fail("timeout", exc)
     except _ChartImportError as exc:
-        _emit(
-            {
-                "ok": False,
-                "kind": "refused",
-                "message": str(exc),
-                "refusal": exc.refusal,
-                "next_tool": exc.next_tool,
-            }
+        _fail(
+            "refused",
+            exc,
+            message=str(exc),
+            refusal=exc.refusal,
+            next_tool=exc.next_tool,
         )
     except _CellBlocked as exc:
-        _emit({"ok": False, "kind": "refused", "message": str(exc)})
+        _fail("refused", exc)
     except SyntaxError as exc:
-        _emit({"ok": False, "kind": "syntax", "message": exc.msg or "invalid syntax"})
+        _fail("syntax", exc, message=exc.msg or "invalid syntax")
     except ValueError as exc:
-        _emit({"ok": False, "kind": "refused", "message": str(exc)})
+        _fail("refused", exc)
     except Exception as exc:
-        _emit({"ok": False, "kind": "failed", "message": str(exc)})
+        _fail("failed", exc)
     else:
         _emit({"ok": True, "output": text})
 

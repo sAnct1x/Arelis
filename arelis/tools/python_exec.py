@@ -125,7 +125,11 @@ async def _run_in_child(code: str) -> ToolResult:
         try:
             box["result"] = _run_in_child_sync(code)
         except Exception as exc:
-            box["result"] = ToolResult(ok=False, output=f"Python failed: {exc}")
+            box["result"] = ToolResult(
+                ok=False,
+                output=f"Python failed: {exc}",
+                data={"status": "error", "exception_type": type(exc).__name__},
+            )
         finally:
             loop.call_soon_threadsafe(done.set)
 
@@ -193,9 +197,17 @@ def _run_in_child_sync(code: str) -> ToolResult:
         if payload is not None:
             return _tool_result(code, payload)
         if _memory_death(proc):
-            return ToolResult(ok=False, output=_MEMORY_OUTPUT)
+            return ToolResult(
+                ok=False,
+                output=_MEMORY_OUTPUT,
+                data={"status": "error", "exception_type": "MemoryError"},
+            )
         if killed:
-            return ToolResult(ok=False, output=_TIMEOUT_OUTPUT)
+            return ToolResult(
+                ok=False,
+                output=_TIMEOUT_OUTPUT,
+                data={"status": "error", "exception_type": "TimeoutError"},
+            )
         return _startup_failure(errors)
     finally:
         if proc is not None and proc.poll() is None:
@@ -283,18 +295,29 @@ def _parse_result(text: str) -> dict[str, Any] | None:
     return None
 
 
+def _error_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    """Copy status and the exception type. The message text is not read."""
+    data: dict[str, Any] = {}
+    if payload.get("status") == "error":
+        data["status"] = "error"
+    exc_type = payload.get("exception_type")
+    if isinstance(exc_type, str) and exc_type.isidentifier():
+        data["exception_type"] = exc_type
+    return data
+
+
 def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
     if payload.get("ok"):
         text = str(payload.get("output") or "")
         return ToolResult(ok=True, output=text, data={"code": code, "result": text})
     kind = str(payload.get("kind") or "")
     message = str(payload.get("message") or "")
+    data = _error_fields(payload)
     if kind == "timeout":
-        return ToolResult(ok=False, output=_TIMEOUT_OUTPUT)
+        return ToolResult(ok=False, output=_TIMEOUT_OUTPUT, data=data)
     if kind == "syntax":
-        return ToolResult(ok=False, output=f"Python syntax error: {message}")
+        return ToolResult(ok=False, output=f"Python syntax error: {message}", data=data)
     if kind == "refused":
-        data: dict[str, Any] = {}
         # Copied from the child payload. The message text is not inspected.
         next_tool = payload.get("next_tool")
         if isinstance(next_tool, str) and next_tool:
@@ -303,7 +326,11 @@ def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
         if isinstance(refusal, str) and refusal:
             data["refusal"] = refusal
         return ToolResult(ok=False, output=f"Python refused: {message}", data=data)
-    return ToolResult(ok=False, output=f"Python failed: {message or 'the cell stopped.'}")
+    return ToolResult(
+        ok=False,
+        output=f"Python failed: {message or 'the cell stopped.'}",
+        data=data,
+    )
 
 
 def _startup_failure(errors: list[str]) -> ToolResult:

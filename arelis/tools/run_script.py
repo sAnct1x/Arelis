@@ -7,6 +7,7 @@ the user would: argv, project cwd, captured output. Jobs do not get it.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import subprocess
@@ -31,6 +32,8 @@ _POLL_S = 0.2
 _NEST_ENV = "ARELIS_IN_RUN_SCRIPT"
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 _CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+_HOST = Path(__file__).with_name("run_script_host.py")
+_STATUS_PREFIX = "ARELIS_RUN_STATUS "
 
 
 class RunScriptTool:
@@ -105,7 +108,11 @@ class RunScriptTool:
         try:
             resolved = self.workspace.resolve(path_str, for_write=False)
         except Exception as exc:
-            return ToolResult(ok=False, output=f"run_script path error: {exc}")
+            return ToolResult(
+                ok=False,
+                output=f"run_script path error: {exc}",
+                data=_error_data(exc),
+            )
 
         if resolved.root_name == "external":
             return ToolResult(
@@ -133,7 +140,7 @@ class RunScriptTool:
 
         interpreter = resolve_interpreter(resolved.root, self.python)
         cwd = resolved.root
-        cmd = [interpreter, str(path), *argv_extra]
+        cmd = [interpreter, str(_HOST), str(path), *argv_extra]
         # child_env drops every ARELIS_* name. The nest flag is ours.
         env = child_env({"PYTHONIOENCODING": "utf-8"})
         env[_NEST_ENV] = "1"
@@ -142,13 +149,18 @@ class RunScriptTool:
         started = time.monotonic()
         try:
             proc = _spawn(cmd, cwd=cwd, env=env)
-        except FileNotFoundError:
+        except FileNotFoundError as exc:
             return ToolResult(
                 ok=False,
                 output=f"Could not start {interpreter}. Python is missing.",
+                data=_error_data(exc),
             )
         except OSError as exc:
-            return ToolResult(ok=False, output=f"Could not start the script: {exc}")
+            return ToolResult(
+                ok=False,
+                output=f"Could not start the script: {exc}",
+                data=_error_data(exc),
+            )
 
         try:
             code, stdout, stderr, stopped = _wait(
@@ -158,7 +170,11 @@ class RunScriptTool:
             )
         except Exception as exc:
             _kill_tree(proc)
-            return ToolResult(ok=False, output=f"run_script failed: {exc}")
+            return ToolResult(
+                ok=False,
+                output=f"run_script failed: {exc}",
+                data=_error_data(exc),
+            )
 
         duration = time.monotonic() - started
         if stopped == "cancelled":
@@ -168,21 +184,30 @@ class RunScriptTool:
                 data=_result_data(resolved, interpreter, cwd, -1, duration),
             )
         if stopped == "timeout":
+            data = _result_data(resolved, interpreter, cwd, -1, duration)
+            data["status"] = "error"
+            data["exception_type"] = "TimeoutError"
             return ToolResult(
                 ok=False,
                 output=(
                     f"The script timed out after {int(timeout_s)}s. "
                     "I will not invent the result."
                 ),
-                data=_result_data(resolved, interpreter, cwd, -1, duration),
+                data=data,
             )
 
+        stderr, status = _take_run_status(stderr)
         text = _format_output(stdout, stderr, code, interpreter, cwd, path)
         text = redact_secrets(text)
         if len(text) > _MAX_OUTPUT:
             text = text[:_MAX_OUTPUT] + "\n…(truncated)"
         data = _result_data(resolved, interpreter, cwd, code, duration)
         data["stdout"] = redact_secrets((stdout or "").rstrip())[:_STDOUT_WARRANT_CHARS]
+        if code != 0:
+            data["status"] = "error"
+            exc_type = status.get("exception_type")
+            if isinstance(exc_type, str) and exc_type.isidentifier():
+                data["exception_type"] = exc_type
         return ToolResult(
             ok=code == 0,
             output=text,
@@ -203,6 +228,29 @@ def resolve_interpreter(root: Path, configured: str | None) -> str:
     if posix.is_file():
         return str(posix.resolve())
     return sys.executable
+
+
+def _error_data(exc: BaseException) -> dict[str, Any]:
+    """status and the class name. The message is not classified."""
+    return {"status": "error", "exception_type": type(exc).__name__}
+
+
+def _take_run_status(stderr: str) -> tuple[str, dict[str, Any]]:
+    """Pull the host status line off stderr. The traceback stays."""
+    found: dict[str, Any] = {}
+    kept: list[str] = []
+    for line in (stderr or "").splitlines():
+        if line.startswith(_STATUS_PREFIX):
+            try:
+                parsed = json.loads(line[len(_STATUS_PREFIX) :])
+            except json.JSONDecodeError:
+                kept.append(line)
+                continue
+            if isinstance(parsed, dict) and parsed.get("status") == "error":
+                found = parsed
+                continue
+        kept.append(line)
+    return "\n".join(kept), found
 
 
 def _argv_list(raw: Any) -> list[str]:
