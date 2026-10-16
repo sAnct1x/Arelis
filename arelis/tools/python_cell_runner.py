@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import time
+import traceback
 import warnings
 from pathlib import Path
 from typing import Any, NoReturn
@@ -198,6 +199,10 @@ class _CellBlocked(BaseException):
     """Raised by the audit hook. BaseException so the cell cannot swallow it."""
 
 
+class _CellRefusedError(ValueError):
+    """A sandbox rule. A ValueError from the snippet is not one of these."""
+
+
 class _CellDeadline(BaseException):
     """Raised by the line tracer. BaseException for the same reason."""
 
@@ -223,7 +228,7 @@ class _ChartImportError(ValueError):
 def _import_refusal(name: str) -> NoReturn:
     if name in _CHART_IMPORTS:
         raise _ChartImportError(name)
-    raise ValueError(
+    raise _CellRefusedError(
         f"import {name!r} is not allowed. "
         "math/sympy/numpy/emcee are preloaded; os/subprocess are not."
     )
@@ -494,25 +499,25 @@ def _assert_safe(tree: ast.AST) -> None:
             if isinstance(node, ast.ImportFrom):
                 for alias in node.names:
                     if alias.name in _FORBIDDEN_ATTR_CALLS:
-                        raise ValueError(_ATTR_REFUSAL.format(name=alias.name))
+                        raise _CellRefusedError(_ATTR_REFUSAL.format(name=alias.name))
         if isinstance(node, ast.Attribute) and str(node.attr).startswith("_"):
-            raise ValueError("private attributes are not allowed")
+            raise _CellRefusedError("private attributes are not allowed")
         if isinstance(node, ast.Name) and node.id.startswith("_"):
-            raise ValueError(f"name {node.id!r} is not allowed")
+            raise _CellRefusedError(f"name {node.id!r} is not allowed")
         if isinstance(node, ast.Attribute):
             if str(node.attr) in _FORBIDDEN_ATTRS_ANYWHERE:
-                raise ValueError(_ATTR_REFUSAL.format(name=node.attr))
+                raise _CellRefusedError(_ATTR_REFUSAL.format(name=node.attr))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             if node.func.id in _FORBIDDEN_CALLS:
-                raise ValueError(f"call {node.func.id!r} is not allowed")
+                raise _CellRefusedError(f"call {node.func.id!r} is not allowed")
             if node.func.id in _FORBIDDEN_ATTR_CALLS:
-                raise ValueError(_ATTR_REFUSAL.format(name=node.func.id))
+                raise _CellRefusedError(_ATTR_REFUSAL.format(name=node.func.id))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if str(node.func.attr) in _ATTR_CALL_ONLY:
-                raise ValueError(_ATTR_REFUSAL.format(name=node.func.attr))
+                raise _CellRefusedError(_ATTR_REFUSAL.format(name=node.func.attr))
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if "__" in node.value:
-                raise ValueError(
+                raise _CellRefusedError(
                     "a string containing '__' is not allowed, that is how an "
                     "attribute name gets smuggled past the checks"
                 )
@@ -523,7 +528,7 @@ def _assert_safe(tree: ast.AST) -> None:
                     and isinstance(piece.value, str)
                     and "__" in piece.value
                 ):
-                    raise ValueError(
+                    raise _CellRefusedError(
                         "a string containing '__' is not allowed, that is how "
                         "an attribute name gets smuggled past the checks"
                     )
@@ -538,7 +543,7 @@ def _assert_safe(tree: ast.AST) -> None:
                 ast.YieldFrom,
             ),
         ):
-            raise ValueError("async/yield is not allowed")
+            raise _CellRefusedError("async/yield is not allowed")
 
 
 def _safe_import(
@@ -549,7 +554,7 @@ def _safe_import(
     level: int = 0,
 ) -> Any:
     if level:
-        raise ValueError("relative imports are not allowed")
+        raise _CellRefusedError("relative imports are not allowed")
     root = str(name or "").split(".", 1)[0]
     if root not in _ALLOWED_IMPORTS:
         _import_refusal(root)
@@ -737,6 +742,18 @@ def _emit(payload: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
+def _failure_text(exc: BaseException) -> str:
+    """The snippet's traceback. Runner frames are not the error."""
+    tb = exc.__traceback__
+    while tb is not None:
+        filename = tb.tb_frame.f_code.co_filename
+        if filename == __file__ or filename.startswith("<frozen"):
+            tb = tb.tb_next
+            continue
+        break
+    return "".join(traceback.format_exception(type(exc), exc, tb)).rstrip()
+
+
 def _fail(kind: str, exc: BaseException, **extra: Any) -> None:
     """Error payload. The type is the class name, not the message text."""
     payload: dict[str, Any] = {
@@ -747,7 +764,10 @@ def _fail(kind: str, exc: BaseException, **extra: Any) -> None:
     }
     payload.update(extra)
     if "message" not in payload and kind != "timeout":
-        payload["message"] = str(exc)
+        if kind == "failed":
+            payload["message"] = _failure_text(exc)
+        else:
+            payload["message"] = str(exc)
     _emit(payload)
 
 
@@ -794,10 +814,10 @@ def main() -> None:
         )
     except _CellBlocked as exc:
         _fail("refused", exc)
+    except _CellRefusedError as exc:
+        _fail("refused", exc)
     except SyntaxError as exc:
         _fail("syntax", exc, message=exc.msg or "invalid syntax")
-    except ValueError as exc:
-        _fail("refused", exc)
     except Exception as exc:
         _fail("failed", exc)
     else:
