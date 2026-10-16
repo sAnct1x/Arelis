@@ -1,9 +1,9 @@
 """Background embedding of archived messages, docs, and (opt-in) mail.
 
-Runs between turns, never during one. Loading nomic-embed-text while qwen is
-answering would evict the chat model on a 12GB card; the indexer waits until
-the UI says the turn is idle, then syncs a few files / peeks mail, embeds a
-small batch, and unloads.
+Runs between turns, never during one. The embed model stays in system RAM, so
+a batch does not evict the chat model from the card. The indexer waits until
+the UI says the turn is idle, then syncs a few files / peeks mail and embeds
+a small batch.
 """
 
 from __future__ import annotations
