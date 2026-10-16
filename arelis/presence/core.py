@@ -64,12 +64,8 @@ def run_core(config: dict[str, Any]) -> int:
             log.info("%s", payload.get("message") or "")
             return
         if event.type == EventType.SMS_RECEIVED:
-            who = payload.get("contact_name") or payload.get("contact_alias") or payload.get(
-                "from"
-            )
             body = str(payload.get("body") or "")
-            preview = body if len(body) <= 80 else body[:79] + "…"
-            log.info("Inbound SMS from %s: %s", who, preview)
+            log.info("Inbound SMS from=sender chars=%s", len(body))
             ipc = ipc_holder["server"]
             if ipc is None or ipc.attached_clients < 1:
                 await bus.publish(
@@ -77,9 +73,8 @@ def run_core(config: dict[str, Any]) -> int:
                         EventType.STATUS,
                         {
                             "message": (
-                                f"Inbound SMS from {who} while no glass UI is attached "
-                                f", open Arelis to see it in chat "
-                                f"(preview: {preview})"
+                                "Inbound SMS while no glass UI is attached. "
+                                "Open Arelis to see it in chat."
                             )
                         },
                     )
@@ -90,9 +85,9 @@ def run_core(config: dict[str, Any]) -> int:
             if item is not None:
                 store.upsert(item)
             log.info(
-                "Confirm needed (%s): %s, open Arelis to allow/skip (no silent send).",
+                "Confirm needed (%s) chars=%s, open Arelis to allow/skip (no silent send).",
                 payload.get("tool"),
-                payload.get("summary"),
+                len(str(payload.get("summary") or "")),
             )
             result = await ensure_ui_open(
                 ipc_holder["server"],
