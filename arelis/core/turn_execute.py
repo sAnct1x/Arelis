@@ -48,6 +48,23 @@ from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_secrets, truncate_tool_output
 
 
+def _bad_args_key(name: str, data: dict[str, Any] | None) -> str | None:
+    """Count key for one class of bad arguments.
+
+    status and the exception class are the whole key. The tool sentence is
+    not read, so two different wordings of the same failure still match.
+    """
+    if not isinstance(data, dict):
+        return None
+    status = data.get("status")
+    error_type = data.get("error_type")
+    if status != "bad_args" or not isinstance(error_type, str):
+        return None
+    if not error_type.isidentifier() or len(error_type) > 64:
+        return None
+    return f"{name}|{status}|{error_type}"
+
+
 def _pin_plain_user(
     messages: list[dict[str, Any]],
     ctx: TurnContext,
@@ -358,6 +375,9 @@ async def execute_call(
                 loop._note_look_tool(name, args, result, data_dict)
         else:
             fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
+            typed = _bad_args_key(name, data_dict)
+            if typed:
+                fail_counts[typed] = fail_counts.get(typed, 0) + 1
             ctx.last_fail_tool_name = name
             ctx.last_fail_tool_out = str(result.output or "")
             if name == "send_sms":
@@ -802,6 +822,12 @@ async def execute_call(
                 streamed="",
                 passthrough_tool="weather",
             )
+            return True
+        typed = _bad_args_key(name, data_dict if not result.ok else None)
+        if name == "plot" and typed and fail_counts.get(typed, 0) >= 2:
+            from arelis.core.loop_helpers import CHART_FAILED_REPLY
+
+            await loop._finish(CHART_FAILED_REPLY, sources, streamed="")
             return True
         messages.append(loop._tool_message(name, out))
         if result.ok:

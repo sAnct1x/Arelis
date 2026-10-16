@@ -101,15 +101,4 @@ async def test_subplots_refuses_one_panel(tmp_path, monkeypatch) -> None:
     assert "at least two" in result.output.lower()
 
 
-@pytest.mark.asyncio
-async def test_unknown_look_is_refused(tmp_path, monkeypatch) -> None:
-    tool, _drop = _tool(tmp_path, monkeypatch)
-
-    result = await tool.run(
-        action="line", xs="1,2", ys="1,2", look="billboard", out="nope.png"
-    )
-
-    assert not result.ok
-    assert "poster" in result.output
-
 

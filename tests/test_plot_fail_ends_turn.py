@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -151,3 +152,62 @@ async def test_close_after_plot_failures_does_not_invent_a_partial() -> None:
     events = await _collect(bus, loop.run(_ASK, "fast"))
     _assert_honest(_done_text(events))
     assert router.i == 2
+
+
+@pytest.mark.asyncio
+async def test_changed_bad_plot_args_stop_once_the_type_repeats(tmp_path: Path) -> None:
+    """Two different bad calls are one ValueError. The turn stops on the second."""
+    from arelis.tools.plot import PlotTool
+    from arelis.workspace import RootEntry, WorkspaceRoots
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    plot = PlotTool(WorkspaceRoots([RootEntry(name="proj", path=root.resolve())]))
+    router = _ScriptedRouter(
+        [
+            [
+                (
+                    "tool_calls",
+                    [
+                        _call(
+                            "plot",
+                            {"action": "line", "xs": "1,2", "ys": "1,2", "look": "billboard"},
+                        )
+                    ],
+                )
+            ],
+            [
+                (
+                    "tool_calls",
+                    [_call("plot", {"action": "line", "xs": "1,2", "ys": "nope"})],
+                )
+            ],
+            [
+                (
+                    "tool_calls",
+                    [_call("plot", {"action": "bar", "categories": "a", "values": "x"})],
+                )
+            ],
+        ]
+    )
+    bus = EventBus()
+    tools = ToolRegistry()
+    tools.register(plot)
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["max_rounds"] = 6
+    cfg["agent"]["intent_preflight"] = False
+    cfg["agent"]["confirm_writes"] = False
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(bus, loop.run(_ASK, "fast"))
+    assert router.i == 2
+    _assert_honest(_done_text(events))
