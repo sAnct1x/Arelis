@@ -11,15 +11,17 @@ The audit hook is the boundary either way. It refuses new processes, sockets,
 ctypes, and directory listings outside the workspace. A create with execute
 permission is refused everywhere. With the flag on, a write has to stay in
 the results folder and a read may stay in the workspace. Library reads stay
-allowed. Matplotlib uses its bundled fonts, not the OS font scan.
+allowed. The font scan, when a snippet imports matplotlib, runs before the hook.
 """
 
 from __future__ import annotations
 
 import ast
+import faulthandler
 import io
 import json
 import os
+import signal
 import sys
 import tempfile
 import time
@@ -565,6 +567,9 @@ def _prepare_cache() -> None:
     os.environ["TMPDIR"] = text
     os.environ["TMP"] = text
     os.environ["TEMP"] = text
+    # mkdtemp cached the system temp dir. astropy's mmap probe calls
+    # mkstemp() with no directory, and that write has to stay in this cache.
+    tempfile.tempdir = text
 
 
 def _cache_path(path: Path) -> bool:
@@ -597,13 +602,8 @@ def _needs_matplotlib(code: str) -> bool:
 
 
 def _warm_matplotlib() -> None:
-    """Build the font cache before the hook.
-
-    System font discovery is off. On macOS that discovery runs
-    ``system_profiler`` and then opens fonts outside the interpreter, and
-    that path killed the pytest worker. The bundled fonts are enough for Agg.
-    """
-    os.environ["MPL_IGNORE_SYSTEM_FONTS"] = "1"
+    """Build the font cache before the hook. ``fc-list`` is a process."""
+    _cell_diag("warm begin")
     try:
         import matplotlib
 
@@ -614,8 +614,10 @@ def _warm_matplotlib() -> None:
     except Exception:
         # No matplotlib: the cell still runs. A later import is refused by the hook
         # if it tries to start a process.
+        _cell_diag("warm failed")
         return
     _force_agg()
+    _cell_diag("warm end")
 
 
 def _wipe_cache() -> None:
@@ -1221,11 +1223,55 @@ def _fail(kind: str, exc: BaseException, **extra: Any) -> None:
     _emit(payload)
 
 
+def _cell_diag(msg: str) -> None:
+    """Temporary. The macOS worker death left no signal in the job log."""
+    path = os.environ.get("PYTEST_CELL_DIAG", "")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(msg.rstrip() + "\n")
+    except OSError:
+        return
+
+
+def _id_text() -> str:
+    pid = os.getpid()
+    pgrp = os.getpgrp() if hasattr(os, "getpgrp") else -1
+    sid = os.getsid(0) if hasattr(os, "getsid") else -1
+    ppid = os.getppid() if hasattr(os, "getppid") else -1
+    return f"pid={pid} pgrp={pgrp} sid={sid} ppid={ppid}"
+
+
+def _install_child_diag() -> None:
+    path = os.environ.get("PYTEST_CELL_DIAG", "")
+    if not path:
+        return
+    try:
+        handle = open(path, "a", encoding="utf-8")
+        faulthandler.enable(file=handle, all_threads=True)
+    except OSError:
+        return
+    _cell_diag("child start " + _id_text())
+
+    def _on_signal(signum: int, _frame: Any) -> None:
+        _cell_diag(f"child signal {signum} " + _id_text())
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    for name in ("SIGHUP", "SIGTERM"):
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, _on_signal)
+        except (OSError, ValueError):
+            continue
+
+
 def main() -> None:
     global _SCIENCE_IO
-    # Set before the warm-up import. A later matplotlib import sees the same
-    # variable because this is the process environment.
-    os.environ["MPL_IGNORE_SYSTEM_FONTS"] = "1"
+    _install_child_diag()
     _prepare_cache()
     try:
         _enable_sites()
