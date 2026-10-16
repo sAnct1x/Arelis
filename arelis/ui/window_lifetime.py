@@ -231,6 +231,12 @@ class WindowLifetime:
             park_comfy()
         except Exception:
             log.debug("Comfy park on quit failed", exc_info=True)
+        try:
+            from arelis.ui.solar_gl_proc import shutdown_solar_gl
+
+            shutdown_solar_gl()
+        except Exception:
+            log.warning("solar GL shutdown failed on quit", exc_info=True)
         if self._tray is not None:
             self._tray.hide()
         try:

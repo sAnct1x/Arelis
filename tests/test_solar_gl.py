@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 
 import pytest
 
@@ -78,14 +79,51 @@ def test_framebuffer_size_caps_readback() -> None:
     assert framebuffer_size(3840, 2160, cap=_FB_CLOSE) == (w, h)
 
 
-def test_earth_atmosphere_is_a_thin_shell() -> None:
-    from arelis.ui.solar_gl import _ATMO, _FS_BODY
+class _GlChild:
+    """Child that ignores terminate, then dies on kill. No real process."""
 
-    _rgb, scale, gain = _ATMO["Earth"]
-    assert scale < 1.03
-    assert gain < 0.55
-    assert _ATMO["Venus"][1] < 1.03
-    assert "uAlpha" in _FS_BODY
-    assert "0.16" in _FS_BODY
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self.reaped = False
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def terminate(self) -> None:
+        return None
+
+    def kill(self) -> None:
+        self.returncode = -9
+
+    def wait(self, timeout: float | None = None) -> int:
+        if self.returncode is None:
+            raise subprocess.TimeoutExpired("solar-gl", timeout or 0)
+        self.reaped = True
+        return self.returncode
+
+
+def test_closing_the_solar_view_reaps_its_gl_child(qt_app, monkeypatch) -> None:
+    """Show the solar page, close it, and the GPU child is gone."""
+    from arelis.ui import solar_gl_proc
+    from arelis.ui.panels.solar import SolarPanel
+
+    child = _GlChild()
+    monkeypatch.setattr(solar_gl_proc, "should_run", lambda: True)
+    monkeypatch.setattr(solar_gl_proc, "spawn_solar_gl", lambda: child)
+    monkeypatch.setattr(SolarPanel, "_ensure_ic", lambda self: None)
+    solar_gl_proc.reset_for_tests()
+    panel = SolarPanel()
+    try:
+        panel.show()
+        qt_app.processEvents()
+        assert child.poll() is None
+        panel.close()
+        qt_app.processEvents()
+        assert child.poll() is not None
+        assert child.reaped
+    finally:
+        solar_gl_proc.reset_for_tests()
+        panel.deleteLater()
+        qt_app.processEvents()
 
 

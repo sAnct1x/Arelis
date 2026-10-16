@@ -582,6 +582,10 @@ def dispatch_event(window: Any, event: Event) -> None:
                 show=bool(data.get("open")) and not data.get("close"),
                 page=str(data.get("page") or ""),
             )
+        if p.get("tool") in {"tile", "solar", "earth"}:
+            from arelis.ui.solar_gl_proc import release_solar_gl_after_tool
+
+            release_solar_gl_after_tool(window)
         if p.get("tool") in {"browser", "desktop"}:
             if intro:
                 window.chat.add_system(intro)

@@ -458,6 +458,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     # (globalShareContext stays alive after park()). In-process WebEngine
     # stays for pytest / no solar GL.
     app = QApplication.instance() or QApplication([])
+    from arelis.ui.solar_gl_proc import shutdown_solar_gl
+
+    app.aboutToQuit.connect(shutdown_solar_gl)
     app.setApplicationName("Arelis")
     icon_path = app_icon_path()
     if icon_path.is_file():
@@ -781,6 +784,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
             log.warning("shutdown did not finish in time", exc_info=True)
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=2)
+        shutdown_solar_gl()
         return code
     finally:
+        shutdown_solar_gl()
         _release_ui_lock()

@@ -383,6 +383,9 @@ class WorldWindow(QWidget):
         super().hideEvent(event)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        release = getattr(self.solar, "release_solar_gl", None)
+        if callable(release):
+            release()
         self.closed.emit()
         super().closeEvent(event)
 

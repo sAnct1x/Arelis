@@ -819,6 +819,9 @@ ui:
   hung_turn_s: 60
   hung_first_token_s: 180
   hung_turn_cap_s: 600
+  # How long the solar GPU may stay up after the solar page is no longer
+  # on screen. The page also drops it as soon as it closes or hides.
+  solar_gl_idle_s: 60
   # Away rest (collapse unused panels) lives in ui_layout.ini via Settings →
   # Window, off by default. Not a shipped-on timer.
   notifications:

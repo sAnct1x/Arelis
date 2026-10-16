@@ -398,6 +398,16 @@ class SolarPanel(SolarEarthMixin, QWidget):
         self._ensure_ic()
         self._ensure_space()
 
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self.release_solar_gl()
+        super().closeEvent(event)
+
+    def release_solar_gl(self) -> None:
+        """Drop the GPU child and the offscreen context. Safe to call twice."""
+        from arelis.ui.solar_gl_proc import on_solar_view_hidden
+
+        on_solar_view_hidden(self)
+
     def camera_state(self) -> dict[str, float | list[float]]:
         """Eye in ECLIPJ2000 metres. For the leave receipt. Not a particle."""
         cam = self.cam
@@ -416,7 +426,11 @@ class SolarPanel(SolarEarthMixin, QWidget):
 
     def _ensure_space(self) -> None:
         from arelis.ui.solar_gl import SolarSpaceView, arm_fault_log, gl_wanted, trace
+        from arelis.ui.solar_gl_proc import on_solar_view_shown
 
+        # Only a shown solar page gets here (showEvent). Tools that never
+        # open the page do not call this, so they do not start the GPU.
+        on_solar_view_shown(self)
         if self._gl is not None:
             return
         if not gl_wanted():
@@ -447,6 +461,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
         self._clock.stop()
         self._watch.stop()
         self._close_earth_look()
+        # Before leave: leave unparks the offscreen context, which would
+        # put the GPU right back. Drop it first so a hidden page keeps none.
+        self.release_solar_gl()
         self._leave_earth_zone()
         super().hideEvent(event)
 
