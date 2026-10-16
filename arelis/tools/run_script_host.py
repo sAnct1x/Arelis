@@ -17,7 +17,7 @@ _PREFIX = "ARELIS_RUN_STATUS "
 
 
 def _emit(exc: BaseException) -> None:
-    payload = {"status": "error", "exception_type": type(exc).__name__}
+    payload = {"status": "bad_args", "error_type": type(exc).__name__}
     sys.stderr.write(_PREFIX + json.dumps(payload) + "\n")
     sys.stderr.flush()
 

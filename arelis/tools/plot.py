@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.paths import display_path, ensure, outputs_dir
 from arelis.rooms import RoomStore
+from arelis.tools.arg_error import arg_error as _arg_error
 from arelis.tools.base import ToolResult
 from arelis.workspace import ResolvedPath, WorkspaceRoots
 
@@ -191,22 +192,6 @@ def _looks_like_chart_out(path_str: str) -> bool:
     """True when path= was used as the PNG name (a 9B mix-up)."""
     leaf = Path(str(path_str).replace("\\", "/")).name
     return Path(leaf).suffix.lower() in _CHART_OUT_SUFFIXES
-
-
-def _arg_error(exc: BaseException, *, fail_class: str = "fail:args") -> ToolResult:
-    """A call the chart cannot draw. The loop counts status and the exception class.
-
-    The sentence stays in output for the model. It is not what decides a retry.
-    """
-    return ToolResult(
-        ok=False,
-        output=str(exc),
-        data={
-            "status": "bad_args",
-            "error_type": type(exc).__name__,
-            "fail_class": fail_class,
-        },
-    )
 
 
 def _missing_inline(raw: Any) -> bool:

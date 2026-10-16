@@ -8,7 +8,7 @@ from typing import Any
 
 from arelis.contacts import format_contact_spoken
 from arelis.core.agenda_complete import looks_like_calendar_delete
-from arelis.core.code_retry import note_same_error, same_error_limit, turn_wall_exceeded
+from arelis.core.code_retry import turn_wall_exceeded
 from arelis.core.events import Event, EventType
 from arelis.core.evidence import classify_fetch_failure
 from arelis.core.fail_tags import tool_fail_replan_notice
@@ -137,36 +137,6 @@ async def _stop_for_turn_wall(loop: Any, ctx: TurnContext, sources: list[tuple[s
     if not turn_wall_exceeded(loop):
         return False
     await loop._finish(_wall_reply(ctx), sources, streamed="", keep_error=True)
-    return True
-
-
-async def _stop_for_repeated_error(
-    loop: Any,
-    ctx: TurnContext,
-    data: dict[str, Any] | None,
-    output: str,
-    sources: list[tuple[str, str]],
-    *,
-    agent_cfg: dict[str, Any],
-) -> bool:
-    """End on the tool's own error once one exception type has repeated."""
-    if not note_same_error(
-        ctx.error_type_counts,
-        data,
-        limit=same_error_limit(agent_cfg),
-    ):
-        if (
-            not getattr(loop, "_in_close", False)
-            and turn_wall_exceeded(loop)
-            and ctx.last_tool_failed
-        ):
-            text = (output or ctx.last_fail_tool_out or "").strip()
-            if text:
-                await loop._finish(text, sources, streamed="", keep_error=True)
-                return True
-        return False
-    text = (output or "").strip() or (ctx.last_fail_tool_out or "").strip()
-    await loop._finish(text, sources, streamed="", keep_error=True)
     return True
 
 
@@ -890,21 +860,12 @@ async def execute_call(
                 passthrough_tool="weather",
             )
             return True
-        if await _stop_for_repeated_error(
-            loop,
-            ctx,
-            data_dict,
-            redacted,
-            sources,
-            agent_cfg=agent_cfg,
-        ):
-            return True
         typed = _bad_args_key(name, data_dict if not result.ok else None)
-        if name == "plot" and typed and fail_counts.get(typed, 0) >= 2:
-            from arelis.core.loop_helpers import CHART_FAILED_REPLY
-
-            await loop._finish(CHART_FAILED_REPLY, sources, streamed="")
-            return True
+        if typed and fail_counts.get(typed, 0) >= 2:
+            text = (redacted or "").strip()
+            if text:
+                await loop._finish(text, sources, streamed="", keep_error=True)
+                return True
         messages.append(loop._tool_message(name, out))
         if result.ok:
             _pin_plain_user(messages, ctx, name, out, loop)

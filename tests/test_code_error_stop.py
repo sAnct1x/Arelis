@@ -1,7 +1,7 @@
 """A rewritten cell that keeps raising the same type must end the turn.
 
-fail_counts keys the whole argument blob, so each edit looks like a new
-call. The stop is the tool result: status=error and the exception type.
+fail_counts also stores ``{tool}|bad_args|{ExceptionClass}``. Two NameErrors
+with different source are one key. The reply is that tool's traceback.
 """
 
 from __future__ import annotations
@@ -46,7 +46,6 @@ def _loop(router: _ScriptedRouter, tool: _RecordingPython) -> tuple[EventBus, Ag
     cfg["agent"]["chat_fast_path"] = False
     cfg["agent"]["max_rounds"] = 6
     cfg["agent"]["intent_preflight"] = False
-    cfg["agent"]["same_error_limit"] = 3
     loop = AgentLoop(
         bus,
         router,  # type: ignore[arg-type]
@@ -67,7 +66,6 @@ async def test_same_exception_type_ends_on_the_tool_error() -> None:
         [
             [("tool_calls", [_call("python", {"code": "flux"})])],
             [("tool_calls", [_call("python", {"code": "1 + flux"})])],
-            [("tool_calls", [_call("python", {"code": "print(flux)"})])],
             [("token", _NOT_THE_ANSWER)],
         ]
     )
@@ -76,10 +74,12 @@ async def test_same_exception_type_ends_on_the_tool_error() -> None:
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
     text = str(done.payload.get("text") or "")
     assert tool.last is not None
-    assert tool.last.data.get("status") == "error"
-    assert tool.last.data.get("exception_type") == "NameError"
-    assert tool.runs == 3
-    assert router.i == 3
+    assert tool.last.data.get("status") == "bad_args"
+    assert tool.last.data.get("error_type") == "NameError"
+    assert "Traceback" in str(tool.last.output)
+    assert "NameError" in str(tool.last.output)
+    assert tool.runs == 2
+    assert router.i == 2
     assert text == str(tool.last.output)
     assert _NOT_THE_ANSWER not in text
     assert "was not run because" not in text

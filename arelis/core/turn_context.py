@@ -120,9 +120,6 @@ class TurnContext:
     # True only when the most recent tool result failed. A later success
     # clears it. The wall-clock stop reports that error, not an older one.
     last_tool_failed: bool = False
-    # Counts of exception_type from status=error results this turn.
-    # Not keyed by arguments, so a rewritten cell still counts.
-    error_type_counts: dict[str, int] = field(default_factory=dict)
     # Copied from a python ToolResult data field. Empty unless that result
     # set next_tool to plot. Later python calls do not clear it. The loop
     # reads this, not the refusal sentence.

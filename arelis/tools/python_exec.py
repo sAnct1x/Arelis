@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arelis.tools.arg_error import arg_error
 from arelis.tools.base import ToolResult
 from arelis.tools.child_proc import _close_job, _spawn, child_env
 from arelis.tools.run_script import _kill_tree
@@ -126,11 +127,7 @@ async def _run_in_child(code: str) -> ToolResult:
         try:
             box["result"] = _run_in_child_sync(code)
         except Exception as exc:
-            box["result"] = ToolResult(
-                ok=False,
-                output=f"Python failed: {exc}",
-                data={"status": "error", "exception_type": type(exc).__name__},
-            )
+            box["result"] = arg_error(exc)
         finally:
             loop.call_soon_threadsafe(done.set)
 
@@ -198,17 +195,9 @@ def _run_in_child_sync(code: str) -> ToolResult:
         if payload is not None:
             return _tool_result(code, payload)
         if _memory_death(proc):
-            return ToolResult(
-                ok=False,
-                output=_MEMORY_OUTPUT,
-                data={"status": "error", "exception_type": "MemoryError"},
-            )
+            return arg_error(output=_MEMORY_OUTPUT, error_type="MemoryError")
         if killed:
-            return ToolResult(
-                ok=False,
-                output=_TIMEOUT_OUTPUT,
-                data={"status": "error", "exception_type": "TimeoutError"},
-            )
+            return arg_error(output=_TIMEOUT_OUTPUT, error_type="TimeoutError")
         return _startup_failure(errors)
     finally:
         if proc is not None and proc.poll() is None:
@@ -296,15 +285,14 @@ def _parse_result(text: str) -> dict[str, Any] | None:
     return None
 
 
-def _error_fields(payload: dict[str, Any]) -> dict[str, Any]:
-    """Copy status and the exception type. The message text is not read."""
-    data: dict[str, Any] = {}
-    if payload.get("status") == "error":
-        data["status"] = "error"
-    exc_type = payload.get("exception_type")
-    if isinstance(exc_type, str) and exc_type.isidentifier():
-        data["exception_type"] = exc_type
-    return data
+def _error_type(payload: dict[str, Any]) -> str | None:
+    """The exception class on a bad_args payload. The message is not read."""
+    if payload.get("status") != "bad_args":
+        return None
+    exc_type = payload.get("error_type")
+    if isinstance(exc_type, str) and exc_type.isidentifier() and len(exc_type) <= 64:
+        return exc_type
+    return None
 
 
 def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
@@ -313,25 +301,24 @@ def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
         return ToolResult(ok=True, output=text, data={"code": code, "result": text})
     kind = str(payload.get("kind") or "")
     message = str(payload.get("message") or "")
-    data = _error_fields(payload)
+    error_type = _error_type(payload)
+    extra: dict[str, Any] = {}
     if kind == "timeout":
-        return ToolResult(ok=False, output=_TIMEOUT_OUTPUT, data=data)
-    if kind == "syntax":
-        return ToolResult(ok=False, output=f"Python syntax error: {message}", data=data)
-    if kind == "refused":
+        output = _TIMEOUT_OUTPUT
+    elif kind == "refused":
         # Copied from the child payload. The message text is not inspected.
         next_tool = payload.get("next_tool")
         if isinstance(next_tool, str) and next_tool:
-            data["next_tool"] = next_tool
+            extra["next_tool"] = next_tool
         refusal = payload.get("refusal")
         if isinstance(refusal, str) and refusal:
-            data["refusal"] = refusal
-        return ToolResult(ok=False, output=f"Python refused: {message}", data=data)
-    return ToolResult(
-        ok=False,
-        output=f"Python failed: {message or 'the cell stopped.'}",
-        data=data,
-    )
+            extra["refusal"] = refusal
+        output = f"Python refused: {message}"
+    else:
+        output = message or "the cell stopped."
+    if error_type:
+        return arg_error(output=output, error_type=error_type, extra=extra or None)
+    return ToolResult(ok=False, output=output, data=extra)
 
 
 def _startup_failure(errors: list[str]) -> ToolResult:

@@ -758,13 +758,13 @@ def _fail(kind: str, exc: BaseException, **extra: Any) -> None:
     """Error payload. The type is the class name, not the message text."""
     payload: dict[str, Any] = {
         "ok": False,
-        "status": "error",
+        "status": "bad_args",
         "kind": kind,
-        "exception_type": type(exc).__name__,
+        "error_type": type(exc).__name__,
     }
     payload.update(extra)
     if "message" not in payload and kind != "timeout":
-        if kind == "failed":
+        if kind in {"failed", "syntax"}:
             payload["message"] = _failure_text(exc)
         else:
             payload["message"] = str(exc)
@@ -793,7 +793,7 @@ def main() -> None:
         _emit(
             {
                 "ok": False,
-                "status": "error",
+                "status": "bad_args",
                 "kind": "failed",
                 "message": "the cell could not read its input",
             }
@@ -817,7 +817,7 @@ def main() -> None:
     except _CellRefusedError as exc:
         _fail("refused", exc)
     except SyntaxError as exc:
-        _fail("syntax", exc, message=exc.msg or "invalid syntax")
+        _fail("syntax", exc)
     except Exception as exc:
         _fail("failed", exc)
     else:

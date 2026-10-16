@@ -17,6 +17,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from arelis.tools.arg_error import bad_args_data
 from arelis.tools.base import ToolResult
 from arelis.tools.child_proc import child_env
 from arelis.tools.confirm_preview import run_script_confirm
@@ -111,7 +112,7 @@ class RunScriptTool:
             return ToolResult(
                 ok=False,
                 output=f"run_script path error: {exc}",
-                data=_error_data(exc),
+                data=bad_args_data(exc),
             )
 
         if resolved.root_name == "external":
@@ -153,13 +154,13 @@ class RunScriptTool:
             return ToolResult(
                 ok=False,
                 output=f"Could not start {interpreter}. Python is missing.",
-                data=_error_data(exc),
+                data=bad_args_data(exc),
             )
         except OSError as exc:
             return ToolResult(
                 ok=False,
                 output=f"Could not start the script: {exc}",
-                data=_error_data(exc),
+                data=bad_args_data(exc),
             )
 
         try:
@@ -173,7 +174,7 @@ class RunScriptTool:
             return ToolResult(
                 ok=False,
                 output=f"run_script failed: {exc}",
-                data=_error_data(exc),
+                data=bad_args_data(exc),
             )
 
         duration = time.monotonic() - started
@@ -185,8 +186,7 @@ class RunScriptTool:
             )
         if stopped == "timeout":
             data = _result_data(resolved, interpreter, cwd, -1, duration)
-            data["status"] = "error"
-            data["exception_type"] = "TimeoutError"
+            data.update(bad_args_data(error_type="TimeoutError"))
             return ToolResult(
                 ok=False,
                 output=(
@@ -204,10 +204,9 @@ class RunScriptTool:
         data = _result_data(resolved, interpreter, cwd, code, duration)
         data["stdout"] = redact_secrets((stdout or "").rstrip())[:_STDOUT_WARRANT_CHARS]
         if code != 0:
-            data["status"] = "error"
-            exc_type = status.get("exception_type")
-            if isinstance(exc_type, str) and exc_type.isidentifier():
-                data["exception_type"] = exc_type
+            exc_type = status.get("error_type")
+            typed = exc_type if isinstance(exc_type, str) else None
+            data.update(bad_args_data(error_type=typed))
         return ToolResult(
             ok=code == 0,
             output=text,
@@ -230,11 +229,6 @@ def resolve_interpreter(root: Path, configured: str | None) -> str:
     return sys.executable
 
 
-def _error_data(exc: BaseException) -> dict[str, Any]:
-    """status and the class name. The message is not classified."""
-    return {"status": "error", "exception_type": type(exc).__name__}
-
-
 def _take_run_status(stderr: str) -> tuple[str, dict[str, Any]]:
     """Pull the host status line off stderr. The traceback stays."""
     found: dict[str, Any] = {}
@@ -246,7 +240,7 @@ def _take_run_status(stderr: str) -> tuple[str, dict[str, Any]]:
             except json.JSONDecodeError:
                 kept.append(line)
                 continue
-            if isinstance(parsed, dict) and parsed.get("status") == "error":
+            if isinstance(parsed, dict) and parsed.get("status") == "bad_args":
                 found = parsed
                 continue
         kept.append(line)
