@@ -62,9 +62,12 @@ _ABBREVIATIONS = {
     "no", "approx", "al", "inc", "ltd", "jr", "sr",
 }
 _SENTENCE_END = re.compile(r"(?<=[.!?])[\"')\]]*\s+")
-# Chinese prose often has no space after 。！？. English still requires whitespace
-# so an abbreviation like "Dr." is not cut in half.
-_SENTENCE_END_ZH = re.compile(r"(?<=[。！？.!?])[\"'\"')\]]*\s*")
+# Chinese prose often has no space after 。！？. A period between two digits
+# is not a sentence end. English still requires whitespace so an abbreviation
+# like "Dr." is not cut in half.
+_SENTENCE_END_ZH = re.compile(
+    r"(?:(?<=[。！？!?])|(?<=\.)(?!\d))[\"'\"')\]]*\s*"
+)
 
 
 def prepare_spoken_text(text: str, *, max_chars: int = 0, language: str = "en") -> str:
@@ -154,7 +157,18 @@ def _sentence_complete(chunk: str) -> bool:
         return False
     if trailing[-1:] in "。！？":
         return True
-    return trailing[-1:] in ".!?" and not _ends_on_abbreviation(trailing)
+    if trailing[-1:] not in ".!?" or _ends_on_abbreviation(trailing):
+        return False
+    # "27." is still open: the next character may be the fractional digit.
+    # A period between two digits is not a sentence end. "27.22." is closed,
+    # because that last period has no digit after it.
+    if (
+        trailing[-1] == "."
+        and trailing[-2:-1].isdigit()
+        and re.search(r"\d\.\d+\.$", trailing) is None
+    ):
+        return False
+    return True
 
 
 def next_speakable_units(
