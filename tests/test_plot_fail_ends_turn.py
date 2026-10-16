@@ -165,6 +165,11 @@ async def test_changed_bad_plot_args_stop_once_the_type_repeats(tmp_path: Path) 
     plot = PlotTool(WorkspaceRoots([RootEntry(name="proj", path=root.resolve())]))
     bare = await plot.run(action="line", expr="I", xmin=-1, xmax=1)
     assert bare.data["status"] == "bad_args" and bare.data["error_type"] == "TypeError"
+    billboard = await plot.run(
+        action="line", xs="1,2", ys="1,2", look="billboard", out="nope.png"
+    )
+    assert not billboard.ok
+    assert "poster" in billboard.output
     router = _ScriptedRouter(
         [
             [
