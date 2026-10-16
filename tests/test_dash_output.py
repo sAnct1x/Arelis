@@ -105,3 +105,40 @@ async def test_finish_does_not_rewrite_source_titles() -> None:
     assert "Here is the summary." in dones[0]
 
 
+
+
+@pytest.mark.asyncio
+async def test_answer_after_a_tool_streams_instead_of_landing_whole() -> None:
+    """#260 (b): the write-up round after a tool paints (and so speaks) per token."""
+    from arelis.core.agent_loop import AgentLoop
+    from arelis.tools.base import ToolResult
+
+    class _Catalog:
+        name = "weather"
+        description = "current weather"
+        risk = "read"
+        parameters_schema = {"type": "object", "properties": {"place": {"type": "string"}}}
+
+        async def run(self, **kwargs):
+            return ToolResult(ok=True, output="Paris: 18 C, sunny")
+
+    call = {"type": "function", "function": {"name": "weather", "arguments": {"place": "Paris"}}}
+    router = _ScriptedRouter(
+        [
+            [("tool_calls", [call])],
+            [("token", "It is sunny and 18 degrees in Paris. "), ("token", "A good day for a walk.")],
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(_Catalog())
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    bus = EventBus()
+    loop = AgentLoop(
+        bus, router, tools, SessionMemory(), "persona", cfg,  # type: ignore[arg-type]
+        request_confirm=_deny, is_cancelled=lambda: False,
+    )
+    events = await _collect(bus, loop.run("what is the weather in Paris right now?", "fast"))
+    deltas = [str(e.payload.get("text") or "") for e in events if e.type == EventType.ASSISTANT_DELTA]
+    assert "".join(deltas) == "It is sunny and 18 degrees in Paris. A good day for a walk."
+    assert len(deltas) >= 2
