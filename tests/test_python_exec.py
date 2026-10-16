@@ -27,7 +27,8 @@ The fixes are two general rules rather than a longer denylist of modules:
 string literals may not contain `__`, and a small set of attribute names that
 mean "evaluate this text" or "touch the disk" may not be called. Both are
 checked on the AST, before anything runs. numpy.savetxt and savefig are not
-in that set. The hook allows them only when the path stays inside the workspace.
+in that set. The hook allows them only when the path stays inside the room's
+results folder.
 """
 
 from __future__ import annotations
@@ -73,7 +74,7 @@ async def _run(code: str) -> tuple[bool, str]:
 
 @pytest.mark.asyncio
 async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
-    """Seaborn still points at plot. A corner figure may land in the workspace."""
+    """Seaborn still points at plot. A corner figure may land in results."""
     from arelis.workspace import RootEntry, WorkspaceRoots
 
     result = await PythonTool().run(code="import seaborn")
@@ -86,10 +87,13 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
 
     root = tmp_path / "proj"
     root.mkdir()
+    (root / "data.csv").write_text("1.5\n2.5\n", encoding="utf-8")
     tool = PythonTool(WorkspaceRoots([RootEntry(name="proj", path=root)]))
-    figure = root / "corner.png"
-    table = root / "chain.txt"
-    sheet = root / "rows.csv"
+    results = root / "results"
+    figure = results / "corner.png"
+    table = results / "chain.txt"
+    sheet = results / "rows.csv"
+    npy = results / "chain.npy"
     saved = await tool.run(
         code=(
             "import csv\n"
@@ -98,20 +102,24 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
             "matplotlib.use('Agg')\n"
             "import matplotlib.pyplot as plt\n"
             "import corner\n"
+            f"seen = np.loadtxt({str(root / 'data.csv')!r})\n"
             f"np.savetxt({str(table)!r}, np.array([1.0, 2.0, 3.0]))\n"
             "loaded = np.loadtxt(" + repr(str(table)) + ")\n"
+            f"np.save({str(npy)!r}, loaded)\n"
+            "again = np.load(" + repr(str(npy)) + ")\n"
             f"with open({str(sheet)!r}, 'w', newline='') as handle:\n"
             "    csv.writer(handle).writerow(['a', 'b'])\n"
             "fig, ax = plt.subplots()\n"
             "ax.plot([1, 2], [3, 4])\n"
             f"fig.savefig({str(figure)!r})\n"
-            "print('saved', float(loaded[0]))\n"
+            "print('saved', float(seen[0]), float(again[0]))\n"
         )
     )
     assert saved.ok, saved.output
     assert figure.is_file() and figure.stat().st_size > 0
     assert table.is_file()
     assert sheet.is_file()
+    assert npy.is_file()
     assert "saved" in saved.output
     backend = await tool.run(
         code="import matplotlib\nmatplotlib.use('TkAgg')\nprint(matplotlib.get_backend())"
@@ -126,19 +134,21 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
         )
     )
     assert relative.ok is False
-    assert "workspace" in relative.output.lower()
+    assert "results" in relative.output.lower()
 
     outside = tmp_path / "outside.csv"
+    in_room = root / "side.csv"
     escaped = tmp_path / "escape.csv"
-    link = root / "link.csv"
+    link = results / "link.csv"
     link.symlink_to(outside)
-    for target in (outside, root / ".." / "escape.csv", link):
+    for target in (outside, in_room, results / ".." / "escape.csv", link):
         refused = await tool.run(
             code=f"import numpy as np\nnp.savetxt({str(target)!r}, np.array([1.0]))\n"
         )
         assert refused.ok is False, target
-        assert "workspace" in refused.output.lower()
+        assert "results" in refused.output.lower()
     assert not outside.exists()
+    assert not in_room.exists()
     assert not escaped.exists()
     blocked = await tool.run(code="import subprocess\nsubprocess.call(['true'])")
     assert blocked.ok is False

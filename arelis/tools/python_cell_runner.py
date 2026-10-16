@@ -6,10 +6,10 @@ imported the numerics libraries and printed a ready line.
 
 The AST checks are the same allowlist the cell has always had. They are not
 the boundary. The audit hook is. It refuses new processes, sockets, ctypes,
-and any file outside the workspace. Reads of the Python libraries and the
-OS font folders stay allowed. Matplotlib may use a private cache folder the
-cell cannot name. Name rules cannot see
-``vars(numpy)["lo" + "ad"]``. The open still shows up here.
+and any write outside the room's results folder. Reads may stay inside the
+workspace, same as the data cell's room rule. Library and OS font reads stay
+allowed. Matplotlib may use a private cache folder the cell cannot name.
+Name rules cannot see ``vars(numpy)["lo" + "ad"]``. The open still shows up here.
 """
 
 from __future__ import annotations
@@ -395,7 +395,11 @@ def _library_read(path: Path, exe: Path | None = None) -> bool:
 
 
 def _set_work_roots(raw: Any) -> None:
-    """Workspace folders for this cell. Resolved once, before the snippet runs."""
+    """Workspace folders for this cell. Resolved once, before the snippet runs.
+
+    Reads use the workspace root, the data cell's room. Writes use only
+    ``<root>/results``, the data cell's results folder.
+    """
     global _WORK_READ, _WORK_WRITE
     read: list[Path] = []
     write: list[Path] = []
@@ -414,7 +418,7 @@ def _set_work_roots(raw: Any) -> None:
                 continue
             _add_root(read, seen_read, Path(path))
             if can_write:
-                _add_root(write, seen_write, Path(path))
+                _add_root(write, seen_write, Path(path) / "results")
     _WORK_READ = read
     _WORK_WRITE = write
 
@@ -636,7 +640,7 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
             return
         raise _CellBlocked(
             "opening a file to write it is not allowed in this cell. "
-            "The path has to stay inside the workspace."
+            "The path has to stay inside this room's results folder."
         )
     if (
         _library_read(path)

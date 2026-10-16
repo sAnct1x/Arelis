@@ -14,7 +14,8 @@ being counted against the cell, and instead of waiting forever.
 
 The AST checks and the audit hook live in the child. Name rules still
 refuse the obvious spellings. The hook refuses a process, a socket, ctypes,
-and any file outside the workspace. Matplotlib stays on the Agg backend.
+and any write outside the room's results folder. Reads stay inside the
+workspace. Matplotlib stays on the Agg backend.
 """
 
 from __future__ import annotations
@@ -61,7 +62,11 @@ _RUNNER = Path(__file__).with_name("python_cell_runner.py")
 
 
 def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
-    """Absolute workspace roots the cell may touch. Read-only roots cannot be written."""
+    """Absolute workspace roots the cell may read.
+
+    A writable root also gets a results folder. That is the only directory
+    the cell may write, same as the data cell.
+    """
     roots = getattr(workspace, "roots", None)
     if not roots:
         return []
@@ -71,12 +76,16 @@ def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
         if raw is None:
             continue
         try:
-            path = str(Path(raw).resolve())
+            path = Path(raw).resolve()
         except OSError:
             continue
-        payload.append(
-            {"path": path, "write": not bool(getattr(entry, "read_only", False))}
-        )
+        writable = not bool(getattr(entry, "read_only", False))
+        if writable:
+            try:
+                (path / "results").mkdir(parents=True, exist_ok=True)
+            except OSError:
+                writable = False
+        payload.append({"path": str(path), "write": writable})
     return payload
 
 
