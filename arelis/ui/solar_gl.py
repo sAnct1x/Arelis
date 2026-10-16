@@ -37,7 +37,7 @@ from PySide6.QtOpenGL import (
     QOpenGLTexture,
     QOpenGLVertexArrayObject,
 )
-from shiboken6 import VoidPtr
+from shiboken6 import VoidPtr, delete, isValid
 
 from arelis.physics.attitude import (
     body_frame_ecliptic,
@@ -1204,30 +1204,31 @@ class SolarSpaceView(QOpenGLFunctions):
             pass
 
     def park(self) -> None:
-        """Destroy the offscreen context for the Earth stay.
+        """Destroy the offscreen context, its FBO, and its textures.
 
         doneCurrent is not enough. Chromium still aborts if a desktop-GL
         member remains in the Qt share group, Travel to Earth died on
         the first QWebEngineView after a park-only handoff.
+
+        GL names are deleted while this context is current. A buffer or
+        framebuffer whose wrapper dies after doneCurrent skips glDelete,
+        and the driver then keeps that storage for the process.
         """
         if getattr(self, "_parked", False) and getattr(self, "_ctx", None) is None:
             return
         ctx = getattr(self, "_ctx", None)
         surface = getattr(self, "_surface", None)
-        needs_current = bool(getattr(self, "_textures", None)) or getattr(
-            self, "_fbo", None
-        ) is not None or getattr(self, "_white", None) is not None
-        if (
-            needs_current
-            and ctx is not None
-            and surface is not None
-            and hasattr(ctx, "makeCurrent")
-        ):
+        if ctx is not None and surface is not None and hasattr(ctx, "makeCurrent"):
             try:
                 ctx.makeCurrent(surface)
-            except Exception:
+            except RuntimeError:
                 pass
         self._forget_gl_objects()
+        if ctx is not None and QOpenGLContext.currentContext() is ctx:
+            try:
+                self.glFinish()
+            except RuntimeError:
+                pass
         self.release_current()
         self._parked = True
         self.gl_ok = False
@@ -1236,15 +1237,19 @@ class SolarSpaceView(QOpenGLFunctions):
             self._surface = None
         if ctx is not None:
             self._destroy_share_member(ctx)
-        if surface is not None and hasattr(surface, "destroy"):
-            try:
-                surface.destroy()
-            except Exception:
-                pass
+        if surface is not None:
+            destroy = getattr(surface, "destroy", None)
+            if callable(destroy):
+                try:
+                    destroy()
+                except RuntimeError:
+                    pass
+            if isValid(surface):
+                delete(surface)
         try:
             shared = QOpenGLContext.globalShareContext()
             trace(f"solar GL parked for Earth share_live={shared is not None}")
-        except Exception:
+        except RuntimeError:
             trace("solar GL parked for Earth share_live=?")
 
     def unpark(self) -> None:
@@ -1255,16 +1260,11 @@ class SolarSpaceView(QOpenGLFunctions):
         trace("solar GL unparked")
 
     def _forget_gl_objects(self) -> None:
-        """Drop GPU wrappers so they cannot touch a context we are about to delete."""
+        """Delete GL names now, while this context is still current."""
         textures = getattr(self, "_textures", None)
         if isinstance(textures, dict):
             for tex in list(textures.values()):
-                destroy = getattr(tex, "destroy", None)
-                if callable(destroy):
-                    try:
-                        destroy()
-                    except Exception:
-                        pass
+                self._destroy_gl_name(tex)
             textures.clear()
         for name in (
             "_white",
@@ -1300,9 +1300,15 @@ class SolarSpaceView(QOpenGLFunctions):
             "_loop_vao",
         ):
             if hasattr(self, name):
+                self._destroy_gl_name(getattr(self, name, None))
                 setattr(self, name, None)
+        self._frame = None
+        self._frame_key = None
+        self._readback = None
         keep = getattr(self, "_keep", None)
         if isinstance(keep, list):
+            for obj in list(keep):
+                self._destroy_gl_name(obj)
             keep.clear()
         for name, value in (
             ("_sphere_n", 0),
@@ -1336,6 +1342,34 @@ class SolarSpaceView(QOpenGLFunctions):
         ):
             if hasattr(self, name):
                 setattr(self, name, value)
+
+    def _destroy_gl_name(self, obj: object) -> None:
+        """glDelete while current, then drop the C++ wrapper."""
+        if obj is None:
+            return
+        destroy = getattr(obj, "destroy", None)
+        if callable(destroy):
+            try:
+                destroy()
+            except RuntimeError:
+                pass
+        if not isinstance(
+            obj,
+            (
+                QOpenGLFramebufferObject,
+                QOpenGLShaderProgram,
+                QOpenGLVertexArrayObject,
+                QOpenGLBuffer,
+                QOpenGLTexture,
+            ),
+        ):
+            return
+        if not isValid(obj):
+            return
+        try:
+            delete(obj)
+        except RuntimeError:
+            return
 
     def _destroy_share_member(self, ctx: object) -> None:
         """Delete the C++ context now. deleteLater races the Cesium mount."""

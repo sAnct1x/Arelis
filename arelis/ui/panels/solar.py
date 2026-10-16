@@ -403,7 +403,7 @@ class SolarPanel(SolarEarthMixin, QWidget):
         super().closeEvent(event)
 
     def release_solar_gl(self) -> None:
-        """Drop the GPU child and the offscreen context. Safe to call twice."""
+        """Park the offscreen GL context. Safe to call twice."""
         from arelis.ui.solar_gl_proc import on_solar_view_hidden
 
         on_solar_view_hidden(self)

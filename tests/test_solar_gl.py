@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 
 import pytest
 
@@ -79,150 +78,38 @@ def test_framebuffer_size_caps_readback() -> None:
     assert framebuffer_size(3840, 2160, cap=_FB_CLOSE) == (w, h)
 
 
-class _GlChild:
-    """Child that ignores terminate, then dies on kill. No real process."""
+def test_closing_the_solar_view_drops_its_gl_context(qt_app, monkeypatch) -> None:
+    """Show the solar page, close it, and the in-process context is gone.
 
-    def __init__(self) -> None:
-        self.returncode: int | None = None
-        self.reaped = False
+    There is no GL child. The page builds SolarSpaceView in this process.
+    """
+    from shiboken6 import isValid
 
-    def poll(self) -> int | None:
-        return self.returncode
-
-    def terminate(self) -> None:
-        return None
-
-    def kill(self) -> None:
-        self.returncode = -9
-
-    def wait(self, timeout: float | None = None) -> int:
-        if self.returncode is None:
-            raise subprocess.TimeoutExpired("solar-gl", timeout or 0)
-        self.reaped = True
-        return self.returncode
-
-
-class _Quiet:
-    def append(self, *_args, **_kwargs) -> None:
-        return None
-
-    def set_turn_visible(self, *_args, **_kwargs) -> None:
-        return None
-
-    def set_drive(self, *_args, **_kwargs) -> None:
-        return None
-
-
-class _PlateHost:
-    """Just enough window for a tool result to reach the real solar page."""
-
-    def __init__(self, plate) -> None:
-        self.world_window = plate
-        self.thinking = _Quiet()
-        self.conversation = _Quiet()
-        self.persona_dock = None
-        self.act_persona = None
-        self._workspace_tool_args: dict = {}
-
-    def _reveal_dock(self, *_args, **_kwargs) -> None:
-        return None
-
-    def _apply_tile(self, name: str, *, show: bool, page: str = "") -> None:
-        from arelis.ui.world_host import show_world
-
-        if (name or "").strip().lower() != "world":
-            return
-        if not show:
-            self.world_window.hide()
-            return
-        show_world(
-            self.world_window,
-            self.world_window.frameGeometry(),
-            page=page,
-            placed=True,
-        )
-
-
-def test_closing_the_solar_view_reaps_its_gl_child(qt_app, monkeypatch) -> None:
-    """A tool result must not open solar on its own. Closing the page reaps GL."""
-    from arelis.core.events import Event, EventType
-    from arelis.spatial.scene import WorldScene
-    from arelis.ui import solar_gl_proc
-    from arelis.ui.event_host import dispatch_event
+    from arelis.ui import solar_gl, solar_gl_proc
     from arelis.ui.panels.solar import SolarPanel
-    from arelis.ui.world_window import WorldWindow
 
-    spawned: list[_GlChild] = []
-
-    def _spawn() -> _GlChild:
-        child = _GlChild()
-        spawned.append(child)
-        return child
-
-    monkeypatch.setattr(solar_gl_proc, "should_run", lambda: True)
-    monkeypatch.setattr(solar_gl_proc, "spawn_solar_gl", _spawn)
+    monkeypatch.setattr(solar_gl, "gl_wanted", lambda: True)
     monkeypatch.setattr(SolarPanel, "_ensure_ic", lambda self: None)
     solar_gl_proc.reset_for_tests()
-    plate = WorldWindow(WorldScene())
-    host = _PlateHost(plate)
+    panel = SolarPanel()
     try:
-        plate.show()
+        panel.show()
         qt_app.processEvents()
-        assert plate.stack.currentWidget() is plate.chooser
-
-        def _result(tool: str, data: dict) -> None:
-            dispatch_event(
-                host,
-                Event(
-                    EventType.TOOL_RESULT,
-                    {"tool": tool, "ok": True, "output": "", "data": data},
-                ),
-            )
-            qt_app.processEvents()
-
-        # Call args have no page field. Result data naming solar must not build it.
-        dispatch_event(
-            host,
-            Event(
-                EventType.TOOL_START,
-                {"tool": "tile", "args": {"action": "open", "name": "world"}},
-            ),
-        )
-        _result("tile", {"open": True, "name": "world", "page": "solar"})
-        _result("solar", {"action": "load"})
-        _result("earth", {"action": "enter"})
-        assert plate.stack.currentWidget() is plate.chooser
-        assert plate.solar_active() is False
-        assert spawned == []
-
-        # The existing tile page field is an explicit ask, so the page may open.
-        dispatch_event(
-            host,
-            Event(
-                EventType.TOOL_START,
-                {
-                    "tool": "tile",
-                    "args": {"action": "open", "name": "world", "page": "solar"},
-                },
-            ),
-        )
-        _result("tile", {"open": True, "name": "world", "page": "solar"})
-        assert plate.solar_active()
-        assert spawned
-        child = spawned[-1]
-        assert child.poll() is None
-        # Already the visible page: a later solar or earth result stays there.
-        _result("solar", {"action": "status"})
-        _result("earth", {"action": "status"})
-        assert plate.solar_active()
-        assert child.poll() is None
-        plate.close()
+        view = panel._gl
+        assert view is not None
+        ctx = view._ctx
+        panel.close()
         qt_app.processEvents()
-        assert child.poll() is not None
-        assert child.reaped
+        assert panel._gl is None
+        assert view._parked is True
+        assert view._fbo is None
+        assert view._surface is None
+        assert view._ctx is None
+        if ctx is not None:
+            assert not isValid(ctx)
     finally:
         solar_gl_proc.reset_for_tests()
-        plate.deleteLater()
+        panel.deleteLater()
         qt_app.processEvents()
 
 

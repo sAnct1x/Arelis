@@ -1,54 +1,38 @@
-"""Lifetime of the solar GPU context.
+"""Lifetime of the in-process solar GPU context.
 
 The dev shortcut starts this process as ``pythonw -m arelis --solar-gl``
-(``scripts/install_desktop_shortcut.ps1``). ``arelis/main.py`` turns that flag
-into ``ARELIS_SOLAR_GL``. No other code spawns that command. The GPU cost is
-the offscreen context the solar page builds when it is actually shown
-(``SolarPanel._ensure_space``).
+(``scripts/install_desktop_shortcut.ps1``). ``arelis/main.py`` turns that
+flag into ``ARELIS_SOLAR_GL``. Nothing else launches that command, and this
+module does not start a child. The GPU cost is the offscreen context the
+solar page builds when it is shown (``SolarPanel._ensure_space``).
 
-Start that work only from a shown view. Stop it when the view closes or
-hides, when a tool result arrives and the view is not on screen, after the
-view has stayed hidden for ``ui.solar_gl_idle_s``, and on app exit.
+Drop that context when the view closes or hides, when a tool result arrives
+and the view is not on screen, after the view has stayed hidden for
+``ui.solar_gl_idle_s``, and on app exit.
+
+Destroying the ``QOpenGLContext`` does not return the driver's per-process
+GL pool. ``park`` deletes the context, the offscreen surface, and the FBO
+while the context is current. The pool stays until the process exits.
 """
 
 from __future__ import annotations
 
-import subprocess
 import time
 from typing import Any
 
 import yaml
 
-_STOP_TIMEOUT_S = 1.0
 _DEFAULT_IDLE_S = 60.0
 _IDLE_POLL_MS = 5000
 
-_proc: Any = None
 _hidden_at: float | None = None
 _idle_s: float | None = None
 _panel: Any = None
 
 
-def should_run() -> bool:
-    """True when this process is allowed to use the solar GPU."""
-    from arelis.ui.solar_gl import gl_wanted
-
-    return gl_wanted()
-
-
-def spawn_solar_gl() -> Any:
-    """Child handle for the solar GPU, or None when GL stays in this process.
-
-    Tests replace this with a fake child. Production does not launch a second
-    ``pythonw -m arelis --solar-gl``: that command is this process.
-    """
-    return None
-
-
 def reset_for_tests() -> None:
-    """Drop the owned child and panel. Tests only."""
-    global _proc, _hidden_at, _idle_s, _panel
-    _proc = None
+    """Drop the remembered panel. Tests only."""
+    global _hidden_at, _idle_s, _panel
     _hidden_at = None
     _idle_s = None
     _panel = None
@@ -74,27 +58,23 @@ def idle_s() -> float:
 
 
 def on_solar_view_shown(panel: Any) -> None:
-    """The solar page is on screen. Start the child if this process wants GL."""
+    """The solar page is on screen. Remember it so a later hide can park GL."""
     global _hidden_at
     _hidden_at = None
     _remember(panel)
     _ensure_idle_timer(panel)
-    if not should_run():
-        return
-    _start_child()
 
 
 def on_solar_view_hidden(panel: Any) -> None:
-    """View closed or hidden. Stop the child and drop the offscreen context."""
+    """View closed or hidden. Drop the offscreen context."""
     global _hidden_at
     if _hidden_at is None:
         _hidden_at = time.monotonic()
-    _stop_child()
     _release_context(panel)
 
 
 def poll_solar_gl_idle(panel: Any) -> None:
-    """Stop the GPU after the view has been off screen for the idle budget."""
+    """Park the GPU after the view has been off screen for the idle budget."""
     global _hidden_at
     if _view_visible(panel) or getattr(panel, "_globe_mounting", False):
         _hidden_at = None
@@ -105,7 +85,7 @@ def poll_solar_gl_idle(panel: Any) -> None:
         return
     if now - _hidden_at < idle_s():
         return
-    if _proc is None and getattr(panel, "_gl", None) is None:
+    if getattr(panel, "_gl", None) is None:
         return
     on_solar_view_hidden(panel)
 
@@ -119,133 +99,13 @@ def release_solar_gl_after_tool(window: Any) -> None:
     shutdown_solar_gl()
 
 
-def remember_view_tool_args(window: Any, tool: str, args: Any) -> None:
-    """Keep the call's own fields. The result event does not carry them."""
-    if tool not in {"tile", "solar", "earth"} or not isinstance(args, dict):
-        return
-    window._solar_view_args = {"tool": tool, "args": dict(args)}
-
-
-def clear_view_tool_args(window: Any) -> None:
-    window._solar_view_args = None
-
-
-def may_open_solar_page(window: Any, payload: dict) -> bool:
-    """A tile, solar, or earth result may land on solar only in two cases.
-
-    The page is already the one on screen, or this tile call's existing
-    page field is solar. Result text and a copied page on the result are
-    not a request.
-    """
-    plate = getattr(window, "world_window", None)
-    solar = getattr(plate, "solar", None) if plate is not None else None
-    if plate is not None and solar is not None and _solar_page_visible(plate, solar):
-        return True
-    if str(payload.get("tool") or "") != "tile":
-        return False
-    args = _call_args(window, payload)
-    return str(args.get("page") or "").strip().lower() == "solar"
-
-
-def _call_args(window: Any, payload: dict) -> dict:
-    raw = payload.get("args")
-    if isinstance(raw, dict):
-        return raw
-    stashed = getattr(window, "_solar_view_args", None)
-    if not isinstance(stashed, dict) or stashed.get("tool") != payload.get("tool"):
-        return {}
-    args = stashed.get("args")
-    return args if isinstance(args, dict) else {}
-
-
 def shutdown_solar_gl() -> None:
     """App exit, or a tool result with nothing on screen."""
     global _hidden_at
-    _stop_child()
     _hidden_at = None
     panel = _bound_panel()
     if panel is not None:
         _release_context(panel)
-
-
-def _start_child() -> None:
-    global _proc
-    if _running():
-        return
-    _reap_dead()
-    child = spawn_solar_gl()
-    if child is not None:
-        _proc = child
-
-
-def _stop_child() -> None:
-    global _proc
-    proc = _proc
-    _proc = None
-    if proc is None:
-        return
-    _terminate_then_kill(proc)
-
-
-def _running() -> bool:
-    proc = _proc
-    if proc is None:
-        return False
-    try:
-        return proc.poll() is None
-    except OSError:
-        return False
-
-
-def _reap_dead() -> None:
-    global _proc
-    proc = _proc
-    if proc is None:
-        return
-    try:
-        alive = proc.poll() is None
-    except OSError:
-        _proc = None
-        return
-    if alive:
-        return
-    _reap(proc)
-    _proc = None
-
-
-def _terminate_then_kill(proc: Any) -> None:
-    try:
-        if proc.poll() is not None:
-            _reap(proc)
-            return
-    except OSError:
-        return
-    try:
-        proc.terminate()
-    except OSError:
-        pass
-    if _wait(proc):
-        return
-    try:
-        proc.kill()
-    except OSError:
-        pass
-    _wait(proc)
-
-
-def _wait(proc: Any) -> bool:
-    try:
-        proc.wait(timeout=_STOP_TIMEOUT_S)
-    except subprocess.TimeoutExpired:
-        return False
-    return True
-
-
-def _reap(proc: Any) -> None:
-    try:
-        proc.wait(timeout=0)
-    except (subprocess.TimeoutExpired, OSError):
-        return
 
 
 def _release_context(panel: Any) -> None:

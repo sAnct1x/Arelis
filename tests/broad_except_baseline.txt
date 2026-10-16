@@ -123,7 +123,7 @@
 9 arelis/ui/panels/solar_hud.py
 2 arelis/ui/panels/solar_paint.py
 1 arelis/ui/panels/workspace.py
-15 arelis/ui/solar_gl.py
+11 arelis/ui/solar_gl.py
 1 arelis/ui/solar_gl_geom.py
 1 arelis/ui/surface_report.py
 1 arelis/ui/update_prompt.py
