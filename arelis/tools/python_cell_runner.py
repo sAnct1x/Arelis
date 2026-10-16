@@ -457,8 +457,8 @@ def _under_roots(path: Path, roots: list[Path]) -> bool:
     return False
 
 
-def _font_read(path: Path) -> bool:
-    """Matplotlib opens the OS font folder. That is not the user's files."""
+def _font_roots() -> list[Path]:
+    """OS font folders. Matplotlib's realpath walks their parents too."""
     roots: list[Path] = []
     windir = os.environ.get("SYSTEMROOT", "")
     if windir:
@@ -470,7 +470,12 @@ def _font_read(path: Path) -> bool:
         "/System/Library/Fonts",
     ):
         roots.append(Path(extra))
-    return _under_roots(path, roots)
+    return roots
+
+
+def _font_read(path: Path) -> bool:
+    """Matplotlib opens the OS font folder. That is not the user's files."""
+    return _under_roots(path, _font_roots())
 
 
 def _force_agg() -> None:
@@ -782,6 +787,23 @@ def _stub_process_launchers() -> None:
     _replace_functions(found)
 
 
+def _ancestor_of_allowed(path: Path) -> bool:
+    """True when path is a parent of a library, font, workspace, or cache root.
+
+    ``os.path.realpath`` stats every directory from ``/`` down to a font
+    file. Those parents are not the file. ``/etc/passwd`` is not one of them.
+    """
+    roots: list[Path] = list(_read_roots())
+    roots.extend(_font_roots())
+    roots.extend(_WORK_READ)
+    if _CACHE_ROOT is not None:
+        roots.append(_CACHE_ROOT)
+    for root in roots:
+        if lexically_inside(root, path):
+            return True
+    return False
+
+
 def _metadata_allowed(raw: Any) -> bool:
     """A stat or readlink may stay in the workspace, the libraries, or the cache."""
     if isinstance(raw, int) and not isinstance(raw, bool):
@@ -796,6 +818,7 @@ def _metadata_allowed(raw: Any) -> bool:
         or _font_read(path)
         or _under_roots(path, _WORK_READ)
         or _cache_path(path)
+        or _ancestor_of_allowed(path)
     )
 
 
