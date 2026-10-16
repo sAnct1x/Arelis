@@ -188,6 +188,7 @@ _BLOCKED_AUDIT_EVENTS = frozenset(
 )
 
 _IN_HOOK = False
+_READY_SENT = False
 _READ_ROOTS: list[Path] | None = None
 _WORK_READ: list[Path] = []
 _WORK_WRITE: list[Path] = []
@@ -471,6 +472,16 @@ def _force_agg() -> None:
     _AGG_LOCKED = True
 
 
+def _announce() -> None:
+    """Tell the parent the libraries are in. Once."""
+    global _READY_SENT
+    if _READY_SENT:
+        return
+    _READY_SENT = True
+    sys.stdout.write(_READY)
+    sys.stdout.flush()
+
+
 def _prepare_cache() -> None:
     """Private folder for the font cache and library temp files.
 
@@ -499,6 +510,39 @@ def _cache_path(path: Path) -> bool:
     if _CACHE_ROOT is None:
         return False
     return _under_roots(path, [_CACHE_ROOT])
+
+
+def _needs_matplotlib(code: str) -> bool:
+    """True when the snippet imports matplotlib or corner.
+
+    A NameError cell should not pay for a font scan. The scan is a process,
+    so it has to finish before the hook is installed.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        names: list[str] = []
+        if isinstance(node, ast.Import):
+            names = [alias.name.split(".", 1)[0] for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            root = (node.module or "").split(".", 1)[0]
+            if root:
+                names = [root]
+        if "matplotlib" in names or "corner" in names:
+            return True
+    return False
+
+
+def _fontconfig_list(args: tuple[Any, ...]) -> bool:
+    """Matplotlib's font scan. Not a general subprocess allow."""
+    if not args:
+        return False
+    raw = args[0]
+    if isinstance(raw, bytes):
+        raw = os.fsdecode(raw)
+    return Path(str(raw)).name.lower() in {"fc-list", "fc-list.exe"}
 
 
 def _warm_matplotlib() -> None:
@@ -622,6 +666,8 @@ def _paths_in_cache(event: str, args: tuple[Any, ...]) -> bool:
 
 
 def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
+    if event == "subprocess.Popen" and _fontconfig_list(args):
+        return
     if event in _CACHE_ONLY_EVENTS:
         if _paths_in_cache(event, args):
             return
@@ -964,20 +1010,18 @@ def main() -> None:
             # Older interpreters have no reconfigure. Buffering still follows -u.
             pass
         warnings.filterwarnings("ignore")
-        # Font cache first. The hook refuses the fc-list process matplotlib
-        # would otherwise start on the first import.
-        _warm_matplotlib()
         namespace = _namespace()
-        _install_hook()
-        sys.stdout.write(_READY)
-        sys.stdout.flush()
+        # The parent writes stdin before it waits for READY. Read it first so
+        # a cell that never plots does not build the font cache.
         raw = sys.stdin.read()
         try:
             payload = json.loads(raw or "{}")
         except json.JSONDecodeError as exc:
+            _announce()
             _fail("failed", exc, message="the cell could not read its input")
             return
         if not isinstance(payload, dict):
+            _announce()
             _emit(
                 {
                     "ok": False,
@@ -988,6 +1032,10 @@ def main() -> None:
             )
             return
         code = str(payload.get("code") or "")
+        if _needs_matplotlib(code):
+            _warm_matplotlib()
+        _install_hook()
+        _announce()
         _set_work_roots(payload.get("roots"))
         try:
             text = _execute(code, namespace)

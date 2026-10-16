@@ -319,12 +319,20 @@ def _kill_tree(proc: subprocess.Popen[str]) -> None:
         )
         return
     try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
+        pgid = os.getpgid(proc.pid)
+    except OSError:
+        pgid = None
+    # killpg(our own group) would take down the caller, including a test worker.
+    if pgid and pgid == proc.pid and pgid != os.getpgrp():
         try:
-            proc.kill()
-        except OSError:
+            os.killpg(pgid, signal.SIGKILL)
+            return
+        except (ProcessLookupError, PermissionError, OSError):
             pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
 
 
 def _format_output(
