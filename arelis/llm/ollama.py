@@ -387,15 +387,19 @@ class OllamaProvider:
         response.raise_for_status()
         return parse_installed_tags(response.json())
 
-    async def running_models(self) -> list[str]:
-        """Names currently resident according to `/api/ps`."""
+    async def running_ps(self) -> list[dict[str, Any]]:
+        """Model objects from `/api/ps`, including size_vram when Ollama sends it."""
         response = await self._client.get("/api/ps")
         response.raise_for_status()
         models = response.json().get("models") or []
+        if not isinstance(models, list):
+            return []
+        return [item for item in models if isinstance(item, dict)]
+
+    async def running_models(self) -> list[str]:
+        """Names currently resident according to `/api/ps`."""
         names: list[str] = []
-        for item in models:
-            if not isinstance(item, dict):
-                continue
+        for item in await self.running_ps():
             name = item.get("name") or item.get("model") or ""
             if name:
                 names.append(str(name))

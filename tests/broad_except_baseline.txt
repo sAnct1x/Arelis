@@ -66,7 +66,7 @@
 1 arelis/jobs/schedule.py
 1 arelis/lan_announce.py
 1 arelis/llm/ollama.py
-4 arelis/llm/router.py
+3 arelis/llm/router.py
 2 arelis/llm/startup.py
 4 arelis/llm/vram.py
 1 arelis/location/providers.py
