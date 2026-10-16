@@ -40,10 +40,10 @@ def _block_network() -> bool:
 
 
 class ExtractedPlace:
-    """A place the goto extractor or the Find box already cut out.
+    """Place text already cut out by the goto extractor or the Find box.
 
-    ``search_address`` refuses a plain string. Callers that still hold free
-    text cannot mint this by asking the geocoder to guess.
+    Only those two call sites may construct this. ``search_address`` refuses
+    a plain string, so a raw prompt cannot be geocoded.
     """
 
     __slots__ = ("text",)

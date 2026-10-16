@@ -69,7 +69,7 @@ async def test_earth_tool_goto(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_geocoder_accepts_only_an_extracted_place(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Free text never geocodes. Goto must pass the extracted place, not the prompt."""
+    """A plain string never geocodes. Chat goto sends the extracted place."""
     from arelis.earth import gazetteer
     from arelis.earth.geocode import NOMINATIM_HOST, ExtractedPlace, clear_cache, search_address
     from arelis.spatial.verbs import classify_physics_act
@@ -133,17 +133,23 @@ def test_geocoder_accepts_only_an_extracted_place(
         assert search_address("what is 3 body problem", force=True) == []
         assert resolve_place("remind me about Main Street") is None
         short = "show me my notes about the 3 body problem"
+        captured = "my notes about the 3 body problem"
         assert resolve_place(short) is None
-        assert classify_physics_act(short) is None
-        assert calls == []
+        act = classify_physics_act(short)
+        assert calls == [captured]
+        assert short not in calls
+        assert act is not None and act.verb == "goto_earth"
+        assert act.name == captured
         assert passed and isinstance(passed[-1], ExtractedPlace)
-        assert passed[-1].text == "my notes about the 3 body problem"
+        assert passed[-1].text == captured
 
         passed.clear()
-        classify_physics_act("show me Columbus, Ohio")
+        columbus_act = classify_physics_act("show me Columbus, Ohio")
         assert passed and isinstance(passed[-1], ExtractedPlace)
         assert passed[-1].text == "Columbus, Ohio"
-        assert calls == []
+        assert calls[-1] == "Columbus, Ohio"
+        assert "show me Columbus, Ohio" not in calls
+        assert columbus_act is not None and columbus_act.name == "Columbus, Ohio"
 
         london = resolve_place("London")
         assert london is not None and london.name == "London"
@@ -153,7 +159,7 @@ def test_geocoder_accepts_only_an_extracted_place(
         assert paris is not None and paris.name == "Paris"
         ohio = resolve_place("Ohio")
         assert ohio is not None and ohio.kind == "state"
-        assert calls == []
+        assert calls == [captured, "Columbus, Ohio"]
 
         columbus = _Find("Columbus, Ohio")
         assert apply_goto(columbus) is True
@@ -163,7 +169,11 @@ def test_geocoder_accepts_only_an_extracted_place(
         assert apply_goto(street) is True
         assert street.place is not None
         assert street.place["name"] == "10 Downing Street, London"
-        assert calls == ["Columbus, Ohio", "10 Downing Street, London"]
+        assert calls == [
+            captured,
+            "Columbus, Ohio",
+            "10 Downing Street, London",
+        ]
     finally:
         clear_cache()
 

@@ -402,9 +402,13 @@ def match_earth_place(text: str) -> str | None:
     if not blob or _NOT_BODY.search(blob):
         return None
     from arelis.earth.gazetteer import resolve_place
-    from arelis.earth.geocode import ExtractedPlace
+    from arelis.earth.geocode import ExtractedPlace, search_address
 
-    found = resolve_place(ExtractedPlace(blob))
+    place = ExtractedPlace(blob)
+    found = resolve_place(place)
+    if found is None:
+        hits = search_address(place, limit=1)
+        found = hits[0] if hits else None
     if found is None:
         return None
     return found.name
