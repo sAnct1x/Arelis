@@ -34,17 +34,53 @@ _cache: dict[str, tuple[GotoHit, ...]] = {}
 _last_unix = 0.0
 
 
+# A place name or a street line. Longer than this is a sentence, not a place.
+_MAX_PLACE_CHARS = 80
+_MAX_PLACE_WORDS = 8
+
+
+def _block_network() -> bool:
+    """True while pytest is running, so a test is the only way onto the network."""
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def extracted_place(query: str) -> str | None:
+    """A short place line, or None when this is still a sentence.
+
+    The geocoder only accepts text that was already cut down to a place.
+    A goto phrase still sitting on the string means that cut did not happen.
+    """
+    raw = " ".join((query or "").strip().split())
+    if not raw or "?" in raw:
+        return None
+    from arelis.spatial.verbs import still_has_goto_trigger
+
+    if still_has_goto_trigger(raw):
+        return None
+    q = " ".join(raw.strip(".,!").split())
+    if not q or len(q) > _MAX_PLACE_CHARS or len(q.split()) > _MAX_PLACE_WORDS:
+        return None
+    return q
+
+
 def looks_like_address(query: str) -> bool:
-    """True when the text is a street address, not a city name."""
-    q = (query or "").strip()
+    """True for a street line or a short city, region pair, not a sentence."""
+    q = extracted_place(query) or ""
     if len(q) < 5:
         return False
     words = q.split()
-    if any(ch.isdigit() for ch in q) and len(q) >= 6:
+    if len(words) < 2:
+        return False
+    has_street = _STREET.search(q) is not None
+    has_digit = any(ch.isdigit() for ch in q)
+    if has_digit and not has_street:
+        return False
+    if has_street:
         return True
-    if "," in q and len(words) >= 2:
-        return True
-    return bool(_STREET.search(q) and len(words) >= 2)
+    if q.count(",") != 1:
+        return False
+    left, right = (part.strip() for part in q.split(",", 1))
+    return bool(left and right and len(left.split()) <= 3 and len(right.split()) <= 3)
 
 
 def _fold(query: str) -> str:
@@ -63,11 +99,15 @@ def _kind_for(row: dict[str, Any]) -> str:
 
 
 def search_address(query: str, *, limit: int = 5, force: bool = False) -> list[GotoHit]:
-    """Resolve a typed or spoken place. Empty under pytest unless cached.
+    """Resolve an extracted place. Empty under pytest unless cached.
 
-    ``force`` is Enter / take-me-to — city + state, not only a street line.
+    ``force`` is Enter / take-me-to: a city and region, not only a street line.
+    A sentence, or text that still has the goto phrase on it, is not sent.
     """
-    key = _fold(query)
+    place = extracted_place(query)
+    if place is None:
+        return []
+    key = _fold(place)
     if not key:
         return []
     with _lock:
@@ -78,9 +118,9 @@ def search_address(query: str, *, limit: int = 5, force: bool = False) -> list[G
             for hit in cached
             if abs(hit.lat) >= 1e-5 or abs(hit.lon) >= 1e-5
         ][:limit]
-    if not force and not looks_like_address(query):
+    if not force and not looks_like_address(place):
         return []
-    if os.environ.get("PYTEST_CURRENT_TEST"):
+    if _block_network():
         return []
     global _last_unix
     with _lock:
@@ -91,7 +131,7 @@ def search_address(query: str, *, limit: int = 5, force: bool = False) -> list[G
         response = httpx.get(
             NOMINATIM,
             params={
-                "q": query.strip(),
+                "q": place,
                 "format": "jsonv2",
                 "limit": str(max(1, min(8, int(limit)))),
                 "addressdetails": "0",

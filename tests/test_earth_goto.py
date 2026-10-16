@@ -66,15 +66,74 @@ async def test_earth_tool_goto(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not miss.ok
 
 
-def test_looks_like_address_is_not_a_city_name() -> None:
-    from arelis.earth.geocode import looks_like_address
+def test_sentence_prompt_never_reaches_the_geocoder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A chat sentence is not a place. A city, region line still resolves."""
+    from arelis.earth.geocode import NOMINATIM_HOST, clear_cache, search_address
+    from arelis.spatial.verbs import classify_physics_act
 
-    assert looks_like_address("1600 Pennsylvania Avenue")
-    assert looks_like_address("10 Downing Street, London")
-    assert looks_like_address("Main Street")
-    assert not looks_like_address("Tokyo")
-    assert not looks_like_address("to")
-    assert not looks_like_address("California")
+    clear_cache()
+    calls: list[str] = []
+
+    class _Resp:
+        def __init__(self, query: str) -> None:
+            self._query = query
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> list[dict[str, str]]:
+            return [
+                {
+                    "lat": "40.00",
+                    "lon": "-83.00",
+                    "display_name": self._query,
+                    "addresstype": "city",
+                }
+            ]
+
+    def fake_get(url: str, **kwargs: object) -> _Resp:
+        assert NOMINATIM_HOST in str(url)
+        params = kwargs.get("params")
+        query = ""
+        if isinstance(params, dict):
+            query = str(params.get("q") or "")
+        calls.append(query)
+        return _Resp(query)
+
+    monkeypatch.setattr("arelis.earth.geocode.httpx.get", fake_get)
+    monkeypatch.setattr("arelis.earth.geocode._block_network", lambda: False)
+
+    prompt = "show me my notes from 2024 about the 3 body problem"
+    remainder = "my notes from 2024 about the 3 body problem"
+    try:
+        assert classify_physics_act(prompt) is None
+        assert resolve_place(prompt) is None
+        assert resolve_place(remainder) is None
+        assert search_address(prompt, force=True) == []
+        assert search_address(remainder, force=True) == []
+        assert calls == []
+
+        london = resolve_place("London")
+        assert london is not None and london.name == "London"
+        california = resolve_place("California")
+        assert california is not None and california.kind == "state"
+        paris = resolve_place("Paris")
+        assert paris is not None and paris.name == "Paris"
+        assert resolve_place("Paris France") is None
+        assert calls == []
+
+        columbus = resolve_place("Columbus, Ohio")
+        assert columbus is not None
+        assert columbus.name == "Columbus, Ohio"
+        assert calls == ["Columbus, Ohio"]
+
+        france = search_address("Paris France", force=True)
+        assert france and france[0].name == "Paris France"
+        assert calls == ["Columbus, Ohio", "Paris France"]
+    finally:
+        clear_cache()
 
 
 def test_scale_bar_reads_like_a_map() -> None:
