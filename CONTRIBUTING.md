@@ -170,7 +170,7 @@ my own machine first.
 ## Reporting a bug
 
 A security hole is different. See [SECURITY.md](SECURITY.md). Private
-report. Not a public issue.
+report, or email arelis@mail.grokbot.com. Not a public issue.
 
 A question is not a bug. Ask it in
 [Discussions](https://github.com/sAnct1x/Arelis/discussions) under Q&A.
