@@ -298,7 +298,10 @@ async def test_refusal_then_python_redo_then_plot(
 
 
 @pytest.mark.asyncio
-async def test_python_redo_without_data_ends_before_plot() -> None:
+@pytest.mark.parametrize("native", _MODES)
+async def test_python_redo_without_data_ends_before_plot(
+    native: bool
+) -> None:
     """A later python call with no result data ends the owed plot."""
     rec = _Rec()
     router = _ScriptedRouter(
@@ -312,7 +315,7 @@ async def test_python_redo_without_data_ends_before_plot() -> None:
     bus, loop = _loop(
         router,
         _tools(rec, _PythonSteps(rec, [_refusal(words=True), _no_data()])),
-        native=False,
+        native=native,
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
     assert rec.last is not None

@@ -766,6 +766,7 @@ def _fail(kind: str, exc: BaseException, **extra: Any) -> None:
     if "message" not in payload and kind != "timeout":
         if kind in {"failed", "syntax"}:
             payload["message"] = _failure_text(exc)
+            payload["exc_message"] = str(exc)
         else:
             payload["message"] = str(exc)
     _emit(payload)

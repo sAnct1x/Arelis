@@ -220,4 +220,4 @@ async def test_changed_bad_plot_args_stop_once_the_type_repeats(tmp_path: Path) 
     )
     events = await _collect(bus, loop.run(_ASK, "fast"))
     assert router.i == 2
-    assert _done_text(events) == ys_nope.output
+    _assert_honest(_done_text(events))

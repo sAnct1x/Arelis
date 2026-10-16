@@ -65,8 +65,7 @@ class PythonTool:
     description = (
         "Run a short Python cell for numerics, kinematics, linear algebra, or "
         "a multi-step derivation. math is preloaded (sin, cos, radians, sqrt, "
-        "pi). sympy is `sp`, numpy is `np` when installed. emcee is available "
-        "for a short MCMC fit. Assignments and "
+        "pi). sympy is `sp`, numpy is `np` when installed. Assignments and "
         "print() work; the last expression is shown. Do not import os, "
         "subprocess, or open files. sympify/lambdify/parse_expr are refused"
         "build expressions from sp.Symbol, not from strings. Timeout 10s. "
@@ -316,6 +315,9 @@ def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
         output = f"Python refused: {message}"
     else:
         output = message or "the cell stopped."
+    short = payload.get("exc_message")
+    if isinstance(short, str) and short.strip():
+        extra["exc_message"] = short.strip()
     if error_type:
         return arg_error(output=output, error_type=error_type, extra=extra or None)
     return ToolResult(ok=False, output=output, data=extra)

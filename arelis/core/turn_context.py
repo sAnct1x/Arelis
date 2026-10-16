@@ -117,9 +117,6 @@ class TurnContext:
     last_ok_tool_name: str = ""
     last_fail_tool_name: str = ""
     last_fail_tool_out: str = ""
-    # True only when the most recent tool result failed. A later success
-    # clears it. The wall-clock stop reports that error, not an older one.
-    last_tool_failed: bool = False
     # Copied from a python ToolResult data field. Empty unless that result
     # set next_tool to plot. Later python calls do not clear it. The loop
     # reads this, not the refusal sentence.

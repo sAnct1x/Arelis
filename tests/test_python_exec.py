@@ -76,6 +76,9 @@ async def test_matplotlib_refusal_sets_next_tool_plot() -> None:
     assert result.ok is False
     assert result.data.get("next_tool") == "plot"
     assert result.data.get("refusal") == "chart_import"
+    loaded = await PythonTool().run(code="import emcee")
+    assert loaded.ok is True
+    assert loaded.data.get("refusal") is None
 
 
 def test_chart_import_refusal_is_a_typed_error() -> None:

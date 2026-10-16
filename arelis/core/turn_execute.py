@@ -8,7 +8,6 @@ from typing import Any
 
 from arelis.contacts import format_contact_spoken
 from arelis.core.agenda_complete import looks_like_calendar_delete
-from arelis.core.code_retry import turn_wall_exceeded
 from arelis.core.events import Event, EventType
 from arelis.core.evidence import classify_fetch_failure
 from arelis.core.fail_tags import tool_fail_replan_notice
@@ -66,6 +65,36 @@ def _bad_args_key(name: str, data: dict[str, Any] | None) -> str | None:
     return f"{name}|{status}|{error_type}"
 
 
+# The cell's own exception text, without the traceback frames. Other tools
+# ship their output and let _finish rewrite a failed script.
+_SHORT_ERROR_KEY = {"python": "exc_message"}
+
+
+def _repeated_error_reply(
+    name: str,
+    redacted: str,
+    data: dict[str, Any] | None,
+    ctx: TurnContext,
+) -> str:
+    """Existing line for a repeated bad-args stop. No new sentence.
+
+    A failed chart uses the chart line. The cell uses its exception text.
+    Anything else is the tool output. The caller passes it through
+    ``_finish``, so the dash filter and the script-state check still run.
+    """
+    from arelis.core.loop_helpers import chart_failed_reply
+
+    chart = chart_failed_reply(ctx.ledger)
+    if chart:
+        return chart
+    key = _SHORT_ERROR_KEY.get(name)
+    if key and isinstance(data, dict):
+        short = data.get(key)
+        if isinstance(short, str) and short.strip():
+            return redact_secrets(short).strip()
+    return (redacted or "").strip()
+
+
 def _pin_plain_user(
     messages: list[dict[str, Any]],
     ctx: TurnContext,
@@ -113,33 +142,6 @@ def _pin_plain_user(
     append_tool_free_nudge(messages)
 
 
-def _wall_reply(ctx: TurnContext) -> str:
-    """Text to ship when the turn clock is already spent. No new sentence."""
-    if ctx.last_tool_failed:
-        err = (ctx.last_fail_tool_out or "").strip()
-        if err:
-            return err
-    ok = (ctx.last_ok_tool_out or "").strip()
-    if ok:
-        return ok
-    from arelis.core.agent_loop import _CLOSE_PARTIAL
-
-    return _CLOSE_PARTIAL
-
-
-async def _stop_for_turn_wall(loop: Any, ctx: TurnContext, sources: list[tuple[str, str]]) -> bool:
-    """End the turn when the wall clock is already spent.
-
-    A recent tool error is that tool's own text. A success is that result.
-    """
-    if getattr(loop, "_in_close", False):
-        return False
-    if not turn_wall_exceeded(loop):
-        return False
-    await loop._finish(_wall_reply(ctx), sources, streamed="", keep_error=True)
-    return True
-
-
 async def execute_call(
     loop: Any,
     ctx: TurnContext,
@@ -172,8 +174,6 @@ async def execute_call(
     sms_draft = r.sms_draft
     email_draft = r.email_draft
     try:
-        if await _stop_for_turn_wall(loop, ctx, r.sources):
-            return True
         await loop.bus.publish(Event(EventType.TOOL_START, {"tool": name, "args": args}))
         if loop._look is not None and name == "vision":
             await loop.bus.publish(
@@ -284,7 +284,6 @@ async def execute_call(
                 str(result.output or ""),
             )
             loop.tools_used.add(name)
-            ctx.last_tool_failed = False
             fail_counts.pop(call_fp, None)
             record_same_call(ctx.same_ok, name, args)
             ctx.last_ok_tool_out = str(result.output or "")
@@ -411,7 +410,6 @@ async def execute_call(
                 loop._note_look_tool(name, args, result, data_dict)
         else:
             fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
-            ctx.last_tool_failed = True
             typed = _bad_args_key(name, data_dict)
             if typed:
                 fail_counts[typed] = fail_counts.get(typed, 0) + 1
@@ -862,9 +860,9 @@ async def execute_call(
             return True
         typed = _bad_args_key(name, data_dict if not result.ok else None)
         if typed and fail_counts.get(typed, 0) >= 2:
-            text = (redacted or "").strip()
-            if text:
-                await loop._finish(text, sources, streamed="", keep_error=True)
+            reply = _repeated_error_reply(name, redacted, data_dict, ctx)
+            if reply:
+                await loop._finish(reply, sources, streamed="")
                 return True
         messages.append(loop._tool_message(name, out))
         if result.ok:
