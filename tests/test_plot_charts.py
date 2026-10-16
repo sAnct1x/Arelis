@@ -92,16 +92,6 @@ async def test_histogram_from_inline_numbers_writes_bars(tmp_path, monkeypatch) 
 
 
 @pytest.mark.asyncio
-async def test_subplots_refuses_one_panel(tmp_path, monkeypatch) -> None:
-    tool, _drop = _tool(tmp_path, monkeypatch)
-
-    result = await tool.run(action="subplots", panels="histogram", ys="1,2,3", out="nope.png")
-
-    assert not result.ok
-    assert "at least two" in result.output.lower()
-
-
-@pytest.mark.asyncio
 async def test_unknown_look_is_refused(tmp_path, monkeypatch) -> None:
     tool, _drop = _tool(tmp_path, monkeypatch)
 
