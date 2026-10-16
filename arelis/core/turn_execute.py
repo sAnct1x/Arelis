@@ -78,20 +78,21 @@ def _repeated_error_reply(
 ) -> str:
     """Existing line for a repeated bad-args stop. No new sentence.
 
-    A failed chart uses the chart line. The cell uses its exception text.
-    Anything else is the tool output. The caller passes it through
-    ``_finish``, so the dash filter and the script-state check still run.
+    A repeated cell error uses the fixed code line plus the exception
+    text. A failed chart uses the chart line. Anything else is the tool
+    output. The caller passes it through ``_finish``, so the dash filter
+    and the script-state check still run.
     """
-    from arelis.core.loop_helpers import chart_failed_reply
+    from arelis.core.loop_helpers import chart_failed_reply, code_kept_failing_reply
 
-    chart = chart_failed_reply(ctx.ledger)
-    if chart:
-        return chart
     key = _SHORT_ERROR_KEY.get(name)
     if key and isinstance(data, dict):
         short = data.get(key)
         if isinstance(short, str) and short.strip():
-            return redact_secrets(short).strip()
+            return code_kept_failing_reply(redact_secrets(short).strip())
+    chart = chart_failed_reply(ctx.ledger)
+    if chart:
+        return chart
     return (redacted or "").strip()
 
 

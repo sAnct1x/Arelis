@@ -1,8 +1,8 @@
 """A rewritten cell that keeps raising the same type must end the turn.
 
 fail_counts also stores ``{tool}|bad_args|{ExceptionClass}``. Two NameErrors
-with different source are one key. The tool result keeps the traceback.
-The reply is the exception text, after the normal finish path.
+with different source are one key. The tool result keeps the traceback. The reply is the fixed stop line
+plus the exception text, after the normal finish path.
 """
 
 from __future__ import annotations
@@ -82,7 +82,10 @@ async def test_same_exception_type_ends_on_the_tool_error() -> None:
     assert tool.last.data.get("exc_message") == "name 'flux' is not defined"
     assert tool.runs == 2
     assert router.i == 2
-    assert text == "name 'flux' is not defined"
+    assert text == (
+        "The code kept failing with the same error, so I stopped: "
+        "name 'flux' is not defined"
+    )
     assert "Traceback" not in text
     assert "File " not in text
     assert _NOT_THE_ANSWER not in text
