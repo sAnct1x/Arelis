@@ -763,6 +763,8 @@ def dispatch_event(window: Any, event: Event) -> None:
         if abs_path:
             kind = str(p.get("kind") or "")
             source = str(p.get("source") or "")
+            if kind == "plot":
+                window.chat.add_chart_image(name or Path(abs_path).name, abs_path)
             if kind == "note":
                 source = "keep"
             elif not source:
