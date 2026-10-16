@@ -179,6 +179,14 @@ class TurnContext:
     # Tokens and phrases from this turn's private reads. Reset with the turn.
     private_marks: PrivateMarks = field(default_factory=PrivateMarks)
 
+    def run_card_declined(self) -> bool:
+        """True when a run card was skipped or declined earlier this turn.
+
+        The set is filled only from that card. A new turn starts empty,
+        so the next turn does not keep the decline.
+        """
+        return bool(self.declined_tools & {"run_script", "run_task"})
+
     def is_send_path(self, expected_tools: set[str]) -> bool:
         """True when finishing on a compose/send turn must not die on web warrants."""
         return bool(

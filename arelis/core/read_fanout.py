@@ -55,6 +55,7 @@ def should_fanout_reads(
     allow_writes_this_turn: bool = False,
     tools_used: set[str] | None = None,
     web_search_ok: set[str] | None = None,
+    run_declined: bool = False,
 ) -> bool:
     """True when every call in this round is a confirm-free READ."""
     if len(calls) < 2:
@@ -90,6 +91,7 @@ def should_fanout_reads(
             confirm_vision=confirm_vision,
             confirm_run=confirm_run,
             allow_writes_this_turn=allow_writes_this_turn,
+            run_declined=run_declined,
         ):
             return False
         if name == "web_search" and redirect_risk:

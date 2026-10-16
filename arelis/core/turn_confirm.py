@@ -227,6 +227,7 @@ async def confirm_call(
         allow_writes_this_turn=ctx.allow_writes_this_turn,
         asked=asked,
         ask_is_grant=bool(getattr(loop, "ask_is_grant", True)),
+        run_declined=ctx.run_card_declined(),
     )
     # A URL carrying text from this turn's mail, files, or memory asks
     # even when the rest of the turn was already allowed, and in every theme.

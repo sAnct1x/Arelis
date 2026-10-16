@@ -232,6 +232,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             allow_writes_this_turn=ctx.allow_writes_this_turn,
             tools_used=loop.tools_used,
             web_search_ok=r.web_search_ok,
+            run_declined=ctx.run_card_declined(),
         )
     ):
         await loop.bus.publish(

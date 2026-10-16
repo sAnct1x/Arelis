@@ -177,10 +177,21 @@ def _done(events: list[Any]) -> dict[str, Any]:
 
 @pytest.mark.asyncio
 async def test_write_approved_run_skipped_python_144_is_not_a_run() -> None:
-    """P05: write allowed, run_script skipped, python printed 144."""
+    """P05: write allowed, run_script skipped, python printed 144.
+
+    The skipped run stays on the turn, so the python cell has to ask
+    before it runs. Allowing that card still leaves a cell result, not
+    a script run.
+    """
     workspace = _WorkspaceStub()
     python = _PythonStub()
     script = _RunScriptStub(ok=True)
+    asked: list[str] = []
+
+    async def _confirm(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
+        asked.append(tool)
+        return await _allow_write_skip_run(cid, tool, args, summary)
+
     router = _ScriptedRouter(
         [
             [
@@ -199,7 +210,7 @@ async def test_write_approved_run_skipped_python_144_is_not_a_run() -> None:
         ]
     )
     bus = EventBus()
-    loop = _loop(router, workspace, script, python, confirm=_allow_write_skip_run)
+    loop = _loop(router, workspace, script, python, confirm=_confirm)
     loop.bus = bus
     events = await _collect(bus, loop.run(_P05, "fast"))
     payload = _done(events)
@@ -207,6 +218,7 @@ async def test_write_approved_run_skipped_python_144_is_not_a_run() -> None:
     assert workspace.runs == 1
     assert script.runs == 0
     assert python.runs == 1
+    assert "python" in asked
     assert text == "\n".join((_WROTE, _SKIPPED, _PYTHON))
     assert _CLAIM not in text
     assert payload.get("unverified") == ["run_script"]
