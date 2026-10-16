@@ -190,6 +190,7 @@ class ToolRegistry:
         allow_writes_this_turn: bool = False,
         asked: bool = False,
         ask_is_grant: bool = True,
+        run_declined: bool = False,
     ) -> bool:
         """Decide whether this specific call must go through the confirm card.
 
@@ -208,6 +209,11 @@ class ToolRegistry:
         tool = self.get(name)
         if tool is None:
             return False
+        # A declined run stays on the turn. The python cell asks for no
+        # card when programs are off, so without this the same code runs
+        # anyway. Turns with no decline are unchanged.
+        if name == "python" and run_declined:
+            return True
         # Programs opt-out skips the card only for exact bytes the user
         # already approved. A rename, a new file, or a restart does not
         # make unseen source trusted.
