@@ -18,6 +18,14 @@ def test_first_sentence_starts_while_the_answer_is_still_growing() -> None:
     assert clips == ["Europa has an ocean under the ice."]
     assert already == 2
 
+    _, heard = next_speakable_units("It is 27.", 0, finalize=False)
+    clips, _ = next_speakable_units("It is 27.22°C.", heard, finalize=False)
+    assert clips == ["It is 27.22°C."]
+
+    _, heard = next_speakable_units("价格是27.", 0, finalize=False, language="zh")
+    clips, _ = next_speakable_units("价格是27." + "5元。", heard, finalize=False, language="zh")
+    assert clips == ["价格是27.5元。"]
+
 
 def test_a_long_sentence_starts_without_waiting() -> None:
     long = (
