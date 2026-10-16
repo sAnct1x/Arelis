@@ -152,6 +152,75 @@ async def test_answer_after_a_tool_streams_instead_of_landing_whole() -> None:
     spoken = await _spoken_after_withdrawn_chunk(reply)
     assert spoken == [reply]
 
+    # The withdrawn sentence is still inside synthesize when the withdraw
+    # lands, and the real reply is queued behind it on the same drain.
+    # Returning from the drain there drops that reply.
+    audio, synthesized = await _audio_while_withdrawn_sentence_synthesizes(reply)
+    assert reply in synthesized
+    assert audio == [reply]
+
+
+async def _audio_while_withdrawn_sentence_synthesizes(
+    reply: str,
+) -> tuple[list[str], list[str]]:
+    """Hold the first sentence in synthesize until the reply is queued behind it."""
+    from arelis.voice import VoiceService
+
+    class _SlowTTS:
+        def __init__(self) -> None:
+            self.spoken: list[str] = []
+            self.entered = asyncio.Event()
+            self.release = asyncio.Event()
+
+        def problem(self) -> None:
+            return None
+
+        async def synthesize(self, text: str, out: Path, language: str = "") -> Path:
+            self.spoken.append(text)
+            if not self.entered.is_set():
+                self.entered.set()
+                await self.release.wait()
+            path = Path(out)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"RIFF")
+            return path
+
+    bus = EventBus()
+    played: list[str] = []
+
+    async def _capture(event: Event) -> None:
+        if event.type == EventType.VOICE_AUDIO_READY:
+            played.append(str(event.payload.get("text") or ""))
+
+    bus.subscribe(None, _capture)
+    voice = VoiceService(
+        bus, {"voice": {"enabled": True, "tts": {"enabled": True, "backend": "piper"}}}
+    )
+    voice.speak_enabled = True
+    fake = _SlowTTS()
+    voice.tts = fake  # type: ignore[assignment]
+    task = asyncio.create_task(bus.run())
+    bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": "Done. "}))
+    await fake.entered.wait()
+    bus.publish_nowait(Event(EventType.ASSISTANT_RETRACT, {}))
+    bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": reply}))
+    queued = False
+    for _ in range(100):
+        if any(sentence == reply for sentence, _final in voice._pending):
+            queued = True
+            break
+        await asyncio.sleep(0)
+    assert queued, "real reply was not queued behind the in-flight sentence"
+    fake.release.set()
+    await bus.drain()
+    bus.stop()
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    return played, list(fake.spoken)
+
 
 async def _spoken_after_withdrawn_chunk(reply: str) -> list[str]:
     """Publish withdraw-then-reply the way the bus does: all queued, then handled."""
