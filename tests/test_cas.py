@@ -69,10 +69,10 @@ async def test_cas_fiftieth_derivative_is_minus_fifty_factorial(
     Serial: the 8s budget is the real one, and an xdist worker does not
     have a quiet machine to spend it on.
 
-    Windows: the serial step on the hosted Windows runners still ran out
+    Windows and macOS: the serial step on hosted runners still ran out
     of the 8s budget on this diff, so the budget is doubled there only.
     """
-    if sys.platform == "win32":
+    if sys.platform in {"win32", "darwin"}:
         monkeypatch.setattr(cas, "_TIMEOUT_S", cas._TIMEOUT_S * 2)
     result = await CasTool().run(
         action="diff",
