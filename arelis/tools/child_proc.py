@@ -124,8 +124,15 @@ def _spawn(
     and resumes the primary thread. If that fails the child is killed and
     this returns ``(None, None)``. Callers already treat that as a cell that
     did not start.
+
+    A Windows venv ``python.exe`` is a launcher that starts the base
+    interpreter as a second process. Active process limit 1 would kill
+    that child. ``_windows_cell_python`` spawns ``sys._base_executable``
+    instead and points ``__PYVENV_LAUNCHER__`` at the venv so ``-I`` still
+    sees that venv's site-packages.
     """
     script = Path(runner) if runner is not None else _DEFAULT_RUNNER
+    python, env = _windows_cell_python(python, env)
     argv = [python, "-I", "-B", *[str(arg) for arg in (extra_args or ())], str(script)]
     kwargs: dict[str, Any] = {
         "cwd": str(cwd),
@@ -162,6 +169,32 @@ def _spawn(
     if not contained or job is None:
         return None, None
     return proc, job
+
+
+def _windows_cell_python(python: str, env: dict[str, str]) -> tuple[str, dict[str, str]]:
+    """Spawn the real interpreter when this process is a Windows venv launcher.
+
+    ``-I`` ignores every ``PYTHON*`` variable, including ``PYTHONPATH``.
+    getpath still reads ``__PYVENV_LAUNCHER__`` and loads ``pyvenv.cfg``
+    from the launcher directory or the one above it, which puts the venv
+    site-packages on ``sys.path``. The installed tree is not a venv:
+    ``sys.executable`` and ``sys._base_executable`` are the same file
+    (``python.exe`` or ``pythonw.exe``), so this leaves the path alone
+    and the cell stays one process.
+    """
+    if sys.platform != "win32":
+        return python, env
+    base = getattr(sys, "_base_executable", None)
+    if not isinstance(base, str) or not base:
+        return python, env
+    asked = os.path.normcase(os.path.abspath(python))
+    current = os.path.normcase(os.path.abspath(sys.executable))
+    real = os.path.normcase(os.path.abspath(base))
+    if asked != current or real == current:
+        return python, env
+    child = dict(env)
+    child["__PYVENV_LAUNCHER__"] = os.path.abspath(python)
+    return base, child
 
 
 def _contain(proc: subprocess.Popen[str], memory_bytes: int | None) -> int:

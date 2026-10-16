@@ -214,6 +214,40 @@ def test_job_blocks_child_launch_without_hooks(
             failures.append(
                 f"control: marker missing (rc={code_rc})\n{_snippet(out)}\n{_snippet(err)}"
             )
+        # The process interpreter is a venv launcher. The file is empty, so
+        # spawning it cannot succeed. The cell has to start the real
+        # interpreter and still import from that venv's site-packages.
+        monkeypatch.setattr(child_proc, "_ACTIVE_PROCESS_LIMIT", 1)
+        real = getattr(sys, "_base_executable", None) or sys.executable
+        venv_root = tmp_path / "venv-style"
+        scripts = venv_root / "Scripts"
+        scripts.mkdir(parents=True)
+        launcher = scripts / "python.exe"
+        launcher.write_bytes(b"")
+        (venv_root / "pyvenv.cfg").write_text(
+            "home = "
+            + str(Path(real).parent)
+            + "\ninclude-system-site-packages = false\n",
+            encoding="utf-8",
+        )
+        site = venv_root / "Lib" / "site-packages"
+        site.mkdir(parents=True)
+        (site / "atria_marker.py").write_text("MARK = 'venv-site'\n", encoding="utf-8")
+        monkeypatch.setattr(sys, "executable", str(launcher))
+        monkeypatch.setattr(sys, "_base_executable", str(real))
+        venv_marker = markers / "venv_site"
+        venv_code = (
+            "import atria_marker\n"
+            "from pathlib import Path\n"
+            f"Path({str(venv_marker)!r}).write_text(atria_marker.MARK, encoding='utf-8')\n"
+        )
+        code_rc, out, err, hung = _run_cell(venv_code, work, runner)
+        if hung or code_rc != 0 or not venv_marker.is_file():
+            failures.append(
+                f"venv: site-packages not visible (rc={code_rc})\n{_snippet(out)}\n{_snippet(err)}"
+            )
+        elif venv_marker.read_text(encoding="utf-8") != "venv-site":
+            failures.append("venv: marker text was wrong")
     finally:
         cleanup_copy()
     assert not failures, "\n".join(failures)
