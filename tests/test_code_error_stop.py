@@ -111,8 +111,8 @@ async def test_same_exception_type_ends_on_the_tool_error() -> None:
     assert os_tool.last is not None
     assert os_tool.last.data.get("status") == "bad_args"
     refusal = str(os_tool.last.data.get("exc_message") or "")
-    assert "matplotlib" in refusal
-    assert "corner" in refusal and "csv" in refusal and "emcee" in refusal
+    assert "numpy" in refusal and "sympy" in refusal
+    assert "matplotlib" not in refusal
     assert "are preloaded" not in refusal
     assert os_text == (
         "The code kept failing with the same error, so I stopped: " + refusal

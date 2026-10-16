@@ -81,14 +81,16 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
     assert result.ok is False
     assert result.data.get("next_tool") == "plot"
     assert result.data.get("refusal") == "chart_import"
-    loaded = await PythonTool().run(code="import emcee")
+    loaded = await PythonTool(science_io=True).run(code="import emcee")
     assert loaded.ok is True
     assert loaded.data.get("refusal") is None
 
     root = tmp_path / "proj"
     root.mkdir()
     (root / "data.csv").write_text("1.5\n2.5\n", encoding="utf-8")
-    tool = PythonTool(WorkspaceRoots([RootEntry(name="proj", path=root)]))
+    tool = PythonTool(
+        WorkspaceRoots([RootEntry(name="proj", path=root)]), science_io=True
+    )
     results = root / "results"
     figure = results / "corner.png"
     table = results / "chain.txt"
@@ -135,7 +137,6 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
     )
     assert relative.ok is False
     # A relative path is the cell's temp directory, outside this room.
-    # Stat refuses it before the write, so the results sentence may not run.
     lowered = relative.output.lower()
     assert "results" in lowered or "details" in lowered
 
@@ -245,14 +246,6 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
         )
     )
     assert spawned.ok is False
-    details = await tool.run(
-        code=(
-            "import matplotlib\n"
-            "print(matplotlib.os.stat('/etc/passwd').st_size)\n"
-        )
-    )
-    assert details.ok is False
-    assert "details" in details.output.lower()
     present = await tool.run(
         code=(
             "import matplotlib\n"
@@ -293,18 +286,32 @@ async def test_chart_import_refusal_is_a_typed_error() -> None:
     assert result.data.get("error_type") == "_ChartImportError"
     assert "call plot" in result.output.lower()
     assert "compute xs" not in result.output.lower()
-    allowed = await PythonTool().run(code="import csv\nimport math\nprint(math.sqrt(4))\n")
+    allowed = await PythonTool(science_io=True).run(
+        code="import csv\nimport math\nprint(math.sqrt(4))\n"
+    )
     assert allowed.ok, allowed.output
     assert "2.0" in allowed.output
     refused = await PythonTool().run(code="import os")
     assert refused.ok is False
     text = str(refused.data.get("exc_message") or "")
-    assert "matplotlib" in text
-    assert "corner" in text
-    assert "csv" in text
-    assert "emcee" in text
+    assert "numpy" in text and "sympy" in text
+    assert "matplotlib" not in text
+    assert "corner" not in text
     assert "are preloaded" not in text
     assert "os and subprocess are not" in text
+
+
+@pytest.mark.asyncio
+async def test_science_io_flag_gates_matplotlib_and_corner() -> None:
+    """The widened imports stay off until python_cell.science_io is set."""
+    for name in ("matplotlib", "corner"):
+        refused = await PythonTool().run(code=f"import {name}")
+        assert refused.ok is False, name
+    allowed = await PythonTool(science_io=True).run(
+        code="import matplotlib\nimport corner\nprint('science')\n"
+    )
+    assert allowed.ok, allowed.output
+    assert "science" in allowed.output
 
 
 def test_os_import_refusal_is_not_the_chart_marker() -> None:

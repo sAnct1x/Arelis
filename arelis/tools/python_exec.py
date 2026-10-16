@@ -92,10 +92,13 @@ def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
 class PythonTool:
     name = "python"
     # Subclasses that skip __init__ keep an empty list. No workspace, no writes.
+    # science_io stays off unless the caller or the registry turns it on.
     _root_payload: list[dict[str, Any]] = []
+    _science_io: bool = False
 
-    def __init__(self, workspace: Any = None) -> None:
+    def __init__(self, workspace: Any = None, *, science_io: bool = False) -> None:
         self._root_payload = _workspace_payload(workspace)
+        self._science_io = bool(science_io)
     description = (
         "Run a short Python cell for numerics, kinematics, linear algebra, or "
         "a multi-step derivation. math is preloaded (sin, cos, radians, sqrt, "
@@ -147,10 +150,12 @@ class PythonTool:
                 ok=False,
                 output=f"Code is longer than {_MAX_CHARS} characters.",
             )
-        return await _run_in_child(code, self._root_payload)
+        return await _run_in_child(code, self._root_payload, self._science_io)
 
 
-async def _run_in_child(code: str, roots: list[dict[str, Any]]) -> ToolResult:
+async def _run_in_child(
+    code: str, roots: list[dict[str, Any]], science_io: bool
+) -> ToolResult:
     """Run the cell off the event loop, and do not leave that thread behind."""
     loop = asyncio.get_running_loop()
     done = asyncio.Event()
@@ -158,7 +163,7 @@ async def _run_in_child(code: str, roots: list[dict[str, Any]]) -> ToolResult:
 
     def _target() -> None:
         try:
-            box["result"] = _run_in_child_sync(code, roots)
+            box["result"] = _run_in_child_sync(code, roots, science_io)
         except Exception as exc:
             box["result"] = arg_error(exc)
         finally:
@@ -173,13 +178,19 @@ async def _run_in_child(code: str, roots: list[dict[str, Any]]) -> ToolResult:
     )
 
 
-def _run_in_child_sync(code: str, roots: list[dict[str, Any]]) -> ToolResult:
+def _run_in_child_sync(
+    code: str, roots: list[dict[str, Any]], science_io: bool
+) -> ToolResult:
     work = Path(tempfile.mkdtemp(prefix="arelis-py-"))
     env = child_env(
         {
             "PYTHONUNBUFFERED": "1",
             "PYTHONIOENCODING": "utf-8",
             "MPLBACKEND": "Agg",
+            # macOS matplotlib runs system_profiler, then opens system fonts.
+            # That is the path that killed the pytest worker once the cell
+            # got past the font stat. Agg plots with the bundled fonts.
+            "MPL_IGNORE_SYSTEM_FONTS": "1",
         }
     )
     proc: subprocess.Popen[str] | None = None
@@ -201,7 +212,9 @@ def _run_in_child_sync(code: str, roots: list[dict[str, Any]]) -> ToolResult:
             return ToolResult(ok=False, output="Python failed: the cell could not start.")
         ready, lines, errors, threads = _attach_readers(proc)
         try:
-            proc.stdin.write(json.dumps({"code": code, "roots": roots}))
+            proc.stdin.write(
+                json.dumps({"code": code, "roots": roots, "science_io": science_io})
+            )
             proc.stdin.close()
         except Exception:
             # The child already exited, so the pipe is gone. The caller is told.

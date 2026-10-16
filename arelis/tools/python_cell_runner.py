@@ -4,14 +4,14 @@ Run this file by path (`python -I -B -u python_cell_runner.py`). It must not
 import arelis. The parent sends the source on stdin after this process has
 imported the numerics libraries and printed a ready line.
 
-The AST checks are the same allowlist the cell has always had. They are not
-the boundary. The audit hook is. It refuses new processes, sockets, ctypes,
-directory listings outside the workspace, and any write outside the room's
-results folder. A create with execute permission is refused everywhere.
-Reads may stay inside the workspace, same as the data cell's room rule.
-Library and OS font reads stay allowed. Matplotlib may use a private cache
-folder the cell cannot name. The font scan runs before the hook is installed.
-Name rules cannot see ``vars(numpy)["lo" + "ad"]``. The open still shows up here.
+The allowlist is the original cell unless the parent sets science_io. That
+flag adds matplotlib, corner, csv, seaborn, emcee, and astropy, and it allows
+numpy and astropy file IO plus savefig into the room's results folder.
+The audit hook is the boundary either way. It refuses new processes, sockets,
+ctypes, and directory listings outside the workspace. A create with execute
+permission is refused everywhere. With the flag on, a write has to stay in
+the results folder and a read may stay in the workspace. Library reads stay
+allowed. Matplotlib uses its bundled fonts, not the OS font scan.
 """
 
 from __future__ import annotations
@@ -33,7 +33,8 @@ _MAX_OUTPUT = 8_000
 _READY = "ARELIS_PY_READY\n"
 _RESULT = "ARELIS_PY_RESULT "
 
-_ALLOWED_IMPORTS = frozenset(
+# The cell on main. science_io adds the names below. It does not add these.
+_BASE_IMPORTS = frozenset(
     {
         "math",
         "cmath",
@@ -51,18 +52,19 @@ _ALLOWED_IMPORTS = frozenset(
         "sympy",
         "numpy",
         "scipy",
-        "emcee",
-        "astropy",
-        "matplotlib",
-        "corner",
-        "csv",
         "mpmath",
     }
 )
+# MCMC and a figure need these. Off until python_cell.science_io is set.
+_SCIENCE_IMPORTS = frozenset(
+    {"matplotlib", "corner", "csv", "seaborn", "emcee", "astropy"}
+)
+_SCIENCE_IO = False
 
-# matplotlib itself runs in the cell (Agg, workspace files only). These
-# names still mean "draw it with the plot tool" rather than a library.
-_CHART_IMPORTS = frozenset({"pyplot", "pylab", "seaborn", "plotly"})
+# With science_io off, matplotlib and seaborn are chart imports, as on main.
+_BASE_CHARTS = frozenset({"matplotlib", "pyplot", "pylab", "seaborn", "plotly"})
+# These two become real imports when the flag is on. pyplot stays a chart.
+_SCIENCE_CHARTS_KEPT = frozenset({"pyplot", "pylab", "plotly"})
 
 _FORBIDDEN_CALLS = frozenset(
     {
@@ -133,7 +135,11 @@ _FORBIDDEN_ATTR_CALLS = frozenset(
 )
 
 _ATTR_CALL_ONLY = frozenset({"S"})
-_FORBIDDEN_ATTRS_ANYWHERE = _FORBIDDEN_ATTR_CALLS - _ATTR_CALL_ONLY
+# numpy/astropy file IO and savefig. Allowed only while science_io is on.
+# open() is the same switch: the hook then limits the path.
+_SCIENCE_ATTRS = frozenset(
+    {"save", "savetxt", "load", "loadtxt", "write", "writeto", "savefig", "open"}
+)
 
 _ATTR_REFUSAL = (
     "{name!r} is not allowed here, it evaluates text or touches the disk. "
@@ -239,22 +245,53 @@ class _ChartImportError(ValueError):
         )
 
 
-# What a cell may import. matplotlib and corner load on demand; the rest of
-# this list is either preloaded or imported by name. The refusal names the
-# list so it cannot claim a smaller set is the whole story.
-_ALLOWED_LIST = (
+_BASE_LIST = (
     "math, cmath, statistics, fractions, decimal, itertools, functools, "
     "collections, operator, copy, json, re, datetime, sympy, numpy, scipy, "
-    "emcee, astropy, matplotlib, corner, csv, and mpmath"
+    "and mpmath"
+)
+_SCIENCE_LIST = (
+    "math, cmath, statistics, fractions, decimal, itertools, functools, "
+    "collections, operator, copy, json, re, datetime, sympy, numpy, scipy, "
+    "emcee, astropy, matplotlib, corner, csv, seaborn, and mpmath"
 )
 
 
+def _allowed_imports() -> frozenset[str]:
+    if _SCIENCE_IO:
+        return _BASE_IMPORTS | _SCIENCE_IMPORTS
+    return _BASE_IMPORTS
+
+
+def _chart_imports() -> frozenset[str]:
+    if _SCIENCE_IO:
+        return _SCIENCE_CHARTS_KEPT
+    return _BASE_CHARTS
+
+
+def _forbidden_calls() -> frozenset[str]:
+    if _SCIENCE_IO:
+        return _FORBIDDEN_CALLS
+    return _FORBIDDEN_CALLS | {"open"}
+
+
+def _forbidden_attr_calls() -> frozenset[str]:
+    if _SCIENCE_IO:
+        return _FORBIDDEN_ATTR_CALLS
+    return _FORBIDDEN_ATTR_CALLS | _SCIENCE_ATTRS
+
+
+def _forbidden_attrs_anywhere() -> frozenset[str]:
+    return _forbidden_attr_calls() - _ATTR_CALL_ONLY
+
+
 def _import_refusal(name: str) -> NoReturn:
-    if name in _CHART_IMPORTS:
+    if name in _chart_imports():
         raise _ChartImportError(name)
+    listed = _SCIENCE_LIST if _SCIENCE_IO else _BASE_LIST
     raise _CellRefusedError(
         f"import {name!r} is not allowed. "
-        f"{_ALLOWED_LIST} are allowed. os and subprocess are not."
+        f"{listed} are allowed. os and subprocess are not."
     )
 
 
@@ -554,13 +591,19 @@ def _needs_matplotlib(code: str) -> bool:
             root = (node.module or "").split(".", 1)[0]
             if root:
                 names = [root]
-        if "matplotlib" in names or "corner" in names:
+        if "matplotlib" in names or "corner" in names or "seaborn" in names:
             return True
     return False
 
 
 def _warm_matplotlib() -> None:
-    """Build the font cache before the hook. ``fc-list`` is a process."""
+    """Build the font cache before the hook.
+
+    System font discovery is off. On macOS that discovery runs
+    ``system_profiler`` and then opens fonts outside the interpreter, and
+    that path killed the pytest worker. The bundled fonts are enough for Agg.
+    """
+    os.environ["MPL_IGNORE_SYSTEM_FONTS"] = "1"
     try:
         import matplotlib
 
@@ -691,21 +734,6 @@ def _install_open_guard() -> None:
 
 
 _LIST_EVENTS = frozenset({"os.listdir", "os.scandir", "os.walk", "os.fwalk"})
-# Metadata events CPython actually raises. os.stat, os.lstat, os.readlink,
-# and os.path.exists do not raise one on 3.12, so those calls are wrapped
-# below. When an interpreter does raise one, the same room rule applies.
-_META_EVENTS = frozenset(
-    {
-        "os.stat",
-        "os.lstat",
-        "os.readlink",
-        "os.access",
-        "os.statvfs",
-        "os.getxattr",
-        "os.listxattr",
-    }
-)
-_IN_META = False
 _OS_LAUNCH_NAMES = (
     "fork",
     "forkpty",
@@ -729,7 +757,6 @@ _OS_LAUNCH_NAMES = (
     "spawnvpe",
     "startfile",
 )
-_META_NAMES = ("stat", "lstat", "readlink", "access")
 
 
 def _refuse_process(*_args: Any, **_kwargs: Any) -> NoReturn:
@@ -784,71 +811,6 @@ def _stub_process_launchers() -> None:
         else:
             for name in _OS_LAUNCH_NAMES:
                 take(getattr(module, name, None))
-    _replace_functions(found)
-
-
-def _ancestor_of_allowed(path: Path) -> bool:
-    """True when path is a parent of a library, font, workspace, or cache root.
-
-    ``os.path.realpath`` stats every directory from ``/`` down to a font
-    file. Those parents are not the file. ``/etc/passwd`` is not one of them.
-    """
-    roots: list[Path] = list(_read_roots())
-    roots.extend(_font_roots())
-    roots.extend(_WORK_READ)
-    if _CACHE_ROOT is not None:
-        roots.append(_CACHE_ROOT)
-    for root in roots:
-        if lexically_inside(root, path):
-            return True
-    return False
-
-
-def _metadata_allowed(raw: Any) -> bool:
-    """A stat or readlink may stay in the workspace, the libraries, or the cache."""
-    if isinstance(raw, int) and not isinstance(raw, bool):
-        return True
-    if raw is None:
-        return False
-    path = _as_path(raw)
-    if path is None:
-        return False
-    return bool(
-        _library_read(path)
-        or _font_read(path)
-        or _under_roots(path, _WORK_READ)
-        or _cache_path(path)
-        or _ancestor_of_allowed(path)
-    )
-
-
-def _guard_metadata(real: Any) -> Any:
-    def guarded(*args: Any, **kwargs: Any) -> Any:
-        global _IN_META
-        if _IN_META or _IN_HOOK:
-            return real(*args, **kwargs)
-        raw = args[0] if args else kwargs.get("path")
-        _IN_META = True
-        try:
-            allowed = _metadata_allowed(raw)
-        finally:
-            _IN_META = False
-        if not allowed:
-            raise _CellBlocked(
-                "reading file details outside this room is not allowed in this cell."
-            )
-        return real(*args, **kwargs)
-
-    return guarded
-
-
-def _install_metadata_guards() -> None:
-    """Wrap stat, lstat, readlink, and access. exists() goes through stat."""
-    found: dict[int, Any] = {}
-    for name in _META_NAMES:
-        fn = getattr(os, name, None)
-        if callable(fn) and id(fn) not in found:
-            found[id(fn)] = _guard_metadata(fn)
     _replace_functions(found)
 
 
@@ -926,13 +888,6 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
         raise _CellBlocked(
             "listing a directory outside this room is not allowed in this cell."
         )
-    if event in _META_EVENTS:
-        raw = args[0] if args else None
-        if _metadata_allowed(raw):
-            return
-        raise _CellBlocked(
-            "reading file details outside this room is not allowed in this cell."
-        )
     if event != "open" or not args:
         return
     mode = args[1] if len(args) > 1 else ""
@@ -941,17 +896,18 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
     if path is None:
         return
     if _is_write(mode, flags):
-        if _under_roots(path, _WORK_WRITE) or _cache_path(path):
+        if _SCIENCE_IO and (_under_roots(path, _WORK_WRITE) or _cache_path(path)):
             return
-        raise _CellBlocked(
-            "opening a file to write it is not allowed in this cell. "
-            "The path has to stay inside this room's results folder."
-        )
-    if (
-        _library_read(path)
-        or _font_read(path)
-        or _under_roots(path, _WORK_READ)
-        or _cache_path(path)
+        if _SCIENCE_IO:
+            raise _CellBlocked(
+                "opening a file to write it is not allowed in this cell. "
+                "The path has to stay inside this room's results folder."
+            )
+        raise _CellBlocked(_refusal("opening a file to write it"))
+    if _library_read(path):
+        return
+    if _SCIENCE_IO and (
+        _font_read(path) or _under_roots(path, _WORK_READ) or _cache_path(path)
     ):
         return
     raise _CellBlocked(_refusal("reading a file outside the Python libraries"))
@@ -963,7 +919,6 @@ def _install_hook() -> None:
     # so every later Popen is refused.
     _read_roots()
     _stub_process_launchers()
-    _install_metadata_guards()
     _install_open_guard()
     sys.addaudithook(_audit)
 
@@ -979,23 +934,23 @@ def _assert_safe(tree: ast.AST) -> None:
                 if root:
                     names = [root]
             for name in names:
-                if name not in _ALLOWED_IMPORTS:
+                if name not in _allowed_imports():
                     _import_refusal(name)
             if isinstance(node, ast.ImportFrom):
                 for alias in node.names:
-                    if alias.name in _FORBIDDEN_ATTR_CALLS:
+                    if alias.name in _forbidden_attr_calls():
                         raise _CellRefusedError(_ATTR_REFUSAL.format(name=alias.name))
         if isinstance(node, ast.Attribute) and str(node.attr).startswith("_"):
             raise _CellRefusedError("private attributes are not allowed")
         if isinstance(node, ast.Name) and node.id.startswith("_"):
             raise _CellRefusedError(f"name {node.id!r} is not allowed")
         if isinstance(node, ast.Attribute):
-            if str(node.attr) in _FORBIDDEN_ATTRS_ANYWHERE:
+            if str(node.attr) in _forbidden_attrs_anywhere():
                 raise _CellRefusedError(_ATTR_REFUSAL.format(name=node.attr))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id in _FORBIDDEN_CALLS:
+            if node.func.id in _forbidden_calls():
                 raise _CellRefusedError(f"call {node.func.id!r} is not allowed")
-            if node.func.id in _FORBIDDEN_ATTR_CALLS:
+            if node.func.id in _forbidden_attr_calls():
                 raise _CellRefusedError(_ATTR_REFUSAL.format(name=node.func.id))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if str(node.func.attr) in _ATTR_CALL_ONLY:
@@ -1041,7 +996,7 @@ def _safe_import(
     if level:
         raise _CellRefusedError("relative imports are not allowed")
     root = str(name or "").split(".", 1)[0]
-    if root not in _ALLOWED_IMPORTS:
+    if root not in _allowed_imports():
         _import_refusal(root)
     module = __import__(name, globals, locals, fromlist, 0)
     if root == "matplotlib" or "matplotlib" in sys.modules:
@@ -1053,7 +1008,6 @@ def _namespace() -> dict[str, Any]:
     import cmath
     import collections
     import copy
-    import csv as csv_mod
     import datetime
     import decimal
     import fractions
@@ -1084,7 +1038,6 @@ def _namespace() -> dict[str, Any]:
         "map": map,
         "max": max,
         "min": min,
-        "open": open,
         "pow": pow,
         "print": print,
         "range": range,
@@ -1109,6 +1062,8 @@ def _namespace() -> dict[str, Any]:
         "ArithmeticError": ArithmeticError,
         "__import__": _safe_import,
     }
+    if _SCIENCE_IO:
+        safe_builtins["open"] = open
     ns: dict[str, Any] = {
         "__builtins__": safe_builtins,
         "math": math,
@@ -1122,7 +1077,6 @@ def _namespace() -> dict[str, Any]:
         "operator": operator,
         "copy": copy,
         "json": json_mod,
-        "csv": csv_mod,
         "re": re,
         "datetime": datetime,
     }
@@ -1148,12 +1102,16 @@ def _namespace() -> dict[str, Any]:
         ns["scipy"] = scipy
     except ImportError:
         pass
-    try:
-        import emcee
+    if _SCIENCE_IO:
+        import csv as csv_mod
 
-        ns["emcee"] = emcee
-    except ImportError:
-        pass
+        ns["csv"] = csv_mod
+        try:
+            import emcee
+
+            ns["emcee"] = emcee
+        except ImportError:
+            pass
     try:
         import mpmath
 
@@ -1264,6 +1222,10 @@ def _fail(kind: str, exc: BaseException, **extra: Any) -> None:
 
 
 def main() -> None:
+    global _SCIENCE_IO
+    # Set before the warm-up import. A later matplotlib import sees the same
+    # variable because this is the process environment.
+    os.environ["MPL_IGNORE_SYSTEM_FONTS"] = "1"
     _prepare_cache()
     try:
         _enable_sites()
@@ -1273,9 +1235,9 @@ def main() -> None:
             # Older interpreters have no reconfigure. Buffering still follows -u.
             pass
         warnings.filterwarnings("ignore")
-        namespace = _namespace()
         # The parent writes stdin before it waits for READY. Read it first so
-        # a cell that never plots does not build the font cache.
+        # a cell that never plots does not build the font cache, and so the
+        # science flag is known before the namespace is built.
         raw = sys.stdin.read()
         try:
             payload = json.loads(raw or "{}")
@@ -1294,8 +1256,10 @@ def main() -> None:
                 }
             )
             return
+        _SCIENCE_IO = bool(payload.get("science_io"))
         code = str(payload.get("code") or "")
-        if _needs_matplotlib(code):
+        namespace = _namespace()
+        if _SCIENCE_IO and _needs_matplotlib(code):
             _warm_matplotlib()
         _install_hook()
         _announce()
