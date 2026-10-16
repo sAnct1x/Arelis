@@ -834,11 +834,26 @@ def on_speech_watchdog(window) -> None:
     stop_speech(window)
 
 
+def stop_playback(window) -> None:
+    """Drop clips the player already holds. Do not cancel synthesis.
+
+    Retract uses this. The voice service has already cancelled the withdrawn
+    utterance. cancel_speech from the Qt thread runs after the replacement
+    has taken the next speak id, and that id would be the one marked
+    cancelled, so the reply never reaches TTS.
+    """
+    if window.speech_player is not None:
+        window.speech_player.stop()
+    window._speech_playing = False
+    update_speaking(window)
+
+
 def stop_speech(window) -> None:
     # Cancelling synthesis matters as much as stopping the player. The
     # player drops the clips it holds, but the service would keep rendering
     # the rest of the answer, and conversation mode stays deaf until that
-    # loop reaches its terminal event.
+    # loop reaches its terminal event. Retract must not use this: see
+    # stop_playback.
     if window.voice is not None:
         window.voice.cancel_speech()
     if window.speech_player is not None:
