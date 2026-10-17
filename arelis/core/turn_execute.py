@@ -45,6 +45,7 @@ from arelis.core.turn_prepare import (
 )
 from arelis.core.turn_scratch import RoundScratch, chain_unfinished
 from arelis.core.untrusted import frame_external_tool_output
+from arelis.paths import resolve_display_path
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_secrets, truncate_tool_output
 
@@ -756,7 +757,10 @@ async def execute_call(
             and data_dict.get("path")
         ):
             await loop.bus.publish(
-                Event(EventType.IMAGE_READY, {"path": data_dict["path"]})
+                Event(
+                    EventType.IMAGE_READY,
+                    {"path": resolve_display_path(str(data_dict["path"]))},
+                )
             )
             # A finished generate ends the turn. Otherwise the model
             # re-calls image and spams Allow, the same class as a double send.
