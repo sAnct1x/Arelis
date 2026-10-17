@@ -214,6 +214,35 @@ def prepare_tool_output(
     )
 
 
+# image and image_edit already tell the window a picture landed. A diagram
+# writes the same kind of PNG and has to use that event, or chat and
+# Workspace never open it.
+_IMAGE_READY_TOOLS = frozenset({"image", "image_edit", "diagram"})
+
+
+def image_ready_event(tool: str, result: Any) -> Event | None:
+    """The picture event chat and Workspace already listen for.
+
+    A diagram's short path is relative to the data folder. The well opens
+    whatever path it is given from the process folder, so the event carries
+    the absolute PNG the tool just wrote. image and image_edit keep the
+    path they already report.
+    """
+    if tool not in _IMAGE_READY_TOOLS or not getattr(result, "ok", False):
+        return None
+    data = getattr(result, "data", None)
+    if not isinstance(data, dict):
+        return None
+    if tool == "diagram":
+        raw = data.get("abs_path") or data.get("path")
+    else:
+        raw = data.get("path")
+    path = str(raw or "").strip()
+    if not path:
+        return None
+    return Event(EventType.IMAGE_READY, {"path": path})
+
+
 async def publish_tool_result(
     bus: EventBus,
     tool: str,

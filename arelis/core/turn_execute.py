@@ -34,6 +34,7 @@ from arelis.core.sms_complete import (
 )
 from arelis.core.tool_results import (
     PreparedToolOutput,
+    image_ready_event,
     prepare_tool_output,
     publish_tool_result,
 )
@@ -749,19 +750,13 @@ async def execute_call(
                 },
             )
         )
-        if (
-            name in {"image", "image_edit"}
-            and result.ok
-            and data_dict
-            and data_dict.get("path")
-        ):
-            await loop.bus.publish(
-                Event(EventType.IMAGE_READY, {"path": data_dict["path"]})
-            )
+        ready = image_ready_event(name, result)
+        if ready is not None:
+            await loop.bus.publish(ready)
             # A finished generate ends the turn. Otherwise the model
             # re-calls image and spams Allow, the same class as a double send.
-            # An edit stays open so the model can write it up.
-            if name == "image":
+            # An edit or a diagram stays open so the model can write it up.
+            if name == "image" and data_dict and data_dict.get("path"):
                 path = str(data_dict["path"])
                 await loop._finish(
                     f"Image ready: open in Workspace ({path}).",
