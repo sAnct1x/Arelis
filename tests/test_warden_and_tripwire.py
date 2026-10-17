@@ -115,11 +115,11 @@ def test_warden_ip_scope_and_firewall_rule_builder() -> None:
     assert "remoteip=185.220.101.44" in cmd
 
 
-def test_tripwire_shadow_self_heal_and_readonly_protection(tmp_path: Path) -> None:
+def test_tripwire_refuses_runtime_restoration_and_protects_roots(tmp_path: Path) -> None:
     from sentinel.castes.tripwire import TripwireCaste
 
     trp = TripwireCaste()
-    # Create a directory whose path includes 'Arelis_Sentinel' to test allowed self-heal
+    # Create test directory to verify legacy heal_root request is explicitly rejected
     heal_dir = tmp_path / "Arelis_Sentinel_Test"
     heal_dir.mkdir()
     cfg_file = heal_dir / "settings.yaml"

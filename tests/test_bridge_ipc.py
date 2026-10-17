@@ -100,7 +100,7 @@ async def test_overseer_qol_endpoints_and_preference_persistence(tmp_path) -> No
             assert r_scale.status_code == 200
             assert r_scale.json()["ok"] is True
 
-            # 2. Upgrade swarm chassis tier to MK3 (12 tentacles)
+            # 2. Upgrade swarm unit tier to MK3 (12 tentacles)
             r_up = await http.post("/api/overseer/upgrade", json={"tier": "mk3", "caste": "all"})
             assert r_up.status_code == 200
             up_data = r_up.json()
@@ -108,7 +108,7 @@ async def test_overseer_qol_endpoints_and_preference_persistence(tmp_path) -> No
             assert up_data["tier"] == "mk3"
             assert up_data["tentacles"] == 12
 
-            # 3. Trigger Tripwire self-heal
+            # 3. Verify retired self-heal route returns explicit refusal
             r_heal = await http.post("/api/overseer/heal", json={})
             assert r_heal.status_code == 200
             assert r_heal.json()["ok"] is False

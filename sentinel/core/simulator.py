@@ -117,6 +117,7 @@ class SimulationDirector:
                 }
                 detail = f"Socket inspection ok={bool(sockets.get('ok'))}; {len(roots)} roots checked; intact={intact}. Observation, not host-wide enforcement."
             else:
+                targets: list[dict[str, Any]]
                 if mode == "multi":
                     targets = [
                         {"action": "arxiv", "query": query, "max_results": 4},
@@ -131,8 +132,10 @@ class SimulationDirector:
                 result = await self.hive.dispatch_harvest_swarm(
                     query, targets, save_report=True, animate=True
                 )
-                succeeded = int(result.get("succeeded", 0))
-                total = int(result.get("total_targets", len(targets)))
+                raw_succeeded = result.get("succeeded", 0)
+                succeeded = int(raw_succeeded) if isinstance(raw_succeeded, (int, str, float)) else 0
+                raw_total = result.get("total_targets", len(targets))
+                total = int(raw_total) if isinstance(raw_total, (int, str, float)) else len(targets)
                 result = dict(result, ok=total > 0 and succeeded == total)
                 detail = f"{succeeded}/{total} sources retrieved; {result.get('quarantined', 0)} quarantined; {result.get('failed', 0)} failed."
                 if succeeded:

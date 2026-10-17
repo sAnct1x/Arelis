@@ -876,7 +876,7 @@
   }
 
 
-  // Swarm Spawner (+ / -) & Tripwire Self-Heal
+  // Swarm Spawner (+ / -)
   const elBtnSpawn = document.getElementById("btn-spawn-unit");
   const elBtnRetire = document.getElementById("btn-retire-unit");
 

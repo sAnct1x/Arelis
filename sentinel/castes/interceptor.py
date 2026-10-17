@@ -301,4 +301,4 @@ class InterceptorCaste(CasteHandler):
 
 ASTValidatorCaste = InterceptorCaste
 
-__all__ = ["InterceptorCaste", "ASTValidatorCaste"]
+__all__ = ["ASTValidatorCaste", "InterceptorCaste"]

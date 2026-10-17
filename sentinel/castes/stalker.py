@@ -257,4 +257,4 @@ class StalkerCaste(CasteHandler):
 
 ProcessAuditorCaste = StalkerCaste
 
-__all__ = ["StalkerCaste", "ProcessAuditorCaste"]
+__all__ = ["ProcessAuditorCaste", "StalkerCaste"]
