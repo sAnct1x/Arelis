@@ -17,7 +17,7 @@ from sentinel.castes.base import CasteDescriptor
 from sentinel.core.bus import EventBus, EventTopic
 from sentinel.core.fsm import SentinelState, SentinelUnit, WorldNode
 from sentinel.core.receipts import ReceiptLedger
-from sentinel.paths import quarantine_dir
+from sentinel.paths import quarantine_dir, repo_root
 
 _IGNORED_DIRS = frozenset(
     {
@@ -158,7 +158,9 @@ class TripwireCaste:
             raw_path = str(item.get("path") or "").strip()
             if not raw_path:
                 continue
-            p = Path(raw_path)
+            p = Path(raw_path).expanduser()
+            if not p.is_absolute():
+                p = repo_root() / p
             if not p.exists():
                 continue
             b = self.register_watch_root(

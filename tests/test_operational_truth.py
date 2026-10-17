@@ -13,8 +13,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-if not (ROOT / "sentinel").is_dir():
-    ROOT = Path(r"C:\Users\origi\Documents\Arelis_Sentinel")
 spec = importlib.util.spec_from_file_location(
     "isolated_live_director", ROOT / "sentinel/core/simulator.py"
 )

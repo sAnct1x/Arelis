@@ -57,10 +57,10 @@ tripwire:
   poll_interval_s: 2.0
   max_files_per_root: 5000
   watched_roots:
-    - path: "C:/Users/origi/Documents/Arelis/arelis"
+    - path: "../Arelis/arelis"
       label: "Arelis Core Package (Read-Only Guard)"
       mode: "readonly_strict"
-    - path: "C:/Users/origi/Documents/Arelis_Sentinel/sentinel"
+    - path: "sentinel"
       label: "Sentinel Core Package"
       mode: "hash_watch"
 
