@@ -1085,7 +1085,9 @@ class BrowserTool:
 
         sign_in = first_run_note(fresh=self.session.fresh_profile)
         if sign_in:
-            parts.append(sign_in)
+            # Chat shows this once via data["intro"]. It must not sit in
+            # front of the page receipt, or an empty reply keeps the
+            # welcome sentence and drops title and heading.
             mark_intro_shown()
         if prefix or (ensured.output and already_ensured):
             note = (prefix or ensured.output or "").strip()
