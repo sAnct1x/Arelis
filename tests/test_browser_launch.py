@@ -143,10 +143,13 @@ def test_open_adds_sign_in_note_only_when_profile_is_kept(
     async def _run() -> None:
         first = await tool.run(action="open", url="https://example.com")
         assert first.ok
-        assert "Sign into Google and Maps" in (first.output or "")
+        assert "Opened https://example.com" in (first.output or "")
+        assert "Sign into Google and Maps" not in (first.output or "")
+        assert "Sign into Google and Maps" in str((first.data or {}).get("intro") or "")
         second = await tool.run(action="open", url="https://example.com/next")
         assert second.ok
         assert "Sign into Google and Maps" not in (second.output or "")
+        assert not str((second.data or {}).get("intro") or "")
 
     asyncio.run(_run())
 
