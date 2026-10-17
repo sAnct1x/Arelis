@@ -10,7 +10,7 @@ from typing import Any
 from arelis.core.compact_prompt import TOOLS_SLASH, format_tool_catalog
 from arelis.core.events import Event, EventType
 from arelis.core.memory import tool_trace_entry, tool_trace_note
-from arelis.core.tool_results import publish_tool_result
+from arelis.core.tool_results import image_ready_event, publish_tool_result
 from arelis.tools.safety import redact_secrets
 
 
@@ -108,8 +108,9 @@ class OrchestratorSlash:
         await self.bus.publish(Event(EventType.THINKING, {"text": f"slash  Running tool `{tool}`"}))
         result = await self.tools.call(tool, **kwargs)
         await publish_tool_result(self.bus, tool, result)
-        if tool == "image" and result.ok and result.data.get("path"):
-            await self.bus.publish(Event(EventType.IMAGE_READY, {"path": result.data["path"]}))
+        ready = image_ready_event(tool, result)
+        if ready is not None:
+            await self.bus.publish(ready)
         if tool in {"document", "plot"} and result.ok and result.data.get("abs_path"):
             await self.bus.publish(
                 Event(
