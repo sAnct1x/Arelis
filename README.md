@@ -8,7 +8,7 @@ own browser, and keeps longer projects organized in named rooms.
 Anything that writes a file or sends a message waits for your approval
 first.
 
-**Overview video:** https://youtu.be/TWZqnyHlh4M • **Download:** [v0.3.2](https://github.com/sAnct1x/Arelis/releases/latest)
+**Overview video:** https://youtu.be/TWZqnyHlh4M • **Download:** [v0.3.2.1](https://github.com/sAnct1x/Arelis/releases/latest)
 
 ## What it does
 
@@ -38,7 +38,7 @@ added later. The core program works without them.
 
 ## Quick start
 
-**To install:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.3.2-win64-setup.exe`, about 293 MB). Run it. The first time you open Arelis, she'll ask which folder she can use, then download Ollama and the chat model if needed. That's it.
+**To install:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.3.2.1-win64-setup.exe`, about 293 MB). Run it. The first time you open Arelis, she'll ask which folder she can use, then download Ollama and the chat model if needed. That's it.
 
 If you tried an installer from 0.2.4 to 0.2.9, those were broken and never opened. 0.3.0 and later fix that, so just run the new one.
 
@@ -80,7 +80,7 @@ deletes, payments, and running project scripts still ask.
 
 ## Installing
 
-Download the latest setup file from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest): `Arelis-0.3.2-win64-setup.exe` (about 293 MB download, about 0.9 GB installed). Run it. It installs per-user into `%LOCALAPPDATA%\Programs\Arelis`, so no administrator prompt.
+Download the latest setup file from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest): `Arelis-0.3.2.1-win64-setup.exe` (about 293 MB download, about 0.9 GB installed). Run it. It installs per-user into `%LOCALAPPDATA%\Programs\Arelis`, so no administrator prompt.
 
 ### First run
 
@@ -101,8 +101,8 @@ The installer isn't code-signed, so SmartScreen will warn you. That's
 normal. To verify your download wasn't corrupted, check the SHA-256:
 
 ```powershell
-Get-FileHash .\Arelis-0.3.2-win64-setup.exe -Algorithm SHA256
-Get-Content .\Arelis-0.3.2-win64-setup.exe.sha256
+Get-FileHash .\Arelis-0.3.2.1-win64-setup.exe -Algorithm SHA256
+Get-Content .\Arelis-0.3.2.1-win64-setup.exe.sha256
 ```
 
 The two hashes should match. Both files are in the release.
@@ -320,7 +320,7 @@ don't ship in the installer.
 Test coverage is good for most features, but voice timing, the phone
 app, and image generation have mainly been tested on my hardware. If
 something behaves oddly on yours, open an issue. Current release is
-**0.3.2**. See [whats-new.md](docs/whats-new.md) for changes.
+**0.3.2.1**. See [whats-new.md](docs/whats-new.md) for changes.
 
 ## Common issues
 
@@ -335,7 +335,7 @@ something behaves oddly on yours, open an issue. Current release is
 | Document | What's in it |
 |---|---|
 | [Overview video](https://youtu.be/TWZqnyHlh4M) | Demo and walkthrough on the [Arelis Lab channel](https://www.youtube.com/@ArelisLab) |
-| [whats-new.md](docs/whats-new.md) | 0.3.2 checkout and installer |
+| [whats-new.md](docs/whats-new.md) | 0.3.2.1 checkout and installer |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [models.md](docs/models.md) | Which models, and why |
