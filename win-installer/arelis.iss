@@ -39,6 +39,23 @@
   #define SourceTree "dist\Arelis"
 #endif
 
+; VersionInfoVersion and VersionInfoProductVersion are Windows file versions.
+; They take four numeric parts and nothing else. A three-part AppVersion such
+; as 0.3.2 becomes 0.3.2.0, which is what older releases compiled. A four-part
+; AppVersion such as 0.3.2.1 is already four parts. Appending another .0 would
+; make five parts, and Inno Setup would refuse to compile.
+#define _verAfter1 Copy(AppVersion, Pos(".", AppVersion) + 1, Len(AppVersion))
+#define _verAfter2 Copy(_verAfter1, Pos(".", _verAfter1) + 1, Len(_verAfter1))
+#if Pos(".", AppVersion) == 0
+  #define VersionInfoQuad AppVersion + ".0.0.0"
+#elif Pos(".", _verAfter1) == 0
+  #define VersionInfoQuad AppVersion + ".0.0"
+#elif Pos(".", _verAfter2) == 0
+  #define VersionInfoQuad AppVersion + ".0"
+#else
+  #define VersionInfoQuad AppVersion
+#endif
+
 #define AppName "Arelis"
 #define AppPublisher "sAnct1x"
 #define AppURL "https://github.com/sAnct1x/arelis"
@@ -55,7 +72,8 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}/issues
 AppUpdatesURL={#AppURL}/releases
-VersionInfoVersion={#AppVersion}.0
+VersionInfoVersion={#VersionInfoQuad}
+VersionInfoProductVersion={#VersionInfoQuad}
 VersionInfoDescription={#AppName} setup
 
 ; %LOCALAPPDATA%\Programs\Arelis, because PrivilegesRequired is lowest.
