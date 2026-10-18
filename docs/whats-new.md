@@ -1,8 +1,9 @@
 # What's new
 
-This checkout is **0.3.1**. The latest published installer is still **0.3.0** until 0.3.1 is published: [download it here](https://github.com/sAnct1x/Arelis/releases/latest). The 0.2.4 to 0.2.9 installers were broken (they closed at startup), so use 0.3.0 or newer.
+This checkout is **0.3.2**. The latest published installer is **0.3.2**: [download it here](https://github.com/sAnct1x/Arelis/releases/latest). The 0.2.4 to 0.2.9 installers were broken (they closed at startup), so use 0.3.0 or newer.
 
-Notes: [v0.3.1](releases/v0.3.1.md). Older:
+Notes: [v0.3.2](releases/v0.3.2.md). Older:
+[v0.3.1](releases/v0.3.1.md).
 [v0.3.0](releases/v0.3.0.md).
 [v0.2.9](releases/v0.2.9.md).
 [v0.2.8](releases/v0.2.8.md).
@@ -10,6 +11,17 @@ Notes: [v0.3.1](releases/v0.3.1.md). Older:
 [v0.2.5](releases/v0.2.5.md). [v0.2.4](releases/v0.2.4.md).
 [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
 [v0.2.1](releases/v0.2.1.md).
+
+## 0.3.2
+
+Mostly fixes, plus a couple of new picture tools. Full notes:
+[v0.3.2](releases/v0.3.2.md).
+Weather answers work properly now. A chart can show in the chat.
+A diagram is saved to a file. The chat and Workspace do not show
+that picture yet. A background cutout is saved to a file. Workspace
+can fail to open that picture. Longer jobs are not cut off halfway.
+When a script asks for your OK, you see the whole script first.
+Typed text and contacts stay out of the logs.
 
 ## 0.3.1
 
