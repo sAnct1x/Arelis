@@ -56,7 +56,7 @@ class _Run:
 
 @pytest.mark.asyncio
 async def test_image_edit_ready_event_points_at_the_data_folder_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qt_app
 ) -> None:
     """A relative outputs/images path must not be opened from the install cwd."""
     project = tmp_path / "project"
@@ -120,3 +120,13 @@ async def test_image_edit_ready_event_points_at_the_data_folder_file(
     assert shown.is_file()
     assert shown.resolve() == (data / reported).resolve()
     assert shown.resolve() == Path(str(edited.data["abs_path"])).resolve()
+
+    from arelis.ui.panels.workspace import WorkspacePanel
+
+    panel = WorkspacePanel()
+    try:
+        panel.show_image(str(shown))
+        qt_app.processEvents()
+        assert panel.path_edit.text() == reported
+    finally:
+        panel.deleteLater()
