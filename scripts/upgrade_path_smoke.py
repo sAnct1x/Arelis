@@ -58,8 +58,12 @@ MARKER = "UPGRADE-PATH-MARKER"
 SENTINEL = "FAKE-TOKEN-DO-NOT-COPY"
 APP_ID = "{8F4C2D31-6A5E-4B7C-9E1D-3A2F5B8C7D40}"
 UNINSTALL_KEY = f"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{APP_ID}_is1"
+# major.minor.patch, then any further numeric segments. 0.3.2 and 0.3.2.1
+# are both plain releases. 0.3 is not, and neither is an rc suffix.
+_PLAIN_VERSION = r"\d+(?:\.\d+){2,}"
+_PLAIN_VERSION_RE = re.compile(_PLAIN_VERSION)
 SETUP_NAME_RE = re.compile(
-    r"^Arelis-(?P<ver>\d+\.\d+\.\d+)-win64-setup\.exe$",
+    rf"^Arelis-(?P<ver>{_PLAIN_VERSION})-win64-setup\.exe$",
     re.IGNORECASE,
 )
 SHA256_LINE_RE = re.compile(r"^([0-9a-f]{64})\s+(\S+)\s*$", re.IGNORECASE)
@@ -305,11 +309,12 @@ def compiled_child_scripts() -> dict[str, str]:
 
 
 def next_patch_version(version: str) -> str:
-    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version.strip())
-    if match is None:
+    text = version.strip()
+    if _PLAIN_VERSION_RE.fullmatch(text) is None:
         raise ValueError(f"not a plain version: {version!r}")
-    major, minor, patch = (int(match.group(index)) for index in range(1, 4))
-    return f"{major}.{minor}.{patch + 1}"
+    parts = tuple(int(part) for part in text.split("."))
+    bumped = (*parts[:-1], parts[-1] + 1)
+    return ".".join(str(part) for part in bumped)
 
 
 def version_assignment(text: str) -> str:
@@ -320,7 +325,7 @@ def version_assignment(text: str) -> str:
 
 
 def rewrite_version_assignment(text: str, new_version: str) -> str:
-    if re.fullmatch(r"\d+\.\d+\.\d+", new_version) is None:
+    if _PLAIN_VERSION_RE.fullmatch(new_version) is None:
         raise ValueError(f"not a plain version: {new_version!r}")
     match = VERSION_LINE_RE.search(text)
     if match is None:
