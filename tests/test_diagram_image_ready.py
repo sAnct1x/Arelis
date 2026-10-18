@@ -1,9 +1,9 @@
 """A finished diagram has to publish the same picture event as an edit.
 
 Chat's "Image ready" line and the Workspace well both listen for that event.
-The PNG on disk is not enough. image and image_edit already publish it, and
-they keep the path they already reported. A diagram publishes the absolute
-PNG, which is the file Workspace can open.
+The PNG on disk is not enough. image, image_edit, and diagram all publish
+the path resolve_display_path finds, so a short outputs/ path opens from
+the data folder.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from arelis.core.events import Event, EventType
 from arelis.core.evidence import EvidenceLedger
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_execute import execute_call
+from arelis.paths import display_path, user_data_dir
 from arelis.tools.base import ToolResult
 from arelis.ui.event_host import dispatch_event
 
@@ -111,12 +112,13 @@ def _ready(events: list[Event]) -> list[Event]:
 async def test_diagram_result_publishes_image_ready(
     tmp_path: Path, arelis_window, qt_app
 ) -> None:
-    png = tmp_path / "diagram.png"
     image = QImage(8, 8, QImage.Format.Format_ARGB32)
     image.fill(0xFF336699)
-    assert image.save(str(png))
-    absolute = str(png.resolve())
     relative = "outputs/diagrams/diagram.png"
+    opened = user_data_dir() / relative
+    opened.parent.mkdir(parents=True, exist_ok=True)
+    assert image.save(str(opened))
+    decoy = str((tmp_path / "not-the-file.png").resolve())
 
     failed, failed_events = await _drive(
         "diagram",
@@ -130,13 +132,15 @@ async def test_diagram_result_publishes_image_ready(
         ToolResult(
             ok=True,
             output="Saved outputs/images/mug-nobg.png.",
-            data={"path": "outputs/images/mug-nobg.png", "abs_path": absolute},
+            data={"path": "outputs/images/mug-nobg.png", "abs_path": decoy},
         ),
     )
     assert edit is False
     edit_ready = _ready(edit_events)
     assert len(edit_ready) == 1
-    assert edit_ready[0].payload["path"] == "outputs/images/mug-nobg.png"
+    assert edit_ready[0].payload["path"] == str(
+        (user_data_dir() / "outputs/images/mug-nobg.png").resolve()
+    )
 
     ended, events = await _drive(
         "diagram",
@@ -145,7 +149,7 @@ async def test_diagram_result_publishes_image_ready(
             output=f"Saved {relative} in your diagrams folder.",
             data={
                 "path": relative,
-                "abs_path": absolute,
+                "abs_path": decoy,
                 "format": "png",
                 "title": "diagram",
             },
@@ -154,7 +158,7 @@ async def test_diagram_result_publishes_image_ready(
     assert ended is False
     ready = _ready(events)
     assert len(ready) == 1
-    assert ready[0].payload["path"] == absolute
+    assert ready[0].payload["path"] == str(opened.resolve())
 
     window = arelis_window()
     dispatch_event(
@@ -165,7 +169,7 @@ async def test_diagram_result_publishes_image_ready(
                 "tool": "diagram",
                 "ok": True,
                 "output": f"Saved {relative} in your diagrams folder.",
-                "data": {"path": relative, "abs_path": absolute},
+                "data": {"path": relative, "abs_path": decoy},
             },
         ),
     )
@@ -174,7 +178,7 @@ async def test_diagram_result_publishes_image_ready(
 
     chat = window.chat.view.toPlainText()
     assert chat.count("Image ready: open in Workspace") == 1
-    assert window.workspace.output.toPlainText() == "Image ready: diagram.png"
+    assert window.workspace.output.toPlainText() == f"Image ready: {display_path(opened)}"
     assert window.workspace._image_mode
     assert window.workspace.image_label.text() == ""
     pix = window.workspace.image_label.pixmap()

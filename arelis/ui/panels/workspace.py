@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 from arelis.desk import Artifact, infer_kind, is_image_kind, is_text_kind
 from arelis.location.privacy import redact
 from arelis.mathtext import flatten_latex
+from arelis.paths import display_path
 from arelis.rooms import PHYSICS_DISPLAY_NAME, PHYSICS_ROOM_ID
 from arelis.ui.code_highlight import QuietPythonHighlighter
 from arelis.ui.icons import (
@@ -1063,7 +1064,7 @@ class WorkspacePanel(QWidget):
         self._loaded_label = target.name
         self._set_image_mode(True)
         self.image_label.show()
-        self.path_edit.setText(str(target))
+        self.path_edit.setText(display_path(target))
         tip = _sidecar_tooltip(target)
         self.image_label.setToolTip(tip)
         self.image_caption.setText(sidecar_caption(target))
@@ -1302,7 +1303,7 @@ class WorkspacePanel(QWidget):
             kind = item.kind or "file"
             row = QListWidgetItem(f"{item.label}\n{pin}{kind}")
             row.setData(Qt.ItemDataRole.UserRole, item.abs_path)
-            row.setToolTip(item.abs_path)
+            row.setToolTip(display_path(item.abs_path))
             self.desk_list.addItem(row)
         self.desk_list.setVisible(bool(parsed) and self._mode == "desk")
         self._sync_desk_hint()

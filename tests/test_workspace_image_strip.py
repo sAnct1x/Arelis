@@ -78,7 +78,7 @@ def test_image_strip_hidden_until_show_image(qt_app, tmp_path: Path) -> None:
         other = next(t for t in thumbs if t.accessibleName() == "second.png")
         other.click()
         qt_app.processEvents()
-        assert panel.path_edit.text() == str(second)
+        assert panel.path_edit.text() == second.resolve().as_posix()
         assert not panel.image_strip.isHidden()
         thumbs = [
             thumb

@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
-from arelis.paths import state_dir
+from arelis.paths import resolve_display_path, state_dir
 from arelis.tools.safety import redact_data, redact_secrets
 
 log = logging.getLogger(__name__)
@@ -223,21 +223,16 @@ _IMAGE_READY_TOOLS = frozenset({"image", "image_edit", "diagram"})
 def image_ready_event(tool: str, result: Any) -> Event | None:
     """The picture event chat and Workspace already listen for.
 
-    A diagram's short path is relative to the data folder. The well opens
-    whatever path it is given from the process folder, so the event carries
-    the absolute PNG the tool just wrote. image and image_edit keep the
-    path they already report.
+    The tool reports a short path under the data folder. The well opens
+    whatever path it is given from the process folder, so every picture
+    goes through resolve_display_path before it is published.
     """
     if tool not in _IMAGE_READY_TOOLS or not getattr(result, "ok", False):
         return None
     data = getattr(result, "data", None)
     if not isinstance(data, dict):
         return None
-    if tool == "diagram":
-        raw = data.get("abs_path") or data.get("path")
-    else:
-        raw = data.get("path")
-    path = str(raw or "").strip()
+    path = resolve_display_path(str(data.get("path") or ""))
     if not path:
         return None
     return Event(EventType.IMAGE_READY, {"path": path})
