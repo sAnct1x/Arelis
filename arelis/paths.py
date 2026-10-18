@@ -262,6 +262,23 @@ def display_path(path: Path | str) -> str:
         return resolved.as_posix()
 
 
+def resolve_display_path(path: str | Path) -> str:
+    """Open a path that display_path shortened.
+
+    ``outputs/images/x.png`` is relative to the data folder. Path() on
+    that string uses the process working directory. An installed copy
+    starts in the install folder, so the Workspace pane cannot load the
+    file. An absolute path is already a location and is returned as given.
+    """
+    text = str(path or "").strip()
+    if not text:
+        return ""
+    raw = Path(text)
+    if raw.is_absolute():
+        return text
+    return str((user_data_dir() / raw).resolve())
+
+
 def app_icon_path() -> Path:
     """The window, tray and taskbar icon.
 

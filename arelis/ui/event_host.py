@@ -21,6 +21,7 @@ from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import plain_reason, tool_failure_notice
 from arelis.i18n import tr
 from arelis.local_open import open_local_file, reveal_local_file
+from arelis.paths import display_path
 from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.ui.layout_store import push_recent_workspace_file
 from arelis.ui.panels.workspace import is_workspace_listing, status_for_tool_result
@@ -751,11 +752,12 @@ def dispatch_event(window: Any, event: Event) -> None:
         path = p.get("path")
         if path:
             window.workspace.show_image(path)
-            window.workspace.append_output(f"Image ready: {Path(str(path)).name}")
+            shown = display_path(str(path))
+            window.workspace.append_output(f"Image ready: {shown}")
             record_artifact(
                 window,
                 str(path),
-                label=Path(str(path)).name,
+                label=shown,
                 source="image",
             )
             window.workspace.show_desk()
