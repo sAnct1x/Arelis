@@ -635,11 +635,8 @@ def dispatch_event(window: Any, event: Event) -> None:
                 done = _browser_drive_done(data)
                 if done:
                     window.conversation.set_drive_status(done)
-        if p.get("tool") in {"image", "image_edit"}:
-            if p.get("ok"):
-                window.chat.add_system("Image ready: open in Workspace")
-            else:
-                window.chat.add_system(tool_failure_notice("image", str(p.get("output") or "")))
+        if p.get("tool") in {"image", "image_edit"} and not p.get("ok"):
+            window.chat.add_system(tool_failure_notice("image", str(p.get("output") or "")))
         if str(p.get("tool") or "") in {"image", "research_report"}:
             from arelis.ui.notify_host import finish_job
 
@@ -751,6 +748,7 @@ def dispatch_event(window: Any, event: Event) -> None:
     elif t == EventType.IMAGE_READY:
         path = p.get("path")
         if path:
+            window.chat.add_system("Image ready: open in Workspace")
             window.workspace.show_image(path)
             shown = display_path(str(path))
             window.workspace.append_output(f"Image ready: {shown}")
