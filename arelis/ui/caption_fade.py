@@ -159,20 +159,27 @@ class CaptionHover(QObject):
         *,
         zone: QWidget | None = None,
     ) -> None:
-        super().__init__(host)
+        # QObject.__init__(host) parents this object before it returns. An event
+        # delivered from that call runs eventFilter before the next line, so
+        # _host, the timers, and the animation have to exist first. Parent the
+        # timers once the QObject is live, then arm the filter.
         self._host = host
         self._buttons = buttons
         self._zone = zone
         self.opacity = 0.0
-        self.anim = QVariantAnimation(self)
+        self.anim = QVariantAnimation()
         self.anim.valueChanged.connect(self._on_opacity)
-        self.hide_timer = QTimer(self)
+        self.hide_timer = QTimer()
         self.hide_timer.setSingleShot(True)
         self.hide_timer.timeout.connect(self.hide_if_idle)
-        self.poll = QTimer(self)
+        self.poll = QTimer()
         self.poll.setInterval(_CAPTION_POLL_MS)
         self.poll.timeout.connect(self.sync)
         self._set_hit(False)
+        super().__init__(host)
+        self.anim.setParent(self)
+        self.hide_timer.setParent(self)
+        self.poll.setParent(self)
         host.installEventFilter(self)
         if host.isVisible():
             self.poll.start()
