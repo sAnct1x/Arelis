@@ -1,8 +1,9 @@
 """Release surfaces for a plain MAJOR.MINOR.PATCH tag.
 
-win-installer/arelis.iss builds VersionInfoVersion as "<AppVersion>.0", which
-must be numeric, so an rc suffix in __version__ would break the installer
-compile.
+win-installer/arelis.iss sets VersionInfoVersion to four numeric parts.
+A three-part AppVersion gets a trailing .0. A four-part AppVersion is
+used as-is. An rc suffix in __version__ would still break the installer
+compile, because those fields have to be numeric.
 """
 
 from __future__ import annotations
