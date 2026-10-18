@@ -1,4 +1,8 @@
-"""Caste 02: WardenSentinel — Active Socket, Port Bastion & Egress Firewall Patrol."""
+"""Caste 02: WardenSentinel. Socket and port observation, admission counters, and peer ban records.
+
+ban_peer writes data/banned_peers.json and stores a netsh command string. That string is not executed.
+is_inviolable_address refuses bans of loopback, link-local, and the four public DNS addresses.
+"""
 
 from __future__ import annotations
 
@@ -75,7 +79,7 @@ def build_windows_firewall_block_cmd(ip_str: str) -> str:
 
 
 class WardenCaste:
-    """Narrow Caste 02: Patrols network ports, sockets, inbound rate limits, and outbound egress."""
+    """Narrow Caste 02: Watches sockets and bastion ports, counts inbound and auth failures, and checks URLs with check_url_allowed."""
 
     descriptor = CasteDescriptor(
         caste_id="warden",
@@ -153,7 +157,7 @@ class WardenCaste:
         port: int = 8765,
         unit_id: str = "SNT-WRD-001",
     ) -> dict[str, Any]:
-        """Permanently blacklist a hostile IP/peer on disk (data/banned_peers.json)."""
+        """Record a peer in data/banned_peers.json, including a netsh string that is not executed."""
         self.descriptor.assert_capability("ban_peer")
         host = (ip or "").strip()
         if not host:
@@ -541,7 +545,10 @@ class WardenCaste:
             return {"ok": True, "ip": host, "port": port}
 
     def note_auth_fail(self, ip: str, *, port: int = 8790) -> dict[str, Any]:
-        """Record bad token/auth attempt; lock out IP (and permanently ban non-loopback peers) if threshold reached."""
+        """Record a bad token attempt. At the threshold, set a lockout timer and, for non-loopback peers, store a ban record.
+
+        The stored netsh string is not executed.
+        """
         self.descriptor.assert_capability("note_auth_fail")
         host = (ip or "?").strip()
         now = time.monotonic()
@@ -600,7 +607,7 @@ class WardenCaste:
         ledger: ReceiptLedger,
         nodes: dict[str, WorldNode],
     ) -> dict[str, Any]:
-        """Execute a Warden perimeter scan or active threat interception."""
+        """Run a socket scan, a URL policy check, or a ban-record interception."""
         action = str(task_payload.get("action") or "patrol_scan").strip().lower()
         animate = bool(task_payload.get("animate", True))
 

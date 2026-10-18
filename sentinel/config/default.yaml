@@ -57,6 +57,8 @@ tripwire:
   poll_interval_s: 2.0
   max_files_per_root: 5000
   watched_roots:
+    # mode is stored on the baseline and copied into reports.
+    # No branch reads it before a write. readonly_strict is not a write guard.
     - path: "../Arelis/arelis"
       label: "Arelis Core Package (Read-Only Guard)"
       mode: "readonly_strict"

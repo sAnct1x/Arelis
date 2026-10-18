@@ -1,8 +1,9 @@
-"""Deterministic SHA-256 Warrant & Evidence Receipt Ledger.
+"""SHA-256 warrant receipts appended as JSONL.
 
-Every action taken by a Sentinel (harvesting a paper, sanitizing a payload,
-blocking a port flood, or tripping a file hash alarm) mints an immutable
-WarrantReceipt compatible with Arelis's EvidenceLedger.
+mint() redacts some secrets in source and span, hashes the span (or raw
+content when supplied), and appends one JSON object. The receipt object is a
+frozen dataclass. Compaction rewrites the file down to the latest entries.
+Receipts are not linked to a previous hash.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ class WarrantReceipt:
     at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_arelis_warrant(self) -> dict[str, Any]:
-        """Export in the exact Warrant shape expected by Arelis's EvidenceLedger."""
+        """Export a warrant-shaped dict: source, kind, span, ok, at, sha256, unit, and caste."""
         return {
             "source": redact_secrets(self.source)[:200],
             "kind": self.kind if self.kind in {"web", "doc", "calc", "recall", "analyze"} else "web",
@@ -56,7 +57,7 @@ class WarrantReceipt:
 
 
 class ReceiptLedger:
-    """Thread-safe in-memory + append-only JSONL disk ledger for Sentinel warrants."""
+    """Thread-safe memory deque plus a JSONL file that appends, then rewrites on compaction."""
 
     def __init__(
         self,

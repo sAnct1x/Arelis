@@ -1,4 +1,4 @@
-"""Network SSRF guards, pinned egress policy, secret redaction, and injection detection."""
+"""URL policy checks, secret redaction, and injection pattern replacement."""
 
 from __future__ import annotations
 

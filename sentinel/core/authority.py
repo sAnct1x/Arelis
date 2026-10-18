@@ -1,12 +1,16 @@
-"""Tiered Action Authority Gate & Policy Engine.
+"""Action-token classifier and inviolable-address helper.
 
-Classifies all Sentinel operations by blast radius:
-- Tier 0 (Observe / Read-Only): Autonomous, zero state impact.
-- Tier 1 (Reversible Containment): Autonomous with lease & auto-expiry (e.g. 15-minute temp block).
-- Tier 2 (Irreversible / Destructive): Operator Approval REQUIRED.
+classify_action and evaluate_request apply only when a caller invokes them:
+- Tier 0 returns allowed.
+- Tier 1 returns allowed and records a lease (default 900 seconds).
+- Tier 2 returns not allowed until operator_sign_off.
+Unknown tokens classify as Tier 2. Live harvest, ban, delete, and EMP paths
+do not call evaluate_request.
 
-Also enforces inviolable allowlists to prevent Warden from banning localhost,
-the default gateway, DNS servers, or critical LAN subnets (Self-DoS prevention).
+is_inviolable_address is true for loopback (127.0.0.0/8, ::1, localhost),
+link-local (169.254.0.0/16, fe80::/10), and four public DNS addresses
+(1.1.1.1, 1.0.0.1, 8.8.8.8, 8.8.4.4). Warden.ban_peer refuses those.
+There is no default-gateway entry and no LAN subnet in these sets.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ from sentinel.core.schemas import (
 
 log = logging.getLogger("sentinel.authority")
 
-# Inviolable network allowlist: NEVER ban under any circumstances
+# Ranges is_inviolable_address treats as protected: IPv4 and IPv6 loopback and link-local.
 INVIOLABLE_SUBNETS = (
     ipaddress.ip_network("127.0.0.0/8"),      # IPv4 Loopback
     ipaddress.ip_network("::1/128"),          # IPv6 Loopback
@@ -32,7 +36,7 @@ INVIOLABLE_SUBNETS = (
     ipaddress.ip_network("fe80::/10"),        # IPv6 Link-Local
 )
 
-# Known critical DNS/Gateway endpoints that must never be blacklisted
+# Names and public DNS addresses treated as protected. Not a gateway and not a LAN subnet.
 INVIOLABLE_HOSTS = {
     "127.0.0.1",
     "::1",
@@ -71,7 +75,11 @@ ACTION_BLAST_MAP: dict[str, ActionBlastRadius] = {
 
 
 def is_inviolable_address(ip_str: str) -> bool:
-    """Return True if an IP address or hostname is protected by inviolable allowlist."""
+    """Return True for empty input, loopback, link-local, localhost names, or INVIOLABLE_HOSTS.
+
+    Other LAN and WAN addresses return False. The host set is four public DNS
+    addresses (1.1.1.1, 1.0.0.1, 8.8.8.8, 8.8.4.4) plus localhost names.
+    """
     clean = (ip_str or "").strip().lower()
     if not clean:
         return True
@@ -109,15 +117,14 @@ class AuthorityGate:
         *,
         lease_duration_s: float | None = None,
     ) -> tuple[bool, ActionAuthorizationRequest]:
-        """Evaluate an action request against safety allowlists and tiered blast radius.
-        
-        Returns:
-            (allowed_now: bool, auth_request: ActionAuthorizationRequest)
+        """Classify one submitted token and apply the inviolable-address check for ban tokens.
+
+        Returns (allowed_now, auth_request). Hive, bridge, and caste execute paths do not call this.
         """
         token = action_token.upper().strip()
         radius = self.classify_action(token)
 
-        # 1. Inviolable Allowlist Enforcement (Prevent Self-DoS)
+        # Ban tokens whose target is_inviolable_address are refused in this method.
         if token in {"TEMP_BAN_PEER", "PERMANENT_BAN_PEER"} and is_inviolable_address(target_identifier):
             raise PermissionError(
 

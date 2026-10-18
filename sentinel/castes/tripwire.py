@@ -1,4 +1,8 @@
-"""Caste 04: TripwireSentinel — Real-Time BLAKE2b Merkle Filesystem Integrity & Shadow Diff Guard."""
+"""Caste 04: TripwireSentinel. BLAKE2b file hashes, in-memory shadows, and change reports.
+
+Watched mode strings, including readonly_strict, are stored and copied into reports.
+No branch reads mode before a write. heal_root returns an error and does not restore files.
+"""
 
 from __future__ import annotations
 
@@ -82,6 +86,12 @@ class TripwireCaste:
         label: str = "",
         mode: str = "readonly_strict",
     ) -> RootBaseline:
+        """Hash a directory into a baseline.
+
+        mode is stored on the baseline and copied into integrity reports.
+        No branch reads it before a write. readonly_strict does not block
+        writes and does not roll files back.
+        """
         self.descriptor.assert_capability("register_watch_root")
         p = Path(path).resolve()
         key = str(p)
@@ -347,7 +357,7 @@ class TripwireCaste:
         ledger: ReceiptLedger,
         nodes: dict[str, WorldNode],
     ) -> dict[str, Any]:
-        """Run a Tripwire integrity sweep or register a new protected directory."""
+        """Run an integrity sweep or register a watched directory."""
         action = str(task_payload.get("action") or "verify").strip().lower()
         animate = bool(task_payload.get("animate", True))
 

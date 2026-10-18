@@ -1,8 +1,8 @@
-"""Zero-False-Positive Deception & Canary Layer for Sentinel Swarm.
+"""Canary files under the data directory.
 
-Deploys and monitors honey files, fake credentials, and sentinel canary tokens.
-Any access, modification, or interaction with a canary token constitutes
-an unequivocal 100% true-positive breach indicator.
+audit_canary_integrity flags a canary when the file is missing or its SHA-256
+no longer matches the digest stored at seed time. That is an existence and
+hash check. It does not prove the change was hostile.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class CanaryToken:
 
 
 class DeceptionCoordinator:
-    """Manages honey tokens and deploys deterministic tripwires across host filesystem."""
+    """Writes honey files under the canary directory and flags missing or hash-changed files."""
 
     def __init__(
         self,
@@ -153,7 +153,7 @@ class DeceptionCoordinator:
                 phase="HONEYTOKEN ACCESSED / TAMPERED",
                 threat_level=MessageSeverity.CRITICAL,
                 indicator_of_compromise=token.path.name,
-                confidence=1.0,  # 100% confidence, zero false positive
+                confidence=1.0,  # fixed score on this envelope; the check is hash or existence only
                 recommended_tier=ActionBlastRadius.TIER_1_REVERSIBLE,
                 recommended_action="ISOLATE_PORT",
                 details={

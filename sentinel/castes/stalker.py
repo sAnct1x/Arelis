@@ -1,4 +1,8 @@
-"""ProcessAuditorCaste — Real-Time Host Process & Memory Sentinel."""
+"""ProcessAuditorCaste. Lists and inspects host processes and memory.
+
+The HUNTER-KILLER doctrine value is a motion and pack label.
+execute() does not kill, terminate, or signal processes.
+"""
 
 from __future__ import annotations
 
@@ -44,6 +48,7 @@ class StalkerCaste(CasteHandler):
         speed_mult=1.1,
         eye_color="#ffd600",
         laser_kind="defense",
+        # Motion and pack label only. The execute path lists and inspects processes.
         doctrine="HUNTER-KILLER",
     )
 

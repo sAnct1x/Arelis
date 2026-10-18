@@ -66,7 +66,7 @@ def _slugify(text: str, max_len: int = 48) -> str:
 
 
 def extract_clean_article_text(raw_html: str, *, max_chars: int = 60000) -> tuple[str, str]:
-    """Deterministic HTML-to-article extractor (zero LLM hallucination)."""
+    """Strip HTML to text with regular expressions. No model call. Output can still be wrong or partial."""
     title_match = re.search(r"<title[^>]*>([\s\S]*?)</title>", raw_html, re.IGNORECASE)
     title = (
         _WS_RE.sub(" ", html_lib.unescape(title_match.group(1))).strip()
@@ -193,7 +193,11 @@ class HarvesterCaste:
         headers: dict[str, str] | None = None,
         timeout_s: float | None = None,
     ) -> tuple[str, str, int]:
-        """DNS-pinned HTTP GET with redirect validation (max 5 hops)."""
+        """HTTP GET after check_url_allowed. Redirects are re-checked. More than 5 redirects raises BlockedUrlError.
+
+        pinned_request_target is computed and discarded. The client fetches
+        the hostname, not the pinned IP.
+        """
         self.descriptor.assert_capability("fetch_url")
         clean_hdrs = sanitize_headers(headers)
         current_url = url.strip()
@@ -206,9 +210,8 @@ class HarvesterCaste:
 
             sem = self._host_sem(verdict.host)
             async with sem:
-                # Use the verified URL after DNS check passes
+                # DNS check passed. The pinned URL and host header are not sent.
                 req_hdrs = {"User-Agent": _USER_AGENT, **clean_hdrs}
-                # Ensurepinned_request_target is validated
                 _pinned_url, _host_hdr = pinned_request_target(current_url, verdict.ip)
                 resp = await client.get(
                     current_url,
@@ -559,7 +562,7 @@ class HarvesterCaste:
                 "receipt": receipt.to_dict(),
             }
 
-        # Step 3: Mandatory Sanitizer inspection before bringing data into Arelis Core
+        # Step 3: Run the sanitizer. Its result still carries clean_text when quarantined is true.
         node.status = "sanitizing"
         node.progress = 0.75
         await bus.publish(EventTopic.NODE_UPDATED, node.to_dict())

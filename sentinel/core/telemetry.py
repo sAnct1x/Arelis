@@ -1,10 +1,8 @@
-"""Structured Real-Time Telemetry & Forensic Logging Engine for Sentinel.
+"""Structured telemetry log for Sentinel.
 
-Streams every unit action, packet inspection, prompt-injection payload diff,
-socket block, Merkle hash delta, and warrant receipt to:
-1. In-memory ring buffer (streamed at 60 Hz to the 3D Overseer Live Log Console)
-2. Structured JSON-lines disk log (logs/sentinel_telemetry.jsonl)
-3. Human-readable forensic log (logs/sentinel_events.log)
+record() appends one entry to an in-memory ring and to logs/sentinel_telemetry.jsonl
+and logs/sentinel_events.log. It logs the events callers pass in. It does not
+observe every packet or every socket on the host by itself.
 """
 
 from __future__ import annotations

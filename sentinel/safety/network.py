@@ -1,4 +1,11 @@
-"""DNS-pinned SSRF guard, header sanitization, and pinned egress allowlist."""
+"""URL policy check, header sanitization, and a catalog of harvest host names.
+
+check_url_allowed blocks non-http(s) schemes, loopback, private, link-local,
+and metadata hosts, then resolves DNS and rejects those addresses. It does not
+consult ALLOWED_EGRESS_HOSTS. Any other public host is allowed.
+pinned_request_target can rewrite a URL to a resolved IP. Callers that ignore
+its return value do not pin the connection.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +15,8 @@ import socket
 from dataclasses import dataclass
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
-# Pinned external hosts named in Sentinel's catalog & search harvesters.
-# Any arbitrary user-requested research URL still passes through check_url_allowed()
-# (which blocks all loopback, private, link-local, and metadata IPs).
+# Catalog names used by harvester presets and a warden status count.
+# check_url_allowed does not treat this dict as a request allowlist.
 ALLOWED_EGRESS_HOSTS: dict[str, str] = {
     "export.arxiv.org": "arXiv Atom API for scientific paper harvesting",
     "arxiv.org": "arXiv abstract and PDF retrieval",
@@ -113,7 +119,10 @@ def _resolve_all_ips(host: str, port: int) -> list[str]:
 
 
 async def check_url_allowed(url: str, *, block_private: bool = True) -> UrlVerdict:
-    """Full asynchronous URL policy check with DNS resolution and anti-rebinding IP pin."""
+    """Resolve the host and reject blocked addresses. Returns the first resolved IP.
+
+    This function does not bind a later socket to that IP.
+    """
     textual = is_blocked_url(url, block_private=block_private)
     if textual is not None:
         return UrlVerdict(reason=textual, ip=None)
@@ -150,7 +159,11 @@ async def check_url_allowed(url: str, *, block_private: bool = True) -> UrlVerdi
 
 
 def pinned_request_target(url: str, ip: str) -> tuple[str, str]:
-    """Rewrite URL netloc to the verified public IP and return (pinned_url, host_header)."""
+    """Rewrite the URL netloc to the given IP and return (pinned_url, host_header).
+
+    This function does not check that the IP is public. A caller that discards
+    the return value does not pin the fetch.
+    """
     parsed = urlsplit(url)
     host = parsed.hostname or ""
     default_port = 443 if (parsed.scheme or "").lower() == "https" else 80

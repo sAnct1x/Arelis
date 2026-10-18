@@ -507,7 +507,7 @@ class SwarmHive:
         return self.spawn_unit(cid, tier=self.default_tier)
 
     def _recruit_pack(self, alpha: SentinelUnit, *, max_wingmen: int = 2) -> list[SentinelUnit]:
-        """Form a Matrix Sentinel Pack (Hunter-Gatherer, Hunter-Seeker, or Hunter-Killer) around Alpha."""
+        """Group same-caste patrolling units into a pack around Alpha and share its doctrine label."""
         pack_id = f"PACK-{alpha.unit_id}-{int(time.monotonic() * 1000) % 100000}"
         alpha.pack_id = pack_id
         alpha.pack_role = "ALPHA"
@@ -554,7 +554,7 @@ class SwarmHive:
                     )
 
     def _sync_pack_wingmen(self) -> None:
-        """Synchronize Wingmen with their Pack Alpha so the entire pack hunts, grapples, and lasers together."""
+        """Copy the alpha state, target, laser flag, and doctrine label onto wingmen."""
         alphas: dict[str, SentinelUnit] = {
             u.pack_id: u
             for u in self.units.values()

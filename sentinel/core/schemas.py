@@ -1,8 +1,9 @@
-"""Strict Typed Envelopes and Schema Validation for Sentinel Message Bus.
+"""Dataclass envelopes for Sentinel bus messages and action records.
 
-Enforces zero free-text instructions to AI brain context windows.
-Every observation, report, and task payload must conform to rigid schema.
-Implemented with standard library dataclasses for zero extra external dependencies.
+String fields and dict payloads are open. Nothing here rejects free-text
+command fields. The loopback bridge reads a plain dict (op, question, query,
+reason, and similar keys) and does not construct BrainActionCommand.
+Implemented with standard library dataclasses.
 """
 
 from __future__ import annotations
@@ -22,10 +23,10 @@ class MessageSeverity(StrEnum):
 
 
 class ActionBlastRadius(StrEnum):
-    """Tiered Action Authority classification."""
-    TIER_0_OBSERVE = "TIER_0_OBSERVE"          # Read-only, zero system impact, autonomous
-    TIER_1_REVERSIBLE = "TIER_1_REVERSIBLE"    # Auto-expiring, leased actions (quarantine, temp block)
-    TIER_2_IRREVERSIBLE = "TIER_2_IRREVERSIBLE" # High-impact, permanent modification, requires operator approval
+    """Labels classify_action returns. They do not gate live hive or bridge calls."""
+    TIER_0_OBSERVE = "TIER_0_OBSERVE"          # evaluate_request returns allowed
+    TIER_1_REVERSIBLE = "TIER_1_REVERSIBLE"    # evaluate_request records a lease and returns allowed
+    TIER_2_IRREVERSIBLE = "TIER_2_IRREVERSIBLE" # evaluate_request returns blocked until operator_sign_off
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,7 @@ class SentinelBaseEnvelope:
 
 @dataclass(frozen=True)
 class ObservationPayload:
-    """Strictly typed observation report. No unstructured prompts."""
+    """Observation fields. target, metric_kind, and details are open values."""
     target: str
     metric_kind: str
     metric_value: Any
@@ -70,7 +71,10 @@ class ObservationEnvelope(SentinelBaseEnvelope):
 
 @dataclass(frozen=True)
 class ThreatIncidentPayload:
-    """Strictly typed threat detection report."""
+    """Threat report fields. phase, indicator, and recommended_action are open strings.
+
+    __post_init__ rejects a confidence outside 0.0 to 1.0. Other strings are not menu-checked.
+    """
     phase: str
     indicator_of_compromise: str
     confidence: float
@@ -125,10 +129,10 @@ class ActionAuthorizationRequest:
 
 @dataclass(frozen=True)
 class BrainActionCommand:
-    """Commands sent from Arelis or Human Operator to the Sentinel Swarm.
-    
-    Arelis's LLM brain CANNOT send free-text commands. It must select exclusively
-    from this fixed, typed action menu.
+    """Typed command record: an action token plus an open parameters dict.
+
+    The bridge command handler does not read this type. It accepts free-text
+    fields such as question, query, reason, and op on the JSON body.
     """
     command_id: str
     action_token: str

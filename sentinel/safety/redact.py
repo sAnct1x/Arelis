@@ -1,4 +1,8 @@
-"""Secret redaction and multi-stage Prompt-Injection / DOM / Exploit neutralization."""
+"""Heuristic secret redaction and prompt-injection or DOM pattern replacement.
+
+Matched high and critical spans are substituted in the returned text. The
+caller still receives that text. These rules do not block every payload.
+"""
 
 from __future__ import annotations
 
@@ -227,7 +231,10 @@ def inspect_and_sanitize_text(
     is_html: bool = False,
     quarantine_on_high: bool = True,
 ) -> SanitizeReport:
-    """Run full multi-stage decontamination on untrusted external text."""
+    """Apply the heuristic rules and return rewritten text plus findings.
+
+    quarantined is a flag on the report. clean_text is still populated.
+    """
     raw = text or ""
     hidden_stripped = 0
     if is_html:
@@ -255,7 +262,7 @@ def inspect_and_sanitize_text(
     zw_matches = len(_ZERO_WIDTH_RE.findall(raw))
     de_zw = _ZERO_WIDTH_RE.sub("", raw)
 
-    # Neutralize any explicit chat-template or instruction-override spans in clean_text
+    # Replace high and critical pattern spans in the returned text
     sanitized = de_zw
     for rule_id, severity, pattern in _INJECTION_RULES:
         if severity in {"high", "critical"} and rule_id != "unicode_tag_smuggling":

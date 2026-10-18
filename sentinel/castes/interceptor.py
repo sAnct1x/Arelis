@@ -1,4 +1,7 @@
-"""ASTValidatorCaste — Real Python Abstract Syntax Tree Security & Opcode Sentinel."""
+"""ASTValidatorCaste. Static Python AST scan for listed calls, attributes, and imports.
+
+There is no opcode or bytecode pass, and the scanned source is not executed here.
+"""
 
 from __future__ import annotations
 
@@ -146,7 +149,7 @@ class _ASTSecurityVisitor(ast.NodeVisitor):
 
 
 class InterceptorCaste(CasteHandler):
-    """Narrow Sentinel caste specialized in static Python AST analysis and code safety validation."""
+    """Narrow Sentinel caste that walks a Python AST and reports listed calls, attributes, and imports."""
 
     descriptor = CasteDescriptor(
         caste_id="interceptor",

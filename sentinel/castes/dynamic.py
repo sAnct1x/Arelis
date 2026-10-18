@@ -15,7 +15,12 @@ from sentinel.core.receipts import ReceiptLedger
 
 
 class DynamicCasteHandler(CasteHandler):
-    """Dynamic, narrow Sentinel Caste with strict capability sandboxing and FSM lifecycle."""
+    """Dynamic caste handler. execute() rejects a capability string absent from this descriptor.
+
+    The descriptor may list any capability names. They are not intersected with
+    built-in caste tools. The rule evaluator checks regex and fields. It does
+    not run the built-in harvest or process tools.
+    """
 
     def __init__(
         self,

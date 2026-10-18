@@ -1,4 +1,8 @@
-"""Caste 03: SanitizerSentinel — Multi-Stage Payload, Polyglot & Prompt-Injection Decontamination."""
+"""Caste 03: SanitizerSentinel. Heuristic text and file scans, quarantine copies, and hash notes.
+
+A quarantine writes a JSON file. The execute result still includes clean_text.
+A repeated immunized hash is flagged. Nothing here kills a process.
+"""
 
 from __future__ import annotations
 
@@ -46,7 +50,7 @@ _EXECUTABLE_MIMES = frozenset(
 
 
 class SanitizerCaste:
-    """Narrow Caste 03: Inspects text, HTML, and files; immunizes SHA-256 threat signatures."""
+    """Narrow Caste 03: Inspects text, HTML, and files and records SHA-256 notes for repeat matches."""
 
     descriptor = CasteDescriptor(
         caste_id="sanitizer",
@@ -126,7 +130,7 @@ class SanitizerCaste:
         reason: str = "Hostile payload signature",
         unit_id: str = "SNT-SAN-001",
     ) -> dict[str, Any]:
-        """Permanently record a hostile payload SHA-256 signature for O(1) instant kill on repeat contact."""
+        """Store a SHA-256 so a later scan of the same bytes is flagged."""
         self.descriptor.assert_capability("immunize_hash")
         clean_hash = (digest or "").strip().lower()
         if not clean_hash:
@@ -265,7 +269,7 @@ class SanitizerCaste:
             }
             for f in report.findings
         ]
-        # Immunize the payload hash so any repeat submission is killed in O(1)
+        # Store the payload hash. A repeat of these bytes is flagged on a later scan.
         rule_summary = ", ".join(f.rule_id for f in report.findings) or "quarantined_payload"
         self.immunize_hash(
             full_sha,

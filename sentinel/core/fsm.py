@@ -123,6 +123,7 @@ class WorldNode:
         }
 
 
+# Doctrine strings select steer speed and pack labels. They do not terminate processes.
 CASTE_DEFAULT_DOCTRINE: dict[str, str] = {
     "harvester": "HUNTER-GATHERER",
     "tripwire": "HUNTER-SEEKER",
@@ -174,7 +175,7 @@ class SentinelUnit:
         return resolve_tier(self.tier)
 
     def resolve_active_doctrine(self) -> str:
-        """Return the active Matrix Sentinel behavior doctrine based on caste and FSM state."""
+        """Return the doctrine label for this caste and state. Callers use it for speed and pack tags."""
         if self.caste == "harvester":
             return "HUNTER-GATHERER"
         if self.caste == "tripwire":
@@ -306,7 +307,7 @@ class SentinelUnit:
                 ty + slot_elev,
                 tz + math.sin(ring_ang) * standoff,
             ]
-            # Hunter-Killers dive faster
+            # Doctrine tag HUNTER-KILLER uses a higher steer speed
             spd_boost = 1.25 if self.doctrine == "HUNTER-KILLER" else 1.08
             self._steer_toward(goal, dt, max_spd=spec.max_speed * spd_boost, slow_radius=4.2)
 

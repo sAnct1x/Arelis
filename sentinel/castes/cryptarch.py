@@ -120,7 +120,10 @@ class CryptarchCaste(CasteHandler):
         proof_path: list[dict[str, str]] | None = None,
         algorithm: str = "sha256",
     ) -> dict[str, Any]:
-        """Cryptographically verify a Merkle tree leaf inclusion proof against root_hash."""
+        """Walk proof_path and compare the result to root_hash.
+
+        An empty root_hash returns match True without a comparison.
+        """
         algo = algorithm.lower().replace("-", "")
         hash_fn = getattr(hashlib, algo, hashlib.sha256)
         curr = hash_fn(data_bytes).hexdigest()

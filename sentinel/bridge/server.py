@@ -1,13 +1,14 @@
-"""Ultra-low-latency Loopback HTTP + RFC 6455 WebSocket Telemetry & Command Server.
+"""Loopback HTTP and RFC 6455 WebSocket telemetry and command server.
 
-Binds strictly to 127.0.0.1 (default :8790) with zero external web-framework overhead.
+assert_loopback_host rejects non-loopback bind hosts. The default listen
+address is 127.0.0.1:8790. ::1 is accepted. No third-party web framework.
 Serves:
 - GET  / or /overseer        -> 3D Overseer WebGL2 viewport (HTML/CSS/JS)
-- GET  /api/snapshot         -> Current world & swarm telemetry snapshot
-- POST /api/command          -> Sovereign Arelis command execution (token-authenticated)
-- POST /api/overseer/emp     -> Hardware EMP Kill-Switch from the Overseer HUD
+- GET  /api/snapshot         -> Current world and swarm telemetry snapshot
+- POST /api/command          -> Command execution; this route checks the session token
+- POST /api/overseer/emp     -> Software emergency stop from the Overseer HUD
 - POST /api/overseer/theme   -> Theme switcher (sodium | filament | night | matrix)
-- GET  /ws/telemetry         -> 60 Hz RFC 6455 WebSocket streaming world state to 3D viewport
+- GET  /ws/telemetry         -> WebSocket stream of world state to the 3D viewport
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ _MAX_HEADER_LINE = 8192
 
 
 def _is_loopback_origin_and_host(headers: dict[str, str]) -> tuple[bool, str]:
-    """Defend against DNS Rebinding and Cross-Site WebSocket/HTTP Hijacking (CSWSH/CSRF) from browser tabs."""
+    """Reject Host and Origin header values that are not loopback names."""
     host_hdr = (headers.get("host") or "").strip().lower()
     if host_hdr:
         host_only = host_hdr.split(":")[0].strip("[]")
@@ -401,7 +402,7 @@ class SentinelBridgeServer:
                     k, v = decoded.split(":", 1)
                     headers[k.strip().lower()] = v.strip()
 
-            # Defend against DNS Rebinding & Cross-Origin browser attacks
+            # Reject non-loopback Host and Origin headers
             ok_origin, origin_reason = _is_loopback_origin_and_host(headers)
             if not ok_origin:
                 self.hive.telemetry.record(

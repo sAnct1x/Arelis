@@ -1,7 +1,8 @@
-"""Strict path resolution for Sentinel.
+"""Path helpers for Sentinel runtime directories.
 
-All runtime data, logs, quarantine vaults, and harvested outputs stay inside
-the Arelis_Sentinel root. Sentinel never writes to external directories.
+data_dir, logs_dir, outputs_dir, harvest_dir, quarantine_dir, and the ledger
+and token paths are created under the active root (the repo root, or a root
+set by set_runtime_root). These helpers do not reject paths outside that root.
 """
 
 from __future__ import annotations
