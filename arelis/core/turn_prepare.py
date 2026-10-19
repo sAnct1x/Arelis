@@ -127,6 +127,7 @@ async def _begin_turn(
     loop._agenda_create_failed = False
     loop._agenda_create_where = ""
     loop._painted = ""
+    loop.model_started = False
     # Mutable so mid-turn escalate (W2) can retarget the hot model.
     loop._turn_role = role
     loop._escalated = False

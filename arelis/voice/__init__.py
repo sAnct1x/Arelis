@@ -415,10 +415,11 @@ class VoiceService:
         deliver is "turn" for speech that should become a message, which
         publishes VOICE_TRANSCRIPT and lets the orchestrator start a normal
         turn; "dictate" for speech that should only land in the composer;
-        "control" for barge-in / mid-turn clips that may only be a speech act
-        (stop, allow, deny, resume); or "wake" for always-listen clips that
-        are transcribed but not published (the window decides whether the
-        wake phrase matched).
+        "control" for a clip captured while she is speaking (stop, allow,
+        deny, pause, go only); "follow" for his words while a turn is
+        awaiting or busy and she is quiet; or "wake" for
+        always-listen clips that are transcribed but not published (the
+        window decides whether the wake phrase matched).
 
         strip_wake peels a leading Hey Arelis (openWakeWord remainder-of-clip)
         so the first conversation turn is the command, not the greeting.
@@ -476,6 +477,7 @@ class VoiceService:
 
         if not text:
             if deliver != "wake":
+                log.warning("Voice: transcription empty (deliver=%s)", deliver or "turn")
                 await self._status("No speech detected.")
             return ""
 
@@ -483,6 +485,10 @@ class VoiceService:
             text = _peel_wake(text)
             if not text:
                 if deliver != "wake":
+                    log.warning(
+                        "Voice: transcription empty after wake peel (deliver=%s)",
+                        deliver or "turn",
+                    )
                     await self._status("No speech detected.")
                 return ""
 
@@ -575,19 +581,19 @@ class VoiceService:
             text = _peel_wake(text)
         if not text:
             if deliver != "wake":
+                log.warning("Voice: live transcription empty (deliver=%s)", deliver or "turn")
                 await self._status("No speech detected.")
             return ""
         await self._publish_transcript(text, deliver=deliver)
         return text
 
     async def _publish_transcript(self, text: str, *, deliver: str) -> None:
-        if deliver == "dictate":
+        # follow has to keep its deliver. A bare transcript while a turn
+        # is open is barge-in and cancels the call. That is the wrong
+        # path for a pause in the middle of a sentence.
+        if deliver in {"dictate", "control", "follow"}:
             await self.bus.publish(
-                Event(EventType.VOICE_TRANSCRIPT, {"text": text, "deliver": "dictate"})
-            )
-        elif deliver == "control":
-            await self.bus.publish(
-                Event(EventType.VOICE_TRANSCRIPT, {"text": text, "deliver": "control"})
+                Event(EventType.VOICE_TRANSCRIPT, {"text": text, "deliver": deliver})
             )
         else:
             await self.bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": text}))

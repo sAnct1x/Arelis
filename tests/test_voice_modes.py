@@ -103,3 +103,131 @@ def test_conversation_turn_survives_two_second_pause_and_ends_at_end_silence(qt_
     assert turns == []
     recorder.push(_silence(0.4))
     assert len(turns) == 1
+
+
+async def test_speech_during_a_busy_turn_reaches_the_model(qt_app) -> None:
+    """A pause ends the turn. The next non-control line, while that turn is busy, is kept.
+
+    On main the second clip is deliver "control" and the orchestrator returns
+    without a model call. With the fix the unanswered call restarts, the
+    fragment row stays, and the model sees both user lines in order.
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from arelis.config import PROJECT_ROOT
+    from arelis.core.bus import EventBus
+    from arelis.core.memory import SessionMemory
+    from arelis.core.orchestrator import Orchestrator
+    from arelis.tools.base import ToolRegistry
+    from arelis.voice import VoiceService
+
+    controller, recorder = _controller(qt_app)
+    delivered: list[str] = []
+    controller.utterance.connect(
+        lambda _pcm, _rate, _channels, deliver: delivered.append(deliver)
+    )
+    controller.set_conversation(True)
+    recorder.push(_tone(0.6) + _silence(3.0))
+    assert delivered == ["turn"]
+    controller.notify_turn_started()
+    assert controller._wants_listening() is False
+    recorder.push(_tone(0.6) + _silence(3.0))
+    assert len(delivered) == 2
+    second = delivered[1]
+
+    class _HoldRouter:
+        def __init__(self) -> None:
+            self.user_turns: list[list[str]] = []
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+            self.default_role = "fast"
+            self.active_model = "mock"
+            self.models = {"fast": "mock", "research": "mock", "code": "mock"}
+
+        def model_for(self, role=None):
+            return "mock"
+
+        async def ensure_role(self, role, *, force: bool = False):
+            del force
+            return "mock"
+
+        def mark_sticky(self, role) -> None:
+            return None
+
+        def apply_sticky(self, wanted, reason: str):
+            return wanted, reason
+
+        def clear_sticky(self) -> None:
+            return None
+
+        async def stream(self, role, messages, **kwargs):
+            lines = [
+                str(item.get("content") or "")
+                for item in messages
+                if isinstance(item, dict) and item.get("role") == "user"
+            ]
+            self.user_turns.append(lines)
+            self.started.set()
+            await self.release.wait()
+            yield ("token", "Noted.")
+
+    bus = EventBus()
+    router = _HoldRouter()
+    orch = Orchestrator(
+        bus,
+        router,  # type: ignore[arg-type]
+        ToolRegistry(),
+        {
+            "agent": {"max_rounds": 2, "confirm_timeout_s": 5},
+            "workspace": {"roots": ["."]},
+            "_persona_path": str(PROJECT_ROOT / "arelis" / "persona" / "arelis.md"),
+            "_speak_replies": True,
+        },
+        SessionMemory(),
+    )
+    publisher = SimpleNamespace(bus=bus)
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await VoiceService._publish_transcript(
+            publisher, "the porch light is out", deliver="turn"
+        )
+        await asyncio.wait_for(router.started.wait(), timeout=15)
+        await VoiceService._publish_transcript(
+            publisher, "and the steps are icy", deliver=second
+        )
+        merged = False
+        for _ in range(160):
+            last = router.user_turns[-1] if router.user_turns else []
+            if any("porch light" in line for line in last) and any(
+                "steps are icy" in line for line in last
+            ):
+                merged = True
+                break
+            await asyncio.sleep(0.05)
+        router.release.set()
+        await asyncio.wait_for(bus.drain(), timeout=20)
+    finally:
+        router.release.set()
+        bus.stop()
+        bus_task.cancel()
+        await asyncio.gather(bus_task, return_exceptions=True)
+    assert merged, (
+        f"deliver={second!r} never put both lines in one model prompt; "
+        f"user turns={router.user_turns!r}"
+    )
+    last = router.user_turns[-1]
+    porch = [line for line in last if "porch light" in line]
+    icy = [line for line in last if "steps are icy" in line]
+    assert porch == ["the porch light is out"], porch
+    assert icy == ["and the steps are icy"], icy
+    assert last.index(porch[0]) < last.index(icy[0])
+    user_rows = [m for m in orch.memory.messages if m.role == "user"]
+    assert [m.content for m in user_rows] == [
+        "the porch light is out",
+        "and the steps are icy",
+    ], user_rows
+    assert [m.cancelled for m in user_rows] == [False, False]
+    answered = [m.content for m in orch.memory.messages if m.role == "assistant"]
+    assert answered and "Stopped" not in answered[-1], answered
+    assert orch._turn_task is None or orch._turn_task.done()
