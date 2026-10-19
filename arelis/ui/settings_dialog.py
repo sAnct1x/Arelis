@@ -1139,7 +1139,10 @@ class SettingsDialog(QDialog):
         self.companion_status.setText("Downloading the offline copy…")
 
         class _Fetch(QThread):
-            progressed = Signal(int, int)
+            # Byte counts from Content-Length. The offline copy is about
+            # 2.6 GB, past a 32-bit int. "qint64" is the Qt type name PySide
+            # accepts here. There is no qint64 object to import.
+            progressed = Signal("qint64", "qint64")
             finished_with = Signal(object)
 
             def run(self) -> None:  # pragma: no cover - UI thread
@@ -1155,12 +1158,18 @@ class SettingsDialog(QDialog):
         self._gemma_thread = thread
 
         def on_progress(got: int, total: int) -> None:
-            if total:
-                pct = int(got * 100 / total)
+            if total > 0:
+                pct = (got * 100) // total
+                if pct < 0:
+                    pct = 0
+                elif pct > 100:
+                    pct = 100
                 self.companion_status.setText(
                     f"Downloading the offline copy… {pct}%"
                 )
             else:
+                # No bar on this row. A missing or zero total stays a size,
+                # not a percent, which is the indeterminate case.
                 mb = got / 1_000_000
                 self.companion_status.setText(
                     f"Downloading the offline copy… {mb:.0f} MB"
