@@ -1775,7 +1775,9 @@ class AgentLoop:
         final = strip_thinking_text(text).strip()
         from arelis.core.claims import (
             guard_false_calendar_add,
+            guard_false_file_claim,
             guard_local_calendar_destination,
+            memory_saved_line,
         )
 
         revised = guard_false_calendar_add(
@@ -1793,6 +1795,18 @@ class AgentLoop:
         if placed != final:
             final = placed
             streamed = ""
+        revised = guard_false_file_claim(
+            final,
+            made=bool(getattr(self, "_file_made", False)),
+        )
+        if revised != final:
+            final = revised
+            streamed = ""
+        if passthrough_tool == "memory":
+            revised = memory_saved_line(final)
+            if revised != final:
+                final = revised
+                streamed = ""
         if not final:
             # An empty model reply used to end the turn with an empty bubble:
             # no answer, no error, no explanation. Say something actionable.
