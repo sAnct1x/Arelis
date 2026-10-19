@@ -23,11 +23,11 @@ from pathlib import Path
 import httpx
 
 from arelis.hidden_proc import hidden_kwargs, hidden_run
+from arelis.llm.ollama import ollama_base_url
 from arelis.llm.startup import model_is_available
 
 log = logging.getLogger(__name__)
 
-DEFAULT_BASE = "http://127.0.0.1:11434"
 OLLAMA_SETUP_URL = (
     "https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe"
 )
@@ -82,7 +82,15 @@ def find_ollama_exe() -> Path | None:
     return None
 
 
-def ollama_reachable(base_url: str = DEFAULT_BASE, *, timeout_s: float = 1.5) -> bool:
+def _resolve_base_url(base_url: str | None) -> str:
+    """An explicit address wins. Otherwise use the configured one."""
+    if base_url is not None:
+        return base_url
+    return ollama_base_url()
+
+
+def ollama_reachable(base_url: str | None = None, *, timeout_s: float = 1.5) -> bool:
+    base_url = _resolve_base_url(base_url)
     try:
         with httpx.Client(timeout=timeout_s) as client:
             resp = client.get(f"{base_url.rstrip('/')}/api/tags")
@@ -92,8 +100,14 @@ def ollama_reachable(base_url: str = DEFAULT_BASE, *, timeout_s: float = 1.5) ->
 
 
 def start_ollama(exe: Path | None = None) -> str | None:
-    """Start `ollama serve` if nothing is answering. None on success."""
-    if ollama_reachable():
+    """Start `ollama serve` if nothing is answering. None on success.
+
+    The probe uses the configured Ollama address. The process is still a
+    local ``ollama serve``, which listens on Ollama's own default unless
+    the environment already points it somewhere else.
+    """
+    base_url = _resolve_base_url(None)
+    if ollama_reachable(base_url):
         return None
     binary = exe or find_ollama_exe()
     if binary is None:
@@ -109,7 +123,7 @@ def start_ollama(exe: Path | None = None) -> str | None:
     except OSError as exc:
         return f"Could not start Ollama: {exc}"
     for _ in range(40):
-        if ollama_reachable():
+        if ollama_reachable(base_url):
             return None
         time.sleep(0.25)
     return "Ollama started but is not answering yet. Wait a moment and try again."
@@ -153,12 +167,13 @@ def parse_pull_status(data: dict[str, object]) -> tuple[str, int, int]:
     return status, max(done, 0), max(whole, 0)
 
 
-def already_pulled(tag: str, base_url: str = DEFAULT_BASE) -> bool:
+def already_pulled(tag: str, base_url: str | None = None) -> bool:
     """True when Ollama already has this tag. Used so setup does not re-download."""
     name = (tag or "").strip()
     if not name:
         return False
     try:
+        base_url = _resolve_base_url(base_url)
         with httpx.Client(timeout=3.0) as client:
             resp = client.get(f"{base_url.rstrip('/')}/api/tags")
             resp.raise_for_status()
@@ -179,7 +194,7 @@ def already_pulled(tag: str, base_url: str = DEFAULT_BASE) -> bool:
 def pull_tag(
     tag: str,
     *,
-    base_url: str = DEFAULT_BASE,
+    base_url: str | None = None,
     progress: Progress | None = None,
     timeout_s: float = 3600,
 ) -> None:
@@ -187,6 +202,7 @@ def pull_tag(
     name = (tag or "").strip()
     if not name:
         raise ValueError("empty model tag")
+    base_url = _resolve_base_url(base_url)
     url = f"{base_url.rstrip('/')}/api/pull"
     with httpx.Client(timeout=timeout_s) as client:
         with client.stream("POST", url, json={"name": name, "stream": True}) as resp:

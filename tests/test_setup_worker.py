@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
+import yaml
 
 from arelis.setup.engine import (
     pull_tag,
@@ -345,6 +346,52 @@ class TestGroupD:
         message = plain_failure("pull_recall", httpx.RemoteProtocolError("broken"))
         assert message == PLAIN["engine_start"]
         assert "online" not in message.lower()
+
+
+def test_setup_readiness_and_pull_use_configured_ollama_port(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    qt_app,
+) -> None:
+    """First-run readiness and pull follow ollama.base_url.
+
+    A copy of Ollama on a non-default port has to be the server setup asks
+    and downloads from. The shipped default is 11434. This pins 11436.
+    """
+    local = tmp_path / "config.local.yaml"
+    local.write_text(
+        yaml.safe_dump(
+            {"ollama": {"base_url": "http://127.0.0.1:11436"}},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+    monkeypatch.setattr(
+        "arelis.voice.prepare.missing_voice_parts",
+        lambda *args, **kwargs: [],
+    )
+
+    seen: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url)
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": []})
+        if request.url.path == "/api/pull":
+            return httpx.Response(200, text=json.dumps({"status": "success"}) + "\n")
+        return httpx.Response(404, text="unexpected")
+
+    _patch_client(monkeypatch, handler)
+    failed, ok, _progressed = _run_worker(_PrepareWorker(_TAG))
+    assert failed == [], failed
+    assert ok == [True]
+    assert seen, "setup made no Ollama request"
+    ports = sorted({url.port for url in seen})
+    paths = sorted({url.path for url in seen})
+    assert ports == [11436], ports
+    assert "/api/tags" in paths
+    assert "/api/pull" in paths
 
 
 def test_pull_progress_zero_and_huge_total(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
