@@ -93,7 +93,10 @@ class _BackupThread(QThread):
 class _DownloadThread(QThread):
     """Fetch and verify the installer, reporting bytes as they land."""
 
-    progressed = Signal(int, int)
+    # Byte counts from Content-Length and the bytes written so far. Qt's
+    # plain int is 32-bit. "qint64" is the Qt type name PySide accepts
+    # here. There is no qint64 object to import.
+    progressed = Signal("qint64", "qint64")
     finished_with = Signal(object)
 
     def __init__(self, release: Release, parent: QObject | None = None) -> None:
@@ -279,7 +282,13 @@ class UpdatePrompt(QObject):
         if total <= 0:
             self._progress.bar.setRange(0, 0)
             return
-        self._progress.bar.setValue(int(received * 100 / total))
+        self._progress.bar.setRange(0, 100)
+        percent = (received * 100) // total
+        if percent < 0:
+            percent = 0
+        elif percent > 100:
+            percent = 100
+        self._progress.bar.setValue(percent)
         self._progress.label.setText(
             f"Downloading Arelis… {received / (1024 * 1024):.0f} of {total / (1024 * 1024):.0f}MB"
         )
