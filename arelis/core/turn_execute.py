@@ -176,6 +176,31 @@ def _pin_plain_user(
     append_tool_free_nudge(messages)
 
 
+# Ollama's chat API accepts images on a message, but the Qwen3.5 template
+# only paints them for a user turn. A tool-role message would carry the
+# bytes and the model would never see them. This line sits after the tool
+# result so the call/result pair stays intact.
+_CHAT_PICTURE_LINE = "Here is the picture from that look."
+
+
+def _attach_staged_picture(messages: list[dict[str, Any]], loop: Any, *, ok: bool) -> None:
+    """Move a staged picture onto the chat, or drop it if the look failed."""
+    router = getattr(loop, "router", None)
+    take = getattr(router, "take_staged_pictures", None)
+    if not callable(take):
+        return
+    images = [item for item in take() if isinstance(item, str) and item]
+    if not ok or not images:
+        return
+    messages.append(
+        {
+            "role": "user",
+            "content": _CHAT_PICTURE_LINE,
+            "images": images,
+        }
+    )
+
+
 async def execute_call(
     loop: Any,
     ctx: TurnContext,
@@ -893,6 +918,8 @@ async def execute_call(
                 await loop._finish(reply, sources, streamed="")
                 return True
         messages.append(loop._tool_message(name, out))
+        if name == "vision":
+            _attach_staged_picture(messages, loop, ok=result.ok)
         if result.ok:
             _pin_plain_user(messages, ctx, name, out, loop)
         if (

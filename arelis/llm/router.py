@@ -135,6 +135,9 @@ class ModelRouter:
         # Agent loop binds this so a vision look paints thinking live.
         # Pin / unload stay silent — those are not thoughts.
         self.think_sink: Any | None = None
+        # Pictures the hot model should see on the next chat call. A side
+        # call on that same tag throws away the cached prompt.
+        self._staged_pictures: list[str] = []
 
     def options_for(self, role: ModelRole) -> dict[str, Any]:
         """Base options with an optional per-role num_ctx override."""
@@ -489,6 +492,16 @@ class ModelRouter:
 
         self._rewarm_task = loop.create_task(_run())
 
+    def take_staged_pictures(self) -> list[str]:
+        """Pictures staged for the main chat since the last take.
+
+        The turn attaches these to a user message. They are not sent as
+        their own request.
+        """
+        staged = list(self._staged_pictures)
+        self._staged_pictures.clear()
+        return staged
+
     async def run_vision(
         self,
         prompt: str,
@@ -497,6 +510,7 @@ class ModelRouter:
         model: str | None = None,
         num_ctx: int = 4096,
         think: bool | None = None,
+        carry_in_chat: bool = False,
     ) -> str:
         """Answer about one image, on the chat model when it can see.
 
@@ -511,6 +525,20 @@ class ModelRouter:
         """
         chat_model = self.active_model or self.model_for(self.default_role)
         if chat_model and await self._chat_model_sees(chat_model):
+            if carry_in_chat:
+                # Same tag as the chat. A one-shot /api/chat here is a new
+                # prompt, so Ollama drops the cached prefix. The bytes wait
+                # on the router until the turn places them on a user message
+                # inside the conversation that is already loaded.
+                log.info(
+                    "Vision stays on the chat model `%s`; picture joins that prompt",
+                    chat_model,
+                )
+                self._staged_pictures.extend(list(images_b64))
+                return (
+                    "The picture is attached in this chat on the next message. "
+                    "Answer their question from that picture."
+                )
             log.info("Vision on the chat model `%s`; no VL swap", chat_model)
             role = self.active_role or self.default_role
             options = self.options_for(role)

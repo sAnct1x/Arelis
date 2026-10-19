@@ -216,6 +216,39 @@ def _offer_expected(
     return set(visible) | (expected & available_all)
 
 
+# Two pictures stay in the prompt. A third full picture is the size that
+# hung a multi-page look on the 9B, and two is enough to still see the
+# previous one when a new one arrives. Dropped rows keep their text, and
+# the answer already written about them stays in the assistant message.
+_CHAT_PICTURE_KEEP = 2
+
+
+def _drop_old_picture_payloads(
+    rows: list[dict[str, Any]], *, keep: int = _CHAT_PICTURE_KEEP
+) -> None:
+    """Keep pixels on the newest pictures. Older rows keep their words."""
+    carrying = [
+        row
+        for row in rows
+        if isinstance(row.get("images"), list) and row["images"]
+    ]
+    overflow = len(carrying) - keep
+    if overflow <= 0:
+        return
+    for row in carrying[:overflow]:
+        row.pop("images", None)
+
+
+def _cap_remembered_pictures(memory: Any, *, keep: int = _CHAT_PICTURE_KEEP) -> None:
+    """Drop picture bytes that have aged out of the session prompt."""
+    rows: list[dict[str, Any]] = []
+    for message in getattr(memory, "messages", ()) or ():
+        for row in getattr(message, "prompt_after", ()) or ():
+            if isinstance(row, dict):
+                rows.append(row)
+    _drop_old_picture_payloads(rows, keep=keep)
+
+
 def _normalize_ollama_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Make history safe to send back to Ollama after a tool round.
 
@@ -845,6 +878,11 @@ class AgentLoop:
         self._horizons_distance_ask = ""
         self._last_sent_messages = None
         self._close_kept_calls = False
+        # A cancelled look can stage a picture and never attach it. Drop
+        # that leftover so the next turn does not stick it on a new question.
+        discard = getattr(self.router, "take_staged_pictures", None)
+        if callable(discard):
+            discard()
         ctx = await self._prepare_turn(
             text,
             role,
@@ -1220,6 +1258,7 @@ class AgentLoop:
         line so a later turn can keep the bytes in front of it.
         """
         agent_cfg = self.config.get("agent") or {}
+        _cap_remembered_pictures(self.memory)
         # Not named tail: split_recent_history assigns that name below.
         turn_lines = [dict(item) for item in (turn_tail or [])]
 
@@ -1575,6 +1614,7 @@ class AgentLoop:
             # move every round and throw away the previous request.
             _pin_tool_round_hint(messages)
         stream_messages = _normalize_ollama_messages(list(messages))
+        _drop_old_picture_payloads(stream_messages)
         self._last_sent_messages = copy.deepcopy(stream_messages)
         prompt_chars = prompt_char_count(stream_messages, tools=tools)
         await self.bus.publish(

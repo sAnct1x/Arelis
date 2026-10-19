@@ -49,6 +49,7 @@ class _VisionRunner(Protocol):
         model: str | None = None,
         num_ctx: int = 4096,
         think: bool | None = None,
+        carry_in_chat: bool = False,
     ) -> str: ...
 
 
@@ -194,6 +195,10 @@ class VisionTool:
             prepared,
             timeout_s=_PAGE_LOOK_S if ink else 0.0,
             think=False,
+            # One picture on a model that already sees: keep it in the chat
+            # prompt. A page walk still looks one page at a time, because
+            # several pages in one shot hung the 9B.
+            carry_in_chat=chat_sees and not ink,
         )
         if fatal is not None:
             return fatal
@@ -237,6 +242,7 @@ class VisionTool:
         *,
         timeout_s: float = 0.0,
         think: bool | None = None,
+        carry_in_chat: bool = False,
     ) -> tuple[str | None, ToolResult | None]:
         """One VL shot. Returns (text, None) or (None, fatal ToolResult)."""
         try:
@@ -246,6 +252,7 @@ class VisionTool:
                 model=self.model,
                 num_ctx=self.num_ctx,
                 think=think,
+                carry_in_chat=carry_in_chat,
             )
             if timeout_s > 0:
                 answer = await asyncio.wait_for(call, timeout=timeout_s)
