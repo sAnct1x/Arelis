@@ -474,10 +474,15 @@ class OrchestratorTurns:
                 # swallowing the former is what makes stop feel instant.
                 if not task.cancelled():
                     raise
+                # A voice merge cancelled this call so it can restart with
+                # the rest of the sentence. That is not a stop.
+                quiet = self._voice_merge_task is task
+                if quiet:
+                    self._voice_merge_task = None
                 # The loop normally closes itself out on the way past, keeping
                 # whatever it had already written. Only speak up if it did not
                 # get that far, so the turn still ends with one terminal event.
-                if not loop.terminal_sent:
+                if not quiet and not loop.terminal_sent:
                     await self.bus.publish(Event(EventType.THINKING, {"text": "cancelled"}))
                     from arelis.i18n import tr
 

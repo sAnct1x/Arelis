@@ -282,6 +282,7 @@ class ChatPanel(QWidget):
         # append a duplicate copy below the user line.
         self._last_assistant_body: str | None = None
         self._last_user_text = ""
+        self._last_user_origin: int | None = None
         self._last_user_attachments: list[dict[str, Any]] = []
         self._acts_pos: int | None = None
         self._pending_notices: list[str] = []
@@ -651,9 +652,36 @@ class ChatPanel(QWidget):
         self._last_user_text = text
         self._last_user_attachments = list(attachments or [])
         origin = self._end_position()
+        self._last_user_origin = origin
         self.view.append(_user_bubble_html(text, attachments=attachments))
         self._fade_new_message(origin)
         self._scroll(follow=follow)
+
+    def replace_last_user(self, text: str) -> bool:
+        """Rewrite the latest user bubble when a pause was still one thought.
+
+        Only while that bubble is still the end of the transcript. Once an
+        answer has started, the continuation is a later turn.
+        """
+        origin = self._last_user_origin
+        if origin is None or self._stream_open or not self._last_user_text:
+            return False
+        end = self._end_position()
+        if origin < 0 or origin > end:
+            return False
+        cursor = self.view.textCursor()
+        cursor.setPosition(origin)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        self._last_user_text = text
+        self._last_user_origin = self._end_position()
+        follow = self._near_bottom()
+        self._ensure_view()
+        fresh = self._end_position()
+        self.view.append(_user_bubble_html(text))
+        self._fade_new_message(fresh)
+        self._scroll(follow=follow)
+        return True
 
     def begin_assistant(self) -> None:
         follow = self._near_bottom()
@@ -668,6 +696,7 @@ class ChatPanel(QWidget):
         if live is not None:
             self._place_thought(live)
         self._anchor = self._end_position()
+        self._last_user_origin = None
         self._stream_text = []
         self._last_assistant_body = None
         self.view.append(_assistant_open())
@@ -954,6 +983,7 @@ class ChatPanel(QWidget):
         self._stream_text = []
         self._last_assistant_body = None
         self._last_user_text = ""
+        self._last_user_origin = None
         self._last_user_attachments = []
         self._acts_pos = None
         self._pending_notices = []

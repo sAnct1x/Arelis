@@ -223,7 +223,11 @@ def dispatch_event(window: Any, event: Event) -> None:
             attachments = p.get("attachments") if p.get("source") == "mobile" else None
             window._mobile_foreign = p.get("source") == "mobile" and bool(p.get("foreign"))
             if not window._mobile_foreign:
-                window.chat.add_user(text, attachments=list(attachments or []) or None)
+                if p.get("source") == "voice" and p.get("continues"):
+                    if not window.chat.replace_last_user(text):
+                        window.chat.add_user(text)
+                else:
+                    window.chat.add_user(text, attachments=list(attachments or []) or None)
             window._set_busy(True)
             if p.get("source") == "voice":
                 prov = getattr(window, "_provisional_intent", None)

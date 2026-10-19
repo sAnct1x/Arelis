@@ -573,6 +573,10 @@ class MemoryStore:
         """Persist one message. Called from SessionMemory.add when a sink is set."""
         return sessions.on_message(self, role, content, note)
 
+    def drop_last_user(self, content: str) -> bool:
+        """Drop a user fragment that a voice merge is about to replace."""
+        return sessions.drop_last_user(self, content)
+
     def append_to_session(
         self, session_id: str, role: str, content: str, note: str = ""
     ) -> bool:

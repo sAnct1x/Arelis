@@ -9,6 +9,7 @@ arelis.voice; this is only the glass side.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -25,6 +26,8 @@ from arelis.ui.event_host import SPEECH_WATCHDOG_MS
 from arelis.ui.voice_control import VoiceController
 from arelis.voice.pcm import write_wav
 from arelis.voice.wake import WakeResult, classify_wake, looks_like_wake_attempt
+
+log = logging.getLogger(__name__)
 
 VOICE_KEEP = "keep"
 VOICE_BLOCK = "block"
@@ -641,6 +644,12 @@ def on_utterance_settled(window, became_turn: bool) -> None:
         return
     # No turn will start, so no terminal event is coming. Conversation mode
     # has to be told, or it waits for one forever and stops listening.
+    # Empty and failed clips land here. Real speech that the orchestrator
+    # keeps does not. The trace line is utterance_dropped; this warning is
+    # the log so a blank transcript is never silent.
+    log.warning(
+        "Voice: dropped a clip that produced no transcript (empty or failed transcription)"
+    )
     window.voice_controller.notify_utterance_dropped()
 
 

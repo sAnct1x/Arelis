@@ -28,10 +28,18 @@ user interrupt. Talking over her cuts playback. On a headset that clip is the
 next turn. Speakers with barge_in_as_turn false keep the old path: the mixed
 clip is deliver "control" so stop / allow / deny still land and soup does not
 start a question.
+
+A clip that starts while she is speaking stays on that path: echo, or control,
+or a barge-in turn. A clip that starts while a turn is awaiting or busy and
+she is quiet is his words. If he resumed inside a short window it is deliver
+"follow" and the orchestrator can fold it into the open turn. Otherwise it is
+"next" and runs as soon as this turn finishes. Control words are decided
+after transcription, the same as any other clip.
 """
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -71,11 +79,18 @@ _MIN_WAKE_UTTERANCE_S = 0.35
 # it, short enough that the user has not given up by the time it recovers.
 _AWAITING_TURN_TIMEOUT_MS = 30000
 
+# He can resume, finish the clause, and still be inside this window when the
+# endpoint silence lands. The window is measured from when the turn was handed
+# off to when he starts talking again, not from when the transcript returns.
+# Past it, the words are his next turn instead of one thought.
+_FOLLOW_MERGE_MS = 12000
+
 
 class VoiceController(QObject):
     """Owns the microphone and decides what each recorded utterance is for."""
 
-    # pcm, sample_rate, channels, deliver ("turn", "dictate", "wake", or "control")
+    # pcm, sample_rate, channels, deliver
+    # ("turn", "dictate", "wake", "control", "follow", or "next")
     utterance = Signal(bytes, int, int, str)
     # Mid-utterance snapshot for provisional STT (conversation only).
     provisional = Signal(bytes, int, int)
@@ -210,6 +225,12 @@ class VoiceController(QObject):
         self._turn_busy = False
         self._speaking = False
         self._awaiting_turn = False
+        # monotonic time of the utterance that opened the current turn.
+        # None between turns. Speech that starts soon after this can merge.
+        self._turn_handed_at: float | None = None
+        # This clip began while a turn was awaiting or busy and she was quiet.
+        self._held_onset = False
+        self._follow_in_window = False
         self._confirm_pending = False
         # One-shot: the clip that cut her off is TTS+mic soup. Trash it.
         self._discard_barge_clip = False
@@ -518,6 +539,8 @@ class VoiceController(QObject):
         """A USER_MESSAGE was published, so a turn now exists."""
         self._turn_busy = True
         self._clear_awaiting()
+        if self._turn_handed_at is None:
+            self._turn_handed_at = time.monotonic()
         self.trace.record("turn_started", **self.debug_state())
         self._sync_listening()
 
@@ -530,6 +553,12 @@ class VoiceController(QObject):
         """
         self._turn_busy = False
         self._clear_awaiting()
+        # He may still be mid-sentence. Keep the onset flags until that clip
+        # ends, or the tail is thrown out as her echo.
+        if not getattr(self._detector, "speaking", False):
+            self._turn_handed_at = None
+            self._held_onset = False
+            self._follow_in_window = False
         self.trace.record("turn_finished", **self.debug_state())
         self._sync_listening()
 
@@ -736,6 +765,20 @@ class VoiceController(QObject):
                 **self.debug_state(),
             )
             self.barge_in.emit()
+        self._held_onset = False
+        self._follow_in_window = False
+        if (
+            self._mode == CONVERSATION
+            and not self._listening
+            and not self._speaking
+            and not self._discard_barge_clip
+        ):
+            # Turn is awaiting or busy, and she is not the one talking.
+            self._held_onset = True
+            handed = self._turn_handed_at
+            if handed is not None:
+                elapsed_ms = (time.monotonic() - handed) * 1000.0
+                self._follow_in_window = elapsed_ms <= _FOLLOW_MERGE_MS
         if self._mode in {CONVERSATION, DICTATE}:
             if not self._live_feeding:
                 self._live_feeding = True
@@ -772,6 +815,10 @@ class VoiceController(QObject):
         self._speculate_armed = False
         if self._should_hold_for_smart_turn(timed_out=timed_out):
             return
+        held_onset = self._held_onset
+        follow_window = self._follow_in_window
+        self._held_onset = False
+        self._follow_in_window = False
         self._live_feeding = False
         pcm = self.recorder.take()
         self._detector.reset()
@@ -831,15 +878,20 @@ class VoiceController(QObject):
             return
 
         if not self._listening:
-            if self._speaking:
-                # Her own voice arriving back through the speakers. Silent: the
-                # user did nothing and does not need telling about it.
+            if self._speaking and not held_onset:
+                # Her own voice arriving back through the speakers, or a clip
+                # that started while she was speaking. The user did not take
+                # the floor. Barge-in, when it was that, already left above.
                 self.trace.record_always("echo_discarded", **self.debug_state())
-            else:
-                # Mid-turn: hear stop / allow / deny. Anything else is dropped
-                # after STT so Discord bleed does not queue a second ask.
-                self.trace.record_always("mid_turn_control", **self.debug_state())
-                self._emit_control(pcm)
+                return
+            # Busy or awaiting, and this clip is his. Follow can fold back
+            # into the open turn. Next waits and runs right after it.
+            deliver = "follow" if follow_window else "next"
+            self.trace.record_always(
+                "mid_turn_follow" if deliver == "follow" else "mid_turn_next",
+                **self.debug_state(),
+            )
+            self._emit_held(pcm, deliver)
             return
 
         self._emit_turn(pcm)
@@ -886,6 +938,7 @@ class VoiceController(QObject):
         if self._too_short(pcm, _MIN_UTTERANCE_S):
             return
         self._awaiting_turn = True
+        self._turn_handed_at = time.monotonic()
         self._turn_watchdog.start(_AWAITING_TURN_TIMEOUT_MS)
         self._sync_listening()
         self.utterance.emit(pcm, self.recorder.sample_rate, self.recorder.channels, "turn")
@@ -904,12 +957,26 @@ class VoiceController(QObject):
         deliver = "wake" if mode == WAKE else "dictate"
         self.utterance.emit(pcm, self.recorder.sample_rate, self.recorder.channels, deliver)
 
-    def _emit_control(self, pcm: bytes) -> None:
-        """STT for a barge-in or mid-turn clip. Not a new ask.
+    def _emit_held(self, pcm: bytes, deliver: str) -> None:
+        """Speech during an awaiting or busy turn, while she is quiet.
 
-        Barge-in already cut her. This only lets stop / allow / deny on that
-        same clip reach the orchestrator. Mid-turn (she is working, not
-        talking) uses the same deliver so spoken stop still lands.
+        ``follow`` started inside the merge window. ``next`` is the turn
+        after this one. Stop / allow / deny / pause / go are decided after
+        transcription, on either deliver.
+        """
+        if self._too_short(pcm, _MIN_UTTERANCE_S):
+            return
+        self.utterance.emit(
+            pcm, self.recorder.sample_rate, self.recorder.channels, deliver
+        )
+
+    def _emit_control(self, pcm: bytes) -> None:
+        """STT for a clip captured while she was speaking. Not a new ask.
+
+        Barge-in already cut her, or playback never stopped and this is her
+        own voice mixed with the room. Stop / allow / deny / pause / go still
+        land. Anything else stays off the model, which is what keeps her TTS
+        from becoming his next question.
         """
         if self._too_short(pcm, _MIN_UTTERANCE_S):
             return

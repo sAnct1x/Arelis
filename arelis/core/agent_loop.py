@@ -751,6 +751,12 @@ class AgentLoop:
             vision_tool.is_cancelled = is_cancelled
         self.json_fallback = bool(agent.get("json_fallback", True))
         self.terminal_sent = False
+        # First model token, thinking chunk, or tool call of this turn.
+        # Voice merge is allowed only while this is still false.
+        self.model_started = False
+        # Set when a continuation cancels this call to rerun it combined.
+        # The cancel must not paint "Stopped."
+        self.restart_quietly = False
         # Tools that have actually run this turn. The orchestrator reads this
         # while building a confirm card, to warn when a send is being approved
         # in the same turn that read the inbox.
@@ -814,11 +820,22 @@ class AgentLoop:
                 stopped_ask=stopped_ask,
             )
         except _StoppedError:
+            if self.restart_quietly:
+                self.restart_quietly = False
+                self.terminal_sent = True
+                return
             if self._timer is not None:
                 blurb = self._timer.finish("stopped")
                 await self.bus.publish(Event(EventType.THINKING, {"text": blurb}))
             await self._cancel_notice()
         except asyncio.CancelledError:
+            # A continuation is restarting this call with the rest of the
+            # sentence. Do not paint "Stopped." and do not mark the line
+            # cancelled. The orchestrator drops the fragment and sends both.
+            if self.restart_quietly:
+                self.restart_quietly = False
+                self.terminal_sent = True
+                raise
             # Hard cancel from the stop button. Close the turn out properly on
             # the way past so the UI is not left with an orphaned draft, then
             # let the cancellation continue up to the orchestrator.
@@ -1613,6 +1630,10 @@ class AgentLoop:
             tools=tools,
             options=self._stream_options(tools=bool(tools)),
         ):
+            # Before any await, so a continuation arriving on the next tick
+            # sees that the model has already started answering.
+            if kind in {"token", "thinking", "tool_calls"} and payload:
+                self.model_started = True
             if self.is_cancelled():
                 raise _StoppedError
             if self.is_paused():
