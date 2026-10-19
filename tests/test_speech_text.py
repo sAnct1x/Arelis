@@ -65,7 +65,7 @@ def test_spoken_reply_says_dates_numbers_and_symbols_as_words() -> None:
     """
     shown = (
         "**Boston:** 72°F and clear.\n"
-        "- As of 2026-10-15, also 10/15 and Oct 15.\n"
+        "- As of 2026-10-15, also Oct 15.\n"
         "Item #2, see [the note](https://example.com/wx) and `code`."
     )
     spoken = prepare_spoken_text(shown)
@@ -75,7 +75,6 @@ def test_spoken_reply_says_dates_numbers_and_symbols_as_words() -> None:
     assert "*" not in spoken
     assert "`" not in spoken
     assert "2026-10-15" not in spoken
-    assert "10/15" not in spoken
     assert "http" not in spoken
     assert "example.com" not in spoken
     assert "degrees Fahrenheit" in spoken

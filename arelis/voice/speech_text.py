@@ -375,27 +375,33 @@ _ISO_DATE = re.compile(
 _SLASH_YEAR = re.compile(
     r"(?<!\d)(?P<a>\d{1,2})/(?P<b>\d{1,2})/(?P<y>\d{2,4})(?!\d)"
 )
-_SLASH_DATE = re.compile(r"(?<!\d)(?P<a>\d{1,2})/(?P<b>\d{1,2})(?!\d)")
+# Month names only when capitalized. "may" and "march" are ordinary words.
 _MONTH_DAY = re.compile(
-    rf"(?i)\b(?P<mon>{_MONTH_WORD})\.?\s+(?P<d>\d{{1,2}})(?:st|nd|rd|th)?"
+    rf"\b(?P<mon>{_MONTH_WORD})\.?\s+(?P<d>\d{{1,2}})(?:st|nd|rd|th)?"
     rf"(?:\s*,?\s*(?P<y>\d{{4}}))?\b"
 )
 _DAY_MONTH = re.compile(
-    rf"(?i)\b(?P<d>\d{{1,2}})(?:st|nd|rd|th)?\s+(?P<mon>{_MONTH_WORD})\.?"
+    rf"\b(?P<d>\d{{1,2}})(?:st|nd|rd|th)?\s+(?P<mon>{_MONTH_WORD})\.?"
     rf"(?:\s*,?\s*(?P<y>\d{{4}}))?\b"
 )
+# A meridiem is required. Bare 12:00 and a 3:2 ratio are not clocks.
 _CLOCK = re.compile(
-    r"(?<!\d)(?P<h>\d{1,2}):(?P<m>\d{2})(?::\d{2})?\s*(?P<ap>[AaPp]\.?[Mm]\.?)?\b"
+    r"(?<!\d)(?P<h>\d{1,2}):(?P<m>\d{2})(?::\d{2})?\s*(?P<ap>[AaPp]\.?[Mm]\.?)(?!\w)"
 )
+# A leading N- is part of the quantity (60-75°F), not a second number left behind.
 _DEGREE = re.compile(
-    r"(?<!\w)(?P<n>[+-]?\d+(?:\.\d+)?)\s*(?:°\s*(?P<u>[FfCc])|℉|℃|°)(?!\w)"
+    r"(?<![\w.])(?:(?P<lo>\d+(?:\.\d+)?)\s*-\s*)?"
+    r"(?P<n>[+-]?\d+(?:\.\d+)?)\s*(?:°\s*(?P<u>[FfCc])|℉|℃|°)(?!\w)"
 )
 _TIME_RANGE = re.compile(
     r"(\d{1,2}:\d{2}(?:\s*[AaPp]\.?[Mm]\.?)?)\s*[\u2013\u2014]\s*(?=\d)"
 )
-_PERCENT = re.compile(r"(?<!\w)(?P<n>[+-]?\d+(?:\.\d+)?)\s*%")
+_PERCENT = re.compile(
+    r"(?<![\w.])(?:(?P<lo>\d+(?:\.\d+)?)\s*-\s*)?(?P<n>[+-]?\d+(?:\.\d+)?)\s*%"
+)
+# km/s/Mpc is one unit. A slash after the token means it keeps going.
 _UNIT = re.compile(
-    r"(?<!\w)(?P<n>[+-]?\d+(?:\.\d+)?)\s*(?P<u>km/h|km/s|m/s|mph)\b",
+    r"(?<!\w)(?P<n>[+-]?\d+(?:\.\d+)?)\s*(?P<u>km/h|km/s|m/s|mph)\b(?!/)",
     re.IGNORECASE,
 )
 _HASH_NUMBER = re.compile(r"(?<![\w#])#(?P<n>\d+)\b")
@@ -509,10 +515,9 @@ def _date_words(year: int | None, month: int, day: int) -> str | None:
 
 
 def _us_date(first: int, second: int, year: int | None) -> str | None:
-    """Month/day, which is how a US weather reply writes 10/15.
+    """Month/day/year, as in 10/15/2026.
 
-    When the first number cannot be a month and the second can, read it
-    the other way so 15/10 still comes out as October.
+    When the first number cannot be a month, try day/month.
     """
     if 1 <= first <= 12:
         spoken = _date_words(year, first, second)
@@ -579,14 +584,11 @@ def _sub_slash_year(match: re.Match[str]) -> str:
     return spoken or match.group(0)
 
 
-def _sub_slash(match: re.Match[str]) -> str:
-    first = int(match.group("a"))
-    second = int(match.group("b"))
-    # 1/2 is a fraction. 10/15 is a date: one side is too big to be a month.
-    if first <= 12 and second <= 12:
-        return match.group(0)
-    spoken = _us_date(first, second, None)
-    return spoken or match.group(0)
+def _quantity(lo: str | None, raw: str) -> str:
+    spoken = _spell_number(raw)
+    if not lo:
+        return spoken
+    return f"{_spell_number(lo)} to {spoken}"
 
 
 def _sub_named_date(match: re.Match[str]) -> str:
@@ -605,7 +607,7 @@ def _sub_clock(match: re.Match[str]) -> str:
 def _sub_degree(match: re.Match[str]) -> str:
     raw = match.group(0)
     unit = match.group("u")
-    number = _spell_number(match.group("n"))
+    number = _quantity(match.group("lo"), match.group("n"))
     if "℃" in raw or (unit and unit.lower() == "c"):
         return f"{number} degrees Celsius"
     if "℉" in raw or (unit and unit.lower() == "f"):
@@ -614,7 +616,7 @@ def _sub_degree(match: re.Match[str]) -> str:
 
 
 def _sub_percent(match: re.Match[str]) -> str:
-    return f"{_spell_number(match.group('n'))} percent"
+    return f"{_quantity(match.group('lo'), match.group('n'))} percent"
 
 
 def _sub_unit(match: re.Match[str]) -> str:
@@ -642,7 +644,6 @@ def _normalize_spoken_symbols(text: str) -> str:
         return ""
     spoken = _ISO_DATE.sub(_sub_iso, text)
     spoken = _SLASH_YEAR.sub(_sub_slash_year, spoken)
-    spoken = _SLASH_DATE.sub(_sub_slash, spoken)
     spoken = _MONTH_DAY.sub(_sub_named_date, spoken)
     spoken = _DAY_MONTH.sub(_sub_named_date, spoken)
     spoken = _TIME_RANGE.sub(r"\1 to ", spoken)
