@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -65,6 +66,8 @@ from arelis.core.tool_surface import (
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer, turn_telemetry_enabled
 from arelis.llm.router import ModelRole
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -277,7 +280,33 @@ def _reconstruct_turn_drafts(loop: Any, text: str) -> _TurnDrafts:
     )
 
 
-def _context_limits(
+async def _provider_context_tokens(loop: Any, role: ModelRole) -> int | None:
+    """Server window when the provider can measure one. Ollama returns nothing."""
+    router = getattr(loop, "router", None)
+    provider = getattr(router, "provider", None)
+    probe = getattr(provider, "context_tokens", None)
+    if not callable(probe):
+        return None
+    model = ""
+    model_for = getattr(router, "model_for", None)
+    if callable(model_for):
+        try:
+            model = str(model_for(role) or "")
+        except Exception:
+            model = ""
+    try:
+        found = await probe(model)
+    except Exception as exc:
+        log.warning("Could not read the server context window: %s", exc)
+        return None
+    try:
+        value = int(found)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+async def _context_limits(
     loop: Any,
     role: ModelRole,
     *,
@@ -289,6 +318,9 @@ def _context_limits(
     num_ctx = int(ollama_cfg.get("num_ctx") or shipped_num_ctx())
     if role == "research" and ollama_cfg.get("research_num_ctx"):
         num_ctx = int(ollama_cfg["research_num_ctx"])
+    measured = await _provider_context_tokens(loop, role)
+    if measured:
+        num_ctx = measured
     # Sticky for the turn so mid-escalate does not shrink under a built prompt.
     loop._turn_num_ctx = num_ctx
     tool_reserve_chars = (
@@ -545,7 +577,7 @@ async def prepare_turn(
         active_room=active_room,
     )
     append_delivery_context(turn_tail, loop, speak=speak)
-    num_ctx, tool_reserve_chars = _context_limits(
+    num_ctx, tool_reserve_chars = await _context_limits(
         loop,
         role,
         speak=speak,

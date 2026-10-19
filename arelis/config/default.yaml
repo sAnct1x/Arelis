@@ -35,6 +35,24 @@ ollama:
   # multimodal chat model handles images itself and never reads this.
   vision_num_ctx: 4096
 
+# Which chat server to use. ollama is the 9B path and stays the default.
+# llamacpp talks to a llama-server you already started. Arelis does not launch it.
+llm:
+  provider: ollama
+
+# Used only when llm.provider is llamacpp. default_cap is the -c that fits the
+# 12 GB card for Qwen3.6-35B-A3B UD-Q4_K_M. History budget is the smaller of
+# this cap and the n_ctx the server reports on /props or /slots.
+# Launch line that was measured: -ngl 99 -fa off -c 32768 -np 1 --n-cpu-moe 28
+# -ub 2048 -b 4096 --cache-type-k f16 --cache-type-v f16 --jinja
+# plus the patched chat template that keeps late system messages.
+llamacpp:
+  base_url: "http://127.0.0.1:8080"
+  timeout_s: 300
+  default_cap: 32768
+  context_caps:
+    Qwen3.6-35B-A3B: 32768
+
 # Role → Ollama tag. First open recommends one chat model from hardware and
 # pins both chips to that tag in config.local.yaml. These are the last-resort
 # shipped names if setup has not run yet: the measured daily driver, one file.
