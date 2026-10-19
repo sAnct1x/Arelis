@@ -171,14 +171,16 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         normal turn and cancels the running one first. Speakers with
         barge_in_as_turn false still send deliver ``control`` so only stop /
         allow / deny / pause / go land, soup does not start a turn.
-        Deliver ``follow`` is speech that resumed inside a short window
-        while a turn was awaiting or busy and she was quiet. If the model
-        has not produced a token or a tool call yet, that call is cancelled
-        and started again with both halves. The static system prefix is
-        unchanged and the model stays loaded, so the prefix cache still
-        matches. Deliver ``next`` is the same speech outside that window,
-        or after the model has already started answering: it is his next
-        turn and runs as soon as this one releases the lock. Control words
+        Deliver ``follow`` is his words while a turn was awaiting or busy
+        and she was quiet. If the model has not produced a token, a
+        thinking chunk, a tool call, or painted text, that call is
+        cancelled quietly and his continuation is a normal voice
+        USER_MESSAGE. The fragment row stays, so the restarted turn sees
+        both user lines in order. The static system prefix is unchanged
+        and the model stays loaded, so the prefix cache still matches.
+        Once the model has started, the same line is a normal voice
+        USER_MESSAGE published while the turn lock is still held, so it
+        runs as the next turn and does not cancel this one. Control words
         are handled before either of those.
         """
         text = (event.payload.get("text") or "").strip()
@@ -215,8 +217,8 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
             payload["text"] = text
             await self.bus.publish(Event(EventType.PHYSICS_VERB, payload))
             return
-        if deliver in {"follow", "next"}:
-            await self._accept_voice_follow(text, merge_ok=deliver == "follow")
+        if deliver == "follow":
+            await self._accept_voice_follow(text)
             return
         if not conversing and not control_only:
             await self.bus.publish(Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"}))
@@ -233,7 +235,7 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         await self.bus.publish(Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"}))
 
     def _model_has_started(self) -> bool:
-        """True once this turn has model tokens, a tool call, or painted text."""
+        """True once this turn has a token, thinking, a tool call, or painted text."""
         loop = self._agent_loop
         if loop is None:
             return False
@@ -254,32 +256,41 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
             return False
         return not self._model_has_started()
 
-    async def _accept_voice_follow(self, text: str, *, merge_ok: bool) -> None:
+    async def _accept_voice_follow(self, text: str) -> None:
         """Keep speech that arrived while a turn was awaiting or busy.
 
-        Merge when he resumed quickly and the model has not answered.
-        Otherwise queue it. There is no path that throws the line away.
+        Merge when the model has not started answering. Otherwise queue
+        it. There is no path that throws the line away.
         """
         async with self._voice_follow_lock:
-            if merge_ok and self._can_merge_voice_follow():
+            if self._can_merge_voice_follow():
                 await self._merge_voice_follow(text)
                 return
             await self._queue_voice_follow(text)
 
     async def _queue_voice_follow(self, text: str) -> None:
-        """His next input. The turn lock runs it right after the open turn."""
+        """His next input. A plain USER_MESSAGE, so the running turn stays.
+
+        ``on_user_message`` ends in ``_run_turn``, which takes
+        ``_turn_lock`` and holds it until the turn task finishes. This
+        publish does not send TURN_CANCEL. The new handler blocks on
+        that lock and runs when this turn releases it.
+        """
         log.info("Voice: queued a continuation behind the open turn")
         await self.bus.publish(
             Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
         )
 
     async def _merge_voice_follow(self, text: str) -> None:
-        """Cancel the unanswered call and run one turn with both halves."""
+        """Cancel the unanswered call. His next line is a normal voice turn.
+
+        The fragment row stays in memory. The restarted turn reads both
+        user lines in order. The static system prefix is unchanged and
+        the model stays loaded, so the prefix cache still matches.
+        """
         if not self._can_merge_voice_follow():
             await self._queue_voice_follow(text)
             return
-        prior = str((self._last_ask or {}).get("text") or "").strip()
-        combined = f"{prior} {text}".strip() if prior else text
         loop = self._agent_loop
         task = self._turn_task
         if loop is not None:
@@ -289,7 +300,17 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         if task is not None and not task.done():
             task.cancel()
             await asyncio.wait({task})
-        if task is None or not task.cancelled() or self._model_has_started():
+        # The turn's finally clears self._agent_loop, so read the loop we
+        # cancelled. A token that landed during the cancel means queue.
+        started = bool(
+            loop is not None
+            and (
+                getattr(loop, "model_started", False)
+                or getattr(loop, "tools_used", None)
+                or str(getattr(loop, "_painted", "") or "").strip()
+            )
+        )
+        if task is None or not task.cancelled() or started:
             # The call already answered, or it finished on its own.
             # Keep that result and run his words next.
             self._voice_merge_task = None
@@ -298,17 +319,10 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
             self._cancel = False
             await self._queue_voice_follow(text)
             return
-        # The static system prefix is unchanged and the model stays loaded,
-        # so the restarted call reuses the prefix cache.
-        if prior:
-            self.memory.drop_last_user(prior)
         self._cancel = False
-        log.info("Voice: merged a continuation into the open turn")
+        log.info("Voice: restarted the open turn with the rest of the sentence")
         await self.bus.publish(
-            Event(
-                EventType.USER_MESSAGE,
-                {"text": combined, "source": "voice", "continues": True},
-            )
+            Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
         )
 
     def _last_spoken_reply(self) -> str:

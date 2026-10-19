@@ -176,26 +176,6 @@ class SessionMemory:
         if self.sink is not None:
             self.sink.on_message(role, content, note)
 
-    def drop_last_user(self, content: str) -> bool:
-        """Remove the latest user row when it is still this exact fragment.
-
-        A voice merge rewrites the turn before the model answers. The
-        fragment was written as soon as it landed. A finished turn, or a
-        different line, is left alone.
-        """
-        wanted = (content or "").strip()
-        if not wanted or not self.messages:
-            return False
-        last = self.messages[-1]
-        if last.role != "user" or last.cancelled or last.content.strip() != wanted:
-            return False
-        self.messages.pop()
-        sink = self.sink
-        drop = getattr(sink, "drop_last_user", None)
-        if callable(drop):
-            drop(wanted)
-        return True
-
     def mark_last_user_cancelled(self) -> None:
         """Tag the latest user turn stopped. Bubble stays; prompt gets a stub."""
         for message in reversed(self.messages):

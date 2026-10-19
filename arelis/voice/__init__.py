@@ -416,8 +416,8 @@ class VoiceService:
         publishes VOICE_TRANSCRIPT and lets the orchestrator start a normal
         turn; "dictate" for speech that should only land in the composer;
         "control" for a clip captured while she is speaking (stop, allow,
-        deny, pause, go only); "follow" or "next" for his words while a
-        turn is awaiting or busy and she is quiet; or "wake" for
+        deny, pause, go only); "follow" for his words while a turn is
+        awaiting or busy and she is quiet; or "wake" for
         always-listen clips that are transcribed but not published (the
         window decides whether the wake phrase matched).
 
@@ -588,10 +588,10 @@ class VoiceService:
         return text
 
     async def _publish_transcript(self, text: str, *, deliver: str) -> None:
-        # follow / next have to keep their deliver. A bare transcript while a
-        # turn is open is barge-in and cancels the call. That is the wrong
+        # follow has to keep its deliver. A bare transcript while a turn
+        # is open is barge-in and cancels the call. That is the wrong
         # path for a pause in the middle of a sentence.
-        if deliver in {"dictate", "control", "follow", "next"}:
+        if deliver in {"dictate", "control", "follow"}:
             await self.bus.publish(
                 Event(EventType.VOICE_TRANSCRIPT, {"text": text, "deliver": deliver})
             )

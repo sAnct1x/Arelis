@@ -829,9 +829,9 @@ class AgentLoop:
                 await self.bus.publish(Event(EventType.THINKING, {"text": blurb}))
             await self._cancel_notice()
         except asyncio.CancelledError:
-            # A continuation is restarting this call with the rest of the
-            # sentence. Do not paint "Stopped." and do not mark the line
-            # cancelled. The orchestrator drops the fragment and sends both.
+            # A continuation is restarting this call. Do not paint
+            # "Stopped." and do not mark the fragment cancelled. That row
+            # stays, and the next voice turn reads it with the new line.
             if self.restart_quietly:
                 self.restart_quietly = False
                 self.terminal_sent = True

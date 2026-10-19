@@ -131,56 +131,6 @@ def open_session(store: MemoryStore, session_id: str) -> bool:
     store._title_set = bool(str(session.get("title") or "").strip())
     return True
 
-def drop_last_user(store: MemoryStore, content: str) -> bool:
-    """Delete the latest row when it is still this user fragment.
-
-    Voice merge replaces that row with the combined sentence. Only the
-    last row, and only when the text matches, so a finished turn is never
-    removed out from under the archive.
-    """
-    if store.session_id is None:
-        return False
-    wanted = (content or "").strip()
-    if not wanted:
-        return False
-    row = store._conn.execute(
-        """
-        SELECT id, role, content FROM messages
-        WHERE session_id = ?
-        ORDER BY ordinal DESC
-        LIMIT 1
-        """,
-        (store.session_id,),
-    ).fetchone()
-    if row is None or row["role"] != "user":
-        return False
-    if str(row["content"] or "").strip() != wanted:
-        return False
-    store._conn.execute("DELETE FROM messages WHERE id = ?", (row["id"],))
-    nxt = store._conn.execute(
-        "SELECT COALESCE(MAX(ordinal), 0) AS n FROM messages WHERE session_id = ?",
-        (store.session_id,),
-    ).fetchone()
-    store._ordinal = int(nxt["n"] if nxt is not None else 0)
-    # The fragment may already have named the chat. If it was the only user
-    # line, let the combined sentence name it when it is written.
-    left = store._conn.execute(
-        """
-        SELECT COUNT(*) AS n FROM messages
-        WHERE session_id = ? AND role = 'user'
-        """,
-        (store.session_id,),
-    ).fetchone()
-    if int(left["n"] if left is not None else 0) == 0:
-        store._title_set = False
-        store._conn.execute(
-            "UPDATE sessions SET title = '' WHERE id = ?",
-            (store.session_id,),
-        )
-    store._conn.commit()
-    return True
-
-
 def on_message(store: MemoryStore, role: str, content: str, note: str = "") -> None:
     """Persist one message. Called from SessionMemory.add when a sink is set."""
     if store.session_id is None:

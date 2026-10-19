@@ -109,8 +109,8 @@ async def test_speech_during_a_busy_turn_reaches_the_model(qt_app) -> None:
     """A pause ends the turn. The next non-control line, while that turn is busy, is kept.
 
     On main the second clip is deliver "control" and the orchestrator returns
-    without a model call. With the fix the model sees both halves in one prompt
-    (he resumed before any token) or, once the model has answered, as the next turn.
+    without a model call. With the fix the unanswered call restarts, the
+    fragment row stays, and the model sees both user lines in order.
     """
     import asyncio
     from types import SimpleNamespace
@@ -198,10 +198,9 @@ async def test_speech_during_a_busy_turn_reaches_the_model(qt_app) -> None:
         )
         merged = False
         for _ in range(160):
-            if any(
-                "porch light" in line and "steps are icy" in line
-                for turn in router.user_turns
-                for line in turn
+            last = router.user_turns[-1] if router.user_turns else []
+            if any("porch light" in line for line in last) and any(
+                "steps are icy" in line for line in last
             ):
                 merged = True
                 break
@@ -214,11 +213,21 @@ async def test_speech_during_a_busy_turn_reaches_the_model(qt_app) -> None:
         bus_task.cancel()
         await asyncio.gather(bus_task, return_exceptions=True)
     assert merged, (
-        f"deliver={second!r} never put both halves in one model prompt; "
+        f"deliver={second!r} never put both lines in one model prompt; "
         f"user turns={router.user_turns!r}"
     )
-    remembered = [m.content for m in orch.memory.messages if m.role == "user"]
-    assert remembered == ["the porch light is out and the steps are icy"], remembered
+    last = router.user_turns[-1]
+    porch = [line for line in last if "porch light" in line]
+    icy = [line for line in last if "steps are icy" in line]
+    assert porch == ["the porch light is out"], porch
+    assert icy == ["and the steps are icy"], icy
+    assert last.index(porch[0]) < last.index(icy[0])
+    user_rows = [m for m in orch.memory.messages if m.role == "user"]
+    assert [m.content for m in user_rows] == [
+        "the porch light is out",
+        "and the steps are icy",
+    ], user_rows
+    assert [m.cancelled for m in user_rows] == [False, False]
     answered = [m.content for m in orch.memory.messages if m.role == "assistant"]
     assert answered and "Stopped" not in answered[-1], answered
     assert orch._turn_task is None or orch._turn_task.done()
