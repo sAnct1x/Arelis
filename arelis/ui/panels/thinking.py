@@ -66,6 +66,10 @@ class ThinkingPanel(QObject):
             return
         if line == self._last_essay:
             return
+        # A trace while she is idle is not a turn. Painting it opens the
+        # chat on a thought block before anyone has spoken.
+        if not bool(getattr(window, "_turn_busy", False)):
+            return
         self._last_essay = line
         window.chat.add_thought_line(line)
 
@@ -77,6 +81,8 @@ class ThinkingPanel(QObject):
             return
         if internal_status(chunk):
             log.info("%s", chunk.strip())
+            return
+        if not bool(getattr(self._window, "_turn_busy", False)):
             return
         self._window.chat.extend_thought(chunk)
 

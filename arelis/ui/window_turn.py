@@ -174,8 +174,11 @@ class WindowTurn:
                     self.workspace_roots.grant_external_read(source)
                 except Exception:
                     pass
-        self._set_busy(True)
+        # The user line goes in first. Marking the turn busy paints the
+        # live timer, and doing that on an empty transcript is what put
+        # "Thought for 0s" in the top left before the conversation.
         self.chat.add_user(text, attachments=attachments)
+        self._set_busy(True)
         sync_idle_mode(self)
         if not (text or "").lstrip().startswith("/"):
             self._show_model_loading(role)

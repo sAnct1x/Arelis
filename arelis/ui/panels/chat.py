@@ -149,6 +149,13 @@ _CHEVRON_CLOSED = ">"
 _CHEVRON_OPEN = "v"
 
 
+def _thought_has_body(thought) -> bool:
+    """True when the block holds reasoning, not just the timer."""
+    if any(line.strip() for line in thought.lines):
+        return True
+    return bool(thought.stream.strip())
+
+
 def _thought_phrase(seconds: float, done: bool) -> str:
     whole = int(seconds)
     if whole < 0:
@@ -480,11 +487,33 @@ class ChatPanel(QWidget):
         thought = self._live_thought()
         if thought is None or thought.sealed_at is not None:
             return
-        if not thought.lines and not thought.stream and thought.start is None:
-            thought.live = False
+        # The timer can sit on screen while a turn is open. Sealing that
+        # empty block is what left "Thought for 0s" after a quiet reply.
+        if not _thought_has_body(thought):
+            self._discard_empty_thought(thought)
             return
         thought.sealed_at = time.monotonic()
         self._repaint_thought(thought)
+
+    def _discard_empty_thought(self, thought: _Thought) -> None:
+        self._detach_thought(thought)
+        if thought in self._thoughts:
+            self._thoughts.remove(thought)
+        thought.live = False
+        if self._live_thought() is None:
+            self._thought_timer.stop()
+        self._restore_idle_if_blank()
+
+    def _restore_idle_if_blank(self) -> None:
+        if self._stream_open or self._thoughts:
+            return
+        if self.view.toPlainText().strip():
+            return
+        self._has_messages = False
+        self._anchor = None
+        self.view.clear()
+        self.view.hide()
+        self.empty.show()
 
     def _tick_thought(self) -> None:
         thought = self._live_thought()
@@ -665,7 +694,7 @@ class ChatPanel(QWidget):
             self._detach_thought(live)
         self._label_at = self._end_position()
         self.view.append(_assistant_label())
-        if live is not None:
+        if live is not None and _thought_has_body(live):
             self._place_thought(live)
         self._anchor = self._end_position()
         self._stream_text = []
