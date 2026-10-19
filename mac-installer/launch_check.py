@@ -70,7 +70,7 @@ def seed_launch_profile(data_dir: Path) -> None:
             "memory:",
             '  embed_model: "nomic-embed-text"',
             "workspace:",
-            f'  roots: ["{workspace}"]',
+            f"  roots: [{json.dumps(str(workspace))}]",
             "agent:",
             "  confirm_browser: true",
             "  confirm_send: true",
