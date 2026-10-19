@@ -10,6 +10,7 @@ fails on a laptop too, not only after push.
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -155,8 +156,10 @@ def test_ci_runs_the_eval_boards_as_a_gate() -> None:
 
 
 def test_pytest_has_a_per_test_timeout() -> None:
-    text = PYPROJECT.read_text(encoding="utf-8")
-    assert "pytest-timeout" in text
-    assert re.search(r"(?m)^timeout = \d+", text)
+    loaded = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    dev = loaded["project"]["optional-dependencies"]["dev"]
+    assert any(item.startswith("pytest-timeout") for item in dev)
+    timeout = loaded["tool"]["pytest"]["ini_options"]["timeout"]
+    assert isinstance(timeout, int) and timeout > 0
 
 

@@ -7,8 +7,11 @@ fixtures. The plist text is produced by the build helper on any machine.
 from __future__ import annotations
 
 import importlib.util
+import json
+import plistlib
 from pathlib import Path
 
+import yaml
 from packaging.version import Version
 
 from arelis import update
@@ -124,13 +127,13 @@ def test_the_mac_window_names_the_release_page_and_does_not_download(
 def test_info_plist_names_the_app_and_the_permissions() -> None:
     build = _build_module()
     text = build.info_plist_xml("0.3.1")
-    assert "app.arelis" in text
-    assert ">0.3.1<" in text
-    assert "LSMinimumSystemVersion" in text
-    assert "NSMicrophoneUsageDescription" in text
-    assert "NSCameraUsageDescription" in text
-    assert "<key>LSUIElement</key>" in text
-    assert "<false/>" in text
+    plist = plistlib.loads(text.encode("utf-8"))
+    assert plist["CFBundleIdentifier"] == "app.arelis"
+    assert plist["CFBundleShortVersionString"] == "0.3.1"
+    assert plist["LSMinimumSystemVersion"]
+    assert "microphone" in plist["NSMicrophoneUsageDescription"].lower()
+    assert "camera" in plist["NSCameraUsageDescription"].lower()
+    assert plist["LSUIElement"] is False
     assert "\u2014" not in text
     assert "\u2013" not in text
 
@@ -148,11 +151,13 @@ def _launch_module():
 def test_the_launch_profile_keeps_the_first_run_quiet(tmp_path: Path) -> None:
     launch = _launch_module()
     launch.seed_launch_profile(tmp_path)
-    text = (tmp_path / "data" / "config.local.yaml").read_text(encoding="utf-8")
-    assert "ipc_enabled: false" in text
-    assert "ipc_port: 18766" in text
-    assert "check: false" in text
-    marker = (tmp_path / "data" / "first-run.json").read_text(encoding="utf-8")
-    assert '"complete": true' in marker
+    loaded = yaml.safe_load(
+        (tmp_path / "data" / "config.local.yaml").read_text(encoding="utf-8")
+    )
+    assert loaded["presence"]["ipc_enabled"] is False
+    assert loaded["presence"]["ipc_port"] == 18766
+    assert loaded["updates"]["check"] is False
+    marker = json.loads((tmp_path / "data" / "first-run.json").read_text(encoding="utf-8"))
+    assert marker["model_setup"]["complete"] is True
 
 

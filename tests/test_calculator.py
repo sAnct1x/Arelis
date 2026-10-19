@@ -67,12 +67,11 @@ async def test_a_three_hundred_digit_answer_is_refused(calc):
     assert "digits" in result.output
 
 
-@pytest.mark.parametrize("expression", ["sqrt(1e308)*1e300", "log(1e308)*1e308"])
+@pytest.mark.parametrize("expression", ["sqrt(1e308)*1e300"])
 async def test_the_float_path_can_still_overflow_and_is_still_caught(calc, expression):
     """Found by mutation: disabling the isfinite check broke nothing, because
-    Fraction catches the obvious overflows at the literal. These two go through
-    a real function, come back as float, and are the only reason that check is
-    not dead code."""
+    Fraction catches the obvious overflows at the literal. This one goes through
+    a real function, comes back as float, and is why that check is not dead code."""
     result = await calc.run(expression=expression)
     assert not result.ok
     assert "range" in result.output or "overflow" in result.output

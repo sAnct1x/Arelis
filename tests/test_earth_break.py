@@ -50,12 +50,20 @@ async def test_earth_tool_leave_when_solar_is_ok(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("arelis.tools.earth_tool.stage_ok", lambda: True)
-    set_earth(EarthRuntime())
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    assert earth.active is True
+    set_earth(earth)
     tool = EarthTool()
     left = await tool.run(action="leave")
     assert left.ok
+    assert earth.active is False
+    assert left.data["active"] is False
+    assert left.output.startswith("Left Earth. Back to the solar lab.")
     again = await tool.run(action="leave")
     assert again.ok
+    assert again.output.startswith("already solar")
+    assert earth.active is False
     set_earth(None)
 
 

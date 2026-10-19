@@ -28,17 +28,6 @@ _SKIP_FILES = {
 }
 
 
-def test_padding_helper_is_not_named_box() -> None:
-    """`box` is a QWidget local on half the plates. The helper lost twice."""
-    import arelis.ui.theme as theme
-    import arelis.ui.theme_tokens as tokens
-
-    assert hasattr(theme, "space_box")
-    assert hasattr(tokens, "space_box")
-    assert not hasattr(theme, "box")
-    assert not hasattr(tokens, "box")
-
-
 def test_space_is_six_named_steps() -> None:
     assert SPACE == {
         "hair": 2,

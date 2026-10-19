@@ -38,6 +38,14 @@ def test_plot_bar_reads_csv_written_by_document(tmp_path: Path) -> None:
     assert wrote.ok, wrote.output
     out = asyncio.run(PlotTool(roots).run(action="bar", path=wrote.data["path"], x="name", y="count"))
     assert out.ok, out.output
+    assert out.data["action"] == "bar"
+    assert out.data["n"] == 3
+    assert "bar, 3 points" in out.output
+    chart = Path(out.data["abs_path"])
+    assert chart.is_file()
+    assert chart.suffix == ".png"
+    assert chart.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert chart.stat().st_size > 1000
 
 
 def test_plot_refuses_a_document_path_that_climbs_out(tmp_path, monkeypatch) -> None:
