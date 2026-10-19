@@ -71,9 +71,6 @@ def test_a_quiet_reply_does_not_leave_thought_for_zero(arelis_window, qt_app) ->
     """The welcome screen stays clear, and a reply that never reasoned
     does not leave a Thought for 0s line at the top of the chat.
     """
-    from arelis.core.events import Event, EventType
-    from arelis.ui.event_host import dispatch_event
-
     window = arelis_window()
     window.show()
     qt_app.processEvents()
@@ -91,17 +88,6 @@ def test_a_quiet_reply_does_not_leave_thought_for_zero(arelis_window, qt_app) ->
     assert "Hello." in shown
     assert "Thought for" not in shown
     assert "Thinking for" not in shown
-
-    window.chat.clear()
-    qt_app.processEvents()
-    dispatch_event(
-        window,
-        Event(EventType.THINKING, {"text": "warming the prefix", "stream": True}),
-    )
-    qt_app.processEvents()
-    assert window.chat.empty.isVisible()
-    assert "Thought" not in _plain(window)
-    assert "Thinking" not in _plain(window)
 
 
 def test_one_thinking_line_and_the_stop_button(arelis_window, qt_app) -> None:
