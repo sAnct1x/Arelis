@@ -72,7 +72,10 @@ class _ProbeWorker(QThread):
 
 
 class _PrepareWorker(QThread):
-    progressed = Signal(str, int, int)
+    # Byte counts. Qt's plain int is 32-bit, and a model blob is past that.
+    # "qint64" is the Qt type name PySide accepts here. There is no qint64
+    # object to import.
+    progressed = Signal(str, "qint64", "qint64")
     finished_ok = Signal()
     failed = Signal(str)
 
@@ -392,7 +395,12 @@ class ModelSetupDialog(GlassDialog):
         self._ready_status.setText(status)
         if total > 0:
             self._bar.setRange(0, 100)
-            self._bar.setValue(int(done * 100 / total))
+            percent = (done * 100) // total
+            if percent < 0:
+                percent = 0
+            elif percent > 100:
+                percent = 100
+            self._bar.setValue(percent)
         else:
             self._bar.setRange(0, 0)
 

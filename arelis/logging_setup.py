@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -81,10 +82,21 @@ def install_unhandled_hook() -> None:
     """
 
     def _hook(exc_type: type[BaseException], exc: BaseException, tb: object) -> None:
-        logging.getLogger("arelis").critical(
-            "unhandled exception",
-            exc_info=(exc_type, exc, tb),
-        )
+        log = logging.getLogger("arelis")
+        if tb is None:
+            tb = getattr(exc, "__traceback__", None)
+        if tb is not None:
+            log.critical("unhandled exception", exc_info=(exc_type, exc, tb))
+        else:
+            # Qt/Shiboken can raise from C with no traceback object. The
+            # Python frames still on the stack are the only record of the line.
+            frames = "".join(traceback.format_stack()[:-1]).rstrip("\n")
+            detail = "".join(traceback.format_exception_only(exc)).rstrip("\n")
+            log.critical(
+                "unhandled exception\nTraceback (most recent call last):\n%s\n%s",
+                frames,
+                detail,
+            )
         sys.__excepthook__(exc_type, exc, tb)
 
     sys.excepthook = _hook
