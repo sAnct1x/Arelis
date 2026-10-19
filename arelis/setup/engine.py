@@ -23,6 +23,7 @@ from pathlib import Path
 import httpx
 
 from arelis.hidden_proc import hidden_kwargs, hidden_run
+from arelis.llm.ollama import ollama_base_url
 from arelis.llm.startup import model_is_available
 
 log = logging.getLogger(__name__)
@@ -81,35 +82,16 @@ def find_ollama_exe() -> Path | None:
     return None
 
 
-def _configured_base_url() -> str:
-    """Ollama address the chat client uses.
-
-    There is no shared resolver. ``build_router`` reads ``ollama.base_url``
-    from the dict ``load_config`` already merged (shipped default.yaml plus
-    config.local.yaml) and falls back to ``http://127.0.0.1:11434`` only when
-    that key is missing. Setup uses that same pair.
-    """
-    from arelis.config import load_config
-
-    ollama_cfg = load_config().get("ollama") or {}
-    # Same missing-key fallback build_router passes into OllamaProvider.
-    fallback = "http://127.0.0.1:11434"
-    base = ollama_cfg.get("base_url", fallback)
-    if isinstance(base, str):
-        return base
-    return fallback
-
-
 def _resolve_base_url(base_url: str | None) -> str:
     """An explicit address wins. Otherwise use the configured one."""
     if base_url is not None:
         return base_url
-    return _configured_base_url()
+    return ollama_base_url()
 
 
 def ollama_reachable(base_url: str | None = None, *, timeout_s: float = 1.5) -> bool:
+    base_url = _resolve_base_url(base_url)
     try:
-        base_url = _resolve_base_url(base_url)
         with httpx.Client(timeout=timeout_s) as client:
             resp = client.get(f"{base_url.rstrip('/')}/api/tags")
             return resp.status_code < 500
@@ -124,7 +106,7 @@ def start_ollama(exe: Path | None = None) -> str | None:
     local ``ollama serve``, which listens on Ollama's own default unless
     the environment already points it somewhere else.
     """
-    base_url = _configured_base_url()
+    base_url = _resolve_base_url(None)
     if ollama_reachable(base_url):
         return None
     binary = exe or find_ollama_exe()

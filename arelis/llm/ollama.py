@@ -32,6 +32,23 @@ def parse_installed_tags(payload: Any) -> list[str]:
     return names
 
 
+def ollama_base_url(cfg: dict[str, Any] | None = None) -> str:
+    """Ollama address from config.
+
+    Pass a loaded config dict, or leave it empty to read ``load_config()``
+    (shipped default.yaml plus config.local.yaml). A missing
+    ``ollama.base_url`` is ``http://127.0.0.1:11434``. A trailing slash
+    is removed, which is what ``OllamaProvider`` stores.
+    """
+    if cfg is None:
+        from arelis.config import load_config
+
+        cfg = load_config()
+    ollama_cfg = cfg.get("ollama", {}) or {}
+    base = ollama_cfg.get("base_url", "http://127.0.0.1:11434")
+    return base.rstrip("/")
+
+
 def list_installed_models(
     base_url: str = "http://127.0.0.1:11434",
     *,
