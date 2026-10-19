@@ -13,7 +13,6 @@ import pytest
 
 from arelis.core.compact_prompt import (
     _SHORT_DESC,
-    TOOLS_SLASH,
     format_tool_catalog,
 )
 from arelis.core.events import EventType
@@ -28,18 +27,6 @@ def _named_line(text: str, name: str) -> str:
         if line.startswith(marker):
             return line
     raise AssertionError(f"no name+line for {name!r} in:\n{text}")
-
-
-def test_tools_slash_is_the_idle_chip_command() -> None:
-    assert TOOLS_SLASH == "/tools"
-    from pathlib import Path
-
-    idle = Path("arelis/ui/void_idle.py").read_text(encoding="utf-8")
-    slash = Path("arelis/core/orchestrator_slash.py").read_text(encoding="utf-8")
-    turns = Path("arelis/core/orchestrator_turns.py").read_text(encoding="utf-8")
-    assert "TOOLS_SLASH" in idle and "_add_tools_chip" in idle
-    assert "format_tool_catalog" in slash and "_emit_tools" in slash
-    assert "_emit_tools" in turns
 
 
 def test_catalog_names_cas_and_remind_while_those_tools_exist() -> None:

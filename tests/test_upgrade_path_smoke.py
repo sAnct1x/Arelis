@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 from pathlib import Path
 
@@ -181,12 +182,23 @@ def test_headless_hook_calls_exec_with_no_arguments() -> None:
 
 
 def test_uninstall_checks_keep_and_wipe() -> None:
-    text = SCRIPT.read_text(encoding="utf-8")
-    assert "wipe=False" in text
-    assert "wipe=True" in text
-    assert "ARELIS_DATA_DIR" in text
-    assert "arelis-not-our-data" in text
-    assert "owned-marker.txt" in text
+    """keep calls wipe=False and wipe calls wipe=True. Comments do not count."""
+    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    wipes: dict[str, bool] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Name) or func.id != "run_uninstaller":
+            continue
+        assert node.args and isinstance(node.args[0], ast.Constant)
+        log_name = node.args[0].value
+        assert isinstance(log_name, str)
+        wipe = next(kw.value for kw in node.keywords if kw.arg == "wipe")
+        assert isinstance(wipe, ast.Constant) and isinstance(wipe.value, bool)
+        wipes[log_name] = wipe.value
+    assert wipes["uninstall-keep.log"] is False
+    assert wipes["uninstall-wipe.log"] is True
 
 
 def test_child_scripts_parse() -> None:

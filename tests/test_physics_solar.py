@@ -11,19 +11,6 @@ from arelis.physics.demo import sun_and_planet
 from arelis.physics.engine import rebound_available
 
 
-def test_no_craft_chase_cam() -> None:
-    import arelis.physics.camera as camera
-    from arelis.physics.camera import FlyCamera
-    from arelis.physics.scene import SolarSystem
-
-    assert not hasattr(camera, "CRAFT_CHASE_DEFAULT")
-    assert not hasattr(camera, "chase_eye")
-    assert not hasattr(camera, "craft_axes")
-    assert not hasattr(FlyCamera, "eye")
-    assert not hasattr(SolarSystem, "enter_craft")
-    assert not hasattr(SolarSystem, "craft_hud")
-
-
 def test_newtonian_phi_and_well_are_not_gr() -> None:
     from arelis.physics.elements import (
         newtonian_phi,

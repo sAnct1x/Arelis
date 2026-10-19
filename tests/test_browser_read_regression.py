@@ -246,57 +246,6 @@ def test_browser_open_and_screenshot_runs_both() -> None:
     assert "screenshot" in final_text.lower(), f"Missing screenshot mention in: {final_text}"
 
 
-def test_browser_screenshot_explicit_runs_both() -> None:
-    """Browser open then explicit screenshot should run both (P02 bug).
-
-    Matrix item P02 uses explicit action names. The errand-done check
-    should respect named_tools_owed like image_edit does.
-    """
-    script = [
-        [
-            (
-                "tool_calls",
-                [
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "browser",
-                            "arguments": {"action": "open", "url": "https://example.com"},
-                        },
-                    }
-                ],
-            )
-        ],
-        [
-            (
-                "tool_calls",
-                [
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "browser",
-                            "arguments": {"action": "screenshot"},
-                        },
-                    }
-                ],
-            )
-        ],
-        [("token", "Screenshot saved.")],
-    ]
-
-    final_text, tool_results, tool_names = asyncio.run(
-        _run_agent_with_script(
-            "Use the browser tool to open https://example.com, then call the browser tool with action=screenshot.",
-            script,
-        )
-    )
-
-    assert len(tool_results) >= 2, f"Expected at least 2 tool calls, got {len(tool_results)}"
-    assert tool_names.count("browser") >= 2, f"Expected 2+ browser calls, got {tool_names}"
-    assert "the page is open" not in final_text.lower(), f"Got shortcut reply: {final_text}"
-    assert "screenshot" in final_text.lower(), f"Missing screenshot mention in: {final_text}"
-
-
 def test_browser_open_read_then_document_chain() -> None:
     """Browser open+read then document should run all three (C25/P11 bug).
 

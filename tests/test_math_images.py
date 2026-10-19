@@ -200,11 +200,38 @@ def test_installer_ships_qtsvg_ziamath_and_the_stix_licence():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert "QtSvg" in module.QT_MODULES and "ziamath" in module.REQUIRED_IMPORTS
-    lock = (root / "win-installer" / "requirements-win-amd64-cp314.txt").read_text()
-    mac = (root / "mac-installer" / "requirements-macos-arm64-cp313.txt").read_text()
-    for pkg in ("ziamath==", "ziafont==", "latex2mathml=="):
-        assert pkg in lock
-        assert pkg in mac
+    def _hash_pins(text: str) -> dict[str, str]:
+        pins: dict[str, str] = {}
+        for line in text.splitlines():
+            raw = line.strip()
+            if not raw or raw.startswith("#"):
+                continue
+            name, _, rest = raw.partition("==")
+            if not name or not rest:
+                continue
+            version, _, tail = rest.partition(" ")
+            digest = ""
+            for part in tail.split():
+                if part.startswith("--hash=sha256:"):
+                    digest = part.removeprefix("--hash=sha256:")
+                    break
+            assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest), raw
+            pins[name] = version
+        return pins
+
+    lock = _hash_pins(
+        (root / "win-installer" / "requirements-win-amd64-cp314.txt").read_text(
+            encoding="utf-8"
+        )
+    )
+    mac = _hash_pins(
+        (root / "mac-installer" / "requirements-macos-arm64-cp313.txt").read_text(
+            encoding="utf-8"
+        )
+    )
+    for pkg in ("ziamath", "ziafont", "latex2mathml"):
+        assert lock[pkg], pkg
+        assert mac[pkg] == lock[pkg], pkg
     assert (root / "arelis" / "ui" / "fonts" / "OFL-STIXTwoMath.txt").is_file()
 
 

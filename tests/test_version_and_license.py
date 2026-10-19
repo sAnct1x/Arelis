@@ -47,13 +47,21 @@ def test_packaging_reads_the_version_rather_than_repeating_it() -> None:
 
 def test_the_licence_file_is_the_full_agpl_text() -> None:
     """A named licence with the wrong text grants nothing anyone can rely on."""
-    text = LICENSE_FILE.read_text(encoding="utf-8")
+    raw = LICENSE_FILE.read_bytes()
+    text = raw.decode("utf-8")
+    flat = " ".join(text.split())
+    assert len(raw) >= 30_000
     assert "GNU AFFERO GENERAL PUBLIC LICENSE" in text
     assert "Version 3, 19 November 2007" in text
-    # Section 13 is the whole reason this is the Affero variant rather than the
-    # GPL: it closes the network-use loophole. Its absence would mean the file
-    # is actually the plain GPL under an Affero heading.
-    assert "Remote Network Interaction" in text
+    assert "0. Definitions." in text
+    assert "13. Remote Network Interaction; Use with the GNU General Public License." in text
+    assert (
+        "your modified version must prominently offer all users "
+        "interacting with it remotely through a computer network"
+    ) in flat
+    assert "15. Disclaimer of Warranty." in text
+    assert "END OF TERMS AND CONDITIONS" in text
+    assert "How to Apply These Terms to Your New Programs" in text
 
 
 def test_version_flag_reports_version_licence_and_source() -> None:

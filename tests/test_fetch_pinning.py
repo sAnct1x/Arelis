@@ -57,6 +57,19 @@ async def test_guarded_get_connects_to_checked_ip(monkeypatch: pytest.MonkeyPatc
         return previous(host, port_arg, *args, **kwargs)
 
     monkeypatch.setattr(socket, "getaddrinfo", _fake)
+    dialed: list[str] = []
+    real_send = httpx.AsyncClient.send
+
+    async def _spy(
+        self: httpx.AsyncClient,
+        request: httpx.Request,
+        *args: object,
+        **kwargs: object,
+    ) -> httpx.Response:
+        dialed.append(request.url.host)
+        return await real_send(self, request, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", _spy)
     try:
         async with httpx.AsyncClient(timeout=1.0, trust_env=False) as client:
             try:
@@ -64,6 +77,9 @@ async def test_guarded_get_connects_to_checked_ip(monkeypatch: pytest.MonkeyPatc
             except Exception:
                 pass
         await asyncio.sleep(0.05)
+        # The checked address is what we dial. Raising before send leaves this empty,
+        # and a second DNS answer of 127.0.0.1 must not be the host either.
+        assert dialed == [_PUBLIC]
         assert hits == 0
         _reader, writer = await asyncio.wait_for(
             asyncio.open_connection("127.0.0.1", port),

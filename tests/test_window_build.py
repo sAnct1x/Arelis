@@ -74,9 +74,23 @@ def test_every_phase_runs_once_and_after_what_it_needs(qt_app, monkeypatch) -> N
             )
 
 
+# `phase` is unused. A repeated `needed` stub is the same test, so it is not listed twice.
+_REPEAT_EDGES = {
+    ("_build_stage_and_chat", "_build_core_state"),
+    ("_build_instruments", "_build_core_state"),
+    ("_build_timers_and_state", "_build_core_state"),
+    ("_build_secondary_windows", "_build_instruments"),
+}
+
+
 @pytest.mark.parametrize(
     ("phase", "needed"),
-    [(p, n) for p, needs in REQUIRES.items() for n in needs],
+    [
+        (phase, needed)
+        for phase, needs in REQUIRES.items()
+        for needed in needs
+        if (phase, needed) not in _REPEAT_EDGES
+    ],
 )
 def test_a_reordered_phase_is_caught(qt_app, monkeypatch, phase, needed) -> None:
     """Every edge in REQUIRES is real: skip the dependency and construction dies.
