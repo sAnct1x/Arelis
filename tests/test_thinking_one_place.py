@@ -67,6 +67,29 @@ def _watch(qt_app, window, seconds: float) -> _PaintCount:
     return counter
 
 
+def test_a_quiet_reply_does_not_leave_thought_for_zero(arelis_window, qt_app) -> None:
+    """The welcome screen stays clear, and a reply that never reasoned
+    does not leave a Thought for 0s line at the top of the chat.
+    """
+    window = arelis_window()
+    window.show()
+    qt_app.processEvents()
+    assert window.chat.empty.isVisible()
+    assert "Thought" not in window.chat.view.toPlainText()
+
+    window._set_busy(True)
+    window.chat.add_user("hi")
+    window.chat.append_delta("Hello.")
+    window.chat.finish_assistant("Hello.")
+    window._set_busy(False)
+    qt_app.processEvents()
+    shown = _plain(window)
+    assert "hi" in shown
+    assert "Hello." in shown
+    assert "Thought for" not in shown
+    assert "Thinking for" not in shown
+
+
 def test_one_thinking_line_and_the_stop_button(arelis_window, qt_app) -> None:
     """The collapsed thought line is the only thinking cue, and stop still works."""
     from arelis.core.events import Event, EventType
