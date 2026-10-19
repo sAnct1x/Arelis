@@ -103,9 +103,32 @@ class MemoryIndexer:
         else:
             self.mail = None
 
+    async def _provider_embeds(self) -> bool:
+        """False when this provider says the embed tag cannot embed.
+
+        An empty capability set means the probe failed. That is not a no,
+        so the tag list still decides. A stated set without ``embedding``
+        means skip the batch instead of calling embed and logging the raise.
+        """
+        probe = getattr(self.provider, "capabilities", None)
+        if not callable(probe):
+            return True
+        try:
+            found = await probe(self.model)
+        except Exception:
+            log.exception("Could not read capabilities for embed model %s", self.model)
+            return True
+        if not found:
+            return True
+        names = {str(item).strip().lower() for item in found}
+        return "embedding" in names
+
     async def model_available(self) -> bool:
         if self._available is not None:
             return self._available
+        if not await self._provider_embeds():
+            self._available = False
+            return False
         try:
             names = await self.provider.list_models()
         except Exception:

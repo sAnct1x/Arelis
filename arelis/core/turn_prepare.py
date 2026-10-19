@@ -292,7 +292,8 @@ async def _provider_context_tokens(loop: Any, role: ModelRole) -> int | None:
     if callable(model_for):
         try:
             model = str(model_for(role) or "")
-        except Exception:
+        except (RuntimeError, TypeError, ValueError) as exc:
+            log.warning("Could not resolve the model for the context budget: %s", exc)
             model = ""
     try:
         found = await probe(model)

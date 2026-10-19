@@ -18,6 +18,9 @@ from arelis.llm.ollama import _finalize_tool_calls, _merge_tool_calls
 
 log = logging.getLogger(__name__)
 
+# Server down and no per-model cap. Do not borrow Ollama's 65536.
+_FALLBACK_CONTEXT_TOKENS = 8192
+
 _SAMPLING = {
     "temperature": "temperature",
     "top_p": "top_p",
@@ -71,12 +74,63 @@ def parse_server_n_ctx(payload: Any) -> int | None:
     return None
 
 
+def _json_arguments(raw: Any) -> str:
+    """OpenAI wants ``function.arguments`` as a JSON string, not an object."""
+    if isinstance(raw, str):
+        return raw
+    if raw is None:
+        raw = {}
+    return json.dumps(raw, ensure_ascii=False, default=str)
+
+
+def _call_id(call: dict[str, Any], ordinal: int) -> str:
+    existing = call.get("id")
+    if existing:
+        return str(existing)
+    return f"call_{ordinal}"
+
+
+def _wire_tool_call(call: Any, ordinal: int) -> tuple[dict[str, Any], str] | None:
+    if not isinstance(call, dict):
+        return None
+    fn = call.get("function")
+    if not isinstance(fn, dict):
+        fn = {}
+    name = fn.get("name") or call.get("name") or ""
+    if "arguments" in fn:
+        args = fn.get("arguments")
+    else:
+        args = call.get("arguments")
+    call_id = _call_id(call, ordinal)
+    wired = {
+        "id": call_id,
+        "type": str(call.get("type") or "function"),
+        "function": {
+            "name": str(name),
+            "arguments": _json_arguments(args),
+        },
+    }
+    return wired, call_id
+
+
+def _is_context_overflow(detail: object) -> bool:
+    text = str(detail or "").lower()
+    if "context" not in text:
+        return False
+    return "exceed" in text or "overflow" in text
+
+
 def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Ollama rows to the OpenAI chat shape llama-server expects.
 
-    Tool results in Arelis use ``tool_name``. The server reads ``name``.
+    Arelis stores tool-call arguments as a dict and often omits ``id``.
+    Tool rows carry ``tool_name`` and no ``tool_call_id``. The server wants
+    a JSON string, an id on each call, and the matching id on the result.
+    Results pair with calls in order when the id is missing.
     """
     out: list[dict[str, Any]] = []
+    pending_ids: list[str] = []
+    ordinal = 0
     for msg in messages:
         if not isinstance(msg, dict):
             continue
@@ -84,14 +138,33 @@ def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not isinstance(content, str):
             content = "" if content is None else str(content)
         row: dict[str, Any] = {"role": msg.get("role") or "user", "content": content}
+        calls = msg.get("tool_calls")
+        if isinstance(calls, list) and calls:
+            wired_calls: list[dict[str, Any]] = []
+            for call in calls:
+                ordinal += 1
+                wired = _wire_tool_call(call, ordinal)
+                if wired is None:
+                    continue
+                item, _call_id = wired
+                wired_calls.append(item)
+            if wired_calls:
+                row["tool_calls"] = wired_calls
+                pending_ids = [str(item["id"]) for item in wired_calls]
         if row["role"] == "tool":
             name = msg.get("name") or msg.get("tool_name")
             if name:
                 row["name"] = str(name)
-            if msg.get("tool_call_id"):
-                row["tool_call_id"] = msg["tool_call_id"]
-        if msg.get("tool_calls"):
-            row["tool_calls"] = msg["tool_calls"]
+            existing = msg.get("tool_call_id")
+            if existing:
+                row["tool_call_id"] = str(existing)
+                if pending_ids and pending_ids[0] == row["tool_call_id"]:
+                    pending_ids.pop(0)
+            elif pending_ids:
+                row["tool_call_id"] = pending_ids.pop(0)
+            else:
+                ordinal += 1
+                row["tool_call_id"] = f"call_{ordinal}"
         out.append(row)
     return out
 
@@ -166,7 +239,7 @@ class LlamaCppProvider:
             return server
         if cap:
             return cap
-        return 0
+        return _FALLBACK_CONTEXT_TOKENS
 
     async def _server_n_ctx(self) -> int | None:
         if self._n_ctx:
@@ -181,16 +254,24 @@ class LlamaCppProvider:
     async def _read_n_ctx(self, path: str) -> int | None:
         try:
             response = await self._client.get(path)
-        except Exception as exc:
-            log.info("llama-server %s failed: %s", path, exc)
+        except httpx.HTTPError as exc:
+            log.warning("llama-server %s failed: %s", path, exc)
             return None
         if response.status_code >= 400:
             return None
         try:
             payload = response.json()
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            log.warning("llama-server %s returned a body that is not JSON", path)
             return None
         return parse_server_n_ctx(payload)
+
+    async def _drop_cached_window_after_overflow(self, detail: object) -> None:
+        """A restarted server can have a new ``-c``. The next budget must see it."""
+        if not _is_context_overflow(detail):
+            return
+        self._n_ctx = None
+        await self._server_n_ctx()
 
     async def stream_chat(
         self,
@@ -227,6 +308,7 @@ class LlamaCppProvider:
             if response.status_code >= 400:
                 await response.aread()
                 detail = response.text.strip()[:400]
+                await self._drop_cached_window_after_overflow(detail)
                 raise RuntimeError(
                     f"llama-server returned HTTP {response.status_code} for model `{model}`"
                     + (f": {detail}" if detail else "")
@@ -251,6 +333,7 @@ class LlamaCppProvider:
                 if data.get("error"):
                     err = data["error"]
                     message = err.get("message") if isinstance(err, dict) else err
+                    await self._drop_cached_window_after_overflow(message)
                     raise RuntimeError(f"llama-server error: {message}")
                 usage = data.get("usage") or {}
                 if isinstance(usage, dict) and usage.get("prompt_tokens") is not None:
