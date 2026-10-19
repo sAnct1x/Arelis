@@ -104,8 +104,18 @@ class _PrepareWorker(QThread):
             self._fail(self._stage, exc)
 
     def _report(self, status: str, done: int = 0, total: int = 0) -> None:
-        if not self._cancel:
-            self.progressed.emit(status, done, total)
+        if self._cancel:
+            return
+        # Signal(int) is a C int. Ollama reports pull progress in bytes, and
+        # a 9B model is about 6.6 billion of them, which overflows that int.
+        # A percent fits. No total yet means the bar stays indeterminate.
+        if total <= 0:
+            self.progressed.emit(status, 0, 0)
+            return
+        percent = (max(done, 0) * 100) // total
+        if percent > 100:
+            percent = 100
+        self.progressed.emit(status, percent, 100)
 
     def _size_gb(self, tag: str) -> float | None:
         model = by_tag(tag)

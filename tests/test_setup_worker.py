@@ -347,3 +347,64 @@ class TestGroupD:
         assert "online" not in message.lower()
 
 
+def test_pull_progress_zero_and_huge_total(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A model pull's byte counts must not blow up the progress bar.
+
+    Ollama's /api/pull stream leaves total out, or sends 0, then reports
+    completed and total in bytes. qwen3.5:9b is about 6.6e9, past a 32-bit
+    Qt int. Zero means the bar is still working out the size.
+    """
+    import sys
+
+    from arelis.setup.engine import parse_pull_status
+    from arelis.ui.setup_wizard import ModelSetupDialog, _PrepareWorker, _ProbeWorker
+
+    monkeypatch.setattr(_ProbeWorker, "start", lambda *args, **kwargs: None)
+    crashes: list[BaseException] = []
+
+    def _record(exc_type, exc, _tb) -> None:
+        crashes.append(exc)
+
+    monkeypatch.setattr(sys, "excepthook", _record)
+
+    dialog = ModelSetupDialog()
+    try:
+        worker = _PrepareWorker("qwen3.5:9b", dialog)
+        worker.progressed.connect(dialog._on_progress)
+
+        def feed(data: dict) -> None:
+            status, done, total = parse_pull_status(data)
+            worker._report(status, done, total)
+
+        feed({"status": "pulling manifest"})
+        assert dialog._bar.minimum() == 0
+        assert dialog._bar.maximum() == 0
+
+        feed(
+            {
+                "status": "pulling 970aa74c0a90",
+                "digest": "sha256:970aa74c0a90",
+                "total": 0,
+                "completed": 0,
+            }
+        )
+        assert dialog._bar.minimum() == 0
+        assert dialog._bar.maximum() == 0
+
+        total = 6_600_000_000
+        assert total > 2**31
+        feed(
+            {
+                "status": "pulling 970aa74c0a90",
+                "digest": "sha256:970aa74c0a90",
+                "total": total,
+                "completed": total // 2,
+            }
+        )
+        assert crashes == []
+        assert dialog._bar.minimum() == 0
+        assert dialog._bar.maximum() == 100
+        assert dialog._bar.value() == 50
+    finally:
+        dialog.close()
+
