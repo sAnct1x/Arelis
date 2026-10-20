@@ -12,6 +12,7 @@ import asyncio
 
 from arelis.core.claims import detect_exactness_need, detect_math_ask, detect_units_ask
 from arelis.core.evidence import EvidenceLedger
+from arelis.core.loop_helpers import _exactness_finish_refuse
 from arelis.tools.calculator import CalculatorTool
 from arelis.tools.units import UnitsTool
 
@@ -65,26 +66,39 @@ def test_calculator_cannot_convert_temperature() -> None:
 
 
 def test_units_succeeds_despite_calculator_failure() -> None:
-    """Even if calculator is called and fails, units success should satisfy exactness."""
-    text = "Convert 90 degrees Fahrenheit to Celsius."
+    """A later successful tool keeps the answer after an earlier units miss."""
+    text = "Convert 72 degrees Fahrenheit to Celsius, rounded to the nearest tenth."
+    reply = "72 F is 22.2 degrees Celsius."
 
-    # Create ledger simulating both tools being called
     ledger = EvidenceLedger()
+    ledger.record_tool(
+        "units",
+        ok=False,
+        output="cannot convert farad to coulomb",
+        data={},
+        args={"quantity": "72 F to C"},
+    )
+    ledger.record_tool(
+        "calculator",
+        ok=True,
+        output="(72 - 32) * 5 / 9 = 22.222",
+        data={"value": "22.222"},
+        args={"expression": "(72 - 32) * 5 / 9"},
+    )
 
-    # Units succeeds
-    ledger.add(source="units", kind="units", span="32.22", ok=True)
-
-    # Calculator fails
-    ledger.add(source="calculator", kind="calc", span="invalid syntax", ok=False)
-
-    # Get exactness need
     need = detect_exactness_need(text)
     assert need.kinds == ("units",), f"Expected ('units',), got {need.kinds}"
+    assert ledger.has_ok("calc")
 
-    # Check if exactness is satisfied
-    assert ledger.has_ok("units"), "Ledger should have successful units"
-    missing = ledger.missing_kinds(need.kinds)
-    assert not missing, f"Units should satisfy exactness, but missing: {missing}"
+    refuse = _exactness_finish_refuse(
+        reply,
+        exact_need=need,
+        ledger=ledger,
+        numeric_gate=True,
+        evidence_gate=True,
+    )
+    assert refuse is None
+    assert "22.2" in reply
 
 
 def test_units_with_wrong_action_fails() -> None:

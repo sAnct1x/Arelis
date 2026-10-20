@@ -552,15 +552,6 @@ def _exactness_finish_refuse(
             return unsupported_exactness_reply(
                 missing, cas_failed=True, cas_detail=cas_fail.span
             )
-    if "units" in missing:
-        units_fail = next(
-            (w for w in ledger.items if w.kind == "units" and not w.ok),
-            None,
-        )
-        if units_fail is not None:
-            return unsupported_exactness_reply(
-                missing, units_failed=True, units_detail=units_fail.span
-            )
     if "plot" in missing:
         plot_fail = next(
             (w for w in ledger.items if w.kind == "plot" and not w.ok),
@@ -599,6 +590,10 @@ def _exactness_finish_refuse(
         }
         if reply and reply in own_sentences:
             missing = [kind for kind in missing if kind != "weather"]
+    # A later successful calc or units result is the answer. Do not swap it
+    # for a canned line because an earlier call of the other kind failed.
+    if ledger.has_ok("calc") or ledger.has_ok("units"):
+        missing = [k for k in missing if k not in {"math", "units"}]
     if not missing:
         return None
     return unsupported_exactness_reply(missing)
