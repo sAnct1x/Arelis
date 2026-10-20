@@ -193,8 +193,9 @@ def _run_in_child_sync(
     scratch = Path(tempfile.mkdtemp(prefix="arelis-py-"))
     work_dir = _cell_work_dir()
     cwd = Path(work_dir) if work_dir else scratch
-    # Names already in the work folder. Only a png this cell creates is shown.
-    before_pngs = _png_paths(cwd) if work_dir else set()
+    # Stamp taken when this cell starts, not when the turn starts.
+    # A later cell that leaves the png alone must not show it again.
+    before_pngs = _png_stamps(cwd) if work_dir else {}
     env = child_env(
         {
             "PYTHONUNBUFFERED": "1",
@@ -269,7 +270,7 @@ def _run_in_child_sync(
                 proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 pass
-        new_pngs = _new_png_charts(cwd, before_pngs) if work_dir else []
+        new_pngs = _changed_png_charts(cwd, before_pngs) if work_dir else []
         payload = _parse_result("".join(lines))
         if payload is not None:
             return _tool_result(code, payload, new_pngs)
@@ -382,12 +383,9 @@ def _error_type(payload: dict[str, Any]) -> str | None:
     return None
 
 
-_CELL_FIGURE_SUFFIXES = {".png", ".svg"}
-
-
-def _png_paths(folder: Path) -> set[str]:
-    """Resolved png paths sitting directly in ``folder``."""
-    found: set[str] = set()
+def _png_stamps(folder: Path) -> dict[str, tuple[int, int]]:
+    """Resolved png path to (mtime_ns, size) for files directly in ``folder``."""
+    found: dict[str, tuple[int, int]] = {}
     if not folder.is_dir():
         return found
     try:
@@ -396,17 +394,23 @@ def _png_paths(folder: Path) -> set[str]:
         return found
     for path in entries:
         try:
-            if path.is_file() and path.suffix.lower() == ".png":
-                found.add(str(path.resolve()))
+            if not path.is_file() or path.suffix.lower() != ".png":
+                continue
+            stat = path.stat()
+            found[str(path.resolve())] = (stat.st_mtime_ns, stat.st_size)
         except OSError:
             continue
     return found
 
 
-def _new_png_charts(folder: Path, before: set[str]) -> list[dict[str, str]]:
-    """Png files this cell added. An older png in the same folder stays put."""
+def _changed_png_charts(
+    folder: Path, before: dict[str, tuple[int, int]]
+) -> list[dict[str, str]]:
+    """Pngs this cell added or rewrote. An untouched png stays put."""
     charts: list[dict[str, str]] = []
-    for text in sorted(_png_paths(folder) - before):
+    for text, stamp in sorted(_png_stamps(folder).items()):
+        if before.get(text) == stamp:
+            continue
         hit = Path(text)
         charts.append({"name": hit.name, "abs_path": str(hit)})
     return charts
@@ -426,65 +430,6 @@ def _figure_data(charts: list[dict[str, str]]) -> dict[str, Any]:
     }
 
 
-def _work_figures() -> list[dict[str, str]]:
-    """PNG/SVG the cell wrote into this turn's work folder."""
-    try:
-        folder = Path(cell_work_dir()).resolve()
-    except OSError:
-        return []
-    if not folder.is_dir():
-        return []
-    found: list[dict[str, str]] = []
-    try:
-        paths = list(folder.iterdir())
-    except OSError:
-        return []
-    for path in paths:
-        try:
-            if not path.is_file() or path.suffix.lower() not in _CELL_FIGURE_SUFFIXES:
-                continue
-            hit = path.resolve()
-            hit.relative_to(folder)
-        except (OSError, ValueError):
-            continue
-        found.append({"name": hit.name, "abs_path": str(hit)})
-    found.sort(key=lambda item: (0 if item["name"].lower().endswith(".png") else 1, item["name"]))
-    return found
-
-
-def _charts_from_payload(payload: dict[str, Any]) -> list[dict[str, str]]:
-    try:
-        folder = Path(cell_work_dir()).resolve()
-    except OSError:
-        return []
-    charts: list[dict[str, str]] = []
-    raw = payload.get("charts")
-    items = raw if isinstance(raw, list) else []
-    abs_path = payload.get("abs_path")
-    if not items and isinstance(abs_path, str) and abs_path.strip():
-        items = [{"abs_path": abs_path}]
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        text = str(item.get("abs_path") or "").strip()
-        if not text:
-            continue
-        try:
-            hit = Path(text).resolve()
-            hit.relative_to(folder)
-        except (OSError, ValueError):
-            continue
-        if not hit.is_file() or hit.suffix.lower() not in _CELL_FIGURE_SUFFIXES:
-            continue
-        charts.append({"name": hit.name, "abs_path": str(hit)})
-    return charts
-
-
-def _cell_figure_data(payload: dict[str, Any]) -> dict[str, Any]:
-    """Fallback when the post-run scan found no new png."""
-    return _figure_data(_charts_from_payload(payload) or _work_figures())
-
-
 def _tool_result(
     code: str,
     payload: dict[str, Any],
@@ -493,9 +438,11 @@ def _tool_result(
     if payload.get("ok"):
         text = str(payload.get("output") or "")
         data: dict[str, Any] = {"code": code, "result": text}
-        # A png this cell just wrote wins. The payload list can name an
-        # older file, and that must not hide the new chart.
-        data.update(_figure_data(new_pngs or []) or _cell_figure_data(payload))
+        # Only a png this cell added or rewrote. The child also lists older
+        # files in the same folder, and attaching those shows the chart again.
+        shown = _figure_data(new_pngs or [])
+        if shown:
+            data.update(shown)
         return ToolResult(ok=True, output=text, data=data)
     kind = str(payload.get("kind") or "")
     message = str(payload.get("message") or "")

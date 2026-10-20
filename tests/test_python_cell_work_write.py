@@ -13,6 +13,7 @@ from arelis.core.events import EventType
 from arelis.core.evidence import EvidenceLedger
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_execute import execute_call
+from arelis.core.turn_scratch import named_tools_owed
 from arelis.tools.plot import PlotTool
 from arelis.tools.python_exec import PythonTool
 from arelis.ui.event_host import dispatch_event
@@ -149,6 +150,32 @@ async def test_mcmc_cell_saves_samples_and_plot_draws_posterior(
     assert len(charts) == 1
     loaded = _loaded(window.chat.view, charts[0])
     assert loaded is not None and not loaded.isNull()
+
+    quiet = await tool.run(code="print('no figure')\n")
+    assert quiet.ok, quiet.output
+    await execute_call(
+        loop,
+        ctx,
+        scratch,
+        "python",
+        {"code": "print('no figure')"},
+        summary="python",
+        call_fp="python-mcmc-2",
+        round_i=2,
+        call_i=0,
+        fanout_results={0: (1, quiet)},
+    )
+    ready_after = [
+        event
+        for event in loop.bus.events
+        if getattr(event, "type", None) == EventType.FILE_READY
+    ]
+    assert len(ready_after) == 1
+    assert Path(str(ready_after[0].payload["abs_path"])).resolve() == png.resolve()
+
+    ask = TurnContext(text="plot the posterior", role="fast")
+    ask.available_all = {"plot", "python"}
+    assert "plot" not in named_tools_owed(loop, ask)
 
     chart = await PlotTool(roots).run(
         action="scatter", path="samples.npy", x="0", y="1", out="from-npy.png"

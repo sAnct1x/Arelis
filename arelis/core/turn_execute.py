@@ -806,6 +806,8 @@ async def execute_call(
                     ]
                 if picked:
                     ready_rows = picked
+                # The cell figure is the plot. Do not force the plot tool after it.
+                loop.tools_used.add("plot")
             for item in ready_rows:
                 abs_ready = str(item.get("abs_path") or "")
                 await loop.bus.publish(
