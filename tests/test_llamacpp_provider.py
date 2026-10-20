@@ -150,6 +150,47 @@ async def test_llamacpp_stream_maps_sse_and_refuses_pictures_and_embeddings() ->
     assert follow[2]["tool_call_id"] == calls[0]["id"]
     assert follow[3]["tool_call_id"] == calls[1]["id"]
     assert follow[2]["name"] == "weather"
+
+    # Leftover ids from an earlier tool_calls row must not pair after a
+    # non-tool message. The unused clock id dies at the user turn.
+    async for _item in provider.stream_chat(
+        "qwen",
+        [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "weather",
+                            "arguments": {"city": "X"},
+                        },
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "clock",
+                            "arguments": {"tz": "UTC"},
+                        },
+                    },
+                ],
+            },
+            {"role": "tool", "tool_name": "weather", "content": "cold"},
+            {"role": "user", "content": "thanks"},
+            {"role": "tool", "tool_name": "clock", "content": "later"},
+        ],
+        think=False,
+    ):
+        pass
+    stray = seen[-1]["messages"]
+    unused = stray[0]["tool_calls"][1]["id"]
+    assert stray[1]["tool_call_id"] == stray[0]["tool_calls"][0]["id"]
+    assert stray[3]["tool_call_id"] != unused
+    assert stray[3]["name"] == "clock"
+
+    assert provider.embeds is False
+    assert OllamaProvider.embeds is True
     assert "embedding" not in await provider.capabilities("nomic-embed-text")
 
     assert await provider.sees_images("qwen") is False

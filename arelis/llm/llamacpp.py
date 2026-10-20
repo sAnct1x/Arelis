@@ -126,7 +126,8 @@ def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     Arelis stores tool-call arguments as a dict and often omits ``id``.
     Tool rows carry ``tool_name`` and no ``tool_call_id``. The server wants
     a JSON string, an id on each call, and the matching id on the result.
-    Results pair with calls in order when the id is missing.
+    Results pair with calls in order when the id is missing. A later
+    non-tool message drops leftover ids so they cannot pair into a new round.
     """
     out: list[dict[str, Any]] = []
     pending_ids: list[str] = []
@@ -139,6 +140,8 @@ def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             content = "" if content is None else str(content)
         row: dict[str, Any] = {"role": msg.get("role") or "user", "content": content}
         calls = msg.get("tool_calls")
+        if row["role"] != "tool" and not (isinstance(calls, list) and calls):
+            pending_ids = []
         if isinstance(calls, list) and calls:
             wired_calls: list[dict[str, Any]] = []
             for call in calls:
@@ -196,6 +199,8 @@ class LlamaCppProvider:
 
     # The server owns the card. Do not probe the host or try to unload it.
     guard_host_vram = False
+    # Recall stays on keywords until a CPU llama.cpp embed server exists.
+    embeds = False
 
     def __init__(
         self,
