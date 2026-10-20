@@ -48,7 +48,10 @@ _SHORT_DESC: dict[str, str] = {
     "notes": "desk notes. action=add|list|search|read. same folder as keep this",
     "pdf": "merge/split/rotate local PDFs. writes a new file. no form fill",
     "plot": "chart PNG. histogram|bar|subplots|line|scatter; expr=sin(x)+xmin/xmax; or path=CSV. path is the table, not the picture",
-    "python": "short numerics (numpy). no matplotlib. print xs,ys then plot with out=",
+    "python": (
+        "short numerics (numpy). You can draw charts with matplotlib; "
+        "save them with plt.savefig('name.png') and they appear in chat."
+    ),
     "recall": "search memory. action=docs (+ kind=pdf|docx|md) for local files. miss is a miss",
     "remind": "in-process timer. action=in minutes= + message; at=local time; list; cancel. max 7 days",
     "research_report": "first choice for a sourced multi-source report. searches and scrapes",
@@ -97,7 +100,7 @@ memory: recall before claiming you do not know; remember/forget via the memory t
 goals: goals. tasks: tasks. analyze: analyze. sql: sql. doc_extract: doc_extract. document: document. pdf: pdf. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
 agenda: agenda (events; free=open slots). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule. remind: remind (in/at, not schedule). notes: notes.
 image: image. image_edit: image_edit. vision: vision. transcribe: transcribe. research_report: research_report.
-solar: solar. earth: earth. catalog: rise, set, how high, or is it up is horizons table=local, target=the body name, then repeat those sentences. Never send two numbers as the target. how far, closest, or farthest is horizons, target=body name, omit date and query, then repeat the tool sentences and do not add a closest or farthest. plot: plot (histogram|bar|line; xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
+solar: solar. earth: earth. catalog: rise, set, how high, or is it up is horizons table=local, target=the body name, then repeat those sentences. Never send two numbers as the target. how far, closest, or farthest is horizons, target=body name, omit date and query, then repeat the tool sentences and do not add a closest or farthest. plot: plot (histogram|bar|line; xs/ys + out=png; path=CSV). units: units. python: python (savefig shows in chat). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
 data_cell: a file already in this room. code calls read_table("name") or read_fits("name"), argument name not path. save_png(fig, "chart.png") for a chart. print the answer. not weather.
 hands: one gesture, a pinch. still pinch clicks; a moving pinch grabs empty glass, the edge, or the title; two pinches resize a Reality shape or a tile; an open hand scrolls. instant voice: open/close history|thinking|files|days|camera|notify|contacts|chat|reality, span 1|2|3, close this, open rooms. if they ask how hands or voice control works, explain that. do not invent a fist.
 """.strip()

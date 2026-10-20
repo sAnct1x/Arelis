@@ -770,7 +770,7 @@
     "type": "function",
     "function": {
       "name": "python",
-      "description": "short numerics (numpy). no matplotlib. print xs,ys then plot with out=",
+      "description": "short numerics (numpy). You can draw charts with matplotlib; save them with plt.savefig('name.png') and they appear in chat.",
       "parameters": {
         "type": "object",
         "properties": {

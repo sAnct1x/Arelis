@@ -793,21 +793,47 @@ async def execute_call(
             and data_dict
             and data_dict.get("abs_path")
         ):
-            await loop.bus.publish(
-                Event(
-                    EventType.FILE_READY,
-                    {
-                        "path": str(data_dict.get("path") or ""),
-                        "abs_path": str(data_dict.get("abs_path") or ""),
-                        "format": str(data_dict.get("format") or ""),
-                        "title": str(data_dict.get("title") or ""),
-                        "kind": "document" if name == "document" else "plot",
-                        "source": name,
-                        "show_card": True,
-                        "open": False,
-                    },
+            ready_rows: list[dict[str, Any]] = [data_dict]
+            if name == "python":
+                charts = data_dict.get("charts")
+                picked = []
+                if isinstance(charts, list):
+                    picked = [
+                        item
+                        for item in charts
+                        if isinstance(item, dict)
+                        and str(item.get("abs_path") or "").strip()
+                    ]
+                if picked:
+                    ready_rows = picked
+                # The cell figure is the plot file for this turn.
+                loop.tools_used.add("plot")
+                ledger.add(
+                    source="python",
+                    kind="plot",
+                    span=str(ready_rows[0].get("abs_path") or "")[:300],
+                    ok=True,
                 )
-            )
+            for item in ready_rows:
+                abs_ready = str(item.get("abs_path") or "")
+                await loop.bus.publish(
+                    Event(
+                        EventType.FILE_READY,
+                        {
+                            "path": str(item.get("path") or item.get("name") or ""),
+                            "abs_path": abs_ready,
+                            "format": str(
+                                item.get("format")
+                                or Path(abs_ready).suffix.lower().lstrip(".")
+                            ),
+                            "title": str(item.get("title") or Path(abs_ready).stem),
+                            "kind": "document" if name == "document" else "plot",
+                            "source": name,
+                            "show_card": True,
+                            "open": False,
+                        },
+                    )
+                )
         if name == "research_report" and result.ok and data_dict:
             raw_path = str(
                 data_dict.get("abs_path") or data_dict.get("path") or ""
