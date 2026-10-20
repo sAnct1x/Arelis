@@ -1,4 +1,4 @@
-"""A Python cell cannot write outside the room results folder."""
+"""A Python cell cannot reach the runner's module, hook flag, or write policy."""
 
 from __future__ import annotations
 
@@ -11,29 +11,65 @@ from arelis.workspace import RootEntry, WorkspaceRoots
 
 
 @pytest.mark.asyncio
-async def test_write_outside_results_is_refused(tmp_path: Path) -> None:
+async def test_cell_cannot_reach_runner_internals(tmp_path: Path) -> None:
     root = tmp_path / "proj"
     root.mkdir()
-    outside = tmp_path / "outside.txt"
     tool = PythonTool(
         WorkspaceRoots([RootEntry(name="proj", path=root)]), science_io=True
     )
     result = await tool.run(
         code=(
-            "libmap = vars(np.lib)\n"
-            "utils = libmap['utils'] if 'utils' in libmap else libmap['_utils_impl']\n"
-            "sys = vars(utils)['sys']\n"
-            "for mod in sys.modules.values():\n"
+            "found = []\n"
+            "sys = vars(datetime)['sys']\n"
+            "markers = ('_IN_HOOK', '_SCIENCE_IO', '_WORK_WRITE', '_WORK_READ')\n"
+            "to_scan = list(sys.modules.values())\n"
+            "to_scan.append(dict(vars()))\n"
+            "for name in list(sys.modules):\n"
+            "    if 'python_cell_runner' in str(name):\n"
+            "        found.append(str(name))\n"
+            "for obj in to_scan:\n"
             "    try:\n"
-            "        mapping = vars(mod)\n"
-            "    except TypeError:\n"
+            "        mapping = vars(obj)\n"
+            "    except Exception:\n"
+            "        mapping = obj if isinstance(obj, dict) else None\n"
+            "    if mapping is None:\n"
             "        continue\n"
-            "    if '_IN_HOOK' in mapping:\n"
-            "        mapping['_IN_HOOK'] = True\n"
-            f"handle = open({str(outside)!r}, 'w')\n"
-            "handle.write('x')\n"
-            "handle.close()\n"
+            "    for key in markers:\n"
+            "        if key in mapping:\n"
+            "            found.append(key)\n"
+            "    try:\n"
+            "        items = list(mapping.values())\n"
+            "        keys = list(mapping)\n"
+            "    except Exception:\n"
+            "        continue\n"
+            "    for key in keys:\n"
+            "        if 'python_cell_runner' in str(key):\n"
+            "            found.append(str(key))\n"
+            "    for val in items:\n"
+            "        if isinstance(val, str) and str(val).endswith('python_cell_runner.py'):\n"
+            "            found.append(val)\n"
+            "        try:\n"
+            "            childmap = vars(val)\n"
+            "        except Exception:\n"
+            "            continue\n"
+            "        for key in markers:\n"
+            "            if key in childmap:\n"
+            "                found.append(key)\n"
+            "        try:\n"
+            "            childvals = list(childmap.values())\n"
+            "            childkeys = list(childmap)\n"
+            "        except Exception:\n"
+            "            continue\n"
+            "        for key in childkeys:\n"
+            "            if 'python_cell_runner' in str(key):\n"
+            "                found.append(str(key))\n"
+            "        for child in childvals:\n"
+            "            if isinstance(child, str) and str(child).endswith('python_cell_runner.py'):\n"
+            "                found.append(child)\n"
+            "if found:\n"
+            "    raise ValueError(str(found))\n"
+            "'isolated'\n"
         )
     )
-    assert result.ok is False, result.output
-    assert not outside.exists()
+    assert result.ok is True, result.output
+    assert "isolated" in result.output
