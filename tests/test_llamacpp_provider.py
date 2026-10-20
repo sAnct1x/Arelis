@@ -10,7 +10,13 @@ import httpx
 
 from arelis.core.turn_prepare import _context_limits
 from arelis.llm import build_router
-from arelis.llm.errors import LLAMACPP_DOWN_NOTICE, classify_ollama_failure
+from arelis.llm.errors import (
+    LLAMACPP_DOWN_NOTICE,
+    LLAMACPP_MODEL_NOTICE,
+    OLLAMA_REJECT_NOTICE,
+    classify_ollama_failure,
+    classify_turn_failure,
+)
 from arelis.llm.llamacpp import LlamaCppProvider
 from arelis.llm.ollama import OllamaProvider
 from arelis.memory.indexer import MemoryIndexer
@@ -405,9 +411,23 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
         raise AssertionError("overflow should fail the request")
     except RuntimeError as exc:
         assert "context" in str(exc).lower()
-        overflow_fail = classify_ollama_failure(exc, provider="llamacpp")
+        overflow_fail = classify_turn_failure(
+            exc,
+            config={"llm": {"provider": "llamacpp"}},
+            backend=shifting,
+        )
         assert overflow_fail.skip_tool_fallback is True
         assert "ollama" not in overflow_fail.chat.lower()
+    # Ollama overflow 400 must still take JSON-tool fallback, same as main.
+    ollama_overflow = classify_turn_failure(
+        RuntimeError(
+            "Ollama returned HTTP 400 for model `qwen`: "
+            "request exceeds the available context size"
+        ),
+        config={"llm": {"provider": "ollama"}},
+    )
+    assert ollama_overflow.chat == OLLAMA_REJECT_NOTICE
+    assert ollama_overflow.skip_tool_fallback is False
     assert await shifting.context_tokens("qwen") == 4096
 
     down = classify_ollama_failure(
@@ -424,6 +444,14 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
     )
     assert http500.chat == LLAMACPP_DOWN_NOTICE
     assert http500.skip_tool_fallback is True
+    missing = classify_turn_failure(
+        RuntimeError("llama-server returned HTTP 404 for model `qwen`"),
+        config={"llm": {"provider": "llamacpp"}},
+    )
+    assert missing.chat == LLAMACPP_MODEL_NOTICE
+    assert "ollama" not in missing.chat.lower()
+    assert "—" not in missing.chat
+    assert missing.skip_tool_fallback is True
     await provider.close()
     await bare.close()
     await dead.close()

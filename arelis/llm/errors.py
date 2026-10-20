@@ -34,6 +34,10 @@ LLAMACPP_REJECT_NOTICE = (
     "The local model server returned an error. "
     "Check that llama-server is still running, then send again."
 )
+LLAMACPP_MODEL_NOTICE = (
+    "The local model server does not have that model loaded. "
+    "Check the model file you started it with."
+)
 LLAMACPP_GENERIC_NOTICE = (
     "The model failed mid-turn. "
     "Check that the local model server is still running, then send again."
@@ -120,12 +124,13 @@ def classify_ollama_failure(
     if is_vram_failure(lower):
         return OllamaFailure(vram_notice(role), detail, skip_tool_fallback=True)
     if _is_missing_model(lower):
-        return OllamaFailure(
-            OLLAMA_MODEL_NOTICE.format(model=tag),
-            detail,
-            skip_tool_fallback=True,
+        notice = (
+            LLAMACPP_MODEL_NOTICE
+            if llamacpp
+            else OLLAMA_MODEL_NOTICE.format(model=tag)
         )
-    if is_context_overflow(lower):
+        return OllamaFailure(notice, detail, skip_tool_fallback=True)
+    if llamacpp and is_context_overflow(lower):
         # Overflow is a window problem. JSON-tool fallback cannot shrink it.
         return OllamaFailure(generic_notice, detail, skip_tool_fallback=True)
     if _http_status(text) >= 500:
