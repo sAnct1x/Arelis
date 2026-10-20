@@ -110,40 +110,6 @@ def test_an_exception_with_no_message_still_says_something() -> None:
     assert plain_reason(RuntimeError()) == "RuntimeError"
 
 
-def test_calculator_filler_does_not_count_as_stating_the_result() -> None:
-    from arelis.core.failure_copy import reply_states_algebra_result
-
-    out = "1+1 = 2"
-    assert not reply_states_algebra_result("Easy enough. What's next?", "calculator", out)
-    assert not reply_states_algebra_result("What's next?", "calculator", "14-6 = 8")
-    assert reply_states_algebra_result("1+1 = 2. Easy enough.", "calculator", out)
-    assert reply_states_algebra_result("2", "calculator", out)
-    # CAS dumps stay on the write-up path.
-    assert reply_states_algebra_result("What's next?", "cas", "[-5, 2]")
-
-
-def test_rounded_kmh_states_the_units_result() -> None:
-    """35B streamed 48 / 48.3 km/h; the receipt is 48.28032 kilometer / hour.
-
-    Fail-before on main: both rounded lines were False, so no_call_finish
-    retracted them and shipped the canned fallback.
-    """
-    from arelis.core.failure_copy import reply_states_algebra_result
-
-    out = "30 mph = 48.28032 kilometer / hour"
-    assert reply_states_algebra_result("30 mph is about 48 km/h.", "units", out)
-    assert reply_states_algebra_result("30 mph is about 48.3 km/h.", "units", out)
-    assert reply_states_algebra_result(
-        "30 mph is about 48 kilometers per hour.", "units", out
-    )
-    assert reply_states_algebra_result("48.28 km/h", "units", out)
-    assert reply_states_algebra_result("48.28032 kilometer / hour", "units", out)
-    assert not reply_states_algebra_result("30 mph is about 47 km/h.", "units", out)
-    assert not reply_states_algebra_result("30 mph is about 49 km/h.", "units", out)
-    assert not reply_states_algebra_result("30 mph is about 48 mph.", "units", out)
-    assert not reply_states_algebra_result("What's next?", "units", out)
-
-
 def test_calculator_chat_drops_the_exact_fraction_dump() -> None:
     from arelis.core.failure_copy import (
         chat_followup_from_tool,

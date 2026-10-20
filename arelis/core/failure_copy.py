@@ -23,14 +23,11 @@ goes to Thinking and Workspace either way.
 from __future__ import annotations
 
 import json
-import logging
 import math
 import re
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 
 from arelis.core.evidence import looks_like_bot_wall
-
-log = logging.getLogger(__name__)
 
 TURN_FAILED_NOTICE = (
     "Something went wrong mid-turn, so I stopped rather than guess. "
@@ -217,185 +214,6 @@ def should_nudge_write_after_page(tool: str, output: str) -> bool:
 def should_nudge_write_after_algebra(tool: str) -> bool:
     """CAS / calc dumps are not a chat line. Ask for a sentence first."""
     return (tool or "").strip() in _ALGEBRA_WRITE_TOOLS
-
-
-_RESULT_TOOLS = frozenset({"calculator", "units"})
-
-
-def _algebra_result_tokens(output: str) -> list[str]:
-    """Numeric / unit tokens from a calculator or units receipt."""
-    body = (output or "").strip()
-    if not body:
-        return []
-    right = body.rsplit(" = ", 1)[-1].strip() if " = " in body else body
-    tokens: list[str] = []
-    if " (exactly " in right:
-        main, rest = right.split(" (exactly ", 1)
-        main = main.strip()
-        exact = rest.rstrip(")").strip()
-        if main:
-            tokens.append(main)
-        if exact:
-            tokens.append(exact)
-    elif right:
-        tokens.append(right.split()[0] if right.split() else right)
-        # "5 mi = 8.047 km" — keep the converted magnitude too.
-        parts = right.split()
-        if len(parts) >= 2 and parts[-1].isalpha():
-            tokens.append(parts[0])
-    # A spoken answer often uses the short display form ("1.88"), not the
-    # full float from the receipt. Count that as stating the result.
-    for tok in list(tokens):
-        if not re.fullmatch(r"-?\d+\.\d{3,}", tok):
-            continue
-        try:
-            val = float(tok)
-        except ValueError:
-            continue
-        short = f"{val:.2f}".rstrip("0").rstrip(".")
-        if short and short not in tokens:
-            tokens.append(short)
-    return [t for t in tokens if t]
-
-
-def _token_in_reply(token: str, text: str) -> bool:
-    tok = (token or "").strip()
-    if not tok or not text:
-        return False
-    if re.fullmatch(r"-?\d+(?:\.\d+)?", tok):
-        # "2." is the answer plus a period. "2.5" is a different number.
-        return bool(
-            re.search(rf"(?<![\d.]){re.escape(tok)}(?!\d)(?!\.\d)", text)
-        )
-    return tok in text
-
-
-_RESULT_NUM = re.compile(
-    r"^(?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*(?P<unit>.*)$"
-)
-_REPLY_QTY = re.compile(
-    r"(?<![\d.])(?P<num>-?\d+(?:\.\d+)?)(?!\d)(?!\.\d)"
-    r"(?:\s*(?P<unit>[A-Za-z]+(?:\s*/\s*[A-Za-z]+)?(?:\s+per\s+[A-Za-z]+)?))?"
-)
-_PLAIN_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
-
-
-def _algebra_result_quantity(output: str) -> tuple[str, str]:
-    """Magnitude and unit from a calculator / units receipt."""
-    body = (output or "").strip()
-    if not body:
-        return "", ""
-    right = body.rsplit(" = ", 1)[-1].strip() if " = " in body else body
-    if " (exactly " in right:
-        right = right.split(" (exactly ", 1)[0].strip()
-    hit = _RESULT_NUM.match(right)
-    if hit is None:
-        return "", ""
-    return hit.group("num"), " ".join(hit.group("unit").split())
-
-
-def _written_places(num: str) -> int:
-    if "." not in num:
-        return 0
-    return len(num.split(".", 1)[1])
-
-
-def _is_correct_rounding(shown: str, exact: str) -> bool:
-    """True when *shown* is *exact*, or *exact* rounded to *shown*'s places."""
-    try:
-        shown_d = Decimal(shown)
-        exact_d = Decimal(exact)
-    except InvalidOperation:
-        return False
-    if shown_d == exact_d:
-        return True
-    quantum = Decimal("1").scaleb(-_written_places(shown))
-    return exact_d.quantize(quantum, rounding=ROUND_HALF_UP) == shown_d
-
-
-def _parse_pint_unit(text: str) -> object | None:
-    raw = (text or "").strip()
-    if not raw:
-        return None
-    from pint import UndefinedUnitError
-
-    try:
-        from arelis.tools.units import _UREG, _normalize_unit
-
-        return _UREG.parse_units(_normalize_unit(raw))
-    except UndefinedUnitError:
-        return None
-    except Exception as exc:
-        log.warning("could not parse unit %r: %s", raw, exc)
-        return None
-
-
-def _looks_like_unit(text: str) -> bool:
-    raw = (text or "").strip()
-    if not raw:
-        return False
-    if "/" in raw or re.search(r"(?i)\bper\b", raw):
-        return True
-    return _parse_pint_unit(raw) is not None
-
-
-def _units_equivalent(left: str, right: str) -> bool:
-    """True for the same Pint unit, including km/h vs kilometer / hour."""
-    if not (left or "").strip() or not (right or "").strip():
-        return False
-    from pint import DimensionalityError, UndefinedUnitError
-
-    try:
-        from arelis.tools.units import _UREG, _normalize_unit
-
-        a = _UREG.parse_units(_normalize_unit(left))
-        b = _UREG.parse_units(_normalize_unit(right))
-        if a == b:
-            return True
-        scale = float(_UREG.Quantity(1, a).to(b).magnitude)
-    except (UndefinedUnitError, DimensionalityError):
-        return False
-    except Exception as exc:
-        log.warning("could not compare units %r and %r: %s", left, right, exc)
-        return False
-    return abs(scale - 1.0) <= 1e-12
-
-
-def reply_states_algebra_result(content: str, tool: str, output: str) -> bool:
-    """True when chat already states the calculator / units result.
-
-    Qwen3.5 often puts the number in thinking and ships 'What's next?' as
-    the bubble. Empty-after-tool only catches a blank reply; this is the
-    filler case. CAS dumps stay on the write-up path, do not police them.
-    A correctly rounded magnitude with an equivalent unit (48 km/h vs
-    48.28032 kilometer / hour) counts. A wrong number does not.
-    """
-    name = (tool or "").strip()
-    if name not in _RESULT_TOOLS:
-        return True
-    tokens = _algebra_result_tokens(output)
-    if not tokens:
-        return True
-    text = content or ""
-    exact, unit = _algebra_result_quantity(output)
-    if exact:
-        for match in _REPLY_QTY.finditer(text):
-            if not _is_correct_rounding(match.group("num"), exact):
-                continue
-            spoken = (match.group("unit") or "").strip()
-            if (
-                unit
-                and spoken
-                and _looks_like_unit(spoken)
-                and not _units_equivalent(spoken, unit)
-            ):
-                continue
-            return True
-        return any(
-            not _PLAIN_NUMBER.fullmatch(tok) and _token_in_reply(tok, text)
-            for tok in tokens
-        )
-    return any(_token_in_reply(tok, content or "") for tok in tokens)
 
 
 _DATA_FOLLOWUP = (
@@ -1087,7 +905,6 @@ __all__ = [
     "pretty_calculator_chat",
     "replace_raw_tool_line",
     "reply_is_done_without_answer",
-    "reply_states_algebra_result",
     "should_nudge_write_after_algebra",
     "should_nudge_write_after_page",
     "tool_failure_notice",
