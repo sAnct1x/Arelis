@@ -83,6 +83,15 @@ def test_resolve_drop_file_finds_basename(tmp_path, monkeypatch) -> None:
     via_workspace = resolve_drop_file("work/mini.csv", suffixes={".csv"})
     assert Path(via_workspace).resolve() == decoy.resolve()
 
+    root = docs / "same.csv"
+    nested = docs / "nested" / "same.csv"
+    nested.parent.mkdir()
+    root.write_text("a,b\n1,2\n", encoding="utf-8")
+    nested.write_text("a,b\n3,4\n", encoding="utf-8")
+    for request in ("same.csv", "./same.csv", "documents/same.csv"):
+        picked = resolve_drop_file(request, suffixes={".csv"})
+        assert Path(picked).resolve() == root.resolve()
+
 
 def test_analyze_reads_drop_tray_outside_roots(tmp_path, monkeypatch) -> None:
     from arelis.core import document_refs

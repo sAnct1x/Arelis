@@ -380,11 +380,15 @@ def _drop_files_named(
 ) -> list[Path]:
     """Contained drop-tray files matching the request, case-insensitive.
 
-    A relative path under documents opens that file. Otherwise match only the
-    bare file name. Symlinks and junctions that realpath outside are dropped.
+    An exact relative path under documents opens that file before any
+    basename search, including a single-part name and a documents/ prefix.
+    Otherwise match only the bare file name. Symlinks and junctions that
+    realpath outside are dropped.
     """
     parts = [part for part in raw.replace("\\", "/").split("/") if part and part != "."]
-    if len(parts) >= 2:
+    if parts and parts[0].lower() == drop.name.lower():
+        parts = parts[1:]
+    if parts:
         direct = _drop_inside(drop, drop.joinpath(*parts))
         if direct is not None and direct.suffix.lower() in wanted:
             return [direct]
