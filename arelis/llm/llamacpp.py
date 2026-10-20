@@ -1,14 +1,17 @@
 """HTTP client for a llama-server that is already running.
 
 Arelis does not start llama-server. Point ``llamacpp.base_url`` at one you
-launched yourself, with ``-c`` equal to the per-model cap in config. The 35B
-card is full, so this provider does not do pictures or embeddings.
+launched yourself, with ``-c`` equal to the per-model cap in config. Pictures
+stay off. Embeddings come from a second CPU llama-server at
+``llamacpp.embed_url`` (nomic-embed-text GGUF, ``/v1/embeddings``). ``embeds``
+is True only while that server answers; otherwise recall stays on keywords.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -21,8 +24,10 @@ log = logging.getLogger(__name__)
 
 # Server down and no per-model cap. Do not borrow Ollama's 65536.
 _FALLBACK_CONTEXT_TOKENS = 8192
-# /props and /slots are tiny. Do not wait the 300s chat timeout for them.
+# /props, /slots, and the embed probe are tiny. Do not wait the 300s chat timeout.
 _PROBE_TIMEOUT_S = 5.0
+# Failed probe. Retry lazily on the next embed attempt; no background thread.
+_EMBED_PROBE_RETRY_S = 60.0
 
 _SAMPLING = {
     "temperature": "temperature",
@@ -190,12 +195,44 @@ def _sampling(options: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+def _openai_vectors(payload: Any, count: int, model: str) -> list[list[float]]:
+    """Read OpenAI ``/v1/embeddings`` ``data[].embedding``, ordered by index."""
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        raise RuntimeError(
+            f"llama.cpp embed response missing data for `{model}`"
+        )
+    by_index: dict[int, list[float]] = {}
+    for offset, item in enumerate(rows):
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                f"llama.cpp embed returned a malformed row for `{model}`"
+            )
+        raw = item.get("embedding")
+        if not isinstance(raw, list):
+            raise RuntimeError(
+                f"llama.cpp embed returned a malformed vector for `{model}`"
+            )
+        try:
+            idx = int(item["index"]) if "index" in item else offset
+        except (TypeError, ValueError):
+            idx = offset
+        by_index[idx] = [float(x) for x in raw]
+    try:
+        out = [by_index[i] for i in range(count)]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"llama.cpp embed returned {len(by_index)} vectors for {count} inputs"
+        ) from exc
+    return out
+
+
 class LlamaCppProvider:
     """OpenAI-compatible chat against one llama-server process."""
 
     # The server owns the card. Do not probe the host or try to unload it.
     guard_host_vram = False
-    # Recall stays on keywords until a CPU llama.cpp embed server exists.
+    # Instance sets this True only after the CPU embed server answers.
     embeds = False
 
     def __init__(
@@ -206,8 +243,15 @@ class LlamaCppProvider:
         context_caps: dict[str, int] | None = None,
         default_cap: int | None = None,
         client: httpx.AsyncClient | None = None,
+        embed_url: str | None = None,
+        embed_client: httpx.AsyncClient | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        raw_embed = (embed_url or "").strip().rstrip("/")
+        self.embed_url = raw_embed or None
+        self.embeds = False
+        self._embed_ok: bool | None = None
+        self._embed_probed_at: float | None = None
         self._context_caps = {
             str(key): int(value)
             for key, value in (context_caps or {}).items()
@@ -219,6 +263,13 @@ class LlamaCppProvider:
         self._client = client or httpx.AsyncClient(
             base_url=self.base_url, timeout=timeout_s
         )
+        self._owns_embed_client = False
+        self._embed_client: httpx.AsyncClient | None = None
+        if self.embed_url:
+            self._owns_embed_client = embed_client is None
+            self._embed_client = embed_client or httpx.AsyncClient(
+                base_url=self.embed_url, timeout=timeout_s
+            )
 
     def cap_for(self, model: str) -> int | None:
         """Context cap that fits the card for this model name."""
@@ -382,13 +433,82 @@ class LlamaCppProvider:
             "This server has no vision model."
         )
 
+    async def refresh_embeds(self) -> bool:
+        """True only when the CPU embed server answers ``/v1/embeddings``.
+
+        A failed probe is retried after ``_EMBED_PROBE_RETRY_S`` on the next
+        call (monotonic clock). A server started after Arelis is picked up
+        without a restart. No background thread.
+        """
+        if self._embed_ok is True:
+            return True
+        if self._embed_client is None:
+            self.embeds = False
+            self._embed_ok = False
+            return False
+        now = time.monotonic()
+        if (
+            self._embed_ok is False
+            and self._embed_probed_at is not None
+            and (now - self._embed_probed_at) < _EMBED_PROBE_RETRY_S
+        ):
+            return False
+        try:
+            response = await self._embed_client.post(
+                "/v1/embeddings",
+                json={"model": "nomic-embed-text", "input": ["ok"]},
+                timeout=_PROBE_TIMEOUT_S,
+            )
+            ok = response.status_code < 400
+        except httpx.HTTPError:
+            ok = False
+        self._embed_ok = ok
+        self._embed_probed_at = now
+        self.embeds = ok
+        return ok
+
     async def embed(self, model: str, texts: list[str]) -> list[list[float]]:
-        """Embeddings are off. Recall falls back to keywords."""
-        del model, texts
-        raise RuntimeError(
-            "Embeddings are off for the llama.cpp provider. "
-            "This server does not load an embed model."
-        )
+        """Embed on the CPU llama-server at ``embed_url``, never the 35B card."""
+        if not self.embed_url or self._embed_client is None:
+            raise RuntimeError(
+                "Embeddings are off for the llama.cpp provider. "
+                "This server does not load an embed model."
+            )
+        if not await self.refresh_embeds():
+            raise RuntimeError(
+                "Embeddings are off for the llama.cpp provider. "
+                "The CPU embed server is not answering."
+            )
+        if not texts:
+            return []
+        try:
+            response = await self._embed_client.post(
+                "/v1/embeddings",
+                json={"model": model, "input": texts},
+            )
+        except httpx.HTTPError as exc:
+            self.embeds = False
+            self._embed_ok = False
+            self._embed_probed_at = time.monotonic()
+            raise RuntimeError(
+                f"llama.cpp embed failed for model `{model}`: {exc}"
+            ) from exc
+        if response.status_code >= 400:
+            self.embeds = False
+            self._embed_ok = False
+            self._embed_probed_at = time.monotonic()
+            detail = response.text.strip()[:400]
+            raise RuntimeError(
+                f"llama.cpp embed returned HTTP {response.status_code} for model `{model}`"
+                + (f": {detail}" if detail else "")
+            )
+        try:
+            payload = response.json()
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+            raise RuntimeError(
+                f"llama.cpp embed returned a body that is not JSON for `{model}`"
+            ) from exc
+        return _openai_vectors(payload, len(texts), model)
 
     async def capabilities(self, model: str) -> frozenset[str]:
         if not (model or "").strip():
@@ -451,3 +571,5 @@ class LlamaCppProvider:
     async def close(self) -> None:
         if self._owns_client:
             await self._client.aclose()
+        if self._owns_embed_client and self._embed_client is not None:
+            await self._embed_client.aclose()

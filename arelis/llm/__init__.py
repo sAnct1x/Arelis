@@ -55,11 +55,13 @@ def _provider_for(
         else {}
     )
     default_cap = lc.get("default_cap")
+    embed_url = str(lc.get("embed_url") or "").strip()
     return LlamaCppProvider(
         base_url=str(lc.get("base_url") or "http://127.0.0.1:8080"),
         timeout_s=float(lc.get("timeout_s", 300)),
         context_caps=caps,
         default_cap=int(default_cap) if default_cap else None,
+        embed_url=embed_url or None,
     )
 
 

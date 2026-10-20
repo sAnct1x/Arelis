@@ -52,6 +52,12 @@ llamacpp:
   default_cap: 32768
   context_caps:
     Qwen3.6-35B-A3B: 32768
+  # Separate CPU llama-server with nomic-embed-text GGUF (--embeddings).
+  # Not Ollama. Pictures stay off. embeds is True only while this server
+  # answers POST /v1/embeddings. If it is down, recall stays on keywords.
+  # Measured: 32 texts in 0.46 s on CPU. The 35B slows down only under
+  # nonstop load.
+  embed_url: "http://127.0.0.1:8081"
 
 # Role → Ollama tag. First open recommends one chat model from hardware and
 # pins both chips to that tag in config.local.yaml. These are the last-resort
