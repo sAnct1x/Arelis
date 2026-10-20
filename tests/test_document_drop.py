@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from arelis.core.document_refs import fill_doc_extract_args, resolve_drop_file
 from arelis.tools.analyze import AnalyzeTool
 from arelis.workspace import WorkspaceRoots
@@ -21,6 +23,20 @@ def test_resolve_drop_file_finds_basename(tmp_path, monkeypatch) -> None:
     hit = resolve_drop_file("board-check.csv", suffixes={".csv"})
     assert hit
     assert Path(hit).name == "board-check.csv"
+
+    target.unlink()
+    one = docs / "inbox" / "board-check.csv"
+    two = docs / "archive" / "board-check.csv"
+    one.parent.mkdir()
+    two.parent.mkdir()
+    one.write_text("a,b\n1,2\n", encoding="utf-8")
+    two.write_text("a,b\n3,4\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="more than one drop file") as caught:
+        resolve_drop_file("board-check.csv", suffixes={".csv"})
+    msg = str(caught.value)
+    assert str(one.resolve()) in msg
+    assert str(two.resolve()) in msg
+    assert "full path" in msg
 
 
 def test_analyze_reads_drop_tray_outside_roots(tmp_path, monkeypatch) -> None:

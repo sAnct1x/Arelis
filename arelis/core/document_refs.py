@@ -303,7 +303,8 @@ def resolve_drop_file(
     """Newest matching file under outputs/documents (what document writes).
 
     Workspace roots often exclude the drop tray, so analyze / doc_extract
-    must be able to find a basename or token she wrote there.
+    must be able to find a basename or token she wrote there. A basename that
+    matches more than one file is an error, not a guess.
     """
     drop = outputs_dir() / "documents"
     wanted = {s.lower() for s in (suffixes or _DOC_SUFFIXES)}
@@ -317,10 +318,14 @@ def resolve_drop_file(
     except OSError:
         return ""
     if name:
-        exact = drop / name
-        if exact.is_file():
-            return str(exact.resolve())
-        files = [p for p in files if p.name.lower() == name.lower()] or files
+        named = _drop_files_named(drop, name, wanted, files)
+        if len(named) > 1:
+            listed = ", ".join(sorted(str(p.resolve()) for p in named))
+            raise ValueError(
+                f"`{name}` matches more than one drop file ({listed}); pass the full path"
+            )
+        if len(named) == 1:
+            return str(named[0].resolve())
     if hint:
         hits = [p for p in files if hint in p.stem.lower() or p.stem.lower() in hint]
         if hits:
@@ -329,6 +334,25 @@ def resolve_drop_file(
         return ""
     newest = max(files, key=lambda p: p.stat().st_mtime)
     return str(newest.resolve())
+
+
+def _drop_files_named(
+    drop: Path,
+    name: str,
+    wanted: set[str],
+    files: list[Path],
+) -> list[Path]:
+    """Every drop-tray file whose basename matches ``name``, case-insensitive."""
+    needle = name.lower()
+    try:
+        found = [
+            p
+            for p in drop.rglob("*")
+            if p.is_file() and p.name.lower() == needle and p.suffix.lower() in wanted
+        ]
+    except OSError:
+        found = [p for p in files if p.name.lower() == needle]
+    return found
 
 
 def latest_document_path(
