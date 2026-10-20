@@ -20,6 +20,7 @@ from arelis.eval.harness import _FailingStub, _ScriptedRouter, _StubTool, founda
 from arelis.paths import outputs_dir
 from arelis.tools.base import ToolRegistry, ToolResult
 from arelis.tools.document import DocumentTool
+from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
 
 _C17_RESEARCH_PDF = (
     "Write a sourced research report on how solid-state batteries differ "
@@ -410,8 +411,15 @@ def test_c17_research_report_hands_off_named_document_not_browser() -> None:
     Fail-before: 'convert that report to a PDF with the document tool' is
     not a document exactness kind, so _hand_off_to_document no-oped and
     the 35B kept browsing Wikipedia / a DOE 404 for the rest of the turn.
+
+    Second case: a named document step without research_report must not
+    widen owes-file. Drop the research_report gate in `_owes_document`
+    and a repeat browser open that merely names the document tool would
+    hold for a file even though needs_document is false. Main paints.
     """
-    from arelis.core.claims import detect_document_ask
+    from arelis.core.claims import ExactnessNeed, detect_document_ask
+    from arelis.core.same_call import record_same_call, same_call_key
+    from arelis.core.turn_dispatch import _owes_document, dispatch_calls
 
     assert not detect_document_ask(_C17_RESEARCH_PDF)
 
@@ -467,6 +475,46 @@ def test_c17_research_report_hands_off_named_document_not_browser() -> None:
     assert "from_path" in blob
     assert "Do not search or browse" in blob
     assert any("Unknown tool" in t for t in thinking) or "Unknown tool" in blob
+
+    ask = (
+        "Open the Wikipedia page on solid-state batteries, then convert "
+        "that page to a PDF with the document tool."
+    )
+    assert not detect_document_ask(ask)
+
+    loop = _FakeLoop()
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
+    args = {"action": "open", "url": "https://en.wikipedia.org/wiki/Solid-state_battery"}
+    names = {"browser", "scrape", "document"}
+    r = _scratch(
+        text=ask,
+        calls=[("browser", args)],
+        content="",
+        streamed="",
+        tool_names=set(names),
+        available=set(names),
+        visible=set(names),
+        offer_tools=True,
+        messages=[],
+    )
+    ctx = _ctx(text=ask)
+    ctx.available_all = set(names)
+    ctx.tool_names = r.tool_names
+    ctx.exact_need = ExactnessNeed(False, False, False, False)
+    ctx.last_ok_tool_out = "Opened Solid-state battery - Wikipedia"
+    ctx.last_ok_tool_name = "browser"
+    record_same_call(ctx.same_ok, "browser", args)
+    key = same_call_key("browser", args)
+    assert key
+    ctx.same_skip_keys.add(key)
+
+    assert "research_report" not in loop.tools_used
+    assert not _owes_document(loop, ctx)
+    assert asyncio.run(dispatch_calls(loop, ctx, r, 20)) is True
+    assert loop.finished is not None
+    assert "browser" in r.tool_names
+    assert "repeat held for the file" not in loop._trace
+    assert "Call document" not in " ".join(str(m.get("content") or "") for m in r.messages)
 
 
 @pytest.mark.parametrize(
