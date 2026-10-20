@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from arelis.core.evidence import looks_like_bot_wall
 
@@ -267,12 +267,95 @@ def _token_in_reply(token: str, text: str) -> bool:
     return tok in text
 
 
+_RESULT_NUM = re.compile(
+    r"^(?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*(?P<unit>.*)$"
+)
+_REPLY_QTY = re.compile(
+    r"(?<![\d.])(?P<num>-?\d+(?:\.\d+)?)(?!\d)(?!\.\d)"
+    r"(?:\s*(?P<unit>[A-Za-z]+(?:\s*/\s*[A-Za-z]+)?(?:\s+per\s+[A-Za-z]+)?))?"
+)
+_PLAIN_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _algebra_result_quantity(output: str) -> tuple[str, str]:
+    """Magnitude and unit from a calculator / units receipt."""
+    body = (output or "").strip()
+    if not body:
+        return "", ""
+    right = body.rsplit(" = ", 1)[-1].strip() if " = " in body else body
+    if " (exactly " in right:
+        right = right.split(" (exactly ", 1)[0].strip()
+    hit = _RESULT_NUM.match(right)
+    if hit is None:
+        return "", ""
+    return hit.group("num"), " ".join(hit.group("unit").split())
+
+
+def _written_places(num: str) -> int:
+    if "." not in num:
+        return 0
+    return len(num.split(".", 1)[1])
+
+
+def _is_correct_rounding(shown: str, exact: str) -> bool:
+    """True when *shown* is *exact*, or *exact* rounded to *shown*'s places."""
+    try:
+        shown_d = Decimal(shown)
+        exact_d = Decimal(exact)
+    except InvalidOperation:
+        return False
+    if shown_d == exact_d:
+        return True
+    quantum = Decimal("1").scaleb(-_written_places(shown))
+    return exact_d.quantize(quantum, rounding=ROUND_HALF_UP) == shown_d
+
+
+def _parse_pint_unit(text: str) -> object | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    try:
+        from arelis.tools.units import _UREG, _normalize_unit
+
+        return _UREG.parse_units(_normalize_unit(raw))
+    except Exception:
+        return None
+
+
+def _looks_like_unit(text: str) -> bool:
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if "/" in raw or re.search(r"(?i)\bper\b", raw):
+        return True
+    return _parse_pint_unit(raw) is not None
+
+
+def _units_equivalent(left: str, right: str) -> bool:
+    """True for the same Pint unit, including km/h vs kilometer / hour."""
+    if not (left or "").strip() or not (right or "").strip():
+        return False
+    try:
+        from arelis.tools.units import _UREG, _normalize_unit
+
+        a = _UREG.parse_units(_normalize_unit(left))
+        b = _UREG.parse_units(_normalize_unit(right))
+        if a == b:
+            return True
+        scale = float(_UREG.Quantity(1, a).to(b).magnitude)
+    except Exception:
+        return False
+    return abs(scale - 1.0) <= 1e-12
+
+
 def reply_states_algebra_result(content: str, tool: str, output: str) -> bool:
     """True when chat already states the calculator / units result.
 
     Qwen3.5 often puts the number in thinking and ships 'What's next?' as
     the bubble. Empty-after-tool only catches a blank reply; this is the
     filler case. CAS dumps stay on the write-up path, do not police them.
+    A correctly rounded magnitude with an equivalent unit (48 km/h vs
+    48.28032 kilometer / hour) counts. A wrong number does not.
     """
     name = (tool or "").strip()
     if name not in _RESULT_TOOLS:
@@ -280,6 +363,25 @@ def reply_states_algebra_result(content: str, tool: str, output: str) -> bool:
     tokens = _algebra_result_tokens(output)
     if not tokens:
         return True
+    text = content or ""
+    exact, unit = _algebra_result_quantity(output)
+    if exact:
+        for match in _REPLY_QTY.finditer(text):
+            if not _is_correct_rounding(match.group("num"), exact):
+                continue
+            spoken = (match.group("unit") or "").strip()
+            if (
+                unit
+                and spoken
+                and _looks_like_unit(spoken)
+                and not _units_equivalent(spoken, unit)
+            ):
+                continue
+            return True
+        return any(
+            not _PLAIN_NUMBER.fullmatch(tok) and _token_in_reply(tok, text)
+            for tok in tokens
+        )
     return any(_token_in_reply(tok, content or "") for tok in tokens)
 
 
@@ -491,7 +593,7 @@ def followup_passthrough_tool(tool: str, line: str, raw: str) -> str:
 _TEMP_NOTE = re.compile(r"\s*Temperature conversions use an offset\b.*$", re.S)
 _CLEAN_UNIT_RHS = re.compile(
     r"^(?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s+"
-    r"(?P<unit>[A-Za-z]+(?:\s*/\s*[A-Za-z]+)?(?:_[A-Za-z]+)*)$"
+    r"(?P<unit>[A-Za-z]+(?:/[A-Za-z]+)?(?:_[A-Za-z]+)*)$"
 )
 # Published constants append ", source: CODATA ..." after the quantity.
 # That trailer is for the model, not the spoken number.
@@ -597,14 +699,9 @@ def plain_algebra_chat(output: str, *, ask: str = "") -> str:
 def _humanize_unit(unit: str, magnitude: str) -> str:
     """Turn Pint unit ids into plain spoken words; plural except for exactly 1."""
     key = (unit or "").strip()
-    slash_parts = re.split(r"\s*/\s*", key, maxsplit=1)
-    if len(slash_parts) == 2:
-        left, right = slash_parts[0].strip(), slash_parts[1].strip()
-        if left and right:
-            # "m/s" is already how people write it. Pluralizing would make "m/ss".
-            if max(len(left), len(right)) <= 2:
-                return f"{left}/{right}"
-            key = f"{left} per {right}"
+    # "m/s" is already how people write it. Pluralizing would make "m/ss".
+    if "/" in key:
+        return key
     key = key.lower()
     try:
         val = float((magnitude or "").replace(",", ""))
@@ -614,7 +711,7 @@ def _humanize_unit(unit: str, magnitude: str) -> str:
     pair = _UNIT_WORDS.get(key)
     if pair is not None:
         return pair[0] if singular else pair[1]
-    spoken = " ".join(key.replace("_", " ").split())
+    spoken = " ".join((unit or "").replace("_", " ").split())
     if not spoken:
         return spoken
     words = spoken.split(" ")
