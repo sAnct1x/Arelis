@@ -501,7 +501,8 @@ async def test_llamacpp_cpu_embeddings_follow_embed_url_and_stay_off_when_down(
     at llamacpp.embed_url, never Ollama, and embeds is True only while
     that server answers; otherwise recall stays on keywords. A failed
     probe retries after a cooldown so a later-started embed server is
-    picked up without restarting Arelis.
+    picked up without restarting Arelis. The indexer asks the provider
+    each batch instead of latching the first False.
     """
     clock = {"t": 1_000.0}
     monkeypatch.setattr(
@@ -620,10 +621,15 @@ async def test_llamacpp_cpu_embeddings_follow_embed_url_and_stay_off_when_down(
     assert down_probes["n"] == 1
     assert await down.refresh_embeds() is False
     assert down_probes["n"] == 1
-    skipped = await MemoryIndexer(  # type: ignore[arg-type]
-        _PendingEmbedStore(), down, index_docs=False
-    ).run_batch()
+    # Same indexer across down → up. Re-adding MemoryIndexer._available
+    # must fail this: the first False would stick past the cooldown.
+    down_store = _RecordingEmbedStore()
+    down_indexer = MemoryIndexer(  # type: ignore[arg-type]
+        down_store, down, index_docs=False
+    )
+    skipped = await down_indexer.run_batch()
     assert skipped == 0
+    assert down_store.writes == []
 
     store = MemoryStore(tmp_path / "memory.db")
     embed_calls: list[tuple[str, list[str]]] = []
@@ -666,6 +672,9 @@ async def test_llamacpp_cpu_embeddings_follow_embed_url_and_stay_off_when_down(
     assert down_probes["n"] == 2
     recovered = await down.embed("nomic-embed-text", ["hello"])
     assert recovered == [[0.25, 0.75]]
+    recovered_batch = await down_indexer.run_batch()
+    assert recovered_batch > 0
+    assert down_store.writes == [(1, "nomic-embed-text", [0.25, 0.75])]
     assert probe_timeouts
     assert all(value == _PROBE_TIMEOUT_S for value in probe_timeouts)
 
