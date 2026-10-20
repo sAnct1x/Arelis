@@ -166,14 +166,13 @@ SCENARIOS: list[Scenario] = [
         allow_no_tools=True,
         absent_tools=("calculator",),
         offline_only=True,
-        expect_answer_contains=("don't know",),
-        forbid_claim_if_no_tool=("147",),
+        expect_answer_contains=("147",),
         failure_class="knowing_doing_gap",
         notes=(
-            "Exactness hard refuse: second bare invent after force must not ship. "
-            "Unchanged intent. The route now preinjects calculator whenever it is "
-            "registered, so the scenario removes it from the registry "
-            "(absent_tools) to keep reaching the refusal path."
+            "The canned missing math refuse is gone, so a second invent ships "
+            "when calculator never ran. A failed calculator still refuses "
+            "(math_refuses_when_calculator_fails). absent_tools keeps calculator "
+            "out of the registry so the route cannot preinject it."
         ),
         script=[
             [("token", "That would be about 147.")],
@@ -229,10 +228,11 @@ SCENARIOS: list[Scenario] = [
         expect_tools=(),
         allow_no_tools=True,
         offline_only=True,
-        forbid_claim_if_no_tool=("6.674",),
+        expect_answer_contains=("6.674",),
         failure_class="knowing_doing_gap",
         notes=(
-            "A recited constant with no units result still uses the refusal sentence."
+            "The canned missing units refuse is gone, so a recited constant "
+            "ships when units never ran."
         ),
         script=[
             [("token", "G is 6.674e-11 in SI units.")],

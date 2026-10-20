@@ -11,14 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from arelis.core.agent_loop import _MAX_TOOL_NUDGES, theme_reply_if_needed
-from arelis.core.claims import answer_looks_like_refusal
 from arelis.core.events import Event, EventType
-from arelis.core.failure_copy import (
-    _algebra_was_asked,
-    chat_followup_from_tool,
-    reply_states_algebra_result,
-    should_nudge_write_after_algebra,
-)
 from arelis.core.loop_helpers import _exactness_finish_refuse, _turn_requested_tools
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_scratch import (
@@ -114,44 +107,12 @@ async def hold_for_owed_tools(
     return True
 
 
-async def _ship_algebra_result_if_missing(
-    loop: Any, ctx: TurnContext, r: RoundScratch
-) -> bool:
-    """Ship the calculator line when chat is filler without the number.
-
-    This does not pick a tool. The calculator already ran. A filler that
-    leaves the number out is replaced with the plain result.
-    """
-    name = ctx.last_ok_tool_name
-    out = ctx.last_ok_tool_out
-    if not (
-        out
-        and should_nudge_write_after_algebra(name)
-        and _algebra_was_asked(ctx.text)
-        and not answer_looks_like_refusal(r.content)
-        and not reply_states_algebra_result(r.content, name, out)
-    ):
-        return False
-    line = chat_followup_from_tool(name, out, ask=ctx.text)
-    await loop._retract()
-    await loop.bus.publish(
-        Event(
-            EventType.THINKING,
-            {"text": "algebra result missing from chat; shipping a plain answer"},
-        )
-    )
-    await loop._finish(line, r.sources, streamed="")
-    return True
-
-
 async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     # Hold while a tool the user named has not run and its evidence is
     # still missing. Turn state decides this. The native flag does not.
     # Negation and the nudge cap still do. This does not invent a call.
     if await hold_for_owed_tools(loop, ctx, r, note_assistant=True):
         return NUDGE
-    if await _ship_algebra_result_if_missing(loop, ctx, r):
-        return FINISH
     fixed = theme_reply_if_needed(ctx.text, r.content)
     if fixed is not None:
         await loop._retract()

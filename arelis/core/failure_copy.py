@@ -216,73 +216,6 @@ def should_nudge_write_after_algebra(tool: str) -> bool:
     return (tool or "").strip() in _ALGEBRA_WRITE_TOOLS
 
 
-_RESULT_TOOLS = frozenset({"calculator", "units"})
-
-
-def _algebra_result_tokens(output: str) -> list[str]:
-    """Numeric / unit tokens from a calculator or units receipt."""
-    body = (output or "").strip()
-    if not body:
-        return []
-    right = body.rsplit(" = ", 1)[-1].strip() if " = " in body else body
-    tokens: list[str] = []
-    if " (exactly " in right:
-        main, rest = right.split(" (exactly ", 1)
-        main = main.strip()
-        exact = rest.rstrip(")").strip()
-        if main:
-            tokens.append(main)
-        if exact:
-            tokens.append(exact)
-    elif right:
-        tokens.append(right.split()[0] if right.split() else right)
-        # "5 mi = 8.047 km" — keep the converted magnitude too.
-        parts = right.split()
-        if len(parts) >= 2 and parts[-1].isalpha():
-            tokens.append(parts[0])
-    # A spoken answer often uses the short display form ("1.88"), not the
-    # full float from the receipt. Count that as stating the result.
-    for tok in list(tokens):
-        if not re.fullmatch(r"-?\d+\.\d{3,}", tok):
-            continue
-        try:
-            val = float(tok)
-        except ValueError:
-            continue
-        short = f"{val:.2f}".rstrip("0").rstrip(".")
-        if short and short not in tokens:
-            tokens.append(short)
-    return [t for t in tokens if t]
-
-
-def _token_in_reply(token: str, text: str) -> bool:
-    tok = (token or "").strip()
-    if not tok or not text:
-        return False
-    if re.fullmatch(r"-?\d+(?:\.\d+)?", tok):
-        # "2." is the answer plus a period. "2.5" is a different number.
-        return bool(
-            re.search(rf"(?<![\d.]){re.escape(tok)}(?!\d)(?!\.\d)", text)
-        )
-    return tok in text
-
-
-def reply_states_algebra_result(content: str, tool: str, output: str) -> bool:
-    """True when chat already states the calculator / units result.
-
-    Qwen3.5 often puts the number in thinking and ships 'What's next?' as
-    the bubble. Empty-after-tool only catches a blank reply; this is the
-    filler case. CAS dumps stay on the write-up path, do not police them.
-    """
-    name = (tool or "").strip()
-    if name not in _RESULT_TOOLS:
-        return True
-    tokens = _algebra_result_tokens(output)
-    if not tokens:
-        return True
-    return any(_token_in_reply(tok, content or "") for tok in tokens)
-
-
 _DATA_FOLLOWUP = (
     "I got the information, but I could not put it into words. Ask me again and I will try."
 )
@@ -972,7 +905,6 @@ __all__ = [
     "pretty_calculator_chat",
     "replace_raw_tool_line",
     "reply_is_done_without_answer",
-    "reply_states_algebra_result",
     "should_nudge_write_after_algebra",
     "should_nudge_write_after_page",
     "tool_failure_notice",
