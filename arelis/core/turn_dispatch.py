@@ -184,16 +184,15 @@ def _hand_off_after_ok_research_report(
 
     last_ok_tool_name is this call's result. tools_used is the wrong
     signal: it also records some failed calls. The named document step
-    is not an exactness kind, so needs_document alone misses C17.
+    is not an exactness kind, so needs_document misses C17.
+    needs_document comes from the detect_document_ask phrase catalog
+    and must not trigger this hand-off.
     """
     if ctx.last_ok_tool_name != "research_report":
         return
     if ctx.ledger.has_ok("document"):
         return
-    if not (
-        ctx.exact_need.needs_document
-        or "document" in uncovered_named_steps(loop, ctx)
-    ):
+    if "document" not in uncovered_named_steps(loop, ctx):
         return
     _drop_named(loop, r, _GATHER)
     if ctx.document_nudge_used or "document" not in r.tool_names:

@@ -27,6 +27,7 @@ _C17_RESEARCH_PDF = (
     "from lithium-ion batteries, then convert that report to a PDF with "
     "the document tool."
 )
+_C17_PHRASE_PDF = "Write me a pdf on solid-state batteries"
 
 pytestmark = pytest.mark.no_ui
 
@@ -416,7 +417,10 @@ def test_c17_research_report_hands_off_named_document_not_browser() -> None:
     needs_document + web + document warrants and no report must match
     main: drop browser/scrape, set the nudge, append 'Call document now'.
     A named document step without research_report must not hold a
-    browser repeat; main paints.
+    browser repeat; main paints. A phrase-catalog pdf ask
+    (needs_document, no named document step) plus a successful
+    research_report must match main: the browser stays and the next
+    call is the browser.
     """
     from arelis.core.claims import ExactnessNeed, detect_document_ask
     from arelis.core.same_call import record_same_call, same_call_key
@@ -521,6 +525,49 @@ def test_c17_research_report_hands_off_named_document_not_browser() -> None:
         str(message.get("content") or "") for message in fail_extras.get("messages", [])
     )
     assert "Do not search or browse" not in fail_blob
+
+    assert detect_document_ask(_C17_PHRASE_PDF)
+
+    phrase_reg = ToolRegistry()
+    phrase_reg.register(_WikiResearchReport("research_report", risk="read"))
+    phrase_reg.register(_StubTool("scrape", risk="read"))
+    phrase_reg.register(_StubTool("browser", risk="read"))
+    phrase_reg.register(_StubTool("document", risk="write"))
+    phrase_extras: dict = {}
+    _phrase_final, phrase_results, phrase_thinking = asyncio.run(
+        _run_agent_with_script(
+            _C17_PHRASE_PDF,
+            [
+                _call(
+                    "research_report",
+                    {"query": "solid-state batteries"},
+                ),
+                _call(
+                    "browser",
+                    {
+                        "action": "navigate",
+                        "url": "https://en.wikipedia.org/wiki/Solid-state_battery",
+                    },
+                ),
+                [("token", "report written; still on the page")],
+            ],
+            ["research_report", "scrape", "browser", "document"],
+            {**_NATIVE, "max_rounds": 8},
+            registry=phrase_reg,
+            capture_thinking=True,
+            extras=phrase_extras,
+        )
+    )
+    assert phrase_results[:2] == [
+        ("research_report", True),
+        ("browser", True),
+    ], phrase_results
+    assert not any("Unknown tool" in t for t in phrase_thinking), phrase_thinking
+    phrase_blob = " ".join(
+        str(message.get("content") or "")
+        for message in phrase_extras.get("messages", [])
+    )
+    assert "Do not search or browse" not in phrase_blob
 
     ask = (
         "Open the Wikipedia page on solid-state batteries, then convert "
