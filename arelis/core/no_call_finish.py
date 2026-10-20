@@ -12,7 +12,7 @@ from typing import Any
 
 from arelis.core.agent_loop import _MAX_TOOL_NUDGES, theme_reply_if_needed
 from arelis.core.events import Event, EventType
-from arelis.core.loop_helpers import _exactness_finish_refuse
+from arelis.core.loop_helpers import _exactness_finish_refuse, _turn_requested_tools
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_scratch import (
     RoundScratch,
@@ -130,6 +130,9 @@ async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i
         numeric_gate=ctx.numeric_gate,
         evidence_gate=ctx.evidence_gate,
         send_path=ctx.is_send_path(loop._expected_tools),
+        declined_tools=ctx.declined_tools,
+        declined_calls=ctx.declined_calls,
+        requested_tools=_turn_requested_tools(loop, ctx),
     )
     if refuse is None:
         refuse = loop._look_refuse(r.content)

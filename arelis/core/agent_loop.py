@@ -1031,6 +1031,9 @@ class AgentLoop:
             numeric_gate=ctx.numeric_gate,
             evidence_gate=ctx.evidence_gate,
             send_path=ctx.is_send_path(self._expected_tools),
+            declined_tools=ctx.declined_tools,
+            declined_calls=ctx.declined_calls,
+            requested_tools=_turn_requested_tools(self, ctx),
         )
         if refuse is None:
             refuse = self._look_refuse(final_content)
