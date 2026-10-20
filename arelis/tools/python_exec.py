@@ -193,6 +193,8 @@ def _run_in_child_sync(
     scratch = Path(tempfile.mkdtemp(prefix="arelis-py-"))
     work_dir = _cell_work_dir()
     cwd = Path(work_dir) if work_dir else scratch
+    # Names already in the work folder. Only a png this cell creates is shown.
+    before_pngs = _png_paths(cwd) if work_dir else set()
     env = child_env(
         {
             "PYTHONUNBUFFERED": "1",
@@ -259,9 +261,18 @@ def _run_in_child_sync(
             time.sleep(0.05)
         _finish_io(proc, threads)
         threads = []
+        if proc.poll() is None:
+            # A child that already printed its result can still be flushing
+            # savefig during shutdown. Reap it, then look for the png.
+            _kill_tree(proc)
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+        new_pngs = _new_png_charts(cwd, before_pngs) if work_dir else []
         payload = _parse_result("".join(lines))
         if payload is not None:
-            return _tool_result(code, payload)
+            return _tool_result(code, payload, new_pngs)
         if _memory_death(proc):
             return arg_error(
                 output=_MEMORY_OUTPUT,
@@ -374,6 +385,47 @@ def _error_type(payload: dict[str, Any]) -> str | None:
 _CELL_FIGURE_SUFFIXES = {".png", ".svg"}
 
 
+def _png_paths(folder: Path) -> set[str]:
+    """Resolved png paths sitting directly in ``folder``."""
+    found: set[str] = set()
+    if not folder.is_dir():
+        return found
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return found
+    for path in entries:
+        try:
+            if path.is_file() and path.suffix.lower() == ".png":
+                found.add(str(path.resolve()))
+        except OSError:
+            continue
+    return found
+
+
+def _new_png_charts(folder: Path, before: set[str]) -> list[dict[str, str]]:
+    """Png files this cell added. An older png in the same folder stays put."""
+    charts: list[dict[str, str]] = []
+    for text in sorted(_png_paths(folder) - before):
+        hit = Path(text)
+        charts.append({"name": hit.name, "abs_path": str(hit)})
+    return charts
+
+
+def _figure_data(charts: list[dict[str, str]]) -> dict[str, Any]:
+    """Same abs_path keys plot uses so FILE_READY can show the cell figure."""
+    if not charts:
+        return {}
+    first = charts[0]
+    return {
+        "path": first["name"],
+        "abs_path": first["abs_path"],
+        "format": Path(first["name"]).suffix.lower().lstrip("."),
+        "title": Path(first["name"]).stem,
+        "charts": charts,
+    }
+
+
 def _work_figures() -> list[dict[str, str]]:
     """PNG/SVG the cell wrote into this turn's work folder."""
     try:
@@ -429,25 +481,21 @@ def _charts_from_payload(payload: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _cell_figure_data(payload: dict[str, Any]) -> dict[str, Any]:
-    """Same abs_path keys plot uses so FILE_READY can show the cell figure."""
-    charts = _charts_from_payload(payload) or _work_figures()
-    if not charts:
-        return {}
-    first = charts[0]
-    return {
-        "path": first["name"],
-        "abs_path": first["abs_path"],
-        "format": Path(first["name"]).suffix.lower().lstrip("."),
-        "title": Path(first["name"]).stem,
-        "charts": charts,
-    }
+    """Fallback when the post-run scan found no new png."""
+    return _figure_data(_charts_from_payload(payload) or _work_figures())
 
 
-def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
+def _tool_result(
+    code: str,
+    payload: dict[str, Any],
+    new_pngs: list[dict[str, str]] | None = None,
+) -> ToolResult:
     if payload.get("ok"):
         text = str(payload.get("output") or "")
         data: dict[str, Any] = {"code": code, "result": text}
-        data.update(_cell_figure_data(payload))
+        # A png this cell just wrote wins. The payload list can name an
+        # older file, and that must not hide the new chart.
+        data.update(_figure_data(new_pngs or []) or _cell_figure_data(payload))
         return ToolResult(ok=True, output=text, data=data)
     kind = str(payload.get("kind") or "")
     message = str(payload.get("message") or "")

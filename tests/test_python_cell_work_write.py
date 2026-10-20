@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from arelis.core.cell_work import cell_work_dir
+from arelis.core.cell_work import begin_cell_work, cell_work_dir
 from arelis.core.compact_prompt import skinny_description
 from arelis.core.events import EventType
 from arelis.core.evidence import EvidenceLedger
@@ -56,6 +56,11 @@ async def test_mcmc_cell_saves_samples_and_plot_draws_posterior(
     project = tmp_path / "proj"
     project.mkdir()
     monkeypatch.setenv("ARELIS_DATA_DIR", str(data))
+    begin_cell_work("mcmc")
+    # An older png in this turn's folder must not be the chart that shows.
+    (cell_work_dir() / "already.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+    )
     roots = WorkspaceRoots.from_paths([str(project)])
     tool = PythonTool(roots, science_io=False)
     saved = await tool.run(
