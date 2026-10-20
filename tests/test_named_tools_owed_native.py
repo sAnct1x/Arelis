@@ -21,6 +21,12 @@ from arelis.paths import outputs_dir
 from arelis.tools.base import ToolRegistry, ToolResult
 from arelis.tools.document import DocumentTool
 
+_C17_RESEARCH_PDF = (
+    "Write a sourced research report on how solid-state batteries differ "
+    "from lithium-ion batteries, then convert that report to a PDF with "
+    "the document tool."
+)
+
 pytestmark = pytest.mark.no_ui
 
 _NATIVE = {
@@ -375,6 +381,92 @@ def test_failure_sentence_plus_a_forecast_is_refused() -> None:
         evidence_gate=True,
     )
     assert refuse == "I don't know. I don't have a forecast for that, so I won't guess."
+
+
+class _WikiResearchReport(_StubTool):
+    """C17-shaped report: only Wikipedia, so require_paper would refuse."""
+
+    async def run(self, **kwargs: object) -> ToolResult:
+        self.calls.append(dict(kwargs))
+        url = "https://en.wikipedia.org/wiki/Solid-state_battery"
+        return ToolResult(
+            ok=True,
+            output=(
+                "Research report written to outputs/research/ssb.md "
+                "(1 source scraped).\n\n# Solid-state vs Li-ion\n"
+            ),
+            data={
+                "query": str(kwargs.get("query") or ""),
+                "ok_count": 1,
+                "path": "outputs/research/ssb.md",
+                "sources": [{"title": "Solid-state battery", "url": url}],
+            },
+        )
+
+
+def test_c17_research_report_hands_off_named_document_not_browser() -> None:
+    """After research_report, a named document step must drop Chrome.
+
+    Fail-before: 'convert that report to a PDF with the document tool' is
+    not a document exactness kind, so _hand_off_to_document no-oped and
+    the 35B kept browsing Wikipedia / a DOE 404 for the rest of the turn.
+    """
+    from arelis.core.claims import detect_document_ask
+
+    assert not detect_document_ask(_C17_RESEARCH_PDF)
+
+    reg = ToolRegistry()
+    full = foundation_registry()
+    reg.register(_WikiResearchReport("research_report", risk="read"))
+    for name in ("web_search", "scrape", "browser", "document"):
+        tool = full.get(name)
+        assert tool is not None, name
+        reg.register(tool)
+
+    extras: dict = {}
+    _final, tool_results, thinking = asyncio.run(
+        _run_agent_with_script(
+            _C17_RESEARCH_PDF,
+            [
+                _call(
+                    "research_report",
+                    {"query": "solid-state batteries vs lithium-ion"},
+                ),
+                _call(
+                    "browser",
+                    {
+                        "action": "navigate",
+                        "url": "https://en.wikipedia.org/wiki/Solid-state_battery",
+                    },
+                ),
+                _call(
+                    "document",
+                    {
+                        "format": "pdf",
+                        "title": "Solid-state vs Li-ion",
+                        "from_path": "outputs/research/ssb.md",
+                    },
+                ),
+                [("token", "PDF written to outputs/documents/ssb.pdf")],
+            ],
+            ["research_report", "web_search", "scrape", "browser", "document"],
+            {**_NATIVE, "max_rounds": 8},
+            registry=reg,
+            capture_thinking=True,
+            extras=extras,
+        )
+    )
+    assert [name for name, _ok in tool_results] == [
+        "research_report",
+        "document",
+    ], tool_results
+    assert all(ok for _name, ok in tool_results)
+    blob = " ".join(
+        str(message.get("content") or "") for message in extras.get("messages", [])
+    )
+    assert "from_path" in blob
+    assert "Do not search or browse" in blob
+    assert any("Unknown tool" in t for t in thinking) or "Unknown tool" in blob
 
 
 @pytest.mark.parametrize(
