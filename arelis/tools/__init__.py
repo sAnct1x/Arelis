@@ -148,7 +148,9 @@ def build_tool_registry(
         )
         embed = None
         embed_available = None
-        if provider is not None:
+        # llama.cpp has no embed model. Do not wire a probe that would then
+        # tell the user to `ollama pull nomic-embed-text`.
+        if provider is not None and bool(getattr(provider, "embeds", True)):
 
             async def _embed(model: str, texts: list[str]) -> list[list[float]]:
                 return await provider.embed(model, texts)

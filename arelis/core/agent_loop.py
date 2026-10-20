@@ -51,7 +51,7 @@ from arelis.core.skills import (
 )
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer
-from arelis.llm.errors import classify_ollama_failure
+from arelis.llm.errors import classify_turn_failure
 from arelis.llm.router import ModelRole, ModelRouter
 from arelis.location.privacy import StreamRedactor
 from arelis.location.privacy import current as current_redactor
@@ -1003,11 +1003,12 @@ class AgentLoop:
             raise
         except Exception as exc:
             await self._retract()
-            failure = classify_ollama_failure(
+            failure = classify_turn_failure(
                 exc,
                 model=self.router.model_for(self._turn_role),
-                base_url=str((self.config.get("ollama") or {}).get("base_url") or ""),
                 role=str(self._turn_role or ""),
+                config=self.config,
+                backend=getattr(self.router, "provider", None),
             )
             await self._publish_error(failure.chat, detail=failure.detail)
             return

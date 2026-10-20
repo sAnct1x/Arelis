@@ -173,6 +173,7 @@ class OllamaProvider:
     # is still full (Comfy, Chrome, a stuck runner). Fake providers omit this
     # so unit tests do not shell out to Get-Counter.
     guard_host_vram = True
+    embeds = True
 
     def __init__(
         self,

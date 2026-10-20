@@ -84,7 +84,7 @@ from arelis.core.turn_scratch import (
     strip_tool_schemas,
     uncovered_named_steps,
 )
-from arelis.llm.errors import classify_ollama_failure, is_vram_failure
+from arelis.llm.errors import classify_turn_failure, is_vram_failure
 from arelis.tools.pdf_pages import ink_vision_walk
 
 _CHAIN_STILL_OPEN = "That result does not finish what they asked."
@@ -755,13 +755,18 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             # don't spend a second stream on JSON fallback while the chip
             # is already red.
             await loop._retract()
-            failure = classify_ollama_failure(
+            failure = classify_turn_failure(
                 exc,
                 model=model,
-                base_url=str((loop.config.get("ollama") or {}).get("base_url") or ""),
                 role=str(loop._turn_role or ""),
+                config=getattr(loop, "config", None),
+                backend=getattr(getattr(loop, "router", None), "provider", None),
             )
-            if ctx.last_ok_tool_out and _is_ollama_object_400(exc):
+            if (
+                ctx.last_ok_tool_out
+                and _is_ollama_object_400(exc)
+                and not failure.skip_tool_fallback
+            ):
                 # A result is already in hand. Another request does not
                 # phrase it: the same 400 comes back. Ship the sentence.
                 four_line = _tool_followup_fallback(
