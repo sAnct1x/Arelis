@@ -138,6 +138,7 @@ class RecallTool:
         embed: EmbedFn | None = None,
         embed_model: str = "nomic-embed-text",
         embed_available: ModelCheckFn | None = None,
+        embed_missing_note: str | None = None,
         index_docs: IndexFn | None = None,
         index_mail: IndexFn | None = None,
     ) -> None:
@@ -145,6 +146,7 @@ class RecallTool:
         self._embed = embed
         self._embed_model = embed_model
         self._embed_available = embed_available
+        self._embed_missing_note = embed_missing_note
         self._index_docs = index_docs
         self._index_mail = index_mail
         self._said_keyword_only = False
@@ -214,10 +216,13 @@ class RecallTool:
                 available = await self._embed_available()
             if not available:
                 if not self._said_keyword_only:
-                    note = (
-                        " Semantic search is off until `ollama pull "
-                        f"{self._embed_model}` completes; using keywords only."
-                    )
+                    if self._embed_missing_note is not None:
+                        note = self._embed_missing_note
+                    else:
+                        note = (
+                            " Semantic search is off until `ollama pull "
+                            f"{self._embed_model}` completes; using keywords only."
+                        )
                     self._said_keyword_only = True
             else:
                 try:

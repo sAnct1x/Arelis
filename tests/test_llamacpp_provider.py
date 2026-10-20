@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import httpx
+import pytest
+import yaml
 
+from arelis.config import DEFAULT_CONFIG_PATH
+from arelis.core.memory import SessionMemory
 from arelis.core.turn_prepare import _context_limits
 from arelis.llm import build_router
 from arelis.llm.errors import (
@@ -17,9 +22,17 @@ from arelis.llm.errors import (
     classify_ollama_failure,
     classify_turn_failure,
 )
-from arelis.llm.llamacpp import LlamaCppProvider
+from arelis.llm.llamacpp import (
+    _EMBED_PROBE_RETRY_S,
+    _PROBE_TIMEOUT_S,
+    LlamaCppProvider,
+)
 from arelis.llm.ollama import OllamaProvider
 from arelis.memory.indexer import MemoryIndexer
+from arelis.memory.store import MemoryStore
+from arelis.tools.recall import RecallTool
+
+_CPU_EMBED_TOKEN = "ZXQ_CPU_EMBED_DOWN_325"
 
 
 def _client(handler) -> httpx.AsyncClient:
@@ -33,6 +46,18 @@ def _sse(events: list[dict[str, Any]]) -> bytes:
     lines = [f"data: {json.dumps(event)}" for event in events]
     lines.append("data: [DONE]")
     return ("\n".join(lines) + "\n").encode()
+
+
+def _probe_read_timeout(request: httpx.Request) -> float | None:
+    timeout = request.extensions.get("timeout")
+    read = None
+    if isinstance(timeout, dict):
+        read = timeout.get("read")
+    elif timeout is not None:
+        read = getattr(timeout, "read", None)
+    if isinstance(read, (int, float)):
+        return float(read)
+    return None
 
 
 async def test_llamacpp_stream_maps_sse_and_refuses_pictures_and_embeddings() -> None:
@@ -286,6 +311,16 @@ class _PendingEmbedStore:
         return []
 
 
+class _RecordingEmbedStore(_PendingEmbedStore):
+    """Same pending row, but records a successful write."""
+
+    def __init__(self) -> None:
+        self.writes: list[tuple[int, str, list[float]]] = []
+
+    def upsert_embedding(self, row_id: int, model: str, vector: list[float]) -> None:
+        self.writes.append((row_id, model, vector))
+
+
 async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
     """64k config must not win over the server window or the per-model cap."""
     probe_timeouts: list[float] = []
@@ -456,3 +491,223 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
     await bare.close()
     await dead.close()
     await shifting.close()
+
+
+async def test_llamacpp_cpu_embeddings_follow_embed_url_and_stay_off_when_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Root cause: the 35B llama-server owns the card, so nomic-embed-text
+    has to live on a second CPU llama-server. Reason: POST /v1/embeddings
+    at llamacpp.embed_url, never Ollama, and embeds is True only while
+    that server answers; otherwise recall stays on keywords. A failed
+    probe retries after a cooldown so a later-started embed server is
+    picked up without restarting Arelis. The indexer asks the provider
+    each batch instead of latching the first False.
+    """
+    clock = {"t": 1_000.0}
+    monkeypatch.setattr(
+        "arelis.llm.llamacpp.time.monotonic", lambda: clock["t"]
+    )
+    chat_paths: list[str] = []
+    embed_posts: list[tuple[str, dict[str, Any]]] = []
+    probe_timeouts: list[float] = []
+    embed_live = {"ok": False}
+    down_probes = {"n": 0}
+
+    def chat_handler(request: httpx.Request) -> httpx.Response:
+        chat_paths.append(request.url.path)
+        if request.url.path in {"/v1/embeddings", "/api/embed", "/api/tags"}:
+            raise AssertionError(f"chat server must not handle {request.url.path}")
+        if request.url.path == "/v1/chat/completions":
+            return httpx.Response(200, content=_sse([]))
+        return httpx.Response(404)
+
+    def embed_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/embed":
+            raise AssertionError("Ollama /api/embed must not be used")
+        if request.url.path != "/v1/embeddings":
+            return httpx.Response(404)
+        body = json.loads(request.content)
+        embed_posts.append((str(request.url), body))
+        if body.get("input") == ["ok"]:
+            read = _probe_read_timeout(request)
+            if read is not None:
+                probe_timeouts.append(read)
+        texts = body.get("input")
+        if not isinstance(texts, list):
+            return httpx.Response(400, text="input must be a list")
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"embedding": [0.25, 0.75], "index": i} for i in range(len(texts))
+                ]
+            },
+        )
+
+    def down_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/embeddings":
+            body = json.loads(request.content) if request.content else {}
+            if body.get("input") == ["ok"]:
+                down_probes["n"] += 1
+                read = _probe_read_timeout(request)
+                if read is not None:
+                    probe_timeouts.append(read)
+            if not embed_live["ok"]:
+                raise httpx.ConnectError("connection refused")
+            return embed_handler(request)
+        raise httpx.ConnectError("connection refused")
+
+    up = LlamaCppProvider(
+        base_url="http://llama.test",
+        embed_url="http://embed.test",
+        client=_client(chat_handler),
+        embed_client=httpx.AsyncClient(
+            transport=httpx.MockTransport(embed_handler),
+            base_url="http://embed.test",
+            timeout=300,
+        ),
+    )
+    assert up.embeds is False
+    assert await up.refresh_embeds() is True
+    assert up.embeds is True
+    # Probe must have hit the embed host, not the 35B chat host.
+    assert embed_posts
+    assert all("embed.test" in url for url, _ in embed_posts)
+    assert all(body.get("input") == ["ok"] for _url, body in embed_posts)
+    assert "/v1/embeddings" not in chat_paths
+    assert "/api/embed" not in chat_paths
+
+    vectors = await up.embed("nomic-embed-text", ["alpha", "beta"])
+    assert vectors == [[0.25, 0.75], [0.25, 0.75]]
+    assert embed_posts[-1][1]["input"] == ["alpha", "beta"]
+    assert embed_posts[-1][1]["model"] == "nomic-embed-text"
+    assert "embed.test" in embed_posts[-1][0]
+
+    store = _RecordingEmbedStore()
+    indexer = MemoryIndexer(store, up, index_docs=False)  # type: ignore[arg-type]
+    written = await indexer.run_batch()
+    assert written == 1
+    assert store.writes == [(1, "nomic-embed-text", [0.25, 0.75])]
+
+    assert await up.sees_images("qwen") is False
+    try:
+        await up.chat_with_images("qwen", "what", ["aaaa"])
+        raise AssertionError("pictures should stay off")
+    except RuntimeError as exc:
+        assert "Pictures are off" in str(exc)
+    assert "embedding" not in await up.capabilities("nomic-embed-text")
+
+    down = LlamaCppProvider(
+        base_url="http://llama.test",
+        embed_url="http://embed.test",
+        client=_client(chat_handler),
+        embed_client=httpx.AsyncClient(
+            transport=httpx.MockTransport(down_handler),
+            base_url="http://embed.test",
+            timeout=300,
+        ),
+    )
+    assert down.embeds is False
+    assert await down.refresh_embeds() is False
+    assert down.embeds is False
+    assert down_probes["n"] == 1
+    try:
+        await down.embed("nomic-embed-text", ["hello"])
+        raise AssertionError("down embed server should keep embeddings off")
+    except RuntimeError as exc:
+        assert "Embeddings are off" in str(exc)
+        assert "ollama" not in str(exc).lower()
+    assert down_probes["n"] == 1
+    assert await down.refresh_embeds() is False
+    assert down_probes["n"] == 1
+    # Same indexer across down → up. Re-adding MemoryIndexer._available
+    # must fail this: the first False would stick past the cooldown.
+    down_store = _RecordingEmbedStore()
+    down_indexer = MemoryIndexer(  # type: ignore[arg-type]
+        down_store, down, index_docs=False
+    )
+    skipped = await down_indexer.run_batch()
+    assert skipped == 0
+    assert down_store.writes == []
+
+    store = MemoryStore(tmp_path / "memory.db")
+    embed_calls: list[tuple[str, list[str]]] = []
+    try:
+        store.start_session()
+        SessionMemory(sink=store).add(
+            "user", f"{_CPU_EMBED_TOKEN} lives in last night's chat."
+        )
+
+        async def would_embed(model: str, texts: list[str]) -> list[list[float]]:
+            embed_calls.append((model, texts))
+            return [[0.25, 0.75] for _ in texts]
+
+        async def embed_available() -> bool:
+            return await down.refresh_embeds()
+
+        found = await RecallTool(
+            store,
+            embed=would_embed,
+            embed_available=embed_available,
+            embed_missing_note=" Semantic search is off; using keywords only.",
+        ).run(action="search", query=_CPU_EMBED_TOKEN, source="chat")
+        assert found.ok, found.output
+        assert found.data.get("mode") == "keyword"
+        assert found.data.get("fts") is True
+        assert found.data["hits"], found.output
+        assert _CPU_EMBED_TOKEN in found.output
+        assert "full-text" in found.output
+        assert "keyword + semantic" not in found.output
+        assert embed_calls == []
+        assert "Semantic search failed" not in found.output
+        assert "Semantic search is off" in found.output
+    finally:
+        store.close()
+
+    embed_live["ok"] = True
+    clock["t"] += _EMBED_PROBE_RETRY_S
+    assert await down.refresh_embeds() is True
+    assert down.embeds is True
+    assert down_probes["n"] == 2
+    recovered = await down.embed("nomic-embed-text", ["hello"])
+    assert recovered == [[0.25, 0.75]]
+    recovered_batch = await down_indexer.run_batch()
+    assert recovered_batch > 0
+    assert down_store.writes == [(1, "nomic-embed-text", [0.25, 0.75])]
+    assert probe_timeouts
+    assert all(value == _PROBE_TIMEOUT_S for value in probe_timeouts)
+
+    shipped = {
+        "ollama": {"base_url": "http://127.0.0.1:11434"},
+        "models": {"fast": "qwen3.5:9b"},
+        "router": {},
+        "memory": {},
+    }
+    chosen = build_router(
+        {
+            **shipped,
+            "llm": {"provider": "llamacpp"},
+            "llamacpp": {
+                "base_url": "http://127.0.0.1:8080",
+                "embed_url": "http://127.0.0.1:8081",
+            },
+        }
+    )
+    assert isinstance(chosen.provider, LlamaCppProvider)
+    assert chosen.provider.embed_url == "http://127.0.0.1:8081"
+    assert chosen.provider.embeds is False
+    real = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    assert isinstance(real, dict)
+    defaulted = build_router({**real, "llm": {"provider": "llamacpp"}})
+    assert isinstance(defaulted.provider, LlamaCppProvider)
+    assert defaulted.provider.embed_url == "http://127.0.0.1:8081"
+    bare = LlamaCppProvider()
+    assert bare.embed_url is None
+    assert bare.embeds is False
+
+    await up.close()
+    await down.close()
+    await chosen.provider.close()
+    await defaulted.provider.close()
+    await bare.close()

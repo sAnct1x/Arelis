@@ -2,11 +2,41 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from arelis.core.document_refs import fill_doc_extract_args, resolve_drop_file
 from arelis.tools.analyze import AnalyzeTool
 from arelis.workspace import WorkspaceRoots
+
+
+def _outside_drop_name(docs: Path, outside: Path) -> str:
+    """Plant a drop-tray name whose realpath sits outside documents."""
+    link = docs / "evil.csv"
+    try:
+        link.symlink_to(outside)
+        return link.name
+    except OSError:
+        pass
+    boxed = outside.parent / "boxed"
+    boxed.mkdir(exist_ok=True)
+    secret = boxed / "secret.csv"
+    secret.write_text(outside.read_text(encoding="utf-8"), encoding="utf-8")
+    junction = docs / "outbox"
+    if sys.platform == "win32":
+        made = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(junction), str(boxed)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert made.returncode == 0, made.stderr
+    else:
+        junction.symlink_to(boxed, target_is_directory=True)
+    return secret.name
 
 
 def test_resolve_drop_file_finds_basename(tmp_path, monkeypatch) -> None:
@@ -21,6 +51,46 @@ def test_resolve_drop_file_finds_basename(tmp_path, monkeypatch) -> None:
     hit = resolve_drop_file("board-check.csv", suffixes={".csv"})
     assert hit
     assert Path(hit).name == "board-check.csv"
+
+    target.unlink()
+    one = docs / "inbox" / "board-check.csv"
+    two = docs / "archive" / "board-check.csv"
+    one.parent.mkdir()
+    two.parent.mkdir()
+    one.write_text("a,b\n1,2\n", encoding="utf-8")
+    two.write_text("a,b\n3,4\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="more than one drop file") as caught:
+        resolve_drop_file("board-check.csv", suffixes={".csv"})
+    msg = str(caught.value)
+    assert "inbox/board-check.csv" in msg
+    assert "archive/board-check.csv" in msg
+    assert str(one.resolve()) not in msg
+    assert str(two.resolve()) not in msg
+    picked = resolve_drop_file("inbox/board-check.csv", suffixes={".csv"})
+    assert Path(picked).resolve() == one.resolve()
+
+    decoy = docs / "mini.csv"
+    decoy.write_text("a,b\n0,0\n", encoding="utf-8")
+    outside = tmp_path / "secret.csv"
+    outside.write_text("secret,yes\n1,1\n", encoding="utf-8")
+    sneak = _outside_drop_name(docs, outside)
+    assert not resolve_drop_file(sneak, suffixes={".csv"})
+    assert not resolve_drop_file("../secret.csv", suffixes={".csv"})
+    assert not resolve_drop_file(str(outside), suffixes={".csv"})
+    assert not resolve_drop_file(r"C:\Users\you\secret.csv", suffixes={".csv"})
+    assert not resolve_drop_file(r"\\server\share\secret.csv", suffixes={".csv"})
+    assert not resolve_drop_file("no-such.csv", suffixes={".csv"})
+    via_workspace = resolve_drop_file("work/mini.csv", suffixes={".csv"})
+    assert Path(via_workspace).resolve() == decoy.resolve()
+
+    root = docs / "same.csv"
+    nested = docs / "nested" / "same.csv"
+    nested.parent.mkdir()
+    root.write_text("a,b\n1,2\n", encoding="utf-8")
+    nested.write_text("a,b\n3,4\n", encoding="utf-8")
+    for request in ("same.csv", "./same.csv", "documents/same.csv"):
+        picked = resolve_drop_file(request, suffixes={".csv"})
+        assert Path(picked).resolve() == root.resolve()
 
 
 def test_analyze_reads_drop_tray_outside_roots(tmp_path, monkeypatch) -> None:

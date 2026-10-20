@@ -70,7 +70,6 @@ class MemoryIndexer:
         self.provider = provider
         self.model = model
         self.batch_size = batch_size
-        self._available: bool | None = None
         self.docs: DocumentIndexer | None
         self.mail: MailIndexer | None
         if docs is not None:
@@ -107,28 +106,35 @@ class MemoryIndexer:
         """False when this provider cannot embed at all.
 
         Ollama leaves this True and still decides from the tag list, same
-        HTTP as on main. llama.cpp is False for now, so we skip the batch
-        instead of calling embed and logging the raise.
+        HTTP as on main. llama.cpp starts False and becomes True only after
+        the CPU embed server answers, so we skip the batch instead of
+        calling embed and logging the raise.
         """
         return bool(getattr(self.provider, "embeds", True))
 
     async def model_available(self) -> bool:
-        if self._available is not None:
-            return self._available
+        """Ask the provider each call. Do not cache the answer here.
+
+        llama.cpp throttles failed probes in ``refresh_embeds``. A False
+        cached on the indexer would ignore a later-started embed server for
+        the whole process. Ollama still lists tags once per check, then
+        ``embed`` sends the whole batch in one ``/api/embed``, not one
+        ``/api/tags`` per text.
+        """
+        refresh = getattr(self.provider, "refresh_embeds", None)
+        if callable(refresh):
+            return bool(await refresh())
         if not self._provider_embeds():
-            self._available = False
             return False
         try:
             names = await self.provider.list_models()
         except Exception:
             log.exception("Could not list Ollama models for embed availability")
-            self._available = False
             return False
         # Tags may be "nomic-embed-text" or "nomic-embed-text:latest".
-        self._available = any(
+        return any(
             name == self.model or name.startswith(f"{self.model}:") for name in names
         )
-        return self._available
 
     async def run_batch(self) -> int:
         """Sync docs/mail if needed, then embed one batch of pending rows."""
