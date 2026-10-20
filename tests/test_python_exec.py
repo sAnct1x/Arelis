@@ -258,7 +258,7 @@ async def test_chart_import_refusal_is_a_typed_error() -> None:
     assert refused.ok is False
     text = str(refused.data.get("exc_message") or "")
     assert "numpy" in text and "sympy" in text
-    assert "matplotlib" in text
+    assert "matplotlib" not in text
     assert "corner" not in text
     assert "are preloaded" not in text
     assert "os and subprocess are not" in text

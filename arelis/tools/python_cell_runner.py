@@ -200,7 +200,7 @@ class _ChartImportError(ValueError):
 _BASE_LIST = (
     "math, cmath, statistics, fractions, decimal, itertools, functools, "
     "collections, operator, copy, json, re, datetime, sympy, numpy, scipy, "
-    "matplotlib, and mpmath"
+    "and mpmath"
 )
 _SCIENCE_LIST = (
     "math, cmath, statistics, fractions, decimal, itertools, functools, "
