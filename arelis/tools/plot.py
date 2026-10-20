@@ -1960,6 +1960,16 @@ def _frame_from_whitespace(path: Path) -> pd.DataFrame:
     raise ValueError("text table needs a 1-D or 2-D array")
 
 
+def _csv_header_name(name: object) -> str:
+    """numpy savetxt writes header='m,c' as '# m,c'. Plot needs 'm'."""
+    text = str(name)
+    if text.startswith("# "):
+        return text[2:]
+    if text.startswith("#"):
+        return text[1:]
+    return text
+
+
 def _load_table(path: Path) -> pd.DataFrame:
     pd = _pandas()
     suffix = path.suffix.lower()
@@ -1968,7 +1978,9 @@ def _load_table(path: Path) -> pd.DataFrame:
     if suffix == ".txt" or (suffix == ".csv" and _whitespace_text(path)):
         return _frame_from_whitespace(path)
     if suffix == ".csv":
-        return pd.read_csv(path, nrows=_MAX_ROWS)
+        frame = pd.read_csv(path, nrows=_MAX_ROWS)
+        frame.columns = [_csv_header_name(c) for c in frame.columns]
+        return frame
     if suffix in {".tsv", ".tab"}:
         return pd.read_csv(path, sep="\t", nrows=_MAX_ROWS)
     if suffix == ".json":

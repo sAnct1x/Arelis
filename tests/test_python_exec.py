@@ -258,7 +258,7 @@ async def test_chart_import_refusal_is_a_typed_error() -> None:
     assert refused.ok is False
     text = str(refused.data.get("exc_message") or "")
     assert "numpy" in text and "sympy" in text
-    assert "matplotlib" not in text
+    assert "matplotlib" in text
     assert "corner" not in text
     assert "are preloaded" not in text
     assert "os and subprocess are not" in text
@@ -266,15 +266,19 @@ async def test_chart_import_refusal_is_a_typed_error() -> None:
 
 @pytest.mark.asyncio
 async def test_science_io_flag_gates_matplotlib_and_corner() -> None:
-    """The widened imports stay off until python_cell.science_io is set."""
-    for name in ("matplotlib", "corner"):
-        refused = await PythonTool().run(code=f"import {name}")
-        assert refused.ok is False, name
-    allowed = await PythonTool(science_io=True).run(
-        code="import matplotlib\nimport corner\nprint('science')\n"
+    """matplotlib is always on. corner still waits for python_cell.science_io."""
+    refused = await PythonTool().run(code="import corner")
+    assert refused.ok is False
+    allowed = await PythonTool().run(
+        code="import matplotlib\nimport matplotlib.pyplot as plt\nprint('mpl')\n"
     )
     assert allowed.ok, allowed.output
-    assert "science" in allowed.output
+    assert "mpl" in allowed.output
+    science = await PythonTool(science_io=True).run(
+        code="import matplotlib\nimport corner\nprint('science')\n"
+    )
+    assert science.ok, science.output
+    assert "science" in science.output
 
 
 def test_os_import_refusal_is_not_the_chart_marker() -> None:

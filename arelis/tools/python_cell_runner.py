@@ -5,12 +5,12 @@ import arelis. The parent sends the source on stdin after this process has
 imported the numerics libraries and printed a ready line.
 
 The allowlist is the original cell unless the parent sets science_io. That
-flag adds matplotlib, corner, csv, seaborn, emcee, and astropy. Ordinary
-Python writes (open, np.save, savefig) run in this turn's work folder, which
-is the process cwd. Process launchers stay refused. Matplotlib is imported
-before those stubs when a snippet asks for it. The parent sets
-MPL_IGNORE_SYSTEM_FONTS, so that import uses the bundled fonts and does not
-spawn system_profiler or fc-list.
+flag adds corner, csv, seaborn, emcee, and astropy. matplotlib, pyplot, and
+savefig stay allowed either way. Ordinary Python writes (open, np.save,
+savefig) run in this turn's work folder, which is the process cwd. Process
+launchers stay refused. Matplotlib is imported before those stubs when a
+snippet asks for it. The parent sets MPL_IGNORE_SYSTEM_FONTS, so that import
+uses the bundled fonts and does not spawn system_profiler or fc-list.
 """
 
 from __future__ import annotations
@@ -52,18 +52,20 @@ _BASE_IMPORTS = frozenset(
         "numpy",
         "scipy",
         "mpmath",
+        "matplotlib",
     }
 )
-# MCMC and a figure need these. Off until python_cell.science_io is set.
+# MCMC extras. Off until python_cell.science_io is set. matplotlib is already
+# in the base set; the flag still adds the names below.
 _SCIENCE_IMPORTS = frozenset(
     {"matplotlib", "corner", "csv", "seaborn", "emcee", "astropy"}
 )
 _SCIENCE_IO = False
 
-# With science_io off, matplotlib and seaborn are chart imports, as on main.
-_BASE_CHARTS = frozenset({"matplotlib", "pyplot", "pylab", "seaborn", "plotly"})
-# These two become real imports when the flag is on. pyplot stays a chart.
-_SCIENCE_CHARTS_KEPT = frozenset({"pyplot", "pylab", "plotly"})
+# seaborn and the other chart names still redirect to plot. matplotlib does not.
+_BASE_CHARTS = frozenset({"pylab", "seaborn", "plotly"})
+# science_io widens imports. These names stay chart refusals either way.
+_SCIENCE_CHARTS_KEPT = frozenset({"pylab", "plotly"})
 
 _FORBIDDEN_CALLS = frozenset(
     {
@@ -198,7 +200,7 @@ class _ChartImportError(ValueError):
 _BASE_LIST = (
     "math, cmath, statistics, fractions, decimal, itertools, functools, "
     "collections, operator, copy, json, re, datetime, sympy, numpy, scipy, "
-    "and mpmath"
+    "matplotlib, and mpmath"
 )
 _SCIENCE_LIST = (
     "math, cmath, statistics, fractions, decimal, itertools, functools, "
@@ -907,7 +909,7 @@ def main() -> None:
         _SCIENCE_IO = bool(payload.get("science_io"))
         code = str(payload.get("code") or "")
         namespace = _namespace()
-        if _SCIENCE_IO and _needs_matplotlib(code):
+        if _needs_matplotlib(code):
             _warm_matplotlib()
         _set_cwd(payload.get("work"))
         _stub_process_launchers()
