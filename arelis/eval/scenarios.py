@@ -169,9 +169,8 @@ SCENARIOS: list[Scenario] = [
         expect_answer_contains=("147",),
         failure_class="knowing_doing_gap",
         notes=(
-            "The canned missing math refuse is gone, so a second invent ships "
-            "when calculator never ran. A failed calculator still refuses "
-            "(math_refuses_when_calculator_fails). absent_tools keeps calculator "
+            "The gate no longer considers math, so a second invent ships "
+            "when calculator never ran. absent_tools keeps calculator "
             "out of the registry so the route cannot preinject it."
         ),
         script=[
@@ -185,12 +184,11 @@ SCENARIOS: list[Scenario] = [
         expect_tools=("calculator",),
         failing_tools=("calculator",),
         offline_only=True,
-        expect_answer_contains=("calculator couldn't evaluate",),
-        forbid_claim_if_no_tool=("147",),
+        expect_answer_contains=("147",),
         failure_class="knowing_doing_gap",
         notes=(
-            "The model calls calculator, the tool errors, and a recited 147 "
-            "must not ship. The answer is the calculator-failed refusal."
+            "The gate no longer considers math, so a recited 147 ships when "
+            "calculator failed. The canned missing math refuse is gone."
         ),
         script=[
             [

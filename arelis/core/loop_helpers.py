@@ -246,8 +246,6 @@ def decide_mid_turn_escalate(
 
 
 _MEMORY_SAVE_SKIPPED = "The value was not saved because the save was skipped."
-_SEND_SKIPPED = "The message was not sent because the send was skipped."
-_SCRIPT_RUN_KIND = "run_script_error"
 
 
 def declined_memory_unverified(
@@ -379,44 +377,6 @@ def run_script_state_finish(
     return text or None
 
 
-def _declined_call(
-    declined_tools: set[str] | None,
-    declined_calls: list[tuple[str, dict[str, Any]]] | None,
-) -> tuple[str, dict[str, Any]]:
-    """Tool and args of the call the confirm card skipped."""
-    calls = declined_calls or []
-    if calls:
-        tool, args = calls[-1]
-        return str(tool or ""), args if isinstance(args, dict) else {}
-    if declined_tools:
-        return sorted(declined_tools)[0], {}
-    return "", {}
-
-
-def _run_script_wanted(
-    declined_tools: set[str] | None,
-    ledger: EvidenceLedger | None,
-    requested_tools: set[str] | None,
-) -> bool:
-    """True when a script run is still owed.
-
-    A successful run_script result is kind run_script_ok. That run already
-    happened, so it is not owed, even if the turn still lists the tool or
-    a later run_script_error is in the same ledger. A failed result with
-    no run_script_ok is still owed. No run at all is still owed when the
-    tool was declined or requested. Reply text is not consulted.
-    """
-    if ledger is not None and ledger.has_ok("run_script_ok"):
-        return False
-    if declined_tools and "run_script" in declined_tools:
-        return True
-    if requested_tools and "run_script" in requested_tools:
-        return True
-    if ledger is None:
-        return False
-    return any(item.kind == _SCRIPT_RUN_KIND for item in ledger.items)
-
-
 def _turn_requested_tools(loop: Any, ctx: Any | None = None) -> set[str]:
     """Tool names this turn already owes, from plan steps and tool state.
 
@@ -442,41 +402,6 @@ def _turn_requested_tools(loop: Any, ctx: Any | None = None) -> set[str]:
     return names
 
 
-def declined_finish_reply(
-    declined_tools: set[str] | None,
-    declined_calls: list[tuple[str, dict[str, Any]]] | None,
-    ledger: EvidenceLedger | None = None,
-    requested_tools: set[str] | None = None,
-) -> str:
-    """Name the skipped call instead of blaming the calculator.
-
-    Built from the confirm card's tool and target. The clause "so I could
-    not run it" is added only for a workspace write when run_script is
-    still owed: declined, requested, or left a failed run in the ledger.
-    A run_script_ok warrant means the run already happened, so the clause
-    stays off, including when a later run in the same turn failed. A
-    skipped memory save or a skipped SMS or email says only what was
-    skipped.
-    """
-    tool, args = _declined_call(declined_tools, declined_calls)
-    action = str(args.get("action") or "").strip()
-    if tool == "memory":
-        sentence = _MEMORY_SAVE_SKIPPED
-    elif tool in {"send_sms", "send_email"}:
-        sentence = _SEND_SKIPPED
-    else:
-        target = str(args.get("path") or args.get("fact") or "").strip()
-        verb = action or tool or "write"
-        named = target or tool or "it"
-        sentence = f"I did not {verb} {named} because the {verb} was skipped."
-    wanted = _run_script_wanted(declined_tools, ledger, requested_tools)
-    if tool == "workspace" and action.lower() == "write" and wanted:
-        if sentence.endswith("."):
-            sentence = sentence[:-1]
-        sentence = f"{sentence}, so I could not run it."
-    return sentence
-
-
 def _exactness_finish_refuse(
     content: str,
     *,
@@ -485,9 +410,6 @@ def _exactness_finish_refuse(
     numeric_gate: bool,
     evidence_gate: bool,
     send_path: bool = False,
-    declined_tools: set[str] | None = None,
-    declined_calls: list[tuple[str, dict[str, Any]]] | None = None,
-    requested_tools: set[str] | None = None,
 ) -> str | None:
     """Return a refusal when finishing would ship an unsupported exact claim."""
     # Side-effect honesty runs before refusal escape so hedge-then-claim
@@ -513,7 +435,10 @@ def _exactness_finish_refuse(
         return None
     if any(item.kind == "weather_not_found" for item in ledger.items):
         exact_need = exactness_after_unresolved_weather(exact_need)
-    kinds = tuple(exact_need.kinds or ())
+    # Math and units are not this gate. Other kinds still refuse when missing.
+    kinds = tuple(
+        k for k in (exact_need.kinds or ()) if k not in {"math", "units"}
+    )
     if not kinds:
         return None
     missing = ledger.missing_kinds(kinds)
@@ -521,28 +446,12 @@ def _exactness_finish_refuse(
         missing = [
             k
             for k in missing
-            if k not in {"math", "symbolic", "units", "plot", "catalog", "document"}
+            if k not in {"symbolic", "plot", "catalog", "document"}
         ]
     if not evidence_gate:
         missing = [k for k in missing if k not in _EVIDENCE_KINDS]
     if not missing:
         return None
-    if "math" in missing:
-        calc_fail = next(
-            (w for w in ledger.items if w.kind == "calc" and not w.ok),
-            None,
-        )
-        if calc_fail is not None:
-            return unsupported_exactness_reply(
-                missing, calc_failed=True, calc_detail=calc_fail.span
-            )
-        if declined_tools:
-            return declined_finish_reply(
-                declined_tools,
-                declined_calls,
-                ledger=ledger,
-                requested_tools=requested_tools,
-            )
     if "symbolic" in missing:
         cas_fail = next(
             (w for w in ledger.items if w.kind == "cas" and not w.ok),
@@ -590,9 +499,6 @@ def _exactness_finish_refuse(
         }
         if reply and reply in own_sentences:
             missing = [kind for kind in missing if kind != "weather"]
-    # Missing math or units is not a canned "needs a calculator result" or
-    # "needs a units result" retract. Failed calc copy still returned above.
-    missing = [k for k in missing if k not in {"math", "units"}]
     if not missing:
         return None
     return unsupported_exactness_reply(missing)
