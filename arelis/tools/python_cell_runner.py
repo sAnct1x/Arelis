@@ -26,6 +26,7 @@ import sys
 import tempfile
 import time
 import traceback
+import types
 import warnings
 from pathlib import Path
 from typing import Any, NoReturn
@@ -198,6 +199,9 @@ _BLOCKED_AUDIT_EVENTS = frozenset(
         "webbrowser.open",
         "urllib.Request",
         "pickle.find_class",
+        "gc.get_objects",
+        "gc.get_referrers",
+        "gc.get_referents",
     }
 )
 
@@ -444,13 +448,8 @@ def _read_roots() -> list[Path]:
 
 def _library_read(path: Path, exe: Path | None = None) -> bool:
     """True when path is a stdlib or site-packages file, not a user's file."""
-    if is_unsafe_path(str(path)):
-        return False
     roots = _compute_roots(exe) if exe is not None else _read_roots()
-    for root in roots:
-        if lexically_inside(path, root) and not reparse_leaves(path, root):
-            return True
-    return False
+    return _library_read_from(path, roots)
 
 
 def _set_work_roots(raw: Any) -> None:
@@ -573,9 +572,7 @@ def _prepare_cache() -> None:
 
 
 def _cache_path(path: Path) -> bool:
-    if _CACHE_ROOT is None:
-        return False
-    return _under_roots(path, [_CACHE_ROOT])
+    return _under_cache(path, _CACHE_ROOT)
 
 
 def _needs_matplotlib(code: str) -> bool:
@@ -667,11 +664,11 @@ def _as_int(value: Any) -> int | None:
     return value
 
 
-def _is_write(mode: Any, flags: Any) -> bool:
+def _is_write(mode: Any, flags: Any, os_open_mode: int | None) -> bool:
     """True when this open writes. An executable create is refused outright.
 
     ``os.open`` audits ``open(path, None, flags)`` and drops the permission
-    mode. ``_OS_OPEN_MODE`` is that mode, stashed by the wrapper. Any execute
+    mode. ``os_open_mode`` is that mode, stashed by the wrapper. Any execute
     bit on a create is refused, including inside the results folder.
     """
     try:
@@ -680,7 +677,7 @@ def _is_write(mode: Any, flags: Any) -> bool:
         flag = 0
     perm = _as_int(mode)
     if perm is None:
-        perm = _as_int(_OS_OPEN_MODE)
+        perm = _as_int(os_open_mode)
     creat = bool(flag & getattr(os, "O_CREAT", 0))
     if creat and perm is not None and perm & 0o111:
         raise _CellBlocked("creating an executable is not allowed in this cell.")
@@ -699,9 +696,8 @@ def _is_write(mode: Any, flags: Any) -> bool:
     return bool(flag & bits)
 
 
-def _install_open_guard() -> None:
+def _install_open_guard(os_open_mode: list[int | None]) -> None:
     """Remember os.open's permission mode. The audit event does not carry it."""
-    global _OS_OPEN_MODE
     real = os.open
 
     def guarded(
@@ -711,15 +707,14 @@ def _install_open_guard() -> None:
         *,
         dir_fd: int | None = None,
     ) -> int:
-        global _OS_OPEN_MODE
-        previous = _OS_OPEN_MODE
-        _OS_OPEN_MODE = mode if _as_int(mode) is not None else None
+        previous = os_open_mode[0]
+        os_open_mode[0] = mode if _as_int(mode) is not None else None
         try:
             if dir_fd is None:
                 return real(path, flags, mode)
             return real(path, flags, mode, dir_fd=dir_fd)
         finally:
-            _OS_OPEN_MODE = previous
+            os_open_mode[0] = previous
 
     for module in list(sys.modules.values()):
         mapping = getattr(module, "__dict__", None)
@@ -819,7 +814,13 @@ def _stub_process_launchers() -> None:
     _replace_functions(found)
 
 
-def _listing_allowed(raw: Any) -> bool:
+def _listing_allowed(
+    raw: Any,
+    *,
+    work_read: list[Path],
+    cache_root: Path | None,
+    read_roots: list[Path],
+) -> bool:
     """A directory list may stay in the workspace, the libraries, or the cache."""
     if raw is None:
         return False
@@ -827,11 +828,26 @@ def _listing_allowed(raw: Any) -> bool:
     if path is None:
         return False
     return bool(
-        _library_read(path)
+        _library_read_from(path, read_roots)
         or _font_read(path)
-        or _under_roots(path, _WORK_READ)
-        or _cache_path(path)
+        or _under_roots(path, work_read)
+        or _under_cache(path, cache_root)
     )
+
+
+def _library_read_from(path: Path, roots: list[Path]) -> bool:
+    if is_unsafe_path(str(path)):
+        return False
+    for root in roots:
+        if lexically_inside(path, root) and not reparse_leaves(path, root):
+            return True
+    return False
+
+
+def _under_cache(path: Path, cache_root: Path | None) -> bool:
+    if cache_root is None:
+        return False
+    return _under_roots(path, [cache_root])
 
 
 def _as_path(raw: Any) -> Path | None:
@@ -856,39 +872,47 @@ def _refusal(what: str) -> str:
     )
 
 
-def _audit(event: str, args: tuple[Any, ...]) -> None:
-    global _IN_HOOK
-    if _IN_HOOK:
-        return
-    _IN_HOOK = True
-    try:
-        _audit_inner(event, args)
-    finally:
-        _IN_HOOK = False
-
-
-def _paths_in_cache(event: str, args: tuple[Any, ...]) -> bool:
+def _paths_in_cache(
+    event: str,
+    args: tuple[Any, ...],
+    cache_root: Path | None,
+    cache_only_events: dict[str, int],
+) -> bool:
     """True when every path on a cache-only event stays in the private cache."""
-    count = _CACHE_ONLY_EVENTS[event]
+    count = cache_only_events[event]
     if len(args) < count:
         return False
     for raw in args[:count]:
         path = _as_path(raw)
-        if path is None or not _cache_path(path):
+        if path is None or not _under_cache(path, cache_root):
             return False
     return True
 
 
-def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
-    if event in _CACHE_ONLY_EVENTS:
-        if _paths_in_cache(event, args):
+def _audit_inner(
+    event: str,
+    args: tuple[Any, ...],
+    *,
+    science_io: bool,
+    work_read: list[Path],
+    work_write: list[Path],
+    cache_root: Path | None,
+    read_roots: list[Path],
+    os_open_mode: int | None,
+    blocked_events: frozenset[str],
+    cache_only_events: dict[str, int],
+) -> None:
+    if event in cache_only_events:
+        if _paths_in_cache(event, args, cache_root, cache_only_events):
             return
         raise _CellBlocked(_refusal(event))
-    if event in _BLOCKED_AUDIT_EVENTS:
+    if event in blocked_events:
         raise _CellBlocked(_refusal(event))
     if event in _LIST_EVENTS:
         raw = args[0] if args else None
-        if _listing_allowed(raw):
+        if _listing_allowed(
+            raw, work_read=work_read, cache_root=cache_root, read_roots=read_roots
+        ):
             return
         raise _CellBlocked(
             "listing a directory outside this room is not allowed in this cell."
@@ -900,32 +924,75 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
     path = _as_path(args[0])
     if path is None:
         return
-    if _is_write(mode, flags):
-        if _SCIENCE_IO and (_under_roots(path, _WORK_WRITE) or _cache_path(path)):
+    if _is_write(mode, flags, os_open_mode):
+        if science_io and (_under_roots(path, work_write) or _under_cache(path, cache_root)):
             return
-        if _SCIENCE_IO:
+        if science_io:
             raise _CellBlocked(
                 "opening a file to write it is not allowed in this cell. "
                 "The path has to stay inside this room's results folder."
             )
         raise _CellBlocked(_refusal("opening a file to write it"))
-    if _library_read(path):
+    if _library_read_from(path, read_roots):
         return
-    if _SCIENCE_IO and (
-        _font_read(path) or _under_roots(path, _WORK_READ) or _cache_path(path)
+    if science_io and (
+        _font_read(path) or _under_roots(path, work_read) or _under_cache(path, cache_root)
     ):
         return
     raise _CellBlocked(_refusal("reading a file outside the Python libraries"))
 
 
+def _forget_runner() -> None:
+    """Drop this file from sys.modules so cell code cannot reach it."""
+    mine = sys.modules.get(__name__)
+    for name, module in list(sys.modules.items()):
+        if module is mine or name == __name__:
+            sys.modules.pop(name, None)
+    if sys.modules.get("__main__") is mine or "__main__" not in sys.modules:
+        sys.modules["__main__"] = types.ModuleType("__main__")
+
+
 def _install_hook() -> None:
     # Roots are fixed before the cell runs. Later edits to sys.path do not
     # add a folder the hook will read. Matplotlib is already imported, so
-    # every later Popen is refused.
+    # every later Popen is refused. Policy and the reentrancy flag live in
+    # this hook's closure, not on the module.
     _read_roots()
     _stub_process_launchers()
-    _install_open_guard()
+    in_hook = False
+    science_io = bool(_SCIENCE_IO)
+    work_read = list(_WORK_READ)
+    work_write = list(_WORK_WRITE)
+    cache_root = _CACHE_ROOT
+    read_roots = list(_read_roots())
+    os_open_mode: list[int | None] = [None]
+    blocked_events = _BLOCKED_AUDIT_EVENTS
+    cache_only_events = _CACHE_ONLY_EVENTS
+    _install_open_guard(os_open_mode)
+
+    def _audit(event: str, args: tuple[Any, ...]) -> None:
+        nonlocal in_hook
+        if in_hook:
+            return
+        in_hook = True
+        try:
+            _audit_inner(
+                event,
+                args,
+                science_io=science_io,
+                work_read=work_read,
+                work_write=work_write,
+                cache_root=cache_root,
+                read_roots=read_roots,
+                os_open_mode=os_open_mode[0],
+                blocked_events=blocked_events,
+                cache_only_events=cache_only_events,
+            )
+        finally:
+            in_hook = False
+
     sys.addaudithook(_audit)
+    _forget_runner()
 
 
 def _assert_safe(tree: ast.AST) -> None:
@@ -1263,9 +1330,9 @@ def main() -> None:
         namespace = _namespace()
         if _SCIENCE_IO and _needs_matplotlib(code):
             _warm_matplotlib()
+        _set_work_roots(payload.get("roots"))
         _install_hook()
         _announce()
-        _set_work_roots(payload.get("roots"))
         try:
             text = _execute(code, namespace)
         except _CellDeadline as exc:
