@@ -23,11 +23,14 @@ goes to Thinking and Workspace either way.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from arelis.core.evidence import looks_like_bot_wall
+
+log = logging.getLogger(__name__)
 
 TURN_FAILED_NOTICE = (
     "Something went wrong mid-turn, so I stopped rather than guess. "
@@ -314,11 +317,16 @@ def _parse_pint_unit(text: str) -> object | None:
     raw = (text or "").strip()
     if not raw:
         return None
+    from pint import UndefinedUnitError
+
     try:
         from arelis.tools.units import _UREG, _normalize_unit
 
         return _UREG.parse_units(_normalize_unit(raw))
-    except Exception:
+    except UndefinedUnitError:
+        return None
+    except Exception as exc:
+        log.warning("could not parse unit %r: %s", raw, exc)
         return None
 
 
@@ -335,6 +343,8 @@ def _units_equivalent(left: str, right: str) -> bool:
     """True for the same Pint unit, including km/h vs kilometer / hour."""
     if not (left or "").strip() or not (right or "").strip():
         return False
+    from pint import DimensionalityError, UndefinedUnitError
+
     try:
         from arelis.tools.units import _UREG, _normalize_unit
 
@@ -343,7 +353,10 @@ def _units_equivalent(left: str, right: str) -> bool:
         if a == b:
             return True
         scale = float(_UREG.Quantity(1, a).to(b).magnitude)
-    except Exception:
+    except (UndefinedUnitError, DimensionalityError):
+        return False
+    except Exception as exc:
+        log.warning("could not compare units %r and %r: %s", left, right, exc)
         return False
     return abs(scale - 1.0) <= 1e-12
 
