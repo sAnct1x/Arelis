@@ -7,13 +7,15 @@ imported the numerics libraries and printed a ready line.
 The allowlist is the original cell unless the parent sets science_io. That
 flag adds matplotlib, corner, csv, seaborn, emcee, and astropy, and it allows
 numpy and astropy file IO plus savefig into the room's results folder.
-The audit hook is the boundary either way. It refuses new processes, sockets,
-ctypes, and directory listings outside the workspace. A create with execute
-permission is refused everywhere. With the flag on, a write has to stay in
-the results folder and a read may stay in the workspace. Library reads stay
-allowed. Matplotlib is imported before the hook when a snippet asks for
-it. The parent sets MPL_IGNORE_SYSTEM_FONTS, so that import uses the
-bundled fonts and does not spawn system_profiler or fc-list.
+Relative numpy save/savez/savetxt may also write a short list of data files
+into the drop tray plot and analyze already read. The audit hook is the
+boundary either way. It refuses new processes, sockets, ctypes, and
+directory listings outside the workspace. A create with execute permission
+is refused everywhere. With the flag on, a write has to stay in the results
+folder and a read may stay in the workspace. Library reads stay allowed.
+Matplotlib is imported before the hook when a snippet asks for it. The
+parent sets MPL_IGNORE_SYSTEM_FONTS, so that import uses the bundled fonts
+and does not spawn system_profiler or fc-list.
 """
 
 from __future__ import annotations
@@ -113,8 +115,6 @@ _FORBIDDEN_ATTR_CALLS = frozenset(
         "check_call",
         "attrgetter",
         "methodcaller",
-        "savez",
-        "savez_compressed",
         "genfromtxt",
         "fromfile",
         "tofile",
@@ -137,11 +137,19 @@ _FORBIDDEN_ATTR_CALLS = frozenset(
 )
 
 _ATTR_CALL_ONLY = frozenset({"S"})
-# numpy/astropy file IO and savefig. Allowed only while science_io is on.
-# open() is the same switch: the hook then limits the path.
-_SCIENCE_ATTRS = frozenset(
-    {"save", "savetxt", "load", "loadtxt", "write", "writeto", "savefig", "open"}
+# numpy/astropy reads and open(). Allowed only while science_io is on.
+# save/savez/savetxt write into the work folder even with the flag off.
+_SCIENCE_ATTRS = frozenset({"load", "loadtxt", "write", "writeto", "open"})
+_NUMPY_SAVE_NAMES = ("save", "savez", "savez_compressed", "savetxt")
+_WORK_WRITE_EXTS = frozenset(
+    {".npy", ".npz", ".csv", ".txt", ".png", ".svg", ".json"}
 )
+_WORK_EXTS_TEXT = ".npy, .npz, .csv, .txt, .png, .svg, or .json"
+_WORK_FILE_MAX = 50 * 1024 * 1024
+_WORK_TURN_MAX = 200 * 1024 * 1024
+_WORK_FOLDER: Path | None = None
+_WORK_TURN_BYTES = 0
+_ALLOW_WORK_UNLINK = False
 
 _ATTR_REFUSAL = (
     "{name!r} is not allowed here, it evaluates text or touches the disk. "
@@ -480,6 +488,153 @@ def _set_work_roots(raw: Any) -> None:
                 _add_root(write, seen_write, Path(path) / "results")
     _WORK_READ = read
     _WORK_WRITE = write
+
+
+def _set_work_folder(raw: Any) -> None:
+    """Drop tray the parent already uses for plot/analyze (#327)."""
+    global _WORK_FOLDER, _WORK_TURN_BYTES
+    _WORK_TURN_BYTES = 0
+    text = str(raw or "").strip()
+    if not text or is_unsafe_path(text):
+        _WORK_FOLDER = None
+        return
+    try:
+        folder = Path(os.path.realpath(text))
+    except OSError:
+        _WORK_FOLDER = None
+        return
+    if not folder.is_dir():
+        _WORK_FOLDER = None
+        return
+    _WORK_FOLDER = folder
+
+
+def _drive_path(raw: str) -> bool:
+    return len(raw) >= 2 and raw[1] == ":"
+
+
+def _work_ext_refusal() -> _CellRefusedError:
+    return _CellRefusedError(
+        f"Python can only write {_WORK_EXTS_TEXT} into the work folder."
+    )
+
+
+def _work_path_refusal() -> _CellRefusedError:
+    return _CellRefusedError("That path is outside the work folder.")
+
+
+def _confine_work_write(file: Any) -> str:
+    """Relative name inside the work folder, or a short refusal.
+
+    Same containment as #327: realpath must sit inside the folder. Refuse
+    parent segments, absolute paths, drive/UNC paths, and symlinks.
+    """
+    if _WORK_FOLDER is None:
+        raise _work_ext_refusal()
+    if isinstance(file, bytes):
+        file = os.fsdecode(file)
+    if not isinstance(file, (str, Path)):
+        raise _work_ext_refusal()
+    raw = str(file).strip().strip("\"'`")
+    if not raw or is_unsafe_path(raw):
+        raise _work_path_refusal()
+    if Path(raw).is_absolute() or _drive_path(raw):
+        raise _work_path_refusal()
+    parts = [part for part in raw.replace("\\", "/").split("/") if part and part != "."]
+    if not parts or ".." in parts:
+        raise _work_path_refusal()
+    dest = _WORK_FOLDER.joinpath(*parts)
+    current = _WORK_FOLDER
+    for part in parts:
+        current = current / part
+        if is_reparse(current):
+            raise _work_path_refusal()
+    if not _under_roots(dest, [_WORK_FOLDER]):
+        raise _work_path_refusal()
+    if dest.suffix.lower() not in _WORK_WRITE_EXTS:
+        raise _work_ext_refusal()
+    return str(dest)
+
+
+def _unlink_work_file(path: Path) -> None:
+    global _ALLOW_WORK_UNLINK
+    _ALLOW_WORK_UNLINK = True
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    finally:
+        _ALLOW_WORK_UNLINK = False
+
+
+def _note_work_write(path: Path) -> None:
+    global _WORK_TURN_BYTES
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return
+    if size > _WORK_FILE_MAX:
+        _unlink_work_file(path)
+        raise _CellRefusedError("That file is over 50 MB.")
+    _WORK_TURN_BYTES += size
+    if _WORK_TURN_BYTES > _WORK_TURN_MAX:
+        _unlink_work_file(path)
+        raise _CellRefusedError("This cell wrote over 200 MB.")
+
+
+def _work_write_ok(path: Path) -> bool:
+    if _WORK_FOLDER is None:
+        return False
+    if path.suffix.lower() not in _WORK_WRITE_EXTS:
+        return False
+    if is_reparse(path):
+        return False
+    return _under_roots(path, [_WORK_FOLDER])
+
+
+def _wrap_numpy_save(orig: Any) -> Any:
+    def wrapped(file: Any, *args: Any, **kwargs: Any) -> Any:
+        dest = _confine_work_write(file)
+        result = orig(dest, *args, **kwargs)
+        _note_work_write(Path(dest))
+        return result
+
+    wrapped.__name__ = getattr(orig, "__name__", "save")
+    wrapped.__doc__ = getattr(orig, "__doc__", None)
+    wrapped._arelis_work_wrapped = True  # type: ignore[attr-defined]
+    return wrapped
+
+
+def _patch_numpy_work_writes() -> None:
+    """Point numpy save helpers at the work-folder wrapper. science_io stays off."""
+    if _SCIENCE_IO:
+        return
+    targets: list[Any] = []
+    for name in ("numpy", "numpy.lib.npyio"):
+        module = sys.modules.get(name)
+        if module is not None:
+            targets.append(module)
+    origs: dict[str, Any] = {}
+    for module in targets:
+        for name in _NUMPY_SAVE_NAMES:
+            value = getattr(module, name, None)
+            if callable(value) and name not in origs:
+                origs[name] = value
+    wrapped = {
+        name: (
+            fn
+            if getattr(fn, "_arelis_work_wrapped", False)
+            else _wrap_numpy_save(fn)
+        )
+        for name, fn in origs.items()
+    }
+    for module in targets:
+        mapping = getattr(module, "__dict__", None)
+        if not isinstance(mapping, dict):
+            continue
+        for name, fn in wrapped.items():
+            if name in mapping:
+                mapping[name] = fn
 
 
 def _under_roots(path: Path, roots: list[Path]) -> bool:
@@ -883,6 +1038,10 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
     if event in _CACHE_ONLY_EVENTS:
         if _paths_in_cache(event, args):
             return
+        if _ALLOW_WORK_UNLINK and event == "os.remove" and args:
+            path = _as_path(args[0])
+            if path is not None and _work_write_ok(path):
+                return
         raise _CellBlocked(_refusal(event))
     if event in _BLOCKED_AUDIT_EVENTS:
         raise _CellBlocked(_refusal(event))
@@ -901,6 +1060,8 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
     if path is None:
         return
     if _is_write(mode, flags):
+        if not _SCIENCE_IO and _work_write_ok(path):
+            return
         if _SCIENCE_IO and (_under_roots(path, _WORK_WRITE) or _cache_path(path)):
             return
         if _SCIENCE_IO:
@@ -1004,6 +1165,8 @@ def _safe_import(
     if root not in _allowed_imports():
         _import_refusal(root)
     module = __import__(name, globals, locals, fromlist, 0)
+    if root == "numpy":
+        _patch_numpy_work_writes()
     if root == "matplotlib" or "matplotlib" in sys.modules:
         _force_agg()
     return module
@@ -1266,6 +1429,8 @@ def main() -> None:
         _install_hook()
         _announce()
         _set_work_roots(payload.get("roots"))
+        _set_work_folder(payload.get("work"))
+        _patch_numpy_work_writes()
         try:
             text = _execute(code, namespace)
         except _CellDeadline as exc:

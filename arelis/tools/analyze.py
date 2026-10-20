@@ -34,6 +34,35 @@ _MAX_OUTPUT_CHARS = 20_000
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
 _TEXT_SUFFIXES = {".txt", ".md", ".log", ".yaml", ".yml", ".ini", ".cfg", ".py"}
+_TABLE_SUFFIXES = {".csv", ".tsv", ".tab", ".xlsx", ".xls", ".json", ".npy", ".npz"}
+
+
+def frame_from_numpy(path: Path) -> Any:
+    """1-D or 2-D npy/npz as a DataFrame. pickle stays off."""
+    import numpy as np
+    import pandas as pd
+
+    loaded = np.load(path, allow_pickle=False)
+    closer = getattr(loaded, "close", None)
+    try:
+        files = getattr(loaded, "files", None)
+        if files is not None:
+            names = list(files)
+            if not names:
+                raise ValueError("empty npz")
+            data = np.asarray(loaded[names[0]])
+        else:
+            data = np.asarray(loaded)
+    finally:
+        if callable(closer):
+            closer()
+    if data.ndim == 1:
+        return pd.DataFrame({"value": data})
+    if data.ndim == 2:
+        frame = pd.DataFrame(data)
+        frame.columns = [str(c) for c in frame.columns]
+        return frame
+    raise ValueError("npy/npz needs a 1-D or 2-D array")
 
 
 _QUERY_MAX_ROWS = 100
@@ -250,7 +279,7 @@ class AnalyzeTool:
         except Exception as first:
             drop = resolve_drop_file(
                 path_str,
-                suffixes={".csv", ".tsv", ".tab", ".xlsx", ".xls", ".json"},
+                suffixes=_TABLE_SUFFIXES,
             )
             if drop:
                 path = Path(drop)
@@ -272,7 +301,7 @@ class AnalyzeTool:
             )
         drop = resolve_drop_file(
             path_str,
-            suffixes={".csv", ".tsv", ".tab", ".xlsx", ".xls", ".json"},
+            suffixes=_TABLE_SUFFIXES,
         )
         if drop:
             path = Path(drop)
@@ -294,6 +323,8 @@ class AnalyzeTool:
         import pandas as pd
 
         suffix = path.suffix.lower()
+        if suffix in {".npy", ".npz"}:
+            return frame_from_numpy(path)
         if suffix == ".csv":
             return pd.read_csv(path, nrows=_MAX_ROWS_READ)
         if suffix in {".tsv", ".tab"}:

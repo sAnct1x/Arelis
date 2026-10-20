@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.paths import display_path, ensure, outputs_dir
 from arelis.rooms import RoomStore
+from arelis.tools.analyze import frame_from_numpy
 from arelis.tools.arg_error import arg_error as _arg_error
 from arelis.tools.base import ToolResult
 from arelis.workspace import ResolvedPath, WorkspaceRoots
@@ -53,7 +54,7 @@ _SUBPLOT_KINDS = frozenset({"line", "scatter", "histogram", "bar"})
 _MAX_SUBPLOTS = 4
 _MAX_ROWS = 20_000
 _MAX_INLINE = 2_000
-_TABLE_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls"}
+_TABLE_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls", ".npy", ".npz"}
 _CHART_OUT_SUFFIXES = {".png", ".pdf", ".jpg", ".jpeg", ".webp", ".svg"}
 _INLINE_SPLIT = re.compile(r"[,;\s]+")
 _SAFE_STEM = re.compile(r"[^a-zA-Z0-9._-]+")
@@ -1909,6 +1910,8 @@ def _column_labels(frame: pd.DataFrame, name: str) -> list[str]:
 def _load_table(path: Path) -> pd.DataFrame:
     pd = _pandas()
     suffix = path.suffix.lower()
+    if suffix in {".npy", ".npz"}:
+        return frame_from_numpy(path)
     if suffix == ".csv":
         return pd.read_csv(path, nrows=_MAX_ROWS)
     if suffix in {".tsv", ".tab"}:

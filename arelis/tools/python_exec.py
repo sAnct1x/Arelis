@@ -31,6 +31,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arelis.paths import ensure, outputs_dir
 from arelis.tools.arg_error import arg_error
 from arelis.tools.base import ToolResult
 from arelis.tools.child_proc import _close_job, _spawn, child_env
@@ -87,6 +88,14 @@ def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
                 writable = False
         payload.append({"path": str(path), "write": writable})
     return payload
+
+
+def _cell_work_dir() -> str:
+    """Drop tray plot/analyze already read (#327). Relative cell writes land here."""
+    try:
+        return str(ensure(outputs_dir() / "documents").resolve())
+    except OSError:
+        return ""
 
 
 class PythonTool:
@@ -216,7 +225,14 @@ def _run_in_child_sync(
         ready, lines, errors, threads = _attach_readers(proc)
         try:
             proc.stdin.write(
-                json.dumps({"code": code, "roots": roots, "science_io": science_io})
+                json.dumps(
+                    {
+                        "code": code,
+                        "roots": roots,
+                        "science_io": science_io,
+                        "work": _cell_work_dir(),
+                    }
+                )
             )
             proc.stdin.close()
         except Exception:
