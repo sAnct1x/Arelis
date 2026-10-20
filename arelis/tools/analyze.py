@@ -270,6 +270,17 @@ class AnalyzeTool:
                 root_name="outputs",
                 root=path.parent,
             )
+        drop = resolve_drop_file(
+            path_str,
+            suffixes={".csv", ".tsv", ".tab", ".xlsx", ".xls", ".json"},
+        )
+        if drop:
+            path = Path(drop)
+            return ResolvedPath(
+                path=path,
+                root_name="outputs",
+                root=path.parent,
+            )
         return hit
 
     def _load(self, path: Path) -> Any:
