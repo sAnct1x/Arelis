@@ -276,6 +276,59 @@ async def test_repeated_browser_open_does_not_paint_the_page_when_a_pdf_is_owed(
     assert "Clicked" not in " ".join(str(m.get("content") or "") for m in r.messages)
 
 
+@pytest.mark.asyncio
+async def test_named_document_without_research_report_keeps_main_browser_repeat() -> None:
+    """A named document step must not widen owes-file on a browser turn.
+
+    Mutation: drop the research_report gate in `_owes_document`. Then a
+    repeat browser open that merely names the document tool would hold
+    for a file even though needs_document is false. Main paints instead.
+    """
+    from arelis.core.claims import ExactnessNeed, detect_document_ask
+    from arelis.core.same_call import record_same_call, same_call_key
+    from arelis.core.turn_dispatch import _owes_document
+
+    ask = (
+        "Open the Wikipedia page on solid-state batteries, then convert "
+        "that page to a PDF with the document tool."
+    )
+    assert not detect_document_ask(ask)
+
+    loop = _FakeLoop()
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
+    args = {"action": "open", "url": "https://en.wikipedia.org/wiki/Solid-state_battery"}
+    names = {"browser", "scrape", "document"}
+    r = _scratch(
+        text=ask,
+        calls=[("browser", args)],
+        content="",
+        streamed="",
+        tool_names=set(names),
+        available=set(names),
+        visible=set(names),
+        offer_tools=True,
+        messages=[],
+    )
+    ctx = _ctx(text=ask)
+    ctx.available_all = set(names)
+    ctx.tool_names = r.tool_names
+    ctx.exact_need = ExactnessNeed(False, False, False, False)
+    ctx.last_ok_tool_out = "Opened Solid-state battery - Wikipedia"
+    ctx.last_ok_tool_name = "browser"
+    record_same_call(ctx.same_ok, "browser", args)
+    key = same_call_key("browser", args)
+    assert key
+    ctx.same_skip_keys.add(key)
+
+    assert "research_report" not in loop.tools_used
+    assert not _owes_document(loop, ctx)
+    assert await dispatch_calls(loop, ctx, r, 20) is True
+    assert loop.finished is not None
+    assert "browser" in r.tool_names
+    assert "repeat held for the file" not in loop._trace
+    assert "Call document" not in " ".join(str(m.get("content") or "") for m in r.messages)
+
+
 _MOON_DUMP = (
     "API VERSION: 1.2\n"
     "Target body name: Moon (301)\n"

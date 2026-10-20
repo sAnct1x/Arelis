@@ -151,18 +151,23 @@ def _opened_a_source(ctx: TurnContext) -> bool:
 
 
 def _owes_document(loop: Any, ctx: TurnContext) -> bool:
-    """True when a file is still owed: exactness, or they named document.
+    """True when a file is still owed: exactness, or named after a report.
 
     C17 says 'convert that report to a PDF with the document tool'. That
     wording is not a document exactness kind, so needs_document stays
     false. The uncovered named step is still document. Treating only the
     kind as a file ask left gather tools on after research_report, and
     the 35B spent the rest of the turn in Chrome.
+
+    The named-step widen is only after research_report succeeded this
+    turn. Browser-repeat and wander-drop stay on main's exactness check.
     """
     if ctx.ledger.has_ok("document"):
         return False
     if ctx.exact_need.needs_document:
         return True
+    if "research_report" not in getattr(loop, "tools_used", ()):
+        return False
     return "document" in uncovered_named_steps(loop, ctx)
 
 
