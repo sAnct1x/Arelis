@@ -136,6 +136,7 @@ async def _begin_turn(
     loop._escalated = False
     loop._expected_tools = set()
     loop._fail_replan_used = False
+    loop._think_off_next = False
     loop._active_plan = None
     loop._receipts = []
     dock_live = callable(loop.config.get("_camera_capture"))

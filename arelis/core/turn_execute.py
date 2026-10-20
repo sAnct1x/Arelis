@@ -1018,8 +1018,6 @@ async def execute_call(
             )
             if replan:
                 loop._fail_replan_used = True
-                if name == "plot":
-                    ctx.plot_nudge_used = True
                 if loop._timer is not None:
                     loop._timer.mark("fail_replan", tool=name)
                 messages.append({"role": "system", "content": replan})

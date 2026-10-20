@@ -459,7 +459,18 @@ def parse_range_call(raw: Any, *, name: str = "xs") -> Any | None:
     step_f = float(step)
     if step_f == 0.0 or not math.isfinite(step_f):
         raise ValueError(f"{name} arange step must be a non-zero finite number.")
-    values = np.arange(float(start), float(stop), step_f, dtype=float)
+    start_f = float(start)
+    stop_f = float(stop)
+    span = stop_f - start_f
+    if math.isfinite(span) and ((span > 0 and step_f > 0) or (span < 0 and step_f < 0)):
+        est = abs(span / step_f)
+        if not math.isfinite(est) or est > _MAX_SAMPLES:
+            shown = int(est) if math.isfinite(est) and est < 1e12 else _MAX_SAMPLES + 1
+            raise ValueError(
+                f"{name} arange would make {shown} points "
+                f"(max {_MAX_SAMPLES}). Example: {name}=\"arange(0, 2*pi, 0.1)\"."
+            )
+    values = np.arange(start_f, stop_f, step_f, dtype=float)
     if values.size > _MAX_SAMPLES:
         raise ValueError(
             f"{name} arange would make {values.size} points "
@@ -936,7 +947,11 @@ class PlotTool:
         return await asyncio.to_thread(self._run, kwargs)
 
     def _run(self, kwargs: dict[str, Any]) -> ToolResult:
-        kwargs = _promote_range_args(normalize_plot_args(dict(kwargs)))
+        kwargs = normalize_plot_args(dict(kwargs))
+        try:
+            kwargs = _promote_range_args(kwargs)
+        except (ValueError, TypeError) as exc:
+            return self._arg_fail(exc)
         action = str(kwargs.get("action") or "line").strip().lower()
         if action not in _ACTIONS:
             return self._arg_fail(
