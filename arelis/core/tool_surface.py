@@ -360,6 +360,7 @@ def _copy_transcribe_stt(old: Any, new: Any) -> None:
 def _reseed_session_prefix(window: Any, tools: Any) -> None:
     import asyncio
 
+    from arelis.core.agent_loop import queue_conversation_reseed, stable_prefix_enabled
     from arelis.llm.startup import prefix_warmup_for, seed_prefix_cache
 
     loop = getattr(window, "loop", None)
@@ -367,6 +368,11 @@ def _reseed_session_prefix(window: Any, tools: Any) -> None:
     bus = getattr(window, "bus", None)
     config = getattr(window, "config", None)
     if loop is None or router is None or bus is None or not isinstance(config, dict):
+        return
+    if stable_prefix_enabled(config):
+        # A bare prefix here would evict the conversation already in the slot.
+        # Wait until the turn is idle and reseed the full conversation.
+        queue_conversation_reseed(window, aio_loop=loop)
         return
     prefix = prefix_warmup_for(config, tools)
     if prefix is None:
