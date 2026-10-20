@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -23,8 +24,10 @@ log = logging.getLogger(__name__)
 
 # Server down and no per-model cap. Do not borrow Ollama's 65536.
 _FALLBACK_CONTEXT_TOKENS = 8192
-# /props and /slots are tiny. Do not wait the 300s chat timeout for them.
+# /props, /slots, and the embed probe are tiny. Do not wait the 300s chat timeout.
 _PROBE_TIMEOUT_S = 5.0
+# Failed probe. Retry lazily on the next embed attempt; no background thread.
+_EMBED_PROBE_RETRY_S = 60.0
 
 _SAMPLING = {
     "temperature": "temperature",
@@ -248,6 +251,7 @@ class LlamaCppProvider:
         self.embed_url = raw_embed or None
         self.embeds = False
         self._embed_ok: bool | None = None
+        self._embed_probed_at: float | None = None
         self._context_caps = {
             str(key): int(value)
             for key, value in (context_caps or {}).items()
@@ -430,12 +434,24 @@ class LlamaCppProvider:
         )
 
     async def refresh_embeds(self) -> bool:
-        """True only when the CPU embed server answers ``/v1/embeddings``."""
-        if self._embed_ok is not None:
-            return self._embed_ok
+        """True only when the CPU embed server answers ``/v1/embeddings``.
+
+        A failed probe is retried after ``_EMBED_PROBE_RETRY_S`` on the next
+        call (monotonic clock). A server started after Arelis is picked up
+        without a restart. No background thread.
+        """
+        if self._embed_ok is True:
+            return True
         if self._embed_client is None:
             self.embeds = False
             self._embed_ok = False
+            return False
+        now = time.monotonic()
+        if (
+            self._embed_ok is False
+            and self._embed_probed_at is not None
+            and (now - self._embed_probed_at) < _EMBED_PROBE_RETRY_S
+        ):
             return False
         try:
             response = await self._embed_client.post(
@@ -447,6 +463,7 @@ class LlamaCppProvider:
         except httpx.HTTPError:
             ok = False
         self._embed_ok = ok
+        self._embed_probed_at = now
         self.embeds = ok
         return ok
 
@@ -472,12 +489,14 @@ class LlamaCppProvider:
         except httpx.HTTPError as exc:
             self.embeds = False
             self._embed_ok = False
+            self._embed_probed_at = time.monotonic()
             raise RuntimeError(
                 f"llama.cpp embed failed for model `{model}`: {exc}"
             ) from exc
         if response.status_code >= 400:
             self.embeds = False
             self._embed_ok = False
+            self._embed_probed_at = time.monotonic()
             detail = response.text.strip()[:400]
             raise RuntimeError(
                 f"llama.cpp embed returned HTTP {response.status_code} for model `{model}`"
