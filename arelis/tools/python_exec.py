@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from arelis.paths import ensure, outputs_dir
+from arelis.core.cell_work import cell_work_dir, cell_work_owned, note_cell_work_written
 from arelis.tools.arg_error import arg_error
 from arelis.tools.base import ToolResult
 from arelis.tools.child_proc import _close_job, _spawn, child_env
@@ -91,9 +91,9 @@ def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
 
 
 def _cell_work_dir() -> str:
-    """Drop tray plot/analyze already read (#327). Relative cell writes land here."""
+    """Per-turn ``outputs/work/<id>/``. plot/analyze read this first, then #327."""
     try:
-        return str(ensure(outputs_dir() / "documents").resolve())
+        return str(cell_work_dir().resolve())
     except OSError:
         return ""
 
@@ -231,6 +231,7 @@ def _run_in_child_sync(
                         "roots": roots,
                         "science_io": science_io,
                         "work": _cell_work_dir(),
+                        "owned": cell_work_owned(),
                     }
                 )
             )
@@ -259,6 +260,7 @@ def _run_in_child_sync(
         threads = []
         payload = _parse_result("".join(lines))
         if payload is not None:
+            _remember_written(payload)
             return _tool_result(code, payload)
         if _memory_death(proc):
             return arg_error(
@@ -344,6 +346,12 @@ def _memory_death(proc: subprocess.Popen[str]) -> bool:
     if code is None:
         return False
     return code in _MEMORY_CODES or (code & 0xFFFFFFFF) in _MEMORY_CODES
+
+
+def _remember_written(payload: dict[str, Any]) -> None:
+    names = payload.get("written")
+    if isinstance(names, list):
+        note_cell_work_written(names)
 
 
 def _parse_result(text: str) -> dict[str, Any] | None:

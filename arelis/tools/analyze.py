@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from arelis.core.cell_work import resolve_cell_work_file
 from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.tools.base import ToolResult
 from arelis.workspace import ResolvedPath, WorkspaceRoots
@@ -274,6 +275,14 @@ class AnalyzeTool:
         self.roots = [r.path for r in self.workspace.roots]
 
     def _resolve(self, path_str: str):
+        work = resolve_cell_work_file(path_str, suffixes=_TABLE_SUFFIXES)
+        if work:
+            path = Path(work)
+            return ResolvedPath(
+                path=path,
+                root_name="outputs",
+                root=path.parent,
+            )
         try:
             hit = self.workspace.resolve_read(path_str)
         except Exception as first:

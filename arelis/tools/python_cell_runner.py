@@ -8,10 +8,10 @@ The allowlist is the original cell unless the parent sets science_io. That
 flag adds matplotlib, corner, csv, seaborn, emcee, and astropy, and it allows
 numpy and astropy file IO plus savefig into the room's results folder.
 Relative numpy save/savez/savetxt may also write a short list of data files
-into the drop tray plot and analyze already read. The audit hook is the
-boundary either way. It refuses new processes, sockets, ctypes, and
-directory listings outside the workspace. A create with execute permission
-is refused everywhere. With the flag on, a write has to stay in the results
+into this turn's work folder. The audit hook is the boundary either way.
+It refuses new processes, sockets, ctypes, and directory listings outside
+the workspace. A create with execute permission is refused everywhere.
+With the flag on, a write has to stay in the results
 folder and a read may stay in the workspace. Library reads stay allowed.
 Matplotlib is imported before the hook when a snippet asks for it. The
 parent sets MPL_IGNORE_SYSTEM_FONTS, so that import uses the bundled fonts
@@ -149,6 +149,7 @@ _WORK_FILE_MAX = 50 * 1024 * 1024
 _WORK_TURN_MAX = 200 * 1024 * 1024
 _WORK_FOLDER: Path | None = None
 _WORK_TURN_BYTES = 0
+_WORK_OWNED: set[str] = set()
 _ALLOW_WORK_UNLINK = False
 
 _ATTR_REFUSAL = (
@@ -491,7 +492,7 @@ def _set_work_roots(raw: Any) -> None:
 
 
 def _set_work_folder(raw: Any) -> None:
-    """Drop tray the parent already uses for plot/analyze (#327)."""
+    """Per-turn work folder the parent created under outputs/work/<id>/."""
     global _WORK_FOLDER, _WORK_TURN_BYTES
     _WORK_TURN_BYTES = 0
     text = str(raw or "").strip()
@@ -507,6 +508,29 @@ def _set_work_folder(raw: Any) -> None:
         _WORK_FOLDER = None
         return
     _WORK_FOLDER = folder
+
+
+def _set_work_owned(raw: Any) -> None:
+    global _WORK_OWNED
+    _WORK_OWNED = set()
+    if not isinstance(raw, list):
+        return
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        text = item.replace("\\", "/").strip()
+        if not text or ".." in text.split("/"):
+            continue
+        _WORK_OWNED.add(text)
+
+
+def _work_rel(dest: Path) -> str:
+    if _WORK_FOLDER is None:
+        return dest.name
+    try:
+        return dest.resolve().relative_to(_WORK_FOLDER.resolve()).as_posix()
+    except (OSError, ValueError):
+        return dest.name
 
 
 def _drive_path(raw: str) -> bool:
@@ -553,6 +577,9 @@ def _confine_work_write(file: Any) -> str:
         raise _work_path_refusal()
     if dest.suffix.lower() not in _WORK_WRITE_EXTS:
         raise _work_ext_refusal()
+    rel = "/".join(parts)
+    if dest.exists() and rel not in _WORK_OWNED:
+        raise _CellRefusedError("That file already exists in the work folder.")
     return str(dest)
 
 
@@ -580,6 +607,7 @@ def _note_work_write(path: Path) -> None:
     if _WORK_TURN_BYTES > _WORK_TURN_MAX:
         _unlink_work_file(path)
         raise _CellRefusedError("This cell wrote over 200 MB.")
+    _WORK_OWNED.add(_work_rel(path))
 
 
 def _work_write_ok(path: Path) -> bool:
@@ -603,6 +631,37 @@ def _wrap_numpy_save(orig: Any) -> Any:
     wrapped.__doc__ = getattr(orig, "__doc__", None)
     wrapped._arelis_work_wrapped = True  # type: ignore[attr-defined]
     return wrapped
+
+
+def _patch_savefig_work_writes() -> None:
+    """plt.savefig / fig.savefig follow the same work-folder path, rules, caps.
+
+    matplotlib is not in sys.modules when science_io is off (the cell cannot
+    import it), so this is a no-op on that path.
+    """
+    if _SCIENCE_IO:
+        return
+    pyplot = sys.modules.get("matplotlib.pyplot")
+    figure_mod = sys.modules.get("matplotlib.figure")
+    if pyplot is None or figure_mod is None:
+        return
+    figure_cls = getattr(figure_mod, "Figure", None)
+    orig = getattr(figure_cls, "savefig", None)
+    if not callable(orig) or getattr(orig, "_arelis_work_wrapped", False):
+        return
+
+    def _figure_save(fig: Any, fname: Any = None, *args: Any, **kwargs: Any) -> Any:
+        dest = _confine_work_write(fname)
+        result = orig(fig, dest, *args, **kwargs)
+        _note_work_write(Path(dest))
+        return result
+
+    def _pyplot_save(fname: Any = None, *args: Any, **kwargs: Any) -> Any:
+        return _figure_save(pyplot.gcf(), fname, *args, **kwargs)
+
+    _figure_save._arelis_work_wrapped = True  # type: ignore[attr-defined]
+    figure_cls.savefig = _figure_save
+    pyplot.savefig = _pyplot_save
 
 
 def _patch_numpy_work_writes() -> None:
@@ -1355,6 +1414,7 @@ def _execute(code: str, namespace: dict[str, Any]) -> str:
 
 
 def _emit(payload: dict[str, Any]) -> None:
+    payload.setdefault("written", sorted(_WORK_OWNED))
     sys.stdout.write(_RESULT + json.dumps(payload) + "\n")
     sys.stdout.flush()
 
@@ -1430,7 +1490,9 @@ def main() -> None:
         _announce()
         _set_work_roots(payload.get("roots"))
         _set_work_folder(payload.get("work"))
+        _set_work_owned(payload.get("owned"))
         _patch_numpy_work_writes()
+        _patch_savefig_work_writes()
         try:
             text = _execute(code, namespace)
         except _CellDeadline as exc:

@@ -1,4 +1,4 @@
-"""The python cell may write samples.npy into the drop tray plot/analyze already read.
+"""The python cell may write samples.npy into this turn's work folder.
 
 Fail-before: on main, np.save/savez is refused as a disk touch ('use the
 workspace tool for files') so sampler output never reaches plot.
@@ -9,6 +9,7 @@ Mutants this file is supposed to catch:
    the work folder.
 2. Extension check removed — `pwn.exe` is written.
 3. Size cap removed — a file over 50 MB is left on disk.
+4. Overwrite allowed — a file the cell did not write this turn is replaced.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from arelis.core.cell_work import cell_work_dir
 from arelis.paths import outputs_dir
 from arelis.tools.analyze import AnalyzeTool
 from arelis.tools.plot import PlotTool
@@ -42,7 +44,10 @@ async def test_cell_saves_samples_npy_readable_and_refuses_escape(
 ) -> None:
     roots = _project(tmp_path, monkeypatch)
     tool = PythonTool(roots)
-    work = outputs_dir() / "documents"
+    docs = outputs_dir() / "documents"
+    docs.mkdir(parents=True, exist_ok=True)
+    user_drop = docs / "samples.npy"
+    user_drop.write_bytes(b"user-drop")
 
     saved = await tool.run(
         code=(
@@ -52,8 +57,11 @@ async def test_cell_saves_samples_npy_readable_and_refuses_escape(
         )
     )
     assert saved.ok, saved.output
+    work = cell_work_dir()
     npy = work / "samples.npy"
     assert npy.is_file()
+    assert user_drop.read_bytes() == b"user-drop"
+    assert npy.resolve() != user_drop.resolve()
 
     summary = AnalyzeTool(roots)._analyze("samples.npy", "summary", 5)
     assert summary.ok, summary.output
@@ -69,6 +77,24 @@ async def test_cell_saves_samples_npy_readable_and_refuses_escape(
     assert chart.ok, chart.output
     assert Path(chart.data["abs_path"]).is_file()
 
+    planted = work / "keep.npy"
+    planted.write_bytes(b"already-here")
+    clobber = await tool.run(
+        code="import numpy as np\nnp.save('keep.npy', np.array([9.0]))\n"
+    )
+    assert clobber.ok is False, clobber.output
+    assert planted.read_bytes() == b"already-here"
+
+    again = await tool.run(
+        code="import numpy as np\nnp.save('samples.npy', np.array([[1.0, 2.0]]))\n"
+    )
+    assert again.ok, again.output
+
+    fig = await tool.run(
+        code="import matplotlib.pyplot as plt\nplt.savefig('fig.png')\n"
+    )
+    assert fig.ok is False, fig.output
+
     outside = tmp_path / "escape.npy"
     escaped = await tool.run(
         code=f"import numpy as np\nnp.save({str(outside)!r}, np.array([1.0]))\n"
@@ -81,6 +107,7 @@ async def test_cell_saves_samples_npy_readable_and_refuses_escape(
     )
     assert parented.ok is False, parented.output
     assert not (outputs_dir() / "escape.npy").exists()
+    assert not (outputs_dir() / "work" / "escape.npy").exists()
 
     evil = await tool.run(
         code="import numpy as np\nnp.save('pwn.exe', np.array([1.0]))\n"

@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from arelis.core.cell_work import resolve_cell_work_file
 from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.paths import display_path, ensure, outputs_dir
 from arelis.rooms import RoomStore
@@ -1089,13 +1090,18 @@ class PlotTool:
         )
 
     def _resolve_table(self, path_str: str) -> ResolvedPath:
-        """Workspace read, then the path document reports, then the drop tray.
+        """This turn's cell work folder, then workspace, then the drop tray.
 
-        Same order as analyze. Document writes land in the drop tray, which
-        sits outside the project, so a bare workspace read joins that string
-        onto the project and misses the file. Parent segments are refused by
-        the reported-path check, same as analyze.
+        Same order as analyze. Cell writes land under outputs/work/<id>/.
+        Document writes still land in the drop tray, which sits outside the
+        project, so a bare workspace read joins that string onto the project
+        and misses the file. Parent segments are refused by the reported-path
+        check, same as analyze.
         """
+        work = resolve_cell_work_file(path_str, suffixes=set(_TABLE_SUFFIXES))
+        if work:
+            path = Path(work)
+            return ResolvedPath(path=path, root_name="outputs", root=path.parent)
         try:
             hit = self.workspace.resolve_read(path_str)
         except Exception as first:

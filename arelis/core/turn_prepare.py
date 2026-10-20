@@ -22,6 +22,7 @@ from arelis.core.agent_loop import (
     turn_expects_tool_round,
     wants_fresh_page_ask,
 )
+from arelis.core.cell_work import begin_cell_work
 from arelis.core.claims import (
     apply_research_web_need,
     detect_exactness_need,
@@ -112,6 +113,7 @@ async def _begin_turn(
         route_reason=route_reason,
         user_text=text,
     )
+    begin_cell_work(loop._timer.id)
     # Per-turn state — must not leak across conversation turns (soak found
     # tools_used accumulating and poisoning vision/image duplicate gates).
     loop.tools_used = set()
