@@ -5,11 +5,11 @@ workspace tool for files') so sampler output never reaches plot.
 
 Mutants this file is supposed to catch:
 
-1. Containment skipped — `../escape.npy` or an absolute path writes outside
+1. Containment skipped: `../escape.npy` or an absolute path writes outside
    the work folder.
-2. Extension check removed — `pwn.exe` is written.
-3. Size cap removed — a file over 50 MB is left on disk.
-4. Overwrite allowed — a file the cell did not write this turn is replaced.
+2. Extension check removed: `pwn.exe` is written.
+3. Size cap removed: a file over 50 MB is left on disk.
+4. Overwrite allowed: a file the cell did not write this turn is replaced.
 """
 
 from __future__ import annotations
