@@ -6,6 +6,7 @@ path so History and 'open that' still work after a plot.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -300,35 +301,112 @@ def resolve_drop_file(
     suffixes: frozenset[str] | set[str] | None = None,
     needle: str = "",
 ) -> str:
-    """Newest matching file under outputs/documents (what document writes).
+    """Matching file under outputs/documents (what document writes).
 
     Workspace roots often exclude the drop tray, so analyze / doc_extract
-    must be able to find a basename or token she wrote there.
+    must be able to find a basename or token she wrote there. A basename that
+    matches more than one file is an error, not a guess. A named request that
+    misses, or that resolves outside the drop tray, is empty. Never the
+    newest file.
     """
     drop = outputs_dir() / "documents"
     wanted = {s.lower() for s in (suffixes or _DOC_SUFFIXES)}
     raw = (path_str or "").strip()
-    name = Path(raw).name if raw else ""
-    hint = (needle or Path(raw).stem or "").strip().lower()
+    hint = (needle or "").strip().lower()
     try:
         if not drop.is_dir():
             return ""
         files = [p for p in drop.iterdir() if p.is_file() and p.suffix.lower() in wanted]
     except OSError:
         return ""
-    if name:
-        exact = drop / name
-        if exact.is_file():
-            return str(exact.resolve())
-        files = [p for p in files if p.name.lower() == name.lower()] or files
+    if raw:
+        if is_unsafe_windows_path(raw):
+            return ""
+        if Path(raw).is_absolute() or _drive_path(raw):
+            hit = _drop_inside(drop, Path(raw))
+            if hit is not None and hit.suffix.lower() in wanted:
+                return str(hit)
+            return ""
+        if ".." in raw.replace("\\", "/").split("/"):
+            return ""
+        named = _drop_files_named(drop, raw, wanted, files)
+        if len(named) > 1:
+            listed = ", ".join(sorted(_drop_rel(drop, p) for p in named))
+            raise ValueError(
+                f"`{Path(raw).name}` matches more than one drop file ({listed}); "
+                "pass one of those paths"
+            )
+        if len(named) == 1:
+            return str(named[0])
+        return ""
     if hint:
         hits = [p for p in files if hint in p.stem.lower() or p.stem.lower() in hint]
         if hits:
             files = hits
-    if not files:
+    inside = [hit for hit in (_drop_inside(drop, p) for p in files) if hit is not None]
+    if not inside:
         return ""
-    newest = max(files, key=lambda p: p.stat().st_mtime)
-    return str(newest.resolve())
+    newest = max(inside, key=lambda p: p.stat().st_mtime)
+    return str(newest)
+
+
+def _drop_inside(drop: Path, path: Path) -> Path | None:
+    """Real file whose realpath sits inside drop, else None."""
+    try:
+        drop_real = Path(os.path.realpath(drop))
+        file_real = Path(os.path.realpath(path))
+        file_real.relative_to(drop_real)
+    except (OSError, ValueError):
+        return None
+    if not file_real.is_file():
+        return None
+    return file_real
+
+
+def _drop_rel(drop: Path, path: Path) -> str:
+    try:
+        return Path(os.path.realpath(path)).relative_to(
+            Path(os.path.realpath(drop))
+        ).as_posix()
+    except (OSError, ValueError):
+        return Path(path.name).as_posix()
+
+
+def _drop_files_named(
+    drop: Path,
+    raw: str,
+    wanted: set[str],
+    files: list[Path],
+) -> list[Path]:
+    """Contained drop-tray files matching the request, case-insensitive.
+
+    An exact relative path under documents opens that file before any
+    basename search, including a single-part name and a documents/ prefix.
+    Otherwise match only the bare file name. Symlinks and junctions that
+    realpath outside are dropped.
+    """
+    parts = [part for part in raw.replace("\\", "/").split("/") if part and part != "."]
+    if parts and parts[0].lower() == drop.name.lower():
+        parts = parts[1:]
+    if parts:
+        direct = _drop_inside(drop, drop.joinpath(*parts))
+        if direct is not None and direct.suffix.lower() in wanted:
+            return [direct]
+    needle = Path(raw).name.lower()
+    if not needle:
+        return []
+    try:
+        candidates = list(drop.rglob("*"))
+    except OSError:
+        candidates = files
+    found: list[Path] = []
+    for path in candidates:
+        if path.name.lower() != needle or path.suffix.lower() not in wanted:
+            continue
+        hit = _drop_inside(drop, path)
+        if hit is not None:
+            found.append(hit)
+    return found
 
 
 def latest_document_path(

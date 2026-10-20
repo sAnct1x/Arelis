@@ -1109,6 +1109,10 @@ class PlotTool:
         if reported:
             path = Path(reported)
             return ResolvedPath(path=path, root_name="outputs", root=path.parent)
+        drop = resolve_drop_file(path_str, suffixes=set(_TABLE_SUFFIXES))
+        if drop:
+            path = Path(drop)
+            return ResolvedPath(path=path, root_name="outputs", root=path.parent)
         return hit
 
     def _series(self, kwargs: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, str, str, str]:
