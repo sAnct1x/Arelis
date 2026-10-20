@@ -789,6 +789,9 @@ class AgentLoop:
         self._turn_num_ctx: int | None = None
         self._last_round_thinking = False
         self._fail_replan_used = False
+        # After a tool error the next model step must retry or answer, not
+        # spend a thinking budget that keeps the hung clock alive.
+        self._think_off_next = False
         self._active_plan = None
         # Ceiling asked for a close. _in_close means that pass is running,
         # so the same flag does not abort the answer it just asked for.
@@ -1624,11 +1627,18 @@ class AgentLoop:
 
         if self._wants_close():
             raise _CloseError
+        think = False if getattr(self, "_think_off_next", False) else None
+        self._think_off_next = False
+        stream_kwargs: dict[str, Any] = {
+            "tools": tools,
+            "options": self._stream_options(tools=bool(tools)),
+        }
+        if think is not None:
+            stream_kwargs["think"] = think
         async for kind, payload in self.router.stream(
             role,
             stream_messages,
-            tools=tools,
-            options=self._stream_options(tools=bool(tools)),
+            **stream_kwargs,
         ):
             # Before any await, so a continuation arriving on the next tick
             # sees that the model has already started answering.

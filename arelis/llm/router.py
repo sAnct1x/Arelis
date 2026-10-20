@@ -604,6 +604,7 @@ class ModelRouter:
         options: dict[str, Any] | None,
         tools: list[dict[str, Any]] | None,
         first_token_s: float,
+        think: bool | None = None,
     ) -> AsyncIterator[tuple[str, Any]]:
         """Proxy `stream_chat`, failing a silent heavy load before it locks VRAM."""
         agen = self.provider.stream_chat(
@@ -612,6 +613,7 @@ class ModelRouter:
             keep_alive=keep_alive,
             options=options,
             tools=tools,
+            think=think,
         )
         try:
             if first_token_s > 0:
@@ -655,6 +657,7 @@ class ModelRouter:
         options: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
         force: bool = False,
+        think: bool | None = None,
     ) -> AsyncIterator[tuple[str, Any]]:
         """Yield (kind, payload) where kind is token|thinking|tool_calls|metrics."""
         await self.wait_warmup()
@@ -683,6 +686,7 @@ class ModelRouter:
                         options=merged or None,
                         tools=tools,
                         first_token_s=first_wait,
+                        think=think,
                     ):
                         yielded = True
                         yield (kind, payload)
