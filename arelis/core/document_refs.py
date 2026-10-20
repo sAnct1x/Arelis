@@ -306,7 +306,7 @@ def resolve_drop_file(
     Workspace roots often exclude the drop tray, so analyze / doc_extract
     must be able to find a basename or token she wrote there. A basename that
     matches more than one file is an error, not a guess. A named request that
-    misses, or that resolves outside the drop tray, is empty — never the
+    misses, or that resolves outside the drop tray, is empty. Never the
     newest file.
     """
     drop = outputs_dir() / "documents"
