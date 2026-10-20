@@ -1943,6 +1943,7 @@ def _frame_from_whitespace(path: Path) -> pd.DataFrame:
     try:
         data = np.loadtxt(path)
     except Exception:
+        # loadtxt is strict; genfromtxt still reads a ragged or commented file.
         data = np.genfromtxt(path)
     data = np.asarray(data)
     names = getattr(data.dtype, "names", None)

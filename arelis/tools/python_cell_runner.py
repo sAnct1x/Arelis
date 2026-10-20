@@ -523,16 +523,19 @@ def _save_open_figures() -> None:
     try:
         import matplotlib.pyplot as plt
     except Exception:
+        # No pyplot: there is no leftover figure to save.
         return
     try:
         numbers = list(plt.get_fignums())
     except Exception:
+        # A broken matplotlib still must not fail the cell.
         return
     for index, number in enumerate(numbers, start=1):
         name = "figure.png" if index == 1 else f"figure-{index}.png"
         try:
             plt.figure(number).savefig(folder / name)
         except Exception:
+            # One bad figure is skipped; the others still show.
             continue
 
 
