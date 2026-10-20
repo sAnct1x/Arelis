@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from arelis.llm.llamacpp import LlamaCppProvider
 from arelis.llm.ollama import (
     DEFAULT_EMBED_KEEP_ALIVE,
     DEFAULT_EMBED_NUM_GPU,
@@ -19,6 +20,7 @@ from arelis.llm.startup import (
 )
 
 __all__ = [
+    "LlamaCppProvider",
     "ModelRouter",
     "OllamaProvider",
     "PrefixWarmup",
@@ -31,6 +33,36 @@ __all__ = [
 ]
 
 
+def _provider_for(
+    config: dict[str, Any],
+    ollama_cfg: dict[str, Any],
+    memory_cfg: dict[str, Any],
+) -> OllamaProvider | LlamaCppProvider:
+    """Ollama unless config asks for a llama-server that is already running."""
+    kind = str((config.get("llm") or {}).get("provider") or "ollama").strip().lower()
+    if kind not in {"llamacpp", "llama.cpp", "llama-server"}:
+        return OllamaProvider(
+            base_url=ollama_base_url(config),
+            timeout_s=ollama_cfg.get("timeout_s", 300),
+            embed_keep_alive=memory_cfg.get("embed_keep_alive", DEFAULT_EMBED_KEEP_ALIVE),
+            embed_num_gpu=int(memory_cfg.get("embed_num_gpu", DEFAULT_EMBED_NUM_GPU)),
+        )
+    lc = config.get("llamacpp") or {}
+    raw_caps = lc.get("context_caps") or {}
+    caps = (
+        {str(key): int(value) for key, value in raw_caps.items() if value}
+        if isinstance(raw_caps, dict)
+        else {}
+    )
+    default_cap = lc.get("default_cap")
+    return LlamaCppProvider(
+        base_url=str(lc.get("base_url") or "http://127.0.0.1:8080"),
+        timeout_s=float(lc.get("timeout_s", 300)),
+        context_caps=caps,
+        default_cap=int(default_cap) if default_cap else None,
+    )
+
+
 def build_router(config: dict[str, Any]) -> ModelRouter:
     """Construct the provider and router from config.
 
@@ -41,13 +73,7 @@ def build_router(config: dict[str, Any]) -> ModelRouter:
     ollama_cfg = config.get("ollama", {}) or {}
     router_cfg = config.get("router", {}) or {}
     memory_cfg = config.get("memory") or {}
-
-    provider = OllamaProvider(
-        base_url=ollama_base_url(config),
-        timeout_s=ollama_cfg.get("timeout_s", 300),
-        embed_keep_alive=memory_cfg.get("embed_keep_alive", DEFAULT_EMBED_KEEP_ALIVE),
-        embed_num_gpu=int(memory_cfg.get("embed_num_gpu", DEFAULT_EMBED_NUM_GPU)),
-    )
+    provider = _provider_for(config, ollama_cfg, memory_cfg)
 
     options: dict[str, Any] = {}
     num_ctx = ollama_cfg.get("num_ctx")

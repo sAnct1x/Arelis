@@ -103,9 +103,21 @@ class MemoryIndexer:
         else:
             self.mail = None
 
+    def _provider_embeds(self) -> bool:
+        """False when this provider cannot embed at all.
+
+        Ollama leaves this True and still decides from the tag list, same
+        HTTP as on main. llama.cpp is False for now, so we skip the batch
+        instead of calling embed and logging the raise.
+        """
+        return bool(getattr(self.provider, "embeds", True))
+
     async def model_available(self) -> bool:
         if self._available is not None:
             return self._available
+        if not self._provider_embeds():
+            self._available = False
+            return False
         try:
             names = await self.provider.list_models()
         except Exception:

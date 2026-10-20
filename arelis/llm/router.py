@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator
-from typing import Any, Literal
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any, Literal, Protocol
 
 import httpx
 
 from arelis.llm.errors import is_vram_failure
-from arelis.llm.ollama import OllamaProvider, same_ollama_model
+from arelis.llm.ollama import same_ollama_model
 
 log = logging.getLogger(__name__)
 
@@ -81,12 +81,66 @@ def _loaded_model_holds_no_vram(name: str, rows: list[dict[str, Any]] | None) ->
     return False
 
 
+class ChatBackend(Protocol):
+    """The calls ModelRouter makes. Ollama and llama.cpp both satisfy it."""
+
+    guard_host_vram: bool
+
+    def stream_chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        *,
+        keep_alive: str | int | None = ...,
+        options: dict[str, Any] | None = ...,
+        tools: list[dict[str, Any]] | None = ...,
+        think: bool | None = ...,
+    ) -> AsyncIterator[tuple[str, Any]]: ...
+
+    async def chat_with_images(
+        self,
+        model: str,
+        prompt: str,
+        images_b64: list[str],
+        *,
+        keep_alive: str | int = ...,
+        options: dict[str, Any] | None = ...,
+        on_thinking: Callable[[str], Awaitable[None] | None] | None = ...,
+        think: bool | None = ...,
+    ) -> str: ...
+
+    async def pin(
+        self,
+        model: str,
+        *,
+        keep_alive: str | int = ...,
+        options: dict[str, Any] | None = ...,
+    ) -> None: ...
+
+    async def unload(self, model: str) -> None: ...
+
+    async def close(self) -> None: ...
+
+    async def sees_images(self, model: str) -> bool: ...
+
+    async def running_ps(self) -> list[dict[str, Any]]: ...
+
+    async def running_models(self) -> list[str]: ...
+
+    async def wait_until_unloaded(
+        self,
+        models: list[str],
+        *,
+        timeout_s: float = ...,
+    ) -> list[str]: ...
+
+
 class ModelRouter:
     """Maps roles to Ollama models and keeps only one hot when switching."""
 
     def __init__(
         self,
-        provider: OllamaProvider,
+        provider: ChatBackend,
         models: dict[str, str],
         *,
         keep_alive: str | int = "5m",
