@@ -449,6 +449,7 @@ async def execute_call(
                 fail_counts[typed] = fail_counts.get(typed, 0) + 1
             ctx.last_fail_tool_name = name
             ctx.last_fail_tool_out = str(result.output or "")
+            loop._think_off_next = True
             if name == "send_sms":
                 ctx.sms_failed = True
             if name == "agenda" and str(args.get("action") or "").lower() == "create":
