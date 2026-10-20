@@ -14,12 +14,15 @@ from typing import Any
 
 import httpx
 
+from arelis.llm.errors import is_context_overflow
 from arelis.llm.ollama import _finalize_tool_calls, _merge_tool_calls
 
 log = logging.getLogger(__name__)
 
 # Server down and no per-model cap. Do not borrow Ollama's 65536.
 _FALLBACK_CONTEXT_TOKENS = 8192
+# /props and /slots are tiny. Do not wait the 300s chat timeout for them.
+_PROBE_TIMEOUT_S = 5.0
 
 _SAMPLING = {
     "temperature": "temperature",
@@ -111,13 +114,6 @@ def _wire_tool_call(call: Any, ordinal: int) -> tuple[dict[str, Any], str] | Non
         },
     }
     return wired, call_id
-
-
-def _is_context_overflow(detail: object) -> bool:
-    text = str(detail or "").lower()
-    if "context" not in text:
-        return False
-    return "exceed" in text or "overflow" in text
 
 
 def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -258,7 +254,7 @@ class LlamaCppProvider:
 
     async def _read_n_ctx(self, path: str) -> int | None:
         try:
-            response = await self._client.get(path)
+            response = await self._client.get(path, timeout=_PROBE_TIMEOUT_S)
         except httpx.HTTPError as exc:
             log.warning("llama-server %s failed: %s", path, exc)
             return None
@@ -273,7 +269,7 @@ class LlamaCppProvider:
 
     async def _drop_cached_window_after_overflow(self, detail: object) -> None:
         """A restarted server can have a new ``-c``. The next budget must see it."""
-        if not _is_context_overflow(detail):
+        if not is_context_overflow(detail):
             return
         self._n_ctx = None
         await self._server_n_ctx()

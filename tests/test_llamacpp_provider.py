@@ -10,8 +10,10 @@ import httpx
 
 from arelis.core.turn_prepare import _context_limits
 from arelis.llm import build_router
+from arelis.llm.errors import LLAMACPP_DOWN_NOTICE, classify_ollama_failure
 from arelis.llm.llamacpp import LlamaCppProvider
 from arelis.llm.ollama import OllamaProvider
+from arelis.memory.indexer import MemoryIndexer
 
 
 def _client(handler) -> httpx.AsyncClient:
@@ -189,9 +191,35 @@ async def test_llamacpp_stream_maps_sse_and_refuses_pictures_and_embeddings() ->
     assert stray[3]["tool_call_id"] != unused
     assert stray[3]["name"] == "clock"
 
-    assert provider.embeds is False
-    assert OllamaProvider.embeds is True
     assert "embedding" not in await provider.capabilities("nomic-embed-text")
+
+    # Exercise the indexer gate. Checking the class attribute is not enough:
+    # deleting `_provider_embeds` in model_available must fail this.
+    list_calls = {"n": 0}
+    embed_calls = {"n": 0}
+    orig_list = provider.list_models
+    orig_embed = provider.embed
+
+    async def counting_list() -> list[str]:
+        list_calls["n"] += 1
+        return ["nomic-embed-text"]
+
+    async def counting_embed(model: str, texts: list[str]) -> list[list[float]]:
+        del model, texts
+        embed_calls["n"] += 1
+        return [[0.1, 0.2]]
+
+    provider.list_models = counting_list  # type: ignore[method-assign]
+    provider.embed = counting_embed  # type: ignore[method-assign]
+    indexer = MemoryIndexer(  # type: ignore[arg-type]
+        _PendingEmbedStore(), provider, index_docs=False
+    )
+    skipped = await indexer.run_batch()
+    assert skipped == 0
+    assert list_calls["n"] == 0
+    assert embed_calls["n"] == 0
+    provider.list_models = orig_list  # type: ignore[method-assign]
+    provider.embed = orig_embed  # type: ignore[method-assign]
 
     assert await provider.sees_images("qwen") is False
     try:
@@ -212,16 +240,60 @@ async def test_llamacpp_stream_maps_sse_and_refuses_pictures_and_embeddings() ->
         "memory": {},
     }
     assert isinstance(build_router(shipped).provider, OllamaProvider)
-    chosen = build_router({**shipped, "llm": {"provider": "llamacpp"}})
+    chosen = build_router(
+        {
+            **shipped,
+            "llm": {"provider": "llamacpp"},
+            "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        }
+    )
     assert isinstance(chosen.provider, LlamaCppProvider)
+    assert chosen.provider.base_url == "http://127.0.0.1:8080"
+    defaulted = build_router({**shipped, "llm": {"provider": "llamacpp"}})
+    assert isinstance(defaulted.provider, LlamaCppProvider)
+    assert defaulted.provider.base_url == "http://127.0.0.1:8080"
+    bare = LlamaCppProvider()
+    assert bare.base_url == "http://127.0.0.1:8080"
     await provider.close()
     await chosen.provider.close()
+    await defaulted.provider.close()
+    await bare.close()
+
+
+class _PendingEmbedStore:
+    """One pending chat row so a missing embeds gate would call embed."""
+
+    def unembedded_messages(self, *, limit: int) -> list[dict[str, Any]]:
+        del limit
+        return [{"id": 1, "content": "hello"}]
+
+    def upsert_embedding(self, *args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise AssertionError("llama.cpp indexer must not write embeddings")
+
+    def unembedded_document_chunks(self, *, limit: int) -> list[dict[str, Any]]:
+        del limit
+        return []
+
+    def unembedded_mail(self, *, limit: int) -> list[dict[str, Any]]:
+        del limit
+        return []
 
 
 async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
     """64k config must not win over the server window or the per-model cap."""
+    probe_timeouts: list[float] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path in {"/props", "/slots"}:
+            timeout = request.extensions.get("timeout")
+            read = None
+            if isinstance(timeout, dict):
+                read = timeout.get("read")
+            elif timeout is not None:
+                read = getattr(timeout, "read", None)
+            if isinstance(read, (int, float)):
+                probe_timeouts.append(float(read))
         if request.url.path == "/props":
             return httpx.Response(200, json={"default_generation_settings": {}})
         if request.url.path == "/slots":
@@ -245,6 +317,8 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
     )
     assert num_ctx == 30000
     assert loop._turn_num_ctx == 30000
+    assert probe_timeouts
+    assert all(value == 5.0 for value in probe_timeouts)
 
     research, _ = await _context_limits(
         loop, "research", speak=False, skill_ids=[]
@@ -331,7 +405,25 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
         raise AssertionError("overflow should fail the request")
     except RuntimeError as exc:
         assert "context" in str(exc).lower()
+        overflow_fail = classify_ollama_failure(exc, provider="llamacpp")
+        assert overflow_fail.skip_tool_fallback is True
+        assert "ollama" not in overflow_fail.chat.lower()
     assert await shifting.context_tokens("qwen") == 4096
+
+    down = classify_ollama_failure(
+        httpx.ConnectError("connection refused"),
+        provider="llamacpp",
+    )
+    assert down.chat == LLAMACPP_DOWN_NOTICE
+    assert "the local model server stopped responding" in down.chat.lower()
+    assert "—" not in down.chat
+    assert down.skip_tool_fallback is True
+    http500 = classify_ollama_failure(
+        RuntimeError("llama-server returned HTTP 503 for model `qwen`"),
+        provider="llamacpp",
+    )
+    assert http500.chat == LLAMACPP_DOWN_NOTICE
+    assert http500.skip_tool_fallback is True
     await provider.close()
     await bare.close()
     await dead.close()
