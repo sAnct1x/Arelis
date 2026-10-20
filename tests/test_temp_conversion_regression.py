@@ -66,7 +66,7 @@ def test_calculator_cannot_convert_temperature() -> None:
 
 
 def test_units_succeeds_despite_calculator_failure() -> None:
-    """A later successful tool keeps the answer after an earlier units miss."""
+    """Failed units then a later successful call keeps the grounded answer."""
     text = "Convert 72 degrees Fahrenheit to Celsius, rounded to the nearest tenth."
     reply = "72 F is 22.2 degrees Celsius."
 
@@ -89,6 +89,7 @@ def test_units_succeeds_despite_calculator_failure() -> None:
     need = detect_exactness_need(text)
     assert need.kinds == ("units",), f"Expected ('units',), got {need.kinds}"
     assert ledger.has_ok("calc")
+    assert not ledger.has_ok("units")
 
     refuse = _exactness_finish_refuse(
         reply,

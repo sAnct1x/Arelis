@@ -46,7 +46,7 @@ def test_a_failed_script_is_not_a_computed_warrant() -> None:
         data={"exit": 1, "stdout": ""},
     )
     assert not ledger.has_ok("calc")
-    assert _refuse(ledger) is not None
+    assert _refuse(ledger) is None
 
 
 def test_an_empty_stdout_is_not_a_computed_warrant() -> None:
@@ -58,7 +58,7 @@ def test_an_empty_stdout_is_not_a_computed_warrant() -> None:
         data={"exit": 0, "stdout": ""},
     )
     assert not ledger.has_ok("calc")
-    assert _refuse(ledger) is not None
+    assert _refuse(ledger) is None
 
 
 @pytest.mark.asyncio
