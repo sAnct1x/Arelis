@@ -491,7 +491,7 @@ def followup_passthrough_tool(tool: str, line: str, raw: str) -> str:
 _TEMP_NOTE = re.compile(r"\s*Temperature conversions use an offset\b.*$", re.S)
 _CLEAN_UNIT_RHS = re.compile(
     r"^(?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s+"
-    r"(?P<unit>[A-Za-z]+(?:/[A-Za-z]+)?(?:_[A-Za-z]+)*)$"
+    r"(?P<unit>[A-Za-z]+(?:\s*/\s*[A-Za-z]+)?(?:_[A-Za-z]+)*)$"
 )
 # Published constants append ", source: CODATA ..." after the quantity.
 # That trailer is for the model, not the spoken number.
@@ -597,9 +597,14 @@ def plain_algebra_chat(output: str, *, ask: str = "") -> str:
 def _humanize_unit(unit: str, magnitude: str) -> str:
     """Turn Pint unit ids into plain spoken words; plural except for exactly 1."""
     key = (unit or "").strip()
-    # "m/s" is already how people write it. Pluralizing would make "m/ss".
-    if "/" in key:
-        return key
+    slash_parts = re.split(r"\s*/\s*", key, maxsplit=1)
+    if len(slash_parts) == 2:
+        left, right = slash_parts[0].strip(), slash_parts[1].strip()
+        if left and right:
+            # "m/s" is already how people write it. Pluralizing would make "m/ss".
+            if max(len(left), len(right)) <= 2:
+                return f"{left}/{right}"
+            key = f"{left} per {right}"
     key = key.lower()
     try:
         val = float((magnitude or "").replace(",", ""))
@@ -609,7 +614,7 @@ def _humanize_unit(unit: str, magnitude: str) -> str:
     pair = _UNIT_WORDS.get(key)
     if pair is not None:
         return pair[0] if singular else pair[1]
-    spoken = " ".join((unit or "").replace("_", " ").split())
+    spoken = " ".join(key.replace("_", " ").split())
     if not spoken:
         return spoken
     words = spoken.split(" ")

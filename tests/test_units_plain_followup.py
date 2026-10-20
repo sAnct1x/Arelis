@@ -53,6 +53,18 @@ def test_same_call_units_uses_the_same_spoken_line() -> None:
     assert same == "That works out to about 8.05 kilometers."
 
 
+def test_mph_to_kmh_is_spoken_not_canned() -> None:
+    """Pint's 'kilometer / hour' must not fall through to the canned line."""
+    ask = "Convert 30 mph to km/h"
+    result = asyncio.run(UnitsTool().run(action="convert", quantity="30 mph", to="km/h"))
+    assert result.ok, result.output
+    assert "kilometer / hour" in result.output
+    line = chat_followup_from_tool("units", result.output, ask=ask)
+    _assert_clean_spoken(line)
+    assert _DATA not in line.lower()
+    assert line == "That works out to about 48.28 kilometers per hour."
+
+
 # --- plurals and big / tiny numbers said in plain words ---------------------
 
 _E_NOTATION = re.compile(r"\d[eE][+-]?\d")
