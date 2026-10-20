@@ -148,9 +148,29 @@ def build_tool_registry(
         )
         embed = None
         embed_available = None
-        # llama.cpp has no embed model. Do not wire a probe that would then
-        # tell the user to `ollama pull nomic-embed-text`.
-        if provider is not None and bool(getattr(provider, "embeds", True)):
+        embed_missing_note = None
+        embed_url = (
+            str(getattr(provider, "embed_url", "") or "").strip()
+            if provider is not None
+            else ""
+        )
+        # llama.cpp embeddings live on embed_url, not Ollama. Do not probe
+        # /v1/models on the 35B server or tell the user to ollama pull.
+        if provider is not None and embed_url:
+
+            async def _embed(model: str, texts: list[str]) -> list[list[float]]:
+                return await provider.embed(model, texts)
+
+            async def _embed_available() -> bool:
+                refresh = getattr(provider, "refresh_embeds", None)
+                if callable(refresh):
+                    return bool(await refresh())
+                return bool(getattr(provider, "embeds", False))
+
+            embed = _embed
+            embed_available = _embed_available
+            embed_missing_note = " Semantic search is off; using keywords only."
+        elif provider is not None and bool(getattr(provider, "embeds", True)):
 
             async def _embed(model: str, texts: list[str]) -> list[list[float]]:
                 return await provider.embed(model, texts)
@@ -212,6 +232,7 @@ def build_tool_registry(
                 embed=embed,
                 embed_model=embed_model,
                 embed_available=embed_available,
+                embed_missing_note=embed_missing_note,
                 index_docs=index_docs_fn,
                 index_mail=index_mail_fn,
             )

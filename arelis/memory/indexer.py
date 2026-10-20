@@ -107,13 +107,18 @@ class MemoryIndexer:
         """False when this provider cannot embed at all.
 
         Ollama leaves this True and still decides from the tag list, same
-        HTTP as on main. llama.cpp is False for now, so we skip the batch
-        instead of calling embed and logging the raise.
+        HTTP as on main. llama.cpp starts False and becomes True only after
+        the CPU embed server answers, so we skip the batch instead of
+        calling embed and logging the raise.
         """
         return bool(getattr(self.provider, "embeds", True))
 
     async def model_available(self) -> bool:
         if self._available is not None:
+            return self._available
+        refresh = getattr(self.provider, "refresh_embeds", None)
+        if callable(refresh):
+            self._available = bool(await refresh())
             return self._available
         if not self._provider_embeds():
             self._available = False
