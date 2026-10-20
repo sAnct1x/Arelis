@@ -7,15 +7,13 @@ imported the numerics libraries and printed a ready line.
 The allowlist is the original cell unless the parent sets science_io. That
 flag adds matplotlib, corner, csv, seaborn, emcee, and astropy, and it allows
 numpy and astropy file IO plus savefig into the room's results folder.
-Relative numpy save/savez/savetxt may also write a short list of data files
-into this turn's work folder. The audit hook is the boundary either way.
-It refuses new processes, sockets, ctypes, and directory listings outside
-the workspace. A create with execute permission is refused everywhere.
-With the flag on, a write has to stay in the results
-folder and a read may stay in the workspace. Library reads stay allowed.
-Matplotlib is imported before the hook when a snippet asks for it. The
-parent sets MPL_IGNORE_SYSTEM_FONTS, so that import uses the bundled fonts
-and does not spawn system_profiler or fc-list.
+The audit hook is the boundary either way. It refuses new processes, sockets,
+ctypes, and directory listings outside the workspace. A create with execute
+permission is refused everywhere. With the flag on, a write has to stay in
+the results folder and a read may stay in the workspace. Library reads stay
+allowed. Matplotlib is imported before the hook when a snippet asks for
+it. The parent sets MPL_IGNORE_SYSTEM_FONTS, so that import uses the
+bundled fonts and does not spawn system_profiler or fc-list.
 """
 
 from __future__ import annotations
@@ -28,6 +26,7 @@ import sys
 import tempfile
 import time
 import traceback
+import types
 import warnings
 from pathlib import Path
 from typing import Any, NoReturn
@@ -115,6 +114,8 @@ _FORBIDDEN_ATTR_CALLS = frozenset(
         "check_call",
         "attrgetter",
         "methodcaller",
+        "savez",
+        "savez_compressed",
         "genfromtxt",
         "fromfile",
         "tofile",
@@ -137,20 +138,11 @@ _FORBIDDEN_ATTR_CALLS = frozenset(
 )
 
 _ATTR_CALL_ONLY = frozenset({"S"})
-# numpy/astropy reads and open(). Allowed only while science_io is on.
-# save/savez/savetxt write into the work folder even with the flag off.
-_SCIENCE_ATTRS = frozenset({"load", "loadtxt", "write", "writeto", "open"})
-_NUMPY_SAVE_NAMES = ("save", "savez", "savez_compressed", "savetxt")
-_WORK_WRITE_EXTS = frozenset(
-    {".npy", ".npz", ".csv", ".txt", ".png", ".svg", ".json"}
+# numpy/astropy file IO and savefig. Allowed only while science_io is on.
+# open() is the same switch: the hook then limits the path.
+_SCIENCE_ATTRS = frozenset(
+    {"save", "savetxt", "load", "loadtxt", "write", "writeto", "savefig", "open"}
 )
-_WORK_EXTS_TEXT = ".npy, .npz, .csv, .txt, .png, .svg, or .json"
-_WORK_FILE_MAX = 50 * 1024 * 1024
-_WORK_TURN_MAX = 200 * 1024 * 1024
-_WORK_FOLDER: Path | None = None
-_WORK_TURN_BYTES = 0
-_WORK_OWNED: set[str] = set()
-_ALLOW_WORK_UNLINK = False
 
 _ATTR_REFUSAL = (
     "{name!r} is not allowed here, it evaluates text or touches the disk. "
@@ -207,6 +199,9 @@ _BLOCKED_AUDIT_EVENTS = frozenset(
         "webbrowser.open",
         "urllib.Request",
         "pickle.find_class",
+        "gc.get_objects",
+        "gc.get_referrers",
+        "gc.get_referents",
     }
 )
 
@@ -453,13 +448,8 @@ def _read_roots() -> list[Path]:
 
 def _library_read(path: Path, exe: Path | None = None) -> bool:
     """True when path is a stdlib or site-packages file, not a user's file."""
-    if is_unsafe_path(str(path)):
-        return False
     roots = _compute_roots(exe) if exe is not None else _read_roots()
-    for root in roots:
-        if lexically_inside(path, root) and not reparse_leaves(path, root):
-            return True
-    return False
+    return _library_read_from(path, roots)
 
 
 def _set_work_roots(raw: Any) -> None:
@@ -489,211 +479,6 @@ def _set_work_roots(raw: Any) -> None:
                 _add_root(write, seen_write, Path(path) / "results")
     _WORK_READ = read
     _WORK_WRITE = write
-
-
-def _set_work_folder(raw: Any) -> None:
-    """Per-turn work folder the parent created under outputs/work/<id>/."""
-    global _WORK_FOLDER, _WORK_TURN_BYTES
-    _WORK_TURN_BYTES = 0
-    text = str(raw or "").strip()
-    if not text or is_unsafe_path(text):
-        _WORK_FOLDER = None
-        return
-    try:
-        folder = Path(os.path.realpath(text))
-    except OSError:
-        _WORK_FOLDER = None
-        return
-    if not folder.is_dir():
-        _WORK_FOLDER = None
-        return
-    _WORK_FOLDER = folder
-
-
-def _set_work_owned(raw: Any) -> None:
-    global _WORK_OWNED
-    _WORK_OWNED = set()
-    if not isinstance(raw, list):
-        return
-    for item in raw:
-        if not isinstance(item, str):
-            continue
-        text = item.replace("\\", "/").strip()
-        if not text or ".." in text.split("/"):
-            continue
-        _WORK_OWNED.add(text)
-
-
-def _work_rel(dest: Path) -> str:
-    if _WORK_FOLDER is None:
-        return dest.name
-    try:
-        return dest.resolve().relative_to(_WORK_FOLDER.resolve()).as_posix()
-    except (OSError, ValueError):
-        return dest.name
-
-
-def _drive_path(raw: str) -> bool:
-    return len(raw) >= 2 and raw[1] == ":"
-
-
-def _work_ext_refusal() -> _CellRefusedError:
-    return _CellRefusedError(
-        f"Python can only write {_WORK_EXTS_TEXT} into the work folder."
-    )
-
-
-def _work_path_refusal() -> _CellRefusedError:
-    return _CellRefusedError("That path is outside the work folder.")
-
-
-def _confine_work_write(file: Any) -> str:
-    """Relative name inside the work folder, or a short refusal.
-
-    Same containment as #327: realpath must sit inside the folder. Refuse
-    parent segments, absolute paths, drive/UNC paths, and symlinks.
-    """
-    if _WORK_FOLDER is None:
-        raise _work_ext_refusal()
-    if isinstance(file, bytes):
-        file = os.fsdecode(file)
-    if not isinstance(file, (str, Path)):
-        raise _work_ext_refusal()
-    raw = str(file).strip().strip("\"'`")
-    if not raw or is_unsafe_path(raw):
-        raise _work_path_refusal()
-    if Path(raw).is_absolute() or _drive_path(raw):
-        raise _work_path_refusal()
-    parts = [part for part in raw.replace("\\", "/").split("/") if part and part != "."]
-    if not parts or ".." in parts:
-        raise _work_path_refusal()
-    dest = _WORK_FOLDER.joinpath(*parts)
-    current = _WORK_FOLDER
-    for part in parts:
-        current = current / part
-        if is_reparse(current):
-            raise _work_path_refusal()
-    if not _under_roots(dest, [_WORK_FOLDER]):
-        raise _work_path_refusal()
-    if dest.suffix.lower() not in _WORK_WRITE_EXTS:
-        raise _work_ext_refusal()
-    rel = "/".join(parts)
-    if dest.exists() and rel not in _WORK_OWNED:
-        raise _CellRefusedError("That file already exists in the work folder.")
-    return str(dest)
-
-
-def _unlink_work_file(path: Path) -> None:
-    global _ALLOW_WORK_UNLINK
-    _ALLOW_WORK_UNLINK = True
-    try:
-        path.unlink()
-    except OSError:
-        pass
-    finally:
-        _ALLOW_WORK_UNLINK = False
-
-
-def _note_work_write(path: Path) -> None:
-    global _WORK_TURN_BYTES
-    try:
-        size = path.stat().st_size
-    except OSError:
-        return
-    if size > _WORK_FILE_MAX:
-        _unlink_work_file(path)
-        raise _CellRefusedError("That file is over 50 MB.")
-    _WORK_TURN_BYTES += size
-    if _WORK_TURN_BYTES > _WORK_TURN_MAX:
-        _unlink_work_file(path)
-        raise _CellRefusedError("This cell wrote over 200 MB.")
-    _WORK_OWNED.add(_work_rel(path))
-
-
-def _work_write_ok(path: Path) -> bool:
-    if _WORK_FOLDER is None:
-        return False
-    if path.suffix.lower() not in _WORK_WRITE_EXTS:
-        return False
-    if is_reparse(path):
-        return False
-    return _under_roots(path, [_WORK_FOLDER])
-
-
-def _wrap_numpy_save(orig: Any) -> Any:
-    def wrapped(file: Any, *args: Any, **kwargs: Any) -> Any:
-        dest = _confine_work_write(file)
-        result = orig(dest, *args, **kwargs)
-        _note_work_write(Path(dest))
-        return result
-
-    wrapped.__name__ = getattr(orig, "__name__", "save")
-    wrapped.__doc__ = getattr(orig, "__doc__", None)
-    wrapped._arelis_work_wrapped = True  # type: ignore[attr-defined]
-    return wrapped
-
-
-def _patch_savefig_work_writes() -> None:
-    """plt.savefig / fig.savefig follow the same work-folder path, rules, caps.
-
-    matplotlib is not in sys.modules when science_io is off (the cell cannot
-    import it), so this is a no-op on that path.
-    """
-    if _SCIENCE_IO:
-        return
-    pyplot = sys.modules.get("matplotlib.pyplot")
-    figure_mod = sys.modules.get("matplotlib.figure")
-    if pyplot is None or figure_mod is None:
-        return
-    figure_cls = getattr(figure_mod, "Figure", None)
-    orig = getattr(figure_cls, "savefig", None)
-    if not callable(orig) or getattr(orig, "_arelis_work_wrapped", False):
-        return
-
-    def _figure_save(fig: Any, fname: Any = None, *args: Any, **kwargs: Any) -> Any:
-        dest = _confine_work_write(fname)
-        result = orig(fig, dest, *args, **kwargs)
-        _note_work_write(Path(dest))
-        return result
-
-    def _pyplot_save(fname: Any = None, *args: Any, **kwargs: Any) -> Any:
-        return _figure_save(pyplot.gcf(), fname, *args, **kwargs)
-
-    _figure_save._arelis_work_wrapped = True  # type: ignore[attr-defined]
-    figure_cls.savefig = _figure_save
-    pyplot.savefig = _pyplot_save
-
-
-def _patch_numpy_work_writes() -> None:
-    """Point numpy save helpers at the work-folder wrapper. science_io stays off."""
-    if _SCIENCE_IO:
-        return
-    targets: list[Any] = []
-    for name in ("numpy", "numpy.lib.npyio"):
-        module = sys.modules.get(name)
-        if module is not None:
-            targets.append(module)
-    origs: dict[str, Any] = {}
-    for module in targets:
-        for name in _NUMPY_SAVE_NAMES:
-            value = getattr(module, name, None)
-            if callable(value) and name not in origs:
-                origs[name] = value
-    wrapped = {
-        name: (
-            fn
-            if getattr(fn, "_arelis_work_wrapped", False)
-            else _wrap_numpy_save(fn)
-        )
-        for name, fn in origs.items()
-    }
-    for module in targets:
-        mapping = getattr(module, "__dict__", None)
-        if not isinstance(mapping, dict):
-            continue
-        for name, fn in wrapped.items():
-            if name in mapping:
-                mapping[name] = fn
 
 
 def _under_roots(path: Path, roots: list[Path]) -> bool:
@@ -787,9 +572,7 @@ def _prepare_cache() -> None:
 
 
 def _cache_path(path: Path) -> bool:
-    if _CACHE_ROOT is None:
-        return False
-    return _under_roots(path, [_CACHE_ROOT])
+    return _under_cache(path, _CACHE_ROOT)
 
 
 def _needs_matplotlib(code: str) -> bool:
@@ -881,11 +664,11 @@ def _as_int(value: Any) -> int | None:
     return value
 
 
-def _is_write(mode: Any, flags: Any) -> bool:
+def _is_write(mode: Any, flags: Any, os_open_mode: int | None) -> bool:
     """True when this open writes. An executable create is refused outright.
 
     ``os.open`` audits ``open(path, None, flags)`` and drops the permission
-    mode. ``_OS_OPEN_MODE`` is that mode, stashed by the wrapper. Any execute
+    mode. ``os_open_mode`` is that mode, stashed by the wrapper. Any execute
     bit on a create is refused, including inside the results folder.
     """
     try:
@@ -894,7 +677,7 @@ def _is_write(mode: Any, flags: Any) -> bool:
         flag = 0
     perm = _as_int(mode)
     if perm is None:
-        perm = _as_int(_OS_OPEN_MODE)
+        perm = _as_int(os_open_mode)
     creat = bool(flag & getattr(os, "O_CREAT", 0))
     if creat and perm is not None and perm & 0o111:
         raise _CellBlocked("creating an executable is not allowed in this cell.")
@@ -913,9 +696,8 @@ def _is_write(mode: Any, flags: Any) -> bool:
     return bool(flag & bits)
 
 
-def _install_open_guard() -> None:
+def _install_open_guard(os_open_mode: list[int | None]) -> None:
     """Remember os.open's permission mode. The audit event does not carry it."""
-    global _OS_OPEN_MODE
     real = os.open
 
     def guarded(
@@ -925,15 +707,14 @@ def _install_open_guard() -> None:
         *,
         dir_fd: int | None = None,
     ) -> int:
-        global _OS_OPEN_MODE
-        previous = _OS_OPEN_MODE
-        _OS_OPEN_MODE = mode if _as_int(mode) is not None else None
+        previous = os_open_mode[0]
+        os_open_mode[0] = mode if _as_int(mode) is not None else None
         try:
             if dir_fd is None:
                 return real(path, flags, mode)
             return real(path, flags, mode, dir_fd=dir_fd)
         finally:
-            _OS_OPEN_MODE = previous
+            os_open_mode[0] = previous
 
     for module in list(sys.modules.values()):
         mapping = getattr(module, "__dict__", None)
@@ -1033,7 +814,13 @@ def _stub_process_launchers() -> None:
     _replace_functions(found)
 
 
-def _listing_allowed(raw: Any) -> bool:
+def _listing_allowed(
+    raw: Any,
+    *,
+    work_read: list[Path],
+    cache_root: Path | None,
+    read_roots: list[Path],
+) -> bool:
     """A directory list may stay in the workspace, the libraries, or the cache."""
     if raw is None:
         return False
@@ -1041,11 +828,26 @@ def _listing_allowed(raw: Any) -> bool:
     if path is None:
         return False
     return bool(
-        _library_read(path)
+        _library_read_from(path, read_roots)
         or _font_read(path)
-        or _under_roots(path, _WORK_READ)
-        or _cache_path(path)
+        or _under_roots(path, work_read)
+        or _under_cache(path, cache_root)
     )
+
+
+def _library_read_from(path: Path, roots: list[Path]) -> bool:
+    if is_unsafe_path(str(path)):
+        return False
+    for root in roots:
+        if lexically_inside(path, root) and not reparse_leaves(path, root):
+            return True
+    return False
+
+
+def _under_cache(path: Path, cache_root: Path | None) -> bool:
+    if cache_root is None:
+        return False
+    return _under_roots(path, [cache_root])
 
 
 def _as_path(raw: Any) -> Path | None:
@@ -1070,43 +872,47 @@ def _refusal(what: str) -> str:
     )
 
 
-def _audit(event: str, args: tuple[Any, ...]) -> None:
-    global _IN_HOOK
-    if _IN_HOOK:
-        return
-    _IN_HOOK = True
-    try:
-        _audit_inner(event, args)
-    finally:
-        _IN_HOOK = False
-
-
-def _paths_in_cache(event: str, args: tuple[Any, ...]) -> bool:
+def _paths_in_cache(
+    event: str,
+    args: tuple[Any, ...],
+    cache_root: Path | None,
+    cache_only_events: dict[str, int],
+) -> bool:
     """True when every path on a cache-only event stays in the private cache."""
-    count = _CACHE_ONLY_EVENTS[event]
+    count = cache_only_events[event]
     if len(args) < count:
         return False
     for raw in args[:count]:
         path = _as_path(raw)
-        if path is None or not _cache_path(path):
+        if path is None or not _under_cache(path, cache_root):
             return False
     return True
 
 
-def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
-    if event in _CACHE_ONLY_EVENTS:
-        if _paths_in_cache(event, args):
+def _audit_inner(
+    event: str,
+    args: tuple[Any, ...],
+    *,
+    science_io: bool,
+    work_read: list[Path],
+    work_write: list[Path],
+    cache_root: Path | None,
+    read_roots: list[Path],
+    os_open_mode: int | None,
+    blocked_events: frozenset[str],
+    cache_only_events: dict[str, int],
+) -> None:
+    if event in cache_only_events:
+        if _paths_in_cache(event, args, cache_root, cache_only_events):
             return
-        if _ALLOW_WORK_UNLINK and event == "os.remove" and args:
-            path = _as_path(args[0])
-            if path is not None and _work_write_ok(path):
-                return
         raise _CellBlocked(_refusal(event))
-    if event in _BLOCKED_AUDIT_EVENTS:
+    if event in blocked_events:
         raise _CellBlocked(_refusal(event))
     if event in _LIST_EVENTS:
         raw = args[0] if args else None
-        if _listing_allowed(raw):
+        if _listing_allowed(
+            raw, work_read=work_read, cache_root=cache_root, read_roots=read_roots
+        ):
             return
         raise _CellBlocked(
             "listing a directory outside this room is not allowed in this cell."
@@ -1118,34 +924,75 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
     path = _as_path(args[0])
     if path is None:
         return
-    if _is_write(mode, flags):
-        if not _SCIENCE_IO and _work_write_ok(path):
+    if _is_write(mode, flags, os_open_mode):
+        if science_io and (_under_roots(path, work_write) or _under_cache(path, cache_root)):
             return
-        if _SCIENCE_IO and (_under_roots(path, _WORK_WRITE) or _cache_path(path)):
-            return
-        if _SCIENCE_IO:
+        if science_io:
             raise _CellBlocked(
                 "opening a file to write it is not allowed in this cell. "
                 "The path has to stay inside this room's results folder."
             )
         raise _CellBlocked(_refusal("opening a file to write it"))
-    if _library_read(path):
+    if _library_read_from(path, read_roots):
         return
-    if _SCIENCE_IO and (
-        _font_read(path) or _under_roots(path, _WORK_READ) or _cache_path(path)
+    if science_io and (
+        _font_read(path) or _under_roots(path, work_read) or _under_cache(path, cache_root)
     ):
         return
     raise _CellBlocked(_refusal("reading a file outside the Python libraries"))
 
 
+def _forget_runner() -> None:
+    """Drop this file from sys.modules so cell code cannot reach it."""
+    mine = sys.modules.get(__name__)
+    for name, module in list(sys.modules.items()):
+        if module is mine or name == __name__:
+            sys.modules.pop(name, None)
+    if sys.modules.get("__main__") is mine or "__main__" not in sys.modules:
+        sys.modules["__main__"] = types.ModuleType("__main__")
+
+
 def _install_hook() -> None:
     # Roots are fixed before the cell runs. Later edits to sys.path do not
     # add a folder the hook will read. Matplotlib is already imported, so
-    # every later Popen is refused.
+    # every later Popen is refused. Policy and the reentrancy flag live in
+    # this hook's closure, not on the module.
     _read_roots()
     _stub_process_launchers()
-    _install_open_guard()
+    in_hook = False
+    science_io = bool(_SCIENCE_IO)
+    work_read = list(_WORK_READ)
+    work_write = list(_WORK_WRITE)
+    cache_root = _CACHE_ROOT
+    read_roots = list(_read_roots())
+    os_open_mode: list[int | None] = [None]
+    blocked_events = _BLOCKED_AUDIT_EVENTS
+    cache_only_events = _CACHE_ONLY_EVENTS
+    _install_open_guard(os_open_mode)
+
+    def _audit(event: str, args: tuple[Any, ...]) -> None:
+        nonlocal in_hook
+        if in_hook:
+            return
+        in_hook = True
+        try:
+            _audit_inner(
+                event,
+                args,
+                science_io=science_io,
+                work_read=work_read,
+                work_write=work_write,
+                cache_root=cache_root,
+                read_roots=read_roots,
+                os_open_mode=os_open_mode[0],
+                blocked_events=blocked_events,
+                cache_only_events=cache_only_events,
+            )
+        finally:
+            in_hook = False
+
     sys.addaudithook(_audit)
+    _forget_runner()
 
 
 def _assert_safe(tree: ast.AST) -> None:
@@ -1224,8 +1071,6 @@ def _safe_import(
     if root not in _allowed_imports():
         _import_refusal(root)
     module = __import__(name, globals, locals, fromlist, 0)
-    if root == "numpy":
-        _patch_numpy_work_writes()
     if root == "matplotlib" or "matplotlib" in sys.modules:
         _force_agg()
     return module
@@ -1414,7 +1259,6 @@ def _execute(code: str, namespace: dict[str, Any]) -> str:
 
 
 def _emit(payload: dict[str, Any]) -> None:
-    payload.setdefault("written", sorted(_WORK_OWNED))
     sys.stdout.write(_RESULT + json.dumps(payload) + "\n")
     sys.stdout.flush()
 
@@ -1486,13 +1330,9 @@ def main() -> None:
         namespace = _namespace()
         if _SCIENCE_IO and _needs_matplotlib(code):
             _warm_matplotlib()
+        _set_work_roots(payload.get("roots"))
         _install_hook()
         _announce()
-        _set_work_roots(payload.get("roots"))
-        _set_work_folder(payload.get("work"))
-        _set_work_owned(payload.get("owned"))
-        _patch_numpy_work_writes()
-        _patch_savefig_work_writes()
         try:
             text = _execute(code, namespace)
         except _CellDeadline as exc:
