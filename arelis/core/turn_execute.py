@@ -806,8 +806,14 @@ async def execute_call(
                     ]
                 if picked:
                     ready_rows = picked
-                # The cell figure is the plot. Do not force the plot tool after it.
+                # The cell figure is the plot file for this turn.
                 loop.tools_used.add("plot")
+                ledger.add(
+                    source="python",
+                    kind="plot",
+                    span=str(ready_rows[0].get("abs_path") or "")[:300],
+                    ok=True,
+                )
             for item in ready_rows:
                 abs_ready = str(item.get("abs_path") or "")
                 await loop.bus.publish(

@@ -8,9 +8,11 @@ from types import SimpleNamespace
 import pytest
 
 from arelis.core.cell_work import begin_cell_work, cell_work_dir
+from arelis.core.claims import ExactnessNeed
 from arelis.core.compact_prompt import skinny_description
 from arelis.core.events import EventType
 from arelis.core.evidence import EvidenceLedger
+from arelis.core.loop_helpers import _exactness_finish_refuse
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_execute import execute_call
 from arelis.core.turn_scratch import named_tools_owed
@@ -176,6 +178,18 @@ async def test_mcmc_cell_saves_samples_and_plot_draws_posterior(
     ask = TurnContext(text="plot the posterior", role="fast")
     ask.available_all = {"plot", "python"}
     assert "plot" not in named_tools_owed(loop, ask)
+    assert (
+        _exactness_finish_refuse(
+            "Here's the MCMC line fit. Median slope: 2.029.",
+            exact_need=ExactnessNeed(
+                False, False, False, False, needs_plot=True, kinds=("plot",)
+            ),
+            ledger=scratch.ledger,
+            numeric_gate=True,
+            evidence_gate=True,
+        )
+        is None
+    )
 
     chart = await PlotTool(roots).run(
         action="scatter", path="samples.npy", x="0", y="1", out="from-npy.png"
