@@ -559,9 +559,16 @@ class _ScriptedRouter:
         return wanted, reason
 
     async def stream(
-        self, role, messages, *, options=None, tools=None, force: bool = False
+        self,
+        role,
+        messages,
+        *,
+        options=None,
+        tools=None,
+        force: bool = False,
+        think: bool | None = None,
     ) -> AsyncIterator[tuple[str, Any]]:
-        del force
+        del force, think
         if self.i >= len(self.script):
             yield ("token", "done")
             return

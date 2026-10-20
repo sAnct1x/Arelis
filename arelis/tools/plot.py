@@ -287,9 +287,12 @@ def _parse_numbers(raw: Any, *, name: str) -> np.ndarray:
     try:
         values = np.array([float(p) for p in parts], dtype=float)
     except ValueError as exc:
+        preview = ",".join(parts[:4])
+        if len(preview) > 48:
+            preview = preview[:45] + "..."
         raise ValueError(
-            f'{name} must be numbers, e.g. {name}="1,2,3" (or a {name} list), '
-            "not an expression."
+            f'{name} is not numbers (got {preview!r}). '
+            f'Use {name}="1,2,3", or expr="sin(x), cos(x)" with xmin=0, xmax=2*pi.'
         ) from exc
     if np.isnan(values).any():
         raise ValueError(
@@ -337,6 +340,196 @@ def plot_range_value(raw: str, *, name: str) -> float:
     if not math.isfinite(value):
         raise ValueError(f"{name} must be finite, got {text!r}.")
     return value
+
+
+_RANGE_FUNCS = frozenset({"linspace", "arange"})
+_RANGE_MODULES = frozenset({"np", "numpy"})
+_RANGE_KEYWORDS = frozenset({"start", "stop", "num", "step"})
+
+
+def _range_func_name(func: ast.AST) -> str | None:
+    """linspace / arange, or np.linspace / numpy.arange. Nothing else."""
+    if isinstance(func, ast.Name):
+        ident = func.id.lower()
+        return ident if ident in _RANGE_FUNCS else None
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        if func.value.id.lower() not in _RANGE_MODULES:
+            return None
+        ident = func.attr.lower()
+        return ident if ident in _RANGE_FUNCS else None
+    return None
+
+
+def _range_arg_value(node: ast.AST, *, name: str) -> float:
+    text = ast.unparse(node).strip()
+    if not text:
+        raise ValueError(f"Missing {name} in the range call.")
+    return plot_range_value(text, name=name)
+
+
+def parse_range_call(raw: Any, *, name: str = "xs") -> Any | None:
+    """linspace(a, b, n) or arange(a, b, step), with pi / 2*pi.
+
+    None when this is not that call. ValueError when it is, but the args
+    are not a cheap numeric range. AST whitelist plus plot_range_value;
+    no eval.
+    """
+    if isinstance(raw, (list, tuple)) and len(raw) == 1:
+        raw = raw[0]
+    if not isinstance(raw, str):
+        return None
+    text = _IMPLICIT_TIMES.sub("*", raw.strip())
+    if not text:
+        return None
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError:
+        return None
+    node = tree.body
+    if not isinstance(node, ast.Call):
+        return None
+    kind = _range_func_name(node.func)
+    if kind is None:
+        return None
+    if any(isinstance(arg, ast.Starred) for arg in node.args):
+        raise ValueError(
+            f'{name} range call cannot unpack arguments. '
+            f'Example: {name}="linspace(0, 2*pi, 100)".'
+        )
+    if any(kw.arg is None for kw in node.keywords):
+        raise ValueError(
+            f'{name} range call cannot take **kwargs. '
+            f'Example: {name}="linspace(0, 2*pi, 100)".'
+        )
+    extra = [kw.arg for kw in node.keywords if kw.arg not in _RANGE_KEYWORDS]
+    if extra:
+        raise ValueError(
+            f"{name} {kind} does not take {extra[0]}. "
+            f'Example: {name}="linspace(0, 2*pi, 100)".'
+        )
+    pos = [_range_arg_value(arg, name=name) for arg in node.args]
+    kw = {
+        str(kw.arg): _range_arg_value(kw.value, name=name)
+        for kw in node.keywords
+        if kw.arg
+    }
+    np = _numpy()
+    if kind == "linspace":
+        if len(pos) > 3:
+            raise ValueError(
+                f'{name} linspace takes start, stop, n. '
+                f'Example: {name}="linspace(0, 2*pi, 100)".'
+            )
+        lo = pos[0] if len(pos) > 0 else kw.get("start")
+        hi = pos[1] if len(pos) > 1 else kw.get("stop")
+        num_raw = pos[2] if len(pos) > 2 else kw.get("num", float(_DEFAULT_SAMPLES))
+        if lo is None or hi is None or num_raw is None:
+            raise ValueError(
+                f'{name} linspace needs start and stop. '
+                f'Example: {name}="linspace(0, 2*pi, 100)".'
+            )
+        count = round(float(num_raw))
+        if count < 2:
+            raise ValueError(f"{name} linspace needs at least 2 points.")
+        if count > _MAX_SAMPLES:
+            raise ValueError(
+                f"{name} linspace asked for {count} points "
+                f"(max {_MAX_SAMPLES}). Example: {name}=\"linspace(0, 2*pi, 400)\"."
+            )
+        return np.linspace(float(lo), float(hi), count)
+    if len(pos) > 3:
+        raise ValueError(
+            f'{name} arange takes start, stop, step. '
+            f'Example: {name}="arange(0, 2*pi, 0.1)".'
+        )
+    if len(pos) == 1:
+        start, stop, step = 0.0, pos[0], kw.get("step", 1.0)
+    elif len(pos) == 2:
+        start, stop, step = pos[0], pos[1], kw.get("step", 1.0)
+    elif len(pos) == 3:
+        start, stop, step = pos[0], pos[1], pos[2]
+    else:
+        start = kw.get("start", 0.0)
+        stop = kw.get("stop")
+        step = kw.get("step", 1.0)
+    if stop is None or step is None or start is None:
+        raise ValueError(
+            f'{name} arange needs stop. Example: {name}="arange(0, 2*pi, 0.1)".'
+        )
+    step_f = float(step)
+    if step_f == 0.0 or not math.isfinite(step_f):
+        raise ValueError(f"{name} arange step must be a non-zero finite number.")
+    start_f = float(start)
+    stop_f = float(stop)
+    span = stop_f - start_f
+    if math.isfinite(span) and ((span > 0 and step_f > 0) or (span < 0 and step_f < 0)):
+        est = abs(span / step_f)
+        if not math.isfinite(est) or est > _MAX_SAMPLES:
+            shown = int(est) if math.isfinite(est) and est < 1e12 else _MAX_SAMPLES + 1
+            raise ValueError(
+                f"{name} arange would make {shown} points "
+                f"(max {_MAX_SAMPLES}). Example: {name}=\"arange(0, 2*pi, 0.1)\"."
+            )
+    values = np.arange(start_f, stop_f, step_f, dtype=float)
+    if values.size > _MAX_SAMPLES:
+        raise ValueError(
+            f"{name} arange would make {values.size} points "
+            f"(max {_MAX_SAMPLES}). Example: {name}=\"arange(0, 2*pi, 0.1)\"."
+        )
+    if values.size < 2:
+        raise ValueError(f"{name} arange needs at least 2 points.")
+    return values
+
+
+def _looks_like_formulas(raw: Any) -> bool:
+    """True when every piece is a named expression, not a float list."""
+    pieces = _split_plot_expressions(raw)
+    if not pieces:
+        return False
+    for piece in pieces:
+        try:
+            float(piece)
+        except ValueError:
+            if not re.search(r"[A-Za-z]", piece):
+                return False
+            continue
+        return False
+    return True
+
+
+def _promote_range_args(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """9B sends xs=linspace(...) and ys=sin(x), cos(x) instead of expr."""
+    path_str = str(kwargs.get("path") or "").strip()
+    if path_str and not _looks_like_chart_out(path_str):
+        return kwargs
+    action = str(kwargs.get("action") or "line").strip().lower()
+    if action not in {"line", "scatter", "residuals", "subplots"}:
+        return kwargs
+    if _split_plot_expressions(kwargs.get("expr")):
+        return kwargs
+    xs = _inline_pair(kwargs, primary="xs", alias="x")
+    ys = _inline_pair(kwargs, primary="ys", alias="y")
+    if not _looks_like_formulas(ys):
+        return kwargs
+    ranged = parse_range_call(xs, name="xs")
+    out = dict(kwargs)
+    if ranged is not None:
+        if _missing_bound(out.get("xmin")):
+            out["xmin"] = float(ranged[0])
+        if _missing_bound(out.get("xmax")):
+            out["xmax"] = float(ranged[-1])
+        if not out.get("samples"):
+            out["samples"] = int(ranged.size)
+    elif _missing_bound(out.get("xmin")) or _missing_bound(out.get("xmax")):
+        return kwargs
+    out["expr"] = ys
+    out.pop("xs", None)
+    out.pop("ys", None)
+    if parse_range_call(out.get("x"), name="x") is not None:
+        out.pop("x", None)
+    if _looks_like_formulas(out.get("y")):
+        out.pop("y", None)
+    return out
 
 
 def _split_top_level_commas(text: str) -> list[str]:
@@ -574,6 +767,11 @@ class PlotTool:
         "not use image (Comfy) for data."
     )
     risk = "write"
+
+    @staticmethod
+    def _arg_fail(exc: BaseException, *, fail_class: str = "fail:args") -> ToolResult:
+        return _arg_error(exc, output=str(exc).strip(), fail_class=fail_class)
+
     parameters_schema: dict[str, Any] = {
         "type": "object",
         "properties": {
@@ -750,9 +948,13 @@ class PlotTool:
 
     def _run(self, kwargs: dict[str, Any]) -> ToolResult:
         kwargs = normalize_plot_args(dict(kwargs))
+        try:
+            kwargs = _promote_range_args(kwargs)
+        except (ValueError, TypeError) as exc:
+            return self._arg_fail(exc)
         action = str(kwargs.get("action") or "line").strip().lower()
         if action not in _ACTIONS:
-            return _arg_error(
+            return self._arg_fail(
                 ValueError(
                     "Unknown action. Use line, scatter, residuals, histogram, "
                     "bar, or subplots."
@@ -762,7 +964,7 @@ class PlotTool:
         try:
             look = _parse_look(kwargs.get("look"))
         except ValueError as exc:
-            return _arg_error(exc)
+            return self._arg_fail(exc)
         kwargs["look"] = look
         title = str(kwargs.get("title") or "").strip()
         try:
@@ -850,11 +1052,11 @@ class PlotTool:
                             kwargs=kwargs,
                         )
         except (ValueError, TypeError, PermissionError, OSError) as exc:
-            return _arg_error(exc)
+            return self._arg_fail(exc)
         try:
             dest, extra = _draw()
         except ValueError as exc:
-            return _arg_error(exc, fail_class="fail:draw")
+            return self._arg_fail(exc, fail_class="fail:draw")
         except Exception as exc:
             return ToolResult(
                 ok=False,
@@ -984,12 +1186,21 @@ class PlotTool:
             raise ValueError(
                 'Missing ys. Use ys="1,4,9" (or a ys list) together with xs.'
             )
-        x = _parse_numbers(xs, name="xs")
+        ranged = parse_range_call(xs, name="xs")
+        x = ranged if ranged is not None else _parse_numbers(xs, name="xs")
+        if _looks_like_formulas(ys):
+            raise ValueError(
+                'ys is a formula, not numbers. Use expr="sin(x), cos(x)" '
+                "with xmin=0, xmax=2*pi. Example: plot(action=line, "
+                'expr="sin(x), cos(x)", xmin=0, xmax=2*pi).'
+            )
         y = _parse_numbers(ys, name="ys")
         if len(x) != len(y):
             raise ValueError(
                 f"xs and ys must be the same length "
-                f"(got {len(x)} in xs, {len(y)} in ys)."
+                f"(got {len(x)} in xs, {len(y)} in ys). "
+                'Pass matching lists, or use expr="sin(x), cos(x)", '
+                "xmin=0, xmax=2*pi instead of pasting python output."
             )
         if len(x) < 2:
             raise ValueError("Need at least two points in xs/ys.")

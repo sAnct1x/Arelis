@@ -97,7 +97,6 @@ class TurnContext:
     math_nudge_used: bool = False
     cas_nudge_used: bool = False
     units_nudge_used: bool = False
-    plot_nudge_used: bool = False
     catalog_nudge_used: bool = False
     inspect_nudge_used: bool = False
     document_nudge_used: bool = False
