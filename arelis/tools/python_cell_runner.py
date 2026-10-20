@@ -488,6 +488,90 @@ def _set_cwd(raw: Any) -> None:
         os.chdir(folder)
 
 
+_CHART_SUFFIXES = {".png", ".svg"}
+
+
+def _work_dir() -> Path | None:
+    try:
+        folder = Path(os.getcwd())
+    except OSError:
+        return None
+    return folder if folder.is_dir() else None
+
+
+def _save_open_figures() -> None:
+    """Write leftover matplotlib figures into the work folder as PNG.
+
+    savefig already landed a file, so those figures stay as the cell left
+    them. A plot that was never saved still has to show up as the turn figure.
+    """
+    if "matplotlib" not in sys.modules:
+        return
+    folder = _work_dir()
+    if folder is None:
+        return
+    try:
+        existing = [
+            path
+            for path in folder.iterdir()
+            if path.is_file() and path.suffix.lower() in _CHART_SUFFIXES
+        ]
+    except OSError:
+        return
+    if existing:
+        return
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        return
+    try:
+        numbers = list(plt.get_fignums())
+    except Exception:
+        return
+    for index, number in enumerate(numbers, start=1):
+        name = "figure.png" if index == 1 else f"figure-{index}.png"
+        try:
+            plt.figure(number).savefig(folder / name)
+        except Exception:
+            continue
+
+
+def _collect_charts() -> list[dict[str, str]]:
+    folder = _work_dir()
+    if folder is None:
+        return []
+    found: list[dict[str, str]] = []
+    try:
+        paths = list(folder.iterdir())
+    except OSError:
+        return []
+    for path in paths:
+        try:
+            if not path.is_file() or path.suffix.lower() not in _CHART_SUFFIXES:
+                continue
+            found.append({"name": path.name, "abs_path": str(path.resolve())})
+        except OSError:
+            continue
+    found.sort(key=lambda item: (0 if item["name"].lower().endswith(".png") else 1, item["name"]))
+    return found
+
+
+def _chart_payload() -> dict[str, Any]:
+    """Same abs_path keys plot puts on a successful chart."""
+    charts = _collect_charts()
+    if not charts:
+        return {}
+    first = charts[0]
+    suffix = Path(first["name"]).suffix.lower()
+    return {
+        "path": first["name"],
+        "abs_path": first["abs_path"],
+        "format": suffix.lstrip("."),
+        "title": Path(first["name"]).stem,
+        "charts": charts,
+    }
+
+
 def _assert_safe(tree: ast.AST) -> None:
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -846,7 +930,10 @@ def main() -> None:
         except Exception as exc:
             _fail("failed", exc)
         else:
-            _emit({"ok": True, "output": text})
+            _save_open_figures()
+            result = {"ok": True, "output": text}
+            result.update(_chart_payload())
+            _emit(result)
     finally:
         _wipe_cache()
 

@@ -55,7 +55,7 @@ _SUBPLOT_KINDS = frozenset({"line", "scatter", "histogram", "bar"})
 _MAX_SUBPLOTS = 4
 _MAX_ROWS = 20_000
 _MAX_INLINE = 2_000
-_TABLE_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls", ".npy", ".npz"}
+_TABLE_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls", ".npy", ".npz", ".txt"}
 _CHART_OUT_SUFFIXES = {".png", ".pdf", ".jpg", ".jpeg", ".webp", ".svg"}
 _INLINE_SPLIT = re.compile(r"[,;\s]+")
 _SAFE_STEM = re.compile(r"[^a-zA-Z0-9._-]+")
@@ -1913,11 +1913,59 @@ def _column_labels(frame: pd.DataFrame, name: str) -> list[str]:
     return [str(v) for v in frame[name].tolist()]
 
 
+def _first_data_line(path: Path) -> str:
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            for _ in range(40):
+                line = handle.readline()
+                if not line:
+                    break
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    return stripped
+    except OSError:
+        return ""
+    return ""
+
+
+def _whitespace_text(path: Path) -> bool:
+    """True when the table is spaces, not commas or tabs."""
+    line = _first_data_line(path)
+    if not line:
+        return False
+    return "," not in line and ";" not in line and "\t" not in line
+
+
+def _frame_from_whitespace(path: Path) -> pd.DataFrame:
+    """np.loadtxt, then genfromtxt, then the same 1-D / 2-D frame npy uses."""
+    np = _numpy()
+    pd = _pandas()
+    try:
+        data = np.loadtxt(path)
+    except Exception:
+        data = np.genfromtxt(path)
+    data = np.asarray(data)
+    names = getattr(data.dtype, "names", None)
+    if names:
+        return pd.DataFrame(data).head(_MAX_ROWS)
+    if data.ndim == 0:
+        data = np.atleast_1d(data)
+    if data.ndim == 1:
+        return pd.DataFrame({"value": data[:_MAX_ROWS]})
+    if data.ndim == 2:
+        frame = pd.DataFrame(data[:_MAX_ROWS])
+        frame.columns = [str(c) for c in frame.columns]
+        return frame
+    raise ValueError("text table needs a 1-D or 2-D array")
+
+
 def _load_table(path: Path) -> pd.DataFrame:
     pd = _pandas()
     suffix = path.suffix.lower()
     if suffix in {".npy", ".npz"}:
         return frame_from_numpy(path)
+    if suffix == ".txt" or (suffix == ".csv" and _whitespace_text(path)):
+        return _frame_from_whitespace(path)
     if suffix == ".csv":
         return pd.read_csv(path, nrows=_MAX_ROWS)
     if suffix in {".tsv", ".tab"}:

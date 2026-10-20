@@ -371,10 +371,84 @@ def _error_type(payload: dict[str, Any]) -> str | None:
     return None
 
 
+_CELL_FIGURE_SUFFIXES = {".png", ".svg"}
+
+
+def _work_figures() -> list[dict[str, str]]:
+    """PNG/SVG the cell wrote into this turn's work folder."""
+    try:
+        folder = Path(cell_work_dir()).resolve()
+    except OSError:
+        return []
+    if not folder.is_dir():
+        return []
+    found: list[dict[str, str]] = []
+    try:
+        paths = list(folder.iterdir())
+    except OSError:
+        return []
+    for path in paths:
+        try:
+            if not path.is_file() or path.suffix.lower() not in _CELL_FIGURE_SUFFIXES:
+                continue
+            hit = path.resolve()
+            hit.relative_to(folder)
+        except (OSError, ValueError):
+            continue
+        found.append({"name": hit.name, "abs_path": str(hit)})
+    found.sort(key=lambda item: (0 if item["name"].lower().endswith(".png") else 1, item["name"]))
+    return found
+
+
+def _charts_from_payload(payload: dict[str, Any]) -> list[dict[str, str]]:
+    try:
+        folder = Path(cell_work_dir()).resolve()
+    except OSError:
+        return []
+    charts: list[dict[str, str]] = []
+    raw = payload.get("charts")
+    items = raw if isinstance(raw, list) else []
+    abs_path = payload.get("abs_path")
+    if not items and isinstance(abs_path, str) and abs_path.strip():
+        items = [{"abs_path": abs_path}]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("abs_path") or "").strip()
+        if not text:
+            continue
+        try:
+            hit = Path(text).resolve()
+            hit.relative_to(folder)
+        except (OSError, ValueError):
+            continue
+        if not hit.is_file() or hit.suffix.lower() not in _CELL_FIGURE_SUFFIXES:
+            continue
+        charts.append({"name": hit.name, "abs_path": str(hit)})
+    return charts
+
+
+def _cell_figure_data(payload: dict[str, Any]) -> dict[str, Any]:
+    """Same abs_path keys plot uses so FILE_READY can show the cell figure."""
+    charts = _charts_from_payload(payload) or _work_figures()
+    if not charts:
+        return {}
+    first = charts[0]
+    return {
+        "path": first["name"],
+        "abs_path": first["abs_path"],
+        "format": Path(first["name"]).suffix.lower().lstrip("."),
+        "title": Path(first["name"]).stem,
+        "charts": charts,
+    }
+
+
 def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
     if payload.get("ok"):
         text = str(payload.get("output") or "")
-        return ToolResult(ok=True, output=text, data={"code": code, "result": text})
+        data: dict[str, Any] = {"code": code, "result": text}
+        data.update(_cell_figure_data(payload))
+        return ToolResult(ok=True, output=text, data=data)
     kind = str(payload.get("kind") or "")
     message = str(payload.get("message") or "")
     error_type = _error_type(payload)
