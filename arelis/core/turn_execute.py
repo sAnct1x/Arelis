@@ -788,7 +788,7 @@ async def execute_call(
                 )
             )
         if (
-            name in {"document", "plot", "data_cell"}
+            name in {"document", "plot", "data_cell", "python"}
             and result.ok
             and data_dict
             and data_dict.get("abs_path")

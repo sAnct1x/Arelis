@@ -2,7 +2,7 @@
 
 The pocket calculator is one expression. This tool runs a short cell:
 assignments, prints, math, sympy, numpy. It is not a general interpreter.
-os, subprocess, sockets, and the user's files stay out.
+os and subprocess stay out. Relative writes go to the per-turn work folder.
 
 The cell used to run in this process, on a thread. A tracer stopped a
 Python loop, and a C call that held the GIL froze the whole app, because
@@ -12,10 +12,10 @@ imported. On Windows that import is a new interpreter and can take longer
 than it does here, so a hung import is killed on its own budget instead of
 being counted against the cell, and instead of waiting forever.
 
-The AST checks and the audit hook live in the child. Name rules still
-refuse the obvious spellings. The hook refuses a process, a socket, ctypes,
-and any write outside the room's results folder. Reads stay inside the
-workspace. Matplotlib stays on the Agg backend.
+The AST checks live in the child. Name rules still refuse the obvious
+spellings. Process launchers are stubbed. The cell cwd is this turn's
+work folder, so relative saves land where plot and analyze look first.
+Matplotlib stays on the Agg backend.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arelis.core.cell_work import cell_work_dir
 from arelis.tools.arg_error import arg_error
 from arelis.tools.base import ToolResult
 from arelis.tools.child_proc import _close_job, _spawn, child_env
@@ -64,8 +65,8 @@ _RUNNER = Path(__file__).with_name("python_cell_runner.py")
 def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
     """Absolute workspace roots the cell may read.
 
-    A writable root also gets a results folder. That is the only directory
-    the cell may write, same as the data cell.
+    A writable root also gets a results folder so a science_io cell can
+    write there by absolute path. Relative writes use the work folder.
     """
     roots = getattr(workspace, "roots", None)
     if not roots:
@@ -87,6 +88,14 @@ def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
                 writable = False
         payload.append({"path": str(path), "write": writable})
     return payload
+
+
+def _cell_work_dir() -> str:
+    """Per-turn ``outputs/work/<id>/``. plot/analyze read this first, then #327."""
+    try:
+        return str(cell_work_dir().resolve())
+    except OSError:
+        return ""
 
 
 class PythonTool:
@@ -181,7 +190,9 @@ async def _run_in_child(
 def _run_in_child_sync(
     code: str, roots: list[dict[str, Any]], science_io: bool
 ) -> ToolResult:
-    work = Path(tempfile.mkdtemp(prefix="arelis-py-"))
+    scratch = Path(tempfile.mkdtemp(prefix="arelis-py-"))
+    work_dir = _cell_work_dir()
+    cwd = Path(work_dir) if work_dir else scratch
     env = child_env(
         {
             "PYTHONUNBUFFERED": "1",
@@ -205,7 +216,7 @@ def _run_in_child_sync(
     try:
         proc, job = _spawn(
             sys.executable,
-            work,
+            cwd,
             env,
             runner=_RUNNER,
             memory_bytes=_MEMORY_BYTES,
@@ -216,7 +227,14 @@ def _run_in_child_sync(
         ready, lines, errors, threads = _attach_readers(proc)
         try:
             proc.stdin.write(
-                json.dumps({"code": code, "roots": roots, "science_io": science_io})
+                json.dumps(
+                    {
+                        "code": code,
+                        "roots": roots,
+                        "science_io": science_io,
+                        "work": work_dir,
+                    }
+                )
             )
             proc.stdin.close()
         except Exception:
@@ -263,7 +281,7 @@ def _run_in_child_sync(
         if proc is not None and threads:
             _finish_io(proc, threads)
         _close_job(job)
-        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def _attach_readers(
@@ -353,10 +371,84 @@ def _error_type(payload: dict[str, Any]) -> str | None:
     return None
 
 
+_CELL_FIGURE_SUFFIXES = {".png", ".svg"}
+
+
+def _work_figures() -> list[dict[str, str]]:
+    """PNG/SVG the cell wrote into this turn's work folder."""
+    try:
+        folder = Path(cell_work_dir()).resolve()
+    except OSError:
+        return []
+    if not folder.is_dir():
+        return []
+    found: list[dict[str, str]] = []
+    try:
+        paths = list(folder.iterdir())
+    except OSError:
+        return []
+    for path in paths:
+        try:
+            if not path.is_file() or path.suffix.lower() not in _CELL_FIGURE_SUFFIXES:
+                continue
+            hit = path.resolve()
+            hit.relative_to(folder)
+        except (OSError, ValueError):
+            continue
+        found.append({"name": hit.name, "abs_path": str(hit)})
+    found.sort(key=lambda item: (0 if item["name"].lower().endswith(".png") else 1, item["name"]))
+    return found
+
+
+def _charts_from_payload(payload: dict[str, Any]) -> list[dict[str, str]]:
+    try:
+        folder = Path(cell_work_dir()).resolve()
+    except OSError:
+        return []
+    charts: list[dict[str, str]] = []
+    raw = payload.get("charts")
+    items = raw if isinstance(raw, list) else []
+    abs_path = payload.get("abs_path")
+    if not items and isinstance(abs_path, str) and abs_path.strip():
+        items = [{"abs_path": abs_path}]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("abs_path") or "").strip()
+        if not text:
+            continue
+        try:
+            hit = Path(text).resolve()
+            hit.relative_to(folder)
+        except (OSError, ValueError):
+            continue
+        if not hit.is_file() or hit.suffix.lower() not in _CELL_FIGURE_SUFFIXES:
+            continue
+        charts.append({"name": hit.name, "abs_path": str(hit)})
+    return charts
+
+
+def _cell_figure_data(payload: dict[str, Any]) -> dict[str, Any]:
+    """Same abs_path keys plot uses so FILE_READY can show the cell figure."""
+    charts = _charts_from_payload(payload) or _work_figures()
+    if not charts:
+        return {}
+    first = charts[0]
+    return {
+        "path": first["name"],
+        "abs_path": first["abs_path"],
+        "format": Path(first["name"]).suffix.lower().lstrip("."),
+        "title": Path(first["name"]).stem,
+        "charts": charts,
+    }
+
+
 def _tool_result(code: str, payload: dict[str, Any]) -> ToolResult:
     if payload.get("ok"):
         text = str(payload.get("output") or "")
-        return ToolResult(ok=True, output=text, data={"code": code, "result": text})
+        data: dict[str, Any] = {"code": code, "result": text}
+        data.update(_cell_figure_data(payload))
+        return ToolResult(ok=True, output=text, data=data)
     kind = str(payload.get("kind") or "")
     message = str(payload.get("message") or "")
     error_type = _error_type(payload)

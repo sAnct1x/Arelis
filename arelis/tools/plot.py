@@ -20,9 +20,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from arelis.core.cell_work import resolve_cell_work_file
 from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.paths import display_path, ensure, outputs_dir
 from arelis.rooms import RoomStore
+from arelis.tools.analyze import frame_from_numpy
 from arelis.tools.arg_error import arg_error as _arg_error
 from arelis.tools.base import ToolResult
 from arelis.workspace import ResolvedPath, WorkspaceRoots
@@ -53,7 +55,7 @@ _SUBPLOT_KINDS = frozenset({"line", "scatter", "histogram", "bar"})
 _MAX_SUBPLOTS = 4
 _MAX_ROWS = 20_000
 _MAX_INLINE = 2_000
-_TABLE_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls"}
+_TABLE_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls", ".npy", ".npz", ".txt"}
 _CHART_OUT_SUFFIXES = {".png", ".pdf", ".jpg", ".jpeg", ".webp", ".svg"}
 _INLINE_SPLIT = re.compile(r"[,;\s]+")
 _SAFE_STEM = re.compile(r"[^a-zA-Z0-9._-]+")
@@ -1088,13 +1090,18 @@ class PlotTool:
         )
 
     def _resolve_table(self, path_str: str) -> ResolvedPath:
-        """Workspace read, then the path document reports, then the drop tray.
+        """This turn's cell work folder, then workspace, then the drop tray.
 
-        Same order as analyze. Document writes land in the drop tray, which
-        sits outside the project, so a bare workspace read joins that string
-        onto the project and misses the file. Parent segments are refused by
-        the reported-path check, same as analyze.
+        Same order as analyze. Cell writes land under outputs/work/<id>/.
+        Document writes still land in the drop tray, which sits outside the
+        project, so a bare workspace read joins that string onto the project
+        and misses the file. Parent segments are refused by the reported-path
+        check, same as analyze.
         """
+        work = resolve_cell_work_file(path_str, suffixes=set(_TABLE_SUFFIXES))
+        if work:
+            path = Path(work)
+            return ResolvedPath(path=path, root_name="outputs", root=path.parent)
         try:
             hit = self.workspace.resolve_read(path_str)
         except Exception as first:
@@ -1906,11 +1913,74 @@ def _column_labels(frame: pd.DataFrame, name: str) -> list[str]:
     return [str(v) for v in frame[name].tolist()]
 
 
+def _first_data_line(path: Path) -> str:
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            for _ in range(40):
+                line = handle.readline()
+                if not line:
+                    break
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    return stripped
+    except OSError:
+        return ""
+    return ""
+
+
+def _whitespace_text(path: Path) -> bool:
+    """True when the table is spaces, not commas or tabs."""
+    line = _first_data_line(path)
+    if not line:
+        return False
+    return "," not in line and ";" not in line and "\t" not in line
+
+
+def _frame_from_whitespace(path: Path) -> pd.DataFrame:
+    """np.loadtxt, then genfromtxt, then the same 1-D / 2-D frame npy uses."""
+    np = _numpy()
+    pd = _pandas()
+    try:
+        data = np.loadtxt(path)
+    except Exception:
+        # loadtxt is strict; genfromtxt still reads a ragged or commented file.
+        data = np.genfromtxt(path)
+    data = np.asarray(data)
+    names = getattr(data.dtype, "names", None)
+    if names:
+        return pd.DataFrame(data).head(_MAX_ROWS)
+    if data.ndim == 0:
+        data = np.atleast_1d(data)
+    if data.ndim == 1:
+        return pd.DataFrame({"value": data[:_MAX_ROWS]})
+    if data.ndim == 2:
+        frame = pd.DataFrame(data[:_MAX_ROWS])
+        frame.columns = [str(c) for c in frame.columns]
+        return frame
+    raise ValueError("text table needs a 1-D or 2-D array")
+
+
+def _csv_header_name(name: object) -> str:
+    """numpy savetxt writes header='m,c' as '# m,c'. Plot needs 'm'."""
+    text = str(name)
+    if text.startswith("# "):
+        return text[2:]
+    if text.startswith("#"):
+        return text[1:]
+    return text
+
+
 def _load_table(path: Path) -> pd.DataFrame:
     pd = _pandas()
     suffix = path.suffix.lower()
+    if suffix in {".npy", ".npz"}:
+        return frame_from_numpy(path)
+    if suffix == ".txt" or (suffix == ".csv" and _whitespace_text(path)):
+        return _frame_from_whitespace(path)
     if suffix == ".csv":
-        return pd.read_csv(path, nrows=_MAX_ROWS)
+        frame = pd.read_csv(path, nrows=_MAX_ROWS)
+        frame.columns = [_csv_header_name(c) for c in frame.columns]
+        return frame
     if suffix in {".tsv", ".tab"}:
         return pd.read_csv(path, sep="\t", nrows=_MAX_ROWS)
     if suffix == ".json":

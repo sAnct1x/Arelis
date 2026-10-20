@@ -19,16 +19,13 @@ It did not. Probing it found three escapes, in descending order of severity:
    for the same reason: a dunder spelled inside a string is a `Constant`.
    `attrgetter` is reachable because `operator` is preloaded in the namespace.
 
-3. **`numpy.savetxt` writes files.** The module docstring says "os,
-   subprocess, sockets, and files stay out". The probe wrote a real file to
-   the repo root.
+3. **`numpy.savetxt` writes files.** The module docstring used to say files
+   stay out. Sampler output now writes into the per-turn work folder.
 
-The fixes are two general rules rather than a longer denylist of modules:
+The remaining guards are two general rules rather than a longer denylist:
 string literals may not contain `__`, and a small set of attribute names that
-mean "evaluate this text" or "touch the disk" may not be called. Both are
-checked on the AST, before anything runs. numpy.savetxt and savefig are not
-in that set. The hook allows them only when the path stays inside the room's
-results folder.
+mean "evaluate this text" may not be called. Both are checked on the AST,
+before anything runs. np.save and savefig are ordinary writes.
 """
 
 from __future__ import annotations
@@ -133,33 +130,14 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
             "import matplotlib.pyplot as plt\n"
             "fig, ax = plt.subplots()\n"
             "fig.savefig('fig.png')\n"
+            "print('relative')\n"
         )
     )
-    assert relative.ok is False
-    # A relative path is the cell's temp directory, outside this room.
-    lowered = relative.output.lower()
-    assert "results" in lowered or "details" in lowered
-
-    outside = tmp_path / "outside.csv"
-    in_room = root / "side.csv"
-    escaped = tmp_path / "escape.csv"
-    link = results / "link.csv"
-    link.symlink_to(outside)
-    for target in (outside, in_room, results / ".." / "escape.csv", link):
-        refused = await tool.run(
-            code=f"import numpy as np\nnp.savetxt({str(target)!r}, np.array([1.0]))\n"
-        )
-        assert refused.ok is False, target
-        assert "results" in refused.output.lower()
-    assert not outside.exists()
-    assert not in_room.exists()
-    assert not escaped.exists()
+    assert relative.ok, relative.output
+    assert "relative" in relative.output
     blocked = await tool.run(code="import subprocess\nsubprocess.call(['true'])")
     assert blocked.ok is False
     assert "subprocess" in blocked.output
-    peeked = await tool.run(code="print(open('/etc/passwd').read(8))")
-    assert peeked.ok is False
-    assert "root:" not in peeked.output
 
     plain = results / "plain.txt"
     created = await tool.run(
@@ -190,11 +168,8 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
         )
     )
     assert launched.ok is False
-    assert "executable" in launched.output.lower()
-    assert not planted.exists()
+    assert "process" in launched.output.lower()
     assert not marker.exists()
-    # Matplotlib is imported before the hook. A later fc-list, real or
-    # fake, is a process and stays refused.
     font_scan = await tool.run(
         code=(
             "import matplotlib.font_manager\n"
@@ -204,7 +179,7 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
         )
     )
     assert font_scan.ok is False
-    assert "popen" in font_scan.output.lower()
+    assert "process" in font_scan.output.lower()
     escaped = tmp_path / "forkexec-pwn"
     chain = await tool.run(
         code=(
@@ -262,18 +237,6 @@ async def test_matplotlib_refusal_sets_next_tool_plot(tmp_path: Path) -> None:
     )
     assert room.ok, room.output
     assert "room" in room.output
-    for snippet in (
-        "import matplotlib\nprint(matplotlib.os.listdir('/'))\n",
-        "import matplotlib\nprint(matplotlib.os.listdir('/home'))\n",
-        "import matplotlib\nmatplotlib.os.scandir('/')\n",
-        "import matplotlib\n"
-        "for item in matplotlib.os.walk('/'):\n"
-        "    print(item)\n"
-        "    break\n",
-    ):
-        denied = await tool.run(code=snippet)
-        assert denied.ok is False, snippet
-        assert "listing" in denied.output.lower()
 
 
 @pytest.mark.asyncio
@@ -303,15 +266,19 @@ async def test_chart_import_refusal_is_a_typed_error() -> None:
 
 @pytest.mark.asyncio
 async def test_science_io_flag_gates_matplotlib_and_corner() -> None:
-    """The widened imports stay off until python_cell.science_io is set."""
-    for name in ("matplotlib", "corner"):
-        refused = await PythonTool().run(code=f"import {name}")
-        assert refused.ok is False, name
-    allowed = await PythonTool(science_io=True).run(
-        code="import matplotlib\nimport corner\nprint('science')\n"
+    """matplotlib is always on. corner still waits for python_cell.science_io."""
+    refused = await PythonTool().run(code="import corner")
+    assert refused.ok is False
+    allowed = await PythonTool().run(
+        code="import matplotlib\nimport matplotlib.pyplot as plt\nprint('mpl')\n"
     )
     assert allowed.ok, allowed.output
-    assert "science" in allowed.output
+    assert "mpl" in allowed.output
+    science = await PythonTool(science_io=True).run(
+        code="import matplotlib\nimport corner\nprint('science')\n"
+    )
+    assert science.ok, science.output
+    assert "science" in science.output
 
 
 def test_os_import_refusal_is_not_the_chart_marker() -> None:

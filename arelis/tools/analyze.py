@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from arelis.core.cell_work import resolve_cell_work_file
 from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.tools.base import ToolResult
 from arelis.workspace import ResolvedPath, WorkspaceRoots
@@ -34,6 +35,35 @@ _MAX_OUTPUT_CHARS = 20_000
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
 _TEXT_SUFFIXES = {".txt", ".md", ".log", ".yaml", ".yml", ".ini", ".cfg", ".py"}
+_TABLE_SUFFIXES = {".csv", ".tsv", ".tab", ".xlsx", ".xls", ".json", ".npy", ".npz"}
+
+
+def frame_from_numpy(path: Path) -> Any:
+    """1-D or 2-D npy/npz as a DataFrame. pickle stays off."""
+    import numpy as np
+    import pandas as pd
+
+    loaded = np.load(path, allow_pickle=False)
+    closer = getattr(loaded, "close", None)
+    try:
+        files = getattr(loaded, "files", None)
+        if files is not None:
+            names = list(files)
+            if not names:
+                raise ValueError("empty npz")
+            data = np.asarray(loaded[names[0]])
+        else:
+            data = np.asarray(loaded)
+    finally:
+        if callable(closer):
+            closer()
+    if data.ndim == 1:
+        return pd.DataFrame({"value": data})
+    if data.ndim == 2:
+        frame = pd.DataFrame(data)
+        frame.columns = [str(c) for c in frame.columns]
+        return frame
+    raise ValueError("npy/npz needs a 1-D or 2-D array")
 
 
 _QUERY_MAX_ROWS = 100
@@ -245,12 +275,20 @@ class AnalyzeTool:
         self.roots = [r.path for r in self.workspace.roots]
 
     def _resolve(self, path_str: str):
+        work = resolve_cell_work_file(path_str, suffixes=_TABLE_SUFFIXES)
+        if work:
+            path = Path(work)
+            return ResolvedPath(
+                path=path,
+                root_name="outputs",
+                root=path.parent,
+            )
         try:
             hit = self.workspace.resolve_read(path_str)
         except Exception as first:
             drop = resolve_drop_file(
                 path_str,
-                suffixes={".csv", ".tsv", ".tab", ".xlsx", ".xls", ".json"},
+                suffixes=_TABLE_SUFFIXES,
             )
             if drop:
                 path = Path(drop)
@@ -272,7 +310,7 @@ class AnalyzeTool:
             )
         drop = resolve_drop_file(
             path_str,
-            suffixes={".csv", ".tsv", ".tab", ".xlsx", ".xls", ".json"},
+            suffixes=_TABLE_SUFFIXES,
         )
         if drop:
             path = Path(drop)
@@ -294,6 +332,8 @@ class AnalyzeTool:
         import pandas as pd
 
         suffix = path.suffix.lower()
+        if suffix in {".npy", ".npz"}:
+            return frame_from_numpy(path)
         if suffix == ".csv":
             return pd.read_csv(path, nrows=_MAX_ROWS_READ)
         if suffix in {".tsv", ".tab"}:
