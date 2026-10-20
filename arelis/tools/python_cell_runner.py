@@ -5,15 +5,12 @@ import arelis. The parent sends the source on stdin after this process has
 imported the numerics libraries and printed a ready line.
 
 The allowlist is the original cell unless the parent sets science_io. That
-flag adds matplotlib, corner, csv, seaborn, emcee, and astropy, and it allows
-numpy and astropy file IO plus savefig into the room's results folder.
-The audit hook is the boundary either way. It refuses new processes, sockets,
-ctypes, and directory listings outside the workspace. A create with execute
-permission is refused everywhere. With the flag on, a write has to stay in
-the results folder and a read may stay in the workspace. Library reads stay
-allowed. Matplotlib is imported before the hook when a snippet asks for
-it. The parent sets MPL_IGNORE_SYSTEM_FONTS, so that import uses the
-bundled fonts and does not spawn system_profiler or fc-list.
+flag adds matplotlib, corner, csv, seaborn, emcee, and astropy. Ordinary
+Python writes (open, np.save, savefig) run in this turn's work folder, which
+is the process cwd. Process launchers stay refused. Matplotlib is imported
+before those stubs when a snippet asks for it. The parent sets
+MPL_IGNORE_SYSTEM_FONTS, so that import uses the bundled fonts and does not
+spawn system_profiler or fc-list.
 """
 
 from __future__ import annotations
@@ -26,7 +23,6 @@ import sys
 import tempfile
 import time
 import traceback
-import types
 import warnings
 from pathlib import Path
 from typing import Any, NoReturn
@@ -81,7 +77,7 @@ _FORBIDDEN_CALLS = frozenset(
         "globals",
         "locals",
         # vars() stays callable. vars(numpy)["lo"+"ad"] is not an Attribute
-        # node, so a denylist cannot see it. The hook refuses the open.
+        # node, so a denylist cannot see it.
         "input",
         "breakpoint",
         "help",
@@ -114,8 +110,6 @@ _FORBIDDEN_ATTR_CALLS = frozenset(
         "check_call",
         "attrgetter",
         "methodcaller",
-        "savez",
-        "savez_compressed",
         "genfromtxt",
         "fromfile",
         "tofile",
@@ -138,11 +132,6 @@ _FORBIDDEN_ATTR_CALLS = frozenset(
 )
 
 _ATTR_CALL_ONLY = frozenset({"S"})
-# numpy/astropy file IO and savefig. Allowed only while science_io is on.
-# open() is the same switch: the hook then limits the path.
-_SCIENCE_ATTRS = frozenset(
-    {"save", "savetxt", "load", "loadtxt", "write", "writeto", "savefig", "open"}
-)
 
 _ATTR_REFUSAL = (
     "{name!r} is not allowed here, it evaluates text or touches the disk. "
@@ -170,59 +159,14 @@ _MATH_TOP = (
     "e",
 )
 
-# Same operations the in-process hook refused. os.putenv stays off the list:
-# importing scipy sets environment variables, and that is not a file or a socket.
-_BLOCKED_AUDIT_EVENTS = frozenset(
-    {
-        "os.system",
-        "os.fork",
-        "os.forkpty",
-        "os.exec",
-        "os.posix_spawn",
-        "os.spawn",
-        # 3.14 audits the launcher Popen uses. It is not the Popen event.
-        "_posixsubprocess.fork_exec",
-        "os.chmod",
-        "os.link",
-        "os.symlink",
-        "os.truncate",
-        "subprocess.Popen",
-        "socket.connect",
-        "socket.bind",
-        "socket.sendto",
-        "ctypes.dlopen",
-        "ctypes.dlsym",
-        "ctypes.call_function",
-        "shutil.copyfile",
-        "shutil.move",
-        "shutil.rmtree",
-        "webbrowser.open",
-        "urllib.Request",
-        "pickle.find_class",
-        "gc.get_objects",
-        "gc.get_referrers",
-        "gc.get_referents",
-    }
-)
-
-_IN_HOOK = False
 _READY_SENT = False
-# os.open's audit event passes the permission mode as None. The wrapper
-# stashes the real mode so the hook can refuse an executable create.
-_OS_OPEN_MODE: int | None = None
-_READ_ROOTS: list[Path] | None = None
-_WORK_READ: list[Path] = []
-_WORK_WRITE: list[Path] = []
-# Matplotlib's font cache and library temp files. Not a workspace root.
+# Matplotlib's font cache and library temp files. Not the work folder.
 _CACHE_ROOT: Path | None = None
 _AGG_LOCKED = False
-# These stay refused everywhere except the private cache. A workspace file
-# is written with open(), which the path check below already limits.
-_CACHE_ONLY_EVENTS = {"os.remove": 1, "os.rmdir": 1, "os.mkdir": 1, "os.rename": 2}
 
 
 class _CellBlocked(BaseException):
-    """Raised by the audit hook. BaseException so the cell cannot swallow it."""
+    """Raised by a process stub. BaseException so the cell cannot swallow it."""
 
 
 class _CellRefusedError(ValueError):
@@ -276,15 +220,11 @@ def _chart_imports() -> frozenset[str]:
 
 
 def _forbidden_calls() -> frozenset[str]:
-    if _SCIENCE_IO:
-        return _FORBIDDEN_CALLS
-    return _FORBIDDEN_CALLS | {"open"}
+    return _FORBIDDEN_CALLS
 
 
 def _forbidden_attr_calls() -> frozenset[str]:
-    if _SCIENCE_IO:
-        return _FORBIDDEN_ATTR_CALLS
-    return _FORBIDDEN_ATTR_CALLS | _SCIENCE_ATTRS
+    return _FORBIDDEN_ATTR_CALLS
 
 
 def _forbidden_attrs_anywhere() -> frozenset[str]:
@@ -301,99 +241,6 @@ def _import_refusal(name: str) -> NoReturn:
     )
 
 
-def _abs(path: Path) -> Path:
-    return Path(os.path.abspath(path))
-
-
-def is_unsafe_path(raw: str) -> bool:
-    """True for UNC and NT device prefixes. String check only, no resolve."""
-    text = (raw or "").strip()
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
-        text = text[1:-1].strip()
-    if not text:
-        return False
-    if text[:5].lower() == "file:":
-        rest = text[5:].replace("/", "\\")
-        if rest.startswith("\\\\\\\\"):
-            return True
-        if rest.startswith("\\\\") and not rest.startswith("\\\\\\"):
-            return True
-    norm = text.replace("/", "\\")
-    return norm.startswith("\\\\") or norm.startswith("\\??\\")
-
-
-def lexically_inside(path: Path, root: Path) -> bool:
-    """True when the path stays under root without following links.
-
-    Same rule as data_cell_runner.lexically_inside.
-    """
-    if is_unsafe_path(str(path)):
-        return False
-    root_abs = _abs(root)
-    candidate = path if path.is_absolute() else Path.cwd() / path
-    if is_unsafe_path(str(candidate)):
-        return False
-    try:
-        Path(os.path.normcase(os.path.abspath(candidate))).relative_to(
-            Path(os.path.normcase(str(root_abs)))
-        )
-    except ValueError:
-        return False
-    return True
-
-
-def is_reparse(path: Path) -> bool:
-    """Symlink, or a Windows junction on 3.12+ (is_symlink misses junctions)."""
-    try:
-        if path.is_symlink():
-            return True
-    except OSError:
-        return False
-    checker = getattr(path, "is_junction", None)
-    if not callable(checker):
-        return False
-    try:
-        return bool(checker())
-    except OSError:
-        return False
-
-
-def reparse_leaves(path: Path, root: Path) -> bool:
-    """True when a symlink or junction on the way resolves outside root."""
-    root_abs = _abs(root)
-    candidate = path if path.is_absolute() else Path.cwd() / path
-    try:
-        rel = os.path.relpath(os.path.abspath(candidate), str(root_abs))
-    except ValueError:
-        return True
-    if rel.startswith(".."):
-        return True
-    current = root_abs
-    for part in Path(rel).parts:
-        current = current / part
-        if not is_reparse(current):
-            continue
-        try:
-            target = Path(os.path.realpath(current))
-        except OSError:
-            return True
-        if not lexically_inside(target, root_abs):
-            return True
-        current = target
-    return False
-
-
-def _add_root(roots: list[Path], seen: set[str], raw: Path) -> None:
-    try:
-        key = os.path.normcase(os.path.abspath(raw))
-    except OSError:
-        return
-    if not key or key in seen:
-        return
-    seen.add(key)
-    roots.append(Path(key))
-
-
 def _candidate_sites(exe: Path) -> list[Path]:
     version = f"python{sys.version_info.major}.{sys.version_info.minor}"
     return [
@@ -404,116 +251,6 @@ def _candidate_sites(exe: Path) -> list[Path]:
         # Virtualenv on POSIX.
         exe.parent.parent / "lib" / version / "site-packages",
     ]
-
-
-def _compute_roots(exe: Path | None = None) -> list[Path]:
-    """Directories a read may touch. Snapshotted so the cell cannot widen it.
-
-    Stdlib and site-packages, plus the interpreter directory. The embeddable
-    installer keeps packages in Lib\\site-packages next to python.exe, which
-    ``-I`` can leave off sys.prefix. The runner's own directory is included
-    for the same reason data_cell_runner._library_read allows it: an editable
-    install runs this file from the source tree, not from site-packages.
-    """
-    roots: list[Path] = []
-    seen: set[str] = set()
-    if exe is None:
-        for raw in (sys.prefix, sys.base_prefix, getattr(sys, "base_exec_prefix", "")):
-            if raw:
-                _add_root(roots, seen, Path(raw))
-        for entry in list(sys.path):
-            if not entry or not os.path.isabs(str(entry)):
-                continue
-            path = Path(entry)
-            if path.suffix.lower() == ".zip":
-                path = path.parent
-            _add_root(roots, seen, path)
-        exe_path = Path(sys.executable).resolve()
-        _add_root(roots, seen, Path(__file__).resolve().parent)
-    else:
-        exe_path = Path(exe).resolve()
-    _add_root(roots, seen, exe_path.parent)
-    for site in _candidate_sites(exe_path):
-        if site.is_dir():
-            _add_root(roots, seen, site)
-    return roots
-
-
-def _read_roots() -> list[Path]:
-    global _READ_ROOTS
-    if _READ_ROOTS is None:
-        _READ_ROOTS = _compute_roots()
-    return _READ_ROOTS
-
-
-def _library_read(path: Path, exe: Path | None = None) -> bool:
-    """True when path is a stdlib or site-packages file, not a user's file."""
-    roots = _compute_roots(exe) if exe is not None else _read_roots()
-    return _library_read_from(path, roots)
-
-
-def _set_work_roots(raw: Any) -> None:
-    """Workspace folders for this cell. Resolved once, before the snippet runs.
-
-    Reads use the workspace root, the data cell's room. Writes use only
-    ``<root>/results``, the data cell's results folder.
-    """
-    global _WORK_READ, _WORK_WRITE
-    read: list[Path] = []
-    write: list[Path] = []
-    seen_read: set[str] = set()
-    seen_write: set[str] = set()
-    if isinstance(raw, list):
-        for item in raw:
-            path = ""
-            can_write = True
-            if isinstance(item, str):
-                path = item
-            elif isinstance(item, dict):
-                path = str(item.get("path") or "")
-                can_write = bool(item.get("write", True))
-            if not path.strip():
-                continue
-            _add_root(read, seen_read, Path(path))
-            if can_write:
-                _add_root(write, seen_write, Path(path) / "results")
-    _WORK_READ = read
-    _WORK_WRITE = write
-
-
-def _under_roots(path: Path, roots: list[Path]) -> bool:
-    """True when the resolved path stays inside one root.
-
-    ``..`` is collapsed by abspath before the check. A symlink or junction
-    that leaves the root is refused.
-    """
-    if is_unsafe_path(str(path)):
-        return False
-    for root in roots:
-        if lexically_inside(path, root) and not reparse_leaves(path, root):
-            return True
-    return False
-
-
-def _font_roots() -> list[Path]:
-    """OS font folders. Matplotlib's realpath walks their parents too."""
-    roots: list[Path] = []
-    windir = os.environ.get("SYSTEMROOT", "")
-    if windir:
-        roots.append(Path(windir) / "Fonts")
-    for extra in (
-        "/usr/share/fonts",
-        "/usr/local/share/fonts",
-        "/Library/Fonts",
-        "/System/Library/Fonts",
-    ):
-        roots.append(Path(extra))
-    return roots
-
-
-def _font_read(path: Path) -> bool:
-    """Matplotlib opens the OS font folder. That is not the user's files."""
-    return _under_roots(path, _font_roots())
 
 
 def _force_agg() -> None:
@@ -571,15 +308,12 @@ def _prepare_cache() -> None:
     tempfile.tempdir = text
 
 
-def _cache_path(path: Path) -> bool:
-    return _under_cache(path, _CACHE_ROOT)
-
-
 def _needs_matplotlib(code: str) -> bool:
     """True when the snippet imports matplotlib, corner, or seaborn.
 
     A cell that does not plot should not pay for the matplotlib import.
-    That import builds the font cache, so it has to finish before the hook.
+    That import builds the font cache, so it has to finish before launchers
+    are stubbed.
     """
     try:
         tree = ast.parse(code)
@@ -599,7 +333,7 @@ def _needs_matplotlib(code: str) -> bool:
 
 
 def _warm_matplotlib() -> None:
-    """Import pyplot before the hook, on the bundled fonts.
+    """Import pyplot before launchers are stubbed, on the bundled fonts.
 
     The parent sets ``MPL_IGNORE_SYSTEM_FONTS``. Without it, macOS lists
     fonts by spawning ``system_profiler``, and a fresh cache per cell
@@ -613,14 +347,13 @@ def _warm_matplotlib() -> None:
 
         del pyplot
     except Exception:
-        # No matplotlib: the cell still runs. A later import is refused by the hook
-        # if it tries to start a process.
+        # No matplotlib: the cell still runs.
         return
     _force_agg()
 
 
 def _wipe_cache() -> None:
-    """Delete the private cache. The hook is already installed, so no rmtree."""
+    """Delete the private cache."""
     root = _CACHE_ROOT
     if root is None or not root.is_dir():
         return
@@ -658,81 +391,6 @@ def _enable_sites() -> None:
             site.addsitedir(str(folder))
 
 
-def _as_int(value: Any) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
-
-
-def _is_write(mode: Any, flags: Any, os_open_mode: int | None) -> bool:
-    """True when this open writes. An executable create is refused outright.
-
-    ``os.open`` audits ``open(path, None, flags)`` and drops the permission
-    mode. ``os_open_mode`` is that mode, stashed by the wrapper. Any execute
-    bit on a create is refused, including inside the results folder.
-    """
-    try:
-        flag = int(flags or 0)
-    except (TypeError, ValueError):
-        flag = 0
-    perm = _as_int(mode)
-    if perm is None:
-        perm = _as_int(os_open_mode)
-    creat = bool(flag & getattr(os, "O_CREAT", 0))
-    if creat and perm is not None and perm & 0o111:
-        raise _CellBlocked("creating an executable is not allowed in this cell.")
-    if isinstance(mode, bytes):
-        mode = os.fsdecode(mode)
-    text = "" if mode is None else str(mode)
-    if any(ch in text for ch in "wax+"):
-        return True
-    bits = (
-        os.O_WRONLY
-        | os.O_RDWR
-        | os.O_CREAT
-        | getattr(os, "O_APPEND", 0)
-        | getattr(os, "O_TRUNC", 0)
-    )
-    return bool(flag & bits)
-
-
-def _install_open_guard(os_open_mode: list[int | None]) -> None:
-    """Remember os.open's permission mode. The audit event does not carry it."""
-    real = os.open
-
-    def guarded(
-        path: Any,
-        flags: int,
-        mode: int = 0o777,
-        *,
-        dir_fd: int | None = None,
-    ) -> int:
-        previous = os_open_mode[0]
-        os_open_mode[0] = mode if _as_int(mode) is not None else None
-        try:
-            if dir_fd is None:
-                return real(path, flags, mode)
-            return real(path, flags, mode, dir_fd=dir_fd)
-        finally:
-            os_open_mode[0] = previous
-
-    for module in list(sys.modules.values()):
-        mapping = getattr(module, "__dict__", None)
-        if not isinstance(mapping, dict):
-            continue
-        for name, value in list(mapping.items()):
-            if value is real:
-                try:
-                    mapping[name] = guarded
-                except Exception:
-                    # A frozen or extension module dict cannot be patched.
-                    # os.open is assigned again below, which is the lookup
-                    # matplotlib.os and the other aliases actually use.
-                    pass
-    os.open = guarded
-
-
-_LIST_EVENTS = frozenset({"os.listdir", "os.scandir", "os.walk", "os.fwalk"})
 _OS_LAUNCH_NAMES = (
     "fork",
     "forkpty",
@@ -784,7 +442,7 @@ def _replace_functions(targets: dict[int, Any]) -> None:
 
 
 def _stub_process_launchers() -> None:
-    """Refuse process launch before the hook. fork_exec never audits as Popen.
+    """Refuse process launch. fork_exec never looks like Popen.
 
     The optional matplotlib import has already finished, so it is not the
     one spawn this cell allows. After this, every alias of these functions
@@ -798,6 +456,12 @@ def _stub_process_launchers() -> None:
 
     for name in _OS_LAUNCH_NAMES:
         take(getattr(os, name, None))
+    try:
+        import subprocess
+
+        take(getattr(subprocess, "Popen", None))
+    except Exception:
+        pass
     for mod_name in ("posix", "nt", "_posixsubprocess", "_winapi"):
         module = sys.modules.get(mod_name)
         if module is None:
@@ -814,185 +478,17 @@ def _stub_process_launchers() -> None:
     _replace_functions(found)
 
 
-def _listing_allowed(
-    raw: Any,
-    *,
-    work_read: list[Path],
-    cache_root: Path | None,
-    read_roots: list[Path],
-) -> bool:
-    """A directory list may stay in the workspace, the libraries, or the cache."""
-    if raw is None:
-        return False
-    path = _as_path(raw)
-    if path is None:
-        return False
-    return bool(
-        _library_read_from(path, read_roots)
-        or _font_read(path)
-        or _under_roots(path, work_read)
-        or _under_cache(path, cache_root)
-    )
-
-
-def _library_read_from(path: Path, roots: list[Path]) -> bool:
-    if is_unsafe_path(str(path)):
-        return False
-    for root in roots:
-        if lexically_inside(path, root) and not reparse_leaves(path, root):
-            return True
-    return False
-
-
-def _under_cache(path: Path, cache_root: Path | None) -> bool:
-    if cache_root is None:
-        return False
-    return _under_roots(path, [cache_root])
-
-
-def _as_path(raw: Any) -> Path | None:
-    if isinstance(raw, int):
-        return None
-    if isinstance(raw, bytes):
-        raw = os.fsdecode(raw)
-    if raw is None:
-        return None
-    text = str(raw)
-    if not text or text in {"<fdopen>", "<stdin>", "<stdout>", "<stderr>", "<python>"}:
-        return None
-    if is_unsafe_path(text):
-        raise _CellBlocked(_refusal("reading a file outside the Python libraries"))
-    return Path(text)
-
-
-def _refusal(what: str) -> str:
-    return (
-        f"{what} is not allowed in this cell. No files, no processes, no sockets. "
-        "Use the workspace tool for files and plot for pictures."
-    )
-
-
-def _paths_in_cache(
-    event: str,
-    args: tuple[Any, ...],
-    cache_root: Path | None,
-    cache_only_events: dict[str, int],
-) -> bool:
-    """True when every path on a cache-only event stays in the private cache."""
-    count = cache_only_events[event]
-    if len(args) < count:
-        return False
-    for raw in args[:count]:
-        path = _as_path(raw)
-        if path is None or not _under_cache(path, cache_root):
-            return False
-    return True
-
-
-def _audit_inner(
-    event: str,
-    args: tuple[Any, ...],
-    *,
-    science_io: bool,
-    work_read: list[Path],
-    work_write: list[Path],
-    cache_root: Path | None,
-    read_roots: list[Path],
-    os_open_mode: int | None,
-    blocked_events: frozenset[str],
-    cache_only_events: dict[str, int],
-) -> None:
-    if event in cache_only_events:
-        if _paths_in_cache(event, args, cache_root, cache_only_events):
-            return
-        raise _CellBlocked(_refusal(event))
-    if event in blocked_events:
-        raise _CellBlocked(_refusal(event))
-    if event in _LIST_EVENTS:
-        raw = args[0] if args else None
-        if _listing_allowed(
-            raw, work_read=work_read, cache_root=cache_root, read_roots=read_roots
-        ):
-            return
-        raise _CellBlocked(
-            "listing a directory outside this room is not allowed in this cell."
-        )
-    if event != "open" or not args:
+def _set_cwd(raw: Any) -> None:
+    """Run the cell in the per-turn work folder the parent created."""
+    text = str(raw or "").strip()
+    if not text:
         return
-    mode = args[1] if len(args) > 1 else ""
-    flags = args[2] if len(args) > 2 else 0
-    path = _as_path(args[0])
-    if path is None:
+    try:
+        folder = Path(os.path.abspath(text))
+    except OSError:
         return
-    if _is_write(mode, flags, os_open_mode):
-        if science_io and (_under_roots(path, work_write) or _under_cache(path, cache_root)):
-            return
-        if science_io:
-            raise _CellBlocked(
-                "opening a file to write it is not allowed in this cell. "
-                "The path has to stay inside this room's results folder."
-            )
-        raise _CellBlocked(_refusal("opening a file to write it"))
-    if _library_read_from(path, read_roots):
-        return
-    if science_io and (
-        _font_read(path) or _under_roots(path, work_read) or _under_cache(path, cache_root)
-    ):
-        return
-    raise _CellBlocked(_refusal("reading a file outside the Python libraries"))
-
-
-def _forget_runner() -> None:
-    """Drop this file from sys.modules so cell code cannot reach it."""
-    mine = sys.modules.get(__name__)
-    for name, module in list(sys.modules.items()):
-        if module is mine or name == __name__:
-            sys.modules.pop(name, None)
-    if sys.modules.get("__main__") is mine or "__main__" not in sys.modules:
-        sys.modules["__main__"] = types.ModuleType("__main__")
-
-
-def _install_hook() -> None:
-    # Roots are fixed before the cell runs. Later edits to sys.path do not
-    # add a folder the hook will read. Matplotlib is already imported, so
-    # every later Popen is refused. Policy and the reentrancy flag live in
-    # this hook's closure, not on the module.
-    _read_roots()
-    _stub_process_launchers()
-    in_hook = False
-    science_io = bool(_SCIENCE_IO)
-    work_read = list(_WORK_READ)
-    work_write = list(_WORK_WRITE)
-    cache_root = _CACHE_ROOT
-    read_roots = list(_read_roots())
-    os_open_mode: list[int | None] = [None]
-    blocked_events = _BLOCKED_AUDIT_EVENTS
-    cache_only_events = _CACHE_ONLY_EVENTS
-    _install_open_guard(os_open_mode)
-
-    def _audit(event: str, args: tuple[Any, ...]) -> None:
-        nonlocal in_hook
-        if in_hook:
-            return
-        in_hook = True
-        try:
-            _audit_inner(
-                event,
-                args,
-                science_io=science_io,
-                work_read=work_read,
-                work_write=work_write,
-                cache_root=cache_root,
-                read_roots=read_roots,
-                os_open_mode=os_open_mode[0],
-                blocked_events=blocked_events,
-                cache_only_events=cache_only_events,
-            )
-        finally:
-            in_hook = False
-
-    sys.addaudithook(_audit)
-    _forget_runner()
+    if folder.is_dir():
+        os.chdir(folder)
 
 
 def _assert_safe(tree: ast.AST) -> None:
@@ -1133,9 +629,8 @@ def _namespace() -> dict[str, Any]:
         "ZeroDivisionError": ZeroDivisionError,
         "ArithmeticError": ArithmeticError,
         "__import__": _safe_import,
+        "open": open,
     }
-    if _SCIENCE_IO:
-        safe_builtins["open"] = open
     ns: dict[str, Any] = {
         "__builtins__": safe_builtins,
         "math": math,
@@ -1330,8 +825,8 @@ def main() -> None:
         namespace = _namespace()
         if _SCIENCE_IO and _needs_matplotlib(code):
             _warm_matplotlib()
-        _set_work_roots(payload.get("roots"))
-        _install_hook()
+        _set_cwd(payload.get("work"))
+        _stub_process_launchers()
         _announce()
         try:
             text = _execute(code, namespace)

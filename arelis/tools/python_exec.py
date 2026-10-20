@@ -2,7 +2,7 @@
 
 The pocket calculator is one expression. This tool runs a short cell:
 assignments, prints, math, sympy, numpy. It is not a general interpreter.
-os, subprocess, sockets, and the user's files stay out.
+os and subprocess stay out. Relative writes go to the per-turn work folder.
 
 The cell used to run in this process, on a thread. A tracer stopped a
 Python loop, and a C call that held the GIL froze the whole app, because
@@ -12,10 +12,10 @@ imported. On Windows that import is a new interpreter and can take longer
 than it does here, so a hung import is killed on its own budget instead of
 being counted against the cell, and instead of waiting forever.
 
-The AST checks and the audit hook live in the child. Name rules still
-refuse the obvious spellings. The hook refuses a process, a socket, ctypes,
-and any write outside the room's results folder. Reads stay inside the
-workspace. Matplotlib stays on the Agg backend.
+The AST checks live in the child. Name rules still refuse the obvious
+spellings. Process launchers are stubbed. The cell cwd is this turn's
+work folder, so relative saves land where plot and analyze look first.
+Matplotlib stays on the Agg backend.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from arelis.core.cell_work import cell_work_dir, cell_work_owned, note_cell_work_written
+from arelis.core.cell_work import cell_work_dir
 from arelis.tools.arg_error import arg_error
 from arelis.tools.base import ToolResult
 from arelis.tools.child_proc import _close_job, _spawn, child_env
@@ -65,8 +65,8 @@ _RUNNER = Path(__file__).with_name("python_cell_runner.py")
 def _workspace_payload(workspace: Any) -> list[dict[str, Any]]:
     """Absolute workspace roots the cell may read.
 
-    A writable root also gets a results folder. That is the only directory
-    the cell may write, same as the data cell.
+    A writable root also gets a results folder so a science_io cell can
+    write there by absolute path. Relative writes use the work folder.
     """
     roots = getattr(workspace, "roots", None)
     if not roots:
@@ -190,7 +190,9 @@ async def _run_in_child(
 def _run_in_child_sync(
     code: str, roots: list[dict[str, Any]], science_io: bool
 ) -> ToolResult:
-    work = Path(tempfile.mkdtemp(prefix="arelis-py-"))
+    scratch = Path(tempfile.mkdtemp(prefix="arelis-py-"))
+    work_dir = _cell_work_dir()
+    cwd = Path(work_dir) if work_dir else scratch
     env = child_env(
         {
             "PYTHONUNBUFFERED": "1",
@@ -214,7 +216,7 @@ def _run_in_child_sync(
     try:
         proc, job = _spawn(
             sys.executable,
-            work,
+            cwd,
             env,
             runner=_RUNNER,
             memory_bytes=_MEMORY_BYTES,
@@ -230,8 +232,7 @@ def _run_in_child_sync(
                         "code": code,
                         "roots": roots,
                         "science_io": science_io,
-                        "work": _cell_work_dir(),
-                        "owned": cell_work_owned(),
+                        "work": work_dir,
                     }
                 )
             )
@@ -260,7 +261,6 @@ def _run_in_child_sync(
         threads = []
         payload = _parse_result("".join(lines))
         if payload is not None:
-            _remember_written(payload)
             return _tool_result(code, payload)
         if _memory_death(proc):
             return arg_error(
@@ -281,7 +281,7 @@ def _run_in_child_sync(
         if proc is not None and threads:
             _finish_io(proc, threads)
         _close_job(job)
-        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def _attach_readers(
@@ -346,12 +346,6 @@ def _memory_death(proc: subprocess.Popen[str]) -> bool:
     if code is None:
         return False
     return code in _MEMORY_CODES or (code & 0xFFFFFFFF) in _MEMORY_CODES
-
-
-def _remember_written(payload: dict[str, Any]) -> None:
-    names = payload.get("written")
-    if isinstance(names, list):
-        note_cell_work_written(names)
 
 
 def _parse_result(text: str) -> dict[str, Any] | None:

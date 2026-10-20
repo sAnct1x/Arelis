@@ -1,17 +1,16 @@
 """Per-turn folder for python-cell writes. Not the user's documents drop tray.
 
 There was no existing per-turn work dir: C19's ``work/mini.csv`` is a drop-tray
-basename the #327 resolver already maps onto ``outputs/documents``. Cell writes
-land under ``outputs/work/<turn id>/``. plot/analyze look here first, then
+basename the #327 resolver already maps onto ``outputs/documents``. The cell
+runs with cwd ``outputs/work/<turn id>/``. plot/analyze look here first, then
 fall back to that documents resolver.
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
 from arelis.paths import ensure, outputs_dir
@@ -23,7 +22,6 @@ _TURN_ID_MAX = 32
 @dataclass
 class _TurnState:
     turn_id: str
-    owned: set[str] = field(default_factory=set)
 
 
 _STATES: dict[str, _TurnState] = {}
@@ -46,7 +44,7 @@ def _drive_path(raw: str) -> bool:
 
 
 def begin_cell_work(turn_id: str = "") -> None:
-    """Start a new turn's work folder id. Directory is created on first write."""
+    """Start a new turn's work folder id. Directory is created on first use."""
     _STATES[_data_key()] = _TurnState(turn_id=_safe_id(turn_id))
 
 
@@ -67,27 +65,6 @@ def current_cell_work_dir() -> Path | None:
         return None
     path = outputs_dir() / "work" / state.turn_id
     return path if path.is_dir() else None
-
-
-def cell_work_owned() -> list[str]:
-    """Relative names this turn's cell already wrote."""
-    state = _STATES.get(_data_key())
-    if state is None:
-        return []
-    return sorted(state.owned)
-
-
-def note_cell_work_written(names: list[Any]) -> None:
-    state = _STATES.get(_data_key())
-    if state is None:
-        return
-    for raw in names:
-        if not isinstance(raw, str):
-            continue
-        text = raw.replace("\\", "/").strip()
-        if not text or ".." in text.split("/"):
-            continue
-        state.owned.add(text)
 
 
 def resolve_cell_work_file(
