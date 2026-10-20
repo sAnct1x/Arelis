@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from arelis.core.cell_work import cell_work_dir
+from arelis.core.compact_prompt import skinny_description
 from arelis.core.events import EventType
 from arelis.core.evidence import EvidenceLedger
 from arelis.core.turn_context import TurnContext
@@ -50,6 +51,7 @@ class _Run:
 async def test_mcmc_cell_saves_samples_and_plot_draws_posterior(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arelis_window, qt_app
 ) -> None:
+    assert "savefig" in skinny_description("python")
     data = tmp_path / "data"
     project = tmp_path / "proj"
     project.mkdir()

@@ -48,7 +48,10 @@ _SHORT_DESC: dict[str, str] = {
     "notes": "desk notes. action=add|list|search|read. same folder as keep this",
     "pdf": "merge/split/rotate local PDFs. writes a new file. no form fill",
     "plot": "chart PNG. histogram|bar|subplots|line|scatter; expr=sin(x)+xmin/xmax; or path=CSV. path is the table, not the picture",
-    "python": "short numerics (numpy). no matplotlib. print xs,ys then plot with out=",
+    "python": (
+        "short numerics (numpy). You can draw charts with matplotlib; "
+        "save them with plt.savefig('name.png') and they appear in chat."
+    ),
     "recall": "search memory. action=docs (+ kind=pdf|docx|md) for local files. miss is a miss",
     "remind": "in-process timer. action=in minutes= + message; at=local time; list; cancel. max 7 days",
     "research_report": "first choice for a sourced multi-source report. searches and scrapes",
