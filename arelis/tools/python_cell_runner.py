@@ -456,12 +456,9 @@ def _stub_process_launchers() -> None:
 
     for name in _OS_LAUNCH_NAMES:
         take(getattr(os, name, None))
-    try:
-        import subprocess
+    import subprocess
 
-        take(getattr(subprocess, "Popen", None))
-    except Exception:
-        pass
+    take(getattr(subprocess, "Popen", None))
     for mod_name in ("posix", "nt", "_posixsubprocess", "_winapi"):
         module = sys.modules.get(mod_name)
         if module is None:
