@@ -150,27 +150,6 @@ def _opened_a_source(ctx: TurnContext) -> bool:
     return False
 
 
-def _owes_document(loop: Any, ctx: TurnContext) -> bool:
-    """True when a file is still owed: exactness, or named after a report.
-
-    C17 says 'convert that report to a PDF with the document tool'. That
-    wording is not a document exactness kind, so needs_document stays
-    false. The uncovered named step is still document. Treating only the
-    kind as a file ask left gather tools on after research_report, and
-    the 35B spent the rest of the turn in Chrome.
-
-    The named-step widen is only after research_report succeeded this
-    turn. Browser-repeat and wander-drop stay on main's exactness check.
-    """
-    if ctx.ledger.has_ok("document"):
-        return False
-    if ctx.exact_need.needs_document:
-        return True
-    if "research_report" not in getattr(loop, "tools_used", ()):
-        return False
-    return "document" in uncovered_named_steps(loop, ctx)
-
-
 def _hand_off_to_document(
     loop: Any,
     ctx: TurnContext,
@@ -183,10 +162,8 @@ def _hand_off_to_document(
     ``require_paper`` is off when she is already looping on one URL or
     has spent the page budget. A search cap with only Wikipedia does
     not count: scrape has to stay so she can open a paper.
-    After research_report the markdown already exists, so Wikipedia
-    sources must not keep Chrome on the menu.
     """
-    if not _owes_document(loop, ctx):
+    if not ctx.exact_need.needs_document:
         return
     if require_paper:
         if not _opened_a_source(ctx):
@@ -197,13 +174,37 @@ def _hand_off_to_document(
     if ctx.document_nudge_used or "document" not in r.tool_names:
         return
     ctx.document_nudge_used = True
+    r.messages.append({"role": "user", "content": document_force_notice()})
+
+
+def _hand_off_after_ok_research_report(
+    loop: Any, ctx: TurnContext, r: RoundScratch
+) -> None:
+    """Drop gather tools after this research_report succeeded and a file is owed.
+
+    last_ok_tool_name is this call's result. tools_used is the wrong
+    signal: it also records some failed calls. The named document step
+    is not an exactness kind, so needs_document alone misses C17.
+    """
+    if ctx.last_ok_tool_name != "research_report":
+        return
+    if ctx.ledger.has_ok("document"):
+        return
+    if not (
+        ctx.exact_need.needs_document
+        or "document" in uncovered_named_steps(loop, ctx)
+    ):
+        return
+    _drop_named(loop, r, _GATHER)
+    if ctx.document_nudge_used or "document" not in r.tool_names:
+        return
+    ctx.document_nudge_used = True
     notice = document_force_notice()
-    if "research_report" in getattr(loop, "tools_used", ()):
-        notice += (
-            " The research report is already written. "
-            "Call document with format pdf and from_path set to that file. "
-            "Do not search or browse."
-        )
+    notice += (
+        " The research report is already written. "
+        "Call document with format pdf and from_path set to that file. "
+        "Do not search or browse."
+    )
     r.messages.append({"role": "user", "content": notice})
 
 
@@ -615,7 +616,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     "were thin or listicles, say the sources were weak "
                     "- do not rank or declare a winner."
                 )
-                if _owes_document(loop, ctx) and ctx.ledger.has_ok("web"):
+                if ctx.exact_need.needs_document and ctx.ledger.has_ok("web"):
                     notice += " Call document now. Do not scrape another page."
                     _hand_off_to_document(loop, ctx, r, require_paper=False)
                 await loop.bus.publish(
@@ -764,7 +765,10 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 and (ctx.goal.kind == "browser" or looks_like_browser_click_signin(r.text))
                 and looks_like_browser_open_ask(r.text)
             )
-            owes_file = _owes_document(loop, ctx)
+            owes_file = (
+                ctx.exact_need.needs_document
+                and not ctx.ledger.has_ok("document")
+            )
             if (repeat or stop_open) and (name or "").strip() == "browser" and owes_file:
                 # A repeated browser open used to end the turn and paint
                 # the last page. On the K2-18 b ask that page was a
@@ -830,11 +834,10 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         )
         if ended:
             return True
-        # The report is the artifact. An uncovered document step must not
-        # keep browser/search on; C17 then spent ~11 Chrome calls on
-        # Wikipedia and a 404 and never wrote the PDF.
+        # Only a successful research_report this call hands off. Page-cap
+        # and browser-repeat stay on main's needs_document expressions.
         if name == "research_report":
-            _hand_off_to_document(loop, ctx, r, require_paper=False)
+            _hand_off_after_ok_research_report(loop, ctx, r)
 
     if ctx.skip_finish_text:
         await loop._finish(ctx.skip_finish_text, r.sources, streamed="")

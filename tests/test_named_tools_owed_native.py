@@ -406,20 +406,21 @@ class _WikiResearchReport(_StubTool):
 
 
 def test_c17_research_report_hands_off_named_document_not_browser() -> None:
-    """After research_report, a named document step must drop Chrome.
+    """After a successful research_report, a named document step drops Chrome.
 
     Fail-before: 'convert that report to a PDF with the document tool' is
-    not a document exactness kind, so _hand_off_to_document no-oped and
-    the 35B kept browsing Wikipedia / a DOE 404 for the rest of the turn.
+    not a document exactness kind, so the gather menu stayed on and the
+    35B kept browsing Wikipedia / a DOE 404 for the rest of the turn.
 
-    Second case: a named document step without research_report must not
-    widen owes-file. Drop the research_report gate in `_owes_document`
-    and a repeat browser open that merely names the document tool would
-    hold for a file even though needs_document is false. Main paints.
+    A failed report must not hand off (browser stays). A page-cap with
+    needs_document + web + document warrants and no report must match
+    main: drop browser/scrape, set the nudge, append 'Call document now'.
+    A named document step without research_report must not hold a
+    browser repeat; main paints.
     """
     from arelis.core.claims import ExactnessNeed, detect_document_ask
     from arelis.core.same_call import record_same_call, same_call_key
-    from arelis.core.turn_dispatch import _owes_document, dispatch_calls
+    from arelis.core.turn_dispatch import dispatch_calls
 
     assert not detect_document_ask(_C17_RESEARCH_PDF)
 
@@ -476,6 +477,51 @@ def test_c17_research_report_hands_off_named_document_not_browser() -> None:
     assert "Do not search or browse" in blob
     assert any("Unknown tool" in t for t in thinking) or "Unknown tool" in blob
 
+    fail_reg = ToolRegistry()
+    fail_reg.register(_FailingStub("research_report", risk="read"))
+    fail_reg.register(_StubTool("scrape", risk="read"))
+    fail_reg.register(_StubTool("browser", risk="read"))
+    fail_reg.register(_StubTool("document", risk="write"))
+    fail_extras: dict = {}
+    _fail_final, fail_results, fail_thinking = asyncio.run(
+        _run_agent_with_script(
+            _C17_RESEARCH_PDF,
+            [
+                _call(
+                    "scrape",
+                    {"url": "https://en.wikipedia.org/wiki/Solid-state_battery"},
+                ),
+                _call(
+                    "research_report",
+                    {"query": "solid-state batteries vs lithium-ion"},
+                ),
+                _call(
+                    "browser",
+                    {
+                        "action": "navigate",
+                        "url": "https://en.wikipedia.org/wiki/Solid-state_battery",
+                    },
+                ),
+                [("token", "report failed; still on the page")],
+            ],
+            ["research_report", "scrape", "browser", "document"],
+            {**_NATIVE, "max_rounds": 8},
+            registry=fail_reg,
+            capture_thinking=True,
+            extras=fail_extras,
+        )
+    )
+    assert fail_results[:3] == [
+        ("scrape", True),
+        ("research_report", False),
+        ("browser", True),
+    ], fail_results
+    assert not any("Unknown tool" in t for t in fail_thinking), fail_thinking
+    fail_blob = " ".join(
+        str(message.get("content") or "") for message in fail_extras.get("messages", [])
+    )
+    assert "Do not search or browse" not in fail_blob
+
     ask = (
         "Open the Wikipedia page on solid-state batteries, then convert "
         "that page to a PDF with the document tool."
@@ -509,12 +555,115 @@ def test_c17_research_report_hands_off_named_document_not_browser() -> None:
     ctx.same_skip_keys.add(key)
 
     assert "research_report" not in loop.tools_used
-    assert not _owes_document(loop, ctx)
     assert asyncio.run(dispatch_calls(loop, ctx, r, 20)) is True
     assert loop.finished is not None
     assert "browser" in r.tool_names
     assert "repeat held for the file" not in loop._trace
     assert "Call document" not in " ".join(str(m.get("content") or "") for m in r.messages)
+
+    page_url = "https://arxiv.org/abs/2309.16758"
+    page_names = {"browser", "scrape", "document", "web_search"}
+    page_loop = _FakeLoop()
+    page_loop.tools.ollama_tools = (
+        lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
+    )
+    page_r = _scratch(
+        text="Write a PDF of the K2-18 b paper.",
+        calls=[("scrape", {"url": page_url})],
+        content="",
+        streamed="",
+        tool_names=set(page_names),
+        available=set(page_names),
+        visible=set(page_names),
+        offer_tools=True,
+        messages=[],
+        page_ok={"https://arxiv.org/abs/1111.11111", "https://arxiv.org/abs/2222.22222"},
+    )
+    page_ctx = _ctx(text=page_r.text)
+    page_ctx.available_all = set(page_names)
+    page_ctx.tool_names = page_r.tool_names
+    page_ctx.exact_need = ExactnessNeed(
+        False,
+        True,
+        False,
+        False,
+        needs_document=True,
+        kinds=("web", "document"),
+    )
+    page_ctx.ledger.add(
+        source="https://arxiv.org/abs/2309.16758",
+        kind="web",
+        span="K2-18 b paper",
+        ok=True,
+    )
+    page_ctx.ledger.add(
+        source="outputs/documents/k218.pdf",
+        kind="document",
+        span="already wrote the pdf",
+        ok=True,
+    )
+    assert "research_report" not in page_loop.tools_used
+    assert asyncio.run(dispatch_calls(page_loop, page_ctx, page_r, 4)) is False
+    assert "browser" not in page_r.tool_names
+    assert "scrape" not in page_r.tool_names
+    assert page_ctx.document_nudge_used is True
+    page_blob = " ".join(str(m.get("content") or "") for m in page_r.messages)
+    assert "Call document now" in page_blob
+
+    from arelis.core.turn_dispatch import _hand_off_after_ok_research_report
+
+    fail_direct_names = {"browser", "scrape", "document", "research_report"}
+    fail_direct_r = _scratch(
+        text=_C17_RESEARCH_PDF,
+        calls=[],
+        content="",
+        streamed="",
+        tool_names=set(fail_direct_names),
+        available=set(fail_direct_names),
+        visible=set(fail_direct_names),
+        offer_tools=True,
+        messages=[],
+    )
+    fail_direct_ctx = _ctx(text=_C17_RESEARCH_PDF)
+    fail_direct_ctx.available_all = set(fail_direct_names)
+    fail_direct_ctx.tool_names = fail_direct_r.tool_names
+    fail_direct_ctx.last_ok_tool_name = "scrape"
+    fail_direct_ctx.last_fail_tool_name = "research_report"
+    fail_direct_ctx.ledger.add(
+        source="https://en.wikipedia.org/wiki/Solid-state_battery",
+        kind="web",
+        span="scrape ok",
+        ok=True,
+    )
+    _hand_off_after_ok_research_report(_FakeLoop(), fail_direct_ctx, fail_direct_r)
+    assert "browser" in fail_direct_r.tool_names
+    assert fail_direct_ctx.document_nudge_used is False
+
+    done_names = {"browser", "scrape", "document", "research_report"}
+    done_r = _scratch(
+        text=_C17_RESEARCH_PDF,
+        calls=[],
+        content="",
+        streamed="",
+        tool_names=set(done_names),
+        available=set(done_names),
+        visible=set(done_names),
+        offer_tools=True,
+        messages=[],
+    )
+    done_ctx = _ctx(text=_C17_RESEARCH_PDF)
+    done_ctx.available_all = set(done_names)
+    done_ctx.tool_names = done_r.tool_names
+    done_ctx.last_ok_tool_name = "research_report"
+    done_ctx.ledger.add(
+        source="outputs/documents/ssb.pdf",
+        kind="document",
+        span="already wrote the pdf",
+        ok=True,
+    )
+    _hand_off_after_ok_research_report(_FakeLoop(), done_ctx, done_r)
+    assert "browser" in done_r.tool_names
+    assert done_ctx.document_nudge_used is False
 
 
 @pytest.mark.parametrize(
