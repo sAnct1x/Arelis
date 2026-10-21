@@ -14,6 +14,9 @@ _UREG = UnitRegistry()
 # Pint treats "90 degF" as 90 * degF, which is illegal for offset units
 # unless this flag is on. Spoken temperature asks need it.
 _UREG.autoconvert_offset_to_baseunit = True
+_MASS_DIM = _UREG.get_dimensionality("kilogram")
+_FORCE_DIM = _UREG.get_dimensionality("newton")
+_MASS_FORCE = "Those units do not convert (mass vs force)."
 _ACTIONS = frozenset({"convert", "constant"})
 _FRAME_WORDS = ("cmb frame", "rest frame", "comoving", "peculiar velocity")
 # Pint reads "5 ft 8 in" / "6 foot 2" as a product (length²). A height is a sum.
@@ -240,9 +243,16 @@ def _convert(quantity: str, to_unit: str) -> ToolResult:
             data={"fail_class": "fail:unit", "quantity": qty, "to": dest},
         )
     except DimensionalityError as exc:
+        # Kilogram to pound-force parsed, then Pint reported the mismatch as
+        # dimension algebra. Say which kinds of unit those are.
+        output = (
+            _MASS_FORCE
+            if _mass_versus_force(src_text, dest_text)
+            else f"Those units do not convert: {exc}"
+        )
         return ToolResult(
             ok=False,
-            output=f"Those units do not convert: {exc}",
+            output=output,
             data={"fail_class": "fail:dimensionality", "quantity": qty, "to": dest},
         )
     except Exception as exc:
@@ -311,11 +321,42 @@ _NUMBER_THEN_UNIT = re.compile(
 )
 
 
+# Pint's parser treats "-" as subtraction. "pound-force" and "lb-f" raise
+# ParserHelper's "cannot add or subtract units" before a conversion exists.
+# The defined name is force_pound. Bare "lbf" is only an alias of that.
+_FORCE_POUND = re.compile(
+    r"(?i)\b(?:"
+    r"lbf"
+    r"|lbs?[\s\-]+f"
+    r"|pounds?[\s\-]*force"
+    r"|lbs?[\s\-]*force"
+    r"|force[\s\-]*pounds?"
+    r")\b"
+)
+
+
 def _normalize_unit(text: str) -> str:
     out = _map_astro_au((text or "").strip())
     for pattern, repl in _TEMP_UNIT:
         out = pattern.sub(repl, out)
-    return out
+    return _FORCE_POUND.sub("force_pound", out)
+
+
+def _dimensionality(text: str):
+    """Pint dimensionality of a quantity or a bare unit, or None if it will not parse."""
+    try:
+        return _UREG.Quantity(text).dimensionality
+    except Exception:
+        # Pint raises a different type for an unknown word, a bad token and an
+        # empty string. Every one of them means "not a quantity", so this pair
+        # is not mass-versus-force and the caller keeps Pint's own message.
+        return None
+
+
+def _mass_versus_force(left: str, right: str) -> bool:
+    """True when one side is mass and the other is force."""
+    found = {_dimensionality(left), _dimensionality(right)}
+    return found == {_MASS_DIM, _FORCE_DIM}
 
 
 def _magnitude_and_unit(text: str) -> tuple[str, str]:
