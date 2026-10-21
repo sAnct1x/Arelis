@@ -467,6 +467,7 @@ async def prepare_turn(
     source: str = "chat",
     route_reason: str = "default",
     stopped_ask: str = "",
+    typed_text: str | None = None,
 ) -> TurnContext | None:
     """Build the prompt and TurnContext. None if the turn already finished."""
     start = await _begin_turn(
@@ -589,6 +590,7 @@ async def prepare_turn(
     exact_need = detect_exactness_need(text, data_cell="data_cell" in set(visible))
     ctx = TurnContext(
         text=text,
+        typed_text=typed_text,
         role=role,
         speak=speak,
         research_mode=research_mode,

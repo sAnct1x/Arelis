@@ -18,6 +18,7 @@ from arelis.core.turn_scratch import (
     RoundScratch,
     named_tools_owed_runnable,
     negated_tool_mentions,
+    text_the_user_typed,
 )
 
 NUDGE = "nudge"
@@ -62,7 +63,7 @@ def owed_tool_names(loop: Any, ctx: TurnContext, r: RoundScratch) -> list[str]:
     has a warrant is out. Anything else the user named stays owed.
     """
     owed = named_tools_owed_runnable(loop, ctx, r.fail_counts)
-    negated = negated_tool_mentions(ctx.text, owed)
+    negated = negated_tool_mentions(text_the_user_typed(ctx), owed)
     owed = [n for n in owed if n not in negated]
     kinds = tuple(getattr(ctx.exact_need, "kinds", ()) or ())
     missing = ctx.ledger.missing_kinds(kinds)

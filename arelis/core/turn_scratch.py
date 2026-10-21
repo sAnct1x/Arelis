@@ -150,6 +150,20 @@ _OWED_TOOL_VERBS: dict[str, re.Pattern[str]] = {
 }
 
 
+def text_the_user_typed(ctx: TurnContext) -> str:
+    """The ask they typed, without attachment rules or continuation lines.
+
+    Those lines are added to ``ctx.text`` so the model can see the staged
+    path. They are not the user naming a tool. ``typed_text`` is that ask,
+    kept beside the injected lines. None means nothing was injected and
+    ``ctx.text`` is the ask.
+    """
+    typed = ctx.typed_text
+    if typed is None:
+        return ctx.text or ""
+    return typed
+
+
 def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
     """Tools the user named in the ask that have not run yet this turn.
 
@@ -157,10 +171,12 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
     weather, ...). "convert with units, then calculator, then remember it" owes
     ``memory`` and ``document`` chains that no kind covers, so the first success
     stripped the tool array and the rest of the chain never ran. A tool is owed
-    when its name is a whole word in the text, it is on this turn's menu, and it
-    has not succeeded. ``max_rounds`` still bounds a model that will not call it.
+    when its name is a whole word in the text they typed, it is on this turn's
+    menu, and it has not succeeded. Attachment rules, continuation
+    instructions, and staged filenames are not part of that text.
+    ``max_rounds`` still bounds a model that will not call it.
     """
-    text = (ctx.text or "").lower()
+    text = text_the_user_typed(ctx).lower()
     owed: list[str] = []
     for name in sorted(ctx.available_all):
         if name in loop.tools_used:
@@ -325,10 +341,11 @@ def _same_step_alternative(text: str, pending: str, done: set[str]) -> bool:
 def uncovered_named_steps(loop: Any, ctx: TurnContext) -> list[str]:
     """Named tools still open, ignoring an or-choice the receipt already covered."""
     done = set(getattr(loop, "tools_used", ()) or ())
+    typed = text_the_user_typed(ctx)
     return [
         name
         for name in named_tools_owed(loop, ctx)
-        if not _same_step_alternative(ctx.text, name, done)
+        if not _same_step_alternative(typed, name, done)
     ]
 
 

@@ -381,6 +381,7 @@ class OrchestratorTurns:
             language=language,
             phone_speak=phone_speak,
             grant_text=text,
+            typed_text=text,
         )
 
     async def _ensure_external_path_grants(self, text: str) -> bool:
@@ -429,6 +430,7 @@ class OrchestratorTurns:
         language: str = "",
         phone_speak: bool = False,
         grant_text: str | None = None,
+        typed_text: str | None = None,
     ) -> None:
         async with self._turn_lock:
             # Typed absolute paths outside roots need an Allow (read-only
@@ -496,6 +498,7 @@ class OrchestratorTurns:
                     source=source,
                     route_reason=route_reason,
                     stopped_ask=stopped_ask,
+                    typed_text=typed_text,
                 )
             )
             self._turn_task = task

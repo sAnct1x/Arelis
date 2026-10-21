@@ -26,6 +26,11 @@ class TurnContext:
 
     text: str
     role: ModelRole
+    # Words they typed. ``text`` is what the model sees, and it may open
+    # with an attachment block or a continuation instruction. None means
+    # this turn was given one string, and that string is the ask. An empty
+    # string means a file was attached and they typed nothing.
+    typed_text: str | None = None
     speak: bool = False
     research_mode: bool = False
     agent_cfg: dict[str, Any] = field(default_factory=dict)
