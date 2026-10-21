@@ -249,6 +249,9 @@ def display_path(path: Path | str) -> str:
     Installed, this is what keeps a Windows username out of ordinary chat
     messages, since the data root contains the account name and the short form
     does not.
+
+    A label or tooltip wants ``ui_display_path``. This function stays absolute
+    outside the data root so a path written into a tool result still resolves.
     """
     try:
         resolved = Path(path).resolve()
@@ -262,6 +265,80 @@ def display_path(path: Path | str) -> str:
         return resolved.as_posix()
 
 
+def _looks_absolute(text: str) -> bool:
+    """True for a POSIX absolute path or a Windows drive path.
+
+    ``Path.is_absolute`` is false for ``C:/...`` on Linux, and a drive path is
+    the one that carries a Windows account name.
+    """
+    if Path(text).is_absolute():
+        return True
+    return len(text) >= 2 and text[0].isalpha() and text[1] == ":"
+
+
+def _posix_under(child: Path, parent: Path) -> str | None:
+    """``child`` relative to ``parent``, forward-slashed, or None.
+
+    Windows ``relative_to`` on 3.11 is case-sensitive. A mismatch used to fall
+    through to the absolute path and put the account name back on screen. The
+    fold is only the comparison. The tail keeps the original spelling.
+    """
+    try:
+        return child.relative_to(parent).as_posix()
+    except ValueError:
+        if os.name != "nt":
+            return None
+    child_text = os.path.normpath(str(child))
+    parent_text = os.path.normpath(str(parent))
+    folded_child = os.path.normcase(child_text)
+    folded_parent = os.path.normcase(parent_text)
+    if folded_child == folded_parent:
+        return "."
+    prefix = folded_parent.rstrip("\\/") + "\\"
+    if not folded_child.startswith(prefix):
+        return None
+    return child_text[len(prefix) :].replace("\\", "/")
+
+
+def expand_displayed_home(path: str) -> str:
+    """Undo the ``~`` form ``ui_display_path`` writes. Other strings stay put.
+
+    Only a leading ``~`` or ``~/`` is this account. ``~name`` would ask the OS
+    for a different account, and a file can be named that.
+    """
+    text = str(path or "").strip()
+    if text == "~" or text.startswith("~/") or text.startswith("~\\"):
+        return str(Path(text).expanduser())
+    return text
+
+
+def ui_display_path(path: Path | str) -> str:
+    """How a path is written on a label or a tooltip.
+
+    ``display_path`` hides the data folder and leaves everything else absolute.
+    A project under Documents is outside that folder, so the absolute form
+    still contains the Windows username. ``~`` names one place. It is not the
+    chain of ``..`` this module refuses to invent, and a tool result does not
+    use this helper, so a path the model has to open stays resolvable.
+    """
+    text = str(path or "").strip()
+    if not text:
+        return ""
+    shown = display_path(text)
+    if not _looks_absolute(shown):
+        return shown
+    try:
+        resolved = Path(expand_displayed_home(text)).resolve()
+        relative = _posix_under(resolved, Path.home().resolve())
+    except OSError:
+        return shown
+    if relative is None:
+        return shown
+    if relative in {"", "."}:
+        return "~"
+    return "~/" + relative
+
+
 def resolve_display_path(path: str | Path) -> str:
     """Open a path that display_path shortened.
 
@@ -269,8 +346,9 @@ def resolve_display_path(path: str | Path) -> str:
     that string uses the process working directory. An installed copy
     starts in the install folder, so the Workspace pane cannot load the
     file. An absolute path is already a location and is returned as given.
+    A ``~`` path from a tooltip is expanded before that check.
     """
-    text = str(path or "").strip()
+    text = expand_displayed_home(str(path or "").strip())
     if not text:
         return ""
     raw = Path(text)

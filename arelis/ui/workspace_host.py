@@ -8,6 +8,7 @@ from arelis.config import _parse_workspace_roots, merge_local_config
 from arelis.core.failure_copy import plain_reason
 from arelis.desk import DeskStore, infer_kind, is_image_kind, is_text_kind, write_note
 from arelis.local_open import open_local_file, reveal_local_file
+from arelis.paths import ui_display_path
 from arelis.ui.dialog import ask_text
 from arelis.ui.layout_store import push_recent_workspace_file
 from arelis.workspace import RootEntry
@@ -91,7 +92,7 @@ def register_workspace_folder(window, path: Path, *, make_active: bool = True) -
         window.thinking.append(f"Could not resolve folder: {exc}", kind="status")
         return
     if not resolved.is_dir():
-        window.thinking.append(f"Not a folder: {resolved}", kind="status")
+        window.thinking.append(f"Not a folder: {ui_display_path(resolved)}", kind="status")
         return
     for entry in window.workspace_roots.roots:
         if entry.path.resolve() == resolved:
@@ -142,7 +143,7 @@ def new_workspace_folder_dialog(window) -> None:
     try:
         target.mkdir(parents=False, exist_ok=False)
     except FileExistsError:
-        window.thinking.append(f"Already exists: {target}", kind="status")
+        window.thinking.append(f"Already exists: {ui_display_path(target)}", kind="status")
         return
     except OSError as exc:
         window.thinking.append(f"Could not create folder: {exc}", kind="status")

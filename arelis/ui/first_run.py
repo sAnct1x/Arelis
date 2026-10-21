@@ -23,6 +23,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFileDialog, QWidget
 
 from arelis import onboarding
+from arelis.paths import ui_display_path
 from arelis.ui.dialog import GlassDialog
 from arelis.workspace import FOLDER_CHOICE_HELP
 
@@ -50,7 +51,7 @@ class FirstRunDialog(GlassDialog):
             + FOLDER_CHOICE_HELP
         )
 
-        self._path_label = self.add_text(str(self._root), role="DialogPath")
+        self._path_label = self.add_text(ui_display_path(self._root), role="DialogPath")
         # Selectable so it can be copied. Someone deciding whether to grant this
         # may well want to go and look at the folder first.
         self._path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -83,7 +84,7 @@ class FirstRunDialog(GlassDialog):
         )
         if picked:
             self._root = Path(picked)
-            self._path_label.setText(str(self._root))
+            self._path_label.setText(ui_display_path(self._root))
 
 
 def prompt_for_workspace_root(parent: QWidget | None = None) -> Path | None:

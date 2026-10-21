@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.attachments import resolve_staged_path
+from arelis.paths import ui_display_path
 from arelis.ui.theme import COLORS
 
 # One thumbnail height. Images keep their aspect (clamped); files are square.
@@ -87,6 +88,16 @@ class _HScroll(QScrollArea):
         event.accept()
 
 
+def _tooltip_path(text: str) -> str:
+    """Absolute paths go through the UI helper. A short path is already safe."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("~") or Path(raw).is_absolute():
+        return ui_display_path(raw)
+    return raw
+
+
 class AttachmentTile(QWidget):
     """One rail tile: cover-cropped image, or a hairline file card. No grey fill."""
 
@@ -105,8 +116,8 @@ class AttachmentTile(QWidget):
             attachment.get("name") or Path(str(attachment.get("path") or "")).name or "file"
         )
         self._kind = str(attachment.get("kind") or "other")
-        path = str(attachment.get("path") or "")
-        source = str(attachment.get("source_path") or "")
+        path = _tooltip_path(str(attachment.get("path") or ""))
+        source = _tooltip_path(str(attachment.get("source_path") or ""))
         tip = path if not source else f"{path}\nfrom {source}"
         self.setToolTip(tip)
 
