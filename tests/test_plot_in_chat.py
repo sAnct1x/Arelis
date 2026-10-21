@@ -44,6 +44,8 @@ def _image_names(doc) -> list[str]:
             QTextCursor.MoveOperation.NextCharacter,
             QTextCursor.MoveMode.KeepAnchor,
         )
+        if cursor.selectedText() != "\ufffc":
+            continue
         fmt = cursor.charFormat()
         if fmt.isImageFormat():
             found.append(fmt.toImageFormat().name())
