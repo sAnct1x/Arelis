@@ -203,6 +203,19 @@ async def confirm_call(
             messages=messages,
         )
 
+    # A later copy of a call they already refused. Same fact, no second card,
+    # and the tool stays on the menu. Hiding it is what turned the next call
+    # into "Unknown tool" plus the rest of the menu.
+    if name in ctx.declined_tools:
+        messages.append(
+            loop._tool_message(name, _SKIP_NOTICE.format(tool=name))
+        )
+        loop._trace.append(f"{name} skipped")
+        await loop.bus.publish(
+            Event(EventType.THINKING, {"text": f"skip  {name} already"})
+        )
+        return SKIP, "", call_fp
+
     asked = name in loop._expected_tools
     if name == "browser" and user_asked_for_browser(text):
         asked = True
@@ -313,16 +326,16 @@ async def confirm_call(
                 Event(EventType.THINKING, {"text": f"skip  {summary}"})
             )
             skip_counts[call_fp] = skip_counts.get(call_fp, 0) + 1
-            drop = (
-                name not in loop._expected_tools
-                or skip_counts[call_fp] >= 2
+            # expected_tools is the goal's finishing tool (send, weather,
+            # research), not the tools this ask is about. A no on image,
+            # plot, or memory is not wander off that goal. Hiding the name
+            # makes the next call "Unknown tool" and lists whatever is left,
+            # which is how a declined image card turned into a web search.
+            wander_off_goal = (
+                bool(loop._expected_tools) and name not in loop._expected_tools
             )
-            if drop:
-                notice = (
-                    f"The user said no to this {name} call, so it was not done. "
-                    "Tell them you skipped it because they said no. "
-                    "Do not call it again this turn."
-                )
+            notice = _SKIP_NOTICE.format(tool=name)
+            if wander_off_goal:
                 if (
                     "send_sms" in loop._expected_tools
                     and name != "send_sms"
@@ -345,12 +358,8 @@ async def confirm_call(
                         "skip_drop", tool=name, action="drop_tool"
                     )
             else:
-                messages.append(
-                    loop._tool_message(
-                        name, _SKIP_NOTICE.format(tool=name)
-                    )
-                )
-                loop._trace.append(f"{name} declined by user")
+                messages.append(loop._tool_message(name, notice))
+                loop._trace.append(f"{name} skipped")
             if (
                 name in {"send_sms", "send_email"}
                 and name in loop._expected_tools
