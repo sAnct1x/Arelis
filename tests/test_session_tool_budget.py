@@ -77,6 +77,15 @@ def test_vision_registers_only_when_the_launch_line_has_an_mmproj(
     weights.mkdir()
     monkeypatch.setattr("arelis.paths.models_dir", lambda: weights)
     monkeypatch.setattr("arelis.llm.llama_launch._cache_roots", lambda: [])
+    monkeypatch.setattr("arelis.paths.published_data_dir", lambda: None)
+
+    import httpx
+
+    def _server_down(url: str, timeout: float = 0.4, follow_redirects: bool = False) -> None:
+        del url, timeout, follow_redirects
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr("arelis.llm.llama_launch.httpx.get", _server_down)
     bare = {
         "tools": {},
         "agent": {},
@@ -122,6 +131,116 @@ def test_vision_registers_only_when_the_launch_line_has_an_mmproj(
         named, allow_send=True, attended=True, router=router
     )
     assert "vision" in by_name.names()
+
+    # Fresh profile: this data dir has no weights. The installed profile does.
+    # build_router is the startup path (migrate, then the launch line the
+    # provider keeps). The registry is built from that same config.
+    from arelis.llm import build_router
+
+    empty = tmp_path / "empty-weights"
+    empty.mkdir()
+    published = tmp_path / "published"
+    (published / "models").mkdir(parents=True)
+    (published / "models" / MODEL_FILENAME).write_bytes(b"gguf")
+    monkeypatch.setattr("arelis.paths.models_dir", lambda: empty)
+    monkeypatch.setattr("arelis.paths.published_data_dir", lambda: published)
+    monkeypatch.setattr("arelis.llm.llama_launch._cache_roots", lambda: [])
+
+    def _server_down(url: str, timeout: float = 0.4, follow_redirects: bool = False) -> None:
+        del url, timeout, follow_redirects
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr("arelis.llm.llama_launch.httpx.get", _server_down)
+    profile = {
+        "llm": {"provider": "llamacpp"},
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "models": {},
+        "router": {},
+        "tools": {},
+        "agent": {},
+    }
+    seat = build_router(profile)
+    assert profile["llamacpp"]["model"] == MODEL_FILENAME
+    assert seat.provider._launch_args
+    fresh_missing = build_tool_registry(
+        profile, allow_send=True, attended=True, router=seat
+    )
+    assert "vision" not in fresh_missing.names()
+    (published / "models" / MMPROJ_FILENAME).write_bytes(b"mmproj")
+    fresh = build_tool_registry(
+        profile, allow_send=True, attended=True, router=seat
+    )
+    assert "vision" in fresh.names()
+
+    # Relative path from the data dir, not from the process working directory.
+    rel_root = tmp_path / "rel"
+    (rel_root / "models").mkdir(parents=True)
+    (rel_root / "models" / MODEL_FILENAME).write_bytes(b"gguf")
+    (rel_root / "models" / MMPROJ_FILENAME).write_bytes(b"mmproj")
+    monkeypatch.setattr("arelis.paths.user_data_dir", lambda: rel_root)
+    monkeypatch.setattr("arelis.paths.models_dir", lambda: empty)
+    monkeypatch.setattr("arelis.paths.published_data_dir", lambda: None)
+    relative = {
+        "tools": {},
+        "agent": {},
+        "models": {},
+        "llamacpp": {
+            "model": f"models/{MODEL_FILENAME}",
+            "base_url": "http://127.0.0.1:8080",
+        },
+    }
+    relative_args = launch_args_for(relative)
+    assert relative_args is not None
+    assert Path(relative_args[relative_args.index("-m") + 1]) == (
+        rel_root / "models" / MODEL_FILENAME
+    ).resolve()
+    by_relative = build_tool_registry(
+        relative, allow_send=True, attended=True, router=router
+    )
+    assert "vision" in by_relative.names()
+
+    # No file this profile can see. The server already up names its GGUF.
+    # modalities.vision is not enough: the picture file has to be on disk.
+    server_dir = tmp_path / "already-up"
+    server_dir.mkdir()
+    server_model = server_dir / MODEL_FILENAME
+    server_model.write_bytes(b"gguf")
+    monkeypatch.setattr("arelis.paths.models_dir", lambda: empty)
+    monkeypatch.setattr("arelis.paths.published_data_dir", lambda: None)
+    monkeypatch.setattr("arelis.paths.user_data_dir", lambda: empty)
+
+    class _Props:
+        status_code = 200
+
+        def json(self) -> dict[str, object]:
+            return {
+                "model_path": str(server_model),
+                "modalities": {"vision": True},
+            }
+
+    def _props(url: str, timeout: float = 0.4, follow_redirects: bool = False) -> _Props:
+        del timeout, follow_redirects
+        assert url == "http://127.0.0.1:8080/props"
+        return _Props()
+
+    monkeypatch.setattr("arelis.llm.llama_launch.httpx.get", _props)
+    running = {
+        "tools": {},
+        "agent": {},
+        "models": {},
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+    }
+    assert launch_args_for(running) is None
+    spoke = build_tool_registry(
+        running, allow_send=True, attended=True, router=router
+    )
+    assert "vision" not in spoke.names()
+    (server_dir / MMPROJ_FILENAME).write_bytes(b"mmproj")
+    heard = build_tool_registry(
+        running, allow_send=True, attended=True, router=router
+    )
+    assert "vision" in heard.names()
+    assert "camera" in heard.names()
 
 
 def test_vision_and_camera_need_the_vl_model() -> None:

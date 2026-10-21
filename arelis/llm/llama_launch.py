@@ -161,34 +161,112 @@ def _launch_args_for(config: dict[str, Any]) -> list[str] | None:
 def locate_model_gguf(config: dict[str, Any]) -> Path | None:
     """The UD-Q4_K_M file, from config or the same folders other weights use.
 
-    A bare file name is looked up beside the other weights. A full path that
-    is not on disk stays missing: no server, no exception.
+    A bare file name is looked up beside the other weights. A relative path
+    is resolved from the data directory, not from the process working
+    directory, so a Start-menu launch and a shell launch find the same file.
+    A full path that is not on disk stays missing: no server, no exception.
     """
     lc = config.get("llamacpp") or {}
     explicit = str(lc.get("model") or "").strip()
-    if explicit:
-        path = Path(explicit).expanduser()
-        if path.is_file():
-            return path
-        if path.parent == Path("."):
-            return _find_weight(path.name)
+    if not explicit:
+        return _find_weight(MODEL_FILENAME)
+    path = Path(explicit).expanduser()
+    if path.is_file():
+        return path
+    if path.is_absolute():
         return None
-    return _find_weight(MODEL_FILENAME)
+    found = _find_relative(path)
+    if found is not None:
+        return found
+    if path.parent == Path("."):
+        return _find_weight(path.name)
+    return None
+
+
+def _model_roots() -> list[Path]:
+    """Folders that hold a bare GGUF name. The installed profile is included.
+
+    A checkout, or a fresh data dir, does not own the weights the installed
+    copy already has. Voice files already fall back there. The 35B does too.
+    """
+    from arelis.paths import models_dir, published_data_dir
+
+    roots = [models_dir()]
+    published = published_data_dir()
+    if published is not None:
+        extra = published / "models"
+        if extra not in roots:
+            roots.append(extra)
+    return roots
 
 
 def _find_weight(name: str) -> Path | None:
     """One file name in the model folder, its llm subfolder, or the cache."""
-    from arelis.paths import models_dir
-
-    folder = models_dir()
-    for candidate in (folder / name, folder / "llm" / name):
-        if candidate.is_file():
-            return candidate
+    for folder in _model_roots():
+        for candidate in (folder / name, folder / "llm" / name):
+            if candidate.is_file():
+                return candidate
     for root in _cache_roots():
         found = _find_named(root, name)
         if found is not None:
             return found
     return None
+
+
+def _find_relative(path: Path) -> Path | None:
+    """A relative model path, from the data dir rather than the working dir."""
+    from arelis.paths import published_data_dir, user_data_dir
+
+    bases = [user_data_dir()]
+    published = published_data_dir()
+    if published is not None:
+        bases.append(published)
+    for base in bases:
+        candidate = base / path
+        if candidate.is_file():
+            return candidate
+    parts = path.parts
+    if len(parts) > 1 and parts[0] == "models":
+        return _find_weight(str(Path(*parts[1:])))
+    return None
+
+
+def mmproj_beside_running_server(config: dict[str, Any]) -> bool:
+    """Picture file next to the GGUF a live llama-server already loaded.
+
+    ``ensure_server`` leaves a healthy port alone. A fresh profile with no
+    model path still talks to that process. ``/props`` names the GGUF it
+    loaded (``model_path``, the same ``-m`` the launcher would pass). Vision
+    is on only when the Q8 file sits next to that GGUF. A missing file stays
+    off, including when ``modalities.vision`` is true.
+    """
+    lc = config.get("llamacpp") or {}
+    explicit = str(lc.get("model") or "").strip()
+    if explicit and Path(explicit).expanduser().is_absolute():
+        return False
+    base = str(lc.get("base_url") or "").strip()
+    if not base:
+        return False
+    url = base.rstrip("/") + "/props"
+    try:
+        response = httpx.get(url, timeout=0.4, follow_redirects=False)
+    except httpx.HTTPError:
+        return False
+    if response.status_code >= 400:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    raw = str(payload.get("model_path") or "").strip()
+    if not raw:
+        return False
+    model = Path(raw).expanduser()
+    if not model.is_file():
+        return False
+    return mmproj_for(model).is_file()
 
 
 def locate_template(config: dict[str, Any], model: Path) -> Path | None:
