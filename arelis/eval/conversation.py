@@ -61,6 +61,9 @@ class ConversationTurn:
     # Scripted model rounds for offline mode (ignored when live).
     script: list[list[tuple[str, Any]]] = field(default_factory=list)
     notes: str = ""
+    # Paths staged like the chat paperclip. Empty leaves the turn text-only.
+    # Honored by the glass runners. The scripted soak still sends ``user``.
+    attachments: tuple[str, ...] = ()
 
 
 @dataclass

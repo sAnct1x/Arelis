@@ -257,6 +257,7 @@ class Cap:
 
 
 async def run_matrix(args) -> int:
+    from arelis.attachments import AttachError, attach_paths, matrix_turn_payload
     from arelis.config import load_config
     from arelis.core.bus import EventBus
     from arelis.core.events import Event, EventType
@@ -371,12 +372,23 @@ async def run_matrix(args) -> int:
         errors: list[str] = []
         timed_out = False
         t0 = time.perf_counter()
+        paths = attach_paths(item)
+        sent_files = False
         for prompt in item.prompts:
             if prompt == "@clear":
                 seat.memory.clear()
                 continue
             cap.reset()
-            await bus.publish(Event(EventType.USER_MESSAGE, {"text": prompt}))
+            # Files ride the first real prompt. Later prompts in the item stay text.
+            use_paths = paths if paths and not sent_files else ()
+            try:
+                payload = matrix_turn_payload(prompt, use_paths)
+            except AttachError as exc:
+                errors.append(str(exc))
+                break
+            if use_paths:
+                sent_files = True
+            await bus.publish(Event(EventType.USER_MESSAGE, payload))
             try:
                 await asyncio.wait_for(cap.done.wait(), item.timeout)
             except TimeoutError:

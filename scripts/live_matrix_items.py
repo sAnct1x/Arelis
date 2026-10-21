@@ -50,6 +50,9 @@ class Item:
     gone: tuple = ()  # paths (relative to outputs/test_matrix) that must not exist after
     live_sends: int = 0  # real provider sends this item may cause (comms items only)
     recipients: tuple = ()  # allowed recipient aliases/addresses (comms items only)
+    # Paths staged like the chat paperclip, on the first real prompt only.
+    # Empty leaves every prompt as text. Do not paste the path into the prompt.
+    attachments: tuple = ()
 
 
 # Refusal phrases that must never stand in for a real answer. Items opt in with
@@ -91,6 +94,7 @@ def S(
     gone=(),
     live_sends=0,
     recipients=(),
+    attachments=(),
 ):
     prompts = prompt if isinstance(prompt, list) else [prompt]
     return Item(
@@ -114,6 +118,7 @@ def S(
         tuple(gone),
         live_sends,
         tuple(recipients),
+        tuple(attachments),
     )
 
 
