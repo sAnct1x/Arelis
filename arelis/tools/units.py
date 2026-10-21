@@ -347,6 +347,9 @@ def _dimensionality(text: str):
     try:
         return _UREG.Quantity(text).dimensionality
     except Exception:
+        # Pint raises a different type for an unknown word, a bad token and an
+        # empty string. Every one of them means "not a quantity", so this pair
+        # is not mass-versus-force and the caller keeps Pint's own message.
         return None
 
 
