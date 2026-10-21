@@ -806,7 +806,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
 
     # Every call so far was a confirm refusal, and nothing ran. Another
     # model round paints nothing and sits until the model timeout. The
-    # reply names the call the card refused.
+    # reply is the skip sentence for the call the card refused.
     if ctx.decline_needs_finish and not loop.tools_used and ran_calls == 0:
         from arelis.core.loop_helpers import declined_finish_reply
 

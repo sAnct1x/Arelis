@@ -299,7 +299,7 @@ async def test_a_declined_card_is_not_a_missing_tool_or_a_standing_no() -> None:
     assert web.runs == 0
     assert cards == ["image"]
     assert router.i == 1
-    assert done == "I did not image photo.png because the image was skipped."
+    assert done == "Okay, I skipped that since you said no."
     # Same batch: the repeat and the other picture tool were skipped
     # without a card. A stop on the first no would leave only one line.
     assert loop._trace == [
