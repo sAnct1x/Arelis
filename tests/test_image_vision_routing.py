@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from arelis.attachments import (
     format_attachments_block,
     route_tool,
@@ -121,5 +125,123 @@ def _assert_routes_image_edit(ask: str) -> None:
     )
     assert "image_edit" in ids
     assert "image" not in ids
+
+
+# 1x1 PNG. Same bytes the paperclip bench uses.
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+    b"\x00\x00\x03\x01\x01\x00\xc9\xfe\x92\xef\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def _pngs(root: Path) -> set[Path]:
+    if not root.exists():
+        return set()
+    return {path for path in root.rglob("*") if path.is_file()}
+
+
+async def test_typed_existing_image_is_staged_after_allow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A typed path that is a real image is copied like a paperclip drop.
+
+    The copy of an outside file waits until Allow. A skip leaves the drops
+    folder untouched.
+    """
+    import asyncio
+
+    import arelis.attachments as attachments
+    from arelis.core.agent_loop import AgentLoop
+    from arelis.core.bus import EventBus
+    from arelis.core.events import Event, EventType
+    from arelis.core.memory import SessionMemory
+    from arelis.core.orchestrator import Orchestrator
+    from arelis.tools.base import ToolRegistry
+    from arelis.workspace import WorkspaceRoots
+
+    drops = tmp_path / "drops"
+    monkeypatch.setattr(attachments, "DROPS_ROOT", drops)
+
+    async def _quiet_run(self, *args, **kwargs):
+        return None
+
+    monkeypatch.setattr(AgentLoop, "run", _quiet_run)
+
+    room = tmp_path / "room"
+    room.mkdir()
+    (room / "plot.png").write_bytes(_PNG)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    shapes = outside / "shapes.png"
+    shapes.write_bytes(_PNG)
+
+    class _Router:
+        default_role = "fast"
+
+    persona = Path(__file__).resolve().parents[1] / "arelis" / "persona" / "arelis.md"
+    bus = EventBus()
+    orch = Orchestrator(
+        bus,
+        _Router(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        {
+            "agent": {"confirm_timeout_s": 30},
+            "workspace": {"roots": [str(room)]},
+            "_persona_path": str(persona),
+        },
+        SessionMemory(),
+        workspace=WorkspaceRoots.from_paths([str(room)]),
+    )
+
+    await orch.on_user_message(Event(EventType.USER_MESSAGE, {"text": "describe ./plot.png"}))
+    staged = str((orch._last_ask or {}).get("text") or "")
+    assert "Attachments for this turn" in staged
+    assert "(image)" in staged
+    assert "→ vision" in staged
+    inside_copies = _pngs(drops)
+    assert len(inside_copies) == 1
+
+    denied: list[str] = []
+    task = asyncio.create_task(
+        orch.on_user_message(Event(EventType.USER_MESSAGE, {"text": f"what is in {shapes}"}))
+    )
+    for _ in range(100):
+        if orch._confirm_live:
+            break
+        await asyncio.sleep(0)
+    assert orch._confirm_live
+    assert _pngs(drops) == inside_copies
+    confirm_id = next(iter(orch._confirm_live))
+    await orch.on_confirm_reply(
+        Event(EventType.TOOL_CONFIRM_REPLY, {"id": confirm_id, "decision": "skip"})
+    )
+    await task
+    while not bus._queue.empty():
+        event = bus._queue.get_nowait()
+        if event.type == EventType.ASSISTANT_DONE:
+            denied.append(str(event.payload.get("text") or ""))
+    assert _pngs(drops) == inside_copies
+    assert denied == ["I didn't open that file because it wasn't allowed."]
+
+    task = asyncio.create_task(
+        orch.on_user_message(Event(EventType.USER_MESSAGE, {"text": f"what is in {shapes}"}))
+    )
+    for _ in range(100):
+        if orch._confirm_live:
+            break
+        await asyncio.sleep(0)
+    assert orch._confirm_live
+    assert _pngs(drops) == inside_copies
+    confirm_id = next(iter(orch._confirm_live))
+    await orch.on_confirm_reply(
+        Event(EventType.TOOL_CONFIRM_REPLY, {"id": confirm_id, "decision": "allow"})
+    )
+    await task
+    opened = str((orch._last_ask or {}).get("text") or "")
+    assert "Attachments for this turn" in opened
+    assert "(image)" in opened
+    assert "→ vision" in opened
+    assert len(_pngs(drops)) == 2
 
 

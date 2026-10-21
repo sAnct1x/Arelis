@@ -12,6 +12,8 @@ from arelis.attachments import (
     continue_prior_attachment_ask,
     continue_prior_image_describe,
     format_attachments_block,
+    image_path_tokens,
+    stage_typed_images,
 )
 from arelis.browser.hold import set_paused
 from arelis.core.agent_loop import AgentLoop
@@ -322,6 +324,38 @@ class OrchestratorTurns:
                     await self._say(f"Opening {name}.")
                 return
 
+        # A path typed in the message is still just text until the file is real
+        # and copied the way the paperclip button copies a drop. Commands
+        # already returned. Outside files get the same Allow card as any other
+        # typed absolute path, and the copy waits until that card is allowed.
+        if text and not attachments and image_path_tokens(text):
+            if not await self._ensure_external_path_grants(text):
+                from arelis.i18n import tr
+
+                await self.bus.publish(
+                    Event(
+                        EventType.ASSISTANT_DONE,
+                        {
+                            "text": tr(
+                                "I didn't open that file because it wasn't allowed."
+                            ),
+                        },
+                    )
+                )
+                return
+
+            def _may_stage(path: Path) -> bool:
+                try:
+                    self.workspace.resolve_read(str(path))
+                except (OSError, PermissionError, ValueError):
+                    return self.workspace.has_external_read(path)
+                return True
+
+            bases = [entry.path for entry in self.workspace.roots]
+            rows = stage_typed_images(text, bases=bases, allow=_may_stage)
+            if rows:
+                attachments = rows
+
         turn_text = text
         if attachments:
             block = format_attachments_block(attachments, user_text=text)
@@ -412,8 +446,7 @@ class OrchestratorTurns:
                         EventType.ASSISTANT_DONE,
                         {
                             "text": tr(
-                                "Skipped, I was not allowed to read the outside-"
-                                "workspace path you named."
+                                "I didn't open that file because it wasn't allowed."
                             ),
                         },
                     )

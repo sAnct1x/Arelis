@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import shutil
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +14,7 @@ from uuid import uuid4
 from arelis.history_view import history_pairs
 from arelis.paths import display_path, state_dir, user_data_dir
 from arelis.workspace import (
+    _WINDOWS_DRIVE,
     UNSAFE_WINDOWS_PATH_MSG,
     is_unsafe_windows_path,
     safe_resolve,
@@ -317,6 +318,21 @@ def overlay_text_from_ask(user_text: str = "") -> str:
         if text:
             return text[:80]
     return ""
+
+
+# Drive, ./, ../, a real absolute path, or a bare filename. The lookbehind keeps
+# a URL and the tail of outputs/images/demo.png from being captured as their own
+# file. Those stay on path_from_text. A token is staged only when it is a real
+# image on disk, not because the sentence used a see-verb.
+_IMG_EXT = r"(?:png|jpe?g|webp|gif)"
+_TYPED_IMAGE_TOKEN = re.compile(
+    rf"(?i)(?<![A-Za-z0-9_./\\])(?:"
+    rf"[A-Za-z]:[\\/][^\s\"'<>|]+?\.{_IMG_EXT}"
+    rf"|\.{{1,2}}[\\/][^\s\"'<>|]+?\.{_IMG_EXT}"
+    rf"|/(?!/)[^\s\"'<>|]+?\.{_IMG_EXT}"
+    rf"|[A-Za-z0-9][^\s\"'<>|/\\]*\.{_IMG_EXT}"
+    rf")(?!\.\w)"
+)
 
 
 def route_tool(kind: str, user_text: str = "") -> str:
@@ -911,6 +927,92 @@ def stage_attachment_dicts(
         drops_root=drops_root,
     )
     return [item.as_dict() for item in result.ok], list(result.errors)
+
+
+def image_path_tokens(text: str) -> list[str]:
+    """Local image paths typed in the ask, in order, without duplicates."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _TYPED_IMAGE_TOKEN.finditer(text or ""):
+        token = match.group(0).strip().rstrip(".,);]\"'")
+        key = token.replace("\\", "/").lower()
+        if not token or key in seen:
+            continue
+        seen.add(key)
+        found.append(token)
+    return found
+
+
+def _resolve_typed_image(token: str, bases: Sequence[Path | str]) -> Path | None:
+    """Existing image for one typed token, or None when it is not on disk.
+
+    A Windows drive path is absolute even on Linux. Joining it onto the cwd
+    would invent ``.../C:/Users/...`` and must not happen.
+    """
+    text = (token or "").strip().rstrip(".,);]\"'")
+    if not text or is_unsafe_windows_path(text):
+        return None
+    if Path(text).suffix.lower() not in _IMAGE:
+        return None
+    if _WINDOWS_DRIVE.match(text):
+        path = Path(text)
+        try:
+            if path.is_file():
+                return path
+        except OSError:
+            return None
+        return None
+    raw_path = Path(text)
+    candidates: list[Path] = []
+    if raw_path.is_absolute():
+        candidates.append(raw_path)
+    else:
+        candidates.append(Path.cwd() / raw_path)
+        for base in bases:
+            if str(base).strip():
+                candidates.append(Path(base) / raw_path)
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            if resolved.is_file() and resolved.suffix.lower() in _IMAGE:
+                return resolved
+        except OSError:
+            continue
+    return None
+
+
+def stage_typed_images(
+    text: str,
+    bases: Sequence[Path | str] = (),
+    drops_root: Path | None = None,
+    allow: Callable[[Path], bool] | None = None,
+) -> list[dict[str, Any]]:
+    """Copy image paths that exist on disk, the same way the paperclip does.
+
+    A token that is not a readable image is left as text. ``allow`` rejects a
+    path the workspace may not read, so the copy waits until that check passes.
+    """
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for token in image_path_tokens(text or ""):
+        resolved = _resolve_typed_image(token, bases)
+        if resolved is None or resolved in seen:
+            continue
+        if allow is not None and not allow(resolved):
+            continue
+        seen.add(resolved)
+        paths.append(resolved)
+    if not paths:
+        return []
+    rows, _errors = stage_attachment_dicts(paths, drops_root=drops_root)
+    return [row for row in rows if str(row.get("kind") or "") == "image"]
 
 
 def attach_paths(source: Any) -> tuple[str, ...]:
