@@ -125,6 +125,26 @@ def _wire_tool_call(call: Any, ordinal: int) -> tuple[dict[str, Any], str] | Non
     return wired, call_id
 
 
+def _last_real_user_index(messages: list[dict[str, Any]]) -> int | None:
+    """Index of the last user line the Qwen template treats as the query.
+
+    A ``<tool_response>`` wrapper is not that line. ``reasoning_content`` is
+    rendered only on assistant rows after this index, which is the tool loop
+    still in flight. Older assistant rows do not use the field.
+    """
+    for index in range(len(messages) - 1, -1, -1):
+        msg = messages[index]
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            text = content.strip()
+            if text.startswith("<tool_response>") and text.endswith("</tool_response>"):
+                continue
+        return index
+    return None
+
+
 def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Chat rows to the OpenAI chat shape llama-server expects.
 
@@ -137,11 +157,19 @@ def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     pending_ids: list[str] = []
     ordinal = 0
-    for msg in messages:
+    last_user = _last_real_user_index(messages)
+    for index, msg in enumerate(messages):
         if not isinstance(msg, dict):
             continue
         content = _message_content(msg.get("content"))
         row: dict[str, Any] = {"role": msg.get("role") or "user", "content": content}
+        # Only the tool loop after the last real user line. The template
+        # ignores this field on earlier assistant rows, and resending it
+        # would carry old thoughts into every later turn.
+        if row["role"] == "assistant" and last_user is not None and index > last_user:
+            reasoning = msg.get("reasoning_content")
+            if isinstance(reasoning, str) and reasoning.strip():
+                row["reasoning_content"] = reasoning
         calls = msg.get("tool_calls")
         if row["role"] != "tool" and not (isinstance(calls, list) and calls):
             pending_ids = []
