@@ -168,6 +168,24 @@ async def test_answer_after_a_tool_streams_instead_of_landing_whole() -> None:
     wired_tool = next(m for m in wired if m.get("role") == "tool")
     assert "Paris: 18 C, sunny" in str(wired_tool.get("content") or "")
 
+    # The thought is for this tool loop only. The saved round must not keep
+    # it, and a later user line must not have the wire send it again.
+    saved_calls = [
+        item
+        for message in loop.memory.messages
+        if message.role == "user"
+        for item in message.prompt_after
+        if item.get("role") == "assistant" and item.get("tool_calls")
+    ]
+    earlier = dict(saved_calls[0]) if saved_calls else {"role": "assistant", "content": ""}
+    earlier["reasoning_content"] = thought
+    wired_earlier = _wire_messages(
+        [earlier, {"role": "user", "content": "what about tomorrow?"}]
+    )
+    assert saved_calls and "reasoning_content" not in saved_calls[0] and (
+        "reasoning_content" not in wired_earlier[0]
+    )
+
     # A withdrawn chunk is already on the TTS buffer when the real reply is
     # queued. Speech is the reply alone; the withdrawn word is not glued on.
     reply = "Boston is sunny today."

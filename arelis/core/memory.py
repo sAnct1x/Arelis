@@ -163,11 +163,16 @@ class SessionMemory:
             return
 
     def remember_turn_follow(self, follow: list[dict[str, Any]]) -> None:
-        """Keep the tool round that followed the latest user message."""
+        """Keep the tool round that followed the latest user message.
+
+        ``reasoning_content`` is only for assistant rows after the last real
+        user line in the request that is still in flight. Qwen does not
+        render it on an older turn, so the saved round does not keep it.
+        """
         for message in reversed(self.messages):
             if message.role != "user":
                 continue
-            message.prompt_after = tuple(copy.deepcopy(item) for item in follow)
+            message.prompt_after = tuple(_follow_without_reasoning(item) for item in follow)
             return
 
     def add(self, role: str, content: str, note: str = "") -> None:
@@ -362,6 +367,13 @@ class SessionMemory:
                     chars_per_token=self.chars_per_token,
                 )
         return total
+
+
+def _follow_without_reasoning(item: dict[str, Any]) -> dict[str, Any]:
+    """Copy one saved tool-round row and leave the in-flight thought behind."""
+    copied = copy.deepcopy(item)
+    copied.pop("reasoning_content", None)
+    return copied
 
 
 def tool_trace_entry(
