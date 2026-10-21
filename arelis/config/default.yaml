@@ -9,13 +9,16 @@ llm:
 # Launch line (config C, ncmoe 32): Q8 mmproj, -fa off, --image-max-tokens 1024,
 # f16 KV, -c 32768, -b 4096, -ub 2048, --n-cpu-moe 32, --jinja, and
 # qwen36_35b_insys.jinja beside the weights when that file is already there.
-# Optional: llamacpp.model is the GGUF path if it is not next to the other weights.
+# model is the Unsloth UD-Q4_K_M file. A bare name is resolved in the same
+# folders as the other weights. A full path is used as written. If that file
+# is not on disk, the server is not started.
 llamacpp:
   base_url: "http://127.0.0.1:8080"
   timeout_s: 300
   default_cap: 32768
   context_caps:
     Qwen3.6-35B-A3B: 32768
+  model: "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
   # Separate CPU llama-server with nomic-embed-text GGUF (--embeddings).
   # Pictures go to the 35B, which loads the Q8 picture file.
   # embeds is True only while this server answers POST /v1/embeddings.
@@ -29,12 +32,11 @@ llamacpp:
 # See docs/models.md. One chat model hot at a time. Embeddings are a separate
 # small model loaded briefly for recall/indexing, not mid-turn chat.
 models:
-  fast: "qwen3.5:9b"
-  research: "qwen3.5:9b"
-  # Fallback single-frame VL, pulled only when the chat model cannot see. Qwen
-  # 3.5 and Gemma 4 take images directly, so on those this tag is never pulled
-  # and never loaded. DeepSeek R1 is text-only and still needs it.
-  vision: "qwen2.5vl:3b"
+  fast: "Qwen3.6-35B-A3B"
+  research: "Qwen3.6-35B-A3B"
+  # Same weights as fast and research. Pictures go through the Q8 mmproj
+  # beside the GGUF, so this is not a separate model.
+  vision: "Qwen3.6-35B-A3B"
 
 router:
   # Residency for a non-default role after a turn. "0" made every research

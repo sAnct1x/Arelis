@@ -27,10 +27,11 @@ from urllib.parse import urlparse
 import httpx
 
 from arelis import __version__
+from arelis.llm.legacy import SHIPPED_GGUF_NAME
 
 log = logging.getLogger(__name__)
 
-MODEL_FILENAME = "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+MODEL_FILENAME = SHIPPED_GGUF_NAME
 MMPROJ_FILENAME = "mmproj-Qwen3.6-35B-A3B-Q8_0.gguf"
 TEMPLATE_FILENAME = "qwen36_35b_insys.jinja"
 # ggml-org LFS oid. Same repo that published this Q8 projector.
@@ -158,20 +159,33 @@ def _launch_args_for(config: dict[str, Any]) -> list[str] | None:
 
 
 def locate_model_gguf(config: dict[str, Any]) -> Path | None:
-    """The UD-Q4_K_M file, from config or the same folders other weights use."""
+    """The UD-Q4_K_M file, from config or the same folders other weights use.
+
+    A bare file name is looked up beside the other weights. A full path that
+    is not on disk stays missing: no server, no exception.
+    """
     lc = config.get("llamacpp") or {}
     explicit = str(lc.get("model") or "").strip()
     if explicit:
         path = Path(explicit).expanduser()
-        return path if path.is_file() else None
+        if path.is_file():
+            return path
+        if path.parent == Path("."):
+            return _find_weight(path.name)
+        return None
+    return _find_weight(MODEL_FILENAME)
+
+
+def _find_weight(name: str) -> Path | None:
+    """One file name in the model folder, its llm subfolder, or the cache."""
     from arelis.paths import models_dir
 
     folder = models_dir()
-    for candidate in (folder / MODEL_FILENAME, folder / "llm" / MODEL_FILENAME):
+    for candidate in (folder / name, folder / "llm" / name):
         if candidate.is_file():
             return candidate
     for root in _cache_roots():
-        found = _find_named(root, MODEL_FILENAME)
+        found = _find_named(root, name)
         if found is not None:
             return found
     return None
