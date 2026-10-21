@@ -202,7 +202,7 @@ def _resolve_root_path(root: str) -> Path:
     a checkout the two anchors are the same directory, which is exactly why
     nothing ever looked wrong.
     """
-    p = Path(root)
+    p = Path(paths.expand_displayed_home(root))
     if not p.is_absolute():
         p = (default_workspace_root() / p).resolve()
     else:

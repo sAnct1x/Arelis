@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 from arelis.core.failure_copy import plain_reason
 from arelis.i18n import localize, tr
 from arelis.notify.center import CHANNELS, load_channels
+from arelis.paths import expand_displayed_home, ui_display_path
 from arelis.presence.lock import find_my_ingest_port
 from arelis.sms_ingest import format_ingest_listen_urls, load_ingest_token
 from arelis.sms_pairing import load_companion, make_ticket
@@ -1305,7 +1306,18 @@ class SettingsDialog(QDialog):
 
     def _root_label(self, entry: dict[str, Any]) -> str:
         ro = " [read-only]" if entry.get("read_only") else ""
-        return f"{entry.get('name') or '?'}, {entry.get('path') or '?'}{ro}"
+        shown = ui_display_path(str(entry.get("path") or "")) or "?"
+        return f"{entry.get('name') or '?'}, {shown}{ro}"
+
+    def _editor_path(self, stored: str) -> str:
+        """Short form when saving it back lands on the same folder."""
+        shown = ui_display_path(stored)
+        try:
+            if Path(expand_displayed_home(shown)).resolve() == Path(stored).resolve():
+                return shown
+        except OSError:
+            return stored
+        return stored
 
     def _refresh_roots_list(self) -> None:
         self.roots_list.blockSignals(True)
@@ -1319,18 +1331,18 @@ class SettingsDialog(QDialog):
             return
         entry = self._roots[row]
         self.root_name.setText(str(entry.get("name") or ""))
-        self.root_path.setText(str(entry.get("path") or ""))
+        self.root_path.setText(self._editor_path(str(entry.get("path") or "")))
         self.root_read_only.setChecked(bool(entry.get("read_only")))
 
     def _browse_root_path(self) -> None:
         start = self.root_path.text().strip() or str(Path.home())
         chosen = QFileDialog.getExistingDirectory(self, "Choose a folder", start)
         if chosen:
-            self.root_path.setText(chosen)
+            self.root_path.setText(self._editor_path(chosen))
 
     def _draft_root(self) -> dict[str, Any] | None:
         name = self.root_name.text().strip()
-        path = self.root_path.text().strip()
+        path = expand_displayed_home(self.root_path.text().strip())
         if not name or not path:
             self.test_status.setText("Root needs a name and a path.")
             return None

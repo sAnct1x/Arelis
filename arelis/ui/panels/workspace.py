@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QKeyEvent, QKeySequence, QPixmap
@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 from arelis.desk import Artifact, infer_kind, is_image_kind, is_text_kind
 from arelis.location.privacy import redact
 from arelis.mathtext import flatten_latex
-from arelis.paths import display_path
+from arelis.paths import expand_displayed_home, resolve_display_path, ui_display_path
 from arelis.rooms import PHYSICS_DISPLAY_NAME, PHYSICS_ROOM_ID
 from arelis.ui.code_highlight import QuietPythonHighlighter
 from arelis.ui.icons import (
@@ -106,6 +106,15 @@ def _icon_btn(glyph: QIcon, tip: str) -> QToolButton:
     btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
     btn.setFocusPolicy(Qt.FocusPolicy.TabFocus)
     return btn
+
+
+def _folder_caption(path: Path | str) -> str:
+    """Leaf on a folder label. The home directory itself is ``~``."""
+    shown = ui_display_path(path)
+    if shown == "~":
+        return "~"
+    leaf = PurePosixPath(shown).name
+    return leaf or shown
 
 
 def _clip_log(text: str, limit: int = _LOG_LINES) -> str:
@@ -627,7 +636,10 @@ class WorkspacePanel(QWidget):
         self.recent_combo.clear()
         self.recent_combo.addItem("-", "")
         for path in paths:
-            self.recent_combo.addItem(path, path)
+            shown = path
+            if Path(path).is_absolute() or path.startswith("~"):
+                shown = ui_display_path(path)
+            self.recent_combo.addItem(shown, path)
         self.recent_combo.blockSignals(False)
 
     def set_active_project(self, name: str) -> None:
@@ -644,10 +656,11 @@ class WorkspacePanel(QWidget):
     def _sync_root_label(self, name: str) -> None:
         self._root_name = name
         path = self._project_paths.get(name, "")
+        shown = ui_display_path(path) if path else ""
         if name and path:
-            self.root_label.setText(f"project: {name}, {path}")
-            self.root_label.setToolTip(path)
-            self.project_combo.setToolTip(path)
+            self.root_label.setText(f"project: {name}, {shown}")
+            self.root_label.setToolTip(shown)
+            self.project_combo.setToolTip(shown)
         elif name:
             self.root_label.setText(f"project: {name}")
             self.root_label.setToolTip("")
@@ -657,9 +670,9 @@ class WorkspacePanel(QWidget):
             self.root_label.setToolTip("")
             self.project_combo.setToolTip("Active project")
         self.root_label.hide()
-        folder = Path(path).name if path else (name or "project")
+        folder = _folder_caption(path) if path else (name or "project")
         self.console_cwd.setText(folder)
-        self.console_cwd.setToolTip(path or "Commands you type start in this folder")
+        self.console_cwd.setToolTip(shown or "Commands you type start in this folder")
 
     def _on_project_changed(self, name: str) -> None:
         if name and name in self._project_names:
@@ -720,8 +733,8 @@ class WorkspacePanel(QWidget):
         except (OSError, ValueError):
             cwd = root.resolve()
             self._browse_cwd = cwd
-        self.browse_label.setText(cwd.name or str(cwd))
-        self.browse_label.setToolTip(str(cwd))
+        self.browse_label.setText(_folder_caption(cwd))
+        self.browse_label.setToolTip(ui_display_path(cwd))
         self.browse_list.clear()
         try:
             entries = sorted(
@@ -780,7 +793,7 @@ class WorkspacePanel(QWidget):
                 # Outside every root — emit the absolute path so resolve_read
                 # can honor a session grant. Do not prefix arelis:.
                 display = str(path)
-                self.path_edit.setText(display)
+                self.path_edit.setText(ui_display_path(path))
                 self.open_requested.emit(display)
                 return
             active = owning
@@ -812,7 +825,7 @@ class WorkspacePanel(QWidget):
             if not chosen:
                 return
             path = chosen
-            self.path_edit.setText(path)
+            self.path_edit.setText(ui_display_path(path))
             path = self.qualified_path() or path
         self.open_requested.emit(path)
 
@@ -828,7 +841,7 @@ class WorkspacePanel(QWidget):
             )
             if not chosen:
                 return
-            self.path_edit.setText(chosen)
+            self.path_edit.setText(ui_display_path(chosen))
             path = self.qualified_path() or chosen
         self.save_requested.emit(path, self.editor.toPlainText())
 
@@ -844,8 +857,15 @@ class WorkspacePanel(QWidget):
             if only.is_dir():
                 return str(only)
         tip = (self.root_label.toolTip() or "").strip()
-        if tip and Path(tip).is_dir():
-            return tip
+        if tip:
+            candidate = Path(expand_displayed_home(tip))
+            if not candidate.is_absolute():
+                candidate = Path(resolve_display_path(tip))
+            try:
+                if candidate.is_dir():
+                    return str(candidate)
+            except OSError:
+                pass
         return str(Path.cwd())
 
     def qualified_path(self) -> str:
@@ -853,6 +873,8 @@ class WorkspacePanel(QWidget):
         raw = self.path_edit.text().strip()
         if not raw:
             return ""
+        if raw == "~" or raw.startswith("~/") or raw.startswith("~\\"):
+            return expand_displayed_home(raw)
         if ":" in raw or Path(raw).is_absolute() or len(self._project_names) <= 1:
             return raw
         active = self.project_combo.currentText() or self._root_name
@@ -922,7 +944,7 @@ class WorkspacePanel(QWidget):
         self._sync_face()
         if abs_path:
             parent = Path(abs_path).parent
-            self.root_label.setToolTip(str(parent))
+            self.root_label.setToolTip(ui_display_path(parent))
             try:
                 if parent.is_dir():
                     self._browse_cwd = parent
@@ -1064,7 +1086,7 @@ class WorkspacePanel(QWidget):
         self._loaded_label = target.name
         self._set_image_mode(True)
         self.image_label.show()
-        self.path_edit.setText(display_path(target))
+        self.path_edit.setText(ui_display_path(target))
         tip = _sidecar_tooltip(target)
         self.image_label.setToolTip(tip)
         self.image_caption.setText(sidecar_caption(target))
@@ -1303,7 +1325,7 @@ class WorkspacePanel(QWidget):
             kind = item.kind or "file"
             row = QListWidgetItem(f"{item.label}\n{pin}{kind}")
             row.setData(Qt.ItemDataRole.UserRole, item.abs_path)
-            row.setToolTip(display_path(item.abs_path))
+            row.setToolTip(ui_display_path(item.abs_path))
             self.desk_list.addItem(row)
         self.desk_list.setVisible(bool(parsed) and self._mode == "desk")
         self._sync_desk_hint()

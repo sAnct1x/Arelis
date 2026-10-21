@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from arelis.paths import state_dir
+from arelis.paths import expand_displayed_home, state_dir
 
 log = logging.getLogger(__name__)
 
@@ -385,6 +385,7 @@ class WorkspaceRoots:
         if not raw:
             raise ValueError("Missing path")
         refuse_unsafe_windows_path(raw)
+        raw = expand_displayed_home(raw)
 
         qualified = _split_qualified(raw, set(self._by_name))
         if qualified is not None:

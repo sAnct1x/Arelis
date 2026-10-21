@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QDialog, QLabel
 
+from arelis.paths import ui_display_path
 from arelis.ui.dialog import ConfirmDialog
 from arelis.ui.first_run import FirstRunDialog
 from arelis.ui.glass import GlassFrame
@@ -57,7 +58,8 @@ def test_first_run_is_the_same_glass_as_everything_else(qt_app, tmp_path: Path) 
         assert dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
         assert dialog.findChildren(GlassFrame)
         # The chosen path is the one thing a user has to be able to read.
-        assert str(tmp_path / "Arelis") in dialog._path_label.text()
+        # Home folders show as ~ so the account name is not on the glass.
+        assert dialog._path_label.text() == ui_display_path(dialog.root)
         assert dialog._path_label.objectName() == "DialogPath"
         assert dialog.root == tmp_path / "Arelis"
         notes = " ".join(
