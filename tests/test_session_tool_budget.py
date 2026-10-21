@@ -12,6 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from arelis.tools import build_tool_registry
 
 
@@ -27,13 +29,20 @@ def _bare_config(**extra: object) -> dict:
 
 def test_vision_registers_only_when_the_launch_line_has_an_mmproj(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The vision tool follows the picture file named by the launch args.
 
     Args that point at a missing mmproj do not register it. Writing that
-    file does. A model list is not consulted.
+    file does. A model list is not consulted. A profile that does not set
+    a model path resolves the default 35B file the same way launch_args_for
+    does, and vision still stays off until that mmproj file exists.
     """
-    from arelis.llm.llama_launch import launch_args_for
+    from arelis.llm.llama_launch import (
+        MMPROJ_FILENAME,
+        MODEL_FILENAME,
+        launch_args_for,
+    )
 
     model = tmp_path / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
     model.write_bytes(b"gguf")
@@ -63,6 +72,56 @@ def test_vision_registers_only_when_the_launch_line_has_an_mmproj(
         config, allow_send=True, attended=True, router=router
     )
     assert "vision" in present.names()
+
+    weights = tmp_path / "weights"
+    weights.mkdir()
+    monkeypatch.setattr("arelis.paths.models_dir", lambda: weights)
+    monkeypatch.setattr("arelis.llm.llama_launch._cache_roots", lambda: [])
+    bare = {
+        "tools": {},
+        "agent": {},
+        "models": {},
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+    }
+    assert launch_args_for(bare) is None
+    nowhere = build_tool_registry(
+        bare, allow_send=True, attended=True, router=router
+    )
+    assert "vision" not in nowhere.names()
+
+    default_gguf = weights / MODEL_FILENAME
+    default_gguf.write_bytes(b"gguf")
+    default_args = launch_args_for(bare)
+    assert default_args is not None
+    default_mmproj = Path(default_args[default_args.index("--mmproj") + 1])
+    assert default_mmproj == (weights / MMPROJ_FILENAME).resolve()
+    assert not default_mmproj.is_file()
+    named = {
+        "tools": {},
+        "agent": {},
+        "models": {},
+        "llamacpp": {
+            "model": MODEL_FILENAME,
+            "base_url": "http://127.0.0.1:8080",
+        },
+    }
+    assert launch_args_for(named) == default_args
+    missing_picture = build_tool_registry(
+        bare, allow_send=True, attended=True, router=router
+    )
+    assert "vision" not in missing_picture.names()
+    assert "camera" not in missing_picture.names()
+
+    default_mmproj.write_bytes(b"mmproj")
+    with_picture = build_tool_registry(
+        bare, allow_send=True, attended=True, router=router
+    )
+    assert "vision" in with_picture.names()
+    assert "camera" in with_picture.names()
+    by_name = build_tool_registry(
+        named, allow_send=True, attended=True, router=router
+    )
+    assert "vision" in by_name.names()
 
 
 def test_vision_and_camera_need_the_vl_model() -> None:

@@ -44,8 +44,10 @@ def vl_model_installed(
 ) -> bool:
     """True when the chat launch line has a picture file on disk.
 
-    The 35B reads pictures through the Q8 mmproj next to the GGUF. Launch
-    args that name a missing file do not count. ``config["_vl_model_installed"]``
+    The 35B reads pictures through the Q8 mmproj next to the GGUF. A profile
+    with no model path, and a profile that only names the bare GGUF file,
+    resolve that file the same way ``launch_args_for`` does. Launch args that
+    name a missing mmproj do not count. ``config["_vl_model_installed"]``
     forces the gate for tests. ``refresh`` is accepted so Settings can ask
     again. The check is a file stat, so a later call sees a file that showed up.
     """
