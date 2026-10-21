@@ -142,6 +142,12 @@ def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         content = _message_content(msg.get("content"))
         row: dict[str, Any] = {"role": msg.get("role") or "user", "content": content}
+        # The chat template reads this on the tool-call turn. Dropping it
+        # leaves an empty think block in front of the tool result.
+        if row["role"] == "assistant":
+            reasoning = msg.get("reasoning_content")
+            if isinstance(reasoning, str) and reasoning.strip():
+                row["reasoning_content"] = reasoning
         calls = msg.get("tool_calls")
         if row["role"] != "tool" and not (isinstance(calls, list) and calls):
             pending_ids = []

@@ -788,6 +788,9 @@ class AgentLoop:
         self._escalated = False
         self._turn_num_ctx: int | None = None
         self._last_round_thinking = False
+        # Thinking from the round in progress. dispatch_calls copies it
+        # onto the tool-call row so the next request can send it back.
+        self._round_reasoning = ""
         self._fail_replan_used = False
         # After a tool error the next model step must retry or answer, not
         # spend a thinking budget that keeps the hung clock alive.
@@ -1594,8 +1597,11 @@ class AgentLoop:
         """
         live = _LiveAnswer()
         content_parts: list[str] = []
+        thinking_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         self._last_round_thinking = False
+        # A later round must not reuse this one if the stream fails first.
+        self._round_reasoning = ""
         self._think_redactor = StreamRedactor(current_redactor())
         model = self.router.model_for(role)
         # Hold paint on a real tool round so exactness nudges do not retract
@@ -1667,6 +1673,9 @@ class AgentLoop:
             if self.is_paused():
                 await self._hold_if_paused()
             if kind == "thinking":
+                # Raw, not the dock text. The next request has to hand the
+                # model its own reasoning, and the dock redacts that.
+                thinking_parts.append(str(payload))
                 await self._publish_think_stream(str(payload))
             elif kind == "token":
                 chunk = str(payload)
@@ -1692,6 +1701,7 @@ class AgentLoop:
                         self.memory.chars_per_token = updated
 
         await self._flush_think_stream()
+        self._round_reasoning = "".join(thinking_parts).strip()
         raw = "".join(content_parts).strip()
         if hold_paint:
             # Never paint here: raw may still be a JSON-fallback tool call that

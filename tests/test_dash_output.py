@@ -126,9 +126,10 @@ async def test_answer_after_a_tool_streams_instead_of_landing_whole() -> None:
             return ToolResult(ok=True, output="Paris: 18 C, sunny")
 
     call = {"type": "function", "function": {"name": "weather", "arguments": {"place": "Paris"}}}
+    thought = "Paris forecast is a weather call."
     router = _ScriptedRouter(
         [
-            [("tool_calls", [call])],
+            [("thinking", thought), ("tool_calls", [call])],
             [("token", "It is sunny and 18 degrees in Paris. "), ("token", "A good day for a walk.")],
         ]
     )
@@ -145,6 +146,27 @@ async def test_answer_after_a_tool_streams_instead_of_landing_whole() -> None:
     deltas = [str(e.payload.get("text") or "") for e in events if e.type == EventType.ASSISTANT_DELTA]
     assert "".join(deltas) == "It is sunny and 18 degrees in Paris. A good day for a walk."
     assert len(deltas) >= 2
+
+    # The answer request still has the tool-call thought beside the forecast.
+    # Qwen3.6 renders an empty think block when that field is missing, and
+    # the reply then ignores the result. The wire has to keep it too.
+    sent = loop._last_sent_messages
+    assistant_rows = [
+        m for m in sent if m.get("role") == "assistant" and m.get("tool_calls")
+    ]
+    assert len(assistant_rows) == 1
+    assert assistant_rows[0].get("reasoning_content") == thought
+    tool_rows = [m for m in sent if m.get("role") == "tool"]
+    assert tool_rows and "Paris: 18 C, sunny" in str(tool_rows[-1].get("content") or "")
+    from arelis.llm.llamacpp import _wire_messages
+
+    wired = _wire_messages(sent)
+    wired_assistant = [
+        m for m in wired if m.get("role") == "assistant" and m.get("tool_calls")
+    ]
+    assert wired_assistant[0].get("reasoning_content") == thought
+    wired_tool = next(m for m in wired if m.get("role") == "tool")
+    assert "Paris: 18 C, sunny" in str(wired_tool.get("content") or "")
 
     # A withdrawn chunk is already on the TTS buffer when the real reply is
     # queued. Speech is the reply alone; the withdrawn word is not glued on.

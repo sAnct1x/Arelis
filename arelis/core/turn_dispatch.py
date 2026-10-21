@@ -209,6 +209,16 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
     assistant_msg: dict[str, Any] = {"role": "assistant", "content": r.content}
     if r.tool_calls:
         assistant_msg["tool_calls"] = r.tool_calls
+    # Qwen3.6 renders a think block for every assistant message after the
+    # last real user line. A tool result is not a user line, so this turn
+    # stays in that spot. The block is empty when the round's thinking was
+    # dropped, and the reply then ignores the result.
+    reasoning = str(getattr(loop, "_round_reasoning", "") or "").strip()
+    if reasoning:
+        assistant_msg["reasoning_content"] = reasoning
+        # One row per round. A later injected call in this same turn
+        # must not wear the thought that belonged to the first.
+        loop._round_reasoning = ""
     r.messages.append(assistant_msg)
 
     r.calls = fill_round_calls(loop, r.calls, text=r.text)
