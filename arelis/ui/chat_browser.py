@@ -36,12 +36,37 @@ def _blank_math_image() -> QImage:
     return image
 
 
+def _fit_chart(image: QImage, max_width: float) -> QImage:
+    """Logical size of a chart, capped at the bubble width.
+
+    Qt lays an image out at width divided by its device pixel ratio. The
+    transcript has no horizontal scrollbar, so a full-size chart is clipped
+    on the right of a narrow bubble. Raising the ratio shrinks that layout
+    size, keeps the pixels, and keeps the aspect ratio. A non-positive width
+    means the view has not been laid out yet, so the file size stays until
+    a later resize.
+    """
+    if image.isNull() or image.width() < 1 or image.height() < 1:
+        return image
+    if max_width <= 0:
+        return image
+    ratio = image.devicePixelRatio() or 1.0
+    if image.width() / ratio <= max_width:
+        return image
+    fitted = QImage(image)
+    fitted.setDevicePixelRatio(image.width() / max_width)
+    return fitted
+
+
 class ChatBrowser(QTextBrowser):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._math_px = 14
         self._math_color = ""
         self._charts: dict[str, str] = {}
+        self._chart_pixels: dict[str, QImage] = {}
+        self._chart_fit_width = -1.0
+        self._fitting_charts = False
 
     def arm_math(self) -> None:
         """Point the renderer at the current ink, size, and bubble width."""
@@ -90,7 +115,16 @@ class ChatBrowser(QTextBrowser):
         """Remember a chart file. Only registered tokens are served."""
         token = hashlib.sha1(path.encode("utf-8")).hexdigest()
         self._charts[token] = path
+        # A new file at this path must not reuse the previous raster.
+        self._chart_pixels.pop(token, None)
         return token
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # super() can resize during construction, before the maps exist.
+        if not getattr(self, "_charts", None):
+            return
+        self._refit_charts()
 
     def math_source_at(self, pos: int) -> str | None:
         """Formula source under a cursor, for a later find.
@@ -179,10 +213,38 @@ class ChatBrowser(QTextBrowser):
         path = self._charts.get(token)
         if not path:
             return None
-        image = QImage(path)
-        if image.isNull():
-            return None
-        return image
+        image = self._chart_pixels.get(token)
+        if image is None:
+            image = QImage(path)
+            if image.isNull():
+                return None
+            self._chart_pixels[token] = image
+        return _fit_chart(image, self.formula_width())
+
+    def _refit_charts(self) -> None:
+        """Apply the current bubble width to charts already in the document.
+
+        The resource is cached at the width from the first layout. A portrait
+        resize would otherwise keep the wide raster and clip the right side.
+        """
+        if self._fitting_charts or not self._charts:
+            return
+        width = self.formula_width()
+        if width <= 0 or abs(width - self._chart_fit_width) < 0.5:
+            return
+        self._fitting_charts = True
+        try:
+            document = self.document()
+            for token in self._charts:
+                url = QUrl(f"{CHART_SCHEME}://c/{token}")
+                image = self._chart_image(url)
+                if image is None or image.isNull():
+                    continue
+                document.addResource(_IMAGE, url, image)
+            self._chart_fit_width = width
+            document.markContentsDirty(0, document.characterCount())
+        finally:
+            self._fitting_charts = False
 
     def _math_urls(self) -> list[str]:
         found: list[str] = []
