@@ -44,10 +44,16 @@ def vl_model_installed(
 ) -> bool:
     """True when the chat launch line has a picture file on disk.
 
-    The 35B reads pictures through the Q8 mmproj next to the GGUF. Launch
-    args that name a missing file do not count. ``config["_vl_model_installed"]``
-    forces the gate for tests. ``refresh`` is accepted so Settings can ask
-    again. The check is a file stat, so a later call sees a file that showed up.
+    The 35B reads pictures through the Q8 mmproj next to the GGUF. A profile
+    with no model path, and a profile that only names the bare GGUF file,
+    resolve that file the same way ``launch_args_for`` does, including the
+    installed profile's model folder and a relative path from the data dir.
+    When that search finds nothing, a llama-server already listening is
+    asked for the GGUF it loaded. Launch args that name a missing mmproj do
+    not count, and neither does a running server whose picture file is
+    missing. ``config["_vl_model_installed"]`` forces the gate for tests.
+    ``refresh`` is accepted so Settings can ask again. The check is a file
+    stat, so a later call sees a file that showed up.
     """
     del refresh
     config = config or {}
@@ -58,12 +64,12 @@ def vl_model_installed(
 
 
 def _mmproj_on_launch_line(config: dict[str, Any]) -> bool:
-    """True when ``launch_args_for`` names an mmproj path that exists."""
-    from arelis.llm.llama_launch import launch_args_for
+    """True when the launch line, or the server already up, has the picture file."""
+    from arelis.llm.llama_launch import launch_args_for, mmproj_beside_running_server
 
     args = launch_args_for(config)
     if not args:
-        return False
+        return mmproj_beside_running_server(config)
     try:
         index = args.index("--mmproj")
     except ValueError:

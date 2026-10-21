@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,9 @@ from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
+from arelis.core.no_call_finish import owed_tool_names
+from arelis.core.orchestrator import Orchestrator
+from arelis.core.turn_scratch import named_tools_owed
 from arelis.eval.harness import _FailingStub, _ScriptedRouter, _StubTool, foundation_registry
 from arelis.paths import outputs_dir
 from arelis.tools.base import ToolRegistry, ToolResult
@@ -405,5 +409,170 @@ def test_native_negated_document_mention_does_not_nudge(negation: str) -> None:
     # the owed-tool nudge must not fire and the answer must ship.
     assert final_text.startswith("ANSWER_1"), (final_text, thinking, tool_results)
     assert not any(_OWED_NUDGE in t for t in thinking), thinking
+
+
+_INJECTED_MENU = ("analyze", "doc_extract", "image", "pdf", "plot", "vision")
+
+
+def _picture(name: str = "plot.png") -> list[dict[str, object]]:
+    return [
+        {
+            "id": "pic",
+            "name": name,
+            "path": f"data/drops/20261021/{name}",
+            "kind": "image",
+            "bytes": 8,
+        }
+    ]
+
+
+async def _prepare_owed(
+    text: str,
+    typed_text: str | None,
+    staged_files: object = None,
+):
+    """One turn through the real prepare path, with the tools the rules name."""
+    registry = ToolRegistry()
+    for name in _INJECTED_MENU:
+        registry.register(_StubTool(name))
+    loop = AgentLoop(
+        EventBus(),
+        _ScriptedRouter([]),
+        registry,
+        SessionMemory(),
+        persona="You are Arelis under eval.",
+        config={
+            "agent": {"max_rounds": 4, "native_tool_calling": True},
+            "llamacpp": {"default_cap": shipped_num_ctx()},
+        },
+        request_confirm=_allow,
+        is_cancelled=lambda: False,
+    )
+    ctx = await loop._prepare_turn(
+        text, "fast", typed_text=typed_text, staged_files=staged_files
+    )
+    assert ctx is not None
+    return loop, ctx
+
+
+def _held(loop: AgentLoop, ctx: object) -> list[str]:
+    return owed_tool_names(loop, ctx, SimpleNamespace(fail_counts={}))
+
+
+async def test_attached_picture_does_not_owe_injected_tool_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Owed tools come from the words they typed, not from the attachment lines.
+
+    The rules, the continuation instructions, and a filename stem such as
+    plot are Arelis's own text. They must not force analyze, image, pdf,
+    vision, or plot. A tool they actually named still is owed, and a
+    negation they typed still wins over a filename that repeats it.
+    """
+    recorded: dict[str, object] = {}
+    real_prepare = AgentLoop._prepare_turn
+
+    async def _stop_at_prepare(
+        self: AgentLoop, text: str, role: object, **kwargs: object
+    ) -> None:
+        del self, role
+        recorded["text"] = text
+        recorded["typed_text"] = kwargs.get("typed_text")
+        recorded["staged_files"] = kwargs.get("staged_files")
+        return None
+
+    # Real run() has to forward typed_text. Stopping inside prepare records
+    # that argument without playing the rest of the turn.
+    monkeypatch.setattr(AgentLoop, "_prepare_turn", _stop_at_prepare)
+    persona = Path(__file__).resolve().parents[1] / "arelis" / "persona" / "arelis.md"
+    orch = Orchestrator(
+        EventBus(),
+        _ScriptedRouter([]),  # type: ignore[arg-type]
+        ToolRegistry(),
+        {
+            "agent": {"confirm_timeout_s": 30},
+            "workspace": {"roots": ["."]},
+            "_persona_path": str(persona),
+        },
+        SessionMemory(),
+    )
+
+    async def _send(text: str, attachments: list[dict[str, object]] | None) -> tuple[str, object]:
+        await orch.on_user_message(
+            Event(
+                EventType.USER_MESSAGE,
+                {"text": text, "attachments": attachments or []},
+            )
+        )
+        return str(recorded["text"]), recorded["typed_text"], recorded.get("staged_files")
+
+    plain, plain_typed, plain_staged = await _send("what is this?", _picture())
+    named, named_typed, named_staged = await _send("analyze the table", _picture())
+    negated, negated_typed, negated_staged = await _send("do not call plot", _picture())
+    picture_ask, picture_typed, picture_staged = await _send(
+        "what's in this image", _picture()
+    )
+    orch.memory.add("user", plain)
+    orch.memory.add("assistant", "I can describe that.")
+    follow, follow_typed, _follow_staged = await _send("ok", None)
+    monkeypatch.setattr(AgentLoop, "_prepare_turn", real_prepare)
+
+    assert plain_typed == "what is this?"
+    assert "plot.png" in plain
+    assert "Attachments for this turn" in plain
+    assert "analyze" in plain.lower()
+    assert plain_staged == _picture()
+    loop, ctx = await _prepare_owed(
+        plain, plain_typed if isinstance(plain_typed, str) else None, plain_staged
+    )
+    assert ctx.typed_text == "what is this?"
+    assert named_tools_owed(loop, ctx) == []
+    assert _held(loop, ctx) == []
+
+    assert named_typed == "analyze the table"
+    loop, ctx = await _prepare_owed(
+        named, named_typed if isinstance(named_typed, str) else None, named_staged
+    )
+    assert named_tools_owed(loop, ctx) == ["analyze"]
+    assert _held(loop, ctx) == ["analyze"]
+
+    assert negated_typed == "do not call plot"
+    loop, ctx = await _prepare_owed(
+        negated, negated_typed if isinstance(negated_typed, str) else None, negated_staged
+    )
+    assert "plot" in named_tools_owed(loop, ctx)
+    assert _held(loop, ctx) == []
+
+    assert follow_typed == "ok"
+    assert "Continue the prior request" in follow
+    loop, ctx = await _prepare_owed(
+        follow, follow_typed if isinstance(follow_typed, str) else None
+    )
+    assert ctx.typed_text == "ok"
+    assert named_tools_owed(loop, ctx) == []
+    assert _held(loop, ctx) == []
+
+    assert picture_typed == "what's in this image"
+    assert picture_staged == _picture()
+    loop, ctx = await _prepare_owed(
+        picture_ask,
+        picture_typed if isinstance(picture_typed, str) else None,
+        picture_staged,
+    )
+    assert ctx.staged_files == (("image", "plot.png"),)
+    assert named_tools_owed(loop, ctx) == ["vision"]
+    assert _held(loop, ctx) == ["vision"]
+
+    loop, ctx = await _prepare_owed("what's in this image", "what's in this image", None)
+    assert named_tools_owed(loop, ctx) == ["image"]
+    assert _held(loop, ctx) == ["image"]
+
+    loop, ctx = await _prepare_owed(
+        "do not call image",
+        "do not call image",
+        _picture(),
+    )
+    assert "vision" not in named_tools_owed(loop, ctx)
+    assert _held(loop, ctx) == []
 
 

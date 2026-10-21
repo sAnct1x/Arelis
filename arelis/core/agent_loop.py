@@ -813,6 +813,8 @@ class AgentLoop:
         source: str = "chat",
         route_reason: str = "default",
         stopped_ask: str = "",
+        typed_text: str | None = None,
+        staged_files: Any = None,
     ) -> None:
         try:
             await self._run(
@@ -821,6 +823,8 @@ class AgentLoop:
                 source=source,
                 route_reason=route_reason,
                 stopped_ask=stopped_ask,
+                typed_text=typed_text,
+                staged_files=staged_files,
             )
         except _StoppedError:
             if self.restart_quietly:
@@ -860,6 +864,8 @@ class AgentLoop:
         source: str = "chat",
         route_reason: str = "default",
         stopped_ask: str = "",
+        typed_text: str | None = None,
+        staged_files: Any = None,
     ) -> None:
         self._horizons_distance_text = ""
         self._horizons_distance_ask = ""
@@ -871,6 +877,8 @@ class AgentLoop:
             source=source,
             route_reason=route_reason,
             stopped_ask=stopped_ask,
+            typed_text=typed_text,
+            staged_files=staged_files,
         )
         if ctx is None:
             return
@@ -954,10 +962,19 @@ class AgentLoop:
         source: str = "chat",
         route_reason: str = "default",
         stopped_ask: str = "",
+        typed_text: str | None = None,
+        staged_files: Any = None,
     ) -> TurnContext | None:
         from arelis.core.turn_prepare import prepare_turn
         return await prepare_turn(
-            self, text, role, source=source, route_reason=route_reason, stopped_ask=stopped_ask,
+            self,
+            text,
+            role,
+            source=source,
+            route_reason=route_reason,
+            stopped_ask=stopped_ask,
+            typed_text=typed_text,
+            staged_files=staged_files,
         )
 
     async def _run_round(self, ctx: TurnContext, round_i: int) -> bool:

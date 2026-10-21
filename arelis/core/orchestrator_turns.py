@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from arelis.attachments import (
@@ -381,6 +382,8 @@ class OrchestratorTurns:
             language=language,
             phone_speak=phone_speak,
             grant_text=text,
+            typed_text=text,
+            staged_files=attachments,
         )
 
     async def _ensure_external_path_grants(self, text: str) -> bool:
@@ -429,6 +432,8 @@ class OrchestratorTurns:
         language: str = "",
         phone_speak: bool = False,
         grant_text: str | None = None,
+        typed_text: str | None = None,
+        staged_files: Any = None,
     ) -> None:
         async with self._turn_lock:
             # Typed absolute paths outside roots need an Allow (read-only
@@ -496,6 +501,8 @@ class OrchestratorTurns:
                     source=source,
                     route_reason=route_reason,
                     stopped_ask=stopped_ask,
+                    typed_text=typed_text,
+                    staged_files=staged_files,
                 )
             )
             self._turn_task = task

@@ -150,6 +150,46 @@ _OWED_TOOL_VERBS: dict[str, re.Pattern[str]] = {
 }
 
 
+def staged_file_rows(rows: Any) -> tuple[tuple[str, str], ...]:
+    """(kind, name) for files staged this turn. Ignores anything else."""
+    if not rows:
+        return ()
+    out: list[tuple[str, str]] = []
+    for item in rows:
+        kind = ""
+        name = ""
+        if isinstance(item, tuple):
+            if item:
+                kind = str(item[0] or "").strip().lower()
+            if len(item) > 1:
+                name = str(item[1] or "").strip()
+        elif isinstance(item, dict):
+            kind = str(item.get("kind") or "").strip().lower()
+            name = str(item.get("name") or "").strip()
+            if not name:
+                raw = str(item.get("path") or "").strip()
+                name = raw.replace("\\", "/").rsplit("/", 1)[-1]
+        else:
+            continue
+        if kind or name:
+            out.append((kind, name))
+    return tuple(out)
+
+
+def text_the_user_typed(ctx: TurnContext) -> str:
+    """The ask they typed, without attachment rules or continuation lines.
+
+    Those lines are added to ``ctx.text`` so the model can see the staged
+    path. They are not the user naming a tool. ``typed_text`` is that ask,
+    kept beside the injected lines. None means nothing was injected and
+    ``ctx.text`` is the ask.
+    """
+    typed = ctx.typed_text
+    if typed is None:
+        return ctx.text or ""
+    return typed
+
+
 def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
     """Tools the user named in the ask that have not run yet this turn.
 
@@ -157,13 +197,21 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
     weather, ...). "convert with units, then calculator, then remember it" owes
     ``memory`` and ``document`` chains that no kind covers, so the first success
     stripped the tool array and the rest of the chain never ran. A tool is owed
-    when its name is a whole word in the text, it is on this turn's menu, and it
-    has not succeeded. ``max_rounds`` still bounds a model that will not call it.
+    when its name is a whole word in the text they typed, it is on this turn's
+    menu, and it has not succeeded. Attachment rules, continuation
+    instructions, and staged filenames are not part of that text. A staged
+    picture makes the word image mean that file, so the look owed is vision.
+    ``max_rounds`` still bounds a model that will not call it.
     """
-    text = (ctx.text or "").lower()
+    text = text_the_user_typed(ctx).lower()
+    # "this image" beside a staged picture names that file. The image tool
+    # generates a new one. The look at the file they staged is vision.
+    picture = _staged_picture_mention(ctx, text)
     owed: list[str] = []
     for name in sorted(ctx.available_all):
         if name in loop.tools_used:
+            continue
+        if picture and name == "image":
             continue
         spoken = name.replace("_", " ")
         pattern = _OWED_TOOL_VERBS.get(name)
@@ -173,7 +221,29 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
             or (pattern is not None and pattern.search(text))
         ):
             owed.append(name)
+    if (
+        picture
+        and "vision" in ctx.available_all
+        and "vision" not in loop.tools_used
+        and "vision" not in owed
+    ):
+        owed.append("vision")
+        owed.sort()
     return owed
+
+
+def _staged_picture_mention(ctx: TurnContext, text: str) -> bool:
+    """True when the word image refers to a picture staged this turn.
+
+    The staged rows are the paperclip (or a typed path copied the same way).
+    A negated "do not call image" is not a request to look.
+    """
+    staged = getattr(ctx, "staged_files", ()) or ()
+    if not any(str(kind) == "image" for kind, _name in staged):
+        return False
+    if not re.search(r"\bimage\b", text or ""):
+        return False
+    return "image" not in negated_tool_mentions(text, ["image"])
 
 
 _NEGATION_BEFORE_TOOL = re.compile(
@@ -325,10 +395,11 @@ def _same_step_alternative(text: str, pending: str, done: set[str]) -> bool:
 def uncovered_named_steps(loop: Any, ctx: TurnContext) -> list[str]:
     """Named tools still open, ignoring an or-choice the receipt already covered."""
     done = set(getattr(loop, "tools_used", ()) or ())
+    typed = text_the_user_typed(ctx)
     return [
         name
         for name in named_tools_owed(loop, ctx)
-        if not _same_step_alternative(ctx.text, name, done)
+        if not _same_step_alternative(typed, name, done)
     ]
 
 
