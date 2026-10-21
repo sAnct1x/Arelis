@@ -324,10 +324,10 @@ class OrchestratorTurns:
                     await self._say(f"Opening {name}.")
                 return
 
-        # A path typed in the message is still just text until it is staged the
-        # same way the paperclip button stages a drop. Commands already returned.
-        # Outside files get the same Allow card as any other typed absolute path,
-        # and the copy waits until that card is allowed.
+        # A path typed in the message is still just text until the file is real
+        # and copied the way the paperclip button copies a drop. Commands
+        # already returned. Outside files get the same Allow card as any other
+        # typed absolute path, and the copy waits until that card is allowed.
         if text and not attachments and image_path_tokens(text):
             if not await self._ensure_external_path_grants(text):
                 from arelis.i18n import tr
@@ -337,8 +337,7 @@ class OrchestratorTurns:
                         EventType.ASSISTANT_DONE,
                         {
                             "text": tr(
-                                "Skipped, I was not allowed to read the outside-"
-                                "workspace path you named."
+                                "I didn't open that file because it wasn't allowed."
                             ),
                         },
                     )
@@ -352,7 +351,7 @@ class OrchestratorTurns:
                     return self.workspace.has_external_read(path)
                 return True
 
-            bases = [entry.path for entry in self.workspace.roots()]
+            bases = [entry.path for entry in self.workspace.roots]
             rows = stage_typed_images(text, bases=bases, allow=_may_stage)
             if rows:
                 attachments = rows
@@ -447,8 +446,7 @@ class OrchestratorTurns:
                         EventType.ASSISTANT_DONE,
                         {
                             "text": tr(
-                                "Skipped, I was not allowed to read the outside-"
-                                "workspace path you named."
+                                "I didn't open that file because it wasn't allowed."
                             ),
                         },
                     )

@@ -10,7 +10,6 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any
 
-from arelis.attachments import _TYPED_IMAGE_SEE
 from arelis.core.intent_catalog import (
     ATTENTION,
     DIAGNOSTICS,
@@ -514,7 +513,6 @@ _VISION_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"(?i)\b(?:question|problem)\s+in\s+(?:this|the|that)\s+"
         r"(?:photo|image|picture|screenshot)\b",
     ),
-    re.compile(rf"(?i)\b{_TYPED_IMAGE_SEE}"),
 )
 
 

@@ -308,18 +308,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             r.messages.append(loop._tool_message(name, err))
             continue
 
-        from arelis.attachments import refuse_see_tool
-
-        refused = refuse_see_tool(name, r.text)
-        if refused:
-            _drop_wander("image", "ocr")
-            await loop.bus.publish(
-                Event(EventType.THINKING, {"text": f"reject  {refused}"})
-            )
-            r.messages.append(loop._tool_message(name, refused))
-            _record_block(name)
-            continue
-
         if data_cell_should_reject(name, args, r.text, r.tool_names):
             _drop_wander(name)
             listed = room_data_file_names()

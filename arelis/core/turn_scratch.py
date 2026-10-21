@@ -150,29 +150,6 @@ _OWED_TOOL_VERBS: dict[str, re.Pattern[str]] = {
 }
 
 
-_IMAGE_FILE_SUFFIX = re.compile(r"\.(?:png|jpe?g|webp|gif)(?!\w)")
-
-
-def _mentions_are_only_filenames(text: str, name: str) -> bool:
-    """True when every whole-word hit is the stem of an image filename.
-
-    ``describe ./plot.png`` is not the user naming the plot tool. ``plot the
-    data to plot.png`` still names it, because the verb is not a filename.
-    """
-    tokens = [name.replace("_", " ")]
-    if "_" in name and name not in tokens:
-        tokens.append(name)
-    saw = False
-    for token in tokens:
-        hits = list(re.finditer(rf"\b{re.escape(token)}\b", text))
-        if not hits:
-            continue
-        saw = True
-        if not all(_IMAGE_FILE_SUFFIX.match(text[hit.end() :]) for hit in hits):
-            return False
-    return saw
-
-
 def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
     """Tools the user named in the ask that have not run yet this turn.
 
@@ -182,36 +159,20 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
     stripped the tool array and the rest of the chain never ran. A tool is owed
     when its name is a whole word in the text, it is on this turn's menu, and it
     has not succeeded. ``max_rounds`` still bounds a model that will not call it.
-
-    The word ``image`` in "describe this image" is the picture, not the
-    generator. A filename stem (``plot.png``, ``ocr.png``) is not a tool name
-    either. "generate an image" still owes the generator.
     """
     text = (ctx.text or "").lower()
-    from arelis.attachments import wants_image_text
-    from arelis.core.preflight import _VISION
-    from arelis.core.sms_complete import looks_like_image_gen
-
-    raw = ctx.text or ""
-    generating = looks_like_image_gen(raw)
-    seeing = (not generating) and (wants_image_text(raw) or bool(_VISION.search(raw)))
     owed: list[str] = []
     for name in sorted(ctx.available_all):
         if name in loop.tools_used:
             continue
         spoken = name.replace("_", " ")
         pattern = _OWED_TOOL_VERBS.get(name)
-        if not (
+        if (
             re.search(rf"\b{re.escape(spoken)}\b", text)
             or ("_" in name and re.search(rf"\b{re.escape(name)}\b", text))
             or (pattern is not None and pattern.search(text))
         ):
-            continue
-        if name == "image" and seeing:
-            continue
-        if _mentions_are_only_filenames(text, name) and not (name == "image" and generating):
-            continue
-        owed.append(name)
+            owed.append(name)
     return owed
 
 

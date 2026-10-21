@@ -320,21 +320,10 @@ def overlay_text_from_ask(user_text: str = "") -> str:
     return ""
 
 
-# A path typed in the message ("what is in C:/.../shapes.png", "describe ./plot.png").
-# The noun-only see pattern misses it, so the turn had no vision intent and the
-# model reached for ocr and image generation. Shared with preflight and claims
-# so those three cannot drift.
-_TYPED_IMAGE_SEE = (
-    r"(?:what(?:'s|\s+is)\s+in|describe|look\s+at)\s+"
-    r"(?:(?:this|the|that|your|my)\s+)?"
-    r"(?:(?:file|image|picture|photo|screenshot)\s+)?"
-    r"\S+\.(?:png|jpe?g|webp|gif)(?!\.\w)"
-)
-_TYPED_IMAGE_SEE_RE = re.compile(rf"(?i)\b{_TYPED_IMAGE_SEE}")
-
 # Drive, ./, ../, a real absolute path, or a bare filename. The lookbehind keeps
 # a URL and the tail of outputs/images/demo.png from being captured as their own
-# file. Those stay on path_from_text.
+# file. Those stay on path_from_text. A token is staged only when it is a real
+# image on disk, not because the sentence used a see-verb.
 _IMG_EXT = r"(?:png|jpe?g|webp|gif)"
 _TYPED_IMAGE_TOKEN = re.compile(
     rf"(?i)(?<![A-Za-z0-9_./\\])(?:"
@@ -954,38 +943,6 @@ def image_path_tokens(text: str) -> list[str]:
     return found
 
 
-def sees_existing_image(text: str) -> bool:
-    """True when this turn is asking to look at a picture that already exists.
-
-    Generate, restyle, pixel edit, and OCR stay on their own tools. A paperclip
-    image with no edit verb is a look, same as a typed path.
-    """
-    raw = text or ""
-    if not raw.strip():
-        return False
-    from arelis.core.sms_complete import looks_like_image_gen
-
-    if looks_like_image_gen(raw):
-        return False
-    if (
-        wants_image_edit(raw)
-        or wants_image_restyle(raw)
-        or wants_image_surgical(raw)
-        or wants_image_variations(raw)
-        or wants_image_text(raw)
-    ):
-        return False
-    # The typed path only. The wider see-pattern also matches
-    # "look at the camera frame at outputs/images/....jpg. Read this to me.",
-    # and that ask still has to OCR before vision.
-    if _TYPED_IMAGE_SEE_RE.search(raw):
-        return True
-    _block, ask = split_attachments_turn(raw)
-    return (
-        "image" in attachment_kinds_from_turn(raw) and route_tool("image", ask or raw) == "vision"
-    )
-
-
 def _resolve_typed_image(token: str, bases: Sequence[Path | str]) -> Path | None:
     """Existing image for one typed token, or None when it is not on disk.
 
@@ -1037,14 +994,11 @@ def stage_typed_images(
     drops_root: Path | None = None,
     allow: Callable[[Path], bool] | None = None,
 ) -> list[dict[str, Any]]:
-    """Stage image files named in a see-ask, the same copy the paperclip makes.
+    """Copy image paths that exist on disk, the same way the paperclip does.
 
-    A missing file still counts as a vision ask. It just has nothing to copy.
-    ``allow`` rejects a path the workspace may not read, so a typed path cannot
-    sneak a file in ahead of the Allow card.
+    A token that is not a readable image is left as text. ``allow`` rejects a
+    path the workspace may not read, so the copy waits until that check passes.
     """
-    if not sees_existing_image(text or ""):
-        return []
     paths: list[Path] = []
     seen: set[Path] = set()
     for token in image_path_tokens(text or ""):
@@ -1059,43 +1013,6 @@ def stage_typed_images(
         return []
     rows, _errors = stage_attachment_dicts(paths, drops_root=drops_root)
     return [row for row in rows if str(row.get("kind") or "") == "image"]
-
-
-def attach_typed_images(
-    text: str,
-    bases: Sequence[Path | str] = (),
-    drops_root: Path | None = None,
-    allow: Callable[[Path], bool] | None = None,
-) -> tuple[str, list[dict[str, Any]]]:
-    """``(turn text, rows)``. The turn text is the paperclip block plus the ask."""
-    rows = stage_typed_images(text, bases=bases, drops_root=drops_root, allow=allow)
-    if not rows:
-        return text, []
-    block = format_attachments_block(rows, user_text=text)
-    if not block:
-        return text, rows
-    turn = f"{block}\n\n{text}" if text else block
-    return turn, rows
-
-
-def refuse_see_tool(name: str, text: str) -> str | None:
-    """Block image generation and OCR on a look-at-this-picture ask.
-
-    None means the call can run. Vision stays callable.
-    """
-    if name not in {"image", "ocr"}:
-        return None
-    if not sees_existing_image(text or ""):
-        return None
-    if name == "image":
-        return (
-            "They asked what is in an existing picture. "
-            "Call vision with the staged path. Do not generate a new image."
-        )
-    return (
-        "They asked what is in the picture, not for the text. "
-        "Call vision with the staged path. Do not OCR it."
-    )
 
 
 def attach_paths(source: Any) -> tuple[str, ...]:

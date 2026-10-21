@@ -212,8 +212,8 @@ _ZH: dict[str, str] = {
         "这一轮中间出错了，我停下来了，没有瞎猜。"
         "细节在「思考」（Ctrl+1）。再试一次，或者说得再清楚点。"
     ),
-    "Skipped, I was not allowed to read the outside-workspace path you named.": (
-        "跳过了。你点名的工作区外面那个路径没有被允许读取。"
+    "I didn't open that file because it wasn't allowed.": (
+        "那个文件没有被允许，所以我没有打开它。"
     ),
     "On her own": "她自己做的时候",
     "Pause every time": "每次都停下来问",
