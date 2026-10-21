@@ -293,14 +293,17 @@ def chat(
     think: bool = True,
     timeout: float = 1800,
 ) -> dict[str, Any]:
+    # Context size is llama-server's -c, not a per-request knob.
+    del num_ctx
     payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
-        "think": think,
-        "keep_alive": "10m",
-        "options": {"num_ctx": num_ctx, "num_predict": num_predict},
+        "max_tokens": num_predict,
+        "temperature": 0,
     }
+    if not think:
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
     if tools:
         payload["tools"] = tools
     req = urllib.request.Request(
@@ -319,30 +322,35 @@ def chat(
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             for raw in resp:
                 line = raw.decode("utf-8", errors="replace").strip()
-                if not line:
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data or data == "[DONE]":
                     continue
                 try:
-                    obj = json.loads(line)
+                    obj = json.loads(data)
                 except json.JSONDecodeError:
                     continue
-                msg = obj.get("message") or {}
-                chunk_t = msg.get("thinking") or ""
-                chunk_c = msg.get("content") or ""
-                chunk_tools = msg.get("tool_calls") or []
+                choice = (obj.get("choices") or [{}])[0]
+                delta = choice.get("delta") or {}
+                chunk_t = delta.get("reasoning_content") or ""
+                chunk_c = delta.get("content") or ""
+                chunk_tools = delta.get("tool_calls") or []
                 if ttft is None and (chunk_t or chunk_c or chunk_tools):
                     ttft = time.perf_counter() - t0
                 if chunk_t:
-                    thinking.append(chunk_t)
+                    thinking.append(str(chunk_t))
                 if chunk_c:
-                    content.append(chunk_c)
+                    content.append(str(chunk_c))
                 if chunk_tools:
                     tool_calls.extend(chunk_tools)
-                if obj.get("done"):
+                usage = obj.get("usage") or {}
+                if usage:
                     stats = {
-                        "prompt_eval_count": obj.get("prompt_eval_count"),
-                        "eval_count": obj.get("eval_count"),
-                        "prompt_eval_duration_ns": obj.get("prompt_eval_duration"),
-                        "eval_duration_ns": obj.get("eval_duration"),
+                        "prompt_eval_count": usage.get("prompt_tokens"),
+                        "eval_count": usage.get("completion_tokens"),
+                        "prompt_eval_duration_ns": 0,
+                        "eval_duration_ns": 0,
                     }
         err = None
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
