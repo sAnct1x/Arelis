@@ -87,7 +87,8 @@ def confirm_action_key(name: str, args: dict[str, Any] | None) -> str:
 def _declined_target(args: dict[str, Any]) -> dict[str, Any]:
     """Action and target from the call the card declined.
 
-    The file body stays out. Finish names the path or the fact, not the text.
+    The file body stays out. A write finish names the path or the fact.
+    A call with no action does not read the path back.
     """
     kept: dict[str, Any] = {}
     action = args.get("action")

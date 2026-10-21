@@ -247,6 +247,9 @@ def decide_mid_turn_escalate(
 
 _MEMORY_SAVE_SKIPPED = "The value was not saved because the save was skipped."
 _SEND_SKIPPED = "The message was not sent because the send was skipped."
+# A call with no action is not a verb. "I did not image path.png because
+# the image was skipped" names a file and reads like a log line.
+_PLAIN_SKIPPED = "Okay, I skipped that since you said no."
 _SCRIPT_RUN_KIND = "run_script_error"
 
 
@@ -450,13 +453,13 @@ def declined_finish_reply(
 ) -> str:
     """Name the skipped call instead of blaming the calculator.
 
-    Built from the confirm card's tool and target. The clause "so I could
-    not run it" is added only for a workspace write when run_script is
-    still owed: declined, requested, or left a failed run in the ledger.
-    A run_script_ok warrant means the run already happened, so the clause
+    A workspace write names the file. The clause "so I could not run it"
+    is added only for a workspace write when run_script is still owed:
+    declined, requested, or left a failed run in the ledger. A
+    run_script_ok warrant means the run already happened, so the clause
     stays off, including when a later run in the same turn failed. A
     skipped memory save or a skipped SMS or email says only what was
-    skipped.
+    skipped. A call with no action does not name the file.
     """
     tool, args = _declined_call(declined_tools, declined_calls)
     action = str(args.get("action") or "").strip()
@@ -464,11 +467,12 @@ def declined_finish_reply(
         sentence = _MEMORY_SAVE_SKIPPED
     elif tool in {"send_sms", "send_email"}:
         sentence = _SEND_SKIPPED
-    else:
+    elif action:
         target = str(args.get("path") or args.get("fact") or "").strip()
-        verb = action or tool or "write"
         named = target or tool or "it"
-        sentence = f"I did not {verb} {named} because the {verb} was skipped."
+        sentence = f"I did not {action} {named} because the {action} was skipped."
+    else:
+        sentence = _PLAIN_SKIPPED
     wanted = _run_script_wanted(declined_tools, ledger, requested_tools)
     if tool == "workspace" and action.lower() == "write" and wanted:
         if sentence.endswith("."):
