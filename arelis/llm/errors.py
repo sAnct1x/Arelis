@@ -15,10 +15,6 @@ LLAMACPP_DOWN_NOTICE = (
     "The local model stopped responding. "
     "Check that it is still running, then send again."
 )
-LLAMACPP_REJECT_NOTICE = (
-    "The local model returned an error. "
-    "Check that it is still running, then send again."
-)
 LLAMACPP_MODEL_NOTICE = (
     "The local model server does not have that model loaded. "
     "Check the model file you started it with."
@@ -99,12 +95,7 @@ def classify_model_failure(
         return ModelFailure(LLAMACPP_GENERIC_NOTICE, detail, skip_tool_fallback=True)
     if _http_status(text) >= 500:
         return ModelFailure(LLAMACPP_DOWN_NOTICE, detail, skip_tool_fallback=True)
-    status = _http_status(text)
-    if status >= 400:
-        # A 400 on the tools array is the one reject JSON fallback can still fix.
-        # Other 4xx stay on the notice. Overflow and a missing model already returned.
-        skip = status != 400
-        return ModelFailure(LLAMACPP_REJECT_NOTICE, detail, skip_tool_fallback=skip)
+    # Other 4xx, including 400 on the tools array, still get one JSON fallback.
     return ModelFailure(LLAMACPP_GENERIC_NOTICE, detail, skip_tool_fallback=False)
 
 
@@ -165,4 +156,4 @@ def _debug_detail(
     if extra:
         parts.append("(" + ", ".join(extra) + ")")
     del llamacpp
-    return "llama-server " + " ".join(parts)
+    return " ".join(parts)

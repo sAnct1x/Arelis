@@ -119,13 +119,13 @@ async def run_model_preflight(
     try:
         available = await provider.list_models()
     except Exception as exc:
-        log.info("Model preflight skipped: %s", exc)
+        log.info("Model preflight skipped", exc_info=exc)
         await bus.publish(
             Event(
                 EventType.STATUS,
                 {
                     "message": (
-                        f"Could not reach the local model server ({exc}). "
+                        "Could not reach the local model. "
                         "Start it, then try again."
                     )
                 },
