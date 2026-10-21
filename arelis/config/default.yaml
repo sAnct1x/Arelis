@@ -36,16 +36,18 @@ ollama:
   vision_num_ctx: 4096
 
 # Which chat server to use. ollama is the 9B path and stays the default.
-# llamacpp talks to a llama-server you already started. Arelis does not launch it.
+# llamacpp is the 35B. Arelis starts llama-server when that port is down.
+# The flags are built by launch_args_for in arelis/llm/llama_launch.py.
 llm:
   provider: ollama
 
 # Used only when llm.provider is llamacpp. default_cap is the -c that fits the
 # 12 GB card for Qwen3.6-35B-A3B UD-Q4_K_M. History budget is the smaller of
 # this cap and the n_ctx the server reports on /props or /slots.
-# Launch line that was measured: -ngl 99 -fa off -c 32768 -np 1 --n-cpu-moe 28
-# -ub 2048 -b 4096 --cache-type-k f16 --cache-type-v f16 --jinja
-# plus the patched chat template that keeps late system messages.
+# Launch line (config C, ncmoe 32): Q8 mmproj, -fa off, --image-max-tokens 1024,
+# f16 KV, -c 32768, -b 4096, -ub 2048, --n-cpu-moe 32, --jinja, and
+# qwen36_35b_insys.jinja beside the weights when that file is already there.
+# Optional: llamacpp.model is the GGUF path if it is not next to the other weights.
 llamacpp:
   base_url: "http://127.0.0.1:8080"
   timeout_s: 300
@@ -53,8 +55,9 @@ llamacpp:
   context_caps:
     Qwen3.6-35B-A3B: 32768
   # Separate CPU llama-server with nomic-embed-text GGUF (--embeddings).
-  # Not Ollama. Pictures stay off. embeds is True only while this server
-  # answers POST /v1/embeddings. If it is down, recall stays on keywords.
+  # Not Ollama. Pictures go to the 35B, which loads the Q8 picture file.
+  # embeds is True only while this server answers POST /v1/embeddings.
+  # If it is down, recall stays on keywords.
   # Measured: 32 texts in 0.46 s on CPU. The 35B slows down only under
   # nonstop load.
   embed_url: "http://127.0.0.1:8081"

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from arelis.llm.llama_launch import launch_args_for
 from arelis.llm.llamacpp import LlamaCppProvider
 from arelis.llm.ollama import (
     DEFAULT_EMBED_KEEP_ALIVE,
@@ -18,6 +20,8 @@ from arelis.llm.startup import (
     run_model_warmup,
     seed_prefix_cache,
 )
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "LlamaCppProvider",
@@ -38,7 +42,7 @@ def _provider_for(
     ollama_cfg: dict[str, Any],
     memory_cfg: dict[str, Any],
 ) -> OllamaProvider | LlamaCppProvider:
-    """Ollama unless config asks for a llama-server that is already running."""
+    """Ollama unless config asks for the 35B llama-server."""
     kind = str((config.get("llm") or {}).get("provider") or "ollama").strip().lower()
     if kind not in {"llamacpp", "llama.cpp", "llama-server"}:
         return OllamaProvider(
@@ -56,12 +60,18 @@ def _provider_for(
     )
     default_cap = lc.get("default_cap")
     embed_url = str(lc.get("embed_url") or "").strip()
+    try:
+        launch_args = launch_args_for(config)
+    except Exception:
+        log.warning("Could not build llama-server args", exc_info=True)
+        launch_args = None
     return LlamaCppProvider(
         base_url=str(lc.get("base_url") or "http://127.0.0.1:8080"),
         timeout_s=float(lc.get("timeout_s", 300)),
         context_caps=caps,
         default_cap=int(default_cap) if default_cap else None,
         embed_url=embed_url or None,
+        launch_args=launch_args,
     )
 
 

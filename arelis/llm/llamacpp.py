@@ -1,14 +1,17 @@
-"""HTTP client for a llama-server that is already running.
+"""HTTP client for one llama-server.
 
-Arelis does not start llama-server. Point ``llamacpp.base_url`` at one you
-launched yourself, with ``-c`` equal to the per-model cap in config. Pictures
-stay off. Embeddings come from a second CPU llama-server at
-``llamacpp.embed_url`` (nomic-embed-text GGUF, ``/v1/embeddings``). ``embeds``
-is True only while that server answers; otherwise recall stays on keywords.
+``pin`` starts the 35B server when the chat port is down. The launch line is
+``launch_args_for``: Q8 mmproj, flash attention off, 1024 image tokens, f16
+KV, and ``--n-cpu-moe 32``. A picture is sent when ``/props`` reports vision.
+Embeddings come from a second CPU llama-server at ``llamacpp.embed_url``
+(nomic-embed-text GGUF, ``/v1/embeddings``). ``embeds`` is True only while
+that server answers; otherwise recall stays on keywords.
 """
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import logging
 import time
@@ -18,6 +21,7 @@ from typing import Any
 import httpx
 
 from arelis.llm.errors import is_context_overflow
+from arelis.llm.llama_launch import ensure_server
 from arelis.llm.ollama import _finalize_tool_calls, _merge_tool_calls
 
 log = logging.getLogger(__name__)
@@ -136,9 +140,7 @@ def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for msg in messages:
         if not isinstance(msg, dict):
             continue
-        content = msg.get("content")
-        if not isinstance(content, str):
-            content = "" if content is None else str(content)
+        content = _message_content(msg.get("content"))
         row: dict[str, Any] = {"role": msg.get("role") or "user", "content": content}
         calls = msg.get("tool_calls")
         if row["role"] != "tool" and not (isinstance(calls, list) and calls):
@@ -171,6 +173,26 @@ def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 row["tool_call_id"] = f"call_{ordinal}"
         out.append(row)
     return out
+
+
+def _message_content(raw: Any) -> str | list[Any]:
+    """Keep a list of content parts. Image turns are a list, not a string."""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        return raw
+    if raw is None:
+        return ""
+    return str(raw)
+
+
+def _image_part(raw: str) -> dict[str, Any]:
+    text = raw.strip()
+    if text.startswith("data:"):
+        url = text
+    else:
+        url = f"data:image/jpeg;base64,{text}"
+    return {"type": "image_url", "image_url": {"url": url}}
 
 
 def _sampling(options: dict[str, Any] | None) -> dict[str, Any]:
@@ -245,8 +267,10 @@ class LlamaCppProvider:
         client: httpx.AsyncClient | None = None,
         embed_url: str | None = None,
         embed_client: httpx.AsyncClient | None = None,
+        launch_args: list[str] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        self._launch_args = list(launch_args) if launch_args else None
         raw_embed = (embed_url or "").strip().rstrip("/")
         self.embed_url = raw_embed or None
         self.embeds = False
@@ -426,12 +450,41 @@ class LlamaCppProvider:
         on_thinking: Any | None = None,
         think: bool | None = None,
     ) -> str:
-        """Pictures are off. The 35B server has no mmproj."""
-        del model, prompt, images_b64, keep_alive, options, on_thinking, think
-        raise RuntimeError(
-            "Pictures are off for the llama.cpp provider. "
-            "This server has no vision model."
-        )
+        """Send one picture when the server loaded the Q8 mmproj.
+
+        ``/props`` has to report vision. Until then the 35B was started
+        without the picture file, and a restart is what loads it.
+        """
+        del keep_alive
+        if not images_b64:
+            raise ValueError("chat_with_images needs at least one image")
+        if not await self.sees_images(model):
+            raise RuntimeError(
+                "Pictures are off for the llama.cpp provider. "
+                "This server has no vision model. "
+                "Restart it once so it loads the picture file."
+            )
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": prompt or "Describe this image."}
+        ]
+        for raw in images_b64:
+            content.append(_image_part(str(raw)))
+        parts: list[str] = []
+        async for kind, payload in self.stream_chat(
+            model,
+            [{"role": "user", "content": content}],
+            options=options,
+            think=think,
+        ):
+            if kind == "thinking":
+                chunk = str(payload or "")
+                if chunk and on_thinking is not None:
+                    maybe = on_thinking(chunk)
+                    if inspect.isawaitable(maybe):
+                        await maybe
+            elif kind == "token":
+                parts.append(str(payload or ""))
+        return "".join(parts).strip()
 
     async def refresh_embeds(self) -> bool:
         """True only when the CPU embed server answers ``/v1/embeddings``.
@@ -516,8 +569,22 @@ class LlamaCppProvider:
         return frozenset({"completion", "tools", "thinking"})
 
     async def sees_images(self, model: str) -> bool:
+        """True when this server was started with an mmproj (``/props``)."""
         del model
-        return False
+        try:
+            response = await self._client.get("/props", timeout=_PROBE_TIMEOUT_S)
+        except httpx.HTTPError:
+            return False
+        if response.status_code >= 400:
+            return False
+        try:
+            payload = response.json()
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            return False
+        modalities = payload.get("modalities") if isinstance(payload, dict) else None
+        if not isinstance(modalities, dict):
+            return False
+        return bool(modalities.get("vision"))
 
     async def list_models(self) -> list[str]:
         response = await self._client.get("/v1/models")
@@ -558,8 +625,10 @@ class LlamaCppProvider:
         keep_alive: str | int = "30m",
         options: dict[str, Any] | None = None,
     ) -> None:
-        """Confirm the server is up. The model is already loaded."""
+        """Confirm the server is up. Start the 35B launch line if the port is down."""
         del model, keep_alive, options
+        if self._launch_args:
+            await asyncio.to_thread(ensure_server, self.base_url, self._launch_args)
         response = await self._client.get("/health")
         if response.status_code >= 400:
             detail = response.text.strip()[:400]

@@ -22,6 +22,7 @@ from arelis.llm.errors import (
     classify_ollama_failure,
     classify_turn_failure,
 )
+from arelis.llm.llama_launch import launch_args_for
 from arelis.llm.llamacpp import (
     _EMBED_PROBE_RETRY_S,
     _PROBE_TIMEOUT_S,
@@ -60,8 +61,14 @@ def _probe_read_timeout(request: httpx.Request) -> float | None:
     return None
 
 
-async def test_llamacpp_stream_maps_sse_and_refuses_pictures_and_embeddings() -> None:
-    """One chat round: thinking, text, a tool call, and usage. Pictures stay off."""
+async def test_llamacpp_stream_maps_sse_and_refuses_pictures_and_embeddings(
+    tmp_path: Path,
+) -> None:
+    """One chat round: thinking, text, a tool call, and usage.
+
+    Pictures stay off until /props reports vision. The 35B launch line
+    loads the Q8 mmproj and keeps 32 MoE layers on the CPU.
+    """
     seen: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -285,6 +292,72 @@ async def test_llamacpp_stream_maps_sse_and_refuses_pictures_and_embeddings() ->
     assert defaulted.provider.base_url == "http://127.0.0.1:8080"
     bare = LlamaCppProvider()
     assert bare.base_url == "http://127.0.0.1:8080"
+
+    vision_seen: list[dict[str, Any]] = []
+
+    def vision_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/props":
+            return httpx.Response(200, json={"modalities": {"vision": True}})
+        if request.url.path == "/v1/chat/completions":
+            vision_seen.append(json.loads(request.content))
+            body = _sse(
+                [
+                    {
+                        "choices": [
+                            {"delta": {"content": "yellow"}, "finish_reason": "stop"}
+                        ]
+                    }
+                ]
+            )
+            return httpx.Response(200, content=body)
+        return httpx.Response(404)
+
+    vision_client = _client(vision_handler)
+    vision = LlamaCppProvider(
+        base_url="http://llama.test",
+        client=vision_client,
+    )
+    assert await vision.sees_images("qwen") is True
+    assert await vision.chat_with_images("qwen", "which bar", ["aaaa"]) == "yellow"
+    posted_image = vision_seen[0]["messages"][0]["content"]
+    assert posted_image[0] == {"type": "text", "text": "which bar"}
+    assert posted_image[1]["type"] == "image_url"
+    assert posted_image[1]["image_url"]["url"] == "data:image/jpeg;base64,aaaa"
+    await vision_client.aclose()
+
+    model = tmp_path / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+    model.write_bytes(b"gguf")
+    template = tmp_path / "qwen36_35b_insys.jinja"
+    template.write_text("{# patched #}", encoding="utf-8")
+    args = launch_args_for(
+        {
+            "llamacpp": {
+                "model": str(model),
+                "binary": "llama-server",
+                "base_url": "http://127.0.0.1:8080",
+            }
+        }
+    )
+    assert args is not None
+    assert (
+        args[args.index("--mmproj") + 1]
+        == str((tmp_path / "mmproj-Qwen3.6-35B-A3B-Q8_0.gguf").resolve())
+    )
+    assert args[args.index("--n-cpu-moe") + 1] == "32"
+    assert args[args.index("--image-max-tokens") + 1] == "1024"
+    assert args[args.index("-fa") + 1] == "off"
+    assert args[args.index("--cache-type-k") + 1] == "f16"
+    assert args[args.index("--cache-type-v") + 1] == "f16"
+    assert args[args.index("-c") + 1] == "32768"
+    assert args[args.index("-b") + 1] == "4096"
+    assert args[args.index("-ub") + 1] == "2048"
+    assert args[args.index("--jinja") + 1] == "--chat-template-file"
+    assert args[args.index("--chat-template-file") + 1] == str(template.resolve())
+    assert args[args.index("--host") + 1] == "127.0.0.1"
+    assert args[args.index("--port") + 1] == "8080"
+    assert args[args.index("-ngl") + 1] == "99"
+    assert args[args.index("-np") + 1] == "1"
+
     await provider.close()
     await chosen.provider.close()
     await defaulted.provider.close()
