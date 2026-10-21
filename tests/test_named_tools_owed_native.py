@@ -426,7 +426,11 @@ def _picture(name: str = "plot.png") -> list[dict[str, object]]:
     ]
 
 
-async def _prepare_owed(text: str, typed_text: str | None):
+async def _prepare_owed(
+    text: str,
+    typed_text: str | None,
+    staged_files: object = None,
+):
     """One turn through the real prepare path, with the tools the rules name."""
     registry = ToolRegistry()
     for name in _INJECTED_MENU:
@@ -444,7 +448,9 @@ async def _prepare_owed(text: str, typed_text: str | None):
         request_confirm=_allow,
         is_cancelled=lambda: False,
     )
-    ctx = await loop._prepare_turn(text, "fast", typed_text=typed_text)
+    ctx = await loop._prepare_turn(
+        text, "fast", typed_text=typed_text, staged_files=staged_files
+    )
     assert ctx is not None
     return loop, ctx
 
@@ -472,6 +478,7 @@ async def test_attached_picture_does_not_owe_injected_tool_names(
         del self, role
         recorded["text"] = text
         recorded["typed_text"] = kwargs.get("typed_text")
+        recorded["staged_files"] = kwargs.get("staged_files")
         return None
 
     # Real run() has to forward typed_text. Stopping inside prepare records
@@ -497,33 +504,41 @@ async def test_attached_picture_does_not_owe_injected_tool_names(
                 {"text": text, "attachments": attachments or []},
             )
         )
-        return str(recorded["text"]), recorded["typed_text"]
+        return str(recorded["text"]), recorded["typed_text"], recorded.get("staged_files")
 
-    plain, plain_typed = await _send("what is this?", _picture())
-    named, named_typed = await _send("analyze the table", _picture())
-    negated, negated_typed = await _send("do not call plot", _picture())
+    plain, plain_typed, plain_staged = await _send("what is this?", _picture())
+    named, named_typed, named_staged = await _send("analyze the table", _picture())
+    negated, negated_typed, negated_staged = await _send("do not call plot", _picture())
+    picture_ask, picture_typed, picture_staged = await _send(
+        "what's in this image", _picture()
+    )
     orch.memory.add("user", plain)
     orch.memory.add("assistant", "I can describe that.")
-    follow, follow_typed = await _send("ok", None)
+    follow, follow_typed, _follow_staged = await _send("ok", None)
     monkeypatch.setattr(AgentLoop, "_prepare_turn", real_prepare)
 
     assert plain_typed == "what is this?"
     assert "plot.png" in plain
     assert "Attachments for this turn" in plain
     assert "analyze" in plain.lower()
-    loop, ctx = await _prepare_owed(plain, plain_typed if isinstance(plain_typed, str) else None)
+    assert plain_staged == _picture()
+    loop, ctx = await _prepare_owed(
+        plain, plain_typed if isinstance(plain_typed, str) else None, plain_staged
+    )
     assert ctx.typed_text == "what is this?"
     assert named_tools_owed(loop, ctx) == []
     assert _held(loop, ctx) == []
 
     assert named_typed == "analyze the table"
-    loop, ctx = await _prepare_owed(named, named_typed if isinstance(named_typed, str) else None)
+    loop, ctx = await _prepare_owed(
+        named, named_typed if isinstance(named_typed, str) else None, named_staged
+    )
     assert named_tools_owed(loop, ctx) == ["analyze"]
     assert _held(loop, ctx) == ["analyze"]
 
     assert negated_typed == "do not call plot"
     loop, ctx = await _prepare_owed(
-        negated, negated_typed if isinstance(negated_typed, str) else None
+        negated, negated_typed if isinstance(negated_typed, str) else None, negated_staged
     )
     assert "plot" in named_tools_owed(loop, ctx)
     assert _held(loop, ctx) == []
@@ -535,6 +550,29 @@ async def test_attached_picture_does_not_owe_injected_tool_names(
     )
     assert ctx.typed_text == "ok"
     assert named_tools_owed(loop, ctx) == []
+    assert _held(loop, ctx) == []
+
+    assert picture_typed == "what's in this image"
+    assert picture_staged == _picture()
+    loop, ctx = await _prepare_owed(
+        picture_ask,
+        picture_typed if isinstance(picture_typed, str) else None,
+        picture_staged,
+    )
+    assert ctx.staged_files == (("image", "plot.png"),)
+    assert named_tools_owed(loop, ctx) == ["vision"]
+    assert _held(loop, ctx) == ["vision"]
+
+    loop, ctx = await _prepare_owed("what's in this image", "what's in this image", None)
+    assert named_tools_owed(loop, ctx) == ["image"]
+    assert _held(loop, ctx) == ["image"]
+
+    loop, ctx = await _prepare_owed(
+        "do not call image",
+        "do not call image",
+        _picture(),
+    )
+    assert "vision" not in named_tools_owed(loop, ctx)
     assert _held(loop, ctx) == []
 
 

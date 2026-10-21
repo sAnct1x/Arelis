@@ -468,6 +468,7 @@ async def prepare_turn(
     route_reason: str = "default",
     stopped_ask: str = "",
     typed_text: str | None = None,
+    staged_files: Any = None,
 ) -> TurnContext | None:
     """Build the prompt and TurnContext. None if the turn already finished."""
     start = await _begin_turn(
@@ -588,9 +589,12 @@ async def prepare_turn(
     )
     exact_cfg = bool(agent_cfg.get("exactness", True))
     exact_need = detect_exactness_need(text, data_cell="data_cell" in set(visible))
+    from arelis.core.turn_scratch import staged_file_rows
+
     ctx = TurnContext(
         text=text,
         typed_text=typed_text,
+        staged_files=staged_file_rows(staged_files),
         role=role,
         speak=speak,
         research_mode=research_mode,

@@ -31,6 +31,10 @@ class TurnContext:
     # this turn was given one string, and that string is the ask. An empty
     # string means a file was attached and they typed nothing.
     typed_text: str | None = None
+    # Files staged for this turn (paperclip or a typed path copied the same
+    # way). Each row is (kind, name). Empty means nothing was staged. This
+    # is not parsed back out of the attachment block.
+    staged_files: tuple[tuple[str, str], ...] = ()
     speak: bool = False
     research_mode: bool = False
     agent_cfg: dict[str, Any] = field(default_factory=dict)

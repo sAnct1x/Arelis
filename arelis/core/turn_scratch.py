@@ -150,6 +150,32 @@ _OWED_TOOL_VERBS: dict[str, re.Pattern[str]] = {
 }
 
 
+def staged_file_rows(rows: Any) -> tuple[tuple[str, str], ...]:
+    """(kind, name) for files staged this turn. Ignores anything else."""
+    if not rows:
+        return ()
+    out: list[tuple[str, str]] = []
+    for item in rows:
+        kind = ""
+        name = ""
+        if isinstance(item, tuple):
+            if item:
+                kind = str(item[0] or "").strip().lower()
+            if len(item) > 1:
+                name = str(item[1] or "").strip()
+        elif isinstance(item, dict):
+            kind = str(item.get("kind") or "").strip().lower()
+            name = str(item.get("name") or "").strip()
+            if not name:
+                raw = str(item.get("path") or "").strip()
+                name = raw.replace("\\", "/").rsplit("/", 1)[-1]
+        else:
+            continue
+        if kind or name:
+            out.append((kind, name))
+    return tuple(out)
+
+
 def text_the_user_typed(ctx: TurnContext) -> str:
     """The ask they typed, without attachment rules or continuation lines.
 
@@ -173,13 +199,19 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
     stripped the tool array and the rest of the chain never ran. A tool is owed
     when its name is a whole word in the text they typed, it is on this turn's
     menu, and it has not succeeded. Attachment rules, continuation
-    instructions, and staged filenames are not part of that text.
+    instructions, and staged filenames are not part of that text. A staged
+    picture makes the word image mean that file, so the look owed is vision.
     ``max_rounds`` still bounds a model that will not call it.
     """
     text = text_the_user_typed(ctx).lower()
+    # "this image" beside a staged picture names that file. The image tool
+    # generates a new one. The look at the file they staged is vision.
+    picture = _staged_picture_mention(ctx, text)
     owed: list[str] = []
     for name in sorted(ctx.available_all):
         if name in loop.tools_used:
+            continue
+        if picture and name == "image":
             continue
         spoken = name.replace("_", " ")
         pattern = _OWED_TOOL_VERBS.get(name)
@@ -189,7 +221,29 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
             or (pattern is not None and pattern.search(text))
         ):
             owed.append(name)
+    if (
+        picture
+        and "vision" in ctx.available_all
+        and "vision" not in loop.tools_used
+        and "vision" not in owed
+    ):
+        owed.append("vision")
+        owed.sort()
     return owed
+
+
+def _staged_picture_mention(ctx: TurnContext, text: str) -> bool:
+    """True when the word image refers to a picture staged this turn.
+
+    The staged rows are the paperclip (or a typed path copied the same way).
+    A negated "do not call image" is not a request to look.
+    """
+    staged = getattr(ctx, "staged_files", ()) or ()
+    if not any(str(kind) == "image" for kind, _name in staged):
+        return False
+    if not re.search(r"\bimage\b", text or ""):
+        return False
+    return "image" not in negated_tool_mentions(text, ["image"])
 
 
 _NEGATION_BEFORE_TOOL = re.compile(
