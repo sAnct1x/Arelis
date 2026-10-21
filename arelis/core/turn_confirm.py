@@ -23,6 +23,67 @@ STOP = "stop"
 RUN = "run"
 
 
+def _flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _image_step(args: dict[str, Any]) -> str:
+    """Which picture step these args are, from the flags on the call.
+
+    Both picture tools take the same flags for a cutout. The step is the
+    flag, so a no on one tool is a no on that step for the other.
+    """
+    if _flag(args.get("remove_background")):
+        return "remove_background"
+    if str(args.get("outpaint") or "").strip():
+        return "outpaint"
+    if str(args.get("mask_region") or "").strip() or args.get("mask_box") is not None:
+        return "mask"
+    if str(args.get("upscale") or "").strip() in {"2", "4"}:
+        return "upscale"
+    if str(args.get("text") or "").strip():
+        return "text"
+    if str(args.get("crop") or args.get("crop_box") or "").strip():
+        return "crop"
+    if (
+        args.get("scale") is not None
+        or args.get("width") is not None
+        or args.get("height") is not None
+    ):
+        return "resize"
+    if args.get("rotate") is not None:
+        return "rotate"
+    if _flag(args.get("grayscale")):
+        return "grayscale"
+    if args.get("annotate"):
+        return "annotate"
+    if args.get("scale_bar"):
+        return "scale_bar"
+    if str(args.get("stretch") or "").strip():
+        return "stretch"
+    if str(args.get("path") or "").strip():
+        return "restyle"
+    return "generate"
+
+
+def confirm_action_key(name: str, args: dict[str, Any] | None) -> str:
+    """Identity of the confirm-gated step this call would do.
+
+    Picture tools share a step. A no on send or memory stays on that
+    tool, so one refusal does not block the other.
+    """
+    tool = (name or "").strip()
+    raw = args if isinstance(args, dict) else {}
+    if tool in {"image", "image_edit"}:
+        return f"image:{_image_step(raw)}"
+    action = str(raw.get("action") or "").strip()
+    if action:
+        return f"{tool}:{action}"
+    return tool
+
+
 def _declined_target(args: dict[str, Any]) -> dict[str, Any]:
     """Action and target from the call the card declined.
 
@@ -203,10 +264,13 @@ async def confirm_call(
             messages=messages,
         )
 
-    # A later copy of a call they already refused. Same fact, no second card,
-    # and the tool stays on the menu. Hiding it is what turned the next call
-    # into "Unknown tool" plus the rest of the menu.
-    if name in ctx.declined_tools:
+    # A later copy of a step they already refused. Same fact, no second
+    # card, and the tool stays on the menu. Hiding it is what turned the
+    # next call into "Unknown tool" plus the rest of the menu. The step
+    # is shared, so the other picture tool does not open a new card for
+    # a cutout they already refused.
+    action_key = confirm_action_key(name, args)
+    if name in ctx.declined_tools or action_key in ctx.declined_actions:
         messages.append(
             loop._tool_message(name, _SKIP_NOTICE.format(tool=name))
         )
@@ -321,6 +385,7 @@ async def confirm_call(
         if decision != "allow":
             # The card said skip or decline. Do not infer this from reply text.
             ctx.declined_tools.add(name)
+            ctx.declined_actions.add(confirm_action_key(name, args))
             ctx.declined_calls.append((name, _declined_target(args)))
             await loop.bus.publish(
                 Event(EventType.THINKING, {"text": f"skip  {summary}"})
@@ -360,6 +425,11 @@ async def confirm_call(
             else:
                 messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} skipped")
+                # The card was the step. If nothing in this batch runs,
+                # dispatch answers from that and does not call the model
+                # again. Wander off a send stays open so the send can
+                # still be called.
+                ctx.decline_needs_finish = True
             if (
                 name in {"send_sms", "send_email"}
                 and name in loop._expected_tools

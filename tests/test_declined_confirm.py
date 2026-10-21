@@ -130,6 +130,10 @@ async def test_a_denied_call_says_the_user_said_no() -> None:
 
 
 def _call(name: str, arguments: dict[str, Any]) -> tuple[str, Any]:
+    return _batch((name, arguments))
+
+
+def _batch(*pairs: tuple[str, dict[str, Any]]) -> tuple[str, Any]:
     return (
         "tool_calls",
         [
@@ -137,6 +141,7 @@ def _call(name: str, arguments: dict[str, Any]) -> tuple[str, Any]:
                 "type": "function",
                 "function": {"name": name, "arguments": arguments},
             }
+            for name, arguments in pairs
         ],
     )
 
@@ -213,12 +218,14 @@ def _tool_blobs(seen: list[list[dict[str, Any]]]) -> list[str]:
 
 @pytest.mark.asyncio
 async def test_a_declined_card_is_not_a_missing_tool_or_a_standing_no() -> None:
-    """A no is about that call.
+    """A no is about that step.
 
     Declining the follow-up image card used to hide image, and the next
     call was told the tool was unknown and that web_search was available.
-    Declining a send used to leave "declined by user" on the next turn,
-    and a remember prompt was treated as already refused.
+    The same cutout then came back as a new card on image_edit, and two
+    refusals left the turn with no reply. Declining a send used to leave
+    "declined by user" on the next turn, and a remember prompt was
+    treated as already refused.
     """
     cards: list[str] = []
 
@@ -227,7 +234,7 @@ async def test_a_declined_card_is_not_a_missing_tool_or_a_standing_no() -> None:
     ) -> str:
         del cid, args, summary
         cards.append(tool)
-        if tool in {"image_edit", "memory"}:
+        if tool == "memory":
             return "allow"
         return "skip"
 
@@ -238,13 +245,19 @@ async def test_a_declined_card_is_not_a_missing_tool_or_a_standing_no() -> None:
     registry = ToolRegistry()
     for tool in (edit, image, web, vision):
         registry.register(tool)
+    cut = {"path": "photo.png", "remove_background": True}
+    # The second image call differs so the round keeps it. Identical
+    # calls in one response are dropped before confirm.
     router = _RecordingRouter(
         [
-            [_call("image_edit", {"path": "photo.png", "remove_background": True})],
-            [_call("image", {"path": "photo.png", "remove_background": True})],
-            [_call("image", {"path": "photo.png", "remove_background": True})],
-            [_call("web_search", {"query": "background removal"})],
-            [("token", "The background is removed.")],
+            [
+                _batch(
+                    ("image", cut),
+                    ("image", {"path": "photo-2.png", "remove_background": True}),
+                    ("image_edit", dict(cut)),
+                )
+            ],
+            [("token", "SHOULD NOT SHIP")],
         ]
     )
     cfg = _config()
@@ -262,16 +275,39 @@ async def test_a_declined_card_is_not_a_missing_tool_or_a_standing_no() -> None:
         request_confirm=confirm,
         is_cancelled=lambda: False,
     )
-    await _collect(
+    events = await _collect(
         loop.bus,
         loop.run("Remove the background from this photo", "fast"),
     )
+    done = next(
+        event.payload.get("text")
+        for event in events
+        if event.type == EventType.ASSISTANT_DONE
+    )
     blobs = _tool_blobs(router.seen)
-    assert edit.runs == 1
+    shown = "\n".join(
+        [str(done or "")]
+        + blobs
+        + [
+            str(event.payload.get("text") or "")
+            for event in events
+            if isinstance(event.payload, dict)
+        ]
+    )
+    assert edit.runs == 0
     assert image.runs == 0
-    assert cards.count("image") == 1
-    assert any("said no" in blob.lower() and "image" in blob.lower() for blob in blobs)
-    for blob in blobs:
+    assert web.runs == 0
+    assert cards == ["image"]
+    assert router.i == 1
+    assert done == "I did not image photo.png because the image was skipped."
+    # Same batch: the repeat and the other picture tool were skipped
+    # without a card. A stop on the first no would leave only one line.
+    assert loop._trace == [
+        "image skipped",
+        "image skipped",
+        "image_edit skipped",
+    ]
+    for blob in [shown, *blobs]:
         lowered = blob.lower()
         assert "unknown tool" not in lowered, blob
         assert "available:" not in lowered, blob

@@ -145,6 +145,10 @@ class TurnContext:
     vision_ok: bool = False
     same_skip_keys: set[str] = field(default_factory=set)
     skip_finish_text: str = ""
+    # A confirm card was refused and that refusal is the step itself, not
+    # wander off a send. dispatch ends the turn when no call actually ran,
+    # so the reply does not wait on another model round.
+    decline_needs_finish: bool = False
     agenda_create_ok: bool = False
     agenda_open_read_ok: bool = False
     calculator_ok: bool = False
@@ -170,6 +174,9 @@ class TurnContext:
     # Confirm cards skipped or declined this turn. Filled only from that
     # card's own decision, never from anything the model wrote.
     declined_tools: set[str] = field(default_factory=set)
+    # The step those cards refused. image and image_edit share a step, so
+    # a no on one is a no on that step for the other tool this turn.
+    declined_actions: set[str] = field(default_factory=set)
     declined_calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     web_search_ok: set[str] = field(default_factory=set)
     page_ok: set[str] = field(default_factory=set)
