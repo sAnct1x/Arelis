@@ -119,7 +119,7 @@ async def run_model_preflight(
     try:
         available = await provider.list_models()
     except Exception as exc:
-        log.info("Model preflight skipped", exc_info=exc)
+        log.warning("Model preflight skipped", exc_info=exc)
         await bus.publish(
             Event(
                 EventType.STATUS,
