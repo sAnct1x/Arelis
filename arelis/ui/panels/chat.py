@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -294,6 +295,9 @@ class ChatPanel(QWidget):
         self._pending_notices: list[str] = []
         self._pending_files: list[tuple[str, str]] = []
         self._pending_charts: list[tuple[str, str]] = []
+        # Absolute paths of charts this transcript is showing. The reply
+        # renderer uses them so ![name](name) is not drawn a second time.
+        self._shown_charts: list[str] = []
         self._file_tokens: dict[str, tuple[str, str]] = {}
         self._caret_timer = QTimer(self)
         self._caret_timer.setInterval(530)
@@ -743,10 +747,15 @@ class ChatPanel(QWidget):
             self._label_at = self._end_position()
             self._anchor = self._end_position()
         origin = self._anchor if self._anchor is not None else self._end_position()
+        shown = self._shown_charts
         if not self._stream_open:
-            self._replace_from_anchor(_assistant_bubble_html(body))
+            self._replace_from_anchor(_assistant_bubble_html(body, shown_files=shown))
         else:
-            answer = _assistant_open() + render_markdown(body, math=math_html) + _ASSISTANT_CLOSE
+            answer = (
+                _assistant_open()
+                + render_markdown(body, math=math_html, shown_files=shown)
+                + _ASSISTANT_CLOSE
+            )
             self._replace_from_anchor(answer)
         self._label_at = None
         self._stream_open = False
@@ -845,6 +854,8 @@ class ChatPanel(QWidget):
         if not abs_path:
             return
         label = (name or Path(path).name or "chart").strip() or "chart"
+        if abs_path not in self._shown_charts:
+            self._shown_charts.append(abs_path)
         if self._stream_open:
             self._pending_charts.append((label, abs_path))
             return
@@ -988,6 +999,7 @@ class ChatPanel(QWidget):
         self._pending_notices = []
         self._pending_files = []
         self._pending_charts = []
+        self._shown_charts = []
         self._file_tokens = {}
         self._thoughts = []
         self._label_at = None
@@ -1251,10 +1263,13 @@ def _user_bubble_html(
     )
 
 
-def _assistant_bubble_html(body: str) -> str:
+def _assistant_bubble_html(
+    body: str,
+    shown_files: Iterable[str] | None = None,
+) -> str:
     return (
         _assistant_label()
         + _assistant_open()
-        + render_markdown(body, math=math_html)
+        + render_markdown(body, math=math_html, shown_files=shown_files)
         + _ASSISTANT_CLOSE
     )

@@ -9,6 +9,7 @@ from PySide6.QtGui import QImage, QTextCursor, QTextDocument
 
 from arelis.core.events import Event, EventType
 from arelis.ui.event_host import dispatch_event
+from arelis.ui.markdown import render_markdown
 from tests.test_plot_charts import _tool
 
 
@@ -30,6 +31,22 @@ def _chart_formats(doc):
         image = fmt.toImageFormat()
         if image.name().startswith("arelis-chart:"):
             found.append(image)
+    return found
+
+
+def _image_names(doc) -> list[str]:
+    found = []
+    cursor = QTextCursor(doc)
+    count = doc.characterCount()
+    for pos in range(max(0, count - 1)):
+        cursor.setPosition(pos)
+        cursor.movePosition(
+            QTextCursor.MoveOperation.NextCharacter,
+            QTextCursor.MoveMode.KeepAnchor,
+        )
+        fmt = cursor.charFormat()
+        if fmt.isImageFormat():
+            found.append(fmt.toImageFormat().name())
     return found
 
 
@@ -83,11 +100,49 @@ async def test_plot_file_ready_paints_the_png_in_chat(
             },
         ),
     )
-    window.chat.finish_assistant("Here is the chart.")
+    window.chat.finish_assistant(
+        "Here is the chart.\n\n"
+        "![fake-plot.png](fake-plot.png)\n\n"
+        "Leave ![other](../outside.png) alone."
+    )
     qt_app.processEvents()
 
-    charts = _chart_formats(window.chat.view.document())
+    plain = window.chat.view.toPlainText()
+    assert "Here is the chart." in plain
+    # The chart markdown used to survive as the text "!fake-plot.png".
+    # The picture is the file-ready image, so the reference is left out.
+    # A different local image is not a chart this turn showed, and it is
+    # not loaded from the path the model wrote.
+    assert "!fake-plot.png" not in plain
+    assert "![fake-plot.png]" not in plain
+    assert "!other" in plain
+    html = window.chat.view.toHtml()
+    assert "../outside.png" not in html
+    assert str(png.resolve()) not in html
+
+    shown = str(png.resolve())
+    assert "fake-plot" not in render_markdown(
+        "![fake-plot.png](fake-plot.png)", shown_files=[shown]
+    )
+    assert shown not in render_markdown(f"![fake-plot.png]({shown})", shown_files=[shown])
+    short = render_markdown(
+        "![sin_cos.png](outputs/plots/sin_cos.png)",
+        shown_files=["/data/arelis/outputs/plots/sin_cos.png"],
+    )
+    assert "sin_cos" not in short
+    alien = render_markdown("![x](/tmp/not-the-chart.png)", shown_files=[shown])
+    assert "/tmp/not-the-chart.png" not in alien
+    assert "!x" in alien
+    climbed = render_markdown("![x](../outside.png)", shown_files=[shown])
+    assert "../outside.png" not in climbed
+    assert "!x" in climbed
+    linked = render_markdown("See ![cat](https://example.com/cat.png).")
+    assert "https://example.com/cat.png" in linked
+    assert "!<a " in linked
+    doc = window.chat.view.document()
+    charts = _chart_formats(doc)
     assert len(charts) == 1
+    assert _image_names(doc) == [charts[0].name()]
     loaded = _loaded(window.chat.view, charts[0])
     assert loaded is not None and not loaded.isNull()
     assert loaded.width() == 8 and loaded.height() == 8

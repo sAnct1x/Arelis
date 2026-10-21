@@ -5,7 +5,11 @@ so "**Sources:**" reached the screen with its asterisks showing and a fenced
 code block arrived as a row of backticks. This renders the subset that actually
 turns up in model output: headings, lists, tables, code, quotes, rules, TeX
 math, and the usual inline marks. Math goes through ``flatten_latex`` so a
-CAS ``latex:`` line reads as unicode here and in every file she writes.
+CAS ``latex:`` line reads as unicode here and in every file she writes. An
+image that names a chart this reply is already showing is left out. The
+file-ready block is that picture. The path written in the markdown is not
+loaded, so a local file outside the session output folder cannot be pulled
+in from the reply.
 
 Two rules shape the implementation.
 
@@ -26,7 +30,8 @@ import contextvars
 import html
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from pathlib import Path
 
 from arelis.mathtext import flatten_for_render
 from arelis.mathtext import flatten_latex as flatten_latex
@@ -54,8 +59,11 @@ _TABLE_RULE = re.compile(r"^\s*\|?(?:\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$")
 # One pass over a line of prose. A single alternation rather than a chain of
 # substitutions, because chained passes re-enter their own output: an autolink
 # pass would rewrite the href of a link the previous pass just produced.
+# Image is before link. ![alt](src) would otherwise match as a link and leave
+# the "!" as text in front of it.
 _INLINE = re.compile(
     r"(?P<code>`[^`\n]+`)"
+    r"|(?P<image>!\[[^\]\n]*\]\([^)\s]+\))"
     r"|(?P<link>\[[^\]\n]*\]\([^)\s]+\))"
     r"|(?P<auto>(?<![\w/])https?://[^\s<>\"'`\])]+)"
     r"|(?P<strong>\*\*[^\n]+?\*\*|(?<!\w)__[^\n]+?__(?!\w))"
@@ -63,6 +71,7 @@ _INLINE = re.compile(
     r"|(?P<em>\*[^*\n]+?\*|(?<!\w)_[^_\n]+?_(?!\w))"
 )
 _LINK_PARTS = re.compile(r"^\[([^\]\n]*)\]\(([^)\s]+)\)$")
+_IMAGE_PARTS = re.compile(r"^!\[([^\]\n]*)\]\(([^)\s]+)\)$")
 
 
 def _mono() -> str:
@@ -132,6 +141,11 @@ _RAW: contextvars.ContextVar[tuple[tuple[str, bool], ...]] = contextvars.Context
     "math_raw", default=()
 )
 _MATH: contextvars.ContextVar[MathHook | None] = contextvars.ContextVar("math_hook", default=None)
+# Absolute paths of charts the transcript is already showing for this reply.
+# The model's image target is compared to these. It is never opened.
+_SHOWN_CHARTS: contextvars.ContextVar[tuple[Path, ...]] = contextvars.ContextVar(
+    "shown_charts", default=()
+)
 
 
 # Zen Kaku has no Greek. IBM Plex and Segoe do, so a formula that stays
@@ -154,12 +168,22 @@ def _style_math_image() -> str:
     )
 
 
-def render_markdown(text: str, *, math: MathHook | None = None) -> str:
+def render_markdown(
+    text: str,
+    *,
+    math: MathHook | None = None,
+    shown_files: Iterable[str] | None = None,
+) -> str:
     """Render markdown as Qt rich text. Always returns escaped, safe HTML.
 
     ``math`` is optional. Leave it unset and every formula stays the unicode
     line this function has always returned. Chat passes a hook that may turn
     one span into an image tag; None from the hook keeps the unicode.
+
+    ``shown_files`` are charts this reply is already showing. An image
+    reference to one of them is left out. The picture stays the file-ready
+    block, so it is not drawn a second time. The reference itself is not
+    opened.
     """
     if not text:
         return ""
@@ -169,15 +193,18 @@ def render_markdown(text: str, *, math: MathHook | None = None) -> str:
         from arelis.ui.math_images import begin_reply
 
         begin_reply()
+    shown = _chart_paths(shown_files)
     token = _SLOTS.set(tuple(slots))
     raw_token = _RAW.set(tuple(raw or ()))
     math_token = _MATH.set(math)
+    shown_token = _SHOWN_CHARTS.set(shown)
     try:
         return _render_lines(text)
     finally:
         _SLOTS.reset(token)
         _RAW.reset(raw_token)
         _MATH.reset(math_token)
+        _SHOWN_CHARTS.reset(shown_token)
 
 
 def _render_lines(text: str) -> str:
@@ -314,6 +341,8 @@ def _render_match(match: re.Match[str]) -> str:
     # shorter than the match that produced it.
     if kind == "code":
         return f'<code style="{_style_code()}">{_escape(raw[1:-1])}</code>'
+    if kind == "image":
+        return _render_image(raw)
     if kind == "link":
         parts = _LINK_PARTS.match(raw)
         if parts is None:
@@ -328,6 +357,86 @@ def _render_match(match: re.Match[str]) -> str:
     if kind == "em":
         return f"<i>{render_inline(raw.strip('*_'))}</i>"
     return _escape(raw)
+
+
+def _chart_paths(files: Iterable[str] | None) -> tuple[Path, ...]:
+    """Copy the transcript's chart paths. Nothing here is resolved or opened."""
+    found: list[Path] = []
+    seen: set[str] = set()
+    for item in files or ():
+        text = str(item or "").strip()
+        if not text:
+            continue
+        path = Path(text)
+        if not path.name or path.name in {".", ".."}:
+            continue
+        key = path.as_posix()
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(path)
+    return tuple(found)
+
+
+def _render_image(raw: str) -> str:
+    """One image mark.
+
+    A chart this reply already shows contributes nothing. Emitting an image
+    tag would paint it twice, and the address the model wrote is not a file
+    we load. A path outside the session output folder therefore cannot be
+    rendered from the reply. Any other image keeps the old reading: the bang
+    stays text, and the bracket form is a link only for a safe scheme.
+    """
+    parts = _IMAGE_PARTS.match(raw)
+    if parts is None:
+        return _escape(raw)
+    alt, src = parts.group(1), parts.group(2)
+    if _refers_to_shown_chart(src):
+        return ""
+    label = render_inline(alt) or _escape(src)
+    return "!" + _anchor(src, label)
+
+
+def _refers_to_shown_chart(src: str) -> bool:
+    """True when src names a chart already passed in as shown.
+
+    Comparison is textual. Parent segments and schemes do not match, and an
+    absolute path matches only when it is one of the known chart paths.
+    """
+    charts = _SHOWN_CHARTS.get()
+    if not charts:
+        return False
+    raw = (src or "").strip().strip("<>")
+    if not raw or "://" in raw or raw.lower().startswith("mailto:"):
+        return False
+    folded = raw.replace("\\", "/")
+    while folded.startswith("./"):
+        folded = folded[2:]
+    if not folded:
+        return False
+    if folded.startswith("/") or _windows_abs(folded):
+        return _exact_chart(folded, charts)
+    parts = [part for part in folded.split("/") if part and part != "."]
+    if not parts or any(part == ".." for part in parts):
+        return False
+    for chart in charts:
+        if len(parts) == 1 and parts[0] == chart.name:
+            return True
+        known = [part for part in chart.as_posix().split("/") if part]
+        if len(parts) > 1 and len(parts) <= len(known) and known[-len(parts) :] == parts:
+            return True
+    return False
+
+
+def _windows_abs(folded: str) -> bool:
+    return len(folded) >= 3 and folded[0].isalpha() and folded[1] == ":" and folded[2] == "/"
+
+
+def _exact_chart(folded: str, charts: tuple[Path, ...]) -> bool:
+    for chart in charts:
+        if folded == chart.as_posix() or folded == str(chart).replace("\\", "/"):
+            return True
+    return False
 
 
 def _anchor(href: str, label: str) -> str:
@@ -376,8 +485,14 @@ def _take_paragraph(lines: list[str], i: int) -> tuple[int, str]:
         line = lines[i]
         if not line.strip() or _starts_block(lines, i):
             break
-        body.append(render_inline(line.strip()))
+        rendered = render_inline(line.strip())
+        # A chart image that is already on screen renders as nothing. Skip
+        # the line so the reply does not keep a blank paragraph for it.
+        if rendered:
+            body.append(rendered)
         i += 1
+    if not body:
+        return i, ""
     return i, f'<p style="margin:4px 0 4px 0;">{"<br/>".join(body)}</p>'
 
 
