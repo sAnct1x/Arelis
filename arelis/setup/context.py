@@ -44,7 +44,7 @@ _MAX_PINNED = 131072
 # prompt plus room to talk. Persona (~905) + telegraph policy (~455) + skinny
 # schemas for 39 tools (~4,105) is about 5,500 tokens before conversation.
 # 16384 would fit the prefix but starve history; 32768 leaves ~27k for the
-# reply. the model server still drops overflow from the front (the persona).
+# reply. The model server still drops overflow from the front (the persona).
 #
 # This is a floor rather than a compromise because a card too small for 32768 is
 # too small for the weights: the 9B measures 5.62 GiB at 16384 and 6.15 GiB at

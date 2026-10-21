@@ -82,7 +82,7 @@ ConfirmFn = Callable[[str, str, dict[str, Any], str], Awaitable[str]]
 # confirm(id, tool, args, summary) -> "allow" | "allow_turn" | "skip"
 
 # Reasoning text is shown in the thinking dock, not the chat. Token-sized
-# the model server `thinking` chunks are streamed into one wrapping paragraph. Discrete
+# model-server `thinking` chunks are streamed into one wrapping paragraph. Discrete
 # status/tool/round lines stay one per event. Preamble snippets still cap.
 _MAX_THINKING_SNIPPET = 240
 
@@ -220,7 +220,7 @@ def _normalize_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, A
     """Make history safe to send back to the model server after a tool round.
 
     Injected calls used to store ``arguments`` as a JSON string while native
-    calls used a dict. the model server then 400s with “can't find closing '}'” on the
+    calls used a dict. The model server then 400s with "can't find closing '}'" on the
     next step, including the no-tools JSON fallback, and the turn dies.
     """
     out: list[dict[str, Any]] = []
@@ -424,10 +424,10 @@ def _tool_intent_label(tool_calls: list[dict[str, Any]]) -> str:
 
 
 def _native_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    """the model server-style tool_call dict for injected draft executions.
+    """Model-server-style tool_call dict for injected draft executions.
 
     ``arguments`` must be an object. A JSON string here is what triggers
-    the model server HTTP 400 “Value looks like object, but can't find closing '}'”.
+    the model server HTTP 400 "Value looks like object, but can't find closing '}'".
     """
     return {
         "type": "function",
@@ -1610,7 +1610,7 @@ class AgentLoop:
         )
         # Eval/scripted fakes are not ModelRouter. Asking them for the
         # gate used to AttributeError, which the loop treated as a dead
-        # the model server — no tool calls, no ASSISTANT_DONE.
+        # model server. No tool calls, no ASSISTANT_DONE.
         if getattr(self.router, "warmup_pending", lambda: False)():
             await self.bus.publish(
                 Event(

@@ -6,7 +6,7 @@ prompt, so a tools array that changes shape from turn to turn changes the prefix
 — and a changed prefix cannot be reused, which means the persona, the policy and
 the whole conversation behind it are prefilled again.
 
-This measures both effects against a live the model server, reporting prompt_eval_count
+This measures both effects against a live model server, reporting prompt_eval_count
 (how many tokens were actually processed rather than reused) and
 prompt_eval_duration.
 

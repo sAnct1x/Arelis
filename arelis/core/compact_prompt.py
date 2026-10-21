@@ -1,6 +1,6 @@
 """Short, byte-stable prompt pieces. Essays stay in skill cards for humans.
 
-the model server sees this module, not the card bodies. The tool JSON array still
+The model server sees this module, not the card bodies. The tool JSON array still
 lists every tool every turn (prefix cache). Descriptions and param
 essays do not.
 """

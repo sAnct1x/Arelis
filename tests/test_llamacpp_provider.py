@@ -529,7 +529,7 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
         provider="llamacpp",
     )
     assert down.chat == LLAMACPP_DOWN_NOTICE
-    assert "the local model server stopped responding" in down.chat.lower()
+    assert "the local model stopped responding" in down.chat.lower()
     assert "—" not in down.chat
     assert down.skip_tool_fallback is True
     http500 = classify_model_failure(

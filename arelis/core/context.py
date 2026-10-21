@@ -1,6 +1,6 @@
 """Keep the persona inside the context window.
 
-the model server silently drops overflow from the front of the prompt. The agent loop
+The model server silently drops overflow from the front of the prompt. The agent loop
 puts system messages first, so a long session loses the persona and tool policy
 before it loses stale chat. Fitting here, with those messages pinned, is what
 stops that.
@@ -213,7 +213,7 @@ def prompt_char_count(
 ) -> int:
     """Sum of message contents, used to derive chars-per-token from eval counts.
 
-    Pass the same ``tools`` array that went to the model. the model server counts the tool
+    Pass the same ``tools`` array that went to the model. The model server counts the tool
     schemas in prompt_eval_count, so leaving them out of the numerator was not
     the small conservative error the old comment claimed: on a tool-bearing turn
     the schemas are most of the prompt, and dividing a fraction of the characters

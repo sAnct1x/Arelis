@@ -44,7 +44,7 @@ _VRAM_LOCK_NOTICE = (
 _VRAM_STUCK_NOTICE = (
     "Could not free VRAM: {still} still resident. The 12 GB card cannot "
     "load another chat model until those are gone. Wait a few seconds and "
-    "try again, or restart llama-server."
+    "try again, or start the local model again."
 )
 
 

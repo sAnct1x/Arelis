@@ -223,7 +223,7 @@ edit the ticket until the code has been re-read.
 
 ## Phase 0 — safety net
 
-Nothing else starts until this is green. Offline, no the model server, no
+Nothing else starts until this is green. Offline, no model server, no
 need to launch the GUI. Visual pass is Phase 7.
 
 **The rule this phase establishes (copied):** a test is not
