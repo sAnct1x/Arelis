@@ -330,6 +330,7 @@ _TYPED_IMAGE_SEE = (
     r"(?:(?:file|image|picture|photo|screenshot)\s+)?"
     r"\S+\.(?:png|jpe?g|webp|gif)(?!\.\w)"
 )
+_TYPED_IMAGE_SEE_RE = re.compile(rf"(?i)\b{_TYPED_IMAGE_SEE}")
 
 # Drive, ./, ../, a real absolute path, or a bare filename. The lookbehind keeps
 # a URL and the tail of outputs/images/demo.png from being captured as their own
@@ -974,9 +975,10 @@ def sees_existing_image(text: str) -> bool:
         or wants_image_text(raw)
     ):
         return False
-    from arelis.core.preflight import _VISION
-
-    if _VISION.search(raw):
+    # The typed path only. The wider see-pattern also matches
+    # "look at the camera frame at outputs/images/....jpg. Read this to me.",
+    # and that ask still has to OCR before vision.
+    if _TYPED_IMAGE_SEE_RE.search(raw):
         return True
     _block, ask = split_attachments_turn(raw)
     return (
