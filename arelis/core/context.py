@@ -1,6 +1,6 @@
 """Keep the persona inside the context window.
 
-Ollama silently drops overflow from the front of the prompt. The agent loop
+The model server silently drops overflow from the front of the prompt. The agent loop
 puts system messages first, so a long session loses the persona and tool policy
 before it loses stale chat. Fitting here, with those messages pinned, is what
 stops that.
@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 DEFAULT_CHARS_PER_TOKEN = 4.0
 
 # Room for the reply. Without this, a prompt that fills num_ctx leaves the
-# model nowhere to write, and Ollama still truncates the front to make space.
+# model nowhere to write, and the model server still truncates the front to make space.
 _REPLY_RESERVE_TOKENS = 1024
 
 _DEFAULT_RATIOS_PATH = state_dir() / "token_ratios.json"
@@ -32,7 +32,7 @@ def estimate_tokens(text: str, *, chars_per_token: float = DEFAULT_CHARS_PER_TOK
     """Approximate token count from character length.
 
     Exact counts need a model-specific tokenizer we do not ship. The ratio is
-    seeded at 4.0 and corrected from Ollama's prompt_eval_count when a stream
+    seeded at 4.0 and corrected from the model server's prompt_eval_count when a stream
     finishes, so the estimate tightens without a second model.
     """
     if not text:
@@ -213,7 +213,7 @@ def prompt_char_count(
 ) -> int:
     """Sum of message contents, used to derive chars-per-token from eval counts.
 
-    Pass the same ``tools`` array that went to the model. Ollama counts the tool
+    Pass the same ``tools`` array that went to the model. The model server counts the tool
     schemas in prompt_eval_count, so leaving them out of the numerator was not
     the small conservative error the old comment claimed: on a tool-bearing turn
     the schemas are most of the prompt, and dividing a fraction of the characters
@@ -239,7 +239,7 @@ def prompt_char_count(
 
 
 class TokenRatios:
-    """Per-model chars-per-token ratios learned from Ollama's prompt_eval_count."""
+    """Per-model chars-per-token ratios learned from the model server's prompt_eval_count."""
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path if path is not None else _DEFAULT_RATIOS_PATH

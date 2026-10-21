@@ -219,10 +219,7 @@ class RecallTool:
                     if self._embed_missing_note is not None:
                         note = self._embed_missing_note
                     else:
-                        note = (
-                            " Semantic search is off until `ollama pull "
-                            f"{self._embed_model}` completes; using keywords only."
-                        )
+                        note = " Semantic search is off; using keywords only."
                     self._said_keyword_only = True
             else:
                 try:

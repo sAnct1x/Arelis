@@ -8,7 +8,7 @@ doing its job.
 The number that matters is the last one. **Every** parameter description is
 written and sitting in the source schemas, and
 `compact_prompt.skinny_parameters` deletes all of them before the array reaches
-Ollama. That was a deliberate trade for prefix-cache stability, priced against
+the model server. That was a deliberate trade for prefix-cache stability, priced against
 a tools array that changed shape per turn (`tool_subset.py:11-31`). The array
 does not change shape any more. When that gets re-priced, the assertion below
 flips from "none get through" to "all of them do", and this file is where the
@@ -253,7 +253,7 @@ def test_workspace_actions_stay_in_the_model_enum() -> None:
             specs = (
                 tool_specs(registry)
                 if not hints
-                else list(registry.ollama_tools(param_hints=True))
+                else list(registry.chat_tools(param_hints=True))
             )
             action = None
             for spec in specs:

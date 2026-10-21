@@ -15,7 +15,7 @@ tried it. Reading from Arelis's own drop and output folders is not an escape
 from the sandbox, so they are named here as places a picture may legitimately
 be read from.
 
-Preparing is downscaling. Ollama counts an image against the same context
+Preparing is downscaling. The server counts an image against the same context
 window as the text, and a 1440p screenshot -- 2560x1440, 7 MB, the ordinary
 output of pressing Print Screen -- tokenises to about 4,150 tokens against a
 4,096 window and is rejected outright with a 400. That window is the 3B

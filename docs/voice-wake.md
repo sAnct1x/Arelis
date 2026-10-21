@@ -57,7 +57,7 @@ Kokoro (~300 MB), Silero, and Smart Turn (~8 MB) with the chat model.
 Until they are on disk and loaded, wake stays off and the idle line
 says **getting the ear…**, not **say "hey arelis"**. Both
 speech-to-text and text-to-speech run on the CPU; the GPU stays on
-Ollama.
+the model server.
 
 If you're on a headset, talking over her counts as the start of a new
 turn: she stops talking, and whatever you said becomes the question.

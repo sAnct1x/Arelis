@@ -46,7 +46,7 @@ def _augment(loop: _FakeLoop) -> _FakeLoop:
     loop.config = {}
     loop.tools.needs_confirm = lambda *a, **k: False
     loop.tools.summarize_call = lambda name, args: f"{name} {sorted(args)}"
-    loop.tools.ollama_tools = lambda names, *, param_hints=False: sorted(str(n) for n in names)
+    loop.tools.chat_tools = lambda names, *, param_hints=False: sorted(str(n) for n in names)
     return loop
 
 
@@ -105,11 +105,11 @@ async def test_a_page_nudge_takes_the_schemas_away_before_it_can_be_interrupted(
         raise RuntimeError("they hit stop")
 
     loop._retract = _boom  # type: ignore[method-assign]
-    r = _scratch(content="", ollama_tools=[{"name": "scrape"}])
+    r = _scratch(content="", chat_tools=[{"name": "scrape"}])
     ctx = _ctx()
     ctx.tool_names = {"scrape"}
     r.tool_names = ctx.tool_names
-    ctx.ollama_tools = [{"name": "scrape"}]
+    ctx.chat_tools = [{"name": "scrape"}]
     ctx.last_ok_tool_name = "scrape"
     ctx.last_ok_tool_out = "x" * 3000
 
@@ -119,10 +119,10 @@ async def test_a_page_nudge_takes_the_schemas_away_before_it_can_be_interrupted(
     assert ctx.page_write_nudge_used is True
     assert r.offer_tools is False
     # Schemas stay so the next request can reuse the prefix. Calls are still blocked.
-    assert r.ollama_tools == [{"name": "scrape"}]
+    assert r.chat_tools == [{"name": "scrape"}]
     assert not r.tool_names
     assert ctx.offer_tools is False
-    assert ctx.ollama_tools == [{"name": "scrape"}]
+    assert ctx.chat_tools == [{"name": "scrape"}]
     assert not ctx.tool_names
 
 
@@ -136,24 +136,24 @@ async def test_a_blocked_cas_repeat_strips_both_copies_of_the_surface() -> None:
     ctx = _ctx()
     ctx.tool_names = {"cas"}
     ctx.offer_tools = True
-    ctx.ollama_tools = [{"name": "cas"}]
+    ctx.chat_tools = [{"name": "cas"}]
     r = _scratch(
         calls=[("cas", args)],
         content="",
         streamed="",
         tool_names=ctx.tool_names,
         offer_tools=True,
-        ollama_tools=[{"name": "cas"}],
+        chat_tools=[{"name": "cas"}],
     )
     record_same_call(ctx.same_ok, "cas", args)
 
     assert await dispatch_calls(loop, ctx, r, 2) is False
     assert r.offer_tools is False
     # Schemas stay. tool_names is what blocks the repeat call.
-    assert r.ollama_tools == [{"name": "cas"}]
+    assert r.chat_tools == [{"name": "cas"}]
     assert not r.tool_names
     assert ctx.offer_tools is False
-    assert ctx.ollama_tools == [{"name": "cas"}]
+    assert ctx.chat_tools == [{"name": "cas"}]
     assert not ctx.tool_names
 
 

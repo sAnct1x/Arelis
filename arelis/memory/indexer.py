@@ -11,8 +11,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Any
 
-from arelis.llm.ollama import OllamaProvider
 from arelis.mail import MailAccount
 from arelis.memory.docs import (
     DEFAULT_CHUNK_CHARS,
@@ -45,7 +45,7 @@ class MemoryIndexer:
     def __init__(
         self,
         store: MemoryStore,
-        provider: OllamaProvider,
+        provider: Any,
         *,
         model: str = DEFAULT_EMBED_MODEL,
         batch_size: int = _BATCH,
@@ -105,10 +105,10 @@ class MemoryIndexer:
     def _provider_embeds(self) -> bool:
         """False when this provider cannot embed at all.
 
-        Ollama leaves this True and still decides from the tag list, same
-        HTTP as on main. llama.cpp starts False and becomes True only after
-        the CPU embed server answers, so we skip the batch instead of
-        calling embed and logging the raise.
+        A provider without an embeds flag is treated as able to embed.
+        llama.cpp starts False and becomes True only after the CPU embed
+        server answers, so we skip the batch instead of calling embed and
+        logging the raise.
         """
         return bool(getattr(self.provider, "embeds", True))
 
@@ -117,9 +117,7 @@ class MemoryIndexer:
 
         llama.cpp throttles failed probes in ``refresh_embeds``. A False
         cached on the indexer would ignore a later-started embed server for
-        the whole process. Ollama still lists tags once per check, then
-        ``embed`` sends the whole batch in one ``/api/embed``, not one
-        ``/api/tags`` per text.
+        the whole process. ``embed`` sends the whole batch in one request.
         """
         refresh = getattr(self.provider, "refresh_embeds", None)
         if callable(refresh):
@@ -129,7 +127,7 @@ class MemoryIndexer:
         try:
             names = await self.provider.list_models()
         except Exception:
-            log.exception("Could not list Ollama models for embed availability")
+            log.exception("Could not list models for embed availability")
             return False
         # Tags may be "nomic-embed-text" or "nomic-embed-text:latest".
         return any(

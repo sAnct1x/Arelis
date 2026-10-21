@@ -22,9 +22,9 @@ from arelis.core.agent_loop import (
     _WRITE_AFTER_THINK_NOTICE,
     _WRITE_AFTER_TOOL_NOTICE,
     _CloseError,
-    _is_ollama_object_400,
+    _is_tool_object_400,
     _native_tool_call,
-    _normalize_ollama_messages,
+    _normalize_tool_messages,
     _StoppedError,
     _tool_followup_fallback,
     append_tool_free_nudge,
@@ -163,7 +163,7 @@ def _write_round(ctx: TurnContext, r: RoundScratch) -> None:
     """
     ctx.available = r.available
     ctx.visible = r.visible
-    ctx.ollama_tools = r.ollama_tools
+    ctx.chat_tools = r.chat_tools
     ctx.offer_tools = r.offer_tools
     ctx.research_mode = r.research_mode
     ctx.sms_preinject = r.sms_preinject
@@ -511,7 +511,7 @@ async def apply_no_call_path(
                     )
                 )
                 return False
-            if r.ollama_tools and loop.json_fallback:
+            if r.chat_tools and loop.json_fallback:
                 # First round still blank with no tools yet? JSON fallback.
                 await loop._retract()
                 ctx.fallback_mode = True
@@ -593,7 +593,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
     sources = ctx.sources
     messages = ctx.messages
     offer_tools = ctx.offer_tools
-    ollama_tools = ctx.ollama_tools
+    chat_tools = ctx.chat_tools
     research_mode = ctx.research_mode
     exact_need = ctx.exact_need
     sms_preinject = ctx.sms_preinject
@@ -643,10 +643,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             )
             from arelis.core.tool_surface import session_tool_schemas
 
-            ollama_tools = session_tool_schemas(loop.tools, agent_cfg)
+            chat_tools = session_tool_schemas(loop.tools, agent_cfg)
             ctx.tool_names.clear()
             ctx.tool_names.update(visible)
-            ctx.ollama_tools = ollama_tools
+            ctx.chat_tools = chat_tools
             ctx.available = set(available)
             ctx.visible = set(visible)
             ctx.research_mode = research_mode
@@ -711,7 +711,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         # list, or this round is the text protocol. Sending the same list
         # again would repeat that rejection. A plain-answer round is not
         # that case, so it keeps the list and adds one last line.
-        tools_arg = None if ctx.fallback_mode else (ollama_tools or None)
+        tools_arg = None if ctx.fallback_mode else (chat_tools or None)
         if ctx.plain_only and not ctx.fallback_mode:
             append_tool_free_nudge(messages)
         round_ms = 0
@@ -749,11 +749,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            # Some model/Ollama combinations reject the tools array
-            # outright. Retry once without it and let the JSON protocol
-            # carry the call. A dead or missing Ollama is not that case —
-            # don't spend a second stream on JSON fallback while the chip
-            # is already red.
+            # Some servers reject the tools array outright. Retry once
+            # without it and let the JSON protocol carry the call. A dead
+            # server is not that case. Do not spend a second stream on JSON
+            # fallback while the chip is already red.
             await loop._retract()
             failure = classify_turn_failure(
                 exc,
@@ -764,7 +763,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             )
             if (
                 ctx.last_ok_tool_out
-                and _is_ollama_object_400(exc)
+                and _is_tool_object_400(exc)
                 and not failure.skip_tool_fallback
             ):
                 # A result is already in hand. Another request does not
@@ -777,7 +776,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 await loop.bus.publish(
                     Event(
                         EventType.THINKING,
-                        {"text": ("ollama 400 after tool; answering from result")},
+                        {"text": ("tool result rejected; answering from it")},
                     )
                 )
                 await loop._finish(
@@ -794,11 +793,11 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             if (
                 loop.json_fallback
                 and not ctx.fallback_mode
-                and ollama_tools
+                and chat_tools
                 and not failure.skip_tool_fallback
             ):
                 ctx.fallback_mode = True
-                messages[:] = _normalize_ollama_messages(messages)
+                messages[:] = _normalize_tool_messages(messages)
                 await loop.bus.publish(
                     Event(
                         EventType.THINKING,
@@ -996,7 +995,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             research_min_sources=ctx.research_min_sources,
             exact_need=exact_need,
             offer_tools=offer_tools,
-            ollama_tools=ollama_tools,
+            chat_tools=chat_tools,
             messages=messages,
             sms_preinject=sms_preinject,
             email_preinject=email_preinject,
@@ -1059,7 +1058,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         else:
             ctx.available = available
             ctx.visible = visible
-            ctx.ollama_tools = ollama_tools
+            ctx.chat_tools = chat_tools
             ctx.offer_tools = offer_tools
             ctx.research_mode = research_mode
             ctx.sms_preinject = sms_preinject

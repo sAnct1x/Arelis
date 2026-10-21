@@ -65,7 +65,6 @@
 2 arelis/housekeep.py
 1 arelis/jobs/schedule.py
 1 arelis/lan_announce.py
-1 arelis/llm/ollama.py
 3 arelis/llm/router.py
 2 arelis/llm/startup.py
 4 arelis/llm/vram.py
@@ -81,11 +80,9 @@
 2 arelis/presence/readiness.py
 2 arelis/presence/tray.py
 1 arelis/relay/house.py
-3 arelis/setup/engine.py
-1 arelis/setup/state.py
 1 arelis/sms_media.py
 1 arelis/spatial/verbs.py
-3 arelis/telemetry/system_sample.py
+2 arelis/telemetry/system_sample.py
 1 arelis/tools/browser_tool.py
 2 arelis/tools/camera_capture.py
 15 arelis/tools/cas.py

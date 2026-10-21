@@ -77,7 +77,7 @@ async def main() -> int:
     if seeded < cold:
         print(f"PASS — first reply {cold - seeded:.1f}s faster ({cold:.1f}s -> {seeded:.1f}s)")
         return 0
-    print("NO GAIN — check whether Ollama kept the cache slot")
+    print("NO GAIN. Check whether the model server kept the cache slot")
     return 1
 
 

@@ -1,11 +1,8 @@
-"""Whether model setup still has to run, and recording the choice.
+"""Whether model setup still has to run, and recording a model name.
 
-The workspace marker already exists. Model setup is a field on that same file,
-not a second permission and not a bump of MARKER_VERSION. An older marker
-without the field means “asked about the folder, not yet about a brain.”
-
-If this copy already pinned a chat tag in config.local.yaml, we mark setup
-complete without showing glass. That person is not a new user.
+The workspace marker already exists. Chat is llama.cpp, so first-run does
+not install an engine or pull a model. Marker helpers stay so an older
+profile still loads.
 """
 
 from __future__ import annotations
@@ -15,7 +12,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from arelis.config import LOCAL_CONFIG_PATH, merge_local_config
+from arelis.config import merge_local_config
 from arelis.onboarding import marker_path
 from arelis.paths import ensure, state_dir
 from arelis.setup.catalog import EMBED_TAG
@@ -24,7 +21,7 @@ log = logging.getLogger(__name__)
 
 
 def shipped_fast_tag() -> str:
-    """Chat model tag from shipped default.yaml (not a local pin)."""
+    """Chat model name from shipped default.yaml (not a local pin)."""
     try:
         import yaml
 
@@ -43,52 +40,17 @@ def shipped_fast_tag() -> str:
 
 
 def try_quiet_complete_model_setup() -> bool:
-    """Mark setup complete without a dialog when the PC is already ready.
-
-    Quiet path: local engine answers and the shipped default chat model is
-    already downloaded. No wizard, no surprise download of a different tag.
-    """
-    if not needs_model_setup():
-        return True
-    tag = shipped_fast_tag()
-    if not tag:
-        return False
-    try:
-        from arelis.setup.engine import already_pulled, ollama_reachable
-
-        if not ollama_reachable():
-            return False
-        if not already_pulled(tag):
-            return False
-    except Exception:
-        # Engine probe failed: fall through to the normal wizard path.
-        return False
-    record_model_setup_complete(tag=tag)
+    """Nothing to download. First-run can open the window."""
     return True
 
 
 def needs_model_setup() -> bool:
-    marker = _read_marker()
-    setup = (marker or {}).get("model_setup") or {}
-    if setup.get("complete"):
-        return False
-    tag = _configured_fast()
-    if tag:
-        # Already pinned a brain in config.local.yaml. Do not re-ask just
-        # because Ollama is down this morning.
-        record_model_setup_complete(tag=tag)
-        return False
-    return True
+    """First-run does not install a chat server or pull a model."""
+    return False
 
 
 def record_model_choice(tag: str) -> None:
-    """Pin one chat model as both composer chips, and a window this card holds.
-
-    The shipped ``num_ctx`` is one number measured on one 12 GB card. Pinning a
-    window derived from the card that is actually present is the difference
-    between a stranger on 8 GB spilling layers to the CPU and a stranger on
-    24 GB being capped for no reason.
-    """
+    """Pin one chat model as both composer chips."""
     name = (tag or "").strip()
     if not name:
         raise ValueError("model tag is empty")
@@ -99,27 +61,8 @@ def record_model_choice(tag: str) -> None:
         },
         "memory": {"embed_model": EMBED_TAG},
     }
-    window = _window_for_tag(name)
-    if window:
-        patch["ollama"] = {"num_ctx": window, "research_num_ctx": window}
     merge_local_config(patch)
     record_model_setup_complete(tag=name)
-
-
-def _window_for_tag(tag: str) -> int:
-    """Measured-VRAM context window, or 0 when we cannot tell."""
-    try:
-        from arelis.setup.catalog import by_tag
-        from arelis.setup.context import context_window_for
-        from arelis.setup.hardware import probe_hardware
-
-        model = by_tag(tag)
-        if model is None:
-            return 0
-        return int(context_window_for(model, probe_hardware()))
-    except Exception as exc:  # pragma: no cover - never block the pin
-        log.info("Could not size the context window for %s: %s", tag, exc)
-        return 0
 
 
 def record_model_setup_complete(*, tag: str) -> None:
@@ -130,25 +73,6 @@ def record_model_setup_complete(*, tag: str) -> None:
         "completed_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
     _write_marker(payload)
-
-
-def _configured_fast() -> str:
-    """Only a tag this copy pinned locally, not the shipped default.yaml."""
-    path = LOCAL_CONFIG_PATH
-    if not path.is_file():
-        return ""
-    try:
-        import yaml
-
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:
-        return ""
-    if not isinstance(data, dict):
-        return ""
-    models = data.get("models") or {}
-    if not isinstance(models, dict):
-        return ""
-    return str(models.get("fast") or "").strip()
 
 
 def _read_marker() -> dict[str, Any] | None:

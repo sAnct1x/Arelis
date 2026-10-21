@@ -72,7 +72,7 @@ def is_blocked_url(url: str, *, block_private: bool = True) -> str | None:
     if not host:
         return "URL missing host"
     # Loopback names are refused even when block_private is off, because the
-    # only thing reachable there is Arelis' own Ollama and ComfyUI ports.
+    # only thing reachable there is Arelis' own model server and ComfyUI ports.
     if host in _LOOPBACK_NAMES or host.endswith(".localhost"):
         return "Blocked local/loopback URL"
     try:

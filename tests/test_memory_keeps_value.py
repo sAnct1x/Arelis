@@ -71,7 +71,7 @@ async def _run(text: str, script: list[list[tuple[str, Any]]], store: MemoryStor
                 "evidence_gate": True,
                 "native_tool_calling": False,
             },
-            "ollama": {"num_ctx": shipped_num_ctx()},
+            "llamacpp": {"default_cap": shipped_num_ctx()},
         },
         request_confirm=_allow,
         is_cancelled=lambda: False,
@@ -177,7 +177,7 @@ def test_a_number_from_an_earlier_turn_is_not_used(tmp_path) -> None:
                 "evidence_gate": True,
                 "native_tool_calling": False,
             },
-            "ollama": {"num_ctx": shipped_num_ctx()},
+            "llamacpp": {"default_cap": shipped_num_ctx()},
         },
         request_confirm=_allow,
         is_cancelled=lambda: False,
@@ -192,7 +192,7 @@ def test_a_number_from_an_earlier_turn_is_not_used(tmp_path) -> None:
                 source="eval",
             )
             await bus.drain()
-            prior = " ".join(str(row.get("content") or "") for row in memory.as_ollama())
+            prior = " ".join(str(row.get("content") or "") for row in memory.as_chat())
             await loop.run(
                 "Remember that as my weekly run distance.",
                 "fast",

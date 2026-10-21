@@ -1,4 +1,4 @@
-"""Ollama 400 after a tool must not mark a composed sentence as tool paste."""
+"""HTTP 400 after a tool must not mark a composed sentence as tool paste."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from tests.hardening_helpers import _collect, _config, _deny, _ScriptedRouter
 
 
 class _CalcThen400(_ScriptedRouter):
-    """First stream calls calculator. The next stream is an Ollama object 400."""
+    """First stream calls calculator. The next stream is an object-parse 400."""
 
     def __init__(self) -> None:
         super().__init__([[]])
@@ -39,11 +39,13 @@ class _CalcThen400(_ScriptedRouter):
                 ],
             )
             return
-        raise RuntimeError("Ollama returned HTTP 400 for model `mock`: closing '}'")
+        raise RuntimeError(
+            "The local model returned HTTP 400 for model `mock`: closing '}'"
+        )
 
 
 @pytest.mark.asyncio
-async def test_ollama_400_after_calc_does_not_mark_composed_as_passthrough() -> None:
+async def test_http_400_after_calc_does_not_mark_composed_as_passthrough() -> None:
     ask = "how long is a year on Mars?"
     bus = EventBus()
     registry = ToolRegistry()

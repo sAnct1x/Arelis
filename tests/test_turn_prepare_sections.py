@@ -84,7 +84,7 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
     )
     loop = SimpleNamespace(
         persona="PERSONA",
-        config={"ollama": {"num_ctx": 4096}},
+        config={"llamacpp": {"default_cap": 4096}},
         memory=SimpleNamespace(messages=[]),
         _expected_tools=set(),
         _timer=None,
@@ -108,7 +108,7 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
 
     loop._messages_for_turn = messages_for_turn
     loop.tools = SimpleNamespace(
-        ollama_tools=lambda names=None, *, param_hints=False: [{"name": "weather"}],
+        chat_tools=lambda names=None, *, param_hints=False: [{"name": "weather"}],
     )
 
     async def begin(*_args, **_kwargs):

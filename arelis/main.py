@@ -13,7 +13,7 @@ _INSTALL_LOGIN_HELP = "On Mac, start Arelis in the background when you log in."
 _REMOVE_LOGIN_HELP = "On Mac, stop Arelis from starting when you log in."
 _PURGE_HELP = (
     "Uninstall wipe: scheduled tasks plus the data this app saved. "
-    "Refuses if you're running from source. Does not touch a system Ollama install."
+    "Refuses if you're running from source. Does not touch a model file outside this app."
 )
 
 

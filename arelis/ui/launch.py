@@ -540,7 +540,7 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     )
 
     # Qt owns the main thread, so the whole async side (bus, orchestrator,
-    # Ollama streaming, tools) runs on its own loop in a background thread.
+    # Model streaming, tools) runs on its own loop in a background thread.
     # Everything crossing back into Qt goes through BusBridge's signal, and
     # everything crossing out goes through run_coroutine_threadsafe. Touching
     # widgets directly from the async side would be a data race.
@@ -557,7 +557,7 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     thread = threading.Thread(target=loop_thread, name="arelis-asyncio", daemon=True)
     thread.start()
 
-    # Non-blocking for the window: a slow or absent Ollama must not delay
+    # Non-blocking for the window: a slow or absent server must not delay
     # Qt. The first chat turn does wait — otherwise it races this warmup
     # and pays the prefix prefill twice.
     router.arm_warmup()

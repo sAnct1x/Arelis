@@ -113,7 +113,7 @@ async def test_mcmc_cell_saves_samples_and_plot_draws_posterior(
         agenda_created=set(),
         exact_need=ctx.exact_need,
         offer_tools=False,
-        ollama_tools=[],
+        chat_tools=[],
         messages=[],
         sms_draft=None,
         email_draft=None,

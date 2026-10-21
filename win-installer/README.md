@@ -195,13 +195,13 @@ and downloaded models under `%LOCALAPPDATA%\Arelis`.
 | Path | What it is |
 | --- | --- |
 | `%LOCALAPPDATA%\Arelis` | Profile, chats, secrets, models, her Chrome, Playwright browsers |
-| `%LOCALAPPDATA%\Arelis-runtime` | Ollama setup she downloaded (not a system Ollama install) |
+| `%LOCALAPPDATA%\Arelis-runtime` | Runtime files parked beside the program |
 | `%LOCALAPPDATA%\Arelis-dev` | Checkout sandbox from `run_dev_ui.ps1` |
 | `Documents\Arelis` | Default workspace, **only if it is not a source checkout** |
 
 A scripted full removal: `unins000.exe /SILENT /wipe=yes`.
 
-Never removed: a system Ollama install, `%USERPROFILE%\.ollama`, or
+Never removed: a model file you keep outside the app, or
 this repository.
 
 ## Installer smoke test

@@ -1,7 +1,7 @@
 """Live multi-model scorecard at the production context window.
 
-Hits Ollama on this machine. Writes incremental JSONL so a 27B crash can resume.
-Default num_ctx is whatever load_config() pins (65536 on this card), not a
+Hits llama-server on this machine. Writes incremental JSONL so a crash can resume.
+Default context is whatever load_config() pins, not a
 shrunk eval window.
 
     python scripts/live_model_scorecard.py
@@ -166,7 +166,7 @@ CHOICE: tuple[dict[str, Any], ...] = (
 
 
 def _short_tool(name: str) -> dict[str, Any]:
-    from arelis.core.compact_prompt import skinny_description, skinny_ollama_tool
+    from arelis.core.compact_prompt import skinny_description, skinny_tool
 
     schemas: dict[str, dict[str, Any]] = {
         "calculator": {
@@ -255,7 +255,7 @@ def _short_tool(name: str) -> dict[str, Any]:
             },
         },
     }
-    return skinny_ollama_tool(name, skinny_description(name, name), schemas.get(name))
+    return skinny_tool(name, skinny_description(name, name), schemas.get(name))
 
 
 def _http_json(base: str, path: str, payload: dict | None = None, timeout: float = 60) -> Any:
@@ -274,33 +274,12 @@ def _http_json(base: str, path: str, payload: dict | None = None, timeout: float
 
 
 def unload(base: str, model: str) -> None:
-    try:
-        _http_json(base, "/api/generate", {"model": model, "keep_alive": 0}, timeout=120)
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        pass
-    time.sleep(2.0)
+    del base, model
 
 
 def resident(base: str, model: str) -> dict[str, Any]:
-    try:
-        ps = _http_json(base, "/api/ps", timeout=30)
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        return {}
-    row = next(
-        (m for m in ps.get("models", []) if str(m.get("model", "")).startswith(model)),
-        None,
-    )
-    if not row:
-        return {}
-    size = int(row.get("size") or 0)
-    vram = int(row.get("size_vram") or 0)
-    return {
-        "size_gib": round(size / GIB, 2),
-        "vram_gib": round(vram / GIB, 2),
-        "fully_on_gpu": size > 0 and vram >= size,
-        "context_length": row.get("context_length"),
-        "processor": (row.get("details") or {}).get("family") or row.get("processor"),
-    }
+    del base, model
+    return {}
 
 
 def chat(
@@ -314,18 +293,21 @@ def chat(
     think: bool = True,
     timeout: float = 1800,
 ) -> dict[str, Any]:
+    # Context size is llama-server's -c, not a per-request knob.
+    del num_ctx
     payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
-        "think": think,
-        "keep_alive": "10m",
-        "options": {"num_ctx": num_ctx, "num_predict": num_predict},
+        "max_tokens": num_predict,
+        "temperature": 0,
     }
+    if not think:
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
     if tools:
         payload["tools"] = tools
     req = urllib.request.Request(
-        f"{base}/api/chat",
+        f"{base}/v1/chat/completions",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -340,30 +322,35 @@ def chat(
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             for raw in resp:
                 line = raw.decode("utf-8", errors="replace").strip()
-                if not line:
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data or data == "[DONE]":
                     continue
                 try:
-                    obj = json.loads(line)
+                    obj = json.loads(data)
                 except json.JSONDecodeError:
                     continue
-                msg = obj.get("message") or {}
-                chunk_t = msg.get("thinking") or ""
-                chunk_c = msg.get("content") or ""
-                chunk_tools = msg.get("tool_calls") or []
+                choice = (obj.get("choices") or [{}])[0]
+                delta = choice.get("delta") or {}
+                chunk_t = delta.get("reasoning_content") or ""
+                chunk_c = delta.get("content") or ""
+                chunk_tools = delta.get("tool_calls") or []
                 if ttft is None and (chunk_t or chunk_c or chunk_tools):
                     ttft = time.perf_counter() - t0
                 if chunk_t:
-                    thinking.append(chunk_t)
+                    thinking.append(str(chunk_t))
                 if chunk_c:
-                    content.append(chunk_c)
+                    content.append(str(chunk_c))
                 if chunk_tools:
                     tool_calls.extend(chunk_tools)
-                if obj.get("done"):
+                usage = obj.get("usage") or {}
+                if usage:
                     stats = {
-                        "prompt_eval_count": obj.get("prompt_eval_count"),
-                        "eval_count": obj.get("eval_count"),
-                        "prompt_eval_duration_ns": obj.get("prompt_eval_duration"),
-                        "eval_duration_ns": obj.get("eval_duration"),
+                        "prompt_eval_count": usage.get("prompt_tokens"),
+                        "eval_count": usage.get("completion_tokens"),
+                        "prompt_eval_duration_ns": 0,
+                        "eval_duration_ns": 0,
                     }
         err = None
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -637,19 +624,15 @@ def _norm_tag(tag: str) -> str:
     return t
 
 
-def listed_tags() -> list[str]:
-    import subprocess
-
-    proc = subprocess.run(
-        ["ollama", "list"], capture_output=True, text=True, check=False
-    )
-    tags: list[str] = []
-    for line in (proc.stdout or "").splitlines():
-        name = line.split()[0] if line.split() else ""
-        if not name or name.lower() == "name":
-            continue
-        tags.append(name)
-    return tags
+def listed_tags(base: str = "http://127.0.0.1:8080") -> list[str]:
+    try:
+        payload = _http_json(base, "/v1/models", timeout=30)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return []
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return [str(row.get("id")) for row in rows if isinstance(row, dict) and row.get("id")]
 
 
 def keep_tags(cfg: dict[str, Any]) -> set[str]:
@@ -668,29 +651,17 @@ def keep_tags(cfg: dict[str, Any]) -> set[str]:
     return {_norm_tag(str(t)) for t in raw if t}
 
 
-def ensure_tag(tag: str) -> bool:
-    import subprocess
-
-    have = {_norm_tag(t) for t in listed_tags()}
-    if _norm_tag(tag) in have:
+def ensure_tag(tag: str, base: str = "http://127.0.0.1:8080") -> bool:
+    have = {_norm_tag(t) for t in listed_tags(base)}
+    if not have or _norm_tag(tag) in have:
         print(f"have {tag}", flush=True)
         return True
-    print(f"pull {tag} …", flush=True)
-    proc = subprocess.run(["ollama", "pull", tag], check=False)
-    if proc.returncode != 0:
-        print(f"PULL FAILED {tag} exit={proc.returncode}", flush=True)
-        return False
-    return True
+    print(f"missing {tag} on llama-server", flush=True)
+    return False
 
 
 def drop_tag(base: str, tag: str) -> None:
-    import subprocess
-
-    unload(base, tag)
-    print(f"rm {tag}", flush=True)
-    proc = subprocess.run(["ollama", "rm", tag], check=False)
-    if proc.returncode != 0:
-        print(f"RM FAILED {tag} exit={proc.returncode}", flush=True)
+    del base, tag
 
 
 def scrub_unused(base: str, keep: set[str]) -> None:
@@ -699,29 +670,29 @@ def scrub_unused(base: str, keep: set[str]) -> None:
     4B / 27B and any leftover old chat weights go. Daily driver, vision
     fallback, and the embed model stay.
     """
-    leftover = [t for t in listed_tags() if _norm_tag(t) not in keep]
+    leftover = [t for t in listed_tags(base) if _norm_tag(t) not in keep]
     if not leftover:
         print(f"disk: only product tags remain ({', '.join(sorted(keep))})", flush=True)
         return
     print(f"scrub unused: {', '.join(leftover)}", flush=True)
     for tag in leftover:
         drop_tag(base, tag)
-    still = [t for t in listed_tags() if _norm_tag(t) not in keep]
-    print(f"left: {', '.join(listed_tags()) or '(none)'}", flush=True)
+    still = [t for t in listed_tags(base) if _norm_tag(t) not in keep]
+    print(f"left: {', '.join(listed_tags(base)) or '(none)'}", flush=True)
     if still:
         print(f"still unused after scrub: {', '.join(still)}", flush=True)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base", default="http://127.0.0.1:11434")
+    ap.add_argument("--base", default="http://127.0.0.1:8080")
     ap.add_argument("--models", default=",".join(MODELS))
     ap.add_argument("--skip-pull", action="store_true")
     ap.add_argument("--keep-eval-models", action="store_true")
     args = ap.parse_args()
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     cfg = load_config()
-    num_ctx = int(((cfg.get("ollama") or {}).get("num_ctx")) or 65536)
+    num_ctx = int(((cfg.get("llamacpp") or {}).get("default_cap")) or 32768)
     keep = keep_tags(cfg)
     out = outputs_dir() / "live_model_scorecard" / "runs.jsonl"
     done = _load_done(out)
@@ -743,7 +714,7 @@ def main() -> int:
     try:
         for model in models:
             print(f"\n=== {model} ===", flush=True)
-            if not args.skip_pull and not ensure_tag(model):
+            if not args.skip_pull and not ensure_tag(model, args.base):
                 print(f"skip model {model}: not on disk", flush=True)
                 continue
             # Pin the production window before the first scored turn.

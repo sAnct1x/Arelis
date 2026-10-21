@@ -49,7 +49,7 @@ class _ScriptedRouter:
 def _config() -> dict[str, Any]:
     return {
         "agent": {"max_rounds": 4, "tool_output_chars": 4000, "json_fallback": True},
-        "ollama": {"base_url": "http://127.0.0.1:11434"},
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
         "voice": {"enabled": False},
         "_persona_path": "does-not-exist.md",
     }
@@ -71,7 +71,7 @@ async def _collect(bus: EventBus, coro) -> list[Event]:
 
 
 class _BoomRouter(_ScriptedRouter):
-    """First stream() raises; used to prove Ollama-down copy."""
+    """First stream() raises; used to prove server-down copy."""
 
     def __init__(self, exc: BaseException) -> None:
         super().__init__([[]])
@@ -95,7 +95,7 @@ class _ToolsRejectThenOk(_ScriptedRouter):
         self.calls += 1
         if self.calls == 1:
             raise RuntimeError(
-                "Ollama returned HTTP 400 for model `mock`: invalid tools"
+                "llama-server returned HTTP 400 for model `mock`: invalid tools"
             )
         async for item in super().stream(role, messages, **kwargs):
             yield item

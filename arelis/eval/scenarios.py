@@ -52,7 +52,7 @@ class Scenario:
     # turn" scenarios. Without this the route preinjects the stub and the
     # refusal path is never reached.
     absent_tools: tuple[str, ...] = ()
-    # Skip live Ollama matrix (scripted refuse / edge cases only).
+    # Skip the live model server matrix (scripted refuse / edge cases only).
     offline_only: bool = False
     # Research / FAMA-style failure class this guards.
     failure_class: str = ""

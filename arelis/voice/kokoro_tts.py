@@ -2,7 +2,7 @@
 
 Piper stays the fallback. This engine keeps one InferenceSession for the life
 of the process so sentence two does not pay a model load, and it does not touch
-the GPU (Ollama owns that). G2P is espeak-ng via phonemizer-fork (the same
+the GPU (the chat model owns that). G2P is espeak-ng via phonemizer-fork (the same
 stack Kokoro ONNX was exported with), so Windows does not need spaCy.
 """
 from __future__ import annotations

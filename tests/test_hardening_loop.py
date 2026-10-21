@@ -1,4 +1,4 @@
-"""Pins scripted AgentLoop stubs: prose-not-executed, empty reply, ollama
+"""Pins scripted AgentLoop stubs: prose-not-executed, empty reply, server
 down, json fallback, scrape/agenda empty-after-tool, role commands, stop
 interrupt, stream paint/retract, and tool trace.
 """
@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from arelis.core.events import EventType
-from arelis.llm.errors import OLLAMA_DOWN_NOTICE
+from arelis.llm.errors import LLAMACPP_DOWN_NOTICE
 from tests.hardening_helpers import (
     _BoomRouter,
     _collect,
@@ -22,7 +22,7 @@ from tests.hardening_helpers import (
 
 
 @pytest.mark.asyncio
-async def test_ollama_down_chat_is_human_not_traceback() -> None:
+async def test_server_down_chat_is_human_not_traceback() -> None:
     """ConnectError used to dump LLM error: ConnectError(...) into chat."""
     import httpx
 
@@ -30,7 +30,7 @@ async def test_ollama_down_chat_is_human_not_traceback() -> None:
     loop = _loop_with_tools(router)
     events = await _collect(loop.bus, loop.run("list the workspace", "fast"))
     err = next(e for e in events if e.type == EventType.ERROR)
-    assert err.payload["message"] == OLLAMA_DOWN_NOTICE
+    assert err.payload["message"] == LLAMACPP_DOWN_NOTICE
     assert "LLM error" not in err.payload["message"]
     assert "ConnectError" not in err.payload["message"]
     assert "ConnectError" in (err.payload.get("detail") or "")

@@ -82,7 +82,7 @@ ConfirmFn = Callable[[str, str, dict[str, Any], str], Awaitable[str]]
 # confirm(id, tool, args, summary) -> "allow" | "allow_turn" | "skip"
 
 # Reasoning text is shown in the thinking dock, not the chat. Token-sized
-# Ollama `thinking` chunks are streamed into one wrapping paragraph. Discrete
+# model-server `thinking` chunks are streamed into one wrapping paragraph. Discrete
 # status/tool/round lines stay one per event. Preamble snippets still cap.
 _MAX_THINKING_SNIPPET = 240
 
@@ -216,11 +216,11 @@ def _offer_expected(
     return set(visible) | (expected & available_all)
 
 
-def _normalize_ollama_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Make history safe to send back to Ollama after a tool round.
+def _normalize_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Make history safe to send back to the model server after a tool round.
 
     Injected calls used to store ``arguments`` as a JSON string while native
-    calls used a dict. Ollama then 400s with “can't find closing '}'” on the
+    calls used a dict. The model server then 400s with "can't find closing '}'" on the
     next step, including the no-tools JSON fallback, and the turn dies.
     """
     out: list[dict[str, Any]] = []
@@ -252,7 +252,7 @@ def _normalize_ollama_messages(messages: list[dict[str, Any]]) -> list[dict[str,
     return out
 
 
-def _is_ollama_object_400(exc: BaseException) -> bool:
+def _is_tool_object_400(exc: BaseException) -> bool:
     text = str(exc).lower()
     return "http 400" in text or "closing '}'" in text
 
@@ -424,10 +424,10 @@ def _tool_intent_label(tool_calls: list[dict[str, Any]]) -> str:
 
 
 def _native_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    """Ollama-style tool_call dict for injected draft executions.
+    """Model-server-style tool_call dict for injected draft executions.
 
     ``arguments`` must be an object. A JSON string here is what triggers
-    Ollama HTTP 400 “Value looks like object, but can't find closing '}'”.
+    the model server HTTP 400 "Value looks like object, but can't find closing '}'".
     """
     return {
         "type": "function",
@@ -998,7 +998,7 @@ class AgentLoop:
             raw_final, _ignored_calls, streamed = await self._stream_round(
                 self._turn_role,
                 force_msgs,
-                ctx.ollama_tools or None,
+                ctx.chat_tools or None,
                 round_n=self.max_rounds + 1,
                 expect_tools=False,
             )
@@ -1277,7 +1277,7 @@ class AgentLoop:
         notes = not bool(self.config.get("_speak_replies"))
 
         def _live_history() -> list[dict[str, Any]]:
-            return self.memory.as_ollama(
+            return self.memory.as_chat(
                 include_notes=notes,
                 include_latest_block=False,
             )
@@ -1432,7 +1432,7 @@ class AgentLoop:
         pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned) + sum(
             message_tokens(m, chars_per_token=ratio) for m in turn_lines
         )
-        remaining_history = self.memory.as_ollama(
+        remaining_history = self.memory.as_chat(
             include_notes=not bool(self.config.get("_speak_replies")),
             include_latest_block=False,
         )
@@ -1595,7 +1595,7 @@ class AgentLoop:
             # Stable spot, just after the user line. A trailing copy would
             # move every round and throw away the previous request.
             _pin_tool_round_hint(messages)
-        stream_messages = _normalize_ollama_messages(list(messages))
+        stream_messages = _normalize_tool_messages(list(messages))
         self._last_sent_messages = copy.deepcopy(stream_messages)
         prompt_chars = prompt_char_count(stream_messages, tools=tools)
         await self.bus.publish(
@@ -1610,7 +1610,7 @@ class AgentLoop:
         )
         # Eval/scripted fakes are not ModelRouter. Asking them for the
         # gate used to AttributeError, which the loop treated as a dead
-        # Ollama — no tool calls, no ASSISTANT_DONE.
+        # model server. No tool calls, no ASSISTANT_DONE.
         if getattr(self.router, "warmup_pending", lambda: False)():
             await self.bus.publish(
                 Event(
@@ -1667,7 +1667,7 @@ class AgentLoop:
                     await self._publish_tool_intent(tool_calls)
             elif kind == "metrics":
                 if self._timer is not None and isinstance(payload, dict):
-                    self._timer.note_ollama_metrics(payload, round_n=round_n)
+                    self._timer.note_engine_metrics(payload, round_n=round_n)
                 count = payload.get("prompt_eval_count") if isinstance(payload, dict) else None
                 if isinstance(count, int):
                     updated = self._token_ratios.observe(model, prompt_chars, count)
@@ -1757,7 +1757,7 @@ class AgentLoop:
             return
 
     def _tool_message(self, name: str, content: str) -> dict[str, Any]:
-        """Tool result in the shape Ollama expects.
+        """Tool result in the shape the model server expects.
 
         tool_name is included so a round with several calls stays unambiguous.
         Without it the model receives an ordered list of anonymous results and

@@ -1,12 +1,12 @@
 """Does hiding tools actually save prefill, once the prefix cache is involved?
 
 Subsetting removes schema tokens from the prompt, which looks like a saving when
-you count tokens. But Ollama renders the tools array near the *front* of the
+you count tokens. But the model server renders the tools array near the *front* of the
 prompt, so a tools array that changes shape from turn to turn changes the prefix
 — and a changed prefix cannot be reused, which means the persona, the policy and
 the whole conversation behind it are prefilled again.
 
-This measures both effects against a live Ollama, reporting prompt_eval_count
+This measures both effects against a live model server, reporting prompt_eval_count
 (how many tokens were actually processed rather than reused) and
 prompt_eval_duration.
 
@@ -20,12 +20,10 @@ import json
 import time
 import urllib.request
 
-NS = 1_000_000_000
-
 
 def _chat(base: str, payload: dict) -> dict:
     req = urllib.request.Request(
-        f"{base}/api/chat",
+        f"{base}/v1/chat/completions",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -36,27 +34,28 @@ def _chat(base: str, payload: dict) -> dict:
 
 def _run(base: str, model: str, messages: list[dict], tools: list[dict],
          num_ctx: int) -> tuple[int, float]:
+    del num_ctx
     body: dict = {
         "model": model,
         "messages": messages,
         "stream": False,
-        "keep_alive": "5m",
-        "options": {"num_ctx": num_ctx, "num_predict": 1, "temperature": 0},
+        "max_tokens": 1,
+        "temperature": 0,
     }
     if tools:
         body["tools"] = tools
     started = time.perf_counter()
     data = _chat(base, body)
     wall = time.perf_counter() - started
-    processed = int(data.get("prompt_eval_count") or 0)
-    dur = float(data.get("prompt_eval_duration") or 0) / NS
-    return processed, dur or wall
+    usage = data.get("usage") or {}
+    processed = int(usage.get("prompt_tokens") or 0)
+    return processed, wall
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="qwen3.5:9b")
-    ap.add_argument("--base", default="http://127.0.0.1:11434")
+    ap.add_argument("--base", default="http://127.0.0.1:8080")
     args = ap.parse_args()
 
     from arelis.config import load_config, load_persona, shipped_num_ctx
@@ -66,13 +65,13 @@ def main() -> int:
     config = load_config()
     num_ctx = shipped_num_ctx()
     registry = build_tool_registry(config)
-    all_tools = registry.ollama_tools()
+    all_tools = registry.chat_tools()
     names = sorted(registry.names())
 
     # Two plausible per-turn subsets, the way _skill_subset would produce them.
-    subset_a = registry.ollama_tools({n for n in names if n in {
+    subset_a = registry.chat_tools({n for n in names if n in {
         "weather", "user_location", "web_fetch", "calculator", "cas", "units"}})
-    subset_b = registry.ollama_tools({n for n in names if n in {
+    subset_b = registry.chat_tools({n for n in names if n in {
         "workspace", "git_info", "analyze", "calculator", "cas", "units"}})
 
     system = [

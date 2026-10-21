@@ -9,7 +9,7 @@ SMS draft in answer to "how are you today?". ``_without_unauthorized_sends`` run
 on every path, including the full-surface one.
 
 **Context economy** shrank the schema array to whichever tools the matched skill
-cards implied. It was measured and it does not work. Ollama renders the tools
+cards implied. It was measured and it does not work. The model server renders the tools
 array near the front of the prompt, so an array that changes shape from turn to
 turn changes the prefix, and a changed prefix cannot be reused, the persona, the
 policy and the whole conversation behind it are prefilled again. On the reference

@@ -1,6 +1,6 @@
 name: Nightly live pass
 
-# live_feature_pass.py walks registered tools against a real Ollama.
+# live_feature_pass.py walks registered tools against llama-server.
 # GitHub-hosted runners will not have the daemon, so a skip is success
 # unless ARELIS_REQUIRE_LIVE=1 (desk nightly that is supposed to have
 # the model). Same flag as tool-choice.yml.
@@ -38,14 +38,14 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           set -o pipefail
-          if python -c "from arelis.setup.engine import ollama_reachable; raise SystemExit(0 if ollama_reachable() else 1)"; then
+          if python -c "import httpx; raise SystemExit(0 if httpx.get('http://127.0.0.1:8080/v1/models', timeout=2).status_code < 500 else 1)"; then
             python scripts/live_feature_pass.py 2>&1 | tee live-feature-pass.txt
           else
-            echo "SKIP: Ollama not reachable"
+            echo "SKIP: llama-server not reachable"
             if [ "${ARELIS_REQUIRE_LIVE:-}" = "1" ]; then
               exit 1
             fi
-            echo "SKIP: Ollama not reachable" > live-feature-pass.txt
+            echo "SKIP: llama-server not reachable" > live-feature-pass.txt
           fi
 
       - name: Upload the report

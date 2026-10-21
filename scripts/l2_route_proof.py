@@ -16,7 +16,7 @@ from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
 from arelis.eval.harness import _StubTool, foundation_registry, shipped_num_ctx
-from arelis.llm.ollama import OllamaProvider
+from arelis.llm.llamacpp import LlamaCppProvider
 from arelis.llm.router import ModelRouter
 
 CASES = (
@@ -41,7 +41,7 @@ CASES = (
 async def one(phrase: str, expect: str) -> tuple[bool, str]:
     order: list[str] = []
     stream_calls = 0
-    provider = OllamaProvider("http://127.0.0.1:11434", timeout_s=120)
+    provider = LlamaCppProvider("http://127.0.0.1:8080", timeout_s=120)
     router = ModelRouter(
         provider,
         {"fast": "qwen3.5:9b"},
@@ -115,7 +115,7 @@ async def one(phrase: str, expect: str) -> tuple[bool, str]:
                 "turn_telemetry": False,
                 "lessons": False,
             },
-            "ollama": {"num_ctx": shipped_num_ctx()},
+            "llamacpp": {"default_cap": shipped_num_ctx()},
         },
         request_confirm=_confirm,
         is_cancelled=lambda: False,

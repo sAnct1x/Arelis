@@ -63,7 +63,7 @@ jobs:
 
   # The agent-behaviour boards, kept out of the 2,000-test matrix on purpose: a
   # routing regression should read as "eval failed", not as one red dot among
-  # two thousand. Offline, no Ollama, a few seconds.
+  # two thousand. Offline, no model server, a few seconds.
   #
   # Blocking, and that is new. These boards existed for months and ran nowhere,
   # so nothing noticed that 35 of 68 scenarios handed the loop the tool call

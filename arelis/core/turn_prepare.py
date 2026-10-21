@@ -171,15 +171,15 @@ async def _begin_turn(
         Event(EventType.STATUS, {"message": f"Role `{role}` -> model `{model}`"})
     )
     if (role or "").strip().lower() == "research":
-        from arelis.llm.ollama import same_ollama_model
+        from arelis.llm.wire import same_model
 
         needs_swap = True
         try:
             fast_tag = str(loop.router.model_for("fast") or "")
-            needs_swap = not same_ollama_model(fast_tag, model)
+            needs_swap = not same_model(fast_tag, model)
         except Exception:
             needs_swap = True
-        if active and same_ollama_model(str(active), model):
+        if active and same_model(str(active), model):
             needs_swap = False
         if needs_swap:
             from arelis.llm.vram import free_gpu_neighbors
@@ -284,7 +284,7 @@ def _reconstruct_turn_drafts(loop: Any, text: str) -> _TurnDrafts:
 
 
 async def _provider_context_tokens(loop: Any, role: ModelRole) -> int | None:
-    """Server window when the provider can measure one. Ollama returns nothing."""
+    """Server window when the provider can measure one."""
     router = getattr(loop, "router", None)
     provider = getattr(router, "provider", None)
     probe = getattr(provider, "context_tokens", None)
@@ -318,10 +318,8 @@ async def _context_limits(
     skill_ids: list[str],
 ) -> tuple[int, int]:
     """Reserve context for pinned prompt sections and possible tool output."""
-    ollama_cfg = loop.config.get("ollama") or {}
-    num_ctx = int(ollama_cfg.get("num_ctx") or shipped_num_ctx())
-    if role == "research" and ollama_cfg.get("research_num_ctx"):
-        num_ctx = int(ollama_cfg["research_num_ctx"])
+    lc = loop.config.get("llamacpp") or {}
+    num_ctx = int(lc.get("default_cap") or shipped_num_ctx())
     measured = await _provider_context_tokens(loop, role)
     if measured:
         num_ctx = measured
@@ -351,7 +349,7 @@ async def _attach_tool_schemas_and_history(
     wants_fresh_page: bool,
     offer_tools: bool,
     expect_tool_round: bool,
-    ollama_tools: list[dict[str, Any]],
+    chat_tools: list[dict[str, Any]],
     turn_tail: list[dict[str, str]],
 ) -> None:
     """Pay for tool schemas, then append as much conversation history as fits."""
@@ -359,12 +357,12 @@ async def _attach_tool_schemas_and_history(
         num_ctx,
         tool_output_chars=tool_reserve_chars,
         chars_per_token=ratio,
-        schema_chars=len(json.dumps(ollama_tools)) if ollama_tools else 0,
+        schema_chars=len(json.dumps(chat_tools)) if chat_tools else 0,
     )
     ctx.wants_fresh_page = wants_fresh_page
     ctx.offer_tools = offer_tools
     ctx.expect_tool_round = expect_tool_round
-    ctx.ollama_tools = ollama_tools
+    ctx.chat_tools = chat_tools
     ctx.messages = await loop._messages_for_turn(
         system_messages,
         budget,
@@ -657,7 +655,7 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         active_plan=active_plan,
     )
-    ollama_tools = session_tool_schemas(loop.tools, agent_cfg)
+    chat_tools = session_tool_schemas(loop.tools, agent_cfg)
     loop.memory.remember_turn_block(turn_tail)
     if loop._timer is not None and not offer_tools:
         loop._timer.mark("chat_fast_path", tools=0)
@@ -673,7 +671,7 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         offer_tools=offer_tools,
         expect_tool_round=expect_tool_round,
-        ollama_tools=ollama_tools,
+        chat_tools=chat_tools,
         turn_tail=turn_tail,
     )
     return ctx

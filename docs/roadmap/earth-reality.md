@@ -223,7 +223,7 @@ edit the ticket until the code has been re-read.
 
 ## Phase 0 — safety net
 
-Nothing else starts until this is green. Offline, no Ollama, no
+Nothing else starts until this is green. Offline, no model server, no
 need to launch the GUI. Visual pass is Phase 7.
 
 **The rule this phase establishes (copied):** a test is not
@@ -527,7 +527,7 @@ ruff-format the tree. Do not remount Drive. Do not widen
 before touching `conversation.py` or `launch.py`.
 
 Still not this sitting: live glass boards (7.1 of the other
-roadmap) against Ollama; unsigned SmartScreen; publishing the
+roadmap) against the model server; unsigned SmartScreen; publishing the
 installer draft; sideloading the companion APK.
 
 Hard block: do not ship Cesium in the installer unless this

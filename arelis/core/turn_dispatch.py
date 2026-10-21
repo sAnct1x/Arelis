@@ -283,7 +283,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         ctx.tool_names.clear()
         ctx.tool_names.update(r.visible)
         r.tool_names = ctx.tool_names
-        # Same as _drop_named: leave ollama_tools untouched. A later
+        # Same as _drop_named: leave chat_tools untouched. A later
         # call to a hidden name misses tool_names and gets the
         # unknown-tool message.
 

@@ -1,47 +1,9 @@
-ollama:
-  base_url: "http://127.0.0.1:11434"
-  timeout_s: 300
-  # Context window sent with every request. Ollama's own default is small
-  # (2048 tokens on most builds), and anything past it is dropped from the
-  # front of the prompt without warning.
-  #
-  # This number used to be an estimate that kept getting argued with. It is now
-  # measured: scripts/measure_context_ceiling.py loads the model at a candidate
-  # window and compares /api/ps size_vram against size, because a model that
-  # does not fit wholly in VRAM has spilled layers to the CPU and costs far more
-  # than the window buys. On the reference card (RX 6700 XT, 12 GB) with
-  # qwen3.5:9b:
-  #
-  #     num_ctx    VRAM      all on GPU   cold reply
-  #      16384   5.62 GiB       yes          4.6 s
-  #      32768   6.15 GiB       yes          4.6 s
-  #      65536   7.21 GiB       yes          4.8 s
-  #     131072   9.12 GiB       yes          4.9 s
-  #
-  # Latency is flat, so the old worry about warm prefill was never the real
-  # constraint. 65536 is the default because it leaves ~4.8 GiB for the vision
-  # model, Comfy, and the desktop; 131072 fits but leaves under 3 GiB.
-  #
-  # Setup overrides this per machine from measured VRAM — see
-  # arelis/setup/context.py. Persona + telegraph policy + skinny schemas
-  # stay under ~10k tokens (see tests/test_prompt_fits_window.py). A long
-  # session no longer needs the history summariser to survive.
-  num_ctx: 65536
-  # Research is a deeper loop on the same weights, so it gets the same window.
-  # It used to be 8192 — smaller than chat — which meant the role that reads the
-  # most sources had the least room to keep them.
-  research_num_ctx: 65536
-  # Fallback VL one-shot for a chat model that cannot see (DeepSeek R1). A
-  # multimodal chat model handles images itself and never reads this.
-  vision_num_ctx: 4096
-
-# Which chat server to use. ollama is the 9B path and stays the default.
-# llamacpp is the 35B. Arelis starts llama-server when that port is down.
+# Chat server. llama.cpp only. Arelis starts llama-server when that port is down.
 # The flags are built by launch_args_for in arelis/llm/llama_launch.py.
 llm:
-  provider: ollama
+  provider: llamacpp
 
-# Used only when llm.provider is llamacpp. default_cap is the -c that fits the
+# default_cap is the -c that fits the
 # 12 GB card for Qwen3.6-35B-A3B UD-Q4_K_M. History budget is the smaller of
 # this cap and the n_ctx the server reports on /props or /slots.
 # Launch line (config C, ncmoe 32): Q8 mmproj, -fa off, --image-max-tokens 1024,
@@ -55,16 +17,14 @@ llamacpp:
   context_caps:
     Qwen3.6-35B-A3B: 32768
   # Separate CPU llama-server with nomic-embed-text GGUF (--embeddings).
-  # Not Ollama. Pictures go to the 35B, which loads the Q8 picture file.
+  # Pictures go to the 35B, which loads the Q8 picture file.
   # embeds is True only while this server answers POST /v1/embeddings.
   # If it is down, recall stays on keywords.
   # Measured: 32 texts in 0.46 s on CPU. The 35B slows down only under
   # nonstop load.
   embed_url: "http://127.0.0.1:8081"
 
-# Role → Ollama tag. First open recommends one chat model from hardware and
-# pins both chips to that tag in config.local.yaml. These are the last-resort
-# shipped names if setup has not run yet: the measured daily driver, one file.
+# Role → chat model name. These are the shipped names if nothing local is pinned.
 # There is no code role: file/git/debug work uses fast plus workspace skills.
 # See docs/models.md. One chat model hot at a time. Embeddings are a separate
 # small model loaded briefly for recall/indexing, not mid-turn chat.
@@ -82,7 +42,7 @@ router:
   keep_alive: "5m"
   default_role: "fast"     # conversation role; stays pinned between turns
   # How long the default role stays in VRAM after a request / pin.
-  # Longer = fewer cold TTFTs in a session. Use -1 to keep until Ollama exits.
+  # Longer = fewer cold TTFTs in a session. Use -1 to keep until the server exits.
   # Both chips are normally the same tag, so `/role research` changes the loop
   # rather than the weights and costs nothing. A VRAM miss ends the turn (no
   # JSON fallback — that used to start a second load and lock the PC).
@@ -92,17 +52,14 @@ router:
   # Sticky hold + delayed re-pin of the default (same clock by default). While
   # the last heavier model is sticky, auto/fast turns stay on it instead of
   # unloading. An explicit chip still switches; `/role fast` clears sticky.
-  # Speculative decoding is not available on Ollama+Windows+AMD.
+  # Speculative decoding is not used on this Windows AMD card.
   rewarm_delay_s: 60
   # sticky_hold_s: 60   # optional override; defaults to rewarm_delay_s
 
 memory:
-  # Semantic recall / doc index. Pulled: ollama pull nomic-embed-text
-  # Resident in system RAM. keep_alive 0 reloaded nomic onto the GPU on
-  # every call and pushed the 9B into shared memory on a full 12 GB card.
+  # Semantic recall / doc index. The embed server loads nomic-embed-text
+  # in system RAM so the chat model keeps the GPU.
   embed_model: "nomic-embed-text"
-  embed_keep_alive: "30m"
-  embed_num_gpu: 0
   docs:
     # Index readable files under workspace.roots into memory.db between turns.
     # recall(source=docs|all) can then find project notes, not only chat.
@@ -618,10 +575,10 @@ tools:
   # See one image (VL). Attended turns only; unload chat → VL → rewarm fast.
   vision:
     enabled: true
-    # model defaults to models.vision; num_ctx defaults to ollama.vision_num_ctx
+    # model defaults to models.vision; num_ctx defaults to 4096
     # Long edge of what is actually sent. Two caps, because two windows:
     # the 3B fallback still has 4096 tokens (a 1440p screenshot is ~4,150 and
-    # Ollama rejects it), so max_edge stays 1024 there. The chat model that
+    # the server rejects it), so max_edge stays 1024 there. The chat model that
     # sees images is already at the chat window (~65k); chat_max_edge is 1024
     # so a pasted screenshot is shrunk before the look. A full size paste was
     # slow enough to fail. JPEG quality stays 85.

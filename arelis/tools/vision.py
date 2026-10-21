@@ -26,7 +26,7 @@ _MODEL_MISSING = re.compile(
     r"model\s+['\"]?[\w.:-]+['\"]?\s+not\s+found|not\s+found|pull\s+",
     re.I,
 )
-# Ollama's 400 when the image plus the question outgrow num_ctx. Worth its own
+# HTTP 400 when the image plus the question outgrow num_ctx. Worth its own
 # message: "vision failed" for a 1440p screenshot sent nobody anywhere.
 _CONTEXT_FULL = re.compile(
     r"exceed(?:s)?\s+the\s+available\s+context|exceed_context_size|"
@@ -160,8 +160,8 @@ class VisionTool:
                 return ToolResult(
                     ok=False,
                     output=(
-                        f"Could not check Ollama models for vision (`{self.model}`): "
-                        f"{exc}. Is Ollama running?"
+                        f"Could not check whether the vision model is available "
+                        f"(`{self.model}`): {exc}."
                     ),
                     data={"model": self.model, "code": "MODEL_CHECK_FAILED"},
                 )
@@ -272,8 +272,7 @@ class VisionTool:
                     f"The image was still too large for the vision context at "
                     f"{prepared.get('sent_px') or 'its current size'} "
                     f"(num_ctx={self.num_ctx}). Lower tools.vision.max_edge "
-                    f"or tools.vision.chat_max_edge, or raise "
-                    f"ollama.vision_num_ctx.\n({msg[:200]})"
+                    f"or tools.vision.chat_max_edge.\n({msg[:200]})"
                 ),
                 data={"model": self.model, "code": "VISION_CONTEXT", **prepared},
             )

@@ -243,7 +243,7 @@ but an empty process scan does not abandon a window she already
 attached. Mid-turn CDP death relaunches her Chrome once. Housekeep
 still prunes Cache / GPU only; Cookies and Login Data stay.
 
-**Turns.** The full tool schema array rides every turn so Ollama can
+**Turns.** The full tool schema array rides every turn so the model server can
 reuse the prefix. Descriptions are one line and param essays are
 stripped; the policy is a telegraph, not the skill-card essays. A
 greeting that skipped schemas (the 0.2.3 clock-ask shortcut) blew that
@@ -313,7 +313,7 @@ folder tree. Folders is still there underneath. Launch tidies scrape
 dumps, the action ledger, spoken-reply wavs, old drops, stale logs,
 and her Chrome caches. Dated memory copies are off. Settings
 tabs are `audio` / `window` / `allow` / `notify` / `roots` /
-`memory`. Idle readout is `ollama` / `listening`, not caps. After
+`memory`. Idle readout is `the model server` / `listening`, not caps. After
 the last finished answer: `copy` · `again`. Tables in an answer
 are columns, not orange cages. An empty history title is **new
 chat**; the lamp follows the click; dates say today / yesterday.

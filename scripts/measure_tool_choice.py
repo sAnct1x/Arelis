@@ -29,7 +29,7 @@ arrays itself, so a bad result costs nothing to walk away from.
     python scripts/measure_tool_choice.py --arm skinny --arm params
     python scripts/measure_tool_choice.py --all --json out.json
 
-Needs Ollama up with the configured chat model. Roughly 4-8s per case per
+Needs llama-server up with the configured chat model. Roughly 4-8s per case per
 arm on the reference card, so a full three-arm run is 15-20 minutes.
 
 The prompt here is the static prefix only — persona plus the compact tool
@@ -54,7 +54,7 @@ from arelis.config import load_config, load_persona
 from arelis.core.agent_loop import static_system_prefix
 from arelis.core.preflight import preflight_system_message
 from arelis.eval.tool_choice import CHOICE_CASES, score
-from arelis.llm.ollama import OllamaProvider
+from arelis.llm.llamacpp import LlamaCppProvider
 from arelis.tools import build_tool_registry
 
 ARMS = ("skinny", "params", "full")
@@ -74,7 +74,7 @@ def _registry() -> Any:
 
 def tool_array(registry: Any, arm: str) -> list[dict[str, Any]]:
     """The tools array for one arm, in registry order so only content differs."""
-    skinny = list(registry.ollama_tools())
+    skinny = list(registry.chat_tools())
     if arm == "skinny":
         return skinny
 
@@ -104,7 +104,7 @@ def tool_array(registry: Any, arm: str) -> list[dict[str, Any]]:
 
 
 async def ask_one(
-    provider: OllamaProvider,
+    provider: LlamaCppProvider,
     model: str,
     prefix: list[dict[str, str]],
     tools: list[dict[str, Any]],
@@ -169,13 +169,13 @@ async def run_arm(
     tools = tool_array(registry, arm)
     prefix = list(static_system_prefix(load_persona(config)))
 
-    ollama_cfg = config.get("ollama") or {}
+    server_cfg = config.get("llamacpp") or {}
     model = str((config.get("models") or {}).get("fast") or "")
-    num_ctx = int(ollama_cfg.get("num_ctx") or 65536)
+    num_ctx = int(server_cfg.get("default_cap") or 32768)
     temperature = float((config.get("agent") or {}).get("tool_round_temperature") or 0.1)
-    provider = OllamaProvider(
-        base_url=str(ollama_cfg.get("base_url") or "http://127.0.0.1:11434"),
-        timeout_s=float(ollama_cfg.get("timeout_s") or 300),
+    provider = LlamaCppProvider(
+        base_url=str(server_cfg.get("base_url") or "http://127.0.0.1:8080"),
+        timeout_s=float(server_cfg.get("timeout_s") or 300),
     )
 
     cases = CHOICE_CASES[:limit] if limit else CHOICE_CASES

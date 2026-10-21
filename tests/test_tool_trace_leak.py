@@ -67,7 +67,7 @@ def test_trace_marker_is_not_assistant_speech() -> None:
     That copy is the leak. The path still has to reach the model, on a
     different role, or the next turn cannot find the file.
     """
-    prompt = _after_weather_and_doc().as_ollama()
+    prompt = _after_weather_and_doc().as_chat()
     assistant = [row for row in prompt if row["role"] == "assistant"]
     assert assistant
     copied = str(assistant[-1]["content"])

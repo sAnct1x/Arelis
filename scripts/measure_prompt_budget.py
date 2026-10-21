@@ -1,7 +1,7 @@
 """What the prompt actually costs, in tokens, against the configured window.
 
 Every decision about hiding a tool or splitting a policy has been argued from an
-estimate. This counts. Token counts come from Ollama's own tokenizer via
+estimate. This counts. Token counts come from the server tokenizer via
 /api/embed when available and fall back to chars/4.
 
     python scripts/measure_prompt_budget.py
@@ -30,12 +30,12 @@ def main() -> int:
 
     config = load_config()
     num_ctx = args.num_ctx or int(
-        ((config.get("ollama") or {}).get("num_ctx")) or 16384
+        ((config.get("llamacpp") or {}).get("default_cap")) or 32768
     )
 
     persona = load_persona(config)
     registry = build_tool_registry(config)
-    schemas = registry.ollama_tools()
+    schemas = registry.chat_tools()
     schema_json = json.dumps(schemas)
 
     essay_union = assemble_tool_policy(force_all=True)

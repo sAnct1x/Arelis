@@ -525,7 +525,7 @@ class WindowBuild:
         if self.indexer is not None:
             self._index_timer.start()
 
-        # Soft readiness refresh — Ollama + local integrations under the title bar.
+        # Soft readiness refresh. The model server and local integrations under the title bar.
         self._readiness_timer = QTimer(self)
         self._readiness_timer.setInterval(30_000)
         self._readiness_timer.timeout.connect(self._schedule_readiness_probe)

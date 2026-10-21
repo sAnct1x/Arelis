@@ -41,7 +41,7 @@ def _loop(
         ToolRegistry(),
         memory,
         "PERSONA",
-        {"agent": agent, "ollama": {"num_ctx": 65536}},
+        {"agent": agent, "llamacpp": {"default_cap": 65536}},
         request_confirm=lambda *_: False,
         is_cancelled=lambda: False,
     )

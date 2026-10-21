@@ -143,7 +143,7 @@ def should_offer_tools(
     wants_fresh_page: bool,
     active_plan: Any | None,
 ) -> bool:
-    """Whether this turn should send Ollama tool schemas.
+    """Whether this turn should send the model server tool schemas.
 
     When ``chat_fast_path`` is on, pure social chat skips schemas. That used
     to help TTFT. After the full-prefix seed it does the opposite: the

@@ -68,7 +68,6 @@ _STATUS_PREFIXES: tuple[str, ...] = (
     "Voice",
     "Mail",
     "Job",
-    "Ollama",
     "Model",
     "Warm",
     "Lesson",

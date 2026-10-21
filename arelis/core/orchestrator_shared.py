@@ -89,7 +89,7 @@ def match_role_switch(text: str) -> tuple[str, str] | None:
 
 
 def research_needs_vram_swap(router: object) -> bool:
-    """True when research is a different Ollama tag from fast."""
+    """True when research is a different model name from fast."""
     same = getattr(router, "same_chat_weights", None)
     if callable(same):
         try:
@@ -100,9 +100,9 @@ def research_needs_vram_swap(router: object) -> bool:
     if not callable(model_for):
         return True
     try:
-        from arelis.llm.ollama import same_ollama_model
+        from arelis.llm.wire import same_model
 
-        return not same_ollama_model(
+        return not same_model(
             str(model_for("fast") or ""),
             str(model_for("research") or ""),
         )

@@ -44,7 +44,7 @@ shell (stay-absent); Settings model picker; scoped a11y; Allow
 holes; SMS radio on cellular + background Allow + week-idle
 rediscover; screenshot/video pass; nightly CI.
 
-**Still not your job:** live glass boards (7.1) against Ollama;
+**Still not your job:** live glass boards (7.1) against the model server;
 unsigned SmartScreen; publishing the installer draft; sideloading
 the companion APK (I do that). Those are human / this desk.
 
@@ -306,7 +306,7 @@ This is a lead. Replace numbers after the full read.
 - Overlay Qt tests do not replace the Cesium planet.
 - `physhw/` is gitignored student work. Do not commit it.
 - Do not load `nomic-embed-text` mid-turn (12 GB). This
-  sitting should barely touch Ollama.
+  sitting should barely touch the model server.
 - Windows. PySide6. Isolated data dir for any shot script.
 
 ## When you start

@@ -2,7 +2,7 @@
 
 14B needs ~9.6 GiB. A leftover 7B, ComfyUI, or a second 14B JSON-fallback
 load spills into shared GPU memory and locks the machine. Neighbors we own
-are stopped here; Ollama eviction lives on the router.
+are stopped here; the model server eviction lives on the router.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from arelis.core.events import Event, EventType
 log = logging.getLogger(__name__)
 
 # After /api/ps is empty, AMD/Windows can still hold the old allocation.
-# One Get-Counter sample: if dedicated is still this high with no Ollama
+# One Get-Counter sample: if dedicated is still this high with no chat model
 # model resident, something else is on the card (Comfy, Chrome, a game).
 _HEAVY_BLOCK_DEDICATED_BYTES = 5 * 1024**3
 
@@ -84,6 +84,6 @@ def host_vram_blocks_heavy(dedicated_bytes: int | None) -> str | None:
         return None
     gib = dedicated_bytes / (1024**3)
     return (
-        f"GPU still has {gib:.1f} GB dedicated in use after unloading Ollama. "
+        f"GPU still has {gib:.1f} GB dedicated in use after unloading the chat model. "
         "Close games or extra Chrome, then try again."
     )

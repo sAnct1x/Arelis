@@ -2,8 +2,8 @@
 
 Three jobs, in the order they run:
 
-Check the configured models are pulled. A missing one used to surface as a
-mid-turn HTTP 404; this reports the exact ``ollama pull`` up front instead.
+Check the configured models are present. A missing one used to surface as a
+mid-turn HTTP 404; this reports that up front instead.
 
 Pin the default chat model so the first turn is not a cold weight load.
 
@@ -26,7 +26,6 @@ from typing import Any
 
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
-from arelis.llm.ollama import OllamaProvider, list_installed_models
 from arelis.llm.router import ModelRouter
 
 log = logging.getLogger(__name__)
@@ -63,37 +62,21 @@ def vl_model_installed(
     *,
     refresh: bool = False,
 ) -> bool:
-    """True when the configured VL model is already pulled.
+    """True when a separate vision model should be registered.
 
-    Checked once per model name. A later Settings change passes
-    ``refresh=True``. ``config["_vl_model_installed"]`` skips the network
-    so a test can force the gate. Ollama down means not installed.
+    The chat server reads pictures itself. ``config["_vl_model_installed"]``
+    forces the gate for tests and Settings. There is no network probe.
     """
+    del refresh
     config = config or {}
     override = config.get("_vl_model_installed")
     if isinstance(override, bool):
         return override
-    global _VL_INSTALL_CACHE
-    name = vision_model_name(config)
-    if (
-        not refresh
-        and _VL_INSTALL_CACHE is not None
-        and _VL_INSTALL_CACHE[0] == name
-    ):
-        return _VL_INSTALL_CACHE[1]
-    ollama_cfg = config.get("ollama") or {}
-    base = str(ollama_cfg.get("base_url") or "http://127.0.0.1:11434")
-    try:
-        installed = model_is_available(list_installed_models(base), name)
-    except Exception:
-        log.warning("VL model check failed; treating it as not installed", exc_info=True)
-        installed = False
-    _VL_INSTALL_CACHE = (name, installed)
-    return installed
+    return False
 
 
 def model_is_available(available: list[str], wanted: str) -> bool:
-    """True if Ollama already has this model name or a tagged variant of it."""
+    """True if this model name, or a tagged variant of it, is already listed."""
     wanted = wanted.strip()
     if not wanted:
         return True
@@ -122,7 +105,7 @@ def missing_models(available: list[str], configured: dict[str, str]) -> list[tup
 
 async def run_model_preflight(
     bus: EventBus,
-    provider: OllamaProvider,
+    provider: Any,
     models: dict[str, Any] | None,
 ) -> None:
     """Publish STATUS events for missing models. Never raises into the UI loop."""
@@ -136,14 +119,14 @@ async def run_model_preflight(
     try:
         available = await provider.list_models()
     except Exception as exc:
-        log.info("Ollama preflight skipped: %s", exc)
+        log.warning("Model preflight skipped", exc_info=exc)
         await bus.publish(
             Event(
                 EventType.STATUS,
                 {
                     "message": (
-                        f"Could not reach Ollama ({exc}). "
-                        "Start it, then pull the models in config if needed."
+                        "Could not reach the local model. "
+                        "Start it, then try again."
                     )
                 },
             )
@@ -215,13 +198,13 @@ async def run_model_warmup(
     now the larger half of a first turn: the persona, the telegraph policy and
     the skinny schemas come to roughly 5,500 tokens, which on a 12 GB AMD card
     prefills at a few hundred tokens a second. Passing ``prefix`` sends that
-    block once here, so Ollama's prefix cache already holds it.
+    block once here, so the prefix cache already holds it.
 
     The first user turn waits for this to finish (``router.arm_warmup``). If it
-    does not, the seed and the turn hit Ollama together and the first token
+    does not, the seed and the turn hit the server together and the first token
     waits on two prefills, a minute instead of one 40s load.
 
-    Fail soft throughout: a down Ollama must not block the UI. Toggle with
+    Fail soft throughout: a down server must not block the UI. Toggle with
     `router.warm_on_start`. Always releases the warmup gate so a failed pin
     cannot stall the first message forever.
     """
@@ -247,14 +230,14 @@ async def _run_model_warmup(
     try:
         await router.warm_default()
     except Exception as exc:
-        log.info("Ollama warmup skipped: %s", exc)
+        log.info("Warmup skipped: %s", exc)
         await bus.publish(
             Event(
                 EventType.STATUS,
                 {
                     "message": (
                         f"Could not load the chat model ({exc}). "
-                        "The first reply may be slow until Ollama has it."
+                        "The first reply may be slow until the server has it."
                     )
                 },
             )
@@ -297,8 +280,8 @@ def prefix_warmup_for(
         from arelis.core.tool_surface import session_tool_schemas
 
         agent_cfg = config.get("agent") or {}
-        ollama_cfg = config.get("ollama") or {}
-        num_ctx = int(ollama_cfg.get("num_ctx") or shipped_num_ctx())
+        lc = config.get("llamacpp") or {}
+        num_ctx = int(lc.get("default_cap") or shipped_num_ctx())
         return PrefixWarmup(
             messages=list(static_system_prefix(load_persona(config))),
             # Same function a turn calls, so the seed is a prefix of turn 1.

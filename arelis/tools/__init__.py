@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from arelis.llm.ollama import OllamaProvider
 from arelis.llm.router import ModelRouter
 from arelis.llm.startup import vl_model_installed
 from arelis.location import build_location
@@ -85,7 +84,7 @@ def build_tool_registry(
     allow_send: bool = True,
     attended: bool | None = None,
     memory_store: MemoryStore | None = None,
-    provider: OllamaProvider | None = None,
+    provider: Any | None = None,
     router: ModelRouter | None = None,
 ) -> ToolRegistry:
     """Assemble the tools this config enables.
@@ -154,8 +153,7 @@ def build_tool_registry(
             if provider is not None
             else ""
         )
-        # llama.cpp embeddings live on embed_url, not Ollama. Do not probe
-        # /v1/models on the 35B server or tell the user to ollama pull.
+        # Embeddings live on embed_url. Do not probe /v1/models on the chat server.
         if provider is not None and embed_url:
 
             async def _embed(model: str, texts: list[str]) -> list[list[float]]:
@@ -170,20 +168,6 @@ def build_tool_registry(
             embed = _embed
             embed_available = _embed_available
             embed_missing_note = " Semantic search is off; using keywords only."
-        elif provider is not None and bool(getattr(provider, "embeds", True)):
-
-            async def _embed(model: str, texts: list[str]) -> list[list[float]]:
-                return await provider.embed(model, texts)
-
-            async def _embed_available() -> bool:
-                names = await provider.list_models()
-                return any(
-                    name == embed_model or name.startswith(f"{embed_model}:")
-                    for name in names
-                )
-
-            embed = _embed
-            embed_available = _embed_available
         mem_cfg = config.get("memory") or {}
         docs_cfg = mem_cfg.get("docs") or {}
         mail_mem_cfg = mem_cfg.get("mail") or {}
@@ -517,18 +501,13 @@ def build_tool_registry(
         and router is not None
         and vl_model_installed(config)
     ):
-        ollama_cfg = config.get("ollama") or {}
         models_cfg = config.get("models") or {}
         vl_model = str(
             vision_cfg.get("model")
             or models_cfg.get("vision")
             or "qwen2.5vl:3b"
         ).strip()
-        num_ctx = int(
-            vision_cfg.get("num_ctx")
-            or ollama_cfg.get("vision_num_ctx")
-            or 4096
-        )
+        num_ctx = int(vision_cfg.get("num_ctx") or 4096)
         prov = provider or router.provider
 
         async def _vision_available() -> bool:

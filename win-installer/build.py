@@ -1169,7 +1169,7 @@ def verify() -> None:
 
         say("  main window builds offscreen...")
         # Same construction tests/conftest.py arelis_window uses. No core thread,
-        # no Ollama, no first-run prompts (those live in run_ui, not ArelisWindow).
+        # no model download, no first-run prompts (those live in run_ui, not ArelisWindow).
         window_probe = (
             "import asyncio\n"
             "from PySide6.QtWidgets import QApplication\n"

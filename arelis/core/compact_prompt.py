@@ -1,6 +1,6 @@
 """Short, byte-stable prompt pieces. Essays stay in skill cards for humans.
 
-Ollama sees this module, not the card bodies. The tool JSON array still
+The model server sees this module, not the card bodies. The tool JSON array still
 lists every tool every turn (prefix cache). Descriptions and param
 essays do not.
 """
@@ -107,12 +107,12 @@ hands: one gesture, a pinch. still pinch clicks; a moving pinch grabs empty glas
 
 
 def compact_tool_policy() -> str:
-    """The policy Ollama sees. Skill cards stay in skills.py for hints."""
+    """The policy the model server sees. Skill cards stay in skills.py for hints."""
     return COMPACT_TOOL_POLICY
 
 
 def format_tool_catalog(tools: Sequence[Mapping[str, Any]] | None = None) -> str:
-    """Name + one line for the glass. Not the schema essays Ollama used to see.
+    """Name + one line for the glass. Not the schema essays the model server used to see.
 
     Starts from ``_SHORT_DESC`` so a name that exists (cas, remind) cannot
     fall off a partial registry dump. Extra registry names still land.
@@ -193,7 +193,7 @@ def skinny_parameters(
     return stripped
 
 
-def skinny_ollama_tool(
+def skinny_tool(
     name: str,
     description: str,
     parameters_schema: dict[str, Any] | None,

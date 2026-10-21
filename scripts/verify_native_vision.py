@@ -1,8 +1,8 @@
-"""Prove the chat model can see, against a live Ollama.
+"""Prove the chat model can see, against llama-server.
 
 Draws a shape nobody could describe by luck, sends it through ModelRouter the
-way the vision tool does, and reports which tag answered plus how long it took.
-Run from a checkout with Ollama up:
+way the vision tool does, and reports which name answered plus how long it took.
+Run from a checkout with llama-server up:
 
     python scripts/verify_native_vision.py
 """
@@ -17,7 +17,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from arelis.llm.ollama import OllamaProvider
+from arelis.llm.llamacpp import LlamaCppProvider
 from arelis.llm.router import ModelRouter
 
 
@@ -36,10 +36,10 @@ def _test_image() -> str:
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="qwen3.5:9b")
-    ap.add_argument("--base", default="http://127.0.0.1:11434")
+    ap.add_argument("--base", default="http://127.0.0.1:8080")
     args = ap.parse_args()
 
-    provider = OllamaProvider(base_url=args.base)
+    provider = LlamaCppProvider(base_url=args.base)
     caps = await provider.capabilities(args.model)
     print(f"{args.model} capabilities: {', '.join(sorted(caps)) or '(unknown)'}")
     print(f"sees_images: {await provider.sees_images(args.model)}")

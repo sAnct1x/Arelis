@@ -203,7 +203,7 @@ async def execute_call(
     page_ok = r.page_ok
     sms_sent = r.sms_sent
     agenda_created = r.agenda_created
-    ollama_tools = r.ollama_tools
+    chat_tools = r.chat_tools
     messages = r.messages
     sms_draft = r.sms_draft
     email_draft = r.email_draft
@@ -1057,7 +1057,7 @@ async def execute_call(
         r.available = available
         r.visible = visible
         r.tool_names = tool_names
-        r.ollama_tools = ollama_tools
+        r.chat_tools = chat_tools
     return False
 
 

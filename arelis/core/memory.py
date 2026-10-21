@@ -107,7 +107,7 @@ class SessionMemory:
     tokens, whichever binds first. Crossing either limit drops a block down
     to about half, so the front of the next prompt stays put for many turns
     instead of sliding by one message every time. That alone is not enough
-    to protect the persona: Ollama still drops overflow from the front of
+    to protect the persona: the model server still drops overflow from the front of
     the prompt, and system messages are assembled ahead of this history.
     fit_messages in the agent loop is what pins those; this class only
     keeps its own list short.
@@ -252,7 +252,7 @@ class SessionMemory:
                 groups.append(rows)
         return groups
 
-    def as_ollama(
+    def as_chat(
         self, *, include_notes: bool = True, include_latest_block: bool = True
     ) -> list[dict[str, Any]]:
         """Prompt rows. The latest user block can be omitted when the caller pins it."""
@@ -267,7 +267,7 @@ class SessionMemory:
     def drop_prompt_prefix(self, n: int, *, include_notes: bool = True) -> None:
         """Drop the oldest *n* prompt-visible rows. Notices stay.
 
-        ``as_ollama`` skips role ``notice``, so a raw ``messages[n:]`` slice
+        ``as_chat`` skips role ``notice``, so a raw ``messages[n:]`` slice
         drifts whenever an inbound SMS line sits in the working set, it can
         delete the previous user/assistant turn or leave a stale prefix.
         The archive sink already has those rows; this only shrinks the

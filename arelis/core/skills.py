@@ -1,7 +1,7 @@
 """Skill cards: long-form tool rules, authored one capability at a time.
 
 A card is a section of the rules — the SMS rules, the mail rules, the scrape
-rules — kept separate so each can be read and reviewed on its own. Ollama does
+rules, kept separate so each can be read and reviewed on its own. The model server does
 not see these bodies. The prompt ships ``compact_tool_policy()`` (telegraph)
 plus skinny schemas; cards stay here for humans and for ``select_skill_ids``.
 
@@ -1759,7 +1759,7 @@ def assemble_tool_policy(
 
 
 def full_tool_policy() -> str:
-    """What Ollama sees every turn. Cards stay here for hints, not the prompt."""
+    """What the model server sees every turn. Cards stay here for hints, not the prompt."""
     from arelis.core.compact_prompt import compact_tool_policy
 
     return compact_tool_policy()

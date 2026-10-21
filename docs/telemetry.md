@@ -13,7 +13,7 @@ Nothing here is sent anywhere.
 | Did the first chat token wait on the prefix seed? | Thinking dock: **loading the model…**. Also `logs/turns.jsonl` → `model_prefill_ms` after a turn |
 | Did she enter JSON fallback or answer from a tool result? | Thinking dock. Also `logs/turns.jsonl` |
 | Did a confirm / SMS / error fire on the bus? | `logs/events.log` |
-| Are Ollama / calendar / SMS / mail up? | UI **house ▾** (mail / SMS / calendar only show once connected). CLI `ready …` STATUS |
+| Are the model server / calendar / SMS / mail up? | UI **house ▾** (mail / SMS / calendar only show once connected). CLI `ready …` STATUS |
 | Did ingest lock a client / mute outbound APIs? | UI **house ▾ → Watch**. STATUS lines starting `Watch:`. `logs/events.log` |
 | App crash, IMAP, router, indexer exceptions | `logs/arelis.log` |
 | Scheduled job mail digest | `logs/jobs.log` |
@@ -31,9 +31,9 @@ logger, INFO, rotating 2 MB × 3. Exceptions, ingest warnings, model
 rewarm, parked confirms, restored sends.
 
 **`logs/turns.log`** (default on: `agent.turn_telemetry`). Stages per
-turn: `start`, `preflight`, `ttft`, `ollama_metrics`, `round`, `tool`,
+turn: `start`, `preflight`, `ttft`, `engine_metrics`, `round`, `tool`,
 `confirm`, `exactness`, `done`. Logged `ttft` is first painted chat
-token, not Ollama engine TTFT. Tool-bearing turns hold paint, so that
+token, not the model server engine TTFT. Tool-bearing turns hold paint, so that
 number includes the tool rounds. Each finished turn also appends one JSON
 object to **`logs/turns.jsonl`**. That is the file to read when grading
 a live session.

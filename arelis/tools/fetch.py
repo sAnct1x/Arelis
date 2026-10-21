@@ -198,7 +198,7 @@ async def guarded_get(
 
     httpx's own follow_redirects is deliberately not used. It would connect to
     each hop first and only hand back the final response, which means a public
-    URL redirecting to http://127.0.0.1:11434 has already hit the local Ollama
+    URL redirecting to http://127.0.0.1:11434 has already hit the local model server
     server by the time anything gets inspected. Checking the body afterwards
     hides the result from the model but does not undo the request.
 

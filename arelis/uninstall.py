@@ -2,12 +2,10 @@
 
 The installer already deletes ``%LOCALAPPDATA%\\Programs\\Arelis`` and
 deregisters scheduled tasks. Conversations, secrets, models, her Chrome
-profile, and the optional Ollama setup we downloaded live *beside* the
-program. Those stay unless the person asks, a reinstall should find
-them. This module is that ask.
+profile, and runtime files parked beside the program stay unless the
+person asks. A reinstall should find them. This module is that ask.
 
-Never touches a source checkout. Never touches a system Ollama install
-or ``%USERPROFILE%\\.ollama``.
+Never touches a source checkout.
 """
 
 from __future__ import annotations
@@ -26,7 +24,7 @@ def _localappdata() -> Path:
 
 
 def runtime_dir() -> Path:
-    """Where setup parked a downloaded Ollama installer. Same as ``setup.engine``."""
+    """Runtime folder beside the install. Not the program directory."""
     return _localappdata() / "Arelis-runtime"
 
 

@@ -123,7 +123,7 @@ async def _read_inbox(ctx: TurnContext, output: str) -> None:
         weather_days_retried=set(),
         exact_need=ctx.exact_need,
         offer_tools=False,
-        ollama_tools=[],
+        chat_tools=[],
         messages=[],
         sms_draft=None,
         email_draft=None,

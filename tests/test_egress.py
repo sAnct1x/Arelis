@@ -14,7 +14,7 @@ nobody noticed.
 Two honest limits, stated rather than papered over. This reads hosts written into
 the source; a host assembled from configuration at runtime is invisible here, and
 that is correct, because a configured host is by definition one the user chose —
-their own mail server, their own phone, their own Ollama. And it proves what the
+their own mail server, their own phone, their own model server. And it proves what the
 code *can* name, not what it did on any given day. It is a boundary on the design,
 not a packet capture.
 
@@ -58,7 +58,7 @@ ALLOWED: dict[str, str] = {
     "api.sms-gate.app": "SMSGate cloud mode, if the user chose it",
     # Model and voice weights, downloaded once when a feature is first used and
     # gated behind allow_download in config.
-    "github.com": "release assets for Kokoro, Silero, Sherpa, the Ollama engine if missing, and image cutout weights",
+    "github.com": "release assets for Kokoro, Silero, Sherpa, and image cutout weights",
     "qaihub-public-assets.s3.us-west-2.amazonaws.com": "Real-ESRGAN x4v3 weights, once, when the user asks to upscale a picture",
     "huggingface.co": (
         "Smart Turn v3 ONNX, once, when conversation end-of-turn first runs; "

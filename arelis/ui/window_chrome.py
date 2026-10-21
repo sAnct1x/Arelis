@@ -98,7 +98,7 @@ class WindowChrome:
                             detail=f"Probe error: {exc}",
                         )
                         for key, label in (
-                            ("ollama", "Ollama"),
+                            ("server", "Server"),
                             ("models", "Models"),
                             ("role", "Model"),
                             ("confirm", "Allow gates"),
