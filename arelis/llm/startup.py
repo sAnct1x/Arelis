@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from arelis.core.bus import EventBus
@@ -36,43 +37,40 @@ WARMUP_PINNED = "Chat model loaded, preparing the first reply."
 WARMUP_READY = "Ready for the first reply."
 
 
-def vision_model_name(config: dict[str, Any] | None) -> str:
-    """Configured VL tag. Empty config still has the shipped default."""
-    config = config or {}
-    vision_cfg = (config.get("tools") or {}).get("vision") or {}
-    models_cfg = config.get("models") or {}
-    name = str(
-        vision_cfg.get("model") or models_cfg.get("vision") or "qwen2.5vl:3b"
-    ).strip()
-    return name or "qwen2.5vl:3b"
-
-
-# (model name, installed). One lookup per name until Settings asks again.
-_VL_INSTALL_CACHE: tuple[str, bool] | None = None
-
-
-def clear_vl_install_cache() -> None:
-    """Drop the startup VL check. Tests and a Settings re-check use this."""
-    global _VL_INSTALL_CACHE
-    _VL_INSTALL_CACHE = None
-
-
 def vl_model_installed(
     config: dict[str, Any] | None,
     *,
     refresh: bool = False,
 ) -> bool:
-    """True when a separate vision model should be registered.
+    """True when the chat launch line has a picture file on disk.
 
-    The chat server reads pictures itself. ``config["_vl_model_installed"]``
-    forces the gate for tests and Settings. There is no network probe.
+    The 35B reads pictures through the Q8 mmproj next to the GGUF. Launch
+    args that name a missing file do not count. ``config["_vl_model_installed"]``
+    forces the gate for tests. ``refresh`` is accepted so Settings can ask
+    again. The check is a file stat, so a later call sees a file that showed up.
     """
     del refresh
     config = config or {}
     override = config.get("_vl_model_installed")
     if isinstance(override, bool):
         return override
-    return False
+    return _mmproj_on_launch_line(config)
+
+
+def _mmproj_on_launch_line(config: dict[str, Any]) -> bool:
+    """True when ``launch_args_for`` names an mmproj path that exists."""
+    from arelis.llm.llama_launch import launch_args_for
+
+    args = launch_args_for(config)
+    if not args:
+        return False
+    try:
+        index = args.index("--mmproj")
+    except ValueError:
+        return False
+    if index + 1 >= len(args):
+        return False
+    return Path(args[index + 1]).is_file()
 
 
 def model_is_available(available: list[str], wanted: str) -> bool:

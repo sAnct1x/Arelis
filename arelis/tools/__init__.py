@@ -103,9 +103,9 @@ def build_tool_registry(
     plot, diagram, document, clipboard, OCR, tile, research, agenda, contacts.
 
     Desktop registers only on Windows. Vision and camera register only when
-    the configured VL model is already installed, checked once per model name
-    at startup. Mail and SMS stay on their own accounts. A tool left out here
-    is not in the session list at all.
+    the llama.cpp launch line names an mmproj file that is already on disk.
+    Mail and SMS stay on their own accounts. A tool left out here is not in
+    the session list at all.
 
     When ``attended`` is omitted it follows ``allow_send``, so every existing
     caller keeps the same registry. Jobs pass ``allow_send=False`` and get
@@ -494,7 +494,7 @@ def build_tool_registry(
     if (tools_cfg.get("image_edit") or {}).get("enabled", True):
         registry.register(ImageEditTool(workspace))
     # Single-frame VL: attended only (Allow card). Jobs skip (attended=False).
-    # The install check is once per model name, not once per turn.
+    # Same gate as startup: the launch line's mmproj file, not a model list.
     if (
         attended
         and vision_cfg.get("enabled", True)
@@ -508,14 +508,9 @@ def build_tool_registry(
             or "qwen2.5vl:3b"
         ).strip()
         num_ctx = int(vision_cfg.get("num_ctx") or 4096)
-        prov = provider or router.provider
 
         async def _vision_available() -> bool:
-            names = await prov.list_models()
-            return any(
-                name == vl_model or name.startswith(f"{vl_model}:")
-                for name in names
-            )
+            return vl_model_installed(config)
 
         registry.register(
             VisionTool(
