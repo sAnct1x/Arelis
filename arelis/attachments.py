@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -457,9 +458,7 @@ def session_title_from_turn(content: str, *, max_len: int = 80) -> str:
     return first[:max_len]
 
 
-_DESCRIBE_OFFER = re.compile(
-    r"(?i)\b(describe|caption|tell\s+me\s+about|what\s+do\s+you\s+see)\b"
-)
+_DESCRIBE_OFFER = re.compile(r"(?i)\b(describe|caption|tell\s+me\s+about|what\s+do\s+you\s+see)\b")
 
 
 def continue_prior_image_describe(
@@ -866,9 +865,117 @@ def format_attachments_block(
     if "data" in kinds and not emailing:
         rules.append("Tables (csv/xlsx/json): call analyze.")
     if "text" in kinds and not emailing:
-        rules.append(
-            "Text/markdown/logs (txt, md, log, yaml, …): call workspace action=read."
-        )
+        rules.append("Text/markdown/logs (txt, md, log, yaml, …): call workspace action=read.")
     if rules:
         lines.append("Rules: " + " ".join(rules))
     return "\n".join(lines)
+
+
+class AttachError(Exception):
+    """The driver named files and none of them staged.
+
+    Sending the prompt anyway would leave the picture as text, which is the
+    bug this path exists to close.
+    """
+
+
+def user_message_payload(
+    text: str,
+    role: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """USER_MESSAGE body the attach button's send path publishes.
+
+    ``role`` is omitted when None so a headless driver that does not pin a
+    role stays ``{"text": ...}``. Attachments are the paperclip dicts
+    (``Attachment.as_dict``), not a path pasted into the prompt.
+    """
+    payload: dict[str, Any] = {"text": text}
+    if role is not None:
+        payload["role"] = role
+    if attachments:
+        payload["attachments"] = list(attachments)
+    return payload
+
+
+def stage_attachment_dicts(
+    paths: Sequence[Path | str],
+    *,
+    existing_count: int = 0,
+    drops_root: Path | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Paperclip staging: ``stage_files``, then ``Attachment.as_dict``."""
+    result = stage_files(
+        list(paths),
+        existing_count=existing_count,
+        drops_root=drops_root,
+    )
+    return [item.as_dict() for item in result.ok], list(result.errors)
+
+
+def attach_paths(source: Any) -> tuple[str, ...]:
+    """File paths on a turn or matrix item. A missing field means none."""
+    raw = getattr(source, "attachments", ()) or ()
+    if isinstance(raw, (str, Path)):
+        raw = (raw,)
+    found: list[str] = []
+    for item in raw:
+        text = str(item).strip()
+        if text:
+            found.append(text)
+    return tuple(found)
+
+
+def take_composer_attachments(
+    conversation: Any,
+    paths: Sequence[str | Path],
+) -> list[dict[str, Any]]:
+    """Stage files the way Attach does, then take them off the rail.
+
+    Send clears the rail after reading it. The driver does the same so the
+    next turn does not inherit the files.
+    """
+    if not paths:
+        return []
+    conversation._stage_paths([Path(p) for p in paths])
+    staged = list(conversation.attach_bar.attachments())
+    conversation.attach_bar.clear()
+    place = getattr(conversation, "_place_parked_orbit", None)
+    if callable(place):
+        place()
+    return staged
+
+
+def staged_for_turn(
+    conversation: Any,
+    turn: Any,
+) -> tuple[list[dict[str, Any]] | None, str]:
+    """Attachments for one glass turn, or an error when staging yielded nothing.
+
+    ``None`` with an empty error means the turn did not ask to attach.
+    """
+    paths = attach_paths(turn)
+    if not paths:
+        return None, ""
+    staged = take_composer_attachments(conversation, paths)
+    if not staged:
+        return None, "attach failed"
+    return staged, ""
+
+
+def matrix_turn_payload(
+    text: str,
+    paths: Sequence[str | Path] = (),
+) -> dict[str, Any]:
+    """Headless USER_MESSAGE. Files go through ``stage_files``, same as Attach.
+
+    No ``role`` key: the matrix lets the seat pick one, and pinning one here
+    would change routing for a turn that only added a picture.
+    """
+    rows: list[dict[str, Any]] | None = None
+    if paths:
+        rows, errors = stage_attachment_dicts(paths)
+        if not rows:
+            detail = "; ".join(errors) or "nothing staged"
+            raise AttachError(f"attach failed: {detail}")
+    return user_message_payload(text, attachments=rows)

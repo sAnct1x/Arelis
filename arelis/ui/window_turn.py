@@ -9,6 +9,7 @@ import asyncio
 import logging
 from pathlib import Path
 
+from arelis.attachments import user_message_payload
 from arelis.core.events import Event, EventType
 from arelis.presence.pending_confirms import (
     PendingConfirm,
@@ -182,9 +183,7 @@ class WindowTurn:
         sync_idle_mode(self)
         if not (text or "").lstrip().startswith("/"):
             self._show_model_loading(role)
-        payload: dict = {"text": text, "role": role}
-        if attachments:
-            payload["attachments"] = attachments
+        payload = user_message_payload(text, role, attachments)
         asyncio.run_coroutine_threadsafe(
             self.bus.publish(Event(EventType.USER_MESSAGE, payload)),
             self.loop,

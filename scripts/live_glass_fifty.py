@@ -26,6 +26,7 @@ os.environ.pop("QT_QPA_PLATFORM", None)
 os.environ.pop("ARELIS_ALLOW_OFFSCREEN", None)
 os.environ["ARELIS_SOLAR_GL"] = "1"
 
+from arelis.attachments import staged_for_turn
 from arelis.config import load_config
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
@@ -683,8 +684,22 @@ def _run_turn(
             _write_windows_clipboard(f"board clipboard {turn.id}")
         except Exception:
             pass
+    staged, attach_error = staged_for_turn(window.conversation, turn)
+    if attach_error:
+        return {
+            "id": turn.id,
+            "ok": False,
+            "reasons": [attach_error],
+            "tools": [],
+            "ms": 0,
+            "final": "",
+            "thinking": [],
+            "gold": getattr(turn, "notes", "") or "",
+            "user": turn.user,
+            "screenshot": shot.name,
+        }
     window.conversation.input.setText(turn.user)
-    window._on_submit(turn.user, "fast")
+    window._on_submit(turn.user, "fast", staged)
     _pump(app, 80)
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:

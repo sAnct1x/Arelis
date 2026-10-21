@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from arelis.attachments import stage_files, stage_image_bytes
+from arelis.attachments import stage_attachment_dicts, stage_image_bytes
 from arelis.core.confirm_speech import classify_confirm_utterance
 from arelis.ui.attach_bar import AttachBar, DropOverlay
 from arelis.ui.foreground import focus_if_allowed
@@ -462,11 +462,11 @@ class ConversationStage(GlassFrame):
     def _stage_paths(self, paths: list[Path]) -> None:
         if not paths:
             return
-        result = stage_files(paths, existing_count=self.attach_bar.count())
-        if result.errors:
-            self.attach_errors.emit(list(result.errors))
-        if result.ok:
-            self.attach_bar.add_many([a.as_dict() for a in result.ok])
+        dicts, errors = stage_attachment_dicts(paths, existing_count=self.attach_bar.count())
+        if errors:
+            self.attach_errors.emit(list(errors))
+        if dicts:
+            self.attach_bar.add_many(dicts)
             self._place_parked_orbit()
 
     def set_drive(self, driving: bool, status: str = "") -> None:
