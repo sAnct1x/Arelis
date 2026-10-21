@@ -804,6 +804,16 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         await loop._finish(ctx.skip_finish_text, r.sources, streamed="")
         return True
 
+    # Every call so far was a confirm refusal, and nothing ran. Another
+    # model round paints nothing and sits until the model timeout. The
+    # reply names the call the card refused.
+    if ctx.decline_needs_finish and not loop.tools_used and ran_calls == 0:
+        from arelis.core.loop_helpers import declined_finish_reply
+
+        reply = declined_finish_reply(ctx.declined_tools, ctx.declined_calls)
+        await loop._finish(reply, r.sources, streamed="")
+        return True
+
     from arelis.core.loop_helpers import python_plot_round_pending, python_plot_stop_line
 
     # Plot stays owed across later python calls until plot is tried.

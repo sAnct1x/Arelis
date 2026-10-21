@@ -771,14 +771,13 @@ _MALFORMED_CALL_NOTICE = (
 
 # What the model is told when the user declines a call. The wording matters more
 # than it looks. "Not available" and "you lack permission" both get repeated
-# as if the tool were missing. Say they said no, and that the call was not done.
+# as if the tool were missing. Say they said no, and that this call was skipped.
+# Do not offer another tool or a new question. The model takes that offer and
+# leaves the ask: a declined image card ended on a web-search question, and a
+# declined send was still "declined" on the next remember.
 _SKIP_NOTICE = (
-    "The user said no to this specific {tool} call, so it was not done. "
-    "Tell them you skipped it because they said no. "
-    "This is not a permissions error. "
-    "Either propose a different call, or ask what they would prefer. "
-    "Do not tell the user to run commands themselves, "
-    "and do not claim the change was made."
+    "The user said no to this specific {tool} call, so it was skipped and not done. "
+    "This is not a permissions error."
 )
 
 
