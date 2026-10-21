@@ -12,8 +12,10 @@ import re
 from typing import Any
 
 from arelis.attachments import (
+    _TYPED_IMAGE_SEE,
     attachment_kinds_from_turn,
     continue_prior_attachment_ask,
+    image_path_tokens,
     is_short_affirmation,
     route_tool,
     split_attachments_turn,
@@ -41,6 +43,7 @@ from arelis.core.image_refs import (
     CAMERA_FRESH_S,
     latest_camera_image_file,
     latest_generated_image_path,
+    path_from_text,
 )
 from arelis.core.intent_catalog import (
     AUTO_HINTS,
@@ -305,8 +308,9 @@ _VISION = re.compile(
     r"in\s+(?:this|the|that)\s+(?:photo|image|picture|screenshot)|"
     r"(?:question|problem)\s+in\s+(?:this|the|that)\s+"
     r"(?:photo|image|picture|screenshot)|"
-    r"outputs[/\\]images[/\\]\S+\.(?:png|jpe?g|webp|gif)"
-    r")\b"
+    r"outputs[/\\]images[/\\]\S+\.(?:png|jpe?g|webp|gif)|"
+    + _TYPED_IMAGE_SEE
+    + r")\b"
 )
 
 
@@ -1058,10 +1062,14 @@ def detect_intents(
             )
         )
     elif _VISION.search(raw) and not _BROWSER_SCREENSHOT.search(raw):
-        last_path = latest_generated_image_path(history)
+        named = path_from_text(raw)
+        typed = image_path_tokens(raw)
+        chosen = named or (typed[0] if typed else "") or (
+            latest_generated_image_path(history) or ""
+        )
         path_hint = (
-            f" Use path={last_path}."
-            if last_path
+            f" Use path={chosen}."
+            if chosen
             else " Use the path from the prior image tool result or outputs/images/."
         )
         hints.append(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import shutil
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +14,7 @@ from uuid import uuid4
 from arelis.history_view import history_pairs
 from arelis.paths import display_path, state_dir, user_data_dir
 from arelis.workspace import (
+    _WINDOWS_DRIVE,
     UNSAFE_WINDOWS_PATH_MSG,
     is_unsafe_windows_path,
     safe_resolve,
@@ -317,6 +318,31 @@ def overlay_text_from_ask(user_text: str = "") -> str:
         if text:
             return text[:80]
     return ""
+
+
+# A path typed in the message ("what is in C:/.../shapes.png", "describe ./plot.png").
+# The noun-only see pattern misses it, so the turn had no vision intent and the
+# model reached for ocr and image generation. Shared with preflight and claims
+# so those three cannot drift.
+_TYPED_IMAGE_SEE = (
+    r"(?:what(?:'s|\s+is)\s+in|describe|look\s+at)\s+"
+    r"(?:(?:this|the|that|your|my)\s+)?"
+    r"(?:(?:file|image|picture|photo|screenshot)\s+)?"
+    r"\S+\.(?:png|jpe?g|webp|gif)(?!\.\w)"
+)
+
+# Drive, ./, ../, a real absolute path, or a bare filename. The lookbehind keeps
+# a URL and the tail of outputs/images/demo.png from being captured as their own
+# file. Those stay on path_from_text.
+_IMG_EXT = r"(?:png|jpe?g|webp|gif)"
+_TYPED_IMAGE_TOKEN = re.compile(
+    rf"(?i)(?<![A-Za-z0-9_./\\])(?:"
+    rf"[A-Za-z]:[\\/][^\s\"'<>|]+?\.{_IMG_EXT}"
+    rf"|\.{{1,2}}[\\/][^\s\"'<>|]+?\.{_IMG_EXT}"
+    rf"|/(?!/)[^\s\"'<>|]+?\.{_IMG_EXT}"
+    rf"|[A-Za-z0-9][^\s\"'<>|/\\]*\.{_IMG_EXT}"
+    rf")(?!\.\w)"
+)
 
 
 def route_tool(kind: str, user_text: str = "") -> str:
@@ -911,6 +937,163 @@ def stage_attachment_dicts(
         drops_root=drops_root,
     )
     return [item.as_dict() for item in result.ok], list(result.errors)
+
+
+def image_path_tokens(text: str) -> list[str]:
+    """Local image paths typed in the ask, in order, without duplicates."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _TYPED_IMAGE_TOKEN.finditer(text or ""):
+        token = match.group(0).strip().rstrip(".,);]\"'")
+        key = token.replace("\\", "/").lower()
+        if not token or key in seen:
+            continue
+        seen.add(key)
+        found.append(token)
+    return found
+
+
+def sees_existing_image(text: str) -> bool:
+    """True when this turn is asking to look at a picture that already exists.
+
+    Generate, restyle, pixel edit, and OCR stay on their own tools. A paperclip
+    image with no edit verb is a look, same as a typed path.
+    """
+    raw = text or ""
+    if not raw.strip():
+        return False
+    from arelis.core.sms_complete import looks_like_image_gen
+
+    if looks_like_image_gen(raw):
+        return False
+    if (
+        wants_image_edit(raw)
+        or wants_image_restyle(raw)
+        or wants_image_surgical(raw)
+        or wants_image_variations(raw)
+        or wants_image_text(raw)
+    ):
+        return False
+    from arelis.core.preflight import _VISION
+
+    if _VISION.search(raw):
+        return True
+    _block, ask = split_attachments_turn(raw)
+    return (
+        "image" in attachment_kinds_from_turn(raw) and route_tool("image", ask or raw) == "vision"
+    )
+
+
+def _resolve_typed_image(token: str, bases: Sequence[Path | str]) -> Path | None:
+    """Existing image for one typed token, or None when it is not on disk.
+
+    A Windows drive path is absolute even on Linux. Joining it onto the cwd
+    would invent ``.../C:/Users/...`` and must not happen.
+    """
+    text = (token or "").strip().rstrip(".,);]\"'")
+    if not text or is_unsafe_windows_path(text):
+        return None
+    if Path(text).suffix.lower() not in _IMAGE:
+        return None
+    if _WINDOWS_DRIVE.match(text):
+        path = Path(text)
+        try:
+            if path.is_file():
+                return path
+        except OSError:
+            return None
+        return None
+    raw_path = Path(text)
+    candidates: list[Path] = []
+    if raw_path.is_absolute():
+        candidates.append(raw_path)
+    else:
+        candidates.append(Path.cwd() / raw_path)
+        for base in bases:
+            if str(base).strip():
+                candidates.append(Path(base) / raw_path)
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            if resolved.is_file() and resolved.suffix.lower() in _IMAGE:
+                return resolved
+        except OSError:
+            continue
+    return None
+
+
+def stage_typed_images(
+    text: str,
+    bases: Sequence[Path | str] = (),
+    drops_root: Path | None = None,
+    allow: Callable[[Path], bool] | None = None,
+) -> list[dict[str, Any]]:
+    """Stage image files named in a see-ask, the same copy the paperclip makes.
+
+    A missing file still counts as a vision ask. It just has nothing to copy.
+    ``allow`` rejects a path the workspace may not read, so a typed path cannot
+    sneak a file in ahead of the Allow card.
+    """
+    if not sees_existing_image(text or ""):
+        return []
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for token in image_path_tokens(text or ""):
+        resolved = _resolve_typed_image(token, bases)
+        if resolved is None or resolved in seen:
+            continue
+        if allow is not None and not allow(resolved):
+            continue
+        seen.add(resolved)
+        paths.append(resolved)
+    if not paths:
+        return []
+    rows, _errors = stage_attachment_dicts(paths, drops_root=drops_root)
+    return [row for row in rows if str(row.get("kind") or "") == "image"]
+
+
+def attach_typed_images(
+    text: str,
+    bases: Sequence[Path | str] = (),
+    drops_root: Path | None = None,
+    allow: Callable[[Path], bool] | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """``(turn text, rows)``. The turn text is the paperclip block plus the ask."""
+    rows = stage_typed_images(text, bases=bases, drops_root=drops_root, allow=allow)
+    if not rows:
+        return text, []
+    block = format_attachments_block(rows, user_text=text)
+    if not block:
+        return text, rows
+    turn = f"{block}\n\n{text}" if text else block
+    return turn, rows
+
+
+def refuse_see_tool(name: str, text: str) -> str | None:
+    """Block image generation and OCR on a look-at-this-picture ask.
+
+    None means the call can run. Vision stays callable.
+    """
+    if name not in {"image", "ocr"}:
+        return None
+    if not sees_existing_image(text or ""):
+        return None
+    if name == "image":
+        return (
+            "They asked what is in an existing picture. "
+            "Call vision with the staged path. Do not generate a new image."
+        )
+    return (
+        "They asked what is in the picture, not for the text. "
+        "Call vision with the staged path. Do not OCR it."
+    )
 
 
 def attach_paths(source: Any) -> tuple[str, ...]:
