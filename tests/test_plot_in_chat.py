@@ -91,3 +91,42 @@ async def test_plot_file_ready_paints_the_png_in_chat(
     loaded = _loaded(window.chat.view, charts[0])
     assert loaded is not None and not loaded.isNull()
     assert loaded.width() == 8 and loaded.height() == 8
+
+    # A full-size chart in a narrow window used to paint at file size and
+    # get clipped on the right. Logical width follows the bubble; pixels
+    # and aspect stay.
+    wide = tmp_path / "wide-plot.png"
+    wide_image = QImage(1200, 600, QImage.Format.Format_ARGB32)
+    wide_image.fill(0xFF993366)
+    assert wide_image.save(str(wide))
+    window.resize(360, 800)
+    window.show()
+    qt_app.processEvents()
+    dispatch_event(
+        window,
+        Event(
+            EventType.FILE_READY,
+            {
+                "abs_path": str(wide.resolve()),
+                "title": "wide-plot.png",
+                "kind": "plot",
+                "source": "plot",
+                "show_card": True,
+                "open": False,
+            },
+        ),
+    )
+    qt_app.processEvents()
+    view = window.chat.view
+    limit = view.formula_width()
+    assert limit > 1
+    charts = _chart_formats(view.document())
+    assert len(charts) == 2
+    wide_loaded = _loaded(view, charts[1])
+    ratio = wide_loaded.devicePixelRatio() or 1.0
+    logical_w = wide_loaded.width() / ratio
+    logical_h = wide_loaded.height() / ratio
+    assert logical_w <= limit + 0.51
+    assert abs((logical_w / logical_h) - 2.0) < 0.02
+    assert wide_loaded.width() == 1200 and wide_loaded.height() == 600
+    assert view.document().idealWidth() <= view.viewport().width() + 4
