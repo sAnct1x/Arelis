@@ -227,8 +227,12 @@ def _convert(quantity: str, to_unit: str) -> ToolResult:
             data={"fail_class": "fail:not_a_unit", "quantity": qty, "to": dest},
         )
     try:
-        src = _UREG.Quantity(_normalize_quantity(qty))
-        out = src.to(_normalize_unit(dest))
+        src_text, dest_text = _temperature_pair(
+            _normalize_quantity(qty),
+            _normalize_unit(dest),
+        )
+        src = _UREG.Quantity(src_text)
+        out = src.to(dest_text)
     except UndefinedUnitError as exc:
         return ToolResult(
             ok=False,
@@ -273,14 +277,37 @@ def _convert(quantity: str, to_unit: str) -> ToolResult:
     )
 
 
+# Longer phrases first. "degrees fahrenheit" has to go before "degrees F",
+# or the short pattern eats the F and leaves the word behind.
 _TEMP_UNIT = (
     (re.compile(r"(?i)\bdegrees?\s+fahrenheit\b"), "degF"),
     (re.compile(r"(?i)\bdegrees?\s+celsius\b"), "degC"),
     (re.compile(r"(?i)\bdegrees?\s+kelvin\b"), "kelvin"),
+    (re.compile(r"(?i)\bdegrees?\s+f\b"), "degF"),
+    (re.compile(r"(?i)\bdegrees?\s+c\b"), "degC"),
     (re.compile(r"(?i)\bdeg\s*f\b"), "degF"),
     (re.compile(r"(?i)\bdeg\s*c\b"), "degC"),
     (re.compile(r"(?i)\bfahrenheit\b"), "degF"),
     (re.compile(r"(?i)\bcelsius\b"), "degC"),
+    # Pint accepts °F / °C when the letter is uppercase. °f, ºF, and ℉ do not.
+    (re.compile(r"(?i)℉|(?:°|º|˚)\s*f\b"), "degF"),
+    (re.compile(r"(?i)℃|(?:°|º|˚)\s*c\b"), "degC"),
+)
+# Bare F and C are the farad and the coulomb. They are a temperature only
+# when the other side of the conversion is a temperature too. uF, nF, mC,
+# "10 F to uF", and C/V are not on this list, so they stay electrical.
+_TEMP_SCALE = re.compile(
+    r"(?i)^(?:"
+    r"[fck]"
+    r"|deg\s*[fckr]"
+    r"|degree\s*[fc]"
+    r"|°\s*[fc]"
+    r"|kelvin|rankine|fahrenheit|celsius"
+    r"|degree_fahrenheit|degree_celsius|degree_kelvin|degree_rankine"
+    r")$"
+)
+_NUMBER_THEN_UNIT = re.compile(
+    r"(?i)^(?P<head>[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?\s*)(?P<unit>.+?)\s*$"
 )
 
 
@@ -289,6 +316,36 @@ def _normalize_unit(text: str) -> str:
     for pattern, repl in _TEMP_UNIT:
         out = pattern.sub(repl, out)
     return out
+
+
+def _magnitude_and_unit(text: str) -> tuple[str, str]:
+    raw = (text or "").strip()
+    hit = _NUMBER_THEN_UNIT.match(raw)
+    if hit is None:
+        return "", raw
+    return hit.group("head"), hit.group("unit").strip()
+
+
+def _temperature_pair(quantity: str, dest: str) -> tuple[str, str]:
+    """Use degF/degC for a bare F/C when both sides are temperatures.
+
+    degF and degC are offset units, so 98.6 F becomes 37 C. delta_degF would
+    drop the offset and report 98.6 * 5/9 instead.
+    """
+    q_head, q_unit = _magnitude_and_unit(quantity)
+    d_head, d_unit = _magnitude_and_unit(dest)
+    if _TEMP_SCALE.fullmatch(q_unit) is None or _TEMP_SCALE.fullmatch(d_unit) is None:
+        return quantity, dest
+    rewritten = {"f": "degF", "c": "degC"}
+    q_name = rewritten.get(q_unit.lower())
+    d_name = rewritten.get(d_unit.lower())
+    if q_name is None and d_name is None:
+        return quantity, dest
+    if q_name is not None:
+        quantity = f"{q_head.rstrip()} {q_name}".strip()
+    if d_name is not None:
+        dest = f"{d_head.rstrip()} {d_name}".strip()
+    return quantity, dest
 
 
 def _normalize_quantity(quantity: str) -> str:
