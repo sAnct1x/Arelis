@@ -31,7 +31,7 @@ def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
 
 @lru_cache(maxsize=1)
 def shipped_num_ctx() -> int:
-    """``ollama.num_ctx`` as shipped in default.yaml.
+    """``llamacpp.default_cap`` as shipped in default.yaml.
 
     Callers that build a config by hand, the eval harnesses, the job runner,
     tests, used to write their own number, and 8192 stayed in three of them
@@ -42,7 +42,7 @@ def shipped_num_ctx() -> int:
     try:
         with DEFAULT_CONFIG_PATH.open(encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-        return int(((data.get("ollama") or {}).get("num_ctx")) or 0) or 32768
+        return int(((data.get("llamacpp") or {}).get("default_cap")) or 0) or 32768
     except (OSError, ValueError, TypeError):
         return 32768
 
@@ -116,7 +116,9 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
         from arelis.location.privacy import install as install_location_redactor
 
         install_location_redactor(data)
-    return data
+    from arelis.llm.legacy import migrate_engine_config
+
+    return migrate_engine_config(data)
 
 
 def _parse_workspace_roots(roots: list[Any]) -> list[dict[str, Any]]:

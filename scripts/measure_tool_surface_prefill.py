@@ -1,12 +1,12 @@
 """Does hiding tools actually save prefill, once the prefix cache is involved?
 
 Subsetting removes schema tokens from the prompt, which looks like a saving when
-you count tokens. But Ollama renders the tools array near the *front* of the
+you count tokens. But the model server renders the tools array near the *front* of the
 prompt, so a tools array that changes shape from turn to turn changes the prefix
 — and a changed prefix cannot be reused, which means the persona, the policy and
 the whole conversation behind it are prefilled again.
 
-This measures both effects against a live Ollama, reporting prompt_eval_count
+This measures both effects against a live the model server, reporting prompt_eval_count
 (how many tokens were actually processed rather than reused) and
 prompt_eval_duration.
 
@@ -66,13 +66,13 @@ def main() -> int:
     config = load_config()
     num_ctx = shipped_num_ctx()
     registry = build_tool_registry(config)
-    all_tools = registry.ollama_tools()
+    all_tools = registry.chat_tools()
     names = sorted(registry.names())
 
     # Two plausible per-turn subsets, the way _skill_subset would produce them.
-    subset_a = registry.ollama_tools({n for n in names if n in {
+    subset_a = registry.chat_tools({n for n in names if n in {
         "weather", "user_location", "web_fetch", "calculator", "cas", "units"}})
-    subset_b = registry.ollama_tools({n for n in names if n in {
+    subset_b = registry.chat_tools({n for n in names if n in {
         "workspace", "git_info", "analyze", "calculator", "cas", "units"}})
 
     system = [

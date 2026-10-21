@@ -84,7 +84,7 @@ def _config() -> dict:
             "json_fallback": False,
             "weather_force_call": False,
         },
-        "ollama": {"num_ctx": 65536},
+        "llamacpp": {"default_cap": 65536},
         "_persona_path": "does-not-exist.md",
     }
 
@@ -150,13 +150,13 @@ async def test_routing_still_steers_in_the_turn_text(frozen_clock) -> None:
     assert "A forecast for the place they named." in turn_text
     assert "weather tool" not in turn_text.lower()
     assert "weather" in loop._expected_tools
-    assert "weather" in _names(weather.ollama_tools)
+    assert "weather" in _names(weather.chat_tools)
     loop.memory.add("assistant", "Mild tomorrow.")
     bye = _loop()
     _stamp(33)
     closing = await prepare_turn(bye, "thanks, bye", "fast")
     assert closing is not None
     assert "weather" not in bye._expected_tools
-    assert _names(closing.ollama_tools) == _names(weather.ollama_tools)
+    assert _names(closing.chat_tools) == _names(weather.chat_tools)
 
 

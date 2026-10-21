@@ -1,6 +1,6 @@
 """What a person reads when something fails, as opposed to what a model reads.
 
-``arelis.llm.errors`` already does this for Ollama: chat gets a short instruction,
+``arelis.llm.errors`` already does this for the model server: chat gets a short instruction,
 the exception and the URL go to Thinking. Two paths never got the same treatment.
 
 The orchestrator's last line of defence published
@@ -134,18 +134,17 @@ def plain_reason(exc: BaseException) -> str:
 def turn_failed_notice(exc: BaseException) -> tuple[str, str]:
     """Return (chat copy, Thinking detail) for an unhandled turn failure.
 
-    An Ollama exception that reaches this far is still an Ollama exception, so it
-    keeps the copy that names the chip in the title bar rather than the generic
-    line, the user's next action is different.
+    A model-server exception that reaches this far keeps the server copy
+    rather than the generic line, because the next action is different.
     """
     detail = f"{type(exc).__name__}: {exc}"
     try:
         import httpx
 
-        from arelis.llm.errors import classify_ollama_failure
+        from arelis.llm.errors import classify_model_failure
 
         if isinstance(exc, (httpx.HTTPError, httpx.NetworkError, httpx.TimeoutException)):
-            failure = classify_ollama_failure(exc)
+            failure = classify_model_failure(exc)
             return failure.chat, failure.detail
     except Exception:
         # Copy is not worth an exception inside the handler of an exception.

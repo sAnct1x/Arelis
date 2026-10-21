@@ -3,14 +3,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from arelis.llm.legacy import migrate_engine_config
 from arelis.llm.llama_launch import launch_args_for
 from arelis.llm.llamacpp import LlamaCppProvider
-from arelis.llm.ollama import (
-    DEFAULT_EMBED_KEEP_ALIVE,
-    DEFAULT_EMBED_NUM_GPU,
-    OllamaProvider,
-    ollama_base_url,
-)
 from arelis.llm.router import ModelRouter
 from arelis.llm.startup import (
     PrefixWarmup,
@@ -26,7 +21,6 @@ log = logging.getLogger(__name__)
 __all__ = [
     "LlamaCppProvider",
     "ModelRouter",
-    "OllamaProvider",
     "PrefixWarmup",
     "build_router",
     "prefix_warmup_for",
@@ -37,20 +31,8 @@ __all__ = [
 ]
 
 
-def _provider_for(
-    config: dict[str, Any],
-    ollama_cfg: dict[str, Any],
-    memory_cfg: dict[str, Any],
-) -> OllamaProvider | LlamaCppProvider:
-    """Ollama unless config asks for the 35B llama-server."""
-    kind = str((config.get("llm") or {}).get("provider") or "ollama").strip().lower()
-    if kind not in {"llamacpp", "llama.cpp", "llama-server"}:
-        return OllamaProvider(
-            base_url=ollama_base_url(config),
-            timeout_s=ollama_cfg.get("timeout_s", 300),
-            embed_keep_alive=memory_cfg.get("embed_keep_alive", DEFAULT_EMBED_KEEP_ALIVE),
-            embed_num_gpu=int(memory_cfg.get("embed_num_gpu", DEFAULT_EMBED_NUM_GPU)),
-        )
+def _provider_for(config: dict[str, Any]) -> LlamaCppProvider:
+    """The only chat server: llama.cpp."""
     lc = config.get("llamacpp") or {}
     raw_caps = lc.get("context_caps") or {}
     caps = (
@@ -76,26 +58,15 @@ def _provider_for(
 
 
 def build_router(config: dict[str, Any]) -> ModelRouter:
-    """Construct the provider and router from config.
+    """Construct the llama.cpp provider and router from config.
 
     Single place on purpose. The desktop app, the CLI, and the e2e scripts all
     need this wiring, and when each built its own the e2e runs quietly used
     different settings from the app they were meant to be testing.
     """
-    ollama_cfg = config.get("ollama", {}) or {}
+    migrate_engine_config(config)
     router_cfg = config.get("router", {}) or {}
-    memory_cfg = config.get("memory") or {}
-    provider = _provider_for(config, ollama_cfg, memory_cfg)
-
-    options: dict[str, Any] = {}
-    num_ctx = ollama_cfg.get("num_ctx")
-    if num_ctx:
-        options["num_ctx"] = int(num_ctx)
-    role_num_ctx: dict[str, int] = {}
-    research_ctx = ollama_cfg.get("research_num_ctx")
-    if research_ctx:
-        role_num_ctx["research"] = int(research_ctx)
-
+    provider = _provider_for(config)
     return ModelRouter(
         provider,
         config.get("models", {}),
@@ -110,6 +81,6 @@ def build_router(config: dict[str, Any]) -> ModelRouter:
             if router_cfg.get("sticky_hold_s") is not None
             else None
         ),
-        options=options,
-        role_num_ctx=role_num_ctx or None,
+        options={},
+        role_num_ctx=None,
     )

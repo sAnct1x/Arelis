@@ -719,7 +719,7 @@ async def run_scripted_scenario(
             "agent": agent_cfg,
             # The shipped window, not a number of its own. An eval pinned to a
             # window nobody runs is not measuring the product.
-            "ollama": {"num_ctx": shipped_num_ctx()},
+            "llamacpp": {"default_cap": shipped_num_ctx()},
         },
         request_confirm=_confirm,
         is_cancelled=lambda: False,

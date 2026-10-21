@@ -22,11 +22,11 @@ import httpx
 
 from arelis.llm.errors import is_context_overflow
 from arelis.llm.llama_launch import ensure_server
-from arelis.llm.ollama import _finalize_tool_calls, _merge_tool_calls
+from arelis.llm.wire import _finalize_tool_calls, _merge_tool_calls
 
 log = logging.getLogger(__name__)
 
-# Server down and no per-model cap. Do not borrow Ollama's 65536.
+# Server down and no per-model cap.
 _FALLBACK_CONTEXT_TOKENS = 8192
 # /props, /slots, and the embed probe are tiny. Do not wait the 300s chat timeout.
 _PROBE_TIMEOUT_S = 5.0
@@ -126,7 +126,7 @@ def _wire_tool_call(call: Any, ordinal: int) -> tuple[dict[str, Any], str] | Non
 
 
 def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Ollama rows to the OpenAI chat shape llama-server expects.
+    """Chat rows to the OpenAI chat shape llama-server expects.
 
     Arelis stores tool-call arguments as a dict and often omits ``id``.
     Tool rows carry ``tool_name`` and no ``tool_call_id``. The server wants
@@ -359,7 +359,7 @@ class LlamaCppProvider:
         tools: list[dict[str, Any]] | None = None,
         think: bool | None = None,
     ) -> AsyncIterator[tuple[str, Any]]:
-        """Yield thinking, token, metrics, and tool_calls. Same kinds as Ollama.
+        """Yield thinking, token, metrics, and tool_calls.
 
         ``keep_alive`` is ignored. llama-server keeps the model until it exits.
         """

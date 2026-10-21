@@ -18,7 +18,6 @@ from typing import Any
 import pytest
 
 from arelis.core import lessons
-from arelis.llm.ollama import OllamaProvider
 from arelis.llm.router import ModelRouter
 from arelis.memory.indexer import MemoryIndexer
 
@@ -51,35 +50,6 @@ async def test_a_missing_vram_probe_leaves_a_warning(
 
     assert "Host VRAM guard could not load" in caplog.text
     assert "mutated VRAM module" in caplog.text
-
-
-class _BrokenResponse:
-    def raise_for_status(self) -> None:
-        raise RuntimeError("show endpoint broke")
-
-
-class _BrokenClient:
-    async def post(self, path: str, *, json: dict[str, str]) -> _BrokenResponse:
-        assert path == "/api/show"
-        assert json == {"model": "vision-chat"}
-        return _BrokenResponse()
-
-
-@pytest.mark.asyncio
-async def test_an_unknown_model_capability_is_warned_and_not_cached(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    provider = OllamaProvider.__new__(OllamaProvider)
-    provider._client = _BrokenClient()  # type: ignore[assignment]
-    provider._capabilities = {}
-
-    with caplog.at_level(logging.WARNING, logger="arelis.llm.ollama"):
-        found = await provider.capabilities("vision-chat")
-
-    assert found == frozenset()
-    assert provider._capabilities == {}
-    assert "vision support is unknown" in caplog.text
-    assert "show endpoint broke" in caplog.text
 
 
 class _RetryingEmbedProvider:
@@ -158,7 +128,6 @@ def test_a_malformed_lessons_file_warns_before_using_only_built_ins(
 
 _CLEAN_EXCEPTION_SCOPES = {
     Path("arelis/llm/router.py"): {"_refuse_if_host_vram_full"},
-    Path("arelis/llm/ollama.py"): {"capabilities"},
     Path("arelis/memory/indexer.py"): {
         "model_available",
         "_embed_messages",

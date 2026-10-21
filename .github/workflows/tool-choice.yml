@@ -1,7 +1,7 @@
 name: Tool choice
 
 # Nightly score of the shipping tool-choice arm (skinny schema + preflight)
-# against tests.eval_floors.CHOICE_LIVE_FLOOR. The script exits 0 when Ollama
+# against tests.eval_floors.CHOICE_LIVE_FLOOR. The script exits 0 when llama-server
 # is unreachable — GitHub-hosted runners will not have the daemon — unless
 # ARELIS_REQUIRE_LIVE=1, which is the flag for a desk that is supposed to
 # have the model.

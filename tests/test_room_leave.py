@@ -97,7 +97,7 @@ async def test_leave_returns_to_the_chat_you_were_in(seat) -> None:
 
     assert store.session_id == general
     assert orch.rooms.active_id == ""
-    assert orch.memory.as_ollama()[0]["content"] == "general talk"
+    assert orch.memory.as_chat()[0]["content"] == "general talk"
 
 
 @pytest.mark.asyncio

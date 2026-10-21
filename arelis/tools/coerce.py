@@ -1,6 +1,6 @@
 """Turn string arguments into the types a tool's JSON schema declares.
 
-Ollama's qwen3.5 parser types a tool call only when that name is in the
+the model server's qwen3.5 parser types a tool call only when that name is in the
 request tools array. A tool loaded later is missing from the array, so
 every argument comes back as a string, including numbers, bools, and
 JSON arrays or objects. The same conversion runs for every call. A value that is

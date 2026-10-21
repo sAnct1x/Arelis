@@ -7,7 +7,7 @@ checked against `tests.eval_floors.CHOICE_LIVE_FLOOR`.
     python scripts/run_choice_board.py
     python scripts/run_choice_board.py --json choice-board.json
 
-Needs Ollama up with the configured chat model. If the daemon is down,
+Needs llama-server up with the configured chat model. If the server is down,
 exits 0 with a skip (GitHub-hosted runners will not have it). Set
 `ARELIS_REQUIRE_LIVE=1` to turn that skip into a hard fail — the flag
 for a real nightly on a desk that is supposed to have the model.
@@ -29,7 +29,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from arelis.config import load_config
-from arelis.setup.engine import ollama_reachable
 from tests.eval_floors import CHOICE_LIVE_FLOOR
 
 
@@ -38,8 +37,19 @@ def _require_live() -> bool:
 
 
 def _base_url() -> str:
-    ollama_cfg = load_config().get("ollama") or {}
-    return str(ollama_cfg.get("base_url") or "http://127.0.0.1:11434")
+    server_cfg = load_config().get("llamacpp") or {}
+    return str(server_cfg.get("base_url") or "http://127.0.0.1:8080")
+
+
+def _server_reachable(base_url: str) -> bool:
+    import httpx
+
+    try:
+        response = httpx.get(f"{base_url.rstrip('/')}/v1/models", timeout=2.0)
+    except Exception:
+        # A down server is a skip, not a crash.
+        return False
+    return response.status_code < 500
 
 
 def _write_report(path: Path, payload: dict[str, Any]) -> None:
@@ -69,8 +79,8 @@ def main() -> int:
     stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     base_url = _base_url()
 
-    if not ollama_reachable(base_url):
-        reason = f"Ollama is unreachable at {base_url}"
+    if not _server_reachable(base_url):
+        reason = f"llama-server is unreachable at {base_url}"
         payload = {
             "skipped": True,
             "reason": reason,

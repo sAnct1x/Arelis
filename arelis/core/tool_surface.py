@@ -75,12 +75,12 @@ def _tool_loading_mode(agent_cfg: dict[str, Any] | None) -> str:
 
 def _load_tools_spec(param_hints: bool) -> dict[str, Any]:
     """The load_tools schema, shaped like the registry's other tools."""
-    from arelis.core.compact_prompt import skinny_ollama_tool
+    from arelis.core.compact_prompt import skinny_tool
     from arelis.tools.load_tools import LoadTools
     from arelis.tools.model_schema import model_parameters
 
     tool = LoadTools()
-    spec = skinny_ollama_tool(
+    spec = skinny_tool(
         tool.name,
         tool.description,
         tool.parameters_schema,
@@ -96,7 +96,7 @@ def _core_plus_load_tools(tools: Any, hints: bool) -> list[dict[str, Any]]:
     from arelis.tools.groups import CORE
 
     core = set(CORE)
-    full = list(tools.ollama_tools(param_hints=hints))
+    full = list(tools.chat_tools(param_hints=hints))
     kept = [
         spec
         for spec in full
@@ -151,7 +151,7 @@ def session_tool_schemas(tools: Any, agent_cfg: dict[str, Any] | None) -> list[d
     ):
         return frozen[1]
     # names omitted: the registry's full list, same call the warmup uses.
-    built = list(tools.ollama_tools(param_hints=hints))
+    built = list(tools.chat_tools(param_hints=hints))
     try:
         tools._session_schema_freeze = (hints, built)
     except Exception:

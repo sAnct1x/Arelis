@@ -26,7 +26,7 @@ system.
 
 ### Dev setup
 
-You'll need Python 3.11+ and [Ollama](https://ollama.com/download).
+You'll need Python 3.11+ and [the model server](llama.cpp).
 
 ```powershell
 python -m venv .venv

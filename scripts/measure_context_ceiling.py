@@ -5,7 +5,7 @@ card instead: load the model at a candidate window, then read /api/ps and
 compare size_vram against size. A model that does not fit entirely in VRAM has
 spilled layers to the CPU, which costs far more than the window buys.
 
-Run from a checkout with Ollama up:
+Run from a checkout with the model server up:
 
     python scripts/measure_context_ceiling.py --model qwen3.5:9b
 """

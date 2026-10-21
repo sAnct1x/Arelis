@@ -1,6 +1,6 @@
 """Compact readiness chips under the glass title bar.
 
-Only Ollama stays on the strip. Model pin, Allow gates, and the rest live
+Only the server chip stays on the strip. Model pin, Allow gates, and the rest live
 under house ▾ so the strip does not compete with the composer role picker
 (fast / research).
 """
@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from arelis.presence.readiness import ChipLevel, ReadinessChip, ReadinessSnapshot
 
 # Always on the strip.
-_PRIMARY_KEYS = ("ollama",)
+_PRIMARY_KEYS = ("server",)
 # Nested under house ▾ (aggregate status on the house chip).
 _SYSTEMS_KEYS = (
     "models",
@@ -53,7 +53,7 @@ def _aggregate(statuses: list[str]) -> str:
 
 
 class ReadinessStrip(QWidget):
-    """Thin row: Ollama chip + house menu."""
+    """Thin row: server chip + house menu."""
 
     settings_requested = Signal(str)
 
@@ -76,13 +76,13 @@ class ReadinessStrip(QWidget):
         self._pulse.setInterval(700)
         self._pulse.timeout.connect(self._tick_confirm_pulse)
 
-        chip = QLabel("Ollama")
+        chip = QLabel("Server")
         chip.setObjectName("ReadinessChip")
         chip.setProperty("status", ChipLevel.OFF.value)
         chip.setCursor(Qt.CursorShape.WhatsThisCursor)
         chip.setToolTip("Checking…")
         layout.addWidget(chip)
-        self._chips["ollama"] = chip
+        self._chips["server"] = chip
 
         self.systems_btn = QToolButton()
         self.systems_btn.setObjectName("ReadinessSystems")
@@ -136,7 +136,7 @@ class ReadinessStrip(QWidget):
             self._set_status(self.systems_btn, self._systems_base_status)
 
     def apply(self, snapshot: ReadinessSnapshot) -> None:
-        """Update Ollama + rebuild the house menu."""
+        """Update the server chip and rebuild the house menu."""
         sig = tuple(
             (item.key, item.status.value, item.detail) for item in snapshot.chips
         )

@@ -27,7 +27,7 @@ body:
         - SmartScreen / Windows would not run the file
         - Installer itself
         - First-open (folder or model)
-        - Ollama download or pull
+        - Model server was not running
         - Window opened, then nothing
         - First question never came back
         - Other

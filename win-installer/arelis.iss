@@ -232,7 +232,7 @@ begin
        'The Arelis folder in your documents stays if it contains this ' +
        'program''s own project files.' + #13#10 + #13#10 +
        'Choose No to keep that data for a later reinstall. ' +
-       'A system Ollama install is never removed.',
+       'A model file outside this app is never removed.',
        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
     WipeData := True;
 end;

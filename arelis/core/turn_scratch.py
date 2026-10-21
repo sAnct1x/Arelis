@@ -6,14 +6,14 @@ step tables in ``no_call_steps`` / ``no_call_finish`` / ``call_redirects``
 read and write fields on it by name.
 
 It exists because those fields are *rebound*, not just mutated: a nudge
-that takes the tool schemas away assigns a new ``ollama_tools`` list, and
+that takes the tool schemas away assigns a new ``chat_tools`` list, and
 a redirect assigns a narrowed ``available`` set. Plain locals meant every
 coordinator had to unpack ~40 names on entry and copy them back in a
 ``finally`` so an early return or a raised ``_StoppedError`` still handed
 them to the next stage. Writing through one object is that contract.
 
 ``slots=True`` is load-bearing rather than a size tweak. The scratch was a
-``SimpleNamespace``, so ``r.ollama_tolls = []`` was a new attribute and a
+``SimpleNamespace``, so a misspelled attribute assignment was a new attribute and a
 silently dropped write, on this object it raises.
 
 This is a separate module because ``turn_round`` imports ``turn_dispatch``,
@@ -52,7 +52,7 @@ class RoundScratch:
     visible: set[str]
     tool_names: set[str]
     offer_tools: bool
-    ollama_tools: list[dict[str, Any]]
+    chat_tools: list[dict[str, Any]]
 
     # Warrants and the gates that read them.
     sources: list[tuple[str, str]]

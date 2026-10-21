@@ -94,7 +94,7 @@ async def test_image_edit_ready_event_points_at_the_data_folder_file(
         agenda_created=set(),
         exact_need=ctx.exact_need,
         offer_tools=False,
-        ollama_tools=[],
+        chat_tools=[],
         messages=[],
         sms_draft=None,
         email_draft=None,

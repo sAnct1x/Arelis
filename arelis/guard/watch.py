@@ -81,7 +81,7 @@ class WatchSnapshot:
                 f"- bad tokens in window: {self.auth_fails_window}",
                 f"- locked clients: {self.locked}",
                 "",
-                "## Outbound APIs (not Ollama / LAN / loopback)",
+                "## Outbound APIs (not the model server / LAN / loopback)",
                 f"- calls in window: {self.egress_window}",
                 f"- calls today: {self.egress_today}",
                 f"- muted: {'yes' if self.egress_muted else 'no'}",

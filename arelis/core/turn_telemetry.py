@@ -14,7 +14,7 @@ One line per stage, plus a done summary:
     turn 02:01:21.100 done      id=a1b2c3d4 total_ms=5970 model_ms=2500 summarize_ms=1770 …
 
 ``ttft_ms`` / first_token is agent-felt (first painted ASSISTANT_DELTA), not
-Ollama engine TTFT. Engine prefill/decode live on ``ollama_metrics`` lines and
+the model server engine TTFT. Engine prefill/decode live on ``engine_metrics`` lines and
 ``model_prefill_ms`` / ``model_decode_ms`` on ``done``.
 
 Off only when agent.turn_telemetry is false. Cheap when disabled.
@@ -40,8 +40,8 @@ _HANDLER_TAG = "arelis-turn-trace"
 _attached = False
 
 
-def ollama_ns_to_ms(value: Any) -> int | None:
-    """Convert Ollama nanosecond duration fields to integer milliseconds."""
+def duration_ns_to_ms(value: Any) -> int | None:
+    """Convert the model server nanosecond duration fields to integer milliseconds."""
     if value is None:
         return None
     try:
@@ -206,20 +206,20 @@ class TurnTimer:
         if not self.enabled or self._first_delta_at is not None:
             return
         self._first_delta_at = time.perf_counter()
-        # Agent-felt: first painted token, not Ollama prompt_eval_duration.
+        # Agent-felt: first painted token, not the model server prompt_eval_duration.
         self.mark("ttft", ms=self.elapsed_ms())
 
-    def note_ollama_metrics(
+    def note_engine_metrics(
         self,
         metrics: dict[str, Any] | None,
         *,
         round_n: int = 0,
     ) -> None:
-        """Record one model round's engine prefill/decode stats (Ollama ns → ms)."""
+        """Record one model round's engine prefill/decode stats (the model server ns → ms)."""
         if not self.enabled or not isinstance(metrics, dict):
             return
-        prefill_ms = ollama_ns_to_ms(metrics.get("prompt_eval_duration"))
-        decode_ms = ollama_ns_to_ms(metrics.get("eval_duration"))
+        prefill_ms = duration_ns_to_ms(metrics.get("prompt_eval_duration"))
+        decode_ms = duration_ns_to_ms(metrics.get("eval_duration"))
         prompt_n = metrics.get("prompt_eval_count")
         eval_n = metrics.get("eval_count")
         try:
@@ -248,7 +248,7 @@ class TurnTimer:
         if decode_ms is not None:
             fields["eval_ms"] = decode_ms
         if len(fields) > 1:
-            self.mark("ollama_metrics", **fields)
+            self.mark("engine_metrics", **fields)
 
     def finish(self, status: str = "ok") -> str:
         """Write the summary line; return a short Thinking-dock blurb."""

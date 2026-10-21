@@ -61,7 +61,7 @@ class LoadTools:
         if error is not None or names is None:
             return ToolResult(ok=False, output=error or "groups must be a list of group names.")
         registry = self._registry
-        if registry is None or not hasattr(registry, "ollama_tools"):
+        if registry is None or not hasattr(registry, "chat_tools"):
             return ToolResult(
                 ok=False, output="load_tools is not available in this session."
             )
@@ -100,7 +100,7 @@ class LoadTools:
                 + ", ".join(groups)
                 + ". No tools from those groups are registered in this session."
             )
-        specs = registry.ollama_tools(set(order), param_hints=self._hints())
+        specs = registry.chat_tools(set(order), param_hints=self._hints())
         by_name = {
             str((spec.get("function") or {}).get("name") or ""): spec for spec in specs
         }

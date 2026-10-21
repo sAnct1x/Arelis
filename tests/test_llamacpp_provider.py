@@ -1,4 +1,4 @@
-"""llama-server provider: OpenAI SSE in, Ollama-shaped chunks out. Fake HTTP only."""
+"""llama-server provider: OpenAI SSE in, chat chunks out. Fake HTTP only."""
 
 from __future__ import annotations
 
@@ -18,8 +18,7 @@ from arelis.llm import build_router
 from arelis.llm.errors import (
     LLAMACPP_DOWN_NOTICE,
     LLAMACPP_MODEL_NOTICE,
-    OLLAMA_REJECT_NOTICE,
-    classify_ollama_failure,
+    classify_model_failure,
     classify_turn_failure,
 )
 from arelis.llm.llama_launch import launch_args_for
@@ -28,7 +27,6 @@ from arelis.llm.llamacpp import (
     _PROBE_TIMEOUT_S,
     LlamaCppProvider,
 )
-from arelis.llm.ollama import OllamaProvider
 from arelis.memory.indexer import MemoryIndexer
 from arelis.memory.store import MemoryStore
 from arelis.tools.recall import RecallTool
@@ -272,12 +270,11 @@ async def test_llamacpp_stream_maps_sse_and_refuses_pictures_and_embeddings(
         assert "Embeddings are off" in str(exc)
 
     shipped = {
-        "ollama": {"base_url": "http://127.0.0.1:11434"},
         "models": {"fast": "qwen3.5:9b"},
         "router": {},
         "memory": {},
     }
-    assert isinstance(build_router(shipped).provider, OllamaProvider)
+    assert isinstance(build_router(shipped).provider, LlamaCppProvider)
     chosen = build_router(
         {
             **shipped,
@@ -421,7 +418,7 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
         default_cap=32768,
     )
     loop = SimpleNamespace(
-        config={"ollama": {"num_ctx": 65536, "research_num_ctx": 65536}},
+        config={"llamacpp": {"default_cap": 65536}},
         router=SimpleNamespace(provider=provider, model_for=lambda role: "qwen3.6"),
         tool_output_chars=1000,
         _expected_tools=[],
@@ -445,7 +442,7 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
         default_cap=32768,
     )
     other = SimpleNamespace(
-        config={"ollama": {"num_ctx": 65536}},
+        config={"llamacpp": {"default_cap": 65536}},
         router=SimpleNamespace(provider=bare, model_for=lambda role: "other"),
         tool_output_chars=1000,
         _expected_tools=[],
@@ -457,20 +454,20 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
     )
     assert measured == 32768
 
-    ollama_loop = SimpleNamespace(
-        config={"ollama": {"num_ctx": 65536, "research_num_ctx": 8192}},
+    plain_loop = SimpleNamespace(
+        config={"llamacpp": {"default_cap": 65536}},
         router=SimpleNamespace(provider=object(), model_for=lambda role: "qwen3.5:9b"),
         tool_output_chars=1000,
         _expected_tools=[],
     )
     kept, _ = await _context_limits(
-        ollama_loop, "fast", speak=False, skill_ids=[]
+        plain_loop, "fast", speak=False, skill_ids=[]
     )
     assert kept == 65536
-    research_ollama, _ = await _context_limits(
-        ollama_loop, "research", speak=False, skill_ids=[]
+    research_kept, _ = await _context_limits(
+        plain_loop, "research", speak=False, skill_ids=[]
     )
-    assert research_ollama == 8192
+    assert research_kept == 65536
 
     def down(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, text="down")
@@ -481,7 +478,7 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
     )
     assert await dead.context_tokens("qwen") == 8192
     dead_loop = SimpleNamespace(
-        config={"ollama": {"num_ctx": 65536}},
+        config={"llamacpp": {"default_cap": 65536}},
         router=SimpleNamespace(provider=dead, model_for=lambda role: "qwen"),
         tool_output_chars=1000,
         _expected_tools=[],
@@ -525,20 +522,9 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
             backend=shifting,
         )
         assert overflow_fail.skip_tool_fallback is True
-        assert "ollama" not in overflow_fail.chat.lower()
-    # Ollama overflow 400 must still take JSON-tool fallback, same as main.
-    ollama_overflow = classify_turn_failure(
-        RuntimeError(
-            "Ollama returned HTTP 400 for model `qwen`: "
-            "request exceeds the available context size"
-        ),
-        config={"llm": {"provider": "ollama"}},
-    )
-    assert ollama_overflow.chat == OLLAMA_REJECT_NOTICE
-    assert ollama_overflow.skip_tool_fallback is False
     assert await shifting.context_tokens("qwen") == 4096
 
-    down = classify_ollama_failure(
+    down = classify_model_failure(
         httpx.ConnectError("connection refused"),
         provider="llamacpp",
     )
@@ -546,7 +532,7 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
     assert "the local model server stopped responding" in down.chat.lower()
     assert "—" not in down.chat
     assert down.skip_tool_fallback is True
-    http500 = classify_ollama_failure(
+    http500 = classify_model_failure(
         RuntimeError("llama-server returned HTTP 503 for model `qwen`"),
         provider="llamacpp",
     )
@@ -557,7 +543,6 @@ async def test_llamacpp_history_budget_uses_server_n_ctx_and_cap() -> None:
         config={"llm": {"provider": "llamacpp"}},
     )
     assert missing.chat == LLAMACPP_MODEL_NOTICE
-    assert "ollama" not in missing.chat.lower()
     assert "—" not in missing.chat
     assert missing.skip_tool_fallback is True
     await provider.close()
@@ -571,7 +556,7 @@ async def test_llamacpp_cpu_embeddings_follow_embed_url_and_stay_off_when_down(
 ) -> None:
     """Root cause: the 35B llama-server owns the card, so nomic-embed-text
     has to live on a second CPU llama-server. Reason: POST /v1/embeddings
-    at llamacpp.embed_url, never Ollama, and embeds is True only while
+    at llamacpp.embed_url, and embeds is True only while
     that server answers; otherwise recall stays on keywords. A failed
     probe retries after a cooldown so a later-started embed server is
     picked up without restarting Arelis. The indexer asks the provider
@@ -597,7 +582,7 @@ async def test_llamacpp_cpu_embeddings_follow_embed_url_and_stay_off_when_down(
 
     def embed_handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/embed":
-            raise AssertionError("Ollama /api/embed must not be used")
+            raise AssertionError("legacy embed path must not be used")
         if request.url.path != "/v1/embeddings":
             return httpx.Response(404)
         body = json.loads(request.content)
@@ -690,7 +675,6 @@ async def test_llamacpp_cpu_embeddings_follow_embed_url_and_stay_off_when_down(
         raise AssertionError("down embed server should keep embeddings off")
     except RuntimeError as exc:
         assert "Embeddings are off" in str(exc)
-        assert "ollama" not in str(exc).lower()
     assert down_probes["n"] == 1
     assert await down.refresh_embeds() is False
     assert down_probes["n"] == 1
@@ -752,7 +736,6 @@ async def test_llamacpp_cpu_embeddings_follow_embed_url_and_stay_off_when_down(
     assert all(value == _PROBE_TIMEOUT_S for value in probe_timeouts)
 
     shipped = {
-        "ollama": {"base_url": "http://127.0.0.1:11434"},
         "models": {"fast": "qwen3.5:9b"},
         "router": {},
         "memory": {},

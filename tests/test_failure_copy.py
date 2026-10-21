@@ -13,8 +13,6 @@ hiding it made a wrong path look like a silent no-op.
 
 from __future__ import annotations
 
-import httpx
-
 from arelis.core.failure_copy import (
     TURN_FAILED_NOTICE,
     is_model_directed,
@@ -38,15 +36,6 @@ def test_the_chat_line_says_what_to_do_next() -> None:
     chat, _ = turn_failed_notice(RuntimeError("boom"))
     assert "Thinking" in chat
     assert "again" in chat.lower()
-
-
-def test_an_ollama_failure_keeps_the_copy_that_names_the_chip() -> None:
-    """The user's next action differs, so the generic line would be worse."""
-    chat, detail = turn_failed_notice(httpx.ConnectError("connection refused"))
-    assert chat != TURN_FAILED_NOTICE
-    assert "Ollama" in chat
-    assert "chip" in chat
-    assert "ConnectError" in detail
 
 
 def test_analyzes_advice_to_the_model_does_not_reach_the_user() -> None:

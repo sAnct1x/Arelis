@@ -1,6 +1,6 @@
 """How large a context window this card can actually hold.
 
-The shipped ``ollama.num_ctx`` is one number measured on one card. A stranger
+The shipped context cap is one number measured on one card. A stranger
 with 8 GB should not inherit it, and a stranger with 24 GB should not be capped
 by it. Setup already knows the card and the chosen model, so it can pin a window
 the same way it pins the tag.
@@ -44,7 +44,7 @@ _MAX_PINNED = 131072
 # prompt plus room to talk. Persona (~905) + telegraph policy (~455) + skinny
 # schemas for 39 tools (~4,105) is about 5,500 tokens before conversation.
 # 16384 would fit the prefix but starve history; 32768 leaves ~27k for the
-# reply. Ollama still drops overflow from the front (the persona).
+# reply. the model server still drops overflow from the front (the persona).
 #
 # This is a floor rather than a compromise because a card too small for 32768 is
 # too small for the weights: the 9B measures 5.62 GiB at 16384 and 6.15 GiB at

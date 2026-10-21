@@ -20,12 +20,12 @@ def test_chat_notice_survives_archive_and_is_hidden_from_the_model(tmp_path: Pat
     assert [r["role"] for r in rows] == ["user", "notice", "assistant"]
     assert "Bro that man is SSG" in rows[1]["content"]
 
-    prompt = memory.as_ollama()
+    prompt = memory.as_chat()
     assert [m["role"] for m in prompt] == ["user", "assistant", "system"]
     assert prompt[1]["content"] == "Sent your text to wife."
     assert "send_sms" in prompt[2]["content"]
     assert "tools used this turn" not in prompt[1]["content"]
-    spoken = memory.as_ollama(include_notes=False)
+    spoken = memory.as_chat(include_notes=False)
     assert [m["role"] for m in spoken] == ["user", "assistant"]
     assert spoken[1]["content"] == "Sent your text to wife."
 
@@ -76,7 +76,7 @@ def test_cancelled_send_is_redacted_in_the_prompt() -> None:
     memory.add("user", "text 5555550123 and tell him hes a bitch")
     memory.mark_last_user_cancelled()
     memory.add("user", "what is 17 times 19?")
-    prompt = " ".join(m["content"] for m in memory.as_ollama())
+    prompt = " ".join(m["content"] for m in memory.as_chat())
     assert "5555550123" not in prompt
     assert "bitch" not in prompt
     assert "Stopped a send" in prompt

@@ -293,7 +293,7 @@ def parse_fallback_payload(text: str, *, strict: bool = False) -> dict[str, Any]
 
 
 def extract_native_tool_calls(calls: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
-    """Normalize Ollama tool_calls into (name, args) pairs, dropping duplicates.
+    """Normalize the model server tool_calls into (name, args) pairs, dropping duplicates.
 
     Identical calls in one round are dropped rather than executed twice. A model
     repeating itself within a single response is always a glitch, never intent,

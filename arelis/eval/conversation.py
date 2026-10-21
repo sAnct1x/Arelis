@@ -581,7 +581,7 @@ class ConversationSession:
             self.memory,
             persona=persona,
             # The shipped window, not a number of its own — see harness.py.
-            config={"agent": cfg, "ollama": {"num_ctx": shipped_num_ctx()}},
+            config={"agent": cfg, "llamacpp": {"default_cap": shipped_num_ctx()}},
             request_confirm=_confirm,
             is_cancelled=lambda: False,
         )
@@ -696,7 +696,7 @@ async def run_conversation_soak(
     agent_cfg: dict[str, Any] | None = None,
     image_dir: Path | None = None,
 ) -> SoakReport:
-    """Run a multi-turn soak. mode=mock uses queued scripts; live uses Ollama."""
+    """Run a multi-turn soak. mode=mock uses queued scripts; live uses the model server."""
     started = datetime.now(UTC).isoformat()
     t0 = time.perf_counter()
     tools = soak_registry(image_dir=image_dir)

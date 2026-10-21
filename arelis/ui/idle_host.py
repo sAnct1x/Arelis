@@ -255,12 +255,12 @@ def refresh_idle_face(window) -> None:
     if sessions != window._idle_ghosts:
         window._idle_ghosts = sessions
         idle.set_sessions(sessions)
-    ollama = "-"
+    server = "-"
     snap = window._readiness_snap
     if snap is not None:
-        chip = snap.chip("ollama") if hasattr(snap, "chip") else None
+        chip = snap.chip("server") if hasattr(snap, "chip") else None
         if chip is not None:
-            ollama = str(chip.status.value).upper()
+            server = str(chip.status.value).upper()
     listening = "OFF"
     vc = getattr(window, "voice_controller", None)
     if not getattr(window, "_voice_ear_ready", True):
@@ -271,7 +271,7 @@ def refresh_idle_face(window) -> None:
         window.conversation.mic_btn.isChecked() or window.conversation.conversation_btn.isChecked()
     ):
         listening = "ON"
-    idle.set_readout(ollama=ollama, listening=listening)
+    idle.set_readout(server=server, listening=listening)
 
 
 def bind_idle(window) -> None:

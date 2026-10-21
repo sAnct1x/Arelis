@@ -46,17 +46,12 @@ It's not really a tour: just two questions, and only in the window:
 
 1. Which folder is she allowed to read, create, change, and delete
    in?
-2. She looks at your graphics memory, RAM, and disk, and recommends
-   one Qwen 3.5 tag. You can confirm it, or pick Gemma / DeepSeek
-   instead.
 
-If Ollama isn't already installed, she downloads the official Windows
-engine into `%LOCALAPPDATA%\Arelis-runtime`, then pulls whichever tag
-you chose plus `nomic-embed-text`. That pins both Fast and Research
-to the same tag in `config.local.yaml`. If a copy has already pinned
-`models.fast`, you won't be asked again. Vision support waits until
-the first time you actually send a picture. More on all this in
-[models.md](models.md).
+Chat is llama.cpp. She does not download an engine or a model file.
+Start llama-server, then talk to her. If a copy has already pinned
+`models.fast` in `config.local.yaml`, that name is what chat sends.
+Vision support waits until the first time you actually send a picture.
+More on all this in [models.md](models.md).
 
 ## What happens in one turn
 
@@ -119,7 +114,7 @@ finish gates can step in and have her decline to sound confident
 instead.
 
 Native tool calling is the normal path here. The JSON fallback only
-kicks in when Ollama rejects the tools array outright, or when the
+kicks in when the model server rejects the tools array outright, or when the
 first round comes back empty with no tool called yet. If a tool
 already succeeded earlier in the turn and the next round comes back
 with empty chat content, she just answers from that existing result
@@ -170,7 +165,7 @@ Safety gates (SMS/email bans, confirm-before-write) stay active. See
 [models.md](models.md) for details.
 
 Every launch after the first pins the chat model, then seeds
-Ollama's prefix cache (`arelis/llm/startup.py`) with the persona, the
+the model server's prefix cache (`arelis/llm/startup.py`) with the persona, the
 telegraph policy, and the skinny tool schema array: about 5,500
 tokens, identical every single turn. On a 12 GB card, that seeding
 used to take roughly 40 seconds on the fat prefix; the seed is now
@@ -256,7 +251,7 @@ you do, you land in the full workbench: chat, composer, and docks.
 |---|---|
 | Composer | Idle: a centered prompt box. Workbench: a bottom row plus Fast / Research toggle |
 | Title strip | Arelis branding, view menu, settings, window buttons |
-| Readiness | Ollama status and a house indicator. Mail / SMS / calendar only show up here once connected |
+| Readiness | the model server status and a house indicator. Mail / SMS / calendar only show up here once connected |
 | Chat stage | Empty-session view, the streaming answer, Sources, allow / deny cards. The last finished answer gets a **copy · again** option |
 | Drive strip | Stop / Pause / your-turn controls while her browser or the desk is actively driving |
 | Thinking dock | The actual thinking paragraph. A tool errand shows as one line in that stream. Housekeeping info (model loaded, speech status) sits in a footer, not mixed into the reasoning. Failures also go to the conversation line so a closed Thinking dock is not a dead drop |
@@ -444,7 +439,7 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
 - CLI writes from a non-interactive session are denied unless you
   pass `--allow-write`.
 
-Chat models always stay local, through Ollama. There's no paid
+Chat models always stay local, through llama.cpp. There's no paid
 cloud chat API involved anywhere. Calendar APIs are the one explicit
 cloud exception, documented in
 [calendar-oauth.md](calendar-oauth.md). There's no silent SMS or mail

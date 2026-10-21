@@ -9,8 +9,6 @@ from types import SimpleNamespace
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-
 
 def _mouse(kind, x: float, y: float, *, grab: bool):
     from PySide6.QtCore import QPointF, Qt
@@ -65,30 +63,6 @@ def _console_window(root: Path):
         ),
         _workspace_console=None,
     )
-
-
-def test_linux_setup_explains_ollama_instead_of_downloading_the_exe(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, qt_app
-) -> None:
-    monkeypatch.setattr(sys, "platform", "linux")
-    from arelis.ui.setup_wizard import _PrepareWorker
-    from tests.test_setup_worker import _patch_wizard, _run_worker
-
-    download = _patch_wizard(
-        monkeypatch,
-        tmp_path,
-        ollama_reachable=lambda: False,
-        find_ollama_exe=lambda: None,
-    )["download_ollama_setup"]
-    failed, ok, _progress = _run_worker(_PrepareWorker("qwen3.5:4b"))
-    assert ok == []
-    assert download.called is False
-    assert failed
-    text = failed[0].lower()
-    assert "ollama.com" in text
-    assert "install script" not in text
-    assert "ollama" in text
-    assert ".exe" not in text
 
 
 def test_linux_console_uses_shell_then_pwsh_then_bash(

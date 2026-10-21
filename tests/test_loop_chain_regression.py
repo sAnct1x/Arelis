@@ -79,7 +79,7 @@ async def _run_agent_with_script(
         persona="You are Arelis under eval.",
         config={
             "agent": agent_cfg,
-            "ollama": {"num_ctx": shipped_num_ctx()},
+            "llamacpp": {"default_cap": shipped_num_ctx()},
         },
         request_confirm=_allow,
         is_cancelled=lambda: False,

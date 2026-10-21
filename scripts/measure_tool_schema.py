@@ -4,7 +4,7 @@ Companion to `measure_tool_surface_prefill.py`, which measures what the tool
 array *costs*. This measures what it *says*. The two together are the evidence
 for the schema question: `compact_prompt.py` strips parameter descriptions and
 `tool_subset.py:11-31` records the measurement that justified it — a tools
-array changing shape per turn invalidates Ollama's prefix cache and costs five
+array changing shape per turn invalidates the model server's prefix cache and costs five
 times the steady-state prefill.
 
 That measurement is about a *varying* array. Nobody measured how large a
@@ -102,7 +102,7 @@ def _registry() -> Any:
 def tool_specs(registry: Any | None = None) -> list[dict[str, Any]]:
     """What the model is actually sent, after compact_prompt skinnies it."""
     reg = _registry() if registry is None else registry
-    return list(reg.ollama_tools())
+    return list(reg.chat_tools())
 
 
 def tokenizer_json_path() -> Path | None:

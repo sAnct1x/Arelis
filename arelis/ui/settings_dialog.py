@@ -36,7 +36,6 @@ from PySide6.QtWidgets import (
 
 from arelis.core.failure_copy import plain_reason
 from arelis.i18n import localize, tr
-from arelis.llm.ollama import list_installed_models
 from arelis.notify.center import CHANNELS, load_channels
 from arelis.presence.lock import find_my_ingest_port
 from arelis.sms_ingest import format_ingest_listen_urls, load_ingest_token
@@ -393,7 +392,7 @@ class SettingsDialog(QDialog):
         )
         self.vision_model.setAccessibleName("Vision fallback")
         self._models_note = QLabel(
-            "Ollama not reachable. Showing the configured tags."
+            "The model server is not reachable. Showing the configured names."
             if not models_up
             else "Next reply uses the new tag. Restart to pin it from boot."
         )
@@ -887,14 +886,10 @@ class SettingsDialog(QDialog):
         config: dict[str, Any],
         list_models: Callable[[], list[str]] | None,
     ) -> tuple[list[str], bool]:
-        ollama_cfg = config.get("ollama") or {}
-        base = str(ollama_cfg.get("base_url") or "http://127.0.0.1:11434")
+        if list_models is None:
+            return [], False
         try:
-            raw = (
-                list_models()
-                if list_models is not None
-                else list_installed_models(base)
-            ) or []
+            raw = list_models() or []
         except Exception:
             # model listing failed, treat as unavailable
             return [], False

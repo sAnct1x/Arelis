@@ -9,7 +9,7 @@ from typing import Any, Literal, Protocol
 import httpx
 
 from arelis.llm.errors import is_vram_failure
-from arelis.llm.ollama import same_ollama_model
+from arelis.llm.wire import same_model
 
 log = logging.getLogger(__name__)
 
@@ -28,10 +28,10 @@ _DEFAULT_ROLE_KEEP_ALIVE = "30m"
 _STREAM_RETRIES = 3
 _STREAM_BACKOFF_S = (0.5, 1.0, 2.0)
 _RETRYABLE = (httpx.ConnectError, httpx.TimeoutException)
-# Ollama's keep_alive=0 returns before VRAM is actually free. Poll /api/ps.
+# keep_alive=0 can return before VRAM is actually free.
 _UNLOAD_WAIT_S = 20.0
 # AMD/Windows can report an empty /api/ps while the driver still holds the
-# previous allocation. Only used on the real Ollama provider.
+# previous allocation.
 _VRAM_SETTLE_S = 3.0
 # 14B cold TTFT on the 12GB card is ~18s when VRAM is empty. A multi-minute
 # hang with model=0ms means 7B is still resident and 14B is swapping.
@@ -44,7 +44,7 @@ _VRAM_LOCK_NOTICE = (
 _VRAM_STUCK_NOTICE = (
     "Could not free VRAM: {still} still resident. The 12 GB card cannot "
     "load another chat model until those are gone. Wait a few seconds and "
-    "try again, or restart Ollama."
+    "try again, or restart llama-server."
 )
 
 
@@ -75,14 +75,14 @@ def _loaded_model_holds_no_vram(name: str, rows: list[dict[str, Any]] | None) ->
         return False
     for row in rows:
         raw = _ps_model_name(row)
-        if not raw or not same_ollama_model(raw, name):
+        if not raw or not same_model(raw, name):
             continue
         return _ps_size_vram(row) == 0
     return False
 
 
 class ChatBackend(Protocol):
-    """The calls ModelRouter makes. Ollama and llama.cpp both satisfy it."""
+    """The calls ModelRouter makes. llama.cpp satisfies it."""
 
     guard_host_vram: bool
 
@@ -136,7 +136,7 @@ class ChatBackend(Protocol):
 
 
 class ModelRouter:
-    """Maps roles to Ollama models and keeps only one hot when switching."""
+    """Maps roles to chat models and keeps only one hot when switching."""
 
     def __init__(
         self,
@@ -166,7 +166,7 @@ class ModelRouter:
         hold = self.rewarm_delay_s if sticky_hold_s is None else float(sticky_hold_s)
         self.sticky_hold_s = max(0.0, hold)
         # Sent with every request. num_ctx lives here and matters more than it
-        # looks: Ollama's default context is small, and a tool result larger
+        # looks: a small context window, and a tool result larger
         # than it is silently dropped from the front of the prompt, so the model
         # answers about a file it never actually saw.
         self.options = dict(options or {})
@@ -237,9 +237,9 @@ class ModelRouter:
         raise RuntimeError("No models configured. Set `models:` in arelis/config/default.yaml.")
 
     def same_chat_weights(self, a: str, b: str) -> bool:
-        """True when two roles resolve to the same Ollama tag."""
+        """True when two roles resolve to the same model name."""
         try:
-            return same_ollama_model(self.model_for(a), self.model_for(b))  # type: ignore[arg-type]
+            return same_model(self.model_for(a), self.model_for(b))  # type: ignore[arg-type]
         except Exception:
             return False
 
@@ -328,7 +328,7 @@ class ModelRouter:
         try:
             raw = await ps_fn()
         except Exception as exc:
-            log.warning("Could not read Ollama /api/ps: %s", exc)
+            log.warning("Could not read resident models: %s", exc)
             return None
         if not isinstance(raw, list):
             return None
@@ -343,7 +343,7 @@ class ModelRouter:
         try:
             found = await running_fn() or []
         except Exception as exc:
-            log.warning("Could not list running Ollama models: %s", exc)
+            log.warning("Could not list running models: %s", exc)
             return []
         names: list[str] = []
         for name in found:
@@ -358,7 +358,7 @@ class ModelRouter:
         rows: list[dict[str, Any]] | None,
         keep: str | None,
     ) -> bool:
-        if keep and same_ollama_model(name, keep):
+        if keep and same_model(name, keep):
             return False
         # size_vram 0 is resident in system RAM. Unload would not free the
         # card, and waiting for it to leave /api/ps reports VRAM stuck.
@@ -418,13 +418,13 @@ class ModelRouter:
                 return
             loaded_now = await self._loaded_names(await self._ps_rows())
             already = any(
-                same_ollama_model(str(name or ""), keep) for name in loaded_now
+                same_model(str(name or ""), keep) for name in loaded_now
             )
             if not already:
                 await self._refuse_if_host_vram_full()
 
     async def _refuse_if_host_vram_full(self) -> None:
-        """Fail fast when the card is still full after Ollama reports empty."""
+        """Fail fast when the card is still full after the server reports empty."""
         try:
             from arelis.llm.vram import host_dedicated_bytes, host_vram_blocks_heavy
         except Exception as exc:
@@ -493,7 +493,7 @@ class ModelRouter:
         self.clear_sticky()
         self.reserve_vram_for_heavy = False
         model = await self.ensure_role(self.default_role, force=True)
-        # Same window a real turn uses. Pinning without num_ctx lets Ollama
+        # Same window a real turn uses. Pinning without num_ctx lets the server
         # load at its default (often 2k/4k); the prefix seed then rebuilds
         # the runner at 65k and the first message waits on two loads.
         opts = self.options_for(self.default_role)
@@ -762,7 +762,7 @@ class ModelRouter:
                         raise
                     delay = _STREAM_BACKOFF_S[min(attempt, len(_STREAM_BACKOFF_S) - 1)]
                     log.warning(
-                        "Ollama stream failed before first chunk (%s); retry %s/%s in %.1fs",
+                        "Model stream failed before first chunk (%s); retry %s/%s in %.1fs",
                         exc,
                         attempt + 1,
                         _STREAM_RETRIES,

@@ -1,10 +1,10 @@
 """The models a stranger may actually pick.
 
-No toys (0.8B, 1.5B, 2B). No Ollama cloud tags. No 671B. One chat model at a
+No toys (0.8B, 1.5B, 2B). No cloud tags. No 671B. One chat model at a
 time: whatever they confirm is both fast and research. Vision stays the existing
 one-shot tag and is pulled later, the first time they look at a picture.
 
-Sizes are the ollama.com download (Q4-class, August 2026). min_vram_gb is the
+Sizes are the Q4-class download (August 2026). min_vram_gb is the
 card we will auto-recommend on, download plus a little room for context, not
 a guarantee the model is fast.
 """

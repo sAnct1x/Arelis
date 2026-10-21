@@ -64,7 +64,6 @@ _PLAIN_MISSING = "The vision model qwen2.5vl:3b isn't downloaded yet."
 def _assert_plain_missing(text: str) -> None:
     assert text == _PLAIN_MISSING
     assert "`" not in text
-    assert "ollama pull" not in text.lower()
     assert "\u2014" not in text
     assert "\u2013" not in text
 

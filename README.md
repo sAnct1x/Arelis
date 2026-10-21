@@ -2,8 +2,8 @@
 
 Arelis is a personal research assistant for Windows. She runs entirely
 on your PC. There's no account, no cloud API, and no data leaving your
-machine. She thinks using a local model through
-[Ollama](https://ollama.com/download), searches the web, drives her
+machine. She thinks using a local model through llama.cpp, searches the
+web, drives her
 own browser, and keeps longer projects organized in named rooms.
 Anything that writes a file or sends a message waits for your approval
 first.
@@ -28,8 +28,8 @@ that writes or sends shows you an approval card first.
 ## What you need
 
 - **Windows 10 or later** (64-bit)
-- **Ollama** (downloads automatically if missing, ~1.4 GB)
-- **A chat model** (downloads on first run. The recommended model is `qwen3.5:9b`)
+- **llama-server** for chat. Arelis can start it when that port is down.
+- **A model file** for that server. The shipped name is `qwen3.5:9b`.
 - **8-16 GB graphics card** recommended for good performance
 - **About 0.9 GB disk space** for the installed program (plus models)
 
@@ -38,7 +38,7 @@ added later. The core program works without them.
 
 ## Quick start
 
-**To install:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.3.2.1-win64-setup.exe`, about 293 MB). Run it. The first time you open Arelis, she'll ask which folder she can use, then download Ollama and the chat model if needed. That's it.
+**To install:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.3.2.1-win64-setup.exe`, about 293 MB). Run it. The first time you open Arelis, she'll ask which folder she can use. Start llama-server with your model file before you chat. That's it.
 
 If you tried an installer from 0.2.4 to 0.2.9, those were broken and never opened. 0.3.0 and later fix that, so just run the new one.
 
@@ -88,9 +88,8 @@ The installer bundles voice support and the browser, but not the chat
 model or voice weights. On first launch:
 
 1. She'll ask which folder she can use (she can only read and write inside this folder)
-2. If Ollama isn't installed, she'll download it (~1.4 GB)
-3. She'll download the chat model (recommended: `qwen3.5:9b` for 8-16 GB graphics cards)
-4. Voice weights download in the same step (Sherpa, Kokoro, Silero)
+2. Chat uses llama-server. She does not download an engine or a model in this step.
+3. Voice weights download later, when you turn voice on (Sherpa, Kokoro, Silero)
 
 Once the model is ready, you'll see **say "hey arelis"** in the window.
 That's it.
@@ -121,14 +120,14 @@ Download the Mac disk image from the v0.3.2 [Mac app workflow artifact](https://
 
 The app is not signed. The first time, right-click (or Control-click) Arelis and choose Open, then choose Open again in the warning. Or open System Settings, go to Privacy and Security, and choose Open Anyway.
 
-This build is for Apple silicon Macs. Arelis needs Ollama on the Mac. She does not include it. Install Ollama from [ollama.com/download](https://ollama.com/download), then open Arelis.
+This build is for Apple silicon Macs. Chat uses llama-server on the Mac. She does not include the model file. Start llama-server, then open Arelis.
 
 When a newer release exists, the installed app tells you and gives you the release page. It does not download or install the update for you.
 
 ## Running from source
 
 You'll need [Python 3.11+](https://www.python.org/downloads/) and
-[Ollama](https://ollama.com/download). Then:
+llama-server. Then:
 
 ```powershell
 python -m venv .venv
@@ -182,7 +181,7 @@ python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
 pip install -e . -c qt-constraints.txt
 ```
 
-Install Ollama from ollama.com. Then run:
+Start llama-server with your model file. Then run:
 
 ```bash
 python -m arelis
@@ -203,8 +202,7 @@ python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
 pip install -e . -c qt-constraints.txt
 ```
 
-Install Ollama by downloading the app from the Ollama website, or with
-`brew install ollama`. Then run:
+Start llama-server with your model file. Then run:
 
 ```bash
 python -m arelis
@@ -245,7 +243,7 @@ Uninstall from Apps & Features always removes the program and scheduled
 tasks. It asks whether to delete records too: **No** keeps
 `%LOCALAPPDATA%\Arelis` for a later reinstall. **Yes** also takes her
 runtime folder and the default workspace, and never a source checkout
-or a system Ollama install.
+or a model file you keep outside the app.
 
 ## Optional: mail, phone, calendar
 
@@ -325,8 +323,8 @@ something behaves oddly on yours, open an issue. Current release is
 ## Common issues
 
 - Windows SmartScreen warns you the first time you open the installer. I didn't sign it, so that warning is normal for this file. The check that the download itself is intact is up in Verifying the download.
-- If Ollama does not download on its own, check that this PC is online and that the disk has room, then press Try again. If an Ollama window is already open, finish that first. You can also install Ollama yourself from [Ollama](https://ollama.com/download), then open Arelis again. She uses the copy already on the PC.
-- The chat model is a big download. The setup window says so while it comes down. She will not close that window while a download is still running. If nothing new shows up for about an hour, that attempt ends and Try again appears. Check that the PC is online and that the disk has room, then press Try again. If you do not want to wait that out, end Arelis in Task Manager and open her again. She asks again. She only remembers the model after the download finishes.
+- If chat does not answer, check that llama-server is running with your model file, then send again. Arelis does not download that server for you.
+- The model file is large, and Arelis does not download it. Point llama-server at the file you already have, then open Arelis again.
 - When something goes wrong, she writes a log on this PC. I never send that log anywhere. If you installed her, the log sits with her records. If you are running her from this project, the log sits with the project.
 - Still stuck? Open the [issue forms](https://github.com/sAnct1x/Arelis/issues/new/choose). One form is for a first open that went wrong, and one is for other bugs. Questions go in [Discussions](https://github.com/sAnct1x/Arelis/discussions).
 

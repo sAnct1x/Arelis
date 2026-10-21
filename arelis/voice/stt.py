@@ -299,8 +299,8 @@ def repair_stt_from_recent(text: str, messages: list[Any] | None) -> str:
 def looks_like_prompt_echo(text: str, prompt: str) -> bool:
     """True when Whisper mostly regurgitated initial_prompt instead of speech.
 
-    Short/noisy clips often come back as the bias prompt ("Arelis, Ollama,
-    ComfyUI, Whisper…") rather than what the user said.
+    Short/noisy clips often come back as the bias prompt ("Arelis,
+    ComfyUI, Whisper") rather than what the user said.
 
     Never treats a compound wake phrase as echo, the prompt is *supposed* to
     bias toward "Hey Arelis", and scrubbing that broke wake entirely.
@@ -334,7 +334,7 @@ def looks_like_prompt_echo(text: str, prompt: str) -> bool:
     compact_heard = " ".join(text_words)
     compact_jargon = " ".join(sorted(jargon))
     if compact_heard and len(text_words) >= 2:
-        # Dense jargon dump (ollama comfyui whisper…).
+        # Dense jargon dump (comfyui whisper).
         if hits >= 2 and (hits / len(text_words)) >= 0.5:
             return True
     if compact_jargon and compact_jargon in compact_heard:

@@ -141,13 +141,13 @@ class ToolRegistry:
     def names(self) -> set[str]:
         return set(self._tools)
 
-    def ollama_tools(
+    def chat_tools(
         self,
         names: set[str] | None = None,
         *,
         param_hints: bool = False,
     ) -> builtins.list[dict[str, Any]]:
-        """OpenAI-style tools array for Ollama /api/chat.
+        """OpenAI-style tools array for the model server /api/chat.
 
         When ``names`` is set, only those tools are offered (per-turn subset).
         Descriptions are one line; param essays are stripped. Names, enums,
@@ -158,13 +158,13 @@ class ToolRegistry:
         When ``param_hints`` is True (native_tool_calling mode), specific
         parameter descriptions are kept to guide the model.
         """
-        from arelis.core.compact_prompt import skinny_ollama_tool
+        from arelis.core.compact_prompt import skinny_tool
 
         out: builtins.list[dict[str, Any]] = []
         for tool in self._tools.values():
             if names is not None and tool.name not in names:
                 continue
-            spec = skinny_ollama_tool(
+            spec = skinny_tool(
                 tool.name,
                 getattr(tool, "description", "") or "",
                 getattr(tool, "parameters_schema", None),
@@ -315,7 +315,7 @@ class ToolRegistry:
         tool = self.get(name)
         if tool is None:
             return ToolResult(ok=False, output=f"Unknown tool: {name}")
-        # Ollama types arguments only for names in the tools array. A loaded
+        # the model server types arguments only for names in the tools array. A loaded
         # tool is not in that array, so every argument arrives as a string.
         # Convert from this tool's schema on every call. A value that already
         # has the right type is left as it is. A conversion that does not

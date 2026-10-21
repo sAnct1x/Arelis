@@ -54,7 +54,7 @@ class ReadinessSnapshot:
 
 
 _CHIP_ORDER = (
-    "ollama",
+    "server",
     "models",
     "role",
     "confirm",
@@ -100,19 +100,20 @@ async def probe_readiness(
     router: Any | None = None,
     provider: Any | None = None,
 ) -> ReadinessSnapshot:
-    """Probe Ollama + local integrations. Never raises into the UI loop."""
+    """Probe the local model server and local integrations. Never raises into the UI loop."""
     chips: dict[str, ReadinessChip] = {}
     prov = provider
     owns_provider = False
     if prov is None and router is not None:
         prov = getattr(router, "provider", None)
     if prov is None:
-        from arelis.llm.ollama import OllamaProvider
+        from arelis.llm.llamacpp import LlamaCppProvider
 
-        ollama_cfg = config.get("ollama") or {}
-        prov = OllamaProvider(
-            base_url=str(ollama_cfg.get("base_url") or "http://127.0.0.1:11434"),
-            timeout_s=float(ollama_cfg.get("timeout_s") or 30),
+        lc = config.get("llamacpp") or {}
+        prov = LlamaCppProvider(
+            base_url=str(lc.get("base_url") or "http://127.0.0.1:8080"),
+            timeout_s=float(lc.get("timeout_s") or 30),
+            embed_url=str(lc.get("embed_url") or "") or None,
         )
         owns_provider = True
 
@@ -120,9 +121,9 @@ async def probe_readiness(
     try:
         available = await prov.list_models()
     except Exception as exc:
-        # Info on purpose: Ollama being down is normal, and the chip already
+        # Info on purpose: the server being down is normal, and the chip already
         # says so. The raw error stays in this log instead of the tooltip.
-        log.info("Readiness Ollama probe failed: %s", exc)
+        log.info("Readiness server probe failed: %s", exc)
 
     if owns_provider:
         try:
@@ -131,18 +132,18 @@ async def probe_readiness(
             pass
 
     if available is not None:
-        chips["ollama"] = ReadinessChip(
-            "ollama",
-            "Ollama",
+        chips["server"] = ReadinessChip(
+            "server",
+            "Server",
             ChipLevel.OK,
-            f"Ollama is reachable ({len(available)} models listed).",
+            f"The local model server is reachable ({len(available)} models listed).",
         )
     else:
-        chips["ollama"] = ReadinessChip(
-            "ollama",
-            "Ollama",
+        chips["server"] = ReadinessChip(
+            "server",
+            "Server",
             ChipLevel.OFF,
-            "Ollama isn't available right now.",
+            "The local model server isn't available right now.",
         )
 
     configured = _configured_chat_models(config)
@@ -151,7 +152,7 @@ async def probe_readiness(
             "models",
             "Models",
             ChipLevel.OFF,
-            "Can't check models while Ollama is down.",
+            "Can't check models while the local model server is down.",
         )
     elif not configured:
         chips["models"] = ReadinessChip(
@@ -449,7 +450,7 @@ def _embed_chip(config: dict[str, Any], available: list[str] | None) -> Readines
             "embed",
             "Embed",
             ChipLevel.OFF,
-            "Can't check the memory model while Ollama is down.",
+            "Can't check the memory model while the local model server is down.",
         )
     if model_is_available(available, tag):
         return ReadinessChip(

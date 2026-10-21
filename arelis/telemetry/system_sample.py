@@ -5,7 +5,7 @@ AMD cards on Windows rarely expose a clean ``nvidia-smi``. We read:
 * process RAM / CPU via ``psutil`` when installed, else ctypes + ``os``
 * GPU dedicated/shared bytes and engine util via Windows Performance Counters
   (``Get-Counter``), which Task Manager also uses
-* optional Ollama ``/api/ps`` for which model is resident and its size
+* resident model rows stay empty; this sample does not ask the chat server
 
 A 7B Q4 on a 12GB card often sits around 30-45% dedicated VRAM - that can be
 correct, not a bug. This module exists so we measure instead of guessing.
@@ -37,7 +37,7 @@ class SystemSample:
     gpu_shared_bytes: int | None = None
     gpu_util_percent: float | None = None
     gpu_name: str = ""
-    ollama_models: list[dict[str, Any]] = field(default_factory=list)
+    resident_models: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -220,36 +220,8 @@ def _sample_gpu_windows() -> tuple[int | None, int | None, float | None, str, li
     )
 
 
-# ---------------------------------------------------------------------------
-# Ollama resident models
-# ---------------------------------------------------------------------------
-
-
-def sample_ollama_ps(base_url: str = "http://127.0.0.1:11434") -> list[dict[str, Any]]:
-    try:
-        import httpx
-
-        with httpx.Client(timeout=3.0) as client:
-            resp = client.get(f"{base_url.rstrip('/')}/api/ps")
-            resp.raise_for_status()
-            models = resp.json().get("models") or []
-            out = []
-            for m in models:
-                out.append(
-                    {
-                        "name": m.get("name") or m.get("model"),
-                        "size": m.get("size"),
-                        "size_vram": m.get("size_vram"),
-                        "details": m.get("details") or {},
-                    }
-                )
-            return out
-    except Exception:
-        return []
-
-
-def sample_system(*, ollama_base_url: str | None = "http://127.0.0.1:11434") -> SystemSample:
-    """One point-in-time sample of host + GPU + optional Ollama residency."""
+def sample_system() -> SystemSample:
+    """One point-in-time sample of host and GPU."""
     notes: list[str] = []
     ram_used, ram_total = _sample_ram_windows()
     if ram_used is None and platform.system() != "Windows":
@@ -269,10 +241,6 @@ def sample_system(*, ollama_base_url: str | None = "http://127.0.0.1:11434") -> 
     ded, shared, util, gpu_name, gpu_notes = _sample_gpu_windows()
     notes.extend(gpu_notes)
 
-    ollama_models: list[dict[str, Any]] = []
-    if ollama_base_url:
-        ollama_models = sample_ollama_ps(ollama_base_url)
-
     return SystemSample(
         ts=time.time(),
         cpu_percent=_sample_cpu(),
@@ -282,6 +250,6 @@ def sample_system(*, ollama_base_url: str | None = "http://127.0.0.1:11434") -> 
         gpu_shared_bytes=shared,
         gpu_util_percent=util,
         gpu_name=gpu_name,
-        ollama_models=ollama_models,
+        resident_models=[],
         notes=notes,
     )

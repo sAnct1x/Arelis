@@ -1,7 +1,7 @@
 """Live test matrix runner: every registered Arelis tool singly, then chained.
 
 Headless: builds the real seat (orchestrator + agent loop + production tool
-registry + qwen3.5:9b through Ollama) and publishes USER_MESSAGE like the
+registry + qwen3.5:9b through the model server) and publishes USER_MESSAGE like the
 window does, auto-clicking Allow on the bus. Everything runs in an isolated
 data dir (outputs/test_matrix/data) with a synthetic profile, so the owner's
 memory, contacts, mail/SMS credentials, calendar and browser profile are never
