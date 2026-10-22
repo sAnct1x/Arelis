@@ -20,7 +20,7 @@ from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.llm import prefix_warmup_for, run_auto_lessons, run_model_preflight, run_model_warmup
 from arelis.mail import load_account
-from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer
+from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer, MemoryStore, flush_background_writes
 from arelis.paths import app_icon_path, logs_dir
 from arelis.presence.confirm_persist import ConfirmPersister
 from arelis.presence.glass_inbound import install_owned_inbound, start_orphan_watch
@@ -227,7 +227,11 @@ def force_windows_qt_platform(env: MutableMapping[str, str]) -> None:
 
 
 async def _drain_event_loop(
-    loop: asyncio.AbstractEventLoop, *, budget_s: float
+    loop: asyncio.AbstractEventLoop,
+    *,
+    budget_s: float,
+    store: MemoryStore | None = None,
+    indexer: MemoryIndexer | None = None,
 ) -> None:
     """Stop what is still running before the loop is taken out from under it.
 
@@ -262,6 +266,14 @@ async def _drain_event_loop(
             log.info(
                 "loop drain: %d task(s) did not stop within %.2fs", len(still), budget_s
             )
+    # Join the writers themselves. Cancelling run_batch only drops the await;
+    # the to_thread worker is still inside memory.db. A 0.75s executor wait
+    # is too short and is how a busy quit lost the last save.
+    flush_background_writes(
+        store=store,
+        indexer=indexer,
+        timeout_s=max(3.0, budget_s),
+    )
     # asyncio.wait rather than wait_for throughout, and that is the whole reason
     # the ceilings above are real. wait_for cancels what it is waiting on and then
     # waits for *that* to finish, so a task which swallows CancelledError — a bare
@@ -709,11 +721,12 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         except Exception:
             log.debug("deferred memory backup failed", exc_info=True)
 
-    threading.Thread(
+    backup_thread = threading.Thread(
         target=_deferred_memory_backup,
         name="arelis-memory-backup",
         daemon=True,
-    ).start()
+    )
+    backup_thread.start()
 
     # After the window, not before: this reaches the network, and the first seconds of a
     # launch belong to the person who double-clicked something. Declines to do anything at
@@ -772,7 +785,10 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
                     await asyncio.wait_for(session.close(), timeout=2.0)
             except Exception:
                 pass
-            await _drain_event_loop(loop, budget_s=drain_budget_s)
+            backup_thread.join(timeout=1.0 if force else 3.0)
+            await _drain_event_loop(
+                loop, budget_s=drain_budget_s, store=store, indexer=indexer
+            )
 
         fut = asyncio.run_coroutine_threadsafe(shutdown(), loop)
         try:
