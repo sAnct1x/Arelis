@@ -50,6 +50,30 @@ def _reply_cells(panel, pos: int) -> list[str]:
     return found
 
 
+def _install_qwait_for() -> None:
+    """Bind Qt's predicate wait. PySide6 leaves the C++ template out.
+
+    QTest.qWaitFor pumps events until the predicate is true or the timeout
+    passes. A fixed qWait cannot see a paint the adaptive timer delayed.
+    """
+    from PySide6.QtCore import QElapsedTimer
+    from PySide6.QtTest import QTest
+
+    if hasattr(QTest, "qWaitFor"):
+        return
+
+    def qWaitFor(predicate, timeout: int = 5000) -> bool:
+        clock = QElapsedTimer()
+        clock.start()
+        while not predicate():
+            if clock.elapsed() >= timeout:
+                return bool(predicate())
+            QTest.qWait(10)
+        return True
+
+    QTest.qWaitFor = qWaitFor
+
+
 def test_long_transcript_load_keeps_markdown_stable(qt_app) -> None:
     """L2 soak: History reload of a long mixed thread must not leave raw marks."""
     from arelis.ui.panels.chat import ChatPanel
@@ -87,8 +111,13 @@ def test_long_transcript_load_keeps_markdown_stable(qt_app) -> None:
     # Live stream + finish on top of a long loaded thread still paints cleanly.
     # The plate is the cell. It stays unborn until visible words arrive, and
     # those words are inside it. The caret is what shows during the wait.
-    # Deltas share a paint, so the check waits out that timer.
+    # Whitespace has no cell to wait for, so that paint runs now. Visible
+    # words wait on the paint. A long transcript can stretch that timer
+    # out to 2000 ms. The caret blinks every 530 ms, so it is held on
+    # for that wait. Otherwise the glyph check can land in the off half.
     from PySide6.QtTest import QTest
+
+    _install_qwait_for()
 
     panel.add_user("one more")
     panel.begin_assistant()
@@ -96,12 +125,15 @@ def test_long_transcript_load_keeps_markdown_stable(qt_app) -> None:
     assert "▍" in panel.view.toPlainText()
     assert _reply_cells(panel, panel._anchor) == []
     panel.append_delta("   ")
-    QTest.qWait(100)
+    panel._stream_paint.stop()
+    panel._repaint_stream()
     assert _reply_cells(panel, panel._anchor) == []
     assert "▍" in panel.view.toPlainText()
     panel.append_delta("partial **bold**")
     panel.append_delta(" more")
-    QTest.qWait(100)
+    panel._caret_timer.stop()
+    panel._caret_on = True
+    QTest.qWaitFor(lambda: len(_reply_cells(panel, panel._anchor)) == 1, 3000)
     cells = _reply_cells(panel, panel._anchor)
     assert len(cells) == 1
     assert "partial" in cells[0] and "bold" in cells[0] and "more" in cells[0]
