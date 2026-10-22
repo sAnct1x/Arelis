@@ -23,6 +23,15 @@ LLAMACPP_GENERIC_NOTICE = (
     "The model failed mid-turn. "
     "Check that the local model server is still running, then send again."
 )
+LLAMACPP_RESTART_NOTICE = (
+    "The model server needs a restart. "
+    "The graphics card stopped answering, and sending again will fail until it is restarted."
+)
+
+
+class LlamaComputeError(RuntimeError):
+    """llama-server is up, and the graphics device cannot compute a token."""
+
 
 def vram_notice(role: str = "") -> str:
     """Chat copy when a heavy model will not fit."""
@@ -84,6 +93,9 @@ def classify_model_failure(
     detail = _debug_detail(exc, model=model, base_url=base_url, llamacpp=True)
     text = str(exc)
     lower = text.lower()
+    if isinstance(exc, LlamaComputeError):
+        # The process is still listening. Another completion hits the same device.
+        return ModelFailure(LLAMACPP_RESTART_NOTICE, detail, skip_tool_fallback=True)
     if isinstance(exc, _UNREACHABLE):
         return ModelFailure(LLAMACPP_DOWN_NOTICE, detail, skip_tool_fallback=True)
     if is_vram_failure(lower):
