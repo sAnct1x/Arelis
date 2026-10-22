@@ -744,10 +744,11 @@ class AgentLoop:
       orchestrator does not add a second one on top.
     - Answer text is streamed as it arrives. A native tool call leaves that
       draft on screen until the final answer replaces it. A call parsed from
-      the text is retracted. ASSISTANT_RETRACT is also for a plain re-ask, a
-      failed stream, and a final answer that does not extend what was already
-      painted. The next round's text starts a new paragraph when a draft is
-      still up.
+      the text is retracted. A plain re-ask retracts that draft only to
+      swap in a short wait note, so the bubble is never empty.
+      ASSISTANT_RETRACT is also for a failed stream, and a final answer
+      that does not extend what was already painted. The next round's
+      text starts a new paragraph when a draft is still up.
     - Confirmation is requested before a write or image call, never after.
     """
 

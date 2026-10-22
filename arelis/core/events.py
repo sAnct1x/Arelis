@@ -22,9 +22,10 @@ class EventType(str, Enum):
     composer and dismiss a confirm card the turn is still parked on.
 
     ASSISTANT_RETRACT withdraws everything published by ASSISTANT_DELTA since
-    the last ASSISTANT_DONE. A plain re-ask, a failed stream, a final answer
+    the last ASSISTANT_DONE. A plain re-ask uses it only to swap in a wait
+    note, so the bubble is never empty. A failed stream, a final answer
     that does not extend the draft, and a tool call parsed out of the text
-    all use it. A native tool call does not: that draft stays up while the
+    also use it. A native tool call does not: that draft stays up while the
     tool runs.
 
     PHYSICS_VERB is a closed lexicon hit in Reality (heavier,

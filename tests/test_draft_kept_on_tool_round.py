@@ -6,6 +6,12 @@ the errand to the collapsed thought, so the chat was empty until the
 tool finished. The draft has to still be on screen after TOOL_START and
 before TOOL_RESULT.
 
+The plain-answer re-ask is the other retract that used to blank the
+bubble. That path also used to feed the discarded round's claims into
+the next request as if the work had run. The bubble stays visible
+(draft or a one-line wait note), and those claims stay out or marked
+not applied.
+
 QT_QPA_PLATFORM=offscreen. The wait is QTest.qWaitFor from the qt_app
 fixture, which pumps events until the paint lands.
 """
@@ -13,6 +19,7 @@ fixture, which pumps events until the paint lands.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import threading
 from types import SimpleNamespace
@@ -20,9 +27,10 @@ from typing import Any
 
 from PySide6.QtTest import QTest
 
-from arelis.core.agent_loop import AgentLoop
+from arelis.core.agent_loop import AgentLoop, _native_tool_call
 from arelis.core.events import Event, EventType
 from arelis.core.turn_dispatch import dispatch_calls
+from arelis.core.turn_round import run_round
 from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
 from tests.test_round_scratch import _augment
 
@@ -91,6 +99,8 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
 
     The tool call blocks until this assertion, so TOOL_RESULT has not been
     published yet. Restoring the retract in dispatch_calls fails this test.
+    The asking-again path must not blank the bubble, and a discarded
+    round's claims must not land unmarked in the next request.
     """
     assert os.environ.get("QT_QPA_PLATFORM") == "offscreen"
     draft = _draft()
@@ -315,6 +325,123 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
 
         voice_fut = asyncio.run_coroutine_threadsafe(_voice_scope(), window.loop)
         voice_fut.result(timeout=5)
+
+        # from_text retracted. Paint the discarded-round claim, then take
+        # the plain-answer re-ask. That path used to blank the bubble and
+        # feed the claim into the next request as if the edit had landed.
+        claim = "I fixed the Osmium table row."
+        window.bridge.event_arrived.emit(
+            Event(EventType.ASSISTANT_DELTA, {"text": claim})
+        )
+        loop._painted = claim
+        assert QTest.qWaitFor(
+            lambda: claim in window.chat.view.toPlainText(),
+            3000,
+        ), "discarded-round draft never painted"
+
+        discarded_calls = [
+            _native_tool_call("data_cell", {"code": "fix osmium"}),
+        ]
+
+        async def _stream_ask(
+            role: Any,
+            messages: Any,
+            tools_arg: Any,
+            *,
+            round_n: int = 0,
+            expect_tools: bool | None = None,
+        ) -> tuple[str, list[dict[str, Any]], str]:
+            del role, messages, tools_arg, round_n, expect_tools
+            return claim, discarded_calls, claim
+
+        async def _no_escalate(*_a: Any, **_k: Any) -> bool:
+            return False
+
+        async def _publish_delta(text: str) -> None:
+            await AgentLoop._publish_delta(loop, text)
+
+        loop._stream_round = _stream_ask
+        loop._maybe_escalate = _no_escalate
+        loop._publish_delta = _publish_delta
+        loop._turn_role = "fast"
+        loop.router = SimpleNamespace(model_for=lambda _role: "qwen")
+        loop.json_fallback = False
+        loop._in_close = False
+        loop.max_rounds = 4
+        loop._default_max_rounds = 4
+        loop.config = getattr(loop, "config", None) or {}
+
+        ctx_ask = _ctx(text="fix the osmium row")
+        ctx_ask.plain_only = True
+        ctx_ask.plain_reask_used = False
+        ctx_ask.fallback_mode = False
+        ctx_ask.offer_tools = False
+        ctx_ask.tool_names = set()
+        ctx_ask.available_all = set()
+        ctx_ask.available = set()
+        ctx_ask.visible = set()
+        ctx_ask.chat_tools = []
+        ctx_ask.agent_cfg = {}
+        ctx_ask.last_ok_tool_name = "data_cell"
+        ctx_ask.last_ok_tool_out = "table loaded, no edits"
+        ctx_ask.messages = [
+            {"role": "user", "content": "fix the osmium row"},
+            {
+                "role": "tool",
+                "tool_name": "data_cell",
+                "content": "table loaded, no edits",
+            },
+        ]
+
+        async def _go_ask() -> None:
+            try:
+                holder["ask_result"] = await run_round(loop, ctx_ask, 3)
+            except Exception as exc:
+                holder["error"] = exc
+                raise
+
+        ask_fut = asyncio.run_coroutine_threadsafe(_go_ask(), window.loop)
+        ask_fut.result(timeout=15)
+        assert holder.get("error") is None, holder.get("error")
+        assert holder.get("ask_result") is False
+        assert ctx_ask.plain_reask_used is True
+
+        note = "Checking again..."
+
+        def _not_blank() -> bool:
+            text = window.chat.view.toPlainText()
+            if not text.strip():
+                return False
+            return note in text or claim in text or token in text
+
+        stayed_ask = QTest.qWaitFor(_not_blank, 5000)
+        assert stayed_ask, (
+            "asking-again left the bubble blank; "
+            f"chat={window.chat.view.toPlainText()!r} "
+            f"stream_open={window.chat._stream_open} "
+            f"stream={''.join(window.chat._stream_text)!r} "
+            f"error={holder.get('error')!r}"
+        )
+
+        for msg in ctx_ask.messages:
+            content = str(msg.get("content") or "")
+            if claim in content:
+                assert "not applied" in content, (
+                    "discarded-round claim was fed unmarked; "
+                    f"role={msg.get('role')!r} content={content!r}"
+                )
+        dumped = json.dumps(ctx_ask.messages, default=str)
+        assert "updated Osmium row" not in dumped
+        tool_bits = [
+            str(msg.get("content") or "")
+            for msg in ctx_ask.messages
+            if msg.get("role") == "tool"
+        ]
+        assert any("not applied" in bit for bit in tool_bits), (
+            "discarded-round call was not marked not applied; "
+            f"messages={ctx_ask.messages!r}"
+        )
+
         body_ok = True
     finally:
         if window.loop.is_running():

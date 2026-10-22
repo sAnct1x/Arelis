@@ -307,8 +307,9 @@ def dispatch_event(window: Any, event: Event) -> None:
     elif t == EventType.ASSISTANT_RETRACT:
         if window._mobile_foreign:
             return
-        # Plain re-ask, a failed stream, a final answer that does not
-        # extend the painted draft, or a tool call parsed out of the text.
+        # A failed stream, a final answer that does not extend the painted
+        # draft, or a tool call parsed out of the text. A plain re-ask
+        # publishes this and then a wait note, so the bubble is not empty.
         # A native tool call does not publish this. Drop the bubble and
         # any speech that streamed from it.
         window.chat.discard_stream()

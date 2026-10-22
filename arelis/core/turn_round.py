@@ -88,6 +88,8 @@ from arelis.llm.errors import classify_turn_failure, is_vram_failure
 from arelis.tools.pdf_pages import ink_vision_walk
 
 _CHAIN_STILL_OPEN = "That result does not finish what they asked."
+_CHECKING_AGAIN = "Checking again..."
+_DISCARDED_CALL = "not applied; this call was not run."
 
 
 def _chain_continue_notice(owed: list[str]) -> str:
@@ -147,6 +149,42 @@ async def _ask_for_next_step(loop: Any, ctx: TurnContext, r: RoundScratch) -> No
             {"text": "chain still open; asking for the next step"},
         )
     )
+
+
+async def _keep_bubble_on_retry(loop: Any) -> None:
+    """A retry must not leave the reply bubble blank.
+
+    Native tool rounds already keep the draft. A discarded plain-only
+    round still has to show something until the next tokens arrive.
+    Retract only to swap in the wait note, never to sit empty.
+    """
+    if str(getattr(loop, "_painted", "") or "").strip():
+        await loop._retract()
+    await loop._publish_delta(_CHECKING_AGAIN)
+
+
+def _record_discarded_round(
+    loop: Any,
+    messages: list[dict[str, Any]],
+    tool_calls: list[dict[str, Any]],
+    calls: list[tuple[str, dict[str, Any]]],
+) -> None:
+    """Keep the rejected call in the transcript, marked as not applied.
+
+    The assistant row with tool_calls is what the next request needs so
+    that call still renders. Content from the discarded round is dropped,
+    and the tool rows say the work did not run, so the next answer cannot
+    treat those claims as done.
+    """
+    assistant_msg: dict[str, Any] = {
+        "role": "assistant",
+        "content": "",
+    }
+    if tool_calls:
+        assistant_msg["tool_calls"] = tool_calls
+    messages.append(assistant_msg)
+    for name, _args in calls:
+        messages.append(loop._tool_message(name, _DISCARDED_CALL))
 
 
 def _write_round(ctx: TurnContext, r: RoundScratch) -> None:
@@ -892,20 +930,15 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         ):
             if not ctx.plain_reask_used:
                 ctx.plain_reask_used = True
-                assistant_msg: dict[str, Any] = {
-                    "role": "assistant",
-                    "content": content or "",
-                }
-                if tool_calls:
-                    assistant_msg["tool_calls"] = tool_calls
-                messages.append(assistant_msg)
                 # A real user line after the rejected call keeps that call
-                # rendering the same way on the next turn.
+                # rendering the same way on the next turn. The discarded
+                # prose and results are not fed through as if they ran.
+                _record_discarded_round(loop, messages, tool_calls, calls)
                 messages.append(
                     {"role": "user", "content": _WRITE_AFTER_TOOL_NOTICE}
                 )
                 append_tool_free_nudge(messages)
-                await loop._retract()
+                await _keep_bubble_on_retry(loop)
                 await loop.bus.publish(
                     Event(
                         EventType.THINKING,
