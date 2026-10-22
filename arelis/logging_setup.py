@@ -92,6 +92,7 @@ def flush_logs() -> None:
             try:
                 handler.flush()
             except Exception:
+                # A dead handler must not block quit. The rest still flush.
                 pass
 
 
