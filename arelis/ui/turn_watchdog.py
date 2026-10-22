@@ -33,6 +33,9 @@ from arelis.ui.window_const import (
 )
 
 # A status line or a confirm reply is life, but the next token is not due yet.
+# TOOL_ARG_PROGRESS and REPLY_NOTE are on screen on purpose and stay out of
+# this set. Counting them would let a long argument stream refresh the 60s
+# clock.
 _STEP_EVENTS = frozenset({EventType.TOOL_CONFIRM_REPLY, EventType.STATUS})
 
 HUNG_MESSAGE = "Turn stopped because it hung."
@@ -133,8 +136,8 @@ def note_turn_progress(window, event) -> None:
     A streamed token resets to the idle gap. A tool that is in flight, a
     tool result, or a status line resets to the first-token allowance,
     because the next token is not due yet. A trace line such as
-    ``phase=model``, and a thinking event with no text, do not. The
-    absolute cap is never extended.
+    ``phase=model``, a thinking event with no text, tool-argument progress,
+    and a cut-short note do not. The absolute cap is never extended.
     """
     timer = getattr(window, "_hung_watchdog", None)
     if timer is None or not timer.isActive():

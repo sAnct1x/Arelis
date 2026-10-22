@@ -489,6 +489,20 @@ def dispatch_event(window: Any, event: Event) -> None:
                 url=str(p.get("url") or ""),
             )
         window._schedule_readiness_probe()
+    elif t == EventType.TOOL_ARG_PROGRESS:
+        # Argument streaming. Visible in the chat, and deliberately not a
+        # THINKING or STATUS event, because those restart the hung-turn clock.
+        text = str(p.get("message") or "").strip()
+        if not text:
+            return
+        window.conversation.set_turn_visible(True)
+        window.chat.show_progress(text)
+    elif t == EventType.REPLY_NOTE:
+        text = str(p.get("message") or "").strip()
+        if not text:
+            return
+        window.conversation.set_turn_visible(True)
+        window.chat.add_system(text)
     elif t == EventType.MODEL_SWITCH:
         window._current_model = p.get("to") or window._current_model
         window._current_role = p.get("role") or window._current_role
