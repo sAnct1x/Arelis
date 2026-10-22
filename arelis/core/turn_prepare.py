@@ -461,6 +461,58 @@ def _date_ask_ratio_block(user_text: str, expression: str) -> str | None:
     return None
 
 
+_ASK_BODY_BLANK = re.compile(r"\n[ \t]*\n")
+_HTTP_URL = re.compile(r"https?://\S+", re.I)
+_LOCAL_DOC_VERB = re.compile(r"(?i)\b(?:summarize|summarise|explain|tl;?dr)\b")
+
+
+def split_user_ask(text: str) -> tuple[str, str]:
+    """Split a short instruction from a pasted body, when one is present.
+
+    Structural: a brief first block, then a much larger remainder. When there
+    is no dump, the whole text is the instruction. The paste is not truncated
+    for the model; callers classify on the instruction slice only.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return "", ""
+    head, tail = _first_block_and_rest(raw)
+    if _looks_like_provided_body(head, tail):
+        return head, tail
+    return raw, ""
+
+
+def _first_block_and_rest(raw: str) -> tuple[str, str]:
+    parts = _ASK_BODY_BLANK.split(raw, maxsplit=1)
+    if len(parts) == 2:
+        return parts[0].strip(), parts[1].strip()
+    line, _sep, rest = raw.partition("\n")
+    if rest:
+        return line.strip(), rest.strip()
+    return raw, ""
+
+
+def _looks_like_provided_body(instruction: str, body: str) -> bool:
+    if not instruction or not body:
+        return False
+    if instruction.count("\n") > 2 or len(instruction) > 280:
+        return False
+    if len(body) < 400 or len(body) < 4 * len(instruction):
+        return False
+    return True
+
+
+def _pasted_local_document(instruction: str, provided_body: str) -> bool:
+    """True when they asked to summarize or explain a body they already pasted."""
+    if not provided_body:
+        return False
+    if not _LOCAL_DOC_VERB.search(instruction or ""):
+        return False
+    if _HTTP_URL.search(instruction or ""):
+        return False
+    return True
+
+
 async def prepare_turn(
     loop: Any,
     text: str,
@@ -511,7 +563,14 @@ async def prepare_turn(
     # Mixing them into skill_ids made select_plan treat the lean as
     # this-turn intent, so an analysis room demanded a CSV on
     # "how do toroids relate to physics?".
-    skill_ids, fallback_only = select_skill_ids_detailed(text, available_tools=available)
+    # Classifiers read the instruction only. A pasted article that says
+    # "article" or "integral of" is not this-turn intent.
+    instruction, provided_body = split_user_ask(text)
+    classify_text = instruction or text
+    pasted_local = _pasted_local_document(instruction, provided_body)
+    skill_ids, fallback_only = select_skill_ids_detailed(
+        classify_text, available_tools=available
+    )
     # The unmatched "what is" web floor is a tool-menu hint, not a scrape
     # plan. Clock asks already special-case this; definitional physics
     # questions used to get the same cage once room extras stopped
@@ -590,7 +649,9 @@ async def prepare_turn(
         skill_ids=skill_ids,
     )
     exact_cfg = bool(agent_cfg.get("exactness", True))
-    exact_need = detect_exactness_need(text, data_cell="data_cell" in set(visible))
+    exact_need = detect_exactness_need(
+        classify_text, data_cell="data_cell" in set(visible)
+    )
     from arelis.core.turn_scratch import staged_file_rows
 
     ctx = TurnContext(
@@ -620,7 +681,9 @@ async def prepare_turn(
         exact_need=exact_need,
         goal=turn_goal,
     )
-    exact_need = apply_research_web_need(exact_need, research_mode=research_mode, text=text)
+    exact_need = apply_research_web_need(
+        exact_need, research_mode=research_mode, text=classify_text
+    )
     ctx.exact_need = exact_need
     # News / current-events turns should not end on search snippets alone.
     wants_fresh_page = (
@@ -628,7 +691,7 @@ async def prepare_turn(
         or research_mode
         or (not fallback_only and "web" in skill_ids)
         or ("research" in skill_ids)
-        or wants_fresh_page_ask(text)
+        or wants_fresh_page_ask(classify_text)
     )
     # "weather today" must not arm scrape-after-search.
     if exact_need.needs_weather or (
@@ -639,6 +702,10 @@ async def prepare_turn(
         wants_fresh_page = False
     # A YouTube / Chrome drive is not a scrape-the-web turn.
     if "browser" in loop._expected_tools:
+        wants_fresh_page = False
+    if pasted_local:
+        # They already pasted the page. "article" in the instruction is not
+        # a fetch, and body prose is not a CAS ask.
         wants_fresh_page = False
     # Chat fast path still skips the tool round and hold-paint. Schemas stay
     # on anyway: dropping them changes the front of the prompt.
@@ -663,6 +730,8 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         active_plan=active_plan,
     )
+    if pasted_local:
+        expect_tool_round = False
     chat_tools = session_tool_schemas(loop.tools, agent_cfg)
     loop.memory.remember_turn_block(turn_tail)
     if loop._timer is not None and not offer_tools:
