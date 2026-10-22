@@ -115,6 +115,16 @@ def _pinned_url(url: str, ip: str) -> tuple[str, str]:
     return pinned, host
 
 
+def reported_url(response: httpx.Response) -> str:
+    """Hostname URL of this hop. The request may have dialed a pinned IP."""
+    extensions = getattr(response, "extensions", None)
+    if isinstance(extensions, dict):
+        logical = extensions.get("logical_url")
+        if isinstance(logical, str) and logical:
+            return logical
+    return str(response.url)
+
+
 def _host_header(host: str, port: int | None, scheme: str) -> str:
     default = 443 if (scheme or "").lower() == "https" else 80
     if port and port != default:
@@ -134,18 +144,22 @@ async def _send(
     """Send one hop. With an IP, connect there and keep the name on Host and SNI."""
     if not ip:
         if method == "GET":
-            return await client.get(url, headers=headers, follow_redirects=False)
-        return await client.request(
-            method, url, headers=headers, content=content, follow_redirects=False
-        )
-    pinned, host = _pinned_url(url, ip)
-    parsed = urlsplit(url)
-    merged = {str(key): str(value) for key, value in (headers or {}).items()}
-    merged["Host"] = _host_header(host, parsed.port, parsed.scheme)
-    request = client.build_request(method, pinned, headers=merged, content=content)
-    if (parsed.scheme or "").lower() == "https" and host:
-        request.extensions["sni_hostname"] = host
-    return await client.send(request, follow_redirects=False)
+            response = await client.get(url, headers=headers, follow_redirects=False)
+        else:
+            response = await client.request(
+                method, url, headers=headers, content=content, follow_redirects=False
+            )
+    else:
+        pinned, host = _pinned_url(url, ip)
+        parsed = urlsplit(url)
+        merged = {str(key): str(value) for key, value in (headers or {}).items()}
+        merged["Host"] = _host_header(host, parsed.port, parsed.scheme)
+        request = client.build_request(method, pinned, headers=merged, content=content)
+        if (parsed.scheme or "").lower() == "https" and host:
+            request.extensions["sni_hostname"] = host
+        response = await client.send(request, follow_redirects=False)
+    response.extensions["logical_url"] = url
+    return response
 
 
 async def guarded_request(

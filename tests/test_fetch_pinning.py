@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from arelis.tools.fetch import guarded_get
+from arelis.tools.web import WebFetchTool
 
 # A public address the policy allows. Documentation ranges are private here,
 # so they would be blocked before any connect and the test would pass for
@@ -146,3 +147,44 @@ async def test_redirect_hop_is_pinned_again(monkeypatch: pytest.MonkeyPatch) -> 
     assert [item.headers["host"] for item in seen] == ["name.example", "name.example"]
     assert seen[1].url.path == "/b"
     assert seen[1].extensions.get("sni_hostname") == "name.example"
+
+
+async def test_source_url_keeps_the_hostname(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sources list the site name. The pin still dials the checked IP.
+
+    Found on main when a search source printed an IP URL after guarded_get
+    rewrote the connect target. The request URL is the pin. The URL handed
+    to the user is the hostname, including after a redirect.
+    """
+    seen: list[httpx.Request] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/a":
+            return httpx.Response(302, headers={"location": "/b"})
+        return httpx.Response(
+            200,
+            text="landed on the article page with enough readable text",
+            headers={"content-type": "text/plain"},
+        )
+
+    def _fake(host: object, port_arg: object, *args: object, **kwargs: object) -> list:
+        del host, args, kwargs
+        return _addr(_PUBLIC, int(port_arg or 443))
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fake)
+    real_client = httpx.AsyncClient
+
+    def _factory(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        kwargs["transport"] = httpx.MockTransport(_handler)
+        kwargs.setdefault("trust_env", False)
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _factory)
+    result = await WebFetchTool("arelis-test/1.0").run(url="https://name.example/a")
+    assert result.ok is True
+    reported = str((result.data or {}).get("url") or "")
+    assert reported == "https://name.example/b"
+    assert _PUBLIC not in reported
+    assert [item.url.host for item in seen] == [_PUBLIC, _PUBLIC]
+    assert [item.headers["host"] for item in seen] == ["name.example", "name.example"]
