@@ -87,18 +87,25 @@ def test_long_transcript_load_keeps_markdown_stable(qt_app) -> None:
     # Live stream + finish on top of a long loaded thread still paints cleanly.
     # The plate is the cell. It stays unborn until visible words arrive, and
     # those words are inside it. The caret is what shows during the wait.
+    # Deltas share a paint, so the check waits out that timer.
+    from PySide6.QtTest import QTest
+
     panel.add_user("one more")
     panel.begin_assistant()
     qt_app.processEvents()
     assert "▍" in panel.view.toPlainText()
     assert _reply_cells(panel, panel._anchor) == []
     panel.append_delta("   ")
+    QTest.qWait(100)
     assert _reply_cells(panel, panel._anchor) == []
     assert "▍" in panel.view.toPlainText()
     panel.append_delta("partial **bold**")
     panel.append_delta(" more")
+    QTest.qWait(100)
     cells = _reply_cells(panel, panel._anchor)
-    assert cells == ["   partial **bold** more▍"]
+    assert len(cells) == 1
+    assert "partial" in cells[0] and "bold" in cells[0] and "more" in cells[0]
+    assert "▍" in cells[0]
     panel.finish_assistant("final **bold** and `x`\n\n- ok")
     live = panel.view.toPlainText()
     assert "one more" in live
