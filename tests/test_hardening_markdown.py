@@ -18,6 +18,38 @@ from arelis.core.bus import EventBus
 # --------------------------------------------------------------------------
 
 
+def _reply_cells(panel, pos: int) -> list[str]:
+    """Plain text of each message cell that starts at or after pos."""
+    from PySide6.QtGui import QTextCursor, QTextTable
+
+    from arelis.ui.panels.chat import _marked_bubble
+
+    found: list[str] = []
+
+    def walk(frame) -> None:
+        it = frame.begin()
+        while not it.atEnd():
+            child = it.currentFrame()
+            it += 1
+            if not isinstance(child, QTextTable):
+                continue
+            for row in range(child.rows()):
+                for col in range(child.columns()):
+                    cell = child.cellAt(row, col)
+                    if not _marked_bubble(cell.format()):
+                        continue
+                    start = cell.firstCursorPosition()
+                    if start.position() < pos:
+                        continue
+                    end = cell.lastCursorPosition()
+                    start.setPosition(end.position(), QTextCursor.MoveMode.KeepAnchor)
+                    found.append(start.selectedText())
+            walk(child)
+
+    walk(panel.view.document().rootFrame())
+    return found
+
+
 def test_long_transcript_load_keeps_markdown_stable(qt_app) -> None:
     """L2 soak: History reload of a long mixed thread must not leave raw marks."""
     from arelis.ui.panels.chat import ChatPanel
@@ -53,9 +85,20 @@ def test_long_transcript_load_keeps_markdown_stable(qt_app) -> None:
     html = panel.view.toHtml()
     assert "https://example.com/39" in html
     # Live stream + finish on top of a long loaded thread still paints cleanly.
+    # The plate is the cell. It stays unborn until visible words arrive, and
+    # those words are inside it. The caret is what shows during the wait.
     panel.add_user("one more")
     panel.begin_assistant()
+    qt_app.processEvents()
+    assert "▍" in panel.view.toPlainText()
+    assert _reply_cells(panel, panel._anchor) == []
+    panel.append_delta("   ")
+    assert _reply_cells(panel, panel._anchor) == []
+    assert "▍" in panel.view.toPlainText()
     panel.append_delta("partial **bold**")
+    panel.append_delta(" more")
+    cells = _reply_cells(panel, panel._anchor)
+    assert cells == ["   partial **bold** more▍"]
     panel.finish_assistant("final **bold** and `x`\n\n- ok")
     live = panel.view.toPlainText()
     assert "one more" in live

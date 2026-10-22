@@ -41,11 +41,12 @@ from arelis.ui.theme import COLORS, SPACE, color
 from arelis.ui.void_idle import OrbitIdle
 
 
-# The assistant bubble is built in two pieces because it is painted twice per
-# turn. While tokens arrive it is left open and text is appended as fast plain
-# text. When the turn ends the whole thing is replaced with rendered markdown.
+# The assistant bubble is painted twice per turn. Tokens are plain text inside
+# the cell, and the finished answer replaces that draft with markdown.
 # Rendering per token is not an option: a half-typed "**" would flicker between
-# literal asterisks and bold on every keystroke.
+# literal asterisks and bold on every keystroke. The cell is created with the
+# first visible characters. Opening it sooner leaves an empty plate: Qt closes
+# the fragment, and the tokens land after the cell instead of in it.
 def _ink(name: str, fallback: str = "") -> str:
     return COLORS.get(name) or COLORS.get(fallback) or COLORS["text"]
 
@@ -72,6 +73,31 @@ def _marked_bubble(fmt) -> bool:
     if isinstance(name, (list, tuple)):
         return _BUBBLE_MARK in name
     return False
+
+
+def _bubble_cell_from(document, pos: int):
+    """The message cell that starts at or after pos, if the bubble is open."""
+    found = None
+
+    def walk(frame) -> None:
+        nonlocal found
+        it = frame.begin()
+        while not it.atEnd():
+            child = it.currentFrame()
+            it += 1
+            if not isinstance(child, QTextTable):
+                continue
+            for row in range(child.rows()):
+                for col in range(child.columns()):
+                    cell = child.cellAt(row, col)
+                    if not _marked_bubble(cell.format()):
+                        continue
+                    if cell.firstCursorPosition().position() >= pos:
+                        found = cell
+            walk(child)
+
+    walk(document.rootFrame())
+    return found
 
 
 def wash_message_cells(document) -> None:
@@ -703,7 +729,9 @@ class ChatPanel(QWidget):
         self._anchor = self._end_position()
         self._stream_text = []
         self._last_assistant_body = None
-        self.view.append(_assistant_open())
+        # The cell waits for the first visible characters. Appending the open
+        # fragment here is what drew the empty plate: Qt closes it, and the
+        # tokens are then inserted after the cell.
         self._stream_open = True
         self._start_caret()
         self._scroll(follow=follow)
@@ -714,11 +742,32 @@ class ChatPanel(QWidget):
         self._seal_live_thought()
         follow = self._near_bottom()
         self._stream_text.append(text)
-        self._strip_caret()
-        cursor = self.view.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertText(text)
-        self._insert_caret()
+        anchor = self._anchor
+        cell = _bubble_cell_from(self.view.document(), anchor) if anchor is not None else None
+        if cell is None:
+            body = "".join(self._stream_text)
+            if body.strip() and anchor is not None:
+                # Born with the draft inside the cell. An empty open fragment
+                # is closed by Qt into a blank plate, and a later insertText
+                # at the document end never enters it. The mark is only there
+                # so the cell survives parsing; the draft replaces it before
+                # this call returns.
+                self._strip_caret()
+                self.view.append(_assistant_open() + "\u200b" + _ASSISTANT_CLOSE)
+                born = _bubble_cell_from(self.view.document(), anchor)
+                if born is not None:
+                    cursor = born.firstCursorPosition()
+                    cursor.setPosition(
+                        born.lastCursorPosition().position(),
+                        QTextCursor.MoveMode.KeepAnchor,
+                    )
+                    cursor.removeSelectedText()
+                    cursor.insertText(body)
+                self._insert_caret()
+        else:
+            self._strip_caret()
+            self._stream_cursor().insertText(text)
+            self._insert_caret()
         self._scroll(follow=follow)
 
     def finish_assistant(self, text: str | None = None) -> None:
@@ -1120,14 +1169,28 @@ class ChatPanel(QWidget):
         if self._caret_on:
             self._insert_caret()
 
-    def _insert_caret(self) -> None:
+    def _stream_cursor(self) -> QTextCursor:
+        """Where the caret and the next token belong.
+
+        Before any visible characters, that is the end of the document, under
+        the label. Once the cell exists, it is the end of the cell. The
+        document end is past the table, and writing there leaves the plate empty.
+        """
+        if self._stream_open and self._anchor is not None:
+            cell = _bubble_cell_from(self.view.document(), self._anchor)
+            if cell is not None:
+                return cell.lastCursorPosition()
         cursor = self.view.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertHtml(f'<span id="arelisCaret" style="color:{_ink("accent")};">▍</span>')
+        return cursor
+
+    def _insert_caret(self) -> None:
+        self._stream_cursor().insertHtml(
+            f'<span id="arelisCaret" style="color:{_ink("accent")};">▍</span>'
+        )
 
     def _strip_caret(self) -> None:
-        cursor = self.view.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor = self._stream_cursor()
         cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, 1)
         if cursor.selectedText() in _CARET_GLYPHS:
             cursor.removeSelectedText()
