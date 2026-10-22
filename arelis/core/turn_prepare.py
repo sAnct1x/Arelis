@@ -473,7 +473,7 @@ _LARGE_BODY_CHARS = 400
 class _AskSplit:
     instruction: str
     body: str
-    trailing: bool
+    trailing: str
 
 
 def split_user_ask(text: str) -> tuple[str, str]:
@@ -491,17 +491,17 @@ def split_user_ask(text: str) -> tuple[str, str]:
 def _split_user_ask(text: str) -> _AskSplit:
     raw = (text or "").strip()
     if not raw:
-        return _AskSplit("", "", False)
+        return _AskSplit("", "", "")
     blocks = [part.strip() for part in _ASK_BODY_BLANK.split(raw) if part.strip()]
     if len(blocks) >= 2:
         found = _ends_around_body(blocks)
         if found is not None:
             return found
-        return _AskSplit(raw, "", False)
+        return _AskSplit(raw, "", "")
     found = _line_ends_around_body(raw)
     if found is not None:
         return found
-    return _AskSplit(raw, "", False)
+    return _AskSplit(raw, "", "")
 
 
 def _is_short_block(text: str) -> bool:
@@ -535,23 +535,23 @@ def _ends_around_body(blocks: list[str]) -> _AskSplit | None:
         if first_short and last_short:
             return None
         if first_short and _is_large_body(last, first):
-            return _AskSplit(first, last, False)
+            return _AskSplit(first, last, "")
         if last_short and _is_large_body(first, last):
-            return _AskSplit(last, first, True)
+            return _AskSplit(last, first, last)
         return None
     middle = "\n\n".join(blocks[1:-1])
     if first_short and last_short:
         instruction = _join_instruction(first, last)
         if _is_large_body(middle, instruction):
-            return _AskSplit(instruction, middle, True)
+            return _AskSplit(instruction, middle, last)
     if first_short and not last_short:
         rest = "\n\n".join(blocks[1:])
         if _is_large_body(rest, first):
-            return _AskSplit(first, rest, False)
+            return _AskSplit(first, rest, "")
     if last_short and not first_short:
         rest = "\n\n".join(blocks[:-1])
         if _is_large_body(rest, last):
-            return _AskSplit(last, rest, True)
+            return _AskSplit(last, rest, last)
     return None
 
 
@@ -567,20 +567,43 @@ def _line_ends_around_body(raw: str) -> _AskSplit | None:
     if mid and _is_short_block(last):
         instruction = _join_instruction(head, last)
         if _is_large_body(mid, instruction):
-            return _AskSplit(instruction, mid, True)
+            return _AskSplit(instruction, mid, last)
     if _is_large_body(tail, head):
-        return _AskSplit(head, tail, False)
+        return _AskSplit(head, tail, "")
     return None
 
 
-def _body_already_here(instruction: str, provided_body: str, *, trailing: bool) -> bool:
-    """True when a leading ask already has the page and there is no URL.
+def _trailing_selects_web(
+    trailing: str,
+    available_tools: set[str] | None,
+) -> bool:
+    """True when the last short block alone is a web ask, not a byline."""
+    if not trailing:
+        return False
+    ids, fallback_only = select_skill_ids_detailed(
+        trailing, available_tools=available_tools
+    )
+    return bool(not fallback_only and "web" in ids)
 
-    A short last block is a live ask after the paste, so it decides fetch.
+
+def _body_already_here(
+    instruction: str,
+    provided_body: str,
+    *,
+    trailing: str,
+    available_tools: set[str] | None,
+) -> bool:
+    """True when a pasted body is the page and this ask is not a fetch.
+
+    A URL in the instruction is a fetch. A trailing block that alone
+    selects web is a live fetch after the paste. Other short last
+    blocks (bylines, sign-offs, CAS) keep the page as already here.
     """
-    if trailing or not provided_body:
+    if not provided_body:
         return False
     if _HTTP_URL.search(instruction or ""):
+        return False
+    if _trailing_selects_web(trailing, available_tools):
         return False
     return True
 
@@ -642,7 +665,10 @@ async def prepare_turn(
     instruction, provided_body = parts.instruction, parts.body
     classify_text = instruction or text
     body_already_here = _body_already_here(
-        instruction, provided_body, trailing=parts.trailing
+        instruction,
+        provided_body,
+        trailing=parts.trailing,
+        available_tools=available,
     )
     skill_ids, fallback_only = select_skill_ids_detailed(
         classify_text, available_tools=available

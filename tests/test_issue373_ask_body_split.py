@@ -61,6 +61,11 @@ _CTX_WEB_ASK = (
     + _BACKGROUND
     + "\n\nCan you search the web for the latest on this?"
 )
+_BYLINE_ASK = (
+    "Summarize this long article.\n\n"
+    + _ARTICLE_BODY
+    + "\n\nThe author is a staff writer."
+)
 
 
 class _Tool:
@@ -232,3 +237,13 @@ async def test_pasted_article_summary_is_not_a_cas_or_fetch_round() -> None:
     assert web_ctx.expect_tool_round is True
     assert "web" in web_ctx.skill_ids
     assert web_ctx.wants_fresh_page is True
+
+    byline_instruction, byline_body = split_user_ask(_BYLINE_ASK)
+    assert "Summarize this long article." in byline_instruction
+    assert "The author is a staff writer." in byline_instruction
+    assert byline_body == _ARTICLE_BODY.strip()
+    assert "staff writer" not in byline_body
+    byline_ctx = await prepare_turn(_loop(), _BYLINE_ASK, "fast")
+    assert byline_ctx is not None
+    assert byline_ctx.wants_fresh_page is False
+    assert byline_ctx.expect_tool_round is False
