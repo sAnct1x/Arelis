@@ -94,10 +94,12 @@ class EventType(str, Enum):
     The chat paints a card with Open / Show in folder. It does not auto-open.
 
     TOOL_ARG_PROGRESS is the chat shimmer while a tool call's arguments are
-    still streaming. The payload is a plain sentence. It is not a token and
-    not a status line: the hung-turn clock must not restart on it. REPLY_NOTE
-    is a one-line notice for the person, such as the reply being cut short.
-    It is not a terminal event and it does not restart that clock.
+    still streaming. The payload is a plain sentence. It is proof of work,
+    so the hung-turn clock restarts on the same 60s idle gap as a streamed
+    token. It is not a status line, which would use the longer first-token
+    allowance. REPLY_NOTE is a one-line notice for the person, such as the
+    reply being cut short. It is not a terminal event and it does not
+    restart that clock.
 
     MOBILE_SYNC copies pocket talk into the conversation the phone was already
     in. It is not a turn: the phone already answered. Ingest opens that session

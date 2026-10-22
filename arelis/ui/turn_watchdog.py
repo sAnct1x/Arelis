@@ -1,12 +1,13 @@
 """Hung-turn ceiling. The 8s busy watchdog only arms after Stop.
 
 A tool that never returns used to shimmer forever. This arms when the turn
-starts. The clock restarts on real progress: a streamed token, or a tool
-that is still running. A phase line is not a token, an empty thinking
-event is not one either, and the last tool call is not the clock. Silence
-with neither of those is a stall. The allowances are unchanged. The
-remaining time stays off the shimmer, "thinking…" is the status, not a
-countdown. Confirm wait is a person, not a hang, so the ceiling pauses.
+starts. The clock restarts on real progress: a streamed token, tool-argument
+progress (same idle gap as a token), or a tool that is still running. A
+phase line is not a token, an empty thinking event is not one either, a
+cut-short note is not one, and the last tool call is not the clock. Silence
+with none of those is a stall. The allowances are unchanged. The remaining
+time stays off the shimmer, "thinking…" is the status, not a countdown.
+Confirm wait is a person, not a hang, so the ceiling pauses.
 
 When the ceiling hits and the turn already has tool results, she closes
 from that work instead of being cancelled. A shorter grace clock then
@@ -32,10 +33,10 @@ from arelis.ui.window_const import (
     HUNG_TURN_S,
 )
 
-# A status line or a confirm reply is life, but the next token is not due yet.
-# TOOL_ARG_PROGRESS and REPLY_NOTE are on screen on purpose and stay out of
-# this set. Counting them would let a long argument stream refresh the 60s
-# clock.
+# A status line or a confirm reply is life, but the next token is not due yet,
+# so these restart the longer first-token allowance. Tool-argument progress
+# is handled with streamed tokens (the idle gap). REPLY_NOTE stays out: a
+# cut-short note is not proof the model is still writing.
 _STEP_EVENTS = frozenset({EventType.TOOL_CONFIRM_REPLY, EventType.STATUS})
 
 HUNG_MESSAGE = "Turn stopped because it hung."
@@ -133,11 +134,12 @@ def _past_cap(window) -> bool:
 def note_turn_progress(window, event) -> None:
     """Push the hang clock out on real progress.
 
-    A streamed token resets to the idle gap. A tool that is in flight, a
-    tool result, or a status line resets to the first-token allowance,
-    because the next token is not due yet. A trace line such as
-    ``phase=model``, a thinking event with no text, tool-argument progress,
-    and a cut-short note do not. The absolute cap is never extended.
+    A streamed token, or tool-argument progress that carries a sentence,
+    resets to the idle gap. A tool that is in flight, a tool result, or a
+    status line resets to the first-token allowance, because the next token
+    is not due yet. A trace line such as ``phase=model``, a thinking event
+    with no text, an empty argument-progress line, and a cut-short note do
+    not. The absolute cap is never extended.
     """
     timer = getattr(window, "_hung_watchdog", None)
     if timer is None or not timer.isActive():
@@ -155,6 +157,11 @@ def note_turn_progress(window, event) -> None:
         _restart(window, hung_first_token_ms(config))
         return
     if _streamed_token(event):
+        _restart(window, hung_idle_ms(config))
+        return
+    # Every 64 new argument characters. That is work, same as a token, so
+    # the idle gap starts over. The 600s cap is applied inside _restart.
+    if kind == EventType.TOOL_ARG_PROGRESS and str(_payload(event).get("message") or "").strip():
         _restart(window, hung_idle_ms(config))
         return
     if kind in _STEP_EVENTS:

@@ -91,8 +91,9 @@ _MAX_THINKING_SNIPPET = 240
 # delay. See _LiveAnswer.
 _STREAM_DECIDE_CHARS = 20
 
-# Chat turns used to omit num_predict, so one reply could run until the
-# context window filled. Sent as max_tokens.
+# Chat rounds used to omit num_predict, so one reply could run until the
+# context window filled. Sent as max_tokens on those rounds only. The
+# rolling summary has its own time budget and does not take this cap.
 _CHAT_MAX_TOKENS = 8192
 
 _CUT_SHORT_NOTE = "The answer was cut short."
@@ -1571,14 +1572,19 @@ class AgentLoop:
             return "", []
         return _parse_summary_response("".join(parts))
 
-    def _stream_options(self, *, tools: bool = False) -> dict[str, Any]:
-        """Turn-sticky num_ctx, the reply cap, cooler temperature on tool rounds.
+    def _stream_options(
+        self, *, tools: bool = False, reply_cap: bool = False
+    ) -> dict[str, Any] | None:
+        """Turn-sticky num_ctx, and cooler temperature on tool rounds.
 
-        num_predict is always sent. Without it llama-server has no max_tokens
-        and a chat turn runs until the context window is full. The rolling
-        summary uses this helper too, so that call gets the same cap.
+        Chat rounds pass ``reply_cap`` so llama-server gets max_tokens.
+        Without it a chat turn runs until the context window is full. The
+        rolling summary calls this helper without that flag: it already has
+        a time budget, and the chat cap must not apply there.
         """
-        opts: dict[str, Any] = {"num_predict": _CHAT_MAX_TOKENS}
+        opts: dict[str, Any] = {}
+        if reply_cap:
+            opts["num_predict"] = _CHAT_MAX_TOKENS
         ctx = getattr(self, "_turn_num_ctx", None)
         if ctx is not None:
             opts["num_ctx"] = int(ctx)
@@ -1589,7 +1595,7 @@ class AgentLoop:
             except (TypeError, ValueError):
                 temp = 0.1
             opts["temperature"] = temp
-        return opts
+        return opts or None
 
     async def _publish_think_stream(self, chunk: str) -> None:
         """Paint one native-thinking slice into the dock. Same as a text turn."""
@@ -1690,7 +1696,7 @@ class AgentLoop:
         self._think_off_next = False
         stream_kwargs: dict[str, Any] = {
             "tools": tools,
-            "options": self._stream_options(tools=bool(tools)),
+            "options": self._stream_options(tools=bool(tools), reply_cap=True),
         }
         if think is not None:
             stream_kwargs["think"] = think
@@ -1780,8 +1786,10 @@ class AgentLoop:
     async def _publish_tool_arg_progress(self, payload: Any) -> None:
         """Chat shimmer while tool arguments are still streaming.
 
-        Not THINKING and not STATUS. Those restart the 60s hung-turn clock,
-        and a long argument stream would then never look stuck.
+        Not THINKING and not STATUS. STATUS would restart the longer
+        first-token allowance, and THINKING paints the dock. The watchdog
+        treats this event like a streamed token and restarts the 60s idle
+        gap. The absolute cap is unchanged.
         """
         if not isinstance(payload, dict):
             return

@@ -490,8 +490,10 @@ def dispatch_event(window: Any, event: Event) -> None:
             )
         window._schedule_readiness_probe()
     elif t == EventType.TOOL_ARG_PROGRESS:
-        # Argument streaming. Visible in the chat, and deliberately not a
-        # THINKING or STATUS event, because those restart the hung-turn clock.
+        # Argument streaming. Visible in the chat. The watchdog restarts the
+        # 60s idle gap from this event, the same as a streamed token. It is
+        # not THINKING or STATUS: STATUS uses the longer first-token
+        # allowance, and THINKING paints the dock.
         text = str(p.get("message") or "").strip()
         if not text:
             return
