@@ -158,7 +158,7 @@ async def test_pasted_article_summary_is_not_a_cas_or_fetch_round() -> None:
     done = next(event for event in events if event.type == EventType.ASSISTANT_DONE)
     assert done.payload["text"].strip() == drafted
     assert "this needs a CAS result" not in str(done.payload["text"])
-    sent = run_loop._last_sent_messages or []
+    sent: list[Any] = run_loop._last_sent_messages or []
     hint_rows = [
         row for row in sent if row.get("content") == _TOOL_ROUND_HINT
     ]
