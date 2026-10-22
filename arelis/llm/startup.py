@@ -20,6 +20,7 @@ user's words.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,6 +99,25 @@ def _model_identities(name: str) -> frozenset[str]:
     return frozenset(key for key in keys if key)
 
 
+# One GGUF quant, precision, or llama.cpp split-shard suffix. Inputs are
+# already casefolded. An arbitrary '-' prefix is not a match.
+_VARIANT_SUFFIX = re.compile(
+    r"-ud-.+"
+    r"|-q\d.*"
+    r"|-iq\d.*"
+    r"|-f16"
+    r"|-bf16"
+    r"|-\d{5}-of-\d{5}"
+)
+
+
+def _has_variant_suffix(have: str, want: str) -> bool:
+    """True when have is want plus one allowed GGUF suffix."""
+    if not have.startswith(want):
+        return False
+    return _VARIANT_SUFFIX.fullmatch(have[len(want) :]) is not None
+
+
 def model_is_available(available: list[str], wanted: str) -> bool:
     """True if the configured name is the listed GGUF file or server alias."""
     wanted = wanted.strip()
@@ -108,10 +128,8 @@ def model_is_available(available: list[str], wanted: str) -> bool:
         have = _model_identities(name)
         if want & have:
             return True
-        for left in want:
-            for right in have:
-                if right.startswith(f"{left}-") or left.startswith(f"{right}-"):
-                    return True
+        if any(_has_variant_suffix(right, left) for left in want for right in have):
+            return True
     return False
 
 
