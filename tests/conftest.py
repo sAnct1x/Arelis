@@ -99,6 +99,30 @@ def _isolate_earth(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPat
     yield from isolate_earth(monkeypatch)
 
 
+def _install_qwait_for() -> None:
+    """Bind Qt's predicate wait. PySide6 leaves the C++ template out.
+
+    QTest.qWaitFor pumps events until the predicate is true or the timeout
+    passes. A fixed qWait cannot see a paint the adaptive timer delayed.
+    """
+    from PySide6.QtCore import QElapsedTimer
+    from PySide6.QtTest import QTest
+
+    if hasattr(QTest, "qWaitFor"):
+        return
+
+    def qWaitFor(predicate, timeout: int = 5000) -> bool:
+        clock = QElapsedTimer()
+        clock.start()
+        while not predicate():
+            if clock.elapsed() >= timeout:
+                return bool(predicate())
+            QTest.qWait(10)
+        return True
+
+    QTest.qWaitFor = qWaitFor
+
+
 @pytest.fixture(scope="session")
 def qt_app():
     """One offscreen QApplication for the widget tests.
@@ -112,7 +136,9 @@ def qt_app():
     from arelis.ui.window_resize import configure_native_windows
 
     configure_native_windows()
-    return QApplication.instance() or QApplication([])
+    app = QApplication.instance() or QApplication([])
+    _install_qwait_for()
+    return app
 
 
 @pytest.fixture(autouse=True)
