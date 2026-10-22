@@ -55,7 +55,7 @@ class _Lookup:
         self.queries.append(query)
         return list(self._rows_for(query) or [])
 
-    async def forecast(self, lat: float, lon: float) -> dict:
+    async def forecast(self, lat: float, lon: float, days: int = 1) -> dict:
         self.forecasts.append((lat, lon))
         return _reading()
 

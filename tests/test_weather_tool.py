@@ -66,6 +66,8 @@ class _Standins:
         self.ip = 0
         self.geo: list[str] = []
         self.forecast: list[tuple[float, float]] = []
+        self.days: list[int] = []
+        self.reading: dict | None = None
         self.windows_value: object = None
         self.home_value = ""
         self.ip_value: object = None
@@ -93,11 +95,17 @@ class _Standins:
             raise RuntimeError("down")
         return list(self.rows)
 
-    async def forecast_fn(self, lat: float, lon: float) -> dict:
+    async def forecast_fn(self, lat: float, lon: float, days: int = 1) -> dict:
         self.forecast.append((lat, lon))
+        self.days.append(int(days))
         if self.boom_forecast:
             raise RuntimeError("down")
-        return _reading()
+        payload = self.reading if self.reading is not None else _reading()
+        if self.reading is None:
+            return payload
+        # The tool asks for the days. A one-day request must not keep the rest.
+        daily = list(payload.get("daily") or [])
+        return {**payload, "daily": daily[: max(1, int(days))]}
 
     def tool(self, *, ip_enabled: bool | None = None) -> WeatherTool:
         return WeatherTool(
@@ -130,24 +138,68 @@ def _facing() -> list[str]:
     ]
 
 
+def _few_days() -> dict:
+    """Four daily rows for the Springfield stand-in."""
+    return {
+        "current": {"temperature_2m": 61.2, "weather_code": 3},
+        "daily": [
+            {
+                "date": "2026-09-17",
+                "temperature_2m_max": 66.4,
+                "temperature_2m_min": 48.2,
+                "weather_code": 3,
+            },
+            {
+                "date": "2026-09-18",
+                "temperature_2m_max": 70.0,
+                "temperature_2m_min": 52.0,
+                "weather_code": 0,
+            },
+            {
+                "date": "2026-09-19",
+                "temperature_2m_max": 64.0,
+                "temperature_2m_min": 49.0,
+                "weather_code": 61,
+            },
+            {
+                "date": "2026-09-20",
+                "temperature_2m_max": 62.0,
+                "temperature_2m_min": 46.0,
+                "weather_code": 2,
+            },
+        ],
+    }
+
+
 @pytest.mark.asyncio
 async def test_springfield_illinois_beats_the_first_hit() -> None:
-    """The state in the place string wins, even when another Springfield is first."""
+    """The state in the place string wins, even when another Springfield is first.
+
+    The same call returns the next few days, so tomorrow is in the result.
+    """
     stand = _Standins([_MO, _IL])
+    stand.reading = _few_days()
     result = await stand.tool().run(place="Springfield, Illinois")
 
     assert stand.geo == ["Springfield"]
     assert stand.forecast == [(39.7817, -89.6501)]
+    assert stand.days == [4]
     assert stand.windows == 0
     assert stand.home == 0
     assert stand.ip == 0
     assert result.ok
     assert result.output == (
-        "Springfield, Illinois: 61\u00b0F and overcast, high 66\u00b0F, low 48\u00b0F."
+        "Springfield, Illinois: 61\u00b0F and overcast, high 66\u00b0F, low 48\u00b0F.\n"
+        "Tomorrow: high 70\u00b0F, low 52\u00b0F, clear.\n"
+        "Saturday: high 64\u00b0F, low 49\u00b0F, light rain.\n"
+        "Sunday: high 62\u00b0F, low 46\u00b0F, partly cloudy."
     )
     assert "?" not in result.output
     assert "Did you mean" not in result.output
     assert "say which" not in result.output.lower()
+    lowered = result.output.lower()
+    for banned in _FORBIDDEN:
+        assert banned not in lowered
 
 
 def _temperature_slots(sentence: str) -> tuple[str, str, str]:

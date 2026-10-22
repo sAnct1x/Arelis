@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import httpx
@@ -18,11 +19,15 @@ from arelis.briefing.weather import (
 from arelis.location.windows import read_windows_location
 from arelis.tools.base import ToolResult
 
+# Today plus the next three days. A follow-up about tomorrow reads the
+# same result. The model-facing schema stays one optional place.
+_FORECAST_DAYS = 4
+
 
 class WeatherTool:
     """One forecast. ``place`` is their words, or empty for where they are.
 
-    Coordinates are not a parameter.
+    Coordinates are not a parameter. The sentence includes the next few days.
     """
 
     name = "weather"
@@ -278,9 +283,8 @@ class WeatherTool:
         return search_geocode(query)
 
     def _forecast_fn(self, lat: float, lon: float) -> Any:
-        if self._forecast is not None:
-            return self._forecast(lat, lon)
-        return fetch_forecast(lat, lon, days=1)
+        fn = self._forecast if self._forecast is not None else fetch_forecast
+        return fn(lat, lon, days=_FORECAST_DAYS)
 
 
 _HOMEISH_PLACE = frozenset(
@@ -663,9 +667,52 @@ def _whole(value: Any) -> str:
         return ""
 
 
+_WEEKDAY_NAMES = (
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+)
+
+
+def _forecast_day_label(date_text: Any, offset: int) -> str:
+    """Tomorrow for the next row. Later rows use the date's weekday."""
+    if offset == 1:
+        return "Tomorrow"
+    raw = str(date_text or "")[:10]
+    try:
+        day = date.fromisoformat(raw)
+    except ValueError:
+        return f"In {offset} days"
+    return _WEEKDAY_NAMES[day.weekday()]
+
+
+def _upcoming_lines(rows: list[Any]) -> list[str]:
+    lines: list[str] = []
+    for offset, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        high = _whole(row.get("temperature_2m_max"))
+        low = _whole(row.get("temperature_2m_min"))
+        if not high or not low:
+            continue
+        label = _forecast_day_label(row.get("date"), offset)
+        condition = describe_weather_code(row.get("weather_code"))
+        if condition:
+            lines.append(f"{label}: high {high}°F, low {low}°F, {condition}.")
+        else:
+            lines.append(f"{label}: high {high}°F, low {low}°F.")
+    return lines
+
+
 def forecast_sentence(label: str, data: dict[str, Any]) -> str:
     current = data.get("current") or {}
     daily = data.get("daily") or []
+    if not isinstance(daily, list):
+        daily = []
     today = daily[0] if daily else {}
     temp = _whole(current.get("temperature_2m"))
     high = _whole(today.get("temperature_2m_max"))
@@ -673,7 +720,11 @@ def forecast_sentence(label: str, data: dict[str, Any]) -> str:
     if not label or not temp or not high or not low:
         return ""
     condition = describe_weather_code(current.get("weather_code")) or "unknown"
-    return f"{label}: {temp}°F and {condition}, high {high}°F, low {low}°F."
+    line = f"{label}: {temp}°F and {condition}, high {high}°F, low {low}°F."
+    later = _upcoming_lines(daily[1:_FORECAST_DAYS])
+    if not later:
+        return line
+    return line + "\n" + "\n".join(later)
 
 
 def place_query_for_geocode(name: str) -> str:
