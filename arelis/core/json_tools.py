@@ -288,6 +288,9 @@ def parse_fallback_payload(text: str, *, strict: bool = False) -> dict[str, Any]
             continue
         normalized = _normalize_tool_dict(data)
         if normalized:
+            # Source, not wording. Dispatch retracts a text parse and
+            # keeps a native call. The words in the bubble are not the cue.
+            normalized["from_text"] = True
             return normalized
     return None
 
@@ -364,5 +367,6 @@ def parse_text_tool_call(
         tool_name = normalized.get("name", "")
         if tool_name not in registered_tools:
             return None
-    
+
+    normalized["from_text"] = True
     return normalized

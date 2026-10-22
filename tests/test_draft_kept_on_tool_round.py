@@ -101,9 +101,12 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
     window._set_busy(True)
 
     seen: list[EventType] = []
+    tool_starts: list[dict[str, Any]] = []
 
     async def _mirror(event: Event) -> None:
         seen.append(event.type)
+        if event.type == EventType.TOOL_START:
+            tool_starts.append(dict(event.payload))
         window.bridge.feed(event)
 
     window.bus.subscribe(None, _mirror)
@@ -147,6 +150,7 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
             available={"weather"},
             visible={"weather"},
             available_all={"weather"},
+            calls_from_text=False,
         )
         r.agent_cfg["read_fanout"] = False
         ctx = _ctx(text=r.text)
@@ -183,6 +187,126 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
         progress = window.chat.progress.text().lower()
         assert "checking the weather" not in progress
         assert window.chat.progress.isHidden()
+        assert tool_starts and tool_starts[0].get("draft_speech") is True
+
+        # The next round's text must not glue onto the kept draft.
+        loop._round_gap = True
+
+        async def _publish_delta(text: str) -> None:
+            await AgentLoop._publish_delta(loop, text)
+
+        loop._publish_delta = _publish_delta
+
+        async def _gap() -> None:
+            await AgentLoop._publish_round_text(loop, "Boston is clear.")
+
+        gap_fut = asyncio.run_coroutine_threadsafe(_gap(), window.loop)
+        gap_fut.result(timeout=5)
+        gap = f"{token}\n\nBoston is clear."
+        assert QTest.qWaitFor(
+            lambda: gap in "".join(window.chat._stream_text),
+            3000,
+        ), "".join(window.chat._stream_text)
+
+        # A call parsed from the text still retracts. The flag is the
+        # source. Release the native call first so the two rounds do not
+        # share one blocked tool.
+        if window.loop.is_running():
+            window.loop.call_soon_threadsafe(release.set)
+        if fut is not None:
+            fut.result(timeout=15)
+        fut = None
+
+        text_mark = len(seen)
+        release2 = asyncio.Event()
+
+        async def _call_text(name: str, **kwargs: Any) -> Any:
+            del name, kwargs
+            await release2.wait()
+            return SimpleNamespace(ok=True, output="still blocked", data={})
+
+        loop.tools.call = _call_text
+        loop._painted = draft
+        r.calls_from_text = True
+        r.calls = [("weather", {"place": "Austin"})]
+        r.streamed = draft
+        release = release2
+
+        async def _go_text() -> None:
+            try:
+                holder["text_result"] = await dispatch_calls(loop, ctx, r, 2)
+            except Exception as exc:
+                holder["error"] = exc
+                release2.set()
+                raise
+
+        fut = asyncio.run_coroutine_threadsafe(_go_text(), window.loop)
+
+        def _retracted() -> bool:
+            if token in window.chat.view.toPlainText():
+                return False
+            return EventType.ASSISTANT_RETRACT in seen[text_mark:]
+
+        went = QTest.qWaitFor(_retracted, 5000)
+        assert went, (
+            "text-parsed call left the draft up; "
+            f"token_in_chat={token in window.chat.view.toPlainText()} "
+            f"events={[item.value for item in seen[text_mark:]]} "
+            f"error={holder.get('error')!r}"
+        )
+        assert EventType.TOOL_RESULT not in seen[text_mark:]
+
+        from arelis.voice import VoiceService
+
+        async def _voice_scope() -> None:
+            voice = VoiceService(
+                window.bus,
+                {
+                    "voice": {
+                        "enabled": True,
+                        "stt": {"enabled": False},
+                        "tts": {
+                            "enabled": True,
+                            "backend": "piper",
+                            "allow_download": False,
+                        },
+                    }
+                },
+            )
+            voice.speak_enabled = True
+            voice._stream_open = True
+            voice._stream_raw = "earlier reply still talking"
+            voice._speak_seq = 4
+            await voice.on_tool_start(
+                Event(EventType.TOOL_START, {"tool": "sms", "args": {}})
+            )
+            assert voice._stream_open
+            assert voice._stream_raw == "earlier reply still talking"
+            voice.config["_phone_turn"] = True
+            await voice.on_tool_start(
+                Event(
+                    EventType.TOOL_START,
+                    {"tool": "weather", "args": {}, "draft_speech": True},
+                )
+            )
+            assert voice._stream_open
+            voice.config["_phone_turn"] = False
+            await voice.on_tool_start(
+                Event(
+                    EventType.TOOL_START,
+                    {
+                        "tool": "weather",
+                        "args": {"place": "Boston"},
+                        "draft_speech": True,
+                    },
+                )
+            )
+            assert voice._stream_open is False
+            assert voice._stream_raw == ""
+            assert voice._speak_cancelled == 4
+
+        voice_fut = asyncio.run_coroutine_threadsafe(_voice_scope(), window.loop)
+        voice_fut.result(timeout=5)
         body_ok = True
     finally:
         if window.loop.is_running():

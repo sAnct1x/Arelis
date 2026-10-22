@@ -150,13 +150,22 @@ class VoiceService:
             self._ensure_drain()
 
     async def on_tool_start(self, event: Event) -> None:
-        """Cancel TTS of the on-screen draft when a tool starts.
+        """Cancel TTS of this turn's streamed draft when its tool starts.
 
         The bubble stays. ``on_retract`` is the cancel a retract used to
         run for that speech: clear the buffer, drop queued sentences, and
         mark the utterance cancelled. Playback clips already in the player
         are dropped on the Qt side, same as a retract.
+
+        Main only did this when the turn had streamed. A tool start from
+        another turn (SMS ingest, a slash command) does not carry
+        ``draft_speech``. A phone turn does not feed the desktop speaker,
+        same as ``on_delta`` and ``on_speak``.
         """
+        if not event.payload.get("draft_speech"):
+            return
+        if self.config.get("_phone_turn"):
+            return
         await self.on_retract(event)
 
     async def on_retract(self, event: Event) -> None:

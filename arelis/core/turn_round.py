@@ -837,6 +837,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
 
         content = strip_thinking_text(raw_content)
         calls = extract_native_tool_calls(tool_calls)
+        # Native calls keep a streamed draft. Text parses do not. The
+        # flag is on the parsed dict. The wording of the draft is not
+        # what decides it.
+        calls_from_text = False
         # When native_tool_calling is enabled and the model wrote a text-form
         # tool call (e.g. <tool_call>{"name":..., "arguments":...}</tool_call>),
         # parse and execute it.
@@ -851,11 +855,16 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 content,
                 registered_tools=None if ctx.plain_only else tool_names,
             )
-            if text_call and text_call.get("kind") == "tool":
+            if (
+                text_call
+                and text_call.get("kind") == "tool"
+                and text_call.get("from_text") is True
+            ):
                 name = text_call["name"]
                 args = text_call["args"]
                 calls = [(name, args)]
                 tool_calls = [_native_tool_call(name, args)]
+                calls_from_text = True
 
         if not calls and loop.json_fallback:
             # strict while native tool calling is working: only a trailing
@@ -863,8 +872,13 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             # embedded JSON would let an answer that merely discusses or
             # demonstrates a tool call execute it.
             parsed = parse_fallback_payload(content, strict=not ctx.fallback_mode)
-            if parsed and parsed["kind"] == "tool":
+            if (
+                parsed
+                and parsed["kind"] == "tool"
+                and parsed.get("from_text") is True
+            ):
                 calls = [(parsed["name"], parsed["args"])]
+                calls_from_text = True
             elif parsed and parsed["kind"] == "final":
                 content = parsed["text"]
 
@@ -1026,6 +1040,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             calls=calls,
             tool_calls=tool_calls,
             round_ms=round_ms,
+            calls_from_text=calls_from_text,
         )
         done = await apply_no_call_path(loop, ctx, r, round_i)
         if done is not None:
@@ -1041,6 +1056,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             extra = ink_vision_walk(pages)
             r.calls = extra
             r.tool_calls = [_native_tool_call(n, a) for n, a in extra]
+            r.calls_from_text = False
             ctx.allow_writes_this_turn = True
             ctx.ink_vision_nudge_used = True
             await loop.bus.publish(

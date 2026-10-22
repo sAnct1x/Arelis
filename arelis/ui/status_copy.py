@@ -1,8 +1,9 @@
 """What the app says it is doing, in the user's words, while a turn runs.
 
-A draft already on screen stays while tools run. The errand names the work
-in the collapsed thought. It does not replace that draft, and it is not
-drawn on ChatProgress. Measured on 2026-08-14, a turn offering the full tool
+A native draft already on screen stays while tools run. A call parsed out
+of the model's text is still cleared. The errand names the work in the
+collapsed thought. It does not replace a kept draft, and it is not drawn
+on ChatProgress. Measured on 2026-08-14, a turn offering the full tool
 surface, which is every SMS turn, cost 34 to 36 seconds cold. Half a minute of
 blank thread is the single thing that made this app feel hung.
 
