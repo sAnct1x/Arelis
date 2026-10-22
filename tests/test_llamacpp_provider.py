@@ -16,12 +16,14 @@ from arelis.core.memory import SessionMemory
 from arelis.core.turn_prepare import _context_limits
 from arelis.llm import build_router
 from arelis.llm.errors import (
+    LLAMACPP_DEVICE_NOTICE,
     LLAMACPP_DOWN_NOTICE,
     LLAMACPP_MODEL_NOTICE,
+    LLAMACPP_RESTART_NOTICE,
     classify_model_failure,
     classify_turn_failure,
 )
-from arelis.llm.llama_launch import launch_args_for
+from arelis.llm.llama_launch import ensure_server, launch_args_for
 from arelis.llm.llamacpp import (
     _EMBED_PROBE_RETRY_S,
     _PROBE_TIMEOUT_S,
@@ -347,7 +349,7 @@ async def test_llamacpp_stream_maps_sse_and_refuses_pictures_and_embeddings(
     assert args[args.index("--cache-type-v") + 1] == "f16"
     assert args[args.index("-c") + 1] == "32768"
     assert args[args.index("-b") + 1] == "4096"
-    assert args[args.index("-ub") + 1] == "2048"
+    assert args[args.index("-ub") + 1] == "512"
     assert args[args.index("--jinja") + 1] == "--chat-template-file"
     assert args[args.index("--chat-template-file") + 1] == str(template.resolve())
     assert args[args.index("--host") + 1] == "127.0.0.1"
@@ -767,3 +769,128 @@ async def test_llamacpp_cpu_embeddings_follow_embed_url_and_stay_off_when_down(
     await chosen.provider.close()
     await defaulted.provider.close()
     await bare.close()
+
+
+def _compute_error_body() -> dict[str, Any]:
+    """What llama-server sends when decode returns a compute failure."""
+    return {
+        "error": {
+            "code": 500,
+            "message": "Compute error.",
+            "type": "server_error",
+        }
+    }
+
+
+async def test_a_lost_graphics_device_fails_once_and_asks_for_a_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """/health stays ok after the graphics device is lost.
+
+    Readiness is one generated token. A turn that dies the same way posts
+    once. The graphics-card line is only the compute error. Any other
+    HTTP 500 still needs a restart, without that line.
+    """
+    posts: list[dict[str, Any]] = []
+    served: dict[str, Any] = {"error": _compute_error_body()}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "ok"})
+        if request.url.path == "/v1/chat/completions":
+            body = json.loads(request.content)
+            posts.append(body)
+            if body.get("stream"):
+                return httpx.Response(200, content=_sse([served["error"]]))
+            return httpx.Response(500, json=served["error"])
+        return httpx.Response(404)
+
+    provider = LlamaCppProvider(
+        base_url="http://llama.test",
+        client=_client(handler),
+    )
+    try:
+        async for _item in provider.stream_chat(
+            "qwen",
+            [{"role": "user", "content": "summarize that and email it"}],
+        ):
+            pass
+    except Exception as exc:
+        failure = classify_turn_failure(exc, model="qwen", backend=provider)
+    else:
+        raise AssertionError("a compute failure should fail the turn")
+    assert len(posts) == 1
+    assert failure.skip_tool_fallback is True
+    assert failure.chat == LLAMACPP_DEVICE_NOTICE
+    assert "\u2014" not in failure.chat
+    assert "\u2013" not in failure.chat
+    assert "HTTP" not in failure.chat
+
+    try:
+        await provider.pin("qwen")
+    except Exception as exc:
+        ready_failure = classify_turn_failure(exc, model="qwen", backend=provider)
+    else:
+        raise AssertionError("a one token check should fail when decode fails")
+    assert len(posts) == 2
+    assert posts[-1]["max_tokens"] == 1
+    assert "tools" not in posts[-1]
+    assert posts[-1].get("stream") is not True
+    assert ready_failure.skip_tool_fallback is True
+    assert ready_failure.chat == failure.chat
+
+    launched = {"n": 0}
+
+    def _get(url: str, timeout: float = 2.0, **kwargs: object) -> httpx.Response:
+        del timeout, kwargs
+        assert url.endswith("/health")
+        return httpx.Response(200, json={"status": "ok"})
+
+    def _post(url: str, json: dict[str, Any] | None = None, timeout: float = 60.0, **kwargs: object) -> httpx.Response:
+        del timeout, kwargs
+        assert url.endswith("/v1/chat/completions")
+        posts.append(dict(json or {}))
+        return httpx.Response(500, json=_compute_error_body())
+
+    def _no_spawn(args: list[str]) -> None:
+        del args
+        launched["n"] += 1
+        raise AssertionError("a dead device must not start a second server")
+
+    monkeypatch.setattr("arelis.llm.llama_launch.httpx.get", _get)
+    monkeypatch.setattr("arelis.llm.llama_launch.httpx.post", _post)
+    monkeypatch.setattr("arelis.llm.llama_launch._spawn", _no_spawn)
+    before = len(posts)
+    try:
+        ensure_server("http://127.0.0.1:8080", ["llama-server"])
+    except Exception as exc:
+        launch_failure = classify_turn_failure(exc, model="qwen")
+    else:
+        raise AssertionError("a listening server that cannot decode is not ready")
+    assert launch_failure.skip_tool_fallback is True
+    assert launch_failure.chat == failure.chat
+    assert launched["n"] == 0
+    assert len(posts) == before + 1
+    assert posts[-1]["max_tokens"] == 1
+    assert "tools" not in posts[-1]
+
+    served["error"] = {
+        "error": {
+            "code": 500,
+            "message": "boom",
+            "type": "server_error",
+        }
+    }
+    try:
+        async for _item in provider.stream_chat(
+            "qwen",
+            [{"role": "user", "content": "again"}],
+        ):
+            pass
+    except Exception as exc:
+        other = classify_turn_failure(exc, model="qwen", backend=provider)
+    else:
+        raise AssertionError("a plain HTTP 500 should fail the turn")
+    assert other.chat == LLAMACPP_RESTART_NOTICE
+    assert other.skip_tool_fallback is True
+    await provider.close()
