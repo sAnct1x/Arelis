@@ -22,7 +22,12 @@ from typing import Any
 
 import httpx
 
-from arelis.llm.errors import LLAMACPP_RESTART_NOTICE, LlamaComputeError, is_context_overflow
+from arelis.llm.errors import (
+    LlamaComputeError,
+    is_context_overflow,
+    restart_error,
+    restart_notice,
+)
 from arelis.llm.llama_launch import (
     READY_TIMEOUT_S,
     decode_probe_state,
@@ -57,8 +62,11 @@ def _embedded_status(err: object) -> int | None:
     """HTTP code carried inside a streamed error object, when it has one."""
     if not isinstance(err, dict):
         return None
+    raw = err.get("code")
+    if raw is None:
+        return None
     try:
-        code = int(err.get("code"))
+        code = int(raw)
     except (TypeError, ValueError):
         return None
     if 100 <= code <= 599:
@@ -66,13 +74,20 @@ def _embedded_status(err: object) -> int | None:
     return None
 
 
-def _dead_device(model: str, detail: str) -> LlamaComputeError:
-    """Compute failed. The same request will fail again until the server is restarted."""
+def _json_body(response: httpx.Response) -> object:
+    try:
+        return response.json()
+    except (UnicodeDecodeError, ValueError):
+        return None
+
+
+def _restart_failure(model: str, detail: str, payload: object) -> LlamaComputeError:
+    """HTTP 500. The same request fails again until the server is restarted."""
     text = f"llama-server returned HTTP 500 for model `{model}`"
     cleaned = (detail or "").strip()
     if cleaned:
         text = f"{text}: {cleaned[:400]}"
-    return LlamaComputeError(text)
+    return restart_error(text, payload)
 
 
 def _positive_int(raw: Any) -> int | None:
@@ -443,7 +458,7 @@ class LlamaCppProvider:
                 detail = response.text.strip()[:400]
                 await self._drop_cached_window_after_overflow(detail)
                 if decode_probe_state(response.status_code) == "dead":
-                    raise _dead_device(model, detail)
+                    raise _restart_failure(model, detail, _json_body(response))
                 raise RuntimeError(
                     f"llama-server returned HTTP {response.status_code} for model `{model}`"
                     + (f": {detail}" if detail else "")
@@ -472,7 +487,7 @@ class LlamaCppProvider:
                     detail = str(message or "").strip()[:400]
                     code = _embedded_status(err)
                     if code is not None and decode_probe_state(code) == "dead":
-                        raise _dead_device(model, detail)
+                        raise _restart_failure(model, detail, err)
                     if code is not None and code >= 500:
                         raise RuntimeError(
                             f"llama-server returned HTTP {code} for model `{model}`"
@@ -706,7 +721,8 @@ class LlamaCppProvider:
             timeout=READY_TIMEOUT_S,
         )
         if decode_probe_state(response.status_code) == "dead":
-            raise LlamaComputeError(LLAMACPP_RESTART_NOTICE)
+            payload = _json_body(response)
+            raise restart_error(restart_notice(payload), payload)
         if response.status_code >= 400:
             detail = response.text.strip()[:400]
             raise RuntimeError(

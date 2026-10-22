@@ -27,7 +27,7 @@ from urllib.parse import urlparse
 import httpx
 
 from arelis import __version__
-from arelis.llm.errors import LLAMACPP_RESTART_NOTICE, LlamaComputeError
+from arelis.llm.errors import restart_error, restart_notice
 from arelis.llm.legacy import SHIPPED_GGUF_NAME
 
 log = logging.getLogger(__name__)
@@ -141,10 +141,10 @@ def one_token_payload(model: str = "") -> dict[str, Any]:
 
 
 def decode_probe_state(status_code: int) -> str:
-    """``ok``, ``dead``, or ``down``. HTTP 500 is a compute failure.
+    """``ok``, ``dead``, or ``down``. HTTP 500 fails again until a restart.
 
-    The graphics device does not recover inside this process. Callers fail
-    that once instead of posting the prompt again.
+    Callers stop instead of posting the prompt again. The graphics-card
+    line depends on the error object, not on this status alone.
     """
     try:
         code = int(status_code)
@@ -390,13 +390,24 @@ def _health_ok(base_url: str) -> bool:
     return response.status_code < 400
 
 
+def _json_body(response: httpx.Response) -> object:
+    try:
+        return response.json()
+    except (UnicodeDecodeError, ValueError):
+        return None
+
+
 def _token_state(base_url: str, timeout_s: float) -> str:
     url = base_url.rstrip("/") + "/v1/chat/completions"
     try:
         response = httpx.post(url, json=one_token_payload(), timeout=timeout_s)
     except httpx.HTTPError:
         return "down"
-    return decode_probe_state(response.status_code)
+    state = decode_probe_state(response.status_code)
+    if state == "dead":
+        payload = _json_body(response)
+        raise restart_error(restart_notice(payload), payload)
+    return state
 
 
 def _require_decode(base_url: str, timeout_s: float) -> None:
@@ -404,8 +415,6 @@ def _require_decode(base_url: str, timeout_s: float) -> None:
     state = _token_state(base_url, timeout_s)
     if state == "ok":
         return
-    if state == "dead":
-        raise LlamaComputeError(LLAMACPP_RESTART_NOTICE)
     raise RuntimeError(_NO_TOKEN)
 
 
@@ -424,8 +433,6 @@ def _wait_ready(base_url: str, proc: subprocess.Popen[bytes], timeout_s: float) 
             state = _token_state(base_url, min(READY_TIMEOUT_S, left))
             if state == "ok":
                 return True
-            if state == "dead":
-                raise LlamaComputeError(LLAMACPP_RESTART_NOTICE)
         time.sleep(0.5)
     return False
 
