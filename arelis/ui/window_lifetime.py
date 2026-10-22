@@ -197,15 +197,6 @@ class WindowLifetime:
         self._calendar_sync_timer.stop()
         self._calendar_sync_watchdog.stop()
         self._job_tick.stop()
-        # Land in-flight log/memory/session writes even on tray Quit. This is
-        # not the embed backlog — that stays skipped when force=True.
-        from arelis.memory import flush_background_writes
-
-        flush_background_writes(
-            store=getattr(self, "store", None),
-            indexer=self.indexer,
-            timeout_s=3.0 if self._force_quit else 5.0,
-        )
         # Tray Quit must feel instant. Stop notify first (phone listener), then
         # best-effort flush — never wait on model unload / long indexer work.
         inbound_timeout = 2.0 if self._force_quit else 5.0

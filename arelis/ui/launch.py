@@ -48,6 +48,28 @@ from arelis.workspace import WorkspaceRoots
 log = logging.getLogger(__name__)
 
 
+def _flush_pending_writes(
+    *,
+    store: MemoryStore | None,
+    indexer: MemoryIndexer | None,
+    backup_thread: threading.Thread | None,
+    timeout_s: float,
+) -> None:
+    """One write flush, one deadline. Backup join and indexer join share it."""
+    try:
+        budget = max(0.0, float(timeout_s))
+    except (TypeError, ValueError):
+        budget = 3.0
+    deadline = time.monotonic() + budget
+    if backup_thread is not None:
+        backup_thread.join(timeout=max(0.0, deadline - time.monotonic()))
+    flush_background_writes(
+        store=store,
+        indexer=indexer,
+        timeout_s=max(0.0, deadline - time.monotonic()),
+    )
+
+
 def first_run_blocks_main() -> bool:
     """True while model setup is still unfinished. Mute main glass must wait."""
     return needs_model_setup()
@@ -227,11 +249,7 @@ def force_windows_qt_platform(env: MutableMapping[str, str]) -> None:
 
 
 async def _drain_event_loop(
-    loop: asyncio.AbstractEventLoop,
-    *,
-    budget_s: float,
-    store: MemoryStore | None = None,
-    indexer: MemoryIndexer | None = None,
+    loop: asyncio.AbstractEventLoop, *, budget_s: float
 ) -> None:
     """Stop what is still running before the loop is taken out from under it.
 
@@ -266,14 +284,6 @@ async def _drain_event_loop(
             log.info(
                 "loop drain: %d task(s) did not stop within %.2fs", len(still), budget_s
             )
-    # Join the writers themselves. Cancelling run_batch only drops the await;
-    # the to_thread worker is still inside memory.db. A 0.75s executor wait
-    # is too short and is how a busy quit lost the last save.
-    flush_background_writes(
-        store=store,
-        indexer=indexer,
-        timeout_s=max(3.0, budget_s),
-    )
     # asyncio.wait rather than wait_for throughout, and that is the whole reason
     # the ceilings above are real. wait_for cancels what it is waiting on and then
     # waits for *that* to finish, so a task which swallows CancelledError — a bare
@@ -744,7 +754,26 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         force = bool(window._force_quit)
         drain_budget_s = 0.75 if force else 3.0
 
+        write_timeout_s = 3.0 if force else 5.0
+
         async def shutdown() -> None:
+            # Cancel first so run_batch cannot start another disk write after
+            # we join. Then one flush, off this loop thread, one deadline.
+            current = asyncio.current_task()
+            pending = [
+                t for t in asyncio.all_tasks(loop) if t is not current and not t.done()
+            ]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.wait(pending, timeout=drain_budget_s)
+            await asyncio.to_thread(
+                _flush_pending_writes,
+                store=store,
+                indexer=indexer,
+                backup_thread=backup_thread,
+                timeout_s=write_timeout_s,
+            )
             stop_watch = getattr(window, "_orphan_ingest_stop", None)
             if stop_watch is not None:
                 stop_watch.set()
@@ -785,14 +814,13 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
                     await asyncio.wait_for(session.close(), timeout=2.0)
             except Exception:
                 pass
-            backup_thread.join(timeout=1.0 if force else 3.0)
-            await _drain_event_loop(
-                loop, budget_s=drain_budget_s, store=store, indexer=indexer
-            )
+            await _drain_event_loop(loop, budget_s=drain_budget_s)
 
         fut = asyncio.run_coroutine_threadsafe(shutdown(), loop)
         try:
-            fut.result(timeout=2.0 if force else 8.0)
+            # Write flush is 3s on force quit; the old 2s outer cap made that
+            # bound fake. 2s leftover covers ipc/router after the writes land.
+            fut.result(timeout=write_timeout_s + 2.0 if force else 8.0)
         except Exception:
             log.warning("shutdown did not finish in time", exc_info=True)
         loop.call_soon_threadsafe(loop.stop)
