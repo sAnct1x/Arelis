@@ -152,6 +152,8 @@ class Watch:
         self._alerts: deque[str] = deque(maxlen=12)
         self._last_status = ""
         self._last_status_at = 0.0
+        self._flood_log_at: dict[str, float] = {}
+        self._flood_suppressed: dict[str, int] = {}
         self._publish: Callable[[str], None] | None = None
         self._httpx_installed = False
 
@@ -188,6 +190,8 @@ class Watch:
             self._alerts.clear()
             self._last_status = ""
             self._last_status_at = 0.0
+            self._flood_log_at.clear()
+            self._flood_suppressed.clear()
             self.enabled = True
 
     def register_listener(self, listener: Listener) -> None:
@@ -228,10 +232,22 @@ class Watch:
             _prune(bucket, self.inbound_window_s, now)
             if len(bucket) >= self.inbound_burst:
                 retry = max(1, int(self.inbound_window_s))
-                self._note_alert_locked(
+                message = (
                     f"Watch: inbound flood from {host}, {len(bucket)} requests "
                     f"in {int(self.inbound_window_s)}s"
                 )
+                last = self._flood_log_at.get(host, 0.0)
+                if last and (now - last) < _STATUS_COOLDOWN_S:
+                    self._flood_suppressed[host] = (
+                        self._flood_suppressed.get(host, 0) + 1
+                    )
+                    self._alerts.append(message)
+                else:
+                    n = self._flood_suppressed.pop(host, 0)
+                    if n:
+                        message = f"{message} ({n} similar warnings suppressed)"
+                    self._flood_log_at[host] = now
+                    self._note_alert_locked(message)
                 return Admit(ok=False, retry_after=retry, reason="rate")
             bucket.append(now)
             return Admit(ok=True)
