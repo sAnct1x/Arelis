@@ -88,6 +88,8 @@ from arelis.llm.errors import classify_turn_failure, is_vram_failure
 from arelis.tools.pdf_pages import ink_vision_walk
 
 _CHAIN_STILL_OPEN = "That result does not finish what they asked."
+_CHECKING_AGAIN = "Checking again..."
+_DISCARDED_CALL = "not applied; this call was not run."
 
 
 def _chain_continue_notice(owed: list[str]) -> str:
@@ -147,6 +149,48 @@ async def _ask_for_next_step(loop: Any, ctx: TurnContext, r: RoundScratch) -> No
             {"text": "chain still open; asking for the next step"},
         )
     )
+
+
+async def _keep_bubble_on_retry(loop: Any) -> None:
+    """A retry must not leave the reply bubble blank.
+
+    Native tool rounds already keep the draft. A discarded plain-only
+    round still has to show something until the next tokens arrive.
+    Retract only to swap in the wait note, never to sit empty.
+    """
+    if str(getattr(loop, "_painted", "") or "").strip():
+        await loop._retract()
+    await loop._publish_delta(_CHECKING_AGAIN)
+
+
+def _record_discarded_round(
+    loop: Any,
+    messages: list[dict[str, Any]],
+    tool_calls: list[dict[str, Any]],
+) -> None:
+    """Keep the rejected call in the transcript, marked as not applied.
+
+    The assistant row with tool_calls is what the next request needs so
+    that call still renders. Rows come from that same list: one tool row
+    per tool_call, with a matching id. Content from the discarded round
+    is dropped, and the tool rows say the work did not run, so the next
+    answer cannot treat those claims as done.
+    """
+    assistant_msg: dict[str, Any] = {
+        "role": "assistant",
+        "content": "",
+    }
+    if tool_calls:
+        assistant_msg["tool_calls"] = tool_calls
+    messages.append(assistant_msg)
+    for call in tool_calls:
+        fn = call.get("function") or {}
+        name = str(fn.get("name") or "")
+        row = loop._tool_message(name, _DISCARDED_CALL)
+        call_id = call.get("id")
+        if call_id:
+            row["tool_call_id"] = str(call_id)
+        messages.append(row)
 
 
 def _write_round(ctx: TurnContext, r: RoundScratch) -> None:
@@ -837,6 +881,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
 
         content = strip_thinking_text(raw_content)
         calls = extract_native_tool_calls(tool_calls)
+        # Native calls keep a streamed draft. Text parses do not. The
+        # flag is on the parsed dict. The wording of the draft is not
+        # what decides it.
+        calls_from_text = False
         # When native_tool_calling is enabled and the model wrote a text-form
         # tool call (e.g. <tool_call>{"name":..., "arguments":...}</tool_call>),
         # parse and execute it.
@@ -851,11 +899,16 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 content,
                 registered_tools=None if ctx.plain_only else tool_names,
             )
-            if text_call and text_call.get("kind") == "tool":
+            if (
+                text_call
+                and text_call.get("kind") == "tool"
+                and text_call.get("from_text") is True
+            ):
                 name = text_call["name"]
                 args = text_call["args"]
                 calls = [(name, args)]
                 tool_calls = [_native_tool_call(name, args)]
+                calls_from_text = True
 
         if not calls and loop.json_fallback:
             # strict while native tool calling is working: only a trailing
@@ -863,8 +916,16 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             # embedded JSON would let an answer that merely discusses or
             # demonstrates a tool call execute it.
             parsed = parse_fallback_payload(content, strict=not ctx.fallback_mode)
-            if parsed and parsed["kind"] == "tool":
-                calls = [(parsed["name"], parsed["args"])]
+            if (
+                parsed
+                and parsed["kind"] == "tool"
+                and parsed.get("from_text") is True
+            ):
+                name = parsed["name"]
+                args = parsed["args"]
+                calls = [(name, args)]
+                tool_calls = [_native_tool_call(name, args)]
+                calls_from_text = True
             elif parsed and parsed["kind"] == "final":
                 content = parsed["text"]
 
@@ -878,20 +939,15 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         ):
             if not ctx.plain_reask_used:
                 ctx.plain_reask_used = True
-                assistant_msg: dict[str, Any] = {
-                    "role": "assistant",
-                    "content": content or "",
-                }
-                if tool_calls:
-                    assistant_msg["tool_calls"] = tool_calls
-                messages.append(assistant_msg)
                 # A real user line after the rejected call keeps that call
-                # rendering the same way on the next turn.
+                # rendering the same way on the next turn. The discarded
+                # prose and results are not fed through as if they ran.
+                _record_discarded_round(loop, messages, tool_calls)
                 messages.append(
                     {"role": "user", "content": _WRITE_AFTER_TOOL_NOTICE}
                 )
                 append_tool_free_nudge(messages)
-                await loop._retract()
+                await _keep_bubble_on_retry(loop)
                 await loop.bus.publish(
                     Event(
                         EventType.THINKING,
@@ -1026,6 +1082,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             calls=calls,
             tool_calls=tool_calls,
             round_ms=round_ms,
+            calls_from_text=calls_from_text,
         )
         done = await apply_no_call_path(loop, ctx, r, round_i)
         if done is not None:
@@ -1041,6 +1098,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             extra = ink_vision_walk(pages)
             r.calls = extra
             r.tool_calls = [_native_tool_call(n, a) for n, a in extra]
+            r.calls_from_text = False
             ctx.allow_writes_this_turn = True
             ctx.ink_vision_nudge_used = True
             await loop.bus.publish(

@@ -101,6 +101,10 @@ class VoiceService:
         if self.tts_enabled:
             bus.subscribe(EventType.ASSISTANT_DELTA, self.on_delta)
             bus.subscribe(EventType.ASSISTANT_RETRACT, self.on_retract)
+            # A tool round no longer retracts the bubble. This is the speech
+            # half of that old retract: drop the draft so it is not read and
+            # then read again as the answer.
+            bus.subscribe(EventType.TOOL_START, self.on_tool_start)
             bus.subscribe(EventType.VOICE_SPEAK, self.on_speak)
             bus.subscribe(EventType.ERROR, self.on_turn_error)
 
@@ -144,6 +148,25 @@ class VoiceService:
             self._stream_raw += chunk
             self._queue_from_buffer(finalize=False)
             self._ensure_drain()
+
+    async def on_tool_start(self, event: Event) -> None:
+        """Cancel TTS of this turn's streamed draft when its tool starts.
+
+        The bubble stays. ``on_retract`` is the cancel a retract used to
+        run for that speech: clear the buffer, drop queued sentences, and
+        mark the utterance cancelled. Playback clips already in the player
+        are dropped on the Qt side, same as a retract.
+
+        Main only did this when the turn had streamed. A tool start from
+        another turn (SMS ingest, a slash command) does not carry
+        ``draft_speech``. A phone turn does not feed the desktop speaker,
+        same as ``on_delta`` and ``on_speak``.
+        """
+        if not event.payload.get("draft_speech"):
+            return
+        if self.config.get("_phone_turn"):
+            return
+        await self.on_retract(event)
 
     async def on_retract(self, event: Event) -> None:
         """Drop buffered and queued speech for text the chat just withdrew.

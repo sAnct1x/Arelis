@@ -307,9 +307,11 @@ def dispatch_event(window: Any, event: Event) -> None:
     elif t == EventType.ASSISTANT_RETRACT:
         if window._mobile_foreign:
             return
-        # The round turned out to be a tool call, so what was on screen was
-        # a preamble. The agent loop mirrors it into the thinking dock.
-        # Drop any speech that streamed from that preamble.
+        # A failed stream, a final answer that does not extend the painted
+        # draft, or a tool call parsed out of the text. A plain re-ask
+        # publishes this and then a wait note, so the bubble is not empty.
+        # A native tool call does not publish this. Drop the bubble and
+        # any speech that streamed from it.
         window.chat.discard_stream()
         window._assistant_streaming = False
         # VoiceService.on_retract already cancelled the withdrawn utterance.
@@ -569,6 +571,19 @@ def dispatch_event(window: Any, event: Event) -> None:
         errand = tool_errand(str(tool or ""), args)
         if errand:
             window.thinking.append(errand, kind="tool")
+        # A kept native draft stays in the bubble. Cancel its playback only
+        # when this turn streamed that draft. Another turn's TOOL_START
+        # (slash, SMS ingest) has no draft_speech flag, and a phone turn
+        # does not use the desktop speaker. Do not call stop_speech: that
+        # stamps the next speak id as cancelled. The errand stays in the
+        # thought line, not on ChatProgress. A partial window used by a
+        # dock test has no player; leave it alone.
+        cfg = getattr(window, "config", None)
+        phone_turn = isinstance(cfg, dict) and bool(cfg.get("_phone_turn"))
+        if p.get("draft_speech") and not phone_turn and hasattr(window, "speech_player"):
+            from arelis.ui.voice_host import stop_playback
+
+            stop_playback(window)
         if str(tool or "") == "workspace" and isinstance(args, dict):
             window._workspace_tool_args = dict(args)
         if str(tool or "") in {"tile", "solar", "earth"} and isinstance(args, dict):

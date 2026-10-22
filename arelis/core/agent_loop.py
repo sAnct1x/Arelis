@@ -549,6 +549,20 @@ _CLOSE_PARTIAL = (
 )
 
 
+def _with_round_gap(previous: str, incoming: str) -> str:
+    """Blank line between a kept draft and the next round's text."""
+    if not previous.strip() or not incoming:
+        return incoming
+    if previous.endswith("\n\n") or incoming.startswith("\n\n"):
+        return incoming
+    if previous.endswith("\n") and incoming.startswith("\n"):
+        return incoming
+    body = incoming.lstrip("\n")
+    if not body:
+        return incoming
+    return "\n\n" + body
+
+
 class _LiveAnswer:
     """Decides which part of a model stream is safe to paint into the chat now.
 
@@ -563,7 +577,10 @@ class _LiveAnswer:
 
     Prose that turns out to be a preamble to a tool call is not handled here.
     It cannot be: at the time the words arrive there is nothing to distinguish
-    them from an answer. The caller retracts them once the round resolves.
+    them from an answer. A native tool call leaves that prose on screen. A
+    call parsed from the text is retracted by the dispatcher, from the
+    parser's source flag. A later finish retracts a kept draft only when
+    the final answer does not extend it.
     """
 
     def __init__(self) -> None:
@@ -725,10 +742,13 @@ class AgentLoop:
       UI clears its busy state on those, so an early return without one leaves
       the composer disabled. terminal_sent records that it happened, so the
       orchestrator does not add a second one on top.
-    - Answer text is streamed as it arrives, but only text that is still a
-      candidate answer. A round that ends in a tool call publishes
-      ASSISTANT_RETRACT, so a preamble never sits in the chat pretending to be
-      the reply.
+    - Answer text is streamed as it arrives. A native tool call leaves that
+      draft on screen until the final answer replaces it. A call parsed from
+      the text is retracted. A plain re-ask retracts that draft only to
+      swap in a short wait note, so the bubble is never empty.
+      ASSISTANT_RETRACT is also for a failed stream, and a final answer
+      that does not extend what was already painted. The next round's
+      text starts a new paragraph when a draft is still up.
     - Confirmation is requested before a write or image call, never after.
     """
 
@@ -800,6 +820,9 @@ class AgentLoop:
         # What is currently painted in the chat bubble, so a hard cancel can
         # keep it instead of replacing a half-written answer with "Stopped."
         self._painted = ""
+        # The next publish of a later round inserts a blank line when this
+        # is set. A tool round that keeps the draft sets it. A retract clears it.
+        self._round_gap = False
         # One line per tool call, carried into memory so the next turn knows
         # which file was written or which page was read.
         self._trace: list[str] = []
@@ -1655,6 +1678,9 @@ class AgentLoop:
         hold_paint = tool_round and bool(
             agent_cfg.get("stream_answer_after_tools", True)
         )
+        # A kept draft is already in the bubble. The next sentence would
+        # run on without a break ("...the weather.Boston is clear").
+        self._round_gap = bool(self._painted.strip()) and not hold_paint
         if tool_round:
             # Stable spot, just after the user line. A trailing copy would
             # move every round and throw away the previous request.
@@ -1730,7 +1756,7 @@ class AgentLoop:
                 if retract:
                     await self._retract()
                 if visible:
-                    await self._publish_delta(visible)
+                    await self._publish_round_text(visible)
             elif kind == "tool_progress":
                 await self._publish_tool_arg_progress(payload)
             elif kind == "cut_short":
@@ -1758,7 +1784,7 @@ class AgentLoop:
             return raw, tool_calls, ""
         tail = live.flush()
         if tail:
-            await self._publish_delta(tail)
+            await self._publish_round_text(tail)
         return raw, tool_calls, live.published
 
     async def _explain_missing_send_sms(self, available_all: set[str]) -> None:
@@ -1825,6 +1851,16 @@ class AgentLoop:
         await self.bus.publish(Event(EventType.THINKING, {"text": label}))
         await self.bus.publish(Event(EventType.STATUS, {"message": label}))
 
+    async def _publish_round_text(self, text: str) -> None:
+        """Publish answer text. A later round starts its own paragraph."""
+        if not text:
+            return
+        if self._round_gap:
+            if self._painted.strip():
+                text = _with_round_gap(self._painted, text)
+            self._round_gap = False
+        await self._publish_delta(text)
+
     async def _publish_delta(self, text: str) -> None:
         from arelis.talk_language import keeps_cjk
         from arelis.voice.speech_text import scrub_cjk_runs
@@ -1840,6 +1876,7 @@ class AgentLoop:
 
     async def _retract(self) -> None:
         """Withdraw everything painted since the last terminal event."""
+        self._round_gap = False
         if not self._painted:
             return
         self._painted = ""

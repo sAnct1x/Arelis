@@ -246,6 +246,22 @@ def _zone_read(path: Path) -> bool:
     return _under_roots(path, _zone_roots())
 
 
+def _cgroup_roots() -> list[Path]:
+    """Kernel CPU quota files pandas 3.1 opens on every read_csv.
+
+    available_cpu_count() reads /sys/fs/cgroup/cpu.max (v2), then the v1
+    quota files, so a default worker count does not oversubscribe a
+    container. Those files are not the user's. The open still fires on
+    Windows and macOS, where the path does not exist.
+    """
+    return [Path("/sys/fs/cgroup")]
+
+
+def _cgroup_read(path: Path) -> bool:
+    """Read-only. A write still has to land in the results folder."""
+    return _under_roots(path, _cgroup_roots())
+
+
 def _library_read(path: Path) -> bool:
     for root in _read_roots():
         if lexically_inside(path, root) and not reparse_leaves(path, root):
@@ -323,7 +339,7 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
         if escapes_tree(path, results):
             raise CellBlocked(WRITE_REFUSAL)
         return
-    if _library_read(path) or _font_read(path) or _zone_read(path):
+    if _library_read(path) or _font_read(path) or _zone_read(path) or _cgroup_read(path):
         return
     if escapes_tree(path, room):
         raise CellBlocked(READ_REFUSAL)
