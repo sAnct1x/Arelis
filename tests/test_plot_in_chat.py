@@ -137,6 +137,22 @@ async def test_plot_file_ready_paints_the_png_in_chat(
     assert "(pa" not in streamed
     assert "!other" in streamed
     assert "fake-plot.png" not in streamed
+    # Tokens faster than the paint interval still have to land before the
+    # stream pauses. Restarting the timer on every delta would hold this
+    # text back until the burst stopped. The gaps stay under the interval,
+    # and together they run longer than two intervals. The last delta is
+    # immediate, so a restarted timer has not fired yet.
+    interval = window.chat._stream_paint.interval()
+    step = max(1, interval // 3)
+    gaps = 7
+    assert step < interval
+    assert gaps * step > 2 * interval
+    window.chat.append_delta("\n\nMIDSTREAM")
+    for _ in range(gaps):
+        QTest.qWait(step)
+        window.chat.append_delta(" x")
+    assert window.chat._stream_open
+    assert "MIDSTREAM" in window.chat.view.toPlainText()
     window.chat.finish_assistant(body)
     qt_app.processEvents()
 

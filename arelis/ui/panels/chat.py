@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import math
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -35,17 +36,18 @@ from arelis.local_open import open_local_file, reveal_local_file
 from arelis.ui.attach_bar import ATTACH_TILE
 from arelis.ui.chat_browser import CHART_SCHEME, ChatBrowser
 from arelis.ui.chat_find import ChatFindBar
-from arelis.ui.markdown import render_markdown
+from arelis.ui.markdown import render_markdown, split_settled_tail
 from arelis.ui.math_images import math_html, prewarm
 from arelis.ui.theme import COLORS, SPACE, color
 from arelis.ui.void_idle import OrbitIdle
 
 
-# The assistant bubble is painted through render_markdown. Deltas restart a
-# short timer instead of repainting every token: a long reply would render
-# every prefix, and a half-typed "**" would flip on each one. Finish, a chart
-# that arrives while the bubble is open, and a tool retract all update
-# immediately. The finished paint does not use the streaming image rule.
+# The assistant bubble is painted through render_markdown. Deltas arm a short
+# timer if one is not already waiting, so a fast stream still paints instead
+# of waiting for a pause. Only the open tail block is replaced; finished
+# blocks stay in the document. Finish, a chart that arrives while the bubble
+# is open, and a tool retract all update immediately. The finished paint does
+# not use the streaming image rule.
 def _ink(name: str, fallback: str = "") -> str:
     return COLORS.get(name) or COLORS.get(fallback) or COLORS["text"]
 
@@ -146,8 +148,15 @@ def _acts_html() -> str:
 
 
 _CARET_GLYPHS = {"▍", "|", "▌"}
-# A burst of tokens shares one paint. 50 ms is about 20 repaints a second.
+# Floor for the stream timer. A burst paints at most about 20 times a second.
+# A slow tail raises the interval so one paint stays under a quarter of the thread.
 _STREAM_PAINT_MS = 50
+_STREAM_BUDGET = 0.25
+_STREAM_PAINT_MAX_MS = 2000
+# Sits between finished blocks and the open tail so a later paint can find
+# the tail without walking the whole reply. Zero-width, streaming only.
+_TAIL_MARKER_NAME = "arelisTail"
+_TAIL_MARKER = f'<a name="{_TAIL_MARKER_NAME}">&#8203;</a>'
 _CHEVRON_CLOSED = ">"
 _CHEVRON_OPEN = "v"
 
@@ -288,6 +297,11 @@ class ChatPanel(QWidget):
         # the raw text streamed into it. Both are None/empty when no bubble is open.
         self._anchor: int | None = None
         self._stream_text: list[str] = []
+        # Source of the blocks already in the document, and the caret position
+        # of the marker in front of the block that is still open.
+        self._settled_source = ""
+        self._settled_charts: tuple[str, ...] = ()
+        self._tail_marker_pos: int | None = None
         # Exact body of the last finalized assistant bubble. A second finish
         # with the same text (ASSISTANT_DONE after _close_stream raced) must not
         # append a duplicate copy below the user line.
@@ -305,8 +319,8 @@ class ChatPanel(QWidget):
         self._caret_timer = QTimer(self)
         self._caret_timer.setInterval(530)
         self._caret_timer.timeout.connect(self._blink_caret)
-        # Single-shot, restarted on each delta. start() resets the interval,
-        # so a burst collapses to one paint about 20 times a second.
+        # Single-shot. Armed only when idle, so a fast stream paints on the
+        # interval instead of pushing the paint out until the tokens pause.
         self._stream_paint = QTimer(self)
         self._stream_paint.setSingleShot(True)
         self._stream_paint.setInterval(_STREAM_PAINT_MS)
@@ -715,6 +729,8 @@ class ChatPanel(QWidget):
         self._stream_open = True
         self._caret_on = True
         self._caret_timer.start()
+        self._reset_stream_cache()
+        self._stream_paint.setInterval(_STREAM_PAINT_MS)
         self._repaint_stream(follow=follow)
 
     def append_delta(self, text: str) -> None:
@@ -725,11 +741,152 @@ class ChatPanel(QWidget):
         self._schedule_stream_paint()
 
     def _schedule_stream_paint(self) -> None:
-        """Restart the short timer so a burst of deltas paints once."""
-        self._stream_paint.start()
+        """Arm the short timer unless one is already waiting.
+
+        ``start`` on a running single-shot timer resets the countdown.
+        Tokens faster than the interval would then never paint, and the
+        caret would sit still until the stream paused. Leaving the
+        running timer alone caps the rate at one paint per interval.
+        """
+        if not self._stream_paint.isActive():
+            self._stream_paint.start()
 
     def _cancel_stream_paint(self) -> None:
         self._stream_paint.stop()
+
+    def _reset_stream_cache(self) -> None:
+        self._settled_source = ""
+        self._settled_charts = ()
+        self._tail_marker_pos = None
+
+    def _note_paint_cost(self, seconds: float) -> None:
+        """Lengthen the interval when a paint would hog the GUI thread.
+
+        The floor stays ``_STREAM_PAINT_MS``. A heavy tail (one long open
+        block) waits long enough that the paint is under about a quarter
+        of the thread. The next cheap paint puts the floor back.
+        """
+        need = math.ceil(seconds * 1000 / _STREAM_BUDGET) if seconds > 0 else 0
+        interval = need if need > _STREAM_PAINT_MS else _STREAM_PAINT_MS
+        if interval > _STREAM_PAINT_MAX_MS:
+            interval = _STREAM_PAINT_MAX_MS
+        if self._stream_paint.interval() != interval:
+            self._stream_paint.setInterval(interval)
+
+    def _paint_stream_body(self, settled: str, tail: str) -> None:
+        """Write finished blocks once, and replace only the open tail.
+
+        A chart that shows up after a block was committed changes how that
+        block reads, so the whole bubble is written again in that case.
+        """
+        charts = tuple(self._shown_charts)
+        tail_html = _stream_fragment(tail, charts, caret=self._caret_on, streaming=True)
+        marker = self._tail_marker_pos
+        same = charts == self._settled_charts and marker is not None
+        if same and settled.startswith(self._settled_source):
+            if settled == self._settled_source:
+                if self._replace_from_marker(marker, tail_html, keep_marker=True) is not None:
+                    return
+            else:
+                extra = settled[len(self._settled_source) :]
+                extra_html = _stream_fragment(extra, charts, caret=False, streaming=False)
+                html = extra_html + _TAIL_MARKER + tail_html
+                found = self._replace_from_marker(marker, html, keep_marker=False)
+                if found is not None:
+                    self._tail_marker_pos = found
+                    self._settled_source = settled
+                    return
+        html = (
+            _assistant_open()
+            + _stream_fragment(settled, charts, caret=False, streaming=False)
+            + _TAIL_MARKER
+            + tail_html
+            + _ASSISTANT_CLOSE
+        )
+        self._replace_from_anchor(html)
+        cell = self._bubble_cell()
+        self._tail_marker_pos = self._find_tail_marker(cell) if cell is not None else None
+        self._settled_source = settled
+        self._settled_charts = charts
+
+    def _replace_from_marker(
+        self, marker: int, html: str, *, keep_marker: bool
+    ) -> int | None:
+        """Replace the open tail. ``keep_marker`` leaves the marker in place.
+
+        Returns the marker position, or None when the bubble has to be
+        written from the top instead.
+        """
+        if not self._marker_is_at(marker):
+            return None
+        cell = self._bubble_cell()
+        if cell is None:
+            return None
+        end = cell.lastCursorPosition().position()
+        start = marker + 1 if keep_marker else marker
+        if start > end:
+            start = end
+        cursor = self.view.textCursor()
+        cursor.setPosition(start)
+        if end > start:
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            cursor.removeSelectedText()
+        if html:
+            cursor.insertHtml(html)
+        if keep_marker:
+            return marker if self._marker_is_at(marker) else None
+        cell = self._bubble_cell()
+        if cell is None:
+            return None
+        return self._find_tail_marker(cell)
+
+    def _bubble_cell(self):
+        """The assistant cell written after ``_anchor``, not the name label."""
+        anchor = self._anchor
+        if anchor is None:
+            return None
+        found = None
+
+        def walk(frame) -> None:
+            nonlocal found
+            if found is not None:
+                return
+            it = frame.begin()
+            while not it.atEnd() and found is None:
+                child = it.currentFrame()
+                it += 1
+                if child is None:
+                    continue
+                if isinstance(child, QTextTable) and child.firstPosition() >= anchor:
+                    found = child
+                    return
+                walk(child)
+
+        walk(self.view.document().rootFrame())
+        if found is None:
+            return None
+        return found.cellAt(0, 0)
+
+    def _marker_is_at(self, pos: int) -> bool:
+        doc = self.view.document()
+        if pos < 0 or pos >= doc.characterCount():
+            return False
+        cursor = QTextCursor(doc)
+        cursor.setPosition(pos)
+        names = cursor.charFormat().anchorNames()
+        return bool(names) and _TAIL_MARKER_NAME in names and doc.characterAt(pos) == "\u200b"
+
+    def _find_tail_marker(self, cell) -> int | None:
+        doc = self.view.document()
+        start = cell.firstCursorPosition().position()
+        end = cell.lastCursorPosition().position()
+        cursor = QTextCursor(doc)
+        for pos in range(end, start - 1, -1):
+            cursor.setPosition(pos)
+            names = cursor.charFormat().anchorNames()
+            if names and _TAIL_MARKER_NAME in names and doc.characterAt(pos) == "\u200b":
+                return pos
+        return None
 
     def _flush_stream_paint(self) -> None:
         """Paint the open bubble now.
@@ -742,27 +899,24 @@ class ChatPanel(QWidget):
         self._repaint_stream()
 
     def _repaint_stream(self, *, follow: bool | None = None) -> None:
-        """Repaint the open bubble with the streaming renderer.
+        """Repaint the open tail of the bubble.
 
-        The caret is part of that HTML. Replacing from the anchor drops the
-        previous draft, including a caret that was not the last character,
-        and writes the current text again. Scroll follow is sampled here,
-        before that replacement, unless the caller already sampled it.
+        Finished blocks stay in the document. The caret is part of the tail
+        HTML, so a blink rewrites that tail and not the reply above it.
+        Scroll follow is sampled here, before the replacement, unless the
+        caller already sampled it.
         """
         if not self._stream_open:
             return
+        started = time.perf_counter()
         if follow is None:
             follow = self._near_bottom()
         self.view.arm_math()
-        self._replace_from_anchor(
-            _assistant_body_html(
-                "".join(self._stream_text),
-                self._shown_charts,
-                caret=self._caret_on,
-                streaming=True,
-            )
-        )
+        source = "".join(self._stream_text)
+        settled, tail = split_settled_tail(source)
+        self._paint_stream_body(settled, tail)
         self._scroll(follow=follow)
+        self._note_paint_cost(time.perf_counter() - started)
 
     def finish_assistant(self, text: str | None = None) -> None:
         """Replace the streamed draft with the rendered answer.
@@ -774,6 +928,7 @@ class ChatPanel(QWidget):
         """
         self._cancel_stream_paint()
         self._stop_caret()
+        self._reset_stream_cache()
         body = text or "".join(self._stream_text)
         if not self._stream_open and not body:
             self._flush_pending_notices()
@@ -815,6 +970,7 @@ class ChatPanel(QWidget):
         """
         self._cancel_stream_paint()
         self._stop_caret()
+        self._reset_stream_cache()
         if not self._stream_open:
             return
         self._replace_from_anchor("")
@@ -1030,6 +1186,8 @@ class ChatPanel(QWidget):
         """
         self._cancel_stream_paint()
         self._stop_caret()
+        self._reset_stream_cache()
+        self._stream_paint.setInterval(_STREAM_PAINT_MS)
         self.clear_progress()
         self._cancel_message_fade()
         self._stream_open = False
@@ -1301,6 +1459,27 @@ def _user_bubble_html(
 
 def _caret_html() -> str:
     return f'<span id="arelisCaret" style="color:{_ink("accent")};">▍</span>'
+
+
+def _stream_fragment(
+    text: str,
+    shown_files: Iterable[str] | None,
+    *,
+    caret: bool,
+    streaming: bool,
+) -> str:
+    """One slice of the open bubble. The caret belongs to the tail only."""
+    body = ""
+    if text:
+        body = render_markdown(
+            text,
+            math=math_html,
+            shown_files=shown_files,
+            streaming=streaming,
+        )
+    if caret:
+        body += _caret_html()
+    return body
 
 
 def _assistant_body_html(
