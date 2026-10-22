@@ -46,7 +46,11 @@ _COLORBLIND = (
     "#F0E442",
 )
 # title, axis label, tick. All larger than Matplotlib's 12 / 10 / 10.
+# Default is the chat PNG: 8 in by 5 in at 120 dpi (960x600). Those stock
+# sizes vanish when the bubble shrinks the file, so default type is closer
+# to a poster than to the library.
 _LOOK_FONTS = {
+    "default": (20, 18, 16),
     "poster": (22, 18, 16),
     "paper": (16, 14, 12),
     "slide": (26, 20, 18),
@@ -99,18 +103,21 @@ def _parse_look(raw: Any) -> str:
 
 
 def _look_rc(look: str) -> dict[str, Any]:
-    if look == "default":
-        return {}
-    from cycler import cycler
-
     title, label, tick = _LOOK_FONTS[look]
-    return {
+    fonts = {
         "font.size": tick,
         "axes.titlesize": title,
         "axes.labelsize": label,
         "xtick.labelsize": tick,
         "ytick.labelsize": tick,
         "legend.fontsize": label,
+    }
+    if look == "default":
+        return fonts
+    from cycler import cycler
+
+    return {
+        **fonts,
         "axes.prop_cycle": cycler(color=list(_COLORBLIND)),
     }
 

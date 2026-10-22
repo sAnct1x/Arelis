@@ -25,6 +25,17 @@ def _tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[PlotTool, Pa
     return tool, drop
 
 
+def _rc_pt(name: str) -> float:
+    """Matplotlib size as points. Stock defaults are names such as medium."""
+    from matplotlib import font_manager, rcParams
+
+    raw = rcParams[name]
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return float(font_manager.FontProperties(size=raw).get_size_in_points())
+
+
 def _load_rgb(path: Path) -> np.ndarray:
     import matplotlib.image as mpimg
 
@@ -89,5 +100,35 @@ async def test_histogram_from_inline_numbers_writes_bars(tmp_path, monkeypatch) 
     assert line.ok
     diff = np.abs(_load_rgb(written) - _load_rgb(drop / "same-data-line.png")).mean()
     assert diff > 0.02, "histogram must not be a line chart in disguise"
+
+
+@pytest.mark.asyncio
+async def test_default_chat_chart_type_is_larger_than_stock_matplotlib(
+    tmp_path, monkeypatch
+) -> None:
+    """Default look used to keep 10pt ticks on the 960x600 chat PNG."""
+    from arelis.tools.plot import _look_context
+
+    tool, drop = _tool(tmp_path, monkeypatch)
+    result = await tool.run(
+        action="line",
+        xs="0,1,2,3",
+        ys="1,3,2,5",
+        title="Sales",
+        xlabel="Month",
+        ylabel="Count",
+        out="chat.png",
+    )
+    assert result.ok, result.output
+    chat = drop / "chat.png"
+    assert chat.is_file()
+    rgb = _load_rgb(chat)
+    assert rgb.shape[0] == 600 and rgb.shape[1] == 960
+    with _look_context("default"):
+        assert _rc_pt("xtick.labelsize") >= 16
+        assert _rc_pt("ytick.labelsize") >= 16
+        assert _rc_pt("legend.fontsize") >= 18
+        assert _rc_pt("axes.titlesize") >= 20
+        assert _rc_pt("axes.labelsize") >= 18
 
 
