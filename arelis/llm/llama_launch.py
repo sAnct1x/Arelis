@@ -1,9 +1,10 @@
 """Launch line for the 35B llama-server.
 
 Config C at ncmoe 32. Q8 mmproj, flash attention off, 1024 image tokens,
-f16 KV, context 32768, batch 4096, ubatch 512. The patched template stays:
-``--jinja``, and ``qwen36_35b_insys.jinja`` beside the weights when that
-file is already there.
+f16 KV, context 32768, batch 4096, ubatch 512. 512 was measured on the
+target machine. 1024 used 11.88 GB at peak, over the 11.2 GB memory budget.
+The patched template stays: ``--jinja``, and ``qwen36_35b_insys.jinja``
+beside the weights when that file is already there.
 
 The picture file sits in the same directory as the model GGUF. If it is
 missing, it is downloaded there once. Arelis starts llama-server only when
@@ -97,9 +98,8 @@ def llama_server_args(
         "1",
         "--n-cpu-moe",
         "32",
-        # Physical batch of 512. 2048 made Vulkan drop the device around
-        # 20k context, and the device stayed lost. Atria still has to
-        # confirm this number on the real card.
+        # 512 was measured on the target machine. 1024 used 11.88 GB
+        # at peak, over the 11.2 GB memory budget.
         "-ub",
         "512",
         "-b",
