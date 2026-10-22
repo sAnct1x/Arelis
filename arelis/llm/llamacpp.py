@@ -44,6 +44,9 @@ _FALLBACK_CONTEXT_TOKENS = 8192
 _PROBE_TIMEOUT_S = 5.0
 # Failed probe. Retry lazily on the next embed attempt; no background thread.
 _EMBED_PROBE_RETRY_S = 60.0
+# Chat shimmer while tool arguments stream. One yield per this many new
+# characters, not one per token, so the line does not repaint on every slice.
+_TOOL_ARG_PROGRESS_CHARS = 64
 
 _SAMPLING = {
     "temperature": "temperature",
@@ -289,6 +292,44 @@ def _sampling(options: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+def _arg_chars(fn: dict[str, Any]) -> int:
+    """Characters of argument text accumulated on one tool call.
+
+    Streamed slices live in ``_args_raw`` and are not parsed. A complete
+    object that arrived in one chunk is measured with ``json.dumps``.
+    """
+    raw = fn.get("_args_raw")
+    if isinstance(raw, str):
+        return len(raw)
+    args = fn.get("arguments")
+    if isinstance(args, dict) and args:
+        try:
+            return len(json.dumps(args, separators=(",", ":")))
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def _tool_arg_progress(calls: list[dict[str, Any]]) -> tuple[str, int] | None:
+    """Tool name and argument characters so far. Does not parse the JSON."""
+    name = ""
+    chars = 0
+    for call in calls:
+        fn = call.get("function")
+        if not isinstance(fn, dict):
+            continue
+        n = _arg_chars(fn)
+        if n < chars:
+            continue
+        chars = n
+        slot_name = fn.get("name")
+        if slot_name:
+            name = str(slot_name)
+    if not name or chars <= 0:
+        return None
+    return name, chars
+
+
 def _openai_vectors(payload: Any, count: int, model: str) -> list[list[float]]:
     """Read OpenAI ``/v1/embeddings`` ``data[].embedding``, ordered by index."""
     rows = payload.get("data") if isinstance(payload, dict) else None
@@ -431,9 +472,15 @@ class LlamaCppProvider:
         tools: list[dict[str, Any]] | None = None,
         think: bool | None = None,
     ) -> AsyncIterator[tuple[str, Any]]:
-        """Yield thinking, token, metrics, and tool_calls.
+        """Yield thinking, token, metrics, tool progress, and tool_calls.
 
         ``keep_alive`` is ignored. llama-server keeps the model until it exits.
+        Argument deltas are merged as they arrive. A throttled
+        ``tool_progress`` yield carries the tool name and how many argument
+        characters have landed. That yield is not a call. ``tool_calls`` is
+        still yielded once, after the stream ends, and only then are the
+        arguments parsed. A finish reason of length yields ``cut_short``
+        before ``tool_calls``.
         """
         del keep_alive
         payload: dict[str, Any] = {
@@ -450,6 +497,8 @@ class LlamaCppProvider:
 
         accumulated: list[dict[str, Any]] = []
         done_metrics: dict[str, Any] | None = None
+        progress_at = 0
+        stopped_on_length = False
         async with self._client.stream(
             "POST", "/v1/chat/completions", json=payload
         ) as response:
@@ -505,7 +554,10 @@ class LlamaCppProvider:
                 choices = data.get("choices") or []
                 if not choices or not isinstance(choices[0], dict):
                     continue
-                delta = choices[0].get("delta") or {}
+                choice = choices[0]
+                if choice.get("finish_reason") == "length":
+                    stopped_on_length = True
+                delta = choice.get("delta") or {}
                 if not isinstance(delta, dict):
                     continue
                 thinking = delta.get("reasoning_content") or delta.get("reasoning") or ""
@@ -517,9 +569,20 @@ class LlamaCppProvider:
                     yield ("token", content)
                 if tool_calls:
                     _merge_tool_calls(accumulated, tool_calls)
+                    snap = _tool_arg_progress(accumulated)
+                    if snap is not None:
+                        tool_name, tool_chars = snap
+                        if tool_chars - progress_at >= _TOOL_ARG_PROGRESS_CHARS:
+                            progress_at = tool_chars
+                            yield (
+                                "tool_progress",
+                                {"name": tool_name, "chars": tool_chars},
+                            )
 
         if done_metrics is not None:
             yield ("metrics", done_metrics)
+        if stopped_on_length:
+            yield ("cut_short", "length")
         finalized = _finalize_tool_calls(accumulated)
         if finalized:
             yield ("tool_calls", finalized)

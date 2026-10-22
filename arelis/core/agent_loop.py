@@ -91,6 +91,35 @@ _MAX_THINKING_SNIPPET = 240
 # delay. See _LiveAnswer.
 _STREAM_DECIDE_CHARS = 20
 
+# Chat rounds used to omit num_predict, so one reply could run until the
+# context window filled. Sent as max_tokens on those rounds only. The
+# rolling summary has its own time budget and does not take this cap.
+_CHAT_MAX_TOKENS = 8192
+
+_CUT_SHORT_NOTE = "The answer was cut short."
+
+# Plain names for tools whose arguments are long enough to look like a hang.
+# Anything else stays generic so a raw tool id never lands in the chat.
+_TOOL_ARG_LABELS: dict[str, str] = {
+    "document": "the document",
+    "workspace": "the file",
+    "pdf": "the PDF",
+    "notes": "the note",
+    "send_email": "the email",
+    "send_sms": "the text",
+    "research_report": "the report",
+    "plot": "the chart",
+}
+
+
+def _tool_arg_progress_line(name: str, chars: int) -> str:
+    count = str(chars)
+    label = _TOOL_ARG_LABELS.get(name)
+    if label:
+        return f"Writing {label}, {count} characters so far"
+    return f"Still writing, {count} characters so far"
+
+
 # Tools whose results are web sources and therefore have to be citable.
 _WEB_TOOLS = {"web_fetch", "scrape", "research_report", "browser"}
 
@@ -751,9 +780,11 @@ class AgentLoop:
             vision_tool.is_cancelled = is_cancelled
         self.json_fallback = bool(agent.get("json_fallback", True))
         self.terminal_sent = False
-        # First model token, thinking chunk, or tool call of this turn.
-        # Voice merge is allowed only while this is still false.
+        # First model token, thinking chunk, tool call, or argument progress
+        # of this turn. Voice merge is allowed only while this is still false.
         self.model_started = False
+        self._cut_short_noted = False
+        self._tool_arg_line = ""
         # Set when a continuation cancels this call to rerun it combined.
         # The cancel must not paint "Stopped."
         self.restart_quietly = False
@@ -1541,9 +1572,19 @@ class AgentLoop:
             return "", []
         return _parse_summary_response("".join(parts))
 
-    def _stream_options(self, *, tools: bool = False) -> dict[str, Any] | None:
-        """Turn-sticky num_ctx; lower temperature on tool-bearing rounds."""
+    def _stream_options(
+        self, *, tools: bool = False, reply_cap: bool = False
+    ) -> dict[str, Any] | None:
+        """Turn-sticky num_ctx, and cooler temperature on tool rounds.
+
+        Chat rounds pass ``reply_cap`` so llama-server gets max_tokens.
+        Without it a chat turn runs until the context window is full. The
+        rolling summary calls this helper without that flag: it already has
+        a time budget, and the chat cap must not apply there.
+        """
         opts: dict[str, Any] = {}
+        if reply_cap:
+            opts["num_predict"] = _CHAT_MAX_TOKENS
         ctx = getattr(self, "_turn_num_ctx", None)
         if ctx is not None:
             opts["num_ctx"] = int(ctx)
@@ -1655,7 +1696,7 @@ class AgentLoop:
         self._think_off_next = False
         stream_kwargs: dict[str, Any] = {
             "tools": tools,
-            "options": self._stream_options(tools=bool(tools)),
+            "options": self._stream_options(tools=bool(tools), reply_cap=True),
         }
         if think is not None:
             stream_kwargs["think"] = think
@@ -1666,7 +1707,10 @@ class AgentLoop:
         ):
             # Before any await, so a continuation arriving on the next tick
             # sees that the model has already started answering.
-            if kind in {"token", "thinking", "tool_calls"} and payload:
+            if kind == "cut_short" or (
+                kind in {"token", "thinking", "tool_calls", "tool_progress"}
+                and payload
+            ):
                 self.model_started = True
             if self.is_cancelled():
                 raise _StoppedError
@@ -1687,6 +1731,10 @@ class AgentLoop:
                     await self._retract()
                 if visible:
                     await self._publish_delta(visible)
+            elif kind == "tool_progress":
+                await self._publish_tool_arg_progress(payload)
+            elif kind == "cut_short":
+                await self._publish_cut_short()
             elif kind == "tool_calls":
                 tool_calls = list(payload or [])
                 if hold_paint and tool_calls:
@@ -1734,6 +1782,40 @@ class AgentLoop:
             )
         await self.bus.publish(Event(EventType.THINKING, {"text": f"sms  {reason}"}))
         await self.bus.publish(Event(EventType.STATUS, {"message": reason}))
+
+    async def _publish_tool_arg_progress(self, payload: Any) -> None:
+        """Chat shimmer while tool arguments are still streaming.
+
+        Not THINKING and not STATUS. STATUS would restart the longer
+        first-token allowance, and THINKING paints the dock. The watchdog
+        treats this event like a streamed token and restarts the 60s idle
+        gap. The absolute cap is unchanged.
+        """
+        if not isinstance(payload, dict):
+            return
+        name = str(payload.get("name") or "").strip()
+        try:
+            chars = int(payload.get("chars") or 0)
+        except (TypeError, ValueError):
+            return
+        if not name or chars <= 0:
+            return
+        line = _tool_arg_progress_line(name, chars)
+        if line == getattr(self, "_tool_arg_line", ""):
+            return
+        self._tool_arg_line = line
+        await self.bus.publish(
+            Event(EventType.TOOL_ARG_PROGRESS, {"message": line})
+        )
+
+    async def _publish_cut_short(self) -> None:
+        """Tell the person the reply hit the length cap. Once per turn."""
+        if getattr(self, "_cut_short_noted", False):
+            return
+        self._cut_short_noted = True
+        await self.bus.publish(
+            Event(EventType.REPLY_NOTE, {"message": _CUT_SHORT_NOTE})
+        )
 
     async def _publish_tool_intent(self, tool_calls: list[dict[str, Any]]) -> None:
         """Surface a short status as soon as a tool call is parsed (felt latency)."""
