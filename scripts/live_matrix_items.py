@@ -637,10 +637,11 @@ ITEMS = [
     ),
     C(
         "C03_python_plot_document",
-        "python>plot>document",
+        "python>document",
         "Using python compute the squares of 1 through 8, then plot those squares as a line chart, then create a markdown document titled Squares Report that mentions the chart.",
-        ["python", "plot", "document"],
-        files=[(".png", ""), (".md", "square")],
+        ["python", "document"],
+        files=[(".png", ""), (".md", "square"), (".md", "chart")],
+        notes="The chart may be a python savefig. A plot call in between still passes.",
     ),
     C(
         "C04_ocr_calculator",
