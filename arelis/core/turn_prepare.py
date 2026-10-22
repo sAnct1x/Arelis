@@ -462,6 +462,152 @@ def _date_ask_ratio_block(user_text: str, expression: str) -> str | None:
     return None
 
 
+_ASK_BODY_BLANK = re.compile(r"\n[ \t]*\n")
+_HTTP_URL = re.compile(r"https?://\S+", re.I)
+_PASTE_IS_NOT_A_FETCH = frozenset({"web", "attachments"})
+_SHORT_BLOCK_CHARS = 280
+_LARGE_BODY_CHARS = 400
+
+
+@dataclass(frozen=True)
+class _AskSplit:
+    instruction: str
+    body: str
+    trailing: str
+
+
+def split_user_ask(text: str) -> tuple[str, str]:
+    """Split a short instruction from a pasted body, when one is present.
+
+    Structural: a large middle with a short first block and/or a short last
+    block. The instruction is those short ends. The body is only the middle.
+    When there is no dump, the whole text is the instruction. The paste is
+    not truncated for the model; callers classify on the instruction only.
+    """
+    parts = _split_user_ask(text)
+    return parts.instruction, parts.body
+
+
+def _split_user_ask(text: str) -> _AskSplit:
+    raw = (text or "").strip()
+    if not raw:
+        return _AskSplit("", "", "")
+    blocks = [part.strip() for part in _ASK_BODY_BLANK.split(raw) if part.strip()]
+    if len(blocks) >= 2:
+        found = _ends_around_body(blocks)
+        if found is not None:
+            return found
+        return _AskSplit(raw, "", "")
+    found = _line_ends_around_body(raw)
+    if found is not None:
+        return found
+    return _AskSplit(raw, "", "")
+
+
+def _is_short_block(text: str) -> bool:
+    if not text:
+        return False
+    if text.count("\n") > 2 or len(text) > _SHORT_BLOCK_CHARS:
+        return False
+    return True
+
+
+def _is_large_body(body: str, instruction: str) -> bool:
+    if not body:
+        return False
+    if len(body) < _LARGE_BODY_CHARS:
+        return False
+    if len(body) < 4 * max(len(instruction), 1):
+        return False
+    return True
+
+
+def _join_instruction(*parts: str) -> str:
+    return "\n\n".join(part for part in parts if part)
+
+
+def _ends_around_body(blocks: list[str]) -> _AskSplit | None:
+    first = blocks[0]
+    last = blocks[-1]
+    first_short = _is_short_block(first)
+    last_short = _is_short_block(last)
+    if len(blocks) == 2:
+        if first_short and last_short:
+            return None
+        if first_short and _is_large_body(last, first):
+            return _AskSplit(first, last, "")
+        if last_short and _is_large_body(first, last):
+            return _AskSplit(last, first, last)
+        return None
+    middle = "\n\n".join(blocks[1:-1])
+    if first_short and last_short:
+        instruction = _join_instruction(first, last)
+        if _is_large_body(middle, instruction):
+            return _AskSplit(instruction, middle, last)
+    if first_short and not last_short:
+        rest = "\n\n".join(blocks[1:])
+        if _is_large_body(rest, first):
+            return _AskSplit(first, rest, "")
+    if last_short and not first_short:
+        rest = "\n\n".join(blocks[:-1])
+        if _is_large_body(rest, last):
+            return _AskSplit(last, rest, last)
+    return None
+
+
+def _line_ends_around_body(raw: str) -> _AskSplit | None:
+    line, _sep, rest = raw.partition("\n")
+    head = line.strip()
+    tail = rest.strip()
+    if not tail or not _is_short_block(head):
+        return None
+    last_line, _last_sep, prefix_rev = tail[::-1].partition("\n")
+    last = last_line[::-1].strip()
+    mid = prefix_rev[::-1].strip()
+    if mid and _is_short_block(last):
+        instruction = _join_instruction(head, last)
+        if _is_large_body(mid, instruction):
+            return _AskSplit(instruction, mid, last)
+    if _is_large_body(tail, head):
+        return _AskSplit(head, tail, "")
+    return None
+
+
+def _trailing_selects_web(
+    trailing: str,
+    available_tools: set[str] | None,
+) -> bool:
+    """True when the last short block alone is a web ask, not a byline."""
+    if not trailing:
+        return False
+    ids, fallback_only = select_skill_ids_detailed(
+        trailing, available_tools=available_tools
+    )
+    return bool(not fallback_only and "web" in ids)
+
+
+def _body_already_here(
+    instruction: str,
+    provided_body: str,
+    *,
+    trailing: str,
+    available_tools: set[str] | None,
+) -> bool:
+    """True when a pasted body is the page and this ask is not a fetch.
+
+    A URL in the instruction is a fetch. A trailing block that alone
+    selects web is a live fetch after the paste. Other short last
+    blocks (bylines, sign-offs, CAS) keep the page as already here.
+    """
+    if not provided_body:
+        return False
+    if _HTTP_URL.search(instruction or ""):
+        return False
+    if _trailing_selects_web(trailing, available_tools):
+        return False
+    return True
+
+
 async def prepare_turn(
     loop: Any,
     text: str,
@@ -512,12 +658,31 @@ async def prepare_turn(
     # Mixing them into skill_ids made select_plan treat the lean as
     # this-turn intent, so an analysis room demanded a CSV on
     # "how do toroids relate to physics?".
-    skill_ids, fallback_only = select_skill_ids_detailed(text, available_tools=available)
+    # Classifiers read the instruction only. A pasted article that says
+    # "article" or "integral of" is not this-turn intent. A short last
+    # block after the dump is part of that instruction.
+    parts = _split_user_ask(text)
+    instruction, provided_body = parts.instruction, parts.body
+    classify_text = instruction or text
+    body_already_here = _body_already_here(
+        instruction,
+        provided_body,
+        trailing=parts.trailing,
+        available_tools=available,
+    )
+    skill_ids, fallback_only = select_skill_ids_detailed(
+        classify_text, available_tools=available
+    )
     # The unmatched "what is" web floor is a tool-menu hint, not a scrape
     # plan. Clock asks already special-case this; definitional physics
     # questions used to get the same cage once room extras stopped
     # suppressing the fallback.
     plan_ids = () if fallback_only else skill_ids
+    if body_already_here:
+        # The page is already in the message. A web card from "article" in
+        # the instruction, or attachments from "summarize this", is a menu
+        # hint, not a scrape or file-read plan. Plot and CAS stay on plan_ids.
+        plan_ids = [sid for sid in plan_ids if sid not in _PASTE_IS_NOT_A_FETCH]
     # Short thanks/bye must not revive weather (or a stale web_search habit).
     if looks_like_closing_chitchat(text):
         available = set(available)
@@ -591,7 +756,9 @@ async def prepare_turn(
         skill_ids=skill_ids,
     )
     exact_cfg = bool(agent_cfg.get("exactness", True))
-    exact_need = detect_exactness_need(text, data_cell="data_cell" in set(visible))
+    exact_need = detect_exactness_need(
+        classify_text, data_cell="data_cell" in set(visible)
+    )
     from arelis.core.turn_scratch import staged_file_rows
 
     ctx = TurnContext(
@@ -621,7 +788,9 @@ async def prepare_turn(
         exact_need=exact_need,
         goal=turn_goal,
     )
-    exact_need = apply_research_web_need(exact_need, research_mode=research_mode, text=text)
+    exact_need = apply_research_web_need(
+        exact_need, research_mode=research_mode, text=classify_text
+    )
     ctx.exact_need = exact_need
     # News / current-events turns should not end on search snippets alone.
     wants_fresh_page = (
@@ -629,7 +798,7 @@ async def prepare_turn(
         or research_mode
         or (not fallback_only and "web" in skill_ids)
         or ("research" in skill_ids)
-        or wants_fresh_page_ask(text)
+        or wants_fresh_page_ask(classify_text)
     )
     # "weather today" must not arm scrape-after-search.
     if exact_need.needs_weather or (
@@ -640,6 +809,9 @@ async def prepare_turn(
         wants_fresh_page = False
     # A YouTube / Chrome drive is not a scrape-the-web turn.
     if "browser" in loop._expected_tools:
+        wants_fresh_page = False
+    if body_already_here:
+        # They already pasted the page. A URL-less instruction is not a fetch.
         wants_fresh_page = False
     # Chat fast path still skips the tool round and hold-paint. Schemas stay
     # on anyway: dropping them changes the front of the prompt.
