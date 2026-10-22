@@ -216,7 +216,15 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
         if fut is not None:
             fut.result(timeout=15)
         fut = None
-
+        # publish only queues TOOL_RESULT. fut.result returns before the
+        # mirror records it, and that append can land after text_mark.
+        assert QTest.qWaitFor(
+            lambda: EventType.TOOL_RESULT in seen,
+            5000,
+        ), (
+            "native tool result was not in seen; "
+            f"events={[item.value for item in seen]}"
+        )
         text_mark = len(seen)
         release2 = asyncio.Event()
 
