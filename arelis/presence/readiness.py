@@ -446,6 +446,7 @@ async def _probe_embed_ready(config: dict[str, Any], provider: Any) -> bool | No
         try:
             return bool(await refresh())
         except Exception as exc:
+            # The embed server being down is normal. The chip already says off.
             log.info("Readiness embed probe failed: %s", exc)
             return False
     return bool(getattr(provider, "embeds", False))

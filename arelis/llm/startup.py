@@ -124,6 +124,7 @@ async def listed_server_models(provider: Any) -> list[str]:
     try:
         extra = await extra_fn()
     except Exception:
+        # /props is optional. The /v1/models ids are enough to match.
         return names
     seen = set(names)
     for item in extra:
