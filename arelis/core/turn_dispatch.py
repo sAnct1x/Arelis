@@ -181,10 +181,13 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
     so they read and write it on ``r`` rather than on locals a ``finally``
     then has to copy back.
     """
-    # The round was a tool call, so anything already painted was a
-    # preamble rather than an answer. Take it off the screen and put it
-    # in the thinking dock, which is where a model narrating itself
-    # belongs.
+    # Native calls leave the draft up. A call parsed out of the text
+    # (the parser sets from_text) is the markup, or the prose in front
+    # of it, and only a leading "{" or fence was held back. Retract that.
+    # _finish still retracts when a kept draft is not the final answer.
+    # Speech for a kept draft is cancelled when the tool starts.
+    if r.calls_from_text and r.streamed.strip():
+        await loop._retract()
     if loop._timer is not None:
         loop._timer.mark(
             "round",
@@ -194,7 +197,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             calls=len(r.calls),
         )
     if r.streamed.strip():
-        await loop._retract()
         await loop.bus.publish(
             Event(
                 EventType.THINKING,

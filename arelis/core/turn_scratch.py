@@ -90,6 +90,9 @@ class RoundScratch:
     calls: list[tuple[str, dict[str, Any]]]
     tool_calls: list[dict[str, Any]]
     round_ms: int
+    # Set from the parser's from_text flag. Native tool_calls leave it
+    # false. dispatch_calls retracts only when this is true.
+    calls_from_text: bool = False
     # Same one-shot as sms_preinject. Defaulted so a scratch built by a
     # caller that lists fields by name still constructs; run_round passes it.
     weather_preinject: dict[str, Any] | None = None

@@ -174,7 +174,18 @@ async def test_tool_call_on_a_plain_retry_is_not_executed() -> None:
     later = router.stream_messages[3]
     assert later[: len(earlier)] == earlier
     tool_rows = [row for row in later if row.get("role") == "tool"]
-    assert len(tool_rows) == 1
+    applied = [
+        row
+        for row in tool_rows
+        if "not applied" not in str(row.get("content") or "")
+    ]
+    discarded = [
+        row
+        for row in tool_rows
+        if "not applied" in str(row.get("content") or "")
+    ]
+    assert len(applied) == 1
+    assert discarded, tool_rows
     _assert_same_tools(router, loop, 2)
     _assert_same_tools(router, loop, 3)
     _assert_plain_nudge(router, 2)

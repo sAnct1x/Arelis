@@ -59,6 +59,19 @@ _PATH_TOKEN = re.compile(r"""(?:[A-Za-z]:[\\/]|\\\\|[/\\])[^\s'"]+|\b[\w.-]+[/\\
 _NUMBER_TOKEN = re.compile(r"\d+")
 
 
+def _tool_start_event(loop: Any, tool: str, args: dict[str, Any]) -> Event:
+    """TOOL_START. draft_speech only when this turn already streamed a draft.
+
+    Slash commands and SMS ingest publish TOOL_START without that flag, so
+    they do not cancel an earlier reply that is still being spoken. A phone
+    turn can set the flag, and the voice handler still skips it.
+    """
+    payload: dict[str, Any] = {"tool": tool, "args": args}
+    if str(getattr(loop, "_painted", "") or "").strip():
+        payload["draft_speech"] = True
+    return Event(EventType.TOOL_START, payload)
+
+
 def _refusal_text(raw: str) -> str:
     """Collapse whitespace, then drop numbers and paths.
 
@@ -208,7 +221,7 @@ async def execute_call(
     sms_draft = r.sms_draft
     email_draft = r.email_draft
     try:
-        await loop.bus.publish(Event(EventType.TOOL_START, {"tool": name, "args": args}))
+        await loop.bus.publish(_tool_start_event(loop, name, args))
         if loop._look is not None and name == "vision":
             await loop.bus.publish(
                 Event(
@@ -1108,7 +1121,7 @@ async def _login_check_hop(
     await loop.bus.publish(
         Event(EventType.THINKING, {"text": "login check; opening sign-in"})
     )
-    await loop.bus.publish(Event(EventType.TOOL_START, {"tool": "browser", "args": hop}))
+    await loop.bus.publish(_tool_start_event(loop, "browser", hop))
     t0 = time.perf_counter()
     result = await loop.tools.call("browser", **hop)
     ms = int((time.perf_counter() - t0) * 1000)
