@@ -43,7 +43,9 @@ _OPTIONAL_SYSTEMS = frozenset({"calendar", "sms", "mail"})
 
 def _rank(status: str) -> int:
     # Attention-first: warn beats off beats ok for the house summary.
-    return {"ok": 0, "off": 1, "warn": 2, "wait": 3, "wait_dim": 3}.get(status, 0)
+    return {"ok": 0, "info": 0, "off": 1, "warn": 2, "wait": 3, "wait_dim": 3}.get(
+        status, 0
+    )
 
 
 def _aggregate(statuses: list[str]) -> str:

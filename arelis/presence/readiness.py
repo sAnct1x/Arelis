@@ -13,9 +13,8 @@ from enum import Enum
 from typing import Any
 
 from arelis.calendar.secrets import load_calendar_secrets, load_ics_url
-from arelis.llm.startup import missing_models, model_is_available
+from arelis.llm.startup import listed_server_models, missing_models
 from arelis.mail import load_account
-from arelis.memory import DEFAULT_EMBED_MODEL
 from arelis.presence.inbound_runtime import ingest_enabled_mode
 from arelis.presence.lock import find_my_ingest_port, probe_ingest_health
 from arelis.sms_android import load_sms_account
@@ -25,6 +24,7 @@ log = logging.getLogger(__name__)
 
 class ChipLevel(str, Enum):
     OK = "ok"
+    INFO = "info"
     WARN = "warn"
     OFF = "off"
 
@@ -88,12 +88,6 @@ def _configured_chat_models(config: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def _embed_tag(config: dict[str, Any]) -> str:
-    return str(
-        (config.get("memory") or {}).get("embed_model") or DEFAULT_EMBED_MODEL
-    ).strip()
-
-
 async def probe_readiness(
     config: dict[str, Any],
     *,
@@ -119,11 +113,13 @@ async def probe_readiness(
 
     available: list[str] | None = None
     try:
-        available = await prov.list_models()
+        available = await listed_server_models(prov)
     except Exception as exc:
         # Info on purpose: the server being down is normal, and the chip already
         # says so. The raw error stays in this log instead of the tooltip.
         log.info("Readiness server probe failed: %s", exc)
+
+    embed_ready = await _probe_embed_ready(config, prov)
 
     if owns_provider:
         try:
@@ -179,9 +175,9 @@ async def probe_readiness(
                 ChipLevel.OFF if len(absent) >= n_unique else ChipLevel.WARN
             )
             if len(names) == 1:
-                detail = f"This chat model isn't downloaded yet: {missing_bits}."
+                detail = f"This chat model isn't on the server yet: {missing_bits}."
             else:
-                detail = f"These chat models aren't downloaded yet: {missing_bits}."
+                detail = f"These chat models aren't on the server yet: {missing_bits}."
             chips["models"] = ReadinessChip(
                 "models",
                 "Models",
@@ -195,7 +191,7 @@ async def probe_readiness(
     chips["calendar"] = _calendar_chip(config)
     chips["sms"] = _sms_chip(config)
     chips["mail"] = _mail_chip(config)
-    chips["embed"] = _embed_chip(config, available)
+    chips["embed"] = _embed_chip(embed_ready)
     chips["search"] = await _search_chip(config)
     chips["ocr"] = _ocr_chip(config)
     chips["image"] = await _image_chip(config)
@@ -436,34 +432,39 @@ def _mail_chip(config: dict[str, Any]) -> ReadinessChip:
     )
 
 
-def _embed_chip(config: dict[str, Any], available: list[str] | None) -> ReadinessChip:
-    tag = _embed_tag(config)
-    if not tag:
-        return ReadinessChip(
-            "embed",
-            "Embed",
-            ChipLevel.OFF,
-            "The memory model isn't set up yet.",
-        )
-    if available is None:
-        return ReadinessChip(
-            "embed",
-            "Embed",
-            ChipLevel.OFF,
-            "Can't check the memory model while the local model server is down.",
-        )
-    if model_is_available(available, tag):
+async def _probe_embed_ready(config: dict[str, Any], provider: Any) -> bool | None:
+    """True when embed_url answers. None when no embed server is configured."""
+    embed_url = str(
+        getattr(provider, "embed_url", None)
+        or (config.get("llamacpp") or {}).get("embed_url")
+        or ""
+    ).strip()
+    if not embed_url:
+        return None
+    refresh = getattr(provider, "refresh_embeds", None)
+    if callable(refresh):
+        try:
+            return bool(await refresh())
+        except Exception as exc:
+            # The embed server being down is normal. The chip already says off.
+            log.info("Readiness embed probe failed: %s", exc)
+            return False
+    return bool(getattr(provider, "embeds", False))
+
+
+def _embed_chip(embed_ready: bool | None) -> ReadinessChip:
+    if embed_ready is True:
         return ReadinessChip(
             "embed",
             "Embed",
             ChipLevel.OK,
-            "The memory model is ready.",
+            "Memory search is ready.",
         )
     return ReadinessChip(
         "embed",
         "Embed",
-        ChipLevel.WARN,
-        "The memory model isn't available yet.",
+        ChipLevel.INFO,
+        "Memory search is off.",
     )
 
 
@@ -552,12 +553,12 @@ async def _image_chip(config: dict[str, Any]) -> ReadinessChip:
         return ReadinessChip(
             "image",
             "Image",
-            ChipLevel.WARN,
-            "Pictures will start when you ask for one.",
+            ChipLevel.INFO,
+            "Pictures start on demand.",
         )
     return ReadinessChip(
         "image",
         "Image",
-        ChipLevel.WARN,
+        ChipLevel.INFO,
         "Pictures aren't available right now.",
     )
