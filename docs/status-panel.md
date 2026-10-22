@@ -1,7 +1,7 @@
 # Status panel
 
-Open **house** at the top of the window. The short lines there tell
-you what is ready. Here is what the new ones mean.
+Click **house ▾** in the status row under the title bar. The short
+lines there tell you what is ready. Here is what the new ones mean.
 
 **This chat model isn't on the server yet**
 Chat cannot start because the model she wants is not on the model
