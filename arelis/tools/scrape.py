@@ -23,7 +23,12 @@ from arelis.tools.article import (
     sibling_urls,
 )
 from arelis.tools.base import ToolResult
-from arelis.tools.fetch import BlockedUrlError, guarded_get, reject_non_http_url
+from arelis.tools.fetch import (
+    BlockedUrlError,
+    guarded_get,
+    reject_non_http_url,
+    reported_url,
+)
 from arelis.tools.html_text import content_type_main
 from arelis.tools.safety import redact_secrets
 from arelis.tools.search import result_is_mill
@@ -303,6 +308,6 @@ class ScrapeTool:
             body = response.text
             status = response.status_code
             if looks_like_challenge_page(body, status):
-                return body, str(response.url), ctype, status
+                return body, reported_url(response), ctype, status
             response.raise_for_status()
-            return body, str(response.url), ctype, status
+            return body, reported_url(response), ctype, status

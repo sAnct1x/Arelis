@@ -16,6 +16,7 @@ from arelis.tools.fetch import (
     HeaderError,
     guarded_request,
     reject_non_http_url,
+    reported_url,
     sanitize_headers,
 )
 from arelis.tools.html_text import (
@@ -168,7 +169,7 @@ class WebFetchTool:
                     block_private=self.block_private_urls,
                 )
                 body = response.text
-                final = str(response.url)
+                final = reported_url(response)
                 status = response.status_code
                 ctype = content_type_main(response.headers)
                 if looks_like_html(body, ctype) and looks_like_challenge_page(
