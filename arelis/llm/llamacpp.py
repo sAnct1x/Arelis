@@ -1,8 +1,10 @@
 """HTTP client for one llama-server.
 
-``pin`` starts the 35B server when the chat port is down. The launch line is
-``launch_args_for``: Q8 mmproj, flash attention off, 1024 image tokens, f16
-KV, and ``--n-cpu-moe 32``. A picture is sent when ``/props`` reports vision.
+``pin`` starts the 35B server when the chat port is down, then asks for one
+token. ``/health`` stays ok after the graphics device is lost, so that token
+is the readiness check. The launch line is ``launch_args_for``: Q8 mmproj,
+flash attention off, 1024 image tokens, f16 KV, and ``--n-cpu-moe 32``. A
+picture is sent when ``/props`` reports vision.
 Embeddings come from a second CPU llama-server at ``llamacpp.embed_url``
 (nomic-embed-text GGUF, ``/v1/embeddings``). ``embeds`` is True only while
 that server answers; otherwise recall stays on keywords.
@@ -20,8 +22,18 @@ from typing import Any
 
 import httpx
 
-from arelis.llm.errors import is_context_overflow
-from arelis.llm.llama_launch import ensure_server
+from arelis.llm.errors import (
+    LlamaComputeError,
+    is_context_overflow,
+    restart_error,
+    restart_notice,
+)
+from arelis.llm.llama_launch import (
+    READY_TIMEOUT_S,
+    decode_probe_state,
+    ensure_server,
+    one_token_payload,
+)
 from arelis.llm.wire import _finalize_tool_calls, _merge_tool_calls
 
 log = logging.getLogger(__name__)
@@ -47,6 +59,38 @@ _SAMPLING = {
     "seed": "seed",
     "stop": "stop",
 }
+
+
+def _embedded_status(err: object) -> int | None:
+    """HTTP code carried inside a streamed error object, when it has one."""
+    if not isinstance(err, dict):
+        return None
+    raw = err.get("code")
+    if raw is None:
+        return None
+    try:
+        code = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if 100 <= code <= 599:
+        return code
+    return None
+
+
+def _json_body(response: httpx.Response) -> object:
+    try:
+        return response.json()
+    except (UnicodeDecodeError, ValueError):
+        return None
+
+
+def _restart_failure(model: str, detail: str, payload: object) -> LlamaComputeError:
+    """HTTP 500. The same request fails again until the server is restarted."""
+    text = f"llama-server returned HTTP 500 for model `{model}`"
+    cleaned = (detail or "").strip()
+    if cleaned:
+        text = f"{text}: {cleaned[:400]}"
+    return restart_error(text, payload)
 
 
 def _positive_int(raw: Any) -> int | None:
@@ -462,6 +506,8 @@ class LlamaCppProvider:
                 await response.aread()
                 detail = response.text.strip()[:400]
                 await self._drop_cached_window_after_overflow(detail)
+                if decode_probe_state(response.status_code) == "dead":
+                    raise _restart_failure(model, detail, _json_body(response))
                 raise RuntimeError(
                     f"llama-server returned HTTP {response.status_code} for model `{model}`"
                     + (f": {detail}" if detail else "")
@@ -487,7 +533,18 @@ class LlamaCppProvider:
                     err = data["error"]
                     message = err.get("message") if isinstance(err, dict) else err
                     await self._drop_cached_window_after_overflow(message)
-                    raise RuntimeError(f"llama-server error: {message}")
+                    detail = str(message or "").strip()[:400]
+                    code = _embedded_status(err)
+                    if code is not None and decode_probe_state(code) == "dead":
+                        raise _restart_failure(model, detail, err)
+                    if code is not None and code >= 500:
+                        raise RuntimeError(
+                            f"llama-server returned HTTP {code} for model `{model}`"
+                            + (f": {detail}" if detail else "")
+                        )
+                    raise RuntimeError(
+                        f"llama-server error: {detail}" if detail else "llama-server error"
+                    )
                 usage = data.get("usage") or {}
                 if isinstance(usage, dict) and usage.get("prompt_tokens") is not None:
                     done_metrics = {
@@ -716,15 +773,23 @@ class LlamaCppProvider:
         keep_alive: str | int = "30m",
         options: dict[str, Any] | None = None,
     ) -> None:
-        """Confirm the server is up. Start the 35B launch line if the port is down."""
-        del model, keep_alive, options
+        """Confirm one token comes back. Start the 35B line if the port is down."""
+        del keep_alive, options
         if self._launch_args:
             await asyncio.to_thread(ensure_server, self.base_url, self._launch_args)
-        response = await self._client.get("/health")
+            return
+        response = await self._client.post(
+            "/v1/chat/completions",
+            json=one_token_payload(model),
+            timeout=READY_TIMEOUT_S,
+        )
+        if decode_probe_state(response.status_code) == "dead":
+            payload = _json_body(response)
+            raise restart_error(restart_notice(payload), payload)
         if response.status_code >= 400:
             detail = response.text.strip()[:400]
             raise RuntimeError(
-                f"llama-server health check returned HTTP {response.status_code}"
+                f"llama-server readiness check returned HTTP {response.status_code}"
                 + (f": {detail}" if detail else "")
             )
 

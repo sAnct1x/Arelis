@@ -1,9 +1,10 @@
 """Launch line for the 35B llama-server.
 
-Config C at ncmoe 32, measured 2026-10-20. Q8 mmproj, flash attention off,
-1024 image tokens, f16 KV, context 32768, batch 4096, ubatch 2048. The
-patched template stays: ``--jinja``, and ``qwen36_35b_insys.jinja`` beside
-the weights when that file is already there.
+Config C at ncmoe 32. Q8 mmproj, flash attention off, 1024 image tokens,
+f16 KV, context 32768, batch 4096, ubatch 512. 512 was measured on the
+target machine. 1024 used 11.88 GB at peak, over the 11.2 GB memory budget.
+The patched template stays: ``--jinja``, and ``qwen36_35b_insys.jinja``
+beside the weights when that file is already there.
 
 The picture file sits in the same directory as the model GGUF. If it is
 missing, it is downloaded there once. Arelis starts llama-server only when
@@ -27,6 +28,7 @@ from urllib.parse import urlparse
 import httpx
 
 from arelis import __version__
+from arelis.llm.errors import restart_error, restart_notice
 from arelis.llm.legacy import SHIPPED_GGUF_NAME
 
 log = logging.getLogger(__name__)
@@ -42,6 +44,9 @@ MMPROJ_URL = (
     + MMPROJ_FILENAME
 )
 _HEALTH_WAIT_S = 180.0
+# A cold first token on this card can take most of a minute. A dead device
+# answers in well under a second, so this wait is not a retry loop.
+READY_TIMEOUT_S = 60.0
 _CACHE_DEPTH = 5
 
 _OFFLINE = (
@@ -56,6 +61,7 @@ _LATER = (
 )
 _MISSING_BINARY = "llama-server was not found, so the 35B did not start."
 _SLOW = "The 35B server did not finish starting. Try again in a little while."
+_NO_TOKEN = "The 35B server did not answer a one token check."
 
 _lock = threading.Lock()
 _proc: subprocess.Popen[bytes] | None = None
@@ -92,8 +98,10 @@ def llama_server_args(
         "1",
         "--n-cpu-moe",
         "32",
+        # 512 was measured on the target machine. 1024 used 11.88 GB
+        # at peak, over the 11.2 GB memory budget.
         "-ub",
-        "2048",
+        "512",
         "-b",
         "4096",
         "--cache-type-k",
@@ -120,12 +128,47 @@ def launch_args_for(config: dict[str, Any] | None) -> list[str] | None:
         return None
 
 
+def one_token_payload(model: str = "") -> dict[str, Any]:
+    """Readiness body. One token, no tools. /health cannot see a dead GPU."""
+    payload: dict[str, Any] = {
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+    }
+    name = (model or "").strip()
+    if name:
+        payload["model"] = name
+    return payload
+
+
+def decode_probe_state(status_code: int) -> str:
+    """``ok``, ``dead``, or ``down``. HTTP 500 fails again until a restart.
+
+    Callers stop instead of posting the prompt again. The graphics-card
+    line depends on the error object, not on this status alone.
+    """
+    try:
+        code = int(status_code)
+    except (TypeError, ValueError):
+        return "down"
+    if code == 500:
+        return "dead"
+    if 0 < code < 400:
+        return "ok"
+    return "down"
+
+
 def ensure_server(base_url: str, args: list[str] | None) -> None:
-    """Start llama-server when the chat port is down. Leave a live one alone."""
+    """Start llama-server when the chat port is down.
+
+    A listening port is not enough. ``/health`` stays ok after the graphics
+    device is lost, so one generated token has to succeed before this
+    returns. A compute failure raises, and does not start a second server.
+    """
     if not args:
         return
     with _lock:
         if _health_ok(base_url):
+            _require_decode(base_url, READY_TIMEOUT_S)
             return
         mmproj = _flag_value(args, "--mmproj")
         if mmproj:
@@ -136,7 +179,7 @@ def ensure_server(base_url: str, args: list[str] | None) -> None:
         else:
             proc = _spawn(args)
             _proc = proc
-        if not _wait_health(base_url, proc, _HEALTH_WAIT_S):
+        if not _wait_ready(base_url, proc, _HEALTH_WAIT_S):
             raise RuntimeError(_SLOW)
 
 
@@ -347,15 +390,51 @@ def _health_ok(base_url: str) -> bool:
     return response.status_code < 400
 
 
-def _wait_health(base_url: str, proc: subprocess.Popen[bytes], timeout_s: float) -> bool:
+def _json_body(response: httpx.Response) -> object:
+    try:
+        return response.json()
+    except (UnicodeDecodeError, ValueError):
+        return None
+
+
+def _token_state(base_url: str, timeout_s: float) -> str:
+    url = base_url.rstrip("/") + "/v1/chat/completions"
+    try:
+        response = httpx.post(url, json=one_token_payload(), timeout=timeout_s)
+    except httpx.HTTPError:
+        return "down"
+    state = decode_probe_state(response.status_code)
+    if state == "dead":
+        payload = _json_body(response)
+        raise restart_error(restart_notice(payload), payload)
+    return state
+
+
+def _require_decode(base_url: str, timeout_s: float) -> None:
+    """The process is listening. One token has to come back."""
+    state = _token_state(base_url, timeout_s)
+    if state == "ok":
+        return
+    raise RuntimeError(_NO_TOKEN)
+
+
+def _wait_ready(base_url: str, proc: subprocess.Popen[bytes], timeout_s: float) -> bool:
+    """Wait until the new process can decode one token.
+
+    A compute failure is raised immediately. Polling ``/health`` only tells
+    us the process has finished loading.
+    """
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             return False
         if _health_ok(base_url):
-            return True
+            left = max(0.1, deadline - time.monotonic())
+            state = _token_state(base_url, min(READY_TIMEOUT_S, left))
+            if state == "ok":
+                return True
         time.sleep(0.5)
-    return _health_ok(base_url)
+    return False
 
 
 def _log_path() -> Path | None:
