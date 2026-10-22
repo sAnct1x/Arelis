@@ -541,7 +541,9 @@ class ChatPanel(QWidget):
         if thought is None or thought.sealed_at is not None or not self._turn_busy:
             self._thought_timer.stop()
             return
+        follow = self._near_bottom()
         self._repaint_thought(thought)
+        self._scroll(follow=follow)
 
     def _thought_html(self, thought: _Thought) -> str:
         dim = _ink("text_dim")
