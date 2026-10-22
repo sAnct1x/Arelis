@@ -167,14 +167,14 @@ def _record_discarded_round(
     loop: Any,
     messages: list[dict[str, Any]],
     tool_calls: list[dict[str, Any]],
-    calls: list[tuple[str, dict[str, Any]]],
 ) -> None:
     """Keep the rejected call in the transcript, marked as not applied.
 
     The assistant row with tool_calls is what the next request needs so
-    that call still renders. Content from the discarded round is dropped,
-    and the tool rows say the work did not run, so the next answer cannot
-    treat those claims as done.
+    that call still renders. Rows come from that same list: one tool row
+    per tool_call, with a matching id. Content from the discarded round
+    is dropped, and the tool rows say the work did not run, so the next
+    answer cannot treat those claims as done.
     """
     assistant_msg: dict[str, Any] = {
         "role": "assistant",
@@ -183,8 +183,14 @@ def _record_discarded_round(
     if tool_calls:
         assistant_msg["tool_calls"] = tool_calls
     messages.append(assistant_msg)
-    for name, _args in calls:
-        messages.append(loop._tool_message(name, _DISCARDED_CALL))
+    for call in tool_calls:
+        fn = call.get("function") or {}
+        name = str(fn.get("name") or "")
+        row = loop._tool_message(name, _DISCARDED_CALL)
+        call_id = call.get("id")
+        if call_id:
+            row["tool_call_id"] = str(call_id)
+        messages.append(row)
 
 
 def _write_round(ctx: TurnContext, r: RoundScratch) -> None:
@@ -915,7 +921,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 and parsed["kind"] == "tool"
                 and parsed.get("from_text") is True
             ):
-                calls = [(parsed["name"], parsed["args"])]
+                name = parsed["name"]
+                args = parsed["args"]
+                calls = [(name, args)]
+                tool_calls = [_native_tool_call(name, args)]
                 calls_from_text = True
             elif parsed and parsed["kind"] == "final":
                 content = parsed["text"]
@@ -933,7 +942,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 # A real user line after the rejected call keeps that call
                 # rendering the same way on the next turn. The discarded
                 # prose and results are not fed through as if they ran.
-                _record_discarded_round(loop, messages, tool_calls, calls)
+                _record_discarded_round(loop, messages, tool_calls)
                 messages.append(
                     {"role": "user", "content": _WRITE_AFTER_TOOL_NOTICE}
                 )

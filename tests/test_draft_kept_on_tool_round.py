@@ -10,7 +10,9 @@ The plain-answer re-ask is the other retract that used to blank the
 bubble. That path also used to feed the discarded round's claims into
 the next request as if the work had run. The live retry bubble shows the one-line wait note (not leftover
 draft from earlier in the same view), and those claims stay out or
-marked not applied.
+marked not applied. Discarded tool rows follow the tool_calls list
+written on the assistant message, including JSON fallback and
+duplicate native calls.
 
 QT_QPA_PLATFORM=offscreen. The wait is QTest.qWaitFor from the qt_app
 fixture, which pumps events until the paint lands.
@@ -49,6 +51,25 @@ def _thought_lines(window: Any) -> str:
     for thought in window.chat._thoughts:
         lines.extend(thought.lines)
     return "\n".join(lines)
+
+
+def _last_discarded_pair(
+    messages: list[dict[str, Any]], *, start: int = 0
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Assistant tool_calls written for a discarded round, plus the rows after it."""
+    slice_msgs = messages[start:]
+    assistant_i = None
+    for index, msg in enumerate(slice_msgs):
+        if msg.get("role") == "assistant" and isinstance(msg.get("tool_calls"), list):
+            assistant_i = index
+    assert assistant_i is not None, slice_msgs
+    written = list(slice_msgs[assistant_i].get("tool_calls") or [])
+    rows: list[dict[str, Any]] = []
+    for msg in slice_msgs[assistant_i + 1 :]:
+        if msg.get("role") != "tool":
+            break
+        rows.append(msg)
+    return written, rows
 
 
 def _start_bus(window: Any) -> threading.Thread:
@@ -340,9 +361,10 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
             3000,
         ), "discarded-round draft never painted"
 
-        discarded_calls = [
-            _native_tool_call("data_cell", {"code": "fix osmium"}),
-        ]
+        discarded_json = json.dumps(
+            {"name": "data_cell", "arguments": {"code": "fix osmium"}}
+        )
+        ask_content = f"{claim}\n{discarded_json}"
 
         async def _stream_ask(
             role: Any,
@@ -353,7 +375,7 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
             expect_tools: bool | None = None,
         ) -> tuple[str, list[dict[str, Any]], str]:
             del role, messages, tools_arg, round_n, expect_tools
-            return claim, discarded_calls, claim
+            return ask_content, [], ask_content
 
         async def _no_escalate(*_a: Any, **_k: Any) -> bool:
             return False
@@ -366,7 +388,7 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
         loop._publish_delta = _publish_delta
         loop._turn_role = "fast"
         loop.router = SimpleNamespace(model_for=lambda _role: "qwen")
-        loop.json_fallback = False
+        loop.json_fallback = True
         loop._in_close = False
         loop.max_rounds = 4
         loop._default_max_rounds = 4
@@ -401,7 +423,6 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
                 holder["error"] = exc
                 raise
 
-        ask_mark = len(seen)
         ask_fut = asyncio.run_coroutine_threadsafe(_go_ask(), window.loop)
         ask_fut.result(timeout=15)
         assert holder.get("error") is None, holder.get("error")
@@ -445,6 +466,49 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
             "discarded-round call was not marked not applied; "
             f"messages={ctx_ask.messages!r}"
         )
+        written, rows = _last_discarded_pair(ctx_ask.messages)
+        assert len(written) == 1, written
+        assert (written[0].get("function") or {}).get("name") == "data_cell"
+        assert len(rows) == 1, rows
+        assert rows[0].get("tool_call_id") == written[0].get("id"), (written, rows)
+        assert "not applied" in str(rows[0].get("content") or "")
+
+        # Duplicate native calls keep both tool_calls. Rows must follow
+        # that list, not the deduped (name, args) pairs.
+        ctx_ask.plain_reask_used = False
+        dup_mark = len(ctx_ask.messages)
+        dup_a = _native_tool_call("data_cell", {"code": "fix osmium"})
+        dup_b = _native_tool_call("data_cell", {"code": "fix osmium"})
+        assert dup_a["id"] != dup_b["id"]
+
+        async def _stream_dups(
+            role: Any,
+            messages: Any,
+            tools_arg: Any,
+            *,
+            round_n: int = 0,
+            expect_tools: bool | None = None,
+        ) -> tuple[str, list[dict[str, Any]], str]:
+            del role, messages, tools_arg, round_n, expect_tools
+            return "", [dup_a, dup_b], ""
+
+        loop._stream_round = _stream_dups
+
+        async def _go_dups() -> None:
+            try:
+                holder["dup_result"] = await run_round(loop, ctx_ask, 4)
+            except Exception as exc:
+                holder["error"] = exc
+                raise
+
+        dup_fut = asyncio.run_coroutine_threadsafe(_go_dups(), window.loop)
+        dup_fut.result(timeout=15)
+        assert holder.get("error") is None, holder.get("error")
+        assert holder.get("dup_result") is False
+        written, rows = _last_discarded_pair(ctx_ask.messages, start=dup_mark)
+        assert [call.get("id") for call in written] == [dup_a["id"], dup_b["id"]]
+        assert len(rows) == 2, rows
+        assert [row.get("tool_call_id") for row in rows] == [dup_a["id"], dup_b["id"]]
 
         body_ok = True
     finally:
