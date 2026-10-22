@@ -18,6 +18,38 @@ from arelis.core.bus import EventBus
 # --------------------------------------------------------------------------
 
 
+def _reply_cells(panel, pos: int) -> list[str]:
+    """Plain text of each message cell that starts at or after pos."""
+    from PySide6.QtGui import QTextCursor, QTextTable
+
+    from arelis.ui.panels.chat import _marked_bubble
+
+    found: list[str] = []
+
+    def walk(frame) -> None:
+        it = frame.begin()
+        while not it.atEnd():
+            child = it.currentFrame()
+            it += 1
+            if not isinstance(child, QTextTable):
+                continue
+            for row in range(child.rows()):
+                for col in range(child.columns()):
+                    cell = child.cellAt(row, col)
+                    if not _marked_bubble(cell.format()):
+                        continue
+                    start = cell.firstCursorPosition()
+                    if start.position() < pos:
+                        continue
+                    end = cell.lastCursorPosition()
+                    start.setPosition(end.position(), QTextCursor.MoveMode.KeepAnchor)
+                    found.append(start.selectedText())
+            walk(child)
+
+    walk(panel.view.document().rootFrame())
+    return found
+
+
 def test_long_transcript_load_keeps_markdown_stable(qt_app) -> None:
     """L2 soak: History reload of a long mixed thread must not leave raw marks."""
     from arelis.ui.panels.chat import ChatPanel
@@ -53,9 +85,33 @@ def test_long_transcript_load_keeps_markdown_stable(qt_app) -> None:
     html = panel.view.toHtml()
     assert "https://example.com/39" in html
     # Live stream + finish on top of a long loaded thread still paints cleanly.
+    # The plate is the cell. It stays unborn until visible words arrive, and
+    # those words are inside it. The caret is what shows during the wait.
+    # Whitespace has no cell to wait for, so that paint runs now. Visible
+    # words wait on the paint. A long transcript can stretch that timer
+    # out to 2000 ms. The caret blinks every 530 ms, so it is held on
+    # for that wait. Otherwise the glyph check can land in the off half.
+    from PySide6.QtTest import QTest
+
     panel.add_user("one more")
     panel.begin_assistant()
+    qt_app.processEvents()
+    assert "▍" in panel.view.toPlainText()
+    assert _reply_cells(panel, panel._anchor) == []
+    panel.append_delta("   ")
+    panel._stream_paint.stop()
+    panel._repaint_stream()
+    assert _reply_cells(panel, panel._anchor) == []
+    assert "▍" in panel.view.toPlainText()
     panel.append_delta("partial **bold**")
+    panel.append_delta(" more")
+    panel._caret_timer.stop()
+    panel._caret_on = True
+    QTest.qWaitFor(lambda: len(_reply_cells(panel, panel._anchor)) == 1, 3000)
+    cells = _reply_cells(panel, panel._anchor)
+    assert len(cells) == 1
+    assert "partial" in cells[0] and "bold" in cells[0] and "more" in cells[0]
+    assert "▍" in cells[0]
     panel.finish_assistant("final **bold** and `x`\n\n- ok")
     live = panel.view.toPlainText()
     assert "one more" in live

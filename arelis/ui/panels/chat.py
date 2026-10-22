@@ -48,7 +48,8 @@ from arelis.ui.void_idle import OrbitIdle
 # A slow paint raises the interval so it stays under about a quarter of the
 # GUI thread. Finish, a chart that arrives while the bubble is open, and a
 # tool retract all update immediately. The finished paint does not use the
-# streaming image rule.
+# streaming image rule. The plate waits for a visible character. Until then
+# the paint is the caret alone.
 def _ink(name: str, fallback: str = "") -> str:
     return COLORS.get(name) or COLORS.get(fallback) or COLORS["text"]
 
@@ -222,11 +223,12 @@ class ChatPanel(QWidget):
 
     Assistant messages are written twice, and both times go through the same
     markdown renderer. The streaming pass repaints the open bubble as tokens
-    arrive. The final pass deletes that draft and re-inserts the authoritative
-    answer. Both passes are anchored: the document position taken before the
-    bubble is drawn is what lets the draft be removed exactly, whether it is
-    being replaced with the finished answer or discarded because the model
-    turned out to be calling a tool.
+    arrive. The plate waits until the draft has a visible character; the caret
+    is what shows before that. The final pass deletes that draft and re-inserts
+    the authoritative answer. Both passes are anchored: the document position
+    taken before the bubble is drawn is what lets the draft be removed exactly,
+    whether it is being replaced with the finished answer or discarded because
+    the model turned out to be calling a tool.
     """
 
     session_clicked = Signal(str)
@@ -774,7 +776,9 @@ class ChatPanel(QWidget):
 
         One full render, the same pass the finished answer uses. The caret
         rides in that HTML. Scroll follow is sampled here, before the
-        replacement, unless the caller already sampled it.
+        replacement, unless the caller already sampled it. Nothing visible
+        yet means the caret alone: the plate is the cell, and writing it
+        empty is the flash before the words.
         """
         if not self._stream_open:
             return
@@ -782,12 +786,16 @@ class ChatPanel(QWidget):
         if follow is None:
             follow = self._near_bottom()
         self.view.arm_math()
-        html = _assistant_body_html(
-            "".join(self._stream_text),
-            self._shown_charts,
-            caret=self._caret_on,
-            streaming=True,
-        )
+        body = "".join(self._stream_text)
+        if body.strip():
+            html = _assistant_body_html(
+                body,
+                self._shown_charts,
+                caret=self._caret_on,
+                streaming=True,
+            )
+        else:
+            html = _caret_html() if self._caret_on else ""
         self._replace_from_anchor(html)
         self._scroll(follow=follow)
         self._note_paint_cost(time.perf_counter() - started)

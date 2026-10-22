@@ -114,8 +114,12 @@ async def test_plot_file_ready_paints_the_png_in_chat(
     partial = "![fake-plot.png](fake-plo"
     cut = body.index(partial) + len(partial)
     window.chat.append_delta(body[:cut])
-    # Deltas share one paint a moment later. Wait for that timer.
-    QTest.qWait(100)
+    # Deltas share one paint. The timer can run to 2000 ms, so wait until
+    # the words are on screen.
+    QTest.qWaitFor(
+        lambda: window.chat.view.toPlainText().count("Here is the chart.") == 1,
+        3000,
+    )
     assert window.chat._stream_open
     streamed = window.chat.view.toPlainText()
     assert streamed.count("Here is the chart.") == 1
@@ -123,7 +127,7 @@ async def test_plot_file_ready_paints_the_png_in_chat(
     assert "fake-plo" not in streamed
     assert "fake-plot.png" not in streamed
     window.chat.append_delta(body[cut:])
-    QTest.qWait(100)
+    QTest.qWaitFor(lambda: "!other" in window.chat.view.toPlainText(), 3000)
     streamed = window.chat.view.toPlainText()
     assert "![fake-plot.png]" not in streamed
     assert "fake-plot.png" not in streamed
