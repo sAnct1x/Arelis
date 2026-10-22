@@ -1,12 +1,11 @@
 # Arelis
 
-Arelis is a personal research assistant for Windows. She runs entirely
-on your PC. There's no account, no cloud API, and no data leaving your
-machine. She thinks using a local model through llama.cpp, searches the
-web, drives her
-own browser, and keeps longer projects organized in named rooms.
-Anything that writes a file or sends a message waits for your approval
-first.
+Arelis is a locally hosted personal AI assistant, with a focus on science
+and research. She runs on your own PC (Windows now, Mac and Linux in
+early beta) using a local model through llama.cpp, with no account and
+no cloud API. She searches the web, drives her own browser, and works
+through math and charts right in chat. She asks before she sends or
+deletes anything.
 
 **Overview video:** https://youtu.be/TWZqnyHlh4M • **Download:** [v0.3.2.1](https://github.com/sAnct1x/Arelis/releases/latest)
 
@@ -29,7 +28,7 @@ that writes or sends shows you an approval card first.
 
 - **Windows 10 or later** (64-bit)
 - **llama-server** for chat. Arelis can start it when that port is down.
-- **A model file** for that server. The shipped name is `qwen3.5:9b`.
+- **A model file** for that server. See [models.md](docs/models.md) for what to use.
 - **8-16 GB graphics card** recommended for good performance
 - **About 0.9 GB disk space** for the installed program (plus models)
 
@@ -285,9 +284,9 @@ More in [rooms.md](docs/rooms.md).
 
 **Roles.** There are two modes: `/role fast` and `/role research`.
 File and git work always stays on Fast. Once setup is done, both modes
-actually use the same model (`qwen3.5:9b`, unless you picked something
-else). Research just means a longer reasoning loop, not a bigger
-model. See [models.md](docs/models.md).
+actually use the same model, whichever one llama-server is running.
+Research just means a longer reasoning loop, not a bigger model.
+See [models.md](docs/models.md).
 
 **Optional features:**
 - **Voice:** Wait until the idle line says **say "hey arelis"**, not **getting the ear…**. A bare name still will not wake her. `Ctrl+Shift+M` starts a conversation, `Ctrl+M` is for dictation. See [voice-wake.md](docs/voice-wake.md).
