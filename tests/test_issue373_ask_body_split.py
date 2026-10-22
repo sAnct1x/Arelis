@@ -46,6 +46,21 @@ _CAS_ASK = (
     "tried the substitution they showed in lecture.\n\n"
     "Please find the integral of x**2 * sin(x) and give the closed form."
 )
+_BACKGROUND = (
+    "The notes from last week cover how the group framed the measurement "
+    "and the assumptions they listed in the writeup. "
+    + ("More background from the notes continues here. " * 14)
+)
+_HI_CAS_ASK = (
+    "Hi,\n\n"
+    + _BACKGROUND
+    + "\n\nCan you compute the integral of x^2 from 0 to 3 exactly?"
+)
+_CTX_WEB_ASK = (
+    "Some context first.\n\n"
+    + _BACKGROUND
+    + "\n\nCan you search the web for the latest on this?"
+)
 
 
 class _Tool:
@@ -194,3 +209,26 @@ async def test_pasted_article_summary_is_not_a_cas_or_fetch_round() -> None:
     assert plot_ctx is not None
     assert plot_ctx.expect_tool_round is True
     assert "plot" in plot_ctx.exact_need.kinds
+
+    hi_instruction, hi_body = split_user_ask(_HI_CAS_ASK)
+    assert "Hi," in hi_instruction
+    assert "integral of x^2 from 0 to 3" in hi_instruction
+    assert hi_body == _BACKGROUND.strip()
+    assert "Hi," not in hi_body
+    assert "integral of" not in hi_body
+    hi_ctx = await prepare_turn(_loop(), _HI_CAS_ASK, "fast")
+    assert hi_ctx is not None
+    assert hi_ctx.exact_need.needs_cas
+    assert "symbolic" in hi_ctx.exact_need.kinds
+    assert detect_exactness_need(hi_instruction).needs_cas
+
+    ctx_instruction, ctx_body = split_user_ask(_CTX_WEB_ASK)
+    assert "Some context first." in ctx_instruction
+    assert "search the web" in ctx_instruction
+    assert ctx_body == _BACKGROUND.strip()
+    assert "search the web" not in ctx_body
+    web_ctx = await prepare_turn(_loop(), _CTX_WEB_ASK, "fast")
+    assert web_ctx is not None
+    assert web_ctx.expect_tool_round is True
+    assert "web" in web_ctx.skill_ids
+    assert web_ctx.wants_fresh_page is True

@@ -465,50 +465,120 @@ def _date_ask_ratio_block(user_text: str, expression: str) -> str | None:
 _ASK_BODY_BLANK = re.compile(r"\n[ \t]*\n")
 _HTTP_URL = re.compile(r"https?://\S+", re.I)
 _PASTE_IS_NOT_A_FETCH = frozenset({"web", "attachments"})
+_SHORT_BLOCK_CHARS = 280
+_LARGE_BODY_CHARS = 400
+
+
+@dataclass(frozen=True)
+class _AskSplit:
+    instruction: str
+    body: str
+    trailing: bool
 
 
 def split_user_ask(text: str) -> tuple[str, str]:
     """Split a short instruction from a pasted body, when one is present.
 
-    Structural: a brief first block, then a much larger remainder. When there
-    is no dump, the whole text is the instruction. The paste is not truncated
-    for the model; callers classify on the instruction slice only.
+    Structural: a large middle with a short first block and/or a short last
+    block. The instruction is those short ends. The body is only the middle.
+    When there is no dump, the whole text is the instruction. The paste is
+    not truncated for the model; callers classify on the instruction only.
     """
+    parts = _split_user_ask(text)
+    return parts.instruction, parts.body
+
+
+def _split_user_ask(text: str) -> _AskSplit:
     raw = (text or "").strip()
     if not raw:
-        return "", ""
-    head, tail = _first_block_and_rest(raw)
-    if _looks_like_provided_body(head, tail):
-        return head, tail
-    return raw, ""
+        return _AskSplit("", "", False)
+    blocks = [part.strip() for part in _ASK_BODY_BLANK.split(raw) if part.strip()]
+    if len(blocks) >= 2:
+        found = _ends_around_body(blocks)
+        if found is not None:
+            return found
+        return _AskSplit(raw, "", False)
+    found = _line_ends_around_body(raw)
+    if found is not None:
+        return found
+    return _AskSplit(raw, "", False)
 
 
-def _first_block_and_rest(raw: str) -> tuple[str, str]:
-    parts = _ASK_BODY_BLANK.split(raw, maxsplit=1)
-    if len(parts) == 2:
-        return parts[0].strip(), parts[1].strip()
-    line, _sep, rest = raw.partition("\n")
-    if rest:
-        return line.strip(), rest.strip()
-    return raw, ""
-
-
-def _looks_like_provided_body(instruction: str, body: str) -> bool:
-    if not instruction or not body:
+def _is_short_block(text: str) -> bool:
+    if not text:
         return False
-    if instruction.count("\n") > 2 or len(instruction) > 280:
-        return False
-    if len(body) < 400 or len(body) < 4 * len(instruction):
+    if text.count("\n") > 2 or len(text) > _SHORT_BLOCK_CHARS:
         return False
     return True
 
 
-def _body_already_here(instruction: str, provided_body: str) -> bool:
-    """True when a pasted body is present and the instruction has no URL.
+def _is_large_body(body: str, instruction: str) -> bool:
+    if not body:
+        return False
+    if len(body) < _LARGE_BODY_CHARS:
+        return False
+    if len(body) < 4 * max(len(instruction), 1):
+        return False
+    return True
 
-    The page is already in the message. That is structural, not a verb list.
+
+def _join_instruction(*parts: str) -> str:
+    return "\n\n".join(part for part in parts if part)
+
+
+def _ends_around_body(blocks: list[str]) -> _AskSplit | None:
+    first = blocks[0]
+    last = blocks[-1]
+    first_short = _is_short_block(first)
+    last_short = _is_short_block(last)
+    if len(blocks) == 2:
+        if first_short and last_short:
+            return None
+        if first_short and _is_large_body(last, first):
+            return _AskSplit(first, last, False)
+        if last_short and _is_large_body(first, last):
+            return _AskSplit(last, first, True)
+        return None
+    middle = "\n\n".join(blocks[1:-1])
+    if first_short and last_short:
+        instruction = _join_instruction(first, last)
+        if _is_large_body(middle, instruction):
+            return _AskSplit(instruction, middle, True)
+    if first_short and not last_short:
+        rest = "\n\n".join(blocks[1:])
+        if _is_large_body(rest, first):
+            return _AskSplit(first, rest, False)
+    if last_short and not first_short:
+        rest = "\n\n".join(blocks[:-1])
+        if _is_large_body(rest, last):
+            return _AskSplit(last, rest, True)
+    return None
+
+
+def _line_ends_around_body(raw: str) -> _AskSplit | None:
+    line, _sep, rest = raw.partition("\n")
+    head = line.strip()
+    tail = rest.strip()
+    if not tail or not _is_short_block(head):
+        return None
+    last_line, _last_sep, prefix_rev = tail[::-1].partition("\n")
+    last = last_line[::-1].strip()
+    mid = prefix_rev[::-1].strip()
+    if mid and _is_short_block(last):
+        instruction = _join_instruction(head, last)
+        if _is_large_body(mid, instruction):
+            return _AskSplit(instruction, mid, True)
+    if _is_large_body(tail, head):
+        return _AskSplit(head, tail, False)
+    return None
+
+
+def _body_already_here(instruction: str, provided_body: str, *, trailing: bool) -> bool:
+    """True when a leading ask already has the page and there is no URL.
+
+    A short last block is a live ask after the paste, so it decides fetch.
     """
-    if not provided_body:
+    if trailing or not provided_body:
         return False
     if _HTTP_URL.search(instruction or ""):
         return False
@@ -566,10 +636,14 @@ async def prepare_turn(
     # this-turn intent, so an analysis room demanded a CSV on
     # "how do toroids relate to physics?".
     # Classifiers read the instruction only. A pasted article that says
-    # "article" or "integral of" is not this-turn intent.
-    instruction, provided_body = split_user_ask(text)
+    # "article" or "integral of" is not this-turn intent. A short last
+    # block after the dump is part of that instruction.
+    parts = _split_user_ask(text)
+    instruction, provided_body = parts.instruction, parts.body
     classify_text = instruction or text
-    body_already_here = _body_already_here(instruction, provided_body)
+    body_already_here = _body_already_here(
+        instruction, provided_body, trailing=parts.trailing
+    )
     skill_ids, fallback_only = select_skill_ids_detailed(
         classify_text, available_tools=available
     )
