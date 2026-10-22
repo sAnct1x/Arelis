@@ -41,11 +41,11 @@ from arelis.ui.theme import COLORS, SPACE, color
 from arelis.ui.void_idle import OrbitIdle
 
 
-# The assistant bubble is built in two pieces because it is painted twice per
-# turn. While tokens arrive it is left open and text is appended as fast plain
-# text. When the turn ends the whole thing is replaced with rendered markdown.
-# Rendering per token is not an option: a half-typed "**" would flicker between
-# literal asterisks and bold on every keystroke.
+# The assistant bubble is painted twice per turn, both times through
+# render_markdown. While tokens arrive the open bubble is replaced from the
+# anchor. When the turn ends it is replaced again with the authoritative
+# answer. Plain insertion used to skip that renderer, so an image mark sat
+# on screen until the turn ended.
 def _ink(name: str, fallback: str = "") -> str:
     return COLORS.get(name) or COLORS.get(fallback) or COLORS["text"]
 
@@ -212,12 +212,13 @@ class ChatProgress(QLabel):
 class ChatPanel(QWidget):
     """Message surface. When embedded=True, lives inside ConversationStage glass.
 
-    Assistant messages are written twice. The streaming pass appends plain text
-    so tokens appear as they arrive, and the final pass deletes that draft and
-    re-inserts it as rendered markdown. Both passes are anchored: the document
-    position taken before the bubble is drawn is what lets the draft be removed
-    exactly, whether it is being replaced with the finished answer or discarded
-    because the model turned out to be calling a tool.
+    Assistant messages are written twice, and both times go through the same
+    markdown renderer. The streaming pass repaints the open bubble as tokens
+    arrive. The final pass deletes that draft and re-inserts the authoritative
+    answer. Both passes are anchored: the document position taken before the
+    bubble is drawn is what lets the draft be removed exactly, whether it is
+    being replaced with the finished answer or discarded because the model
+    turned out to be calling a tool.
     """
 
     session_clicked = Signal(str)
@@ -703,10 +704,10 @@ class ChatPanel(QWidget):
         self._anchor = self._end_position()
         self._stream_text = []
         self._last_assistant_body = None
-        self.view.append(_assistant_open())
         self._stream_open = True
-        self._start_caret()
-        self._scroll(follow=follow)
+        self._caret_on = True
+        self._caret_timer.start()
+        self._repaint_stream(follow=follow)
 
     def append_delta(self, text: str) -> None:
         if not self._stream_open:
@@ -714,11 +715,27 @@ class ChatPanel(QWidget):
         self._seal_live_thought()
         follow = self._near_bottom()
         self._stream_text.append(text)
-        self._strip_caret()
-        cursor = self.view.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertText(text)
-        self._insert_caret()
+        self._repaint_stream(follow=follow)
+
+    def _repaint_stream(self, *, follow: bool | None = None) -> None:
+        """Repaint the open bubble with the finished-answer renderer.
+
+        The caret is part of that HTML. Replacing from the anchor drops the
+        previous draft, including a caret that was not the last character,
+        and writes the current text again.
+        """
+        if not self._stream_open:
+            return
+        if follow is None:
+            follow = self._near_bottom()
+        self.view.arm_math()
+        self._replace_from_anchor(
+            _assistant_body_html(
+                "".join(self._stream_text),
+                self._shown_charts,
+                caret=self._caret_on,
+            )
+        )
         self._scroll(follow=follow)
 
     def finish_assistant(self, text: str | None = None) -> None:
@@ -751,12 +768,7 @@ class ChatPanel(QWidget):
         if not self._stream_open:
             self._replace_from_anchor(_assistant_bubble_html(body, shown_files=shown))
         else:
-            answer = (
-                _assistant_open()
-                + render_markdown(body, math=math_html, shown_files=shown)
-                + _ASSISTANT_CLOSE
-            )
-            self._replace_from_anchor(answer)
+            self._replace_from_anchor(_assistant_body_html(body, shown))
         self._label_at = None
         self._stream_open = False
         self._stream_text = []
@@ -858,6 +870,9 @@ class ChatPanel(QWidget):
             self._shown_charts.append(abs_path)
         if self._stream_open:
             self._pending_charts.append((label, abs_path))
+            # The reply may already contain the image mark. Paint it again
+            # now that this chart is one the renderer knows about.
+            self._repaint_stream()
             return
         self._append_chart_image(label, abs_path)
 
@@ -1102,11 +1117,6 @@ class ChatPanel(QWidget):
         if html:
             self.view.append(html)
 
-    def _start_caret(self) -> None:
-        self._caret_on = True
-        self._insert_caret()
-        self._caret_timer.start()
-
     def _stop_caret(self) -> None:
         self._caret_timer.stop()
         self._strip_caret()
@@ -1115,15 +1125,8 @@ class ChatPanel(QWidget):
     def _blink_caret(self) -> None:
         if not self._stream_open:
             return
-        self._strip_caret()
         self._caret_on = not self._caret_on
-        if self._caret_on:
-            self._insert_caret()
-
-    def _insert_caret(self) -> None:
-        cursor = self.view.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertHtml(f'<span id="arelisCaret" style="color:{_ink("accent")};">▍</span>')
+        self._repaint_stream()
 
     def _strip_caret(self) -> None:
         cursor = self.view.textCursor()
@@ -1263,13 +1266,28 @@ def _user_bubble_html(
     )
 
 
+def _caret_html() -> str:
+    return f'<span id="arelisCaret" style="color:{_ink("accent")};">▍</span>'
+
+
+def _assistant_body_html(
+    body: str,
+    shown_files: Iterable[str] | None = None,
+    *,
+    caret: bool = False,
+) -> str:
+    """The answer cell. Streaming and finish both come through here."""
+    tail = _caret_html() if caret else ""
+    return (
+        _assistant_open()
+        + render_markdown(body, math=math_html, shown_files=shown_files)
+        + tail
+        + _ASSISTANT_CLOSE
+    )
+
+
 def _assistant_bubble_html(
     body: str,
     shown_files: Iterable[str] | None = None,
 ) -> str:
-    return (
-        _assistant_label()
-        + _assistant_open()
-        + render_markdown(body, math=math_html, shown_files=shown_files)
-        + _ASSISTANT_CLOSE
-    )
+    return _assistant_label() + _assistant_body_html(body, shown_files)

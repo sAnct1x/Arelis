@@ -9,7 +9,9 @@ CAS ``latex:`` line reads as unicode here and in every file she writes. An
 image that names a chart this reply is already showing is left out. The
 file-ready block is that picture. The path written in the markdown is not
 loaded, so a local file outside the session output folder cannot be pulled
-in from the reply.
+in from the reply. An image mark that has not closed is that same match
+and is left out too. The open bubble paints with this function, so a
+half-written mark does not show up as text.
 
 Two rules shape the implementation.
 
@@ -60,10 +62,18 @@ _TABLE_RULE = re.compile(r"^\s*\|?(?:\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$")
 # substitutions, because chained passes re-enter their own output: an autolink
 # pass would rewrite the href of a link the previous pass just produced.
 # Image is before link. ![alt](src) would otherwise match as a link and leave
-# the "!" as text in front of it.
+# the "!" as text in front of it. The open form is that same mark before the
+# closing parenthesis, and only at the end of the line being scanned. A
+# finished mark stays on the closed form. An unfinished one paints nothing,
+# which is what keeps a half-written image mark off the screen while a
+# reply is still arriving.
+_IMAGE_ALT = r"[^\]\n]*"
+_IMAGE_SRC = r"[^)\s]+"
+_IMAGE_CLOSED = rf"!\[{_IMAGE_ALT}\]\({_IMAGE_SRC}\)"
+_IMAGE_OPEN = rf"!\[{_IMAGE_ALT}(?:\](?:\([^)\s]*)?)?$"
 _INLINE = re.compile(
     r"(?P<code>`[^`\n]+`)"
-    r"|(?P<image>!\[[^\]\n]*\]\([^)\s]+\))"
+    rf"|(?P<image>{_IMAGE_CLOSED}|{_IMAGE_OPEN})"
     r"|(?P<link>\[[^\]\n]*\]\([^)\s]+\))"
     r"|(?P<auto>(?<![\w/])https?://[^\s<>\"'`\])]+)"
     r"|(?P<strong>\*\*[^\n]+?\*\*|(?<!\w)__[^\n]+?__(?!\w))"
@@ -71,7 +81,7 @@ _INLINE = re.compile(
     r"|(?P<em>\*[^*\n]+?\*|(?<!\w)_[^_\n]+?_(?!\w))"
 )
 _LINK_PARTS = re.compile(r"^\[([^\]\n]*)\]\(([^)\s]+)\)$")
-_IMAGE_PARTS = re.compile(r"^!\[([^\]\n]*)\]\(([^)\s]+)\)$")
+_IMAGE_PARTS = re.compile(rf"^!\[({_IMAGE_ALT})\]\(({_IMAGE_SRC})\)$")
 
 
 def _mono() -> str:
@@ -183,7 +193,7 @@ def render_markdown(
     ``shown_files`` are charts this reply is already showing. An image
     reference to one of them is left out. The picture stays the file-ready
     block, so it is not drawn a second time. The reference itself is not
-    opened.
+    opened. A mark that has not closed yet is left out as well.
     """
     if not text:
         return ""
@@ -384,12 +394,14 @@ def _render_image(raw: str) -> str:
     A chart this reply already shows contributes nothing. Emitting an image
     tag would paint it twice, and the address the model wrote is not a file
     we load. A path outside the session output folder therefore cannot be
-    rendered from the reply. Any other image keeps the old reading: the bang
-    stays text, and the bracket form is a link only for a safe scheme.
+    rendered from the reply. Any other finished image keeps the old reading:
+    the bang stays text, and the bracket form is a link only for a safe
+    scheme. A mark that has not closed contributes nothing. Writing it out
+    is what flashes the raw mark before the closing parenthesis arrives.
     """
     parts = _IMAGE_PARTS.match(raw)
     if parts is None:
-        return _escape(raw)
+        return ""
     alt, src = parts.group(1), parts.group(2)
     if _refers_to_shown_chart(src):
         return ""
@@ -486,8 +498,9 @@ def _take_paragraph(lines: list[str], i: int) -> tuple[int, str]:
         if not line.strip() or _starts_block(lines, i):
             break
         rendered = render_inline(line.strip())
-        # A chart image that is already on screen renders as nothing. Skip
-        # the line so the reply does not keep a blank paragraph for it.
+        # A chart image that is already on screen renders as nothing, and so
+        # does an image mark that has not closed. Skip the line so the reply
+        # does not keep a blank paragraph for it.
         if rendered:
             body.append(rendered)
         i += 1

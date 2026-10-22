@@ -102,11 +102,40 @@ async def test_plot_file_ready_paints_the_png_in_chat(
             },
         ),
     )
-    window.chat.finish_assistant(
+    body = (
         "Here is the chart.\n\n"
         "![fake-plot.png](fake-plot.png)\n\n"
         "Leave ![other](../outside.png) alone."
     )
+    # The open bubble has to use the same image match as the finished
+    # reply. A still-open mark is not text yet, and the closed chart
+    # mark is left out because the file-ready picture is the chart.
+    partial = "![fake-plot.png](fake-plo"
+    cut = body.index(partial) + len(partial)
+    window.chat.append_delta(body[:cut])
+    qt_app.processEvents()
+    assert window.chat._stream_open
+    streamed = window.chat.view.toPlainText()
+    assert streamed.count("Here is the chart.") == 1
+    assert "![fake-plot.png]" not in streamed
+    assert "fake-plo" not in streamed
+    assert "fake-plot.png" not in streamed
+    window.chat.append_delta(body[cut:])
+    qt_app.processEvents()
+    streamed = window.chat.view.toPlainText()
+    assert "![fake-plot.png]" not in streamed
+    assert "fake-plot.png" not in streamed
+    assert "!other" in streamed
+    assert "../outside.png" not in window.chat.view.toHtml()
+    window.chat.append_delta("\n![alt](pa")
+    qt_app.processEvents()
+    streamed = window.chat.view.toPlainText()
+    assert window.chat._stream_open
+    assert "![alt]" not in streamed
+    assert "(pa" not in streamed
+    assert "!other" in streamed
+    assert "fake-plot.png" not in streamed
+    window.chat.finish_assistant(body)
     qt_app.processEvents()
 
     plain = window.chat.view.toPlainText()
