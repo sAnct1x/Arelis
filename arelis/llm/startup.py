@@ -79,22 +79,63 @@ def _mmproj_on_launch_line(config: dict[str, Any]) -> bool:
     return Path(args[index + 1]).is_file()
 
 
+def _model_identities(name: str) -> frozenset[str]:
+    """Comparable ids for a config name or a llama-server listing.
+
+    llama-server lists a GGUF path or an ``--alias``. Config stores the
+    family name or the file name. Compare those pieces, case-insensitive.
+    """
+    raw = (name or "").strip()
+    if not raw:
+        return frozenset()
+    keys = {raw.casefold()}
+    base = Path(raw).name
+    if base:
+        keys.add(base.casefold())
+        suffix = ".gguf"
+        if base.casefold().endswith(suffix):
+            keys.add(base[: -len(suffix)].casefold())
+    return frozenset(key for key in keys if key)
+
+
 def model_is_available(available: list[str], wanted: str) -> bool:
-    """True if this model name, or a tagged variant of it, is already listed."""
+    """True if the configured name is the listed GGUF file or server alias."""
     wanted = wanted.strip()
     if not wanted:
         return True
-    if wanted in available:
-        return True
-    # Config often says qwen2.5:7b while tags lists qwen2.5:7b-instruct-q4_K_M.
-    return any(
-        name == wanted or name.startswith(f"{wanted}-") or name.startswith(f"{wanted}:")
-        for name in available
-    )
+    want = _model_identities(wanted)
+    for name in available:
+        have = _model_identities(name)
+        if want & have:
+            return True
+        for left in want:
+            for right in have:
+                if right.startswith(f"{left}-") or left.startswith(f"{right}-"):
+                    return True
+    return False
+
+
+async def listed_server_models(provider: Any) -> list[str]:
+    """Ids from ``/v1/models`` plus GGUF path and alias from ``/props``."""
+    names = [str(item) for item in await provider.list_models()]
+    extra_fn = getattr(provider, "props_model_names", None)
+    if not callable(extra_fn):
+        return names
+    try:
+        extra = await extra_fn()
+    except Exception:
+        return names
+    seen = set(names)
+    for item in extra:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            names.append(text)
+    return names
 
 
 def missing_models(available: list[str], configured: dict[str, str]) -> list[tuple[str, str]]:
-    """Return (role, model) pairs that are configured but not pulled."""
+    """Return (role, model) pairs that are configured but not on the server."""
     missing: list[tuple[str, str]] = []
     seen: set[str] = set()
     for role, model in configured.items():
@@ -121,7 +162,7 @@ async def run_model_preflight(
     if not configured:
         return
     try:
-        available = await provider.list_models()
+        available = await listed_server_models(provider)
     except Exception as exc:
         log.warning("Model preflight skipped", exc_info=exc)
         await bus.publish(
@@ -141,7 +182,7 @@ async def run_model_preflight(
         await bus.publish(
             Event(
                 EventType.STATUS,
-                {"message": f"The model {name} isn't downloaded yet."},
+                {"message": f"The model {name} isn't on the server yet."},
             )
         )
 

@@ -113,6 +113,31 @@ def _n_ctx_from_slots(slots: list[Any]) -> int | None:
     return None
 
 
+def model_names_from_props(payload: Any) -> list[str]:
+    """GGUF path and alias llama-server reports on ``/props``."""
+    if not isinstance(payload, dict):
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: Any) -> None:
+        if not isinstance(raw, str):
+            return
+        text = raw.strip()
+        if not text or text in seen:
+            return
+        seen.add(text)
+        names.append(text)
+
+    add(payload.get("model_alias"))
+    add(payload.get("alias"))
+    add(payload.get("model_path"))
+    gen = payload.get("default_generation_settings")
+    if isinstance(gen, dict):
+        add(gen.get("model"))
+    return names
+
+
 def parse_server_n_ctx(payload: Any) -> int | None:
     """Read ``n_ctx`` from a llama-server ``/props`` or ``/slots`` body."""
     if isinstance(payload, dict):
@@ -745,6 +770,20 @@ class LlamaCppProvider:
             if isinstance(item, dict) and item.get("id"):
                 names.append(str(item["id"]))
         return names
+
+    async def props_model_names(self) -> list[str]:
+        """GGUF path and alias from ``/props``. Empty when that call fails."""
+        try:
+            response = await self._client.get("/props", timeout=_PROBE_TIMEOUT_S)
+        except httpx.HTTPError:
+            return []
+        if response.status_code >= 400:
+            return []
+        try:
+            payload = response.json()
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            return []
+        return model_names_from_props(payload)
 
     async def running_ps(self) -> list[dict[str, Any]]:
         """Empty. The process is one model, and Arelis does not evict it."""

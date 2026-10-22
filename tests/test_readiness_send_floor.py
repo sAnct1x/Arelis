@@ -7,8 +7,20 @@ from pathlib import Path
 import pytest
 
 from arelis.config import load_config
+from arelis.llm.startup import model_is_available
 from arelis.presence.readiness import ReadinessSnapshot, _confirm_chip
 from arelis.ui.readiness_strip import ReadinessStrip
+
+
+def test_model_is_available_matches_gguf_name_and_alias() -> None:
+    """llama-server lists a GGUF path or an alias, not an Ollama tag."""
+    wanted = "Qwen3.6-35B-A3B"
+    assert model_is_available(
+        ["/models/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"],
+        wanted,
+    )
+    assert model_is_available(["qwen3.6-35b-a3b"], wanted)
+    assert not model_is_available(["/models/other-chat.gguf"], wanted)
 
 
 def test_strip_reports_mail_and_texts_asking_when_settings_say_off(

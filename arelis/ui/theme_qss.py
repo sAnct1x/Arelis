@@ -409,6 +409,9 @@ def stylesheet() -> str:
     #ReadinessChip[status="ok"] {{
         color: {c['accent']};
     }}
+    #ReadinessChip[status="info"] {{
+        color: {c['text_dim']};
+    }}
     #ReadinessChip[status="warn"] {{
         color: {c['warn']};
     }}
@@ -589,6 +592,9 @@ def stylesheet() -> str:
     }}
     #ReadinessSystems[status="ok"] {{
         color: {c['accent']};
+    }}
+    #ReadinessSystems[status="info"] {{
+        color: {c['text_dim']};
     }}
     #ReadinessSystems[status="warn"] {{
         color: {c['warn']};
