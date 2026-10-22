@@ -771,6 +771,87 @@ async def test_llamacpp_cpu_embeddings_follow_embed_url_and_stay_off_when_down(
     await bare.close()
 
 
+async def test_llamacpp_stream_reports_tool_arg_progress_before_tool_calls() -> None:
+    """Argument slices must not stay silent until the stream ends.
+
+    One content delta, then several tool_calls argument slices, then
+    [DONE]. A progress yield has to land while those slices are still
+    arriving, with the tool name and how many argument characters have
+    landed so far. tool_calls stays last and parses. Partial JSON is
+    not a call.
+    """
+    opening = '{"title":"Periodic table","body":"'
+    first = opening + ("H" * 80)
+    second = "e " * 40
+    third = '"}'
+    raw = first + second + third
+    expect = json.loads(raw)
+    assert len(first) > 64
+    assert len(first) < len(raw)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/v1/chat/completions":
+            return httpx.Response(404)
+        slices = (
+            {
+                "index": 0,
+                "function": {"name": "document", "arguments": first},
+            },
+            {"index": 0, "function": {"arguments": second}},
+            {"index": 0, "function": {"arguments": third}},
+        )
+        events: list[dict[str, Any]] = [
+            {
+                "choices": [
+                    {
+                        "delta": {"content": "Here is the table."},
+                        "finish_reason": None,
+                    }
+                ]
+            }
+        ]
+        for piece in slices:
+            events.append(
+                {
+                    "choices": [
+                        {
+                            "delta": {"tool_calls": [piece]},
+                            "finish_reason": None,
+                        }
+                    ]
+                }
+            )
+        return httpx.Response(200, content=_sse(events))
+
+    provider = LlamaCppProvider(
+        base_url="http://llama.test",
+        client=_client(handler),
+    )
+    items: list[tuple[str, Any]] = []
+    try:
+        async for item in provider.stream_chat(
+            "qwen",
+            [{"role": "user", "content": "periodic table"}],
+            think=False,
+        ):
+            items.append(item)
+    finally:
+        await provider.close()
+
+    progress = [payload for kind, payload in items if kind == "tool_progress"]
+    assert progress, "no progress while argument slices were still arriving"
+    assert items[0] == ("token", "Here is the table.")
+    assert items[-1][0] == "tool_calls"
+    assert [kind for kind, _payload in items].count("tool_calls") == 1
+    assert all(kind != "tool_calls" for kind, _payload in items[:-1])
+    call = items[-1][1][0]["function"]
+    assert call["name"] == "document"
+    assert call["arguments"] == expect
+    assert min(int(item["chars"]) for item in progress) < len(raw)
+    assert all(item["name"] == "document" for item in progress)
+    assert all(set(item) == {"name", "chars"} for item in progress)
+
+
 def _compute_error_body() -> dict[str, Any]:
     """What llama-server sends when decode returns a compute failure."""
     return {

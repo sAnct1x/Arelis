@@ -134,6 +134,8 @@ async def _begin_turn(
     loop._painted = ""
     loop._round_gap = False
     loop.model_started = False
+    loop._cut_short_noted = False
+    loop._tool_arg_line = ""
     # Mutable so mid-turn escalate (W2) can retarget the hot model.
     loop._turn_role = role
     loop._escalated = False

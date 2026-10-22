@@ -9,7 +9,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtTest import QTest
 
 from arelis.core.events import Event, EventType
-from arelis.ui.window_const import HUNG_TURN_CAP_S
+from arelis.ui.window_const import HUNG_TURN_CAP_S, HUNG_TURN_S
 
 
 def _cfg(idle: float, first: float, cap: float = 30.0) -> dict:
@@ -27,6 +27,45 @@ def _drip(window, kind: EventType, payload: dict, every_ms: int = 50):
 
 def _hung_shown(window) -> bool:
     return "hung" in window.chat.view.toPlainText().lower()
+
+
+class _Clock:
+    """Stand-in for time.monotonic. advance() is the only way it moves."""
+
+    def __init__(self) -> None:
+        self.now = 10_000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+class _IdleWatch:
+    """Single-shot stand-in for the hung QTimer, on the same clock as the cap."""
+
+    def __init__(self, clock: _Clock, fire) -> None:
+        self._clock = clock
+        self._fire = fire
+        self._deadline: float | None = None
+
+    def isActive(self) -> bool:
+        return self._deadline is not None
+
+    def start(self, ms: int) -> None:
+        self._deadline = self._clock.now + (int(ms) / 1000.0)
+
+    def stop(self) -> None:
+        self._deadline = None
+
+    def remainingTime(self) -> int:
+        if self._deadline is None:
+            return -1
+        return max(0, round((self._deadline - self._clock.now) * 1000))
+
+    def advance(self, seconds: float) -> None:
+        self._clock.now += seconds
+        if self._deadline is not None and self._clock.now >= self._deadline:
+            self._deadline = None
+            self._fire()
 
 
 def test_streaming_thinking_is_not_a_hang(arelis_window, qt_app) -> None:
@@ -97,7 +136,7 @@ def test_stall_clock_follows_progress_not_the_last_tool_call(arelis_window, qt_a
     assert _hung_shown(window)
 
 
-def test_silence_after_thinking_is_a_hang(arelis_window, qt_app) -> None:
+def test_silence_after_thinking_is_a_hang(arelis_window, qt_app, monkeypatch) -> None:
     window = arelis_window(_cfg(idle=0.3, first=5.0))
     window._set_busy(True)
     drip = _drip(window, EventType.THINKING, {"text": "hmm ", "stream": True})
@@ -107,3 +146,48 @@ def test_silence_after_thinking_is_a_hang(arelis_window, qt_app) -> None:
     QTest.qWait(700)           # idle gap passes with nothing streaming
     assert window._turn_busy is False
     assert _hung_shown(window)
+
+    # A document write that keeps reporting argument progress is the same
+    # kind of work as those thinking tokens. The product idle gap is 60s
+    # and the cap is 600s. Progress inside the gap keeps the turn alive
+    # past 60s. One quiet gap after the last report is a hang. The cap
+    # clock does not move with the reports.
+    assert HUNG_TURN_S == 60
+    assert HUNG_TURN_CAP_S == 600
+    clock = _Clock()
+    monkeypatch.setattr("arelis.ui.turn_watchdog.time.monotonic", clock.monotonic)
+    writing = arelis_window()
+    watch = _IdleWatch(clock, writing._on_hung_turn)
+    writing._hung_watchdog = watch
+    writing._set_busy(True)
+    started = writing._hung_started
+    assert writing._hung_cap_ms == HUNG_TURN_CAP_S * 1000
+    # The turn opens on the longer first-token allowance. A streamed
+    # thinking token is what puts the clock on the 60s idle gap. A chat
+    # token would do the same reset, and would also open the answer
+    # bubble, which holds the hang note until the bubble closes.
+    writing.bridge.event_arrived.emit(
+        Event(EventType.THINKING, {"text": "hmm ", "stream": True})
+    )
+    elapsed = 0
+    chars = 0
+    while elapsed <= HUNG_TURN_S:
+        watch.advance(20)
+        elapsed += 20
+        assert writing._turn_busy, (
+            f"argument progress did not keep the write alive at {elapsed}s"
+        )
+        chars += 64
+        writing.bridge.event_arrived.emit(
+            Event(
+                EventType.TOOL_ARG_PROGRESS,
+                {"message": f"Writing the document, {chars} characters so far"},
+            )
+        )
+        assert watch.remainingTime() == HUNG_TURN_S * 1000
+    assert elapsed > HUNG_TURN_S
+    assert writing._hung_cap_ms == HUNG_TURN_CAP_S * 1000
+    assert writing._hung_started == started
+    watch.advance(HUNG_TURN_S)
+    assert writing._turn_busy is False
+    assert _hung_shown(writing)
