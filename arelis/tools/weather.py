@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -285,7 +284,7 @@ class WeatherTool:
 
     def _forecast_fn(self, lat: float, lon: float) -> Any:
         fn = self._forecast if self._forecast is not None else fetch_forecast
-        return _invoke_forecast(fn, lat, lon, _FORECAST_DAYS)
+        return fn(lat, lon, days=_FORECAST_DAYS)
 
 
 _HOMEISH_PLACE = frozenset(
@@ -677,28 +676,6 @@ _WEEKDAY_NAMES = (
     "Saturday",
     "Sunday",
 )
-
-
-def _takes_days(fn: Any) -> bool:
-    """True when this forecast callable accepts a days argument."""
-    try:
-        params = inspect.signature(fn).parameters
-    except (TypeError, ValueError):
-        return False
-    if "days" in params:
-        return True
-    return any(item.kind is inspect.Parameter.VAR_KEYWORD for item in params.values())
-
-
-def _invoke_forecast(fn: Any, lat: float, lon: float, days: int) -> Any:
-    """Ask for a few days when the callable allows it.
-
-    Older stand-ins take latitude and longitude only. Passing days to those
-    would raise, so they keep the two-argument call.
-    """
-    if _takes_days(fn):
-        return fn(lat, lon, days=days)
-    return fn(lat, lon)
 
 
 def _forecast_day_label(date_text: Any, offset: int) -> str:

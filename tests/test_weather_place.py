@@ -176,8 +176,8 @@ def _patch(monkeypatch: pytest.MonkeyPatch, rows: list[dict[str, Any]]) -> None:
         del name
         return rows
 
-    async def _forecast(lat: float, lon: float, **_kw: Any) -> dict[str, Any]:
-        del lat, lon
+    async def _forecast(lat: float, lon: float, days: int = 1) -> dict[str, Any]:
+        del lat, lon, days
         return {
             "current": {"temperature_2m": 71.0, "weather_code": 0},
             "daily": [
