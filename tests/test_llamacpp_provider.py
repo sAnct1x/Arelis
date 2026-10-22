@@ -16,8 +16,10 @@ from arelis.core.memory import SessionMemory
 from arelis.core.turn_prepare import _context_limits
 from arelis.llm import build_router
 from arelis.llm.errors import (
+    LLAMACPP_DEVICE_NOTICE,
     LLAMACPP_DOWN_NOTICE,
     LLAMACPP_MODEL_NOTICE,
+    LLAMACPP_RESTART_NOTICE,
     classify_model_failure,
     classify_turn_failure,
 )
@@ -786,10 +788,11 @@ async def test_a_lost_graphics_device_fails_once_and_asks_for_a_restart(
     """/health stays ok after the graphics device is lost.
 
     Readiness is one generated token. A turn that dies the same way posts
-    once, and the chat line tells the user to restart the model server.
-    A second completion would hit the same dead device.
+    once. The graphics-card line is only the compute error. Any other
+    HTTP 500 still needs a restart, without that line.
     """
     posts: list[dict[str, Any]] = []
+    served: dict[str, Any] = {"error": _compute_error_body()}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/health":
@@ -798,8 +801,8 @@ async def test_a_lost_graphics_device_fails_once_and_asks_for_a_restart(
             body = json.loads(request.content)
             posts.append(body)
             if body.get("stream"):
-                return httpx.Response(200, content=_sse([_compute_error_body()]))
-            return httpx.Response(500, json=_compute_error_body())
+                return httpx.Response(200, content=_sse([served["error"]]))
+            return httpx.Response(500, json=served["error"])
         return httpx.Response(404)
 
     provider = LlamaCppProvider(
@@ -818,7 +821,7 @@ async def test_a_lost_graphics_device_fails_once_and_asks_for_a_restart(
         raise AssertionError("a compute failure should fail the turn")
     assert len(posts) == 1
     assert failure.skip_tool_fallback is True
-    assert "restart" in failure.chat.lower()
+    assert failure.chat == LLAMACPP_DEVICE_NOTICE
     assert "\u2014" not in failure.chat
     assert "\u2013" not in failure.chat
     assert "HTTP" not in failure.chat
@@ -870,4 +873,24 @@ async def test_a_lost_graphics_device_fails_once_and_asks_for_a_restart(
     assert len(posts) == before + 1
     assert posts[-1]["max_tokens"] == 1
     assert "tools" not in posts[-1]
+
+    served["error"] = {
+        "error": {
+            "code": 500,
+            "message": "boom",
+            "type": "server_error",
+        }
+    }
+    try:
+        async for _item in provider.stream_chat(
+            "qwen",
+            [{"role": "user", "content": "again"}],
+        ):
+            pass
+    except Exception as exc:
+        other = classify_turn_failure(exc, model="qwen", backend=provider)
+    else:
+        raise AssertionError("a plain HTTP 500 should fail the turn")
+    assert other.chat == LLAMACPP_RESTART_NOTICE
+    assert other.skip_tool_fallback is True
     await provider.close()
