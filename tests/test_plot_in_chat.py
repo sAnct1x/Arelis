@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QImage, QTextCursor, QTextDocument
+from PySide6.QtTest import QTest
 
 from arelis.core.events import Event, EventType
 from arelis.ui.event_host import dispatch_event
@@ -113,7 +114,8 @@ async def test_plot_file_ready_paints_the_png_in_chat(
     partial = "![fake-plot.png](fake-plo"
     cut = body.index(partial) + len(partial)
     window.chat.append_delta(body[:cut])
-    qt_app.processEvents()
+    # Deltas share one paint a moment later. Wait for that timer.
+    QTest.qWait(100)
     assert window.chat._stream_open
     streamed = window.chat.view.toPlainText()
     assert streamed.count("Here is the chart.") == 1
@@ -121,14 +123,14 @@ async def test_plot_file_ready_paints_the_png_in_chat(
     assert "fake-plo" not in streamed
     assert "fake-plot.png" not in streamed
     window.chat.append_delta(body[cut:])
-    qt_app.processEvents()
+    QTest.qWait(100)
     streamed = window.chat.view.toPlainText()
     assert "![fake-plot.png]" not in streamed
     assert "fake-plot.png" not in streamed
     assert "!other" in streamed
     assert "../outside.png" not in window.chat.view.toHtml()
     window.chat.append_delta("\n![alt](pa")
-    qt_app.processEvents()
+    QTest.qWait(100)
     streamed = window.chat.view.toPlainText()
     assert window.chat._stream_open
     assert "![alt]" not in streamed

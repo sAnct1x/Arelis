@@ -41,11 +41,11 @@ from arelis.ui.theme import COLORS, SPACE, color
 from arelis.ui.void_idle import OrbitIdle
 
 
-# The assistant bubble is painted twice per turn, both times through
-# render_markdown. While tokens arrive the open bubble is replaced from the
-# anchor. When the turn ends it is replaced again with the authoritative
-# answer. Plain insertion used to skip that renderer, so an image mark sat
-# on screen until the turn ended.
+# The assistant bubble is painted through render_markdown. Deltas restart a
+# short timer instead of repainting every token: a long reply would render
+# every prefix, and a half-typed "**" would flip on each one. Finish, a chart
+# that arrives while the bubble is open, and a tool retract all update
+# immediately. The finished paint does not use the streaming image rule.
 def _ink(name: str, fallback: str = "") -> str:
     return COLORS.get(name) or COLORS.get(fallback) or COLORS["text"]
 
@@ -146,6 +146,8 @@ def _acts_html() -> str:
 
 
 _CARET_GLYPHS = {"▍", "|", "▌"}
+# A burst of tokens shares one paint. 50 ms is about 20 repaints a second.
+_STREAM_PAINT_MS = 50
 _CHEVRON_CLOSED = ">"
 _CHEVRON_OPEN = "v"
 
@@ -303,6 +305,12 @@ class ChatPanel(QWidget):
         self._caret_timer = QTimer(self)
         self._caret_timer.setInterval(530)
         self._caret_timer.timeout.connect(self._blink_caret)
+        # Single-shot, restarted on each delta. start() resets the interval,
+        # so a burst collapses to one paint about 20 times a second.
+        self._stream_paint = QTimer(self)
+        self._stream_paint.setSingleShot(True)
+        self._stream_paint.setInterval(_STREAM_PAINT_MS)
+        self._stream_paint.timeout.connect(self._repaint_stream)
         # Owned by the panel so they die with it. See _scroll: these used to be
         # anonymous single-shots holding the scroll bar, and a panel destroyed
         # inside their 50ms window left them pointing at freed memory.
@@ -713,16 +721,33 @@ class ChatPanel(QWidget):
         if not self._stream_open:
             self.begin_assistant()
         self._seal_live_thought()
-        follow = self._near_bottom()
         self._stream_text.append(text)
-        self._repaint_stream(follow=follow)
+        self._schedule_stream_paint()
+
+    def _schedule_stream_paint(self) -> None:
+        """Restart the short timer so a burst of deltas paints once."""
+        self._stream_paint.start()
+
+    def _cancel_stream_paint(self) -> None:
+        self._stream_paint.stop()
+
+    def _flush_stream_paint(self) -> None:
+        """Paint the open bubble now.
+
+        Finish writes the authoritative answer itself. A chart that arrives
+        while the bubble is open cannot wait for the timer, or the image
+        mark stays up after the picture is already known.
+        """
+        self._cancel_stream_paint()
+        self._repaint_stream()
 
     def _repaint_stream(self, *, follow: bool | None = None) -> None:
-        """Repaint the open bubble with the finished-answer renderer.
+        """Repaint the open bubble with the streaming renderer.
 
         The caret is part of that HTML. Replacing from the anchor drops the
         previous draft, including a caret that was not the last character,
-        and writes the current text again.
+        and writes the current text again. Scroll follow is sampled here,
+        before that replacement, unless the caller already sampled it.
         """
         if not self._stream_open:
             return
@@ -734,6 +759,7 @@ class ChatPanel(QWidget):
                 "".join(self._stream_text),
                 self._shown_charts,
                 caret=self._caret_on,
+                streaming=True,
             )
         )
         self._scroll(follow=follow)
@@ -746,6 +772,7 @@ class ChatPanel(QWidget):
         appended to it after streaming ended, which is how the Sources list
         gets added.
         """
+        self._cancel_stream_paint()
         self._stop_caret()
         body = text or "".join(self._stream_text)
         if not self._stream_open and not body:
@@ -786,6 +813,7 @@ class ChatPanel(QWidget):
         to a tool call. The text is not lost: the agent loop puts it in the
         thinking dock, which is where reasoning belongs.
         """
+        self._cancel_stream_paint()
         self._stop_caret()
         if not self._stream_open:
             return
@@ -870,9 +898,9 @@ class ChatPanel(QWidget):
             self._shown_charts.append(abs_path)
         if self._stream_open:
             self._pending_charts.append((label, abs_path))
-            # The reply may already contain the image mark. Paint it again
-            # now that this chart is one the renderer knows about.
-            self._repaint_stream()
+            # The reply may already contain the image mark. Paint it now
+            # that this chart is one the renderer knows about.
+            self._flush_stream_paint()
             return
         self._append_chart_image(label, abs_path)
 
@@ -1000,6 +1028,7 @@ class ChatPanel(QWidget):
         the next finish, and a stale _last_assistant_body would swallow a
         legitimate repeated reply.
         """
+        self._cancel_stream_paint()
         self._stop_caret()
         self.clear_progress()
         self._cancel_message_fade()
@@ -1126,6 +1155,10 @@ class ChatPanel(QWidget):
         if not self._stream_open:
             return
         self._caret_on = not self._caret_on
+        # A delta paint already pending will pick up the caret. Painting
+        # again here would be a second full render in the same breath.
+        if self._stream_paint.isActive():
+            return
         self._repaint_stream()
 
     def _strip_caret(self) -> None:
@@ -1275,12 +1308,18 @@ def _assistant_body_html(
     shown_files: Iterable[str] | None = None,
     *,
     caret: bool = False,
+    streaming: bool = False,
 ) -> str:
     """The answer cell. Streaming and finish both come through here."""
     tail = _caret_html() if caret else ""
     return (
         _assistant_open()
-        + render_markdown(body, math=math_html, shown_files=shown_files)
+        + render_markdown(
+            body,
+            math=math_html,
+            shown_files=shown_files,
+            streaming=streaming,
+        )
         + tail
         + _ASSISTANT_CLOSE
     )
