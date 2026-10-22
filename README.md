@@ -336,6 +336,7 @@ something behaves oddly on yours, open an issue. Current release is
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [models.md](docs/models.md) | Which models, and why |
+| [status-panel.md](docs/status-panel.md) | What the house status lines mean |
 | [voice-wake.md](docs/voice-wake.md) | Hey Arelis, talk, dictate |
 | [browser-control.md](docs/browser-control.md) | Her browser |
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
