@@ -400,6 +400,7 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
                 holder["error"] = exc
                 raise
 
+        ask_mark = len(seen)
         ask_fut = asyncio.run_coroutine_threadsafe(_go_ask(), window.loop)
         ask_fut.result(timeout=15)
         assert holder.get("error") is None, holder.get("error")
@@ -408,13 +409,20 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
 
         note = "Checking again..."
 
-        def _not_blank() -> bool:
+        def _bubble_held() -> bool:
             text = window.chat.view.toPlainText()
             if not text.strip():
                 return False
-            return note in text or claim in text or token in text
+            if note in text:
+                return True
+            # A kept draft is fine. A retract without a note is the blank
+            # bubble. seen is updated before Qt paints, so a retract in
+            # this slice means the claim still on screen is about to go.
+            if EventType.ASSISTANT_RETRACT in seen[ask_mark:]:
+                return False
+            return claim in text or token in text
 
-        stayed_ask = QTest.qWaitFor(_not_blank, 5000)
+        stayed_ask = QTest.qWaitFor(_bubble_held, 5000)
         assert stayed_ask, (
             "asking-again left the bubble blank; "
             f"chat={window.chat.view.toPlainText()!r} "
