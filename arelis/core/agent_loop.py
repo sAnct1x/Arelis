@@ -534,7 +534,8 @@ class _LiveAnswer:
 
     Prose that turns out to be a preamble to a tool call is not handled here.
     It cannot be: at the time the words arrive there is nothing to distinguish
-    them from an answer. The caller retracts them once the round resolves.
+    them from an answer. A tool round leaves that prose on screen. A later
+    finish retracts it only when the final answer does not extend it.
     """
 
     def __init__(self) -> None:
@@ -696,10 +697,10 @@ class AgentLoop:
       UI clears its busy state on those, so an early return without one leaves
       the composer disabled. terminal_sent records that it happened, so the
       orchestrator does not add a second one on top.
-    - Answer text is streamed as it arrives, but only text that is still a
-      candidate answer. A round that ends in a tool call publishes
-      ASSISTANT_RETRACT, so a preamble never sits in the chat pretending to be
-      the reply.
+    - Answer text is streamed as it arrives. A tool round leaves that draft
+      on screen until the final answer replaces it. ASSISTANT_RETRACT is for
+      a plain re-ask, a failed stream, and a final answer that does not
+      extend what was already painted.
     - Confirmation is requested before a write or image call, never after.
     """
 

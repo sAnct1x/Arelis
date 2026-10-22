@@ -22,9 +22,9 @@ class EventType(str, Enum):
     composer and dismiss a confirm card the turn is still parked on.
 
     ASSISTANT_RETRACT withdraws everything published by ASSISTANT_DELTA since
-    the last ASSISTANT_DONE. It exists because answer text is streamed before
-    the loop knows whether the round is an answer at all: a round that ends in a
-    tool call was a preamble, not a reply, and has to come back off the screen.
+    the last ASSISTANT_DONE. A plain re-ask, a failed stream, and a final
+    answer that does not extend the draft all use it. A tool round does not:
+    the draft stays up while the tool runs.
 
     PHYSICS_VERB is a closed lexicon hit in Reality (heavier,
     freeze, undo). It mutates the live scene this frame and never starts
@@ -46,8 +46,9 @@ class EventType(str, Enum):
     pipeline and the orchestrator turns it into a USER_MESSAGE. While an answer
     is streaming, ASSISTANT_DELTA also feeds the voice service: completed
     sentences become VOICE_AUDIO_READY before the turn ends. ASSISTANT_RETRACT
-    cancels that in-flight speech when the painted text was only a tool
-    preamble. VOICE_SPEAK is still the terminal hand-off, it flushes any
+    cancels that in-flight speech. A tool start runs the same cancel so the
+    voice does not read the draft and then the answer, while the draft stays
+    on screen. VOICE_SPEAK is still the terminal hand-off, it flushes any
     remainder from the final written answer (and is the whole path for
     non-stream producers such as SMS cues). VOICE_AUDIO_READY carries one
     synthesized clip and is the only one the UI plays, because audio devices

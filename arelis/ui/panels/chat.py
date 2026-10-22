@@ -228,7 +228,7 @@ class ChatPanel(QWidget):
     the authoritative answer. Both passes are anchored: the document position
     taken before the bubble is drawn is what lets the draft be removed exactly,
     whether it is being replaced with the finished answer or discarded because
-    the model turned out to be calling a tool.
+    a later retract withdrew a draft that will not be the reply.
     """
 
     session_clicked = Signal(str)

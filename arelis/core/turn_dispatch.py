@@ -181,10 +181,11 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
     so they read and write it on ``r`` rather than on locals a ``finally``
     then has to copy back.
     """
-    # The round was a tool call, so anything already painted was a
-    # preamble rather than an answer. Take it off the screen and put it
-    # in the thinking dock, which is where a model narrating itself
-    # belongs.
+    # The round was a tool call. Leave the draft on screen through the
+    # run. Retracting here deleted the bubble, and the chat stayed empty
+    # until the final answer. _finish still retracts when that answer does
+    # not extend this text, and finish_assistant paints the body. Speech
+    # for the draft is cancelled when the tool starts, not by this path.
     if loop._timer is not None:
         loop._timer.mark(
             "round",
@@ -194,7 +195,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             calls=len(r.calls),
         )
     if r.streamed.strip():
-        await loop._retract()
         await loop.bus.publish(
             Event(
                 EventType.THINKING,

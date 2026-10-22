@@ -307,9 +307,9 @@ def dispatch_event(window: Any, event: Event) -> None:
     elif t == EventType.ASSISTANT_RETRACT:
         if window._mobile_foreign:
             return
-        # The round turned out to be a tool call, so what was on screen was
-        # a preamble. The agent loop mirrors it into the thinking dock.
-        # Drop any speech that streamed from that preamble.
+        # Plain re-ask, a failed stream, or a final answer that does not
+        # extend the painted draft. A tool round does not publish this.
+        # Drop the bubble and any speech that streamed from it.
         window.chat.discard_stream()
         window._assistant_streaming = False
         # VoiceService.on_retract already cancelled the withdrawn utterance.
@@ -553,6 +553,16 @@ def dispatch_event(window: Any, event: Event) -> None:
         errand = tool_errand(str(tool or ""), args)
         if errand:
             window.thinking.append(errand, kind="tool")
+        # The draft stays in the bubble. Retract used to cancel its speech
+        # via ASSISTANT_RETRACT, and the voice service still runs that cancel
+        # on this event. Drop clips the player already holds. Do not call
+        # stop_speech: that stamps the next speak id as cancelled. The errand
+        # stays in the thought line, not on ChatProgress. A partial window
+        # used by a dock test has no player; leave it alone.
+        if hasattr(window, "speech_player"):
+            from arelis.ui.voice_host import stop_playback
+
+            stop_playback(window)
         if str(tool or "") == "workspace" and isinstance(args, dict):
             window._workspace_tool_args = dict(args)
         if str(tool or "") in {"tile", "solar", "earth"} and isinstance(args, dict):
