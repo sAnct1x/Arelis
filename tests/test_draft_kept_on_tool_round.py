@@ -8,9 +8,9 @@ before TOOL_RESULT.
 
 The plain-answer re-ask is the other retract that used to blank the
 bubble. That path also used to feed the discarded round's claims into
-the next request as if the work had run. The bubble stays visible
-(draft or a one-line wait note), and those claims stay out or marked
-not applied.
+the next request as if the work had run. The live retry bubble shows the one-line wait note (not leftover
+draft from earlier in the same view), and those claims stay out or
+marked not applied.
 
 QT_QPA_PLATFORM=offscreen. The wait is QTest.qWaitFor from the qt_app
 fixture, which pumps events until the paint lands.
@@ -99,8 +99,9 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
 
     The tool call blocks until this assertion, so TOOL_RESULT has not been
     published yet. Restoring the retract in dispatch_calls fails this test.
-    The asking-again path must not blank the bubble, and a discarded
-    round's claims must not land unmarked in the next request.
+    The asking-again path must put the wait note on the live assistant
+    bubble, and a discarded round's claims must not land unmarked in
+    the next request.
     """
     assert os.environ.get("QT_QPA_PLATFORM") == "offscreen"
     draft = _draft()
@@ -409,22 +410,17 @@ def test_draft_stays_in_the_chat_through_tool_start(arelis_window, qt_app) -> No
 
         note = "Checking again..."
 
-        def _bubble_held() -> bool:
-            text = window.chat.view.toPlainText()
-            if not text.strip():
+        def _retry_bubble() -> bool:
+            # The live stream is the bubble this retry updated. The whole
+            # view still holds earlier draft text from this test, so a
+            # missing note would still match there.
+            if not window.chat._stream_open:
                 return False
-            if note in text:
-                return True
-            # A kept draft is fine. A retract without a note is the blank
-            # bubble. seen is updated before Qt paints, so a retract in
-            # this slice means the claim still on screen is about to go.
-            if EventType.ASSISTANT_RETRACT in seen[ask_mark:]:
-                return False
-            return claim in text or token in text
+            return note in "".join(window.chat._stream_text)
 
-        stayed_ask = QTest.qWaitFor(_bubble_held, 5000)
+        stayed_ask = QTest.qWaitFor(_retry_bubble, 5000)
         assert stayed_ask, (
-            "asking-again left the bubble blank; "
+            "asking-again left the live bubble without the wait note; "
             f"chat={window.chat.view.toPlainText()!r} "
             f"stream_open={window.chat._stream_open} "
             f"stream={''.join(window.chat._stream_text)!r} "
