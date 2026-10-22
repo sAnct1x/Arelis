@@ -36,6 +36,11 @@ _ARTICLE_BODY = (
 )
 _SUMMARIZE_ASK = "Summarize this long article.\n\n" + _ARTICLE_BODY
 _URL_ASK = "Summarize this article: https://example.com/foo"
+_PLOT_BODY = (
+    "x y\n"
+    + "\n".join(f"{i} {i * 2}.0" for i in range(80))
+)
+_PLOT_ASK = "plot the numbers below\n\n" + _PLOT_BODY
 _CAS_ASK = (
     "I have been stuck on this homework problem for a while and I already "
     "tried the substitution they showed in lecture.\n\n"
@@ -77,6 +82,7 @@ def _registry() -> ToolRegistry:
         "user_location",
         "calculator",
         "cas",
+        "plot",
     ):
         registry.register(_Tool(name))  # type: ignore[arg-type]
     return registry
@@ -180,3 +186,11 @@ async def test_pasted_article_summary_is_not_a_cas_or_fetch_round() -> None:
     assert cas_ctx.exact_need.needs_cas
     assert "symbolic" in cas_ctx.exact_need.kinds
     assert detect_exactness_need(_CAS_ASK).needs_cas
+
+    plot_instruction, plot_body = split_user_ask(_PLOT_ASK)
+    assert plot_instruction == "plot the numbers below"
+    assert plot_body
+    plot_ctx = await prepare_turn(_loop(), _PLOT_ASK, "fast")
+    assert plot_ctx is not None
+    assert plot_ctx.expect_tool_round is True
+    assert "plot" in plot_ctx.exact_need.kinds

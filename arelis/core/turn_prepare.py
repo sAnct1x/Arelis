@@ -464,7 +464,7 @@ def _date_ask_ratio_block(user_text: str, expression: str) -> str | None:
 
 _ASK_BODY_BLANK = re.compile(r"\n[ \t]*\n")
 _HTTP_URL = re.compile(r"https?://\S+", re.I)
-_LOCAL_DOC_VERB = re.compile(r"(?i)\b(?:summarize|summarise|explain|tl;?dr)\b")
+_PASTE_IS_NOT_A_FETCH = frozenset({"web", "attachments"})
 
 
 def split_user_ask(text: str) -> tuple[str, str]:
@@ -503,11 +503,12 @@ def _looks_like_provided_body(instruction: str, body: str) -> bool:
     return True
 
 
-def _pasted_local_document(instruction: str, provided_body: str) -> bool:
-    """True when they asked to summarize or explain a body they already pasted."""
+def _body_already_here(instruction: str, provided_body: str) -> bool:
+    """True when a pasted body is present and the instruction has no URL.
+
+    The page is already in the message. That is structural, not a verb list.
+    """
     if not provided_body:
-        return False
-    if not _LOCAL_DOC_VERB.search(instruction or ""):
         return False
     if _HTTP_URL.search(instruction or ""):
         return False
@@ -568,7 +569,7 @@ async def prepare_turn(
     # "article" or "integral of" is not this-turn intent.
     instruction, provided_body = split_user_ask(text)
     classify_text = instruction or text
-    pasted_local = _pasted_local_document(instruction, provided_body)
+    body_already_here = _body_already_here(instruction, provided_body)
     skill_ids, fallback_only = select_skill_ids_detailed(
         classify_text, available_tools=available
     )
@@ -577,6 +578,11 @@ async def prepare_turn(
     # questions used to get the same cage once room extras stopped
     # suppressing the fallback.
     plan_ids = () if fallback_only else skill_ids
+    if body_already_here:
+        # The page is already in the message. A web card from "article" in
+        # the instruction, or attachments from "summarize this", is a menu
+        # hint, not a scrape or file-read plan. Plot and CAS stay on plan_ids.
+        plan_ids = [sid for sid in plan_ids if sid not in _PASTE_IS_NOT_A_FETCH]
     # Short thanks/bye must not revive weather (or a stale web_search habit).
     if looks_like_closing_chitchat(text):
         available = set(available)
@@ -704,9 +710,8 @@ async def prepare_turn(
     # A YouTube / Chrome drive is not a scrape-the-web turn.
     if "browser" in loop._expected_tools:
         wants_fresh_page = False
-    if pasted_local:
-        # They already pasted the page. "article" in the instruction is not
-        # a fetch, and body prose is not a CAS ask.
+    if body_already_here:
+        # They already pasted the page. A URL-less instruction is not a fetch.
         wants_fresh_page = False
     # Chat fast path still skips the tool round and hold-paint. Schemas stay
     # on anyway: dropping them changes the front of the prompt.
@@ -731,8 +736,6 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         active_plan=active_plan,
     )
-    if pasted_local:
-        expect_tool_round = False
     chat_tools = session_tool_schemas(loop.tools, agent_cfg)
     loop.memory.remember_turn_block(turn_tail)
     if loop._timer is not None and not offer_tools:
