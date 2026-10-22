@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import math
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -41,11 +42,13 @@ from arelis.ui.theme import COLORS, SPACE, color
 from arelis.ui.void_idle import OrbitIdle
 
 
-# The assistant bubble is built in two pieces because it is painted twice per
-# turn. While tokens arrive it is left open and text is appended as fast plain
-# text. When the turn ends the whole thing is replaced with rendered markdown.
-# Rendering per token is not an option: a half-typed "**" would flicker between
-# literal asterisks and bold on every keystroke.
+# The assistant bubble is painted through render_markdown. Deltas arm a short
+# timer if one is not already waiting, so a fast stream still paints instead
+# of waiting for a pause. Each paint is one full render of the reply so far.
+# A slow paint raises the interval so it stays under about a quarter of the
+# GUI thread. Finish, a chart that arrives while the bubble is open, and a
+# tool retract all update immediately. The finished paint does not use the
+# streaming image rule.
 def _ink(name: str, fallback: str = "") -> str:
     return COLORS.get(name) or COLORS.get(fallback) or COLORS["text"]
 
@@ -146,6 +149,11 @@ def _acts_html() -> str:
 
 
 _CARET_GLYPHS = {"▍", "|", "▌"}
+# Floor for the stream timer. A burst paints at most about 20 times a second.
+# A slow full paint raises the interval so one paint stays under a quarter of the thread.
+_STREAM_PAINT_MS = 50
+_STREAM_BUDGET = 0.25
+_STREAM_PAINT_MAX_MS = 2000
 _CHEVRON_CLOSED = ">"
 _CHEVRON_OPEN = "v"
 
@@ -212,12 +220,13 @@ class ChatProgress(QLabel):
 class ChatPanel(QWidget):
     """Message surface. When embedded=True, lives inside ConversationStage glass.
 
-    Assistant messages are written twice. The streaming pass appends plain text
-    so tokens appear as they arrive, and the final pass deletes that draft and
-    re-inserts it as rendered markdown. Both passes are anchored: the document
-    position taken before the bubble is drawn is what lets the draft be removed
-    exactly, whether it is being replaced with the finished answer or discarded
-    because the model turned out to be calling a tool.
+    Assistant messages are written twice, and both times go through the same
+    markdown renderer. The streaming pass repaints the open bubble as tokens
+    arrive. The final pass deletes that draft and re-inserts the authoritative
+    answer. Both passes are anchored: the document position taken before the
+    bubble is drawn is what lets the draft be removed exactly, whether it is
+    being replaced with the finished answer or discarded because the model
+    turned out to be calling a tool.
     """
 
     session_clicked = Signal(str)
@@ -302,6 +311,12 @@ class ChatPanel(QWidget):
         self._caret_timer = QTimer(self)
         self._caret_timer.setInterval(530)
         self._caret_timer.timeout.connect(self._blink_caret)
+        # Single-shot. Armed only when idle, so a fast stream paints on the
+        # interval instead of pushing the paint out until the tokens pause.
+        self._stream_paint = QTimer(self)
+        self._stream_paint.setSingleShot(True)
+        self._stream_paint.setInterval(_STREAM_PAINT_MS)
+        self._stream_paint.timeout.connect(self._repaint_stream)
         # Owned by the panel so they die with it. See _scroll: these used to be
         # anonymous single-shots holding the scroll bar, and a panel destroyed
         # inside their 50ms window left them pointing at freed memory.
@@ -703,23 +718,79 @@ class ChatPanel(QWidget):
         self._anchor = self._end_position()
         self._stream_text = []
         self._last_assistant_body = None
-        self.view.append(_assistant_open())
         self._stream_open = True
-        self._start_caret()
-        self._scroll(follow=follow)
+        self._caret_on = True
+        self._caret_timer.start()
+        self._stream_paint.setInterval(_STREAM_PAINT_MS)
+        self._repaint_stream(follow=follow)
 
     def append_delta(self, text: str) -> None:
         if not self._stream_open:
             self.begin_assistant()
         self._seal_live_thought()
-        follow = self._near_bottom()
         self._stream_text.append(text)
-        self._strip_caret()
-        cursor = self.view.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertText(text)
-        self._insert_caret()
+        self._schedule_stream_paint()
+
+    def _schedule_stream_paint(self) -> None:
+        """Arm the short timer unless one is already waiting.
+
+        ``start`` on a running single-shot timer resets the countdown.
+        Tokens faster than the interval would then never paint, and the
+        caret would sit still until the stream paused. Leaving the
+        running timer alone caps the rate at one paint per interval.
+        """
+        if not self._stream_paint.isActive():
+            self._stream_paint.start()
+
+    def _cancel_stream_paint(self) -> None:
+        self._stream_paint.stop()
+
+    def _note_paint_cost(self, seconds: float) -> None:
+        """Lengthen the interval when a full paint would hog the GUI thread.
+
+        The floor stays ``_STREAM_PAINT_MS``. A long reply waits long enough
+        that the paint is under about a quarter of the thread. The next
+        cheaper paint puts the floor back.
+        """
+        need = math.ceil(seconds * 1000 / _STREAM_BUDGET) if seconds > 0 else 0
+        interval = need if need > _STREAM_PAINT_MS else _STREAM_PAINT_MS
+        if interval > _STREAM_PAINT_MAX_MS:
+            interval = _STREAM_PAINT_MAX_MS
+        if self._stream_paint.interval() != interval:
+            self._stream_paint.setInterval(interval)
+
+    def _flush_stream_paint(self) -> None:
+        """Paint the open bubble now.
+
+        Finish writes the authoritative answer itself. A chart that arrives
+        while the bubble is open cannot wait for the timer, or the image
+        mark stays up after the picture is already known.
+        """
+        self._cancel_stream_paint()
+        self._repaint_stream()
+
+    def _repaint_stream(self, *, follow: bool | None = None) -> None:
+        """Repaint the open bubble from the reply so far.
+
+        One full render, the same pass the finished answer uses. The caret
+        rides in that HTML. Scroll follow is sampled here, before the
+        replacement, unless the caller already sampled it.
+        """
+        if not self._stream_open:
+            return
+        started = time.perf_counter()
+        if follow is None:
+            follow = self._near_bottom()
+        self.view.arm_math()
+        html = _assistant_body_html(
+            "".join(self._stream_text),
+            self._shown_charts,
+            caret=self._caret_on,
+            streaming=True,
+        )
+        self._replace_from_anchor(html)
         self._scroll(follow=follow)
+        self._note_paint_cost(time.perf_counter() - started)
 
     def finish_assistant(self, text: str | None = None) -> None:
         """Replace the streamed draft with the rendered answer.
@@ -729,6 +800,7 @@ class ChatPanel(QWidget):
         appended to it after streaming ended, which is how the Sources list
         gets added.
         """
+        self._cancel_stream_paint()
         self._stop_caret()
         body = text or "".join(self._stream_text)
         if not self._stream_open and not body:
@@ -751,12 +823,7 @@ class ChatPanel(QWidget):
         if not self._stream_open:
             self._replace_from_anchor(_assistant_bubble_html(body, shown_files=shown))
         else:
-            answer = (
-                _assistant_open()
-                + render_markdown(body, math=math_html, shown_files=shown)
-                + _ASSISTANT_CLOSE
-            )
-            self._replace_from_anchor(answer)
+            self._replace_from_anchor(_assistant_body_html(body, shown))
         self._label_at = None
         self._stream_open = False
         self._stream_text = []
@@ -774,6 +841,7 @@ class ChatPanel(QWidget):
         to a tool call. The text is not lost: the agent loop puts it in the
         thinking dock, which is where reasoning belongs.
         """
+        self._cancel_stream_paint()
         self._stop_caret()
         if not self._stream_open:
             return
@@ -858,6 +926,9 @@ class ChatPanel(QWidget):
             self._shown_charts.append(abs_path)
         if self._stream_open:
             self._pending_charts.append((label, abs_path))
+            # The reply may already contain the image mark. Paint it now
+            # that this chart is one the renderer knows about.
+            self._flush_stream_paint()
             return
         self._append_chart_image(label, abs_path)
 
@@ -985,7 +1056,9 @@ class ChatPanel(QWidget):
         the next finish, and a stale _last_assistant_body would swallow a
         legitimate repeated reply.
         """
+        self._cancel_stream_paint()
         self._stop_caret()
+        self._stream_paint.setInterval(_STREAM_PAINT_MS)
         self.clear_progress()
         self._cancel_message_fade()
         self._stream_open = False
@@ -1102,11 +1175,6 @@ class ChatPanel(QWidget):
         if html:
             self.view.append(html)
 
-    def _start_caret(self) -> None:
-        self._caret_on = True
-        self._insert_caret()
-        self._caret_timer.start()
-
     def _stop_caret(self) -> None:
         self._caret_timer.stop()
         self._strip_caret()
@@ -1115,15 +1183,12 @@ class ChatPanel(QWidget):
     def _blink_caret(self) -> None:
         if not self._stream_open:
             return
-        self._strip_caret()
         self._caret_on = not self._caret_on
-        if self._caret_on:
-            self._insert_caret()
-
-    def _insert_caret(self) -> None:
-        cursor = self.view.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertHtml(f'<span id="arelisCaret" style="color:{_ink("accent")};">▍</span>')
+        # A delta paint already pending will pick up the caret. Painting
+        # again here would be a second full render in the same breath.
+        if self._stream_paint.isActive():
+            return
+        self._repaint_stream()
 
     def _strip_caret(self) -> None:
         cursor = self.view.textCursor()
@@ -1263,13 +1328,34 @@ def _user_bubble_html(
     )
 
 
+def _caret_html() -> str:
+    return f'<span id="arelisCaret" style="color:{_ink("accent")};">▍</span>'
+
+
+def _assistant_body_html(
+    body: str,
+    shown_files: Iterable[str] | None = None,
+    *,
+    caret: bool = False,
+    streaming: bool = False,
+) -> str:
+    """The answer cell. Streaming and finish both come through here."""
+    mark = _caret_html() if caret else ""
+    return (
+        _assistant_open()
+        + render_markdown(
+            body,
+            math=math_html,
+            shown_files=shown_files,
+            streaming=streaming,
+        )
+        + mark
+        + _ASSISTANT_CLOSE
+    )
+
+
 def _assistant_bubble_html(
     body: str,
     shown_files: Iterable[str] | None = None,
 ) -> str:
-    return (
-        _assistant_label()
-        + _assistant_open()
-        + render_markdown(body, math=math_html, shown_files=shown_files)
-        + _ASSISTANT_CLOSE
-    )
+    return _assistant_label() + _assistant_body_html(body, shown_files)
