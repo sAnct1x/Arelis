@@ -11,10 +11,12 @@ import pytest
 import yaml
 
 from arelis.llm.llama_launch import llama_server_args
+from arelis.setup import download as download_mod
 from arelis.setup.catalog import Q3_FILENAME, Q4_FILENAME
 from arelis.setup.download import (
     _READ,
     _SLACK_BYTES,
+    _stream_into,
     download_file,
     hf_file_url,
 )
@@ -49,7 +51,7 @@ def test_download_keeps_partial_and_resumes_with_range(
         header = request.headers.get("range") or request.headers.get("Range") or ""
         ranges.append(header)
         calls["n"] += 1
-        if calls["n"] > 8:
+        if calls["n"] > 24:
             raise AssertionError("download looped")
         step = mode["step"]
         if step == "short":
@@ -142,6 +144,61 @@ def test_download_keeps_partial_and_resumes_with_range(
         download_file(url, dest, expected_bytes=len(payload), sha256=digest)
     assert calls["n"] - before <= 2
     assert not dest.exists()
+
+    dest.unlink(missing_ok=True)
+    partial.write_bytes(payload[:10])
+    mode["step"] = "stall_resume"
+    stall = {"n": 0}
+
+    def stream_or_stall(response, dest_path, **kwargs):
+        if mode["step"] == "stall_resume" and stall["n"] == 0:
+            stall["n"] = 1
+            dest_path.write_bytes(dest_path.read_bytes() + payload[10:16])
+            raise httpx.ReadTimeout("stalled")
+        if mode["step"] == "silent90":
+            clock["t"] = 91.0
+            raise httpx.ReadTimeout("dead")
+        return _stream_into(response, dest_path, **kwargs)
+
+    monkeypatch.setattr(download_mod, "_stream_into", stream_or_stall)
+
+    def stall_handler(request: httpx.Request) -> httpx.Response:
+        header = request.headers.get("range") or request.headers.get("Range") or ""
+        ranges.append(header)
+        calls["n"] += 1
+        if calls["n"] > 24:
+            raise AssertionError("download looped")
+        if mode["step"] == "stall_resume":
+            if header == "bytes=16-":
+                return httpx.Response(
+                    206,
+                    content=payload[16:],
+                    headers={"Content-Range": "bytes 16-25/26"},
+                )
+            assert header == "bytes=10-"
+            return httpx.Response(
+                206,
+                content=payload[10:16],
+                headers={"Content-Range": "bytes 10-15/26"},
+            )
+        if mode["step"] == "silent90":
+            return httpx.Response(206, content=b"", headers={"Content-Range": "bytes 10-9/26"})
+        return handler(request)
+
+    _patch_client(monkeypatch, stall_handler)
+    download_file(url, dest, expected_bytes=len(payload), sha256=digest)
+    assert dest.read_bytes() == payload
+    assert ranges[-1] == "bytes=16-"
+
+    dest.unlink()
+    partial.write_bytes(payload[:10])
+    mode["step"] = "silent90"
+    clock = {"t": 0.0}
+    monkeypatch.setattr(download_mod.time, "monotonic", lambda: clock["t"])
+    with pytest.raises(RuntimeError, match="little while"):
+        download_file(url, dest, expected_bytes=len(payload), sha256=digest)
+    assert not dest.exists()
+    assert partial.read_bytes() == payload[:10]
 
 
 def test_download_stop_cancels_running_download_and_keeps_partial(

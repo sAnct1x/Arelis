@@ -66,6 +66,8 @@ _SLOW = "The 35B server did not finish starting. Try again in a little while."
 _NO_TOKEN = "The 35B server did not answer a one token check."
 
 _READ_TIMEOUT_S = 1.0
+_CONNECT_TIMEOUT_S = 5.0
+_STALL_LIMIT_S = 90.0
 _READ = 64 * 1024
 _CHUNK = 1024 * 1024
 
@@ -525,36 +527,55 @@ def _download_mmproj(dest: Path, cancelled: Cancel | None = None) -> None:
     dest.unlink(missing_ok=True)
     _require_space(dest.parent, MMPROJ_BYTES + 64 * 1024 * 1024)
     partial = dest.with_name(dest.name + ".partial")
-    have = partial.stat().st_size if partial.is_file() else 0
-    if have < 0:
-        have = 0
     dest.parent.mkdir(parents=True, exist_ok=True)
-    headers = {"User-Agent": f"arelis/{__version__}"}
-    if have:
-        headers["Range"] = f"bytes={have}-"
+    last_byte_at = time.monotonic()
     timeout = httpx.Timeout(
-        connect=15.0, read=_READ_TIMEOUT_S, write=15.0, pool=15.0
+        connect=_CONNECT_TIMEOUT_S,
+        read=_READ_TIMEOUT_S,
+        write=15.0,
+        pool=15.0,
     )
+    restarted_from_416 = False
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            with client.stream("GET", MMPROJ_URL, headers=headers) as response:
-                if have and response.status_code == 416:
-                    partial.unlink(missing_ok=True)
-                    have = 0
-                    raise RuntimeError(_LATER)
-                response.raise_for_status()
-                if have and response.status_code == 200:
-                    have = 0
-                _stream_into(response, partial, have=have, cancelled=cancelled)
+        while True:
+            if cancelled is not None and cancelled():
+                raise _MmprojCancelledError()
+            if time.monotonic() - last_byte_at >= _STALL_LIMIT_S:
+                raise RuntimeError(_LATER)
+            have = partial.stat().st_size if partial.is_file() else 0
+            if have < 0:
+                have = 0
+            headers = {"User-Agent": f"arelis/{__version__}"}
+            if have:
+                headers["Range"] = f"bytes={have}-"
+            try:
+                with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                    with client.stream("GET", MMPROJ_URL, headers=headers) as response:
+                        if (
+                            response.status_code == 416
+                            and have
+                            and not restarted_from_416
+                        ):
+                            partial.unlink(missing_ok=True)
+                            restarted_from_416 = True
+                            continue
+                        response.raise_for_status()
+                        if have and response.status_code == 200:
+                            have = 0
+                        last_byte_at = _stream_into(
+                            response,
+                            partial,
+                            have=have,
+                            cancelled=cancelled,
+                            last_byte_at=last_byte_at,
+                        )
+            except httpx.TimeoutException:
+                if cancelled is not None and cancelled():
+                    raise _MmprojCancelledError() from None
+                continue
+            break
     except RuntimeError:
         raise
-    except httpx.TimeoutException as exc:
-        if cancelled is not None and cancelled():
-            raise RuntimeError(
-                "The download was stopped. The unfinished file is still here, "
-                "so the next try can continue."
-            ) from None
-        raise RuntimeError(_LATER) from exc
     except httpx.TransportError as exc:
         raise RuntimeError(_OFFLINE) from exc
     except httpx.HTTPError as exc:
@@ -571,7 +592,8 @@ def _stream_into(
     *,
     have: int = 0,
     cancelled: Cancel | None = None,
-) -> None:
+    last_byte_at: float = 0.0,
+) -> float:
     total = have
     mode = "ab" if have else "wb"
     chunks = response.iter_bytes(_READ)
@@ -589,8 +611,10 @@ def _stream_into(
             if total > MMPROJ_BYTES:
                 raise RuntimeError(_LATER)
             handle.write(chunk)
+            last_byte_at = time.monotonic()
     if total != MMPROJ_BYTES:
         raise RuntimeError(_MISMATCH)
+    return last_byte_at
 
 
 def _sha256(path: Path, cancelled: Cancel | None = None) -> str:

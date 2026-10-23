@@ -35,7 +35,7 @@ from arelis.setup.download import download_model
 from arelis.setup.hardware import HardwareSnapshot, probe_hardware
 from arelis.setup.state import needs_model_setup, record_model_choice
 from arelis.ui.dialog import GlassDialog
-from arelis.ui.live_threads import park_running_thread
+from arelis.ui.live_threads import drain_parked_threads, park_running_thread
 from arelis.ui.theme import SPACE
 
 log = logging.getLogger(__name__)
@@ -297,11 +297,11 @@ class ModelSetupDialog(GlassDialog):
 
     def _on_app_quit(self) -> None:
         worker = self._prepare
-        if worker is None:
-            return
-        worker.cancel()
-        if worker.isRunning():
-            worker.wait(_QUIT_WAIT_MS)
+        if worker is not None:
+            worker.cancel()
+            if worker.isRunning():
+                worker.wait(_QUIT_WAIT_MS)
+        drain_parked_threads(_QUIT_WAIT_MS / 1000)
 
     def _on_stop(self) -> None:
         self._signal_cancel()

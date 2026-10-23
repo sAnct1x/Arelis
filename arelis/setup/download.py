@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import shutil
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -59,6 +60,8 @@ _SLACK_BYTES = 64 * 1024 * 1024
 _CHUNK = 1024 * 1024
 _READ = 64 * 1024
 _READ_TIMEOUT_S = 1.0
+_CONNECT_TIMEOUT_S = 5.0
+_STALL_LIMIT_S = 90.0
 _GB = 1000**3
 
 _DISK = "This computer does not have enough free space for the chat model."
@@ -141,13 +144,19 @@ def download_file(
         return dest
     partial = dest.with_name(dest.name + ".partial")
     restarted_from_416 = False
+    last_byte_at = time.monotonic()
     timeout = httpx.Timeout(
-        connect=15.0, read=_READ_TIMEOUT_S, write=15.0, pool=15.0
+        connect=_CONNECT_TIMEOUT_S,
+        read=_READ_TIMEOUT_S,
+        write=15.0,
+        pool=15.0,
     )
     try:
         while True:
             if cancelled is not None and cancelled():
                 raise DownloadCancelledError()
+            if time.monotonic() - last_byte_at >= _STALL_LIMIT_S:
+                raise RuntimeError(_LATER)
             have = _usable_partial(
                 partial, expected_bytes, sha256, cancelled=cancelled
             )
@@ -162,25 +171,31 @@ def download_file(
             headers = {"User-Agent": f"arelis/{__version__}"}
             if have:
                 headers["Range"] = f"bytes={have}-"
-            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-                with client.stream("GET", url, headers=headers) as response:
-                    if (
-                        response.status_code == 416
-                        and have
-                        and not restarted_from_416
-                    ):
-                        partial.unlink(missing_ok=True)
-                        restarted_from_416 = True
-                        continue
-                    have = _begin_stream(response, partial, have)
-                    _stream_into(
-                        response,
-                        partial,
-                        have=have,
-                        expected=expected_bytes,
-                        progress=progress,
-                        cancelled=cancelled,
-                    )
+            try:
+                with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                    with client.stream("GET", url, headers=headers) as response:
+                        if (
+                            response.status_code == 416
+                            and have
+                            and not restarted_from_416
+                        ):
+                            partial.unlink(missing_ok=True)
+                            restarted_from_416 = True
+                            continue
+                        have = _begin_stream(response, partial, have)
+                        last_byte_at = _stream_into(
+                            response,
+                            partial,
+                            have=have,
+                            expected=expected_bytes,
+                            progress=progress,
+                            cancelled=cancelled,
+                            last_byte_at=last_byte_at,
+                        )
+            except httpx.TimeoutException:
+                if cancelled is not None and cancelled():
+                    raise DownloadCancelledError() from None
+                continue
             break
         if not _file_matches(
             partial, expected_bytes, sha256, cancelled=cancelled
@@ -194,10 +209,6 @@ def download_file(
         raise RuntimeError(_STOPPED) from None
     except RuntimeError:
         raise
-    except httpx.TimeoutException as exc:
-        if cancelled is not None and cancelled():
-            raise RuntimeError(_STOPPED) from None
-        raise RuntimeError(_LATER) from exc
     except httpx.TransportError as exc:
         raise RuntimeError(_OFFLINE) from exc
     except httpx.HTTPError as exc:
@@ -257,7 +268,8 @@ def _stream_into(
     expected: int,
     progress: Progress | None,
     cancelled: Cancel | None,
-) -> None:
+    last_byte_at: float,
+) -> float:
     mode = "ab" if have else "wb"
     chunks = response.iter_bytes(_READ)
     with dest.open(mode) as handle:
@@ -270,11 +282,13 @@ def _stream_into(
                 break
             handle.write(chunk)
             have += len(chunk)
+            last_byte_at = time.monotonic()
             if have > expected:
                 raise RuntimeError(_MISMATCH)
             _report(progress, _status_line(have, expected), have, expected)
     if have < expected:
         raise RuntimeError(_LATER)
+    return last_byte_at
 
 
 def _file_matches(
