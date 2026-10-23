@@ -39,6 +39,12 @@ class UserLocationTool:
         self.resolver = resolver
 
     async def run(self, **kwargs: Any) -> ToolResult:
+        if not self.resolver.enabled:
+            return ToolResult(
+                ok=True,
+                output="Location is off.",
+                data={"known": False},
+            )
         if kwargs.get("refresh"):
             location = await self.resolver.refresh(force=True)
         else:

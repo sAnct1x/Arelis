@@ -41,14 +41,17 @@ def run_calendar(window, coro, *, ok_status: str = "google · just now") -> None
                 detail=plain_reason(exc),
                 warning=True,
             )
+            window._calendar_auth_offered = False
             _offer_calendar_sign_in(window, str(exc))
             return
         window.calendar.reload()
         window.calendar.set_status(ok_status)
+        window._calendar_auth_offered = False
+        _offer_sign_in_if_google_disconnected(window)
 
     fut.add_done_callback(lambda _f: window._ui_call.emit(done))
 
-def kick_calendar_sync(window) -> None:
+def kick_calendar_sync(window, *, user: bool = False) -> None:
     if window._force_quit or window._disposed:
         return
     if window.calendar_window.isHidden():
@@ -62,6 +65,12 @@ def kick_calendar_sync(window) -> None:
     if not secrets.any_authorized():
         if secrets.google and secrets.google.configured:
             window.calendar.set_status("sign in")
+            if user:
+                window._calendar_auth_offered = False
+                _offer_calendar_sign_in(
+                    window,
+                    "Google Calendar not authorized. Sign in on the calendar tile.",
+                )
         elif secrets.outlook and secrets.outlook.configured:
             window.calendar.set_status("sign in")
         else:
@@ -91,7 +100,9 @@ def kick_calendar_sync(window) -> None:
                     "calendar_tile",
                     f"Calendar sync stopped: {plain_reason(exc)}",
                 )
-                _offer_calendar_sign_in(window, str(exc))
+                if user:
+                    window._calendar_auth_offered = False
+                    _offer_calendar_sign_in(window, str(exc))
                 return
             from arelis.ui.notify_host import report_poll_state
 
@@ -112,7 +123,9 @@ def kick_calendar_sync(window) -> None:
                 from arelis.ui.notify_host import report_poll_state
 
                 report_poll_state(window, "calendar_tile", err)
-                _offer_calendar_sign_in(window, err)
+                if user:
+                    window._calendar_auth_offered = False
+                    _offer_calendar_sign_in(window, err)
         finally:
             window._calendar_sync_inflight = False
             timer = getattr(window, "_calendar_sync_watchdog", None)
@@ -123,6 +136,17 @@ def kick_calendar_sync(window) -> None:
                     pass
 
     fut.add_done_callback(lambda _f: window._ui_call.emit(done))
+
+
+def _offer_sign_in_if_google_disconnected(window) -> None:
+    from arelis.calendar.secrets import load_calendar_secrets
+
+    secrets = load_calendar_secrets()
+    if secrets.google and secrets.google.configured and not secrets.google.authorized:
+        _offer_calendar_sign_in(
+            window,
+            "Google Calendar not authorized. Sign in on the calendar tile.",
+        )
 
 
 def _offer_calendar_sign_in(window, detail: str) -> None:
@@ -412,7 +436,9 @@ def bind_calendar(window) -> None:
     window.calendar.create_requested.connect(lambda payload: on_calendar_create(window, payload))
     window.calendar.update_requested.connect(lambda payload: on_calendar_update(window, payload))
     window.calendar.delete_requested.connect(lambda event_id: on_calendar_delete(window, event_id))
-    window.calendar.sync_requested.connect(lambda: kick_calendar_sync(window))
+    window.calendar.sync_requested.connect(
+        lambda: kick_calendar_sync(window, user=True)
+    )
     window.calendar.auth_requested.connect(lambda: kick_calendar_auth(window))
     window.calendar.task_add_requested.connect(
         lambda title, due: on_calendar_task_add(window, title, due)

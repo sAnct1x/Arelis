@@ -19,7 +19,7 @@ def test_operating_and_delivery_sections_keep_the_volatile_tail_last(monkeypatch
     monkeypatch.setattr(sections, "MemoryStore", Store)
     monkeypatch.setattr(sections, "episodes_prompt_line", lambda *_a, **_k: "EPISODES")
     monkeypatch.setattr(sections, "world_state_prompt_line", lambda *_a, **_k: "WORLD")
-    monkeypatch.setattr(sections, "now_line", lambda: "NOW")
+    monkeypatch.setattr(sections, "now_line", lambda _config=None: "NOW")
     monkeypatch.setattr(sections, "theme_line", lambda: "THEME")
 
     import arelis.talk_language as talk_language

@@ -219,7 +219,9 @@ def bind_window_hosts(window) -> None:
     window.calendar.delete_requested.connect(
         lambda event_id: on_calendar_delete(window, event_id)
     )
-    window.calendar.sync_requested.connect(lambda: kick_calendar_sync(window))
+    window.calendar.sync_requested.connect(
+        lambda: kick_calendar_sync(window, user=True)
+    )
     window.calendar.auth_requested.connect(lambda: kick_calendar_auth(window))
     window.calendar.task_add_requested.connect(
         lambda title, due: on_calendar_task_add(window, title, due)
