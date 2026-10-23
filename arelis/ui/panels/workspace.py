@@ -601,6 +601,7 @@ class WorkspacePanel(QWidget):
         self.save_btn.clicked.connect(self._on_save)
         self.editor.textChanged.connect(self._sync_dirty)
         self.editor.installEventFilter(self)
+        self.image_label.installEventFilter(self)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.show_desk()
         self._sync_chrome()
@@ -1105,18 +1106,25 @@ class WorkspacePanel(QWidget):
         self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _fitted_hero(self, path: Path | str) -> QPixmap:
-        target_w = max(self.image_label.width(), self.width() // 2, 420)
-        target_h = max(self.image_label.height(), 280)
+        box = self.image_label.contentsRect()
+        target_w = box.width()
+        target_h = box.height()
+        if target_w <= 1:
+            target_w = max(self.width() // 2, 420)
         return load_fitted_pixmap(path, target_w, target_h)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
+    def _refit_hero(self) -> None:
         if not self._image_mode or not self._hero_path:
             return
         pix = self._fitted_hero(self._hero_path)
-        if not pix.isNull():
-            self.image_label.setText("")
-            self.image_label.setPixmap(pix)
+        if pix.isNull():
+            return
+        self.image_label.setText("")
+        self.image_label.setPixmap(pix)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._refit_hero()
 
     def event(self, event) -> bool:  # type: ignore[override]
         if isinstance(event, QKeyEvent) and self._route_editor_undo(event):
@@ -1124,6 +1132,8 @@ class WorkspacePanel(QWidget):
         return super().event(event)
 
     def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+        if obj is self.image_label and event.type() == QEvent.Type.Resize:
+            self._refit_hero()
         if obj is self.editor and isinstance(event, QKeyEvent):
             if self._route_editor_undo(event):
                 return True
