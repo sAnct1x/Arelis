@@ -70,7 +70,7 @@ async def test_earth_tool_goto(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_geocoder_accepts_only_an_extracted_place(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A plain string never geocodes. Chat geocodes a qualified place only."""
+    """A plain string never geocodes. Chat geocodes a pinned or qualified place."""
     from arelis.earth import gazetteer
     from arelis.earth.geocode import NOMINATIM_HOST, clear_cache, search_address
     from arelis.spatial.verbs import classify_physics_act
@@ -181,10 +181,26 @@ async def test_geocoder_accepts_only_an_extracted_place(
         assert dest["lat"] == 40.0
         assert dest["lon"] == -83.0
 
+        assert resolve_place("Reykjavik") is None
+        rey = classify_physics_act("show me Reykjavik")
+        assert rey is not None and rey.verb == "goto_earth"
+        assert rey.name == "Reykjavik"
+        assert calls == ["Columbus, Ohio"]
+        apply_physics_act(window, rey)
+        assert calls == ["Columbus, Ohio", "Reykjavik"]
+        assert "show me Reykjavik" not in calls
+        flown = earth.take_goto()
+        assert flown is not None
+        assert flown["name"] == "Reykjavik"
+        assert flown["lat"] == 40.0
+        assert flown["lon"] == -83.0
+        apply_physics_act(window, classify_physics_act("show me reykjavik"))
+        assert earth.take_goto() is not None
+
         monkeypatch.setattr("arelis.tools.earth_tool.stage_ok", lambda: True)
         got = await EarthTool().run(action="goto", query="Columbus, Ohio")
         assert got.ok, got.output
-        assert calls == ["Columbus, Ohio"]
+        assert calls == ["Columbus, Ohio", "Reykjavik"]
         assert short not in calls
         again = earth.take_goto()
         assert again is not None
@@ -199,7 +215,7 @@ async def test_geocoder_accepts_only_an_extracted_place(
         assert apply_goto(street) is True
         assert street.place is not None
         assert street.place["name"] == "10 Downing Street, London"
-        assert calls == ["Columbus, Ohio", "10 Downing Street, London"]
+        assert calls == ["Columbus, Ohio", "Reykjavik", "10 Downing Street, London"]
     finally:
         clear_cache()
 
