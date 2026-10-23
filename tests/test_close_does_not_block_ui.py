@@ -89,12 +89,19 @@ def _start_loop() -> tuple[asyncio.AbstractEventLoop, threading.Thread]:
 
 
 def _stop_loop(loop: asyncio.AbstractEventLoop, thread: threading.Thread) -> None:
-    def _cancel() -> None:
-        for task in asyncio.all_tasks(loop):
+    async def _shutdown() -> None:
+        current = asyncio.current_task()
+        pending = [task for task in asyncio.all_tasks(loop) if task is not current]
+        for task in pending:
             task.cancel()
+        if pending:
+            await asyncio.wait(pending, timeout=0.2)
         loop.stop()
 
-    loop.call_soon_threadsafe(_cancel)
+    try:
+        asyncio.run_coroutine_threadsafe(_shutdown(), loop).result(timeout=1.0)
+    except Exception:
+        loop.call_soon_threadsafe(loop.stop)
     thread.join(timeout=2.0)
 
 
