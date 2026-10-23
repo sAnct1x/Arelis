@@ -11,7 +11,7 @@ from typing import Any
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMainWindow
 
-from arelis.ui.launch import _flush_pending_writes
+from arelis.ui.launch import _await_owned_inbound_stop, _flush_pending_writes
 from arelis.ui.window_lifetime import WindowLifetime
 
 _BLOCK_LIMIT_S = 0.4
@@ -22,10 +22,17 @@ class _SlowInbound:
 
     def __init__(self) -> None:
         self.started = threading.Event()
+        self.finished = threading.Event()
+        self.cancelled = False
 
     async def stop(self) -> None:
         self.started.set()
-        await asyncio.sleep(2.0)
+        try:
+            await asyncio.sleep(2.0)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        self.finished.set()
 
 
 class _SlowIndexer:
@@ -112,7 +119,8 @@ def test_window_close_does_not_block_the_ui(qt_app: Any, monkeypatch: Any) -> No
     an ordinary close), and park_comfy (sync HTTP) on the Qt thread. hide()
     cannot paint while that thread is blocked, so the window froze for
     about 2.5 s. Writes and Comfy park share the leftover #384 deadline
-    after the glass is gone.
+    after the glass is gone. Shutdown awaits inbound stop to completion
+    so the ingest thread join is not abandoned.
     """
     del qt_app
     parked: list[str] = []
@@ -137,6 +145,7 @@ def test_window_close_does_not_block_the_ui(qt_app: Any, monkeypatch: Any) -> No
     try:
         for label, force in (("window_close", False), ("tray_quit", True)):
             parked.clear()
+            flushed.clear()
             inbound = _SlowInbound()
             host = _CloseHost(
                 force_quit=force,
@@ -149,24 +158,32 @@ def test_window_close_does_not_block_the_ui(qt_app: Any, monkeypatch: Any) -> No
             elapsed = time.monotonic() - t0
             if elapsed >= _BLOCK_LIMIT_S:
                 failures.append(f"{label}: close blocked {elapsed:.2f}s")
-            if not inbound.started.wait(timeout=1.0):
-                failures.append(f"{label}: inbound stop was not started")
+            if inbound.started.is_set():
+                failures.append(f"{label}: inbound stop ran on the Qt close path")
             if parked:
                 failures.append(f"{label}: park_comfy ran on the Qt close path")
-            host.deleteLater()
 
-        parked.clear()
-        flushed.clear()
-        _flush_pending_writes(
-            store=None,
-            indexer=None,
-            backup_thread=None,
-            timeout_s=1.5,
-        )
-        if flushed != ["writes"]:
-            failures.append("flush skipped the #384 write join")
-        if parked != ["park"]:
-            failures.append("flush leftover did not park Comfy")
+            asyncio.run_coroutine_threadsafe(
+                _await_owned_inbound_stop(host.inbound_runtime), loop
+            ).result(timeout=3.0)
+            if inbound.cancelled:
+                failures.append(f"{label}: inbound stop was cancelled")
+            if not inbound.finished.wait(timeout=0.1):
+                failures.append(f"{label}: inbound stop did not finish after close")
+
+            parked.clear()
+            flushed.clear()
+            _flush_pending_writes(
+                store=None,
+                indexer=None,
+                backup_thread=None,
+                timeout_s=1.5,
+            )
+            if flushed != ["writes"]:
+                failures.append(f"{label}: flush skipped the #384 write join")
+            if parked != ["park"]:
+                failures.append(f"{label}: flush leftover did not park Comfy")
+            host.deleteLater()
     finally:
         _stop_loop(loop, thread)
 

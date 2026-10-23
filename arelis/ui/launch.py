@@ -86,6 +86,22 @@ def _flush_pending_writes(
     worker.join(timeout=leftover)
 
 
+# InboundIngestServer.stop joins the listener thread for this long.
+_INBOUND_JOIN_S = 5.0
+
+
+async def _await_owned_inbound_stop(runtime: InboundRuntime | None) -> None:
+    """Wait until owned inbound is down, including the ingest thread.
+
+    closeEvent must not wait on this. Tray Quit hides first. Shutdown
+    awaits this before it cancels other tasks, so that join is not
+    abandoned and the listener thread is not left behind.
+    """
+    if runtime is None or not runtime.owned:
+        return
+    await runtime.stop()
+
+
 def first_run_blocks_main() -> bool:
     """True while model setup is still unfinished. Mute main glass must wait."""
     return needs_model_setup()
@@ -773,7 +789,19 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         write_timeout_s = 3.0 if force else 5.0
 
         async def shutdown() -> None:
-            # Cancel first so run_batch cannot start another disk write after
+            # Inbound first, and wait it out. The ingest listener is a
+            # daemon thread; abandoning the join leaves it mid-request.
+            # Do this before cancel so a closeEvent leftover cannot be
+            # cancelled out from under the join.
+            try:
+                await _await_owned_inbound_stop(window.inbound_runtime)
+            except Exception:
+                log.warning("inbound stop failed during quit", exc_info=True)
+            if window.inbound_runtime is not None and window.inbound_runtime.owned:
+                window.sms_ingest = None
+                window.sms_watcher = None
+                window.sms_auto_reply = None
+            # Cancel so run_batch cannot start another disk write after
             # we join. Then one flush, off this loop thread, one deadline.
             current = asyncio.current_task()
             pending = [
@@ -802,16 +830,6 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
                 except Exception:
                     pass
                 window.ipc_server = None
-            if window.inbound_runtime is not None:
-                # closeEvent may already have stopped owned inbound; tolerate double-stop.
-                try:
-                    await asyncio.wait_for(window.inbound_runtime.stop(), timeout=2.0)
-                except Exception:
-                    pass
-                if window.inbound_runtime.owned:
-                    window.sms_ingest = None
-                    window.sms_watcher = None
-                    window.sms_auto_reply = None
             # IPC and ingest are down. Drop the single-instance lock before
             # model unload / browser close so a shortcut click during Quit
             # can take over instead of stacking a second glass or waiting on
@@ -834,9 +852,10 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
 
         fut = asyncio.run_coroutine_threadsafe(shutdown(), loop)
         try:
-            # Write flush is 3s on force quit; the old 2s outer cap made that
-            # bound fake. 2s leftover covers ipc/router after the writes land.
-            fut.result(timeout=write_timeout_s + 2.0 if force else 8.0)
+            # Write flush is 3s on force quit; inbound join is 5s; 2s leftover
+            # covers ipc/router after both land. The old 2s outer cap made
+            # the write bound fake and could cut the ingest join short.
+            fut.result(timeout=write_timeout_s + _INBOUND_JOIN_S + 2.0)
         except Exception:
             log.warning("shutdown did not finish in time", exc_info=True)
         loop.call_soon_threadsafe(loop.stop)

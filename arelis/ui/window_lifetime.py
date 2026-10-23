@@ -197,19 +197,9 @@ class WindowLifetime:
         self._calendar_sync_timer.stop()
         self._calendar_sync_watchdog.stop()
         self._job_tick.stop()
-        # Start inbound stop now so the phone listener drops, but do not
-        # wait. fut.result here is what pinned the Qt thread.
-        loop = self.loop
-        loop_up = loop is not None and loop.is_running()
-        if self.inbound_runtime is not None and self.inbound_runtime.owned and loop_up:
-            try:
-                asyncio.run_coroutine_threadsafe(self.inbound_runtime.stop(), loop)
-            except Exception:
-                log.warning("inbound stop failed to schedule during quit", exc_info=True)
-            self.sms_ingest = None
-            self.sms_watcher = None
-            self.sms_auto_reply = None
-        elif self.inbound_runtime is not None and self.inbound_runtime.owned:
+        # Do not wait on inbound here. Shutdown awaits the full stop
+        # (including the ingest thread join) after this returns.
+        if self.inbound_runtime is not None and self.inbound_runtime.owned:
             self.sms_ingest = None
             self.sms_watcher = None
             self.sms_auto_reply = None
