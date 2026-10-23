@@ -250,7 +250,20 @@ _SEND_SKIPPED = "The message was not sent because the send was skipped."
 # A call with no action is not a verb. "I did not image path.png because
 # the image was skipped" names a file and reads like a log line.
 _PLAIN_SKIPPED = "Okay, I skipped that since you said no."
+_UNKNOWN_DECLINED = "I didn't run that step because you said no."
+_DECLINED_FALLBACK_PHRASE = "run that step"
 _SCRIPT_RUN_KIND = "run_script_error"
+
+# Phrase after "I didn't". {name} is the file's base name, never a long path.
+# A blank action matches any call of that tool when the specific action is absent.
+_DECLINED_ACTION_PHRASE: dict[tuple[str, str], str] = {
+    ("ocr", "text"): "read the text in {name}",
+    ("ocr", "screen"): "read the text on the screen",
+    ("workspace", "write"): "save {name}",
+    ("send_sms", ""): "send that text",
+    ("send_email", ""): "send that email",
+    ("memory", ""): "save that",
+}
 
 
 def declined_memory_unverified(
@@ -382,18 +395,60 @@ def run_script_state_finish(
     return text or None
 
 
-def _declined_call(
+def _iter_declined_calls(
     declined_tools: set[str] | None,
     declined_calls: list[tuple[str, dict[str, Any]]] | None,
-) -> tuple[str, dict[str, Any]]:
-    """Tool and args of the call the confirm card skipped."""
-    calls = declined_calls or []
-    if calls:
-        tool, args = calls[-1]
-        return str(tool or ""), args if isinstance(args, dict) else {}
+) -> list[tuple[str, dict[str, Any]]]:
+    """Every skipped call, or the declined tool names when args were not kept."""
+    rows: list[tuple[str, dict[str, Any]]] = []
+    for tool, args in declined_calls or []:
+        rows.append((str(tool or ""), args if isinstance(args, dict) else {}))
+    if rows:
+        return rows
     if declined_tools:
-        return sorted(declined_tools)[0], {}
-    return "", {}
+        return [(name, {}) for name in sorted(declined_tools)]
+    return []
+
+
+def _declined_base_name(raw: str) -> str:
+    """Short workspace name, or the file's base name when the path is long."""
+    text = (raw or "").strip().replace("\\", "/")
+    if not text:
+        return ""
+    leaf = text.rsplit("/", 1)[-1] or text
+    if text.startswith("/") or (len(text) > 1 and text[1] == ":"):
+        return leaf
+    if text.count("/") >= 2:
+        return leaf
+    return text
+
+
+def _declined_phrase(tool: str, args: dict[str, Any]) -> str | None:
+    """Plain words for one skipped call, or None when the tool is unknown."""
+    action = str(args.get("action") or "").strip().lower()
+    if tool == "ocr" and not action:
+        action = "text"
+    template = _DECLINED_ACTION_PHRASE.get((tool, action))
+    if template is None:
+        template = _DECLINED_ACTION_PHRASE.get((tool, ""))
+    if template is None:
+        return None
+    name = _declined_base_name(str(args.get("path") or ""))
+    if "{name}" in template and not name:
+        if tool == "ocr":
+            name = "the image"
+        else:
+            return None
+    return template.format(name=name)
+
+
+def _join_declined_phrases(phrases: list[str]) -> str:
+    """One clause for several skips. Do not tack on 'too'."""
+    if len(phrases) == 1:
+        return phrases[0]
+    if len(phrases) == 2:
+        return f"{phrases[0]} or {phrases[1]}"
+    return f"{', '.join(phrases[:-1])}, or {phrases[-1]}"
 
 
 def _run_script_wanted(
@@ -451,30 +506,37 @@ def declined_finish_reply(
     ledger: EvidenceLedger | None = None,
     requested_tools: set[str] | None = None,
 ) -> str:
-    """Name the skipped call instead of blaming the calculator.
+    """Name the skipped call in plain words, not the calculator refusal.
 
-    A workspace write names the file. The clause "so I could not run it"
-    is added only for a workspace write when run_script is still owed:
-    declined, requested, or left a failed run in the ledger. A
-    run_script_ok warrant means the run already happened, so the clause
-    stays off, including when a later run in the same turn failed. A
-    skipped memory save or a skipped SMS or email says only what was
-    skipped. A call with no action does not name the file.
+    A mapped tool/action becomes a human phrase. ocr text is "read the
+    text in" the file's base name. A workspace write is "save" plus
+    that short name. Send, email, and a memory save have their own
+    phrases. Any declined call with no phrase still uses the fallback
+    so it is named in the joined line. Several skipped calls join with
+    or, not too. The clause "so I could not run it" is added only for
+    a workspace write when run_script is still owed: declined,
+    requested, or left a failed run in the ledger. A run_script_ok
+    warrant means the run already happened, so the clause stays off,
+    including when a later run in the same turn failed.
     """
-    tool, args = _declined_call(declined_tools, declined_calls)
-    action = str(args.get("action") or "").strip()
-    if tool == "memory":
-        sentence = _MEMORY_SAVE_SKIPPED
-    elif tool in {"send_sms", "send_email"}:
-        sentence = _SEND_SKIPPED
-    elif action:
-        target = str(args.get("path") or args.get("fact") or "").strip()
-        named = target or tool or "it"
-        sentence = f"I did not {action} {named} because the {action} was skipped."
+    calls = _iter_declined_calls(declined_tools, declined_calls)
+    phrases: list[str] = []
+    saw_write = False
+    for tool, args in calls:
+        action = str(args.get("action") or "").strip()
+        if tool == "workspace" and action.lower() == "write":
+            saw_write = True
+        phrase = _declined_phrase(tool, args)
+        if phrase is None:
+            phrase = _DECLINED_FALLBACK_PHRASE
+        if phrase not in phrases:
+            phrases.append(phrase)
+    if phrases:
+        sentence = f"I didn't {_join_declined_phrases(phrases)} because you said no."
     else:
         sentence = _PLAIN_SKIPPED
     wanted = _run_script_wanted(declined_tools, ledger, requested_tools)
-    if tool == "workspace" and action.lower() == "write" and wanted:
+    if saw_write and wanted:
         if sentence.endswith("."):
             sentence = sentence[:-1]
         sentence = f"{sentence}, so I could not run it."
