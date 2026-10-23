@@ -559,6 +559,7 @@ def _workspace_rel_key(path: str, workspace: Any) -> str | None:
             try:
                 hit = resolve(candidate, for_create=True)
             except Exception:
+                # Outside the workspace, or a spelling resolve will not take.
                 continue
             dest = Path(getattr(hit, "path", hit))
             root = getattr(hit, "root", None)
@@ -581,6 +582,7 @@ def _workspace_rel_key(path: str, workspace: Any) -> str | None:
                 continue
         return None
     except Exception:
+        # A dest that will not resolve is not this dest.
         return None
 
 
@@ -640,6 +642,7 @@ def file_write_dest(
     try:
         dest = preview(raw)
     except Exception:
+        # A preview that throws must not take the skip gate down with it.
         dest = ""
     if dest:
         return str(dest)
@@ -649,6 +652,7 @@ def file_write_dest(
     try:
         dest = preview(rewritten)
     except Exception:
+        # Same: the dest is missing, the card still has to decide.
         return ""
     return str(dest) if dest else ""
 

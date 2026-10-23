@@ -609,8 +609,14 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal(
     root.mkdir()
     roots = WorkspaceRoots.from_paths([str(root)])
     abs_notes = str((root / "notes.txt").resolve())
-    win_notes = "C:" + abs_notes.replace("/", "\\")
+    posix_notes = abs_notes.replace("\\", "/")
     slash_notes = abs_notes.replace("/", "\\")
+    # Do not prefix C: onto a path that already has a drive letter.
+    # Linux needs the prefix so the gate has to strip it.
+    if len(slash_notes) >= 2 and slash_notes[1] == ":":
+        win_notes = slash_notes
+    else:
+        win_notes = "C:" + slash_notes
     workspace = _WorkspaceStub()
     workspace.workspace = roots
     document = _DocumentStub()
@@ -670,6 +676,10 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal(
         (
             "workspace",
             {"action": "write", "path": abs_notes, "content": "errands\n"},
+        ),
+        (
+            "workspace",
+            {"action": "write", "path": posix_notes, "content": "errands\n"},
         ),
         (
             "workspace",
