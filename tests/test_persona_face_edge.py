@@ -45,6 +45,13 @@ def _gap_to_backdrop(image, x: int, y: int) -> int:
     )
 
 
+def _face_body_drawn(panel: PersonaPanel) -> bool:
+    """True when the skin plate is still on the grab, not an empty halo."""
+    image = panel.avatar.grab().toImage()
+    pixel = image.pixelColor(image.width() // 2, int(image.height() * 0.38))
+    return pixel.alpha() > 200 and pixel.blue() > 180 and pixel.blue() >= pixel.red() - 20
+
+
 def test_the_edge_fade_is_built_once_per_size(qt_app) -> None:
     """The fade is a cached mask. Frames reuse it, and only a resize builds a new one."""
     panel = _ready_panel(qt_app, 370, 520)
@@ -57,6 +64,27 @@ def test_the_edge_fade_is_built_once_per_size(qt_app) -> None:
     qt_app.processEvents()
     panel.avatar.repaint()
     assert panel.avatar.mask_builds == built + 1
+
+    clock = {"t": 10.0}
+    panel.set_clock(lambda: clock["t"])
+    panel._last = 10.0
+    panel.set_state("speaking")
+    panel._mode = "face"
+    panel.avatar.reveal = 1.0
+    for _ in range(8):
+        clock["t"] += 0.033
+        panel.tick()
+        panel.avatar.repaint()
+    qt_app.processEvents()
+    assert _face_body_drawn(panel)
+    # A late speaking wake can ask for bloom again. The body must stay drawn.
+    panel._mode = "orb"
+    panel.set_state("speaking")
+    panel.tick()
+    panel.avatar.repaint()
+    qt_app.processEvents()
+    assert _face_body_drawn(panel)
+
     panel.close()
     QApplication.processEvents()
 

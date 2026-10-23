@@ -494,6 +494,17 @@ class PersonaPanel(QWidget):
         self._release_wake(self._now())
 
     def _begin(self, mode: str, now: float) -> None:
+        # Bloom is the orb-to-face wake. If the plate is already up, restarting
+        # that clock slams reveal to 0 on the next tick and unpaints her body,
+        # leaving only the halo. Stay on face.
+        if (
+            mode == "bloom"
+            and self.avatar.bake_ready()
+            and self.avatar.reveal >= 0.999
+        ):
+            self._mode = "face"
+            self._bloom_before_face = False
+            return
         if not self._animations_on():
             if mode == "bloom":
                 self._mode = "face"
