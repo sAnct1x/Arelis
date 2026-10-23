@@ -32,6 +32,10 @@ _UNKNOWN_LINE = "I didn't run that step because you said no."
 _MULTI_LINE = (
     "I didn't read the text in shape.png or save work/sq2.py because you said no."
 )
+_SEND_WRITE_LINE = "I didn't send that text or save n.txt because you said no."
+_SEND_UNKNOWN_LINE = (
+    "I didn't send that text or run that step because you said no."
+)
 _EXTRACT = "Project codename: falcon-77"
 _EXTRACT_ANSWER = "The project codename is falcon-77."
 
@@ -328,6 +332,27 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     assert both == _MULTI_LINE
     assert " too" not in both
     assert both.count("because you said no") == 1
+
+    send_write = declined_finish_reply(
+        {"send_sms", "workspace"},
+        [
+            ("send_sms", {"to": "mom", "body": "hello"}),
+            ("workspace", {"action": "write", "path": "n.txt"}),
+        ],
+    )
+    assert send_write == _SEND_WRITE_LINE
+    assert "send that text" in send_write
+
+    send_unknown = declined_finish_reply(
+        {"send_sms", "mystery_tool"},
+        [
+            ("send_sms", {"to": "mom", "body": "hello"}),
+            ("mystery_tool", {"action": "frob"}),
+        ],
+    )
+    assert send_unknown == _SEND_UNKNOWN_LINE
+    assert "run that step" in send_unknown
+    assert "frob" not in send_unknown
 
     workspace = _WorkspaceStub()
     router = _ScriptedRouter(
