@@ -50,12 +50,17 @@ _PATH_BARE_TOKEN = re.compile(
     r"your_email|user_email|email_here|xxx+))$"
 )
 # Destination / file-name args the write tools already take. Not a schema
-# flag — adding one would be a tool-definition change. Cover every key
-# that becomes a file name: dest (pdf), out (diagram/plot), title
-# (document stem), plus path/from_path/filename.
-_PATH_KEYS = frozenset(
-    {"path", "from_path", "filename", "dest", "out", "title"}
-)
+# flag: adding one would be a tool-definition change. Cover every key
+# that becomes a file name: dest (pdf), out (diagram/plot), plus
+# path/from_path/filename. document title is a file stem; other tools'
+# title stays on the word-boundary check.
+_PATH_KEYS = frozenset({"path", "from_path", "filename", "dest", "out"})
+
+
+def _is_path_key(tool: str, key: str) -> bool:
+    if key in _PATH_KEYS:
+        return True
+    return tool == "document" and key == "title"
 
 
 def _path_is_placeholder(text: str) -> bool:
@@ -81,7 +86,7 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
             continue
         hit = (
             _path_is_placeholder(text)
-            if key in _PATH_KEYS
+            if _is_path_key(tool, key)
             else _PLACEHOLDER_ARG.search(text)
         )
         if hit:

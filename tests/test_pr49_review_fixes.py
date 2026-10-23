@@ -67,9 +67,10 @@ def test_confirm_args_blocked_empty_workspace_write() -> None:
     """Real confirm_args_blocked: content='' is blocked.
 
     A path that merely contains 'todo' is a real file name, not a
-    placeholder token. dest/out/title are destination keys too. A bare
-    TODO path, TODO.txt, folder\\TODO.md, and <TODO> still are markers.
-    An embedded token in a non-path arg is still a placeholder.
+    placeholder token. dest/out are destination keys too; document
+    title is a file stem, other tools' title is not. A bare TODO path,
+    TODO.txt, folder\\TODO.md, and <TODO> still are markers. An
+    embedded token in a non-path arg is still a placeholder.
     """
     reason = confirm_args_blocked(
         "workspace",
@@ -92,6 +93,11 @@ def test_confirm_args_blocked_empty_workspace_write() -> None:
     ):
         reason = confirm_args_blocked(dest_name, dest_args)
         assert reason is None, dest_args
+
+    for tool_name in ("notes", "contacts", "tasks"):
+        reason = confirm_args_blocked(tool_name, {"title": "TODO: fill in"})
+        assert reason is not None, tool_name
+        assert "placeholder" in reason.lower()
 
     for path in ("TODO", "TODO.txt", "folder\\TODO.md", "<TODO>"):
         reason = confirm_args_blocked(
