@@ -13,6 +13,7 @@ import yaml
 from arelis.llm.llama_launch import llama_server_args
 from arelis.setup.catalog import Q3_FILENAME, Q4_FILENAME
 from arelis.setup.download import (
+    _READ,
     _SLACK_BYTES,
     download_file,
     hf_file_url,
@@ -141,6 +142,37 @@ def test_download_keeps_partial_and_resumes_with_range(
         download_file(url, dest, expected_bytes=len(payload), sha256=digest)
     assert calls["n"] - before <= 2
     assert not dest.exists()
+
+
+def test_download_stop_cancels_running_download_and_keeps_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = b"x" * (_READ + 32)
+    digest = hashlib.sha256(payload).hexdigest()
+    dest = tmp_path / "chat.gguf"
+    partial = dest.with_name(dest.name + ".partial")
+    wrote = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=payload)
+
+    def progress(_status: str, done: int, _total: int) -> None:
+        if done > 0:
+            wrote["n"] += 1
+
+    _patch_client(monkeypatch, handler)
+    with pytest.raises(RuntimeError, match="stopped"):
+        download_file(
+            "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/edc6f12e7bb90602ca1d34faecbec9844137b7fe/chat.gguf",
+            dest,
+            expected_bytes=len(payload),
+            sha256=digest,
+            progress=progress,
+            cancelled=lambda: wrote["n"] >= 1,
+        )
+    assert not dest.exists()
+    assert partial.is_file()
+    assert 0 < partial.stat().st_size < len(payload)
 
 
 def test_record_model_choice_pins_llamacpp_model_and_context_cap(

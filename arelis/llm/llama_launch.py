@@ -21,6 +21,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -64,8 +65,17 @@ _MISSING_BINARY = "llama-server was not found, so the 35B did not start."
 _SLOW = "The 35B server did not finish starting. Try again in a little while."
 _NO_TOKEN = "The 35B server did not answer a one token check."
 
+_READ_TIMEOUT_S = 1.0
+_READ = 64 * 1024
+_CHUNK = 1024 * 1024
+
 _lock = threading.Lock()
 _proc: subprocess.Popen[bytes] | None = None
+Cancel = Callable[[], bool]
+
+
+class _MmprojCancelledError(Exception):
+    """First-run cancel. The unfinished picture file stays."""
 
 
 def mmproj_for(model: Path) -> Path:
@@ -499,40 +509,82 @@ def _spawn(args: list[str]) -> subprocess.Popen[bytes]:
             handle.close()
 
 
-def _ensure_mmproj(dest: Path) -> None:
-    if dest.is_file() and _sha256(dest) == MMPROJ_SHA256:
+def _ensure_mmproj(dest: Path, cancelled: Cancel | None = None) -> None:
+    try:
+        _download_mmproj(dest, cancelled=cancelled)
+    except _MmprojCancelledError as exc:
+        raise RuntimeError(
+            "The download was stopped. The unfinished file is still here, "
+            "so the next try can continue."
+        ) from exc
+
+
+def _download_mmproj(dest: Path, cancelled: Cancel | None = None) -> None:
+    if dest.is_file() and _sha256(dest, cancelled=cancelled) == MMPROJ_SHA256:
         return
     dest.unlink(missing_ok=True)
     _require_space(dest.parent, MMPROJ_BYTES + 64 * 1024 * 1024)
     partial = dest.with_name(dest.name + ".partial")
-    partial.unlink(missing_ok=True)
+    have = partial.stat().st_size if partial.is_file() else 0
+    if have < 0:
+        have = 0
     dest.parent.mkdir(parents=True, exist_ok=True)
     headers = {"User-Agent": f"arelis/{__version__}"}
-    timeout = httpx.Timeout(600.0, connect=15.0)
+    if have:
+        headers["Range"] = f"bytes={have}-"
+    timeout = httpx.Timeout(
+        connect=15.0, read=_READ_TIMEOUT_S, write=15.0, pool=15.0
+    )
     try:
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
             with client.stream("GET", MMPROJ_URL, headers=headers) as response:
+                if have and response.status_code == 416:
+                    partial.unlink(missing_ok=True)
+                    have = 0
+                    raise RuntimeError(_LATER)
                 response.raise_for_status()
-                _stream_into(response, partial)
+                if have and response.status_code == 200:
+                    have = 0
+                _stream_into(response, partial, have=have, cancelled=cancelled)
     except RuntimeError:
-        partial.unlink(missing_ok=True)
         raise
+    except httpx.TimeoutException as exc:
+        if cancelled is not None and cancelled():
+            raise RuntimeError(
+                "The download was stopped. The unfinished file is still here, "
+                "so the next try can continue."
+            ) from None
+        raise RuntimeError(_LATER) from exc
     except httpx.TransportError as exc:
-        partial.unlink(missing_ok=True)
         raise RuntimeError(_OFFLINE) from exc
     except httpx.HTTPError as exc:
-        partial.unlink(missing_ok=True)
         raise RuntimeError(_LATER) from exc
-    if _sha256(partial) != MMPROJ_SHA256:
+    if _sha256(partial, cancelled=cancelled) != MMPROJ_SHA256:
         partial.unlink(missing_ok=True)
         raise RuntimeError(_MISMATCH)
     partial.replace(dest)
 
 
-def _stream_into(response: httpx.Response, dest: Path) -> None:
-    total = 0
-    with dest.open("wb") as handle:
-        for chunk in response.iter_bytes(1024 * 1024):
+def _stream_into(
+    response: httpx.Response,
+    dest: Path,
+    *,
+    have: int = 0,
+    cancelled: Cancel | None = None,
+) -> None:
+    total = have
+    mode = "ab" if have else "wb"
+    chunks = response.iter_bytes(_READ)
+    with dest.open(mode) as handle:
+        if have == 0:
+            handle.truncate(0)
+        while True:
+            if cancelled is not None and cancelled():
+                raise _MmprojCancelledError()
+            try:
+                chunk = next(chunks)
+            except StopIteration:
+                break
             total += len(chunk)
             if total > MMPROJ_BYTES:
                 raise RuntimeError(_LATER)
@@ -541,10 +593,12 @@ def _stream_into(response: httpx.Response, dest: Path) -> None:
         raise RuntimeError(_MISMATCH)
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, cancelled: Cancel | None = None) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        for chunk in iter(lambda: handle.read(_CHUNK), b""):
+            if cancelled is not None and cancelled():
+                raise _MmprojCancelledError()
             digest.update(chunk)
     return digest.hexdigest()
 

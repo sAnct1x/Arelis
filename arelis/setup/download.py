@@ -57,6 +57,8 @@ def hf_file_url(filename: str) -> str:
 
 _SLACK_BYTES = 64 * 1024 * 1024
 _CHUNK = 1024 * 1024
+_READ = 64 * 1024
+_READ_TIMEOUT_S = 1.0
 _GB = 1000**3
 
 _DISK = "This computer does not have enough free space for the chat model."
@@ -98,12 +100,14 @@ def download_model(
     ensure(folder)
     dest = folder / model.filename
     url = hf_file_url(model.filename)
-    if dest.is_file() and _file_matches(dest, size, digest):
+    if dest.is_file() and _file_matches(
+        dest, size, digest, cancelled=cancelled
+    ):
         _report(progress, "The chat model is already on this PC.")
-        _fetch_mmproj(dest, progress=progress)
+        _fetch_mmproj(dest, progress=progress, cancelled=cancelled)
         return dest
     partial = dest.with_name(dest.name + ".partial")
-    have = _usable_partial(partial, size, digest)
+    have = _usable_partial(partial, size, digest, cancelled=cancelled)
     _require_space(folder, max(0, size - have) + MMPROJ_BYTES + _SLACK_BYTES)
     _report(progress, _status_line(have, size), have, size)
     download_file(
@@ -116,7 +120,7 @@ def download_model(
     )
     if cancelled is not None and cancelled():
         raise RuntimeError(_STOPPED)
-    _fetch_mmproj(dest, progress=progress)
+    _fetch_mmproj(dest, progress=progress, cancelled=cancelled)
     return dest
 
 
@@ -131,17 +135,25 @@ def download_file(
 ) -> Path:
     """Write ``dest``, resuming from ``dest.partial`` when that file exists."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.is_file() and _file_matches(dest, expected_bytes, sha256):
+    if dest.is_file() and _file_matches(
+        dest, expected_bytes, sha256, cancelled=cancelled
+    ):
         return dest
     partial = dest.with_name(dest.name + ".partial")
     restarted_from_416 = False
-    timeout = httpx.Timeout(600.0, connect=15.0)
+    timeout = httpx.Timeout(
+        connect=15.0, read=_READ_TIMEOUT_S, write=15.0, pool=15.0
+    )
     try:
         while True:
             if cancelled is not None and cancelled():
                 raise DownloadCancelledError()
-            have = _usable_partial(partial, expected_bytes, sha256)
-            if have == expected_bytes and _file_matches(partial, expected_bytes, sha256):
+            have = _usable_partial(
+                partial, expected_bytes, sha256, cancelled=cancelled
+            )
+            if have == expected_bytes and _file_matches(
+                partial, expected_bytes, sha256, cancelled=cancelled
+            ):
                 partial.replace(dest)
                 return dest
             _require_space(
@@ -170,28 +182,45 @@ def download_file(
                         cancelled=cancelled,
                     )
             break
+        if not _file_matches(
+            partial, expected_bytes, sha256, cancelled=cancelled
+        ):
+            if partial.is_file() and partial.stat().st_size == expected_bytes:
+                partial.unlink(missing_ok=True)
+            raise RuntimeError(_MISMATCH)
+        partial.replace(dest)
+        return dest
     except DownloadCancelledError:
         raise RuntimeError(_STOPPED) from None
     except RuntimeError:
         raise
+    except httpx.TimeoutException as exc:
+        if cancelled is not None and cancelled():
+            raise RuntimeError(_STOPPED) from None
+        raise RuntimeError(_LATER) from exc
     except httpx.TransportError as exc:
         raise RuntimeError(_OFFLINE) from exc
     except httpx.HTTPError as exc:
         raise RuntimeError(_LATER) from exc
-    if not _file_matches(partial, expected_bytes, sha256):
-        if partial.is_file() and partial.stat().st_size == expected_bytes:
-            partial.unlink(missing_ok=True)
-        raise RuntimeError(_MISMATCH)
-    partial.replace(dest)
-    return dest
+    raise RuntimeError(_LATER)
 
 
-def _fetch_mmproj(model: Path, *, progress: Progress | None) -> None:
+def _fetch_mmproj(
+    model: Path,
+    *,
+    progress: Progress | None,
+    cancelled: Cancel | None = None,
+) -> None:
     _report(progress, "Getting the picture file for this model…")
-    _ensure_mmproj(mmproj_for(model))
+    _ensure_mmproj(mmproj_for(model), cancelled=cancelled)
 
 
-def _usable_partial(partial: Path, expected: int, digest: str) -> int:
+def _usable_partial(
+    partial: Path,
+    expected: int,
+    digest: str,
+    cancelled: Cancel | None = None,
+) -> int:
     if not partial.is_file():
         return 0
     size = partial.stat().st_size
@@ -200,7 +229,9 @@ def _usable_partial(partial: Path, expected: int, digest: str) -> int:
     if size > expected:
         partial.unlink(missing_ok=True)
         return 0
-    if size == expected and not _file_matches(partial, expected, digest):
+    if size == expected and not _file_matches(
+        partial, expected, digest, cancelled=cancelled
+    ):
         partial.unlink(missing_ok=True)
         return 0
     return size
@@ -228,10 +259,15 @@ def _stream_into(
     cancelled: Cancel | None,
 ) -> None:
     mode = "ab" if have else "wb"
+    chunks = response.iter_bytes(_READ)
     with dest.open(mode) as handle:
-        for chunk in response.iter_bytes(_CHUNK):
+        while True:
             if cancelled is not None and cancelled():
                 raise DownloadCancelledError()
+            try:
+                chunk = next(chunks)
+            except StopIteration:
+                break
             handle.write(chunk)
             have += len(chunk)
             if have > expected:
@@ -241,19 +277,26 @@ def _stream_into(
         raise RuntimeError(_LATER)
 
 
-def _file_matches(path: Path, expected: int, digest: str) -> bool:
+def _file_matches(
+    path: Path,
+    expected: int,
+    digest: str,
+    cancelled: Cancel | None = None,
+) -> bool:
     try:
         if path.stat().st_size != expected:
             return False
     except OSError:
         return False
-    return _sha256(path) == digest
+    return _sha256(path, cancelled=cancelled) == digest
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, cancelled: Cancel | None = None) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(_CHUNK), b""):
+            if cancelled is not None and cancelled():
+                raise DownloadCancelledError()
             digest.update(chunk)
     return digest.hexdigest()
 

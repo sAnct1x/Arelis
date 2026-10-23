@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QLabel,
     QProgressBar,
+    QPushButton,
     QRadioButton,
     QScrollArea,
     QStackedWidget,
@@ -34,9 +35,12 @@ from arelis.setup.download import download_model
 from arelis.setup.hardware import HardwareSnapshot, probe_hardware
 from arelis.setup.state import needs_model_setup, record_model_choice
 from arelis.ui.dialog import GlassDialog
+from arelis.ui.live_threads import park_running_thread
 from arelis.ui.theme import SPACE
 
 log = logging.getLogger(__name__)
+
+_QUIT_WAIT_MS = 4000
 
 
 def _choice_label(model: CatalogModel) -> str:
@@ -97,6 +101,11 @@ class _PrepareWorker(QThread):
 
     def _run(self) -> None:
         if self._cancel:
+            self._fail(
+                self._stage,
+                "The download was stopped. The unfinished file is still here, "
+                "so the next try can continue.",
+            )
             return
         self._stage = "download_model"
         model = by_tag(self._tag)
@@ -110,6 +119,11 @@ class _PrepareWorker(QThread):
             cancelled=lambda: self._cancel,
         )
         if self._cancel:
+            self._fail(
+                self._stage,
+                "The download was stopped. The unfinished file is still here, "
+                "so the next try can continue.",
+            )
             return
         self.finished_ok.emit()
 
@@ -253,29 +267,44 @@ class ModelSetupDialog(GlassDialog):
         self._probe.start()
         app = QApplication.instance()
         if app is not None:
-            app.aboutToQuit.connect(self._stop_prepare)
+            app.aboutToQuit.connect(self._on_app_quit)
 
     def _hide_footer(self) -> None:
         for btn in (self._use, self._other, self._back, self._stop, self._go):
             btn.hide()
 
-    def _stop_prepare(self) -> None:
+    def _disable_actions(self) -> None:
+        for btn in (self._use, self._other, self._back, self._stop, self._go):
+            btn.setEnabled(False)
+        close = self.findChild(QPushButton, "SettingsClose")
+        if close is not None:
+            close.setEnabled(False)
+
+    def _signal_cancel(self) -> None:
+        self._disable_actions()
+        worker = self._prepare
+        if worker is not None:
+            worker.cancel()
+
+    def _park_prepare(self) -> None:
         worker = self._prepare
         if worker is None:
             return
         worker.cancel()
         if worker.isRunning():
-            worker.wait()
+            park_running_thread(worker)
+        self._prepare = None
+
+    def _on_app_quit(self) -> None:
+        worker = self._prepare
+        if worker is None:
+            return
+        worker.cancel()
+        if worker.isRunning():
+            worker.wait(_QUIT_WAIT_MS)
 
     def _on_stop(self) -> None:
-        self._stop.setEnabled(False)
-        self._stop_prepare()
-        QApplication.processEvents()
-        if self._stack.currentIndex() == 3 and self._use.text() != "Try again":
-            self._on_failed(
-                "The download was stopped. The unfinished file is still here, "
-                "so the next try can continue."
-            )
+        self._signal_cancel()
 
     def _show_recommend(self) -> None:
         self._stack.setCurrentIndex(1)
@@ -346,8 +375,11 @@ class ModelSetupDialog(GlassDialog):
 
     def _on_ready(self) -> None:
         record_model_choice(self._picked.tag)
-        for btn in (self._use, self._other, self._back, self._go):
+        for btn in (self._use, self._other, self._back, self._go, self._stop):
             btn.setEnabled(True)
+        close = self.findChild(QPushButton, "SettingsClose")
+        if close is not None:
+            close.setEnabled(True)
         self._stack.setCurrentIndex(4)
         self._hide_footer()
         self._go.show()
@@ -355,8 +387,11 @@ class ModelSetupDialog(GlassDialog):
         self._go.setFocus()
 
     def _on_failed(self, message: str) -> None:
-        for btn in (self._use, self._other, self._back, self._go):
+        for btn in (self._use, self._other, self._back, self._go, self._stop):
             btn.setEnabled(True)
+        close = self.findChild(QPushButton, "SettingsClose")
+        if close is not None:
+            close.setEnabled(True)
         self._ready_status.setText(message)
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
@@ -385,19 +420,21 @@ class ModelSetupDialog(GlassDialog):
         self._show_recommend()
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        self._stop_prepare()
+        self._signal_cancel()
+        self._park_prepare()
         super().closeEvent(event)
 
     def reject(self) -> None:  # type: ignore[override]
         # Recommendation on screen: accepting it is the decision. Mid-download
-        # close or Escape stops the worker, keeps the unfinished file, and
-        # waits for the thread so quit does not tear it down mid-write.
+        # close or Escape signals the worker and lets it wind down off this
+        # thread. Quit waits a few seconds, then exits.
         if self._stack.currentIndex() == 0:
             return
         if self._stack.currentIndex() == 3 and (
             self._prepare is not None and self._prepare.isRunning()
         ):
-            self._stop_prepare()
+            self._signal_cancel()
+            self._park_prepare()
             super().reject()
             return
         if self._stack.currentIndex() in {0, 1, 2}:
