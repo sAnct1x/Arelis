@@ -116,7 +116,7 @@ def _signal_parked_stop(thread: QThread) -> None:
     if callable(cancel):
         try:
             cancel()
-        except Exception:
+        except RuntimeError:
             pass
     try:
         thread.requestInterruption()
