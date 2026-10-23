@@ -11,6 +11,7 @@ llm:
 # qwen36_35b_insys.jinja beside the weights when that file is already there.
 # -ub 512 was measured on the target machine. 1024 used 11.88 GB at peak,
 # over the 11.2 GB memory budget. 2048 lost the Vulkan device around 20k context.
+# Q3 was measured at -ub 2048: prompt 2.2x faster than 512, same generation speed, lower VRAM (short prompt).
 # model is the Unsloth UD-Q4_K_M file. A bare name is resolved in the same
 # folders as the other weights. A full path is used as written. If that file
 # is not on disk, the server is not started.

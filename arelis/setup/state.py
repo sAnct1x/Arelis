@@ -54,7 +54,7 @@ def needs_model_setup() -> bool:
 
 
 def record_model_choice(tag: str) -> None:
-    """Pin the chosen GGUF path, context cap, and catalog n_cpu_moe."""
+    """Pin the chosen GGUF path, context cap, and catalog n_cpu_moe/ubatch."""
     name = (tag or "").strip()
     if not name:
         raise ValueError("model tag is empty")
@@ -66,6 +66,7 @@ def record_model_choice(tag: str) -> None:
     }
     if model is not None:
         llamacpp["n_cpu_moe"] = int(model.n_cpu_moe)
+        llamacpp["ubatch"] = int(model.ubatch)
     patch: dict[str, Any] = {"llamacpp": llamacpp}
     merge_local_config(patch)
     record_model_setup_complete(tag=name)

@@ -3,6 +3,8 @@
 Config C at ncmoe 32. Q8 mmproj, flash attention off, 1024 image tokens,
 f16 KV, context 32768, batch 4096, ubatch 512. 512 was measured on the
 target machine. 1024 used 11.88 GB at peak, over the 11.2 GB memory budget.
+Q3 was measured at -ub 2048: prompt 2.2x faster than 512, same generation
+speed, lower VRAM (short prompt).
 The patched template stays: ``--jinja``, and ``qwen36_35b_insys.jinja``
 beside the weights when that file is already there.
 
@@ -111,7 +113,7 @@ def llama_server_args(
     """Argv for the 35B server. This is the only place those flags are built.
 
     ``--n-cpu-moe``, ``-c``, and ``-ub`` come from config when set. Same
-    defaults for Q3 and Q4: 32, 32768, 512.
+    defaults for Q3 and Q4: 32, 32768, 512. Q3 setup pins catalog ubatch 2048.
     """
     lc = config.get("llamacpp") if isinstance(config, dict) else None
     if not isinstance(lc, dict):
@@ -137,6 +139,8 @@ def llama_server_args(
         str(n_cpu_moe),
         # 512 was measured on the target machine. 1024 used 11.88 GB
         # at peak, over the 11.2 GB memory budget.
+        # Q3 was measured at -ub 2048: prompt 2.2x faster than 512,
+        # same generation speed, lower VRAM (short prompt).
         "-ub",
         str(ubatch),
         "-b",
