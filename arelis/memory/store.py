@@ -396,6 +396,14 @@ class MemoryStore:
     def close(self) -> None:
         self._conn.close()
 
+    def flush(self) -> None:
+        """Commit and checkpoint so a quit does not leave WAL pages unwritten."""
+        try:
+            self._conn.commit()
+            self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except sqlite3.Error:
+            log.debug("memory flush failed", exc_info=True)
+
     def _migrate(self) -> None:
         version = self.schema_version
         if version > SCHEMA_VERSION:

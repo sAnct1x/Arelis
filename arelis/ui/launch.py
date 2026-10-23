@@ -20,7 +20,7 @@ from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.llm import prefix_warmup_for, run_auto_lessons, run_model_preflight, run_model_warmup
 from arelis.mail import load_account
-from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer
+from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer, MemoryStore, flush_background_writes
 from arelis.paths import app_icon_path, logs_dir
 from arelis.presence.confirm_persist import ConfirmPersister
 from arelis.presence.glass_inbound import install_owned_inbound, start_orphan_watch
@@ -46,6 +46,28 @@ from arelis.voice import VoiceService
 from arelis.workspace import WorkspaceRoots
 
 log = logging.getLogger(__name__)
+
+
+def _flush_pending_writes(
+    *,
+    store: MemoryStore | None,
+    indexer: MemoryIndexer | None,
+    backup_thread: threading.Thread | None,
+    timeout_s: float,
+) -> None:
+    """One write flush, one deadline. Backup join and indexer join share it."""
+    try:
+        budget = max(0.0, float(timeout_s))
+    except (TypeError, ValueError):
+        budget = 3.0
+    deadline = time.monotonic() + budget
+    if backup_thread is not None:
+        backup_thread.join(timeout=max(0.0, deadline - time.monotonic()))
+    flush_background_writes(
+        store=store,
+        indexer=indexer,
+        timeout_s=max(0.0, deadline - time.monotonic()),
+    )
 
 
 def first_run_blocks_main() -> bool:
@@ -709,11 +731,12 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         except Exception:
             log.debug("deferred memory backup failed", exc_info=True)
 
-    threading.Thread(
+    backup_thread = threading.Thread(
         target=_deferred_memory_backup,
         name="arelis-memory-backup",
         daemon=True,
-    ).start()
+    )
+    backup_thread.start()
 
     # After the window, not before: this reaches the network, and the first seconds of a
     # launch belong to the person who double-clicked something. Declines to do anything at
@@ -731,7 +754,26 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         force = bool(window._force_quit)
         drain_budget_s = 0.75 if force else 3.0
 
+        write_timeout_s = 3.0 if force else 5.0
+
         async def shutdown() -> None:
+            # Cancel first so run_batch cannot start another disk write after
+            # we join. Then one flush, off this loop thread, one deadline.
+            current = asyncio.current_task()
+            pending = [
+                t for t in asyncio.all_tasks(loop) if t is not current and not t.done()
+            ]
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.wait(pending, timeout=drain_budget_s)
+            await asyncio.to_thread(
+                _flush_pending_writes,
+                store=store,
+                indexer=indexer,
+                backup_thread=backup_thread,
+                timeout_s=write_timeout_s,
+            )
             stop_watch = getattr(window, "_orphan_ingest_stop", None)
             if stop_watch is not None:
                 stop_watch.set()
@@ -776,7 +818,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
 
         fut = asyncio.run_coroutine_threadsafe(shutdown(), loop)
         try:
-            fut.result(timeout=2.0 if force else 8.0)
+            # Write flush is 3s on force quit; the old 2s outer cap made that
+            # bound fake. 2s leftover covers ipc/router after the writes land.
+            fut.result(timeout=write_timeout_s + 2.0 if force else 8.0)
         except Exception:
             log.warning("shutdown did not finish in time", exc_info=True)
         loop.call_soon_threadsafe(loop.stop)
