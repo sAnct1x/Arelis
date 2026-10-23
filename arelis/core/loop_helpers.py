@@ -557,6 +557,7 @@ def _exactness_finish_refuse(
     declined_tools: set[str] | None = None,
     declined_calls: list[tuple[str, dict[str, Any]]] | None = None,
     requested_tools: set[str] | None = None,
+    messages: list[dict[str, Any]] | None = None,
 ) -> str | None:
     """Return a refusal when finishing would ship an unsupported exact claim."""
     # Side-effect honesty runs before refusal escape so hedge-then-claim
@@ -594,6 +595,14 @@ def _exactness_finish_refuse(
         ]
     if not evidence_gate:
         missing = [k for k in missing if k not in _EVIDENCE_KINDS]
+    # Pixels on this user line are the vision reading. #407 already encoded
+    # them and told the model not to call vision. Requiring the tool anyway
+    # ships the canned "no vision reading" line over a no-tool answer.
+    if missing and "vision" in missing:
+        from arelis.attachments import last_user_has_pixels
+
+        if last_user_has_pixels(messages):
+            missing = [k for k in missing if k != "vision"]
     if not missing:
         return None
     if "math" in missing:

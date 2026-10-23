@@ -134,6 +134,7 @@ async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i
         declined_tools=ctx.declined_tools,
         declined_calls=ctx.declined_calls,
         requested_tools=_turn_requested_tools(loop, ctx),
+        messages=r.messages,
     )
     if refuse is None:
         refuse = loop._look_refuse(r.content)

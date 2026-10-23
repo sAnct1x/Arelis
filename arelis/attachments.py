@@ -1071,6 +1071,25 @@ def apply_images_to_last_user(
         return
 
 
+def last_user_has_pixels(messages: list[dict[str, Any]] | None) -> bool:
+    """True when the latest user line already carries encoded image parts.
+
+    Encode success is the warrant. A text-only attachments block is not.
+    """
+    if not messages:
+        return False
+    for row in reversed(messages):
+        if not isinstance(row, dict) or row.get("role") != "user":
+            continue
+        content = row.get("content")
+        if not isinstance(content, list):
+            return False
+        return any(
+            isinstance(part, dict) and part.get("type") == "image_url" for part in content
+        )
+    return False
+
+
 class AttachError(Exception):
     """The driver named files and none of them staged.
 

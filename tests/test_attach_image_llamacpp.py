@@ -11,6 +11,7 @@ import pytest
 
 from arelis.attachments import matrix_turn_payload
 from arelis.core.bus import EventBus
+from arelis.core.claims import detect_vision_ask, unsupported_exactness_reply
 from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
 from arelis.core.orchestrator import Orchestrator
@@ -18,7 +19,7 @@ from arelis.llm.llamacpp import LlamaCppProvider
 from arelis.llm.router import ModelRouter
 from arelis.tools.base import ToolRegistry
 
-_ASK = "what color is the circle"
+_ASK = "what's in this picture"
 # 1x1 red PNG. Same bytes as the paperclip driver test.
 _PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -77,8 +78,9 @@ async def test_attached_image_is_image_part_in_llamacpp_request(
         rewarm_after_switch=False,
     )
     persona = Path(__file__).resolve().parents[1] / "arelis" / "persona" / "arelis.md"
+    bus = EventBus()
     orch = Orchestrator(
-        EventBus(),
+        bus,
         router,
         ToolRegistry(),
         {
@@ -118,3 +120,12 @@ async def test_attached_image_is_image_part_in_llamacpp_request(
     assert "→ vision" not in body
     assert "→ ocr" not in body
     assert "picture attached for you to see directly" in body
+    assert detect_vision_ask(_ASK)
+    done: list[str] = []
+    while not bus._queue.empty():
+        event = bus._queue.get_nowait()
+        if event.type == EventType.ASSISTANT_DONE:
+            done.append(str(event.payload.get("text") or ""))
+    assert done
+    assert done[-1] == "red"
+    assert unsupported_exactness_reply(["vision"]) not in done
