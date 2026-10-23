@@ -784,6 +784,12 @@ class ChatPanel(QWidget):
         started = time.perf_counter()
         if follow is None:
             follow = self._near_bottom()
+        # Latch before the replace. rangeChanged during the rewrite would
+        # otherwise pin a user who already scrolled up.
+        self._follow_bottom = follow
+        parked = None
+        if not follow:
+            parked = self.view.verticalScrollBar().value()
         self.view.arm_math()
         body = "".join(self._stream_text)
         if body.strip():
@@ -796,6 +802,8 @@ class ChatPanel(QWidget):
         else:
             html = _caret_html() if self._caret_on else ""
         self._replace_from_anchor(html)
+        if parked is not None:
+            self._pin_to(parked)
         self._scroll(follow=follow)
         self._note_paint_cost(time.perf_counter() - started)
 
@@ -1229,7 +1237,7 @@ class ChatPanel(QWidget):
             self._pin_to(hi)
 
     def _on_scroll_value(self, value: int) -> None:
-        """User left the bottom: stop following. Back at the end: follow again."""
+        """Leaving the bottom stops follow. A shrink that lands on the user does not resume it."""
         if self._pinning_scroll:
             return
         try:
@@ -1237,9 +1245,9 @@ class ChatPanel(QWidget):
         except RuntimeError:
             return
         if bar.maximum() <= 0:
-            self._follow_bottom = True
             return
-        self._follow_bottom = (bar.maximum() - value) <= 48
+        if (bar.maximum() - value) > 48:
+            self._follow_bottom = False
 
     def _scroll(self, *, follow: bool = True) -> None:
         """Follow the stream only when the caller says we were near the bottom.
