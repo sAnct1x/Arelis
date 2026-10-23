@@ -18,6 +18,7 @@ from arelis.core.confirm_speech import (
 from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
 from arelis.core.orchestrator_confirm import OrchestratorConfirm
+
 # Re-exported, not used here. These lived in this module before the mixin
 # split copied them into three more, and `comms_bypasses_sticky` is imported
 # from this path by tests and is the natural public name for it.

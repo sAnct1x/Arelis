@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt
-
-from pathlib import Path
 
 from arelis.config import _parse_workspace_roots, deep_merge, merge_local_config
 from arelis.paths import outputs_dir

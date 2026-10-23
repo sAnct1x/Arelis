@@ -19,9 +19,9 @@ from arelis.browser.hold import format_drive_done, format_drive_status
 from arelis.browser.walls import your_turn_status
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import plain_reason, tool_failure_notice
+from arelis.desk import DeskStore
 from arelis.i18n import tr
 from arelis.local_open import open_local_file, reveal_local_file
-from arelis.desk import DeskStore
 from arelis.paths import display_path
 from arelis.ui.status_copy import WAITING_STATUS, tool_errand
 from arelis.ui.world_host import should_offer_world
