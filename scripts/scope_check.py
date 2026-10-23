@@ -2,8 +2,11 @@
 
 A pull request that was supposed to stay in scripts/ and docs/ still
 touches runtime code if somebody's editor saved a stray file. This
-script diffs ``base...HEAD`` and prints every path that is not matched
-by the allow list. Exit 1 if anything extra showed up.
+script diffs ``base...HEAD`` with ``--name-status --no-renames`` so a
+rename lists the old path and the new one. ``git diff --name-only``
+follows the rename and only prints the destination, which lets
+``arelis/core.py`` become ``scripts/core.py`` and slip through
+``--allow 'scripts/*'``. Exit 1 if anything extra showed up.
 
 The allow list is globs: a file of them (one per line), or repeated
 ``--allow``. Blank lines and ``#`` comments in the file are ignored.
@@ -67,9 +70,36 @@ def extra_paths(changed: list[str], allowed: list[str]) -> list[str]:
     return extras
 
 
+def paths_from_name_status(text: str) -> list[str]:
+    """Collect every path a ``git diff --name-status`` line names.
+
+    A rename or copy names the old path and the new one. ``--no-renames``
+    turns that into a delete plus an add, which this also keeps. Either
+    form has to flag a runtime file that moved into an allowed glob.
+    """
+    paths: list[str] = []
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        if "\t" not in raw:
+            continue
+        status, rest = raw.split("\t", 1)
+        code = status.strip()[:1]
+        pieces = [normalize(part) for part in rest.split("\t")]
+        pieces = [part for part in pieces if part]
+        if code in {"R", "C"} and len(pieces) >= 2:
+            picked = pieces[:2]
+        else:
+            picked = pieces
+        for path in picked:
+            if path not in seen:
+                seen.add(path)
+                paths.append(path)
+    return paths
+
+
 def changed_files(base: str, cwd: Path) -> list[str]:
     result = subprocess.run(
-        ["git", "diff", "--name-only", f"{base}...HEAD"],
+        ["git", "diff", "--name-status", "--no-renames", f"{base}...HEAD"],
         cwd=cwd,
         capture_output=True,
         text=True,
@@ -78,7 +108,7 @@ def changed_files(base: str, cwd: Path) -> list[str]:
     if result.returncode != 0:
         err = (result.stderr or result.stdout or "git diff failed").strip()
         raise SystemExit(err)
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return paths_from_name_status(result.stdout)
 
 
 def main(argv: list[str] | None = None) -> int:
