@@ -1018,6 +1018,7 @@ class AgentLoop:
                 ctx.last_ok_tool_out,
                 ctx.last_ok_tool_name,
                 ask=ctx.text,
+                data=ctx.last_ok_tool_data,
             )
         else:
             note = _CLOSE_PARTIAL

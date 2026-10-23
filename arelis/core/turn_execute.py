@@ -174,7 +174,9 @@ def _pin_plain_user(
         return
     if not receipt_serves_goal(ctx.goal, name, out):
         return
-    line = _tool_followup_fallback(out, name, ask=ctx.text)
+    line = _tool_followup_fallback(
+        out, name, ask=ctx.text, data=ctx.last_ok_tool_data
+    )
     raw = (out or "").strip()
     shipped = line.strip()
     if shipped and (shipped == raw or (raw and shipped in raw)):

@@ -824,6 +824,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     ctx.last_ok_tool_out,
                     ctx.last_ok_tool_name,
                     ask=ctx.text,
+                    data=ctx.last_ok_tool_data,
                 )
                 await loop.bus.publish(
                     Event(
@@ -866,6 +867,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     ctx.last_ok_tool_out,
                     ctx.last_ok_tool_name,
                     ask=ctx.text,
+                    data=ctx.last_ok_tool_data,
                 )
                 await loop.bus.publish(
                     Event(
@@ -973,6 +975,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         ctx.last_ok_tool_out,
                         ctx.last_ok_tool_name,
                         ask=ctx.text,
+                        data=ctx.last_ok_tool_data,
                     ),
                     ctx.last_ok_tool_out,
                 )
@@ -1029,6 +1032,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         ctx.last_ok_tool_out,
                         ctx.last_ok_tool_name,
                         ask=ctx.text,
+                        data=ctx.last_ok_tool_data,
                     )
                 if not prose:
                     prose = _CLOSE_PARTIAL

@@ -740,9 +740,13 @@ def forecast_reply(label: str, data: dict[str, Any]) -> str:
     low = _whole(today.get("temperature_2m_min"))
     if not label or not temp or not high or not low:
         return ""
-    condition = describe_weather_code(current.get("weather_code")) or "unknown"
+    condition = describe_weather_code(current.get("weather_code"))
+    if condition:
+        first = f"It's {temp}°F and {condition} in {label}."
+    else:
+        first = f"It's {temp}°F in {label}."
     bits = [
-        f"It's {temp}°F and {condition} in {label}.",
+        first,
         f"High {high}°F, low {low}°F.",
     ]
     for offset, row in enumerate(daily[1:_FORECAST_DAYS], start=1):

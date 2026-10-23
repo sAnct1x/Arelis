@@ -229,11 +229,37 @@ _SPOKEN_SPRINGFIELD = (
     "Saturday is light rain, high 64\u00b0F, low 49\u00b0F. "
     "Sunday is partly cloudy, high 62\u00b0F, low 46\u00b0F."
 )
+_SPOKEN_SPRINGFIELD_NO_SKY = (
+    "It's 61\u00b0F in Springfield, Illinois. "
+    "High 66\u00b0F, low 48\u00b0F. "
+    "Tomorrow is clear, high 70\u00b0F, low 52\u00b0F. "
+    "Saturday is light rain, high 64\u00b0F, low 49\u00b0F. "
+    "Sunday is partly cloudy, high 62\u00b0F, low 46\u00b0F."
+)
+
+
+class _CloseAfterWeather(_RecordingRouter):
+    """Close once the weather call is on the wire, then an empty close pass."""
+
+    def __init__(self, call: dict[str, Any]) -> None:
+        super().__init__([[("tool_calls", [call])], [("token", "")]])
+        self.loop: AgentLoop | None = None
+
+    async def stream(self, role, messages, **kwargs):  # type: ignore[no-untyped-def]
+        self.stream_kwargs.append(dict(kwargs))
+        self.stream_messages.append(json.loads(json.dumps(messages)))
+        self.i += 1
+        if self.i == 1:
+            yield ("tool_calls", self.script[0][0][1])
+            assert self.loop is not None
+            self.loop.request_close()
+            return
+        yield ("token", "")
 
 
 @pytest.mark.asyncio
 async def test_weather_empty_or_echoed_is_a_spoken_sentence() -> None:
-    """Empty or echoed weather dump ships the spoken forecast, not the colon line."""
+    """Empty, echoed, or late fallback weather dump ships the spoken forecast."""
     from arelis.core.agent_loop import _WRITE_AFTER_TOOL_NOTICE
     from arelis.voice.speech_text import prepare_spoken_text
     from tests.test_weather_tool import _IL, _few_days, _Standins
@@ -248,6 +274,18 @@ async def test_weather_empty_or_echoed_is_a_spoken_sentence() -> None:
     assert reply == _SPOKEN_SPRINGFIELD
     assert dump != reply
 
+    bare = dict(_few_days())
+    bare["current"] = {
+        key: value
+        for key, value in dict(bare.get("current") or {}).items()
+        if key != "weather_code"
+    }
+    stand.reading = bare
+    no_sky = await stand.tool().run(place="Springfield, Illinois")
+    assert str((no_sky.data or {}).get("reply") or "") == _SPOKEN_SPRINGFIELD_NO_SKY
+    assert "unknown" not in str((no_sky.data or {}).get("reply") or "").lower()
+    stand.reading = _few_days()
+
     call = {
         "type": "function",
         "function": {
@@ -255,33 +293,107 @@ async def test_weather_empty_or_echoed_is_a_spoken_sentence() -> None:
             "arguments": {"place": "Springfield, Illinois"},
         },
     }
+    calc_call = {
+        "type": "function",
+        "function": {
+            "name": "calculator",
+            "arguments": {"expression": "1+1"},
+        },
+    }
     ask = "what's the weather in Springfield, Illinois?"
 
-    async def _ship(second: list[tuple[str, Any]]) -> None:
-        router = _RecordingRouter([[("tool_calls", [call])], second])
-        bus, loop = _loop(router, stand.tool())
-        events = await _collect(bus, loop.run(ask, "fast"))
-        done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
-        text = str(done.payload.get("text") or "").strip()
+    def _assert_spoken(text: str) -> None:
         assert text == _SPOKEN_SPRINGFIELD
         assert dump not in text
         assert "Springfield, Illinois:" not in text
+        assert "could not put it into words" not in text
+        heard = prepare_spoken_text(text)
+        assert "degrees Fahrenheit" in heard
+        assert "\u00b0" not in heard
+
+    def _assert_pin(router: _RecordingRouter) -> None:
+        assert any(
+            item.get("content") == _WRITE_AFTER_TOOL_NOTICE
+            for msgs in router.stream_messages
+            for item in msgs
+        )
+
+    async def _done(router: _RecordingRouter, *tools: Any) -> str:
+        bus, loop = _loop(router, *tools)
+        if hasattr(router, "loop"):
+            router.loop = loop
+        events = await _collect(bus, loop.run(ask, "fast"))
         thinking = [
             str(e.payload.get("text") or "")
             for e in events
             if e.type == EventType.THINKING
         ]
         assert not any("asking for a write-up" in line for line in thinking)
-        assert len(router.stream_kwargs) == 2
-        for msgs in router.stream_messages:
-            assert not any(
-                item.get("content") == _WRITE_AFTER_TOOL_NOTICE for item in msgs
-            )
-        heard = prepare_spoken_text(text)
-        assert "degrees Fahrenheit" in heard
-        assert "\u00b0" not in heard
+        done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+        text = str(done.payload.get("text") or "").strip()
+        _assert_spoken(text)
+        _assert_pin(router)
+        return text
 
-    await _ship([("token", "")])
-    await _ship([("token", dump)])
+    # Empty-after-tool and a dump echo (already-plain + raw-line).
+    await _done(
+        _RecordingRouter([[("tool_calls", [call])], [("token", "")]]),
+        stand.tool(),
+    )
+    await _done(
+        _RecordingRouter([[("tool_calls", [call])], [("token", dump)]]),
+        stand.tool(),
+    )
+
+    # HTTP 400 after the tool (turn_round four_line).
+    class _WeatherThen400(_RecordingRouter):
+        async def stream(self, role, messages, **kwargs):  # type: ignore[no-untyped-def]
+            self.stream_kwargs.append(dict(kwargs))
+            self.stream_messages.append(json.loads(json.dumps(messages)))
+            self.i += 1
+            if self.i == 1:
+                yield ("tool_calls", [call])
+                return
+            raise RuntimeError(
+                "The local model returned HTTP 400 for model `mock`: closing '}'"
+            )
+
+    await _done(_WeatherThen400([[]]), stand.tool())
+
+    # VRAM after weather, with research_report already marked used.
+    class _WeatherThenVram(_RecordingRouter):
+        loop: AgentLoop | None = None
+
+        async def stream(self, role, messages, **kwargs):  # type: ignore[no-untyped-def]
+            self.stream_kwargs.append(dict(kwargs))
+            self.stream_messages.append(json.loads(json.dumps(messages)))
+            self.i += 1
+            if self.i == 1:
+                yield ("tool_calls", [call])
+                return
+            assert self.loop is not None
+            self.loop.tools_used.add("research_report")
+            raise RuntimeError(
+                "could not load `qwen3:14b`: could not free VRAM, gpu still has 11 GB"
+            )
+
+    await _done(_WeatherThenVram([[]]), stand.tool())
+
+    # Dump pasted on the plain-answer retry (turn_round ~972).
+    await _done(
+        _RecordingRouter(
+            [
+                [("tool_calls", [calc_call])],
+                [("tool_calls", [call])],
+                [("tool_calls", [call]), ("token", dump)],
+                [("tool_calls", [call]), ("token", dump)],
+            ]
+        ),
+        CalculatorTool(),
+        stand.tool(),
+    )
+
+    # Close pass with the weather result already in hand (turn_round ~1028).
+    await _done(_CloseAfterWeather(call), stand.tool())
 
 
