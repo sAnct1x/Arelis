@@ -1139,6 +1139,7 @@ class AgentLoop:
             declined_tools=ctx.declined_tools,
             declined_calls=ctx.declined_calls,
             requested_tools=_turn_requested_tools(self, ctx),
+            messages=ctx.messages,
         )
         if refuse is None:
             refuse = self._look_refuse(final_content)
