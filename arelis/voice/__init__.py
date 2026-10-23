@@ -112,6 +112,7 @@ class VoiceService:
             bus.subscribe(EventType.TOOL_START, self.on_tool_start)
             bus.subscribe(EventType.VOICE_SPEAK, self.on_speak)
             bus.subscribe(EventType.ERROR, self.on_turn_error)
+            bus.subscribe(EventType.TURN_CANCEL, self.on_turn_cancel)
 
     # ---------------------------------------------------------------- output
 
@@ -228,6 +229,27 @@ class VoiceService:
                 self._reset_stream(keep_cancel=False)
             return
         await self.on_retract(event)
+
+    async def on_turn_cancel(self, event: Event) -> None:
+        """A stopped turn is over. Heard prefix is not for the next reply.
+
+        Retract and tool-start keep heard so a same-turn replacement can
+        skip restated sentences. Cancel is a new turn, so the whole speak
+        cycle resets. Leaving Titan on the list made the next opener silent.
+        """
+        async with self._stream_lock:
+            was_open = self._stream_open
+            utterance = self._stream_utterance
+            clips = self._stream_clips
+            self.cancel_speech()
+            self._reset_stream(keep_cancel=False)
+        if was_open:
+            self.bus.publish_nowait(
+                Event(
+                    EventType.VOICE_SPEECH_DONE,
+                    {"utterance": utterance, "clips": clips},
+                )
+            )
 
     async def on_speak(self, event: Event) -> None:
         """Finish (or fully speak) an answer, then publish VOICE_SPEECH_DONE.
