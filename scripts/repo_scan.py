@@ -260,6 +260,8 @@ def run_ruff(root: Path) -> tuple[str, list[str]]:
         return f"ruff returned non-JSON (exit {result.returncode}).", []
     if not isinstance(items, list):
         return "ruff returned an unexpected payload.", []
+    if not items:
+        return "0 findings.", []
     codes = Counter(str(item.get("code") or "?") for item in items)
     top_rules = ", ".join(f"{code} ({n})" for code, n in codes.most_common(8))
     summary = f"{len(items)} finding(s) across {len({item.get('filename') for item in items})} file(s)."
