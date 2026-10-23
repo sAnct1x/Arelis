@@ -21,6 +21,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -50,26 +51,51 @@ READY_TIMEOUT_S = 60.0
 _CACHE_DEPTH = 5
 
 _OFFLINE = (
-    "I could not download the picture file for the 35B. Connect and try again."
+    "Arelis could not download the picture file. Check that this PC is online, "
+    "then try again."
 )
 _MISMATCH = (
-    "The picture file for the 35B did not match, so I deleted it and stopped."
+    "The picture file did not match what we expected. Try the download again."
 )
 _DISK = "This computer does not have enough free space for the picture file."
 _LATER = (
-    "I could not download the picture file for the 35B. Try again in a little while."
+    "The picture file download stopped. Try again in a little while."
 )
 _MISSING_BINARY = "llama-server was not found, so the 35B did not start."
 _SLOW = "The 35B server did not finish starting. Try again in a little while."
 _NO_TOKEN = "The 35B server did not answer a one token check."
 
+_READ_TIMEOUT_S = 1.0
+_CONNECT_TIMEOUT_S = 5.0
+_STALL_LIMIT_S = 90.0
+_READ = 64 * 1024
+_CHUNK = 1024 * 1024
+
 _lock = threading.Lock()
 _proc: subprocess.Popen[bytes] | None = None
+Cancel = Callable[[], bool]
+
+
+class _MmprojCancelledError(Exception):
+    """First-run cancel. The unfinished picture file stays."""
 
 
 def mmproj_for(model: Path) -> Path:
     """Q8 projector next to the model GGUF. Same directory, no second store."""
     return model.parent / MMPROJ_FILENAME
+
+
+def _config_int(section: dict[str, Any], key: str, default: int) -> int:
+    raw = section.get(key)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    if value <= 0:
+        return default
+    return value
 
 
 def llama_server_args(
@@ -80,8 +106,19 @@ def llama_server_args(
     template: str | None = None,
     host: str = "127.0.0.1",
     port: int = 8080,
+    config: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Argv for the 35B server. This is the only place those flags are built."""
+    """Argv for the 35B server. This is the only place those flags are built.
+
+    ``--n-cpu-moe``, ``-c``, and ``-ub`` come from config when set. Same
+    defaults for Q3 and Q4: 32, 32768, 512.
+    """
+    lc = config.get("llamacpp") if isinstance(config, dict) else None
+    if not isinstance(lc, dict):
+        lc = {}
+    ctx = _config_int(lc, "default_cap", 32768)
+    n_cpu_moe = _config_int(lc, "n_cpu_moe", 32)
+    ubatch = _config_int(lc, "ubatch", 512)
     args = [
         binary,
         "-m",
@@ -93,15 +130,15 @@ def llama_server_args(
         "-fa",
         "off",
         "-c",
-        "32768",
+        str(ctx),
         "-np",
         "1",
         "--n-cpu-moe",
-        "32",
+        str(n_cpu_moe),
         # 512 was measured on the target machine. 1024 used 11.88 GB
         # at peak, over the 11.2 GB memory budget.
         "-ub",
-        "512",
+        str(ubatch),
         "-b",
         "4096",
         "--cache-type-k",
@@ -198,6 +235,7 @@ def _launch_args_for(config: dict[str, Any]) -> list[str] | None:
         template=str(template_path.resolve()) if template_path else None,
         host=host,
         port=port,
+        config=config,
     )
 
 
@@ -473,52 +511,118 @@ def _spawn(args: list[str]) -> subprocess.Popen[bytes]:
             handle.close()
 
 
-def _ensure_mmproj(dest: Path) -> None:
-    if dest.is_file() and _sha256(dest) == MMPROJ_SHA256:
+def _ensure_mmproj(dest: Path, cancelled: Cancel | None = None) -> None:
+    try:
+        _download_mmproj(dest, cancelled=cancelled)
+    except _MmprojCancelledError as exc:
+        raise RuntimeError(
+            "The download was stopped. The unfinished file is still here, "
+            "so the next try can continue."
+        ) from exc
+
+
+def _download_mmproj(dest: Path, cancelled: Cancel | None = None) -> None:
+    if dest.is_file() and _sha256(dest, cancelled=cancelled) == MMPROJ_SHA256:
         return
     dest.unlink(missing_ok=True)
     _require_space(dest.parent, MMPROJ_BYTES + 64 * 1024 * 1024)
     partial = dest.with_name(dest.name + ".partial")
-    partial.unlink(missing_ok=True)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    headers = {"User-Agent": f"arelis/{__version__}"}
-    timeout = httpx.Timeout(600.0, connect=15.0)
+    last_byte_at = time.monotonic()
+    timeout = httpx.Timeout(
+        connect=_CONNECT_TIMEOUT_S,
+        read=_READ_TIMEOUT_S,
+        write=15.0,
+        pool=15.0,
+    )
+    restarted_from_416 = False
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            with client.stream("GET", MMPROJ_URL, headers=headers) as response:
-                response.raise_for_status()
-                _stream_into(response, partial)
+        while True:
+            if cancelled is not None and cancelled():
+                raise _MmprojCancelledError()
+            if time.monotonic() - last_byte_at >= _STALL_LIMIT_S:
+                raise RuntimeError(_LATER)
+            have = partial.stat().st_size if partial.is_file() else 0
+            if have < 0:
+                have = 0
+            headers = {"User-Agent": f"arelis/{__version__}"}
+            if have:
+                headers["Range"] = f"bytes={have}-"
+            try:
+                with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                    with client.stream("GET", MMPROJ_URL, headers=headers) as response:
+                        if (
+                            response.status_code == 416
+                            and have
+                            and not restarted_from_416
+                        ):
+                            partial.unlink(missing_ok=True)
+                            restarted_from_416 = True
+                            continue
+                        response.raise_for_status()
+                        if have and response.status_code == 200:
+                            have = 0
+                        last_byte_at = _stream_into(
+                            response,
+                            partial,
+                            have=have,
+                            cancelled=cancelled,
+                            last_byte_at=last_byte_at,
+                        )
+            except httpx.TimeoutException:
+                if cancelled is not None and cancelled():
+                    raise _MmprojCancelledError() from None
+                continue
+            break
     except RuntimeError:
-        partial.unlink(missing_ok=True)
         raise
     except httpx.TransportError as exc:
-        partial.unlink(missing_ok=True)
         raise RuntimeError(_OFFLINE) from exc
     except httpx.HTTPError as exc:
-        partial.unlink(missing_ok=True)
         raise RuntimeError(_LATER) from exc
-    if _sha256(partial) != MMPROJ_SHA256:
+    if _sha256(partial, cancelled=cancelled) != MMPROJ_SHA256:
         partial.unlink(missing_ok=True)
         raise RuntimeError(_MISMATCH)
     partial.replace(dest)
 
 
-def _stream_into(response: httpx.Response, dest: Path) -> None:
-    total = 0
-    with dest.open("wb") as handle:
-        for chunk in response.iter_bytes(1024 * 1024):
+def _stream_into(
+    response: httpx.Response,
+    dest: Path,
+    *,
+    have: int = 0,
+    cancelled: Cancel | None = None,
+    last_byte_at: float = 0.0,
+) -> float:
+    total = have
+    mode = "ab" if have else "wb"
+    chunks = response.iter_bytes(_READ)
+    with dest.open(mode) as handle:
+        if have == 0:
+            handle.truncate(0)
+        while True:
+            if cancelled is not None and cancelled():
+                raise _MmprojCancelledError()
+            try:
+                chunk = next(chunks)
+            except StopIteration:
+                break
             total += len(chunk)
             if total > MMPROJ_BYTES:
                 raise RuntimeError(_LATER)
             handle.write(chunk)
+            last_byte_at = time.monotonic()
     if total != MMPROJ_BYTES:
         raise RuntimeError(_MISMATCH)
+    return last_byte_at
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, cancelled: Cancel | None = None) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        for chunk in iter(lambda: handle.read(_CHUNK), b""):
+            if cancelled is not None and cancelled():
+                raise _MmprojCancelledError()
             digest.update(chunk)
     return digest.hexdigest()
 

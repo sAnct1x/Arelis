@@ -62,7 +62,8 @@ ALLOWED: dict[str, str] = {
     "qaihub-public-assets.s3.us-west-2.amazonaws.com": "Real-ESRGAN x4v3 weights, once, when the user asks to upscale a picture",
     "huggingface.co": (
         "Smart Turn v3 ONNX, once, when conversation end-of-turn first runs; "
-        "Q8 picture file for the 35B, once, beside the model weights"
+        "Q8 picture file for the 35B, once, beside the model weights; "
+        "chat GGUF on first-run setup, once, into the models folder"
     ),
     "storage.googleapis.com": "MediaPipe hand_landmarker.task, once, when physics-room tracking starts; KYTC WZDx public bucket when earth action=live",
     # Whether a newer Arelis has been published. One unauthenticated GET a day, from an
