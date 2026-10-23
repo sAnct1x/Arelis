@@ -70,6 +70,17 @@ def _painted_has(image, red: int, green: int, blue: int, *, tol: int = 40) -> bo
     return False
 
 
+def _assert_tall_well(well) -> None:
+    pix = well.pixmap()
+    assert pix is not None and not pix.isNull()
+    assert pix.width() <= well.width()
+    assert pix.height() <= well.height()
+    assert abs(pix.width() / pix.height() - 80 / 400) < 0.08
+    painted = well.grab().toImage()
+    assert _painted_has(painted, 220, 20, 20)
+    assert _painted_has(painted, 20, 40, 220)
+
+
 def test_image_strip_hidden_until_show_image(qt_app, tmp_path: Path) -> None:
     from PySide6.QtWidgets import QToolButton
 
@@ -87,10 +98,18 @@ def test_image_strip_hidden_until_show_image(qt_app, tmp_path: Path) -> None:
 
     panel = WorkspacePanel()
     try:
-        panel.resize(900, 360)
+        assert panel.image_strip.isHidden()
+        panel.resize(900, 600)
+        panel.show_image(str(second))
+        pre = panel.image_label.pixmap()
+        assert pre is not None and not pre.isNull()
+        assert pre.width() > 1
+        assert pre.height() > 1
+        assert abs(pre.width() / pre.height() - 80 / 400) < 0.08
         panel.show()
         qt_app.processEvents()
-        assert panel.image_strip.isHidden()
+        _assert_tall_well(panel.image_label)
+
         panel.show_image(str(first))
         assert not panel.image_strip.isHidden()
         thumbs = panel.image_strip.findChildren(QToolButton)
@@ -124,14 +143,7 @@ def test_image_strip_hidden_until_show_image(qt_app, tmp_path: Path) -> None:
 
         well = panel.image_label
         qt_app.processEvents()
-        painted = well.grab().toImage()
-        pix = well.pixmap()
-        assert pix is not None and not pix.isNull()
-        assert pix.width() <= well.width()
-        assert pix.height() <= well.height()
-        assert abs(pix.width() / pix.height() - 80 / 400) < 0.08
-        assert _painted_has(painted, 220, 20, 20)
-        assert _painted_has(painted, 20, 40, 220)
+        _assert_tall_well(well)
 
         next(t for t in thumbs if t.accessibleName() == "first.png").click()
         qt_app.processEvents()
