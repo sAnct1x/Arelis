@@ -6,6 +6,7 @@ Whole utterance only. In orbit these words are English.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
@@ -409,6 +410,36 @@ def _one_name(part: str) -> bool:
     return len(words) == 1 and bool(_PLACE_WORD.fullmatch(words[0]))
 
 
+def _ascii_fold(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
+
+
+def _pinned_city(blob: str) -> str | None:
+    """A weather-pin city the gazetteer does not ship, or None.
+
+    Chat goto geocodes this name. A common noun such as pictures is not
+    a pin, so it never reaches the geocoder. Cities outside both the
+    catalog and the pin list stay with the 9B (earth action=goto).
+    """
+    words = blob.split()
+    if not words or len(words) > 3:
+        return None
+    if not all(_PLACE_WORD.fullmatch(word) for word in words):
+        return None
+    fold = _ascii_fold(blob)
+    if not fold:
+        return None
+    try:
+        from arelis.earth.wx import CITIES
+    except Exception:
+        return None
+    for name, _lat, _lon in CITIES:
+        if _ascii_fold(name) == fold:
+            return " ".join(words)
+    return None
+
+
 def _street_line(part: str) -> bool:
     words = part.split()
     if len(words) < 2 or len(words) > 4:
@@ -424,16 +455,19 @@ def _street_line(part: str) -> bool:
 def _extracted_place(blob: str):
     """The place name inside a goto capture, or None when words are left over.
 
-    A clean capture is a known catalog place, or one locality (or a street
-    line) qualified by a known region. A lone name that misses the catalog
-    is not a place here.
+    A clean capture is a known catalog place, one locality (or a street
+    line) qualified by a known region, or a weather-pin city that missed
+    the catalog. A lone name that is neither is not a place here.
     """
     from arelis.earth.gazetteer import resolve_place
     from arelis.earth.geocode import ExtractedPlace
 
     parts = _place_parts(blob)
     if parts is None:
-        return None
+        pinned = _pinned_city(blob)
+        if pinned is None:
+            return None
+        return ExtractedPlace(pinned)
     known = [resolve_place(part) for part in parts]
     if not any(hit is not None for hit in known):
         return None
