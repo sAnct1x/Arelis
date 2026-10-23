@@ -98,14 +98,9 @@ def disk_needed_gb(model: CatalogModel) -> float:
 
 
 def recommend(hardware: HardwareSnapshot) -> CatalogModel:
-    """Q4_K_M when VRAM is known and fits. Q3_K_M otherwise.
-
-    If graphics memory cannot be read, pick Q3. Do not guess Q4 from RAM.
-    """
+    """Q4_K_M when the machine fits it, otherwise the Q3_K_M fallback."""
     q4 = _row("Q4_K_M")
     q3 = _row("Q3_K_M")
-    if hardware.vram_gb is None:
-        return q3
     if fits(q4, hardware):
         return q4
     return q3
