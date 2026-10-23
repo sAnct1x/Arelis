@@ -28,9 +28,13 @@ From `arelis/config/default.yaml`:
 
 | Role | Name | What it actually is |
 |---|---|---|
-| `fast` | `qwen3.5:9b` | Day-to-day name sent to llama-server. File and git work stays here. |
-| `research` | `qwen3.5:9b` | Same name. A deeper loop: more rounds, research tools. |
-| `vision` | `qwen2.5vl:3b` | Fallback name when the chat model cannot see images itself. |
+| `fast` | `Qwen3.6-35B-A3B` | Day-to-day name sent to llama-server. File and git work stays here. |
+| `research` | `Qwen3.6-35B-A3B` | Same name. A deeper loop: more rounds, research tools. |
+| `vision` | `Qwen3.6-35B-A3B` | Same weights. The 35B reads pictures itself. |
+
+Chat is Qwen3.6 35B-A3B on llama.cpp. The default file is Unsloth
+UD-Q4_K_M (`Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`). A machine that cannot
+hold that file uses the UD-Q3_K_M fallback, about 15.5 GB.
 | embed | `nomic-embed-text` | Recall and document search, on the CPU embed server. |
 
 ## The context window

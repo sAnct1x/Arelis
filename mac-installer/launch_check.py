@@ -65,8 +65,8 @@ def seed_launch_profile(data_dir: Path) -> None:
     config = "\n".join(
         [
             "models:",
-            '  fast: "qwen3.5:9b"',
-            '  research: "qwen3.5:9b"',
+            '  fast: "Qwen3.6-35B-A3B"',
+            '  research: "Qwen3.6-35B-A3B"',
             "memory:",
             '  embed_model: "nomic-embed-text"',
             "workspace:",
@@ -99,7 +99,7 @@ def seed_launch_profile(data_dir: Path) -> None:
         "answered_at": "2026-10-08T16:55:00+00:00",
         "model_setup": {
             "complete": True,
-            "tag": "qwen3.5:9b",
+            "tag": "Qwen3.6-35B-A3B",
             "completed_at": "2026-10-08T16:55:00+00:00",
         },
     }
