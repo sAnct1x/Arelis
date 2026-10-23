@@ -80,13 +80,19 @@ def test_thought_timer_tick_keeps_scroll_position(qt_app) -> None:
         _stream(panel, qt_app, "stream " + str(i) + " " + ("word " * 16) + "\n")
         assert bar.value() == bar.maximum()
 
-    at_bottom = bar.maximum()
-    bar.setValue(at_bottom)
+    # QTextBrowser grows max after the paint pin. A follower has to move
+    # with that range change, or the last line sits off-screen.
+    late = bar.maximum() + 80
+    bar.setMaximum(late)
+    qt_app.processEvents()
+    assert bar.value() == bar.maximum()
+    assert bar.maximum() == late
+
+    bar.setValue(bar.maximum())
     qt_app.processEvents()
     assert bar.value() == bar.maximum()
     _stream(panel, qt_app, "more " * 24 + "\n")
     assert bar.value() == bar.maximum()
-    assert bar.value() >= at_bottom
 
     parked = max(0, bar.maximum() - 200)
     bar.setValue(parked)

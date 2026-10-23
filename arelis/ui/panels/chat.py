@@ -323,7 +323,6 @@ class ChatPanel(QWidget):
         # current. Pinning earlier leaves the last line under the viewport,
         # and a later timer then fights the user if they try to scroll.
         self._follow_bottom = True
-        self._pinning_scroll = False
         bar = self.view.verticalScrollBar()
         bar.rangeChanged.connect(self._on_scroll_range)
         bar.valueChanged.connect(self._on_scroll_value)
@@ -1238,8 +1237,6 @@ class ChatPanel(QWidget):
 
     def _on_scroll_value(self, value: int) -> None:
         """Leaving the bottom stops follow. A shrink that lands on the user does not resume it."""
-        if self._pinning_scroll:
-            return
         try:
             bar = self.view.verticalScrollBar()
         except RuntimeError:
@@ -1272,13 +1269,9 @@ class ChatPanel(QWidget):
 
     def _pin_to(self, value: int) -> None:
         try:
-            bar = self.view.verticalScrollBar()
-            self._pinning_scroll = True
-            bar.setValue(value)
+            self.view.verticalScrollBar().setValue(value)
         except RuntimeError:
             pass
-        finally:
-            self._pinning_scroll = False
 
 
 def _esc(text: str) -> str:
