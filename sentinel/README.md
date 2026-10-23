@@ -1,5 +1,7 @@
 # Sentinel
 
+This tree is part of Arelis and is licensed under AGPL-3.0.
+
 Sentinel runs research and inspection jobs and displays their activity as a 3D Matrix-inspired swarm. Arelis can submit work through the loopback command bridge; the Overseer displays jobs, source receipts, file-integrity findings and socket observations.
 
 ## Working roles

@@ -26,6 +26,8 @@ classifiers = [
 ]
 dependencies = [
   "httpx>=0.27",
+  # Sentinel swarm (imported under sentinel/, not wired yet).
+  "psutil>=5.9.0",
   "cryptography>=43.0",
   # Version comparison for the self-updater, which has to know that 0.10.0 is newer than
   # 0.9.0. Already present as somebody else's transitive dependency; named here because
@@ -37,7 +39,7 @@ dependencies = [
   "pandas>=2.2",
   "numpy>=1.26",
   "PySide6>=6.6,<6.12",
-  "PyYAML>=6.0",
+  "PyYAML>=6.0.1",
   "pypdf>=5.0",
   # Renders scanned / handwritten PDF pages that have no embedded JPEGs.
   # Without this, raster_pages() used to return [] and a scan read as nothing.
@@ -219,6 +221,8 @@ arelis = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Imported Sentinel suite stays under sentinel/tests. It is not part of Arelis collect.
+addopts = ["--ignore=sentinel"]
 markers = [
     "serial: timing-sensitive; excluded from the xdist step and run right after it",
 ]
@@ -240,7 +244,9 @@ target-version = "py311"
 # Vendored wheels are not ours to lint. `.tmp_pdfium/` alone accounted for
 # 1,964 of the 1,970 errors `ruff check .` reported, which made the bare
 # command useless as a signal and trained everyone to run it on subdirectories.
-extend-exclude = [".tmp_pdfium", ".mypy_cache", ".ruff_cache", "build", "dist"]
+# sentinel/ is the imported swarm tree (PR0). Arelis rules fail it on E501
+# and a handful of other checks; it is not wired yet.
+extend-exclude = [".tmp_pdfium", ".mypy_cache", ".ruff_cache", "build", "dist", "sentinel"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "ASYNC", "RUF"]
