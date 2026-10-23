@@ -100,17 +100,50 @@ def quiesce_widget_threads(app: QApplication, wait_ms: int = 500) -> None:
             continue
 
 
-def drain_parked_threads(timeout_s: float = 3.0) -> None:
-    """Deliver ``finished`` so parked wrappers can be released."""
+# Longer than the first-run download connect timeout (5s). A shorter
+# bound leaves a handed-off QThread in run() and Qt aborts on destroy.
+HANDED_OFF_WAIT_S = 6.0
+
+
+def drain_parked_threads(timeout_s: float = HANDED_OFF_WAIT_S) -> None:
+    """Wait out handed-off QThreads so their destructors do not abort.
+
+    Park any workers still parented to a widget, then join each parked
+    thread for up to ``timeout_s``. ``finished`` is queued, so the app
+    is pumped when one exists. No app is not an excuse to skip the join.
+    """
+    import shiboken6
     from PySide6.QtWidgets import QApplication
 
-    deadline = time.monotonic() + timeout_s
+    try:
+        bound = max(0.0, float(timeout_s))
+    except (TypeError, ValueError):
+        bound = HANDED_OFF_WAIT_S
+    deadline = time.monotonic() + bound
+
+    app = QApplication.instance()
+    if app is not None:
+        try:
+            quiesce_widget_threads(app, wait_ms=0)
+        except RuntimeError:
+            pass
+
+    for thread in list(_PARKED):
+        left_ms = int(max(0.0, deadline - time.monotonic()) * 1000)
+        try:
+            if not shiboken6.isValid(thread):
+                continue
+            if thread.isRunning():
+                thread.wait(left_ms)
+        except RuntimeError:
+            continue
+
     while _PARKED and time.monotonic() < deadline:
         app = QApplication.instance()
         if app is None:
-            return
+            break
         try:
             app.processEvents()
         except RuntimeError:
-            return
+            break
         time.sleep(0.01)

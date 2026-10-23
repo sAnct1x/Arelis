@@ -524,6 +524,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     app.setFont(app_font(families))
     app.setStyleSheet(stylesheet())
 
+    from arelis.ui.live_threads import drain_parked_threads
+
     # First run: workspace folder, then model setup. Needs QApplication.
     # Always ask when needed. Do not skip because main passed a config dict.
     refreshed = apply_first_run_glass(config, config_was_given=config_was_given)
@@ -537,6 +539,7 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
             detail="Run Arelis again when you are ready to finish setup.",
             warning=True,
         )
+        drain_parked_threads()
         _release_ui_lock()
         return 1
     config = refreshed
@@ -648,6 +651,7 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         )
     except Exception:
         logging.getLogger(__name__).exception("Arelis window failed to start")
+        drain_parked_threads()
         _release_ui_lock()
         raise
     _mark_launch(window, background)
@@ -865,4 +869,5 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         thread.join(timeout=2)
         return code
     finally:
+        drain_parked_threads()
         _release_ui_lock()
