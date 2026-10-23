@@ -1047,12 +1047,16 @@ SCIENCE_CATALOG = IntentSpec(
 #
 # The trailing `(?!\s+on\b)` on both run-forms is doing real work: it keeps
 # "run diagnostics on my car" and "run the tests on the staging server" out,
-# because neither is a request to run *her* suite. One specifier word before
-# "tests" is allowed so "run the inbox tests" is still her suite (target=).
-_DIAGNOSTICS_ASK = re.compile(
+# because neither is a request to run *her* suite. A specifier word is only
+# allowed after "the", "all", or "my", so "run the inbox tests" is still her
+# suite (target=) and "run some tests" is not a free slot.
+_DIAGNOSTICS_NAMED = re.compile(
+    r"(?i)(?<!n't )(?<!not )(?<!never )\b"
+    r"(?:run|call|use)\s+(?:the\s+)?diagnostics(?:\s+tool)?(?!\s+on\b)"
+)
+_DIAGNOSTICS_SUITE = re.compile(
     r"(?i)(?<!n't )(?<!not )(?<!never )\b(?:"
-    r"(?:run|call|use)\s+(?:the\s+)?diagnostics(?:\s+tool)?(?!\s+on\b)|"
-    r"run\s+(?:the\s+)?(?:\w+\s+)?tests?\b(?!\s+on\b)|"
+    r"run\s+(?:(?:the|all|my)\s+(?:\w+\s+)?)?tests?\b(?!\s+on\b)|"
     r"run\s+(?:the\s+)?test\s+suite\b|"
     r"run\s+pytest\b|"
     r"do\s+(?:the\s+|all\s+(?:the\s+)?)?tests?\s+pass\b|"
@@ -1063,7 +1067,7 @@ _DIAGNOSTICS_ASK = re.compile(
 
 DIAGNOSTICS = IntentSpec(
     kind="diagnostics",
-    patterns=(_DIAGNOSTICS_ASK,),
+    patterns=(_DIAGNOSTICS_NAMED, _DIAGNOSTICS_SUITE),
     expected_tools=("diagnostics",),
     veto_negation=True,
     nudge=(
@@ -1072,6 +1076,7 @@ DIAGNOSTICS = IntentSpec(
         "Allow still applies, do not ask permission in chat."
     ),
     schema_tools=frozenset({"diagnostics"}),
+    exactness=(_DIAGNOSTICS_NAMED, _DIAGNOSTICS_SUITE),
     auto_hint=True,
     research_extra=True,
 )
