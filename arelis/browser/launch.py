@@ -15,7 +15,6 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from arelis.paths import library_cache_dir, state_dir, user_data_dir
-from arelis.presence.lock import pid_is_alive
 
 log = logging.getLogger(__name__)
 
@@ -583,6 +582,48 @@ def terminate_arelis_browser() -> None:
     stop_owned_browser(timeout_s=15.0)
 
 
+def _pid_is_alive(pid: int) -> bool:
+    """True when that OS process still exists. Never ``os.kill(pid, 0)``."""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            process_query_limited = 0x1000
+            still_active = 259
+            access_denied = 5
+            kernel32.SetLastError(0)
+            handle = kernel32.OpenProcess(process_query_limited, False, int(pid))
+            if not handle:
+                return int(kernel32.GetLastError()) == access_denied
+            try:
+                code = ctypes.c_ulong()
+                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    return True
+                return int(code.value) == still_active
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return False
+    procfs = Path("/proc")
+    if (procfs / "self" / "status").is_file():
+        return (procfs / str(int(pid))).is_dir()
+    try:
+        import ctypes
+        import errno as errno_mod
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.kill.argtypes = [ctypes.c_int, ctypes.c_int]
+        libc.kill.restype = ctypes.c_int
+        if libc.kill(int(pid), 0) == 0:
+            return True
+        return ctypes.get_errno() == errno_mod.EPERM
+    except Exception:
+        return False
+
+
 def _as_timeout_s(timeout_s: float) -> float:
     try:
         return max(0.0, float(timeout_s))
@@ -641,7 +682,7 @@ def stop_owned_browser(*, timeout_s: float = 3.0) -> None:
                     proc.pid,
                 )
     for pid in pids:
-        if not pid_is_alive(pid):
+        if not _pid_is_alive(pid):
             continue
         if time.monotonic() >= deadline:
             break
