@@ -408,8 +408,8 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     assert "where" not in named_doc.lower()
 
     # Real document tool. A prior PDF read used to leave the turn open
-    # after the document card was declined, and the next model line
-    # asked where to save.
+    # because finish required not tools_used. The next model line asked
+    # where to save.
     extract = _ExtractStub()
     document = DocumentTool()
     router = _ScriptedRouter(

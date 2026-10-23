@@ -816,16 +816,12 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         await loop._finish(ctx.skip_finish_text, r.sources, streamed="")
         return True
 
-    # Every call so far was a confirm refusal, and nothing ran. Another
+    # This batch was a confirm refusal and nothing in it ran. Another
     # model round paints nothing and sits until the model timeout. The
-    # reply is the skip sentence for the call the card refused. A no on
-    # document is the end of that write even if a prior read already
-    # ran: leaving the turn open is how a declined PDF-to-docx card
-    # asked where to save.
-    if ctx.decline_needs_finish and (
-        (not loop.tools_used and ran_calls == 0)
-        or "document" in ctx.declined_tools
-    ):
+    # reply is the skip sentence for the call the card refused. A prior
+    # read this turn (tools_used) must not keep the turn open: that is
+    # how a declined PDF-to-docx card asked where to save.
+    if ctx.decline_needs_finish and ran_calls == 0:
         from arelis.core.loop_helpers import declined_finish_reply
 
         reply = declined_finish_reply(ctx.declined_tools, ctx.declined_calls)
