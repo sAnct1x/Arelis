@@ -24,6 +24,10 @@ Q3_DOWNLOAD_GB = 16.6
 # Q4 ships on a 12 GB card. Q3 is the smaller-card fallback.
 Q4_MIN_VRAM_GB = 12.0
 Q3_MIN_VRAM_GB = 8.0
+# Experts left on the CPU. Q4 stays 32. Q3 at 28 was measured at 9.96 GB
+# VRAM and 21.8 tok/s.
+Q4_N_CPU_MOE = 32
+Q3_N_CPU_MOE = 28
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,7 @@ class CatalogModel:
     summary: str
     hf_repo: str
     filename: str
+    n_cpu_moe: int = Q4_N_CPU_MOE
 
 
 CATALOG: tuple[CatalogModel, ...] = (
@@ -58,6 +63,7 @@ CATALOG: tuple[CatalogModel, ...] = (
         "The same chat model in a smaller file. About 16.6 GB.",
         HF_REPO,
         Q3_FILENAME,
+        Q3_N_CPU_MOE,
     ),
 )
 
