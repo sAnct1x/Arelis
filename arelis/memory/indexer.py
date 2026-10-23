@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -101,6 +102,9 @@ class MemoryIndexer:
             )
         else:
             self.mail = None
+        # to_thread writes keep going after run_batch is cancelled. Quit joins
+        # this lock so memory.db is not mid-write when the process exits.
+        self._disk_lock = threading.Lock()
 
     def _provider_embeds(self) -> bool:
         """False when this provider cannot embed at all.
@@ -134,15 +138,32 @@ class MemoryIndexer:
             name == self.model or name.startswith(f"{self.model}:") for name in names
         )
 
+    def _call_disk(self, fn: Callable[..., int], *args: Any, **kwargs: Any) -> int:
+        with self._disk_lock:
+            return fn(*args, **kwargs)
+
+    def join_writes(self, timeout_s: float = 3.0) -> bool:
+        """Wait for an in-flight docs/mail write, or give up. Never starts work."""
+        try:
+            timeout = max(0.0, float(timeout_s))
+        except (TypeError, ValueError):
+            timeout = 3.0
+        got = self._disk_lock.acquire(timeout=timeout)
+        if got:
+            self._disk_lock.release()
+            return True
+        log.info("indexer writes still running after %.2fs, continuing quit", timeout)
+        return False
+
     async def run_batch(self) -> int:
         """Sync docs/mail if needed, then embed one batch of pending rows."""
         synced = 0
         if self.docs is not None:
             synced += await asyncio.to_thread(
-                self.docs.sync_batch, max_files=_DOC_FILES_PER_TICK
+                self._call_disk, self.docs.sync_batch, max_files=_DOC_FILES_PER_TICK
             )
         if self.mail is not None:
-            synced += await asyncio.to_thread(self.mail.sync_batch)
+            synced += await asyncio.to_thread(self._call_disk, self.mail.sync_batch)
 
         if not await self.model_available():
             return synced
@@ -214,12 +235,16 @@ class MemoryIndexer:
         total = 0
         if self.docs is not None:
             for _ in range(max_batches):
-                n = await asyncio.to_thread(self.docs.sync_batch, max_files=32)
+                n = await asyncio.to_thread(
+                    self._call_disk, self.docs.sync_batch, max_files=32
+                )
                 total += n
                 if n == 0:
                     break
         if self.mail is not None:
-            total += await asyncio.to_thread(self.mail.sync_batch, force=True)
+            total += await asyncio.to_thread(
+                self._call_disk, self.mail.sync_batch, force=True
+            )
         for _ in range(max_batches):
             if not await self.model_available():
                 break

@@ -74,6 +74,28 @@ def configure_logging(log_dir: Path | None = None) -> None:
     _configured = True
 
 
+def flush_logs() -> None:
+    """Push handler buffers to disk so the last lines survive quit."""
+    seen: set[int] = set()
+    manager = logging.Logger.manager
+    loggers: list[logging.Logger] = [logging.getLogger()]
+    for name in list(getattr(manager, "loggerDict", {})):
+        logger = manager.loggerDict[name]
+        if isinstance(logger, logging.Logger):
+            loggers.append(logger)
+    for logger in loggers:
+        for handler in logger.handlers:
+            key = id(handler)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                handler.flush()
+            except Exception:
+                # A dead handler must not block quit. The rest still flush.
+                pass
+
+
 def install_unhandled_hook() -> None:
     """Send uncaught exceptions to the log file.
 
