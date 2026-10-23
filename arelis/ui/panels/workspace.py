@@ -1105,8 +1105,13 @@ class WorkspacePanel(QWidget):
         self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _fitted_hero(self, path: Path | str) -> QPixmap:
-        target_w = max(self.image_label.width(), self.width() // 2, 420)
-        target_h = max(self.image_label.height(), 280)
+        box = self.image_label.contentsRect()
+        target_w = box.width()
+        target_h = box.height()
+        if target_w <= 1:
+            target_w = max(self.width() // 2, 420)
+        if target_h <= 1:
+            target_h = 280
         return load_fitted_pixmap(path, target_w, target_h)
 
     def resizeEvent(self, event) -> None:
