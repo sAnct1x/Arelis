@@ -71,16 +71,22 @@ def test_quiesce_unparents_a_blocked_thread_before_deferred_delete(qt_app) -> No
 
 
 def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
-    """Tray Quit while the parentless bake worker is in run() must join it.
+    """Quit must join handed-off workers, including a mid-download prepare.
 
-    aboutToQuit parks the baker. Each run_ui exit then drain_parked_threads
-    wait()s it. A no-op wait, a skipped park, or a skipped drain leaves it
-    running. Isolate QT_QPA_PLATFORM so Windows does not leak into the next
-    test.
+    Setup-not-finished parks a real ``_PrepareWorker`` without calling
+    cancel(), then ``run_ui`` must signal cancel and join it well under
+    ``HANDED_OFF_WAIT_S`` (1s read timeout, then ``cancelled()``). The
+    other exits park a parentless bake worker via aboutToQuit. A skipped
+    cancel, a no-op wait, a skipped park, or a skipped drain leaves a
+    worker running. Isolate QT_QPA_PLATFORM so Windows does not leak
+    into the next test.
     """
     import arelis.ui.live_threads as live
+    from arelis.setup.catalog import CATALOG
     from arelis.ui import launch as launch_mod
+    from arelis.ui.live_threads import park_running_thread
     from arelis.ui.persona_face.avatar import PersonaAvatar
+    from arelis.ui.setup_wizard import _PrepareWorker
 
     monkeypatch.setenv("ARELIS_ALLOW_OFFSCREEN", "1")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
@@ -92,10 +98,25 @@ def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
         time.sleep(3.2)
         return {}
 
+    def fake_download(
+        model: object,
+        *,
+        dest_dir: object = None,
+        progress: object = None,
+        cancelled: object = None,
+    ) -> object:
+        del model, dest_dir, progress
+        started.set()
+        while True:
+            if callable(cancelled) and cancelled():
+                raise RuntimeError("The download was stopped.")
+            time.sleep(1.0)
+
     monkeypatch.setattr("arelis.ui.persona_face.avatar.bake_layers", fake_bake)
     monkeypatch.setattr(
         "arelis.ui.persona_face.avatar.face_cache.load_layers", lambda *_a, **_k: None
     )
+    monkeypatch.setattr("arelis.ui.setup_wizard.download_model", fake_download)
 
     class _Lock:
         def acquire(self) -> bool:
@@ -139,20 +160,29 @@ def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
         assert avatar._baker is None
 
     avatars: list[PersonaAvatar] = []
+    prepare: _PrepareWorker | None = None
     try:
-        avatar, baker = start_baker()
-        avatars.append(avatar)
-        quit_parks(avatar)
         monkeypatch.setattr(launch_mod, "prompt_for_workspace_root", lambda: None)
         monkeypatch.setattr(launch_mod, "try_quiet_complete_model_setup", lambda: None)
         monkeypatch.setattr(launch_mod, "needs_model_setup", lambda: True)
         monkeypatch.setattr(launch_mod, "first_run_blocks_main", lambda: True)
         monkeypatch.setattr(launch_mod, "prompt_for_model_setup", lambda parent=None: None)
+        started.clear()
+        prepare = _PrepareWorker(CATALOG[0].tag)
+        prepare.start()
+        assert started.wait(2)
+        assert prepare.isRunning()
+        # Park only. If drain skips cancel(), this loops past the 6s bound
+        # the same way a mid-download close hung for 90s with no window.
+        park_running_thread(prepare)
         before = len(drain_calls)
+        t0 = time.monotonic()
         assert launch_mod.run_ui({}) == 1
+        elapsed = time.monotonic() - t0
         assert len(drain_calls) > before
         assert float(drain_calls[-1]) > 5.0
-        assert not baker.isRunning()
+        assert not prepare.isRunning()
+        assert elapsed < live.HANDED_OFF_WAIT_S
 
         class BoomWindow:
             def __init__(self, *_a: object, **_k: object) -> None:
@@ -243,6 +273,9 @@ def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
         assert float(drain_calls[-1]) > 5.0
         assert not baker.isRunning()
     finally:
+        if prepare is not None:
+            prepare.cancel()
+            prepare.wait(2000)
         for avatar in avatars:
             avatar.shutdown()
         real_drain(0.05)

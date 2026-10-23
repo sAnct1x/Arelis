@@ -8,6 +8,7 @@ people to dismiss without reading, and the recommendation is already on screen.
 from __future__ import annotations
 
 import logging
+import threading
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
@@ -70,11 +71,13 @@ class _PrepareWorker(QThread):
     def __init__(self, tag: str, parent=None) -> None:
         super().__init__(parent)
         self._tag = tag
-        self._cancel = False
+        # Event, not a bool: the download thread must see cancel() from
+        # drain_parked_threads after this worker has been unparented.
+        self._cancel = threading.Event()
         self._stage = "unexpected"
 
     def cancel(self) -> None:
-        self._cancel = True
+        self._cancel.set()
 
     def _fail(self, stage: str, problem: BaseException | str) -> None:
         log.warning(
@@ -96,11 +99,11 @@ class _PrepareWorker(QThread):
             self._fail(self._stage, exc)
 
     def _report(self, status: str, done: int = 0, total: int = 0) -> None:
-        if not self._cancel:
+        if not self._cancel.is_set():
             self.progressed.emit(status, done, total)
 
     def _run(self) -> None:
-        if self._cancel:
+        if self._cancel.is_set():
             self._fail(
                 self._stage,
                 "The download was stopped. The unfinished file is still here, "
@@ -116,9 +119,9 @@ class _PrepareWorker(QThread):
         download_model(
             model,
             progress=self._report,
-            cancelled=lambda: self._cancel,
+            cancelled=self._cancel.is_set,
         )
-        if self._cancel:
+        if self._cancel.is_set():
             self._fail(
                 self._stage,
                 "The download was stopped. The unfinished file is still here, "
@@ -461,5 +464,8 @@ def prompt_for_model_setup(parent: QWidget | None = None) -> str | None:
     # Incomplete close must not look like success. _picked is set in __init__,
     # so returning it always opened the mute main window with a failed chat model.
     if needs_model_setup():
+        # closeEvent parks and cancels. Do it again here so a leftover
+        # download is in _PARKED with cancel set before run_ui drains.
+        dialog._park_prepare()
         return None
     return dialog._picked.tag if dialog._picked else None

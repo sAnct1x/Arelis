@@ -539,6 +539,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
             detail="Run Arelis again when you are ready to finish setup.",
             warning=True,
         )
+        # Cancel then join. A parked download that never sees cancelled()
+        # stays in the 90s stall after this return, with no window.
         drain_parked_threads()
         _release_ui_lock()
         return 1
