@@ -194,6 +194,8 @@ async def test_geocoder_accepts_only_an_extracted_place(
         assert flown["name"] == "Reykjavik"
         assert flown["lat"] == 40.0
         assert flown["lon"] == -83.0
+        apply_physics_act(window, classify_physics_act("show me reykjavik"))
+        assert earth.take_goto() is not None
 
         monkeypatch.setattr("arelis.tools.earth_tool.stage_ok", lambda: True)
         got = await EarthTool().run(action="goto", query="Columbus, Ohio")

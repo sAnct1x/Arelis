@@ -420,23 +420,15 @@ def _pinned_city(blob: str) -> str | None:
 
     Chat goto geocodes this name. A common noun such as pictures is not
     a pin, so it never reaches the geocoder. Cities outside both the
-    catalog and the pin list stay with the 9B (earth action=goto).
+    catalog and the weather pin list still go through the model's
+    earth goto.
     """
-    words = blob.split()
-    if not words or len(words) > 3:
-        return None
-    if not all(_PLACE_WORD.fullmatch(word) for word in words):
-        return None
-    fold = _ascii_fold(blob)
-    if not fold:
-        return None
-    try:
-        from arelis.earth.wx import CITIES
-    except Exception:
-        return None
+    from arelis.earth.wx import CITIES
+
+    fold = _ascii_fold(" ".join((blob or "").split()))
     for name, _lat, _lon in CITIES:
         if _ascii_fold(name) == fold:
-            return " ".join(words)
+            return " ".join((blob or "").split())
     return None
 
 
