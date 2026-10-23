@@ -16,6 +16,7 @@ from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.events import EventType
 from arelis.core.evidence import EvidenceLedger
+from arelis.core.loop_helpers import declined_finish_reply
 from arelis.core.memory import SessionMemory
 from arelis.core.turn_confirm import SKIP, confirm_call
 from arelis.core.turn_context import TurnContext
@@ -24,11 +25,13 @@ from tests.hardening_helpers import _collect, _config, _ScriptedRouter
 
 _MEMORY_LINE = "The value was not saved because the save was skipped."
 _SEND_LINE = "The message was not sent because the send was skipped."
-_WRITE_LINE = (
-    "I did not write work/sq2.py because the write was skipped, "
-    "so I could not run it."
+_WRITE_LINE = "I didn't save work/sq2.py because you said no, so I could not run it."
+_WRITE_ONLY_LINE = "I didn't save work/sq2.py because you said no."
+_OCR_LINE = "I didn't read the text in shape.png because you said no."
+_UNKNOWN_LINE = "I didn't run that step because you said no."
+_MULTI_LINE = (
+    "I didn't read the text in shape.png or save work/sq2.py because you said no."
 )
-_WRITE_ONLY_LINE = "I did not write work/note.txt because the write was skipped."
 _EXTRACT = "Project codename: falcon-77"
 _EXTRACT_ANSWER = "The project codename is falcon-77."
 
@@ -285,7 +288,47 @@ async def test_declined_tools_comes_from_the_confirm_decision_only() -> None:
 
 @pytest.mark.asyncio
 async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
-    """P05: the write was skipped. Do not answer with the calculator refusal."""
+    """P05: skipped work is named in plain words, not the calculator refusal."""
+    long_ocr = "/tmp/inbox/shots/shape.png"
+    known = declined_finish_reply(
+        {"ocr"},
+        [("ocr", {"action": "text", "path": long_ocr})],
+    )
+    assert known == _OCR_LINE
+    assert long_ocr not in known
+    assert "inbox/shots" not in known
+    assert "I did not text" not in known
+
+    unknown = declined_finish_reply(
+        {"mystery_tool"},
+        [("mystery_tool", {"action": "frob", "path": long_ocr})],
+    )
+    assert unknown == _UNKNOWN_LINE
+    assert "frob" not in unknown
+    assert long_ocr not in unknown
+
+    write = declined_finish_reply(
+        {"workspace"},
+        [("workspace", {"action": "write", "path": "work/sq2.py"})],
+    )
+    assert write == _WRITE_ONLY_LINE
+    owed = declined_finish_reply(
+        {"workspace", "run_script"},
+        [("workspace", {"action": "write", "path": "work/sq2.py"})],
+    )
+    assert owed == _WRITE_LINE
+
+    both = declined_finish_reply(
+        {"ocr", "workspace"},
+        [
+            ("ocr", {"action": "text", "path": long_ocr}),
+            ("workspace", {"action": "write", "path": "work/sq2.py"}),
+        ],
+    )
+    assert both == _MULTI_LINE
+    assert " too" not in both
+    assert both.count("because you said no") == 1
+
     workspace = _WorkspaceStub()
     router = _ScriptedRouter(
         [
@@ -316,9 +359,7 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     )
     text = str(_done(events)["text"])
     assert workspace.runs == 0
-    assert text.strip() == (
-        "I did not write work/sq2.py because the write was skipped."
-    )
+    assert text.strip() == _WRITE_ONLY_LINE
     assert "calculator" not in text.lower()
 
 
