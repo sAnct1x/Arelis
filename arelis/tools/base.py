@@ -49,7 +49,13 @@ _PATH_BARE_TOKEN = re.compile(
     r"(?i:user_phone_number|your_phone|phone_number_here|"
     r"your_email|user_email|email_here|xxx+))$"
 )
-_PATH_KEYS = frozenset({"path", "from_path", "filename"})
+# Destination / file-name args the write tools already take. Not a schema
+# flag — adding one would be a tool-definition change. Cover every key
+# that becomes a file name: dest (pdf), out (diagram/plot), title
+# (document stem), plus path/from_path/filename.
+_PATH_KEYS = frozenset(
+    {"path", "from_path", "filename", "dest", "out", "title"}
+)
 
 
 def _path_is_placeholder(text: str) -> bool:
