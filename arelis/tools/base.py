@@ -32,15 +32,34 @@ log = logging.getLogger(__name__)
 # Do not match raw "<...>" — that flags comparison text ("<30 Hz ... >30 Hz")
 # and real HTML as placeholders. The 9B then re-emits the same write until
 # max_rounds (a 7-minute homework dump with no answer).
-# Unwrapped tokens are the whole argument. \bTODO\b hits todo.txt because
-# '.' is a word boundary.
+# Path args cannot use \bTODO\b: '.' / '-' are word boundaries, so todo.txt
+# and todo-list.md never reach Allow. Those keys match only a whole-path or
+# file-stem marker. TODO.txt stays a marker (exact stem TODO); todo.txt is
+# a real name.
 _PLACEHOLDER_TOKEN = (
     r"user_phone_number|your_phone|phone_number_here|"
     r"your_email|user_email|email_here|TODO|TBD|xxx+"
 )
 _PLACEHOLDER_ARG = re.compile(
-    rf"(?i)<(?:{_PLACEHOLDER_TOKEN})>|^(?:{_PLACEHOLDER_TOKEN})$"
+    rf"(?i)<(?:{_PLACEHOLDER_TOKEN})>|\b(?:{_PLACEHOLDER_TOKEN})\b"
 )
+_PLACEHOLDER_ANGLE = re.compile(rf"(?i)<(?:{_PLACEHOLDER_TOKEN})>")
+_PATH_BARE_TOKEN = re.compile(
+    r"^(?:TODO|TBD|"
+    r"(?i:user_phone_number|your_phone|phone_number_here|"
+    r"your_email|user_email|email_here|xxx+))$"
+)
+_PATH_KEYS = frozenset({"path", "from_path", "filename"})
+
+
+def _path_is_placeholder(text: str) -> bool:
+    """True when a path arg is a template token, not a real file name."""
+    if _PLACEHOLDER_ANGLE.search(text):
+        return True
+    posix = text.replace("\\", "/")
+    name = posix.rsplit("/", 1)[-1]
+    stem = name.rsplit(".", 1)[0] if "." in name and not name.startswith(".") else name
+    return any(_PATH_BARE_TOKEN.fullmatch(part) for part in (text, name, stem))
 
 
 def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
@@ -54,7 +73,12 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
         text = str(value).strip()
         if not text:
             continue
-        if _PLACEHOLDER_ARG.search(text):
+        hit = (
+            _path_is_placeholder(text)
+            if key in _PATH_KEYS
+            else _PLACEHOLDER_ARG.search(text)
+        )
+        if hit:
             return (
                 f"Placeholder argument {key}={_short(text)!r} "
                 "- fill a real value first."

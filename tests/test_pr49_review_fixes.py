@@ -67,7 +67,8 @@ def test_confirm_args_blocked_empty_workspace_write() -> None:
     """Real confirm_args_blocked: content='' is blocked.
 
     A path that merely contains 'todo' is a real file name, not a
-    placeholder token. A bare TODO / <TODO> body still is.
+    placeholder token. A bare TODO / <TODO> body still is. An embedded
+    token in a non-path arg is still a placeholder.
     """
     reason = confirm_args_blocked(
         "workspace",
@@ -90,6 +91,13 @@ def test_confirm_args_blocked_empty_workspace_write() -> None:
         )
         assert reason is not None, body
         assert "placeholder" in reason.lower()
+
+    reason = confirm_args_blocked(
+        "workspace",
+        {"action": "write", "path": "notes.txt", "content": "TODO: fill in"},
+    )
+    assert reason is not None
+    assert "placeholder" in reason.lower()
 
 
 @pytest.mark.asyncio
