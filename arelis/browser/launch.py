@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from arelis.paths import library_cache_dir, state_dir, user_data_dir
+from arelis.presence.lock import pid_is_alive
 
 log = logging.getLogger(__name__)
 
@@ -589,28 +590,6 @@ def _as_timeout_s(timeout_s: float) -> float:
         return 3.0
 
 
-def _pid_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        try:
-            import ctypes
-
-            # PROCESS_QUERY_LIMITED_INFORMATION: is this pid still here.
-            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))
-            if not handle:
-                return False
-            ctypes.windll.kernel32.CloseHandle(handle)
-            return True
-        except Exception:
-            return False
-    try:
-        os.kill(int(pid), 0)
-    except OSError:
-        return False
-    return True
-
-
 def _signal_owned_pid(pid: int, *, force: bool = False) -> None:
     """Stop one pid we already know is ours. Never by image name."""
     if pid <= 0:
@@ -662,7 +641,7 @@ def stop_owned_browser(*, timeout_s: float = 3.0) -> None:
                     proc.pid,
                 )
     for pid in pids:
-        if not _pid_alive(pid):
+        if not pid_is_alive(pid):
             continue
         if time.monotonic() >= deadline:
             break

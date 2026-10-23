@@ -58,7 +58,7 @@ def test_quit_stops_the_chrome_arelis_started(monkeypatch: Any) -> None:
         "_signal_owned_pid",
         lambda pid, force=False: signaled.append((int(pid), bool(force))),
     )
-    monkeypatch.setattr(launch_mod, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(launch_mod, "pid_is_alive", lambda pid: False)
     monkeypatch.setattr(launch_mod.subprocess, "run", _run)
 
     failures: list[str] = []
