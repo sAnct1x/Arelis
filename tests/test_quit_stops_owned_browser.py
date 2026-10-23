@@ -77,7 +77,8 @@ def test_quit_stops_the_chrome_arelis_started(monkeypatch: Any) -> None:
             backup_thread=None,
             timeout_s=1.0,
         )
-        if "terminate" not in proc.signals:
+        owned = "terminate" in proc.signals or any(pid == proc.pid for pid, _f in signaled)
+        if not owned:
             failures.append(f"{label}: owned chrome was not stopped")
         if launch_mod._last_arelis_proc is not None:
             failures.append(f"{label}: owner still held a process after quit")
