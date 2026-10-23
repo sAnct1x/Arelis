@@ -478,6 +478,17 @@ class PersonaPanel(QWidget):
         if not (self.avatar.bake_ready() and self._bloom_before_face):
             return
         self._bloom_before_face = False
+        # A turn can start speaking while the bake is still running. Tick then
+        # finishes the bloom clock (reveal 1, mode face) with no plate to draw.
+        # When the layers land, restarting that clock would hide her and leave
+        # only the halo. The clock already ran. Keep the plate up.
+        if self.avatar.reveal >= 0.999:
+            self._mode = "face"
+            self._mode_t = now
+            self.avatar.reveal = 1.0
+            self._wake_begin()
+            self._wake_end()
+            return
         if not self._animations_on():
             self._mode = "face"
             self._mode_t = now
