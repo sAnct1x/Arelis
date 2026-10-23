@@ -21,6 +21,7 @@ from arelis.core.memory import SessionMemory
 from arelis.core.turn_confirm import SKIP, confirm_call
 from arelis.core.turn_context import TurnContext
 from arelis.tools.base import ToolRegistry, ToolResult
+from arelis.tools.document import DocumentTool
 from tests.hardening_helpers import _collect, _config, _ScriptedRouter
 
 _MEMORY_LINE = "The value was not saved because the save was skipped."
@@ -30,6 +31,7 @@ _WRITE_ONLY_LINE = "I didn't save work/sq2.py because you said no."
 _OCR_LINE = "I didn't read the text in shape.png because you said no."
 _VISION_LINE = "I didn't look at shape.png because you said no."
 _UNKNOWN_LINE = "I didn't run that step because you said no."
+_DOCUMENT_LINE = "I didn't make the document because you said no."
 _MULTI_LINE = (
     "I didn't read the text in shape.png or save work/sq2.py because you said no."
 )
@@ -395,6 +397,49 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     text = str(_done(events)["text"])
     assert workspace.runs == 0
     assert text.strip() == _WRITE_ONLY_LINE
+    assert "calculator" not in text.lower()
+
+    named_doc = declined_finish_reply(
+        {"document"},
+        [("document", {"format": "docx", "title": "Notes", "body": "hello"})],
+    )
+    assert named_doc == _DOCUMENT_LINE
+    assert "run that step" not in named_doc
+    assert "where" not in named_doc.lower()
+
+    # Real document tool. A prior PDF read used to leave the turn open
+    # after the document card was declined, and the next model line
+    # asked where to save.
+    extract = _ExtractStub()
+    document = DocumentTool()
+    router = _ScriptedRouter(
+        [
+            [_call("doc_extract", {"path": "work/memo.pdf"})],
+            [
+                _call(
+                    "document",
+                    {
+                        "format": "docx",
+                        "title": "Notes",
+                        "body": "hello from the pdf",
+                    },
+                )
+            ],
+            [("token", "Where should I save the file?")],
+        ]
+    )
+    bus = EventBus()
+    loop = _loop(router, extract, document, confirm=_skip)
+    loop.bus = bus
+    events = await _collect(
+        bus,
+        loop.run("make this into a docx", "fast"),
+    )
+    text = str(_done(events)["text"])
+    assert extract.runs == 1
+    assert text.strip() == _DOCUMENT_LINE
+    assert "where" not in text.lower()
+    assert "save the file" not in text.lower()
     assert "calculator" not in text.lower()
 
 

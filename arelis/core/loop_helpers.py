@@ -261,6 +261,7 @@ _DECLINED_ACTION_PHRASE: dict[tuple[str, str], str] = {
     ("ocr", "screen"): "read the text on the screen",
     ("vision", ""): "look at {name}",
     ("workspace", "write"): "save {name}",
+    ("document", ""): "make the document",
     ("send_sms", ""): "send that text",
     ("send_email", ""): "send that email",
     ("memory", ""): "save that",
@@ -511,9 +512,10 @@ def declined_finish_reply(
 
     A mapped tool/action becomes a human phrase. ocr text is "read the
     text in" the file's base name. vision is "look at" that short name.
-    A workspace write is "save" plus that short name. Send, email, and
-    a memory save have their own phrases. Any declined call with no
-    phrase still uses the fallback so it is named in the joined line.
+    A workspace write is "save" plus that short name. A document write
+    is "make the document". Send, email, and a memory save have their
+    own phrases. Any declined call with no phrase still uses the
+    fallback so it is named in the joined line.
     Several skipped calls join with or, not too. The clause "so I could
     not run it" is added only for a workspace write when run_script is
     still owed: declined, requested, or left a failed run in the ledger.
