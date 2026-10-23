@@ -146,3 +146,27 @@ def save_refresh_token(
         yaml.safe_dump(raw, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
+
+
+def clear_refresh_token(provider: str, *, path: Path | None = None) -> None:
+    """Drop a stored refresh token. Client id and secret stay."""
+    path = path or SECRETS_PATH
+    if not path.is_file():
+        return
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return
+    if not isinstance(raw, dict):
+        return
+    cal = raw.get("calendar")
+    if not isinstance(cal, dict):
+        return
+    block = cal.get(provider)
+    if not isinstance(block, dict) or "refresh_token" not in block:
+        return
+    del block["refresh_token"]
+    path.write_text(
+        yaml.safe_dump(raw, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )

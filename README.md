@@ -342,6 +342,7 @@ something behaves oddly on yours, open an issue. Current release is
 | [browser-control.md](docs/browser-control.md) | Her browser |
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
 | [calendar-oauth.md](docs/calendar-oauth.md) | Connecting a calendar |
+| [calendar-sign-in-again.md](docs/calendar-sign-in-again.md) | When Google asks you to sign in again |
 | [architecture.md](docs/architecture.md) | How the code is organized |
 | [earth.md](docs/earth.md) | Earth view inside Reality (source checkout) |
 | [telemetry.md](docs/telemetry.md) | Logs, on your disk |

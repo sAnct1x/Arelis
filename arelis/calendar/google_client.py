@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
@@ -11,7 +12,7 @@ from urllib.parse import quote
 import httpx
 
 from arelis.calendar.models import CachedEvent, event_slot_key
-from arelis.calendar.secrets import GoogleCalendarCreds
+from arelis.calendar.secrets import GoogleCalendarCreds, clear_refresh_token
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,8 @@ class GoogleCalendarClient:
             )
         if resp.status_code >= 400:
             log.warning("Google token refresh failed: %s", resp.text[:300])
+            if _google_refresh_is_dead(resp):
+                self._forget_dead_refresh_token()
             raise RuntimeError(
                 f"Google token refresh failed ({resp.status_code}). "
                 "Sign in on the calendar tile."
@@ -59,6 +62,13 @@ class GoogleCalendarClient:
         if not self._access:
             raise RuntimeError("Google token response missing access_token")
         return self._access
+
+    def _forget_dead_refresh_token(self) -> None:
+        try:
+            clear_refresh_token("google")
+        except OSError as exc:
+            log.warning("Could not clear stored Google refresh token: %s", exc)
+        self.creds = replace(self.creds, refresh_token="")
 
     async def list_events(
         self,
@@ -285,6 +295,17 @@ class GoogleCalendarClient:
             )
         items = (resp.json() or {}).get("items") or []
         return [item for item in items if isinstance(item, dict)]
+
+
+def _google_refresh_is_dead(resp: httpx.Response) -> bool:
+    """True when Google rejected the refresh token itself (invalid_grant)."""
+    if resp.status_code != 400:
+        return False
+    try:
+        payload = resp.json()
+    except ValueError:
+        return False
+    return isinstance(payload, dict) and payload.get("error") == "invalid_grant"
 
 
 def is_google_holiday_calendar(entry: dict[str, Any]) -> bool:
