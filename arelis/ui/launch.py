@@ -55,10 +55,10 @@ def _flush_pending_writes(
     backup_thread: threading.Thread | None,
     timeout_s: float,
 ) -> None:
-    """One write flush, one deadline. Backup join and indexer join share it.
+    """One quit side-work pass, one deadline. Writes first, then owned Chrome.
 
-    Leftover time after the writes land parks Comfy. That used to run
-    inside closeEvent and freeze the glass.
+    Leftover time after that parks Comfy. That used to run inside
+    closeEvent and freeze the glass.
     """
     try:
         budget = max(0.0, float(timeout_s))
@@ -72,6 +72,9 @@ def _flush_pending_writes(
         indexer=indexer,
         timeout_s=max(0.0, deadline - time.monotonic()),
     )
+    from arelis.browser.launch import stop_owned_browser
+
+    stop_owned_browser(timeout_s=max(0.0, deadline - time.monotonic()))
     leftover = max(0.0, deadline - time.monotonic())
     if leftover <= 0:
         return
