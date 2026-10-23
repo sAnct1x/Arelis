@@ -172,6 +172,9 @@ dev = [
   # exists — Phase 0 records it; nothing fails a build on it yet.
   "mypy==2.3.1",
   "pytest-cov>=5.0",
+  # Dead-code report for scripts/repo_scan.py. Floor, not a pin: this extra
+  # is a report, not a gate, so a new vulture release cannot turn CI red.
+  "vulture>=2.14",
 ]
 
 [project.scripts]

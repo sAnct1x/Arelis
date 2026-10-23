@@ -347,6 +347,7 @@ something behaves oddly on yours, open an issue. Current release is
 | [calendar-oauth.md](docs/calendar-oauth.md) | Connecting a calendar |
 | [calendar-sign-in-again.md](docs/calendar-sign-in-again.md) | When Google asks you to sign in again |
 | [architecture.md](docs/architecture.md) | How the code is organized |
+| [dev-tools.md](docs/dev-tools.md) | Repo scan and PR scope check |
 | [earth.md](docs/earth.md) | Earth view inside Reality (source checkout) |
 | [telemetry.md](docs/telemetry.md) | Logs, on your disk |
 | [win-installer/README.md](win-installer/README.md) | Building the installer |
