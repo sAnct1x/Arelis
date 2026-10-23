@@ -586,22 +586,27 @@ def detect_catalog_ask(text: str) -> bool:
 # variable-length lookbehind, so this cannot live inside the catalog patterns,
 # and adding an exclusion field to IntentSpec to serve one row is not worth it.
 # It sits here rather than in the catalog on purpose: this function drives
-# other-work and the wide nudge, while exactness uses the named-tool patterns.
+# the force gate. A first-person future ("we are going to run the tests")
+# is a session opener, not a request that she run the suite.
 _DIAGNOSTICS_HOWTO = re.compile(
     r"(?i)\b(?:how\s+(?:do|can|would|should)\s+(?:i|you|we)|what\s+does)\b"
+)
+_DIAGNOSTICS_SPEAKER_FUTURE = re.compile(
+    r"(?i)\b(?:we(?:['\u2019]re|\s+are)|i(?:['\u2019]m|\s+am))\s+"
+    r"(?:going\s+to|gonna|about\s+to)\b"
 )
 
 
 def detect_diagnostics_ask(text: str) -> bool:
     """True when they want the suite run, not the command explained.
 
-    This is the wide catalog match (named tool or suite phrasing). Other-work
-    uses it so a real "run the tests" is not a leftover compose. Exactness
-    refuse does not: that path uses the named-tool exactness patterns only.
+    Suite phrasing stays on the force gate so "run the tests" cannot invent
+    a pass count. A how-to question and a first-person future opener do not.
     """
-    if _DIAGNOSTICS_HOWTO.search(text or ""):
+    raw = text or ""
+    if _DIAGNOSTICS_HOWTO.search(raw) or _DIAGNOSTICS_SPEAKER_FUTURE.search(raw):
         return False
-    return DIAGNOSTICS.matches(text)
+    return DIAGNOSTICS.matches(raw)
 
 
 _HORIZONS_BODY = re.compile(
@@ -922,12 +927,7 @@ def detect_exactness_need(text: str, *, data_cell: bool | None = None) -> Exactn
     needs_plot = detect_plot_ask(text)
     needs_catalog = detect_catalog_ask(text)
     needs_document = detect_document_ask(text)
-    # Suite phrasing ("run the tests", "run some tests") still nudges via
-    # the catalog. Exactness refuse is the named-tool form only, so a
-    # session opener that mentions upcoming tests is not a missing warrant.
-    needs_diagnostics = exactness_match("diagnostics", text) and not _DIAGNOSTICS_HOWTO.search(
-        text or ""
-    )
+    needs_diagnostics = detect_diagnostics_ask(text)
     needs_vision = detect_vision_ask(text)
     # Image-describe turns often include dimensioned filenames (1965x1106.png).
     # Prefer the vision warrant; never force calculator on those asks.

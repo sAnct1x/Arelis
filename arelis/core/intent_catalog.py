@@ -1047,19 +1047,16 @@ SCIENCE_CATALOG = IntentSpec(
 #
 # The trailing `(?!\s+on\b)` on both run-forms is doing real work: it keeps
 # "run diagnostics on my car" and "run the tests on the staging server" out,
-# because neither is a request to run *her* suite. One specifier word before
-# "tests" is allowed so "run the inbox tests" is still her suite (target=).
-#
-# Preflight keeps the suite phrasing so "run the tests" can still nudge.
-# Exactness is the named-tool form only. The suite phrasing is also how a
-# person announces their own testing, and that must not arm a finish refuse.
+# because neither is a request to run *her* suite. A specifier word is only
+# allowed after "the", so "run the inbox tests" is still her suite (target=)
+# and "run some tests" is not a free slot.
 _DIAGNOSTICS_NAMED = re.compile(
     r"(?i)(?<!n't )(?<!not )(?<!never )\b"
     r"(?:run|call|use)\s+(?:the\s+)?diagnostics(?:\s+tool)?(?!\s+on\b)"
 )
 _DIAGNOSTICS_SUITE = re.compile(
     r"(?i)(?<!n't )(?<!not )(?<!never )\b(?:"
-    r"run\s+(?:the\s+)?(?:\w+\s+)?tests?\b(?!\s+on\b)|"
+    r"run\s+(?:the\s+(?:\w+\s+)?)?tests?\b(?!\s+on\b)|"
     r"run\s+(?:the\s+)?test\s+suite\b|"
     r"run\s+pytest\b|"
     r"do\s+(?:the\s+|all\s+(?:the\s+)?)?tests?\s+pass\b|"
@@ -1079,7 +1076,7 @@ DIAGNOSTICS = IntentSpec(
         "Allow still applies, do not ask permission in chat."
     ),
     schema_tools=frozenset({"diagnostics"}),
-    exactness=(_DIAGNOSTICS_NAMED,),
+    exactness=(_DIAGNOSTICS_NAMED, _DIAGNOSTICS_SUITE),
     auto_hint=True,
     research_extra=True,
 )
