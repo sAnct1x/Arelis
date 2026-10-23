@@ -928,17 +928,17 @@ class PlotTool:
         """(folder, short where-it-landed note)."""
         room_dir = self.room_plots_dir()
         if room_dir is not None:
-            return room_dir, "this room's plots folder"
+            return room_dir, "the project's plots folder"
         room = None if self.rooms is None else self.rooms.active
         if room is not None and room.root:
             return (
                 self.drop_dir(),
-                "the shared drop tray, this room's folder is not a project any more",
+                "the shared drop tray",
             )
         if room is not None:
             return (
                 self.drop_dir(),
-                "the shared drop tray, this room has no folder",
+                "the shared drop tray",
             )
         return self.drop_dir(), "the shared drop tray (outputs/plots)"
 

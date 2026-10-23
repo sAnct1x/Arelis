@@ -12,9 +12,6 @@ from typing import Any
 from arelis.spatial.verbs import PhysicsAct
 from arelis.ui.hands_host import on_hands_chip
 from arelis.ui.history_host import (
-    build_rooms_menu,
-    enter_room_from_menu,
-    show_rooms_menu,
     toast_finish_or_stop,
 )
 from arelis.ui.notify_host import sync_notify_surface
@@ -135,15 +132,6 @@ class WindowAliases:
 
     def _sanitize_floating_docks(self) -> None:
         return sanitize_floating_docks(self)
-
-    def _show_rooms_menu(self, anchor) -> None:
-        return show_rooms_menu(self, anchor)
-
-    def _build_rooms_menu(self):
-        return build_rooms_menu(self)
-
-    def _enter_room_from_menu(self, room_id: str) -> None:
-        return enter_room_from_menu(self, room_id)
 
     def _toast_finish_or_stop(self, message: str) -> None:
         return toast_finish_or_stop(self, message)

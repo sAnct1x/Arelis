@@ -538,7 +538,6 @@ def filament_tiles(window) -> list[tuple[QWidget, str]]:
     rows = (
         (getattr(window, "history_dock", None), "history"),
         (getattr(window, "think_dock", None), "thinking"),
-        (getattr(window, "work_dock", None), "files"),
         (getattr(window, "calendar_window", None), "days"),
         (getattr(window, "camera_dock", None), "camera"),
         (getattr(window, "notify_inbox", None), "notify"),

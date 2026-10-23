@@ -1,38 +1,12 @@
-"""History dock, session load, and the rooms menu. Window methods stay as delegates."""
+"""History dock and session load. Window methods stay as delegates."""
 
 from __future__ import annotations
 
 import asyncio
 import time
 
-from PySide6.QtCore import QPoint
-from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMenu
-
 from arelis.core.events import Event, EventType
 from arelis.memory.store_sessions import keep_history_row
-
-
-def show_rooms_menu(window, anchor) -> None:
-    """Leftover from the rooms product. Empty menu so filament chips do not crash."""
-    menu = build_rooms_menu(window)
-    menu.exec(anchor.mapToGlobal(QPoint(0, anchor.height())))
-
-
-def build_rooms_menu(window) -> QMenu:
-    """Leftover from the rooms product. Reality is not a room."""
-    menu = QMenu(window)
-    menu.setObjectName("RoomsMenu")
-    empty = QAction("no rooms", window)
-    empty.setEnabled(False)
-    menu.addAction(empty)
-    return menu
-
-
-def enter_room_from_menu(window, room_id: str) -> None:
-    """Leftover from the rooms product. /room is gone."""
-    del window, room_id
-    return
 
 
 def refresh_history(window) -> None:
@@ -188,12 +162,6 @@ def request_session_load(window, session_id: str) -> None:
     )
 
 
-def leave_room(window) -> None:
-    """Leftover from the rooms product. /leave is gone."""
-    del window
-    return
-
-
 def bind_history_pins(window) -> None:
     """Listen for pin and unpin. Once per window.
 
@@ -225,9 +193,5 @@ def bind_history(window) -> None:
     window.conversation.new_requested.connect(lambda: on_history_new(window))
     window.conversation.session_clicked.connect(
         lambda session_id: on_history_selected(window, session_id)
-    )
-    window.conversation.leave_room_requested.connect(lambda: leave_room(window))
-    window.title_bar.rooms_menu_requested.connect(
-        lambda anchor: show_rooms_menu(window, anchor)
     )
 

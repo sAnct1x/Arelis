@@ -198,8 +198,6 @@ def live_fifty_turns(*, token: str = BOARD_ID) -> list[ConversationTurn]:
         t("T109_task_done", f"mark the task about {token} pictures done", expect_tools=("tasks",)),
         t("T110_urgent", "what's urgent right now", expect_tools=("tasks", "goals", "agenda"), expect_tools_any=True),
         t("T111_due", "what do I have due soon", expect_tools=("tasks", "agenda"), expect_tools_any=True),
-        t("T112_rooms", "what rooms do I have", expect_tools=("rooms",)),
-        t("T113_rooms2", "go to Reality", expect_tools=("rooms",), allow_no_tools=True),
         t("T114_where", "where do you think I am", expect_tools=("user_location",)),
         t("T115_city", "what city am I in", expect_tools=("user_location",)),
         t("T116_clip", "what's on my clipboard", expect_tools=("clipboard",)),

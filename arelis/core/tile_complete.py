@@ -115,15 +115,8 @@ _SPAN_ALT = re.compile(
     r"(?i)^\s*(?P<n>one|two|three|[123])\s+"
     r"(?:screens?|monitors?|desks?)\s*[.!]?\s*$"
 )
-# The rooms chip. "open the notes room" is a room enter, not this menu.
-_ROOMS_MENU = re.compile(
-    r"(?i)^\s*(?:open|show|pull\s+up|bring\s+up)\s+"
-    r"(?:the\s+)?rooms(?:\s+menu)?\s*[.!]?\s*$"
-)
-
-
 def match_desk_intent(text: str) -> tuple[str, str] | None:
-    """Desk chrome that is a click: ('span', '2') or ('rooms', '').
+    """Desk chrome that is a click: ('span', '2').
 
     Anchored on the whole sentence so "span 2 and check the weather"
     still goes to her.
@@ -135,8 +128,6 @@ def match_desk_intent(text: str) -> tuple[str, str] | None:
     if found:
         n = _SPAN_WORD.get((found.group("n") or "").casefold(), "")
         return ("span", n) if n else None
-    if _ROOMS_MENU.match(raw):
-        return ("rooms", "")
     return None
 
 

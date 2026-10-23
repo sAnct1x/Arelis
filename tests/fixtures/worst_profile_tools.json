@@ -1116,7 +1116,7 @@
     "type": "function",
     "function": {
       "name": "data_cell",
-      "description": "run Python on a data file already in this room (CSV, FITS). not weather",
+      "description": "run Python on a data file (CSV, FITS). not weather",
       "parameters": {
         "type": "object",
         "properties": {

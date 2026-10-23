@@ -62,7 +62,6 @@ class TitleBar(QWidget):
 
     title_menu_requested = Signal(object)  # same menu as a right-click on filament
     view_menu_requested = Signal(object)  # emits the view button for QMenu.exec
-    rooms_menu_requested = Signal(object)  # leftover from the rooms product
     settings_requested = Signal()
     span_requested = Signal(int)
 
@@ -91,7 +90,7 @@ class TitleBar(QWidget):
         self.title.setAutoRaise(True)
         self.title.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.title.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.title.setToolTip("themes, rooms, desks")
+        self.title.setToolTip("themes, desks")
         self.title.setAccessibleName("Arelis")
         self.title.clicked.connect(lambda: self.title_menu_requested.emit(self.title))
         layout.addWidget(self.title)

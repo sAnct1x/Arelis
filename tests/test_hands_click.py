@@ -74,7 +74,7 @@ def test_filament_words_are_desk_commands() -> None:
     assert match_tile_intent("close this") == ("close", "")
     assert match_desk_intent("span 2") == ("span", "2")
     assert match_desk_intent("two screens") == ("span", "2")
-    assert match_desk_intent("open rooms") == ("rooms", "")
+    assert match_desk_intent("open rooms") is None
     assert match_desk_intent("open the notes room") is None
     assert match_desk_intent("span 2 and check the weather") is None
     assert match_tile_intent("open settings") is None

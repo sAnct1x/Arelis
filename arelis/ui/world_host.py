@@ -249,16 +249,6 @@ def _apply_desk_speech(window, desk: tuple[str, str]) -> bool:
         filament_set_span(window, int(arg))
         _speak_closed(window, f"Span {arg}.")
         return True
-    if kind == "rooms":
-        chips = getattr(window, "_filament_floats", None)
-        anchor = window
-        if chips is not None and hasattr(chips, "chips"):
-            anchor = chips.chips().get("rooms") or window
-        show = getattr(window, "_show_rooms_menu", None)
-        if not callable(show):
-            return False
-        show(anchor)
-        return True
     return False
 
 
@@ -660,7 +650,6 @@ def apply_tile(window, name: str, *, show: bool, page: str = "") -> None:
     key = (name or "").strip().lower()
     mapping = {
         "thinking": window.act_thinking,
-        "workspace": getattr(window, "act_workspace", None),
         "history": window.act_history,
         "notifications": window.act_notifications,
         "camera": window.act_camera,

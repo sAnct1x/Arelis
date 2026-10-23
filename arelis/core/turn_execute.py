@@ -776,7 +776,7 @@ async def execute_call(
             if name == "image" and data_dict and data_dict.get("path"):
                 path = str(data_dict["path"])
                 await loop._finish(
-                    f"Image ready: open in Workspace ({path}).",
+                    f"Image ready: {path}.",
                     sources,
                     streamed="",
                 )

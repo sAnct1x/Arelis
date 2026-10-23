@@ -3,17 +3,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from PySide6.QtCore import (
-    QBuffer,
-    QIODevice,
-    QObject,
-    QPoint,
-    QRect,
-    QSize,
-    Qt,
-    QTimer,
-    Signal,
-)
+from PySide6.QtCore import QBuffer, QIODevice, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QDragEnterEvent,
     QDragLeaveEvent,
@@ -153,46 +143,6 @@ class _ComposerLineEdit(QPlainTextEdit):
 _STAGE_MARGIN_TOP = SPACE["inset"]
 
 
-class _RoomName:
-    def text(self) -> str:
-        return self._text
-
-    def setText(self, text: str) -> None:
-        self._text = str(text or "")
-
-    def __init__(self) -> None:
-        self._text = ""
-
-
-class _RoomLeftover(QObject):
-    """Leftover from the rooms product. Hidden. Reality is not a room."""
-
-    changed = Signal()
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.room_id = ""
-        self.name = _RoomName()
-
-    def set_room(
-        self,
-        room_id: str = "",
-        name: str = "",
-        purpose: str = "",
-        root: str = "",
-    ) -> None:
-        del purpose, root
-        self.room_id = str(room_id or "")
-        self.name.setText(str(name or ""))
-        self.changed.emit()
-
-    def isHidden(self) -> bool:
-        return True
-
-    def geometry(self) -> QRect:
-        return QRect()
-
-
 class ConversationStage(GlassFrame):
     """Single glass panel: chat + composer (screenshot-4 composition)."""
 
@@ -210,7 +160,6 @@ class ConversationStage(GlassFrame):
     idle_conditions_changed = Signal()
     session_clicked = Signal(str)
     new_requested = Signal()
-    leave_room_requested = Signal()
     world_requested = Signal()
 
     def __init__(self, default_role: str = "fast", parent=None) -> None:
@@ -226,10 +175,6 @@ class ConversationStage(GlassFrame):
         # Gutter so corner ticks sit outside fast / send / chat labels.
         layout.setContentsMargins(*space_box("stage", "inset", "stage", "plate"))
         layout.setSpacing(SPACE["gap"])
-
-        # Leftover from the rooms product. Not shown. ROOM_CHANGED still
-        # writes here. Do not gate Reality on room_id.
-        self.room = _RoomLeftover(self)
 
         self.chat = ChatPanel(embedded=True)
         layout.addWidget(self.chat, stretch=1)
@@ -390,7 +335,6 @@ class ConversationStage(GlassFrame):
 
         self.notify_overlay = NotifyOverlay(self)
         self.notify_overlay.hide()
-        self.room.changed.connect(self.notify_overlay.reposition)
 
         self.send_btn.clicked.connect(self._submit)
         self.input.returnPressed.connect(self._submit)

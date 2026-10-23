@@ -324,7 +324,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             _drop_wander(name)
             listed = room_data_file_names()
             err = (
-                "That file is already in this room. Call data_cell. "
+                "That file is already here. Call data_cell. "
                 "files= the file names. "
                 'code calls read_table("file.csv") or read_fits("file.fits"). '
                 "The argument is name, not path. "
@@ -332,7 +332,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 'A chart is save_png(fig, "chart.png"). print the answer.'
             )
             if listed:
-                err += " Data files in this room: " + ", ".join(listed) + "."
+                err += " Data files: " + ", ".join(listed) + "."
             await loop.bus.publish(
                 Event(EventType.THINKING, {"text": f"reject  room file  {name}"})
             )

@@ -443,15 +443,8 @@ def dispatch_event(window: Any, event: Event) -> None:
 
         sync_idle_mode(window)
     elif t == EventType.ROOM_CHANGED:
-        # Leftover from the rooms product. Nothing publishes this now.
-        # spatial.set_room and conversation.room stay so old events do not crash.
+        # Leftover Reality/spatial hook. Nothing publishes this now.
         room_id = str(p.get("room_id") or "")
-        window.conversation.room.set_room(
-            room_id,
-            name=str(p.get("name") or ""),
-            purpose=str(p.get("purpose") or ""),
-            root=str(p.get("root") or ""),
-        )
         window.camera.set_spatial_available(should_offer_world())
         window.spatial.set_room(room_id)
         from arelis.ui.idle_host import sync_idle_mode

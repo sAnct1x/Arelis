@@ -79,7 +79,7 @@ def stylesheet() -> str:
     #GlassPanel, #GlassDockContent, #ChatStage, #ChatPanelInner, #ComposerInner,
     #FilamentChatGlass, #FilamentChatBody,
     #SettingsGlass, #NotifyInboxGlass, #CalendarWindowGlass, #NotifyCard,
-    #DriveStrip, #RoomStrip, #ChatEmpty, #VoidPromptHost,
+    #DriveStrip, #ChatEmpty, #VoidPromptHost,
     #VoidVoiceHost, #GlassDialogGlass {{
         background: transparent;
         border: none;

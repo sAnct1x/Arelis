@@ -34,7 +34,6 @@ from arelis.ui.history_host import (
     on_history_delete,
     on_history_new,
     on_history_selected,
-    show_rooms_menu,
 )
 from arelis.ui.idle_host import (
     enter_away_rest,
@@ -75,7 +74,6 @@ def bind_window_hosts(window) -> None:
     Call once after the window owns calendar timers and the job tick.
     Filament span / floats stay on the window until FilamentDesk binds them.
     """
-    window.title_bar.rooms_menu_requested.connect(lambda a: show_rooms_menu(window, a))
     window.title_bar.settings_requested.connect(lambda: open_settings(window))
     window.readiness_strip.settings_requested.connect(lambda: open_settings(window))
 

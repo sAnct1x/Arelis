@@ -521,7 +521,6 @@ class FilamentDesk:
             return
         history = getattr(w, "history_dock", None)
         think = getattr(w, "persona_dock", None)
-        work = getattr(w, "work_dock", None)
         cal = getattr(w, "calendar_window", None)
         camera = getattr(w, "camera_dock", None)
         notify = getattr(w, "notify_inbox", None)
@@ -534,7 +533,6 @@ class FilamentDesk:
         w._filament.set_hidden_faces(hidden)
         floats.set_open("history", self._filament_plate_open(history))
         floats.set_open("thinking", self._filament_plate_open(think))
-        floats.set_open("files", self._filament_plate_open(work))
         floats.set_open("days", self._filament_plate_open(cal))
         floats.set_open("camera", self._filament_plate_open(camera))
         floats.set_open("notify", self._filament_plate_open(notify))
@@ -555,7 +553,6 @@ class FilamentDesk:
             plates = {
                 "history": history,
                 "thinking": think,
-                "files": work,
                 "days": cal,
                 "camera": camera,
                 "notify": notify,
@@ -580,7 +577,6 @@ class FilamentDesk:
         tiles = {
             "history": getattr(w, "history_dock", None),
             "thinking": getattr(w, "persona_dock", None),
-            "files": getattr(w, "work_dock", None),
             "days": getattr(w, "calendar_window", None),
             "camera": getattr(w, "camera_dock", None),
             "notify": getattr(w, "notify_inbox", None),
@@ -606,19 +602,10 @@ class FilamentDesk:
         if name == "chat":
             self._filament_set_chat_open(not w._filament_chat_open)
             return
-        if name == "rooms":
-            chips = w._filament_floats.chips()
-            w._show_rooms_menu(chips.get("rooms") or w)
-            return
         if name == "history":
             w.act_history.trigger()
         elif name == "thinking":
             w.act_thinking.trigger()
-        elif name == "files":
-            # Leftover from the workspace dock. Chip stays; there is no dock.
-            act = getattr(w, "act_workspace", None)
-            if act is not None:
-                act.trigger()
         elif name == "days":
             w.act_calendar.trigger()
         elif name == "camera":
@@ -812,14 +799,8 @@ class FilamentDesk:
             act.setChecked(w._filament_span == n)
             act.setEnabled(n <= max(1, have))
             act.triggered.connect(lambda _c=False, k=n: self._filament_set_span(k))
-        rooms = w._build_rooms_menu()
-        rooms.setTitle("rooms")
-        menu.addMenu(rooms)
         menu.addSeparator()
         menu.addAction(w.act_thinking)
-        act_files = getattr(w, "act_workspace", None)
-        if act_files is not None:
-            menu.addAction(act_files)
         menu.addAction(w.act_history)
         menu.addAction(w.act_notifications)
         menu.addAction(w.act_camera)

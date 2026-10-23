@@ -14,8 +14,8 @@ from arelis.tools.data_cell import (
 )
 from arelis.workspace import RootEntry, WorkspaceRoots
 
-_REFUSE_READ = "I can only read files in this room."
-_REFUSE_WRITE = "I can only save results in this room's results folder."
+_REFUSE_READ = "I can only read those data files."
+_REFUSE_WRITE = "I can only save results in the results folder."
 _TOO_BIG = "That file is too big for me to read here."
 _TOO_LONG = "That took too long, so I stopped it."
 _TOO_MUCH_MEMORY = "That used too much memory, so I stopped it."

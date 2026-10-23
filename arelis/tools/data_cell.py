@@ -1,9 +1,9 @@
-"""Run a short analysis of files in the current room, in a separate Python.
+"""Run a short analysis of data files in a separate Python.
 
 The child is a fresh interpreter in isolated mode (`-I`), so PYTHONPATH and
 the user site are ignored. Nothing is exec'd in this process. Charts and
-tables land only in the room's results folder. No room, or a room with no
-folder, is refused. There is no fallback to outputs/.
+tables land only in the results folder. A missing workspace folder is
+refused. There is no fallback to outputs/.
 
 The time limit is DATA_CELL_TIMEOUT_S (120). The model cannot change it.
 On Windows the child sits in a job with kill-on-close and a 2 GB process
@@ -54,10 +54,9 @@ _MEMORY_CODES = {
 class DataCellTool:
     name = "data_cell"
     description = (
-        "Room csv FITS. "
         "Reads tables (CSV, TSV, JSON, Excel) and FITS headers or images. "
-        "Pass code plus the file names in this room. Charts and tables are "
-        "saved in this room's results folder."
+        "Pass code plus the file names. Charts and tables are saved in the "
+        "results folder."
     )
     risk = "write"
     parameters_schema: dict[str, Any] = {
@@ -235,7 +234,7 @@ def _with_file_list(summary: str, code: str, room: Path) -> str:
     names = _room_data_names(room)
     if not names:
         return summary
-    line = "Data files in this room: " + ", ".join(names) + "."
+    line = "Data files: " + ", ".join(names) + "."
     if line in (summary or ""):
         return summary
     return ((summary or "").rstrip() + "\n" + line).strip()
@@ -290,7 +289,7 @@ def _check_inputs(room: Path, names: list[str]) -> tuple[dict[str, Path], str]:
         if escapes_tree(candidate, room):
             return {}, READ_REFUSAL
         if not candidate.is_file():
-            return {}, "I can't find that file in this room."
+            return {}, "I can't find that file."
         try:
             size = candidate.stat().st_size
         except OSError:

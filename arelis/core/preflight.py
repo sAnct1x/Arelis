@@ -83,7 +83,6 @@ __all__ = [
     "detect_intents",
     "draft_browser_args",
     "draft_desktop_screenshot_args",
-    "draft_rooms_create_args",
     "draft_signin_click_args",
     "login_check_hop_args",
     "looks_like_browser_click_signin",
@@ -345,25 +344,6 @@ def looks_like_room_create(text: str) -> bool:
             raw,
         )
     )
-
-
-def draft_rooms_create_args(text: str) -> dict[str, str]:
-    """rooms(action=create) args from 'make me a room for astrophysics'."""
-    raw = (text or "").strip()
-    name = ""
-    match = re.search(r"(?i)\broom\s+for\s+(?P<name>.+)$", raw)
-    if match:
-        name = (match.group("name") or "").strip().rstrip(".!")
-    if not name:
-        match = re.search(r"(?i)\broom\s+(?:called|named)\s+(?P<name>.+)$", raw)
-        if match:
-            name = (match.group("name") or "").strip().rstrip(".!")
-    name = name.split(",")[0].strip() or "new"
-    return {
-        "action": "create",
-        "name": name,
-        "purpose": f"Work on {name}.",
-    }
 
 
 def looks_like_browser_click_signin(text: str) -> bool:
@@ -696,7 +676,7 @@ _DETECT_CACHE: (
 ) = None
 
 _DATA_CELL_NUDGE = (
-    "Intent preflight: this question is about a file already in this room. "
+    "Intent preflight: this question is about a data file. "
     "Call data_cell, not weather, not analyze, not plot, not workspace. "
     'files= the file names. code calls read_table("name.csv") or '
     'read_fits("name.fits"). The argument is name, not path. '
@@ -720,7 +700,6 @@ def detect_intents(
     global _DETECT_CACHE
     from arelis.core.intent_catalog import (
         data_cell_enabled,
-        live_room_filenames,
         room_data_file_ask,
     )
 
@@ -735,7 +714,7 @@ def detect_intents(
     hist = history or []
     names = {
         str(item).lower()
-        for item in (room_files if room_files is not None else live_room_filenames())
+        for item in (room_files if room_files is not None else set())
         if str(item).strip()
     }
     name_key = tuple(sorted(names))
@@ -1300,23 +1279,6 @@ def detect_intents(
                 )
             )
 
-    if looks_like_room_create(raw):
-        name = draft_rooms_create_args(raw).get("name") or "new"
-        hints.append(
-            IntentHint(
-                kind="rooms",
-                expected_tools=("rooms",),
-                nudge=(
-                    "Intent preflight: this message asks to create an Arelis "
-                    f"room named {name}. Call rooms(action=create) with that "
-                    "name and a short purpose from the topic. Do not enter the "
-                    "room yourself, tell them to say let's work on "
-                    f"{name} or type /room {name}. Do not design furniture. "
-                    "Allow still applies, do not ask permission in chat."
-                ),
-            )
-        )
-
     if looks_like_scheduled_send(raw):
         hints.append(
             IntentHint(
@@ -1482,7 +1444,7 @@ def detect_intents(
         listed = room_data_file_names(names)
         nudge = _DATA_CELL_NUDGE
         if listed:
-            nudge += " Data files in this room: " + ", ".join(listed) + "."
+            nudge += " Data files: " + ", ".join(listed) + "."
         hints = [hint for hint in hints if hint.kind not in {"weather", "analyze"}]
         hints.append(
             IntentHint(
