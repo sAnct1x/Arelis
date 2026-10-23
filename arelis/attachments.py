@@ -873,10 +873,15 @@ def format_attachments_block(
                 "on images, whatever verb the user used."
             )
     if "pdf" in kinds and not emailing:
+        # "document" is named for the same reason analyze is: the tool
+        # wearing that name writes a new PDF/md/docx, and "summarize this"
+        # next to an attached PDF reads as a write-up. Without the line
+        # the 35B called document on every PDF read (issue 409).
         rules.append(
             "PDFs: call doc_extract once. It reads handwritten pages itself. "
             "Do not call vision on every page. Do not ask them to paste. "
-            "Do not call analyze on a PDF (tables only)."
+            "Do not call analyze on a PDF (tables only). "
+            "Do not call document unless they asked to create or export a file."
         )
     if "data" in kinds and not emailing:
         rules.append("Tables (csv/xlsx/json): call analyze.")

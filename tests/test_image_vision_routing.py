@@ -49,6 +49,41 @@ def _attach_image_turn(ask: str) -> str:
     return f"{block}\n\n{ask}"
 
 
+def _attach_pdf_turn(ask: str) -> str:
+    block = format_attachments_block(
+        [
+            {
+                "path": r"C:\Users\you\Documents\Arelis\data\drops\20261023\report.pdf",
+                "kind": "pdf",
+            }
+        ],
+        user_text=ask,
+    )
+    return f"{block}\n\n{ask}"
+
+
+def test_pdf_summary_does_not_nudge_document_writer() -> None:
+    """A PDF read/summary must name document as the wrong sibling.
+
+    The image rules already say do not call doc_extract/analyze. The PDF
+    rule named vision and analyze and left document out, so a summary
+    ask called the writer (issue 409). The new line must not itself
+    match the create-file intent.
+    """
+    from arelis.core.claims import detect_document_ask
+    from arelis.core.intent_catalog import DOCUMENT
+
+    ask = "summarize this"
+    text = _attach_pdf_turn(ask)
+    assert "→ doc_extract" in text
+    assert "Do not call document" in text
+    assert route_tool("pdf", ask) == "doc_extract"
+    assert not DOCUMENT.matches(text)
+    assert not detect_document_ask(text)
+    tools = {t for h in detect_intents(text) for t in h.expected_tools}
+    assert "document" not in tools
+
+
 def test_vision_does_not_redirect_to_sms_when_sms_is_stale_expected() -> None:
     """Calling vision while a leftover SMS expected-set exists must not rewrite."""
     assert not should_redirect_wander_to_sms("vision", {"send_sms"})
