@@ -7,33 +7,9 @@ import time
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
-from arelis.ui.persona_face.motion import Frame
-from arelis.ui.persona_face.panel import PersonaPanel
+from arelis.ui.persona_face.panel import BLOOM_S, PersonaPanel
 
 BACKDROP = QColor(30, 28, 46)
-
-
-def _ready_panel(qt_app, width: int, height: int) -> PersonaPanel:
-    panel = PersonaPanel()
-    panel.resize(width, height)
-    panel.set_bake_delay(0)
-    panel.show()
-    qt_app.processEvents()
-    deadline = time.monotonic() + 40
-    while not panel.bake_ready and time.monotonic() < deadline:
-        qt_app.processEvents()
-        time.sleep(0.02)
-    assert panel.bake_ready
-    panel._timer.stop()
-    panel._mode = "face"
-    panel._state = "rest"
-    panel._speaking = False
-    panel._status = ""
-    panel.avatar.reveal = 1.0
-    panel.avatar.frame = Frame(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, False, 0, 0)
-    panel.repaint()
-    qt_app.processEvents()
-    return panel
 
 
 def _gap_to_backdrop(image, x: int, y: int) -> int:
@@ -54,7 +30,29 @@ def _face_body_drawn(panel: PersonaPanel) -> bool:
 
 def test_the_edge_fade_is_built_once_per_size(qt_app) -> None:
     """The fade is a cached mask. Frames reuse it, and only a resize builds a new one."""
-    panel = _ready_panel(qt_app, 370, 520)
+    clock = {"t": 0.0}
+    panel = PersonaPanel()
+    panel.resize(370, 520)
+    panel.set_bake_delay(60.0)
+    panel.set_clock(lambda: clock["t"])
+    panel.show()
+    qt_app.processEvents()
+    panel._timer.stop()
+    panel.set_state("speaking")
+    # Bake is still pending. The bloom clock finishes mid-reply.
+    clock["t"] = BLOOM_S + 26.0
+    panel.tick()
+    panel.avatar.request_bake(0)
+    deadline = time.monotonic() + 40
+    while not panel.bake_ready and time.monotonic() < deadline:
+        qt_app.processEvents()
+        time.sleep(0.02)
+    assert panel.bake_ready
+    panel.tick()
+    panel.avatar.repaint()
+    qt_app.processEvents()
+    assert _face_body_drawn(panel)
+
     built = panel.avatar.mask_builds
     assert built >= 1
     for _ in range(20):
@@ -64,28 +62,5 @@ def test_the_edge_fade_is_built_once_per_size(qt_app) -> None:
     qt_app.processEvents()
     panel.avatar.repaint()
     assert panel.avatar.mask_builds == built + 1
-
-    clock = {"t": 10.0}
-    panel.set_clock(lambda: clock["t"])
-    panel._last = 10.0
-    panel.set_state("speaking")
-    panel._mode = "face"
-    panel.avatar.reveal = 1.0
-    for _ in range(8):
-        clock["t"] += 0.033
-        panel.tick()
-        panel.avatar.repaint()
-    qt_app.processEvents()
-    assert _face_body_drawn(panel)
-    # A late speaking wake can ask for bloom again. The body must stay drawn.
-    panel._mode = "orb"
-    panel.set_state("speaking")
-    panel.tick()
-    panel.avatar.repaint()
-    qt_app.processEvents()
-    assert _face_body_drawn(panel)
-
     panel.close()
     QApplication.processEvents()
-
-
