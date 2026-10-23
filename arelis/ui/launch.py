@@ -55,7 +55,7 @@ def _flush_pending_writes(
     backup_thread: threading.Thread | None,
     timeout_s: float,
 ) -> None:
-    """One write flush, one deadline. Backup join and indexer join share it."""
+    """One quit side-work pass, one deadline. Writes first, then owned Chrome."""
     try:
         budget = max(0.0, float(timeout_s))
     except (TypeError, ValueError):
@@ -68,6 +68,9 @@ def _flush_pending_writes(
         indexer=indexer,
         timeout_s=max(0.0, deadline - time.monotonic()),
     )
+    from arelis.browser.launch import stop_owned_browser
+
+    stop_owned_browser(timeout_s=max(0.0, deadline - time.monotonic()))
 
 
 def first_run_blocks_main() -> bool:

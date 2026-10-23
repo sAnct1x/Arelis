@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -578,24 +579,95 @@ def terminate_browser_processes(browser: BrowserName) -> None:
 
 def terminate_arelis_browser() -> None:
     """Kill only processes whose command line uses data/browser-profile."""
-    global _last_arelis_proc
-    pids = set(_pids_using_arelis_profile())
-    if _last_arelis_proc is not None and _last_arelis_proc.poll() is None:
-        pids.add(int(_last_arelis_proc.pid))
-    for pid in pids:
+    stop_owned_browser(timeout_s=15.0)
+
+
+def _as_timeout_s(timeout_s: float) -> float:
+    try:
+        return max(0.0, float(timeout_s))
+    except (TypeError, ValueError):
+        return 3.0
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
         try:
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=15,
-            )
+            import ctypes
+
+            # PROCESS_QUERY_LIMITED_INFORMATION: is this pid still here.
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))
+            if not handle:
+                return False
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
         except Exception:
-            log.exception("Failed to stop Arelis browser pid %s", pid)
+            return False
+    try:
+        os.kill(int(pid), 0)
+    except OSError:
+        return False
+    return True
+
+
+def _signal_owned_pid(pid: int, *, force: bool = False) -> None:
+    """Stop one pid we already know is ours. Never by image name."""
+    if pid <= 0:
+        return
+    try:
+        if force and sys.platform != "win32":
+            os.kill(int(pid), signal.SIGKILL)
+        else:
+            os.kill(int(pid), signal.SIGTERM)
+    except OSError:
+        return
+
+
+def stop_owned_browser(*, timeout_s: float = 3.0) -> None:
+    """Stop the Chrome or Edge this process started. Bounded. Owner only.
+
+    ``launch_chromium_cdp`` is the one starter. Browser tool, scrape that
+    then opens the page, and Google sign-in in her window all go through
+    it. Calendar OAuth uses the system browser and is not ours.
+    Never ``taskkill /IM chrome.exe``.
+    """
+    global _last_arelis_proc
+    deadline = time.monotonic() + _as_timeout_s(timeout_s)
+    proc = _last_arelis_proc
+    pids = set(_pids_using_arelis_profile())
+    if proc is not None and proc.poll() is None:
+        pids.add(int(proc.pid))
+        try:
+            proc.terminate()
+        except Exception:
+            log.exception("Failed to stop Arelis browser pid %s", proc.pid)
+    for pid in pids:
+        if proc is not None and pid == int(proc.pid):
+            continue
+        _signal_owned_pid(pid, force=False)
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except Exception:
+                log.exception("Failed to kill Arelis browser pid %s", proc.pid)
+            try:
+                proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                log.warning(
+                    "Arelis browser pid %s still running after quit budget",
+                    proc.pid,
+                )
+    for pid in pids:
+        if not _pid_alive(pid):
+            continue
+        if time.monotonic() >= deadline:
+            break
+        _signal_owned_pid(pid, force=True)
     _last_arelis_proc = None
-    if pids:
-        time.sleep(0.6)
 
 
 def _parse_pid_cmd_lines(out: str) -> list[tuple[int, str]]:
