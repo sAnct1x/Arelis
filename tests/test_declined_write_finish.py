@@ -101,6 +101,31 @@ class _WorkspaceStub:
         return ToolResult(ok=True, output=f"Wrote {path}")
 
 
+class _DocumentStub:
+    name = "document"
+    description = "document"
+    risk = "write"
+    parameters_schema = {
+        "type": "object",
+        "properties": {
+            "format": {"type": "string"},
+            "title": {"type": "string"},
+            "body": {"type": "string"},
+            "filename": {"type": "string"},
+        },
+    }
+
+    def __init__(self) -> None:
+        self.runs = 0
+        self.written: list[str] = []
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        self.runs += 1
+        dest = str(kwargs.get("filename") or kwargs.get("title") or "")
+        self.written.append(dest)
+        return ToolResult(ok=True, output=f"written {dest}")
+
+
 class _RunScriptStub:
     name = "run_script"
     description = "run a script"
@@ -488,6 +513,65 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     assert lone.runs == 0
     assert lone_text == notes_line
     assert "SHOULD NOT SHIP" not in lone_text
+
+    # Same dest through document after the workspace no. Tool-plus-path
+    # keying used to open a card, write the file, and ship "written"
+    # next to the skip sentence. Notes.TXT is that dest on Windows.
+    document = _DocumentStub()
+    redo = _WorkspaceStub()
+    redo_cards: list[tuple[str, str]] = []
+
+    async def _skip_workspace_notes(
+        cid: str, tool: str, args: dict[str, Any], summary: str
+    ) -> str:
+        del cid, summary
+        dest = str(args.get("path") or args.get("filename") or "")
+        redo_cards.append((tool, dest))
+        if tool == "workspace" and dest.casefold().endswith("notes.txt"):
+            return "skip"
+        return "allow"
+
+    redo_router = _ScriptedRouter(
+        [
+            [
+                _call(
+                    "workspace",
+                    {
+                        "action": "write",
+                        "path": "notes.txt",
+                        "content": "errands\n",
+                    },
+                )
+            ],
+            [
+                _call(
+                    "document",
+                    {
+                        "filename": "Notes.TXT",
+                        "title": "notes",
+                        "body": "errands\n",
+                    },
+                )
+            ],
+            [("token", "written notes.txt")],
+        ]
+    )
+    redo_bus = EventBus()
+    redo_loop = _loop(
+        redo_router, redo, document, confirm=_skip_workspace_notes
+    )
+    redo_loop.bus = redo_bus
+    redo_events = await _collect(
+        redo_bus,
+        redo_loop.run("Save notes.txt.", "fast"),
+    )
+    redo_text = str(_done(redo_events)["text"])
+    assert redo_cards == [("workspace", "notes.txt")]
+    assert redo.runs == 0
+    assert document.runs == 0
+    assert document.written == []
+    assert "written" not in redo_text.casefold()
+    assert notes_line in redo_text
 
 
 @pytest.mark.asyncio

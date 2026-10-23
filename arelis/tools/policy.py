@@ -20,7 +20,9 @@ to drop Comfy ``image``, that registration is pinned by tests.
 
 from __future__ import annotations
 
+import ntpath
 from collections.abc import Callable
+from pathlib import PureWindowsPath
 from typing import Any, Literal
 
 from arelis.paths import display_path
@@ -39,6 +41,11 @@ CapabilityClass = Literal[
     "WRITE_EXTERNAL",
     "SIDE_EFFECT_LOCAL",
 ]
+
+# File writers are these classes plus a named dest, not a tool-name list.
+FILE_WRITE_CLASSES = frozenset({"WRITE_LOCAL", "WRITE_LOCAL_ARTIFACT"})
+# Requested dest keys. Compare these, not a resolved documents folder.
+_FILE_WRITE_DEST_KEYS = ("path", "filename", "out", "dest", "title")
 
 # Actions that turn a reader into a writer. The tool is registered as "read"
 # because list/read is the common case; the gate looks at the action argument.
@@ -516,6 +523,37 @@ def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> Capabi
     if tool == "pdf":
         return "WRITE_LOCAL_ARTIFACT"
     return "READ"
+
+
+def normalize_write_path(path: str) -> str:
+    """Windows identity for a declined write dest.
+
+    Case and separators match Windows. Collapse ``.`` / ``..``. Do not
+    resolve into a folder, so workspace ``notes.txt`` and document
+    ``Notes.TXT`` stay the same dest.
+    """
+    text = (path or "").strip()
+    if not text:
+        return ""
+    collapsed = ntpath.normpath(text.replace("/", "\\"))
+    return PureWindowsPath(collapsed).as_posix().casefold()
+
+
+def file_write_dest(name: str, args: dict[str, Any] | None = None) -> str:
+    """Named dest this file-writing call would write, or empty.
+
+    A writer is ``evaluate_capability`` in ``FILE_WRITE_CLASSES`` with
+    one of ``_FILE_WRITE_DEST_KEYS``. Memory remember and contacts add
+    are local writes with no dest, so they stay off this set.
+    """
+    if evaluate_capability(name, args) not in FILE_WRITE_CLASSES:
+        return ""
+    raw = args if isinstance(args, dict) else {}
+    for key in _FILE_WRITE_DEST_KEYS:
+        value = str(raw.get(key) or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def batch_ok(name: str, args: dict[str, Any] | None = None) -> bool:

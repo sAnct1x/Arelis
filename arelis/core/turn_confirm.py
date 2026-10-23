@@ -16,7 +16,11 @@ from arelis.core.preflight import user_asked_for_browser, user_asked_for_desktop
 from arelis.core.private_marks import private_url_hit
 from arelis.core.turn_context import TurnContext
 from arelis.tools.base import confirm_args_blocked
-from arelis.tools.policy import persist_confirm_off
+from arelis.tools.policy import (
+    file_write_dest,
+    normalize_write_path,
+    persist_confirm_off,
+)
 
 SKIP = "skip"
 STOP = "stop"
@@ -283,8 +287,16 @@ async def confirm_call(
     # The picture step is shared, so the other picture tool does not open
     # a new card for a cutout they already refused. A later write of a
     # different file is a different step and still gets a card.
+    # A declined file dest is every writer, not tool plus path. Document
+    # re-proposing notes.txt after a workspace no must not get a card.
+    dest = file_write_dest(name, args)
+    dest_key = normalize_write_path(dest) if dest else ""
     action_key = confirm_action_key(name, args)
-    if action_key in ctx.declined_actions:
+    already = (
+        (dest_key and dest_key in ctx.declined_write_paths)
+        or action_key in ctx.declined_actions
+    )
+    if already:
         messages.append(
             loop._tool_message(name, _SKIP_NOTICE.format(tool=name))
         )
@@ -400,6 +412,8 @@ async def confirm_call(
             # The card said skip or decline. Do not infer this from reply text.
             ctx.declined_tools.add(name)
             ctx.declined_actions.add(confirm_action_key(name, args))
+            if dest_key:
+                ctx.declined_write_paths.add(dest_key)
             ctx.declined_calls.append((name, _declined_target(args)))
             await loop.bus.publish(
                 Event(EventType.THINKING, {"text": f"skip  {summary}"})
