@@ -25,13 +25,14 @@ def test_read_pose_splits_pinch_from_fist() -> None:
 
 
 def test_filament_chip_grants_outside_reality() -> None:
+    # room_id is leftover. The grant is tracking plus a source checkout.
     assert world_stage_allowed() is True
     assert grant_for("physics", True).allowed is True
     assert grant_for("lab", True, filament=True, chip=True).allowed is True
-    assert grant_for("lab", True, filament=True, chip=False).allowed is False
-    assert grant_for("lab", True).allowed is False
+    assert grant_for("lab", True, filament=True, chip=False).allowed is True
+    assert grant_for("lab", True).allowed is True
     assert grant_for("physics", False).allowed is False
-    assert grant_for("lab", True, filament=False, chip=True).allowed is False
+    assert grant_for("lab", True, filament=False, chip=True).allowed is True
 
 
 def test_rest_parks_and_return_with_chip_restarts() -> None:

@@ -3,7 +3,17 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QBuffer, QIODevice, QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QBuffer,
+    QIODevice,
+    QObject,
+    QPoint,
+    QRect,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QDragEnterEvent,
     QDragLeaveEvent,
@@ -154,10 +164,13 @@ class _RoomName:
         self._text = ""
 
 
-class _RoomLeftover:
+class _RoomLeftover(QObject):
     """Leftover from the rooms product. Hidden. Reality is not a room."""
 
-    def __init__(self) -> None:
+    changed = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self.room_id = ""
         self.name = _RoomName()
 
@@ -171,6 +184,7 @@ class _RoomLeftover:
         del purpose, root
         self.room_id = str(room_id or "")
         self.name.setText(str(name or ""))
+        self.changed.emit()
 
 
 class ConversationStage(GlassFrame):
@@ -209,7 +223,7 @@ class ConversationStage(GlassFrame):
 
         # Leftover from the rooms product. Not shown. ROOM_CHANGED still
         # writes here. Do not gate Reality on room_id.
-        self.room = _RoomLeftover()
+        self.room = _RoomLeftover(self)
 
         self.chat = ChatPanel(embedded=True)
         layout.addWidget(self.chat, stretch=1)

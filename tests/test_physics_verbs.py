@@ -117,7 +117,8 @@ async def test_spoken_pause_is_not_a_physics_verb(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_spoken_take_me_to_earth_is_a_verb_not_a_turn(tmp_path: Path) -> None:
+async def test_spoken_take_me_to_earth_is_not_a_physics_verb(tmp_path: Path) -> None:
+    """Reality is dormant. Travel used to steal this line in the physics room."""
     del tmp_path
     bus = EventBus()
     seen: list[Event] = []
@@ -145,10 +146,7 @@ async def test_spoken_take_me_to_earth_is_a_verb_not_a_turn(tmp_path: Path) -> N
     finally:
         bus.stop()
         bus_task.cancel()
-    hits = [e for e in seen if e.type == EventType.PHYSICS_VERB]
-    assert hits
-    assert hits[0].payload.get("verb") == "travel"
-    assert hits[0].payload.get("name") == "Earth"
-    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
+    assert not any(e.type == EventType.PHYSICS_VERB for e in seen)
+    assert any(e.type == EventType.USER_MESSAGE for e in seen)
 
 

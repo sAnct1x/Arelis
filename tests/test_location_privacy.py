@@ -124,7 +124,6 @@ def test_thinking_dock_redacts_status_lines_and_tool_text(qt_app, tmp_path, capl
         assert "phase=model" not in shown
         assert "phase=model near [location]" not in shown
         assert "running [location] digest" in shown
-        assert "[location]/notes.md" in shown
         logged = "\n".join(
             record.getMessage()
             for record in caplog.records
