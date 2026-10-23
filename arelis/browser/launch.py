@@ -606,6 +606,7 @@ def _pid_is_alive(pid: int) -> bool:
             finally:
                 kernel32.CloseHandle(handle)
         except Exception:
+            # Probe failed. Treat the pid as gone rather than guess.
             return False
     procfs = Path("/proc")
     if (procfs / "self" / "status").is_file():
@@ -621,6 +622,7 @@ def _pid_is_alive(pid: int) -> bool:
             return True
         return ctypes.get_errno() == errno_mod.EPERM
     except Exception:
+        # Probe failed. Treat the pid as gone rather than guess.
         return False
 
 
