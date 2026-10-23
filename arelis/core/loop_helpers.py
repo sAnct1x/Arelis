@@ -259,6 +259,7 @@ _SCRIPT_RUN_KIND = "run_script_error"
 _DECLINED_ACTION_PHRASE: dict[tuple[str, str], str] = {
     ("ocr", "text"): "read the text in {name}",
     ("ocr", "screen"): "read the text on the screen",
+    ("vision", ""): "look at {name}",
     ("workspace", "write"): "save {name}",
     ("send_sms", ""): "send that text",
     ("send_email", ""): "send that email",
@@ -509,15 +510,15 @@ def declined_finish_reply(
     """Name the skipped call in plain words, not the calculator refusal.
 
     A mapped tool/action becomes a human phrase. ocr text is "read the
-    text in" the file's base name. A workspace write is "save" plus
-    that short name. Send, email, and a memory save have their own
-    phrases. Any declined call with no phrase still uses the fallback
-    so it is named in the joined line. Several skipped calls join with
-    or, not too. The clause "so I could not run it" is added only for
-    a workspace write when run_script is still owed: declined,
-    requested, or left a failed run in the ledger. A run_script_ok
-    warrant means the run already happened, so the clause stays off,
-    including when a later run in the same turn failed.
+    text in" the file's base name. vision is "look at" that short name.
+    A workspace write is "save" plus that short name. Send, email, and
+    a memory save have their own phrases. Any declined call with no
+    phrase still uses the fallback so it is named in the joined line.
+    Several skipped calls join with or, not too. The clause "so I could
+    not run it" is added only for a workspace write when run_script is
+    still owed: declined, requested, or left a failed run in the ledger.
+    A run_script_ok warrant means the run already happened, so the
+    clause stays off, including when a later run in the same turn failed.
     """
     calls = _iter_declined_calls(declined_tools, declined_calls)
     phrases: list[str] = []
