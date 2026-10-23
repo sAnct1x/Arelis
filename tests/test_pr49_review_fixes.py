@@ -64,13 +64,32 @@ def _workspace_tools(tmpdir: str) -> ToolRegistry:
 
 
 def test_confirm_args_blocked_empty_workspace_write() -> None:
-    """Real confirm_args_blocked: content='' is blocked."""
+    """Real confirm_args_blocked: content='' is blocked.
+
+    A path that merely contains 'todo' is a real file name, not a
+    placeholder token. A bare TODO / <TODO> body still is.
+    """
     reason = confirm_args_blocked(
         "workspace",
         {"action": "write", "path": "tmp.txt", "content": ""},
     )
     assert reason is not None
     assert "empty" in reason.lower()
+
+    for path in ("todo.txt", "todo-list.md", "todo_list.py", "todos.md"):
+        reason = confirm_args_blocked(
+            "workspace",
+            {"action": "write", "path": path, "content": "buy milk\n"},
+        )
+        assert reason is None, path
+
+    for body in ("TODO", "todo", "<TODO>"):
+        reason = confirm_args_blocked(
+            "workspace",
+            {"action": "write", "path": "notes.txt", "content": body},
+        )
+        assert reason is not None, body
+        assert "placeholder" in reason.lower()
 
 
 @pytest.mark.asyncio

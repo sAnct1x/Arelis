@@ -32,12 +32,14 @@ log = logging.getLogger(__name__)
 # Do not match raw "<...>" — that flags comparison text ("<30 Hz ... >30 Hz")
 # and real HTML as placeholders. The 9B then re-emits the same write until
 # max_rounds (a 7-minute homework dump with no answer).
+# Unwrapped tokens are the whole argument. \bTODO\b hits todo.txt because
+# '.' is a word boundary.
 _PLACEHOLDER_TOKEN = (
     r"user_phone_number|your_phone|phone_number_here|"
     r"your_email|user_email|email_here|TODO|TBD|xxx+"
 )
 _PLACEHOLDER_ARG = re.compile(
-    rf"(?i)<(?:{_PLACEHOLDER_TOKEN})>|\b(?:{_PLACEHOLDER_TOKEN})\b"
+    rf"(?i)<(?:{_PLACEHOLDER_TOKEN})>|^(?:{_PLACEHOLDER_TOKEN})$"
 )
 
 
