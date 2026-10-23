@@ -209,8 +209,9 @@ started.
 | Paths | `arelis/paths.py` | Resolves installed vs. checkout roots. Always use this. Never hand-write a path for a write |
 
 Only one chat model ever sits in graphics memory at a time. Chat is
-Qwen3.6 35B-A3B on llama.cpp. The default file is Unsloth UD-Q4_K_M.
-A machine that cannot hold that file uses the UD-Q3_K_M fallback.
+Qwen3.6 35B-A3B on llama.cpp. The default file is Unsloth UD-Q4_K_M
+(22.1 GB). A machine that cannot hold that file uses the UD-Q3_K_M
+fallback (16.6 GB).
 The shipped name in `default.yaml` is `Qwen3.6-35B-A3B` for both Fast
 and Research. Research mode is just a deeper reasoning loop on the
 same weights. File work always stays on Fast. That model can see

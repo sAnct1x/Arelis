@@ -17,6 +17,15 @@ EMBED_TAG = "nomic-embed-text"
 HF_REPO = "unsloth/Qwen3.6-35B-A3B-GGUF"
 Q4_FILENAME = "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
 Q3_FILENAME = "Qwen3.6-35B-A3B-UD-Q3_K_M.gguf"
+# Hugging Face main, bytes: Q4 22134528992, Q3 16600710112.
+Q4_DOWNLOAD_GB = 22.1
+Q3_DOWNLOAD_GB = 16.6
+# GPU floor is the card we actually run with MoE offload, not the GGUF size.
+# Q4 ships on a 12 GB card. Q3 is the smaller-card fallback.
+Q4_MIN_VRAM_GB = 12.0
+Q3_MIN_VRAM_GB = 8.0
+# System RAM has to hold the GGUF plus the OS.
+_RAM_HEADROOM_GB = 10.0
 
 
 @dataclass(frozen=True)
@@ -36,8 +45,8 @@ CATALOG: tuple[CatalogModel, ...] = (
         "Qwen3.6-35B-A3B-UD-Q4_K_M",
         "Qwen",
         "Qwen3.6 35B-A3B Q4_K_M",
-        22.1,
-        12.0,
+        Q4_DOWNLOAD_GB,
+        Q4_MIN_VRAM_GB,
         "Default. Unsloth UD-Q4_K_M GGUF. The file llama.cpp already looks for.",
         HF_REPO,
         Q4_FILENAME,
@@ -46,8 +55,8 @@ CATALOG: tuple[CatalogModel, ...] = (
         "Qwen3.6-35B-A3B-UD-Q3_K_M",
         "Qwen",
         "Qwen3.6 35B-A3B Q3_K_M",
-        15.5,
-        8.0,
+        Q3_DOWNLOAD_GB,
+        Q3_MIN_VRAM_GB,
         "Low VRAM and low RAM fallback. Same model, smaller Unsloth GGUF.",
         HF_REPO,
         Q3_FILENAME,
@@ -70,8 +79,8 @@ def fits(model: CatalogModel, hardware: HardwareSnapshot) -> bool:
     ram = hardware.ram_gb
     if ram is None:
         return False
-    # No card in sight: system RAM has to hold the weights plus Windows.
-    return ram >= model.min_vram_gb + 10.0
+    # No card in sight: system RAM has to hold the GGUF plus Windows.
+    return ram >= model.download_gb + _RAM_HEADROOM_GB
 
 
 def recommend(hardware: HardwareSnapshot) -> CatalogModel:
@@ -88,7 +97,7 @@ def why(model: CatalogModel, hardware: HardwareSnapshot) -> str:
     bits: list[str] = []
     bits.append(hardware.plain_card())
     bits.append(model.summary)
-    if "Q4_K_M" in model.tag and (hardware.vram_gb or 0) >= 12:
+    if "Q4_K_M" in model.tag and (hardware.vram_gb or 0) >= Q4_MIN_VRAM_GB:
         bits.append(
             "This is the size we run every day on a similar 12 GB card. "
             "Tools, search, and files work without crowding the rest of Windows."
