@@ -8,6 +8,7 @@ extract and skip the write-up round.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -18,9 +19,12 @@ from arelis.core.events import EventType
 from arelis.core.evidence import EvidenceLedger
 from arelis.core.loop_helpers import declined_finish_reply
 from arelis.core.memory import SessionMemory
-from arelis.core.turn_confirm import SKIP, confirm_call
+from arelis.core.turn_confirm import RUN, SKIP, confirm_call
 from arelis.core.turn_context import TurnContext
 from arelis.tools.base import ToolRegistry, ToolResult
+from arelis.tools.pdf_assemble import PdfAssembleTool
+from arelis.tools.plot import PlotTool
+from arelis.workspace import WorkspaceRoots
 from tests.hardening_helpers import _collect, _config, _ScriptedRouter
 
 _MEMORY_LINE = "The value was not saved because the save was skipped."
@@ -93,6 +97,11 @@ class _WorkspaceStub:
     def __init__(self) -> None:
         self.runs = 0
         self.written: list[str] = []
+        self.workspace: Any = None
+
+    def preview_path(self, args: dict[str, Any] | None = None) -> Path:
+        raw = args if isinstance(args, dict) else {}
+        return Path(str(raw.get("path") or "").strip())
 
     async def run(self, **kwargs: Any) -> ToolResult:
         self.runs += 1
@@ -118,10 +127,20 @@ class _DocumentStub:
     def __init__(self) -> None:
         self.runs = 0
         self.written: list[str] = []
+        self.workspace: Any = None
+
+    def preview_path(self, args: dict[str, Any] | None = None) -> Path:
+        raw = args if isinstance(args, dict) else {}
+        fmt = str(raw.get("format") or "txt").strip().lower().lstrip(".") or "txt"
+        name = str(raw.get("filename") or raw.get("title") or "").strip()
+        leaf = Path(name.replace("\\", "/")).name or "document"
+        if Path(leaf).suffix.lower().lstrip(".") != fmt:
+            leaf = f"{Path(leaf).stem or leaf}.{fmt}"
+        return Path(leaf)
 
     async def run(self, **kwargs: Any) -> ToolResult:
         self.runs += 1
-        dest = str(kwargs.get("filename") or kwargs.get("title") or "")
+        dest = str(self.preview_path(kwargs))
         self.written.append(dest)
         return ToolResult(ok=True, output=f"written {dest}")
 
@@ -224,12 +243,16 @@ class _ConfirmBus:
 
 
 class _ConfirmLoop:
-    def __init__(self) -> None:
+    def __init__(self, *extra: Any) -> None:
         tools = ToolRegistry()
-        for name in ("memory", "workspace"):
-            stub = _MemoryStub() if name == "memory" else _WorkspaceStub()
-            stub.name = name
-            tools.register(stub)
+        if extra:
+            for tool in extra:
+                tools.register(tool)
+        else:
+            for name in ("memory", "workspace"):
+                stub = _MemoryStub() if name == "memory" else _WorkspaceStub()
+                stub.name = name
+                tools.register(stub)
         self.bus = _ConfirmBus()
         self.tools = tools
         self.memory = None
@@ -247,11 +270,13 @@ class _ConfirmLoop:
         self.ask_is_grant = True
         self.tools_used: set[str] = set()
         self._decision = "skip"
+        self.cards: list[tuple[str, dict[str, Any]]] = []
 
     async def request_confirm(
         self, cid: str, tool: str, args: dict[str, Any], summary: str
     ) -> str:
-        del cid, tool, args, summary
+        del cid, summary
+        self.cards.append((tool, dict(args)))
         return self._decision
 
     def _tool_message(self, name: str, content: str) -> dict[str, Any]:
@@ -322,7 +347,9 @@ async def test_declined_tools_comes_from_the_confirm_decision_only() -> None:
 
 
 @pytest.mark.asyncio
-async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
+async def test_declined_workspace_write_is_not_a_calculator_refusal(
+    tmp_path: Path,
+) -> None:
     """P05: skipped work is named in plain words, not the calculator refusal."""
     long_ocr = "/tmp/inbox/shots/shape.png"
     known = declined_finish_reply(
@@ -572,6 +599,183 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     assert document.written == []
     assert "written" not in redo_text.casefold()
     assert notes_line in redo_text
+
+    # The dest is preview_path, resolved against the workspace. After
+    # notes.txt is declined, title=notes, filename=notes, a drop-tray
+    # spelling of that same output, and abs / dot / backslash / drive
+    # paths are the same dest: no card, no write. Raw argument text
+    # would miss those. An input named notes.txt is not an output.
+    root = tmp_path / "ws"
+    root.mkdir()
+    roots = WorkspaceRoots.from_paths([str(root)])
+    abs_notes = str((root / "notes.txt").resolve())
+    win_notes = "C:" + abs_notes.replace("/", "\\")
+    slash_notes = abs_notes.replace("/", "\\")
+    workspace = _WorkspaceStub()
+    workspace.workspace = roots
+    document = _DocumentStub()
+    document.workspace = roots
+    pdf = PdfAssembleTool(roots)
+    plot = PlotTool(roots, None)
+    gate = _ConfirmLoop(workspace, document, pdf, plot)
+    ctx = TurnContext(text="Save notes.txt.", role="fast")
+
+    async def _gate(
+        name: str, args: dict[str, Any], *, text: str = ctx.text
+    ) -> str:
+        action, _summary, _fp = await confirm_call(
+            gate,
+            ctx,
+            name,
+            args,
+            text=text,
+            fail_counts={},
+            skip_counts={},
+            messages=[],
+            drop_wander=lambda _name: None,
+        )
+        return action
+
+    first = await _gate(
+        "workspace",
+        {"action": "write", "path": "notes.txt", "content": "errands\n"},
+    )
+    assert first == SKIP
+    assert gate.cards == [
+        ("workspace", {"action": "write", "path": "notes.txt", "content": "errands\n"})
+    ]
+    assert workspace.runs == 0
+
+    blocked = (
+        (
+            "document",
+            {"format": "txt", "title": "notes", "body": "errands\n"},
+        ),
+        (
+            "document",
+            {"format": "txt", "filename": "notes", "body": "errands\n"},
+        ),
+        (
+            "document",
+            {
+                "format": "txt",
+                "filename": "outputs/documents/notes.txt",
+                "body": "errands\n",
+            },
+        ),
+        (
+            "workspace",
+            {"action": "write", "path": win_notes, "content": "errands\n"},
+        ),
+        (
+            "workspace",
+            {"action": "write", "path": abs_notes, "content": "errands\n"},
+        ),
+        (
+            "workspace",
+            {"action": "write", "path": "./notes.txt", "content": "errands\n"},
+        ),
+        (
+            "workspace",
+            {"action": "write", "path": slash_notes, "content": "errands\n"},
+        ),
+        (
+            "workspace",
+            {"action": "write", "path": ".\\notes.txt", "content": "errands\n"},
+        ),
+    )
+    for name, args in blocked:
+        before = len(gate.cards)
+        action = await _gate(name, args)
+        assert action == SKIP
+        assert len(gate.cards) == before
+        assert workspace.runs == 0
+        assert document.runs == 0
+        assert document.written == []
+
+    # Reading or converting notes.txt is not a write of that dest.
+    read = await _gate("workspace", {"action": "read", "path": "notes.txt"})
+    assert read == RUN
+    assert len(gate.cards) == 1
+    convert_cards = len(gate.cards)
+    other_pdf = await _gate(
+        "pdf",
+        {"action": "split", "path": "notes.txt", "pages": "1", "dest": "kept.pdf"},
+    )
+    assert len(gate.cards) == convert_cards + 1
+    assert gate.cards[-1][0] == "pdf"
+    assert other_pdf == SKIP
+    other_doc = await _gate(
+        "document",
+        {
+            "format": "txt",
+            "title": "kept-notes",
+            "from_path": "notes.txt",
+            "body": "errands\n",
+        },
+    )
+    assert len(gate.cards) == convert_cards + 2
+    assert gate.cards[-1][0] == "document"
+    assert other_doc == SKIP
+    assert workspace.runs == 0
+    assert document.runs == 0
+
+    # A declined pdf or plot dest stays blocked when the source changes.
+    plot_ctx = TurnContext(text="Draw the chart.", role="fast")
+    plot_gate = _ConfirmLoop(workspace, document, pdf, plot)
+    plot_gate._decision = "skip"
+
+    async def _plot_gate(name: str, args: dict[str, Any]) -> str:
+        action, _summary, _fp = await confirm_call(
+            plot_gate,
+            plot_ctx,
+            name,
+            args,
+            text=plot_ctx.text,
+            fail_counts={},
+            skip_counts={},
+            messages=[],
+            drop_wander=lambda _name: None,
+        )
+        return action
+
+    plot_skip = await _plot_gate(
+        "plot",
+        {
+            "action": "line",
+            "path": "src-a.csv",
+            "out": "declined-chart.png",
+            "xs": "1,2",
+            "ys": "3,4",
+        },
+    )
+    assert plot_skip == SKIP
+    assert len(plot_gate.cards) == 1
+    plot_again = await _plot_gate(
+        "plot",
+        {
+            "action": "line",
+            "path": "src-b.csv",
+            "out": "declined-chart.png",
+            "xs": "1,2",
+            "ys": "3,4",
+        },
+    )
+    assert plot_again == SKIP
+    assert len(plot_gate.cards) == 1
+
+    pdf_skip = await _plot_gate(
+        "pdf",
+        {"action": "split", "path": "src-a.pdf", "pages": "1", "dest": "declined.pdf"},
+    )
+    assert pdf_skip == SKIP
+    assert len(plot_gate.cards) == 2
+    pdf_again = await _plot_gate(
+        "pdf",
+        {"action": "split", "path": "src-b.pdf", "pages": "1", "dest": "declined.pdf"},
+    )
+    assert pdf_again == SKIP
+    assert len(plot_gate.cards) == 2
 
 
 @pytest.mark.asyncio

@@ -287,10 +287,18 @@ async def confirm_call(
     # The picture step is shared, so the other picture tool does not open
     # a new card for a cutout they already refused. A later write of a
     # different file is a different step and still gets a card.
-    # A declined file dest is every writer, not tool plus path. Document
-    # re-proposing notes.txt after a workspace no must not get a card.
-    dest = file_write_dest(name, args)
-    dest_key = normalize_write_path(dest) if dest else ""
+    # A declined file dest is the output path the writer will produce,
+    # from that tool's preview_path, resolved against the workspace.
+    # Document title=notes after a workspace no on notes.txt must not
+    # get a card. pdf and plot key on dest/out, never the source path.
+    getter = getattr(getattr(loop, "tools", None), "get", None)
+    tool = getter(name) if callable(getter) else None
+    dest = file_write_dest(name, args, tool=tool)
+    dest_key = (
+        normalize_write_path(dest, workspace=getattr(tool, "workspace", None))
+        if dest
+        else ""
+    )
     action_key = confirm_action_key(name, args)
     already = (
         (dest_key and dest_key in ctx.declined_write_paths)

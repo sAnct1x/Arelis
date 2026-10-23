@@ -459,6 +459,19 @@ class CodeWorkspaceTool:
     def confirm_detail(self, args: dict[str, Any]) -> str:
         return workspace_confirm(self.workspace, args)
 
+    def preview_path(self, args: dict[str, Any] | None = None) -> Path:
+        """Where this call will write, without writing it."""
+        raw = args if isinstance(args, dict) else {}
+        action = str(raw.get("action") or "").strip().lower()
+        path = str(raw.get("path") or "").strip()
+        if action in {"move", "rename", "copy"}:
+            dest = str(raw.get("to") or raw.get("dest") or "").strip()
+            if dest:
+                path = dest
+        if not path:
+            raise ValueError("Missing path")
+        return self._resolve(path, for_create=True).path
+
     def _resolve(self, path_str: str, *, for_create: bool = False, for_read: bool = False):
         # Writes never honor external grants; list/read may.
         if for_create:
