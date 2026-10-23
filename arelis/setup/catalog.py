@@ -24,8 +24,6 @@ Q3_DOWNLOAD_GB = 16.6
 # Q4 ships on a 12 GB card. Q3 is the smaller-card fallback.
 Q4_MIN_VRAM_GB = 12.0
 Q3_MIN_VRAM_GB = 8.0
-# System RAM has to hold the GGUF plus the OS.
-_RAM_HEADROOM_GB = 10.0
 
 
 @dataclass(frozen=True)
@@ -80,7 +78,7 @@ def fits(model: CatalogModel, hardware: HardwareSnapshot) -> bool:
     if ram is None:
         return False
     # No card in sight: system RAM has to hold the GGUF plus Windows.
-    return ram >= model.download_gb + _RAM_HEADROOM_GB
+    return ram >= model.min_vram_gb + 10.0
 
 
 def recommend(hardware: HardwareSnapshot) -> CatalogModel:
