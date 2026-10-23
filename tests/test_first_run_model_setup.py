@@ -274,7 +274,17 @@ def test_record_model_choice_pins_llamacpp_model_and_context_cap(
     data = yaml.safe_load(local.read_text(encoding="utf-8"))
     assert data["llamacpp"]["model"] == Q3_FILENAME
     assert data["llamacpp"]["default_cap"] == 32768
+    assert data["llamacpp"]["n_cpu_moe"] == 28
+    assert data["llamacpp"]["ubatch"] == 2048
     assert "ollama" not in data
+    args = llama_server_args(
+        binary="llama-server",
+        model=data["llamacpp"]["model"],
+        mmproj="p.gguf",
+        config=data,
+    )
+    assert args[args.index("-ub") + 1] == "2048"
+    assert args[args.index("--n-cpu-moe") + 1] == "28"
 
 
 def test_llama_server_args_read_n_cpu_moe_context_and_ubatch_from_config() -> None:

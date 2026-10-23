@@ -28,6 +28,10 @@ Q3_MIN_VRAM_GB = 8.0
 # VRAM and 21.8 tok/s.
 Q4_N_CPU_MOE = 32
 Q3_N_CPU_MOE = 28
+# Micro-batch. Q4 stays 512. Q3 at 2048 was measured: prompt 2.2x
+# faster than 512, same generation speed, lower VRAM (short prompt).
+Q4_UBATCH = 512
+Q3_UBATCH = 2048
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,7 @@ class CatalogModel:
     hf_repo: str
     filename: str
     n_cpu_moe: int = Q4_N_CPU_MOE
+    ubatch: int = Q4_UBATCH
 
 
 CATALOG: tuple[CatalogModel, ...] = (
@@ -64,6 +69,7 @@ CATALOG: tuple[CatalogModel, ...] = (
         HF_REPO,
         Q3_FILENAME,
         Q3_N_CPU_MOE,
+        Q3_UBATCH,
     ),
 )
 

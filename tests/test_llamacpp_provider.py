@@ -349,7 +349,7 @@ async def test_llamacpp_stream_maps_sse_and_refuses_pictures_and_embeddings(
     assert args[args.index("--cache-type-v") + 1] == "f16"
     assert args[args.index("-c") + 1] == "32768"
     assert args[args.index("-b") + 1] == "4096"
-    assert args[args.index("-ub") + 1] == "2048"
+    assert args[args.index("-ub") + 1] == "512"
     assert args[args.index("--jinja") + 1] == "--chat-template-file"
     assert args[args.index("--chat-template-file") + 1] == str(template.resolve())
     assert args[args.index("--host") + 1] == "127.0.0.1"

@@ -7,10 +7,11 @@ llm:
 # 12 GB card for Qwen3.6-35B-A3B UD-Q4_K_M. History budget is the smaller of
 # this cap and the n_ctx the server reports on /props or /slots.
 # Launch line (config C, ncmoe 32): Q8 mmproj, -fa off, --image-max-tokens 1024,
-# f16 KV, -c 32768, -b 4096, -ub 2048, --n-cpu-moe 32, --jinja, and
+# f16 KV, -c 32768, -b 4096, -ub 512, --n-cpu-moe 32, --jinja, and
 # qwen36_35b_insys.jinja beside the weights when that file is already there.
-# -ub 2048 was measured on the target machine: prompt processing 2.2x
-# faster than 512, same generation speed, and lower VRAM.
+# -ub 512 was measured on the target machine. 1024 used 11.88 GB at peak,
+# over the 11.2 GB memory budget. 2048 lost the Vulkan device around 20k context.
+# Q3 was measured at -ub 2048: prompt 2.2x faster than 512, same generation speed, lower VRAM (short prompt).
 # model is the Unsloth UD-Q4_K_M file. A bare name is resolved in the same
 # folders as the other weights. A full path is used as written. If that file
 # is not on disk, the server is not started.
@@ -19,7 +20,7 @@ llamacpp:
   timeout_s: 300
   default_cap: 32768
   n_cpu_moe: 32
-  ubatch: 2048
+  ubatch: 512
   context_caps:
     Qwen3.6-35B-A3B: 32768
   model: "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"

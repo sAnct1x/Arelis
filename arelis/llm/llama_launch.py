@@ -1,11 +1,12 @@
 """Launch line for the 35B llama-server.
 
 Config C at ncmoe 32. Q8 mmproj, flash attention off, 1024 image tokens,
-f16 KV, context 32768, batch 4096, ubatch 2048. 2048 was measured on the
-target machine: prompt processing 2.2x faster than 512, same generation
-speed, and lower VRAM. The patched template stays: ``--jinja``, and
-``qwen36_35b_insys.jinja`` beside the weights when that file is already
-there.
+f16 KV, context 32768, batch 4096, ubatch 512. 512 was measured on the
+target machine. 1024 used 11.88 GB at peak, over the 11.2 GB memory budget.
+Q3 was measured at -ub 2048: prompt 2.2x faster than 512, same generation
+speed, lower VRAM (short prompt).
+The patched template stays: ``--jinja``, and ``qwen36_35b_insys.jinja``
+beside the weights when that file is already there.
 
 The picture file sits in the same directory as the model GGUF. If it is
 missing, it is downloaded there once. Arelis starts llama-server only when
@@ -30,7 +31,6 @@ from urllib.parse import urlparse
 import httpx
 
 from arelis import __version__
-from arelis.config import shipped_ubatch
 from arelis.llm.errors import restart_error, restart_notice
 from arelis.llm.legacy import SHIPPED_GGUF_NAME
 
@@ -113,14 +113,14 @@ def llama_server_args(
     """Argv for the 35B server. This is the only place those flags are built.
 
     ``--n-cpu-moe``, ``-c``, and ``-ub`` come from config when set. Same
-    defaults for Q3 and Q4: 32, 32768, and ``shipped_ubatch()``.
+    defaults for Q3 and Q4: 32, 32768, 512. Q3 setup pins catalog ubatch 2048.
     """
     lc = config.get("llamacpp") if isinstance(config, dict) else None
     if not isinstance(lc, dict):
         lc = {}
     ctx = _config_int(lc, "default_cap", 32768)
     n_cpu_moe = _config_int(lc, "n_cpu_moe", 32)
-    ubatch = _config_int(lc, "ubatch", shipped_ubatch())
+    ubatch = _config_int(lc, "ubatch", 512)
     args = [
         binary,
         "-m",
@@ -137,8 +137,10 @@ def llama_server_args(
         "1",
         "--n-cpu-moe",
         str(n_cpu_moe),
-        # 2048 was measured on the target machine: prompt processing
-        # 2.2x faster than 512, same generation speed, and lower VRAM.
+        # 512 was measured on the target machine. 1024 used 11.88 GB
+        # at peak, over the 11.2 GB memory budget.
+        # Q3 was measured at -ub 2048: prompt 2.2x faster than 512,
+        # same generation speed, lower VRAM (short prompt).
         "-ub",
         str(ubatch),
         "-b",
