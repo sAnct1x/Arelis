@@ -100,17 +100,71 @@ def quiesce_widget_threads(app: QApplication, wait_ms: int = 500) -> None:
             continue
 
 
-def drain_parked_threads(timeout_s: float = 3.0) -> None:
-    """Deliver ``finished`` so parked wrappers can be released."""
+# Longer than the first-run download connect timeout (5s). A shorter
+# bound leaves a handed-off QThread in run() and Qt aborts on destroy.
+HANDED_OFF_WAIT_S = 6.0
+
+
+def _signal_parked_stop(thread: QThread) -> None:
+    """Tell a handed-off worker to leave ``run()``.
+
+    Wait alone is not enough. A first-run download that never sees
+    ``cancelled()`` reconnects until the 90s stall, and the process
+    then hangs on that non-daemon QThread after drain returns.
+    """
+    cancel = getattr(thread, "cancel", None)
+    if callable(cancel):
+        try:
+            cancel()
+        except RuntimeError:
+            pass
+    try:
+        thread.requestInterruption()
+        thread.quit()
+    except RuntimeError:
+        pass
+
+
+def drain_parked_threads(timeout_s: float = HANDED_OFF_WAIT_S) -> None:
+    """Wait out handed-off QThreads so their destructors do not abort.
+
+    Park any workers still parented to a widget, signal cancel on each
+    parked thread, then join for up to ``timeout_s``. A download that
+    sees ``cancelled()`` leaves on the 1s read timeout, well under the
+    bound. ``finished`` is queued, so the app is pumped when one exists.
+    No app is not an excuse to skip the join.
+    """
+    import shiboken6
     from PySide6.QtWidgets import QApplication
 
-    deadline = time.monotonic() + timeout_s
-    while _PARKED and time.monotonic() < deadline:
-        app = QApplication.instance()
-        if app is None:
-            return
+    try:
+        bound = max(0.0, float(timeout_s))
+    except (TypeError, ValueError):
+        bound = HANDED_OFF_WAIT_S
+    deadline = time.monotonic() + bound
+
+    app = QApplication.instance()
+    if app is not None:
         try:
-            app.processEvents()
+            quiesce_widget_threads(app, wait_ms=0)
         except RuntimeError:
-            return
-        time.sleep(0.01)
+            pass
+
+    for thread in list(_PARKED):
+        left_ms = int(max(0.0, deadline - time.monotonic()) * 1000)
+        try:
+            if not shiboken6.isValid(thread):
+                continue
+            _signal_parked_stop(thread)
+            if thread.isRunning():
+                thread.wait(left_ms)
+        except RuntimeError:
+            continue
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    try:
+        app.processEvents()
+    except RuntimeError:
+        return

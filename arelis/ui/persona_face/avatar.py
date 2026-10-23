@@ -10,8 +10,9 @@ import time
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QTransform
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
+from arelis.ui.live_threads import park_running_thread
 from arelis.ui.persona_face import cache as face_cache
 from arelis.ui.persona_face.bake import blur_premul, composite_rest, flatten_on_black
 from arelis.ui.persona_face.engine import (
@@ -254,6 +255,9 @@ class PersonaAvatar(QWidget):
         self._mask_key: tuple[int, int, float] | None = None
         self.mask_builds = 0
         self.cache_ready_perf: float | None = None
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.shutdown)
 
     def bake_ready(self) -> bool:
         return self._bake_ready
@@ -390,8 +394,8 @@ class PersonaAvatar(QWidget):
     def shutdown(self) -> None:
         """Stop the bake before this widget is destroyed.
 
-        A thread that outlives the widget faults on Windows when Qt tears
-        the receiver down. Cancel, drop the signal, then wait it out.
+        The worker is created with no parent, so widget teardown cannot
+        see it. Cancel, then park it so the app-exit drain can join it.
         """
         self._closing = True
         self._rebake.stop()
@@ -405,7 +409,7 @@ class PersonaAvatar(QWidget):
             pass
         baker.cancel()
         if baker.isRunning():
-            baker.wait()
+            park_running_thread(baker)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
