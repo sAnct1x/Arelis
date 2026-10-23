@@ -34,7 +34,6 @@ from arelis.ui.window_docks import (
     toggle_history,
     toggle_notifications,
     toggle_persona,
-    toggle_workspace,
 )
 from arelis.ui.world_host import (
     apply_physics_act,
@@ -59,9 +58,6 @@ class WindowAliases:
 
     def _toggle_thinking(self, checked: bool) -> None:
         return toggle_persona(self, checked)
-
-    def _toggle_workspace(self, checked: bool) -> None:
-        return toggle_workspace(self, checked)
 
     def _toggle_history(self, checked: bool) -> None:
         return toggle_history(self, checked)
@@ -171,14 +167,10 @@ class WindowAliases:
         return on_sms_received(self, payload)
 
     def _open_file(self, path: str) -> None:
-        from arelis.ui.workspace_host import open_file
+        from arelis.local_open import open_local_file
 
-        return open_file(self, path)
-
-    def _save_file(self, path: str, content: str) -> None:
-        from arelis.ui.workspace_host import save_file
-
-        return save_file(self, path, content)
+        if path:
+            open_local_file(path)
 
     def _apply_settings(self, values: dict[str, Any]) -> None:
         from arelis.ui.settings_host import apply_settings

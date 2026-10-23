@@ -7,7 +7,6 @@ from arelis.ui.panels.instrument import InstrumentPanel
 from arelis.ui.panels.memory import ActiveFactsPanel
 from arelis.ui.panels.notifications import NotificationsPanel
 from arelis.ui.panels.thinking import ThinkingPanel
-from arelis.ui.panels.workspace import WorkspacePanel
 
 __all__ = [
     "ActiveFactsPanel",
@@ -19,5 +18,4 @@ __all__ = [
     "InstrumentPanel",
     "NotificationsPanel",
     "ThinkingPanel",
-    "WorkspacePanel",
 ]

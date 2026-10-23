@@ -658,7 +658,6 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         raise
     _mark_launch(window, background)
     window.orchestrator = orchestrator
-    asyncio.run_coroutine_threadsafe(orchestrator.resume_last_room(), loop)
     # Inbound: by default the UI owns ingest. Close-to-tray keeps it alive when
     # the window hides; `arelis --core` can own ingest instead.
     presence_cfg = config.get("presence") or {}

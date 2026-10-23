@@ -58,7 +58,6 @@ from arelis.ui.history_host import request_session_load
 from arelis.ui.host_bind import apply_startup_hosts, bind_window_hosts
 from arelis.ui.layout_store import (
     clamp_away_rest_min,
-    load_recent_workspace_files,
     load_ui_prefs,
     restore_window_layout,
 )
@@ -72,7 +71,6 @@ from arelis.ui.panels import (
     InstrumentPanel,
     NotificationsPanel,
     ThinkingPanel,
-    WorkspacePanel,
 )
 from arelis.ui.persona_face import PersonaPanel
 from arelis.ui.readiness_strip import ReadinessStrip
@@ -93,7 +91,6 @@ from arelis.ui.theme import (
 )
 from arelis.ui.window_const import THINK_PULSE_MS as _THINK_PULSE_MS
 from arelis.ui.window_docks import bind_docks
-from arelis.ui.workspace_host import refresh_desk
 from arelis.ui.world_host import attach_world, bind_world
 from arelis.workspace import WorkspaceRoots
 
@@ -267,12 +264,11 @@ class WindowBuild:
 
     def _build_instruments(self) -> None:
         assert hasattr(self, "conversation"), (
-            "Stage must be built before instruments (refresh_desk needs conversation)"
+            "Stage must be built before instruments"
         )
         assert hasattr(self, "workspace_roots"), "Core state must be built before instruments"
         # Dockable instruments — full glass bodies, no broken native title chrome
         self.thinking = ThinkingPanel(self)
-        self.workspace = WorkspacePanel()
         self.history = HistoryPanel()
         self.contacts = ContactsPanel()
         self.notifications = NotificationsPanel()
@@ -283,19 +279,11 @@ class WindowBuild:
         self.spatial.hint.connect(self.camera._set_hint)
         self.spatial.preview_ready.connect(self.camera.set_preview)
         self.calendar = CalendarPanel(memory=self.store)
-        self.workspace.set_projects(
-            self.workspace_roots.names(),
-            self.workspace_roots.active,
-            paths={r.name: str(r.path) for r in self.workspace_roots.roots},
-        )
-        self.workspace.set_recent(load_recent_workspace_files())
-        refresh_desk(self)
         self.persona_panel = PersonaPanel()
         self.persona_panel.stop_speaking_requested.connect(self._on_persona_stop_speaking)
         self.thinking.bind(self)
         self.persona_host = InstrumentPanel("arelis", self.persona_panel)
         self.think_host = self.persona_host
-        self.work_host = InstrumentPanel("workspace", self.workspace)
         self.history_host = InstrumentPanel("history", self.history)
         self.camera_host = InstrumentPanel("camera", self.camera)
 
@@ -334,21 +322,6 @@ class WindowBuild:
             )
         )
 
-        self.work_dock = GlassDockWidget("workspace", self)
-        self.work_dock.setObjectName("WorkspaceDock")
-        self._work_shell = _dock_shell(
-            self.work_host,
-            (_PANEL_OUTER, _PANEL_HALF, _PANEL_OUTER, _PANEL_BOTTOM),
-        )
-        self.work_dock.setWidget(self._work_shell)
-        _hide_dock_title(self.work_dock)
-        self.work_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea
-            | Qt.DockWidgetArea.RightDockWidgetArea
-            | Qt.DockWidgetArea.BottomDockWidgetArea
-        )
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.work_dock)
-
         self.history_dock = GlassDockWidget("history", self)
         self.history_dock.setObjectName("HistoryDock")
         self._history_shell = _dock_shell(
@@ -386,11 +359,9 @@ class WindowBuild:
         for dock in (
             self.persona_dock,
             self.history_dock,
-            self.work_dock,
             self.camera_dock,
         ):
             dock.setMinimumWidth(self._dock_min_width)
-        self.work_dock.setMinimumHeight(160)
         self.camera_dock.setMinimumHeight(200)
         self.stage.setMinimumWidth(420)
         self.setMinimumSize(960, 560)
@@ -575,11 +546,7 @@ class WindowBuild:
         # Armed paths for the two press-again gates that guard unsaved work in
         # the editor: discarding it by opening over it, and overwriting a file
         # that changed on disk while it sat open.
-        self._workspace_discard_armed = ""
-        self._workspace_overwrite_armed = ""
         self._workspace_tool_args: dict[str, Any] = {}
-        self.workspace.project_changed.connect(self._on_project_changed)
-        self.chat.desk_requested.connect(self._keep_file_on_desk)
         self.contacts_inbox.closed.connect(self._on_contacts_inbox_closed)
         self._ui_call.connect(self._run_ui_call)
 

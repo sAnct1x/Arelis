@@ -18,19 +18,6 @@ from arelis.core.confirm_speech import (
 from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
 from arelis.core.orchestrator_confirm import OrchestratorConfirm
-from arelis.core.orchestrator_rooms import (
-    advance_room_setup,
-    apply_room_fields,
-    enter_or_create_room,
-    handle_room_talk,
-    leave_room,
-    room_command,
-    rooms_overview,
-)
-from arelis.core.orchestrator_rooms import (
-    resume_last_room as resume_last_room_impl,
-)
-
 # Re-exported, not used here. These lived in this module before the mixin
 # split copied them into three more, and `comms_bypasses_sticky` is imported
 # from this path by tests and is the natural public name for it.
@@ -49,11 +36,6 @@ from arelis.core.orchestrator_turns import OrchestratorTurns
 from arelis.desk import DeskStore
 from arelis.llm.router import ModelRole, ModelRouter
 from arelis.memory.store import MemoryStore
-from arelis.rooms import (
-    RoomSetup,
-    RoomStore,
-)
-from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.spatial.verbs import classify_physics_act, speech_body_names
 from arelis.tools.base import ToolRegistry
 from arelis.tools.confirm_copy import confirm_headline
@@ -91,18 +73,6 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         shared_desk = config.get("_desk")
         self.desk: DeskStore = shared_desk if isinstance(shared_desk, DeskStore) else DeskStore()
         self.config["_desk"] = self.desk
-        # Explicit None: RoomStore has __len__, so `or` would replace a shared
-        # store that merely happens to be empty — which is every first launch.
-        # The tool and the loop would then be looking at a different object.
-        shared_rooms = config.get("_rooms")
-        self.rooms: RoomStore = shared_rooms if shared_rooms is not None else RoomStore()
-        self.config["_rooms"] = self.rooms
-        # The general thread to come back to when a room closes. Empty until a
-        # room is entered from one.
-        self._general_session = ""
-        # First-entry room interview. In-process; answers are ordinary
-        # USER_MESSAGE lines (typed or spoken). Not a model turn.
-        self._room_setup: RoomSetup | None = None
         self.memory = memory or SessionMemory()
         self.persona = load_persona(config)
         self._cancel = False
@@ -212,7 +182,9 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
                 await self.bus.publish(Event(EventType.VOICE_SPEAK, {"text": last}))
                 return
         act = classify_physics_act(text, names=speech_body_names())
-        if act and (self.rooms.active_id == PHYSICS_ROOM_ID or act.verb == "goto_earth"):
+        # Leftover: rooms used to gate sim verbs on Reality. Only goto_earth
+        # still fires from general chat. Do not invent a Reality session.
+        if act and act.verb == "goto_earth":
             payload = dict(act.payload())
             payload["text"] = text
             await self.bus.publish(Event(EventType.PHYSICS_VERB, payload))
@@ -366,7 +338,9 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         waiting = bool(self._confirm_waiters)
         live = self._turn_live()
         held = bool(self._pause or is_paused())
-        in_physics = self.rooms.active_id == PHYSICS_ROOM_ID
+        # Leftover: rooms used to treat pause as a sim verb inside Reality.
+        # Stay False so general-chat pause still pauses a turn.
+        in_physics = False
 
         if act == "stop":
             if live or waiting or held or conversing or control_only:
@@ -494,41 +468,6 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
     def _memory_store(self) -> MemoryStore | None:
         sink = self.memory.sink
         return sink if isinstance(sink, MemoryStore) else None
-
-    # -- rooms ---------------------------------------------------------------
-
-    async def _room_command(self, text: str) -> None:
-        return await room_command(self, text)
-
-    def _rooms_overview(self) -> str:
-        return rooms_overview(self)
-
-    async def _enter_or_create_room(self, wanted: str) -> None:
-        return await enter_or_create_room(self, wanted)
-
-    async def _handle_room_talk(self, text: str) -> bool:
-        return await handle_room_talk(self, text)
-
-    async def _advance_room_setup(self, *, user_text: str = "") -> None:
-        return await advance_room_setup(self, user_text=user_text)
-
-    async def _apply_room_fields(
-        self,
-        fields: dict[str, Any],
-        *,
-        user_text: str = "",
-        quiet: bool = False,
-        closing: str = "",
-    ) -> None:
-        return await apply_room_fields(
-            self, fields, user_text=user_text, quiet=quiet, closing=closing
-        )
-
-    async def resume_last_room(self) -> bool:
-        return await resume_last_room_impl(self)
-
-    async def _leave_room(self) -> None:
-        return await leave_room(self)
 
     async def _say(self, message: str, *, status: bool = True) -> None:
         """A command's whole reply. Both events, because the UI needs both.

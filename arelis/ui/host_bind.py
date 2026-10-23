@@ -67,19 +67,6 @@ from arelis.ui.sms_host import (
     on_sms_tile_shown,
     open_sms_chat,
 )
-from arelis.ui.workspace_host import (
-    add_workspace_folder_dialog,
-    drop_desk_item,
-    keep_note_dialog,
-    new_workspace_folder_dialog,
-    open_desk_item,
-    open_file,
-    open_outside,
-    pin_desk_item,
-    remove_active_workspace_root,
-    reveal_desk_item,
-    save_file,
-)
 
 
 def bind_window_hosts(window) -> None:
@@ -116,38 +103,11 @@ def bind_window_hosts(window) -> None:
     )
 
     window.conversation.input.textChanged.connect(lambda: note_engagement(window))
-    window.conversation.leave_room_requested.connect(lambda: _leave(window))
     window.conversation.new_requested.connect(lambda: on_history_new(window))
     window.conversation.session_clicked.connect(
         lambda session_id: on_history_selected(window, session_id)
     )
     window.conversation.idle_conditions_changed.connect(lambda: sync_idle_mode(window))
-
-    window.workspace.open_requested.connect(lambda path: open_file(window, path))
-    window.workspace.save_requested.connect(
-        lambda path, content: save_file(window, path, content)
-    )
-    window.workspace.add_root_requested.connect(
-        lambda: add_workspace_folder_dialog(window)
-    )
-    window.workspace.new_root_requested.connect(
-        lambda: new_workspace_folder_dialog(window)
-    )
-    window.workspace.remove_root_requested.connect(
-        lambda: remove_active_workspace_root(window)
-    )
-    window.workspace.keep_requested.connect(lambda: keep_note_dialog(window))
-    window.workspace.pin_requested.connect(
-        lambda path, pinned: pin_desk_item(window, path, pinned)
-    )
-    window.workspace.drop_requested.connect(lambda path: drop_desk_item(window, path))
-    window.workspace.desk_open_requested.connect(
-        lambda path: open_desk_item(window, path)
-    )
-    window.workspace.reveal_requested.connect(
-        lambda path: reveal_desk_item(window, path)
-    )
-    window.workspace.outside_requested.connect(lambda path: open_outside(window, path))
 
     window.history.session_selected.connect(
         lambda session_id: on_history_selected(window, session_id)
@@ -246,12 +206,6 @@ def bind_window_hosts(window) -> None:
             alias=alias, phone=phone, title=title
         )
     )
-
-
-def _leave(window) -> None:
-    from arelis.ui.history_host import leave_room
-
-    leave_room(window)
 
 
 def apply_startup_hosts(window) -> None:

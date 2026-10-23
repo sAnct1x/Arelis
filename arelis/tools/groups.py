@@ -41,7 +41,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
     ),
     "code": ("git_info", "run_script", "run_task"),
     "research": ("research_report", "browser"),
-    "pc_home": ("desktop", "rooms", "watch"),
+    "pc_home": ("desktop", "watch"),
 }
 
 MENU: dict[str, str] = {
@@ -52,7 +52,7 @@ MENU: dict[str, str] = {
     "files": "files (workspace, documents, pdf, extract, tables, audio)",
     "code": "code (git, scripts, project tasks)",
     "research": "research (reports, browser)",
-    "pc_home": "pc and home (desktop, rooms, watch)",
+    "pc_home": "pc and home (desktop, watch)",
 }
 
 KEYWORDS: dict[str, tuple[str, ...]] = {

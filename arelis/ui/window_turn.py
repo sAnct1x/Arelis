@@ -35,7 +35,6 @@ from arelis.ui.turn_watchdog import (
 )
 from arelis.ui.voice_host import stop_speech
 from arelis.ui.window_const import BUSY_WATCHDOG_MS as _BUSY_WATCHDOG_MS
-from arelis.ui.workspace_host import refresh_desk
 
 log = logging.getLogger(__name__)
 
@@ -415,25 +414,6 @@ class WindowTurn:
         if not busy:
             flush_held_inbound(self)
         sync_idle_mode(self)
-
-    def _on_project_changed(self, name: str) -> None:
-        """Update the shared active project from the dock switcher (Qt thread)."""
-        try:
-            self.workspace_roots.set_active(name)
-        except ValueError as exc:
-            self.chat.add_system(str(exc))
-            self.workspace.set_active_project(self.workspace_roots.active)
-            return
-        self.thinking.append(f"project  active → {name}", kind="status")
-        refresh_desk(self)
-
-    def _keep_file_on_desk(self, path: str) -> None:
-        from arelis.ui.workspace_host import record_artifact
-
-        record_artifact(self, path, source="open", pin=True)
-        self.workspace.show_desk()
-        self._reveal_dock(self.work_dock, self.act_workspace)
-        self.chat.add_system(f"On the desk: {Path(path).name}")
 
     def _on_event(self, event: Event) -> None:
         dispatch_event(self, event)

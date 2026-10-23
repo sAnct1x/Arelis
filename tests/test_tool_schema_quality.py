@@ -66,7 +66,6 @@ SESSION_TOOL_ORDER = (
     "tasks",
     "goals",
     "contacts",
-    "rooms",
     "web_fetch",
     "scrape",
     "web_search",

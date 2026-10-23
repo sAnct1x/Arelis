@@ -5,7 +5,19 @@ The role model is not in this package. Pose updates must not wait on a turn.
 
 from __future__ import annotations
 
+# Label only. Reality is not a room. Do not gate on this string.
 PHYSICS_ROOM_ID = "physics"
+PHYSICS_DISPLAY_NAME = "Reality"
+PHYSICS_ALIASES = frozenset(
+    {"physics", "reality", "world", "solar-lab", "solar-system"}
+)
+PHYSICS_PURPOSE = (
+    "Reality. True-scale solar system, JPL Horizons ICs, REBOUND, the laws "
+    "as they are. Approach and orbit. No landing. Hands drive the camera, "
+    "not metres in the ODE. Forces and periods come from the engine; you do "
+    "not invent them. Earth is a zone on that globe. "
+    "Record takes in this project's folder."
+)
 PREFERRED_CAMERA = "HD Pro Webcam C920"
 
 # Landmark names match MediaPipe Hands (21).

@@ -146,7 +146,7 @@ def main() -> int:
     window.setup_tray(app)
     maximized = "--maximized" in sys.argv
     if "--docks" in sys.argv:
-        for dock in (window.persona_dock, window.work_dock, window.history_dock):
+        for dock in (window.persona_dock, window.history_dock):
             dock.setFloating(False)
             dock.show()
     quit_scenario = "--quit" in sys.argv or "--quitbare" in sys.argv

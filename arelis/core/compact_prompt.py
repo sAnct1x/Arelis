@@ -55,7 +55,6 @@ _SHORT_DESC: dict[str, str] = {
     "recall": "search memory. action=docs (+ kind=pdf|docx|md) for local files. miss is a miss",
     "remind": "in-process timer. action=in minutes= + message; at=local time; list; cancel. max 7 days",
     "research_report": "first choice for a sourced multi-source report. searches and scrapes",
-    "rooms": "list / go to a room. Reality is physics",
     "run_script": "run a project .py under workspace. not a shell; not diagnostics; not schedule run_now",
     "schedule": "local jobs. action=create|create_briefing|list|update|delete|run_now. move a time with update, not delete+create",
     "sql": "read-only SELECT on memory.db or a workspace CSV. never INSERT/UPDATE/DELETE",
@@ -98,7 +97,7 @@ workspace: workspace read/write/list; inspect source with workspace; writes conf
 attach: image→vision|ocr; pdf→doc_extract; csv→analyze; csv in this room→data_cell; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).
 memory: recall before claiming you do not know; remember/forget via the memory tool. \"what do you remember/know about me\" = memory action=list, not recall.
 goals: goals. tasks: tasks. analyze: analyze. sql: sql. doc_extract: doc_extract. document: document. pdf: pdf. calculator: call calculator; do not compute the number yourself. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
-agenda: agenda (events; free=open slots). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule. remind: remind (in/at, not schedule). notes: notes.
+agenda: agenda (events; free=open slots). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). schedule: schedule. remind: remind (in/at, not schedule). notes: notes.
 image: image. image_edit: image_edit. vision: vision. transcribe: transcribe. research_report: research_report.
 solar: solar. earth: earth. catalog: rise, set, how high, or is it up is horizons table=local, target=the body name, then repeat those sentences. Never send two numbers as the target. how far, closest, or farthest is horizons, target=body name, omit date and query, then repeat the tool sentences and do not add a closest or farthest. plot: plot (histogram|bar|line; xs/ys + out=png; path=CSV). units: units. python: python (savefig shows in chat). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
 data_cell: a file already in this room. code calls read_table("name") or read_fits("name"), argument name not path. save_png(fig, "chart.png") for a chart. print the answer. not weather.

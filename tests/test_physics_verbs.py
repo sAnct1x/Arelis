@@ -12,7 +12,6 @@ from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
 from arelis.core.orchestrator import Orchestrator
-from arelis.rooms import RoomStore
 from arelis.spatial.scene import Disc, WorldScene
 from arelis.spatial.verbs import (
     classify_physics_verb,
@@ -85,7 +84,9 @@ class _StubRouter:
 
 
 @pytest.mark.asyncio
-async def test_spoken_pause_in_physics_is_a_verb_not_a_turn(tmp_path: Path) -> None:
+async def test_spoken_pause_is_not_a_physics_verb(tmp_path: Path) -> None:
+    """Reality is dormant. Rooms used to steal pause as a sim verb."""
+    del tmp_path
     bus = EventBus()
     seen: list[Event] = []
 
@@ -93,9 +94,7 @@ async def test_spoken_pause_in_physics_is_a_verb_not_a_turn(tmp_path: Path) -> N
         seen.append(event)
 
     bus.subscribe(None, capture)
-    rooms = RoomStore(tmp_path / "rooms.yaml")
-    rooms.set_active("physics")
-    orch = Orchestrator(
+    Orchestrator(
         bus,
         _StubRouter(),  # type: ignore[arg-type]
         ToolRegistry(),
@@ -104,24 +103,22 @@ async def test_spoken_pause_in_physics_is_a_verb_not_a_turn(tmp_path: Path) -> N
             "workspace": {"roots": ["."]},
             "_persona_path": str(PROJECT_ROOT / "arelis" / "persona" / "arelis.md"),
             "_speak_replies": True,
-            "_rooms": rooms,
         },
         SessionMemory(),
     )
     bus_task = asyncio.create_task(bus.run())
     try:
-        assert orch.rooms.active_id == "physics"
         await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "pause"}))
         await bus.drain()
     finally:
         bus.stop()
         bus_task.cancel()
-    assert any(e.type == EventType.PHYSICS_VERB and e.payload.get("verb") == "pause" for e in seen)
-    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
+    assert not any(e.type == EventType.PHYSICS_VERB for e in seen)
 
 
 @pytest.mark.asyncio
 async def test_spoken_take_me_to_earth_is_a_verb_not_a_turn(tmp_path: Path) -> None:
+    del tmp_path
     bus = EventBus()
     seen: list[Event] = []
 
@@ -129,9 +126,7 @@ async def test_spoken_take_me_to_earth_is_a_verb_not_a_turn(tmp_path: Path) -> N
         seen.append(event)
 
     bus.subscribe(None, capture)
-    rooms = RoomStore(tmp_path / "rooms.yaml")
-    rooms.set_active("physics")
-    _orch = Orchestrator(
+    Orchestrator(
         bus,
         _StubRouter(),  # type: ignore[arg-type]
         ToolRegistry(),
@@ -140,7 +135,6 @@ async def test_spoken_take_me_to_earth_is_a_verb_not_a_turn(tmp_path: Path) -> N
             "workspace": {"roots": ["."]},
             "_persona_path": str(PROJECT_ROOT / "arelis" / "persona" / "arelis.md"),
             "_speak_replies": True,
-            "_rooms": rooms,
         },
         SessionMemory(),
     )

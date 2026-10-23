@@ -122,8 +122,6 @@ class WindowChrome:
                 self.persona_dock.hide()
             finally:
                 self._persona_adjusting = False
-        if not ui_cfg.get("workspace_open", False):
-            self.work_dock.hide()
         if not ui_cfg.get("camera_open", False):
             self.camera_dock.hide()
         self.history_dock.hide()
@@ -234,14 +232,6 @@ class WindowChrome:
         self.act_persona.triggered.connect(self._toggle_persona)
         self.addAction(self.act_persona)
         self.act_thinking = self.act_persona
-
-        self.act_workspace = QAction("workspace", self)
-        self.act_workspace.setCheckable(True)
-        self.act_workspace.setChecked(self.work_dock.isVisible())
-        self.act_workspace.setShortcut(QKeySequence("Ctrl+2"))
-        self.act_workspace.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
-        self.act_workspace.triggered.connect(self._toggle_workspace)
-        self.addAction(self.act_workspace)
 
         self.act_history = QAction("history", self)
         self.act_history.setCheckable(True)
@@ -658,7 +648,6 @@ class WindowChrome:
         for dock in (
             self.history_dock,
             self.persona_dock,
-            self.work_dock,
             self.camera_dock,
         ):
             if not dock.isVisible() or dock.isFloating():
@@ -717,7 +706,6 @@ class WindowChrome:
         menu.addAction(self.act_search_history)
         menu.addSeparator()
         menu.addAction(self.act_persona)
-        menu.addAction(self.act_workspace)
         menu.addAction(self.act_history)
         menu.addAction(self.act_notifications)
         menu.addAction(self.act_camera)
@@ -777,7 +765,6 @@ class WindowChrome:
         if not hasattr(self, "act_persona"):
             return
         self.act_persona.setChecked(self.persona_dock.isVisible())
-        self.act_workspace.setChecked(self.work_dock.isVisible())
         self.act_history.setChecked(self.history_dock.isVisible())
         self.act_notifications.setChecked(self.notify_inbox.isVisible())
         self.act_camera.setChecked(self.camera_dock.isVisible())
@@ -867,11 +854,9 @@ class WindowChrome:
     def _reset_layout(self) -> None:
         self.camera.stop()
         self.persona_dock.setFloating(False)
-        self.work_dock.setFloating(False)
         self.history_dock.setFloating(False)
         self.camera_dock.setFloating(False)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.persona_dock)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.work_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.history_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.camera_dock)
         self._stack_left_instruments()
@@ -884,7 +869,6 @@ class WindowChrome:
         self.sms_chats.hide_all()
         self._apply_calm_instrument_defaults()
         self.act_persona.setChecked(self.persona_dock.isVisible())
-        self.act_workspace.setChecked(self.work_dock.isVisible())
         self.act_history.setChecked(False)
         self.act_notifications.setChecked(False)
         self.act_camera.setChecked(False)

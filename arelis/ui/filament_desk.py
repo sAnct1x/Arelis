@@ -15,7 +15,6 @@ from PySide6.QtCore import QByteArray, QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import QApplication, QDockWidget, QMenu
 
 from arelis.config import merge_local_config
-from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.ui.dock_surface import apply_dock_chrome
 from arelis.ui.filament_field import (
     attach_on_rect,
@@ -271,7 +270,6 @@ class FilamentDesk:
         w = self.window
         docks = {
             "thinking": w.persona_dock,
-            "files": w.work_dock,
             "history": w.history_dock,
             "camera": w.camera_dock,
         }
@@ -393,7 +391,6 @@ class FilamentDesk:
             "fullscreen": was_full,
             "docks": {
                 "think": not w.persona_dock.isHidden(),
-                "work": not w.work_dock.isHidden(),
                 "history": not w.history_dock.isHidden(),
                 "camera": not w.camera_dock.isHidden(),
                 "notify": not w.notify_inbox.isHidden(),
@@ -407,7 +404,6 @@ class FilamentDesk:
             w.title_bar.set_slim(True)
             w.readiness_strip.hide()
             w.persona_dock.hide()
-            w.work_dock.hide()
             w.history_dock.hide()
             w.camera_dock.hide()
             w.notify_inbox.hide()
@@ -459,7 +455,6 @@ class FilamentDesk:
         w._filament_hiding = True
         try:
             w.persona_dock.setVisible(bool(docks.get("think")))
-            w.work_dock.setVisible(bool(docks.get("work")))
             w.history_dock.setVisible(bool(docks.get("history")))
             w.camera_dock.setVisible(bool(docks.get("camera")))
             if docks.get("notify"):
@@ -620,7 +615,10 @@ class FilamentDesk:
         elif name == "thinking":
             w.act_thinking.trigger()
         elif name == "files":
-            w.act_workspace.trigger()
+            # Leftover from the workspace dock. Chip stays; there is no dock.
+            act = getattr(w, "act_workspace", None)
+            if act is not None:
+                act.trigger()
         elif name == "days":
             w.act_calendar.trigger()
         elif name == "camera":
@@ -645,9 +643,6 @@ class FilamentDesk:
 
             toggle_world(w, False)
             return
-        room_id = str(getattr(w.conversation.room, "room_id", "") or "")
-        if room_id != PHYSICS_ROOM_ID:
-            w._enter_room_from_menu(PHYSICS_ROOM_ID)
         from arelis.ui.world_host import toggle_world
 
         toggle_world(w, True, force=True)
@@ -822,7 +817,9 @@ class FilamentDesk:
         menu.addMenu(rooms)
         menu.addSeparator()
         menu.addAction(w.act_thinking)
-        menu.addAction(w.act_workspace)
+        act_files = getattr(w, "act_workspace", None)
+        if act_files is not None:
+            menu.addAction(act_files)
         menu.addAction(w.act_history)
         menu.addAction(w.act_notifications)
         menu.addAction(w.act_camera)

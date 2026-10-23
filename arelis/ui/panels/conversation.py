@@ -47,7 +47,6 @@ from arelis.ui.notify_overlay import NotifyOverlay
 from arelis.ui.panels.chat import ChatPanel
 from arelis.ui.panels.confirm import ConfirmCard
 from arelis.ui.panels.drive import DriveStrip
-from arelis.ui.panels.room import RoomStrip
 from arelis.ui.stage import paint_corner_ticks
 from arelis.ui.theme import METRICS, SPACE, active_theme, polish_combo_popup, space_box
 from arelis.ui.void_idle import OrbitCanvas
@@ -144,6 +143,36 @@ class _ComposerLineEdit(QPlainTextEdit):
 _STAGE_MARGIN_TOP = SPACE["inset"]
 
 
+class _RoomName:
+    def text(self) -> str:
+        return self._text
+
+    def setText(self, text: str) -> None:
+        self._text = str(text or "")
+
+    def __init__(self) -> None:
+        self._text = ""
+
+
+class _RoomLeftover:
+    """Leftover from the rooms product. Hidden. Reality is not a room."""
+
+    def __init__(self) -> None:
+        self.room_id = ""
+        self.name = _RoomName()
+
+    def set_room(
+        self,
+        room_id: str = "",
+        name: str = "",
+        purpose: str = "",
+        root: str = "",
+    ) -> None:
+        del purpose, root
+        self.room_id = str(room_id or "")
+        self.name.setText(str(name or ""))
+
+
 class ConversationStage(GlassFrame):
     """Single glass panel: chat + composer (screenshot-4 composition)."""
 
@@ -178,11 +207,9 @@ class ConversationStage(GlassFrame):
         layout.setContentsMargins(*space_box("stage", "inset", "stage", "plate"))
         layout.setSpacing(SPACE["gap"])
 
-        # Above the transcript: whose conversation this is. Hidden in general.
-        self.room = RoomStrip()
-        layout.addWidget(self.room)
-        self.room.leave_requested.connect(self.leave_room_requested.emit)
-        self.room.world_requested.connect(self.world_requested.emit)
+        # Leftover from the rooms product. Not shown. ROOM_CHANGED still
+        # writes here. Do not gate Reality on room_id.
+        self.room = _RoomLeftover()
 
         self.chat = ChatPanel(embedded=True)
         layout.addWidget(self.chat, stretch=1)

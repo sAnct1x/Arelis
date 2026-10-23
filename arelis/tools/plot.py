@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any
 from arelis.core.cell_work import resolve_cell_work_file
 from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.paths import display_path, ensure, outputs_dir
-from arelis.rooms import RoomStore
 from arelis.tools.analyze import frame_from_numpy
 from arelis.tools.arg_error import arg_error as _arg_error
 from arelis.tools.base import ToolResult
@@ -907,7 +906,7 @@ class PlotTool:
     def __init__(
         self,
         workspace: WorkspaceRoots,
-        rooms: RoomStore | None = None,
+        rooms: Any = None,
     ) -> None:
         self.workspace = workspace
         self.rooms = rooms

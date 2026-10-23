@@ -20,7 +20,6 @@ from typing import Any
 from arelis.core.document_refs import resolve_reported_output_path
 from arelis.mathtext import display_math_plain, flatten_latex
 from arelis.paths import display_path, ensure, outputs_dir, user_data_dir
-from arelis.rooms import RoomStore
 from arelis.tools.base import ToolResult
 from arelis.workspace import (
     UNSAFE_WINDOWS_PATH_MSG,
@@ -558,7 +557,7 @@ class DocumentTool:
     def __init__(
         self,
         workspace: WorkspaceRoots | None = None,
-        rooms: RoomStore | None = None,
+        rooms: Any = None,
     ) -> None:
         self.workspace = workspace
         self.rooms = rooms

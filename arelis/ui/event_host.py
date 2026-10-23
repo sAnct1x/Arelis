@@ -21,12 +21,9 @@ from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import plain_reason, tool_failure_notice
 from arelis.i18n import tr
 from arelis.local_open import open_local_file, reveal_local_file
+from arelis.desk import DeskStore
 from arelis.paths import display_path
-from arelis.spatial import PHYSICS_ROOM_ID
-from arelis.ui.layout_store import push_recent_workspace_file
-from arelis.ui.panels.workspace import is_workspace_listing, status_for_tool_result
 from arelis.ui.status_copy import WAITING_STATUS, tool_errand
-from arelis.ui.workspace_host import record_artifact, refresh_desk
 from arelis.ui.world_host import should_offer_world
 
 # A spoken reply holds the microphone closed. This is the backstop, sized
@@ -35,6 +32,31 @@ from arelis.ui.world_host import should_offer_world
 SPEECH_WATCHDOG_MS = 45000
 
 log = logging.getLogger(__name__)
+
+
+def record_artifact(
+    window,
+    abs_path: str,
+    *,
+    label: str = "",
+    kind: str = "",
+    source: str = "open",
+    root_name: str = "",
+    pin: bool = False,
+) -> None:
+    store = getattr(window, "desk", None)
+    if not isinstance(store, DeskStore):
+        store = DeskStore()
+        window.desk = store
+    store.record(
+        abs_path,
+        label=label,
+        kind=kind,
+        source=source,
+        root_name=root_name or str(getattr(window.workspace_roots, "active", "") or ""),
+        room_id="",
+        pin=pin,
+    )
 
 
 def _arelis_window_is_active() -> bool:
@@ -421,6 +443,8 @@ def dispatch_event(window: Any, event: Event) -> None:
 
         sync_idle_mode(window)
     elif t == EventType.ROOM_CHANGED:
+        # Leftover from the rooms product. Nothing publishes this now.
+        # spatial.set_room and conversation.room stay so old events do not crash.
         room_id = str(p.get("room_id") or "")
         window.conversation.room.set_room(
             room_id,
@@ -428,16 +452,8 @@ def dispatch_event(window: Any, event: Event) -> None:
             purpose=str(p.get("purpose") or ""),
             root=str(p.get("root") or ""),
         )
-        # The room owns a project, so the dock's switcher has to follow or
-        # the two disagree about where a bare path lands.
-        window.workspace.set_active_project(window.workspace_roots.active)
-        refresh_desk(window)
-        window.camera.set_spatial_available(should_offer_world(room_id))
+        window.camera.set_spatial_available(should_offer_world())
         window.spatial.set_room(room_id)
-        if room_id != PHYSICS_ROOM_ID:
-            window._hide_world()
-        shown = str(p.get("name") or "").strip() or room_id or "general"
-        window.thinking.append(f"room  {shown}", kind="status")
         from arelis.ui.idle_host import sync_idle_mode
 
         sync_idle_mode(window)
@@ -475,8 +491,6 @@ def dispatch_event(window: Any, event: Event) -> None:
                 window.chat.add_system(shown)
         elif "update the phone companion" in text:
             window.chat.add_system(text)
-        if msg.startswith("Active project set to"):
-            window.workspace.set_active_project(window.workspace_roots.active)
         # /role ack: keep the composer pill in sync with the default role.
         role_set = parse_role_set_message(str(msg))
         if role_set:
@@ -685,27 +699,9 @@ def dispatch_event(window: Any, event: Event) -> None:
                 phone=str(data.get("phone") or ""),
             )
         if p.get("tool") in {"workspace", "analyze"}:
-            payload_args = p.get("args") if isinstance(p.get("args"), dict) else {}
-            action = str(
-                payload_args.get("action") or window._workspace_tool_args.get("action") or ""
-            )
             out = str(p.get("output") or "")
-            status = status_for_tool_result(
-                str(p.get("tool") or ""),
-                ok=bool(p.get("ok")),
-                action=action,
-                output=out,
-            )
-            if status:
-                window.workspace.append_output(status)
             if not p.get("ok") and out:
-                # Wrong/empty path used to look like a silent Open no-op, so
-                # the failure still reaches chat. It goes through the copy
-                # boundary first: "Not a file: C:/typo.csv" is the whole
-                # answer and passes through, while analyze's own advice to
-                # the model — "Call vision(path=…) for an image" — does not.
                 window.chat.add_system(tool_failure_notice(str(p.get("tool") or ""), str(out)))
-                window._reveal_dock(window.work_dock, window.act_workspace)
         if p.get("tool") == "workspace" and p.get("ok"):
             payload_args = p.get("args") if isinstance(p.get("args"), dict) else {}
             action = str(
@@ -714,83 +710,28 @@ def dispatch_event(window: Any, event: Event) -> None:
             display = str(data.get("path") or "")
             abs_path = str(data.get("abs_path") or "")
             root_name = str(data.get("root_name") or "")
-            if is_workspace_listing(action, str(p.get("output") or ""), abs_path):
-                window.workspace.browse_to(abs_path, root_name=root_name)
-                window._reveal_dock(window.work_dock, window.act_workspace)
-            elif display:
-                read_from = abs_path or display
-                target = Path(read_from)
-                if target.is_dir():
-                    window.workspace.browse_to(read_from, root_name=root_name)
-                    window._reveal_dock(window.work_dock, window.act_workspace)
-                elif target.is_file():
-                    try:
-                        content = Path(read_from).read_text(encoding="utf-8", errors="replace")
-                        placed = window.workspace.set_file(
-                            display, content, root_name=root_name, abs_path=abs_path
-                        )
-                        if placed:
-                            window.workspace.set_recent(push_recent_workspace_file(display))
-                            if action in {"write", "edit", "keep"}:
-                                record_artifact(
-                                    window,
-                                    str(target),
-                                    label=display,
-                                    source="keep" if action == "keep" else "workspace",
-                                    root_name=root_name,
-                                )
-                                window.workspace.show_desk()
-                        else:
-                            window.chat.add_system(
-                                f"I wrote {display}, but you have unsaved edits open in the "
-                                "editor, so I left them alone. Open the file again to see my "
-                                "version, that replaces what is in the editor."
-                            )
-                        window._reveal_dock(window.work_dock, window.act_workspace)
-                    except Exception as exc:
-                        # The write landed; only the editor refresh did not. Saying
-                        # nothing leaves the same impression the clobber bug did —
-                        # that the file on screen is the file on disk.
-                        window.chat.add_system(
-                            f"I wrote {display}, but could not read it back into the "
-                            f"editor: {plain_reason(exc)}. The version on disk is mine; "
-                            "open the file again to see it."
-                        )
-                        window.thinking.append(f"workspace read-back failed: {exc}", kind="status")
-                else:
-                    # ok=True naming a path that is neither a file nor a
-                    # directory. The editor cannot move, and staying quiet
-                    # reads the same way the clobber bug did: whatever is on
-                    # screen looks like what is on disk.
-                    window.chat.add_system(
-                        f"I reported writing {display}, but could not read it "
-                        "back, nothing is at that path now. Treat the write as "
-                        "failed and check the file before relying on it."
-                    )
-                    window.thinking.append(
-                        f"workspace read-back failed: {read_from} is not on disk",
-                        kind="status",
-                    )
+            target = Path(abs_path or display) if (abs_path or display) else None
+            if target is not None and target.is_file() and action in {"write", "edit", "keep"}:
+                record_artifact(
+                    window,
+                    str(target),
+                    label=display,
+                    source="keep" if action == "keep" else "workspace",
+                    root_name=root_name,
+                )
         if p.get("tool") == "workspace":
             window._workspace_tool_args = {}
-            _show_search_hits(window, p)
-        if p.get("tool") in {"run_script", "run_task"}:
-            _show_run_log(window, p)
     elif t == EventType.IMAGE_READY:
         path = p.get("path")
         if path:
-            window.chat.add_system("Image ready: open in Workspace")
-            window.workspace.show_image(path)
             shown = display_path(str(path))
-            window.workspace.append_output(f"Image ready: {shown}")
+            window.chat.add_system(f"Image ready: {shown}")
             record_artifact(
                 window,
                 str(path),
                 label=shown,
                 source="image",
             )
-            window.workspace.show_desk()
-            window._reveal_dock(window.work_dock, window.act_workspace)
     elif t == EventType.FILE_READY:
         abs_path = str(p.get("abs_path") or p.get("path") or "").strip()
         name = str(p.get("title") or "").strip()
@@ -814,9 +755,6 @@ def dispatch_event(window: Any, event: Event) -> None:
                 kind=kind,
                 source=source,
             )
-            if p.get("show_card", True) or kind == "note":
-                window.workspace.show_desk()
-                window._reveal_dock(window.work_dock, window.act_workspace)
         if abs_path and p.get("open"):
             try:
                 open_local_file(abs_path)
@@ -887,34 +825,6 @@ def dispatch_event(window: Any, event: Event) -> None:
 
 
 def _mirror_pending_work(window, payload: dict) -> None:
-    """The Allow card is the decision. The tile shows the same text."""
-    tool = str(payload.get("tool") or "")
-    if tool not in {"workspace", "run_script", "run_task"}:
-        return
-    detail = str(payload.get("detail") or "").strip()
-    if not detail:
-        return
-    title = str(payload.get("headline") or tool)
-    window.workspace.show_log(title, detail)
-    # The card is hidden on filament. The log is the body of the yes/no.
-    window._reveal_dock(window.work_dock, window.act_workspace, asked=True)
-
-
-def _show_search_hits(window, payload: dict) -> None:
-    if not payload.get("ok"):
-        return
-    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-    hits = data.get("hits")
-    if not isinstance(hits, list) or not hits:
-        return
-    window.workspace.show_search_hits(hits)
-    window._reveal_dock(window.work_dock, window.act_workspace)
-
-
-def _show_run_log(window, payload: dict) -> None:
-    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-    name = str(data.get("name") or data.get("path") or payload.get("tool") or "run")
-    cwd = str(data.get("cwd") or "")
-    title = f"{name}  {cwd}".strip()
-    window.workspace.show_log(title, str(payload.get("output") or ""))
-    window._reveal_dock(window.work_dock, window.act_workspace)
+    """Leftover dock log. The Allow card is still the decision."""
+    del window, payload
+    return

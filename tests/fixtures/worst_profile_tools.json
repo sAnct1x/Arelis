@@ -290,56 +290,6 @@
   {
     "type": "function",
     "function": {
-      "name": "rooms",
-      "description": "list / go to a room. Reality is physics",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "list",
-              "get",
-              "create",
-              "update",
-              "forget"
-            ]
-          },
-          "name": {
-            "type": "string"
-          },
-          "purpose": {
-            "type": "string"
-          },
-          "result": {
-            "type": "string"
-          },
-          "test": {
-            "type": "string"
-          },
-          "root": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "analysis",
-              "code",
-              "general",
-              "research",
-              "writing"
-            ]
-          }
-        },
-        "required": [
-          "action"
-        ]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
       "name": "web_fetch",
       "description": "http(s) APIs / JSON. not pages. method=POST|PUT|PATCH|DELETE + headers/body for a real API; non-GET asks first",
       "parameters": {

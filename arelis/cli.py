@@ -144,7 +144,6 @@ async def run_cli_async(
     VoiceService(bus, _muted(config))
 
     bus_task = asyncio.create_task(bus.run())
-    await orchestrator.resume_last_room()
     # Strong reference: a bare create_task can be collected before it runs.
     router.arm_warmup()
 

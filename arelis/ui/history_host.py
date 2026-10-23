@@ -14,69 +14,25 @@ from arelis.memory.store_sessions import keep_history_row
 
 
 def show_rooms_menu(window, anchor) -> None:
+    """Leftover from the rooms product. Empty menu so filament chips do not crash."""
     menu = build_rooms_menu(window)
     menu.exec(anchor.mapToGlobal(QPoint(0, anchor.height())))
 
 
 def build_rooms_menu(window) -> QMenu:
-    """Places, not panels. Same enter/leave path as typing or saying it."""
+    """Leftover from the rooms product. Reality is not a room."""
     menu = QMenu(window)
     menu.setObjectName("RoomsMenu")
-    store = window.config.get("_rooms")
-    rooms = list(store.all()) if store is not None else []
-    active = ""
-    if store is not None:
-        active = str(getattr(store, "active_id", "") or "")
-    if not active:
-        active = str(getattr(window.conversation.room, "room_id", "") or "")
-
-    from arelis.rooms import PHYSICS_ROOM_ID
-    from arelis.ui.theme import active_theme
-
-    # Filament has its own Reality particle. The list is future rooms.
-    if active_theme() == "filament":
-        rooms = [room for room in rooms if room.id != PHYSICS_ROOM_ID]
-
-    if not rooms:
-        empty = QAction("no rooms yet", window)
-        empty.setEnabled(False)
-        menu.addAction(empty)
-    else:
-        busy = window._turn_busy
-        for room in rooms:
-            act = QAction(room.name or room.id, window)
-            act.setCheckable(True)
-            act.setChecked(room.id == active)
-            act.setEnabled(not busy)
-            if busy:
-                act.setToolTip("Finish or stop the current turn first.")
-            elif room.purpose:
-                act.setToolTip(room.purpose)
-            act.triggered.connect(
-                lambda _checked=False, rid=room.id: enter_room_from_menu(window, rid)
-            )
-            menu.addAction(act)
-    menu.addSeparator()
-    leave = QAction("leave", window)
-    leave.setEnabled(bool(active) and not window._turn_busy)
-    leave.triggered.connect(lambda: leave_room(window))
-    menu.addAction(leave)
+    empty = QAction("no rooms", window)
+    empty.setEnabled(False)
+    menu.addAction(empty)
     return menu
 
 
 def enter_room_from_menu(window, room_id: str) -> None:
-    if not room_id:
-        return
-    if window._turn_busy:
-        toast_finish_or_stop(
-            window,
-            "Finish or stop the current turn before switching rooms.",
-        )
-        return
-    asyncio.run_coroutine_threadsafe(
-        window.bus.publish(Event(EventType.USER_MESSAGE, {"text": f"/room {room_id}"})),
-        window.loop,
-    )
+    """Leftover from the rooms product. /room is gone."""
+    del window, room_id
+    return
 
 
 def refresh_history(window) -> None:
@@ -233,22 +189,9 @@ def request_session_load(window, session_id: str) -> None:
 
 
 def leave_room(window) -> None:
-    """The strip's leave button, routed through the same command as typing.
-
-    Publishing the command rather than reaching for the orchestrator keeps
-    the window free of a reference to it, the way session loads already do,
-    and means both routes out of a room share one implementation.
-    """
-    if window._turn_busy:
-        toast_finish_or_stop(
-            window,
-            "Finish or stop the current turn before leaving the room.",
-        )
-        return
-    asyncio.run_coroutine_threadsafe(
-        window.bus.publish(Event(EventType.USER_MESSAGE, {"text": "/leave"})),
-        window.loop,
-    )
+    """Leftover from the rooms product. /leave is gone."""
+    del window
+    return
 
 
 def bind_history_pins(window) -> None:
