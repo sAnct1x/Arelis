@@ -39,6 +39,11 @@ from arelis.ui.theme import SPACE
 log = logging.getLogger(__name__)
 
 
+def _choice_label(model: CatalogModel) -> str:
+    """Picker line from the catalog title and size. Never the file name."""
+    return f"{model.title}  ·  {model.download_gb:g} GB"
+
+
 class _ProbeWorker(QThread):
     finished_with = Signal(object)
 
@@ -174,7 +179,7 @@ class ModelSetupDialog(GlassDialog):
         self._group.setExclusive(True)
         self._radios: dict[str, QRadioButton] = {}
         for model in CATALOG:
-            row = QRadioButton(f"{model.title}  ·  {model.download_gb:g} GB")
+            row = QRadioButton(_choice_label(model))
             row.setObjectName("SetupChoice")
             row.setToolTip(model.summary)
             self._group.addButton(row)
@@ -348,7 +353,7 @@ class ModelSetupDialog(GlassDialog):
         if isinstance(snap, HardwareSnapshot):
             self._hardware = snap
         self._picked = recommend(self._hardware)
-        self._rec_title.setText(f"Recommended: {self._picked.title}")
+        self._rec_title.setText(self._picked.title)
         self._rec_why.setText(why(self._picked, self._hardware))
         need = disk_needed_gb(self._picked)
         free = self._hardware.disk_free_gb
