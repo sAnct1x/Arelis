@@ -563,6 +563,28 @@ def _with_round_gap(previous: str, incoming: str) -> str:
     return "\n\n" + body
 
 
+def _final_from_painted_draft(final: str, streamed: str, painted: str) -> str:
+    """Join a kept multi-round draft with the last-round finish text.
+
+    ``streamed`` is this round's publish. ``painted`` is the whole draft
+    still on screen. Last-round ``final`` is often only the tail, so the
+    terminal event used to replace the kept steps with that wrap-up.
+    A replacement path passes empty streamed and is left alone.
+    """
+    already = streamed.strip()
+    draft = painted.strip()
+    if not already or not draft or not draft.endswith(already):
+        return final
+    if final.startswith(draft):
+        return final
+    head = draft[: len(draft) - len(already)]
+    if final.startswith(already):
+        return f"{head}{final}".strip()
+    if draft.endswith(final.strip()):
+        return draft
+    return f"{head}{final}".strip()
+
+
 class _LiveAnswer:
     """Decides which part of a model stream is safe to paint into the chat now.
 
@@ -2069,9 +2091,17 @@ class AgentLoop:
         self.memory.add("assistant", final, note=note)
 
         # Usually the answer was already streamed and only the appended Sources
-        # list is still owed. When the text changed under us, for example
-        # because a {"final": ...} payload replaced it, retract and resend.
-        already = streamed.strip()
+        # list is still owed. A kept draft from an earlier round is part of
+        # that answer. When the text changed under us, for example because a
+        # {"final": ...} payload replaced it, retract and resend.
+        final = _final_from_painted_draft(
+            final, streamed, str(getattr(self, "_painted", "") or "")
+        )
+        already = (
+            str(getattr(self, "_painted", "") or "").strip() or streamed.strip()
+            if streamed.strip()
+            else ""
+        )
         if already and final.startswith(already):
             remainder = final[len(already) :]
             if remainder.strip():

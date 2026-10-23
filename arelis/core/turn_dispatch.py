@@ -183,11 +183,18 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
     """
     # Native calls leave the draft up. A call parsed out of the text
     # (the parser sets from_text) is the markup, or the prose in front
-    # of it, and only a leading "{" or fence was held back. Retract that.
-    # _finish still retracts when a kept draft is not the final answer.
+    # of it, and only a leading "{" or fence was held back. Retract that
+    # and put the withdrawn text in thinking. A kept native draft stays
+    # in the bubble; copying it here mixed the answer into thinking.
     # Speech for a kept draft is cancelled when the tool starts.
     if r.calls_from_text and r.streamed.strip():
         await loop._retract()
+        await loop.bus.publish(
+            Event(
+                EventType.THINKING,
+                {"text": f"preamble  {r.streamed.strip()[:_MAX_THINKING_SNIPPET]}"},
+            )
+        )
     if loop._timer is not None:
         loop._timer.mark(
             "round",
@@ -195,13 +202,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             ms=r.round_ms,
             kind="tools",
             calls=len(r.calls),
-        )
-    if r.streamed.strip():
-        await loop.bus.publish(
-            Event(
-                EventType.THINKING,
-                {"text": f"preamble  {r.streamed.strip()[:_MAX_THINKING_SNIPPET]}"},
-            )
         )
 
     # Record the model's turn before the results, so the transcript
