@@ -274,6 +274,7 @@ class WeatherTool:
                 "place": label,
                 "latitude": lat,
                 "longitude": lon,
+                "reply": forecast_reply(label, data),
             },
         )
 
@@ -725,6 +726,39 @@ def forecast_sentence(label: str, data: dict[str, Any]) -> str:
     if not later:
         return line
     return line + "\n" + "\n".join(later)
+
+
+def forecast_reply(label: str, data: dict[str, Any]) -> str:
+    """Spoken forecast. Same facts as forecast_sentence, for a person."""
+    current = data.get("current") or {}
+    daily = data.get("daily") or []
+    if not isinstance(daily, list):
+        daily = []
+    today = daily[0] if daily else {}
+    temp = _whole(current.get("temperature_2m"))
+    high = _whole(today.get("temperature_2m_max"))
+    low = _whole(today.get("temperature_2m_min"))
+    if not label or not temp or not high or not low:
+        return ""
+    condition = describe_weather_code(current.get("weather_code")) or "unknown"
+    bits = [
+        f"It's {temp}°F and {condition} in {label}.",
+        f"High {high}°F, low {low}°F.",
+    ]
+    for offset, row in enumerate(daily[1:_FORECAST_DAYS], start=1):
+        if not isinstance(row, dict):
+            continue
+        day_high = _whole(row.get("temperature_2m_max"))
+        day_low = _whole(row.get("temperature_2m_min"))
+        if not day_high or not day_low:
+            continue
+        day = _forecast_day_label(row.get("date"), offset)
+        day_cond = describe_weather_code(row.get("weather_code"))
+        if day_cond:
+            bits.append(f"{day} is {day_cond}, high {day_high}°F, low {day_low}°F.")
+        else:
+            bits.append(f"{day} is high {day_high}°F, low {day_low}°F.")
+    return " ".join(bits)
 
 
 def place_query_for_geocode(name: str) -> str:

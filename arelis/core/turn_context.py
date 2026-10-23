@@ -123,6 +123,7 @@ class TurnContext:
     memory_nudge_used: int = 0
     last_ok_tool_out: str = ""
     last_ok_tool_name: str = ""
+    last_ok_tool_data: dict[str, Any] = field(default_factory=dict)
     last_fail_tool_name: str = ""
     last_fail_tool_out: str = ""
     # Copied from a python ToolResult data field. Empty unless that result

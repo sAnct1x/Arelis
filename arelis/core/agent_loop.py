@@ -286,11 +286,16 @@ def _is_tool_object_400(exc: BaseException) -> bool:
     return "http 400" in text or "closing '}'" in text
 
 
-def _tool_followup_fallback(out: str, tool: str = "", ask: str = "") -> str:
+def _tool_followup_fallback(
+    out: str,
+    tool: str = "",
+    ask: str = "",
+    data: dict[str, Any] | None = None,
+) -> str:
     """Use the last successful tool output when the model cannot phrase it."""
     from arelis.core.failure_copy import chat_followup_from_tool
 
-    return chat_followup_from_tool(tool, out, ask=ask)
+    return chat_followup_from_tool(tool, out, ask=ask, data=data)
 
 # One extra round when the model tries to answer news from search snippets alone.
 _SCRAPE_AFTER_SEARCH_NOTICE = (

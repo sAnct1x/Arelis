@@ -220,3 +220,68 @@ async def test_mars_age_is_not_called_a_planet_year() -> None:
     assert "19.45" in line or "19.5" in line or "19" in line
 
 
+# Spoken forecast from the real weather tool. The colon dump is for the
+# model. Empty-after-tool and a dump echo both ship this sentence.
+_SPOKEN_SPRINGFIELD = (
+    "It's 61\u00b0F and overcast in Springfield, Illinois. "
+    "High 66\u00b0F, low 48\u00b0F. "
+    "Tomorrow is clear, high 70\u00b0F, low 52\u00b0F. "
+    "Saturday is light rain, high 64\u00b0F, low 49\u00b0F. "
+    "Sunday is partly cloudy, high 62\u00b0F, low 46\u00b0F."
+)
+
+
+@pytest.mark.asyncio
+async def test_weather_empty_or_echoed_is_a_spoken_sentence() -> None:
+    """Empty or echoed weather dump ships the spoken forecast, not the colon line."""
+    from arelis.core.agent_loop import _WRITE_AFTER_TOOL_NOTICE
+    from arelis.voice.speech_text import prepare_spoken_text
+    from tests.test_weather_tool import _IL, _Standins, _few_days
+
+    stand = _Standins([_IL])
+    stand.reading = _few_days()
+    primed = await stand.tool().run(place="Springfield, Illinois")
+    assert primed.ok, primed.output
+    dump = str(primed.output or "")
+    reply = str((primed.data or {}).get("reply") or "")
+    assert dump.startswith("Springfield, Illinois:")
+    assert reply == _SPOKEN_SPRINGFIELD
+    assert dump != reply
+
+    call = {
+        "type": "function",
+        "function": {
+            "name": "weather",
+            "arguments": {"place": "Springfield, Illinois"},
+        },
+    }
+    ask = "what's the weather in Springfield, Illinois?"
+
+    async def _ship(second: list[tuple[str, Any]]) -> None:
+        router = _RecordingRouter([[("tool_calls", [call])], second])
+        bus, loop = _loop(router, stand.tool())
+        events = await _collect(bus, loop.run(ask, "fast"))
+        done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+        text = str(done.payload.get("text") or "").strip()
+        assert text == _SPOKEN_SPRINGFIELD
+        assert dump not in text
+        assert "Springfield, Illinois:" not in text
+        thinking = [
+            str(e.payload.get("text") or "")
+            for e in events
+            if e.type == EventType.THINKING
+        ]
+        assert not any("asking for a write-up" in line for line in thinking)
+        assert len(router.stream_kwargs) == 2
+        for msgs in router.stream_messages:
+            assert not any(
+                item.get("content") == _WRITE_AFTER_TOOL_NOTICE for item in msgs
+            )
+        heard = prepare_spoken_text(text)
+        assert "degrees Fahrenheit" in heard
+        assert "\u00b0" not in heard
+
+    await _ship([("token", "")])
+    await _ship([("token", dump)])
+
+

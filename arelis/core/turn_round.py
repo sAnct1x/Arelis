@@ -479,6 +479,7 @@ async def apply_no_call_path(
                     ctx.last_ok_tool_out,
                     ctx.last_ok_tool_name,
                     ask=ctx.text,
+                    data=ctx.last_ok_tool_data,
                 )
                 raw = (ctx.last_ok_tool_out or "").strip()
                 # Weather / short agenda / price lines already are the answer.
@@ -490,6 +491,13 @@ async def apply_no_call_path(
                         or (raw and line.strip() in raw)
                     )
                 )
+                # Spoken weather is the answer. The dump is not.
+                if (
+                    ctx.last_ok_tool_name == "weather"
+                    and line.strip()
+                    and line.strip() != raw
+                ):
+                    already_plain = True
                 # A status line that happens to be a sentence is still the
                 # tool's text. Ask for a written reply instead of shipping it.
                 if answer_is_raw_tool_line(ctx.last_ok_tool_name, line, raw):

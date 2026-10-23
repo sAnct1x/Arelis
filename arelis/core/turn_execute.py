@@ -335,6 +335,7 @@ async def execute_call(
             record_same_call(ctx.same_ok, name, args)
             ctx.last_ok_tool_out = str(result.output or "")
             ctx.last_ok_tool_name = name
+            ctx.last_ok_tool_data = dict(data_dict) if isinstance(data_dict, dict) else {}
             if name == "doc_extract" and isinstance(data_dict, dict):
                 images = data_dict.get("page_images") or []
                 if str(data_dict.get("source") or "") == "ink" and images:
