@@ -45,6 +45,7 @@ def run_calendar(window, coro, *, ok_status: str = "google · just now") -> None
             return
         window.calendar.reload()
         window.calendar.set_status(ok_status)
+        _offer_sign_in_if_google_disconnected(window)
 
     fut.add_done_callback(lambda _f: window._ui_call.emit(done))
 
@@ -62,6 +63,10 @@ def kick_calendar_sync(window) -> None:
     if not secrets.any_authorized():
         if secrets.google and secrets.google.configured:
             window.calendar.set_status("sign in")
+            _offer_calendar_sign_in(
+                window,
+                "Google Calendar not authorized. Sign in on the calendar tile.",
+            )
         elif secrets.outlook and secrets.outlook.configured:
             window.calendar.set_status("sign in")
         else:
@@ -125,6 +130,17 @@ def kick_calendar_sync(window) -> None:
     fut.add_done_callback(lambda _f: window._ui_call.emit(done))
 
 
+def _offer_sign_in_if_google_disconnected(window) -> None:
+    from arelis.calendar.secrets import load_calendar_secrets
+
+    secrets = load_calendar_secrets()
+    if secrets.google and secrets.google.configured and not secrets.google.authorized:
+        _offer_calendar_sign_in(
+            window,
+            "Google Calendar not authorized. Sign in on the calendar tile.",
+        )
+
+
 def _offer_calendar_sign_in(window, detail: str) -> None:
     from arelis.calendar.auth import is_reauth_error
 
@@ -159,6 +175,7 @@ def kick_calendar_auth(window, provider: str = "") -> None:
     window.calendar.set_status("sign in…")
     if not window.loop.is_running():
         window._calendar_auth_inflight = False
+        window._calendar_auth_offered = False
         window.calendar.set_sign_in_busy(False)
         window.calendar.set_status("sign in failed", failed=True)
         return
@@ -177,6 +194,7 @@ def kick_calendar_auth(window, provider: str = "") -> None:
             try:
                 result = fut.result()
             except Exception as exc:
+                window._calendar_auth_offered = False
                 window.calendar.set_status("sign in failed", failed=True)
                 from arelis.ui.notify_host import report_poll_state
 
@@ -191,6 +209,7 @@ def kick_calendar_auth(window, provider: str = "") -> None:
                 window.calendar.set_status("signed in")
                 kick_calendar_sync(window)
                 return
+            window._calendar_auth_offered = False
             window.calendar.set_status("sign in failed", failed=True)
             from arelis.ui.notify_host import report_poll_state
 
