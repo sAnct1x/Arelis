@@ -45,10 +45,10 @@ def _init_repo(path: Path, message: str) -> None:
     _git(path, "commit", "-q", "-m", message)
 
 
-def _registry(tmp_path: Path, profile: Path):
+def _registry(tmp_path: Path, profile: Path, *, location_enabled: bool = False):
     config = {
         "location": {
-            "enabled": False,
+            "enabled": location_enabled,
             "profile_path": str(profile),
             "use_system": False,
             "network": {"enabled": False},
@@ -87,7 +87,7 @@ def test_saved_place_still_answers_with_the_profile_city(tmp_path: Path) -> None
         "location:\n  city: Springfield\n  region: Illinois\n  country: US\n",
         encoding="utf-8",
     )
-    registry = _registry(tmp_path, profile)
+    registry = _registry(tmp_path, profile, location_enabled=True)
     result = asyncio.run(registry.get("user_location").run())
     assert result.ok
     assert "Springfield" in result.output

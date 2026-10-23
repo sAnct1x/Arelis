@@ -454,9 +454,9 @@ def build_tool_registry(
             )
         )
     # location.enabled false skips the prompt line (config["_location"] stays
-    # unset). It must not hide the forecast for a named city, or the saved
-    # profile city when someone asks what place is on file. Network lookup
-    # stays off unless location.network.enabled is set.
+    # unset). The location tool then says location is off and shares no
+    # place, country, or time zone. A named-city forecast still works.
+    # Network lookup stays off unless location.network.enabled is set.
     loc = config.get("_location")
     if loc is None:
         loc = build_location(config)
