@@ -403,8 +403,9 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     assert "calculator" not in text.lower()
 
     # Two asked writes, one card at a time. A no on notes.txt used to end
-    # the turn, so todo.txt was never asked about. Skip that step, name
-    # it, and still run the other file.
+    # the turn, so chores.txt was never asked about. Skip that step, name
+    # it, and still run the other file. chores.txt, not todo.txt: TODO is
+    # a placeholder token and never reaches a card.
     notes_line = "I didn't save notes.txt because you said no."
     two = _WorkspaceStub()
     cards: list[str] = []
@@ -435,12 +436,12 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
                     "workspace",
                     {
                         "action": "write",
-                        "path": "todo.txt",
+                        "path": "chores.txt",
                         "content": "milk\n",
                     },
                 )
             ],
-            [("token", "Saved todo.txt.")],
+            [("token", "Saved chores.txt.")],
         ]
     )
     two_bus = EventBus()
@@ -448,14 +449,45 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     two_loop.bus = two_bus
     two_events = await _collect(
         two_bus,
-        two_loop.run("Save notes.txt and todo.txt.", "fast"),
+        two_loop.run("Save notes.txt and chores.txt.", "fast"),
     )
     two_text = str(_done(two_events)["text"])
-    assert cards == ["notes.txt", "todo.txt"]
-    assert two.written == ["todo.txt"]
+    assert cards == ["notes.txt", "chores.txt"]
+    assert two.written == ["chores.txt"]
     assert two.runs == 1
     assert notes_line in two_text
-    assert "todo.txt" in two_text
+    assert "chores.txt" in two_text
+
+    # A lone decline with no later call must still ship the skip sentence,
+    # not the next model line. This ask has no math, so exactness refuse
+    # is not the thing that names it.
+    lone = _WorkspaceStub()
+    lone_router = _ScriptedRouter(
+        [
+            [
+                _call(
+                    "workspace",
+                    {
+                        "action": "write",
+                        "path": "notes.txt",
+                        "content": "errands\n",
+                    },
+                )
+            ],
+            [("token", "SHOULD NOT SHIP")],
+        ]
+    )
+    lone_bus = EventBus()
+    lone_loop = _loop(lone_router, lone, confirm=_skip)
+    lone_loop.bus = lone_bus
+    lone_events = await _collect(
+        lone_bus,
+        lone_loop.run("Save notes.txt.", "fast"),
+    )
+    lone_text = str(_done(lone_events)["text"]).strip()
+    assert lone.runs == 0
+    assert lone_text == notes_line
+    assert "SHOULD NOT SHIP" not in lone_text
 
 
 @pytest.mark.asyncio
