@@ -912,6 +912,107 @@ def _resolved_image_file(row: dict[str, Any]) -> Path | None:
     return None
 
 
+_SEE_TOOLS = frozenset({"vision", "ocr"})
+_PIXEL_NOTE = "picture attached for you to see directly"
+_PIXEL_RULE = (
+    "Images: the picture is attached for you to see directly. "
+    "Do not call vision or ocr."
+)
+_PIXEL_HEADER = (
+    "Attachments for this turn (the picture is attached for you to see directly):"
+)
+_CALL_LISTED_TOOLS = (
+    "Call the listed tool(s); do not invent file contents and do not "
+    "reset into a generic greeting."
+)
+_PIXEL_CONTINUE = "The picture is attached for you to see directly."
+
+
+def _row_attach_path(row: dict[str, Any]) -> str:
+    return str(row.get("path") or "").strip()
+
+
+def _pixel_attach_line(row: dict[str, Any]) -> str:
+    path = _row_attach_path(row)
+    kind = str(row.get("kind") or "image").strip() or "image"
+    source = str(row.get("source_path") or "").strip()
+    extra = f" source={source}" if source else ""
+    return f"- {path} ({kind}){extra} : {_PIXEL_NOTE}"
+
+
+def _replace_see_rule(line: str) -> str:
+    """Swap the vision/ocr Images rule for the direct-see note."""
+    if not line.startswith("Rules:"):
+        return line
+    for prefix in ("Images: call vision", "Images: call ocr"):
+        start = line.find(prefix)
+        if start < 0:
+            continue
+        rest = line[start:]
+        cut = len(rest)
+        for marker in (" PDFs:", " Tables:", " Text/", " Email ask:"):
+            idx = rest.find(marker)
+            if 0 <= idx < cut:
+                cut = idx
+        return line[:start] + _PIXEL_RULE + rest[cut:]
+    return line
+
+
+def _rewrite_text_for_pixels(text: str, encoded_rows: list[dict[str, Any]]) -> str:
+    """Drop vision/ocr hints for images that were encoded as pixels.
+
+    Encode success is the only switch. Ask routing still decides whether
+    the hint on that image was vision/ocr (image_edit and restyle stay).
+    """
+    if not text or not encoded_rows:
+        return text
+    _block, ask = split_attachments_turn(text)
+    if route_tool("image", ask) not in _SEE_TOOLS:
+        return text
+    encoded_paths = {_row_attach_path(row) for row in encoded_rows}
+    encoded_paths.discard("")
+    if not encoded_paths:
+        return text
+    by_path = {_row_attach_path(row): row for row in encoded_rows if _row_attach_path(row)}
+    image_paths = [
+        str(row.get("path") or "").strip()
+        for row in parse_attachments_from_turn(text)
+        if row.get("kind") == "image"
+    ]
+    kinds = attachment_kinds_from_turn(text)
+    new_lines: list[str] = []
+    rewrote_any = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        matched = False
+        for path, row in by_path.items():
+            if stripped.startswith(f"- {path} ("):
+                new_lines.append(_pixel_attach_line(row))
+                rewrote_any = True
+                matched = True
+                break
+        if not matched:
+            new_lines.append(line)
+    if not rewrote_any:
+        return text
+    all_see_encoded = bool(image_paths) and all(
+        path in encoded_paths for path in image_paths if path
+    )
+    if all_see_encoded:
+        new_lines = [_replace_see_rule(line) for line in new_lines]
+        if not (kinds - {"image"}):
+            new_lines = [
+                _PIXEL_HEADER
+                if line.startswith("Attachments for this turn (call the listed tool")
+                else line
+                for line in new_lines
+            ]
+        new_lines = [
+            line.replace(_CALL_LISTED_TOOLS, _PIXEL_CONTINUE) for line in new_lines
+        ]
+    return "\n".join(new_lines)
+
+
 def user_content_with_images(
     text: str,
     attachments: Any = None,
@@ -919,6 +1020,7 @@ def user_content_with_images(
     """User line for llama.cpp. Readable attached pictures become image parts.
 
     A turn with no image files on disk stays a string, same as before.
+    Images that encoded as pixels drop their vision/ocr tool hint.
     """
     rows = _image_attachment_rows(attachments, text)
     if not rows:
@@ -927,6 +1029,7 @@ def user_content_with_images(
     from arelis.tools.image_io import CHAT_MAX_EDGE, encode_for_vision
 
     parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    encoded_rows: list[dict[str, Any]] = []
     for row in rows:
         path = _resolved_image_file(row)
         if path is None:
@@ -937,8 +1040,10 @@ def user_content_with_images(
             continue
         if payload:
             parts.append(_image_part(payload))
+            encoded_rows.append(row)
     if len(parts) == 1:
         return text
+    parts[0]["text"] = _rewrite_text_for_pixels(text, encoded_rows)
     return parts
 
 

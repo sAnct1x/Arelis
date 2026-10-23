@@ -111,4 +111,10 @@ async def test_attached_image_is_image_part_in_llamacpp_request(
     assert "base64," in url
     text_parts = [part for part in content if isinstance(part, dict) and part.get("type") == "text"]
     assert text_parts
-    assert _ASK in str(text_parts[0].get("text") or "")
+    body = str(text_parts[0].get("text") or "")
+    assert _ASK in body
+    assert "Images: call vision" not in body
+    assert "Images: call ocr" not in body
+    assert "→ vision" not in body
+    assert "→ ocr" not in body
+    assert "picture attached for you to see directly" in body
