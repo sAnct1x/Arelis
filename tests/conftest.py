@@ -314,3 +314,6 @@ def _stop_persona_bakes():
     for widget in QApplication.allWidgets():
         if isinstance(widget, avatar_mod.PersonaAvatar):
             widget.shutdown()
+    from arelis.ui.live_threads import drain_parked_threads
+
+    drain_parked_threads()

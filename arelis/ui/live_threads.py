@@ -138,12 +138,10 @@ def drain_parked_threads(timeout_s: float = HANDED_OFF_WAIT_S) -> None:
         except RuntimeError:
             continue
 
-    while _PARKED and time.monotonic() < deadline:
-        app = QApplication.instance()
-        if app is None:
-            break
-        try:
-            app.processEvents()
-        except RuntimeError:
-            break
-        time.sleep(0.01)
+    app = QApplication.instance()
+    if app is None:
+        return
+    try:
+        app.processEvents()
+    except RuntimeError:
+        return

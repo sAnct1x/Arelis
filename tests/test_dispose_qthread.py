@@ -7,14 +7,16 @@ keep a worker blocked across that drain.
 
 from __future__ import annotations
 
-import inspect
 import threading
+import time
+from types import SimpleNamespace
 
+import pytest
 import shiboken6
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QThread
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
-from arelis.ui.live_threads import HANDED_OFF_WAIT_S, drain_parked_threads, quiesce_widget_threads
+from arelis.ui.live_threads import quiesce_widget_threads
 
 
 def test_fixture_dispose_survives_a_blocked_child_thread(qt_app) -> None:
@@ -68,61 +70,32 @@ def test_quiesce_unparents_a_blocked_thread_before_deferred_delete(qt_app) -> No
         worker.wait(2000)
 
 
-def test_run_ui_exits_drain_handed_off_threads(qt_app, monkeypatch) -> None:
-    """Every run_ui exit waits out parked QThreads, including setup-not-finished.
+def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
+    """Tray Quit while the parentless bake worker is in run() must join it.
 
-    That return is before app.exec(), so aboutToQuit never fires. The drain
-    bound must beat the 5s download connect timeout. Drop either call site
-    or shrink the wait to 4s or under, and this fails.
+    aboutToQuit parks the baker. Each run_ui exit then drain_parked_threads
+    wait()s it. A no-op wait, a skipped park, or a skipped drain leaves it
+    running. Isolate QT_QPA_PLATFORM so Windows does not leak into the next
+    test.
     """
     import arelis.ui.live_threads as live
     from arelis.ui import launch as launch_mod
+    from arelis.ui.persona_face.avatar import PersonaAvatar
 
-    assert HANDED_OFF_WAIT_S > 5.0
-    assert drain_parked_threads.__defaults__ == (HANDED_OFF_WAIT_S,)
-    src = inspect.getsource(launch_mod.run_ui)
-    notice_at = src.index("Setup is not finished")
-    return_at = src.index("return 1", notice_at)
-    assert "drain_parked_threads" in src[notice_at:return_at]
-    failed_at = src.index("Arelis window failed to start")
-    raise_at = src.index("\n        raise", failed_at)
-    assert "drain_parked_threads" in src[failed_at:raise_at]
-    finally_at = src.rindex("finally:")
-    assert "drain_parked_threads" in src[finally_at:]
-    assert ".wait(" in inspect.getsource(live.drain_parked_threads)
+    monkeypatch.setenv("ARELIS_ALLOW_OFFSCREEN", "1")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
 
     started = threading.Event()
-    release = threading.Event()
 
-    class Worker(QThread):
-        def run(self) -> None:
-            started.set()
-            release.wait(timeout=8)
+    def fake_bake(size: object, cancel: object = None, publish: object = None) -> dict:
+        started.set()
+        time.sleep(3.2)
+        return {}
 
-    worker = Worker()
-    calls: list[float] = []
-    real = live.drain_parked_threads
-
-    def spy(timeout_s: float = HANDED_OFF_WAIT_S) -> None:
-        calls.append(float(timeout_s))
-        real(0.05)
-        release.set()
-
-    monkeypatch.setattr(live, "drain_parked_threads", spy)
-    monkeypatch.setattr(launch_mod, "prompt_for_workspace_root", lambda: None)
-    monkeypatch.setattr(launch_mod, "try_quiet_complete_model_setup", lambda: None)
-    monkeypatch.setattr(launch_mod, "needs_model_setup", lambda: True)
-    monkeypatch.setattr(launch_mod, "first_run_blocks_main", lambda: True)
-
-    def fake_setup(parent: object | None = None) -> None:
-        del parent
-        worker.start()
-        assert started.wait(2)
-        live.park_running_thread(worker)
-        return None
-
-    monkeypatch.setattr(launch_mod, "prompt_for_model_setup", fake_setup)
-    monkeypatch.setattr("arelis.ui.dialog.notice", lambda *a, **k: None)
+    monkeypatch.setattr("arelis.ui.persona_face.avatar.bake_layers", fake_bake)
+    monkeypatch.setattr(
+        "arelis.ui.persona_face.avatar.face_cache.load_layers", lambda *_a, **_k: None
+    )
 
     class _Lock:
         def acquire(self) -> bool:
@@ -138,14 +111,138 @@ def test_run_ui_exits_drain_handed_off_threads(qt_app, monkeypatch) -> None:
     monkeypatch.setattr(
         "arelis.jobs.schedule.repoint_moved_tasks_on_launch", lambda: None
     )
+    monkeypatch.setattr("arelis.ui.dialog.notice", lambda *_a, **_k: None)
 
+    real_drain = live.drain_parked_threads
+    drain_calls: list[str] = []
+
+    def spy_drain(timeout_s: float = live.HANDED_OFF_WAIT_S) -> None:
+        drain_calls.append(f"{timeout_s:g}")
+        real_drain(timeout_s)
+
+    monkeypatch.setattr(live, "drain_parked_threads", spy_drain)
+
+    def start_baker() -> tuple[PersonaAvatar, QThread]:
+        started.clear()
+        avatar = PersonaAvatar()
+        avatar.resize(220, 300)
+        avatar.show()
+        qt_app.processEvents()
+        avatar._start_bake()
+        assert started.wait(2)
+        baker = avatar._baker
+        assert baker is not None and baker.isRunning()
+        return avatar, baker
+
+    def quit_parks(avatar: PersonaAvatar) -> None:
+        qt_app.aboutToQuit.emit()
+        assert avatar._baker is None
+
+    avatars: list[PersonaAvatar] = []
     try:
-        code = launch_mod.run_ui({})
-        assert code == 1
-        assert calls, "Setup is not finished returned without drain_parked_threads"
-        assert all(timeout > 5.0 for timeout in calls)
-        assert worker.wait(2000)
-        assert not worker.isRunning()
+        avatar, baker = start_baker()
+        avatars.append(avatar)
+        quit_parks(avatar)
+        monkeypatch.setattr(launch_mod, "prompt_for_workspace_root", lambda: None)
+        monkeypatch.setattr(launch_mod, "try_quiet_complete_model_setup", lambda: None)
+        monkeypatch.setattr(launch_mod, "needs_model_setup", lambda: True)
+        monkeypatch.setattr(launch_mod, "first_run_blocks_main", lambda: True)
+        monkeypatch.setattr(launch_mod, "prompt_for_model_setup", lambda parent=None: None)
+        before = len(drain_calls)
+        assert launch_mod.run_ui({}) == 1
+        assert len(drain_calls) > before
+        assert float(drain_calls[-1]) > 5.0
+        assert not baker.isRunning()
+
+        class BoomWindow:
+            def __init__(self, *_a: object, **_k: object) -> None:
+                raise RuntimeError("window failed")
+
+        class _Router:
+            provider = None
+
+            def arm_warmup(self) -> None:
+                return None
+
+            def mark_warmup_done(self) -> None:
+                return None
+
+            async def close(self) -> None:
+                return None
+
+        async def _resume_last_room() -> None:
+            return None
+
+        fake_seat = SimpleNamespace(
+            router=_Router(),
+            store=None,
+            tools={},
+            orchestrator=SimpleNamespace(resume_last_room=_resume_last_room),
+        )
+        monkeypatch.setattr(launch_mod, "apply_first_run_glass", lambda *_a, **_k: {})
+        monkeypatch.setattr("arelis.core.seat.build_seat", lambda *_a, **_k: fake_seat)
+        monkeypatch.setattr(launch_mod, "VoiceService", lambda *_a, **_k: SimpleNamespace(stt=None))
+        monkeypatch.setattr(
+            launch_mod,
+            "MemoryIndexer",
+            lambda *_a, **_k: SimpleNamespace(join_writes=lambda timeout_s=0: None),
+        )
+        monkeypatch.setattr("arelis.ui.app.ArelisWindow", BoomWindow)
+
+        avatar, baker = start_baker()
+        avatars.append(avatar)
+        quit_parks(avatar)
+        before = len(drain_calls)
+        with pytest.raises(RuntimeError, match="window failed"):
+            launch_mod.run_ui({})
+        assert len(drain_calls) > before
+        assert float(drain_calls[-1]) > 5.0
+        assert not baker.isRunning()
+
+        class QuietWindow(QWidget):
+            def __init__(self, *_a: object, **_k: object) -> None:
+                super().__init__()
+                self._force_quit = True
+                self.orchestrator = fake_seat.orchestrator
+                self.inbound_runtime = None
+                self.ipc_client = None
+                self.ipc_server = None
+                self._pending_store = SimpleNamespace(list=lambda: [])
+                self._orphan_ingest_stop = None
+                self.sms_ingest = None
+                self.sms_watcher = None
+                self.sms_auto_reply = None
+                self.config = {}
+
+            def setup_tray(self, app: object) -> None:
+                del app
+
+            def queue_pending_confirms(self, parked: object) -> None:
+                del parked
+
+        monkeypatch.setattr("arelis.ui.app.ArelisWindow", QuietWindow)
+        monkeypatch.setattr(QApplication, "exec", lambda self: 0)
+        monkeypatch.setattr("arelis.i18n.apply_language", lambda *_a, **_k: None)
+        monkeypatch.setattr(launch_mod, "_present_at_startup", lambda window: None)
+        monkeypatch.setattr(
+            "arelis.ui.update_prompt.schedule_update_check", lambda *_a, **_k: None
+        )
+        monkeypatch.setattr(
+            launch_mod, "_start_activation_listener", lambda *_a, **_k: None
+        )
+        monkeypatch.setattr(
+            "arelis.presence.glass_inbound.install_owned_inbound", lambda *_a, **_k: None
+        )
+
+        avatar, baker = start_baker()
+        avatars.append(avatar)
+        quit_parks(avatar)
+        before = len(drain_calls)
+        assert launch_mod.run_ui({}) == 0
+        assert len(drain_calls) > before
+        assert float(drain_calls[-1]) > 5.0
+        assert not baker.isRunning()
     finally:
-        release.set()
-        worker.wait(2000)
+        for avatar in avatars:
+            avatar.shutdown()
+        real_drain(0.05)
