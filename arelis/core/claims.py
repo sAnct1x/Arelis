@@ -583,11 +583,10 @@ def detect_catalog_ask(text: str) -> bool:
 
 
 # "How do I run the tests?" wants the command, not a suite run. Python has no
-# variable-length lookbehind, so this cannot live inside `_DIAGNOSTICS_ASK`, and
-# adding an exclusion field to IntentSpec to serve one row is not worth it. It
-# sits here rather than in the catalog on purpose: this function drives the
-# force gate and the inject — the expensive half — while the preflight nudge is
-# a request the model can decline, so a nudge on "how do I" costs nothing.
+# variable-length lookbehind, so this cannot live inside the catalog patterns,
+# and adding an exclusion field to IntentSpec to serve one row is not worth it.
+# It sits here rather than in the catalog on purpose: this function drives
+# other-work and the wide nudge, while exactness uses the named-tool patterns.
 _DIAGNOSTICS_HOWTO = re.compile(
     r"(?i)\b(?:how\s+(?:do|can|would|should)\s+(?:i|you|we)|what\s+does)\b"
 )
@@ -596,9 +595,9 @@ _DIAGNOSTICS_HOWTO = re.compile(
 def detect_diagnostics_ask(text: str) -> bool:
     """True when they want the suite run, not the command explained.
 
-    Widened 2026-09-17: this matched the literal phrase "run diagnostics" and
-    nothing else, so "run the tests" / "run pytest" / "do the tests pass?"
-    armed nothing and the answer came from the model's imagination.
+    This is the wide catalog match (named tool or suite phrasing). Other-work
+    uses it so a real "run the tests" is not a leftover compose. Exactness
+    refuse does not: that path uses the named-tool exactness patterns only.
     """
     if _DIAGNOSTICS_HOWTO.search(text or ""):
         return False
@@ -923,7 +922,12 @@ def detect_exactness_need(text: str, *, data_cell: bool | None = None) -> Exactn
     needs_plot = detect_plot_ask(text)
     needs_catalog = detect_catalog_ask(text)
     needs_document = detect_document_ask(text)
-    needs_diagnostics = detect_diagnostics_ask(text)
+    # Suite phrasing ("run the tests", "run some tests") still nudges via
+    # the catalog. Exactness refuse is the named-tool form only, so a
+    # session opener that mentions upcoming tests is not a missing warrant.
+    needs_diagnostics = exactness_match("diagnostics", text) and not _DIAGNOSTICS_HOWTO.search(
+        text or ""
+    )
     needs_vision = detect_vision_ask(text)
     # Image-describe turns often include dimensioned filenames (1965x1106.png).
     # Prefer the vision warrant; never force calculator on those asks.
