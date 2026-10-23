@@ -173,8 +173,6 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
         "desktop",
         "computer",
         "pc",
-        "rooms",
-        "room",
         "watch",
         "window",
     ),

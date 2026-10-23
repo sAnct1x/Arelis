@@ -499,9 +499,9 @@ class DocumentTool:
     name = "document"
     description = (
         "Create a file the user can open: PDF, Word (docx), Excel (xlsx), CSV, "
-        "markdown, or plain text. In a room with a folder, the file lands in "
-        "that project's documents/ directory. Otherwise it lands under "
-        "outputs/documents/. Use when they ask to create, make, write, generate, "
+        "markdown, or plain text. The file lands in the project's documents/ "
+        "directory when one is open, otherwise under outputs/documents/. "
+        "Use when they ask to create, make, write, generate, "
         "export, or save a document or spreadsheet. Pass format plus the full "
         "body (markdown and TeX math are fine — formulas are written as "
         "unicode so PDF, Word, CSV, and markdown all read clean). For tables "

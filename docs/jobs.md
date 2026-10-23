@@ -38,7 +38,7 @@ job runner answers every confirmation card with skip, and it never
 even registers the tools that would need your input in the first
 place: sending mail or SMS, her browser, the desk, vision, camera, clipboard,
 OCR, plotting, documents, the 3D solar system, Earth, Reality, memory
-writes, contacts, rooms, research reports, or calendar writes.
+writes, contacts, research reports, or calendar writes.
 
 What it *will* do: search, scrape, fetch pages, check the weather,
 run CAS and unit conversions, query catalogs, use the calculator, and

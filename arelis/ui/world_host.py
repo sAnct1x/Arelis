@@ -31,7 +31,6 @@ _PLATE_ONLY = (
 
 _DOCK_TILES = (
     "thinking",
-    "workspace",
     "history",
     "notifications",
     "camera",

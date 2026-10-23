@@ -54,7 +54,7 @@ _ZH: dict[str, str] = {
     "the ask is the grant": "你说了就算同意",
     "ask me everything": "每件事都问我",
     "never ask about local work": "本地的事不用问",
-    "files, memory, calendar, rooms": "文件、记忆、日历、房间",
+    "files, memory, calendar": "文件、记忆、日历",
     "pictures": "图片",
     "her window, when she offers it": "她的窗口，她提出来的时候",
     "the desk, when she offers it": "桌面，她提出来的时候",

@@ -2111,7 +2111,6 @@
             "type": "string",
             "enum": [
               "thinking",
-              "workspace",
               "history",
               "notifications",
               "camera",

@@ -986,17 +986,6 @@ async def execute_call(
                 )
                 return True
         if (
-            name == "rooms"
-            and result.ok
-            and str(args.get("action") or "").lower() == "forget"
-        ):
-            await loop._finish(
-                str(result.output or "").strip() or "The room is gone.",
-                sources,
-                streamed="",
-            )
-            return True
-        if (
             name == "contacts"
             and result.ok
             and "send_sms" not in loop._expected_tools

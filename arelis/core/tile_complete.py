@@ -8,7 +8,6 @@ from typing import Any
 # Canonical names match View-menu actions and TileTool.enum.
 TILE_NAMES: tuple[str, ...] = (
     "thinking",
-    "workspace",
     "history",
     "notifications",
     "camera",
@@ -22,10 +21,6 @@ TILE_NAMES: tuple[str, ...] = (
 _ALIASES: tuple[tuple[str, str], ...] = (
     ("notifications", r"notifications?|alerts?|notify(?:\s+center)?"),
     ("thinking", r"thinking|thoughts"),
-    (
-        "workspace",
-        r"workspace|work\s*space|(?:the\s+)?desk|the\s+editor",
-    ),
     ("history", r"history|(?:past|old)\s+(?:chats?|conversations?)"),
     ("camera", r"camera|webcam|web\s*cam"),
     ("contacts", r"contacts?|address\s+book"),

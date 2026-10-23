@@ -752,8 +752,8 @@ class PlotTool:
     name = "plot"
     description = (
         "Draw a chart from a local table or a short list of numbers and write "
-        "a PNG. In a room with a folder, the file lands in that project's "
-        "plots/ directory. Otherwise it lands under outputs/plots/. Actions: "
+        "a PNG. The file lands in the project's plots/ directory when one "
+        "is open, otherwise under outputs/plots/. Actions: "
         "line, scatter, residuals, histogram, bar, subplots. For a "
         "CSV/TSV/Excel file pass path plus column names: x and y for line or "
         "scatter; y alone for histogram; x (categories) and y (values) for bar. "

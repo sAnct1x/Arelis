@@ -207,7 +207,6 @@ def live_fifty_turns(*, token: str = BOARD_ID) -> list[ConversationTurn]:
         t("T120_history", "open history", expect_tools=("tile",), allow_no_tools=True),
         t("T121_notify", "open notifications", expect_tools=("tile",), allow_no_tools=True),
         t("T122_notify_off", "close notifications", expect_tools=("tile",), allow_no_tools=True),
-        t("T123_desk", "open the workspace tile", expect_tools=("tile",), allow_no_tools=True),
         t("T124_cal_tile", "open the calendar tile", expect_tools=("tile", "agenda"), expect_tools_any=True, allow_no_tools=True),
         t("T125_contacts", "who is in my contacts", expect_tools=("contacts",)),
         t("T126_book", "list the contacts book", expect_tools=("contacts",)),
