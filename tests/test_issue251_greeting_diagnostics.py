@@ -42,8 +42,9 @@ def test_a_test_session_opener_does_not_get_the_diagnostics_refuse() -> None:
     assert not need.needs_diagnostics
     assert _finish(_ASK, _REPLY) is None
 
-    suite_need = detect_exactness_need(_SUITE_ASK)
-    assert "diagnostics" in suite_need.kinds
-    assert suite_need.needs_diagnostics
-    refuse = _finish(_SUITE_ASK, _FAKE_PASS)
-    assert refuse == unsupported_exactness_reply(["diagnostics"])
+    canned = unsupported_exactness_reply(["diagnostics"])
+    for suite_ask in (_SUITE_ASK, "run all tests", "run my tests"):
+        suite_need = detect_exactness_need(suite_ask)
+        assert "diagnostics" in suite_need.kinds
+        assert suite_need.needs_diagnostics
+        assert _finish(suite_ask, _FAKE_PASS) == canned
