@@ -2069,7 +2069,7 @@ class AgentLoop:
                         f"{final.rstrip()}\n{skipped}" if final.strip() else skipped
                     )
                     streamed = ""
-                elif turn.declined_calls:
+                elif turn.declined_calls and self.tools_used:
                     named = declined_finish_reply(
                         turn.declined_tools, turn.declined_calls
                     )
