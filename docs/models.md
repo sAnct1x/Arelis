@@ -51,10 +51,11 @@ persona lives. `tests/test_prompt_fits_window.py` holds that math in place.
 ## Pictures on the 35B
 
 When chat uses llama.cpp, the model is Qwen 3.6 35B. A picture you send
-is read by that same model. The server loads a Q8 picture file next to
-the weights, keeps flash attention off, and caps each picture at 1024
-image tokens. If the 35B was already running, restart it once so it
-loads that file.
+is read by that same model. Attach a picture in chat and ask about it:
+the pixels go in that same request as your words. The server loads a Q8
+picture file next to the weights, keeps flash attention off, and caps
+each picture at 1024 image tokens. If the 35B was already running,
+restart it once so it loads that file.
 
 ## Voice
 

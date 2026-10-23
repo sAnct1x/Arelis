@@ -354,6 +354,7 @@ async def _attach_tool_schemas_and_history(
     expect_tool_round: bool,
     chat_tools: list[dict[str, Any]],
     turn_tail: list[dict[str, str]],
+    staged_files: Any = None,
 ) -> None:
     """Pay for tool schemas, then append as much conversation history as fits."""
     budget = context_budget(
@@ -374,7 +375,9 @@ async def _attach_tool_schemas_and_history(
         user_text=text,
         turn_tail=turn_tail,
     )
+    from arelis.attachments import apply_images_to_last_user
 
+    apply_images_to_last_user(ctx.messages, text, staged_files)
 
 
 _SLASH_DATE = re.compile(r"(?<![\d/.])\d{1,2}/\d{1,2}/\d{2,4}(?![\d/])")
@@ -854,5 +857,6 @@ async def prepare_turn(
         expect_tool_round=expect_tool_round,
         chat_tools=chat_tools,
         turn_tail=turn_tail,
+        staged_files=staged_files,
     )
     return ctx
