@@ -59,9 +59,8 @@ _WEATHER = {
 
 # t walks the current left→right. On a 3-span the bands are desks:
 # left history/notify/contacts, home chat/thinking/camera,
-# right days/files/rooms. Reality is not on the current — it sits
-# alone at the bottom-right of the primary. Rooms is the list;
-# Reality is the physics plate. pad is radial px outside the light.
+# right days. Reality is not on the current, it sits
+# alone at the bottom-right of the primary. pad is radial px outside the light.
 FLOATS = (
     ("history", 0.10, 58),
     ("notify", 0.18, 58),
@@ -70,8 +69,6 @@ FLOATS = (
     ("thinking", 0.50, 58),
     ("camera", 0.58, 58),
     ("days", 0.74, 58),
-    ("files", 0.84, 58),
-    ("rooms", 0.94, 58),
     ("reality", 0.00, 0),
 )
 FREE_FLOATS = frozenset({"reality"})

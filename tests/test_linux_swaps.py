@@ -5,111 +5,8 @@ from __future__ import annotations
 import shutil
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
-
-
-def _mouse(kind, x: float, y: float, *, grab: bool):
-    from PySide6.QtCore import QPointF, Qt
-    from PySide6.QtGui import QMouseEvent
-
-    buttons = Qt.MouseButton.LeftButton if grab else Qt.MouseButton.NoButton
-    pos = QPointF(x, y)
-    return QMouseEvent(
-        kind,
-        pos,
-        pos,
-        Qt.MouseButton.LeftButton,
-        buttons,
-        Qt.KeyboardModifier.NoModifier,
-    )
-
-
-class _Signal:
-    def connect(self, _fn) -> None:
-        return None
-
-
-class _FakeProcess:
-    def __init__(self, *_args, **_kwargs) -> None:
-        self.program = ""
-        self.arguments: list[str] = []
-        self.finished = _Signal()
-        self.errorOccurred = _Signal()
-
-    def setWorkingDirectory(self, _path: str) -> None:
-        return None
-
-    def setProgram(self, program: str) -> None:
-        self.program = program
-
-    def setArguments(self, args: list[str]) -> None:
-        self.arguments = list(args)
-
-    def start(self) -> None:
-        return None
-
-    def deleteLater(self) -> None:
-        return None
-
-
-def _console_window(root: Path):
-    return SimpleNamespace(
-        workspace_roots=SimpleNamespace(active_root=lambda: SimpleNamespace(path=root)),
-        workspace=SimpleNamespace(
-            show_log=lambda *_a, **_k: None,
-            set_console_busy=lambda *_a, **_k: None,
-        ),
-        _workspace_console=None,
-    )
-
-
-def test_linux_console_uses_shell_then_pwsh_then_bash(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr("PySide6.QtCore.QProcess", _FakeProcess)
-    from arelis.ui.workspace_host import run_user_console
-
-    shell = tmp_path / "zsh"
-    shell.write_text("", encoding="utf-8")
-    monkeypatch.setenv("SHELL", str(shell))
-
-    def is_file(self: Path) -> bool:
-        return self == shell
-
-    monkeypatch.setattr(Path, "is_file", is_file)
-    window = _console_window(tmp_path)
-    run_user_console(window, "date")
-    proc = window._workspace_console
-    assert proc.program == str(shell)
-    assert proc.arguments == ["-c", "date"]
-
-    monkeypatch.delenv("SHELL", raising=False)
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/pwsh" if name == "pwsh" else None)
-    window = _console_window(tmp_path)
-    run_user_console(window, "date")
-    assert window._workspace_console.program == "/usr/bin/pwsh"
-    assert window._workspace_console.arguments[-1] == "date"
-    assert "-Command" in window._workspace_console.arguments
-
-    monkeypatch.setattr(shutil, "which", lambda _name: None)
-
-    def bash_exists(self: Path) -> bool:
-        return self.as_posix() == "/bin/bash"
-
-    monkeypatch.setattr(Path, "is_file", bash_exists)
-    window = _console_window(tmp_path)
-    run_user_console(window, "date")
-    assert window._workspace_console.program == "/bin/bash"
-    assert window._workspace_console.arguments == ["-c", "date"]
-
-    monkeypatch.setattr(Path, "is_file", lambda _self: False)
-    window = _console_window(tmp_path)
-    run_user_console(window, "date")
-    assert window._workspace_console.program == "/bin/sh"
-    assert window._workspace_console.arguments == ["-c", "date"]
 
 
 def _path_ends(self: Path, suffix: str) -> bool:
@@ -152,5 +49,3 @@ def test_tesseract_unix_paths_and_plain_message(
     assert "for Windows" not in text
     assert "tesseract" in text.lower()
     assert "install" in text.lower()
-
-

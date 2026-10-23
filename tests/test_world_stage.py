@@ -27,8 +27,8 @@ def test_checkout_may_offer_the_stage() -> None:
     assert world_stage_allowed() is True
     assert world_available() is True
     assert should_offer_world("physics") is True
-    assert should_offer_world("lab") is False
-    assert should_offer_world(None) is False
+    assert should_offer_world("lab") is True
+    assert should_offer_world(None) is True
     assert grant_for("physics", True).allowed is True
 
 

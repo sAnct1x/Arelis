@@ -5,9 +5,6 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 
 from arelis.ui.panels.conversation import ConversationStage
-from arelis.ui.panels.workspace import (
-    WorkspacePanel,
-)
 from arelis.ui.theme import COLORS, stylesheet
 
 
@@ -34,12 +31,5 @@ def test_role_popup_fills_the_plate(qt_app) -> None:
         assert "max-width: 96px" not in css.split("#RoleSelect QAbstractItemView")[1][:120]
     finally:
         stage.deleteLater()
-
-
-def _browse_names(panel: WorkspacePanel) -> list[str]:
-    return [
-        panel.browse_list.item(i).text()
-        for i in range(panel.browse_list.count())
-    ]
 
 

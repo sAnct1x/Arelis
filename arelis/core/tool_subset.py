@@ -116,7 +116,6 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     "ocr": frozenset({"ocr"}),
     "agenda": frozenset({"agenda"}),
     "schedule": frozenset({"schedule"}),
-    "rooms": frozenset({"rooms", "workspace"}),
     "image": frozenset({"image"}),
     "image_edit": frozenset({"image_edit", "vision"}),
     "vision": frozenset({"vision", "camera", "ocr"}),

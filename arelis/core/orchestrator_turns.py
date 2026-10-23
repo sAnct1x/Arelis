@@ -32,14 +32,6 @@ from arelis.core.orchestrator_shared import (
 )
 from arelis.desk import match_keep_last, match_keep_note, write_note
 from arelis.llm.router import ModelRole
-from arelis.rooms import (
-    match_enter_intent,
-    match_leave_intent,
-    match_list_rooms_intent,
-    match_make_room_intent,
-    match_set_kind_intent,
-    match_set_root_intent,
-)
 from arelis.workspace import _WINDOWS_DRIVE
 
 log = logging.getLogger(__name__)
@@ -82,9 +74,7 @@ class OrchestratorTurns:
 
         silent = bool(event.payload.get("silent"))
         if event.payload.get("new"):
-            rooms = getattr(self, "rooms", None)
-            room_id = str(getattr(rooms, "active_id", "") or "") if rooms is not None else ""
-            session_id = store.start_or_reuse_empty_session(room_id=room_id)
+            session_id = store.start_or_reuse_empty_session(room_id="")
             rows = store.get_messages(session_id)
             summary = store.get_summary(session_id)
             self.memory.hydrate(rows, summary=summary)
@@ -248,50 +238,12 @@ class OrchestratorTurns:
             if await self._keep_from_speech(text):
                 return
 
-            if re.match(r"(?i)^/rooms?\b", text):
-                await self._room_command(text)
-                return
-
-            if re.match(r"(?i)^/leave\b", text):
-                await self._leave_room()
-                return
-
             if text in {"/help", "help"}:
                 await self._emit_help()
                 return
 
             if text.lower() in {TOOLS_SLASH, "/tool"}:
                 await self._emit_tools()
-                return
-
-            # Spoken navigation, after the slash commands so a typed command
-            # always wins. Typed and spoken are the same path: enter if the
-            # room exists, create if it does not.
-            if match_leave_intent(text):
-                await self._leave_room()
-                return
-            if match_list_rooms_intent(text):
-                await self._say(self._rooms_overview())
-                return
-            # "work in notes" is also an enter phrasing. If a room is already
-            # open and the words name a project, that is the folder, not a
-            # new room.
-            if self.rooms.active is not None:
-                pointed = match_set_root_intent(text, self.workspace.names())
-                if pointed:
-                    await self._apply_room_fields({"root": pointed}, user_text=text)
-                    if self._room_setup is not None and self._room_setup.step == "root":
-                        await self._advance_room_setup()
-                    return
-                lean = match_set_kind_intent(text)
-                if lean:
-                    await self._apply_room_fields({"kind": lean}, user_text=text)
-                    return
-            spoken = match_enter_intent(text) or match_make_room_intent(text)
-            if spoken:
-                await self._enter_or_create_room(spoken)
-                return
-            if await self._handle_room_talk(text):
                 return
 
             from arelis.core.document_refs import (
@@ -619,10 +571,8 @@ class OrchestratorTurns:
         """Handle /keep, 'keep this: …', and a bare 'pin that'. True if consumed."""
         body = match_keep_note(text)
         if body:
-            room = self.rooms.active
-            room_id = room.id if room is not None else ""
             try:
-                item = write_note(self.workspace, body, room_id=room_id, store=self.desk)
+                item = write_note(self.workspace, body, room_id="", store=self.desk)
             except Exception as exc:
                 await self._say(f"I could not keep that. {exc}")
                 return True
@@ -661,7 +611,6 @@ class OrchestratorTurns:
         if not path:
             await self._say("There isn't a file to pin. Say keep this: and what to write down.")
             return True
-        room = self.rooms.active
         root_name = ""
         try:
             hit = self.workspace.resolve_read(path)
@@ -673,7 +622,7 @@ class OrchestratorTurns:
             path,
             source="pin",
             root_name=root_name,
-            room_id=room.id if room is not None else "",
+            room_id="",
             pin=True,
         )
         name = (item.label if item else Path(path).name) or "that file"

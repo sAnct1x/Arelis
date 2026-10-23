@@ -63,13 +63,11 @@ window attaches over loopback.
 
 1. Your text (or a voice transcript) hits the orchestrator
    (`arelis/core/orchestrator.py`). That class is three mixins
-   (turns, slash, and confirm), so a reply, a `/room`, and an Allow
+   (turns, slash, and confirm), so a reply and an Allow
    can land while a turn is already running. Typed and spoken input
    share this exact same path once the transcript exists. Only one
    turn runs at a time.
-2. Slash commands (`/role`, `/room`, `/leave`) and spoken room names
-   get handled right here. Entering a room, notably, is not itself a
-   tool call.
+2. Slash commands (`/role`, `/project`) get handled right here.
 3. `AgentLoop.run` (`arelis/core/agent_loop.py`) only prepares and
    loops. `turn_prepare.py` builds the prompt, the turn goal, and the
    round budget. `turn_round.py` streams one model round. Tool
@@ -181,7 +179,7 @@ started.
 |---|---|---|
 | Bus | `arelis/core/bus.py` | Events between the UI and the brain |
 | Seat | `arelis/core/seat.py` | One constructor for the window, CLI, job, and tray-restore brains |
-| Orchestrator | `arelis/core/orchestrator.py` | One turn at a time. Mixins: `orchestrator_turns.py`, `orchestrator_slash.py`, `orchestrator_confirm.py`. Resumes the last room on a new empty chat |
+| Orchestrator | `arelis/core/orchestrator.py` | One turn at a time. Mixins: `orchestrator_turns.py`, `orchestrator_slash.py`, `orchestrator_confirm.py` |
 | Agent loop | `arelis/core/agent_loop.py` | Shell around one turn. The body is `turn_prepare.py`, `turn_round.py`, `turn_dispatch.py`, `turn_execute.py`, plus the corrective modules beside them (preflight, redirects, finish gates) |
 | Skills | `arelis/core/skills.py` | Which tools she leans toward |
 | Router | `arelis/llm/` | Picks the role model, warms it, unloads it |
@@ -232,9 +230,7 @@ and anything pause-gated always run one at a time.
 Two things are still allowed to change the tools JSON on purpose:
 `send_sms` / `send_email` stay hidden unless the current message
 actually asked to send something (a safety measure: a plain greeting
-used to accidentally replay the last draft), and a room that
-explicitly lists `tools:` locks the set down to just those. Leave
-that list off unless you genuinely mean to restrict a room. If
+used to accidentally replay the last draft). If
 `skill_tool_subset` is missing from a partial config, the loop
 defaults it to false. Don't flip it on just to "go faster."
 
@@ -256,7 +252,6 @@ you do, you land in the full workbench: chat, composer, and docks.
 | Chat stage | Empty-session view, the streaming answer, Sources, allow / deny cards. The last finished answer gets a **copy · again** option |
 | Drive strip | Stop / Pause / your-turn controls while her browser or the desk is actively driving |
 | Thinking dock | The actual thinking paragraph. A tool errand shows as one line in that stream. Housekeeping info (model loaded, speech status) sits in a footer, not mixed into the reasoning. Failures also go to the conversation line so a closed Thinking dock is not a dead drop |
-| Workspace dock | The desk: notes you kept and files she wrote, pinned first. Folders is the old tree. Markdown reads as a page. `keep this:` writes a note |
 | Camera dock | Webcam still image. View → Camera / Ctrl+5. Inside Reality: Track / Record |
 | History dock | Past sessions (shown as **new chat** if untitled), grouped today / yesterday, plus pending facts to approve or reject |
 | Notifications | Inbound texts, shown while the UI is open |
@@ -265,7 +260,7 @@ you do, you land in the full workbench: chat, composer, and docks.
 | Settings | Audio / window / allow / notify / roots / memory. Mail is a form on Notify: Gmail address and app password. The password is not shown again after Apply, and it is stored in `data/secrets.yaml`. Phone pairing (the QR and a token) is on that same tab. Calendar OAuth is not a Settings tab. Use `arelis --auth-calendar` (see [calendar-oauth.md](calendar-oauth.md)) |
 | Themes | View → Themes. **sodium** is the shipped face. **filament (testing)** is a checkout experiment for a row of desks: three monitors is the intended layout; 1 and 2 still work. Saved to `data/config.local.yaml`. Confirms change with the face: sodium raises the Allow card, filament asks out loud. Sends, deletes, and calendar writes pause on filament the same as the other themes, and a spoken yes is the approval. A calendar change you already named stays light, the same as sodium, except a delete, which always pauses. Image, opening a page, a workspace write, and opening something on the desk stay free on filament. Switching theme switches that policy. Filament is a desk presence: coil at first rest or away-idle, unwrapped once in use. Slim title bar, say “hey arelis”, and 1 / 2 / 3 stay on the primary desk. 1 / 2 / 3 are desk counts, not Windows monitor numbers; default is one primary desk. Text lives on the chat plate. The thinking title breathes while a turn is running. Each title has its own particle on the current (same motion as the word). Click the bead or the word. HWND stays opaque; tiles are floating resizable plates. The field paints a horizontal band and remasks only on span / resize, not every atmosphere tick. Dust stamps live in RAM; camera preview convert is a worker, not the HWND thread |
 | Display | Same model as Chrome / VS Code / Office. Qt 6 per-monitor DPI: a 4K panel at 150% is ~2560×1440 logical, not a second 4K mode. First-launch size (1440×900) shrinks to the current work area so 1080p fits; 2K and 4K stay that size until you maximize. Restored geometry that landed on an unplugged monitor moves back. Settings → window → Interface scale is an optional zoom on top of the OS (`ui.scale`, default 1.0, needs a restart). Chat text size is just the transcript (Ctrl+= / − / 0). |
-| Reality | A floating 3D window. View → Reality / Ctrl+8. Only appears while the Reality room is active, and only on a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hand tracking and `.[astro]` for REBOUND. None of it ships in the installer. Default size 1280×800. The solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (an offscreen FBO). The Earth view renders the planet through Cesium, with Arelis handling stars and the HUD; contacts there use `earth_marks.py`. It's inspect-only: a WASD fly camera, with H reciting the live key bindings. There's no piloted chase-cam |
+| Reality | A floating 3D window. View → Reality / Ctrl+8, or the filament Reality chip. Standalone in `arelis/spatial/`. No room. Only on a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hand tracking and `.[astro]` for REBOUND. None of it ships in the installer. Default size 1280×800. The solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (an offscreen FBO). The Earth view renders the planet through Cesium, with Arelis handling stars and the HUD; contacts there use `earth_marks.py`. It's inspect-only: a WASD fly camera, with H reciting the live key bindings. There's no piloted chase-cam |
 
 Under **Settings → window**, you can have unused panels fold away
 after 30, 45, or 60 minutes of no clicking, typing, sending, or wake
@@ -319,7 +314,7 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `watch` | House watch snapshot: listeners, inbound limits, outbound API volume. Not antivirus, and it does not scan the rest of the PC | No |
 | `tile` | Open or close a View-menu panel (thinking, calendar, world, …) | No |
 | `plot` | PNG: line / scatter / residuals / histogram / bar / subplots, or `expr=` for a formula | Yes |
-| `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` inside the project; outside a room → `outputs/documents/` | Yes |
+| `document` | PDF, Word, Excel, CSV, markdown. Lands under `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS once you add a free key | No |
 | `solar` | Reality's N-body sim (Horizons VECTORS + REBOUND IAS15). Source checkout only. Approach and orbit views, inspect-only fly camera, IAU spheres. No landing | Yes |
 | `earth` | The Earth view inside Reality. Inventory lives in `feeds.py` (109 shipped / 24 keyed / 3 coming later / 4 left out). Source checkout only. See [earth.md](earth.md) | No |
@@ -331,7 +326,6 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `weather` / `user_location` | Forecast / where she thinks you are | No |
 | `image` | New picture or img2img restyle, via a local ComfyUI instance | Yes |
 | `image_edit` | Resize, rotate, recolor, overlay an existing file (Pillow) | Yes |
-| `rooms` | Named project spaces | Creating / changing: yes |
 | `contacts` | People available for texting | Mutates: yes |
 
 She can `workspace`-read her package to answer "how do you work"
@@ -367,15 +361,12 @@ reads the page (tiled when a named problem is missing on a huge
 still). Follow-ups about a paragraph or problem stay on the desk,
 not the webcam. See [desktop-control.md](desktop-control.md).
 
-## Rooms
+## Reality
 
-A room is a named place to work on one thing: its own thread, its
-own folder, and a purpose she reads back at the start of every turn.
-`/room physics` takes you in, `/leave` takes you out, and launch
-resumes whichever room you last entered, on a new empty chat, not
-the last filled thread. The room id `physics` is permanent: it's
-always present, can't be forgotten, and it's the only place the 3D
-view and C920 hand tracking actually run. See [rooms.md](rooms.md).
+Reality is a standalone plate in `arelis/spatial/`. The world button,
+filament Reality chip, and spatial grant open it. There is no room
+and no `room_id == physics` gate. Source checkout only. Dormant and
+unshipped: importable, cold-start safe, not a product to improve here.
 
 ## Memory and safety
 
@@ -434,7 +425,7 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
   leftover look stills (`browser_` / `desktop_` / `ocr_screen_`
   captures she took to see, plus old `camera_` stills), and leftover
   `data/backups/memory-*.db`. Dated memory copies are off. Secrets,
-  `memory.db`, rooms, and config are not touched. A full Chrome reset
+  `memory.db`, leftover `rooms.yaml`, and config are not touched. A full Chrome reset
   is `python -m arelis.housekeep --reset-browser`. Pictures she
   generated stay.
 - CLI writes from a non-interactive session are denied unless you

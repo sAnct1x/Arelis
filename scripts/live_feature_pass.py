@@ -325,7 +325,6 @@ async def main() -> int:
     else:
         skip("contacts_me", "no me alias in the book")
     await step("contacts_list", "contacts", action="list")
-    await step("rooms_list", "rooms", action="list")
     await step("camera_snapshot", "camera", action="snapshot")
     await step("tile_open_thinking", "tile", action="open", **{"name": "thinking"})
     await step("tile_close", "tile", action="close")

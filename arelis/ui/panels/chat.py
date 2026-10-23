@@ -239,7 +239,6 @@ class ChatPanel(QWidget):
     progress_clicked = Signal()
     again_requested = Signal()
     export_requested = Signal()
-    desk_requested = Signal(str)
 
     def __init__(self, parent=None, *, embedded: bool = False) -> None:
         super().__init__(parent)
@@ -899,13 +898,10 @@ class ChatPanel(QWidget):
     def _file_card_html(self, name: str, path: str) -> str:
         open_token = uuid4().hex
         reveal_token = uuid4().hex
-        desk_token = uuid4().hex
         self._file_tokens[open_token] = ("open", path)
         self._file_tokens[reveal_token] = ("reveal", path)
-        self._file_tokens[desk_token] = ("desk", path)
         open_href = f"arelis-file://local/?t={open_token}"
         reveal_href = f"arelis-file://local/?t={reveal_token}"
-        desk_href = f"arelis-file://local/?t={desk_token}"
         return (
             f'<table width="100%" cellspacing="0" cellpadding="0" style="margin:2px 0 12px 0;">'
             "<tr>"
@@ -916,9 +912,6 @@ class ChatPanel(QWidget):
             f"{_esc(name)}</div>"
             f'<a href="{open_href}" style="color:{_ink("accent")};text-decoration:none;">'
             f"open</a>"
-            f'<span style="color:{_ink("text_dim")};"> · </span>'
-            f'<a href="{desk_href}" style="color:{_ink("accent")};text-decoration:none;">'
-            f"on desk</a>"
             f'<span style="color:{_ink("text_dim")};"> · </span>'
             f'<a href="{reveal_href}" style="color:{_ink("accent")};text-decoration:none;">'
             f"show in folder</a>"
@@ -980,9 +973,6 @@ class ChatPanel(QWidget):
         if not path:
             return
         try:
-            if action == "desk":
-                self.desk_requested.emit(path)
-                return
             if action == "reveal":
                 reveal_local_file(path)
             else:

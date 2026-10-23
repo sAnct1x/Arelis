@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 from arelis.paths import display_path, ensure, outputs_dir
-from arelis.rooms import RoomStore
 from arelis.tools.base import ToolResult
 from arelis.tools.diagram_render import (
     render_mermaid,
@@ -100,7 +99,7 @@ class DiagramTool:
     def __init__(
         self,
         workspace: WorkspaceRoots | None = None,
-        rooms: RoomStore | None = None,
+        rooms: Any = None,
     ) -> None:
         self.workspace = workspace
         self.rooms = rooms
@@ -122,18 +121,7 @@ class DiagramTool:
         """(folder, short where-it-landed note)."""
         room_dir = self.room_results_dir()
         if room_dir is not None:
-            return room_dir, "this room's results folder"
-        room = None if self.rooms is None else self.rooms.active
-        if room is not None and room.root:
-            return (
-                self.drop_dir(),
-                "your diagrams folder, this room's folder is not a project any more",
-            )
-        if room is not None:
-            return (
-                self.drop_dir(),
-                "your diagrams folder, this room has no folder",
-            )
+            return room_dir, "the project's results folder"
         return self.drop_dir(), "your diagrams folder"
 
     def preview_path(self, args: dict[str, Any] | None = None) -> Path:

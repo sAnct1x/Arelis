@@ -119,7 +119,6 @@
 1 arelis/ui/panels/solar_const.py
 9 arelis/ui/panels/solar_hud.py
 2 arelis/ui/panels/solar_paint.py
-1 arelis/ui/panels/workspace.py
 15 arelis/ui/solar_gl.py
 1 arelis/ui/solar_gl_geom.py
 1 arelis/ui/surface_report.py

@@ -1,11 +1,15 @@
-"""MotionGrant: pose is allowed in Reality, or on filament with the Hands chip."""
+"""MotionGrant: pose is allowed when the Reality stage is present.
+
+Filament plus the Hands chip still grants on a source checkout. There is
+no room. room_id on the grant object is leftover from the rooms product
+and is not consulted.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from arelis.paths import is_source_checkout
-from arelis.spatial import PHYSICS_ROOM_ID
 
 
 @dataclass(frozen=True)
@@ -21,15 +25,14 @@ class MotionGrant:
             return False
         if self.filament and self.chip:
             return True
-        return self.room_id == PHYSICS_ROOM_ID
+        return True
 
 
 def world_stage_allowed() -> bool:
     """Reality plate, solar sim, and C920 stage. Source checkout only.
 
     An installer tree (unins000.exe at install_root) and a wheel in
-    site-packages must not offer the stage. The physics *room* still
-    exists there for chat, CAS, and Horizons observer tables.
+    site-packages must not offer the stage.
     """
     from arelis.update import install_root
 
@@ -59,7 +62,8 @@ def must_revoke(
     filament: bool = False,
     chip: bool = False,
 ) -> bool:
-    """Leave Reality kills sodium Track. Filament + chip survives a room change."""
+    """Installer trees never keep sodium Track. Filament plus chip stays."""
+    del room_id
     if filament and chip:
         return False
-    return str(room_id or "") != PHYSICS_ROOM_ID
+    return not world_stage_allowed()

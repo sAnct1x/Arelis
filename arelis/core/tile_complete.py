@@ -8,7 +8,6 @@ from typing import Any
 # Canonical names match View-menu actions and TileTool.enum.
 TILE_NAMES: tuple[str, ...] = (
     "thinking",
-    "workspace",
     "history",
     "notifications",
     "camera",
@@ -22,11 +21,6 @@ TILE_NAMES: tuple[str, ...] = (
 _ALIASES: tuple[tuple[str, str], ...] = (
     ("notifications", r"notifications?|alerts?|notify(?:\s+center)?"),
     ("thinking", r"thinking|thoughts"),
-    (
-        "workspace",
-        r"workspace|work\s*space|(?:the\s+)?desk|(?:the\s+)?files|"
-        r"(?:file|files)\s+(?:tile|panel|dock)|the\s+editor",
-    ),
     ("history", r"history|(?:past|old)\s+(?:chats?|conversations?)"),
     ("camera", r"camera|webcam|web\s*cam"),
     ("contacts", r"contacts?|address\s+book"),
@@ -96,7 +90,6 @@ _NOT_TILE = re.compile(
 FILAMENT_TO_TILE: dict[str, str] = {
     "history": "history",
     "thinking": "thinking",
-    "files": "workspace",
     "days": "calendar",
     "camera": "camera",
     "notify": "notifications",
@@ -115,15 +108,8 @@ _SPAN_ALT = re.compile(
     r"(?i)^\s*(?P<n>one|two|three|[123])\s+"
     r"(?:screens?|monitors?|desks?)\s*[.!]?\s*$"
 )
-# The rooms chip. "open the notes room" is a room enter, not this menu.
-_ROOMS_MENU = re.compile(
-    r"(?i)^\s*(?:open|show|pull\s+up|bring\s+up)\s+"
-    r"(?:the\s+)?rooms(?:\s+menu)?\s*[.!]?\s*$"
-)
-
-
 def match_desk_intent(text: str) -> tuple[str, str] | None:
-    """Desk chrome that is a click: ('span', '2') or ('rooms', '').
+    """Desk chrome that is a click: ('span', '2').
 
     Anchored on the whole sentence so "span 2 and check the weather"
     still goes to her.
@@ -135,8 +121,6 @@ def match_desk_intent(text: str) -> tuple[str, str] | None:
     if found:
         n = _SPAN_WORD.get((found.group("n") or "").casefold(), "")
         return ("span", n) if n else None
-    if _ROOMS_MENU.match(raw):
-        return ("rooms", "")
     return None
 
 

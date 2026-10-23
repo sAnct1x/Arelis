@@ -56,9 +56,6 @@ def bind_docks(window) -> None:
     window.persona_dock.visibilityChanged.connect(
         lambda visible, d=window.persona_dock: on_dock_visibility(window, visible, sender=d)
     )
-    window.work_dock.visibilityChanged.connect(
-        lambda visible, d=window.work_dock: on_dock_visibility(window, visible, sender=d)
-    )
     window.history_dock.visibilityChanged.connect(
         lambda visible, d=window.history_dock: on_dock_visibility(window, visible, sender=d)
     )
@@ -67,7 +64,6 @@ def bind_docks(window) -> None:
     )
     for dock in (
         window.persona_dock,
-        window.work_dock,
         window.history_dock,
         window.camera_dock,
     ):
@@ -98,7 +94,6 @@ def reveal_dock(
         if not dock.isVisible():
             name = {
                 window.persona_dock: "thinking",
-                window.work_dock: "files",
                 window.history_dock: "history",
                 window.camera_dock: "camera",
             }.get(dock, "")
@@ -120,11 +115,10 @@ def reveal_dock(
     if active_theme() == "filament":
         names = {
             window.persona_dock: "thinking",
-            window.work_dock: "files",
             window.history_dock: "history",
             window.camera_dock: "camera",
         }
-        window._filament_present_tile(dock, names.get(dock, "files"))
+        window._filament_present_tile(dock, names.get(dock, ""))
 
 
 def toggle_persona(window, checked: bool) -> None:
@@ -150,32 +144,6 @@ def toggle_persona(window, checked: bool) -> None:
 
 def toggle_thinking(window, checked: bool) -> None:
     toggle_persona(window, checked)
-
-
-def toggle_workspace(window, checked: bool) -> None:
-    from arelis.ui.idle_host import note_engagement
-
-    note_engagement(window)
-    if not checked and window.workspace.has_unsaved_changes():
-        from arelis.ui.dialog import confirm
-
-        if not confirm(
-            window,
-            "Unsaved changes",
-            "Close the workspace and discard unsaved changes in "
-            f"{window.workspace.loaded_label()}?",
-            confirm_text="Discard",
-            cancel_text="Keep open",
-            destructive=True,
-        ):
-            window.act_workspace.setChecked(True)
-            return
-    if checked:
-        window.work_dock.setVisible(True)
-        window._animate_dock(window.work_dock, show=True)
-        window._filament_present_tile(window.work_dock, "files")
-    else:
-        window._animate_dock(window.work_dock, show=False)
 
 
 def toggle_history(window, checked: bool) -> None:
@@ -371,7 +339,7 @@ def sync_panel_margins(window) -> None:
     ) or docked_in(window, window.camera_dock, Qt.DockWidgetArea.LeftDockWidgetArea)
     # Thinking on the right abuts the chat glass.
     right = docked_in(window, window.persona_dock, Qt.DockWidgetArea.RightDockWidgetArea)
-    bottom = docked_in(window, window.work_dock, Qt.DockWidgetArea.BottomDockWidgetArea)
+    bottom = False
 
     # Chat: OUTER against the window when a side is empty; HALF when a dock
     # shares that edge (dock contributes the other HALF → gap == OUTER).
@@ -407,13 +375,6 @@ def sync_panel_margins(window) -> None:
             window._think_shell,
             (_PANEL_HALF, _PANEL_TOP, _PANEL_OUTER, _PANEL_BOTTOM),
         )
-    if window.work_dock.isFloating():
-        _set_shell_margins(window._work_shell, (0, 0, 0, 0))
-    else:
-        _set_shell_margins(
-            window._work_shell,
-            (_PANEL_OUTER, _PANEL_HALF, _PANEL_OUTER, _PANEL_BOTTOM),
-        )
     if window.camera_dock.isFloating():
         _set_shell_margins(window._camera_shell, (0, 0, 0, 0))
     elif stacked:
@@ -438,7 +399,6 @@ def sanitize_floating_docks(window) -> None:
     """
     for dock in (
         window.persona_dock,
-        window.work_dock,
         window.history_dock,
         window.camera_dock,
     ):

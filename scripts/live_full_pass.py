@@ -3,7 +3,7 @@
 Direct bounce plus live multi-tool turns: calendar, SMS, email, inbox,
 image generate, image edit, OCR, vision, document convert (md/pdf/csv/docx),
 workspace coding, python, git, analyze, plot, CAS, units, weather, search,
-scrape, fetch, research, memory, recall, tasks, goals, rooms, tile, watch,
+scrape, fetch, research, memory, recall, tasks, goals, tile, watch,
 clipboard, contacts, schedule, catalog, browser screenshot.
 
 Does not print phones, addresses, or names. Artifacts: outputs/live_full_pass/
@@ -268,7 +268,6 @@ async def main() -> int:
     )
     await step("location", "user_location")
     await step("weather", "weather")
-    await step("rooms_list", "rooms", action="list")
     await step("tile_open", "tile", action="open", **{"name": "thinking"})
     await step("tile_close", "tile", action="close")
     await step("schedule_list", "schedule", action="list")

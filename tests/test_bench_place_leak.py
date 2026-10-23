@@ -27,7 +27,7 @@ from arelis.core.agent_loop import static_prefix_text
 from arelis.core.compact_prompt import COMPACT_TOOL_POLICY, format_tool_catalog
 from arelis.core.native_tool_calling import NATIVE_PARAM_HINTS
 from arelis.mobile import PHONE_PERSONA_TAIL
-from arelis.rooms import PHYSICS_ALIASES, PHYSICS_DISPLAY_NAME
+from arelis.spatial import PHYSICS_ALIASES, PHYSICS_DISPLAY_NAME
 
 _ROOT = Path(__file__).resolve().parents[1]
 _PAIR = re.compile(

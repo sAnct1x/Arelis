@@ -659,14 +659,14 @@ SKILL_CARDS: dict[str, SkillCard] = {
   format, title, and the full body. Spreadsheets need rows (JSON lists or
   CSV) or a markdown table. Copy cas latex: into $$ $$; the file writer
   flattens TeX to unicode so the PDF/Word/CSV/markdown opens clean.
-- In a room with a folder, the file lands in that project's documents/
+- If a project folder is open, the file lands in that project's documents/
   directory. Otherwise it lands under outputs/documents/. Tell them the
   path. Do not paste the document into chat. Allow is required.
 - replace=true overwrites the same name (fix / update / export that).
   "Make another" writes a new file beside it.
 - from_path reads an existing .md/.txt to export as PDF/Word without
   retyping the body.
-- In a writing room, a write-up with no named format is markdown.
+- A write-up with no named format is markdown.
 - Export or save as csv/xlsx/pdf is document, not workspace write. Reading
   a file is not document.
 - doc_extract reads an existing PDF. workspace write is for source files in
@@ -831,7 +831,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - A CMB or cosmological frame is a boost, not a Pint conversion.
 - Charts call plot (line, scatter, residuals). Compute series with python
   if needed, then plot with xs/ys and out='name.png'. path= is a CSV
-  table, never the PNG. In a room with a folder the file lands in that
+  table, never the PNG. If a project folder is open the file lands in that
   project's plots/. Otherwise outputs/plots/. Needs Allow. Do not draw
   an ASCII chart. Do not import matplotlib in the python cell. Do not
   use image (Comfy) for data.
@@ -994,8 +994,6 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "close my notifications",
             "open history",
             "close history",
-            "open the workspace",
-            "close the workspace",
             "open thinking",
             "close thinking",
             "open the camera",
@@ -1020,8 +1018,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
         body="""
 ### Tiles (View menu)
 - To show or hide an Arelis panel ("open my notifications", "close history",
-  "open the workspace", "close thinking", "open the camera", "open contacts"),
-  call tile(action=open|close, name=thinking|workspace|history|notifications|
+  "close thinking", "open the camera", "open contacts"),
+  call tile(action=open|close, name=thinking|history|notifications|
   camera|contacts|calendar|world|chat). Do not use the browser.
   On filament, "close the chat tile" is tile(action=close, name=chat).
 - "Close them" / "hide it" after opening a tile: tile(action=close) with no
@@ -1031,51 +1029,6 @@ SKILL_CARDS: dict[str, SkillCard] = {
   "Open Reality" is tile(action=open, name=world, page=solar) when they
   want the sim, or omit page for the chooser. "Open hands" / "open the
   toy area" uses page=hands. Do not invent a World or solar-lab tile.
-""".strip(),
-    ),
-    "rooms": SkillCard(
-        id="rooms",
-        hints=(
-            "a room",
-            "new room",
-            "make a room",
-            "create a room",
-            "set up a room",
-            "dedicated space",
-            "workspace for",
-            "this room",
-            "the room",
-            "rooms",
-        ),
-        requires_tool="rooms",
-        negative_hints=(
-            "living room",
-            "dining room",
-            "bedroom",
-            "hotel room",
-            "room temperature",
-            "make room",
-        ),
-        body="""
-### Rooms
-- A room is a named place for one long-running piece of work. It keeps its own
-  conversation thread, points at one workspace project, and gives you its
-  purpose at the start of every turn inside it.
-- Walking in is not your job. "Let's work on Reality", "open Reality",
-  "enter Reality", and `/room physics` are handled before the turn — they
-  enter the permanent Reality room (id physics), or make a room that does
-  not exist yet. Do not call rooms(action=create) for that, and never
-  create a room that already exists. Reality cannot be forgotten. Do not
-  create a second room named Reality or Earth.
-- When they ask for a configured room (purpose, folder, kind in the same
-  sentence), call rooms(action=create) and fill those fields from what they
-  already said. Ask only for what is genuinely missing.
-- purpose is written for you to read later. Say what the work is and what a
-  good answer in this room looks like, in a sentence or two.
-- root must be an existing workspace project name. If you are not sure one
-  exists, check before guessing; a wrong root silently points the room at the
-  wrong folder.
-- You cannot enter a room from this tool. Navigation already did, or will.
 """.strip(),
     ),
     "schedule": SkillCard(

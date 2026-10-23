@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any
 from arelis.core.cell_work import resolve_cell_work_file
 from arelis.core.document_refs import resolve_drop_file, resolve_reported_document_path
 from arelis.paths import display_path, ensure, outputs_dir
-from arelis.rooms import RoomStore
 from arelis.tools.analyze import frame_from_numpy
 from arelis.tools.arg_error import arg_error as _arg_error
 from arelis.tools.base import ToolResult
@@ -753,8 +752,8 @@ class PlotTool:
     name = "plot"
     description = (
         "Draw a chart from a local table or a short list of numbers and write "
-        "a PNG. In a room with a folder, the file lands in that project's "
-        "plots/ directory. Otherwise it lands under outputs/plots/. Actions: "
+        "a PNG. The file lands in the project's plots/ directory when one "
+        "is open, otherwise under outputs/plots/. Actions: "
         "line, scatter, residuals, histogram, bar, subplots. For a "
         "CSV/TSV/Excel file pass path plus column names: x and y for line or "
         "scatter; y alone for histogram; x (categories) and y (values) for bar. "
@@ -907,7 +906,7 @@ class PlotTool:
     def __init__(
         self,
         workspace: WorkspaceRoots,
-        rooms: RoomStore | None = None,
+        rooms: Any = None,
     ) -> None:
         self.workspace = workspace
         self.rooms = rooms
@@ -929,17 +928,17 @@ class PlotTool:
         """(folder, short where-it-landed note)."""
         room_dir = self.room_plots_dir()
         if room_dir is not None:
-            return room_dir, "this room's plots folder"
+            return room_dir, "the project's plots folder"
         room = None if self.rooms is None else self.rooms.active
         if room is not None and room.root:
             return (
                 self.drop_dir(),
-                "the shared drop tray, this room's folder is not a project any more",
+                "the shared drop tray",
             )
         if room is not None:
             return (
                 self.drop_dir(),
-                "the shared drop tray, this room has no folder",
+                "the shared drop tray",
             )
         return self.drop_dir(), "the shared drop tray (outputs/plots)"
 

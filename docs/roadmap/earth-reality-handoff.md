@@ -172,8 +172,6 @@ checklist. If it is empty, trust this handoff.
   24 keyed / 3 later / 4 out. Stretch 1–8 of the year spine
   are **in the tree**. Later/out rows are refusals, not leftover
   build.
-- `docs/rooms.md` — room id `physics`, humans read Reality.
-  Earth is a zone inside Reality, not its own room.
 - `docs/architecture.md` — Spatial / Earth / Physics table.
   Reality plate is source-checkout only (`world_stage_allowed`).
 - `docs/whats-new.md` **Reality** paragraph — Cesium vs native
@@ -244,7 +242,7 @@ Pains to treat as named complaints (verify, do not assume):
   not — this plate is not an LLM problem first).
 - Wrong / missing verbs: travel, enter, leave, find, take me
   to, ride, track, Live on/off, dump, copy view.
-- Shallow tools: `earth` / `solar` / rooms actions that
+- Shallow tools: `earth` / `solar` actions that
   advertise more than they do.
 - Catalog honesty: keyed feeds that look shipped; later/out
   rows that still get fetched; a thinned region.

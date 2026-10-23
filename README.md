@@ -13,7 +13,7 @@ deletes anything.
 
 - Search the web and read pages
 - Drive her own browser window (separate from yours)
-- Work in folders you approve, keeping projects organized in rooms
+- Work in folders you approve
 - Listen and speak (wake word, voice conversations, dictation)
 - Handle images (look at them, edit them, generate with local ComfyUI)
 - Manage email, texting through your Android phone, and calendar (all opt-in)
@@ -223,7 +223,7 @@ create and edit files inside that folder, and nowhere else.
 |---|---|---|
 | The program | `%LOCALAPPDATA%\Programs\Arelis` | Gets replaced whenever she updates |
 | Your records | `%LOCALAPPDATA%\Arelis` | Profile, contacts, mail login, memory, settings, logs |
-| Her workspace | wherever you chose | The only place she can read and edit files. Ctrl+2 is the desk: notes you kept and files she wrote |
+| Her workspace | wherever you chose | The only place she can read and edit files |
 
 Your contacts and passwords are kept separate from anything a language
 model could delete on its own. They don't live in the workspace
@@ -276,12 +276,6 @@ window → Interface scale is an extra zoom if you want one. **filament
 a row of desks: three monitors is the intended layout. Press **F1**
 any time for shortcuts and the current version.
 
-**Rooms.** The main chat is for everyday questions. Anything you want
-to pick back up later belongs in a **room**: a name, a folder, and
-its own thread. `/room physics` takes you in, `/leave` takes you out,
-and the last room you were in reopens the next time you launch her.
-More in [rooms.md](docs/rooms.md).
-
 **Roles.** There are two modes: `/role fast` and `/role research`.
 File and git work always stays on Fast. Once setup is done, both modes
 actually use the same model, whichever one llama-server is running.
@@ -308,9 +302,9 @@ Type `/tools` in the chat for the full list of what she can do.
 ## Source-only features
 
 If you're running from source, you get the 3D solar system and Earth
-view inside Reality ([earth.md](docs/earth.md)). Installed copies still
-get Reality as a room (chat, CAS, Horizons all work), but the 3D visuals
-don't ship in the installer.
+view inside Reality ([earth.md](docs/earth.md)). The world button,
+filament Reality chip, and spatial grant open that plate. Installed
+copies do not ship the 3D visuals.
 
 ## Known limitations
 
@@ -333,7 +327,6 @@ something behaves oddly on yours, open an issue. Current release is
 |---|---|
 | [Overview video](https://youtu.be/TWZqnyHlh4M) | Demo and walkthrough on the [Arelis Lab channel](https://www.youtube.com/@ArelisLab) |
 | [whats-new.md](docs/whats-new.md) | 0.3.2.1 checkout and installer |
-| [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [first-run.md](docs/first-run.md) | First open: folder, model download, dropped connection |
 | [models.md](docs/models.md) | Which models, and why |

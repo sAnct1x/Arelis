@@ -18,7 +18,6 @@ from arelis.core.turn_scratch import (
     closing_tool_names,
 )
 from arelis.memory.store import MemoryStore
-from arelis.rooms import RoomStore
 from arelis.tools import build_tool_registry
 from arelis.tools.git_info import GitInfoTool
 from arelis.tools.units import UnitsTool
@@ -59,7 +58,6 @@ def _registry(tmp_path: Path, profile: Path, *, location_enabled: bool = False):
         },
         "agent": {},
         "workspace": {"roots": [str(tmp_path)]},
-        "_rooms": RoomStore(tmp_path / "rooms.yaml"),
     }
     return build_tool_registry(
         config,

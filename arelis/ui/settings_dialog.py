@@ -471,10 +471,10 @@ class SettingsDialog(QDialog):
         self._allow_local_blurb = _allow_hint("")
         allow_l.addWidget(self._allow_local_h)
         allow_l.addWidget(self._allow_local_blurb)
-        self.confirm_writes = QCheckBox("files, memory, calendar, rooms")
+        self.confirm_writes = QCheckBox("files, memory, calendar")
         self.confirm_writes.setChecked(bool(agent.get("confirm_writes", True)))
         self.confirm_writes.setToolTip(
-            "Save, remember, calendar, rooms. Deletes always pause."
+            "Save, remember, calendar. Deletes always pause."
         )
         self.confirm_image = QCheckBox("pictures")
         self.confirm_image.setChecked(bool(agent.get("confirm_image", True)))
