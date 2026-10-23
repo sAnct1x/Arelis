@@ -1,0 +1,75 @@
+# Shipped defaults for Sentinel (Arelis_Sentinel)
+# Override locally in data/config.local.yaml
+
+bridge:
+  host: "127.0.0.1"
+  port: 8790
+  port_search_span: 6
+  telemetry_hz: 60
+
+ui:
+  # Supported themes: "sodium" (default), "filament", "night", "matrix"
+  theme: "sodium"
+  window_width: 1480
+  window_height: 920
+  fps_target: 60
+
+swarm:
+  max_total_units: 64
+  initial_pools:
+    harvester: 8
+    warden: 6
+    sanitizer: 4
+    tripwire: 4
+  auto_scale: true
+  default_tier: "mk1"
+
+harvester:
+  timeout_s: 25.0
+  horizons_timeout_s: 45.0
+  max_chars_per_source: 120000
+  max_concurrent_total: 16
+  max_concurrent_per_host: 3
+  follow_amp_siblings: true
+
+warden:
+  poll_interval_s: 1.5
+  watched_ports:
+    - { port: 8765, name: "Arelis LAN Ingest", bind: "lan" }
+    - { port: 8766, name: "Arelis Core IPC", bind: "loopback" }
+    - { port: 11434, name: "Ollama Local Engine", bind: "loopback" }
+    - { port: 8790, name: "Sentinel Command Bridge", bind: "loopback" }
+  inbound_burst: 40
+  inbound_window_s: 10.0
+  auth_fail_limit: 8
+  auth_fail_window_s: 60.0
+  auth_lock_s: 300.0
+  egress_burst: 64
+  egress_window_s: 10.0
+
+sanitizer:
+  max_payload_bytes: 5242880  # 5 MiB
+  quarantine_on_injection: true
+  strip_hidden_dom: true
+  redact_credentials: true
+
+tripwire:
+  poll_interval_s: 2.0
+  max_files_per_root: 5000
+  watched_roots:
+    # mode is stored on the baseline and copied into reports.
+    # No branch reads it before a write. readonly_strict is not a write guard.
+    - path: "../Arelis/arelis"
+      label: "Arelis Core Package (Read-Only Guard)"
+      mode: "readonly_strict"
+    - path: "sentinel"
+      label: "Sentinel Core Package"
+      mode: "hash_watch"
+
+retention:
+  # Storage bounds to maintain valuable forensic/scientific data without unbounded disk growth
+  max_harvest_dossiers: 25
+  max_quarantine_files: 25
+  max_log_bytes: 5242880    # 5 MiB per log file before automatic rotation
+  max_log_backups: 2        # Keep at most 2 historical rotated log archives (.1, .2)
+  max_ledger_entries: 5000  # Compact warrant ledger when exceeding 5,000 receipts
