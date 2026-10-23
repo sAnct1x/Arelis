@@ -67,6 +67,8 @@ def seed_launch_profile(data_dir: Path) -> None:
             "models:",
             '  fast: "Qwen3.6-35B-A3B"',
             '  research: "Qwen3.6-35B-A3B"',
+            "llamacpp:",
+            '  model: "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"',
             "memory:",
             '  embed_model: "nomic-embed-text"',
             "workspace:",
@@ -93,6 +95,9 @@ def seed_launch_profile(data_dir: Path) -> None:
         ]
     )
     (state / "config.local.yaml").write_text(config, encoding="utf-8", newline="\n")
+    models = data_dir / "models"
+    models.mkdir(parents=True, exist_ok=True)
+    (models / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf").write_bytes(b"gguf")
     marker = {
         "version": 1,
         "workspace_root": str(workspace),

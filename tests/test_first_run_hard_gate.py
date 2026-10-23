@@ -1,7 +1,7 @@
 """First-run still asks for a workspace folder when main passes a config.
 
-Model setup is not a step. These tests pin the workspace glass and the
-upgrade path that keeps saved roots.
+Model setup runs when no chat GGUF is on disk. These tests pin the workspace
+glass, the wizard gate, and the upgrade path that keeps saved roots.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import yaml
 
 @pytest.fixture
 def fresh_first_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """Empty profile: the workspace prompt is still needed."""
+    """Empty profile: the workspace prompt and model setup are both needed."""
     from arelis import onboarding, paths
 
     root = tmp_path / "state"
@@ -33,16 +33,17 @@ def fresh_first_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     assert onboarding.needs_prompt()
     from arelis.setup.state import needs_model_setup
 
-    assert not needs_model_setup()
+    assert needs_model_setup()
     return home
 
 
 def test_regression_prompts_run_when_config_was_given(
     fresh_first_run: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Mirror production main to run_ui(load_config()): the folder glass is asked.
+    """Mirror production main to run_ui(load_config()): both glasses are asked.
 
-    Model setup is not a first-run step, so that dialog stays closed.
+    Fail-before: after #337 this skipped the model glass because a config
+    dict was passed and needs_model_setup always returned False.
     """
     from arelis.config import load_config
     from arelis.ui import launch as launch_mod
@@ -59,13 +60,25 @@ def test_regression_prompts_run_when_config_was_given(
 
     monkeypatch.setattr(launch_mod, "prompt_for_workspace_root", fake_workspace)
     monkeypatch.setattr(launch_mod, "prompt_for_model_setup", fake_model)
+    monkeypatch.setattr(launch_mod, "try_quiet_complete_model_setup", lambda: False)
+    from arelis.setup import state as setup_state
+
+    real_needs = setup_state.needs_model_setup
+
+    def needs_once() -> bool:
+        if "model" in called:
+            return False
+        return real_needs()
+
+    monkeypatch.setattr(setup_state, "needs_model_setup", needs_once)
+    monkeypatch.setattr(launch_mod, "needs_model_setup", needs_once)
 
     config = load_config()
     assert config is not None
     # Production entry: main always passes a config dict.
     out = launch_mod.apply_first_run_glass(config, config_was_given=True)
     assert "workspace" in called, "workspace glass skipped because config was given"
-    assert "model" not in called
+    assert "model" in called, "model glass skipped because no chat GGUF was found"
     assert out is not None
 
 
@@ -122,5 +135,3 @@ def test_upgrade_skips_folder_dialog_when_roots_already_saved(
     marker = json.loads(onboarding.marker_path().read_text(encoding="utf-8"))
     assert marker["workspace_root"] == str(notes)
     assert not onboarding.needs_prompt()
-
-

@@ -159,5 +159,7 @@ def test_the_launch_profile_keeps_the_first_run_quiet(tmp_path: Path) -> None:
     assert loaded["updates"]["check"] is False
     marker = json.loads((tmp_path / "data" / "first-run.json").read_text(encoding="utf-8"))
     assert marker["model_setup"]["complete"] is True
+    assert loaded["llamacpp"]["model"] == "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+    assert (tmp_path / "models" / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf").is_file()
 
 

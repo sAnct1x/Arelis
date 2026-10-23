@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import shutil
 import sys
@@ -313,9 +312,16 @@ def _probe_vram_darwin() -> tuple[str, int | None, list[str]]:
 
 
 def _disk_free() -> int | None:
-    target = os.environ.get("LOCALAPPDATA") or str(Path.home())
+    from arelis.paths import models_dir
+
+    probe = models_dir()
+    while not probe.exists():
+        parent = probe.parent
+        if parent == probe:
+            break
+        probe = parent
     try:
-        return int(shutil.disk_usage(target).free)
+        return int(shutil.disk_usage(probe).free)
     except OSError as exc:
         log.info("disk free unread: %s", exc)
         return None

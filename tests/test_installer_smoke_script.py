@@ -64,7 +64,9 @@ def test_seed_completed_first_run_profile(tmp_path: Path) -> None:
     assert marker["workspace_root"] == str(root)
     local = (data_dir / "data" / "config.local.yaml").read_text(encoding="utf-8")
     assert "Qwen3.6-35B-A3B" in local
+    assert "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" in local
     assert json.dumps(str(root)) in local
+    assert (data_dir / "models" / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf").is_file()
     # Welcome title is a separate check; seeding is for the main window only.
     assert not m.welcome_title_ok("Arelis")
 

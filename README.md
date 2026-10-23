@@ -37,7 +37,7 @@ added later. The core program works without them.
 
 ## Quick start
 
-**To install:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.3.2.1-win64-setup.exe`, about 293 MB). Run it. The first time you open Arelis, she'll ask which folder she can use. Start llama-server with your model file before you chat. That's it.
+**To install:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.3.2.1-win64-setup.exe`, about 293 MB). Run it. The first time you open Arelis, she'll ask which folder she can use, then download a chat model. That's it. More in [first-run.md](docs/first-run.md).
 
 If you tried an installer from 0.2.4 to 0.2.9, those were broken and never opened. 0.3.0 and later fix that, so just run the new one.
 
@@ -87,7 +87,7 @@ The installer bundles voice support and the browser, but not the chat
 model or voice weights. On first launch:
 
 1. She'll ask which folder she can use (she can only read and write inside this folder)
-2. Chat uses llama-server. She does not download an engine or a model in this step.
+2. She looks at this PC and downloads a chat model (about 22.1 GB, or 16.6 GB if memory is tight). See [first-run.md](docs/first-run.md) for sizes and what happens if the connection drops.
 3. Voice weights download later, when you turn voice on (Sherpa, Kokoro, Silero)
 
 Once the model is ready, you'll see **say "hey arelis"** in the window.
@@ -119,7 +119,7 @@ Download the Mac disk image from the v0.3.2 [Mac app workflow artifact](https://
 
 The app is not signed. The first time, right-click (or Control-click) Arelis and choose Open, then choose Open again in the warning. Or open System Settings, go to Privacy and Security, and choose Open Anyway.
 
-This build is for Apple silicon Macs. Chat uses llama-server on the Mac. She does not include the model file. Start llama-server, then open Arelis.
+This build is for Apple silicon Macs. Chat uses llama-server on the Mac. She does not include the model file. The first open downloads it. See [first-run.md](docs/first-run.md).
 
 When a newer release exists, the installed app tells you and gives you the release page. It does not download or install the update for you.
 
@@ -323,7 +323,7 @@ something behaves oddly on yours, open an issue. Current release is
 
 - Windows SmartScreen warns you the first time you open the installer. I didn't sign it, so that warning is normal for this file. The check that the download itself is intact is up in Verifying the download.
 - If chat does not answer, check that llama-server is running with your model file, then send again. Arelis does not download that server for you.
-- The model file is large, and Arelis does not download it. Point llama-server at the file you already have, then open Arelis again.
+- The model file is large. First open downloads it. If the connection drops, the unfinished file stays and the next try continues. See [first-run.md](docs/first-run.md).
 - When something goes wrong, she writes a log on this PC. I never send that log anywhere. If you installed her, the log sits with her records. If you are running her from this project, the log sits with the project.
 - Still stuck? Open the [issue forms](https://github.com/sAnct1x/Arelis/issues/new/choose). One form is for a first open that went wrong, and one is for other bugs. Questions go in [Discussions](https://github.com/sAnct1x/Arelis/discussions).
 
@@ -335,6 +335,7 @@ something behaves oddly on yours, open an issue. Current release is
 | [whats-new.md](docs/whats-new.md) | 0.3.2.1 checkout and installer |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
+| [first-run.md](docs/first-run.md) | First open: folder, model download, dropped connection |
 | [models.md](docs/models.md) | Which models, and why |
 | [status-panel.md](docs/status-panel.md) | What the house status lines mean |
 | [location.md](docs/location.md) | Turning location off |

@@ -707,6 +707,9 @@ def seed_completed_first_run_profile(
     (state / "first-run.json").write_text(
         json.dumps(marker, indent=2) + "\n", encoding="utf-8"
     )
+    models = data_dir / "models"
+    models.mkdir(parents=True, exist_ok=True)
+    (models / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf").write_bytes(b"gguf")
     # Hand-written YAML: this script stays stdlib-only.
     local = (
         "workspace:\n"
@@ -715,6 +718,8 @@ def seed_completed_first_run_profile(
         "models:\n"
         f"  fast: {json.dumps(tag)}\n"
         f"  research: {json.dumps(tag)}\n"
+        "llamacpp:\n"
+        '  model: "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"\n'
     )
     (state / "config.local.yaml").write_text(local, encoding="utf-8")
     return workspace

@@ -18,6 +18,8 @@ llamacpp:
   base_url: "http://127.0.0.1:8080"
   timeout_s: 300
   default_cap: 32768
+  n_cpu_moe: 32
+  ubatch: 512
   context_caps:
     Qwen3.6-35B-A3B: 32768
   model: "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
