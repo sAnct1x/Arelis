@@ -206,8 +206,10 @@ class LocationResolver:
         cache_path: Path | None = None,
         ttl_s: int = _DEFAULT_TTL_S,
         prompt_detail: str = "off",
+        enabled: bool = True,
     ) -> None:
         self._prompt_detail = prompt_detail
+        self._enabled = enabled
         self._local = sorted(local, key=lambda p: -p.precedence)
         self._network = network
         self._ttl_s = max(0, int(ttl_s))
@@ -215,6 +217,11 @@ class LocationResolver:
         self._network_result: UserLocation | None = None
         self._network_at = 0.0
         self._load_cache()
+
+    @property
+    def enabled(self) -> bool:
+        """False when location.enabled is off. The tool then shares nothing."""
+        return self._enabled
 
     # -------------------------------------------------------------- reading
 
@@ -356,17 +363,21 @@ class LocationResolver:
 def build_location(config: dict[str, Any]) -> LocationResolver:
     """Assemble the chain this config enables."""
     cfg = config.get("location") or {}
+    enabled = bool(cfg.get("enabled", True))
     profile_path = Path(str(cfg.get("profile_path") or "data/profile.yaml"))
     if not profile_path.is_absolute():
         profile_path = user_data_dir() / profile_path
 
     local: list[LocalProvider] = [ManualProfileProvider(profile_path)]
-    if cfg.get("use_system", True):
+    # System country and time zone are the computer's place. They stay off
+    # when location.enabled is false. A saved profile city can still feed
+    # weather and local sky; the location tool does not share it.
+    if enabled and cfg.get("use_system", True):
         local.append(SystemProvider())
 
     network_cfg = cfg.get("network") or {}
     network: NetworkProvider | None = None
-    if network_cfg.get("enabled", False):
+    if enabled and network_cfg.get("enabled", False):
         network = IPGeolocationProvider(
             url=str(network_cfg.get("url") or IPGeolocationProvider.DEFAULT_URL),
             timeout_s=float(network_cfg.get("timeout_s", 6)),
@@ -377,6 +388,7 @@ def build_location(config: dict[str, Any]) -> LocationResolver:
         network,
         ttl_s=int(network_cfg.get("cache_hours", 24)) * 3600,
         prompt_detail=prompt_detail(config),
+        enabled=enabled,
     )
 
 

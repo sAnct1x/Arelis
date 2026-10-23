@@ -468,7 +468,7 @@ def _native_tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def now_line() -> str:
+def now_line(config: dict[str, Any] | None = None) -> str:
     """The current local date and time, for the system prompt.
 
     The clock is the one fact about the present that needs no network and no
@@ -480,6 +480,13 @@ def now_line() -> str:
     now = datetime.now().astimezone()
     # 12-hour with AM/PM. A 24-hour 02:31 was read back as 2:31 PM.
     stamp = now.strftime("%A, %d %B %Y, %I:%M %p").replace(" 0", " ")
+    loc = (config or {}).get("location") or {}
+    if not bool(loc.get("enabled", True)):
+        return (
+            f"Right now it is {stamp}. Use this for anything about today, "
+            "tomorrow, or the current year. It is the clock on this machine, so it "
+            "is reliable; do not search the web to find out the date."
+        )
     zone = now.strftime("%Z") or "local time"
     return (
         f"Right now it is {stamp} ({zone}). Use this for anything about today, "
