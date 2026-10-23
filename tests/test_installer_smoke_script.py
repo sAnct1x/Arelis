@@ -57,13 +57,13 @@ def test_welcome_title_ok() -> None:
 def test_seed_completed_first_run_profile(tmp_path: Path) -> None:
     m = _mod()
     data_dir = tmp_path / "profile"
-    root = m.seed_completed_first_run_profile(data_dir, tag="qwen3.5:9b")
+    root = m.seed_completed_first_run_profile(data_dir, tag="Qwen3.6-35B-A3B")
     marker = json.loads((data_dir / "data" / "first-run.json").read_text(encoding="utf-8"))
     assert marker["model_setup"]["complete"] is True
-    assert marker["model_setup"]["tag"] == "qwen3.5:9b"
+    assert marker["model_setup"]["tag"] == "Qwen3.6-35B-A3B"
     assert marker["workspace_root"] == str(root)
     local = (data_dir / "data" / "config.local.yaml").read_text(encoding="utf-8")
-    assert "qwen3.5:9b" in local
+    assert "Qwen3.6-35B-A3B" in local
     assert json.dumps(str(root)) in local
     # Welcome title is a separate check; seeding is for the main window only.
     assert not m.welcome_title_ok("Arelis")

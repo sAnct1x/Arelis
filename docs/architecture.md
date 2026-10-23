@@ -208,14 +208,14 @@ started.
 | Config | `arelis/config/default.yaml` | Shipped defaults; overrides live under `data/` |
 | Paths | `arelis/paths.py` | Resolves installed vs. checkout roots. Always use this. Never hand-write a path for a write |
 
-Only one chat model ever sits in graphics memory at a time. First
-open recommends a tag based on your hardware, pins both Fast and
-Research to it, and sizes the context window to whatever card it
-detected. The shipped last-resort in `default.yaml` is `qwen3.5:9b`
-for both Fast and Research. Research mode is just a deeper reasoning
-loop on the same weights. File work always stays on Fast. That model
-can see images itself, so `models.vision` only exists as a fallback
-for a model that can't. Full details in [models.md](models.md).
+Only one chat model ever sits in graphics memory at a time. Chat is
+Qwen3.6 35B-A3B on llama.cpp. The recommended file is 22.1 GB. A
+machine with less memory uses the smaller file, 16.6 GB. The shipped
+name in `default.yaml` is `Qwen3.6-35B-A3B` for both Fast and
+Research. Research mode is just a deeper reasoning loop on the same
+weights. File work always stays on Fast. That model can see images
+itself, so `models.vision` only exists as a fallback for a model that
+can't. Full details in [models.md](models.md).
 
 The persona text and the compact tool-policy block stay byte-identical
 across every turn. Shipped config keeps the full skinny tool schema
