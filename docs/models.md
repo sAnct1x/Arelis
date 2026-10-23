@@ -33,9 +33,8 @@ From `arelis/config/default.yaml`:
 | `vision` | `Qwen3.6-35B-A3B` | Same weights. The 35B reads pictures itself. |
 | embed | `nomic-embed-text` | Recall and document search, on the CPU embed server. |
 
-Chat is Qwen3.6 35B-A3B on llama.cpp. The default file is Unsloth
-UD-Q4_K_M (`Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`, 22.1 GB). A machine that
-cannot hold that file uses the UD-Q3_K_M fallback, 16.6 GB.
+Chat is Qwen3.6 35B-A3B on llama.cpp. The recommended file is 22.1 GB.
+A machine with less memory uses the smaller file, 16.6 GB.
 
 ## The context window
 
