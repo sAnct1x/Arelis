@@ -74,6 +74,8 @@ def mmproj_for(model: Path) -> Path:
 
 def _config_int(section: dict[str, Any], key: str, default: int) -> int:
     raw = section.get(key)
+    if raw is None:
+        return default
     try:
         value = int(raw)
     except (TypeError, ValueError):
