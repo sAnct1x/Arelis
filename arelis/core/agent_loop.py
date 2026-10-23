@@ -245,18 +245,36 @@ def _offer_expected(
     return set(visible) | (expected & available_all)
 
 
+def _is_openai_content_parts(content: Any) -> bool:
+    """True for text/image_url parts. Those must stay a list for llama.cpp."""
+    if not isinstance(content, list) or not content:
+        return False
+    for item in content:
+        if not isinstance(item, dict):
+            return False
+        if item.get("type") not in {"text", "image_url"}:
+            return False
+    return True
+
+
 def _normalize_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Make history safe to send back to the model server after a tool round.
 
     Injected calls used to store ``arguments`` as a JSON string while native
     calls used a dict. The model server then 400s with "can't find closing '}'" on the
     next step, including the no-tools JSON fallback, and the turn dies.
+    Image turns are a list of content parts. Dumping that list to a JSON
+    string is how attached pictures never reached llama.cpp.
     """
     out: list[dict[str, Any]] = []
     for msg in messages:
         item = dict(msg)
         content = item.get("content")
-        if content is not None and not isinstance(content, str):
+        if (
+            content is not None
+            and not isinstance(content, str)
+            and not _is_openai_content_parts(content)
+        ):
             item["content"] = json.dumps(content, default=str)
         calls = item.get("tool_calls")
         if isinstance(calls, list):

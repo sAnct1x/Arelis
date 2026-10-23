@@ -887,6 +887,80 @@ def format_attachments_block(
     return "\n".join(lines)
 
 
+def _image_attachment_rows(attachments: Any, text: str) -> list[dict[str, Any]]:
+    """Paperclip dicts for pictures on this turn. Text block is the fallback."""
+    rows: list[dict[str, Any]] = []
+    if isinstance(attachments, (list, tuple)):
+        for item in attachments:
+            data = item.as_dict() if isinstance(item, Attachment) else item
+            if not isinstance(data, dict):
+                continue
+            path = str(data.get("path") or "").strip()
+            kind = str(data.get("kind") or detect_kind(path)).strip()
+            if kind == "image":
+                rows.append(data)
+    if rows:
+        return rows
+    return [row for row in parse_attachments_from_turn(text) if row.get("kind") == "image"]
+
+
+def _resolved_image_file(row: dict[str, Any]) -> Path | None:
+    for key in ("path", "source_path"):
+        found = resolve_staged_path(str(row.get(key) or ""))
+        if found is not None:
+            return found
+    return None
+
+
+def user_content_with_images(
+    text: str,
+    attachments: Any = None,
+) -> str | list[dict[str, Any]]:
+    """User line for llama.cpp. Readable attached pictures become image parts.
+
+    A turn with no image files on disk stays a string, same as before.
+    """
+    rows = _image_attachment_rows(attachments, text)
+    if not rows:
+        return text
+    from arelis.llm.llamacpp import _image_part
+    from arelis.tools.image_io import CHAT_MAX_EDGE, encode_for_vision
+
+    parts: list[dict[str, Any]] = [{"type": "text", "text": text}]
+    for row in rows:
+        path = _resolved_image_file(row)
+        if path is None:
+            continue
+        try:
+            payload, _meta = encode_for_vision(path, max_edge=CHAT_MAX_EDGE)
+        except OSError:
+            continue
+        if payload:
+            parts.append(_image_part(payload))
+    if len(parts) == 1:
+        return text
+    return parts
+
+
+def apply_images_to_last_user(
+    messages: list[dict[str, Any]],
+    text: str,
+    attachments: Any = None,
+) -> None:
+    """Put this turn's pictures on the matching user line as image_url parts."""
+    content = user_content_with_images(text, attachments)
+    if isinstance(content, str):
+        return
+    for index in range(len(messages) - 1, -1, -1):
+        row = messages[index]
+        if row.get("role") != "user":
+            continue
+        if row.get("content") != text:
+            continue
+        messages[index] = {**row, "content": content}
+        return
+
+
 class AttachError(Exception):
     """The driver named files and none of them staged.
 
