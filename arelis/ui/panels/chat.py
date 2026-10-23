@@ -319,17 +319,13 @@ class ChatPanel(QWidget):
         self._stream_paint.setSingleShot(True)
         self._stream_paint.setInterval(_STREAM_PAINT_MS)
         self._stream_paint.timeout.connect(self._repaint_stream)
-        # Owned by the panel so they die with it. See _scroll: these used to be
-        # anonymous single-shots holding the scroll bar, and a panel destroyed
-        # inside their 50ms window left them pointing at freed memory.
-        self._settle_now = QTimer(self)
-        self._settle_now.setSingleShot(True)
-        self._settle_now.setInterval(0)
-        self._settle_now.timeout.connect(self._pin_to_bottom)
-        self._settle_soon = QTimer(self)
-        self._settle_soon.setSingleShot(True)
-        self._settle_soon.setInterval(50)
-        self._settle_soon.timeout.connect(self._pin_to_bottom)
+        # Stick-to-bottom: rangeChanged is the moment the bar's maximum is
+        # current. Pinning earlier leaves the last line under the viewport,
+        # and a later timer then fights the user if they try to scroll.
+        self._follow_bottom = True
+        bar = self.view.verticalScrollBar()
+        bar.rangeChanged.connect(self._on_scroll_range)
+        bar.valueChanged.connect(self._on_scroll_value)
         self._text_scale = 1.0
         self._parked_gutter = 0
         self._thoughts: list[_Thought] = []
@@ -787,6 +783,12 @@ class ChatPanel(QWidget):
         started = time.perf_counter()
         if follow is None:
             follow = self._near_bottom()
+        # Latch before the replace. rangeChanged during the rewrite would
+        # otherwise pin a user who already scrolled up.
+        self._follow_bottom = follow
+        parked = None
+        if not follow:
+            parked = self.view.verticalScrollBar().value()
         self.view.arm_math()
         body = "".join(self._stream_text)
         if body.strip():
@@ -799,6 +801,8 @@ class ChatPanel(QWidget):
         else:
             html = _caret_html() if self._caret_on else ""
         self._replace_from_anchor(html)
+        if parked is not None:
+            self._pin_to(parked)
         self._scroll(follow=follow)
         self._note_paint_cost(time.perf_counter() - started)
 
@@ -1226,29 +1230,46 @@ class ChatPanel(QWidget):
             return True
         return (bar.maximum() - bar.value()) <= 48
 
+    def _on_scroll_range(self, _lo: int, hi: int) -> None:
+        """Pin after the bar's maximum is current, not before layout updates it."""
+        if self._follow_bottom:
+            self._pin_to(hi)
+
+    def _on_scroll_value(self, value: int) -> None:
+        """Leaving the bottom stops follow. A shrink that lands on the user does not resume it."""
+        try:
+            bar = self.view.verticalScrollBar()
+        except RuntimeError:
+            return
+        if bar.maximum() <= 0:
+            return
+        if (bar.maximum() - value) > 48:
+            self._follow_bottom = False
+
     def _scroll(self, *, follow: bool = True) -> None:
         """Follow the stream only when the caller says we were near the bottom.
 
         Callers must sample `_near_bottom` *before* mutating the document;
         otherwise a stick-to-bottom user loses the trail after max grows.
+        A later rangeChanged pin uses that same follow flag so a late max
+        update still lands on the last line, without a timer that fights
+        a user who already scrolled away.
         """
-        if not follow:
-            return
-        self._pin_to_bottom()
-        # QTextBrowser often updates max one event later; without this the
-        # viewport sticks mid-thread after a long tool turn.
-        self._settle_now.start()
-        self._settle_soon.start()
+        self._follow_bottom = follow
+        if follow:
+            self._pin_to_bottom()
 
     def _pin_to_bottom(self) -> None:
-        """Put the viewport back at the end, if there is still a viewport.
-
-        Reached from two timers, so the panel can be part-way through clear() or
-        gone entirely by the time it runs.
-        """
+        """Put the viewport at the current bar maximum, if the view is alive."""
         try:
             bar = self.view.verticalScrollBar()
-            bar.setValue(bar.maximum())
+            self._pin_to(bar.maximum())
+        except RuntimeError:
+            pass
+
+    def _pin_to(self, value: int) -> None:
+        try:
+            self.view.verticalScrollBar().setValue(value)
         except RuntimeError:
             pass
 
