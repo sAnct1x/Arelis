@@ -8,6 +8,7 @@ name: Upgrade path
 # through the in-app backup), so it is its own workflow.
 on:
   workflow_dispatch:
+  # Probe commit: run this workflow on main 7519af9. Agent tokens cannot dispatch.
   pull_request:
     paths:
       - ".github/workflows/upgrade-path.yml"
