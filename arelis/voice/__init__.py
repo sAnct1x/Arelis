@@ -12,6 +12,7 @@ from arelis.core.events import Event, EventType
 from arelis.core.turn_telemetry import log_span, turn_telemetry_enabled
 from arelis.paths import outputs_dir
 from arelis.voice.speech_text import (
+    heard_sentence_count,
     next_speakable_units,
     prepare_spoken_text,
     split_sentences,
@@ -95,6 +96,10 @@ class VoiceService:
         self._stream_utterance = 0
         self._stream_clips = 0
         self._stream_open = False
+        # Sentences that already reached VOICE_AUDIO_READY. Retract forgets
+        # the live buffer so a replacement is not glued on, but these stay
+        # so a restated prefix is not synthesized again.
+        self._heard_sentences: list[str] = []
         self._pending: list[tuple[str, bool]] = []
         self._drain_task: asyncio.Task[None] | None = None
         self._live_bridge = None
@@ -267,10 +272,14 @@ class VoiceService:
             async with self._speak_lock:
                 self._speak_seq += 1
                 utterance = self._speak_seq
-                sentences, _ = next_speakable_units(
-                    spoken, 0, finalize=True, language=lang
+                already = heard_sentence_count(
+                    spoken, self._heard_sentences, language=lang
                 )
-                sentences = sentences or [spoken]
+                sentences, _ = next_speakable_units(
+                    spoken, already, finalize=True, language=lang
+                )
+                if not sentences and not already and spoken:
+                    sentences = [spoken]
                 self._prune_clips()
                 for index, sentence in enumerate(sentences):
                     if self._speak_cancelled >= utterance:
@@ -317,8 +326,14 @@ class VoiceService:
         prepared = prepare_spoken_text(
             self._stream_raw, max_chars=self.max_spoken_chars, language=lang
         )
+        already = self._spoken_count
+        if already == 0 and self._heard_sentences:
+            already = heard_sentence_count(
+                prepared, self._heard_sentences, language=lang
+            )
+            self._spoken_count = already
         units, spoken = next_speakable_units(
-            prepared, self._spoken_count, finalize=finalize, language=lang
+            prepared, already, finalize=finalize, language=lang
         )
         if not units:
             return
@@ -382,6 +397,10 @@ class VoiceService:
                     # and has a newer utterance the cancel flag does not cover.
                     continue
                 self._stream_clips += 1
+                self._heard_sentences.extend(
+                    split_sentences(sentence, language=self._speak_language())
+                    or [sentence]
+                )
                 if index == 0 and turn_telemetry_enabled(self.config):
                     log_span("tts_first", utterance=utterance, chars=len(sentence))
                 await self.bus.publish(
@@ -403,6 +422,8 @@ class VoiceService:
         Caller holds ``_stream_lock``. Pending clips are dropped and the
         in-flight sentence is marked cancelled. The text buffer goes too,
         so a later delta cannot prepend the withdrawn word to the reply.
+        Sentences that already reached the player stay in
+        ``_heard_sentences`` so a restated replacement is not replayed.
         """
         self._stream_raw = ""
         self._spoken_count = 0
@@ -417,6 +438,7 @@ class VoiceService:
         self._stream_utterance = 0
         self._stream_clips = 0
         self._stream_open = False
+        self._heard_sentences = []
         self._pending.clear()
         if not keep_cancel:
             # Allow the next reply to speak; leave cancel sticky only across a
@@ -730,6 +752,7 @@ def _remove(path: Path) -> None:
 
 __all__ = [
     "VoiceService",
+    "heard_sentence_count",
     "match_wake",
     "next_speakable_units",
     "prepare_spoken_text",

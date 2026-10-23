@@ -132,3 +132,109 @@ async def test_late_ui_retract_still_speaks_the_replacement() -> None:
         pass
     assert reply in fake.spoken
     assert played == [reply]
+
+
+def _long_sentence(name: str) -> str:
+    # Over the 160-char pack target so each sentence is its own clip.
+    return (
+        f"{name} is a fascinating icy moon with a long scientific story that "
+        f"people keep telling because the details are actually worth hearing "
+        f"out loud before anything else changes."
+    )
+
+
+class _FastTTS:
+    def __init__(self) -> None:
+        self.spoken: list[str] = []
+
+    def problem(self) -> None:
+        return None
+
+    async def synthesize(self, text: str, out: Path, language: str = "") -> Path:
+        self.spoken.append(text)
+        path = Path(out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"RIFF")
+        return path
+
+
+async def _wait_clips(played: list[str], count: int) -> None:
+    for _ in range(200):
+        if len(played) >= count:
+            return
+        await asyncio.sleep(0)
+    raise AssertionError(f"expected {count} clips, have {played!r}")
+
+
+@pytest.mark.asyncio
+async def test_replacement_skips_sentences_already_heard() -> None:
+    """#294: a restated replacement must not replay sentences already heard.
+
+    Retract still drops the live buffer so withdrawn text is not glued on.
+    Sentences that already reached the player stay skipped. A later turn
+    that starts with the same sentence still speaks it.
+    """
+    from arelis.voice import VoiceService
+
+    first = _long_sentence("Titan")
+    second = _long_sentence("Europa")
+    third = _long_sentence("Enceladus")
+    prefix = f"{first} {second}"
+    full = f"{first} {second} {third}"
+
+    bus = EventBus()
+    played: list[str] = []
+
+    async def _capture(event: Event) -> None:
+        if event.type == EventType.VOICE_AUDIO_READY:
+            played.append(str(event.payload.get("text") or ""))
+
+    bus.subscribe(None, _capture)
+    voice = VoiceService(
+        bus, {"voice": {"enabled": True, "tts": {"enabled": True, "backend": "piper"}}}
+    )
+    voice.speak_enabled = True
+    fake = _FastTTS()
+    voice.tts = fake  # type: ignore[assignment]
+    task = asyncio.create_task(bus.run())
+
+    # Path: ASSISTANT_DELTA then ASSISTANT_RETRACT then a restated delta.
+    bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": prefix}))
+    await _wait_clips(played, 2)
+    assert played == [first, second]
+    bus.publish_nowait(Event(EventType.ASSISTANT_RETRACT, {}))
+    bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": full}))
+    bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": full}))
+    await _wait_clips(played, 3)
+    await bus.drain()
+    assert played == [first, second, third]
+    assert fake.spoken == [first, second, third]
+
+    # Path: retract, then VOICE_SPEAK with no new delta. Same skip, other entry.
+    played.clear()
+    fake.spoken.clear()
+    bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": prefix}))
+    await _wait_clips(played, 2)
+    bus.publish_nowait(Event(EventType.ASSISTANT_RETRACT, {}))
+    await bus.drain()
+    bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": full}))
+    await _wait_clips(played, 3)
+    await bus.drain()
+    assert played == [first, second, third]
+    assert fake.spoken == [first, second, third]
+
+    # Path: stream reset after speak. The next turn still says the first line.
+    played.clear()
+    fake.spoken.clear()
+    bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": first}))
+    bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": first}))
+    await _wait_clips(played, 1)
+    await bus.drain()
+    assert played == [first]
+
+    bus.stop()
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
