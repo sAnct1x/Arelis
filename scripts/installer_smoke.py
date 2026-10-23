@@ -680,7 +680,7 @@ def _write_smoke_config(install_dir: Path, dest: Path) -> Path:
 
 
 def seed_completed_first_run_profile(
-    data_dir: Path, *, tag: str = "qwen3.5:9b", root: Path | None = None
+    data_dir: Path, *, tag: str = "Qwen3.6-35B-A3B", root: Path | None = None
 ) -> Path:
     """Pre-seed a profile so the main-window probe is not blocked by first-run.
 

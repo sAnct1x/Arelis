@@ -28,10 +28,13 @@ From `arelis/config/default.yaml`:
 
 | Role | Name | What it actually is |
 |---|---|---|
-| `fast` | `qwen3.5:9b` | Day-to-day name sent to llama-server. File and git work stays here. |
-| `research` | `qwen3.5:9b` | Same name. A deeper loop: more rounds, research tools. |
-| `vision` | `qwen2.5vl:3b` | Fallback name when the chat model cannot see images itself. |
+| `fast` | `Qwen3.6-35B-A3B` | Day-to-day name sent to llama-server. File and git work stays here. |
+| `research` | `Qwen3.6-35B-A3B` | Same name. A deeper loop: more rounds, research tools. |
+| `vision` | `Qwen3.6-35B-A3B` | Same weights. The 35B reads pictures itself. |
 | embed | `nomic-embed-text` | Recall and document search, on the CPU embed server. |
+
+Chat is Qwen3.6 35B-A3B on llama.cpp. The recommended file is 22.1 GB.
+A machine with less memory uses the smaller file, 16.6 GB.
 
 ## The context window
 

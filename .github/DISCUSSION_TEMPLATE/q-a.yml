@@ -34,7 +34,7 @@ body:
     attributes:
       label: GPU and model (if relevant)
       description: Your graphics card and the chat model you're using.
-      placeholder: 12 GB NVIDIA, qwen3.5:9b
+      placeholder: 12 GB NVIDIA, Qwen3.6-35B-A3B
   - type: checkboxes
     id: searched
     attributes:
