@@ -26,6 +26,7 @@ import json
 import math
 import re
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from arelis.core.evidence import looks_like_bot_wall
 
@@ -251,7 +252,13 @@ def _document_chat_line(output: str) -> str:
     return f"Saved the document to {path}."
 
 
-def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
+def chat_followup_from_tool(
+    tool: str,
+    output: str,
+    *,
+    ask: str = "",
+    data: dict[str, Any] | None = None,
+) -> str:
     """Person-facing copy when the model leaves chat empty after a tool.
 
     The model still sees the raw tool result (including instruction footers).
@@ -326,8 +333,13 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         if len(cleaned) > 1600:
             cleaned = cleaned[:1597].rstrip() + "…"
         return cleaned
-    # Weather already answers in words (current-only lines look like key:value).
+    # Weather dump is facts for the model. Chat gets the spoken reply.
     if name == "weather":
+        reply = ""
+        if isinstance(data, dict):
+            reply = str(data.get("reply") or "").strip()
+        if reply:
+            return reply
         if len(cleaned) > 1600:
             cleaned = cleaned[:1597].rstrip() + "…"
         return cleaned
@@ -396,6 +408,9 @@ def answer_is_raw_tool_line(tool: str, text: str, raw: str) -> bool:
         return False
     name = (tool or "").strip()
     if name in _STATUS_RECEIPT_TOOLS:
+        return True
+    # The forecast dump is facts for the model. Pasting it is not a reply.
+    if name == "weather":
         return True
     if name in _SPOKEN_TOOL_OUTPUT:
         return False
