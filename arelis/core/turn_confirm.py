@@ -71,17 +71,29 @@ def _image_step(args: dict[str, Any]) -> str:
 def confirm_action_key(name: str, args: dict[str, Any] | None) -> str:
     """Identity of the confirm-gated step this call would do.
 
-    Picture tools share a step. A no on send or memory stays on that
-    tool, so one refusal does not block the other.
+    Picture tools share a step, so a no on a cutout is a no on that
+    cutout for both picture tools. A workspace write is the path, so a
+    no on one file is not a no on the next. A fact is the memory step.
+    A no on send stays on that tool, so one refusal does not block the
+    other.
     """
     tool = (name or "").strip()
     raw = args if isinstance(args, dict) else {}
     if tool in {"image", "image_edit"}:
         return f"image:{_image_step(raw)}"
     action = str(raw.get("action") or "").strip()
+    path = str(raw.get("path") or "").strip()
+    fact = str(raw.get("fact") or "").strip()
+    parts = [tool]
     if action:
-        return f"{tool}:{action}"
-    return tool
+        parts.append(action)
+    if path:
+        parts.append(path)
+    elif fact:
+        parts.append(fact)
+    if len(parts) == 1:
+        return tool
+    return ":".join(parts)
 
 
 def _declined_target(args: dict[str, Any]) -> dict[str, Any]:
@@ -265,13 +277,14 @@ async def confirm_call(
             messages=messages,
         )
 
-    # A later copy of a step they already refused. Same fact, no second
-    # card, and the tool stays on the menu. Hiding it is what turned the
-    # next call into "Unknown tool" plus the rest of the menu. The step
-    # is shared, so the other picture tool does not open a new card for
-    # a cutout they already refused.
+    # A later copy of a step they already refused. Same path or fact, no
+    # second card, and the tool stays on the menu. Hiding it is what
+    # turned the next call into "Unknown tool" plus the rest of the menu.
+    # The picture step is shared, so the other picture tool does not open
+    # a new card for a cutout they already refused. A later write of a
+    # different file is a different step and still gets a card.
     action_key = confirm_action_key(name, args)
-    if name in ctx.declined_tools or action_key in ctx.declined_actions:
+    if action_key in ctx.declined_actions:
         messages.append(
             loop._tool_message(name, _SKIP_NOTICE.format(tool=name))
         )
@@ -426,10 +439,11 @@ async def confirm_call(
             else:
                 messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} skipped")
-                # The card was the step. If nothing in this batch runs,
-                # dispatch answers from that and does not call the model
-                # again. Wander off a send stays open so the send can
-                # still be called.
+                # The card was this step, not the rest of the ask. A
+                # later round can still run the other requested steps.
+                # If that round calls nothing and nothing has run,
+                # apply_no_call_path names this skip. Wander off a send
+                # stays open so the send can still be called.
                 ctx.decline_needs_finish = True
             if (
                 name in {"send_sms", "send_email"}

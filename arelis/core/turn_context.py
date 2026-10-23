@@ -147,8 +147,8 @@ class TurnContext:
     same_skip_keys: set[str] = field(default_factory=set)
     skip_finish_text: str = ""
     # A confirm card was refused and that refusal is the step itself, not
-    # wander off a send. dispatch ends the turn when no call actually ran,
-    # so the reply does not wait on another model round.
+    # wander off a send. The skipped step is named if a later round calls
+    # nothing. Remaining requested steps still get a round.
     decline_needs_finish: bool = False
     agenda_create_ok: bool = False
     agenda_open_read_ok: bool = False

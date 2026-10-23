@@ -89,11 +89,16 @@ class _WorkspaceStub:
             "content": {"type": "string"},
         },
     }
-    runs = 0
+
+    def __init__(self) -> None:
+        self.runs = 0
+        self.written: list[str] = []
 
     async def run(self, **kwargs: Any) -> ToolResult:
         self.runs += 1
-        return ToolResult(ok=True, output=f"Wrote {kwargs.get('path')}")
+        path = str(kwargs.get("path") or "")
+        self.written.append(path)
+        return ToolResult(ok=True, output=f"Wrote {path}")
 
 
 class _RunScriptStub:
@@ -396,6 +401,61 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     assert workspace.runs == 0
     assert text.strip() == _WRITE_ONLY_LINE
     assert "calculator" not in text.lower()
+
+    # Two asked writes, one card at a time. A no on notes.txt used to end
+    # the turn, so todo.txt was never asked about. Skip that step, name
+    # it, and still run the other file.
+    notes_line = "I didn't save notes.txt because you said no."
+    two = _WorkspaceStub()
+    cards: list[str] = []
+
+    async def _skip_notes(
+        cid: str, tool: str, args: dict[str, Any], summary: str
+    ) -> str:
+        del cid, tool, summary
+        cards.append(str(args.get("path") or ""))
+        if str(args.get("path") or "").endswith("notes.txt"):
+            return "skip"
+        return "allow"
+
+    two_router = _ScriptedRouter(
+        [
+            [
+                _call(
+                    "workspace",
+                    {
+                        "action": "write",
+                        "path": "notes.txt",
+                        "content": "errands\n",
+                    },
+                )
+            ],
+            [
+                _call(
+                    "workspace",
+                    {
+                        "action": "write",
+                        "path": "todo.txt",
+                        "content": "milk\n",
+                    },
+                )
+            ],
+            [("token", "Saved todo.txt.")],
+        ]
+    )
+    two_bus = EventBus()
+    two_loop = _loop(two_router, two, confirm=_skip_notes)
+    two_loop.bus = two_bus
+    two_events = await _collect(
+        two_bus,
+        two_loop.run("Save notes.txt and todo.txt.", "fast"),
+    )
+    two_text = str(_done(two_events)["text"])
+    assert cards == ["notes.txt", "todo.txt"]
+    assert two.written == ["todo.txt"]
+    assert two.runs == 1
+    assert notes_line in two_text
+    assert "todo.txt" in two_text
 
 
 @pytest.mark.asyncio

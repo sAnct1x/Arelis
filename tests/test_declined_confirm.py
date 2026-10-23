@@ -298,7 +298,10 @@ async def test_a_declined_card_is_not_a_missing_tool_or_a_standing_no() -> None:
     assert image.runs == 0
     assert web.runs == 0
     assert cards == ["image"]
-    assert router.i == 1
+    # A decline no longer ends the turn in dispatch. The next round is
+    # how a later asked step can still run. This ask has no other step,
+    # so that round calls nothing and the skip sentence still ships.
+    assert router.i == 2
     assert done == "I didn't run that step because you said no."
     # Same batch: the repeat and the other picture tool were skipped
     # without a card. A stop on the first no would leave only one line.

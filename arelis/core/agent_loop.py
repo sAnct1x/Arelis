@@ -2038,6 +2038,7 @@ class AgentLoop:
         turn = getattr(self, "_active_turn", None)
         if turn is not None:
             from arelis.core.loop_helpers import (
+                declined_finish_reply,
                 declined_memory_unverified,
                 declined_run_unverified,
                 memory_save_skipped_line,
@@ -2068,6 +2069,15 @@ class AgentLoop:
                         f"{final.rstrip()}\n{skipped}" if final.strip() else skipped
                     )
                     streamed = ""
+                elif turn.declined_calls:
+                    named = declined_finish_reply(
+                        turn.declined_tools, turn.declined_calls
+                    )
+                    if named and named not in final:
+                        final = (
+                            f"{final.rstrip()}\n{named}" if final.strip() else named
+                        )
+                        streamed = ""
         final = _append_sources(final, sources)
 
         # Preflight expected a tool but none of those succeeded this turn.
