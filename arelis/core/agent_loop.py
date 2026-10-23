@@ -845,6 +845,9 @@ class AgentLoop:
         # The next publish of a later round inserts a blank line when this
         # is set. A tool round that keeps the draft sets it. A retract clears it.
         self._round_gap = False
+        # True while the bubble holds the retry wait note, not an answer.
+        # The next real tokens replace it.
+        self._wait_note = False
         # One line per tool call, carried into memory so the next turn knows
         # which file was written or which page was read.
         self._trace: list[str] = []
@@ -1877,6 +1880,9 @@ class AgentLoop:
         """Publish answer text. A later round starts its own paragraph."""
         if not text:
             return
+        if getattr(self, "_wait_note", False):
+            await self._retract()
+            self._wait_note = False
         if self._round_gap:
             if self._painted.strip():
                 text = _with_round_gap(self._painted, text)
@@ -1899,6 +1905,7 @@ class AgentLoop:
     async def _retract(self) -> None:
         """Withdraw everything painted since the last terminal event."""
         self._round_gap = False
+        self._wait_note = False
         if not self._painted:
             return
         self._painted = ""

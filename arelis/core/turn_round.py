@@ -160,6 +160,7 @@ async def _keep_bubble_on_retry(loop: Any) -> None:
     """
     if str(getattr(loop, "_painted", "") or "").strip():
         await loop._retract()
+    loop._wait_note = True
     await loop._publish_delta(_CHECKING_AGAIN)
 
 
