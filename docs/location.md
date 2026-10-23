@@ -11,6 +11,7 @@ With location off:
 - She does not put your place in the prompt
 - The location tool shares nothing and says location is off
 - Your computer's country and time zone are not read for that tool
+- The clock line in the prompt does not name the time zone or offset
 
 A city you name in a weather question still gets a forecast. Your
 saved city in `data/profile.yaml` is still used for weather and local
