@@ -583,26 +583,30 @@ def detect_catalog_ask(text: str) -> bool:
 
 
 # "How do I run the tests?" wants the command, not a suite run. Python has no
-# variable-length lookbehind, so this cannot live inside `_DIAGNOSTICS_ASK`, and
-# adding an exclusion field to IntentSpec to serve one row is not worth it. It
-# sits here rather than in the catalog on purpose: this function drives the
-# force gate and the inject — the expensive half — while the preflight nudge is
-# a request the model can decline, so a nudge on "how do I" costs nothing.
+# variable-length lookbehind, so this cannot live inside the catalog patterns,
+# and adding an exclusion field to IntentSpec to serve one row is not worth it.
+# It sits here rather than in the catalog on purpose: this function drives
+# the force gate. A first-person future ("we are going to run the tests")
+# is a session opener, not a request that she run the suite.
 _DIAGNOSTICS_HOWTO = re.compile(
     r"(?i)\b(?:how\s+(?:do|can|would|should)\s+(?:i|you|we)|what\s+does)\b"
+)
+_DIAGNOSTICS_SPEAKER_FUTURE = re.compile(
+    r"(?i)\b(?:we(?:['\u2019]re|\s+are)|i(?:['\u2019]m|\s+am))\s+"
+    r"(?:going\s+to|gonna|about\s+to)\b"
 )
 
 
 def detect_diagnostics_ask(text: str) -> bool:
     """True when they want the suite run, not the command explained.
 
-    Widened 2026-09-17: this matched the literal phrase "run diagnostics" and
-    nothing else, so "run the tests" / "run pytest" / "do the tests pass?"
-    armed nothing and the answer came from the model's imagination.
+    Suite phrasing stays on the force gate so "run the tests" cannot invent
+    a pass count. A how-to question and a first-person future opener do not.
     """
-    if _DIAGNOSTICS_HOWTO.search(text or ""):
+    raw = text or ""
+    if _DIAGNOSTICS_HOWTO.search(raw) or _DIAGNOSTICS_SPEAKER_FUTURE.search(raw):
         return False
-    return DIAGNOSTICS.matches(text)
+    return DIAGNOSTICS.matches(raw)
 
 
 _HORIZONS_BODY = re.compile(
