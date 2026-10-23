@@ -20,7 +20,10 @@ to drop Comfy ``image``, that registration is pinned by tests.
 
 from __future__ import annotations
 
+import ntpath
+import os
 from collections.abc import Callable
+from pathlib import Path, PureWindowsPath
 from typing import Any, Literal
 
 from arelis.paths import display_path
@@ -39,6 +42,11 @@ CapabilityClass = Literal[
     "WRITE_EXTERNAL",
     "SIDE_EFFECT_LOCAL",
 ]
+
+# File writers are these classes plus a named dest, not a tool-name list.
+FILE_WRITE_CLASSES = frozenset({"WRITE_LOCAL", "WRITE_LOCAL_ARTIFACT"})
+# Drop-tray folders. The dest identity is the file name the writer produces.
+_DROP_OUTPUT_FOLDERS = frozenset({"documents", "plots", "diagrams"})
 
 # Actions that turn a reader into a writer. The tool is registered as "read"
 # because list/read is the common case; the gate looks at the action argument.
@@ -516,6 +524,160 @@ def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> Capabi
     if tool == "pdf":
         return "WRITE_LOCAL_ARTIFACT"
     return "READ"
+
+
+def _drive_local_path(path: str) -> str:
+    """POSIX form of a Windows drive path, so resolve can see it.
+
+    On Windows the drive stays. Stripping it turns ``D:\\ws\\notes.txt``
+    into a different dest. On POSIX, ``C:/tmp/ws/notes.txt`` is the
+    Linux file after the drive is dropped.
+    """
+    text = (path or "").strip().replace("\\", "/")
+    if os.name == "nt":
+        return text
+    if len(text) >= 2 and text[1] == ":" and text[0].isalpha():
+        text = text[2:]
+        if text and not text.startswith("/"):
+            text = "/" + text
+        if not text:
+            text = "/"
+    return text
+
+
+def _win_write_identity(path: str) -> str:
+    collapsed = ntpath.normpath((path or "").replace("/", "\\"))
+    return PureWindowsPath(collapsed).as_posix().casefold()
+
+
+def _workspace_rel_key(path: str, workspace: Any) -> str | None:
+    """Workspace-relative dest when ``path`` sits inside a root."""
+    if workspace is None:
+        return None
+    resolve = getattr(workspace, "resolve", None)
+    local = _drive_local_path(path)
+    # POSIX form first. A backslash spelling of /tmp/ws/notes.txt is one
+    # filename on Linux if we hand it to resolve as-is, and that is not
+    # the file the writer would produce.
+    candidates = [local]
+    if path != local:
+        candidates.append(path)
+    if callable(resolve):
+        for candidate in candidates:
+            try:
+                hit = resolve(candidate, for_create=True)
+            except Exception:
+                # Outside-root or unsafe dest is not a declined write path.
+                continue
+            dest = Path(getattr(hit, "path", hit))
+            root = getattr(hit, "root", None)
+            if root is not None:
+                try:
+                    return dest.resolve().relative_to(Path(root).resolve()).as_posix()
+                except ValueError:
+                    pass
+            return dest.as_posix()
+    try:
+        dest = Path(local)
+        if not dest.is_absolute():
+            return None
+        dest_res = dest.resolve()
+        for entry in getattr(workspace, "roots", None) or []:
+            root = Path(getattr(entry, "path", entry))
+            try:
+                return dest_res.relative_to(root.resolve()).as_posix()
+            except ValueError:
+                continue
+        return None
+    except Exception:
+        # A dest that cannot resolve is not a declined write path.
+        return None
+
+
+def _drop_output_name(path: str) -> str:
+    """File name when this dest lands in a documents/plots/diagrams folder."""
+    posix = _drive_local_path(path).rstrip("/")
+    if not posix:
+        return ""
+    parent = Path(posix).parent.name.casefold()
+    if parent in _DROP_OUTPUT_FOLDERS:
+        return Path(posix).name
+    return ""
+
+
+def normalize_write_path(path: str, *, workspace: Any = None) -> str:
+    """Windows identity for a declined write dest.
+
+    Resolve against the workspace when we can so absolute, relative, and
+    drive-letter spellings of the same file match. Case and separators
+    match Windows. Collapse ``.`` / ``..``. A drop-tray dest uses the
+    file name the writer produces, so document ``title=notes`` and
+    workspace ``notes.txt`` stay the same dest.
+    """
+    text = (path or "").strip()
+    if not text:
+        return ""
+    rel = _workspace_rel_key(text, workspace)
+    if rel:
+        return _win_write_identity(rel)
+    drop = _drop_output_name(text)
+    if drop:
+        return _win_write_identity(drop)
+    return _win_write_identity(_drive_local_path(text))
+
+
+def file_write_dest(
+    name: str,
+    args: dict[str, Any] | None = None,
+    *,
+    lookup: Callable[[str], Any] | None = None,
+    tool: Any = None,
+) -> str:
+    """Output path this file-writing call would produce, or empty.
+
+    A writer is ``evaluate_capability`` in ``FILE_WRITE_CLASSES``. The
+    dest is that tool's ``preview_path``, the same path logic it uses to
+    write. Memory remember and contacts add are local writes with no
+    dest, so they stay off this set.
+    """
+    if evaluate_capability(name, args) not in FILE_WRITE_CLASSES:
+        return ""
+    obj = tool if tool is not None else (lookup or (lambda _n: None))(name)
+    preview = getattr(obj, "preview_path", None)
+    if not callable(preview):
+        return ""
+    raw = args if isinstance(args, dict) else {}
+    try:
+        dest = preview(raw)
+    except Exception:
+        # preview_path throwing means this call has no dest to skip.
+        dest = ""
+    if dest:
+        return str(dest)
+    rewritten = _preview_args_for_workspace(raw)
+    if rewritten is raw:
+        return ""
+    try:
+        dest = preview(rewritten)
+    except Exception:
+        # Same: a dest we cannot preview is not a declined write path.
+        return ""
+    return str(dest) if dest else ""
+
+
+def _preview_args_for_workspace(args: dict[str, Any]) -> dict[str, Any]:
+    """Drive-letter dests as local paths so preview_path can resolve them."""
+    changed = False
+    out = dict(args)
+    for key in ("path", "filename", "out", "dest", "to"):
+        value = str(out.get(key) or "").strip()
+        if not value:
+            continue
+        local = _drive_local_path(value)
+        if local != value:
+            out[key] = local
+            changed = True
+    return out if changed else args
 
 
 def batch_ok(name: str, args: dict[str, Any] | None = None) -> bool:

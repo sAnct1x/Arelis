@@ -55,6 +55,7 @@ from arelis.core.loop_helpers import (
     _MALFORMED_CALL_NOTICE,
     chart_failed_reply,
     chart_only_failure,
+    declined_finish_reply,
     python_plot_stop_line,
 )
 from arelis.core.native_tool_calling import native_tool_calling
@@ -244,6 +245,14 @@ async def apply_no_call_path(
     time this returns, or raises.
     """
     if not r.calls:
+        # A declined card is one skipped step. The next round is how the
+        # other requested steps still run. When that round calls nothing
+        # and nothing has run, name the skip. Do not ship a later model
+        # line in its place.
+        if ctx.decline_needs_finish and not loop.tools_used:
+            named = declined_finish_reply(ctx.declined_tools, ctx.declined_calls)
+            await loop._finish(named, r.sources, streamed="")
+            return True
         # Plot is still owed and this round called nothing. Stop before a
         # nudge spends another model pass. A python call can keep the round.
         owed = python_plot_stop_line(

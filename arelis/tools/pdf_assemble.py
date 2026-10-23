@@ -188,6 +188,21 @@ class PdfAssembleTool:
         else:
             self.workspace = WorkspaceRoots.from_paths(list(roots))
 
+    def preview_path(self, args: dict[str, Any] | None = None) -> Path:
+        """Where this call will write, without writing it.
+
+        dest/out is the output. path/paths are sources and stay out.
+        """
+        raw = args if isinstance(args, dict) else {}
+        dest = str(raw.get("dest") or raw.get("out") or "").strip()
+        if dest:
+            leaf = Path(dest.replace("\\", "/"))
+            dest_str = dest if leaf.suffix.lower() == ".pdf" else f"{dest}.pdf"
+            return self.workspace.resolve(dest_str, for_create=True).path
+        action = str(raw.get("action") or "merge").strip().lower() or "merge"
+        folder = self.workspace.resolve("outputs", for_create=True).path
+        return folder / f"{action}.pdf"
+
     async def run(self, **kwargs: Any) -> ToolResult:
         return await asyncio.to_thread(self._run, kwargs)
 

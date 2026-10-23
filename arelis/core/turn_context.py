@@ -147,8 +147,8 @@ class TurnContext:
     same_skip_keys: set[str] = field(default_factory=set)
     skip_finish_text: str = ""
     # A confirm card was refused and that refusal is the step itself, not
-    # wander off a send. dispatch ends the turn when no call actually ran,
-    # so the reply does not wait on another model round.
+    # wander off a send. The skipped step is named if a later round calls
+    # nothing. Remaining requested steps still get a round.
     decline_needs_finish: bool = False
     agenda_create_ok: bool = False
     agenda_open_read_ok: bool = False
@@ -178,6 +178,10 @@ class TurnContext:
     # The step those cards refused. image and image_edit share a step, so
     # a no on one is a no on that step for the other tool this turn.
     declined_actions: set[str] = field(default_factory=set)
+    # File dests a write card refused this turn. Every file-writing tool
+    # skips that dest. The dest is preview_path, resolved against the
+    # workspace, not a raw argument key.
+    declined_write_paths: set[str] = field(default_factory=set)
     declined_calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     web_search_ok: set[str] = field(default_factory=set)
     page_ok: set[str] = field(default_factory=set)
