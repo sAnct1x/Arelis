@@ -166,12 +166,17 @@ async def _wait_clips(played: list[str], count: int) -> None:
     raise AssertionError(f"expected {count} clips, have {played!r}")
 
 
+def _chunks(text: str, size: int = 20) -> list[str]:
+    return [text[i : i + size] for i in range(0, len(text), size)]
+
+
 @pytest.mark.asyncio
 async def test_replacement_skips_sentences_already_heard() -> None:
     """#294: a restated replacement must not replay sentences already heard.
 
     Retract still drops the live buffer so withdrawn text is not glued on.
-    Sentences that already reached the player stay skipped. A later turn
+    A token-streamed restatement is checked on every queue, not only the
+    first sentence. A dead turn drops the heard prefix so the next turn
     that starts with the same sentence still speaks it.
     """
     from arelis.voice import VoiceService
@@ -198,14 +203,14 @@ async def test_replacement_skips_sentences_already_heard() -> None:
     voice.tts = fake  # type: ignore[assignment]
     task = asyncio.create_task(bus.run())
 
-    # Path: ASSISTANT_DELTA then ASSISTANT_RETRACT then a restated delta.
+    # Path: speak two sentences, withdraw, stream the restatement in chunks.
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": prefix}))
     await _wait_clips(played, 2)
     assert played == [first, second]
     bus.publish_nowait(Event(EventType.ASSISTANT_RETRACT, {}))
-    bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": full}))
+    for piece in _chunks(full):
+        bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": piece}))
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": full}))
-    await _wait_clips(played, 3)
     await bus.drain()
     assert played == [first, second, third]
     assert fake.spoken == [first, second, third]
@@ -218,7 +223,6 @@ async def test_replacement_skips_sentences_already_heard() -> None:
     bus.publish_nowait(Event(EventType.ASSISTANT_RETRACT, {}))
     await bus.drain()
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": full}))
-    await _wait_clips(played, 3)
     await bus.drain()
     assert played == [first, second, third]
     assert fake.spoken == [first, second, third]
@@ -228,7 +232,20 @@ async def test_replacement_skips_sentences_already_heard() -> None:
     fake.spoken.clear()
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": first}))
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": first}))
-    await _wait_clips(played, 1)
+    await bus.drain()
+    assert played == [first]
+
+    # Path: ERROR retract must not silence the next turn's first sentence.
+    played.clear()
+    fake.spoken.clear()
+    bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": prefix}))
+    await _wait_clips(played, 2)
+    bus.publish_nowait(Event(EventType.ERROR, {"message": "the model failed"}))
+    await bus.drain()
+    played.clear()
+    fake.spoken.clear()
+    bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": first}))
+    bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": first}))
     await bus.drain()
     assert played == [first]
 

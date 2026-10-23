@@ -218,6 +218,10 @@ class VoiceService:
         if event.payload.get("scope") == "voice":
             return
         async with self._stream_lock:
+            # Heard prefix is for a same-turn replacement. This turn is dead.
+            # Retract would keep it and silence a later turn that starts
+            # with the same first sentence.
+            self._heard_sentences = []
             open_stream = self._stream_open
         if not open_stream:
             async with self._stream_lock:
@@ -326,12 +330,16 @@ class VoiceService:
         prepared = prepare_spoken_text(
             self._stream_raw, max_chars=self.max_spoken_chars, language=lang
         )
-        already = self._spoken_count
-        if already == 0 and self._heard_sentences:
-            already = heard_sentence_count(
+        # Every queue, not only the first. A chunked restatement completes
+        # sentence 2 after sentence 1 already advanced _spoken_count; that
+        # later sentence still has to be checked against the heard prefix.
+        already = max(
+            self._spoken_count,
+            heard_sentence_count(
                 prepared, self._heard_sentences, language=lang
-            )
-            self._spoken_count = already
+            ),
+        )
+        self._spoken_count = already
         units, spoken = next_speakable_units(
             prepared, already, finalize=finalize, language=lang
         )
