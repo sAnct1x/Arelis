@@ -1,24 +1,15 @@
 """The tool surface was built twice and the two copies had drifted.
 
 `turn_prepare` builds it for round one, `turn_round` rebuilds it on escalate.
-Same seven steps, same order, written out twice — except the escalate copy
-never passed `extra_skill_ids`, so the active room's skills were in reach
-before the turn escalated and gone after.
-
-That drift is currently latent, not live: `filter_tool_names` ignores
-`extra_skill_ids` unless `skill_tool_subset` or `research_tool_subset` is on,
-and the shipped config has both off. `test_room_skills_are_load_bearing_when_subsetting_is_on`
-below is the one that says why it still mattered — turn either flag on and the
-escalate round starts answering with a narrower surface than round one, for no
-reason anyone could see from either file.
+Same seven steps, same order. Rooms used to own extra_skill_ids; that
+product is gone. Look-turn collapse is what this file still pins.
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
-from arelis.core.tool_subset import filter_tool_names
-from arelis.core.tool_surface import base_surface, cap_to_room
+from arelis.core.tool_surface import base_surface
 
 ALL = {
     "web_search",
@@ -47,45 +38,10 @@ def _loop(*, look=None, expected=None, messages=None):
     )
 
 
-def _room(*skills: str):
-    return SimpleNamespace(spec=SimpleNamespace(skills=list(skills)))
-
-
 def _cfg(**kw):
     base = {"research_tool_subset": False, "skill_tool_subset": False}
     base.update(kw)
     return base
-
-
-# --- the drift itself --------------------------------------------------------
-
-
-def test_room_skills_are_load_bearing_when_subsetting_is_on():
-    """Without this, "the room's skills are dropped on escalate" is a claim
-    about code that does nothing. With subsetting on, it is 64 of 192
-    text/skill/flag combinations."""
-    kw = dict(role="fast", text="hello", enabled=False, skill_subset=True, history=[])
-    bare = filter_tool_names(ALL, **kw)
-    with_room = filter_tool_names(ALL, **kw, extra_skill_ids=("web",))
-    assert with_room - bare == {"scrape", "web_fetch", "web_search"}
-
-
-def test_base_surface_passes_the_room_through():
-    loop = _loop()
-    cfg = _cfg(skill_tool_subset=True)
-    bare, _ = base_surface(loop, set(ALL), role="fast", text="hello", agent_cfg=cfg)
-    roomy, _ = base_surface(
-        loop,
-        set(ALL),
-        role="fast",
-        text="hello",
-        agent_cfg=cfg,
-        active_room=_room("web"),
-    )
-    assert roomy - bare == {"scrape", "web_fetch", "web_search"}
-
-
-# --- the steps that were copied ----------------------------------------------
 
 
 def test_a_look_turn_collapses_to_the_look_tools():
@@ -96,45 +52,3 @@ def test_a_look_turn_collapses_to_the_look_tools():
     assert available == visible
     assert "send_sms" not in available
     assert available < ALL
-
-
-# --- the two call sites must stay in step ------------------------------------
-
-
-# A room's `tools:` list is a cage somebody chose — rooms lean by default, so
-# setting it at all is deliberate. It is also the one part of the surface that
-# can silently stop meaning anything, because a name that is not installed just
-# drops out, and the rooms tool goes on printing "limited to tools: …" anyway.
-
-
-def _caged_room(name: str, tools: tuple[str, ...]):
-    return SimpleNamespace(name=name, tools=tools, spec=SimpleNamespace(skills=()))
-
-
-def test_a_cage_naming_nothing_installed_fails_open_but_says_so(caplog) -> None:
-    """The fail-open is deliberate; the silence was the defect.
-
-    A room cut down to nothing could not answer the time of day, which is the
-    exact failure `rooms.py` says rooms lean to avoid. So the whole registry
-    comes back — but a limit that is printed to the user and not enforced has
-    to be audible somewhere, or the only symptom is the model reaching for a
-    tool the room said it could not use.
-    """
-    with caplog.at_level("WARNING"):
-        capped = cap_to_room(set(ALL), _caged_room("ghost", ("nope", "gone")))
-    assert capped == set(ALL)
-    assert caplog.records, "an unenforceable cage must not be silent"
-    msg = caplog.records[0].getMessage()
-    assert "ghost" in msg
-    assert "gone" in msg and "nope" in msg
-
-
-def test_a_partly_installed_cage_still_applies_and_names_what_it_dropped(
-    caplog,
-) -> None:
-    with caplog.at_level("WARNING"):
-        capped = cap_to_room(set(ALL), _caged_room("physics", ("cas", "typo_tool")))
-    assert capped == {"cas"}, "the names that do exist still cage the room"
-    msg = caplog.records[0].getMessage()
-    assert "typo_tool" in msg
-    assert "cas" not in msg.split("but")[-1], "only the missing one is reported missing"

@@ -362,9 +362,9 @@ def _open_workspace_artifact(window, raw: str) -> bool:
         roots.resolve_read(raw)
     except Exception:
         return False
-    from arelis.ui.workspace_host import open_file
+    from arelis.local_open import open_local_file
 
-    open_file(window, raw)
+    open_local_file(raw)
     return True
 
 

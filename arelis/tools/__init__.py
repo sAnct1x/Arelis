@@ -18,7 +18,6 @@ from arelis.memory.docs import (
 from arelis.memory.indexer import DEFAULT_EMBED_MODEL
 from arelis.memory.mail_index import MailIndexer
 from arelis.paths import user_data_dir
-from arelis.rooms import RoomStore
 from arelis.sms import DEFAULT_MAX_BODY_CHARS
 from arelis.sms_android import AndroidSmsProvider, load_sms_account
 from arelis.tools.agenda import AgendaTool
@@ -56,7 +55,6 @@ from arelis.tools.python_exec import PythonTool
 from arelis.tools.recall import RecallTool
 from arelis.tools.remind import RemindTool
 from arelis.tools.research_report import ResearchReportTool
-from arelis.tools.rooms_tool import RoomsTool
 from arelis.tools.run_script import RunScriptTool
 from arelis.tools.run_task import RunTaskTool
 from arelis.tools.schedule_jobs import ScheduleTool
@@ -123,11 +121,6 @@ def build_tool_registry(
         attended = allow_send
     registry = ToolRegistry()
     workspace = workspace or WorkspaceRoots.from_config(config)
-    # One RoomStore for rooms, documents, plots, and the orchestrator.
-    # Created here so a write in a room lands in that project's folder even
-    # if the rooms tool is later turned off.
-    if config.get("_rooms") is None:
-        config["_rooms"] = RoomStore()
     tools_cfg = config.get("tools", {})
     agent_cfg = config.get("agent", {})
     web_cfg = tools_cfg.get("web", {})
@@ -228,11 +221,6 @@ def build_tool_registry(
             registry.register(GoalsTool(archive))
         # Contact book edits need a person present for the confirm card.
         registry.register(ContactsTool())
-
-    if tools_cfg.get("rooms", {}).get("enabled", True):
-        # Same store the document tool holds. Created at the top of this
-        # function so both tools and the orchestrator see one object.
-        registry.register(RoomsTool(config["_rooms"]))
 
     web_fetch_tool: WebFetchTool | None = None
     if web_cfg.get("enabled", True):
@@ -397,17 +385,17 @@ def build_tool_registry(
         registry.register(EarthTool())
     # Charts write a PNG (Allow). Jobs skip — nobody is there to approve the file.
     if attended and (tools_cfg.get("plot") or {}).get("enabled", True):
-        registry.register(PlotTool(workspace, config["_rooms"]))
+        registry.register(PlotTool(workspace, None))
     # Text diagrams write SVG and PNG (Allow). Jobs skip.
     if attended and (tools_cfg.get("diagram") or {}).get("enabled", True):
-        registry.register(DiagramTool(workspace, config["_rooms"]))
-    # Room files only, charts under that room's results/. Allow. Jobs skip.
+        registry.register(DiagramTool(workspace, None))
+    # Charts under results/. Allow. Jobs skip. No room folder: tool refuses.
     if attended and (tools_cfg.get("data_cell") or {}).get("enabled", True):
-        registry.register(DataCellTool(workspace, config["_rooms"]))
+        registry.register(DataCellTool(workspace, None))
     # PDF / Word / Excel / CSV / markdown. Allow. Jobs skip — nobody is there
     # to approve a file landing on disk.
     if attended and (tools_cfg.get("document") or {}).get("enabled", True):
-        registry.register(DocumentTool(workspace, config["_rooms"]))
+        registry.register(DocumentTool(workspace, None))
     if attended and (tools_cfg.get("pdf") or {}).get("enabled", True):
         registry.register(PdfAssembleTool(workspace))
     registry.register(CodeWorkspaceTool(workspace))

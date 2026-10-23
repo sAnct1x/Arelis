@@ -15,7 +15,6 @@ from PySide6.QtCore import QByteArray, QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import QApplication, QDockWidget, QMenu
 
 from arelis.config import merge_local_config
-from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.ui.dock_surface import apply_dock_chrome
 from arelis.ui.filament_field import (
     attach_on_rect,
@@ -271,7 +270,6 @@ class FilamentDesk:
         w = self.window
         docks = {
             "thinking": w.persona_dock,
-            "files": w.work_dock,
             "history": w.history_dock,
             "camera": w.camera_dock,
         }
@@ -393,7 +391,6 @@ class FilamentDesk:
             "fullscreen": was_full,
             "docks": {
                 "think": not w.persona_dock.isHidden(),
-                "work": not w.work_dock.isHidden(),
                 "history": not w.history_dock.isHidden(),
                 "camera": not w.camera_dock.isHidden(),
                 "notify": not w.notify_inbox.isHidden(),
@@ -407,7 +404,6 @@ class FilamentDesk:
             w.title_bar.set_slim(True)
             w.readiness_strip.hide()
             w.persona_dock.hide()
-            w.work_dock.hide()
             w.history_dock.hide()
             w.camera_dock.hide()
             w.notify_inbox.hide()
@@ -459,7 +455,6 @@ class FilamentDesk:
         w._filament_hiding = True
         try:
             w.persona_dock.setVisible(bool(docks.get("think")))
-            w.work_dock.setVisible(bool(docks.get("work")))
             w.history_dock.setVisible(bool(docks.get("history")))
             w.camera_dock.setVisible(bool(docks.get("camera")))
             if docks.get("notify"):
@@ -526,7 +521,6 @@ class FilamentDesk:
             return
         history = getattr(w, "history_dock", None)
         think = getattr(w, "persona_dock", None)
-        work = getattr(w, "work_dock", None)
         cal = getattr(w, "calendar_window", None)
         camera = getattr(w, "camera_dock", None)
         notify = getattr(w, "notify_inbox", None)
@@ -539,7 +533,6 @@ class FilamentDesk:
         w._filament.set_hidden_faces(hidden)
         floats.set_open("history", self._filament_plate_open(history))
         floats.set_open("thinking", self._filament_plate_open(think))
-        floats.set_open("files", self._filament_plate_open(work))
         floats.set_open("days", self._filament_plate_open(cal))
         floats.set_open("camera", self._filament_plate_open(camera))
         floats.set_open("notify", self._filament_plate_open(notify))
@@ -560,7 +553,6 @@ class FilamentDesk:
             plates = {
                 "history": history,
                 "thinking": think,
-                "files": work,
                 "days": cal,
                 "camera": camera,
                 "notify": notify,
@@ -585,7 +577,6 @@ class FilamentDesk:
         tiles = {
             "history": getattr(w, "history_dock", None),
             "thinking": getattr(w, "persona_dock", None),
-            "files": getattr(w, "work_dock", None),
             "days": getattr(w, "calendar_window", None),
             "camera": getattr(w, "camera_dock", None),
             "notify": getattr(w, "notify_inbox", None),
@@ -611,16 +602,10 @@ class FilamentDesk:
         if name == "chat":
             self._filament_set_chat_open(not w._filament_chat_open)
             return
-        if name == "rooms":
-            chips = w._filament_floats.chips()
-            w._show_rooms_menu(chips.get("rooms") or w)
-            return
         if name == "history":
             w.act_history.trigger()
         elif name == "thinking":
             w.act_thinking.trigger()
-        elif name == "files":
-            w.act_workspace.trigger()
         elif name == "days":
             w.act_calendar.trigger()
         elif name == "camera":
@@ -645,9 +630,6 @@ class FilamentDesk:
 
             toggle_world(w, False)
             return
-        room_id = str(getattr(w.conversation.room, "room_id", "") or "")
-        if room_id != PHYSICS_ROOM_ID:
-            w._enter_room_from_menu(PHYSICS_ROOM_ID)
         from arelis.ui.world_host import toggle_world
 
         toggle_world(w, True, force=True)
@@ -817,12 +799,8 @@ class FilamentDesk:
             act.setChecked(w._filament_span == n)
             act.setEnabled(n <= max(1, have))
             act.triggered.connect(lambda _c=False, k=n: self._filament_set_span(k))
-        rooms = w._build_rooms_menu()
-        rooms.setTitle("rooms")
-        menu.addMenu(rooms)
         menu.addSeparator()
         menu.addAction(w.act_thinking)
-        menu.addAction(w.act_workspace)
         menu.addAction(w.act_history)
         menu.addAction(w.act_notifications)
         menu.addAction(w.act_camera)

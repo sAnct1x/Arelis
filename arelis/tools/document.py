@@ -20,7 +20,6 @@ from typing import Any
 from arelis.core.document_refs import resolve_reported_output_path
 from arelis.mathtext import display_math_plain, flatten_latex
 from arelis.paths import display_path, ensure, outputs_dir, user_data_dir
-from arelis.rooms import RoomStore
 from arelis.tools.base import ToolResult
 from arelis.workspace import (
     UNSAFE_WINDOWS_PATH_MSG,
@@ -500,9 +499,9 @@ class DocumentTool:
     name = "document"
     description = (
         "Create a file the user can open: PDF, Word (docx), Excel (xlsx), CSV, "
-        "markdown, or plain text. In a room with a folder, the file lands in "
-        "that project's documents/ directory. Otherwise it lands under "
-        "outputs/documents/. Use when they ask to create, make, write, generate, "
+        "markdown, or plain text. The file lands in the project's documents/ "
+        "directory when one is open, otherwise under outputs/documents/. "
+        "Use when they ask to create, make, write, generate, "
         "export, or save a document or spreadsheet. Pass format plus the full "
         "body (markdown and TeX math are fine — formulas are written as "
         "unicode so PDF, Word, CSV, and markdown all read clean). For tables "
@@ -558,7 +557,7 @@ class DocumentTool:
     def __init__(
         self,
         workspace: WorkspaceRoots | None = None,
-        rooms: RoomStore | None = None,
+        rooms: Any = None,
     ) -> None:
         self.workspace = workspace
         self.rooms = rooms
@@ -580,17 +579,17 @@ class DocumentTool:
         """(folder, short where-it-landed note)."""
         room_dir = self.room_docs_dir()
         if room_dir is not None:
-            return room_dir, "this room's documents folder"
+            return room_dir, "the project's documents folder"
         room = None if self.rooms is None else self.rooms.active
         if room is not None and room.root:
             return (
                 self.drop_dir(),
-                "the shared drop tray — this room's folder is not a project any more",
+                "the shared drop tray",
             )
         if room is not None:
             return (
                 self.drop_dir(),
-                "the shared drop tray — this room has no folder",
+                "the shared drop tray",
             )
         return self.drop_dir(), "the shared drop tray (outputs/documents)"
 

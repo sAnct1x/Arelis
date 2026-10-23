@@ -62,7 +62,6 @@ class TitleBar(QWidget):
 
     title_menu_requested = Signal(object)  # same menu as a right-click on filament
     view_menu_requested = Signal(object)  # emits the view button for QMenu.exec
-    rooms_menu_requested = Signal(object)  # emits the rooms button for QMenu.exec
     settings_requested = Signal()
     span_requested = Signal(int)
 
@@ -91,7 +90,7 @@ class TitleBar(QWidget):
         self.title.setAutoRaise(True)
         self.title.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.title.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.title.setToolTip("themes, rooms, desks")
+        self.title.setToolTip("themes, desks")
         self.title.setAccessibleName("Arelis")
         self.title.clicked.connect(lambda: self.title_menu_requested.emit(self.title))
         layout.addWidget(self.title)
@@ -117,17 +116,6 @@ class TitleBar(QWidget):
         self.view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_btn.clicked.connect(lambda: self.view_menu_requested.emit(self.view_btn))
         layout.addWidget(self.view_btn)
-
-        self.rooms_btn = QToolButton()
-        self.rooms_btn.setObjectName("ChromeRoomsBtn")
-        self.rooms_btn.setText("rooms")
-        self.rooms_btn.setToolTip("rooms: places she can work in")
-        self.rooms_btn.setAccessibleName("Rooms")
-        self.rooms_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.rooms_btn.clicked.connect(
-            lambda: self.rooms_menu_requested.emit(self.rooms_btn)
-        )
-        layout.addWidget(self.rooms_btn)
 
         self.settings_btn = QToolButton()
         self.settings_btn.setObjectName("ChromeSettingsBtn")
@@ -251,11 +239,10 @@ class TitleBar(QWidget):
         self._span_right.setFixedWidth(right)
 
     def set_slim(self, on: bool) -> None:
-        """Filament: arelis · hands · 1 2 3. View / rooms / settings live on the field."""
+        """Filament: arelis · hands · 1 2 3. View / settings live on the field."""
         slim = bool(on)
         self._slim = slim
         self.view_btn.setVisible(not slim)
-        self.rooms_btn.setVisible(not slim)
         self.settings_btn.setVisible(not slim)
         for btn in self.span_btns.values():
             btn.setVisible(slim)

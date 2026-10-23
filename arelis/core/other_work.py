@@ -68,7 +68,6 @@ def looks_like_other_work(
         looks_like_schedule_manage,
         looks_like_scheduled_send,
     )
-    from arelis.core.preflight import looks_like_room_create
     from arelis.core.sms_complete import (
         looks_like_browser_or_url,
         looks_like_goals_utterance,
@@ -106,7 +105,6 @@ def looks_like_other_work(
         or looks_like_tasks_utterance(raw)
         or looks_like_goals_utterance(raw)
         or looks_like_browser_or_url(raw)
-        or looks_like_room_create(raw)
         or WEATHER.matches(raw)
         or "image" in attachment_kinds_from_turn(raw)
     )

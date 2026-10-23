@@ -3,17 +3,60 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt
 
-from arelis.config import deep_merge, merge_local_config
+from arelis.config import _parse_workspace_roots, deep_merge, merge_local_config
 from arelis.paths import outputs_dir
 from arelis.spatial.scene import clamp_reach
 from arelis.ui.layout_store import clamp_away_rest_min, save_ui_prefs
 from arelis.ui.settings_dialog import SettingsDialog
 from arelis.ui.voice_host import commit_voice_directions
 from arelis.ui.window_resize import enable_win32_resize_frame
+from arelis.workspace import RootEntry
+
+
+def apply_workspace_roots(
+    window,
+    roots: list[dict[str, object]],
+    *,
+    preferred_active: str | None = None,
+) -> None:
+    """Persist named roots to config.local.yaml and hot-refresh the sandbox."""
+    if not roots:
+        window.thinking.append("Keep at least one workspace root.", kind="status")
+        return
+    try:
+        named = _parse_workspace_roots(roots)
+    except Exception as exc:
+        window.thinking.append(f"Workspace roots rejected: {exc}", kind="status")
+        return
+    merge_local_config({"workspace": {"roots": named}})
+    entries = [
+        RootEntry(
+            name=str(item["name"]),
+            path=Path(str(item["path"])).resolve(),
+            read_only=bool(item.get("read_only", False)),
+        )
+        for item in named
+    ]
+    want = preferred_active or window.workspace_roots.active
+    try:
+        window.workspace_roots.replace_roots(entries, preferred_active=want)
+    except Exception as exc:
+        window.thinking.append(f"Workspace roots update failed: {exc}", kind="status")
+        return
+    window.config.setdefault("workspace", {})
+    window.config["workspace"]["named_roots"] = named
+    window.config["workspace"]["roots"] = [entry["path"] for entry in named]
+    window.config["_workspace"] = window.workspace_roots
+    window.thinking.append(
+        f"Workspace roots updated ({len(entries)}): "
+        + ", ".join(window.workspace_roots.names()),
+        kind="status",
+    )
 
 
 def apply_session_language(window, raw: Any) -> str:
@@ -135,8 +178,6 @@ def apply_settings(window, values: dict[str, Any]) -> None:
 
     workspace_patch = values.get("workspace") or {}
     if "roots" in workspace_patch:
-        from arelis.ui.workspace_host import apply_workspace_roots
-
         apply_workspace_roots(window, list(workspace_patch.get("roots") or []))
 
     if window.voice_controller is not None and "input_device" in voice_patch:

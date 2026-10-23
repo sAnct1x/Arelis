@@ -11,7 +11,7 @@ from arelis.tools.base import ToolResult
 class TileTool:
     name = "tile"
     description = (
-        "Open or close an Arelis tile (the View menu): thinking, workspace, "
+        "Open or close an Arelis tile (the View menu): thinking, "
         "history, notifications, camera, contacts, calendar, world, chat. "
         "action=open shows it; action=close hides it. "
         "name=world is Reality's plate (true-scale solar system / hands). "
@@ -61,7 +61,7 @@ class TileTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    "Name a tile: thinking, workspace, history, "
+                    "Name a tile: thinking, history, "
                     "notifications, camera, contacts, calendar, chat, or "
                     "Reality (name=world)."
                 ),

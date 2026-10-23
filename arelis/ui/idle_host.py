@@ -31,7 +31,6 @@ def sync_idle_mode(window) -> None:
             not dock.isHidden()
             for dock in (
                 window.persona_dock,
-                window.work_dock,
                 window.history_dock,
                 window.camera_dock,
             )
@@ -64,7 +63,6 @@ def return_to_idle(window) -> None:
     if window.chat.has_messages:
         return
     window.persona_dock.hide()
-    window.work_dock.hide()
     window.history_dock.hide()
     window.camera_dock.hide()
     window.calendar_window.hide()
@@ -122,7 +120,6 @@ def enter_away_rest(window) -> None:
         return
     hidden = {
         "thinking": not window.persona_dock.isHidden(),
-        "workspace": not window.work_dock.isHidden(),
         "history": not window.history_dock.isHidden(),
         "camera": not window.camera_dock.isHidden(),
         "calendar": not window.calendar_window.isHidden(),
@@ -134,7 +131,6 @@ def enter_away_rest(window) -> None:
     window._away_hidden = hidden
     window._away_resting = True
     window.persona_dock.hide()
-    window.work_dock.hide()
     window.history_dock.hide()
     window.camera_dock.hide()
     window.calendar_window.hide()
@@ -170,8 +166,6 @@ def wake_from_away_rest(window) -> None:
     window._away_hidden = {}
     if hidden.get("thinking"):
         window.persona_dock.show()
-    if hidden.get("workspace"):
-        window.work_dock.show()
     if hidden.get("history"):
         window.history_dock.show()
         from arelis.ui.history_host import refresh_history

@@ -58,8 +58,8 @@ write this copy. There is no restore command in this version.
    backups sibling back into `data\`.
 3. Start Arelis.
 
-Because `secrets.yaml` was never in the backup, memory, rooms, jobs,
-contacts and settings come back, but mail, text, calendar, and API
+Because `secrets.yaml` was never in the backup, memory, leftover
+`rooms.yaml`, jobs, contacts and settings come back, but mail, text, calendar, and API
 keys do not. Set those up again in Settings and Notify (and the
 Earth/science keys). A disk that loses `secrets.yaml` itself is the
 case this does not cover.

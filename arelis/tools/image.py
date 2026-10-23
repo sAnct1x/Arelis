@@ -196,7 +196,7 @@ class ImageTool:
         "Generate pixels via local ComfyUI, or restyle an existing image "
         "(img2img) when you pass path. "
         "A discoverable local ComfyUI install is started on the first call. "
-        "The finished file is saved for the Workspace panel. "
+        "The finished file is saved. "
         "Args: prompt; optional negative/width/height/seed/aspect/style/steps/cfg; "
         "n (1–4 variations, different seeds); upscale=2 (LANCZOS 2×); "
         "path + optional denoise to restyle; "
@@ -830,8 +830,7 @@ class ImageTool:
                     ok=True,
                     output=(
                         f"{kind} saved to {listed} ({seed_bit}, "
-                        f"{out_w}x{out_h}{extra}). "
-                        "It should appear in the Workspace dock."
+                        f"{out_w}x{out_h}{extra})."
                     ),
                     data={
                         "path": paths[0],

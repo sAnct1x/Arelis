@@ -13,8 +13,8 @@ newer one the same way. One tap to install. Not silent.
 When the PC is reachable, the first open of the local day is a new chat:
 empty orbit, same as glass cold launch. Yesterday stays under
 **chats**. Opening a thread later that day keeps it. Allow / Deny for
-sends she already does on the PC. **files** opens the current room or
-workspace. **chats** is the PC history plus a new conversation. Allow on
+sends she already does on the PC. **files** opens files on this PC.
+**chats** is the PC history plus a new conversation. Allow on
 the phone is the same card as the PC: one press on either side settles
 it.
 

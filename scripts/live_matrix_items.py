@@ -456,13 +456,6 @@ ITEMS = [
         ["watch"],
         any=["quiet", "none", "no "],
     ),
-    S(
-        "S49_rooms",
-        "rooms",
-        "Create a room called Matrix Test Room with the purpose: verifying tools.",
-        ["rooms"],
-        any=["matrix test", "matrix-test"],
-    ),
     S("S50_tile", "tile", "Open the history tile.", ["tile"], any=["history", "open"]),
     S(
         "S51_remind",
@@ -598,16 +591,6 @@ ITEMS = [
         kind="slash",
         no_tools_ok=True,
         timeout=120,
-    ),
-    S(
-        "X09_rooms_list",
-        "/rooms",
-        "/rooms",
-        [],
-        any=["room"],
-        kind="slash",
-        no_tools_ok=True,
-        timeout=60,
     ),
     S(
         "X10_role_research",
@@ -1204,13 +1187,6 @@ ITEMS = [
         ["tasks", "tasks", "tasks"],
         all=["expense report"],
         db=[("tasks", "status", "done")],
-    ),
-    C(
-        "C30_rooms_create_update_get",
-        "rooms>rooms>rooms",
-        "Create a room called Matrix Probe Room with purpose: initial. Then update its purpose to 'zeta purpose 6620'. Then get the room and tell me its purpose.",
-        ["rooms", "rooms", "rooms"],
-        all=["zeta purpose 6620"],
     ),
     C(
         "C31_remind_list_cancel",

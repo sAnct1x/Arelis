@@ -776,7 +776,7 @@ async def execute_call(
             if name == "image" and data_dict and data_dict.get("path"):
                 path = str(data_dict["path"])
                 await loop._finish(
-                    f"Image ready: open in Workspace ({path}).",
+                    f"Image ready: {path}.",
                     sources,
                     streamed="",
                 )
@@ -985,17 +985,6 @@ async def execute_call(
                     streamed="",
                 )
                 return True
-        if (
-            name == "rooms"
-            and result.ok
-            and str(args.get("action") or "").lower() == "forget"
-        ):
-            await loop._finish(
-                str(result.output or "").strip() or "The room is gone.",
-                sources,
-                streamed="",
-            )
-            return True
         if (
             name == "contacts"
             and result.ok

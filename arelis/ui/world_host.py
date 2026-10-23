@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.spatial.grant import world_stage_allowed
 from arelis.spatial.verbs import (
     PhysicsAct,
@@ -32,7 +31,6 @@ _PLATE_ONLY = (
 
 _DOCK_TILES = (
     "thinking",
-    "workspace",
     "history",
     "notifications",
     "camera",
@@ -46,9 +44,10 @@ def world_available() -> bool:
     return world_stage_allowed()
 
 
-def should_offer_world(room_id: str | None) -> bool:
-    """Reality and a source-checkout stage. Else the chip stays dark."""
-    return str(room_id or "") == PHYSICS_ROOM_ID and world_available()
+def should_offer_world(room_id: str | None = None) -> bool:
+    """Source-checkout stage. room_id is ignored; Reality is not a room."""
+    del room_id
+    return world_available()
 
 
 def attach_world(scene: WorldScene, parent: Any = None) -> WorldWindow:
@@ -138,12 +137,9 @@ def toggle_world(window, checked: bool, page: str = "", *, force: bool = False) 
             window.thinking.append(_PLATE_ONLY, kind="status")
         return
     if checked:
-        if not force and not should_offer_world(window.conversation.room.room_id):
+        if not force and not should_offer_world():
             window.act_world.setChecked(False)
-            window.thinking.append(
-                "Reality is that room. Say let's work on Reality first.",
-                kind="status",
-            )
+            window.thinking.append(_PLATE_ONLY, kind="status")
             return
         window._world_placed = show_world(
             window.world_window,
@@ -198,10 +194,9 @@ def try_physics_verb(window, text: str) -> bool:
     act = classify_physics_act(text, names=speech_body_names())
     if not act:
         return False
-    in_reality = window.conversation.room.room_id == PHYSICS_ROOM_ID
     plate = getattr(window, "world_window", None)
     plate_up = bool(plate is not None and not plate.isHidden())
-    if not in_reality and act.verb not in _SPEECH_OPENS_PLATE and not plate_up:
+    if act.verb not in _SPEECH_OPENS_PLATE and not plate_up:
         return False
     apply_physics_act(window, act)
     _speak_closed(window, _physics_closed_line(act))
@@ -252,16 +247,6 @@ def _apply_desk_speech(window, desk: tuple[str, str]) -> bool:
 
         filament_set_span(window, int(arg))
         _speak_closed(window, f"Span {arg}.")
-        return True
-    if kind == "rooms":
-        chips = getattr(window, "_filament_floats", None)
-        anchor = window
-        if chips is not None and hasattr(chips, "chips"):
-            anchor = chips.chips().get("rooms") or window
-        show = getattr(window, "_show_rooms_menu", None)
-        if not callable(show):
-            return False
-        show(anchor)
         return True
     return False
 
@@ -664,7 +649,6 @@ def apply_tile(window, name: str, *, show: bool, page: str = "") -> None:
     key = (name or "").strip().lower()
     mapping = {
         "thinking": window.act_thinking,
-        "workspace": window.act_workspace,
         "history": window.act_history,
         "notifications": window.act_notifications,
         "camera": window.act_camera,

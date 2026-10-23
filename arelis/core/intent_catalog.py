@@ -1661,96 +1661,6 @@ _NAMED_ROOM_FILE = re.compile(
 )
 _DATA_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls", ".fits", ".fit"}
 _ONE_DATA_FILE = re.compile(r"(?i)\b(?:my data|my file|this file|that file|the table)\b")
-# rooms.yaml mtime, room folder mtime, folder path, names. A new file changes
-# the folder mtime, so the next turn relists the top of that folder only.
-_ROOM_NAME_CACHE: tuple[int, int, str, frozenset[str]] | None = None
-
-
-def live_room_filenames() -> set[str]:
-    """File names in the current room, from the saved room, or an empty set.
-
-    A fresh RoomStore is not the in-memory one, so this reads last_active
-    off disk. Tests with no room get nothing and weather stays weather.
-    The list is cached on the rooms file mtime and the room folder mtime.
-    A cache miss that has to find the folder calls load_config once, because
-    nothing else keeps a process-wide config. A new file does not.
-    """
-    global _ROOM_NAME_CACHE
-    try:
-        from arelis.paths import state_dir
-
-        path = state_dir() / "rooms.yaml"
-        rooms_stamp = path.stat().st_mtime_ns if path.is_file() else 0
-    except Exception:
-        # No rooms file: there is no current room, so this is not a file ask.
-        return set()
-    cached = _ROOM_NAME_CACHE
-    if cached is not None and cached[0] == rooms_stamp:
-        folder_stamp = _folder_mtime(cached[2])
-        if folder_stamp == cached[1]:
-            return set(cached[3])
-        names = _list_room_files(cached[2])
-        _ROOM_NAME_CACHE = (rooms_stamp, folder_stamp, cached[2], names)
-        return set(names)
-    if not rooms_stamp:
-        _ROOM_NAME_CACHE = (0, 0, "", frozenset())
-        return set()
-    names, folder_path, folder_stamp = _scan_live_room(path)
-    _ROOM_NAME_CACHE = (rooms_stamp, folder_stamp, folder_path, names)
-    return set(names)
-
-
-def _folder_mtime(folder: str) -> int:
-    if not folder:
-        return 0
-    try:
-        path = Path(folder)
-        return path.stat().st_mtime_ns if path.is_dir() else 0
-    except Exception:
-        # A missing folder is the same as an empty one.
-        return 0
-
-
-def _list_room_files(folder: str) -> frozenset[str]:
-    """Top of the room folder only. Never walks, never raises."""
-    if not folder:
-        return frozenset()
-    try:
-        found: set[str] = set()
-        for child in Path(folder).iterdir():
-            if child.name.startswith("."):
-                continue
-            if child.is_file():
-                found.add(child.name)
-        return frozenset(found)
-    except Exception:
-        # A folder that vanishes mid-scan must not take the turn down.
-        return frozenset()
-
-
-def _scan_live_room(path: Path) -> tuple[frozenset[str], str, int]:
-    try:
-        import yaml
-
-        from arelis.config import load_config
-        from arelis.workspace import WorkspaceRoots
-
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        room_id = str(raw.get("last_active") or "")
-        body = (raw.get("rooms") or {}).get(room_id) or {}
-        root_name = str(body.get("root") or "").strip()
-        if not root_name:
-            return frozenset(), "", 0
-        config = load_config()
-        workspace = config.get("_workspace") or WorkspaceRoots.from_config(config)
-        entry = workspace.root_named(root_name)
-        if entry is None or not entry.path.is_dir():
-            return frozenset(), "", 0
-        folder = entry.path
-        return _list_room_files(str(folder)), str(folder), _folder_mtime(str(folder))
-    except Exception:
-        # A bad rooms file is an empty room, and weather stays weather.
-        return frozenset(), "", 0
 
 
 # A stem this short, or this common, does not identify a file. The ask has
@@ -1799,7 +1709,7 @@ def _phrase_in(text: str, phrase: str) -> bool:
 def _room_names(room_files: set[str] | None) -> set[str]:
     return {
         str(item).lower()
-        for item in (room_files if room_files is not None else live_room_filenames())
+        for item in (room_files if room_files is not None else set())
         if str(item).strip()
     }
 

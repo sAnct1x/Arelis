@@ -86,6 +86,8 @@ def _fake_chrome(monkeypatch, tmp_path):  # type: ignore[no-untyped-def]
     monkeypatch.setattr(
         launch_mod.subprocess, "Popen", lambda args, **_k: calls.append(list(args)) or _Proc()
     )
+    monkeypatch.setattr(launch_mod, "_last_arelis_proc", None)
+    monkeypatch.setattr(launch_mod, "_owned_browser_launched", False)
     return launch_mod, profile, calls
 
 

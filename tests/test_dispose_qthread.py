@@ -200,14 +200,11 @@ def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
             async def close(self) -> None:
                 return None
 
-        async def _resume_last_room() -> None:
-            return None
-
         fake_seat = SimpleNamespace(
             router=_Router(),
             store=None,
             tools={},
-            orchestrator=SimpleNamespace(resume_last_room=_resume_last_room),
+            orchestrator=SimpleNamespace(),
         )
         monkeypatch.setattr(launch_mod, "apply_first_run_glass", lambda *_a, **_k: {})
         monkeypatch.setattr("arelis.core.seat.build_seat", lambda *_a, **_k: fake_seat)

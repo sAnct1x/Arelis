@@ -22,8 +22,6 @@ def _talk_window(*, roots: WorkspaceRoots | None = None) -> SimpleNamespace:
     window = SimpleNamespace(
         chat=SimpleNamespace(add_system=said.append),
         thinking=SimpleNamespace(append=lambda text, kind="status": think.append(str(text))),
-        work_dock=object(),
-        act_workspace=object(),
         workspace_roots=roots,
         workspace=SimpleNamespace(
             loaded_abs=lambda: "",

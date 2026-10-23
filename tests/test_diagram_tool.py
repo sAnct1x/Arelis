@@ -107,7 +107,7 @@ async def test_svg_drawing_lands_in_the_room_results_folder(tmp_path: Path) -> N
     assert png.resolve().is_relative_to(results)
     assert png.stat().st_size > 32
     assert not (tmp_path / "outside.png").exists()
-    assert "this room's results folder" in result.output
+    assert "the project's results folder" in result.output
 
 
 def test_typst_package_failure_offline_is_plain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

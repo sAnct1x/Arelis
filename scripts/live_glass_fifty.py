@@ -35,7 +35,6 @@ from arelis.eval.conversation import ToolCallRecord, _score_turn
 from arelis.eval.live_fifty import FORBIDDEN_TOOLS, TIMEOUT_S, live_fifty_turns
 from arelis.paths import outputs_dir
 from arelis.presence.lock import PresenceLock, ui_lock_path
-from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.ui.launch import force_windows_qt_platform
 from arelis.ui.theme import apply_theme, load_fonts, stylesheet, theme_from_config
 from arelis.ui.window_resize import configure_native_windows
@@ -290,11 +289,6 @@ def _solar(window: Any) -> Any:
 def _ensure_reality(window: Any, app: Any, out: Path) -> bool:
     from arelis.ui.world_host import toggle_world
 
-    try:
-        window._enter_room_from_menu(PHYSICS_ROOM_ID)
-    except Exception as exc:
-        _note(out, f"room enter failed: {type(exc).__name__}")
-    _pump(app, 400)
     try:
         toggle_world(window, True, page="solar", force=True)
     except Exception as exc:

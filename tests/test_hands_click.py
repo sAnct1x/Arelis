@@ -67,14 +67,14 @@ def test_two_pinches_resize_and_one_still_pinch_does_not() -> None:
 def test_filament_words_are_desk_commands() -> None:
     from arelis.core.tile_complete import match_desk_intent, match_tile_intent
 
-    assert match_tile_intent("open files") == ("open", "workspace")
+    assert match_tile_intent("open files") is None
     assert match_tile_intent("open days") == ("open", "calendar")
     assert match_tile_intent("close notify") == ("close", "notifications")
     assert match_tile_intent("open history") == ("open", "history")
     assert match_tile_intent("close this") == ("close", "")
     assert match_desk_intent("span 2") == ("span", "2")
     assert match_desk_intent("two screens") == ("span", "2")
-    assert match_desk_intent("open rooms") == ("rooms", "")
+    assert match_desk_intent("open rooms") is None
     assert match_desk_intent("open the notes room") is None
     assert match_desk_intent("span 2 and check the weather") is None
     assert match_tile_intent("open settings") is None

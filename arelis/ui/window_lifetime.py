@@ -254,7 +254,6 @@ class WindowLifetime:
         """
         for dock in (
             self.think_dock,
-            self.work_dock,
             self.history_dock,
             self.camera_dock,
         ):
@@ -284,7 +283,6 @@ class WindowLifetime:
 
         for dock in (
             self.think_dock,
-            self.work_dock,
             self.history_dock,
             self.camera_dock,
         ):

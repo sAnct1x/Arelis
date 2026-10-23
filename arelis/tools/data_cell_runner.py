@@ -19,8 +19,8 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
-READ_REFUSAL = "I can only read files in this room."
-WRITE_REFUSAL = "I can only save results in this room's results folder."
+READ_REFUSAL = "I can only read those data files."
+WRITE_REFUSAL = "I can only save results in the results folder."
 TOO_BIG = "That file is too big for me to read here."
 MEMORY_REFUSAL = "That used too much memory, so I stopped it."
 
@@ -393,7 +393,7 @@ def _authorized(name: str) -> Path:
     if escapes_tree(path, room):
         raise CellBlocked(READ_REFUSAL)
     if not path.is_file():
-        raise CellBlocked("I can't find that file in this room.")
+        raise CellBlocked("I can't find that file.")
     _charge_read(path)
     return path
 
@@ -455,7 +455,7 @@ def read_table(name: str = "", path: str = "") -> Any:
         return pd.read_json(table_path)
     if suffix in {".xlsx", ".xls"}:
         return pd.read_excel(table_path)
-    raise CellBlocked("I can only read a table or a FITS file in this room.")
+    raise CellBlocked("I can only read a table or a FITS file.")
 
 
 def read_fits(name: str = "", path: str = "") -> dict[str, Any]:

@@ -30,8 +30,7 @@ class _Router:
 
 
 class _Orchestrator:
-    async def resume_last_room(self) -> None:
-        return None
+    pass
 
 
 class _Seat:

@@ -124,7 +124,6 @@ def test_thinking_dock_redacts_status_lines_and_tool_text(qt_app, tmp_path, capl
         assert "phase=model" not in shown
         assert "phase=model near [location]" not in shown
         assert "running [location] digest" in shown
-        assert "[location]/notes.md" in shown
         logged = "\n".join(
             record.getMessage()
             for record in caplog.records
@@ -192,70 +191,4 @@ def test_thinking_dock_redacts_status_lines_and_tool_text(qt_app, tmp_path, capl
     finally:
         install({"location": {"privacy": {"redact_display": False}}})
         chat.deleteLater()
-        panel.deleteLater()
-
-
-def test_workspace_strip_hides_the_saved_place(qt_app) -> None:
-    """The status line along the bottom of the workspace follows the same rule.
-
-    Thinking already swaps the saved city for [location]. This strip was still
-    printing it. A line with no place in it stays word for word.
-    """
-    from arelis.ui.panels.workspace import WorkspacePanel, status_for_tool_result
-
-    place = UserLocation(
-        city="Springfield",
-        region="Illinois",
-        country="US",
-        postal_code="62701",
-        timezone="America/Chicago",
-    )
-    panel = WorkspacePanel()
-    try:
-        install({"_location": place})
-        wrote = status_for_tool_result(
-            "workspace",
-            ok=True,
-            action="write",
-            output="Wrote notes for Springfield\nextra chatter",
-        )
-        assert wrote == "Wrote notes for [location]"
-        failed = status_for_tool_result(
-            "workspace",
-            ok=False,
-            output="Not a file: Springfield/62701.csv",
-        )
-        assert failed == "Not a file: [location]/[location].csv"
-        plain = status_for_tool_result(
-            "workspace",
-            ok=True,
-            action="write",
-            output="Wrote theory_of_relativity.md",
-        )
-        assert plain == "Wrote theory_of_relativity.md"
-        panel.append_output("Wrote notes for Springfield")
-        assert panel.output.toPlainText() == "Wrote notes for [location]"
-        panel.append_output("Edited theory_of_relativity.md")
-        assert panel.output.toPlainText() == "Edited theory_of_relativity.md"
-        panel.append_output("Image ready: Springfield.png")
-        assert panel.output.toPlainText() == "Image ready: [location].png"
-
-        assert (
-            install(
-                {
-                    "_location": place,
-                    "location": {"privacy": {"redact_display": False}},
-                }
-            )
-            is None
-        )
-        shown = status_for_tool_result(
-            "workspace",
-            ok=True,
-            action="write",
-            output="Wrote notes for Springfield",
-        )
-        assert shown == "Wrote notes for Springfield"
-    finally:
-        install({"location": {"privacy": {"redact_display": False}}})
         panel.deleteLater()

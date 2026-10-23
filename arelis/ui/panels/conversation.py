@@ -47,7 +47,6 @@ from arelis.ui.notify_overlay import NotifyOverlay
 from arelis.ui.panels.chat import ChatPanel
 from arelis.ui.panels.confirm import ConfirmCard
 from arelis.ui.panels.drive import DriveStrip
-from arelis.ui.panels.room import RoomStrip
 from arelis.ui.stage import paint_corner_ticks
 from arelis.ui.theme import METRICS, SPACE, active_theme, polish_combo_popup, space_box
 from arelis.ui.void_idle import OrbitCanvas
@@ -161,7 +160,6 @@ class ConversationStage(GlassFrame):
     idle_conditions_changed = Signal()
     session_clicked = Signal(str)
     new_requested = Signal()
-    leave_room_requested = Signal()
     world_requested = Signal()
 
     def __init__(self, default_role: str = "fast", parent=None) -> None:
@@ -177,12 +175,6 @@ class ConversationStage(GlassFrame):
         # Gutter so corner ticks sit outside fast / send / chat labels.
         layout.setContentsMargins(*space_box("stage", "inset", "stage", "plate"))
         layout.setSpacing(SPACE["gap"])
-
-        # Above the transcript: whose conversation this is. Hidden in general.
-        self.room = RoomStrip()
-        layout.addWidget(self.room)
-        self.room.leave_requested.connect(self.leave_room_requested.emit)
-        self.room.world_requested.connect(self.world_requested.emit)
 
         self.chat = ChatPanel(embedded=True)
         layout.addWidget(self.chat, stretch=1)
@@ -343,7 +335,6 @@ class ConversationStage(GlassFrame):
 
         self.notify_overlay = NotifyOverlay(self)
         self.notify_overlay.hide()
-        self.room.changed.connect(self.notify_overlay.reposition)
 
         self.send_btn.clicked.connect(self._submit)
         self.input.returnPressed.connect(self._submit)

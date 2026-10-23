@@ -121,7 +121,7 @@ on the same PC.
 | Whisper large-v3 | Would eat the responsiveness that makes voice feel natural, running on CPU |
 | Thinking off, Fast mode only | Possible, just not wired up. 9B with thinking on is what has been tested day to day |
 
-For how the router, rooms, and vision unloading tie into everything
+For how the router and vision unloading tie into everything
 else, see [architecture.md](architecture.md).
 
 ## Native tool calling

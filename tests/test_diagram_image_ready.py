@@ -1,9 +1,9 @@
 """A finished diagram has to publish the same picture event as an edit.
 
-Chat's "Image ready" line and the Workspace well both listen for that event.
-The PNG on disk is not enough. image, image_edit, and diagram all publish
-the path resolve_display_path finds, so a short outputs/ path opens from
-the data folder.
+Chat's "Image ready" line listens for that event. The PNG on disk is not
+enough. image, image_edit, and diagram all publish the path
+resolve_display_path finds, so a short outputs/ path opens from the data
+folder.
 """
 
 from __future__ import annotations
@@ -177,9 +177,4 @@ async def test_diagram_result_publishes_image_ready(
     qt_app.processEvents()
 
     chat = window.chat.view.toPlainText()
-    assert chat.count("Image ready: open in Workspace") == 1
-    assert window.workspace.output.toPlainText() == f"Image ready: {display_path(opened)}"
-    assert window.workspace._image_mode
-    assert window.workspace.image_label.text() == ""
-    pix = window.workspace.image_label.pixmap()
-    assert pix is not None and not pix.isNull()
+    assert chat.count(f"Image ready: {display_path(opened)}") == 1

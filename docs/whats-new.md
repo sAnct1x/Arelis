@@ -15,12 +15,13 @@ Notes: [v0.3.2.1](releases/v0.3.2.1.md). Older:
 
 ## 0.3.2.1
 
+Rooms and the Workspace dock are gone. Reality is a standalone plate
+in `arelis/spatial/` (world button, filament Reality chip, spatial
+grant). File cards stay in chat. The on-desk chip is gone.
+
 Two picture fixes. Full notes: [v0.3.2.1](releases/v0.3.2.1.md).
-A background cutout now opens from the data folder in the Workspace
-pane, and the path shown there is short, with no username. A diagram
-now opens in the Workspace pane too. In both cases chat says "Image
-ready: open in Workspace", and the picture is in the Workspace pane,
-not in the chat.
+A background cutout and a diagram write under the data folder with a
+short path, no username. Chat says the image is ready.
 
 ## 0.3.2
 

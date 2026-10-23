@@ -77,12 +77,6 @@ class OrchestratorSlash:
             f"  {TOOLS_SLASH}                      what she can do (name + one line)\n"
             "  /role fast|research\n"
             "  /project [name]\n"
-            "  /rooms                       list rooms\n"
-            '  /room <name>                 open one (or say "let\'s work on <name>")\n'
-            "  /room new <name>             make one\n"
-            "  /room set purpose|root|kind|name|result|test <value>\n"
-            "  /room forget <name>          drop the room, keep its conversations\n"
-            "  /leave                       back to the general conversation\n"
             "  /web_search query=...\n"
             "  /web_fetch url=...\n"
             "  /scrape url=...\n"

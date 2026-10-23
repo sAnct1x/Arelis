@@ -209,13 +209,6 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
         if action == "create_folder":
             return f"create folder {folder}" if folder else "create a mail folder"
         return "change the mailbox"
-    if name == "rooms":
-        room = _who(args, "name", "id")
-        if action == "create":
-            return "make a room" if not room else f"make room {room}"
-        if action == "forget":
-            return f"forget room {room}" if room else "forget this room"
-        return "change this room"
     if name == "tasks":
         if action == "add":
             return "add a task"

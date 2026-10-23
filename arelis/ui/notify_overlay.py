@@ -20,8 +20,6 @@ from arelis.ui.glass import GlassFrame
 from arelis.ui.theme import GLASS, space_box
 
 _NARROW_STAGE = 720
-_PILL_AIR = 6
-_PILL_GAP = 6
 SNOOZE_CHOICES = (
     ("5 minutes", 5),
     ("15 minutes", 15),
@@ -219,16 +217,7 @@ class NotifyOverlay(QWidget):
         h = hint.height()
         margin = 12
         narrow = parent.width() < _NARROW_STAGE
-        room = getattr(parent, "room", None)
-        room_open = (
-            room is not None and not room.isHidden() and self.pill.isVisible()
-        )
-        if room_open and not (narrow and not self._maximized):
-            pill_h = max(self.pill.sizeHint().height(), 28)
-            self._sync_gutter(parent, _PILL_AIR + pill_h + _PILL_GAP)
-            x = max(margin, parent.width() - w - margin)
-            y = max(_PILL_AIR, room.geometry().y() - pill_h - _PILL_GAP)
-        elif narrow and not self._maximized:
+        if narrow and not self._maximized:
             self._sync_gutter(parent, 0)
             x = max(margin, parent.width() - w - margin)
             y = max(margin, parent.height() - h - 72)

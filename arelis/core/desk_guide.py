@@ -87,16 +87,14 @@ Voice
 
 These happen right away. I do not sit and think about them.
 
-Open or close a tile by name. History, thinking, files, days, camera,
+Open or close a tile by name. History, thinking, days, camera,
 notify, contacts, chat, reality.
 
-"Open history." "Close files." "Open days."
+"Open history." "Open days."
 
 "Span 1", "span 2", "span 3", or "two screens."
 
 "Close this" closes the tile you are in, or the last one you opened or grabbed.
-
-"Open rooms" opens the rooms menu. "Open the notes room" still switches rooms.
 
 Stop, pause, go, yes, and no already land without starting a chat turn.
 
