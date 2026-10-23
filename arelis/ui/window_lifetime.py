@@ -168,20 +168,20 @@ class WindowLifetime:
         log.info("quit_begin force=%s", self._force_quit)
         bind_app_bus(None)
         self._persist_window_layout()
-        # Tray Quit must drop the glass immediately. Inbound stop can take a
-        # couple of seconds; leaving the window up for that is what made Quit
-        # feel like a hang, and a second shortcut click then stacked another.
-        if self._force_quit:
-            self._park_floating_docks()
-            if self._tray is not None:
-                try:
-                    self._tray.hide()
-                except RuntimeError:
-                    pass
+        # Hide first. Waiting here on inbound stop, indexer flush, or Comfy
+        # park froze the window for about 2.5 s: hide() cannot paint while
+        # this thread is blocked. Writes and park share the leftover #384
+        # deadline after exec() returns. Shutdown also stops inbound.
+        self._park_floating_docks()
+        if self._tray is not None:
             try:
-                self.hide()
+                self._tray.hide()
             except RuntimeError:
                 pass
+        try:
+            self.hide()
+        except RuntimeError:
+            pass
         # Release the microphone and the audio device before the window goes.
         # Qt will not do it for us and Windows keeps both claimed.
         if self.voice_controller is not None:
@@ -197,17 +197,15 @@ class WindowLifetime:
         self._calendar_sync_timer.stop()
         self._calendar_sync_watchdog.stop()
         self._job_tick.stop()
-        # Tray Quit must feel instant. Stop notify first (phone listener), then
-        # best-effort flush — never wait on model unload / long indexer work.
-        inbound_timeout = 2.0 if self._force_quit else 5.0
+        # Start inbound stop now so the phone listener drops, but do not
+        # wait. fut.result here is what pinned the Qt thread.
         loop = self.loop
         loop_up = loop is not None and loop.is_running()
         if self.inbound_runtime is not None and self.inbound_runtime.owned and loop_up:
             try:
-                fut = asyncio.run_coroutine_threadsafe(self.inbound_runtime.stop(), loop)
-                fut.result(timeout=inbound_timeout)
+                asyncio.run_coroutine_threadsafe(self.inbound_runtime.stop(), loop)
             except Exception:
-                log.warning("inbound stop timed out or failed during quit", exc_info=True)
+                log.warning("inbound stop failed to schedule during quit", exc_info=True)
             self.sms_ingest = None
             self.sms_watcher = None
             self.sms_auto_reply = None
@@ -215,24 +213,12 @@ class WindowLifetime:
             self.sms_ingest = None
             self.sms_watcher = None
             self.sms_auto_reply = None
-        # Never block tray Quit on indexer flush.
-        if self.indexer is not None and not self._turn_busy and not self._force_quit and loop_up:
-            try:
-                fut = asyncio.run_coroutine_threadsafe(self.indexer.flush(), loop)
-                fut.result(timeout=1.5)
-            except TimeoutError:
-                log.info("indexer flush skipped on quit (timeout)")
-            except Exception:
-                log.warning("indexer flush failed during quit", exc_info=True)
         try:
-            from arelis.tools.comfy_lifecycle import cancel_comfy_idle, park_comfy
+            from arelis.tools.comfy_lifecycle import cancel_comfy_idle
 
             cancel_comfy_idle()
-            park_comfy()
         except Exception:
-            log.debug("Comfy park on quit failed", exc_info=True)
-        if self._tray is not None:
-            self._tray.hide()
+            log.debug("Comfy idle cancel on quit failed", exc_info=True)
         try:
             self.workspace_roots.clear_external_reads()
         except Exception:

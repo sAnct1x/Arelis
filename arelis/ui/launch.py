@@ -55,7 +55,11 @@ def _flush_pending_writes(
     backup_thread: threading.Thread | None,
     timeout_s: float,
 ) -> None:
-    """One write flush, one deadline. Backup join and indexer join share it."""
+    """One write flush, one deadline. Backup join and indexer join share it.
+
+    Leftover time after the writes land parks Comfy. That used to run
+    inside closeEvent and freeze the glass.
+    """
     try:
         budget = max(0.0, float(timeout_s))
     except (TypeError, ValueError):
@@ -68,6 +72,18 @@ def _flush_pending_writes(
         indexer=indexer,
         timeout_s=max(0.0, deadline - time.monotonic()),
     )
+    leftover = max(0.0, deadline - time.monotonic())
+    if leftover <= 0:
+        return
+    from arelis.tools.comfy_lifecycle import park_comfy
+
+    worker = threading.Thread(
+        target=park_comfy,
+        name="arelis-park-comfy",
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout=leftover)
 
 
 def first_run_blocks_main() -> bool:

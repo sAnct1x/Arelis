@@ -340,6 +340,7 @@ something behaves oddly on yours, open an issue. Current release is
 | [location.md](docs/location.md) | Turning location off |
 | [voice-wake.md](docs/voice-wake.md) | Hey Arelis, talk, dictate |
 | [browser-control.md](docs/browser-control.md) | Her browser |
+| [quit.md](docs/quit.md) | Close vs Quit, and why the window leaves at once |
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
 | [calendar-oauth.md](docs/calendar-oauth.md) | Connecting a calendar |
 | [calendar-sign-in-again.md](docs/calendar-sign-in-again.md) | When Google asks you to sign in again |
