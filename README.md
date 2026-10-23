@@ -337,11 +337,13 @@ something behaves oddly on yours, open an issue. Current release is
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [models.md](docs/models.md) | Which models, and why |
 | [status-panel.md](docs/status-panel.md) | What the house status lines mean |
+| [location.md](docs/location.md) | Turning location off |
 | [voice-wake.md](docs/voice-wake.md) | Hey Arelis, talk, dictate |
 | [browser-control.md](docs/browser-control.md) | Her browser |
 | [quit.md](docs/quit.md) | Tray Quit also closes her Chrome |
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
 | [calendar-oauth.md](docs/calendar-oauth.md) | Connecting a calendar |
+| [calendar-sign-in-again.md](docs/calendar-sign-in-again.md) | When Google asks you to sign in again |
 | [architecture.md](docs/architecture.md) | How the code is organized |
 | [earth.md](docs/earth.md) | Earth view inside Reality (source checkout) |
 | [telemetry.md](docs/telemetry.md) | Logs, on your disk |

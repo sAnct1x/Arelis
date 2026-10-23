@@ -734,6 +734,7 @@ location:
   # so naming only a city still gets a timezone from the OS and, with the
   # network layer on, coordinates from the lookup.
   enabled: true
+  # false: no place in the prompt, and the location tool shares nothing.
   # Standing profile + place live here (gitignored). Copy
   # data/profile.example.yaml to data/profile.yaml. Optional `user:` fields
   # (name, answer style, work, …) are injected every turn; `location:` wins

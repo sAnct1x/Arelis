@@ -197,4 +197,4 @@ def append_delivery_context(
     if lang_note:
         messages.append({"role": "system", "content": lang_note})
     messages.append({"role": "system", "content": theme_line()})
-    messages.append({"role": "system", "content": now_line()})
+    messages.append({"role": "system", "content": now_line(loop.config)})
