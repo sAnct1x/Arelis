@@ -47,6 +47,22 @@ def shipped_num_ctx() -> int:
         return 32768
 
 
+@lru_cache(maxsize=1)
+def shipped_ubatch() -> int:
+    """``llamacpp.ubatch`` as shipped in default.yaml.
+
+    llama-server ``-ub`` is built in llama_launch. Callers that omit
+    the key used to copy 512, and that copy stayed after the shipped
+    default moved. Read it from the one file that declares it.
+    """
+    try:
+        with DEFAULT_CONFIG_PATH.open(encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return int(((data.get("llamacpp") or {}).get("ubatch")) or 0) or 2048
+    except (OSError, ValueError, TypeError):
+        return 2048
+
+
 def merge_local_config(patch: dict[str, Any], path: Path | None = None) -> Path:
     """Merge a patch into data/config.local.yaml. Never writes default.yaml."""
     target = path or LOCAL_CONFIG_PATH
