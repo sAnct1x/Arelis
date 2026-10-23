@@ -1106,13 +1106,7 @@ class WorkspacePanel(QWidget):
 
     def _fitted_hero(self, path: Path | str) -> QPixmap:
         box = self.image_label.contentsRect()
-        target_w = box.width()
-        target_h = box.height()
-        if target_w <= 1:
-            target_w = max(self.width() // 2, 420)
-        if target_h <= 1:
-            target_h = 280
-        return load_fitted_pixmap(path, target_w, target_h)
+        return load_fitted_pixmap(path, box.width(), box.height())
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

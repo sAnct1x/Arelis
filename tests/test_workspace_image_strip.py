@@ -58,8 +58,8 @@ def _save_tall_bands(path: Path, width: int = 80, height: int = 400) -> Path:
 
 
 def _painted_has(image, red: int, green: int, blue: int, *, tol: int = 40) -> bool:
-    for y in range(image.height()):
-        for x in range(image.width()):
+    for y in range(0, image.height(), 4):
+        for x in range(0, image.width(), 4):
             pixel = image.pixelColor(x, y)
             if (
                 abs(pixel.red() - red) < tol
