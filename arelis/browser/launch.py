@@ -27,6 +27,9 @@ _MIN_H = 520
 _anchor: tuple[int, int, int, int] | None = None
 _screen: tuple[int, int, int, int] | None = None
 _last_arelis_proc: subprocess.Popen[bytes] | None = None
+# Set only in launch_chromium_cdp after Popen. Quit skips the leftover
+# profile pid scan when this process never started her Chrome.
+_owned_browser_launched = False
 
 BrowserName = Literal["chrome", "edge", "firefox"]
 
@@ -517,7 +520,7 @@ def launch_chromium_cdp(
     ``fresh_profile`` wipes that profile first and starts on google.com: no
     restored tabs, history, cookies or autofill from an earlier run.
     """
-    global _last_arelis_proc
+    global _last_arelis_proc, _owned_browser_launched
     if browser == "firefox":
         return None
     exe = chrome_executable() if browser == "chrome" else edge_executable()
@@ -552,6 +555,7 @@ def launch_chromium_cdp(
         stderr=subprocess.DEVNULL,
     )
     _last_arelis_proc = proc
+    _owned_browser_launched = True
     return proc
 
 
@@ -679,12 +683,17 @@ def stop_owned_browser(*, timeout_s: float = 3.0, settle_s: float = 0.0) -> None
     it. Calendar OAuth uses the system browser and is not ours.
     Never ``taskkill /IM chrome.exe``. On Windows the owned pid is
     ``taskkill /PID n /T /F`` so renderer and GPU children die with it.
+    The leftover profile pid scan runs only after this process spawned
+    her Chrome. A session that never launched skips that scan.
     """
     global _last_arelis_proc
     deadline = time.monotonic() + _as_timeout_s(timeout_s)
     proc = _last_arelis_proc
     left = _left_s(deadline)
-    pids = set(_pids_using_arelis_profile(timeout_s=left) if left > 0 else ())
+    if _owned_browser_launched and left > 0:
+        pids = set(_pids_using_arelis_profile(timeout_s=left))
+    else:
+        pids = set()
     if proc is not None and proc.poll() is None:
         pids.add(int(proc.pid))
         if sys.platform == "win32":

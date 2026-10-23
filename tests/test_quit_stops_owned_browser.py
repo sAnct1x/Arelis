@@ -41,6 +41,7 @@ def test_quit_stops_the_chrome_arelis_started(monkeypatch: Any) -> None:
     her window all go through launch_chromium_cdp. The owner stops that
     process on the same quit deadline as the memory flush. Calendar OAuth
     opens the system browser and is not ours. Never taskkill by image name.
+    The leftover profile pid scan stays off until that spawn runs.
     """
     from arelis.browser import launch as launch_mod
 
@@ -54,7 +55,7 @@ def test_quit_stops_the_chrome_arelis_started(monkeypatch: Any) -> None:
         image_kills.append(argv)
         return subprocess.CompletedProcess(argv, 0)
 
-    monkeypatch.setattr(launch_mod, "_pids_using_arelis_profile", lambda **_k: [9001])
+    monkeypatch.setattr("arelis.tools.comfy_lifecycle.park_comfy", lambda: None)
     monkeypatch.setattr(
         launch_mod,
         "_signal_owned_pid",
@@ -66,6 +67,36 @@ def test_quit_stops_the_chrome_arelis_started(monkeypatch: Any) -> None:
     monkeypatch.setattr(launch_mod.subprocess, "run", _run)
 
     failures: list[str] = []
+    scan_calls: list[object] = []
+
+    def _count_scan(**kwargs: Any) -> list[int]:
+        scan_calls.append(kwargs)
+        return [9001]
+
+    monkeypatch.setattr(launch_mod, "_pids_using_arelis_profile", _count_scan)
+    launch_mod._owned_browser_launched = False
+    launch_mod._last_arelis_proc = None
+    _flush_pending_writes(
+        store=None,
+        indexer=None,
+        backup_thread=None,
+        timeout_s=1.0,
+    )
+    if scan_calls:
+        failures.append(f"skip: leftover pid scan ran with no launch: {scan_calls!r}")
+
+    monkeypatch.setattr(launch_mod, "chrome_executable", lambda: "chrome")
+    monkeypatch.setattr(launch_mod.subprocess, "Popen", lambda *_a, **_k: _AliveProc())
+    spawn = launch_mod.launch_chromium_cdp(
+        "chrome",
+        cdp_url="http://127.0.0.1:9222",
+        restore_session=False,
+    )
+    if spawn is None or not launch_mod._owned_browser_launched:
+        failures.append("skip: launch_chromium_cdp did not record the spawn")
+
+    monkeypatch.setattr(launch_mod, "_pids_using_arelis_profile", lambda **_k: [9001])
+
     for label in ("browser", "scrape_open", "google_in_her_window"):
         signaled.clear()
         image_kills.clear()
