@@ -84,6 +84,13 @@ def test_confirm_args_blocked_empty_workspace_write() -> None:
         )
         assert reason is None, path
 
+    reason = confirm_args_blocked(
+        "workspace",
+        {"action": "write", "path": "notes.txt", "content": "TODO: fill in"},
+    )
+    assert reason is not None
+    assert "placeholder" in reason.lower()
+
     for body in ("TODO", "todo", "<TODO>"):
         reason = confirm_args_blocked(
             "workspace",
@@ -91,13 +98,6 @@ def test_confirm_args_blocked_empty_workspace_write() -> None:
         )
         assert reason is not None, body
         assert "placeholder" in reason.lower()
-
-    reason = confirm_args_blocked(
-        "workspace",
-        {"action": "write", "path": "notes.txt", "content": "TODO: fill in"},
-    )
-    assert reason is not None
-    assert "placeholder" in reason.lower()
 
 
 @pytest.mark.asyncio
