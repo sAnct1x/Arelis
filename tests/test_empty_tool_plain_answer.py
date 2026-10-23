@@ -236,7 +236,7 @@ async def test_weather_empty_or_echoed_is_a_spoken_sentence() -> None:
     """Empty or echoed weather dump ships the spoken forecast, not the colon line."""
     from arelis.core.agent_loop import _WRITE_AFTER_TOOL_NOTICE
     from arelis.voice.speech_text import prepare_spoken_text
-    from tests.test_weather_tool import _IL, _Standins, _few_days
+    from tests.test_weather_tool import _IL, _few_days, _Standins
 
     stand = _Standins([_IL])
     stand.reading = _few_days()
