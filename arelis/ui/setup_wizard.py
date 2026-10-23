@@ -396,8 +396,9 @@ class ModelSetupDialog(GlassDialog):
         if close is not None:
             close.setEnabled(True)
         self._ready_status.setText(message)
+        # Keep the last percent. Stop leaves the unfinished file, so 0%
+        # would lie about how far the download already got.
         self._bar.setRange(0, 100)
-        self._bar.setValue(0)
         self._hide_footer()
         self._use.setText("Try again")
         self._use.show()

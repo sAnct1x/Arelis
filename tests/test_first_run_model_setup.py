@@ -202,7 +202,7 @@ def test_download_keeps_partial_and_resumes_with_range(
 
 
 def test_download_stop_cancels_running_download_and_keeps_partial(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qt_app
 ) -> None:
     payload = b"x" * (_READ + 32)
     digest = hashlib.sha256(payload).hexdigest()
@@ -230,6 +230,36 @@ def test_download_stop_cancels_running_download_and_keeps_partial(
     assert not dest.exists()
     assert partial.is_file()
     assert 0 < partial.stat().st_size < len(payload)
+
+    # Stop used to zero the wizard bar even though the .partial file stayed.
+    from arelis.setup.hardware import HardwareSnapshot
+    from arelis.ui.setup_wizard import ModelSetupDialog
+
+    monkeypatch.setattr(
+        "arelis.ui.setup_wizard.probe_hardware",
+        lambda: HardwareSnapshot(),
+    )
+    dialog = ModelSetupDialog()
+    try:
+        dialog._on_progress(
+            "Downloading the chat model… 1.0 of 16.6 GB",
+            1_000_000_000,
+            16_600_710_112,
+        )
+        kept = dialog._bar.value()
+        assert kept > 0
+        dialog._on_failed(
+            "The download was stopped. The unfinished file is still here, "
+            "so the next try can continue."
+        )
+        assert dialog._bar.value() == kept
+        assert dialog._bar.maximum() == 100
+    finally:
+        if dialog._probe is not None:
+            dialog._probe.wait(2000)
+        dialog.close()
+        dialog.deleteLater()
+        qt_app.processEvents()
 
 
 def test_record_model_choice_pins_llamacpp_model_and_context_cap(
