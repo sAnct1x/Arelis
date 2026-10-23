@@ -2,8 +2,9 @@
 
 On 0.3.2 every tool round retracted the draft and copied it into thinking.
 #372 left a native draft on screen, but _finish still published only the
-last-round wrap-up, so ASSISTANT_DONE replaced the steps. Mutation: make
-_final_from_painted_draft return its final argument unchanged (1/1).
+last-round wrap-up, so ASSISTANT_DONE replaced the steps and history
+saved that wrap-up. Mutation: make _final_from_painted_draft return its
+final argument unchanged (1/1).
 """
 
 from __future__ import annotations
@@ -102,4 +103,8 @@ async def test_kept_math_draft_stays_in_the_reply() -> None:
     assert dones, "turn never finished"
     assert _STEPS in dones[-1]
     assert _WRAP in dones[-1]
+    saved = [m for m in loop.memory.messages if m.role == "assistant"]
+    assert saved, "history never stored the reply"
+    assert _STEPS in saved[-1].content
+    assert _WRAP in saved[-1].content
     assert not any(line.startswith("preamble  ") for line in thinking)

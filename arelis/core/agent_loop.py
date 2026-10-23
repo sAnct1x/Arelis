@@ -2094,6 +2094,11 @@ class AgentLoop:
         if passthrough_tool:
             passthrough = tool_passthrough_note(passthrough_tool)
             note = f"{note}\n{passthrough}" if note else passthrough
+        # Join before memory so history and the bubble share one final text.
+        # A last-round wrap-up used to be saved without the kept steps.
+        final = _final_from_painted_draft(
+            final, streamed, str(getattr(self, "_painted", "") or "")
+        )
         self._remember_sent_follow()
         self.memory.add("assistant", final, note=note)
 
@@ -2101,9 +2106,6 @@ class AgentLoop:
         # list is still owed. A kept draft from an earlier round is part of
         # that answer. When the text changed under us, for example because a
         # {"final": ...} payload replaced it, retract and resend.
-        final = _final_from_painted_draft(
-            final, streamed, str(getattr(self, "_painted", "") or "")
-        )
         already = (
             str(getattr(self, "_painted", "") or "").strip() or streamed.strip()
             if streamed.strip()
