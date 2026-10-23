@@ -593,16 +593,6 @@ ITEMS = [
         timeout=120,
     ),
     S(
-        "X09_rooms_list",
-        "/rooms",
-        "/rooms",
-        [],
-        any=["room"],
-        kind="slash",
-        no_tools_ok=True,
-        timeout=60,
-    ),
-    S(
         "X10_role_research",
         "/role",
         ["/role research", "/role fast"],
