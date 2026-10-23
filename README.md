@@ -289,7 +289,7 @@ Research just means a longer reasoning loop, not a bigger model.
 See [models.md](docs/models.md).
 
 **Optional features:**
-- **Voice:** Wait until the idle line says **say "hey arelis"**, not **getting the ear…**. A bare name still will not wake her. `Ctrl+Shift+M` starts a conversation, `Ctrl+M` is for dictation. See [voice-wake.md](docs/voice-wake.md). Weather out loud is a spoken sentence, not the tool dump; see [voice-weather.md](docs/voice-weather.md).
+- **Voice:** Wait until the idle line says **say "hey arelis"**, not **getting the ear…**. A bare name still will not wake her. `Ctrl+Shift+M` starts a conversation, `Ctrl+M` is for dictation. See [voice-wake.md](docs/voice-wake.md) and [voice-replies.md](docs/voice-replies.md). Weather out loud is a spoken sentence, not the tool dump; see [voice-weather.md](docs/voice-weather.md).
 - **Her browser:** Not your everyday Chrome: her own separate window that you can watch. She'll never type a password or click Book, Pay, or Checkout. See [browser-control.md](docs/browser-control.md).
 - **Phone app:** One sideloaded **Arelis** app, paired by scanning the QR code in Settings → Notify. Google Messages stays your everyday messenger. She sends texts from your SIM only after you approve the card. If the PC is off, the phone keeps its own conversation going; if you installed Gemma during pairing (~2.6 GB), she can keep talking on-device, and those messages sync back once the PC is up again. See [notify-inbound.md](docs/notify-inbound.md).
 - **Mail, calendar, texting:** All stay off until you connect them. Configuration lives in `data/secrets.yaml`. See [calendar-oauth.md](docs/calendar-oauth.md) and the optional extras section above.
@@ -339,6 +339,7 @@ something behaves oddly on yours, open an issue. Current release is
 | [status-panel.md](docs/status-panel.md) | What the house status lines mean |
 | [location.md](docs/location.md) | Turning location off |
 | [voice-wake.md](docs/voice-wake.md) | Hey Arelis, talk, dictate |
+| [voice-replies.md](docs/voice-replies.md) | Hearing each spoken sentence once |
 | [voice-weather.md](docs/voice-weather.md) | Weather said out loud |
 | [browser-control.md](docs/browser-control.md) | Her browser |
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
