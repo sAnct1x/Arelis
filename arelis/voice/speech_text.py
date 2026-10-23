@@ -241,6 +241,26 @@ def next_speakable_units(
     return clips, consumed
 
 
+def heard_sentence_count(
+    prepared: str, heard: list[str], *, language: str = "en"
+) -> int:
+    """How many leading sentences of prepared were already spoken.
+
+    Retract clears the live buffer so a replacement is not glued onto
+    withdrawn text. The sentences that already reached the player still
+    have to be skipped when that replacement restates them.
+    """
+    if not heard:
+        return 0
+    sentences = split_sentences(prepared, language=language)
+    count = 0
+    for sentence, old in zip(sentences, heard, strict=False):
+        if sentence != old:
+            break
+        count += 1
+    return count
+
+
 def _ends_on_abbreviation(chunk: str) -> bool:
     tail = chunk.rstrip().rstrip("\"')]")
     if not tail.endswith("."):

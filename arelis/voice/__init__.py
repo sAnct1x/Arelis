@@ -12,6 +12,7 @@ from arelis.core.events import Event, EventType
 from arelis.core.turn_telemetry import log_span, turn_telemetry_enabled
 from arelis.paths import outputs_dir
 from arelis.voice.speech_text import (
+    heard_sentence_count,
     next_speakable_units,
     prepare_spoken_text,
     split_sentences,
@@ -95,6 +96,10 @@ class VoiceService:
         self._stream_utterance = 0
         self._stream_clips = 0
         self._stream_open = False
+        # Sentences that already reached VOICE_AUDIO_READY. Retract forgets
+        # the live buffer so a replacement is not glued on, but these stay
+        # so a restated prefix is not synthesized again.
+        self._heard_sentences: list[str] = []
         self._pending: list[tuple[str, bool]] = []
         self._drain_task: asyncio.Task[None] | None = None
         self._live_bridge = None
@@ -107,6 +112,7 @@ class VoiceService:
             bus.subscribe(EventType.TOOL_START, self.on_tool_start)
             bus.subscribe(EventType.VOICE_SPEAK, self.on_speak)
             bus.subscribe(EventType.ERROR, self.on_turn_error)
+            bus.subscribe(EventType.TURN_CANCEL, self.on_turn_cancel)
 
     # ---------------------------------------------------------------- output
 
@@ -213,12 +219,37 @@ class VoiceService:
         if event.payload.get("scope") == "voice":
             return
         async with self._stream_lock:
+            # Heard prefix is for a same-turn replacement. This turn is dead.
+            # Retract would keep it and silence a later turn that starts
+            # with the same first sentence.
+            self._heard_sentences = []
             open_stream = self._stream_open
         if not open_stream:
             async with self._stream_lock:
                 self._reset_stream(keep_cancel=False)
             return
         await self.on_retract(event)
+
+    async def on_turn_cancel(self, event: Event) -> None:
+        """A stopped turn is over. Heard prefix is not for the next reply.
+
+        Retract and tool-start keep heard so a same-turn replacement can
+        skip restated sentences. Cancel is a new turn, so the whole speak
+        cycle resets. Leaving Titan on the list made the next opener silent.
+        """
+        async with self._stream_lock:
+            was_open = self._stream_open
+            utterance = self._stream_utterance
+            clips = self._stream_clips
+            self.cancel_speech()
+            self._reset_stream(keep_cancel=False)
+        if was_open:
+            self.bus.publish_nowait(
+                Event(
+                    EventType.VOICE_SPEECH_DONE,
+                    {"utterance": utterance, "clips": clips},
+                )
+            )
 
     async def on_speak(self, event: Event) -> None:
         """Finish (or fully speak) an answer, then publish VOICE_SPEECH_DONE.
@@ -267,10 +298,14 @@ class VoiceService:
             async with self._speak_lock:
                 self._speak_seq += 1
                 utterance = self._speak_seq
-                sentences, _ = next_speakable_units(
-                    spoken, 0, finalize=True, language=lang
+                already = heard_sentence_count(
+                    spoken, self._heard_sentences, language=lang
                 )
-                sentences = sentences or [spoken]
+                sentences, _ = next_speakable_units(
+                    spoken, already, finalize=True, language=lang
+                )
+                if not sentences and not already and spoken:
+                    sentences = [spoken]
                 self._prune_clips()
                 for index, sentence in enumerate(sentences):
                     if self._speak_cancelled >= utterance:
@@ -317,8 +352,18 @@ class VoiceService:
         prepared = prepare_spoken_text(
             self._stream_raw, max_chars=self.max_spoken_chars, language=lang
         )
+        # Every queue, not only the first. A chunked restatement completes
+        # sentence 2 after sentence 1 already advanced _spoken_count; that
+        # later sentence still has to be checked against the heard prefix.
+        already = max(
+            self._spoken_count,
+            heard_sentence_count(
+                prepared, self._heard_sentences, language=lang
+            ),
+        )
+        self._spoken_count = already
         units, spoken = next_speakable_units(
-            prepared, self._spoken_count, finalize=finalize, language=lang
+            prepared, already, finalize=finalize, language=lang
         )
         if not units:
             return
@@ -382,6 +427,10 @@ class VoiceService:
                     # and has a newer utterance the cancel flag does not cover.
                     continue
                 self._stream_clips += 1
+                self._heard_sentences.extend(
+                    split_sentences(sentence, language=self._speak_language())
+                    or [sentence]
+                )
                 if index == 0 and turn_telemetry_enabled(self.config):
                     log_span("tts_first", utterance=utterance, chars=len(sentence))
                 await self.bus.publish(
@@ -403,6 +452,8 @@ class VoiceService:
         Caller holds ``_stream_lock``. Pending clips are dropped and the
         in-flight sentence is marked cancelled. The text buffer goes too,
         so a later delta cannot prepend the withdrawn word to the reply.
+        Sentences that already reached the player stay in
+        ``_heard_sentences`` so a restated replacement is not replayed.
         """
         self._stream_raw = ""
         self._spoken_count = 0
@@ -417,6 +468,7 @@ class VoiceService:
         self._stream_utterance = 0
         self._stream_clips = 0
         self._stream_open = False
+        self._heard_sentences = []
         self._pending.clear()
         if not keep_cancel:
             # Allow the next reply to speak; leave cancel sticky only across a
@@ -730,6 +782,7 @@ def _remove(path: Path) -> None:
 
 __all__ = [
     "VoiceService",
+    "heard_sentence_count",
     "match_wake",
     "next_speakable_units",
     "prepare_spoken_text",
