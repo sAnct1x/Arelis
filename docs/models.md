@@ -6,9 +6,8 @@ chat model is ever loaded and hot at a time.
 
 ## First open
 
-The first time you launch a new copy, she asks which folder she can use.
-She does not download a chat engine or a model file. Start llama-server
-with your model file, then talk to her.
+The first time you launch a new copy, she asks which folder she can use,
+then downloads a chat model. See [first-run.md](first-run.md).
 
 Fast and Research use the same shipped name unless you pin another one in
 `config.local.yaml`.

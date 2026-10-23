@@ -72,6 +72,17 @@ def mmproj_for(model: Path) -> Path:
     return model.parent / MMPROJ_FILENAME
 
 
+def _config_int(section: dict[str, Any], key: str, default: int) -> int:
+    raw = section.get(key)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    if value <= 0:
+        return default
+    return value
+
+
 def llama_server_args(
     *,
     binary: str,
@@ -80,8 +91,19 @@ def llama_server_args(
     template: str | None = None,
     host: str = "127.0.0.1",
     port: int = 8080,
+    config: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Argv for the 35B server. This is the only place those flags are built."""
+    """Argv for the 35B server. This is the only place those flags are built.
+
+    ``--n-cpu-moe``, ``-c``, and ``-ub`` come from config when set. Same
+    defaults for Q3 and Q4: 32, 32768, 512.
+    """
+    lc = config.get("llamacpp") if isinstance(config, dict) else None
+    if not isinstance(lc, dict):
+        lc = {}
+    ctx = _config_int(lc, "default_cap", 32768)
+    n_cpu_moe = _config_int(lc, "n_cpu_moe", 32)
+    ubatch = _config_int(lc, "ubatch", 512)
     args = [
         binary,
         "-m",
@@ -93,15 +115,15 @@ def llama_server_args(
         "-fa",
         "off",
         "-c",
-        "32768",
+        str(ctx),
         "-np",
         "1",
         "--n-cpu-moe",
-        "32",
+        str(n_cpu_moe),
         # 512 was measured on the target machine. 1024 used 11.88 GB
         # at peak, over the 11.2 GB memory budget.
         "-ub",
-        "512",
+        str(ubatch),
         "-b",
         "4096",
         "--cache-type-k",
@@ -198,6 +220,7 @@ def _launch_args_for(config: dict[str, Any]) -> list[str] | None:
         template=str(template_path.resolve()) if template_path else None,
         host=host,
         port=port,
+        config=config,
     )
 
 

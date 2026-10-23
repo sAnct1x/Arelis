@@ -81,10 +81,31 @@ def fits(model: CatalogModel, hardware: HardwareSnapshot) -> bool:
     return ram >= model.min_vram_gb + 10.0
 
 
+def by_tag(tag: str) -> CatalogModel | None:
+    """Row for a catalog tag or filename, or None."""
+    want = (tag or "").strip()
+    if not want:
+        return None
+    for item in CATALOG:
+        if item.tag == want or item.filename == want:
+            return item
+    return None
+
+
+def disk_needed_gb(model: CatalogModel) -> float:
+    """Chat weights plus the picture file, with a little slack."""
+    return model.download_gb + 0.6 + 1.0
+
+
 def recommend(hardware: HardwareSnapshot) -> CatalogModel:
-    """Q4_K_M when the machine fits it, otherwise the Q3_K_M fallback."""
+    """Q4_K_M when VRAM is known and fits. Q3_K_M otherwise.
+
+    If graphics memory cannot be read, pick Q3. Do not guess Q4 from RAM.
+    """
     q4 = _row("Q4_K_M")
     q3 = _row("Q3_K_M")
+    if hardware.vram_gb is None:
+        return q3
     if fits(q4, hardware):
         return q4
     return q3

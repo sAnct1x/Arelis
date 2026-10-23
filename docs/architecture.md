@@ -47,11 +47,12 @@ It's not really a tour: just two questions, and only in the window:
 1. Which folder is she allowed to read, create, change, and delete
    in?
 
-Chat is llama.cpp. She does not download an engine or a model file.
-Start llama-server, then talk to her. If a copy has already pinned
-`models.fast` in `config.local.yaml`, that name is what chat sends.
-Vision support waits until the first time you actually send a picture.
-More on all this in [models.md](models.md).
+Chat is llama.cpp. First open looks at this PC and downloads a chat
+model. She does not download the llama-server program. If a copy has
+already pinned `llamacpp.model` in `config.local.yaml` and that file
+is on disk, chat uses it. Vision support waits until the first time
+you actually send a picture. More on all this in [models.md](models.md)
+and [first-run.md](first-run.md).
 
 ## What happens in one turn
 
