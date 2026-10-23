@@ -60,7 +60,6 @@ GOALS_WRITE_ACTIONS = frozenset(
     }
 )
 MEMORY_WRITE_ACTIONS = frozenset({"remember", "forget", "prefer", "decide", "episode"})
-ROOMS_WRITE_ACTIONS = frozenset({"create", "update", "forget"})
 SCHEDULE_WRITE_ACTIONS = frozenset({"create", "create_briefing", "update", "delete", "run_now"})
 SOLAR_WRITE_ACTIONS = frozenset(
     {
@@ -158,7 +157,6 @@ DELETE_ACTIONS = {
     "tasks": frozenset({"remove"}),
     "goals": frozenset({"drop", "remove"}),
     "memory": frozenset({"forget"}),
-    "rooms": frozenset({"forget"}),
     "schedule": frozenset({"delete"}),
     "inbox": frozenset({"trash", "delete"}),
     "workspace": frozenset({"delete", "remove"}),
@@ -311,7 +309,6 @@ def action_is_write(name: str, args: dict[str, Any] | None) -> bool:
         "tasks": TASKS_WRITE_ACTIONS,
         "goals": GOALS_WRITE_ACTIONS,
         "memory": MEMORY_WRITE_ACTIONS,
-        "rooms": ROOMS_WRITE_ACTIONS,
         "schedule": SCHEDULE_WRITE_ACTIONS,
         "solar": SOLAR_WRITE_ACTIONS,
         "inbox": INBOX_WRITE_ACTIONS,
@@ -376,7 +373,6 @@ def confirm_toggle(
         "agenda",
         "tasks",
         "goals",
-        "rooms",
         "solar",
         "schedule",
         "inbox",
@@ -494,7 +490,6 @@ def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> Capabi
         "tasks",
         "goals",
         "memory",
-        "rooms",
         "solar",
         "schedule",
         "notes",
@@ -651,10 +646,10 @@ def describe_call(
             names = [str(item).strip() for item in raw_files if str(item).strip()]
         else:
             names = []
-        shown = ", ".join(names) if names else "the files in this room"
+        shown = ", ".join(names) if names else "the named files"
         return (
-            "Read data in this room and save a chart or a table "
-            "in this room's results folder.\n"
+            "Read data and save a chart or a table "
+            "in the results folder.\n"
             f"Files: {shown}"
         )
     if name == "plot":

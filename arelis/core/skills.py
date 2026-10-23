@@ -1033,51 +1033,6 @@ SKILL_CARDS: dict[str, SkillCard] = {
   toy area" uses page=hands. Do not invent a World or solar-lab tile.
 """.strip(),
     ),
-    "rooms": SkillCard(
-        id="rooms",
-        hints=(
-            "a room",
-            "new room",
-            "make a room",
-            "create a room",
-            "set up a room",
-            "dedicated space",
-            "workspace for",
-            "this room",
-            "the room",
-            "rooms",
-        ),
-        requires_tool="rooms",
-        negative_hints=(
-            "living room",
-            "dining room",
-            "bedroom",
-            "hotel room",
-            "room temperature",
-            "make room",
-        ),
-        body="""
-### Rooms
-- A room is a named place for one long-running piece of work. It keeps its own
-  conversation thread, points at one workspace project, and gives you its
-  purpose at the start of every turn inside it.
-- Walking in is not your job. "Let's work on Reality", "open Reality",
-  "enter Reality", and `/room physics` are handled before the turn — they
-  enter the permanent Reality room (id physics), or make a room that does
-  not exist yet. Do not call rooms(action=create) for that, and never
-  create a room that already exists. Reality cannot be forgotten. Do not
-  create a second room named Reality or Earth.
-- When they ask for a configured room (purpose, folder, kind in the same
-  sentence), call rooms(action=create) and fill those fields from what they
-  already said. Ask only for what is genuinely missing.
-- purpose is written for you to read later. Say what the work is and what a
-  good answer in this room looks like, in a sentence or two.
-- root must be an existing workspace project name. If you are not sure one
-  exists, check before guessing; a wrong root silently points the room at the
-  wrong folder.
-- You cannot enter a room from this tool. Navigation already did, or will.
-""".strip(),
-    ),
     "schedule": SkillCard(
         id="schedule",
         hints=(

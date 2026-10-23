@@ -24,8 +24,7 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("thinking", r"thinking|thoughts"),
     (
         "workspace",
-        r"workspace|work\s*space|(?:the\s+)?desk|(?:the\s+)?files|"
-        r"(?:file|files)\s+(?:tile|panel|dock)|the\s+editor",
+        r"workspace|work\s*space|(?:the\s+)?desk|the\s+editor",
     ),
     ("history", r"history|(?:past|old)\s+(?:chats?|conversations?)"),
     ("camera", r"camera|webcam|web\s*cam"),
@@ -96,7 +95,6 @@ _NOT_TILE = re.compile(
 FILAMENT_TO_TILE: dict[str, str] = {
     "history": "history",
     "thinking": "thinking",
-    "files": "workspace",
     "days": "calendar",
     "camera": "camera",
     "notify": "notifications",

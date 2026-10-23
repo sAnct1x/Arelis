@@ -87,7 +87,6 @@ _ERRANDS: dict[str, str] = {
     "catalog": "checking the catalog",
     "plot": "drawing the chart",
     "data_cell": "reading your data",
-    "rooms": "looking at rooms",
     "tile": "opening a panel",
     "units": "converting units",
     "notes": "looking at your notes",
@@ -163,13 +162,6 @@ _BY_ACTION: dict[str, dict[str, str]] = {
         "coverage": "checking Earth coverage",
         "layer": "toggling an Earth layer",
         "status": "looking at Earth",
-    },
-    "rooms": {
-        "list": "looking at rooms",
-        "get": "opening the room",
-        "create": "making a room",
-        "update": "updating the room",
-        "forget": "forgetting the room",
     },
     "tile": {
         "open": "opening a panel",

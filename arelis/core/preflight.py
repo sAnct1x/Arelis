@@ -88,7 +88,6 @@ __all__ = [
     "looks_like_browser_click_signin",
     "looks_like_browser_open_ask",
     "looks_like_desktop_look",
-    "looks_like_room_create",
     "preflight_system_message",
     "rewrite_browser_action",
     "rewrite_desktop_calls",
@@ -326,24 +325,6 @@ _BROWSER_ALIASES = (
     ("twitter", "https://x.com"),
     ("x.com", "https://x.com"),
 )
-
-
-def looks_like_room_create(text: str) -> bool:
-    """True for 'make me a room for X', not living rooms or 'make room'."""
-    raw = text or ""
-    if re.search(
-        r"(?i)\b(?:living|dining|bed|hotel|guest)\s+room\b|"
-        r"room\s+temperature|"
-        r"\bmake\s+room\b",
-        raw,
-    ):
-        return False
-    return bool(
-        re.search(
-            r"(?i)\b(?:make|create|set\s+up)\s+(?:me\s+)?(?:a\s+)?(?:new\s+)?room\b",
-            raw,
-        )
-    )
 
 
 def looks_like_browser_click_signin(text: str) -> bool:
@@ -1319,7 +1300,6 @@ def detect_intents(
                     "analyze",
                     "vision",
                     "image_edit",
-                    "rooms",
                     "browser_click",
                     "inspect",
                     "inspect_write",
@@ -1352,7 +1332,6 @@ def detect_intents(
                     "vision",
                     "image_edit",
                     "schedule",
-                    "rooms",
                     "inspect",
                     "inspect_write",
                 }

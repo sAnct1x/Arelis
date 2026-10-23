@@ -39,7 +39,6 @@ from arelis.core.events import Event, EventType
 from arelis.core.image_refs import CAMERA_FRESH_S, latest_camera_image_file
 from arelis.core.look import LookTurn, classify_look, frame_sha256
 from arelis.core.other_work import looks_like_other_work
-from arelis.core.preflight import looks_like_room_create
 from arelis.core.prompt_sections import (
     append_delivery_context,
     append_operating_context,
@@ -269,7 +268,6 @@ def _reconstruct_turn_drafts(loop: Any, text: str) -> _TurnDrafts:
     skip_email = other_work and (
         looks_like_scheduled_send(text)
         or looks_like_schedule_manage(text)
-        or looks_like_room_create(text)
         or looks_like_mailbox_mutate(text)
         or not looks_like_compose_email(text)
     )
