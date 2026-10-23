@@ -186,6 +186,12 @@ class _RoomLeftover(QObject):
         self.name.setText(str(name or ""))
         self.changed.emit()
 
+    def isHidden(self) -> bool:
+        return True
+
+    def geometry(self) -> QRect:
+        return QRect()
+
 
 class ConversationStage(GlassFrame):
     """Single glass panel: chat + composer (screenshot-4 composition)."""

@@ -223,7 +223,7 @@ create and edit files inside that folder, and nowhere else.
 |---|---|---|
 | The program | `%LOCALAPPDATA%\Programs\Arelis` | Gets replaced whenever she updates |
 | Your records | `%LOCALAPPDATA%\Arelis` | Profile, contacts, mail login, memory, settings, logs |
-| Her workspace | wherever you chose | The only place she can read and edit files. Ctrl+2 is the desk: notes you kept and files she wrote |
+| Her workspace | wherever you chose | The only place she can read and edit files |
 
 Your contacts and passwords are kept separate from anything a language
 model could delete on its own. They don't live in the workspace
