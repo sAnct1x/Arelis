@@ -28,6 +28,7 @@ _SEND_LINE = "The message was not sent because the send was skipped."
 _WRITE_LINE = "I didn't save work/sq2.py because you said no, so I could not run it."
 _WRITE_ONLY_LINE = "I didn't save work/sq2.py because you said no."
 _OCR_LINE = "I didn't read the text in shape.png because you said no."
+_VISION_LINE = "I didn't look at shape.png because you said no."
 _UNKNOWN_LINE = "I didn't run that step because you said no."
 _MULTI_LINE = (
     "I didn't read the text in shape.png or save work/sq2.py because you said no."
@@ -302,6 +303,15 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal() -> None:
     assert long_ocr not in known
     assert "inbox/shots" not in known
     assert "I did not text" not in known
+
+    picture = declined_finish_reply(
+        {"vision"},
+        [("vision", {"path": long_ocr})],
+    )
+    assert picture == _VISION_LINE
+    assert long_ocr not in picture
+    assert "inbox/shots" not in picture
+    assert "run that step" not in picture
 
     unknown = declined_finish_reply(
         {"mystery_tool"},

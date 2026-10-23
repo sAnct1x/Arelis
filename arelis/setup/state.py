@@ -54,18 +54,19 @@ def needs_model_setup() -> bool:
 
 
 def record_model_choice(tag: str) -> None:
-    """Pin the chosen GGUF path and the shared context cap."""
+    """Pin the chosen GGUF path, context cap, and catalog n_cpu_moe."""
     name = (tag or "").strip()
     if not name:
         raise ValueError("model tag is empty")
     model = by_tag(name)
     filename = model.filename if model is not None else name
-    patch: dict[str, Any] = {
-        "llamacpp": {
-            "model": filename,
-            "default_cap": int(shipped_num_ctx()),
-        },
+    llamacpp: dict[str, Any] = {
+        "model": filename,
+        "default_cap": int(shipped_num_ctx()),
     }
+    if model is not None:
+        llamacpp["n_cpu_moe"] = int(model.n_cpu_moe)
+    patch: dict[str, Any] = {"llamacpp": llamacpp}
     merge_local_config(patch)
     record_model_setup_complete(tag=name)
 
