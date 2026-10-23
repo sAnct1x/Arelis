@@ -579,7 +579,7 @@ def terminate_browser_processes(browser: BrowserName) -> None:
 
 def terminate_arelis_browser() -> None:
     """Kill only processes whose command line uses data/browser-profile."""
-    stop_owned_browser(timeout_s=15.0)
+    stop_owned_browser(timeout_s=15.0, settle_s=0.6)
 
 
 def _pid_is_alive(pid: int) -> bool:
@@ -633,12 +633,37 @@ def _as_timeout_s(timeout_s: float) -> float:
         return 3.0
 
 
-def _signal_owned_pid(pid: int, *, force: bool = False) -> None:
+def _left_s(deadline: float) -> float:
+    return max(0.0, deadline - time.monotonic())
+
+
+def _taskkill_tree(pid: int, *, timeout_s: float) -> None:
+    """Windows process tree for one owned pid. Never by image name."""
+    if pid <= 0 or timeout_s <= 0:
+        return
+    try:
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout_s,
+        )
+    except Exception:
+        log.exception("Failed to stop Arelis browser pid %s", pid)
+
+
+def _signal_owned_pid(
+    pid: int, *, force: bool = False, timeout_s: float = 3.0
+) -> None:
     """Stop one pid we already know is ours. Never by image name."""
     if pid <= 0:
         return
+    if sys.platform == "win32":
+        _taskkill_tree(pid, timeout_s=max(0.0, float(timeout_s)))
+        return
     try:
-        if force and sys.platform != "win32":
+        if force:
             os.kill(int(pid), signal.SIGKILL)
         else:
             os.kill(int(pid), signal.SIGTERM)
@@ -646,38 +671,49 @@ def _signal_owned_pid(pid: int, *, force: bool = False) -> None:
         return
 
 
-def stop_owned_browser(*, timeout_s: float = 3.0) -> None:
+def stop_owned_browser(*, timeout_s: float = 3.0, settle_s: float = 0.0) -> None:
     """Stop the Chrome or Edge this process started. Bounded. Owner only.
 
     ``launch_chromium_cdp`` is the one starter. Browser tool, scrape that
     then opens the page, and Google sign-in in her window all go through
     it. Calendar OAuth uses the system browser and is not ours.
-    Never ``taskkill /IM chrome.exe``.
+    Never ``taskkill /IM chrome.exe``. On Windows the owned pid is
+    ``taskkill /PID n /T /F`` so renderer and GPU children die with it.
     """
     global _last_arelis_proc
     deadline = time.monotonic() + _as_timeout_s(timeout_s)
     proc = _last_arelis_proc
-    pids = set(_pids_using_arelis_profile())
+    left = _left_s(deadline)
+    pids = set(_pids_using_arelis_profile(timeout_s=left) if left > 0 else ())
     if proc is not None and proc.poll() is None:
         pids.add(int(proc.pid))
-        try:
-            proc.terminate()
-        except Exception:
-            log.exception("Failed to stop Arelis browser pid %s", proc.pid)
+        if sys.platform == "win32":
+            _signal_owned_pid(int(proc.pid), timeout_s=_left_s(deadline))
+        else:
+            try:
+                proc.terminate()
+            except Exception:
+                log.exception("Failed to stop Arelis browser pid %s", proc.pid)
     for pid in pids:
         if proc is not None and pid == int(proc.pid):
             continue
-        _signal_owned_pid(pid, force=False)
+        left = _left_s(deadline)
+        if left <= 0:
+            break
+        _signal_owned_pid(pid, force=False, timeout_s=left)
     if proc is not None and proc.poll() is None:
         try:
-            proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+            proc.wait(timeout=_left_s(deadline))
         except subprocess.TimeoutExpired:
+            if sys.platform == "win32":
+                _signal_owned_pid(int(proc.pid), timeout_s=_left_s(deadline))
+            else:
+                try:
+                    proc.kill()
+                except Exception:
+                    log.exception("Failed to kill Arelis browser pid %s", proc.pid)
             try:
-                proc.kill()
-            except Exception:
-                log.exception("Failed to kill Arelis browser pid %s", proc.pid)
-            try:
-                proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+                proc.wait(timeout=_left_s(deadline))
             except subprocess.TimeoutExpired:
                 log.warning(
                     "Arelis browser pid %s still running after quit budget",
@@ -686,9 +722,12 @@ def stop_owned_browser(*, timeout_s: float = 3.0) -> None:
     for pid in pids:
         if not _pid_is_alive(pid):
             continue
-        if time.monotonic() >= deadline:
+        left = _left_s(deadline)
+        if left <= 0:
             break
-        _signal_owned_pid(pid, force=True)
+        _signal_owned_pid(pid, force=True, timeout_s=left)
+    if settle_s > 0 and pids:
+        time.sleep(min(float(settle_s), _left_s(deadline)))
     _last_arelis_proc = None
 
 
@@ -705,14 +744,26 @@ def _parse_pid_cmd_lines(out: str) -> list[tuple[int, str]]:
     return rows
 
 
-def _chrome_cmdlines() -> list[tuple[int, str]] | None:
+_SCAN_S = 12.0
+
+
+def _chrome_cmdlines(*, timeout_s: float | None = None) -> list[tuple[int, str]] | None:
     """Chrome/Edge pid + command line. None when every scan failed."""
     if sys.platform != "win32":
         return []
-    primary = _chrome_cmdlines_cim()
+    if timeout_s is not None and timeout_s <= 0:
+        return []
+    budget = _SCAN_S if timeout_s is None else float(timeout_s)
+    started = time.monotonic()
+    primary = _chrome_cmdlines_cim(timeout_s=budget)
     if primary:
         return primary
-    fallback = _chrome_cmdlines_wmic()
+    leftover = (
+        _SCAN_S if timeout_s is None else budget - (time.monotonic() - started)
+    )
+    if leftover <= 0:
+        return primary if primary is not None else []
+    fallback = _chrome_cmdlines_wmic(timeout_s=leftover)
     if fallback:
         return fallback
     if primary is None and fallback is None:
@@ -720,7 +771,9 @@ def _chrome_cmdlines() -> list[tuple[int, str]] | None:
     return []
 
 
-def _chrome_cmdlines_cim() -> list[tuple[int, str]] | None:
+def _chrome_cmdlines_cim(*, timeout_s: float = _SCAN_S) -> list[tuple[int, str]] | None:
+    if timeout_s <= 0:
+        return None
     try:
         out = subprocess.check_output(
             [
@@ -735,15 +788,17 @@ def _chrome_cmdlines_cim() -> list[tuple[int, str]] | None:
             ],
             text=True,
             stderr=subprocess.DEVNULL,
-            timeout=12,
+            timeout=timeout_s,
         )
     except Exception:
         return None
     return _parse_pid_cmd_lines(out)
 
 
-def _chrome_cmdlines_wmic() -> list[tuple[int, str]] | None:
+def _chrome_cmdlines_wmic(*, timeout_s: float = _SCAN_S) -> list[tuple[int, str]] | None:
     """Second shape when CIM returns no rows. No extra package."""
+    if timeout_s <= 0:
+        return None
     try:
         out = subprocess.check_output(
             [
@@ -757,7 +812,7 @@ def _chrome_cmdlines_wmic() -> list[tuple[int, str]] | None:
             ],
             text=True,
             stderr=subprocess.DEVNULL,
-            timeout=12,
+            timeout=timeout_s,
         )
     except Exception:
         return None
@@ -775,11 +830,13 @@ def _chrome_cmdlines_wmic() -> list[tuple[int, str]] | None:
     return rows
 
 
-def _pids_using_arelis_profile() -> list[int]:
+def _pids_using_arelis_profile(*, timeout_s: float | None = None) -> list[int]:
+    if timeout_s is not None and timeout_s <= 0:
+        return []
     marker = str(arelis_user_data_dir().resolve()).replace("/", "\\").lower()
     if not marker:
         return []
-    rows = _chrome_cmdlines()
+    rows = _chrome_cmdlines(timeout_s=timeout_s)
     if not rows:
         return []
     pids: list[int] = []
