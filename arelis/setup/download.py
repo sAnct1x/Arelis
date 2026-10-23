@@ -30,8 +30,12 @@ log = logging.getLogger(__name__)
 Progress = Callable[[str, int, int], None]
 Cancel = Callable[[], bool]
 
-HF_RESOLVE = f"https://huggingface.co/{HF_REPO}/resolve/main/"
-# Hugging Face LFS pointers on main. Q4 22134528992, Q3 16600710112.
+# Hugging Face LFS pointers at the commits below (paths-info lastCommit).
+# Q4 22134528992, Q3 16600710112.
+HF_REVISIONS: dict[str, str] = {
+    Q4_FILENAME: "edc6f12e7bb90602ca1d34faecbec9844137b7fe",
+    Q3_FILENAME: "92d1611d9d709e3f5aa9820e44768d9eb78f8d9c",
+}
 EXPECTED: dict[str, tuple[int, str]] = {
     Q4_FILENAME: (
         22_134_528_992,
@@ -42,6 +46,14 @@ EXPECTED: dict[str, tuple[int, str]] = {
         "1b715841683f960bd9a49f008181bd910ee169b78d4cf465b6fde7f4d929ff99",
     ),
 }
+
+
+def hf_file_url(filename: str) -> str:
+    """Pinned resolve URL for a catalog GGUF. Not /resolve/main/."""
+    rev = HF_REVISIONS.get(filename)
+    if rev is None:
+        raise RuntimeError(_UNKNOWN)
+    return f"https://huggingface.co/{HF_REPO}/resolve/{rev}/{filename}"
 
 _SLACK_BYTES = 64 * 1024 * 1024
 _CHUNK = 1024 * 1024
@@ -85,13 +97,15 @@ def download_model(
     folder = dest_dir or models_dir()
     ensure(folder)
     dest = folder / model.filename
-    url = HF_RESOLVE + model.filename
+    url = hf_file_url(model.filename)
     if dest.is_file() and _file_matches(dest, size, digest):
         _report(progress, "The chat model is already on this PC.")
         _fetch_mmproj(dest, progress=progress)
         return dest
-    _require_space(folder, size + MMPROJ_BYTES + _SLACK_BYTES)
-    _report(progress, _status_line(0, size), 0, size)
+    partial = dest.with_name(dest.name + ".partial")
+    have = _usable_partial(partial, size, digest)
+    _require_space(folder, max(0, size - have) + MMPROJ_BYTES + _SLACK_BYTES)
+    _report(progress, _status_line(have, size), have, size)
     download_file(
         url,
         dest,
@@ -100,6 +114,8 @@ def download_model(
         progress=progress,
         cancelled=cancelled,
     )
+    if cancelled is not None and cancelled():
+        raise RuntimeError(_STOPPED)
     _fetch_mmproj(dest, progress=progress)
     return dest
 
@@ -118,27 +134,42 @@ def download_file(
     if dest.is_file() and _file_matches(dest, expected_bytes, sha256):
         return dest
     partial = dest.with_name(dest.name + ".partial")
-    have = _usable_partial(partial, expected_bytes, sha256)
-    if have == expected_bytes and _file_matches(partial, expected_bytes, sha256):
-        partial.replace(dest)
-        return dest
-    _require_space(dest.parent, max(0, expected_bytes - have) + _SLACK_BYTES)
-    headers = {"User-Agent": f"arelis/{__version__}"}
-    if have:
-        headers["Range"] = f"bytes={have}-"
+    restarted_from_416 = False
     timeout = httpx.Timeout(600.0, connect=15.0)
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            with client.stream("GET", url, headers=headers) as response:
-                have = _begin_stream(response, partial, have)
-                _stream_into(
-                    response,
-                    partial,
-                    have=have,
-                    expected=expected_bytes,
-                    progress=progress,
-                    cancelled=cancelled,
-                )
+        while True:
+            if cancelled is not None and cancelled():
+                raise DownloadCancelledError()
+            have = _usable_partial(partial, expected_bytes, sha256)
+            if have == expected_bytes and _file_matches(partial, expected_bytes, sha256):
+                partial.replace(dest)
+                return dest
+            _require_space(
+                dest.parent, max(0, expected_bytes - have) + _SLACK_BYTES
+            )
+            headers = {"User-Agent": f"arelis/{__version__}"}
+            if have:
+                headers["Range"] = f"bytes={have}-"
+            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                with client.stream("GET", url, headers=headers) as response:
+                    if (
+                        response.status_code == 416
+                        and have
+                        and not restarted_from_416
+                    ):
+                        partial.unlink(missing_ok=True)
+                        restarted_from_416 = True
+                        continue
+                    have = _begin_stream(response, partial, have)
+                    _stream_into(
+                        response,
+                        partial,
+                        have=have,
+                        expected=expected_bytes,
+                        progress=progress,
+                        cancelled=cancelled,
+                    )
+            break
     except DownloadCancelledError:
         raise RuntimeError(_STOPPED) from None
     except RuntimeError:

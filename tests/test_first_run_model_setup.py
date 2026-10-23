@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 import yaml
 
 from arelis.llm.llama_launch import llama_server_args
-from arelis.setup.catalog import Q3_FILENAME
-from arelis.setup.download import download_file
+from arelis.setup.catalog import Q3_FILENAME, Q4_FILENAME
+from arelis.setup.download import (
+    _SLACK_BYTES,
+    download_file,
+    hf_file_url,
+)
 from arelis.setup.state import record_model_choice
 
 _REAL_CLIENT = httpx.Client
@@ -33,47 +38,109 @@ def test_download_keeps_partial_and_resumes_with_range(
     payload = b"abcdefghijklmnopqrstuvwxyz"
     digest = hashlib.sha256(payload).hexdigest()
     dest = tmp_path / "chat.gguf"
+    partial = dest.with_name(dest.name + ".partial")
     ranges: list[str] = []
-    wave = {"n": 0}
+    mode = {"step": "short"}
+    calls = {"n": 0}
+    url = "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/edc6f12e7bb90602ca1d34faecbec9844137b7fe/chat.gguf"
 
     def handler(request: httpx.Request) -> httpx.Response:
         header = request.headers.get("range") or request.headers.get("Range") or ""
         ranges.append(header)
-        wave["n"] += 1
-        if wave["n"] == 1:
+        calls["n"] += 1
+        if calls["n"] > 8:
+            raise AssertionError("download looped")
+        step = mode["step"]
+        if step == "short":
             return httpx.Response(200, content=payload[:10])
-        assert header == "bytes=10-"
-        return httpx.Response(
-            206,
-            content=payload[10:],
-            headers={"Content-Range": "bytes 10-25/26"},
-        )
+        if step == "resume206":
+            assert header == "bytes=10-"
+            return httpx.Response(
+                206,
+                content=payload[10:],
+                headers={"Content-Range": "bytes 10-25/26"},
+            )
+        if step == "ignore_range":
+            assert header == "bytes=10-"
+            return httpx.Response(200, content=payload)
+        if step == "bad_hash":
+            return httpx.Response(200, content=b"X" * len(payload))
+        if step == "gone416":
+            if header.startswith("bytes="):
+                mode["step"] = "after416"
+                return httpx.Response(416)
+            return httpx.Response(200, content=payload)
+        if step == "after416":
+            assert header == ""
+            return httpx.Response(200, content=payload)
+        if step == "double416":
+            return httpx.Response(416)
+        raise AssertionError(step)
 
     _patch_client(monkeypatch, handler)
 
+    q4 = hf_file_url(Q4_FILENAME)
+    q3 = hf_file_url(Q3_FILENAME)
+    assert "/resolve/main/" not in q4
+    assert "/resolve/main/" not in q3
+    assert "edc6f12e7bb90602ca1d34faecbec9844137b7fe" in q4
+    assert "92d1611d9d709e3f5aa9820e44768d9eb78f8d9c" in q3
+
     with pytest.raises(RuntimeError):
-        download_file(
-            "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/chat.gguf",
-            dest,
-            expected_bytes=len(payload),
-            sha256=digest,
-        )
-    partial = dest.with_name(dest.name + ".partial")
+        download_file(url, dest, expected_bytes=len(payload), sha256=digest)
     assert not dest.exists()
     assert partial.is_file()
     assert partial.read_bytes() == payload[:10]
+    assert ranges == [""]
 
-    download_file(
-        "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/chat.gguf",
-        dest,
-        expected_bytes=len(payload),
-        sha256=digest,
+    mode["step"] = "resume206"
+    free_for_resume = (len(payload) - 10) + _SLACK_BYTES
+    monkeypatch.setattr(
+        "arelis.setup.download.shutil.disk_usage",
+        lambda _path: SimpleNamespace(
+            free=free_for_resume, used=0, total=free_for_resume
+        ),
     )
+    download_file(url, dest, expected_bytes=len(payload), sha256=digest)
+    monkeypatch.undo()
+    _patch_client(monkeypatch, handler)
     assert dest.is_file()
     assert dest.read_bytes() == payload
     assert hashlib.sha256(dest.read_bytes()).hexdigest() == digest
     assert not partial.exists()
     assert ranges == ["", "bytes=10-"]
+
+    dest.unlink()
+    partial.write_bytes(payload[:10])
+    mode["step"] = "ignore_range"
+    download_file(url, dest, expected_bytes=len(payload), sha256=digest)
+    assert dest.read_bytes() == payload
+    assert hashlib.sha256(dest.read_bytes()).hexdigest() == digest
+    assert ranges[-1] == "bytes=10-"
+
+    dest.unlink()
+    partial.unlink(missing_ok=True)
+    mode["step"] = "bad_hash"
+    with pytest.raises(RuntimeError, match="did not match"):
+        download_file(url, dest, expected_bytes=len(payload), sha256=digest)
+    assert not dest.exists()
+
+    dest.unlink(missing_ok=True)
+    partial.write_bytes(payload[:10])
+    mode["step"] = "gone416"
+    download_file(url, dest, expected_bytes=len(payload), sha256=digest)
+    assert dest.read_bytes() == payload
+    assert hashlib.sha256(dest.read_bytes()).hexdigest() == digest
+    assert ranges[-1] == ""
+
+    dest.unlink()
+    partial.write_bytes(payload[:10])
+    mode["step"] = "double416"
+    before = calls["n"]
+    with pytest.raises(RuntimeError):
+        download_file(url, dest, expected_bytes=len(payload), sha256=digest)
+    assert calls["n"] - before <= 2
+    assert not dest.exists()
 
 
 def test_record_model_choice_pins_llamacpp_model_and_context_cap(

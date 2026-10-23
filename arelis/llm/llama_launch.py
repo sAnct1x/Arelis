@@ -50,14 +50,15 @@ READY_TIMEOUT_S = 60.0
 _CACHE_DEPTH = 5
 
 _OFFLINE = (
-    "I could not download the picture file for the 35B. Connect and try again."
+    "Arelis could not download the picture file. Check that this PC is online, "
+    "then try again."
 )
 _MISMATCH = (
-    "The picture file for the 35B did not match, so I deleted it and stopped."
+    "The picture file did not match what we expected. Try the download again."
 )
 _DISK = "This computer does not have enough free space for the picture file."
 _LATER = (
-    "I could not download the picture file for the 35B. Try again in a little while."
+    "The picture file download stopped. Try again in a little while."
 )
 _MISSING_BINARY = "llama-server was not found, so the 35B did not start."
 _SLOW = "The 35B server did not finish starting. Try again in a little while."

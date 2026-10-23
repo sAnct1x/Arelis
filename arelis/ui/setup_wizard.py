@@ -11,10 +11,10 @@ import logging
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QLabel,
     QProgressBar,
-    QPushButton,
     QRadioButton,
     QScrollArea,
     QStackedWidget,
@@ -103,7 +103,7 @@ class _PrepareWorker(QThread):
         if model is None:
             self._fail(self._stage, "That chat model is not on the list.")
             return
-        self._report(f"Getting {model.title}…")
+        self._report("Getting the chat model…")
         download_model(
             model,
             progress=self._report,
@@ -237,10 +237,12 @@ class ModelSetupDialog(GlassDialog):
         self._use = self.add_button("Use this model", primary=True)
         self._other = self.add_button("Choose a different one")
         self._back = self.add_button("Back", leading=True)
+        self._stop = self.add_button("Stop")
         self._go = self.add_button("Let's go", primary=True)
         self._use.clicked.connect(self._begin_prepare)
         self._other.clicked.connect(self._show_picker)
         self._back.clicked.connect(self._show_recommend)
+        self._stop.clicked.connect(self._on_stop)
         self._go.clicked.connect(self.accept)
         self._group.buttonClicked.connect(self._sync_pick_note)
         self._hide_footer()
@@ -249,10 +251,31 @@ class ModelSetupDialog(GlassDialog):
         self._probe = _ProbeWorker(self)
         self._probe.finished_with.connect(self._on_probed)
         self._probe.start()
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._stop_prepare)
 
     def _hide_footer(self) -> None:
-        for btn in (self._use, self._other, self._back, self._go):
+        for btn in (self._use, self._other, self._back, self._stop, self._go):
             btn.hide()
+
+    def _stop_prepare(self) -> None:
+        worker = self._prepare
+        if worker is None:
+            return
+        worker.cancel()
+        if worker.isRunning():
+            worker.wait()
+
+    def _on_stop(self) -> None:
+        self._stop.setEnabled(False)
+        self._stop_prepare()
+        QApplication.processEvents()
+        if self._stack.currentIndex() == 3 and self._use.text() != "Try again":
+            self._on_failed(
+                "The download was stopped. The unfinished file is still here, "
+                "so the next try can continue."
+            )
 
     def _show_recommend(self) -> None:
         self._stack.setCurrentIndex(1)
@@ -298,10 +321,9 @@ class ModelSetupDialog(GlassDialog):
         self._hide_footer()
         for btn in (self._use, self._other, self._back, self._go):
             btn.setEnabled(False)
-        close = self.findChild(QPushButton, "SettingsClose")
-        if close is not None:
-            close.setEnabled(False)
-        self._ready_status.setText(f"Getting {self._picked.title}…")
+        self._stop.setEnabled(True)
+        self._stop.show()
+        self._ready_status.setText("Getting the chat model…")
         self._bar.setRange(0, 0)
         self._prepare = _PrepareWorker(self._picked.tag, self)
         self._prepare.progressed.connect(self._on_progress)
@@ -326,9 +348,6 @@ class ModelSetupDialog(GlassDialog):
         record_model_choice(self._picked.tag)
         for btn in (self._use, self._other, self._back, self._go):
             btn.setEnabled(True)
-        close = self.findChild(QPushButton, "SettingsClose")
-        if close is not None:
-            close.setEnabled(True)
         self._stack.setCurrentIndex(4)
         self._hide_footer()
         self._go.show()
@@ -338,9 +357,6 @@ class ModelSetupDialog(GlassDialog):
     def _on_failed(self, message: str) -> None:
         for btn in (self._use, self._other, self._back, self._go):
             btn.setEnabled(True)
-        close = self.findChild(QPushButton, "SettingsClose")
-        if close is not None:
-            close.setEnabled(True)
         self._ready_status.setText(message)
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
@@ -368,15 +384,21 @@ class ModelSetupDialog(GlassDialog):
             radio.setChecked(True)
         self._show_recommend()
 
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._stop_prepare()
+        super().closeEvent(event)
+
     def reject(self) -> None:  # type: ignore[override]
         # Recommendation on screen: accepting it is the decision. Mid-download
-        # we ignore Escape so a stray key does not leave a half-pulled model
-        # and a mute window.
+        # close or Escape stops the worker, keeps the unfinished file, and
+        # waits for the thread so quit does not tear it down mid-write.
         if self._stack.currentIndex() == 0:
             return
         if self._stack.currentIndex() == 3 and (
             self._prepare is not None and self._prepare.isRunning()
         ):
+            self._stop_prepare()
+            super().reject()
             return
         if self._stack.currentIndex() in {0, 1, 2}:
             if self._stack.currentIndex() == 2:
