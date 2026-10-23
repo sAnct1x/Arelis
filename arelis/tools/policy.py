@@ -21,6 +21,7 @@ to drop Comfy ``image``, that registration is pinned by tests.
 from __future__ import annotations
 
 import ntpath
+import os
 from collections.abc import Callable
 from pathlib import Path, PureWindowsPath
 from typing import Any, Literal
@@ -526,8 +527,15 @@ def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> Capabi
 
 
 def _drive_local_path(path: str) -> str:
-    """POSIX form of a Windows drive path, so resolve can see it."""
+    """POSIX form of a Windows drive path, so resolve can see it.
+
+    On Windows the drive stays. Stripping it turns ``D:\\ws\\notes.txt``
+    into a different dest. On POSIX, ``C:/tmp/ws/notes.txt`` is the
+    Linux file after the drive is dropped.
+    """
     text = (path or "").strip().replace("\\", "/")
+    if os.name == "nt":
+        return text
     if len(text) >= 2 and text[1] == ":" and text[0].isalpha():
         text = text[2:]
         if text and not text.startswith("/"):
@@ -559,6 +567,7 @@ def _workspace_rel_key(path: str, workspace: Any) -> str | None:
             try:
                 hit = resolve(candidate, for_create=True)
             except Exception:
+                # Outside-root or unsafe dest is not a declined write path.
                 continue
             dest = Path(getattr(hit, "path", hit))
             root = getattr(hit, "root", None)
@@ -581,6 +590,7 @@ def _workspace_rel_key(path: str, workspace: Any) -> str | None:
                 continue
         return None
     except Exception:
+        # A dest that cannot resolve is not a declined write path.
         return None
 
 
@@ -640,6 +650,7 @@ def file_write_dest(
     try:
         dest = preview(raw)
     except Exception:
+        # preview_path throwing means this call has no dest to skip.
         dest = ""
     if dest:
         return str(dest)
@@ -649,6 +660,7 @@ def file_write_dest(
     try:
         dest = preview(rewritten)
     except Exception:
+        # Same: a dest we cannot preview is not a declined write path.
         return ""
     return str(dest) if dest else ""
 

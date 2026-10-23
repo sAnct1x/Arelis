@@ -21,9 +21,11 @@ from arelis.core.loop_helpers import declined_finish_reply
 from arelis.core.memory import SessionMemory
 from arelis.core.turn_confirm import RUN, SKIP, confirm_call
 from arelis.core.turn_context import TurnContext
+from arelis.tools import policy as write_policy
 from arelis.tools.base import ToolRegistry, ToolResult
 from arelis.tools.pdf_assemble import PdfAssembleTool
 from arelis.tools.plot import PlotTool
+from arelis.tools.policy import _drive_local_path, normalize_write_path
 from arelis.workspace import WorkspaceRoots
 from tests.hardening_helpers import _collect, _config, _ScriptedRouter
 
@@ -609,8 +611,26 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal(
     root.mkdir()
     roots = WorkspaceRoots.from_paths([str(root)])
     abs_notes = str((root / "notes.txt").resolve())
-    win_notes = "C:" + abs_notes.replace("/", "\\")
     slash_notes = abs_notes.replace("/", "\\")
+    # On Windows abs_notes already has a drive. Prefixing C: makes
+    # C:D:\\... which is not that file. Swap the drive case instead.
+    # On POSIX, C: plus the backslash spelling is the Linux dest.
+    if len(abs_notes) >= 2 and abs_notes[1] == ":":
+        win_notes = abs_notes[0].swapcase() + abs_notes[1:]
+    else:
+        win_notes = "C:" + slash_notes
+    assert normalize_write_path("notes.txt", workspace=roots) == "notes.txt"
+    assert normalize_write_path(abs_notes, workspace=roots) == "notes.txt"
+    assert normalize_write_path(slash_notes, workspace=roots) == "notes.txt"
+    assert normalize_write_path(win_notes, workspace=roots) == "notes.txt"
+    # Keep a Windows drive letter. Stripping it made abs notes.txt
+    # a new dest on windows-latest.
+    saved_os = write_policy.os.name
+    write_policy.os.name = "nt"
+    try:
+        assert _drive_local_path(r"D:\ws\notes.txt") == "D:/ws/notes.txt"
+    finally:
+        write_policy.os.name = saved_os
     workspace = _WorkspaceStub()
     workspace.workspace = roots
     document = _DocumentStub()
