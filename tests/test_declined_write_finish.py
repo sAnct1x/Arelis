@@ -611,6 +611,7 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal(
     root.mkdir()
     roots = WorkspaceRoots.from_paths([str(root)])
     abs_notes = str((root / "notes.txt").resolve())
+    posix_notes = abs_notes.replace("\\", "/")
     slash_notes = abs_notes.replace("/", "\\")
     # On Windows abs_notes already has a drive. Prefixing C: makes
     # C:D:\\... which is not that file. Swap the drive case instead.
@@ -621,6 +622,7 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal(
         win_notes = "C:" + slash_notes
     assert normalize_write_path("notes.txt", workspace=roots) == "notes.txt"
     assert normalize_write_path(abs_notes, workspace=roots) == "notes.txt"
+    assert normalize_write_path(posix_notes, workspace=roots) == "notes.txt"
     assert normalize_write_path(slash_notes, workspace=roots) == "notes.txt"
     assert normalize_write_path(win_notes, workspace=roots) == "notes.txt"
     # Keep a Windows drive letter. Stripping it made abs notes.txt
@@ -690,6 +692,10 @@ async def test_declined_workspace_write_is_not_a_calculator_refusal(
         (
             "workspace",
             {"action": "write", "path": abs_notes, "content": "errands\n"},
+        ),
+        (
+            "workspace",
+            {"action": "write", "path": posix_notes, "content": "errands\n"},
         ),
         (
             "workspace",
