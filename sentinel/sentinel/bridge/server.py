@@ -34,6 +34,8 @@ from sentinel.bridge.protocol import (
     assert_loopback_host,
     ensure_session_token,
     format_command_response,
+    overseer_open_url,
+    overseer_public_url,
     port_candidates,
     token_from_headers,
     verify_session_token,
@@ -145,7 +147,7 @@ class SentinelBridgeServer:
 
     @property
     def overseer_url(self) -> str:
-        return f"http://{self.host}:{self.bound_port}/overseer"
+        return overseer_open_url(self.host, self.bound_port, self.session_token)
 
     def _session_ok(self, candidate: str | None) -> bool:
         """The one session-token check every command-bridge route uses."""
@@ -184,7 +186,7 @@ class SentinelBridgeServer:
             raise RuntimeError(f"Could not bind Sentinel Bridge near {self.preferred_port}: {last_err}")
 
         self._broadcast_task = asyncio.create_task(self._telemetry_broadcast_loop())
-        log.info("Sentinel Bridge online at %s", self.overseer_url)
+        log.info("Sentinel Bridge online at %s", overseer_public_url(self.host, self.bound_port))
         return self.bound_port
 
     async def stop(self) -> None:

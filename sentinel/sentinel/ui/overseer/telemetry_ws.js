@@ -7,15 +7,22 @@
 (function () {
   "use strict";
 
+  var cachedSessionToken = "";
+  try {
+    var hash = window.location.hash || "";
+    if (hash.charAt(0) === "#") {
+      hash = hash.slice(1);
+    }
+    cachedSessionToken = new URLSearchParams(hash).get("token") || "";
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  } catch (_e) {
+    cachedSessionToken = "";
+  }
+
   function sessionToken() {
-    if (typeof window.SENTINEL_TOKEN === "string" && window.SENTINEL_TOKEN) {
-      return window.SENTINEL_TOKEN;
-    }
-    try {
-      return new URLSearchParams(window.location.search).get("token") || "";
-    } catch (_e) {
-      return "";
-    }
+    return cachedSessionToken;
   }
 
   function apiHeaders(extra) {

@@ -80,6 +80,20 @@ def hello_message(*, token: str | None = None) -> dict[str, Any]:
     return msg
 
 
+def overseer_public_url(host: str, port: int) -> str:
+    """Static HUD path. No token. Safe to log or print."""
+    return f"http://{host}:{int(port)}/overseer"
+
+
+def overseer_open_url(host: str, port: int, token: str) -> str:
+    """HUD URL with the session token in the fragment.
+
+    Fragments are not sent to the server and are not written to access logs.
+    Callers that open the page (QWebEngine, webbrowser) keep the fragment.
+    """
+    return f"http://{host}:{int(port)}/overseer#token={token}"
+
+
 def format_command_response(ok: bool, data: dict[str, Any] | None = None, error: str = "") -> dict[str, Any]:
     out: dict[str, Any] = {"ok": bool(ok), "version": PROTOCOL_VERSION}
     if error:

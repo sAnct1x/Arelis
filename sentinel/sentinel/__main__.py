@@ -9,6 +9,7 @@ import logging
 import sys
 
 from sentinel.bridge.client import SentinelClient
+from sentinel.bridge.protocol import overseer_public_url
 from sentinel.bridge.server import SentinelBridgeServer
 from sentinel.config import load_config
 from sentinel.core.hive import SwarmHive
@@ -25,7 +26,7 @@ async def _run_headless(config: dict) -> int:
         telemetry_hz=int(bridge_cfg.get("telemetry_hz", 30)),
     )
     await server.start()
-    print(f"SENTINEL HIVE ONLINE -> {server.overseer_url}")
+    print(f"SENTINEL HIVE ONLINE -> {overseer_public_url(server.host, server.bound_port)}")
     try:
         await asyncio.Event().wait()
     except (KeyboardInterrupt, asyncio.CancelledError):
