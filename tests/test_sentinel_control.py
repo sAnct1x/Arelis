@@ -1,4 +1,4 @@
-"""Command-bridge routes require the session token. EMP persists across restart."""
+"""Command-bridge routes require the session token. EMP persists. The authority gate is live."""
 
 from __future__ import annotations
 
@@ -18,6 +18,17 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
     so a new hive on the same data dir refuses dispatch_task and spawns
     units as EMP_DISABLED. Skipping the file write, or the constructor
     read, is a failure of this test.
+
+    AuthorityGate used to run only in unit tests. dispatch_task, prune,
+    and warden.ban_peer now go through SwarmHive._authorize_work.
+    A Tier 0 observe must run. A Tier 2 delete or prune must park and
+    leave the file. Commenting out evaluate_request in dispatch_task,
+    or on the prune/ban branch, is a failure of this test.
+
+    trigger_emp trips before any lease record. A raising evaluate_request
+    must still persist the stop. Startup cap housekeeping must still
+    trim. Gating the halt, or routing boot trim through the operator
+    prune, is a failure of this test.
     """
     import sys
 
@@ -77,9 +88,10 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
     finally:
         await server.stop()
 
+    from sentinel.castes.warden import WardenCaste
     from sentinel.core.fsm import SentinelState
     from sentinel.core.hive import SwarmHive
-    from sentinel.paths import set_runtime_root
+    from sentinel.paths import harvest_dir, quarantine_dir, set_runtime_root
 
     hive_cfg = {
         "swarm": {
@@ -99,10 +111,61 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
     set_runtime_root(tmp_path)
     try:
         hive = SwarmHive(hive_cfg)
+
+        def _raise_gate(*_a: object, **_k: object) -> tuple[bool, object]:
+            raise RuntimeError("gate down")
+
+        hive.authority.evaluate_request = _raise_gate  # type: ignore[method-assign]
         await hive.trigger_emp(reason="persist across restart")
+        assert hive.emp.is_tripped is True
         restarted = SwarmHive(hive_cfg)
         blocked = await restarted.dispatch_task("warden", {"action": "patrol_scan"})
         assert blocked["ok"] is False
         assert all(u.state == SentinelState.EMP_DISABLED for u in restarted.units.values())
+    finally:
+        set_runtime_root(None)
+
+    set_runtime_root(tmp_path / "gate")
+    try:
+        h_dir = harvest_dir()
+        q_dir = quarantine_dir()
+        for i in range(5):
+            (h_dir / f"2026-10-16-test-harvest-{i:02d}.md").write_text(f"# H {i}\n", encoding="utf-8")
+            (q_dir / f"quarantine-179220000{i}-abcd1234.json").write_text("{}\n", encoding="utf-8")
+        gate_cfg = dict(hive_cfg)
+        gate_cfg["retention"] = {"max_harvest_dossiers": 2, "max_quarantine_files": 2}
+        gated = SwarmHive(gate_cfg)
+        assert len(list(h_dir.glob("*.md"))) == 2
+        assert len(list(q_dir.glob("quarantine-*.json"))) == 2
+
+        observe = await gated.dispatch_task(
+            "warden",
+            {"action": "patrol_scan", "animate": False},
+        )
+        assert observe["ok"] is True
+
+        qfile = quarantine_dir() / "quarantine-1792200001-deadbeef.json"
+        qfile.parent.mkdir(parents=True, exist_ok=True)
+        qfile.write_text('{"keep": true}\n', encoding="utf-8")
+
+        parked = await gated.dispatch_task(
+            "sanitizer",
+            {"action": "DELETE_QUARANTINE_FILE", "path": str(qfile), "animate": False},
+        )
+        assert parked["ok"] is False
+        assert parked.get("parked") is True
+        assert qfile.is_file()
+
+        pruned = gated.prune_runtime_storage(max_quarantines=0)
+        assert pruned["ok"] is False
+        assert pruned.get("parked") is True
+        assert qfile.is_file()
+
+        wrd = gated.registry.get("warden")
+        assert isinstance(wrd, WardenCaste)
+        ban = wrd.ban_peer("198.51.100.42", reason="control-test ban")
+        assert ban.get("parked") is True
+        banned, _entry = wrd.is_banned("198.51.100.42")
+        assert banned is False
     finally:
         set_runtime_root(None)

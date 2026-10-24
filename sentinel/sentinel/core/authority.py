@@ -1,11 +1,12 @@
 """Action-token classifier and inviolable-address helper.
 
-classify_action and evaluate_request apply only when a caller invokes them:
+classify_action and evaluate_request apply when a caller invokes them:
 - Tier 0 returns allowed.
 - Tier 1 returns allowed and records a lease (default 900 seconds).
 - Tier 2 returns not allowed until operator_sign_off.
-Unknown tokens classify as Tier 2. Live harvest, ban, delete, and EMP paths
-do not call evaluate_request.
+Unknown tokens classify as Tier 2. SwarmHive._authorize_work is the live
+caller for dispatch, harvest, scale, prune, restore, register_caste, and
+Warden.ban_peer. trigger_emp trips first and records EMP_HALT best-effort.
 
 is_inviolable_address is true for loopback (127.0.0.0/8, ::1, localhost),
 link-local (169.254.0.0/16, fe80::/10), and four public DNS addresses
@@ -119,7 +120,7 @@ class AuthorityGate:
     ) -> tuple[bool, ActionAuthorizationRequest]:
         """Classify one submitted token and apply the inviolable-address check for ban tokens.
 
-        Returns (allowed_now, auth_request). Hive, bridge, and caste execute paths do not call this.
+        Returns (allowed_now, auth_request). SwarmHive._authorize_work is the live caller.
         """
         token = action_token.upper().strip()
         radius = self.classify_action(token)

@@ -119,6 +119,7 @@ class WardenCaste:
         self._threat_seq = 0
         self._banlist_path = banlist_file or banned_peers_path()
         self._banned_peers: dict[str, dict[str, Any]] = {}
+        self._authorize_work: Any = None
         self._load_banlist()
 
     def _load_banlist(self) -> None:
@@ -167,6 +168,10 @@ class WardenCaste:
                 f"Warden ban rejected: {host!r} is protected by the Inviolable Safety Policy "
                 "(loopback, DNS, or gateway infrastructure)."
             )
+        if self._authorize_work is not None:
+            parked = self._authorize_work("PERMANENT_BAN_PEER", host, reason)
+            if parked is not None:
+                return parked
         fw_cmd = build_windows_firewall_block_cmd(host)
 
         with self._lock:
