@@ -29,6 +29,12 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
     must still persist the stop. Startup cap housekeeping must still
     trim. Gating the halt, or routing boot trim through the operator
     prune, is a failure of this test.
+
+    Reads stay open. A harvest GET to a public host must run with no
+    sign-off. A POST off-box is a send: check_send_allowed fails closed
+    and nothing is sent. Making check_send_allowed always return ok,
+    mapping POST onto a proceed token, or treating an unknown send op
+    as allowed, is a failure of this test.
     """
     import sys
 
@@ -167,5 +173,64 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
         assert ban.get("parked") is True
         banned, _entry = wrd.is_banned("198.51.100.42")
         assert banned is False
+
+        from sentinel.castes.harvester import HarvesterCaste
+        from sentinel.safety import network as netmod
+
+        hrv = gated.registry.get("harvester")
+        assert isinstance(hrv, HarvesterCaste)
+        sent: list[tuple[str, str]] = []
+        html = (
+            "<html><head><title>Public harvest article</title></head>"
+            "<body><article>"
+            "<p>Public host harvest text used to prove a GET read proceeds without operator sign-off.</p>"
+            "<p>Second paragraph so the extractor keeps more than one line of article body.</p>"
+            "</article></body></html>"
+        )
+
+        def _handler(request: httpx.Request) -> httpx.Response:
+            sent.append((request.method, str(request.url)))
+            return httpx.Response(
+                200,
+                text=html,
+                headers={"content-type": "text/html"},
+                request=request,
+            )
+
+        orig_resolve = netmod._resolve_all_ips
+        netmod._resolve_all_ips = lambda host, port: ["93.184.216.34"]
+        client = httpx.AsyncClient(transport=httpx.MockTransport(_handler))
+        hrv._external_client = client
+        try:
+            harvested = await gated.dispatch_task(
+                "harvester",
+                {
+                    "action": "url",
+                    "url": "https://example.com/harvest",
+                    "method": "GET",
+                    "animate": False,
+                },
+            )
+            assert harvested["ok"] is True
+            assert harvested.get("parked") is not True
+            assert sent and all(m == "GET" for m, _u in sent)
+
+            sent.clear()
+            posted = await gated.dispatch_task(
+                "harvester",
+                {
+                    "action": "url",
+                    "url": "https://example.com/submit",
+                    "method": "POST",
+                    "animate": False,
+                },
+            )
+            assert posted["ok"] is False
+            assert posted.get("parked") is True
+            assert sent == []
+        finally:
+            await client.aclose()
+            hrv._external_client = None
+            netmod._resolve_all_ips = orig_resolve
     finally:
         set_runtime_root(None)
