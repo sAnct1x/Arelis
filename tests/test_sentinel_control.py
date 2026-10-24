@@ -9,7 +9,9 @@ import pytest
 
 
 async def test_snapshot_and_overseer_post_require_the_session_token(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Most command-bridge routes used to skip the session token.
 
@@ -40,10 +42,10 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
     mapping POST onto a proceed token, or treating an unknown send op
     as allowed, is a failure of this test.
 
-    Arelis launch starts the Sentinel child. The launch hook must spawn
-    the child (this test stubs spawn) and start must not call restore.
-    Skipping the spawn, making start call restore, or logging the
-    session token is a failure of this test.
+    Arelis launch starts the Sentinel child. This test drives run_ui
+    with spawn stubbed. Deleting the start call in launch.py, making
+    start call restore, or logging the session token is a failure of
+    this test.
     """
     import sys
 
@@ -246,6 +248,8 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
 
     import logging
     import os
+    import time
+    from types import SimpleNamespace
     from unittest.mock import MagicMock
 
     from sentinel.bridge import client as client_mod
@@ -258,7 +262,9 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     os.environ.setdefault("ARELIS_ALLOW_OFFSCREEN", "1")
-    from arelis.ui.launch import _start_sentinel_child
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    from arelis.ui import launch as launch_mod
 
     hud = overseer_open_url("127.0.0.1", 8790, "controltok")
     assert hud.endswith("#token=controltok")
@@ -288,6 +294,52 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
         restore_hits.append("restore")
         return {"ok": True, "tripped": False}
 
+    class _Router:
+        provider = None
+
+        def arm_warmup(self) -> None:
+            return None
+
+        def mark_warmup_done(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+    fake_seat = SimpleNamespace(
+        router=_Router(),
+        store=None,
+        tools={},
+        orchestrator=SimpleNamespace(),
+    )
+
+    class QuietWindow(QWidget):
+        def __init__(self, *_a: object, **_k: object) -> None:
+            super().__init__()
+            self._force_quit = True
+            self.orchestrator = fake_seat.orchestrator
+            self.inbound_runtime = None
+            self.ipc_client = None
+            self.ipc_server = None
+            self._pending_store = SimpleNamespace(list=lambda: [])
+            self._orphan_ingest_stop = None
+            self.sms_ingest = None
+            self.sms_watcher = None
+            self.sms_auto_reply = None
+            self.config = {}
+
+        def setup_tray(self, app: object) -> None:
+            del app
+
+        def queue_pending_confirms(self, parked: object) -> None:
+            del parked
+
+    def _wait_exec(_self: object = None) -> int:
+        deadline = time.monotonic() + 2.0
+        while not spawned and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return 0
+
     prior = os.environ.get("ARELIS_DATA_DIR")
     os.environ["ARELIS_DATA_DIR"] = str(data_root)
     real_spawn = ctl._spawn
@@ -301,20 +353,48 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
         ctl._process = None
         ctl._token = None
         ctl.restore = _restore_trap  # type: ignore[attr-defined]
+        held_token: list[str | None] = []
+        orig_start = ctl.start
+
+        def _hold_start() -> None:
+            orig_start()
+            held_token.append(ctl._token)
+
+        monkeypatch.setattr(ctl, "start", _hold_start)
         emp_mod.clear_emp_flag = _restore_trap  # type: ignore[assignment]
         emp_mod.EMPController.restore_swarm = _restore_trap  # type: ignore[method-assign]
         SwarmHive.restore_from_emp = _restore_trap  # type: ignore[method-assign]
         client_mod.SentinelClient.emp_restore = _restore_trap  # type: ignore[method-assign]
+        monkeypatch.setattr(launch_mod, "apply_first_run_glass", lambda *_a, **_k: {})
+        monkeypatch.setattr("arelis.core.seat.build_seat", lambda *_a, **_k: fake_seat)
+        monkeypatch.setattr(launch_mod, "VoiceService", lambda *_a, **_k: SimpleNamespace(stt=None))
+        monkeypatch.setattr(
+            launch_mod,
+            "MemoryIndexer",
+            lambda *_a, **_k: SimpleNamespace(join_writes=lambda timeout_s=0: None),
+        )
+        monkeypatch.setattr("arelis.ui.app.ArelisWindow", QuietWindow)
+        monkeypatch.setattr(QApplication, "exec", _wait_exec)
+        monkeypatch.setattr("arelis.i18n.apply_language", lambda *_a, **_k: None)
+        monkeypatch.setattr(launch_mod, "_present_at_startup", lambda window: None)
+        monkeypatch.setattr("arelis.ui.update_prompt.schedule_update_check", lambda *_a, **_k: None)
+        monkeypatch.setattr(launch_mod, "_start_activation_listener", lambda *_a, **_k: None)
+        monkeypatch.setattr(
+            "arelis.presence.glass_inbound.install_owned_inbound", lambda *_a, **_k: None
+        )
+        monkeypatch.setattr("arelis.presence.lock.external_core_available", lambda _c: False)
+        monkeypatch.setattr(
+            launch_mod, "ConfirmPersister", lambda *_a, **_k: SimpleNamespace(start=lambda: None)
+        )
+        monkeypatch.setattr("arelis.tools.comfy_lifecycle.park_comfy", lambda: None)
         with caplog.at_level(logging.DEBUG, logger="arelis.sentinel_control"):
-            hook = _start_sentinel_child()
-            hook.join(timeout=2.0)
-            assert not hook.is_alive()
-        assert spawned, "launch hook must start the child"
+            assert launch_mod.run_ui({}) == 0
+        assert spawned, "run_ui must start the child"
         argv0 = spawned[0]["argv"]
         assert "--headless" in argv0
         assert "--restore" not in argv0
         assert spawned[0]["env"].get("SENTINEL_RUNTIME_ROOT") == str(data_root / "sentinel")
-        assert ctl._token == child_token
+        assert held_token == [child_token]
         assert emp.read_text(encoding="utf-8").strip() == "1"
         assert restore_hits == []
         assert child_token not in caplog.text
