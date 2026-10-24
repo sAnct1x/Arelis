@@ -75,6 +75,9 @@ def _flush_pending_writes(
     from arelis.browser.launch import stop_owned_browser
 
     stop_owned_browser(timeout_s=max(0.0, deadline - time.monotonic()))
+    from arelis.sentinel_control import stop as stop_sentinel
+
+    stop_sentinel(timeout_s=max(0.2, min(1.5, deadline - time.monotonic())))
     leftover = max(0.0, deadline - time.monotonic())
     if leftover <= 0:
         return
@@ -87,6 +90,13 @@ def _flush_pending_writes(
     )
     worker.start()
     worker.join(timeout=leftover)
+
+
+def _start_sentinel_child() -> None:
+    """Launch helper: start the Sentinel child off the UI thread."""
+    from arelis.sentinel_control import start
+
+    start()
 
 
 # InboundIngestServer.stop joins the listener thread for this long.
@@ -785,6 +795,11 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     from arelis.ui.update_prompt import schedule_update_check
 
     schedule_update_check(window)
+    threading.Thread(
+        target=_start_sentinel_child,
+        name="arelis-sentinel-start",
+        daemon=True,
+    ).start()
     try:
         code = app.exec()
 
@@ -870,5 +885,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         thread.join(timeout=2)
         return code
     finally:
+        from arelis.sentinel_control import stop as stop_sentinel
+
+        stop_sentinel()
         drain_parked_threads()
         _release_ui_lock()
