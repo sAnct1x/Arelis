@@ -49,7 +49,7 @@ _COLORBLIND = (
 # sizes vanish when the bubble shrinks the file, so default type is closer
 # to a poster than to the library.
 _LOOK_FONTS = {
-    "default": (20, 18, 16),
+    "default": (22, 20, 18),
     "poster": (22, 18, 16),
     "paper": (16, 14, 12),
     "slide": (26, 20, 18),
@@ -1688,6 +1688,7 @@ def _parse_labels(raw: Any, *, name: str) -> list[str]:
 
 
 def _parse_bins(raw: Any) -> int | None:
+                
     if raw is None or raw == "":
         return None
     try:
