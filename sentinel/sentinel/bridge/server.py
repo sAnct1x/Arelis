@@ -3,12 +3,15 @@
 assert_loopback_host rejects non-loopback bind hosts. The default listen
 address is 127.0.0.1:8790. ::1 is accepted. No third-party web framework.
 Serves:
-- GET  / or /overseer        -> 3D Overseer WebGL2 viewport (HTML/CSS/JS)
+- GET  / or /overseer        -> 3D Overseer WebGL2 viewport (HTML/CSS/JS), public
 - GET  /api/snapshot         -> Current world and swarm telemetry snapshot
-- POST /api/command          -> Command execution; this route checks the session token
+- POST /api/command          -> Command execution
 - POST /api/overseer/emp     -> Software emergency stop from the Overseer HUD
 - POST /api/overseer/theme   -> Theme switcher (sodium | filament | night | matrix)
 - GET  /ws/telemetry         -> WebSocket stream of world state to the 3D viewport
+
+Every non-static route goes through one session-token check. HTTP clients send
+X-Sentinel-Token. The websocket sends the token as its first hello frame.
 """
 
 from __future__ import annotations
@@ -23,18 +26,24 @@ import mimetypes
 import os
 import struct
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlparse
 
 from sentinel.bridge.protocol import (
+    PROTOCOL_VERSION,
     assert_loopback_host,
     ensure_session_token,
     format_command_response,
+    overseer_open_url,
+    overseer_public_url,
     port_candidates,
+    token_from_headers,
     verify_session_token,
 )
-from sentinel.core.hive import SwarmHive
 from sentinel.paths import harvest_dir, logs_dir, overseer_static_dir, quarantine_dir
+
+if TYPE_CHECKING:
+    from sentinel.core.hive import SwarmHive
 
 log = logging.getLogger("sentinel.bridge")
 
@@ -43,6 +52,15 @@ _MAX_WS_FRAME_BYTES = 262_144  # 256 KiB max inbound WS frame
 _MAX_HTTP_BODY_BYTES = 2_097_152  # 2 MiB max HTTP POST body
 _MAX_HEADER_COUNT = 64
 _MAX_HEADER_LINE = 8192
+
+
+def _is_public_static(method: str, path: str) -> bool:
+    """Static Overseer HTML, CSS, and JS stay public. Command routes do not."""
+    if method != "GET":
+        return False
+    if path in {"/", "/overseer", "/overseer/"}:
+        return True
+    return path.startswith("/overseer/")
 
 
 def _is_loopback_origin_and_host(headers: dict[str, str]) -> tuple[bool, str]:
@@ -129,7 +147,24 @@ class SentinelBridgeServer:
 
     @property
     def overseer_url(self) -> str:
-        return f"http://{self.host}:{self.bound_port}/overseer"
+        return overseer_open_url(self.host, self.bound_port, self.session_token)
+
+    def _session_ok(self, candidate: str | None) -> bool:
+        """The one session-token check every command-bridge route uses."""
+        return verify_session_token(candidate, self.session_token)
+
+    def _note_auth_fail(self) -> None:
+        with contextlib.suppress(Exception):
+            wrd = self.hive.registry.get("warden")
+            wrd.note_auth_fail("127.0.0.1", port=self.bound_port)  # type: ignore[union-attr]
+
+    def _reject_unauthorized(self, writer: asyncio.StreamWriter) -> None:
+        self._note_auth_fail()
+        self._write_json(
+            401,
+            format_command_response(False, error="Unauthorized session token"),
+            writer,
+        )
 
     async def start(self) -> int:
         await self.hive.start_background_loops(hz=60)
@@ -151,7 +186,7 @@ class SentinelBridgeServer:
             raise RuntimeError(f"Could not bind Sentinel Bridge near {self.preferred_port}: {last_err}")
 
         self._broadcast_task = asyncio.create_task(self._telemetry_broadcast_loop())
-        log.info("Sentinel Bridge online at %s", self.overseer_url)
+        log.info("Sentinel Bridge online at %s", overseer_public_url(self.host, self.bound_port))
         return self.bound_port
 
     async def stop(self) -> None:
@@ -416,9 +451,15 @@ class SentinelBridgeServer:
                 self._write_json(403, {"ok": False, "error": origin_reason}, writer)
                 return
 
-            # Check for WebSocket upgrade
+            # WebSocket upgrade: token arrives as the first hello, not a header.
             if headers.get("upgrade", "").lower() == "websocket" and path == "/ws/telemetry":
                 await self._handle_websocket(reader, writer, headers)
+                return
+
+            if not _is_public_static(method, path) and not self._session_ok(
+                token_from_headers(headers)
+            ):
+                self._reject_unauthorized(writer)
                 return
 
             content_len = int(headers.get("content-length", "0") or "0")
@@ -464,13 +505,8 @@ class SentinelBridgeServer:
         )
         writer.write(handshake.encode("ascii"))
         await writer.drain()
-        self._ws_clients.add(writer)
 
-        # Immediately push initial snapshot
-        snap = self.hive.world_snapshot()
-        writer.write(_ws_encode_text(json.dumps({"op": "world_snapshot", "data": snap})))
-        await writer.drain()
-
+        greeted = False
         try:
             while True:
                 frame = await _ws_read_frame(reader)
@@ -483,21 +519,50 @@ class SentinelBridgeServer:
                     pong = bytearray([0x8A, len(data)]) + data
                     writer.write(bytes(pong))
                     await writer.drain()
-                elif opcode == 0x1:  # Text frame from Overseer HUD
-                    with contextlib.suppress(ValueError, KeyError, RuntimeError):
-                        msg = json.loads(data.decode("utf-8", errors="replace"))
-                        action = msg.get("op")
-                        if action == "emp_halt":
-                            await self.hive.trigger_emp(
-                                reason=str(msg.get("reason") or "Overseer HUD EMP Trigger")
-                            )
-                        elif action == "emp_restore":
-                            await self.hive.restore_from_emp()
-                        elif action == "set_theme":
-                            await self.hive.set_theme(str(msg.get("theme") or "sodium"))
-                        elif action in {"arelis_demo_wave", "run_scenario"}:
-                            scenario_id = str(msg.get("scenario") or "zion_siege")
-                            await self.hive.simulator.run_scenario(scenario_id)
+                    continue
+                if opcode != 0x1:
+                    continue
+                try:
+                    msg = json.loads(data.decode("utf-8", errors="replace"))
+                except (ValueError, TypeError):
+                    break
+                if not isinstance(msg, dict):
+                    break
+                if not greeted:
+                    token = msg.get("token")
+                    candidate = token if isinstance(token, str) else None
+                    if msg.get("op") != "hello" or not self._session_ok(candidate):
+                        self._note_auth_fail()
+                        writer.write(
+                            _ws_encode_text(json.dumps({"op": "error", "reason": "auth"}))
+                        )
+                        await writer.drain()
+                        break
+                    greeted = True
+                    self._ws_clients.add(writer)
+                    writer.write(
+                        _ws_encode_text(
+                            json.dumps({"op": "hello_ack", "version": PROTOCOL_VERSION})
+                        )
+                    )
+                    snap = self.hive.world_snapshot()
+                    writer.write(
+                        _ws_encode_text(json.dumps({"op": "world_snapshot", "data": snap}))
+                    )
+                    await writer.drain()
+                    continue
+                action = msg.get("op")
+                if action == "emp_halt":
+                    await self.hive.trigger_emp(
+                        reason=str(msg.get("reason") or "Overseer HUD EMP Trigger")
+                    )
+                elif action == "emp_restore":
+                    await self.hive.restore_from_emp()
+                elif action == "set_theme":
+                    await self.hive.set_theme(str(msg.get("theme") or "sodium"))
+                elif action in {"arelis_demo_wave", "run_scenario"}:
+                    scenario_id = str(msg.get("scenario") or "zion_siege")
+                    await self.hive.simulator.run_scenario(scenario_id)
         finally:
             self._ws_clients.discard(writer)
             with contextlib.suppress(OSError, RuntimeError):
@@ -679,21 +744,10 @@ class SentinelBridgeServer:
             return
 
         if method == "POST" and path == "/api/command":
-            # Sovereign Arelis Command Endpoint — Requires Session Token
-            auth_hdr = headers.get("x-sentinel-token") or ""
-            if not auth_hdr and headers.get("authorization", "").lower().startswith("bearer "):
-                auth_hdr = headers["authorization"][7:].strip()
-
-            # Check Warden inbound admission
             wrd = self.hive.registry.get("warden")
             admit = wrd.admit_inbound("127.0.0.1", port=self.bound_port)  # type: ignore[attr-defined]
             if not admit.get("ok"):
                 self._write_json(429, format_command_response(False, error="Rate limited"), writer)
-                return
-
-            if not verify_session_token(auth_hdr, self.session_token):
-                wrd.note_auth_fail("127.0.0.1", port=self.bound_port)  # type: ignore[attr-defined]
-                self._write_json(401, format_command_response(False, error="Unauthorized session token"), writer)
                 return
 
             try:

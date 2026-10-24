@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from sentinel.bridge.protocol import assert_loopback_host, ensure_session_token
+from sentinel.bridge.protocol import assert_loopback_host, command_headers, ensure_session_token
 
 
 class SentinelClient:
@@ -35,7 +35,7 @@ class SentinelClient:
             resp = await client.post(
                 f"{self.base_url}/api/command",
                 json=payload,
-                headers={"X-Sentinel-Token": self.token},
+                headers=command_headers(self.token),
             )
             return resp.json()
 

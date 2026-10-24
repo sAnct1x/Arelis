@@ -19,6 +19,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
+from sentinel.bridge.protocol import ensure_session_token, overseer_open_url
 from sentinel.bridge.server import SentinelBridgeServer
 from sentinel.config import resolve_theme
 from sentinel.core.hive import SwarmHive
@@ -165,7 +166,7 @@ def launch_overseer_window(config: dict[str, Any]) -> int:
 
     runner: _AsyncBridgeRunner | None = None
     if _is_port_listening(host, port):
-        url = f"http://{host}:{port}/overseer"
+        url = overseer_open_url(host, port, ensure_session_token())
     else:
         runner = _AsyncBridgeRunner(config)
         url = runner.start()
@@ -234,8 +235,7 @@ def launch_overseer_window(config: dict[str, Any]) -> int:
         return int(exit_code)
     except ImportError:
         log.info(
-            "PySide6-WebEngine not installed in current environment; opening Overseer at %s in browser.",
-            url,
+            "PySide6-WebEngine not installed; opening the Overseer in the browser."
         )
         webbrowser.open(url)
         if runner is not None:
