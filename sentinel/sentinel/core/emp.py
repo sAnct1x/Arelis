@@ -39,18 +39,24 @@ def clear_emp_flag(path: Path | None = None) -> None:
 
 
 def load_emp_flag(path: Path | None = None) -> bool:
-    """Return True only for a well-formed persisted stop.
+    """Return True when EMP must stay stopped.
 
-    Missing or corrupt files are not tripped. The flag is a positive assertion
-    that EMP is active. A fresh data dir has no file and must boot enabled.
-    Restore clears by deleting the file. Garbage is not a proven trigger.
+    A missing file is not tripped: a fresh data dir, or a completed restore
+    that deleted the flag, must boot enabled. A corrupt or unreadable file
+    is tripped (fail closed). Something wrote that file; a garbled stop
+    switch must not quietly enable the swarm. Restore still deletes the file.
     """
     dest = path or emp_flag_path()
     try:
         raw = dest.read_text(encoding="utf-8")
-    except OSError:
+    except FileNotFoundError:
         return False
-    return raw.strip() == _EMP_FLAG_VALUE
+    except (OSError, UnicodeError):
+        raw = None
+    if raw is not None and raw.strip() == _EMP_FLAG_VALUE:
+        return True
+    log.warning("EMP stop flag is corrupt or unreadable; treating as tripped")
+    return True
 
 
 class EMPController:
