@@ -12,23 +12,56 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from sentinel.core.bus import EventBus, EventTopic
 from sentinel.core.fsm import SentinelState, SentinelUnit
+from sentinel.paths import emp_flag_path
 
 log = logging.getLogger("sentinel.emp")
+
+_EMP_FLAG_VALUE = "1"
+
+
+def write_emp_flag(path: Path | None = None) -> None:
+    """Atomically persist the software stop. Same-dir temp file, then replace."""
+    dest = path or emp_flag_path()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f"{dest.name}.tmp")
+    tmp.write_text(f"{_EMP_FLAG_VALUE}\n", encoding="utf-8")
+    tmp.replace(dest)
+
+
+def clear_emp_flag(path: Path | None = None) -> None:
+    dest = path or emp_flag_path()
+    dest.unlink(missing_ok=True)
+
+
+def load_emp_flag(path: Path | None = None) -> bool:
+    """Return True only for a well-formed persisted stop.
+
+    Missing or corrupt files are not tripped. The flag is a positive assertion
+    that EMP is active. A fresh data dir has no file and must boot enabled.
+    Restore clears by deleting the file. Garbage is not a proven trigger.
+    """
+    dest = path or emp_flag_path()
+    try:
+        raw = dest.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return raw.strip() == _EMP_FLAG_VALUE
 
 
 class EMPController:
     """Tracked-task cancellation and registered-client shutdown controller."""
 
-    def __init__(self, bus: EventBus) -> None:
+    def __init__(self, bus: EventBus, *, tripped: bool = False) -> None:
         self._bus = bus
         self._armed = True
-        self._tripped = False
+        self._tripped = tripped
         self._tripped_at: float | None = None
-        self._tripped_reason: str = ""
+        self._tripped_reason: str = "Persisted EMP stop" if tripped else ""
         self._active_tasks: set[asyncio.Task[Any]] = set()
         self._close_callbacks: list[Any] = []
 
@@ -65,6 +98,10 @@ class EMPController:
         self._tripped = True
         self._tripped_at = time.time()
         self._tripped_reason = reason
+        try:
+            write_emp_flag()
+        except OSError:
+            log.exception("Failed to persist EMP stop flag")
 
         tasks_to_cancel = list(self._active_tasks)
         cancelled_count = 0
@@ -113,6 +150,10 @@ class EMPController:
         """Clear EMP lockout and return all Sentinel units to PATROLLING formation."""
         self._tripped = False
         self._tripped_reason = ""
+        try:
+            clear_emp_flag()
+        except OSError:
+            log.exception("Failed to clear EMP stop flag")
         restored = 0
         for unit in units.values():
             if unit.state == SentinelState.EMP_DISABLED:

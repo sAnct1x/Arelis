@@ -1,8 +1,8 @@
 """Path helpers for Sentinel runtime directories.
 
-data_dir, logs_dir, outputs_dir, harvest_dir, quarantine_dir, and the ledger
-and token paths are created under the active root (the repo root, or a root
-set by set_runtime_root). These helpers do not reject paths outside that root.
+data_dir, logs_dir, outputs_dir, harvest_dir, quarantine_dir, and the ledger,
+token, and EMP flag paths are created under the active root (the repo root, or a
+root set by set_runtime_root). These helpers do not reject paths outside that root.
 """
 
 from __future__ import annotations
@@ -62,6 +62,11 @@ def ledger_path() -> Path:
 def token_path() -> Path:
     ensure(data_dir())
     return data_dir() / "session_token"
+
+
+def emp_flag_path() -> Path:
+    ensure(data_dir())
+    return data_dir() / "emp_flag"
 
 
 def banned_peers_path() -> Path:
