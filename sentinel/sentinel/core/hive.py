@@ -42,6 +42,7 @@ from sentinel.core.receipts import ReceiptLedger
 from sentinel.core.simulator import SCENARIO_CATALOG, SimulationDirector
 from sentinel.core.telemetry import TelemetryLogger
 from sentinel.paths import harvest_dir, quarantine_dir
+from sentinel.safety.network import SEND_ACT_OPS, check_send_allowed
 
 log = logging.getLogger("sentinel.hive")
 
@@ -149,7 +150,20 @@ class SwarmHive:
         target_identifier: str,
         justification: str,
     ) -> dict[str, Any] | None:
-        """Shared live-path gate. None means run. A dict means parked for sign-off."""
+        """Shared live-path gate. None means run. A dict means parked for sign-off.
+
+        Scale, ban, and prune go through check_send_allowed first, then the gate.
+        """
+        token = action_token.strip().upper()
+        if token in SEND_ACT_OPS:
+            verdict = check_send_allowed(token, url=target_identifier)
+            if not verdict.allowed:
+                return {
+                    "ok": False,
+                    "parked": True,
+                    "error": verdict.reason or "queued for operator sign-off",
+                }
+            action_token = verdict.token or token
         allowed, req = self.authority.evaluate_request(
             action_token,
             target_identifier,
@@ -680,6 +694,29 @@ class SwarmHive:
             return {"ok": False, "error": "EMP Kill-Switch active"}
 
         cid = caste.strip().lower()
+        method = str(task_payload.get("method") or "").strip().upper()
+        if method and method != "GET":
+            send_url = str(
+                task_payload.get("url")
+                or task_payload.get("target")
+                or task_payload.get("path")
+                or ""
+            )
+            verdict = check_send_allowed(method, method=method, url=send_url)
+            if not verdict.allowed:
+                return {
+                    "ok": False,
+                    "parked": True,
+                    "error": verdict.reason or "queued for operator sign-off",
+                }
+            if verdict.token:
+                parked_send = self._authorize_work(
+                    verdict.token,
+                    send_url or cid,
+                    f"send {method}",
+                )
+                if parked_send is not None:
+                    return parked_send
         token, target = self._token_for_task(cid, task_payload)
         parked = self._authorize_work(token, target, f"dispatch {cid}")
         if parked is not None:

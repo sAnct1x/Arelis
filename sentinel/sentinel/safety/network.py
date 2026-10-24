@@ -2,7 +2,14 @@
 
 check_url_allowed blocks non-http(s) schemes, loopback, private, link-local,
 and metadata hosts, then resolves DNS and rejects those addresses. It does not
-consult ALLOWED_EGRESS_HOSTS. Any other public host is allowed.
+consult ALLOWED_EGRESS_HOSTS. Any other public host is allowed. That is the
+read check. Harvest GET uses it.
+
+check_send_allowed is the send and act check. It sits beside check_url_allowed,
+not inside it. Unknown send ops fail closed. It does not consult
+ALLOWED_EGRESS_HOSTS. SEND_ACT_OPS maps scale, ban, and prune onto AuthorityGate
+tokens. A POST or other non-GET off-box send is not in that map.
+
 pinned_request_target can rewrite a URL to a resolved IP. Callers that ignore
 its return value do not pin the connection.
 """
@@ -17,6 +24,7 @@ from urllib.parse import urlparse, urlsplit, urlunsplit
 
 # Catalog names used by harvester presets and a warden status count.
 # check_url_allowed does not treat this dict as a request allowlist.
+# check_send_allowed does not consult it either.
 ALLOWED_EGRESS_HOSTS: dict[str, str] = {
     "export.arxiv.org": "arXiv Atom API for scientific paper harvesting",
     "arxiv.org": "arXiv abstract and PDF retrieval",
@@ -28,6 +36,18 @@ ALLOWED_EGRESS_HOSTS: dict[str, str] = {
     "html.duckduckgo.com": "DuckDuckGo HTML search discovery for Harvester scouts",
     "lite.duckduckgo.com": "DuckDuckGo Lite fallback search discovery",
     "en.wikipedia.org": "Wikipedia REST/MediaWiki reference extraction",
+}
+
+# Send and act ops to AuthorityGate tokens. POST and other non-GET methods
+# are not listed. check_send_allowed fails those closed.
+SEND_ACT_OPS: dict[str, str] = {
+    "SCALE": "SCALE_CASTE",
+    "SCALE_CASTE": "SCALE_CASTE",
+    "BAN": "PERMANENT_BAN_PEER",
+    "BAN_PEER": "PERMANENT_BAN_PEER",
+    "PERMANENT_BAN_PEER": "PERMANENT_BAN_PEER",
+    "PRUNE": "DELETE_QUARANTINE_FILE",
+    "DELETE_QUARANTINE_FILE": "DELETE_QUARANTINE_FILE",
 }
 
 _LOOPBACK_NAMES = frozenset({"localhost", "0.0.0.0", "::", "::1", "[::1]"})
@@ -62,6 +82,16 @@ class UrlVerdict:
     reason: str | None = None
     ip: str | None = None
     host: str = ""
+
+    @property
+    def allowed(self) -> bool:
+        return self.reason is None
+
+
+@dataclass(frozen=True)
+class SendVerdict:
+    reason: str | None = None
+    token: str = ""
 
     @property
     def allowed(self) -> bool:
@@ -156,6 +186,22 @@ async def check_url_allowed(url: str, *, block_private: bool = True) -> UrlVerdi
                 return UrlVerdict(reason=reason, ip=None, host=host)
 
     return UrlVerdict(reason=None, ip=ips[0], host=host)
+
+
+def check_send_allowed(op: str, *, method: str = "", url: str = "") -> SendVerdict:
+    """Classify a send or machine-changing act. Unknown ops fail closed.
+
+    Does not send. Does not resolve DNS. Does not consult ALLOWED_EGRESS_HOSTS.
+    A listed act returns its gate token. A POST or other non-GET off-box send
+    is unknown here and is refused.
+    """
+    key = (method or op or "").strip().upper()
+    token = SEND_ACT_OPS.get(key)
+    if token is None:
+        target = (url or "").strip()
+        extra = f" {target}" if target else ""
+        return SendVerdict(reason=f"Unknown send op: {key or '(none)'}{extra}")
+    return SendVerdict(reason=None, token=token)
 
 
 def pinned_request_target(url: str, ip: str) -> tuple[str, str]:
