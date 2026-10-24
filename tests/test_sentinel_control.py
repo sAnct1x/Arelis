@@ -24,6 +24,11 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
     A Tier 0 observe must run. A Tier 2 delete or prune must park and
     leave the file. Commenting out evaluate_request in dispatch_task,
     or on the prune/ban branch, is a failure of this test.
+
+    trigger_emp trips before any lease record. A raising evaluate_request
+    must still persist the stop. Startup cap housekeeping must still
+    trim. Gating the halt, or routing boot trim through the operator
+    prune, is a failure of this test.
     """
     import sys
 
@@ -86,7 +91,7 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
     from sentinel.castes.warden import WardenCaste
     from sentinel.core.fsm import SentinelState
     from sentinel.core.hive import SwarmHive
-    from sentinel.paths import quarantine_dir, set_runtime_root
+    from sentinel.paths import harvest_dir, quarantine_dir, set_runtime_root
 
     hive_cfg = {
         "swarm": {
@@ -106,7 +111,13 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
     set_runtime_root(tmp_path)
     try:
         hive = SwarmHive(hive_cfg)
+
+        def _raise_gate(*_a: object, **_k: object) -> tuple[bool, object]:
+            raise RuntimeError("gate down")
+
+        hive.authority.evaluate_request = _raise_gate  # type: ignore[method-assign]
         await hive.trigger_emp(reason="persist across restart")
+        assert hive.emp.is_tripped is True
         restarted = SwarmHive(hive_cfg)
         blocked = await restarted.dispatch_task("warden", {"action": "patrol_scan"})
         assert blocked["ok"] is False
@@ -116,7 +127,17 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
 
     set_runtime_root(tmp_path / "gate")
     try:
-        gated = SwarmHive(hive_cfg)
+        h_dir = harvest_dir()
+        q_dir = quarantine_dir()
+        for i in range(5):
+            (h_dir / f"2026-10-16-test-harvest-{i:02d}.md").write_text(f"# H {i}\n", encoding="utf-8")
+            (q_dir / f"quarantine-179220000{i}-abcd1234.json").write_text("{}\n", encoding="utf-8")
+        gate_cfg = dict(hive_cfg)
+        gate_cfg["retention"] = {"max_harvest_dossiers": 2, "max_quarantine_files": 2}
+        gated = SwarmHive(gate_cfg)
+        assert len(list(h_dir.glob("*.md"))) == 2
+        assert len(list(q_dir.glob("quarantine-*.json"))) == 2
+
         observe = await gated.dispatch_task(
             "warden",
             {"action": "patrol_scan", "animate": False},

@@ -130,7 +130,7 @@ class SwarmHive:
             if caste_id in self.registry.caste_ids:
                 self.spawn_units(caste_id, int(count), tier=self.default_tier)
 
-        self.prune_runtime_storage()
+        self._trim_runtime_storage()
 
         self.telemetry.record(
             "INFO",
@@ -185,7 +185,7 @@ class SwarmHive:
             return explicit, target
         return "INSPECT_PATH", target
 
-    def prune_runtime_storage(
+    def _trim_runtime_storage(
         self,
         *,
         max_harvests: int | None = None,
@@ -193,14 +193,7 @@ class SwarmHive:
         max_log_bytes: int | None = None,
         max_ledger_entries: int | None = None,
     ) -> dict[str, Any]:
-        """Prune and compact logs, dossiers, quarantine files, and warrant ledgers."""
-        parked = self._authorize_work(
-            "DELETE_QUARANTINE_FILE",
-            "runtime-storage",
-            "prune harvest, quarantine, logs, and ledger",
-        )
-        if parked is not None:
-            return parked
+        """Cap harvest, quarantine, logs, and ledger. Startup housekeeping. Not gated."""
         ret_cfg = self.config.get("retention") or {}
         mh = max_harvests if max_harvests is not None else int(ret_cfg.get("max_harvest_dossiers", 25))
         mq = max_quarantines if max_quarantines is not None else int(ret_cfg.get("max_quarantine_files", 25))
@@ -230,6 +223,29 @@ class SwarmHive:
             "removed_log_backups": log_summary.get("removed_backups", []),
             "compacted_ledger_receipts": ledger_pruned,
         }
+
+    def prune_runtime_storage(
+        self,
+        *,
+        max_harvests: int | None = None,
+        max_quarantines: int | None = None,
+        max_log_bytes: int | None = None,
+        max_ledger_entries: int | None = None,
+    ) -> dict[str, Any]:
+        """Operator prune. Tier 2. Parks until sign-off."""
+        parked = self._authorize_work(
+            "DELETE_QUARANTINE_FILE",
+            "runtime-storage",
+            "prune harvest, quarantine, logs, and ledger",
+        )
+        if parked is not None:
+            return parked
+        return self._trim_runtime_storage(
+            max_harvests=max_harvests,
+            max_quarantines=max_quarantines,
+            max_log_bytes=max_log_bytes,
+            max_ledger_entries=max_ledger_entries,
+        )
 
     @property
     def theme(self) -> dict[str, Any]:
@@ -856,11 +872,12 @@ class SwarmHive:
 
 
     async def trigger_emp(self, reason: str = "Overseer Manual EMP Kill-Switch") -> dict[str, Any]:
-        parked = self._authorize_work("EMP_HALT", "swarm", reason)
-        if parked is not None:
-            return parked
         self.simulator.clear_banner()
         res = await self.emp.trigger_emp(self.units, reason=reason)
+        try:
+            self.authority.evaluate_request("EMP_HALT", "swarm", reason)
+        except Exception:
+            log.warning("EMP halt lease record failed")
         self.telemetry.record(
             "EMP",
             unit_id="EMP-CORE",
