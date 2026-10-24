@@ -56,6 +56,9 @@ PUBLISHED_TAG = "v0.3.0"
 PUBLISHED_SETUP = "Arelis-0.3.0-win64-setup.exe"
 MARKER = "UPGRADE-PATH-MARKER"
 SENTINEL = "FAKE-TOKEN-DO-NOT-COPY"
+# Same filename installer_smoke seeds. needs_model_setup() looks for this
+# GGUF on disk; first-run.json saying complete is not enough after #403.
+SEEDED_GGUF = "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
 APP_ID = "{8F4C2D31-6A5E-4B7C-9E1D-3A2F5B8C7D40}"
 UNINSTALL_KEY = f"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{APP_ID}_is1"
 # major.minor.patch, then any further numeric segments. 0.3.2 and 0.3.2.1
@@ -1050,6 +1053,8 @@ def config_text(workspace: Path) -> str:
             "models:",
             '  fast: "qwen3.5:9b"',
             '  research: "qwen3.5:9b"',
+            "llamacpp:",
+            f'  model: "{SEEDED_GGUF}"',
             "workspace:",
             "  roots:",
             f"    - {quoted}",
@@ -1071,6 +1076,9 @@ def seed_files() -> None:
         "model_setup": {"complete": True, "tag": "qwen3.5:9b", "completed_at": now},
     }
     (state / "first-run.json").write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
+    models = data_root() / "models"
+    models.mkdir(parents=True, exist_ok=True)
+    (models / SEEDED_GGUF).write_bytes(b"gguf")
     (state / "config.local.yaml").write_text(config_text(workspace), encoding="utf-8")
     (state / "rooms.yaml").write_text('rooms: {}\nlast_active: ""\n', encoding="utf-8")
     (state / "contacts.yaml").write_text(

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="sodium">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SENTINEL — Arelis 3D Swarm Overseer &amp; Forensic Telemetry</title>
+  <link rel="stylesheet" href="/overseer/style.css" />
+</head>
+<body>
+  <canvas id="overseer-canvas"></canvas>
+
+  <!-- EMP Shockwave Overlay -->
+  <div id="emp-banner" class="hidden">
+    <div class="emp-banner-inner">
+      <span class="emp-icon">⚡</span>
+      <div>
+        <div class="emp-title">SOFTWARE EMERGENCY STOP ACTIVE</div>
+        <div class="emp-sub" id="emp-reason-text">New work is blocked while the stop is active.</div>
+      </div>
+      <button id="btn-emp-restore" class="btn-restore">RESTORE SWARM TO ARELIS</button>
+    </div>
+  </div>
+
+  <!-- Top-Center Live Tactical Phase / Threat Alert Banner -->
+  <div id="tactical-banner" class="hidden" data-severity="info">
+    <div class="tactical-banner-inner">
+      <div class="tactical-pulse-dot" id="tactical-dot"></div>
+      <div class="tactical-text-wrap">
+        <div class="tactical-title" id="tactical-title">TACTICAL OVERWATCH ACTIVE</div>
+        <div class="tactical-sub" id="tactical-sub">Awaiting Arelis sovereign directive...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Sovereign Command Bar -->
+  <header id="hud-topbar" class="hud-plate">
+    <div class="brand-cluster">
+      <div class="core-beacon" id="conn-beacon"></div>
+      <div class="brand-text-wrap">
+        <div class="brand-title">ARELIS // SENTINEL OVERSEER v0.2</div>
+        <div class="brand-sub" id="sovereign-status">SOVEREIGN: ARELIS (qwen3.5:9b) • DEFENSE MATRIX</div>
+      </div>
+    </div>
+
+    <div class="metrics-strip">
+      <div class="metric-pill">
+        <span class="m-label">SWARM</span>
+        <span class="m-val" id="m-units">22</span>
+      </div>
+      <div class="metric-pill">
+        <span class="m-label">HRV</span>
+        <span class="m-val" id="m-hrv">8</span>
+      </div>
+      <div class="metric-pill">
+        <span class="m-label">WRD</span>
+        <span class="m-val" id="m-wrd">6</span>
+      </div>
+      <div class="metric-pill">
+        <span class="m-label">SAN</span>
+        <span class="m-val" id="m-san">4</span>
+      </div>
+      <div class="metric-pill">
+        <span class="m-label">TRP</span>
+        <span class="m-val" id="m-trp">4</span>
+      </div>
+      <div class="metric-pill">
+        <span class="m-label">WARRANTS</span>
+        <span class="m-val" id="m-warrants">0</span>
+      </div>
+      <div class="metric-pill metric-pill-danger">
+        <span class="m-label">SECURITY EVENTS</span>
+        <span class="m-val" id="m-threats">0</span>
+      </div>
+      <div class="metric-pill">
+        <span class="m-label">FPS</span>
+        <span class="m-val" id="m-fps">60</span>
+      </div>
+    </div>
+
+    <div class="controls-strip">
+      <select id="scenario-select" class="hud-select hud-select-scenario" title="Choose a live research or inspection mission">
+        <option value="live_research_swarm">RESEARCH: arXiv + Wikipedia</option>
+        <option value="live_os_security_sweep">INSPECT: Host sockets + file integrity</option>
+      </select>
+
+      <button id="btn-demo-wave" class="hud-btn btn-sim" title="Launch the selected live mission">
+        ▶ LAUNCH
+      </button>
+
+
+
+      <select id="theme-select" class="hud-select hud-select-compact" title="Visual Atmosphere Theme">
+        <option value="sodium">Theme: Sodium</option>
+        <option value="filament">Theme: Filament</option>
+        <option value="night">Theme: Night</option>
+        <option value="matrix">Theme: Matrix</option>
+      </select>
+
+      <select id="camera-select" class="hud-select hud-select-cam" title="Camera Mode (Hotkeys 1-4)">
+        <option value="orbit">Cam: Overwatch [1]</option>
+        <option value="top">Cam: Top-Down [2]</option>
+        <option value="core">Cam: Core Close [3]</option>
+        <option value="chase">Cam: Chase-Cam [4]</option>
+      </select>
+
+      <button id="btn-emp-halt" class="hud-btn btn-emp" title="Emergency stop: cancel tracked tasks and close registered network clients">
+        🛑 STOP
+      </button>
+    </div>
+  </header>
+
+  <div id="mission-feedback" role="status" aria-live="polite" style="position:fixed;bottom:12px;left:24px;z-index:100;color:var(--text);background:var(--bg1);padding:8px;max-width:70vw"></div>
+
+  <!-- Left Dock: Swarm Roster & Perimeter Bastions -->
+  <aside id="hud-left" class="hud-plate">
+    <div class="section-header">
+      <span>ACTIVE SENTINEL SWARM</span>
+      <span id="roster-filter-label" class="dim-tag">ALL CASTES</span>
+    </div>
+    <div class="caste-tabs">
+      <button class="caste-tab active" data-caste="all">ALL</button>
+      <button class="caste-tab" data-caste="harvester">HRV</button>
+      <button class="caste-tab" data-caste="warden">WRD</button>
+      <button class="caste-tab" data-caste="sanitizer">SAN</button>
+      <button class="caste-tab" data-caste="tripwire">TRP</button>
+    </div>
+    <div class="swarm-ops-bar">
+      <button id="btn-spawn-unit" class="mini-op-btn" title="Spawn +1 Sentinel in selected caste (or Harvester if ALL)">+ SPAWN</button>
+      <button id="btn-retire-unit" class="mini-op-btn" title="Retire -1 idle Sentinel in selected caste">− RETIRE</button>
+    </div>
+    <div id="unit-roster" class="scroll-list"></div>
+
+    <div class="section-header mt-gap">
+      <span>3D NODES, THREATS &amp; BASTION GATES</span>
+    </div>
+    <div id="node-roster" class="scroll-listbastions"></div>
+  </aside>
+
+  <!-- Right Dock: Unit Telemetry Inspector & Warrant Ledger -->
+  <aside id="hud-right" class="hud-plate">
+    <div class="section-header">
+      <span>UNIT / NODE / WARRANT INSPECTOR</span>
+      <div class="insp-header-actions">
+        <button id="btn-open-harvests" class="mini-btn" title="Open outputs/harvest folder in Windows Explorer">📂 HARVESTS</button>
+        <button id="btn-open-quarantine" class="mini-btn" title="Open data/quarantine folder in Windows Explorer">📂 VAULT</button>
+        <button id="btn-unselect" class="mini-btn" title="Clear selection and return to Orbital Overwatch (Esc)">CLEAR</button>
+      </div>
+    </div>
+    <div id="inspector-card" class="inspector-box">
+      <div class="empty-hint">Click any 3D Sentinel, Attack Node, Bastion Gate, or Warrant Receipt below to inspect live kinematics, 12-tentacle IK state, or harvested scientific text.</div>
+    </div>
+
+    <div class="section-header mt-gap">
+      <span>SHA-256 WARRANT RECEIPT LEDGER (CLICK TO READ)</span>
+    </div>
+    <div id="receipt-feed" class="scroll-list"></div>
+  </aside>
+
+  <!-- Bottom Center Dock: Live Mission Dispatch + Forensic Telemetry & Combat Log Console -->
+  <section id="hud-console" class="hud-plate">
+    <div class="live-mission-bar">
+      <select id="live-mode-select" class="hud-select live-mode-select" title="Choose Real Live Capability">
+        <option value="multi">🔭 Live Multi-Source Swarm (arXiv + Wikipedia)</option>
+        <option value="arxiv">📄 Live arXiv Catalog Harvest (Atom XML API)</option>
+        <option value="horizons">🪐 Live JPL Horizons Ephemeris (Mars/Jupiter/Saturn)</option>
+        <option value="wikipedia">🌐 Live Wikipedia / HTTPS URL Harvest</option>
+        <option value="security_audit">🛡 Live Host Socket &amp; Merkle Security Sweep</option>
+      </select>
+      <input
+        id="live-query-input"
+        type="text"
+        class="live-query-input"
+        placeholder="Enter real research query, planet (e.g. Jupiter, Mars), or topic (e.g. exoplanet transit lightcurves)..."
+        value="exoplanet atmospheric transmission spectroscopy"
+      />
+      <button id="btn-live-dispatch" class="hud-btn btn-sim">🚀 DISPATCH LIVE SWARM</button>
+    </div>
+
+    <div class="console-header">
+      <div class="console-title-group">
+        <span class="console-live-dot" id="console-live-dot"></span>
+        <span>LIVE FORENSIC TELEMETRY &amp; COMBAT LOG</span>
+        <input
+          id="log-search-input"
+          type="text"
+          class="log-search-input"
+          placeholder="Filter by IP, port, unit, or keyword..."
+        />
+      </div>
+      <div class="console-filters">
+        <button class="log-filter active" data-filter="all">ALL</button>
+        <button class="log-filter" data-filter="threat">THREATS</button>
+        <button class="log-filter" data-filter="sanitize">INJECTION</button>
+        <button class="log-filter" data-filter="harvest">HARVESTS</button>
+        <button class="log-filter" data-filter="tripwire">TRIPWIRE</button>
+        <button id="btn-log-pause" class="log-action-btn" title="Pause/Resume live log scrolling to inspect or copy lines">⏸ PAUSE</button>
+        <button id="btn-open-logs" class="log-action-btn" title="Open logs/ folder in Windows Explorer">📂 LOGS</button>
+      </div>
+    </div>
+    <div id="telemetry-console-body" class="console-body"></div>
+  </section>
+
+  <!-- Full-Screen Dossier & Forensics Reader Modal -->
+  <div id="dossier-modal" class="modal-backdrop hidden">
+    <div class="modal-card hud-plate">
+      <div class="modal-header">
+        <div>
+          <div id="modal-title" class="modal-title">HARVEST DOSSIER // REPORT</div>
+          <div id="modal-subtitle" class="modal-subtitle">Verified SHA-256 Evidence</div>
+        </div>
+        <div class="modal-actions">
+          <button id="btn-modal-copy" class="hud-btn">📋 COPY TO CLIPBOARD</button>
+          <button id="btn-modal-folder" class="hud-btn">📂 OPEN IN EXPLORER</button>
+          <button id="btn-modal-close" class="hud-btn btn-emp">✕ CLOSE [ESC]</button>
+        </div>
+      </div>
+      <pre id="modal-body" class="modal-body"></pre>
+    </div>
+  </div>
+
+  <!-- Bottom Hint Bar -->
+  <footer id="hud-footer">
+    <span><strong>LMB Drag:</strong> Orbit</span>
+    <span>•</span>
+    <span><strong>RMB / WASD:</strong> Pan / Fly</span>
+    <span>•</span>
+    <span><strong>[1-4]:</strong> Camera Mode</span>
+    <span>•</span>
+    <span><strong>[Tab]:</strong> Cycle Sentinel</span>
+    <span>•</span>
+    <span><strong>[Esc]:</strong> Clear Lock / Close</span>
+    <span>•</span>
+    <span><strong>[F11]:</strong> Fullscreen</span>
+    <span>•</span>
+    <span id="footer-theme-info">Atmosphere: Sodium Lamp (#100d0b / #ff7a22)</span>
+  </footer>
+
+  <script src="/overseer/sentinel_mesh.js"></script>
+  <script src="/overseer/engine.js"></script>
+  <script src="/overseer/telemetry_ws.js"></script>
+</body>
+</html>

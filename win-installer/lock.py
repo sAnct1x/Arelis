@@ -73,6 +73,7 @@ PYTHON_VERSION = "3.14"
 PLATFORM = "win_amd64"
 
 # Resolved instead of a list repeated here. See the `installer` extra in pyproject.
+# Extras that are not in that set (currently `sentinel`) are not locked here.
 EXTRA = "installer"
 
 # Pure-Python projects that publish no wheel at all, and so cannot satisfy
