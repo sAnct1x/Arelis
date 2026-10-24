@@ -94,7 +94,10 @@ async def test_overseer_qol_endpoints_and_preference_persistence(tmp_path) -> No
     server = SentinelBridgeServer(hive, host="127.0.0.1", preferred_port=18792)
     port = await server.start()
     try:
-        async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as http:
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}",
+            headers={"X-Sentinel-Token": server.session_token},
+        ) as http:
             # 1. Scale caste (+1 / -1)
             r_scale = await http.post("/api/overseer/scale", json={"caste": "harvester", "delta": 1})
             assert r_scale.status_code == 200

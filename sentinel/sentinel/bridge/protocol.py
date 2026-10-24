@@ -5,12 +5,14 @@ from __future__ import annotations
 import hmac
 import secrets
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from sentinel.paths import token_path
 
 PROTOCOL_VERSION = 1
 PORT_SEARCH_SPAN = 6
+TOKEN_HEADER = "X-Sentinel-Token"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
@@ -51,6 +53,31 @@ def verify_session_token(candidate: str | None, expected: str) -> bool:
     if not candidate or not expected:
         return False
     return hmac.compare_digest(candidate.strip(), expected.strip())
+
+
+def token_from_headers(headers: Mapping[str, str]) -> str:
+    """Read the session token from X-Sentinel-Token, or from Bearer."""
+    by_lower = {str(key).lower(): value for key, value in headers.items()}
+    raw = (by_lower.get("x-sentinel-token") or "").strip()
+    if raw:
+        return raw
+    authorization = (by_lower.get("authorization") or "").strip()
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return ""
+
+
+def command_headers(token: str) -> dict[str, str]:
+    """HTTP headers every command-bridge client sends."""
+    return {TOKEN_HEADER: token}
+
+
+def hello_message(*, token: str | None = None) -> dict[str, Any]:
+    """First WebSocket frame. Same shape as Arelis IPC hello."""
+    msg: dict[str, Any] = {"op": "hello", "version": PROTOCOL_VERSION}
+    if token:
+        msg["token"] = token
+    return msg
 
 
 def format_command_response(ok: bool, data: dict[str, Any] | None = None, error: str = "") -> dict[str, Any]:

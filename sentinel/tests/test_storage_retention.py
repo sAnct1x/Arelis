@@ -119,7 +119,10 @@ async def test_hive_prune_runtime_storage_and_overseer_api(tmp_path) -> None:  #
             assert "pruned_harvests" in cmd_res
 
             # 3. Test HTTP POST /api/overseer/prune
-            async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as http:
+            async with httpx.AsyncClient(
+                base_url=f"http://127.0.0.1:{port}",
+                headers={"X-Sentinel-Token": server.session_token},
+            ) as http:
                 resp = await http.post("/api/overseer/prune")
                 assert resp.status_code == 200
                 assert resp.json()["ok"] is True

@@ -7,6 +7,26 @@
 (function () {
   "use strict";
 
+  function sessionToken() {
+    if (typeof window.SENTINEL_TOKEN === "string" && window.SENTINEL_TOKEN) {
+      return window.SENTINEL_TOKEN;
+    }
+    try {
+      return new URLSearchParams(window.location.search).get("token") || "";
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  function apiHeaders(extra) {
+    const headers = extra ? Object.assign({}, extra) : {};
+    const token = sessionToken();
+    if (token) {
+      headers["X-Sentinel-Token"] = token;
+    }
+    return headers;
+  }
+
   const canvas = document.getElementById("overseer-canvas");
   const engine = new window.OverseerEngine(canvas);
 
@@ -156,7 +176,7 @@
   function openFolderInExplorer(folderKind) {
     fetch("/api/overseer/open_folder", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ folder: folderKind }),
     });
   }
@@ -169,7 +189,9 @@
     elModalBody.textContent = "Reading disk artifact...";
     elModal.classList.remove("hidden");
 
-    fetch(`/api/overseer/file?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(nameOrId)}`)
+    fetch(`/api/overseer/file?kind=${encodeURIComponent(kind)}&name=${encodeURIComponent(nameOrId)}`, {
+      headers: apiHeaders(),
+    })
       .then((r) => r.json())
       .then((data) => {
         if (!data || !data.ok) {
@@ -250,7 +272,7 @@
     if (unbanIp) {
       fetch("/api/overseer/unban", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: apiHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ ip: unbanIp }),
       });
       return;
@@ -846,6 +868,9 @@
   function connectWebSocket() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     ws = new WebSocket(`${proto}//${location.host}/ws/telemetry`);
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ op: "hello", token: sessionToken() }));
+    };
     ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data);
@@ -885,7 +910,7 @@
       const targetCaste = activeCasteFilter === "all" ? "harvester" : activeCasteFilter;
       fetch("/api/overseer/scale", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: apiHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ caste: targetCaste, delta: 1 }),
       });
     });
@@ -895,7 +920,7 @@
       const targetCaste = activeCasteFilter === "all" ? "harvester" : activeCasteFilter;
       fetch("/api/overseer/scale", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: apiHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ caste: targetCaste, delta: -1 }),
       });
     });
@@ -956,7 +981,7 @@
     } catch (_e) {}
     fetch("/api/overseer/theme", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ theme }),
     });
   });
@@ -969,7 +994,11 @@
     const feedback = document.getElementById("mission-feedback");
     if (feedback) feedback.textContent = "Submitting mission...";
     try {
-      const response = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+      const response = await fetch(url, {
+        method: "POST",
+        headers: apiHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(payload),
+      });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || "Mission rejected");
       if (feedback) feedback.textContent = "Mission accepted. Live progress appears above.";
@@ -1011,7 +1040,7 @@
     engine.triggerEmpShockwave();
     fetch("/api/overseer/emp", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ reason: "Overseer emergency stop" }),
     });
   });
@@ -1019,7 +1048,7 @@
   document.getElementById("btn-emp-restore").addEventListener("click", () => {
     fetch("/api/overseer/emp", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ restore: true }),
     });
   });
