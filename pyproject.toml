@@ -36,7 +36,7 @@ dependencies = [
   "lxml>=5.0",
   "pandas>=2.2",
   "numpy>=1.26",
-  "PySide6>=6.6,<6.12",
+  "PySide6>=6.6,<6.13",
   "PyYAML>=6.0.1",
   "pypdf>=5.0",
   # Renders scanned / handwritten PDF pages that have no embedded JPEGs.
@@ -159,7 +159,7 @@ dev = [
   # which is how this repo ended up with 24 lint errors nobody wrote. New rules
   # are worth taking, but as a deliberate version bump, not as a surprise on
   # somebody's unrelated pull request.
-  "ruff==0.16.9",
+  "ruff==0.17.1",
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
   # Workers for the CI test job (`pytest -n auto`). pytest-cov stays in
@@ -175,7 +175,7 @@ dev = [
   # Exact, same reason as ruff. A floating mypy release changes the baseline
   # error count overnight, and that number is the only reason this extra
   # exists — Phase 0 records it; nothing fails a build on it yet.
-  "mypy==2.3.1",
+  "mypy==2.4.0",
   "pytest-cov>=5.0",
   # Dead-code report for scripts/repo_scan.py. Floor, not a pin: this extra
   # is a report, not a gate, so a new vulture release cannot turn CI red.
