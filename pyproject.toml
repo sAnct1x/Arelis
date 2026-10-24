@@ -180,6 +180,8 @@ dev = [
   # Dead-code report for scripts/repo_scan.py. Floor, not a pin: this extra
   # is a report, not a gate, so a new vulture release cannot turn CI red.
   "vulture>=2.14",
+  # SwarmHive in tests/test_sentinel_control.py. Not the installer extra.
+  "psutil>=5.9.0",
 ]
 
 [project.scripts]

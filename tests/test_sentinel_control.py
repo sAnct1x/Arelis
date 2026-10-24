@@ -1,20 +1,25 @@
-"""Command-bridge routes require the session token."""
+"""Command-bridge routes require the session token. EMP persists across restart."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 
-async def test_snapshot_and_overseer_post_require_the_session_token() -> None:
+async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Path) -> None:
     """Most command-bridge routes used to skip the session token.
 
     GET /api/snapshot and Overseer POSTs (EMP, restore, scale, file read)
     answered any loopback caller. Only /api/command checked. One gate now
     covers every non-static route. Skipping that check on snapshot or on
     the POST path is a failure of this test.
+
+    EMP used to live only in memory. trigger_emp must persist the stop flag
+    so a new hive on the same data dir refuses dispatch_task and spawns
+    units as EMP_DISABLED. Skipping the file write, or the constructor
+    read, is a failure of this test.
     """
     import sys
-    from pathlib import Path
 
     import httpx
 
@@ -71,3 +76,33 @@ async def test_snapshot_and_overseer_post_require_the_session_token() -> None:
             assert post_ok.status_code == 200
     finally:
         await server.stop()
+
+    from sentinel.core.fsm import SentinelState
+    from sentinel.core.hive import SwarmHive
+    from sentinel.paths import set_runtime_root
+
+    hive_cfg = {
+        "swarm": {
+            "initial_pools": {
+                "harvester": 1,
+                "warden": 1,
+                "sanitizer": 1,
+                "tripwire": 1,
+            },
+            "auto_scale": False,
+            "max_total_units": 8,
+            "default_tier": "mk1",
+        },
+        "tripwire": {"watched_roots": []},
+        "warden": {"watched_ports": []},
+    }
+    set_runtime_root(tmp_path)
+    try:
+        hive = SwarmHive(hive_cfg)
+        await hive.trigger_emp(reason="persist across restart")
+        restarted = SwarmHive(hive_cfg)
+        blocked = await restarted.dispatch_task("warden", {"action": "patrol_scan"})
+        assert blocked["ok"] is False
+        assert all(u.state == SentinelState.EMP_DISABLED for u in restarted.units.values())
+    finally:
+        set_runtime_root(None)

@@ -11,6 +11,8 @@ dist/
 .ruff_cache/
 data/secrets.yaml
 data/session_token
+data/emp_flag
+data/emp_flag.tmp
 data/config.local.yaml
 data/sentinel_ledger.jsonl
 data/immunized_hashes.json

@@ -28,7 +28,7 @@ from sentinel.config import load_config, resolve_theme, save_local_preferences
 from sentinel.core.authority import AuthorityGate
 from sentinel.core.bus import EventBus, EventTopic
 from sentinel.core.deception import DeceptionCoordinator
-from sentinel.core.emp import EMPController
+from sentinel.core.emp import EMPController, load_emp_flag
 from sentinel.core.fsm import (
     CASTE_ORBIT_PROFILES,
     SentinelState,
@@ -69,7 +69,8 @@ class SwarmHive:
         self.ledger = ledger or ReceiptLedger(max_disk_entries=max_ledger_n)
         self.telemetry = telemetry or TelemetryLogger(max_file_bytes=max_log_b, max_backups=max_log_bk)
         self.registry = registry or build_default_caste_registry(self.config)
-        self.emp = EMPController(self.bus)
+        # Load before any units spawn so a restart on this data dir stays stopped.
+        self.emp = EMPController(self.bus, tripped=load_emp_flag())
         self.authority = authority or AuthorityGate()
         self.deception = DeceptionCoordinator(bus=self.bus, ledger=self.ledger)
         self.simulator = SimulationDirector(self)
