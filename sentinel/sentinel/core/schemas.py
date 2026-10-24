@@ -23,7 +23,7 @@ class MessageSeverity(StrEnum):
 
 
 class ActionBlastRadius(StrEnum):
-    """Labels classify_action returns. They do not gate live hive or bridge calls."""
+    """Labels classify_action returns. SwarmHive._authorize_work applies them on the live path."""
     TIER_0_OBSERVE = "TIER_0_OBSERVE"          # evaluate_request returns allowed
     TIER_1_REVERSIBLE = "TIER_1_REVERSIBLE"    # evaluate_request records a lease and returns allowed
     TIER_2_IRREVERSIBLE = "TIER_2_IRREVERSIBLE" # evaluate_request returns blocked until operator_sign_off

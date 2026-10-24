@@ -357,7 +357,11 @@ async def test_hardened_warden_cidr_subnet_blocking() -> None:
         from sentinel.castes.warden import WardenCaste
         assert isinstance(wrd, WardenCaste)
 
-        # Ban an entire rogue /24 subnet
+        # Hive-bound ban_peer is Tier 2 and parks. CIDR matching is the
+        # caste record itself, so drop the live-path gate for this check.
+        parked = wrd.ban_peer("198.51.100.0/24", reason="Hostile Subnet Swarm Attack")
+        assert parked.get("parked") is True
+        wrd._authorize_work = None
         wrd.ban_peer("198.51.100.0/24", reason="Hostile Subnet Swarm Attack")
 
         # Attempt inbound admission from an IP inside that subnet

@@ -25,7 +25,7 @@ from sentinel.castes import (
     build_default_caste_registry,
 )
 from sentinel.config import load_config, resolve_theme, save_local_preferences
-from sentinel.core.authority import AuthorityGate
+from sentinel.core.authority import ACTION_BLAST_MAP, AuthorityGate
 from sentinel.core.bus import EventBus, EventTopic
 from sentinel.core.deception import DeceptionCoordinator
 from sentinel.core.emp import EMPController, load_emp_flag
@@ -107,6 +107,7 @@ class SwarmHive:
         with contextlib.suppress(KeyError):
             wrd = self.registry.get("warden")
             if isinstance(wrd, WardenCaste):
+                wrd._authorize_work = self._authorize_work
                 self.nodes.update(wrd.create_bastion_nodes())
                 wrd.sync_bastion_nodes(self.nodes)
 
@@ -142,6 +143,48 @@ class SwarmHive:
             ),
         )
 
+    def _authorize_work(
+        self,
+        action_token: str,
+        target_identifier: str,
+        justification: str,
+    ) -> dict[str, Any] | None:
+        """Shared live-path gate. None means run. A dict means parked for sign-off."""
+        allowed, req = self.authority.evaluate_request(
+            action_token,
+            target_identifier,
+            justification,
+        )
+        if allowed:
+            return None
+        return {
+            "ok": False,
+            "parked": True,
+            "error": "queued for operator sign-off",
+            "request_id": req.request_id,
+            "action_token": req.action_token,
+            "pending_approval": req.model_dump(),
+        }
+
+    def _token_for_task(self, caste: str, task_payload: dict[str, Any]) -> tuple[str, str]:
+        """Map a live task to a blast-map token. Unknown explicit tokens stay unknown."""
+        explicit = str(task_payload.get("action_token") or "").strip().upper()
+        raw = str(task_payload.get("action") or task_payload.get("capability") or "").strip().upper()
+        token = explicit or raw
+        target = str(
+            task_payload.get("path")
+            or task_payload.get("target")
+            or task_payload.get("url")
+            or task_payload.get("ip")
+            or task_payload.get("source")
+            or caste
+        )
+        if token in ACTION_BLAST_MAP:
+            return token, target
+        if explicit:
+            return explicit, target
+        return "INSPECT_PATH", target
+
     def prune_runtime_storage(
         self,
         *,
@@ -151,6 +194,13 @@ class SwarmHive:
         max_ledger_entries: int | None = None,
     ) -> dict[str, Any]:
         """Prune and compact logs, dossiers, quarantine files, and warrant ledgers."""
+        parked = self._authorize_work(
+            "DELETE_QUARANTINE_FILE",
+            "runtime-storage",
+            "prune harvest, quarantine, logs, and ledger",
+        )
+        if parked is not None:
+            return parked
         ret_cfg = self.config.get("retention") or {}
         mh = max_harvests if max_harvests is not None else int(ret_cfg.get("max_harvest_dossiers", 25))
         mq = max_quarantines if max_quarantines is not None else int(ret_cfg.get("max_quarantine_files", 25))
@@ -251,6 +301,13 @@ class SwarmHive:
         tier: str | None = None,
     ) -> dict[str, Any]:
         """Dynamically register a new or upgraded Sentinel Caste into the Hive."""
+        parked = self._authorize_work(
+            "SCALE_CASTE",
+            handler.descriptor.caste_id,
+            "register caste",
+        )
+        if parked is not None:
+            return parked
         self.registry.register(handler)
         d = handler.descriptor
         register_caste_profile(
@@ -428,6 +485,9 @@ class SwarmHive:
 
     def scale_caste(self, caste: str, target_count: int, *, tier: str | None = None) -> dict[str, Any]:
         cid = caste.strip().lower()
+        parked = self._authorize_work("SCALE_CASTE", cid, f"scale caste to {target_count}")
+        if parked is not None:
+            return parked
         self.registry.get(cid)
         target = max(0, min(int(target_count), self.max_total_units))
         current = [u for u in self.units.values() if u.caste == cid]
@@ -604,6 +664,10 @@ class SwarmHive:
             return {"ok": False, "error": "EMP Kill-Switch active"}
 
         cid = caste.strip().lower()
+        token, target = self._token_for_task(cid, task_payload)
+        parked = self._authorize_work(token, target, f"dispatch {cid}")
+        if parked is not None:
+            return parked
         handler = self.registry.get(cid)
         unit = self._acquire_unit(cid, preferred_id=unit_id)
         desired_wingmen = 3 if cid in {"warden", "sanitizer"} else 2
@@ -693,6 +757,10 @@ class SwarmHive:
         """Deploy a coordinated swarm of Harvester Sentinels in parallel across multiple targets."""
         if self.emp.is_tripped:
             return {"ok": False, "error": "EMP Kill-Switch active"}
+
+        parked = self._authorize_work("INSPECT_PATH", question[:80], "harvest swarm")
+        if parked is not None:
+            return parked
 
         self._mission_counter += 1
         mission_id = f"MSN-{self._mission_counter:04d}"
@@ -788,6 +856,9 @@ class SwarmHive:
 
 
     async def trigger_emp(self, reason: str = "Overseer Manual EMP Kill-Switch") -> dict[str, Any]:
+        parked = self._authorize_work("EMP_HALT", "swarm", reason)
+        if parked is not None:
+            return parked
         self.simulator.clear_banner()
         res = await self.emp.trigger_emp(self.units, reason=reason)
         self.telemetry.record(
@@ -804,6 +875,9 @@ class SwarmHive:
         return res
 
     async def restore_from_emp(self) -> dict[str, Any]:
+        parked = self._authorize_work("EMP_RESTORE", "swarm", "restore from EMP")
+        if parked is not None:
+            return parked
         res = await self.emp.restore_swarm(self.units)
         self.telemetry.record(
             "INFO",

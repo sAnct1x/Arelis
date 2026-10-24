@@ -107,25 +107,25 @@ async def test_hive_prune_runtime_storage_and_overseer_api(tmp_path) -> None:  #
         client = SentinelClient(host="127.0.0.1", port=port, token=server.session_token)
 
         try:
-            # 1. Test Hive prune method directly
+            # 1. Hive prune is a Tier 2 delete. It parks. Files stay.
             summary = hive.prune_runtime_storage(max_harvests=5, max_quarantines=5)
-            assert summary["ok"] is True
-            assert isinstance(summary["pruned_harvests"], list)
-            assert isinstance(summary["pruned_quarantines"], list)
+            assert summary["ok"] is False
+            assert summary.get("parked") is True
 
-            # 2. Test SentinelClient.prune_storage() command endpoint
+            # 2. Command-bridge prune hits the same helper.
             cmd_res = await client.prune_storage()
-            assert cmd_res["ok"] is True
-            assert "pruned_harvests" in cmd_res
+            assert cmd_res.get("parked") is True
+            assert cmd_res["ok"] is False
 
-            # 3. Test HTTP POST /api/overseer/prune
+            # 3. HTTP POST /api/overseer/prune
             async with httpx.AsyncClient(
                 base_url=f"http://127.0.0.1:{port}",
                 headers={"X-Sentinel-Token": server.session_token},
             ) as http:
                 resp = await http.post("/api/overseer/prune")
                 assert resp.status_code == 200
-                assert resp.json()["ok"] is True
+                assert resp.json().get("parked") is True
+                assert resp.json()["ok"] is False
         finally:
             await server.stop()
     finally:
