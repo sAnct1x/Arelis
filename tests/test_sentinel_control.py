@@ -5,8 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 
-async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Path) -> None:
+
+async def test_snapshot_and_overseer_post_require_the_session_token(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """Most command-bridge routes used to skip the session token.
 
     GET /api/snapshot and Overseer POSTs (EMP, restore, scale, file read)
@@ -36,10 +40,10 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
     mapping POST onto a proceed token, or treating an unknown send op
     as allowed, is a failure of this test.
 
-    Arelis launch starts the Sentinel child. The launch helper calls
-    start, which spawns headless Sentinel and reads session_token. It
-    does not call restore. Skipping the start call in launch.py, or
-    making start call restore, is a failure of this test.
+    Arelis launch starts the Sentinel child. The launch hook must spawn
+    the child (this test stubs spawn) and start must not call restore.
+    Skipping the spawn, making start call restore, or logging the
+    session token is a failure of this test.
     """
     import sys
 
@@ -240,33 +244,24 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
     finally:
         set_runtime_root(None)
 
-    import ast
-    import inspect
     import logging
     import os
     from unittest.mock import MagicMock
 
+    from sentinel.bridge import client as client_mod
     from sentinel.bridge.protocol import overseer_open_url
+    from sentinel.core import emp as emp_mod
+    from sentinel.core.hive import SwarmHive
 
-    from arelis.sentinel_control import start, stop
+    import arelis.sentinel_control as ctl
+    from arelis.sentinel_control import stop
 
-    launch_src = (Path(__file__).resolve().parents[1] / "arelis" / "ui" / "launch.py").read_text(
-        encoding="utf-8"
-    )
-    launch_tree = ast.parse(launch_src)
-    imported_start = False
-    called_start = False
-    for node in ast.walk(launch_tree):
-        if isinstance(node, ast.ImportFrom) and node.module == "arelis.sentinel_control":
-            if any(alias.name == "start" for alias in node.names):
-                imported_start = True
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "start":
-            called_start = True
-    assert imported_start and called_start
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("ARELIS_ALLOW_OFFSCREEN", "1")
+    from arelis.ui.launch import _start_sentinel_child
 
     hud = overseer_open_url("127.0.0.1", 8790, "controltok")
     assert hud.endswith("#token=controltok")
-    assert "restore" not in inspect.getsource(start)
 
     data_root = tmp_path / "arelis-data"
     data_root.mkdir()
@@ -293,23 +288,8 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
         restore_hits.append("restore")
         return {"ok": True, "tripped": False}
 
-    records: list[str] = []
-
-    class _Mem(logging.Handler):
-        def emit(self, record: logging.LogRecord) -> None:
-            records.append(record.getMessage())
-
-    handler = _Mem()
-    ctl_log = logging.getLogger("arelis.sentinel_control")
-    ctl_log.addHandler(handler)
     prior = os.environ.get("ARELIS_DATA_DIR")
     os.environ["ARELIS_DATA_DIR"] = str(data_root)
-    from sentinel.bridge import client as client_mod
-    from sentinel.core import emp as emp_mod
-    from sentinel.core.hive import SwarmHive
-
-    import arelis.sentinel_control as ctl
-
     real_spawn = ctl._spawn
     real_clear = emp_mod.clear_emp_flag
     real_restore_swarm = emp_mod.EMPController.restore_swarm
@@ -320,12 +300,16 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
         ctl._stopped = False
         ctl._process = None
         ctl._token = None
+        ctl.restore = _restore_trap  # type: ignore[attr-defined]
         emp_mod.clear_emp_flag = _restore_trap  # type: ignore[assignment]
         emp_mod.EMPController.restore_swarm = _restore_trap  # type: ignore[method-assign]
         SwarmHive.restore_from_emp = _restore_trap  # type: ignore[method-assign]
         client_mod.SentinelClient.emp_restore = _restore_trap  # type: ignore[method-assign]
-        start()
-        assert spawned, "launch helper must start the child"
+        with caplog.at_level(logging.DEBUG, logger="arelis.sentinel_control"):
+            hook = _start_sentinel_child()
+            hook.join(timeout=2.0)
+            assert not hook.is_alive()
+        assert spawned, "launch hook must start the child"
         argv0 = spawned[0]["argv"]
         assert "--headless" in argv0
         assert "--restore" not in argv0
@@ -333,16 +317,17 @@ async def test_snapshot_and_overseer_post_require_the_session_token(tmp_path: Pa
         assert ctl._token == child_token
         assert emp.read_text(encoding="utf-8").strip() == "1"
         assert restore_hits == []
-        assert child_token not in "\n".join(records)
+        assert child_token not in caplog.text
         stop()
     finally:
         ctl._spawn = real_spawn
+        if hasattr(ctl, "restore"):
+            delattr(ctl, "restore")
         emp_mod.clear_emp_flag = real_clear
         emp_mod.EMPController.restore_swarm = real_restore_swarm
         SwarmHive.restore_from_emp = real_restore_hive
         client_mod.SentinelClient.emp_restore = real_restore_client
         stop()
-        ctl_log.removeHandler(handler)
         if prior is None:
             os.environ.pop("ARELIS_DATA_DIR", None)
         else:

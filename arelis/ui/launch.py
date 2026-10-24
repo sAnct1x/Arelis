@@ -92,11 +92,17 @@ def _flush_pending_writes(
     worker.join(timeout=leftover)
 
 
-def _start_sentinel_child() -> None:
-    """Launch helper: start the Sentinel child off the UI thread."""
+def _start_sentinel_child() -> threading.Thread:
+    """Launch hook: start the Sentinel child off the caller thread."""
     from arelis.sentinel_control import start
 
-    start()
+    thread = threading.Thread(
+        target=start,
+        name="arelis-sentinel-start",
+        daemon=True,
+    )
+    thread.start()
+    return thread
 
 
 # InboundIngestServer.stop joins the listener thread for this long.
@@ -795,11 +801,7 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     from arelis.ui.update_prompt import schedule_update_check
 
     schedule_update_check(window)
-    threading.Thread(
-        target=_start_sentinel_child,
-        name="arelis-sentinel-start",
-        daemon=True,
-    ).start()
+    _start_sentinel_child()
     try:
         code = app.exec()
 
