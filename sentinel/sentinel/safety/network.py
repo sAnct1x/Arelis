@@ -203,9 +203,14 @@ def check_send_allowed(op: str, *, method: str = "", url: str = "") -> SendVerdi
         # catalog hosts may take those without sign-off.
         parts = urlsplit((url or "").strip())
         host = (parts.hostname or "").lower()
-        carries = bool(parts.query or ";" in parts.path or parts.username)
+        carries = bool(parts.query or ";" in parts.path or "@" in parts.netloc)
         if carries and host not in ALLOWED_EGRESS_HOSTS:
-            return SendVerdict(reason=f"GET with URL data to unlisted host: {url}")
+            return SendVerdict(
+                reason=(
+                    "I held this link back because it would send information to a site"
+                    " that isn't on the trusted list. Remove the part after the ? and try again."
+                )
+            )
         return SendVerdict(reason=None)
     token = SEND_ACT_OPS.get(key)
     if token is None:

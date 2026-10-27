@@ -201,6 +201,12 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
 
         def _handler(request: httpx.Request) -> httpx.Response:
             sent.append((request.method, str(request.url)))
+            if request.url.path == "/bounce":
+                return httpx.Response(
+                    302,
+                    headers={"location": "https://evil.com/x?q=secret"},
+                    request=request,
+                )
             return httpx.Response(
                 200,
                 text=html,
@@ -240,18 +246,35 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
             assert posted.get("parked") is True
             assert sent == []
 
-            for extra in ({"method": "GET"}, {}):
-                leaked = await gated.dispatch_task(
-                    "harvester",
-                    {
-                        "action": "url",
-                        "url": "https://example.com/harvest?q=secret",
-                        "animate": False,
-                        **extra,
-                    },
-                )
-                assert leaked.get("parked") is True
-                assert sent == []
+            for leak_url in (
+                "https://example.com/harvest?q=secret",
+                "https://:secret@evil.com/",
+            ):
+                for extra in ({"method": "GET"}, {}):
+                    leaked = await gated.dispatch_task(
+                        "harvester",
+                        {
+                            "action": "url",
+                            "url": leak_url,
+                            "animate": False,
+                            **extra,
+                        },
+                    )
+                    assert leaked.get("parked") is True
+                    assert "secret" not in str(leaked)
+                    assert sent == []
+
+            bounced = await gated.dispatch_task(
+                "harvester",
+                {
+                    "action": "url",
+                    "url": "https://arxiv.org/bounce",
+                    "method": "GET",
+                    "animate": False,
+                },
+            )
+            assert bounced["ok"] is False
+            assert all("evil.com" not in u for _m, u in sent)
         finally:
             await client.aclose()
             hrv._external_client = None
