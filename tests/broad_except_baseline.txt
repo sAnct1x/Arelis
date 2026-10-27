@@ -93,7 +93,7 @@
 4 arelis/tools/earth_tool.py
 1 arelis/tools/image.py
 1 arelis/tools/image_io.py
-2 arelis/tools/policy.py
+1 arelis/tools/policy.py
 1 arelis/tools/run_script.py
 1 arelis/tools/scrape.py
 1 arelis/tools/units.py
