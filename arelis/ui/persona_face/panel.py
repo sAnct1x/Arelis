@@ -10,10 +10,10 @@ from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QWidget
 
+from arelis.ui.motion import motion_enabled
 from arelis.ui.persona_face.avatar import PersonaAvatar
 from arelis.ui.persona_face.engine import PHASE_COUNT
 from arelis.ui.persona_face.motion import Motion, frame_interval_ms
-from arelis.ui.motion import motion_enabled
 from arelis.ui.theme import app_font, color, load_fonts
 
 # She materializes over a couple of seconds. Folding back is shorter.
