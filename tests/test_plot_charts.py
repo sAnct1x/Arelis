@@ -125,10 +125,8 @@ async def test_default_chat_chart_type_is_larger_than_stock_matplotlib(
     rgb = _load_rgb(chat)
     assert rgb.shape[0] == 600 and rgb.shape[1] == 960
     with _look_context("default"):
-        assert _rc_pt("xtick.labelsize") >= 16
-        assert _rc_pt("ytick.labelsize") >= 16
-        assert _rc_pt("legend.fontsize") >= 18
-        assert _rc_pt("axes.titlesize") >= 20
-        assert _rc_pt("axes.labelsize") >= 18
-
-
+        assert _rc_pt("xtick.labelsize") >= 18
+        assert _rc_pt("ytick.labelsize") >= 18
+        assert _rc_pt("legend.fontsize") >= 20
+        assert _rc_pt("axes.titlesize") >= 22
+        assert _rc_pt("axes.labelsize") >= 20
