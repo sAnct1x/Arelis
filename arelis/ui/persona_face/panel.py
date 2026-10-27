@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 import time
 from collections.abc import Callable
 
@@ -14,6 +13,7 @@ from PySide6.QtWidgets import QWidget
 from arelis.ui.persona_face.avatar import PersonaAvatar
 from arelis.ui.persona_face.engine import PHASE_COUNT
 from arelis.ui.persona_face.motion import Motion, frame_interval_ms
+from arelis.ui.motion import motion_enabled
 from arelis.ui.theme import app_font, color, load_fonts
 
 # She materializes over a couple of seconds. Folding back is shorter.
@@ -32,23 +32,6 @@ def _ease(u: float) -> float:
     """Ease in and out. The middle of the bloom sits strictly between 0 and 1."""
     u = 0.0 if u < 0.0 else (1.0 if u > 1.0 else u)
     return u * u * (3.0 - 2.0 * u)
-
-
-def client_animations() -> bool:
-    """Windows client-area animation flag. Other platforms keep the bloom."""
-    if sys.platform != "win32":
-        return True
-    try:
-        import ctypes
-
-        flag = ctypes.c_int(1)
-        ok = ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(flag), 0)
-        if not ok:
-            return True
-        return bool(flag.value)
-    # user32 missing or blocked: keep the bloom rather than a hard cut.
-    except Exception:
-        return True
 
 
 class PersonaPanel(QWidget):
@@ -441,7 +424,10 @@ class PersonaPanel(QWidget):
     def _animations_on(self) -> bool:
         if self._force_motion is not None:
             return bool(self._force_motion)
-        return client_animations()
+        # The shared switch: ui.motion=false, ARELIS_MOTION, then the Windows
+        # animation flag. Reading only the Windows flag ignored the in-app
+        # setting (issue 427).
+        return motion_enabled()
 
     def _wake_begin(self) -> None:
         stamp = time.perf_counter()
