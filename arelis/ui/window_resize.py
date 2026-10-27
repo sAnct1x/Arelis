@@ -8,7 +8,6 @@ resizable while it still paints frameless.
 from __future__ import annotations
 
 import sys
-from ctypes import c_short
 from typing import Any
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
@@ -563,14 +562,10 @@ def handle_native_resize(
     if msg.message != WM_NCHITTEST:
         return None
 
-    # Prefer QCursor.pos() (Qt logical / virtual-desktop coords). Raw lParam is
-    # physical on some DPI setups and mis-maps against frameGeometry().
+    # QCursor.pos() only (Qt logical coords). lParam is physical under DPI
+    # scaling; read as logical it lands on an edge from mid-window on, and
+    # the client area turns into a resize border (#401).
     ht = hit_test_resize(widget, border=border)
-    if ht is None:
-        # Fallback: signed screen coords from lParam (multi-monitor safe).
-        screen_x = int(c_short(msg.lParam & 0xFFFF).value)
-        screen_y = int(c_short((msg.lParam >> 16) & 0xFFFF).value)
-        ht = hit_test_resize_at(widget, screen_x, screen_y, border=border)
     if ht is None:
         return None
     return True, ht
