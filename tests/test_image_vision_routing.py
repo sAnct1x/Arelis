@@ -84,6 +84,20 @@ def test_pdf_summary_does_not_nudge_document_writer() -> None:
     assert "document" not in tools
 
 
+def test_document_tool_line_says_it_does_not_read_a_pdf() -> None:
+    """The model-facing document line must not read as a PDF reader.
+
+    It said "create a formatted document (... pdf)" and nothing about
+    reading, so a summary next to an attached PDF still called the writer
+    after the attachment rule (issue 409).
+    """
+    from arelis.core.compact_prompt import skinny_description
+
+    line = skinny_description("document")
+    assert line.startswith("write a new file")
+    assert "not to read a pdf" in line
+
+
 def test_vision_does_not_redirect_to_sms_when_sms_is_stale_expected() -> None:
     """Calling vision while a leftover SMS expected-set exists must not rewrite."""
     assert not should_redirect_wander_to_sms("vision", {"send_sms"})

@@ -35,7 +35,7 @@ _SHORT_DESC: dict[str, str] = {
     "diagnostics": "local pytest / doctor. not a web search",
     "desktop": "your Windows session. look=screenshot (grabs+reads). no shell. no raw exe. stop Pay|delete|UAC",
     "doc_extract": "text from a local PDF, including handwritten/scanned pages",
-    "document": "create a formatted document (md, csv, docx, or pdf). use this, not workspace",
+    "document": "write a new file (md, csv, docx, or pdf). not workspace. not to read a pdf",
     "earth": "Reality look / bands. not a web search",
     "git_info": "git status/log/diff/branch/blame/show, stash list, stage, commit. no push/reset/checkout",
     "goals": "long-lived goals. action=list|add|done|drop",
