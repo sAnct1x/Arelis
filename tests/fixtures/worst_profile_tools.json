@@ -1134,7 +1134,7 @@
     "type": "function",
     "function": {
       "name": "document",
-      "description": "create a formatted document (md, csv, docx, or pdf). use this, not workspace",
+      "description": "write a new file (md, csv, docx, or pdf). not workspace. not to read a pdf",
       "parameters": {
         "type": "object",
         "properties": {
