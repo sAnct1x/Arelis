@@ -31,6 +31,10 @@ def _sentinel_root() -> Path | None:
     checkout = Path(__file__).resolve().parents[1] / "sentinel"
     if (checkout / "sentinel" / "__main__.py").is_file():
         return checkout
+    # Installed copy: the wheel ships `sentinel` beside `arelis` in site-packages.
+    installed = Path(__file__).resolve().parents[1]
+    if (installed / "sentinel" / "__main__.py").is_file():
+        return installed
     return None
 
 

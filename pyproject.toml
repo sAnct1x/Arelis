@@ -133,8 +133,8 @@ desktop = [
 spatial = [
   "mediapipe>=0.10.9",
 ]
-# Imported Sentinel tree (sentinel/). Not wired, not in the installer extra.
-# PR1+ can pull this in when the swarm actually starts.
+# Sentinel child (sentinel/sentinel). launch.py starts it, so the installer
+# extra pulls this in.
 sentinel = [
   "psutil>=5.9.0",
 ]
@@ -152,6 +152,7 @@ installer = [
   "arelis[voice]",
   "arelis[browser]",
   "arelis[desktop]",
+  "arelis[sentinel]",
 ]
 dev = [
   # Exact, not a floor. A range meant CI installed whatever ruff shipped that
@@ -206,8 +207,11 @@ arelisw = "arelis.main:main"
 version = { attr = "arelis.__version__" }
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["arelis*"]
+# sentinel/sentinel ships as the top-level `sentinel` package so an installed
+# copy can run `python -m sentinel`. Without it only a checkout had Sentinel.
+where = [".", "sentinel"]
+include = ["arelis*", "sentinel", "sentinel.*"]
+namespaces = false
 
 [tool.setuptools.package-data]
 # Anything here that is not a .py file has to be listed, or it is simply absent
@@ -221,6 +225,10 @@ arelis = [
     "ui/fonts/*",
     "ui/earth_globe/*",
     "assets/*",
+]
+sentinel = [
+    "config/*.yaml",
+    "ui/overseer/*",
 ]
 
 [tool.pytest.ini_options]
