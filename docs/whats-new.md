@@ -1,8 +1,9 @@
 # What's new
 
-This checkout is **0.3.2.1**. The latest published installer is still **0.3.2** until 0.3.2.1 is published: [download it here](https://github.com/sAnct1x/Arelis/releases/latest). The 0.2.4 to 0.2.9 installers were broken (they closed at startup), so use 0.3.0 or newer.
+This checkout is **0.3.3**. The latest published installer is still **0.3.2.1** until 0.3.3 is published: [download it here](https://github.com/sAnct1x/Arelis/releases/latest). The 0.2.4 to 0.2.9 installers were broken (they closed at startup), so use 0.3.0 or newer.
 
-Notes: [v0.3.2.1](releases/v0.3.2.1.md). Older:
+Notes: [v0.3.3](releases/v0.3.3.md). Older:
+[v0.3.2.1](releases/v0.3.2.1.md).
 [v0.3.2](releases/v0.3.2.md).
 [v0.3.1](releases/v0.3.1.md).
 [v0.3.0](releases/v0.3.0.md).
@@ -13,11 +14,16 @@ Notes: [v0.3.2.1](releases/v0.3.2.1.md). Older:
 [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
 [v0.2.1](releases/v0.2.1.md).
 
-## 0.3.2.1
+## 0.3.3
 
-Rooms and the Workspace dock are gone. Reality is a standalone plate
-in `arelis/spatial/` (world button, filament Reality chip, spatial
-grant). File cards stay in chat. The on-desk chip is gone.
+New chat model and some cleanup. Full notes: [v0.3.3](releases/v0.3.3.md).
+The chat model is Qwen3.6 35B-A3B on llama.cpp, downloaded on first
+run. Attached pictures reach the model. Rooms and the Workspace dock
+are gone; Reality stays as its own view. Sentinel lives in the repo
+and starts with Arelis from a source checkout (not in the installer
+yet). Plus a batch of fixes and security updates.
+
+## 0.3.2.1
 
 Two picture fixes. Full notes: [v0.3.2.1](releases/v0.3.2.1.md).
 A background cutout and a diagram write under the data folder with a
