@@ -15,7 +15,6 @@ from arelis.core.agent_loop import (
     _MAX_THINKING_SNIPPET,
     write_after_algebra_notice,
 )
-from arelis.core.call_redirects import apply_redirects
 from arelis.core.claims import document_force_notice, lock_memory_forget_args
 from arelis.core.email_complete import (
     fill_send_email_args,
@@ -176,8 +175,7 @@ def _hand_off_to_document(
 async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> bool:
     """Confirm and execute ``r.calls``. True ends the turn.
 
-    Wander redirects live in ``call_redirects``. Confirm/execute stay here
-    with the per-call skip guards, which share the round's tool surface
+    Confirm/execute stay here with the per-call skip guards, which share the round's tool surface
     so they read and write it on ``r`` rather than on locals a ``finally``
     then has to copy back.
     """
@@ -364,11 +362,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     "exactness", gate="cross_tool_args", action="reject"
                 )
             continue
-
-        redirected = await apply_redirects(loop, ctx, r, name, args, _drop_wander)
-        if redirected[0] == "skip":
-            continue
-        _, name, args = redirected
 
         if name == "weather" and ctx.weather_lookup == "not_found":
             from arelis.tools.weather import weather_place_in_user_text

@@ -2,8 +2,7 @@
 
 ``run_round`` fills a ``RoundScratch`` from the ``TurnContext``, then
 ``apply_no_call_path`` and ``dispatch_calls`` coordinate on it while the
-step tables in ``no_call_steps`` / ``no_call_finish`` / ``call_redirects``
-read and write fields on it by name.
+step table in ``no_call_finish`` reads and writes fields on it by name.
 
 It exists because those fields are *rebound*, not just mutated: a nudge
 that takes the tool schemas away assigns a new ``chat_tools`` list, and

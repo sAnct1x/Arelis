@@ -60,7 +60,6 @@ from arelis.core.loop_helpers import (
 from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.no_call_finish import NUDGE as FINISH_NUDGE
 from arelis.core.no_call_finish import hold_for_owed_tools, run_finish_steps
-from arelis.core.no_call_steps import NUDGE, run_inject_steps
 from arelis.core.preflight import rewrite_desktop_calls
 from arelis.core.tool_subset import (
     is_research_mode,
@@ -238,7 +237,7 @@ async def apply_no_call_path(
     True ends the turn. False asks another round. None means dispatch
     should run (model already called, or a force-inject filled ``r.calls``).
 
-    Inject and finish decisions live in ``no_call_steps`` / ``no_call_finish``.
+    Finish decisions live in ``no_call_finish``.
     Everything rebindable is a field on ``r``, so a nudge that takes the tool
     schemas away has already handed that decision to the next round by the
     time this returns, or raises.
@@ -574,10 +573,6 @@ async def apply_no_call_path(
                     )
                 )
                 return False
-        hit = await run_inject_steps(loop, ctx, r)
-        if hit == NUDGE:
-            return False
-
         before_sched = list(r.calls)
         stripped_run_now = looks_like_bare_confirm(r.text) and any(
             n == "schedule" and str((a or {}).get("action") or "").lower() == "run_now"

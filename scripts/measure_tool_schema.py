@@ -42,9 +42,11 @@ from arelis.tools.groups import CORE, GROUPS
 COLD_SECONDS_PER_100_TOKENS = 0.33
 CAP_RAISE_TOKENS = 500
 CAP_RAISE_COLD_SECONDS = 1.7
+# Ratcheted down after the surface shrank (issue 291). On main 03a92aa:
+# default 6,171 here, about 6,391 with Windows desktop; worst 7,216.
 SCHEMA_TOKEN_CAP = {
-    "default": 7_036,
-    "worst": 7_640,
+    "default": 6_600,
+    "worst": 7_450,
 }
 
 _EXAMPLE_MAIL = MailAccount(address="person@example.com", password="example-password")
