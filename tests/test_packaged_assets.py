@@ -128,3 +128,58 @@ def test_the_shipped_asset_directory_holds_only_what_it_should() -> None:
         "arelis/assets/ is for shipped, read-only images. Mutable state belongs "
         f"under arelis.paths.state_dir(). Found: {names}"
     )
+
+
+def test_an_installed_copy_can_start_sentinel(tmp_path) -> None:
+    """Sentinel used to start only from a checkout.
+
+    The wheel shipped ``arelis*`` and nothing else, so an installed copy had no
+    ``sentinel`` package, ``_sentinel_root()`` returned None and launch logged
+    "Sentinel did not start". psutil was not in the installer extra or the lock
+    either. This lays out site-packages the way the declared packaging would
+    and asks the real ``_sentinel_root`` to find it. Dropping the ``sentinel``
+    package or its data from pyproject, psutil from the installer extra or the
+    lock, or the installed fallback in ``_sentinel_root``, fails this test.
+    """
+    import importlib.util
+    import shutil
+    import sys
+
+    data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    setuptools_cfg = data["tool"]["setuptools"]
+    find = setuptools_cfg["packages"]["find"]
+    assert "sentinel" in find["where"] and "sentinel" in find["include"]
+    globs = list(setuptools_cfg["package-data"].get("sentinel", []))
+
+    source = PROJECT_ROOT / "sentinel" / "sentinel"
+    site = tmp_path / "site-packages"
+    for path in source.rglob("*"):
+        if not path.is_file() or any(p in _IGNORED_DIRS for p in path.parts):
+            continue
+        rel = PurePosixPath(path.relative_to(source).as_posix())
+        if path.suffix != ".py" and not any(rel.match(g) for g in globs):
+            continue
+        dest = site / "sentinel" / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, dest)
+    for needed in ("__main__.py", "config/default.yaml", "ui/overseer/index.html"):
+        assert (site / "sentinel" / needed).is_file(), f"not shipped: sentinel/{needed}"
+
+    (site / "arelis").mkdir()
+    control = site / "arelis" / "sentinel_control.py"
+    shutil.copyfile(paths.PACKAGE_ROOT / "sentinel_control.py", control)
+    spec = importlib.util.spec_from_file_location("_installed_sentinel_control", control)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module._sentinel_root() == site
+
+    lock_spec = importlib.util.spec_from_file_location(
+        "_win_lock", PROJECT_ROOT / "win-installer" / "lock.py"
+    )
+    assert lock_spec is not None and lock_spec.loader is not None
+    lock = importlib.util.module_from_spec(lock_spec)
+    sys.modules.setdefault("_win_lock", lock)
+    lock_spec.loader.exec_module(lock)
+    assert "psutil" in lock.declared_dependencies()
+    assert "psutil" in lock.read_lock()
