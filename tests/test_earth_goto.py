@@ -246,3 +246,43 @@ def test_scale_bar_reads_like_a_map() -> None:
     assert BAND_PX["space"] >= 36
 
 
+
+
+def test_failed_spoken_goto_says_the_miss_in_the_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A place lookup that fails must not reply "Done: goto_earth X." (issue 430)."""
+    from arelis.earth.geocode import clear_cache
+    from arelis.ui.world_host import _PLATE_ONLY, try_physics_verb
+
+    clear_cache()
+    set_earth(EarthRuntime())
+    replies: list[str] = []
+
+    class _Chat:
+        def begin_assistant(self) -> None:
+            return None
+
+        def finish_assistant(self, text: str) -> None:
+            replies.append(text)
+
+    class _Window:
+        world_window = None
+        chat = _Chat()
+
+        def __init__(self) -> None:
+            self.thinking = self
+
+        def append(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    assert resolve_place("Reykjavik") is None
+    assert try_physics_verb(_Window(), "show me Reykjavik") is True
+    assert try_physics_verb(_Window(), "take me home") is True
+    monkeypatch.setattr("arelis.ui.world_host.world_available", lambda: False)
+    assert try_physics_verb(_Window(), "show me Paris") is True
+    assert replies == [
+        "I don't know a place named 'Reykjavik'.",
+        "Set a home city in your profile first.",
+        _PLATE_ONLY,
+    ]

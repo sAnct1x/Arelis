@@ -97,7 +97,7 @@ class WindowAliases:
     ) -> None:
         return apply_physics_verb(self, verb, name=name, flag=flag, on=on, page=page)
 
-    def _apply_physics_act(self, act: PhysicsAct) -> None:
+    def _apply_physics_act(self, act: PhysicsAct) -> str | None:
         return apply_physics_act(self, act)
 
     def _touch_solar(self) -> None:
