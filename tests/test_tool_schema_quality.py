@@ -49,9 +49,9 @@ from scripts.measure_tool_schema import (
 # annotate, scale_bar, and stretch measured 20,883 chars / 6,319 tokens
 # on that profile and 24,339 chars / 7,365 on the worst case. With
 # remove_background and upscale as well: 20,973 chars / 6,346 tokens
-# and 24,429 chars / 7,392. Caps
-# unchanged. Both caps live in
-# SCHEMA_TOKEN_CAP. This order is that non-Windows profile. Windows CI
+# and 24,429 chars / 7,392. The surface then shrank and the caps were
+# ratcheted to 6,600 and 7,450 (issue 291: 6,171 here, about 6,391 with
+# desktop, 7,216 worst). Both caps live in SCHEMA_TOKEN_CAP. This order is that non-Windows profile. Windows CI
 # inserts desktop in front of tile. Hidden parameters on the
 # non-Windows profile are 67 (69 with desktop's x and y).
 MAX_SCHEMA_TOKENS = SCHEMA_TOKEN_CAP["default"]
@@ -268,3 +268,13 @@ def test_workspace_actions_stay_in_the_model_enum() -> None:
     assert not missing, missing
 
 
+
+
+def test_schema_stays_under_its_token_cap() -> None:
+    """The cap was a number nothing checked, so it drifted 700 tokens loose."""
+    from scripts.measure_tool_schema import registry_for_profile
+
+    default = measure(tool_specs())["schema_tokens_approx"]
+    worst = measure(tool_specs(registry_for_profile("worst")))["schema_tokens_approx"]
+    assert default <= MAX_SCHEMA_TOKENS, default
+    assert worst <= SCHEMA_TOKEN_CAP["worst"], worst

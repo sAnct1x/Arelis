@@ -29,9 +29,7 @@ PIPELINE = (
     "arelis/core/turn_round.py",
     "arelis/core/turn_dispatch.py",
     "arelis/core/turn_execute.py",
-    "arelis/core/no_call_steps.py",
     "arelis/core/no_call_finish.py",
-    "arelis/core/call_redirects.py",
 )
 
 
