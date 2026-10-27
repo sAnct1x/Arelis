@@ -198,8 +198,10 @@ def try_physics_verb(window, text: str) -> bool:
     plate_up = bool(plate is not None and not plate.isHidden())
     if act.verb not in _SPEECH_OPENS_PLATE and not plate_up:
         return False
-    apply_physics_act(window, act)
-    _speak_closed(window, _physics_closed_line(act))
+    # A failed lookup is the reply. "Done: goto_earth X." on a miss was a
+    # success line for a flight that never left (issue 430).
+    failed = apply_physics_act(window, act)
+    _speak_closed(window, failed or _physics_closed_line(act))
     return True
 
 
@@ -294,7 +296,8 @@ def apply_physics_verb(
     )
 
 
-def apply_physics_act(window, act: PhysicsAct) -> None:
+def apply_physics_act(window, act: PhysicsAct) -> str | None:
+    """Run the act. Returns the failure line when the place lookup failed."""
     from arelis.physics.runtime import get_system
 
     verb = act.verb
@@ -425,17 +428,14 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
                 hit = found[0] if found else None
         if hit is None:
             if query.casefold() in {"home", "here"}:
-                window.thinking.append(
-                    "Set a home city in your profile first.", kind="status"
-                )
-                return
-            window.thinking.append(
-                f"I don't know a place named {query!r}.", kind="status"
-            )
-            return
+                miss = "Set a home city in your profile first."
+            else:
+                miss = f"I don't know a place named {query!r}."
+            window.thinking.append(miss, kind="status")
+            return miss
         if not world_available():
             window.thinking.append(_PLATE_ONLY, kind="status")
-            return
+            return _PLATE_ONLY
         toggle_world(window, True, page="solar", force=True)
         if not zone.active:
             zone.enter()
