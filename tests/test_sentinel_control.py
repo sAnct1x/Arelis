@@ -239,6 +239,19 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
             assert posted["ok"] is False
             assert posted.get("parked") is True
             assert sent == []
+
+            for extra in ({"method": "GET"}, {}):
+                leaked = await gated.dispatch_task(
+                    "harvester",
+                    {
+                        "action": "url",
+                        "url": "https://example.com/harvest?q=secret",
+                        "animate": False,
+                        **extra,
+                    },
+                )
+                assert leaked.get("parked") is True
+                assert sent == []
         finally:
             await client.aclose()
             hrv._external_client = None

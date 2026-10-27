@@ -695,6 +695,17 @@ class SwarmHive:
 
         cid = caste.strip().lower()
         method = str(task_payload.get("method") or "").strip().upper()
+        if not method or method == "GET":
+            get_url = str(
+                task_payload.get("url")
+                or task_payload.get("query")
+                or task_payload.get("target")
+                or ""
+            ).strip()
+            if "://" in get_url:
+                verdict = check_send_allowed("GET", method="GET", url=get_url)
+                if not verdict.allowed:
+                    return {"ok": False, "parked": True, "error": verdict.reason}
         if method and method != "GET":
             send_url = str(
                 task_payload.get("url")
