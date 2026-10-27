@@ -336,7 +336,7 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
 
     def _wait_exec(_self: object = None) -> int:
         deadline = time.monotonic() + 2.0
-        while not spawned and time.monotonic() < deadline:
+        while not held_token and time.monotonic() < deadline:
             time.sleep(0.01)
         return 0
 
