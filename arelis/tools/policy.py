@@ -502,8 +502,6 @@ def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> Capabi
         return "SIDE_EFFECT_LOCAL"
     if tool == "run_task":
         return "READ" if action == "list" else "SIDE_EFFECT_LOCAL"
-    if tool == "plot":
-        return "WRITE_LOCAL"
     if tool == "data_cell":
         return "WRITE_LOCAL"
     if tool == "document":
@@ -652,24 +650,6 @@ def describe_call(
             "in the results folder.\n"
             f"Files: {shown}"
         )
-    if name == "plot":
-        tool = (lookup or (lambda _n: None))(name)
-        preview = getattr(tool, "preview_path", None)
-        dest = ""
-        if callable(preview):
-            try:
-                dest = display_path(preview(args))
-            except Exception:
-                dest = ""
-        action = str(args.get("action") or "line").strip() or "line"
-        lines = [
-            f"Write a {action} chart you can open.",
-            f"Lands in: {dest or 'the plots folder'}",
-        ]
-        title = str(args.get("title") or "").strip()
-        if title:
-            lines.append(f"Title: {title}")
-        return "\n".join(lines)
     if name == "inbox":
         action = str(args.get("action") or "").strip().lower() or "list"
         if action == "delete":

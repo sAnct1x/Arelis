@@ -383,7 +383,7 @@ def build_tool_registry(
         registry.register(SolarTool())
     if attended and tools_cfg.get("earth", {}).get("enabled", True):
         registry.register(EarthTool())
-    # Charts write a PNG (Allow). Jobs skip — nobody is there to approve the file.
+    # Charts write a PNG in the workspace, no card (#281). Jobs still skip.
     if attended and (tools_cfg.get("plot") or {}).get("enabled", True):
         registry.register(PlotTool(workspace, None))
     # Text diagrams write SVG and PNG (Allow). Jobs skip.

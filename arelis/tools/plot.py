@@ -3,7 +3,8 @@
 A 9B cannot be given matplotlib as a programming language. This tool draws
 named chart kinds (line, scatter, residuals, histogram, bar, subplots), reads
 a table the same way analyze does, and writes a new file. It never evals user
-code. Allow stays: risk=write. Unattended jobs do not get this tool.
+code. risk=read: it only writes a fresh PNG inside the Arelis workspace, so
+no confirm card (#281). Unattended jobs still do not get this tool.
 
 Orbit (no room, or a room with no folder) lands under outputs/plots/.
 A room with a real project folder lands under that project's plots/.
@@ -771,10 +772,9 @@ class PlotTool:
         "palette, and an SVG and a PDF beside the PNG. "
         "residuals fits a straight line (least squares) and plots data+fit "
         "plus residuals, do not invent a trend or draw an ASCII chart. This "
-        "is not Python: do not pass code or matplotlib. Allow is required. Do "
-        "not use image (Comfy) for data."
+        "is not Python: do not pass code or matplotlib. Do not use image (Comfy) for data."
     )
-    risk = "write"
+    risk = "read"
 
     @staticmethod
     def _arg_fail(exc: BaseException, *, fail_class: str = "fail:args") -> ToolResult:
