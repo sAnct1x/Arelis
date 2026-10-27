@@ -23,6 +23,7 @@ from sentinel.core.receipts import ReceiptLedger
 from sentinel.paths import harvest_dir
 from sentinel.safety.network import (
     BlockedUrlError,
+    check_send_allowed,
     check_url_allowed,
     pinned_request_target,
     sanitize_headers,
@@ -207,6 +208,11 @@ class HarvesterCaste:
             verdict = await check_url_allowed(current_url, block_private=True)
             if not verdict.allowed or not verdict.ip:
                 raise BlockedUrlError(verdict.reason or f"Blocked URL: {current_url}")
+            if _hop > 0:
+                # A redirect can forward URL data to an unlisted host. Gate each hop.
+                send = check_send_allowed("GET", method="GET", url=current_url)
+                if not send.allowed:
+                    raise BlockedUrlError(send.reason or "Blocked redirect")
 
             sem = self._host_sem(verdict.host)
             async with sem:

@@ -6,8 +6,8 @@ consult ALLOWED_EGRESS_HOSTS. Any other public host is allowed. That is the
 read check. Harvest GET uses it.
 
 check_send_allowed is the send and act check. It sits beside check_url_allowed,
-not inside it. Unknown send ops fail closed. It does not consult
-ALLOWED_EGRESS_HOSTS. SEND_ACT_OPS maps scale, ban, and prune onto AuthorityGate
+not inside it. Unknown send ops fail closed. It consults ALLOWED_EGRESS_HOSTS
+only for a GET that carries URL data. SEND_ACT_OPS maps scale, ban, and prune onto AuthorityGate
 tokens. A POST or other non-GET off-box send is not in that map.
 
 pinned_request_target can rewrite a URL to a resolved IP. Callers that ignore
@@ -24,7 +24,7 @@ from urllib.parse import urlparse, urlsplit, urlunsplit
 
 # Catalog names used by harvester presets and a warden status count.
 # check_url_allowed does not treat this dict as a request allowlist.
-# check_send_allowed does not consult it either.
+# check_send_allowed consults it only for a GET that carries URL data.
 ALLOWED_EGRESS_HOSTS: dict[str, str] = {
     "export.arxiv.org": "arXiv Atom API for scientific paper harvesting",
     "arxiv.org": "arXiv abstract and PDF retrieval",
@@ -192,10 +192,26 @@ def check_send_allowed(op: str, *, method: str = "", url: str = "") -> SendVerdi
     """Classify a send or machine-changing act. Unknown ops fail closed.
 
     Does not send. Does not resolve DNS. Does not consult ALLOWED_EGRESS_HOSTS.
+    A GET runs with no token unless it carries URL data (query, params,
+    userinfo) to a host outside ALLOWED_EGRESS_HOSTS, which is refused.
     A listed act returns its gate token. A POST or other non-GET off-box send
     is unknown here and is refused.
     """
     key = (method or op or "").strip().upper()
+    if key == "GET":
+        # A GET carries data out in its query, params, or userinfo. Only
+        # catalog hosts may take those without sign-off.
+        parts = urlsplit((url or "").strip())
+        host = (parts.hostname or "").lower()
+        carries = bool(parts.query or ";" in parts.path or "@" in parts.netloc)
+        if carries and host not in ALLOWED_EGRESS_HOSTS:
+            return SendVerdict(
+                reason=(
+                    "I held this link back because it would send information to a site"
+                    " that isn't on the trusted list. Remove the part after the ? and try again."
+                )
+            )
+        return SendVerdict(reason=None)
     token = SEND_ACT_OPS.get(key)
     if token is None:
         target = (url or "").strip()
