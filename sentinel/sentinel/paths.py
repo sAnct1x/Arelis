@@ -7,11 +7,13 @@ root set by set_runtime_root). These helpers do not reject paths outside that ro
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_ROOT.parent
 _RUNTIME_ROOT: Path | None = None
+_RUNTIME_ROOT_ENV = "SENTINEL_RUNTIME_ROOT"
 
 
 def set_runtime_root(path: Path | None) -> None:
@@ -21,7 +23,12 @@ def set_runtime_root(path: Path | None) -> None:
 
 
 def _active_root() -> Path:
-    return _RUNTIME_ROOT if _RUNTIME_ROOT is not None else REPO_ROOT
+    if _RUNTIME_ROOT is not None:
+        return _RUNTIME_ROOT
+    raw = os.environ.get(_RUNTIME_ROOT_ENV, "").strip()
+    if raw:
+        return Path(raw)
+    return REPO_ROOT
 
 
 def ensure(path: Path) -> Path:
