@@ -79,6 +79,10 @@ def confirm_action_key(name: str, args: dict[str, Any] | None) -> str:
     if tool in {"image", "image_edit"}:
         return f"image:{_image_step(raw)}"
     action = str(raw.get("action") or "").strip()
+    path = str(raw.get("path") or "").strip()
+    if action and path:
+        # A no on notes.txt is not a no on todo.txt.
+        return f"{tool}:{action}:{path}"
     if action:
         return f"{tool}:{action}"
     return tool
@@ -271,7 +275,8 @@ async def confirm_call(
     # is shared, so the other picture tool does not open a new card for
     # a cutout they already refused.
     action_key = confirm_action_key(name, args)
-    if name in ctx.declined_tools or action_key in ctx.declined_actions:
+    if action_key in ctx.declined_actions:
+        ctx.decline_repeated = True
         messages.append(
             loop._tool_message(name, _SKIP_NOTICE.format(tool=name))
         )

@@ -150,6 +150,9 @@ class TurnContext:
     # wander off a send. dispatch ends the turn when no call actually ran,
     # so the reply does not wait on another model round.
     decline_needs_finish: bool = False
+    # A call repeated a step already refused this turn. One fresh no
+    # leaves the model a round for the other steps that were asked for.
+    decline_repeated: bool = False
     agenda_create_ok: bool = False
     agenda_open_read_ok: bool = False
     calculator_ok: bool = False

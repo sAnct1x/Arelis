@@ -191,6 +191,7 @@ class _NamedStub:
             "properties": {
                 "to": {"type": "string"},
                 "body": {"type": "string"},
+                "content": {"type": "string"},
                 "action": {"type": "string"},
                 "fact": {"type": "string"},
                 "path": {"type": "string"},
@@ -373,3 +374,48 @@ async def test_a_declined_card_is_not_a_missing_tool_or_a_standing_no() -> None:
         for row in messages
     )
     assert "declined" not in prompt.lower()
+
+
+@pytest.mark.asyncio
+async def test_declining_one_save_still_offers_the_other_save() -> None:
+    """Save notes.txt and todo.txt, no on notes.txt: todo.txt still gets a card.
+
+    The first no used to end the turn, and todo.txt was never asked about.
+    """
+    cards: list[str] = []
+
+    async def confirm(
+        cid: str, tool: str, args: dict[str, Any], summary: str
+    ) -> str:
+        del cid, tool, summary
+        cards.append(str(args.get("path")))
+        return "skip" if args.get("path") == "notes.txt" else "allow"
+
+    workspace = _NamedStub("workspace", "write")
+    registry = ToolRegistry()
+    registry.register(workspace)
+    router = _RecordingRouter(
+        [
+            [_call("workspace", {"action": "write", "path": "notes.txt", "content": "a"})],
+            [_call("workspace", {"action": "write", "path": "todo.txt", "content": "b"})],
+            [("token", "Saved todo.txt and skipped notes.txt.")],
+        ]
+    )
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["max_rounds"] = 6
+    cfg["agent"]["native_tool_calling"] = False
+    cfg["agent"]["ask_is_grant"] = False
+    loop = AgentLoop(
+        EventBus(),
+        router,  # type: ignore[arg-type]
+        registry,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=confirm,
+        is_cancelled=lambda: False,
+    )
+    await _collect(loop.bus, loop.run("Save notes.txt and todo.txt", "fast"))
+    assert cards == ["notes.txt", "todo.txt"]
+    assert workspace.runs == 1

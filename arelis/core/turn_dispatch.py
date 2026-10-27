@@ -816,7 +816,9 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         await loop._finish(ctx.skip_finish_text, r.sources, streamed="")
         return True
 
-    # Every call so far was a confirm refusal, and nothing ran. Another
+    # Every call so far was a confirm refusal, one of them a repeat of a
+    # step already refused, and nothing ran. A single fresh no gets one
+    # more round so the other asked steps can still get a card. Another
     # model round paints nothing and sits until the model timeout. The
     # reply is the skip sentence for the call the card refused.
     # tools_used stays: a skipped run_script after an approved write
@@ -825,7 +827,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
     # finishes even if a prior read already ran. Leaving that open
     # is how a declined PDF-to-docx card asked where to save.
     if ctx.decline_needs_finish and (
-        (not loop.tools_used and ran_calls == 0)
+        (not loop.tools_used and ran_calls == 0 and ctx.decline_repeated)
         or "document" in ctx.declined_tools
     ):
         from arelis.core.loop_helpers import declined_finish_reply
