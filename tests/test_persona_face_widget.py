@@ -81,3 +81,20 @@ def _image_rgba(image: QImage) -> np.ndarray:
     # contiguous, so without the copy the array would point at freed pixels.
     buf = np.asarray(raw).reshape(height, converted.bytesPerLine())
     return buf[:, : width * 4].copy().reshape(height, width, 4)
+
+
+def test_motion_off_in_settings_skips_the_fade(qt_app, monkeypatch, tmp_path):
+    """ui.motion=false shows her at full strength, no 2.6 s fade (issue 427)."""
+    import arelis.ui.motion as motion_mod
+
+    cfg = tmp_path / "config.local.yaml"
+    cfg.write_text("ui:\n  motion: false\n", encoding="utf-8")
+    monkeypatch.delenv("ARELIS_MOTION", raising=False)
+    monkeypatch.setattr(motion_mod, "LOCAL_CONFIG_PATH", cfg)
+    monkeypatch.setattr(motion_mod, "_windows_animations_enabled", lambda: True)
+    panel = _panel(qt_app)
+    try:
+        panel.set_state("thinking")
+        assert panel.avatar.reveal == 1.0
+    finally:
+        panel.deleteLater()
