@@ -85,6 +85,8 @@ class WebAvatar(QWidget):
         s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
         s.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
         page = self.view.page()
+        # See-through dock: the scene clears to alpha 0 under ?transparent=1.
+        page.setBackgroundColor(Qt.GlobalColor.transparent)
         page.loadFinished.connect(self._loaded)
         page.renderProcessTerminated.connect(lambda *_: self._fail("render process ended"))
         self._poll = QTimer(self)
@@ -96,6 +98,7 @@ class WebAvatar(QWidget):
         url = QUrl.fromLocalFile(str(WEB_DIR / "index.html"))
         query = QUrlQuery()
         query.addQueryItem("glb", QUrl.fromLocalFile(str(glb_path())).toString())
+        query.addQueryItem("transparent", "1")
         url.setQuery(query)
         self._deadline.start(_READY_TIMEOUT_MS)
         self.view.load(url)

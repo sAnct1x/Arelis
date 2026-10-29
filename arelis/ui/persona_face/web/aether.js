@@ -6,6 +6,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GLB_PATH, FALLBACK_GLB_PATH, LOOK, MODEL_LOOK } from './config.js';
 if (new URLSearchParams(location.search).has('freeze')) { let s = 12345; Math.random = () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }   // test hook: seeded randoms so ?freeze A/B renders match
 
@@ -13,10 +14,14 @@ const status = document.getElementById('s');
 const params = new URLSearchParams(location.search);
 const V = (a) => new THREE.Color(...a);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+// ?transparent=1 (Arelis dock): clear to alpha 0 and give the final image alpha = its brightest channel,
+// premultiplied. Over black that composites to exactly the opaque image; elsewhere only her light shows.
+const TRANSPARENT = params.has('transparent');
+if (TRANSPARENT) { document.documentElement.style.background = 'transparent'; document.body.style.background = 'transparent'; }
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: TRANSPARENT, premultipliedAlpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
-renderer.setClearColor(0x000000, 1);
+renderer.setClearColor(0x000000, TRANSPARENT ? 0 : 1);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -742,6 +747,10 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), LOOK.bloom.strength, LOOK.bloom.radius, LOOK.bloom.threshold);
 composer.addPass(bloom); composer.addPass(new OutputPass());
+// Built with Math.random parked: its material UUID must not shift the ?freeze seed (A/B renders).
+if (TRANSPARENT) { const rnd = Math.random; Math.random = () => 0.5; composer.addPass(new ShaderPass({ uniforms: { tDiffuse: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec3 c = texture2D(tDiffuse, vUv).rgb; gl_FragColor = vec4(c, max(c.r, max(c.g, c.b))); }' })); Math.random = rnd; }
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
