@@ -105,7 +105,7 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
 
     window = ArelisWindow(
         {
-            "ui": {"default_width": 800, "default_height": 600},
+            "ui": {"default_width": 800, "default_height": 600, "theme": "sodium"},
             "router": {"default_role": "fast"},
             "voice": {"enabled": False},
         },
@@ -188,7 +188,7 @@ def test_idle_prompt_grows_then_wraps(qt_app) -> None:
 
     window = ArelisWindow(
         {
-            "ui": {"default_width": 800, "default_height": 600},
+            "ui": {"default_width": 800, "default_height": 600, "theme": "sodium"},
             "router": {"default_role": "fast"},
             "voice": {"enabled": False},
         },

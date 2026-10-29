@@ -274,15 +274,15 @@ TYPE = {
     "track_heading": "0em",
 }
 
-# Filament is the main theme; new installs get it from config/default.yaml.
-# Sodium stays the fallback for a missing or unknown name, so an old config,
-# a test window, or a typo opens the room every install already had.
-DEFAULT_THEME = "sodium"
-_ACTIVE_THEME = DEFAULT_THEME
+# Filament is the main theme and the one fallback for a missing or unknown
+# name. Installs that predate it are pinned to sodium in config.settle_theme.
+DEFAULT_THEME = "filament"
+# The module-level tokens above are sodium's until apply_theme runs.
+_ACTIVE_THEME = "sodium"
 
 # Snapshot the shipped lamp so apply_theme can restore it without a rewrite.
 # A new room is another entry in _PALETTES with the same token names — not a
-# second stylesheet and not a hue slider. Sodium stays the default.
+# second stylesheet and not a hue slider.
 _SODIUM_COLORS = dict(COLORS)
 _SODIUM_FILAMENT = dict(FILAMENT)
 _SODIUM_BLOOM = dict(BLOOM)
@@ -603,7 +603,7 @@ _THEME_ALIASES = {
 
 
 def resolve_theme_id(value: str | None) -> str:
-    """Known room, or sodium. Unknown names do not invent a palette."""
+    """Known room, or filament. Unknown names do not invent a palette."""
     raw = (value or "").strip().lower()
     if raw in _PALETTES:
         return raw

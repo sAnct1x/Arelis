@@ -20,7 +20,7 @@ def test_night_is_listed_among_selectable_themes() -> None:
     labels = dict(THEME_CHOICES)
     assert "night" in labels
     assert labels["night"] == "Night (legacy)"
-    assert DEFAULT_THEME == "sodium"
+    assert DEFAULT_THEME == "filament"
     assert THEME_IDS[0] == "filament"
 
 
@@ -50,11 +50,12 @@ def test_night_loads_without_error_and_has_required_keys() -> None:
     assert active_theme() == "sodium"
 
 
-def test_unknown_theme_still_falls_back_to_sodium() -> None:
-    assert resolve_theme_id("bogus-night-xyz") == "sodium"
-    assert resolve_theme_id(None) == "sodium"
-    assert resolve_theme_id("") == "sodium"
-    assert theme_from_config({"ui": {"theme": "not-a-real-theme"}}) == "sodium"
+def test_unknown_theme_falls_back_to_filament() -> None:
+    assert resolve_theme_id("bogus-night-xyz") == "filament"
+    assert resolve_theme_id(None) == "filament"
+    assert resolve_theme_id("") == "filament"
+    assert theme_from_config({"ui": {"theme": "not-a-real-theme"}}) == "filament"
+    assert theme_from_config({}) == "filament"
     assert theme_from_config({"ui": {"theme": "night"}}) == "night"
 
 

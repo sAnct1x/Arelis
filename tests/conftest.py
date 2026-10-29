@@ -209,6 +209,8 @@ def arelis_window(qt_app):
             "voice": {"enabled": False},
         }
         base.update(config or {})
+        # These windows test the legacy room; the runtime fallback is filament.
+        base.setdefault("ui", {}).setdefault("theme", "sodium")
         window = ArelisWindow(base, BusBridge(), asyncio.new_event_loop(), EventBus())
         made.append(window)
         return window
