@@ -713,9 +713,10 @@ QT_DROP_PREFIXES = (
     "Qt6Location", "QtLocation", "Qt6PositioningQuick", "QtPositioning",
     "Qt6Sensors", "QtSensors",
     # Modules with a real Arelis counterpart elsewhere: PDF is pypdf, speech is Kokoro
-    # and Piper, OAuth is msal and google-auth, and nothing prints.
+    # and Piper, OAuth is msal and google-auth. QtPrintSupport stays: the
+    # QtWebEngineWidgets Python module imports it at load time.
     "Qt6Pdf", "QtPdf", "Qt6TextToSpeech", "QtTextToSpeech",
-    "Qt6NetworkAuth", "QtNetworkAuth", "Qt6PrintSupport", "QtPrintSupport",
+    "Qt6NetworkAuth", "QtNetworkAuth",
     # SQL, state machines, remote objects, Qt's own test framework.
     "Qt6Sql", "QtSql", "Qt6Scxml", "QtScxml", "Qt6StateMachine", "QtStateMachine",
     "Qt6RemoteObjects", "QtRemoteObjects", "Qt6Test", "QtTest",
