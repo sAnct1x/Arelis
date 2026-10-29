@@ -3,8 +3,9 @@
 When no conversation is open, the sodium and night themes show an orbit in the
 middle of the window. It now matches her 3D look: a tall frame of fine violet
 threads, a floor of thin rings, loose stars, and a bright spark that travels the
-frame. The colours are hers, so the orbit is violet in both themes. The smaller
-orbit that sits beside the composer during a conversation uses the same look.
+frame. It takes the theme's colour: amber on sodium, her own violet on night.
+The smaller orbit beside the composer during a conversation, and the orb in her
+panel while her face loads, use the same look.
 
 It still breathes while she is thinking, and it stops moving when the window is
 hidden. Nothing about her face or the 3D avatar changed.

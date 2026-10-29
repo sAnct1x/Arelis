@@ -236,13 +236,14 @@ def _orbit_center_in_window(window) -> tuple[int, int]:
 
 
 
-def test_idle_orbit_wears_ellah_aether_in_every_legacy_room(qt_app) -> None:
-    """The idle orbit is her violet, not the room's lamp colour."""
+def test_idle_orbit_takes_each_room_accent(qt_app) -> None:
+    """Amber aether on sodium, her own violet on night, one painter for both."""
     from PySide6.QtGui import QImage, QPainter
 
     from arelis.ui.theme import apply_theme
     from arelis.ui.void_idle import AETHER, paint_aether_orbit
 
+    frames = {}
     for room in ("sodium", "night"):
         apply_theme(room)
         image = QImage(220, 220, QImage.Format.Format_ARGB32)
@@ -251,10 +252,19 @@ def test_idle_orbit_wears_ellah_aether_in_every_legacy_room(qt_app) -> None:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         paint_aether_orbit(painter, 110.0, 110.0, angle=90.0)
         painter.end()
-        frame = image.pixelColor(110 + 58, 106)
-        assert frame.alpha() > 60
-        assert frame.blue() > frame.red() > frame.green(), room
-    assert AETHER["violet"][2] > AETHER["violet"][0] > AETHER["violet"][1]
+        frames[room] = image.pixelColor(110 + 58, 106)
+    apply_theme("sodium")
+    amber, violet = frames["sodium"], frames["night"]
+    assert amber.alpha() > 60 and violet.alpha() > 60
+    assert amber.red() > amber.green() > amber.blue()
+    assert violet.blue() > violet.red() > violet.green()
+    assert abs(violet.hsvHue() - _hue(AETHER["violet"])) <= 12
+
+
+def _hue(rgb: tuple[int, int, int]) -> int:
+    from PySide6.QtGui import QColor
+
+    return QColor(*rgb).hsvHue()
 
 
 def test_view_checks_start_true_for_her_open_dock(arelis_window) -> None:

@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 from arelis.core.compact_prompt import TOOLS_SLASH
 from arelis.ui.glass import Hairline
 from arelis.ui.stage import BLOOM_X, BLOOM_Y
-from arelis.ui.theme import FILAMENT, SPACE, active_theme, color
+from arelis.ui.theme import SPACE, active_theme, color
 
 _GHOST_WIDTH = 220
 
@@ -70,85 +70,38 @@ FIRST_RUN_ASKS: tuple[str, ...] = (
 TOOLS_CHIP_TITLE = "what she can do"
 
 
-def paint_orbit(
-    painter: QPainter,
-    cx: float,
-    cy: float,
-    *,
-    box: float = 220.0,
-    dim: float = 1.0,
-    angle: float = 0.0,
-    beat: float = 0.0,
-) -> None:
-    """Ring, tick, beating core. Same painter the idle canvas uses."""
-    accent = color("accent")
-    core = QColor(*FILAMENT["core"])
-    core_halo = QColor(*FILAMENT["core_halo"])
-    tick = QColor(*FILAMENT["tick"])
-    tick_halo = QColor(*FILAMENT["tick_halo"])
-    s = box / 220.0
-    d = max(0.2, min(1.0, float(dim)))
-    r = 68.0 * s
-
-    painter.setPen(Qt.PenStyle.NoPen)
-    room = QRadialGradient(QPointF(cx, cy), r + 52.0 * s)
-    room.setColorAt(0.0, _lit(core_halo, 40 * d))
-    room.setColorAt(0.4, _lit(accent, 22 * d))
-    room.setColorAt(1.0, _CLEAR)
-    painter.setBrush(room)
-    painter.drawEllipse(QPointF(cx, cy), r + 52.0 * s, r + 52.0 * s)
-
-    halo = QRadialGradient(QPointF(cx, cy), r + 18.0 * s)
-    halo.setColorAt(0.72, _CLEAR)
-    halo.setColorAt(0.88, _lit(accent, 52 * d))
-    halo.setColorAt(1.0, _CLEAR)
-    painter.setBrush(halo)
-    painter.drawEllipse(QPointF(cx, cy), r + 18.0 * s, r + 18.0 * s)
-
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    for width, alpha in ((3.2, 48), (1.4, 110)):
-        ring = QPen(_lit(accent, alpha * d))
-        ring.setWidthF(max(1.0, width * s))
-        painter.setPen(ring)
-        painter.drawEllipse(QPointF(cx, cy), r, r)
-
-    rad = math.radians(angle)
-    tx = cx + r * math.sin(rad)
-    ty = cy - r * math.cos(rad)
-    tick_r = 16.0 * s
-    tick_glow = QRadialGradient(QPointF(tx, ty), tick_r)
-    tick_glow.setColorAt(0.0, _lit(tick_halo, 190 * d))
-    tick_glow.setColorAt(0.45, _lit(accent, 70 * d))
-    tick_glow.setColorAt(1.0, _CLEAR)
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(tick_glow)
-    painter.drawEllipse(QPointF(tx, ty), tick_r, tick_r)
-    painter.setBrush(_lit(tick, 255 * d))
-    painter.drawEllipse(QPointF(tx, ty), 2.4 * s, 2.4 * s)
-
-    t = 0.5 - 0.5 * math.cos(beat * 6.283185307179586)
-    glow_r = (22.0 + 10.0 * t) * s
-    core_glow = QRadialGradient(QPointF(cx, cy), glow_r)
-    core_glow.setColorAt(0.0, _lit(core_halo, (160 + 50 * t) * d))
-    core_glow.setColorAt(0.35, _lit(accent, (70 + 30 * t) * d))
-    core_glow.setColorAt(1.0, _CLEAR)
-    painter.setBrush(core_glow)
-    painter.drawEllipse(QPointF(cx, cy), glow_r, glow_r)
-    core_r = (2.4 + 1.2 * t) * s
-    painter.setBrush(_lit(core, 255 * d))
-    painter.drawEllipse(QPointF(cx, cy), core_r, core_r)
-
-
 # Ellah's aether palette, from persona_face/web/config.js (LOOK plus the ellah
 # override) as it reads after bloom: blue-violet threads, lilac glow, and
-# white-lilac where the light is brightest. It is her colour, not the room's,
-# so it does not follow the theme.
+# white-lilac where the light is brightest. aether_colors() tints it to the
+# room's accent.
 AETHER = {
     "violet": (98, 52, 230),
     "lilac": (150, 112, 255),
     "spark": (232, 222, 255),
     "interior": (15, 5, 41),
 }
+
+
+# A room whose accent is already this close to her violet keeps her colours.
+_AETHER_HUE_KEEP = 30
+
+
+def aether_colors() -> dict[str, QColor]:
+    """Her palette in the active room's accent hue, same saturation and value.
+
+    A cool room (accent near her violet, as in night) keeps her exact colours;
+    a warm room (sodium's lamp) gets amber threads and glow.
+    """
+    accent_hue = color("accent").hsvHue()
+    base = {name: QColor(*rgb) for name, rgb in AETHER.items()}
+    home = base["violet"].hsvHue()
+    gap = abs(accent_hue - home) % 360
+    if accent_hue < 0 or min(gap, 360 - gap) <= _AETHER_HUE_KEEP:
+        return base
+    return {
+        name: QColor.fromHsv(accent_hue, c.hsvSaturation(), c.value())
+        for name, c in base.items()
+    }
 
 
 def _star_field(count: int) -> tuple[tuple[float, float, float, float], ...]:
@@ -179,9 +132,10 @@ def paint_aether_orbit(
 ) -> None:
     """The idle orbit in Ellah's aether: a tall woven frame, a floor of rings
     and loose stars, sized to hold her standing figure."""
-    violet = QColor(*AETHER["violet"])
-    lilac = QColor(*AETHER["lilac"])
-    spark = QColor(*AETHER["spark"])
+    tint = aether_colors()
+    violet = tint["violet"]
+    lilac = tint["lilac"]
+    spark = tint["spark"]
     s = box / 220.0
     d = max(0.2, min(1.0, float(dim)))
     t = 0.5 - 0.5 * math.cos(beat * 6.283185307179586)
@@ -191,8 +145,8 @@ def paint_aether_orbit(
 
     painter.setPen(Qt.PenStyle.NoPen)
     room = QRadialGradient(QPointF(cx, oy), ry + 24.0 * s)
-    room.setColorAt(0.0, _lit(QColor(*AETHER["interior"]), 190 * d))
-    room.setColorAt(0.62, _lit(QColor(*AETHER["interior"]), 150 * d))
+    room.setColorAt(0.0, _lit(tint["interior"], 190 * d))
+    room.setColorAt(0.62, _lit(tint["interior"], 150 * d))
     room.setColorAt(0.8, _lit(violet, 40 * d))
     room.setColorAt(1.0, _CLEAR)
     painter.setBrush(room)
@@ -278,7 +232,7 @@ def paint_aether_orbit(
 
 
 class OrbitCanvas(QWidget):
-    """QPainter orbit in Ellah's aether: woven frame, floor rings, stars, spark."""
+    """QPainter orbit in Ellah's aether, tinted to the room: frame, floor, stars, spark."""
 
     def __init__(self, parent=None, *, size: int = 220, dim: float = 1.0) -> None:
         super().__init__(parent)
