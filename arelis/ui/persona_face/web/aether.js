@@ -765,7 +765,14 @@ composer.addPass(tint);
 // Built with Math.random parked: its material UUID must not shift the ?freeze seed (A/B renders).
 if (TRANSPARENT) { const rnd = Math.random; Math.random = () => 0.5; composer.addPass(new ShaderPass({ uniforms: { tDiffuse: { value: null } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec3 c = texture2D(tDiffuse, vUv).rgb; gl_FragColor = vec4(c, max(c.r, max(c.g, c.b))); }' })); Math.random = rnd; }
+  // Light becomes alpha. The galaxy dust and bloom haze reach every pixel, so without the
+  // edge fade the frame border showed as a faint box over the room; glow and rings now thin
+  // out to nothing in a soft oval before the edge, with no straight border anywhere.
+  // Her own bright threads inside the oval keep full strength; only the faint haze fades.
+  fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec3 c = texture2D(tDiffuse, vUv).rgb;'
+    + ' float e = 1.0 - smoothstep(0.45, 0.98, length((vUv - 0.5) * 2.0));'
+    + ' e = mix(e, 1.0, smoothstep(0.2, 0.6, max(c.r, max(c.g, c.b))) * smoothstep(0.0, 0.3, e));'
+    + ' c *= e; gl_FragColor = vec4(c, max(c.r, max(c.g, c.b))); }' })); Math.random = rnd; }
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
