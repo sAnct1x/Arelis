@@ -274,7 +274,9 @@ TYPE = {
     "track_heading": "0em",
 }
 
-# Sodium is the product. Filament is a test face (View → themes).
+# Filament is the main theme; new installs get it from config/default.yaml.
+# Sodium stays the fallback for a missing or unknown name, so an old config,
+# a test window, or a typo opens the room every install already had.
 DEFAULT_THEME = "sodium"
 _ACTIVE_THEME = DEFAULT_THEME
 
@@ -584,11 +586,12 @@ _PALETTES = {
     },
 }
 
-THEME_IDS = tuple(_PALETTES)
+# Menu order: the main theme first, then the legacy rooms.
+THEME_IDS = ("filament", "sodium", "night")
 _THEME_LABELS = {
-    "sodium": "sodium",
-    "filament": "filament (testing)",
-    "night": "night",
+    "filament": "Filament",
+    "sodium": "Sodium (legacy)",
+    "night": "Night (legacy)",
 }
 THEME_CHOICES = tuple((tid, _THEME_LABELS.get(tid, tid)) for tid in THEME_IDS)
 

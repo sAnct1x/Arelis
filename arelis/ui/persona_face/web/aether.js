@@ -747,6 +747,21 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), LOOK.bloom.strength, LOOK.bloom.radius, LOOK.bloom.threshold);
 composer.addPass(bloom); composer.addPass(new OutputPass());
+// Room tint: rotate her hue by ?hue= degrees (setTint at runtime) so a legacy room
+// can wear its accent. Only hue moves (HSV, same as the painted orbit);
+// saturation, brightness, alpha and every shape stay put.
+// The pass is off at 0, so the untinted scene renders exactly as before.
+const tint = (() => { const rnd = Math.random; Math.random = () => 0.5; const p = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uHue: { value: 0 } }, vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uHue; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv);
+    vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0); vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r)); float d = q.x - min(q.w, q.y);
+    vec3 h = vec3(fract(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-10)) + uHue), d / (q.x + 1e-10), q.x);   // HSV, hue turned like the painted orbit
+    vec3 rgb = h.z * mix(vec3(1.0), clamp(abs(fract(h.xxx + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0), h.y);
+    gl_FragColor = vec4(rgb, c.a); }` }); Math.random = rnd; return p; })();
+window.aether.setTint = (deg) => { tint.uniforms.uHue.value = (((+deg || 0) % 360) + 360) % 360 / 360; tint.enabled = !!(+deg); };
+window.aether.setTint(params.get('hue'));
+composer.addPass(tint);
 // Built with Math.random parked: its material UUID must not shift the ?freeze seed (A/B renders).
 if (TRANSPARENT) { const rnd = Math.random; Math.random = () => 0.5; composer.addPass(new ShaderPass({ uniforms: { tDiffuse: { value: null } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',

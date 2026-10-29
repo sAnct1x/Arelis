@@ -73,9 +73,10 @@ build.
 
 Anything risky (mail, texts, file writes, deletes) shows you an approval
 card first. You can see and edit what's allowed without asking under
-Settings → Allow. That's the default **sodium** theme. There's also
-**filament (testing)** where speaking the request is the grant, but
-deletes, payments, and running project scripts still ask.
+Settings → Allow. That's how the legacy **Sodium** and **Night** themes
+work. **Filament**, the main theme and the default for new installs, takes
+the spoken request as the grant, but deletes, payments, and running project
+scripts still ask.
 
 ## Installing
 

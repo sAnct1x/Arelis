@@ -70,7 +70,7 @@ FIRST_RUN_ASKS: tuple[str, ...] = (
 TOOLS_CHIP_TITLE = "what she can do"
 
 
-# Ellah's aether palette, from persona_face/web/config.js (LOOK plus the ellah
+# Arelis's aether palette, from persona_face/web/config.js (LOOK plus the ellah
 # override) as it reads after bloom: blue-violet threads, lilac glow, and
 # white-lilac where the light is brightest. aether_colors() tints it to the
 # room's accent.
@@ -86,20 +86,31 @@ AETHER = {
 _AETHER_HUE_KEEP = 30
 
 
-def aether_colors() -> dict[str, QColor]:
-    """Her palette in the active room's accent hue, same saturation and value.
+def aether_hue_shift() -> int:
+    """Degrees to turn her violet to the active room's accent; 0 keeps her own.
 
-    A cool room (accent near her violet, as in night) keeps her exact colours;
-    a warm room (sodium's lamp) gets amber threads and glow.
+    Filament and a cool room (accent near her violet, as in night) keep her
+    exact colours; a warm room (sodium's lamp) turns her amber. One number
+    so the painted orbit and the web scene's tint pass always agree.
     """
+    if active_theme() == "filament":
+        return 0
     accent_hue = color("accent").hsvHue()
-    base = {name: QColor(*rgb) for name, rgb in AETHER.items()}
-    home = base["violet"].hsvHue()
+    home = QColor(*AETHER["violet"]).hsvHue()
     gap = abs(accent_hue - home) % 360
     if accent_hue < 0 or min(gap, 360 - gap) <= _AETHER_HUE_KEEP:
+        return 0
+    return accent_hue - home
+
+
+def aether_colors() -> dict[str, QColor]:
+    """Her palette turned by aether_hue_shift, same saturation and value."""
+    base = {name: QColor(*rgb) for name, rgb in AETHER.items()}
+    shift = aether_hue_shift()
+    if not shift:
         return base
     return {
-        name: QColor.fromHsv(accent_hue, c.hsvSaturation(), c.value())
+        name: QColor.fromHsv((c.hsvHue() + shift) % 360, c.hsvSaturation(), c.value())
         for name, c in base.items()
     }
 
@@ -130,7 +141,7 @@ def paint_aether_orbit(
     angle: float = 0.0,
     beat: float = 0.0,
 ) -> None:
-    """The idle orbit in Ellah's aether: a tall woven frame, a floor of rings
+    """The idle orbit in Arelis's aether: a tall woven frame, a floor of rings
     and loose stars, sized to hold her standing figure."""
     tint = aether_colors()
     violet = tint["violet"]
@@ -160,8 +171,12 @@ def paint_aether_orbit(
     # Floor: the thread hem she stands on, in perspective.
     painter.setBrush(Qt.BrushStyle.NoBrush)
     floor_y = oy + ry - 6.0 * s
-    for i, (frac, alpha) in enumerate(((1.0, 70), (0.72, 52), (0.46, 38))):
-        pen = QPen(_lit(lilac if i else violet, alpha * d))
+    # Three rings ripple outward and fade, one slow cycle per orbit turn.
+    for i in range(3):
+        u = (i / 3.0 + angle / 360.0) % 1.0
+        frac = 0.4 + 0.6 * u
+        alpha = 70.0 * math.sin(math.pi * u)
+        pen = QPen(_lit(violet if u > 0.66 else lilac, alpha * d))
         pen.setWidthF(max(0.8, 1.0 * s))
         painter.setPen(pen)
         painter.drawEllipse(QPointF(cx, floor_y), rx * 1.25 * frac, 9.0 * s * frac)
@@ -232,7 +247,7 @@ def paint_aether_orbit(
 
 
 class OrbitCanvas(QWidget):
-    """QPainter orbit in Ellah's aether, tinted to the room: frame, floor, stars, spark."""
+    """QPainter orbit in Arelis's aether, tinted to the room: frame, floor, stars, spark."""
 
     def __init__(self, parent=None, *, size: int = 220, dim: float = 1.0) -> None:
         super().__init__(parent)

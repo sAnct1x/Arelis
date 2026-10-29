@@ -19,9 +19,9 @@ def test_night_is_listed_among_selectable_themes() -> None:
     assert "night" in THEME_IDS
     labels = dict(THEME_CHOICES)
     assert "night" in labels
-    assert labels["night"] == "night"
+    assert labels["night"] == "Night (legacy)"
     assert DEFAULT_THEME == "sodium"
-    assert THEME_IDS[0] == "sodium"
+    assert THEME_IDS[0] == "filament"
 
 
 def test_night_loads_without_error_and_has_required_keys() -> None:
@@ -58,3 +58,19 @@ def test_unknown_theme_still_falls_back_to_sodium() -> None:
     assert theme_from_config({"ui": {"theme": "night"}}) == "night"
 
 
+def test_filament_default_reaches_only_new_installs(tmp_path) -> None:
+    from arelis.config import settle_theme
+
+    fresh, old, chose = tmp_path / "a.yaml", tmp_path / "b.yaml", tmp_path / "c.yaml"
+    cases = ((fresh, None), (old, {"ui": {"language": "en"}}), (chose, {"ui": {"theme": "night"}}))
+    for target, local in cases:
+        data = {"ui": {"theme": "filament"}}
+        if local and local["ui"].get("theme"):
+            data["ui"]["theme"] = local["ui"]["theme"]
+        settle_theme(data, local, target)
+        target.touch()
+    import yaml
+
+    assert (yaml.safe_load(fresh.read_text()) or {})["ui"]["theme"] == "filament"
+    assert (yaml.safe_load(old.read_text()) or {})["ui"]["theme"] == "sodium"
+    assert chose.read_text() == ""

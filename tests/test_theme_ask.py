@@ -40,16 +40,16 @@ async def test_i_dont_know_on_a_theme_ask_names_the_live_theme(theme_id: str) ->
 
 
 @pytest.mark.asyncio
-async def test_filament_is_spoken_without_the_testing_tag() -> None:
-    apply_theme("filament")
-    assert _LABELS["filament"] == "filament (testing)"
-    assert "(testing)" not in _delivery_blob()
+async def test_a_legacy_theme_is_spoken_without_the_legacy_tag() -> None:
+    apply_theme("sodium")
+    assert _LABELS["sodium"] == "Sodium (legacy)"
+    assert "(legacy)" not in _delivery_blob()
     loop = _FakeLoop()
-    scratch = _scratch(text=_ASK, content="You're on filament (testing).")
+    scratch = _scratch(text=_ASK, content="You're on Sodium (legacy).")
     ctx = _ctx(text=_ASK)
     assert await run_finish_steps(loop, ctx, scratch, 0) == "finish"
     assert loop.finished is not None
-    assert loop.finished[0] == "You're on filament."
+    assert loop.finished[0] == "You're on Sodium."
 
 
 @pytest.mark.asyncio
@@ -60,6 +60,6 @@ async def test_an_invented_theme_is_replaced_with_the_live_one() -> None:
     ctx = _ctx(text=_ASK)
     assert await run_finish_steps(loop, ctx, scratch, 0) == "finish"
     assert loop.finished is not None
-    assert loop.finished[0] == "You're on night."
+    assert loop.finished[0] == "You're on Night."
 
 

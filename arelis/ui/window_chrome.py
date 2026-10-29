@@ -47,6 +47,7 @@ from arelis.ui.theme import (
     active_theme,
     theme_from_config,
 )
+from arelis.ui.theme_tokens import theme_menu_label, theme_spoken_name
 from arelis.ui.window_const import VOICE_HOTKEY_ECHO_S as _VOICE_HOTKEY_ECHO_S
 from arelis.ui.window_const import WINDOW_RADIUS as _WINDOW_RADIUS
 from arelis.ui.window_resize import (
@@ -68,10 +69,10 @@ _PANEL_TOP = SHELL["top"]
 _PANEL_BOTTOM = SHELL["bottom"]
 
 _FILAMENT_DETAIL = (
-    "sodium is the app. filament is a test for a desk with three "
-    "screens, and you only get it when you're running from source. "
+    "filament is the main theme, made for a desk with three screens. "
     "1 and 2 still work. talk does not need a chat tile. plates "
-    "float, drag them. right click for themes. sodium is one click."
+    "float, drag them. right click for themes. sodium and night "
+    "stay in the menu as legacy themes."
 )
 
 
@@ -816,11 +817,11 @@ class WindowChrome:
         if theme_id == "filament" and not (self.config.get("ui") or {}).get("filament_ack"):
             ok = confirm(
                 self,
-                "filament (testing)",
-                "a test face. it wants a row of desks, three is the intended layout.",
+                theme_menu_label("filament"),
+                "filament wants a row of desks, three is the intended layout.",
                 detail=_FILAMENT_DETAIL,
                 confirm_text="enter filament",
-                cancel_text="stay in sodium",
+                cancel_text=f"stay in {theme_spoken_name()}",
             )
             if not ok:
                 self._sync_theme_checks()
