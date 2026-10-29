@@ -9,7 +9,15 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QPen, QRadialGradient
+from PySide6.QtGui import (
+    QColor,
+    QMouseEvent,
+    QPainter,
+    QPainterPath,
+    QPaintEvent,
+    QPen,
+    QRadialGradient,
+)
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -131,8 +139,146 @@ def paint_orbit(
     painter.drawEllipse(QPointF(cx, cy), core_r, core_r)
 
 
+# Ellah's aether palette, from persona_face/web/config.js (LOOK plus the ellah
+# override) as it reads after bloom: blue-violet threads, lilac glow, and
+# white-lilac where the light is brightest. It is her colour, not the room's,
+# so it does not follow the theme.
+AETHER = {
+    "violet": (98, 52, 230),
+    "lilac": (150, 112, 255),
+    "spark": (232, 222, 255),
+    "interior": (15, 5, 41),
+}
+
+
+def _star_field(count: int) -> tuple[tuple[float, float, float, float], ...]:
+    """Fixed stars as (x, y, size, phase) in a unit box. Seeded, so frames agree."""
+    stars = []
+    seed = 1013904223
+    for _ in range(count):
+        vals = []
+        for _ in range(4):
+            seed = (seed * 1664525 + 1013904223) % 4294967296
+            vals.append(seed / 4294967296.0)
+        stars.append((vals[0], vals[1], vals[2], vals[3]))
+    return tuple(stars)
+
+
+_STARS = _star_field(80)
+
+
+def paint_aether_orbit(
+    painter: QPainter,
+    cx: float,
+    cy: float,
+    *,
+    box: float = 220.0,
+    dim: float = 1.0,
+    angle: float = 0.0,
+    beat: float = 0.0,
+) -> None:
+    """The idle orbit in Ellah's aether: a tall woven frame, a floor of rings
+    and loose stars, sized to hold her standing figure."""
+    violet = QColor(*AETHER["violet"])
+    lilac = QColor(*AETHER["lilac"])
+    spark = QColor(*AETHER["spark"])
+    s = box / 220.0
+    d = max(0.2, min(1.0, float(dim)))
+    t = 0.5 - 0.5 * math.cos(beat * 6.283185307179586)
+    rx, ry = 58.0 * s, 84.0 * s
+    oy = cy - 4.0 * s
+    phase = math.radians(angle)
+
+    painter.setPen(Qt.PenStyle.NoPen)
+    room = QRadialGradient(QPointF(cx, oy), ry + 24.0 * s)
+    room.setColorAt(0.0, _lit(QColor(*AETHER["interior"]), 190 * d))
+    room.setColorAt(0.62, _lit(QColor(*AETHER["interior"]), 150 * d))
+    room.setColorAt(0.8, _lit(violet, 40 * d))
+    room.setColorAt(1.0, _CLEAR)
+    painter.setBrush(room)
+    painter.drawEllipse(QPointF(cx, oy), ry + 24.0 * s, ry + 24.0 * s)
+    inner = QRadialGradient(QPointF(cx, oy - 12.0 * s), ry * 0.8)
+    inner.setColorAt(0.0, _lit(lilac, (46 + 14 * t) * d))
+    inner.setColorAt(1.0, _CLEAR)
+    painter.setBrush(inner)
+    painter.drawEllipse(QPointF(cx, oy - 12.0 * s), rx * 0.9, ry * 0.8)
+
+    # Floor: the thread hem she stands on, in perspective.
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    floor_y = oy + ry - 6.0 * s
+    for i, (frac, alpha) in enumerate(((1.0, 70), (0.72, 52), (0.46, 38))):
+        pen = QPen(_lit(lilac if i else violet, alpha * d))
+        pen.setWidthF(max(0.8, 1.0 * s))
+        painter.setPen(pen)
+        painter.drawEllipse(QPointF(cx, floor_y), rx * 1.25 * frac, 9.0 * s * frac)
+
+    # Ribbons that fall from the frame to the floor, like her hem.
+    for k in range(6):
+        side = -1.0 if k % 2 else 1.0
+        lift = 0.15 + 0.12 * (k // 2)
+        start = QPointF(cx + side * rx * 0.98, oy - ry * lift)
+        sway = 5.0 * s * math.sin(phase * 0.7 + k)
+        rib = QPainterPath(start)
+        rib.cubicTo(
+            QPointF(cx + side * (rx + 26.0 * s) + sway, oy + ry * 0.2),
+            QPointF(cx + side * (rx + 10.0 * s) - sway, oy + ry * 0.7),
+            QPointF(cx + side * rx * (1.05 + 0.12 * (k // 2)), floor_y + 2.0 * s),
+        )
+        pen = QPen(_lit(lilac, (34 + 14 * (k // 2)) * d))
+        pen.setWidthF(max(0.6, 0.8 * s))
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(rib)
+
+    # The frame: fine threads woven around a tall oval, each with its own wobble.
+    for k in range(6):
+        pen = QPen(_lit(lilac if k % 2 else violet, (70 + 20 * k) * d))
+        pen.setWidthF(max(0.6, (0.7 + 0.25 * (k == 2)) * s))
+        painter.setPen(pen)
+        path = []
+        for j in range(97):
+            a = j / 96.0 * 6.283185307179586
+            wob = 3.6 * s * math.sin((3 + k % 2) * a + phase * (1 + k * 0.3) + k * 1.7)
+            path.append(QPointF(cx + (rx + wob) * math.sin(a), oy - (ry + wob) * math.cos(a)))
+        painter.drawPolyline(path)
+
+    # Loose stars around her, twinkling on the beat.
+    painter.setPen(Qt.PenStyle.NoPen)
+    half = box / 2.0
+    for ux, uy, size, ph in _STARS:
+        x = cx + (ux * 2.0 - 1.0) * half * 0.96
+        y = cy + (uy * 2.0 - 1.0) * half * 0.96
+        tw = 0.5 + 0.5 * math.sin((beat + ph) * 6.283185307179586)
+        painter.setBrush(_lit(spark if size > 0.86 else lilac, (60 + 150 * tw * size) * d))
+        r = (0.5 + 1.1 * (size > 0.86)) * s
+        painter.drawEllipse(QPointF(x, y), r, r)
+
+    # One bright spark travels the frame with a short tail.
+    for i in range(7):
+        a = phase - math.radians(i * 4.0)
+        px = cx + rx * math.sin(a)
+        py = oy - ry * math.cos(a)
+        glow = QRadialGradient(QPointF(px, py), (8.0 - i) * s)
+        glow.setColorAt(0.0, _lit(spark if i == 0 else lilac, (200 - 26 * i) * d))
+        glow.setColorAt(1.0, _CLEAR)
+        painter.setBrush(glow)
+        painter.drawEllipse(QPointF(px, py), (8.0 - i) * s, (8.0 - i) * s)
+
+    # Heart light, where her body glow is brightest.
+    glow_r = (18.0 + 8.0 * t) * s
+    heart = QPointF(cx, oy - 12.0 * s)
+    core = QRadialGradient(heart, glow_r)
+    core.setColorAt(0.0, _lit(spark, (150 + 60 * t) * d))
+    core.setColorAt(0.4, _lit(lilac, (70 + 30 * t) * d))
+    core.setColorAt(1.0, _CLEAR)
+    painter.setBrush(core)
+    painter.drawEllipse(heart, glow_r, glow_r)
+    painter.setBrush(_lit(spark, 255 * d))
+    painter.drawEllipse(heart, (2.0 + t) * s, (2.0 + t) * s)
+
+
 class OrbitCanvas(QWidget):
-    """QPainter orbit: ring, one tick, beating core. Soft bloom, not CAD lines."""
+    """QPainter orbit in Ellah's aether: woven frame, floor rings, stars, spark."""
 
     def __init__(self, parent=None, *, size: int = 220, dim: float = 1.0) -> None:
         super().__init__(parent)
@@ -182,7 +328,7 @@ class OrbitCanvas(QWidget):
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        paint_orbit(
+        paint_aether_orbit(
             painter,
             self.width() / 2.0,
             self.height() / 2.0,

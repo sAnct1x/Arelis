@@ -224,9 +224,13 @@ class WindowChrome:
             frame.update()
 
     def _build_view_actions(self) -> None:
+        # Checks start from what each dock is set to, not isVisible(): the
+        # window is not shown yet, and the first visibilityChanged arrives mid
+        # chrome swap, where on_dock_visibility ignores it. Ctrl+1 then needed
+        # two presses to close her dock.
         self.act_persona = QAction("arelis", self)
         self.act_persona.setCheckable(True)
-        self.act_persona.setChecked(self.persona_dock.isVisible())
+        self.act_persona.setChecked(not self.persona_dock.isHidden())
         self.act_persona.setShortcut(QKeySequence("Ctrl+1"))
         self.act_persona.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_persona.triggered.connect(self._toggle_persona)
@@ -235,7 +239,7 @@ class WindowChrome:
 
         self.act_history = QAction("history", self)
         self.act_history.setCheckable(True)
-        self.act_history.setChecked(self.history_dock.isVisible())
+        self.act_history.setChecked(not self.history_dock.isHidden())
         self.act_history.setShortcut(QKeySequence("Ctrl+3"))
         self.act_history.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_history.triggered.connect(self._toggle_history)
@@ -252,7 +256,7 @@ class WindowChrome:
 
         self.act_camera = QAction("camera", self)
         self.act_camera.setCheckable(True)
-        self.act_camera.setChecked(self.camera_dock.isVisible())
+        self.act_camera.setChecked(not self.camera_dock.isHidden())
         self.act_camera.setShortcut(QKeySequence("Ctrl+5"))
         self.act_camera.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_camera.triggered.connect(self._toggle_camera)

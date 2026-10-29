@@ -234,3 +234,33 @@ def _orbit_center_in_window(window) -> tuple[int, int]:
     return pt.x(), pt.y()
 
 
+
+
+def test_idle_orbit_wears_ellah_aether_in_every_legacy_room(qt_app) -> None:
+    """The idle orbit is her violet, not the room's lamp colour."""
+    from PySide6.QtGui import QImage, QPainter
+
+    from arelis.ui.theme import apply_theme
+    from arelis.ui.void_idle import AETHER, paint_aether_orbit
+
+    for room in ("sodium", "night"):
+        apply_theme(room)
+        image = QImage(220, 220, QImage.Format.Format_ARGB32)
+        image.fill(0)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        paint_aether_orbit(painter, 110.0, 110.0, angle=90.0)
+        painter.end()
+        frame = image.pixelColor(110 + 58, 106)
+        assert frame.alpha() > 60
+        assert frame.blue() > frame.red() > frame.green(), room
+    assert AETHER["violet"][2] > AETHER["violet"][0] > AETHER["violet"][1]
+
+
+def test_view_checks_start_true_for_her_open_dock(arelis_window) -> None:
+    """Ctrl+1 closes her dock on the first press after launch."""
+    window = arelis_window()
+    assert not window.persona_dock.isHidden()
+    assert window.act_persona.isChecked()
+    window.act_persona.trigger()
+    assert window._persona_user_closed
