@@ -6,6 +6,10 @@ still fully work. If you already picked sodium or night, you keep it. An
 install that was set up before filament became the default, and never picked a
 theme, stays on sodium.
 
+Filament is drawn in Arelis's own violet and lilac. The room reads those
+colours from the same file her 3D figure uses (`persona_face/web/config.js`),
+so the two always match.
+
 ## Arelis in sodium and night
 
 Her 3D figure shows in her panel in every theme. In sodium and night she wears
