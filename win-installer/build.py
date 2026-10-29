@@ -698,7 +698,9 @@ QT_DROP_PREFIXES = (
     # add-on families go; the import census below proves the core set arrived.
     "QtQuick", "QtQml", "Qt6LabsStyleKit", "Qt6ShaderTools",
     "Qt6QuickControls2", "Qt6QuickDialogs2", "Qt6QuickTemplates2", "Qt6QuickLayouts",
-    "Qt6QuickParticles", "Qt6QuickShapes", "Qt6QuickTest", "Qt6QuickWidgets",
+    "Qt6QuickParticles", "Qt6QuickShapes", "Qt6QuickTest",
+    # Qt6QuickWidgets stays: Qt6WebEngineWidgets.dll links it (the web view widget
+    # is a QQuickWidget), so dropping it fails the QtWebEngineWidgets DLL load.
     "Qt6QuickTimeline", "Qt6QuickEffects", "Qt6QuickVectorImage",
     "Qt6QmlCompiler", "Qt6QmlLocalStorage", "Qt6QmlXmlListModel", "Qt6QmlNetwork",
     # 3D, charting and data visualisation.
