@@ -670,7 +670,7 @@ def detect_intents(
     text: str,
     *,
     history: list[Any] | None = None,
-    room_files: set[str] | None = None,
+    folder_files: set[str] | None = None,
     offer_data_cell: bool | None = None,
 ) -> list[IntentHint]:
     """Return zero or more high-confidence intent hints for this user turn.
@@ -681,7 +681,8 @@ def detect_intents(
     global _DETECT_CACHE
     from arelis.core.intent_catalog import (
         data_cell_enabled,
-        room_data_file_ask,
+        data_file_ask,
+        live_workspace_filenames,
     )
 
     raw = (text or "").strip()
@@ -695,7 +696,7 @@ def detect_intents(
     hist = history or []
     names = {
         str(item).lower()
-        for item in (room_files if room_files is not None else set())
+        for item in (folder_files if folder_files is not None else live_workspace_filenames())
         if str(item).strip()
     }
     name_key = tuple(sorted(names))
@@ -1417,10 +1418,10 @@ def detect_intents(
             )
         )
 
-    if offered and room_data_file_ask(raw, names):
-        from arelis.core.intent_catalog import room_data_file_names
+    if offered and data_file_ask(raw, names):
+        from arelis.core.intent_catalog import data_file_names
 
-        listed = room_data_file_names(names)
+        listed = data_file_names(names)
         nudge = _DATA_CELL_NUDGE
         if listed:
             nudge += " Data files: " + ", ".join(listed) + "."

@@ -1656,11 +1656,88 @@ def profile_place_ask(text: str) -> bool:
     return bool(_PROFILE_PLACE.search(text or ""))
 
 
-_NAMED_ROOM_FILE = re.compile(
+_NAMED_DATA_FILE = re.compile(
     r"(?i)\b([\w.-]+\.(?:csv|tsv|tab|json|xlsx|xls|fits|fit))\b"
 )
 _DATA_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls", ".fits", ".fit"}
 _ONE_DATA_FILE = re.compile(r"(?i)\b(?:my data|my file|this file|that file|the table)\b")
+# Config stamps, active-project stamp, folder mtime, folder path, names. A new
+# file changes the folder mtime, so the next turn relists the top of that
+# folder only.
+_FOLDER_NAME_CACHE: tuple[int, int, int, int, str, frozenset[str]] | None = None
+
+
+def live_workspace_filenames() -> set[str]:
+    """File names at the top of the active workspace folder, or an empty set.
+
+    Same folder data_cell reads. A fresh WorkspaceRoots is not the in-memory
+    one, so this reads the saved active project off disk. The list is cached
+    on the config and active-project mtimes and the folder mtime. Never raises.
+    """
+    global _FOLDER_NAME_CACHE
+    try:
+        from arelis.config import DEFAULT_CONFIG_PATH, LOCAL_CONFIG_PATH
+        from arelis.workspace import _ACTIVE_PROJECT_FILE
+
+        stamps = tuple(
+            path.stat().st_mtime_ns if path.is_file() else 0
+            for path in (DEFAULT_CONFIG_PATH, LOCAL_CONFIG_PATH, _ACTIVE_PROJECT_FILE)
+        )
+    except Exception:
+        # No stamps: there is no folder to read, so this is not a file ask.
+        return set()
+    cached = _FOLDER_NAME_CACHE
+    if cached is not None and cached[:3] == stamps:
+        folder_stamp = _folder_mtime(cached[4])
+        if folder_stamp == cached[3]:
+            return set(cached[5])
+        names = _list_folder_files(cached[4])
+        _FOLDER_NAME_CACHE = (*stamps, folder_stamp, cached[4], names)
+        return set(names)
+    folder = _active_folder()
+    names = _list_folder_files(folder)
+    _FOLDER_NAME_CACHE = (*stamps, _folder_mtime(folder), folder, names)
+    return set(names)
+
+
+def _active_folder() -> str:
+    try:
+        from arelis.config import load_config
+        from arelis.workspace import WorkspaceRoots
+
+        config = load_config()
+        workspace = config.get("_workspace") or WorkspaceRoots.from_config(config)
+        path = workspace.active_root().path
+        return str(path) if path.is_dir() else ""
+    except Exception:
+        # A bad config has no folder, and weather stays weather.
+        return ""
+
+
+def _folder_mtime(folder: str) -> int:
+    if not folder:
+        return 0
+    try:
+        path = Path(folder)
+        return path.stat().st_mtime_ns if path.is_dir() else 0
+    except Exception:
+        # A missing folder is the same as an empty one.
+        return 0
+
+
+def _list_folder_files(folder: str) -> frozenset[str]:
+    """Top of the folder only. Never walks, never raises."""
+    if not folder:
+        return frozenset()
+    try:
+        return frozenset(
+            child.name
+            for child in Path(folder).iterdir()
+            if not child.name.startswith(".") and child.is_file()
+        )
+    except Exception:
+        # A folder that vanishes mid-scan must not take the turn down.
+        return frozenset()
 
 
 # A stem this short, or this common, does not identify a file. The ask has
@@ -1706,10 +1783,10 @@ def _phrase_in(text: str, phrase: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text) is not None
 
 
-def _room_names(room_files: set[str] | None) -> set[str]:
+def _folder_names(folder_files: set[str] | None) -> set[str]:
     return {
         str(item).lower()
-        for item in (room_files if room_files is not None else set())
+        for item in (folder_files if folder_files is not None else live_workspace_filenames())
         if str(item).strip()
     }
 
@@ -1750,44 +1827,44 @@ def data_cell_enabled() -> bool:
     return enabled
 
 
-def room_data_file_names(room_files: set[str] | None = None, *, limit: int = 10) -> list[str]:
-    """Data file names in this room, up to ten, names only."""
-    return sorted(_data_names(_room_names(room_files)))[:limit]
+def data_file_names(folder_files: set[str] | None = None, *, limit: int = 10) -> list[str]:
+    """Data file names in the workspace folder, up to ten, names only."""
+    return sorted(_data_names(_folder_names(folder_files)))[:limit]
 
 
-def room_data_file_explicit(text: str, room_files: set[str] | None = None) -> bool:
-    """True when the ask names a room data file, or says fits and one is there.
+def data_file_explicit(text: str, folder_files: set[str] | None = None) -> bool:
+    """True when the ask names a workspace data file, or says fits and one is there.
 
     A stem or a one-file phrase is not enough for a hard reject.
     """
-    names = _room_names(room_files)
+    names = _folder_names(folder_files)
     if not names:
         return False
     raw = text or ""
-    mentioned = [hit.group(1).lower() for hit in _NAMED_ROOM_FILE.finditer(raw)]
+    mentioned = [hit.group(1).lower() for hit in _NAMED_DATA_FILE.finditer(raw)]
     if mentioned:
         return any(name in names for name in mentioned)
     has_fits = any(name.endswith((".fits", ".fit")) for name in names)
     return bool(re.search(r"\bfits\b", raw, re.I) and has_fits)
 
 
-def room_data_file_ask(text: str, room_files: set[str] | None = None) -> bool:
-    """True when the ask is about a data file that is actually in this room.
+def data_file_ask(text: str, folder_files: set[str] | None = None) -> bool:
+    """True when the ask is about a data file that is actually in the workspace folder.
 
-    Only csv, tsv, json, Excel, and FITS count. A .py or .md in the room
-    does not. A named csv that is not in the room does not match. A word
+    Only csv, tsv, json, Excel, and FITS count. A .py or .md in the folder
+    does not. A named csv that is not in the folder does not match. A word
     or a two-word phrase that matches a data-file stem does ("readings"
     matches readings.csv, "weather log" matches weather_log.csv). Generic
     stems such as weather, data, or test do not. "my data", "my file",
-    "this file", "that file", or "the table" match only when the room has
-    exactly one data file. The word "fits" matches when the room has a
+    "this file", "that file", or "the table" match only when the folder has
+    exactly one data file. The word "fits" matches when the folder has a
     FITS file.
     """
-    names = _room_names(room_files)
+    names = _folder_names(folder_files)
     if not names:
         return False
     raw = text or ""
-    if room_data_file_explicit(raw, names):
+    if data_file_explicit(raw, names):
         return True
     folded = re.sub(r"[-_]+", " ", raw.lower())
     for name in _data_names(names):
@@ -1814,7 +1891,7 @@ def data_cell_should_reject(
         return False
     if _EDIT_NOT_A_READ.search(text or ""):
         return False
-    if not room_data_file_explicit(text):
+    if not data_file_explicit(text):
         return False
     if name in {"analyze", "weather", "plot", "python", "vision", "recall"}:
         return True
@@ -1840,7 +1917,7 @@ def should_inject_saved_place(
 
 
 def weather_intent_matches(text: str, *, data_cell: bool | None = None) -> bool:
-    """True for a forecast ask, not a device spec or a file in this room.
+    """True for a forecast ask, not a device spec or a file in the workspace folder.
 
     ``data_cell`` is whether this turn can call the tool. None follows the
     config flag. A job that did not register it passes False so a forecast
@@ -1848,7 +1925,7 @@ def weather_intent_matches(text: str, *, data_cell: bool | None = None) -> bool:
     """
     raw = text or ""
     offered = data_cell_enabled() if data_cell is None else data_cell
-    if offered and room_data_file_ask(raw):
+    if offered and data_file_ask(raw):
         return False
     if exactness_match("weather", raw):
         return True

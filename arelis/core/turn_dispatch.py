@@ -20,7 +20,7 @@ from arelis.core.email_complete import (
     fill_send_email_args,
 )
 from arelis.core.events import Event, EventType
-from arelis.core.intent_catalog import data_cell_should_reject, room_data_file_names
+from arelis.core.intent_catalog import data_cell_should_reject, data_file_names
 from arelis.core.look import look_call_blocked
 from arelis.core.preflight import (
     looks_like_browser_click_signin,
@@ -320,7 +320,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
 
         if data_cell_should_reject(name, args, r.text, r.tool_names):
             _drop_wander(name)
-            listed = room_data_file_names()
+            listed = data_file_names()
             err = (
                 "That file is already here. Call data_cell. "
                 "files= the file names. "

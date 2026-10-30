@@ -976,9 +976,9 @@ def detect_exactness_need(text: str, *, data_cell: bool | None = None) -> Exactn
             needs_weather = False
     # A room data file that says temperature is not a forecast.
     if needs_weather and data_cell:
-        from arelis.core.intent_catalog import data_cell_enabled, room_data_file_ask
+        from arelis.core.intent_catalog import data_cell_enabled, data_file_ask
 
-        if data_cell_enabled() and room_data_file_ask(text or ""):
+        if data_cell_enabled() and data_file_ask(text or ""):
             needs_weather = False
     # A forecast ask is not a page warrant.
     if needs_web and needs_weather:
