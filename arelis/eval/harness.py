@@ -691,7 +691,6 @@ async def run_scripted_scenario(
         "ask_is_grant": False,
         "json_fallback": True,
         "lessons": True,
-        "scrape_after_search": True,
         "exactness": True,
         "numeric_gate": True,
         "evidence_gate": True,

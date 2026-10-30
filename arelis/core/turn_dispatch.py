@@ -332,7 +332,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             if listed:
                 err += " Data files: " + ", ".join(listed) + "."
             await loop.bus.publish(
-                Event(EventType.THINKING, {"text": f"reject  room file  {name}"})
+                Event(EventType.THINKING, {"text": f"reject  data file  {name}"})
             )
             r.messages.append(loop._tool_message(name, err))
             continue

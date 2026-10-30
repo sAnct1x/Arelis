@@ -103,11 +103,3 @@ def research_chip_needs_a_page(text: str) -> bool:
     if is_research_hint(raw):
         return True
     return bool(_FACT_ASK.search(raw))
-
-
-def is_tool_loop(text: str) -> bool:
-    return bool(TOOL_LOOP_HINT.search(text))
-
-
-def is_file_loop(text: str) -> bool:
-    return bool(FILE_LOOP_HINT.search(text))
