@@ -376,6 +376,12 @@ async def _attach_tool_schemas_and_history(
     from arelis.attachments import apply_images_to_last_user
 
     apply_images_to_last_user(ctx.messages, text, staged_files)
+    # The wire tells this question apart from the notes added later in the
+    # turn, which must not render as new questions (#278).
+    for index in range(len(ctx.messages) - 1, -1, -1):
+        if ctx.messages[index].get("role") == "user":
+            ctx.messages[index] = {**ctx.messages[index], "turn_query": True}
+            break
 
 
 _SLASH_DATE = re.compile(r"(?<![\d/.])\d{1,2}/\d{1,2}/\d{2,4}(?![\d/])")

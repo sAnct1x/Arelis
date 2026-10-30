@@ -217,6 +217,31 @@ def _last_real_user_index(messages: list[dict[str, Any]]) -> int | None:
     return None
 
 
+def _wrap_turn_notes(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Wrap Arelis's own user notes after this turn's question (#278).
+
+    The Qwen template treats every plain user row as a new question and drops
+    the thinking of the tool rounds before it, so a note added mid-turn
+    re-rendered those rounds and the server re-prefilled them. A row wrapped
+    in ``<tool_response>`` is not a question to the template.
+    """
+    query = next(
+        (i for i in range(len(messages) - 1, -1, -1)
+         if isinstance(messages[i], dict) and messages[i].get("turn_query")),
+        None,
+    )
+    if query is None:
+        return messages
+    wrapped = list(messages)
+    for index in range(query + 1, len(wrapped)):
+        msg = wrapped[index]
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            text = _message_content(msg.get("content"))
+            if isinstance(text, str) and not text.strip().startswith("<tool_response>"):
+                wrapped[index] = {**msg, "content": f"<tool_response>\n{text}\n</tool_response>"}
+    return wrapped
+
+
 def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Chat rows to the OpenAI chat shape llama-server expects.
 
@@ -229,6 +254,7 @@ def _wire_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     pending_ids: list[str] = []
     ordinal = 0
+    messages = _wrap_turn_notes(messages)
     last_user = _last_real_user_index(messages)
     for index, msg in enumerate(messages):
         if not isinstance(msg, dict):
