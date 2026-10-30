@@ -72,6 +72,12 @@ _YEAR_RANGE = re.compile(r"\b(?:1\d{3}|20\d{2})\s*[-–—]\s*(?:1\d{3}|20\d{2})
 # with the calculator sentence. The what-is window is DOTALL, so the
 # section number counted.
 _OUTLINE_ITEM = re.compile(r"(?m)^\s*\d{1,2}\.\s+")
+# A file name or path ("m31.png", "C:\\pics\\m31.png", "run2/m31.fits").
+# Its digits name the file; they are not numbers to compute.
+_FILE_TOKEN = re.compile(
+    r"(?i)[\w:\\/.~-]*[\w-]\.(?:png|jpe?g|gif|webp|bmp|tiff?|fits?|csv|tsv|tab|"
+    r"json|xlsx?|pdf|docx?|txt|md|py|log|ya?ml)\b"
+)
 _QUANTITY_RANGE = re.compile(
     r"(?i)\b\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?\s+"
     r"(?:hours?|hrs?|days?|weeks?|months?|years?|"
@@ -686,6 +692,7 @@ def detect_math_ask(text: str) -> bool:
     cleaned = _YEAR_RANGE.sub(" ", cleaned)
     cleaned = _QUANTITY_RANGE.sub(" ", cleaned)
     cleaned = _OUTLINE_ITEM.sub(" ", cleaned)
+    cleaned = _FILE_TOKEN.sub(" ", cleaned)
     word_cue = _CLEAR_MATH_CUE.search(lowered) is not None
     pair_cue = _operator_pair_cue(lowered)
     # "what was 9/11" and "10/12/2025" lose the slash. "what is 3/4" keeps it,
