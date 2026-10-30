@@ -130,5 +130,3 @@ async def test_default_chat_chart_type_is_larger_than_stock_matplotlib(
         assert _rc_pt("legend.fontsize") >= 18
         assert _rc_pt("axes.titlesize") >= 20
         assert _rc_pt("axes.labelsize") >= 18
-
-
