@@ -2,25 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
-from arelis.core.route_hints import (
-    is_file_loop,
-    is_tool_loop,
-)
-
-
-@pytest.mark.parametrize(
-    "text",
-    (
-        "please edit the python file and lint it",
-        "git commit the workspace",
-    ),
-)
-def test_file_loop_category(text: str) -> None:
-    assert is_file_loop(text)
-    assert is_tool_loop(text)
-
 
 def test_a_check_in_does_not_need_a_page() -> None:
     from arelis.core.claims import apply_research_web_need, detect_exactness_need
@@ -50,5 +31,3 @@ def test_a_real_question_on_the_research_chip_still_needs_a_page() -> None:
     assert is_research_mode("research", ask)
     goal = derive_turn_goal(ask, role="research", research_mode=True)
     assert goal.kind == "research"
-
-

@@ -174,7 +174,7 @@ class PlanSpec:
     id: str
     message: str
     steps: tuple[str, ...]
-    # When True, agent_loop's scrape_after_search already covers step 2.
+    # When True, another gate owns the steps and plan_progress_notice is quiet.
     skip_progress: bool = False
 
 
@@ -237,7 +237,7 @@ _PLAN_MULTI = PlanSpec(
         "3) Answer with a short Sources list."
     ),
     steps=("web_search", "scrape"),
-    skip_progress=True,  # scrape_after_search gate owns step 2
+    skip_progress=True,  # evidence_gate wants a page (_exactness_finish_refuse)
 )
 
 _PLAN_DEADLINE = PlanSpec(

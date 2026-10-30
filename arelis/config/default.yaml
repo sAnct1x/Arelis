@@ -155,12 +155,7 @@ agent:
   # At UI/CLI start, mine logs/turns.log and append curated lessons by signature.
   # Fail soft; never invents free-form text (fixed catalog only).
   auto_lessons: true
-  # Leftover switches. Nothing in the turn reads these, and they do not
-  # choose a tool. Kept so an older config.local.yaml that still sets them loads.
-  scrape_after_search: true
-  browser_after_js_shell: true
-  plan_progress: true
-  sms_preinject: true
+  # One retry nudge when the browser profile is locked or CDP drops.
   browser_relaunch_force: true
   # An argument the tool never declared is dropped in silence, because tools take
   # **kwargs and read only the keys they know. The reply is then built on a belief
