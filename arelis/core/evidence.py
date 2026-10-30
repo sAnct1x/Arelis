@@ -45,7 +45,7 @@ class Warrant:
 def _data_cell_value(output: str) -> str:
     """Text the cell actually computed. A type repr or the empty nudge is not one."""
     text = (output or "").strip()
-    text = re.sub(r"\nData files(?: in this room)?:.*\Z", "", text, flags=re.S).strip()
+    text = re.sub(r"\nData files:.*\Z", "", text, flags=re.S).strip()
     if not text or text.startswith("The code ran but printed nothing"):
         return ""
     if re.fullmatch(r"<class '[^']+'>", text):
