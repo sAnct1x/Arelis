@@ -83,21 +83,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         ),
     ),
     Mutation(
-        name="scrape_after_search",
-        overrides={"scrape_after_search": False},
-        guards="no_call_finish — search must be followed by a read",
-    ),
-    Mutation(
-        name="browser_after_js_shell",
-        overrides={"browser_after_js_shell": False},
-        guards="no_call_finish — JS shell means use the browser",
-    ),
-    Mutation(
-        name="plan_progress",
-        overrides={"plan_progress": False},
-        guards="plan_nudge.py (736 lines) — multi-step plan advance",
-    ),
-    Mutation(
         name="lessons",
         overrides={"lessons": False},
         guards="ACE failure lessons injected from turns.log",
@@ -120,9 +105,6 @@ MUTATIONS: tuple[Mutation, ...] = (
             "numeric_gate": False,
             "evidence_gate": False,
             "research_dual_hit": False,
-            "scrape_after_search": False,
-            "browser_after_js_shell": False,
-            "plan_progress": False,
             "lessons": False,
         },
         guards="the entire ~12,700-line compensation layer at once",
