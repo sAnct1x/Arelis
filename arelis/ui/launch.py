@@ -526,6 +526,18 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         QApplication.setAttribute(
             Qt.ApplicationAttribute.AA_UseDesktopOpenGL, True
         )
+    elif QApplication.instance() is None:
+        # The three.js avatar's QWebEngineView needs a shared GL context, and Qt only
+        # honours this before QApplication exists. Never with desktop GL (the AMD
+        # abort above); skipped when WebEngine is not installed.
+        import importlib.util
+
+        try:
+            has_webengine = importlib.util.find_spec("PySide6.QtWebEngineWidgets") is not None
+        except (ImportError, ValueError):
+            has_webengine = False
+        if has_webengine:
+            QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
     # Cesium is a child process when the solar lab uses GPU. Do not create
     # a Qt share group or import QWebEngineView here — that is the AMD abort
     # (globalShareContext stays alive after park()). In-process WebEngine

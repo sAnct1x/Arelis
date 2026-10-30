@@ -218,5 +218,8 @@ def apply_startup_hosts(window) -> None:
         window.voice_controller.listening_changed.connect(
             lambda _on: refresh_idle_face(window)
         )
+        panel = getattr(window, "persona_panel", None)
+        if panel is not None:
+            window.voice_controller.listening_changed.connect(panel.set_listening)
     refresh_history(window)
     sync_idle_mode(window)

@@ -105,6 +105,10 @@ QT_MODULES = (
     "QtMultimediaWidgets",
     "QtOpenGL",
     "QtSvg",
+    # The three.js avatar (arelis/ui/persona_face/web_avatar.py).
+    "QtWebEngineCore",
+    "QtWebEngineWidgets",
+    "QtWebChannel",
 )
 
 # One import per dependency this project declares, in the form that actually proves it
@@ -672,7 +676,6 @@ def remove_build_only_packages() -> None:
 # Whole directories. Everything here is either a feature family with no import anywhere
 # in the codebase, or build-time material with no runtime role at all.
 QT_DROP_DIRECTORIES = {
-    "resources": "QtWebEngine's data files: icudtl.dat and the .pak bundles",
     "translations": "Qt's own UI translations, most of it QtWebEngine's locales",
     "qml": "QML modules, for a UI written in QML rather than Widgets",
     "metatypes": "JSON type registrations read by Qt's build tools, never at runtime",
@@ -687,11 +690,19 @@ QT_DROP_DIRECTORIES = {
 # other eleven of them -- and so a Qt upgrade that adds another one does not silently
 # start shipping it.
 QT_DROP_PREFIXES = (
-    # The single largest item in the distribution, at 195MB, plus its bindings.
-    "Qt6WebEngine", "QtWebEngine", "Qt6WebView", "QtWebView",
-    "Qt6WebSockets", "QtWebSockets", "Qt6WebChannel", "QtWebChannel",
-    # Qt's other UI toolkit. Arelis is Widgets throughout.
-    "Qt6Quick", "QtQuick", "Qt6Qml", "QtQml", "Qt6LabsStyleKit", "Qt6ShaderTools",
+    # QtWebEngine and QtWebChannel stay: the three.js avatar runs in them. Its
+    # resources/ (icudtl.dat, .pak) and QtWebEngineProcess.exe stay with it.
+    "Qt6WebView", "QtWebView", "Qt6WebSockets", "QtWebSockets",
+    # Qt's other UI toolkit. Arelis is Widgets throughout. Qt6WebEngineCore.dll links
+    # Qt6Quick, Qt6Qml, Qt6QmlModels and Qt6QmlMeta/WorkerScript, so only their
+    # add-on families go; the import census below proves the core set arrived.
+    "QtQuick", "QtQml", "Qt6LabsStyleKit", "Qt6ShaderTools",
+    "Qt6QuickControls2", "Qt6QuickDialogs2", "Qt6QuickTemplates2", "Qt6QuickLayouts",
+    "Qt6QuickParticles", "Qt6QuickShapes", "Qt6QuickTest",
+    # Qt6QuickWidgets stays: Qt6WebEngineWidgets.dll links it (the web view widget
+    # is a QQuickWidget), so dropping it fails the QtWebEngineWidgets DLL load.
+    "Qt6QuickTimeline", "Qt6QuickEffects", "Qt6QuickVectorImage",
+    "Qt6QmlCompiler", "Qt6QmlLocalStorage", "Qt6QmlXmlListModel", "Qt6QmlNetwork",
     # 3D, charting and data visualisation.
     "Qt63D", "Qt3D", "Qt6Charts", "QtCharts",
     "Qt6DataVisualization", "QtDataVisualization", "Qt6Graphs", "QtGraphs",
@@ -700,12 +711,14 @@ QT_DROP_PREFIXES = (
     # Hardware and protocol modules for hardware Arelis does not talk to.
     "Qt6Bluetooth", "QtBluetooth", "Qt6Nfc", "QtNfc",
     "Qt6SerialPort", "QtSerialPort", "Qt6SerialBus", "QtSerialBus",
-    "Qt6Location", "QtLocation", "Qt6Positioning", "QtPositioning",
+    # Qt6Positioning.dll is a link-time dependency of Qt6WebEngineCore and stays.
+    "Qt6Location", "QtLocation", "Qt6PositioningQuick", "QtPositioning",
     "Qt6Sensors", "QtSensors",
     # Modules with a real Arelis counterpart elsewhere: PDF is pypdf, speech is Kokoro
-    # and Piper, OAuth is msal and google-auth, and nothing prints.
+    # and Piper, OAuth is msal and google-auth. QtPrintSupport stays: the
+    # QtWebEngineWidgets Python module imports it at load time.
     "Qt6Pdf", "QtPdf", "Qt6TextToSpeech", "QtTextToSpeech",
-    "Qt6NetworkAuth", "QtNetworkAuth", "Qt6PrintSupport", "QtPrintSupport",
+    "Qt6NetworkAuth", "QtNetworkAuth",
     # SQL, state machines, remote objects, Qt's own test framework.
     "Qt6Sql", "QtSql", "Qt6Scxml", "QtScxml", "Qt6StateMachine", "QtStateMachine",
     "Qt6RemoteObjects", "QtRemoteObjects", "Qt6Test", "QtTest",
@@ -771,6 +784,8 @@ def prune_qt(site: Path) -> int:
     tools = 0
     tool_bytes = 0
     for exe in pyside.glob("*.exe"):
+        if exe.name.startswith("QtWebEngineProcess"):
+            continue  # Chromium's renderer for the avatar; not a developer tool.
         tool_bytes += exe.stat().st_size
         exe.unlink()
         tools += 1
@@ -865,11 +880,27 @@ def prune_test_suites(site: Path) -> int:
     return freed
 
 
+def check_avatar_assets(site: Path) -> None:
+    """The avatar scene ships in the wheel (package-data); its model never does."""
+    web = site / "arelis" / "ui" / "persona_face" / "web"
+    needed = ("index.html", "aether.js", "config.js", "avatar-api.js",
+              "vendor/three/three.module.min.js", "vendor/three/addons/loaders/GLTFLoader.js",
+              "vendor/three/addons/postprocessing/UnrealBloomPass.js")
+    missing = [name for name in needed if not (web / name).is_file()]
+    if missing:
+        raise SystemExit(f"avatar scene files missing from the tree: {', '.join(missing)}")
+    models = sorted(str(p.relative_to(site)) for p in (site / "arelis").rglob("*.glb"))
+    if models:
+        raise SystemExit(f"a .glb model got into the tree, which must not ship: {models}")
+    say(f"    {human(tree_size(web)):>10}  avatar scene (three.js, no model)")
+
+
 def prune(before: int) -> None:
     site = TREE / "Lib" / "site-packages"
     freed = 0
     say(f"  Qt, which is 634MB of which Arelis imports {len(QT_MODULES)} modules:")
     freed += prune_qt(site)
+    check_avatar_assets(site)
     say("  elsewhere:")
     freed += prune_babel(site)
     freed += prune_duplicates(TREE)

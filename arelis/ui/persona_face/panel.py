@@ -83,6 +83,9 @@ class PersonaPanel(QWidget):
         self._bake_arm = QTimer(self)
         self._bake_arm.setSingleShot(True)
         self._bake_arm.timeout.connect(self._kick_bake)
+        self._listening = False
+        self.web = None
+        self.web_avatar_reason = self._start_web()
         self._place()
 
     def sizeHint(self) -> QSize:
@@ -157,6 +160,70 @@ class PersonaPanel(QWidget):
     def cue(self, name: str) -> None:
         """Trigger one motion event now: smile, wink, nod, look or glance."""
         self._motion.cue(name, self._now())
+
+    def set_listening(self, on: bool) -> None:
+        """Mic is open. Only the web avatar shows this; the painted face ignores it."""
+        self._listening = bool(on)
+        self._push_web(None)
+
+    def _start_web(self) -> str | None:
+        """Try the three.js avatar. Returns why not, or None when it is starting."""
+        from arelis.ui.persona_face import web_avatar
+
+        reason = web_avatar.unavailable_reason()
+        if reason is None:
+            try:
+                self.web = web_avatar.WebAvatar(self)
+            except Exception as exc:
+                reason = f"web avatar failed to start: {exc}"
+        if reason is not None:
+            _LOG.info("painted face in use: %s", reason)
+            return reason
+        self.web.hide()
+        self.web.ready.connect(self._on_web_ready)
+        self.web.failed.connect(self._on_web_failed)
+        return None
+
+    def _on_web_ready(self) -> None:
+        if self.web is None:
+            return
+        self._place()
+        self.web.show()
+        self.web.raise_()
+        self.avatar.hide()
+
+    def _on_web_failed(self, reason: str) -> None:
+        self.web_avatar_reason = reason
+        web, self.web = self.web, None
+        self.avatar.show()
+        self.avatar.update()
+        if web is not None:
+            web.hide()
+            web.deleteLater()
+
+    def _push_web(self, level: float | None) -> None:
+        if self.web is None:
+            return
+        speaking = self._speaking or self._state == "speaking"
+        if speaking:
+            state = "speaking"
+        elif self._state in {"thinking", "done"}:
+            state = self._state
+        elif self._listening:
+            state = "listening"
+        else:
+            state = "rest"
+        self.web.set_state(state)
+        self.web.set_level(level if speaking else 0.0)
+
+    def mousePressEvent(self, event) -> None:
+        # The web view lets clicks through; she still stops speaking when clicked.
+        web = self.web
+        hit = web is not None and web.geometry().contains(event.position().toPoint())
+        if hit and web.is_ready():
+            self._pressed()
+            return
+        super().mousePressEvent(event)
 
     def set_level_source(self, source: Callable[[], float | None] | None) -> None:
         self._level = source
@@ -542,6 +609,7 @@ class PersonaPanel(QWidget):
             loudness=level,
         )
         self.avatar.thinking = self._state == "thinking"
+        self._push_web(level)
         self.avatar.speaking = speaking
         if self._state == "done" and self._done_at is not None:
             self.avatar.glow = max(0.0, 1.0 - (now - self._done_at) / 0.8)
@@ -583,6 +651,8 @@ class PersonaPanel(QWidget):
     def _place(self) -> None:
         height = max(1, self.height() - _TEXT_H)
         self.avatar.setGeometry(0, 0, max(1, self.width()), height)
+        if getattr(self, "web", None) is not None:
+            self.web.setGeometry(0, 0, max(1, self.width()), height)
 
     def _now(self) -> float:
         if self._clock is not None:

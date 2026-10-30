@@ -42,12 +42,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from arelis.ui.aether_look import aether_rgb
+from arelis.ui.theme_tokens import _FILAMENT_PLATE
+
+_AETHER = aether_rgb()
+FILAMENT_VOID = _FILAMENT_PLATE["seal"][:3]
+
 Weather = Literal["idle", "awake", "listen", "think", "speak"]
 
-_VOID = QColor(7, 8, 11)
-_ICE = (176, 200, 216)
-_GOLD = (212, 168, 96)
-_CORE = (255, 236, 210)
+# Arelis's own colours (aether_look reads them from the web scene's config.js):
+# the current runs from her lilac to her violet, the bead is her spark.
+_VOID = QColor(*FILAMENT_VOID)
+_ICE = _AETHER["lilac"]
+_GOLD = _AETHER["violet"]
+_CORE = _AETHER["spark"]
 
 _WEATHER = {
     "idle": {"form": 0.00, "speed": 0.08, "pulse": 0.00, "warm": 0.00, "words": 0.00},

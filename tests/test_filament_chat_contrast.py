@@ -161,4 +161,6 @@ def test_filament_chat_text_meets_aa() -> None:
             )
     assert not failures, "Filament chat text is under 4.5:1:\n" + "\n".join(failures)
     # The lamp stays the filament gold. Readability is the type, not a new accent.
-    assert COLORS["accent"].lower() == "#c4a06a"
+    from arelis.ui.aether_look import aether_rgb
+
+    assert COLORS["accent"].lower() == "#{:02x}{:02x}{:02x}".format(*aether_rgb()["lilac"])

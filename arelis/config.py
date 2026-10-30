@@ -64,6 +64,28 @@ def merge_local_config(patch: dict[str, Any], path: Path | None = None) -> Path:
     return target
 
 
+def settle_theme(data: dict[str, Any], local: Any, path: Path | None = None) -> None:
+    """Pin the theme once so the filament default only reaches new installs.
+
+    default.yaml ships filament. An install that already has a local config
+    but never picked a theme has been looking at sodium, so it keeps sodium
+    instead of waking up in a different room. A fresh install (no local
+    config) keeps the shipped filament. Either way the result is written to
+    the local config, so the next launch reads a real choice and this never
+    guesses twice. An explicit sodium, night or filament is left alone.
+    """
+    if isinstance(local, dict) and (local.get("ui") or {}).get("theme"):
+        return
+    theme = "sodium" if local is not None else (data.get("ui") or {}).get("theme")
+    if not theme:
+        return
+    data.setdefault("ui", {})["theme"] = theme
+    try:
+        merge_local_config({"ui": {"theme": theme}}, path)
+    except OSError:
+        pass  # read-only data dir: the in-memory pick still holds this run
+
+
 def load_config(path: Path | None = None) -> dict[str, Any]:
     """Load YAML config and resolve every path in it to an absolute one.
 
@@ -86,10 +108,13 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     if not isinstance(data, dict):
         data = {}
 
-    if path is None and LOCAL_CONFIG_PATH.is_file():
-        local = yaml.safe_load(LOCAL_CONFIG_PATH.read_text(encoding="utf-8")) or {}
-        if isinstance(local, dict):
-            deep_merge(data, local)
+    if path is None:
+        local: Any = None
+        if LOCAL_CONFIG_PATH.is_file():
+            local = yaml.safe_load(LOCAL_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+            if isinstance(local, dict):
+                deep_merge(data, local)
+        settle_theme(data, local)
 
     named_roots = _parse_workspace_roots(data.get("workspace", {}).get("roots", ["."]))
     named_roots = ensure_package_inspect_root(named_roots)

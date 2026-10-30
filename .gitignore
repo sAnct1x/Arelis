@@ -138,3 +138,6 @@ mypy_out.txt
 # Test artifacts. Agent and CI ephemera, not product.
 /test_run.log
 /TEST_REPORT.md
+
+# The avatar model lives in the user's data folder, never in the repo.
+*.glb
