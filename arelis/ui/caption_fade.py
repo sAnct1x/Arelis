@@ -178,6 +178,20 @@ class CaptionHover(QObject):
             self.poll.start()
             self.sync()
 
+    def __del__(self) -> None:
+        # A host and its hover can die together as cyclic garbage. The
+        # collector runs this first, then clears the instance dict, then
+        # deletes the host, and the host's teardown events still reach this
+        # filter. Remove the filter while _host is still here (#263).
+        host = self.__dict__.get("_host")
+        if host is None:
+            return
+        try:
+            host.removeEventFilter(self)
+        except RuntimeError:
+            # The host's C++ side is already gone, so nothing is installed.
+            pass
+
     def eventFilter(self, watched, event) -> bool:  # type: ignore[override]
         if watched is self._host:
             kind = event.type()
