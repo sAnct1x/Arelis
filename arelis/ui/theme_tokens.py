@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from arelis.ui.aether_look import aether_rgb
+
 # Evening room under a sodium lamp. Bright enough to read, quiet enough to sit in.
 # The room shares the lamp's hue (~24-28) at low chroma: bg0 is #100d0b, a spread
 # of 5 between red and blue. A wider split (the old #160d07, red 22 / blue 7)
@@ -274,13 +276,15 @@ TYPE = {
     "track_heading": "0em",
 }
 
-# Sodium is the product. Filament is a test face (View → themes).
-DEFAULT_THEME = "sodium"
-_ACTIVE_THEME = DEFAULT_THEME
+# Filament is the main theme and the one fallback for a missing or unknown
+# name. Installs that predate it are pinned to sodium in config.settle_theme.
+DEFAULT_THEME = "filament"
+# The module-level tokens above are sodium's until apply_theme runs.
+_ACTIVE_THEME = "sodium"
 
 # Snapshot the shipped lamp so apply_theme can restore it without a rewrite.
 # A new room is another entry in _PALETTES with the same token names — not a
-# second stylesheet and not a hue slider. Sodium stays the default.
+# second stylesheet and not a hue slider.
 _SODIUM_COLORS = dict(COLORS)
 _SODIUM_FILAMENT = dict(FILAMENT)
 _SODIUM_BLOOM = dict(BLOOM)
@@ -290,14 +294,35 @@ _SODIUM_HAIRLINE = dict(HAIRLINE)
 _SODIUM_TYPE = dict(TYPE)
 
 
+_AETHER = aether_rgb()
+
+
+def _dusk(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
+    """A dark neutral at the same lightness, leaned to her violet interior."""
+    n = sum(rgb) / 3.0
+    i = _AETHER["interior"]
+    k = n / max(1.0, sum(i) / 3.0)
+    return tuple(min(255, round(c * k)) for c in i)  # type: ignore[return-value]
+
+
+def _lift(rgb: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+    """Toward white by t: lighter type in her hue that keeps its contrast."""
+    return tuple(round(c + (255 - c) * t) for c in rgb)  # type: ignore[return-value]
+
+
 def _filament_colors() -> dict[str, str]:
-    """Charcoal void, gold type. Same token names as sodium. Float stays opaque."""
+    """Violet-black void, Arelis's violet threads and lilac type.
+
+    Every hue comes from her own colours (aether_look, read from the web
+    scene's config.js), so the room and her figure read as one. Same token
+    names as sodium. Float stays opaque.
+    """
     c = dict(_SODIUM_COLORS)
-    gold = (196, 160, 106)
-    cream = (232, 212, 176)
-    void = (7, 8, 11)
-    plate = (18, 20, 26)
-    well = (28, 30, 38)
+    gold = _AETHER["lilac"]  # threads, rims, hovers (the old gold slot)
+    cream = _AETHER["spark"]  # body type, her brightest light
+    void = _dusk((7, 8, 11))
+    plate = _dusk((18, 20, 26))
+    well = _dusk((28, 30, 38))
 
     def rgba(rgb: tuple[int, int, int], a: int) -> str:
         return f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {a})"
@@ -307,44 +332,44 @@ def _filament_colors() -> dict[str, str]:
 
     c.update({
         "bg0": hex6(void),
-        "bg1": "#101218",
-        "bg2": "#181c24",
+        "bg1": hex6(_dusk((16, 18, 24))),
+        "bg2": hex6(_dusk((24, 28, 36))),
         "plate": rgba(plate, 255),
         "panel_fill": rgba(plate, 255),
         "veil": rgba(void, 36),
         "scrim": rgba(void, 200),
-        "code_fill": rgba((12, 14, 18), 180),
+        "code_fill": rgba(_dusk((12, 14, 18)), 180),
         "glass": rgba(void, 140),
-        "glass_strong": rgba((14, 16, 22), 176),
-        "glass_soft": rgba((32, 34, 42), 110),
+        "glass_strong": rgba(_dusk((14, 16, 22)), 176),
+        "glass_soft": rgba(_dusk((32, 34, 42)), 110),
         "glass_fill": rgba(void, 248),
         "glass_fill_float": rgba(void, 248),
         "glass_fill_docked": rgba(void, 0),
         "glass_fill_settings": rgba(void, 255),
-        "bubble_fill": rgba((24, 26, 32), 130),
-        "bubble_wash": rgba((20, 22, 28), 190),
-        "menu_fill": rgba((22, 24, 30), 242),
-        "inset": rgba((14, 16, 22), 150),
+        "bubble_fill": rgba(_dusk((24, 26, 32)), 130),
+        "bubble_wash": rgba(_dusk((20, 22, 28)), 190),
+        "menu_fill": rgba(_dusk((22, 24, 30)), 242),
+        "inset": rgba(_dusk((14, 16, 22)), 150),
         "well": rgba(well, 255),
-        "well_focus": rgba((40, 42, 52), 255),
+        "well_focus": rgba(_dusk((40, 42, 52)), 255),
         "well_soft": rgba(well, 130),
-        "card_fill": rgba((32, 34, 42), 160),
-        "raised": rgba((36, 38, 46), 255),
-        "raised_warm": rgba((48, 42, 32), 255),
-        "sunk": rgba((16, 18, 24), 255),
-        "sunk_soft": rgba((16, 18, 24), 190),
-        "tab_selected": rgba((72, 58, 36), 255),
-        "groove": rgba((32, 34, 42), 170),
-        "chip": rgba((40, 36, 28), 110),
-        "chip_solid": rgba((40, 36, 28), 220),
+        "card_fill": rgba(_dusk((32, 34, 42)), 160),
+        "raised": rgba(_dusk((36, 38, 46)), 255),
+        "raised_warm": rgba(_dusk((48, 42, 32)), 255),
+        "sunk": rgba(_dusk((16, 18, 24)), 255),
+        "sunk_soft": rgba(_dusk((16, 18, 24)), 190),
+        "tab_selected": rgba(_dusk((72, 58, 36)), 255),
+        "groove": rgba(_dusk((32, 34, 42)), 170),
+        "chip": rgba(_dusk((40, 36, 28)), 110),
+        "chip_solid": rgba(_dusk((40, 36, 28)), 220),
         "row_hover": rgba(gold, 80),
         "row_selected": rgba(gold, 110),
         "hover_soft": rgba(gold, 110),
         "hover": rgba(gold, 150),
         "hover_strong": rgba(gold, 210),
-        "button_fill": rgba((64, 52, 32), 170),
+        "button_fill": rgba(_dusk((64, 52, 32)), 170),
         "button_hover": rgba(gold, 210),
-        "button_hover_hot": rgba((212, 168, 96), 220),
+        "button_hover_hot": rgba(_AETHER["violet"], 220),
         "button_hover_soft": rgba(gold, 150),
         "live_fill": rgba(gold, 150),
         "selection": rgba(gold, 190),
@@ -363,23 +388,20 @@ def _filament_colors() -> dict[str, str]:
         "edge_bright": rgba(cream, 140),
         "catch": rgba(cream, 80),
         "text": hex6(cream),
-        "hint": "#d4b888",
-        "thinking": "#c4a06a",
-        # User lines and role labels. Labels sit on the bare plate, and the
-        # sheen at the top of a tall chat tile put #b89468 at 3.27:1.
-        # Same cream hue as body type, one step down.
-        "text_dim": "#d4c1a1",
-        "dim": "#a88858",
+        "hint": hex6(_lift(_AETHER["lilac"], 0.45)),
+        "thinking": hex6(_AETHER["lilac"]),
+        # User lines and role labels: her lilac, one step below body type.
+        "text_dim": hex6(_lift(_AETHER["lilac"], 0.6)),
+        "dim": hex6(_lift(_AETHER["violet"], 0.2)),
         "status_white": hex6(cream),
         "text_soft": rgba(cream, 200),
         "text_muted": rgba(cream, 150),
         "text_faint": rgba(cream, 96),
-        "accent": "#c4a06a",
-        "accent2": "#e4c896",
-        "amber": "#c4a06a",
+        "accent": hex6(_AETHER["lilac"]),
+        "accent2": hex6(_lift(_AETHER["lilac"], 0.5)),
+        "amber": hex6(_AETHER["lilac"]),
         # Notices and the tool status line, on that same plate.
-        # The lamp accent stays #c4a06a.
-        "status_amber": "#d9bb93",
+        "status_amber": hex6(_lift(_AETHER["lilac"], 0.5)),
         "warn": "#d4783c",
     })
     return c
@@ -387,33 +409,33 @@ def _filament_colors() -> dict[str, str]:
 
 _FILAMENT_COLORS = _filament_colors()
 _FILAMENT_CORE = {
-    "core": (255, 236, 210),
-    "core_halo": (212, 168, 96),
-    "tick": (196, 160, 106),
-    "tick_halo": (196, 160, 106),
+    "core": _AETHER["spark"],
+    "core_halo": _AETHER["violet"],
+    "tick": _AETHER["lilac"],
+    "tick_halo": _AETHER["lilac"],
 }
 _FILAMENT_BLOOM = {
     "inner": (
-        (0.0, (196, 160, 106, 36)),
-        (0.22, (120, 96, 64, 22)),
-        (0.55, (40, 32, 24, 10)),
-        (1.0, (7, 8, 11, 0)),
+        (0.0, (*_AETHER["lilac"], 36)),
+        (0.22, (*_dusk((120, 96, 64)), 22)),
+        (0.55, (*_dusk((40, 32, 24)), 10)),
+        (1.0, (*_dusk((7, 8, 11)), 0)),
     ),
     "outer": (
-        (0.0, (196, 160, 106, 18)),
-        (0.5, (40, 32, 24, 8)),
+        (0.0, (*_AETHER["lilac"], 18)),
+        (0.5, (*_dusk((40, 32, 24)), 8)),
     ),
-    "grain": (196, 160, 106),
-    "vignette": (7, 8, 11, 56),
+    "grain": _AETHER["lilac"],
+    "vignette": (*_dusk((7, 8, 11)), 56),
 }
 _FILAMENT_PLATE = {
-    "seal": (7, 8, 11, 255),
-    "body": (18, 20, 26, 255),
-    "opaque": ((0.0, (48, 40, 28)), (0.36, (22, 24, 30)), (1.0, (7, 8, 11))),
+    "seal": (*_dusk((7, 8, 11)), 255),
+    "body": (*_dusk((18, 20, 26)), 255),
+    "opaque": ((0.0, _dusk((48, 40, 28))), (0.36, _dusk((22, 24, 30))), (1.0, _dusk((7, 8, 11)))),
     "smoked": (
-        (0.0, (36, 32, 24), 20),
-        (0.42, (16, 18, 22), 4),
-        (1.0, (7, 8, 11), -6),
+        (0.0, _dusk((36, 32, 24)), 20),
+        (0.42, _dusk((16, 18, 22)), 4),
+        (1.0, _dusk((7, 8, 11)), -6),
     ),
 }
 
@@ -584,11 +606,12 @@ _PALETTES = {
     },
 }
 
-THEME_IDS = tuple(_PALETTES)
+# Menu order: the main theme first, then the legacy rooms.
+THEME_IDS = ("filament", "sodium", "night")
 _THEME_LABELS = {
-    "sodium": "sodium",
-    "filament": "filament (testing)",
-    "night": "night",
+    "filament": "Filament",
+    "sodium": "Sodium (legacy)",
+    "night": "Night (legacy)",
 }
 THEME_CHOICES = tuple((tid, _THEME_LABELS.get(tid, tid)) for tid in THEME_IDS)
 
@@ -600,7 +623,7 @@ _THEME_ALIASES = {
 
 
 def resolve_theme_id(value: str | None) -> str:
-    """Known room, or sodium. Unknown names do not invent a palette."""
+    """Known room, or filament. Unknown names do not invent a palette."""
     raw = (value or "").strip().lower()
     if raw in _PALETTES:
         return raw

@@ -99,6 +99,10 @@ class WebAvatar(QWidget):
         query = QUrlQuery()
         query.addQueryItem("glb", QUrl.fromLocalFile(str(glb_path())).toString())
         query.addQueryItem("transparent", "1")
+        from arelis.ui.void_idle import aether_hue_shift
+
+        self._tint = aether_hue_shift()
+        query.addQueryItem("hue", str(self._tint))
         url.setQuery(query)
         self._deadline.start(_READY_TIMEOUT_MS)
         self.view.load(url)
@@ -121,6 +125,13 @@ class WebAvatar(QWidget):
         if abs(v - self._level) >= 0.01:
             self._level = v
             self._call(f"setLevel({v:.3f})")
+
+    def refresh_theme_icons(self) -> None:
+        """Theme-change hook (settings_host): retint her to the new room."""
+        from arelis.ui.void_idle import aether_hue_shift
+
+        self._tint = aether_hue_shift()
+        self._call(f"setTint({self._tint})")
 
     def _call(self, expr: str) -> None:
         if self._ready and not self._dead:
@@ -156,6 +167,7 @@ class WebAvatar(QWidget):
             self._poll.setInterval(2000)  # keep watching for a late error
             self._deadline.stop()
             self._call(f"setState({json.dumps(self._state)})")
+            self._call(f"setTint({self._tint})")
             self.ready.emit()
 
     def _fail(self, reason: str) -> None:

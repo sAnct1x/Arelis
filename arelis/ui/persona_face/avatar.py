@@ -28,7 +28,7 @@ from arelis.ui.persona_face.engine import (
 )
 from arelis.ui.persona_face.face_src import STAR_AT
 from arelis.ui.persona_face.motion import Frame
-from arelis.ui.void_idle import paint_orbit
+from arelis.ui.void_idle import paint_aether_orbit
 
 _LOG = logging.getLogger("arelis.persona_face")
 _LIGHT = ("wisps", "ring", "star")
@@ -572,7 +572,7 @@ class PersonaAvatar(QWidget):
         box = self._frame_rect().width() * (0.42 + 0.70 * swell)
         painter.save()
         painter.setOpacity(max(0.0, min(1.0, fade)))
-        paint_orbit(
+        paint_aether_orbit(
             painter,
             center.x(),
             center.y(),

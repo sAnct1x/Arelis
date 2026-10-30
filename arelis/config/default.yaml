@@ -792,9 +792,11 @@ presence:
   ipc_port: 8766
 
 ui:
-  # Room look. View → themes. sodium is the shipped lamp — the default face.
-  # filament is a test desk for a row of monitors; three is the intended layout.
-  theme: sodium
+  # Room look. View → themes. filament is the main theme, for a row of
+  # monitors (three is the intended layout). sodium and night are legacy
+  # themes. An install that predates this default keeps sodium; see
+  # config.settle_theme.
+  theme: filament
   # en | zh. zh is Simplified Chinese: the window, her replies, and
   # conversation voice (she hears Mandarin and speaks it). Wake stays
   # "Hey Arelis".

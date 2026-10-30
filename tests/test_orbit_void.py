@@ -105,7 +105,7 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
 
     window = ArelisWindow(
         {
-            "ui": {"default_width": 800, "default_height": 600},
+            "ui": {"default_width": 800, "default_height": 600, "theme": "sodium"},
             "router": {"default_role": "fast"},
             "voice": {"enabled": False},
         },
@@ -188,7 +188,7 @@ def test_idle_prompt_grows_then_wraps(qt_app) -> None:
 
     window = ArelisWindow(
         {
-            "ui": {"default_width": 800, "default_height": 600},
+            "ui": {"default_width": 800, "default_height": 600, "theme": "sodium"},
             "router": {"default_role": "fast"},
             "voice": {"enabled": False},
         },
@@ -234,3 +234,43 @@ def _orbit_center_in_window(window) -> tuple[int, int]:
     return pt.x(), pt.y()
 
 
+
+
+def test_idle_orbit_takes_each_room_accent(qt_app) -> None:
+    """Amber aether on sodium, her own violet on night, one painter for both."""
+    from PySide6.QtGui import QImage, QPainter
+
+    from arelis.ui.theme import apply_theme
+    from arelis.ui.void_idle import AETHER, paint_aether_orbit
+
+    frames = {}
+    for room in ("sodium", "night"):
+        apply_theme(room)
+        image = QImage(220, 220, QImage.Format.Format_ARGB32)
+        image.fill(0)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        paint_aether_orbit(painter, 110.0, 110.0, angle=90.0)
+        painter.end()
+        frames[room] = image.pixelColor(110 + 58, 106)
+    apply_theme("sodium")
+    amber, violet = frames["sodium"], frames["night"]
+    assert amber.alpha() > 60 and violet.alpha() > 60
+    assert amber.red() > amber.green() > amber.blue()
+    assert violet.blue() > violet.red() > violet.green()
+    assert abs(violet.hsvHue() - _hue(AETHER["violet"])) <= 12
+
+
+def _hue(rgb: tuple[int, int, int]) -> int:
+    from PySide6.QtGui import QColor
+
+    return QColor(*rgb).hsvHue()
+
+
+def test_view_checks_start_true_for_her_open_dock(arelis_window) -> None:
+    """Ctrl+1 closes her dock on the first press after launch."""
+    window = arelis_window()
+    assert not window.persona_dock.isHidden()
+    assert window.act_persona.isChecked()
+    window.act_persona.trigger()
+    assert window._persona_user_closed

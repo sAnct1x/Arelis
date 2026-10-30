@@ -1403,11 +1403,11 @@ class SettingsDialog(QDialog):
         grant = self.ask_is_grant.isChecked()
         if active_theme() == "filament":
             self.ask_is_grant.setToolTip(
-                "filament (testing): the spoken ask is the grant. "
+                "filament: the spoken ask is the grant. "
                 "Mail and texts go. Deletes, Pay, and programs still pause."
             )
             self._allow_grant_blurb.setText(
-                "filament (testing): saying it is the grant. Mail and texts "
+                "filament: saying it is the grant. Mail and texts "
                 "go. Only deletes, Pay, and programs still pause."
             )
             self._allow_local_h.setText("On her own")

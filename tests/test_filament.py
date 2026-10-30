@@ -48,7 +48,9 @@ def test_filament_is_a_theme() -> None:
     assert "filament" in THEME_IDS
     apply_theme("filament")
     assert active_theme() == "filament"
-    assert COLORS["accent"].lower() == "#c4a06a"
+    from arelis.ui.aether_look import aether_rgb
+
+    assert COLORS["accent"].lower() == "#{:02x}{:02x}{:02x}".format(*aether_rgb()["lilac"])
     assert confirm_mode() == "voice"
     apply_theme("sodium")
     assert active_theme() == "sodium"

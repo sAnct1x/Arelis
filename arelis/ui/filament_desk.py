@@ -1,6 +1,6 @@
 """Filament desk controller. Same HWND as sodium; second GUI, not a hue swap.
 
-Sodium is the shipped window. Filament is listed as ``filament (testing)``.
+Filament is the main theme. Sodium and night are listed as legacy themes.
 One opaque desk, never ``WA_TranslucentBackground``. No second process.
 Field stays paint (``filament_field``). Tiles stay tiles (``filament_tile``).
 ``apply_filament_desk`` and the conversation Drive strip stay on conversation.
