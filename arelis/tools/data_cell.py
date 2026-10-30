@@ -73,21 +73,20 @@ class DataCellTool:
         "required": ["code"],
     }
 
-    def __init__(self, workspace: Any, rooms: Any = None) -> None:
+    def __init__(self, workspace: Any) -> None:
         self.workspace = workspace
-        self.rooms = rooms
 
     async def run(self, **kwargs: Any) -> ToolResult:
         return await asyncio.to_thread(self._run, kwargs)
 
     def _room_dir(self) -> Path | None:
-        room = None if self.rooms is None else getattr(self.rooms, "active", None)
-        if room is None or self.workspace is None:
+        # Rooms are gone (#431). The cell works in the active workspace folder.
+        if self.workspace is None:
             return None
-        root_name = str(getattr(room, "root", "") or "").strip()
-        if not root_name:
+        try:
+            entry = self.workspace.active_root()
+        except Exception:
             return None
-        entry = self.workspace.root_named(root_name)
         if entry is None or not entry.path.is_dir():
             return None
         return Path(entry.path)
