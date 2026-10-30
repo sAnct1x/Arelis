@@ -7,7 +7,7 @@ working.
 Quit from the tray stops Arelis completely. That includes her own Chrome
 window, the one under `data/browser-profile`. Your everyday Chrome stays
 open. The window disappears at once. Saving memory and stopping listeners
-happens after the glass is gone, so the UI does not freeze on close.
+happens after the window is gone, so the UI does not freeze on close.
 
 Use Quit when you want her, and her browser, gone. Closing the window is
 not Quit.

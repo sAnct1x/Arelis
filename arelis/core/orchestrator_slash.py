@@ -142,9 +142,9 @@ class OrchestratorSlash:
     def _parse_args(self, args: str) -> dict[str, Any]:
         """Parse slash-command arguments.
 
-        Three accepted forms, in priority order: a JSON object (used by the
-        workspace panel's save button, since file content cannot survive shell
-        splitting), key=value pairs, and a bare URL or bare prompt text.
+        Three accepted forms, in priority order: a JSON object (for file
+        content, which cannot survive shell splitting), key=value pairs,
+        and a bare URL or bare prompt text.
         """
         if not args.strip():
             return {}

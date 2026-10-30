@@ -451,7 +451,6 @@ this.
 | `data/config.local.yaml` | Your overrides (gitignored) |
 | `data/secrets.yaml` | Tokens (gitignored) |
 | `data/profile.yaml` | Who you are and where you live |
-| `data/rooms.yaml` | Your rooms |
 | `data/jobs.yaml` | Scheduled jobs: hand-editable, paired with Task Scheduler entries at `\Arelis\<id>` |
 | `arelis/jobs/` | Job storage, Windows task XML generation, the unattended runner |
 | `arelis/physics/` | Reality's solar system |

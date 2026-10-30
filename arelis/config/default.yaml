@@ -372,11 +372,6 @@ tools:
     # Durable goals/commitments in memory.db (beyond chores). Writes need Allow.
     # Active goals appear in the morning briefing. Same archive gate as tasks.
     enabled: true
-  rooms:
-    # Named places to work on one thing, in data/rooms.yaml. Each keeps its own
-    # conversation thread and points at one project. Creating or changing a
-    # room needs Allow; entering one is a command, never a tool call.
-    enabled: true
   browser:
     # Drive Arelis' own Chrome (data/browser-profile), not daily Chrome.
     # Install: pip install -e ".[browser]" && playwright install chromium firefox
@@ -497,7 +492,7 @@ tools:
   catalog:
     enabled: true
   # Matplotlib charts from a table or a short number list. Writes PNG under
-  # outputs/plots/. Always Allow (confirm_writes). Off for unattended jobs.
+  # outputs/plots/. No Allow card. Off for unattended jobs.
   plot:
     enabled: true
   # Text diagrams: a flowchart, a chart, a slide, or a drawing. SVG and PNG.
