@@ -14,18 +14,6 @@ from __future__ import annotations
 
 import re
 
-TOOL_LOOP_HINT = re.compile(
-    r"\b(search|web_search|google|scrape|fetch|open|read|list|write|edit"
-    r"|analyze|workspace|web_fetch|file|email|inbox|mail|schedule"
-    r"|weather|forecast|recall|remember|agenda|calendar|tasks?|todo"
-    r"|git|sms|text|inbound|research(?:_report)?|doc_extract|pdf)\b|https?://",
-    re.IGNORECASE,
-)
-FILE_LOOP_HINT = re.compile(
-    r"\b(file|readme|path|workspace|edit|write|refactor|python|code|debug"
-    r"|class|function|lint|git|branch|commit|diff)\b",
-    re.IGNORECASE,
-)
 RESEARCH_HINTS: list[re.Pattern[str]] = [
     re.compile(
         r"\b("
