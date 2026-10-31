@@ -264,17 +264,19 @@ def _app_sheet_cached(current: str, room: str) -> str:
     from arelis.ui.theme_layers import hub_rules, split_sheet
 
     global _APP_SHEET
-    if _APP_SHEET is None:
+    structural = split_sheet(current)[0]
+    if _APP_SHEET is None or _APP_SHEET[0] != structural:
+        # Keyed on the structure, which a font or language change rewrites.
         colours = {}
         for tid in THEME_IDS:
             _tokens._install_palette(tid)
             colours[tid] = split_sheet(stylesheet())[1]
         _tokens._install_palette(room)
-        _APP_SHEET = split_sheet(current)[0] + "\n" + hub_rules(colours)
-    return _APP_SHEET
+        _APP_SHEET = (structural, structural + "\n" + hub_rules(colours))
+    return _APP_SHEET[1]
 
 
-_APP_SHEET: str | None = None
+_APP_SHEET: tuple[str, str] | None = None
 
 
 def install_stylesheet(window=None) -> None:
