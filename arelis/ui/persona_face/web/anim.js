@@ -214,7 +214,8 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
   function ctBuild(c0) { const parts = []; const v = V3();
     root.traverse((m) => { if (!(m.isSkinnedMesh && /Body/i.test(m.name))) return; const g = m.geometry, pos = g.attributes.position, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, bn = m.skeleton.bones, idx = g.index;
       const keep = new Int32Array(pos.count).fill(-1), vi = [];
-      for (let i = 0; i < pos.count; i++) { let a = 0; for (let k = 0; k < 4; k++) if (CARM.test(bn[si.getComponent(i, k)].name)) a += sw.getComponent(i, k); if (a > 0.05) continue;
+      if (!m.__ctBody) { const B = []; for (let i = 0; i < pos.count; i++) { let a = 0; for (let k = 0; k < 4; k++) if (CARM.test(bn[si.getComponent(i, k)].name)) a += sw.getComponent(i, k); if (a <= 0.05) B.push(i); } m.__ctBody = Int32Array.from(B); }   // skin weights never change: the arm filter runs once, not on every rebuild
+      for (const i of m.__ctBody) {
         v.fromBufferAttribute(pos, i); m.applyBoneTransform(i, v); v.applyMatrix4(m.matrixWorld); if (v.distanceToSquared(c0) > 0.0225) continue; keep[i] = vi.length; vi.push(i); }
       if (!vi.length) return; const tri = []; const ia = idx ? idx.array : null, n = idx ? ia.length : pos.count;
       for (let t = 0; t < n; t += 3) { const a = keep[ia ? ia[t] : t], b = keep[ia ? ia[t + 1] : t + 1], c = keep[ia ? ia[t + 2] : t + 2]; if (a < 0 || b < 0 || c < 0) continue; tri.push(a, b, c); }
@@ -225,12 +226,13 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
     for (let k = 0; k < vi.length; k++) { v.fromBufferAttribute(pos, vi[k]); u.fromBufferAttribute(nm, vi[k]).multiplyScalar(0.01).add(v); m.applyBoneTransform(vi[k], v); m.applyBoneTransform(vi[k], u); v.applyMatrix4(m.matrixWorld); u.applyMatrix4(m.matrixWorld);
       W[3 * k] = v.x; W[3 * k + 1] = v.y; W[3 * k + 2] = v.z; u.sub(v).normalize(); N[3 * k] = u.x; N[3 * k + 1] = u.y; N[3 * k + 2] = u.z; } } }
   const _cA = V3(), _cB = V3(), _cC = V3(), _cP = V3(), _cQ = V3(), _cN = V3();
-  function ctClosest(p, a, b, c, out) { const ab = _cQ.subVectors(b, a), ac = V3().subVectors(c, a), ap = V3().subVectors(p, a); const d1 = ab.dot(ap), d2 = ac.dot(ap); if (d1 <= 0 && d2 <= 0) return out.copy(a);
-    const bp = V3().subVectors(p, b), d3 = ab.dot(bp), d4 = ac.dot(bp); if (d3 >= 0 && d4 <= d3) return out.copy(b);
+  const _cAC = V3(), _cAP = V3(), _cBP = V3(), _cCP = V3(), _cBC = V3();   // scratch: ctClosest runs per triangle per sample every frame
+  function ctClosest(p, a, b, c, out) { const ab = _cQ.subVectors(b, a), ac = _cAC.subVectors(c, a), ap = _cAP.subVectors(p, a); const d1 = ab.dot(ap), d2 = ac.dot(ap); if (d1 <= 0 && d2 <= 0) return out.copy(a);
+    const bp = _cBP.subVectors(p, b), d3 = ab.dot(bp), d4 = ac.dot(bp); if (d3 >= 0 && d4 <= d3) return out.copy(b);
     const vc = d1 * d4 - d3 * d2; if (vc <= 0 && d1 >= 0 && d3 <= 0) return out.copy(a).addScaledVector(ab, d1 / (d1 - d3));
-    const cp = V3().subVectors(p, c), d5 = ab.dot(cp), d6 = ac.dot(cp); if (d6 >= 0 && d5 <= d6) return out.copy(c);
+    const cp = _cCP.subVectors(p, c), d5 = ab.dot(cp), d6 = ac.dot(cp); if (d6 >= 0 && d5 <= d6) return out.copy(c);
     const vb = d5 * d2 - d1 * d6; if (vb <= 0 && d2 >= 0 && d6 <= 0) return out.copy(a).addScaledVector(ac, d2 / (d2 - d6));
-    const va = d3 * d6 - d5 * d4; if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) return out.copy(b).addScaledVector(V3().subVectors(c, b), (d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    const va = d3 * d6 - d5 * d4; if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) return out.copy(b).addScaledVector(_cBC.subVectors(c, b), (d4 - d3) / ((d4 - d3) + (d5 - d6)));
     const dn = 1 / (va + vb + vc); return out.copy(a).addScaledVector(ab, vb * dn).addScaledVector(ac, vc * dn); }
   function ctNear(C, c, r) { const r2 = r * r; for (const P of C.parts) { const W = P.W, T = P.tri, nl = []; for (let t = 0; t < T.length; t += 3) { const i = 3 * T[t]; const dx = W[i] - c.x, dy = W[i + 1] - c.y, dz = W[i + 2] - c.z; if (dx * dx + dy * dy + dz * dz < r2) nl.push(t); } P.near = nl; } }
   const HV = { L: null, R: null }; const HGR = /_(Hand|Thumb|Index|Mid|Ring|Pinky)\d?$/;

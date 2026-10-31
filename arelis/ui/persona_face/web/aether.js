@@ -859,6 +859,7 @@ function onModel(gltf) {
       o.material.transparent = true; o.material.depthWrite = true; o.renderOrder = -1;
       if (inMouth) o.material.colorWrite = false;   // teeth/inner mouth: depth only
     };
+    if (o.isSkinnedMesh) o.frustumCulled = false;   // three keeps a SkinnedMesh's bounds from its first pose; walking/gestures then culled her fill and face pass
     if (isCornea) o.visible = false;   // clear cornea layer: no fill, no glow (eyeball below stays)
     if (o.isSkinnedMesh && !inMouth && !isCornea) {
       if (!o.geometry.attributes.aCav) { if (!cardAlpha && o.geometry.attributes.normal) { bakeCavity(o.geometry); bakeCavity(o.geometry, 3, 12, 'aCavF', 0.97); } else { const z = new Float32Array(o.geometry.attributes.position.count); o.geometry.setAttribute('aCav', new THREE.BufferAttribute(z, 1)); o.geometry.setAttribute('aCavF', new THREE.BufferAttribute(z, 1)); } }
@@ -1028,8 +1029,13 @@ if (TRANSPARENT) { const rnd = Math.random; Math.random = () => 0.5; composer.ad
     + ' c *= e; gl_FragColor = vec4(c, max(c.r, max(c.g, c.b))); }' })); Math.random = rnd; }
 
 
-addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
+// Follow the view's size every frame, not only on 'resize': the dock can resize the view while
+// it is hidden, and a missed event left the canvas at its old size, clipped by the dock edge.
+const _sz = new THREE.Vector2();
+function fitView() { renderer.getSize(_sz); if (_sz.x === innerWidth && _sz.y === innerHeight) return;
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); }
+addEventListener('resize', fitView);
 
 // Talking: level 0..1 drives a slow cycle through CC visemes (crossfaded). Blinking: random 2-6 s, ~150 ms.
 let visT = 0, visLvl = 0;
@@ -1056,6 +1062,7 @@ const FREEZE = new URLSearchParams(location.search).has('freeze') ? +new URLSear
 const ft = []; window.__frameMs = () => ft.length ? ft.reduce((a, b) => a + b) / ft.length : null;
 function frame(dt) {
   const t0 = performance.now();
+  fitView();
   uTime.value += dt;
   let flow = 1;
   if (animator && FREEZE === null) flow = animator.update(dt);
