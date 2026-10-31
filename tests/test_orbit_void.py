@@ -234,8 +234,6 @@ def _orbit_center_in_window(window) -> tuple[int, int]:
     return pt.x(), pt.y()
 
 
-
-
 def test_idle_orbit_takes_each_room_accent(qt_app) -> None:
     """Amber aether on sodium, her own violet on night, one painter for both."""
     from PySide6.QtGui import QImage, QPainter

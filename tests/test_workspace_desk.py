@@ -1,4 +1,4 @@
-"""Allow-card diffs, named project runs, and the workspace tile's search list."""
+"""Allow-card diffs, named project runs, and the workspace search list."""
 
 from __future__ import annotations
 

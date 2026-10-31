@@ -95,7 +95,6 @@ def _scratch(**overrides: Any) -> RoundScratch:
             "sms_force_call": True,
             "email_force_call": True,
             "agenda_force_call": True,
-            "scrape_after_search": True,
             "json_fallback": True,
         },
         available_all={"send_sms", "web_search", "scrape"},

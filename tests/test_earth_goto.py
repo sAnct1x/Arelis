@@ -246,8 +246,6 @@ def test_scale_bar_reads_like_a_map() -> None:
     assert BAND_PX["space"] >= 36
 
 
-
-
 def test_failed_spoken_goto_says_the_miss_in_the_reply(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

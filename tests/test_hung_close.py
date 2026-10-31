@@ -162,10 +162,9 @@ def _agent(
     cfg["agent"]["chat_fast_path"] = False
     cfg["agent"]["intent_preflight"] = False
     cfg["agent"]["max_rounds"] = 4
-    cfg["agent"]["sms_preinject"] = False
     cfg["agent"]["sms_force_call"] = False
     cfg["agent"]["ask_is_grant"] = ask_is_grant
-    # PR 234 removes the router, so round 1 is a model call. Preinject stays off.
+    # PR 234 removes the router, so round 1 is a model call.
     if router_removed:
         cfg["agent"]["compensation"] = {"regex_routing": False}
     loop = AgentLoop(

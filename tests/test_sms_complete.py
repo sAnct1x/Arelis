@@ -206,7 +206,6 @@ async def test_loop_confirms_when_the_model_calls_send_sms(monkeypatch) -> None:
                 "skill_cards": True,
                 "intent_preflight": True,
                 "sms_force_call": True,
-                "sms_preinject": False,
                 "turn_telemetry": False,
             },
             "llamacpp": {"default_cap": 8192},
