@@ -269,7 +269,6 @@ class FilamentDesk:
     def _filament_lock_tiles(self, on: bool) -> None:
         w = self.window
         docks = {
-            "thinking": w.persona_dock,
             "history": w.history_dock,
             "camera": w.camera_dock,
         }
@@ -390,7 +389,6 @@ class FilamentDesk:
             "maximized": was_max,
             "fullscreen": was_full,
             "docks": {
-                "think": not w.persona_dock.isHidden(),
                 "history": not w.history_dock.isHidden(),
                 "camera": not w.camera_dock.isHidden(),
                 "notify": not w.notify_inbox.isHidden(),
@@ -415,10 +413,10 @@ class FilamentDesk:
         self._filament_apply_glass(True)
         self._filament_lock_tiles(True)
         self._filament_place_entity()
-        # She stays in presence: float her as the "thinking" tile by its title,
-        # outside the scene, without counting as the user waking the desk.
-        self._filament_present_tile(w.persona_dock, "thinking")
-        w._filament_woken = False
+        # She is the hub at the bottom left, part of the scene, not a tile.
+        from arelis.ui.persona_stage import seat_persona
+
+        seat_persona(w)
         apply = getattr(w.conversation, "apply_filament_desk", None)
         if callable(apply):
             apply(True, chat_open=False)
@@ -457,7 +455,6 @@ class FilamentDesk:
         docks = parked.get("docks") or {}
         w._filament_hiding = True
         try:
-            w.persona_dock.setVisible(bool(docks.get("think")))
             w.history_dock.setVisible(bool(docks.get("history")))
             w.camera_dock.setVisible(bool(docks.get("camera")))
             if docks.get("notify"):
@@ -523,7 +520,6 @@ class FilamentDesk:
         if floats is None or active_theme() != "filament":
             return
         history = getattr(w, "history_dock", None)
-        think = getattr(w, "persona_dock", None)
         cal = getattr(w, "calendar_window", None)
         camera = getattr(w, "camera_dock", None)
         notify = getattr(w, "notify_inbox", None)
@@ -535,7 +531,6 @@ class FilamentDesk:
             hidden.add("reality")
         w._filament.set_hidden_faces(hidden)
         floats.set_open("history", self._filament_plate_open(history))
-        floats.set_open("thinking", self._filament_plate_open(think))
         floats.set_open("days", self._filament_plate_open(cal))
         floats.set_open("camera", self._filament_plate_open(camera))
         floats.set_open("notify", self._filament_plate_open(notify))
@@ -543,8 +538,6 @@ class FilamentDesk:
         floats.set_open("reality", self._filament_plate_open(world))
         floats.set_open("chat", bool(w._filament_chat_open))
         live: set[str] = set()
-        if self._filament_weather() == "think" or getattr(w, "_confirm_waiting", False):
-            live.add("thinking")
         unread = 0
         center = getattr(w, "notify_center", None)
         if center is not None:
@@ -555,7 +548,6 @@ class FilamentDesk:
         if isinstance(hot, set) and hot:
             plates = {
                 "history": history,
-                "thinking": think,
                 "days": cal,
                 "camera": camera,
                 "notify": notify,
@@ -579,7 +571,6 @@ class FilamentDesk:
         w = self.window
         tiles = {
             "history": getattr(w, "history_dock", None),
-            "thinking": getattr(w, "persona_dock", None),
             "days": getattr(w, "calendar_window", None),
             "camera": getattr(w, "camera_dock", None),
             "notify": getattr(w, "notify_inbox", None),
@@ -607,8 +598,6 @@ class FilamentDesk:
             return
         if name == "history":
             w.act_history.trigger()
-        elif name == "thinking":
-            w.act_thinking.trigger()
         elif name == "days":
             w.act_calendar.trigger()
         elif name == "camera":
@@ -803,7 +792,6 @@ class FilamentDesk:
             act.setEnabled(n <= max(1, have))
             act.triggered.connect(lambda _c=False, k=n: self._filament_set_span(k))
         menu.addSeparator()
-        menu.addAction(w.act_thinking)
         menu.addAction(w.act_history)
         menu.addAction(w.act_notifications)
         menu.addAction(w.act_camera)

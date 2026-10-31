@@ -22,8 +22,9 @@ She is part of the window itself, not a panel you open or close.
 
 - Night and Sodium: a band down the right side of the window, top to bottom. The chat
   ends where her band begins, so she never sits behind your messages.
-- Filament: she still lives in her tile for now. The hub at the bottom left, where the
-  threads start, comes in a later update.
+- Filament: she is the hub at the bottom left. There is no tile for her. The threads
+  run from her to the orbit ring, and the strand to each open tile starts at her. The
+  chat keeps its full width here, since she is not in a side band.
 
 She stays in view when the app goes idle. She is always framed head to toe and the
 view refits when the window changes size.
@@ -73,7 +74,7 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] lipsync start` / `stop` | Speech began or ended. |
 | `[avatar] stop source=...` | Speech was stopped: `button`, `voice`, or another cause. |
 | `[avatar] theme name=... tint=...` | The room changed and she was retinted. |
-| `[avatar] resize mode=... region=X,Y,WxH` | Her place in the window changed. |
+| `[avatar] resize mode=... region=X,Y,WxH` | Her place in the window changed. `mode=band` in Night and Sodium, `mode=hub` in Filament. |
 | `[avatar] canvas resize size=WxH` | The scene followed that change. |
 | `[avatar] webgl lost` / `restored` | The graphics context dropped or came back. |
 | `[avatar] failed reason=...` | The scene gave up; the glow stays. |

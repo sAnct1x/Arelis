@@ -33,7 +33,6 @@ _SEED = (68, 52)
 _TRAIL_MS = 180
 _GROW_MS = 520
 DEFAULT_SIZES: dict[str, tuple[int, int]] = {
-    "thinking": (320, 260),
     "files": (340, 280),
     "history": (300, 360),
     "chat": (380, 400),

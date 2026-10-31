@@ -1,13 +1,13 @@
 """Her place in the base UI: a fixed band of the stage, under chat and tiles.
 
-Night and Sodium seat her here (right full-height band) and keep the persona
-dock as a hidden alias. Filament still hosts her in its tile until the hub
-slice lands.
+Night and Sodium seat her in the right full-height band. Filament seats her in
+the bottom-left hub, the point its threads come from. The persona dock is kept
+only as a hidden alias.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, QRect, Qt
+from PySide6.QtCore import QEvent, QObject, QPointF, QRect, Qt
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 BAND_SHARE = 0.28
@@ -81,9 +81,16 @@ class PersonaStage(QWidget):
         from arelis.ui.theme_tokens import active_theme
 
         parent = self.parentWidget()
+        mode = region_mode(active_theme())
         if parent is not None:
-            self.place(parent.rect(), mode=region_mode(active_theme()))
+            self.place(parent.rect(), mode=mode)
         window = self.window()
+        field = getattr(window, "_filament", None)
+        if field is not None and hasattr(field, "set_hub"):
+            hub = None
+            if mode == "hub" and parent is not None:
+                hub = QPointF(parent.mapTo(window, self.geometry().center()))
+            field.set_hub(hub)
         if in_stage(window) and hasattr(window, "_sync_panel_margins"):
             window._sync_panel_margins()
 
@@ -119,9 +126,7 @@ def _keep_dock_hidden(window, visible: bool) -> None:
 
 
 def seat_persona(window) -> None:
-    """Put her panel where the active room wants it. Safe to call again."""
-    from arelis.ui.theme_tokens import active_theme
-
+    """Seat her panel in the stage; follow() picks band or hub. Safe to call again."""
     stage = getattr(window, "persona_stage", None)
     panel = getattr(window, "persona_panel", None)
     dock = getattr(window, "persona_dock", None)
@@ -130,18 +135,17 @@ def seat_persona(window) -> None:
     if not getattr(window, "_persona_alias_hooked", False):
         window._persona_alias_hooked = True
         dock.visibilityChanged.connect(lambda v, w=window: _keep_dock_hidden(w, v))
-    band = region_mode(active_theme()) == "band"
-    if band:
-        if panel.parentWidget() is not stage:
-            stage.host(panel)
-        window._persona_in_stage = True
-        dock.hide()
-        stage.follow()
-        stage.show()
-        panel.show()
-    else:
-        window._persona_in_stage = False
-        stage.hide()
-        body = window.persona_host._body_host.layout()
-        if panel.parentWidget() is not window.persona_host._body_host:
-            body.addWidget(panel)
+    if panel.parentWidget() is not stage:
+        stage.host(panel)
+    window._persona_in_stage = True
+    dock.hide()
+    stage.follow()
+    stage.show()
+    panel.show()
+
+
+def band_seated(window) -> bool:
+    """She takes the right band, so the chat has to stop short of it."""
+    from arelis.ui.theme_tokens import active_theme
+
+    return in_stage(window) and region_mode(active_theme()) == "band"

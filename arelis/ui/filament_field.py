@@ -74,7 +74,6 @@ FLOATS = (
     ("notify", 0.18, 58),
     ("contacts", 0.26, 58),
     ("chat", 0.42, 62),
-    ("thinking", 0.50, 58),
     ("camera", 0.58, 58),
     ("days", 0.74, 58),
     ("reality", 0.00, 0),
@@ -479,6 +478,7 @@ class FilamentField:
         self._hot: set[str] = set()
         self._live_phase = 0.0
         self._tethers: dict[str, dict] = {}
+        self.hub: QPointF | None = None
         self._load = ""
         self.dust = []
         for i in range(_DUST):
@@ -643,6 +643,43 @@ class FilamentField:
             return
         cur["end"] = QPointF(end)
         cur["want"] = 1.0
+
+    def set_hub(self, point: QPointF | None) -> None:
+        """Her hub point (bottom left). Threads start here; None in other rooms."""
+        self.hub = QPointF(point) if point is not None else None
+
+    def thread_start(self, name: str, rect: QRect) -> QPointF:
+        """Where an open tile's strand starts: her hub when she has one."""
+        if self.hub is not None:
+            return QPointF(self.hub)
+        return self.bead_point(name, rect)
+
+    def hub_threads(self, rect: QRect) -> list[tuple[QPointF, QPointF]]:
+        """Strands from her hub to the near side of the ring (start, end)."""
+        if self.hub is None:
+            return []
+        cx, cy, rx, ry = self.ellipse(rect)
+        base = math.atan2((self.hub.y() - cy) / max(ry, 1.0), (self.hub.x() - cx) / max(rx, 1.0))
+        out = []
+        for k in (-1, 0, 1):
+            ang = base + k * 0.32
+            end = QPointF(cx + math.cos(ang) * rx, cy + math.sin(ang) * ry)
+            out.append((QPointF(self.hub), end))
+        return out
+
+    def _paint_hub_threads(self, painter: QPainter, rect: QRect) -> None:
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for start, end in self.hub_threads(rect):
+            prev: QPointF | None = None
+            for i in range(25):
+                u = i / 24
+                p = self._tether_point(start, end, u)
+                if prev is not None:
+                    pen = QPen(_lit(_GOLD, 0.10 + 0.14 * u))
+                    pen.setWidthF(1.4)
+                    painter.setPen(pen)
+                    painter.drawLine(prev, p)
+                prev = p
 
     def tether_grow(self, name: str) -> float:
         cur = self._tethers.get(name)
@@ -841,6 +878,7 @@ class FilamentField:
 
         self._paint_beads(painter, rect)
         self._paint_stems(painter, rect)
+        self._paint_hub_threads(painter, rect)
         self._paint_tethers(painter, rect)
         painter.restore()
 
@@ -967,7 +1005,7 @@ class FilamentField:
             grow = float(tether["grow"])
             if grow < 0.02:
                 continue
-            start = self.bead_point(name, rect)
+            start = self.thread_start(name, rect)
             end = tether["end"]
             steps = 28
             prev: QPointF | None = None

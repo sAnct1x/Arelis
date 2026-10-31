@@ -93,7 +93,6 @@ def reveal_dock(
     if active_theme() == "filament" and not asked:
         if not dock.isVisible():
             name = {
-                window.persona_dock: "thinking",
                 window.history_dock: "history",
                 window.camera_dock: "camera",
             }.get(dock, "")
@@ -114,7 +113,6 @@ def reveal_dock(
     window._animate_dock(dock)
     if active_theme() == "filament":
         names = {
-            window.persona_dock: "thinking",
             window.history_dock: "history",
             window.camera_dock: "camera",
         }
@@ -137,7 +135,6 @@ def toggle_persona(window, checked: bool) -> None:
         window._persona_adjusting = False
     if checked:
         window._animate_dock(window.persona_dock, show=True)
-        window._filament_present_tile(window.persona_dock, "thinking")
     else:
         window._animate_dock(window.persona_dock, show=False)
 
@@ -339,9 +336,9 @@ def sync_panel_margins(window) -> None:
     ) or docked_in(window, window.camera_dock, Qt.DockWidgetArea.LeftDockWidgetArea)
     # Thinking on the right abuts the chat glass.
     right = docked_in(window, window.persona_dock, Qt.DockWidgetArea.RightDockWidgetArea)
-    from arelis.ui.persona_stage import in_stage
+    from arelis.ui.persona_stage import band_seated
 
-    seated = in_stage(window)
+    seated = band_seated(window)
     bottom = False
 
     # Chat: OUTER against the window when a side is empty; HALF when a dock
