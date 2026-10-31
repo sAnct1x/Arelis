@@ -520,6 +520,10 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
             pass
 
     configure_native_windows()
+    # Before QtWebEngine starts: keep her view out of Windows occlusion.
+    from arelis.ui.persona_face import chromium_flags
+
+    chromium_flags.apply()
     from arelis.ui.solar_gl import gl_wanted
 
     if gl_wanted():
