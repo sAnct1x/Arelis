@@ -12,8 +12,8 @@ it. Do not “clean up” glass/chat/orchestrator. Do not ruff-format
 the tree. Do not thin Earth catalogs. Do not delete `earth_globe/`,
 WebEngine host, or `choose_stack`. Never echo or commit
 `data/secrets.yaml`. Do not commit unless I ask. Never call the
-product God's Eye View. Earth is a zone. Room id is `physics`
-(humans read **Reality**).
+product God's Eye View. Earth is a zone. Reality was a room (id
+`physics`) until rooms were removed in #431.
 
 I am the only person on this checkout. Solo hobbyist. Daily driver
 already ships as 0.2.9 locally; last published installer is the
@@ -211,8 +211,8 @@ checklist. If it is empty, trust this handoff.
 
 **Hard block in code:**
 `arelis/spatial/grant.py` `world_stage_allowed()` — installer
-and wheels do not get the 3D plate. The Reality *room* still
-exists there for chat, CAS, Horizons. Do not “fix” that by
+and wheels do not get the 3D plate. Chat, CAS and Horizons still
+work there. Do not “fix” that by
 shipping Cesium in the installer unless the audit measures
 why and I agree.
 

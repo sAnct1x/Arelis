@@ -6,7 +6,8 @@ script diffs ``base...HEAD`` with ``--name-status --no-renames`` so a
 rename lists the old path and the new one. ``git diff --name-only``
 follows the rename and only prints the destination, which lets
 ``arelis/core.py`` become ``scripts/core.py`` and slip through
-``--allow 'scripts/*'``. Exit 1 if anything extra showed up.
+``--allow 'scripts/*'``. Exit 1 if anything extra showed up, 2 on a
+usage error or a base ref git cannot diff.
 
 The allow list is globs: a file of them (one per line), or repeated
 ``--allow``. Blank lines and ``#`` comments in the file are ignored.
@@ -20,8 +21,6 @@ import fnmatch
 import subprocess
 import sys
 from pathlib import Path
-
-REPO = Path(__file__).resolve().parents[1]
 
 
 def normalize(path: str) -> str:
@@ -107,7 +106,8 @@ def changed_files(base: str, cwd: Path) -> list[str]:
     )
     if result.returncode != 0:
         err = (result.stderr or result.stdout or "git diff failed").strip()
-        raise SystemExit(err)
+        print(err, file=sys.stderr)
+        raise SystemExit(2)
     return paths_from_name_status(result.stdout)
 
 
@@ -130,8 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--root",
         type=Path,
-        default=REPO,
-        help="Repository root (the git working tree).",
+        default=None,
+        help="Repository root (the git working tree). Defaults to the current folder.",
     )
     args = parser.parse_args(argv)
 
@@ -142,7 +142,8 @@ def main(argv: list[str] | None = None) -> int:
         print("pass --allow or --allow-file", file=sys.stderr)
         return 2
 
-    extras = extra_paths(changed_files(args.base, args.root), allowed)
+    root = args.root if args.root is not None else Path.cwd()
+    extras = extra_paths(changed_files(args.base, root), allowed)
     for path in extras:
         print(path)
     return 1 if extras else 0

@@ -29,7 +29,9 @@ a pull request when you want counts, not when you want CI to go red.
 `scripts/scope_check.py` looks at
 `git diff --name-status --no-renames base...HEAD` and prints every
 changed path that is not covered by the allow list, including the old
-path of a rename. Exit 1 if anything extra showed up.
+path of a rename. Exit 1 if anything extra showed up, and 2 for a
+missing allow list or a base ref git can't diff. Run it from the repo
+you want checked, or pass `--root`.
 
 The allow list is globs. Pass them with repeated `--allow`, or put one
 glob per line in a file (`--allow-file`). Blank lines and `#` comments
