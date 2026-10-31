@@ -41,3 +41,16 @@ def test_chinese_face_reaches_every_label_without_a_new_app_sheet(
             assert all(0 not in run.glyphIndexes() for run in runs)
     finally:
         i18n.apply_language(window, "en")
+
+
+def test_lowercase_chrome_labels_follow_the_language(arelis_window) -> None:
+    """Night zh showed 'view' and 'settings' while their accessible names were zh."""
+    window = arelis_window()
+    window.show()
+    bar = window.title_bar
+    try:
+        i18n.apply_language(window, "zh")
+        assert (bar.view_btn.text(), bar.settings_btn.text()) == ("视图", "设置")
+    finally:
+        i18n.apply_language(window, "en")
+    assert (bar.view_btn.text(), bar.settings_btn.text()) == ("view", "settings")

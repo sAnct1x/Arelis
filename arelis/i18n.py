@@ -288,13 +288,27 @@ def tr(text: str) -> str:
     """Translate one source string. Unknown text comes back unchanged."""
     if _LANG != "zh" or not text:
         return text
-    return _ZH.get(text, text)
+    key = _catalog_key(text)
+    return text if key is None else _ZH[key]
+
+
+def _catalog_key(text: str) -> str | None:
+    """The catalog entry for ``text``, or for its capitalised form.
+
+    The chrome writes its Latin labels lowercase ("view", "settings") while
+    the catalog holds "View" and "Settings". Values stay unique, so the
+    lowercase label shares the entry instead of adding a second one.
+    """
+    if text in _ZH:
+        return text
+    head = text[:1].upper() + text[1:]
+    return head if head in _ZH else None
 
 
 def _source(current: str, stored: Any) -> str | None:
     if isinstance(stored, str) and stored:
         return stored
-    if current in _ZH:
+    if _catalog_key(current) is not None:
         return current
     reverse = _REVERSE.get(current)
     if reverse:
