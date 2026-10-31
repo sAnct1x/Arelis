@@ -300,6 +300,8 @@ class FilamentDesk:
             for widget, _name in self._filament_extra_tiles():
                 apply_tile_opacity(widget, 1.0)
             w.calendar_window.setMinimumSize(720, 520)
+            # The tile cap is Filament's; Night's calendar takes any size again.
+            w.calendar_window.setMaximumSize(16777215, 16777215)
 
     def _filament_extra_tiles(self) -> list[tuple[object, str]]:
         w = self.window

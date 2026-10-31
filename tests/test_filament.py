@@ -190,3 +190,32 @@ def test_filament_days_tile_keeps_its_bar_buttons_readable(arelis_window, qt_app
     for button in buttons:
         assert button.width() >= button.sizeHint().width(), button.text()
         assert button.mapTo(cal, button.rect().topRight()).x() < cal.width(), button.text()
+
+
+def test_filament_days_tile_never_opens_at_its_night_size(arelis_window, qt_app) -> None:
+    """It showed at 1100x800 (then 720x800) before shrinking; a saved 720x768 stuck."""
+    from PySide6.QtCore import QEvent, QObject
+
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    window.show()
+    cal = window.calendar_window
+    seen: list[tuple[int, int]] = []
+
+    class _Sizes(QObject):
+        def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+            if event.type() in (QEvent.Type.Show, QEvent.Type.Resize) and obj.isVisible():
+                seen.append((obj.width(), obj.height()))
+            return False
+
+    spy = _Sizes()
+    cal.installEventFilter(spy)
+    apply_window_theme(window, "filament", persist=False)
+    window._filament_tile_sizes["days"] = (720, 768)
+    window._filament_tile_pos.pop("days", None)
+    window.act_calendar.trigger()
+    for _ in range(5):
+        qt_app.processEvents()
+    assert seen and max(h for _w, h in seen) <= 618, seen
+    assert max(w for w, _h in seen) <= 540, seen

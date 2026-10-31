@@ -43,6 +43,15 @@ DEFAULT_SIZES: dict[str, tuple[int, int]] = {
     "contacts": (320, 260),
     "reality": (420, 320),
 }
+# Largest size a tile keeps. The days tile once saved its Night chrome size
+# (1100x800 clamped to 720x768), so its saved size stays near its default.
+_MAX_SIZE = (720, 800)
+MAX_SIZES: dict[str, tuple[int, int]] = {"days": (540, 618)}
+
+
+def clamp_tile_size(name: str, width: int, height: int) -> tuple[int, int]:
+    max_w, max_h = MAX_SIZES.get(name, _MAX_SIZE)
+    return max(240, min(max_w, int(width))), max(180, min(max_h, int(height)))
 
 
 def clamp_opacity(value: float) -> float:
@@ -172,11 +181,10 @@ def load_tile_sizes(config: dict) -> dict[str, tuple[int, int]]:
         if not isinstance(val, dict):
             continue
         try:
-            width = max(240, min(720, int(val.get("w", 0))))
-            height = max(180, min(800, int(val.get("h", 0))))
+            size = clamp_tile_size(str(key), val.get("w", 0), val.get("h", 0))
         except (TypeError, ValueError):
             continue
-        out[str(key)] = (width, height)
+        out[str(key)] = size
     return out
 
 
@@ -245,16 +253,15 @@ def play_tile_grow(
 
 def apply_tile_size(widget: QWidget, name: str, store: dict[str, tuple[int, int]]) -> None:
     width, height = store.get(name) or DEFAULT_SIZES.get(name, (320, 280))
-    width = max(240, min(720, int(width)))
-    height = max(180, min(800, int(height)))
-    widget.setMaximumSize(720, 800)
+    width, height = clamp_tile_size(name, width, height)
+    widget.setMaximumSize(*MAX_SIZES.get(name, _MAX_SIZE))
     widget.resize(width, height)
 
 
 def remember_tile_size(
     widget: QWidget, name: str, store: dict[str, tuple[int, int]]
 ) -> None:
-    size = (max(240, min(720, widget.width())), max(180, min(800, widget.height())))
+    size = clamp_tile_size(name, widget.width(), widget.height())
     store[name] = size
     merge_local_config({"ui": {"filament_tile_size": {name: {"w": size[0], "h": size[1]}}}})
 

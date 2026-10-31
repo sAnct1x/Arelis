@@ -171,18 +171,22 @@ def toggle_calendar(window, checked: bool) -> None:
 
     note_engagement(window)
     if checked:
-        if not getattr(window, "_calendar_placed", False):
+        filament = active_theme() == "filament"
+        if not filament and not getattr(window, "_calendar_placed", False):
             geo = window.frameGeometry()
             window.calendar_window.move(geo.x() + 40, geo.y() + 40)
             window._calendar_placed = True
-        window.calendar_window.show()
-        window.calendar_window.raise_()
+        if filament:
+            # Dressed before it shows: shown first, it opened at its Night chrome
+            # size (1100x800, then 720x800) and only then shrank to the tile.
+            window._filament_dress_tile(window.calendar_window, "days")
+            window._filament_place_near_title(window.calendar_window, "days")
+        else:
+            window.calendar_window.show()
+            window.calendar_window.raise_()
         window.calendar.reload()
         kick_calendar_sync(window)
         window._calendar_sync_timer.start()
-        if active_theme() == "filament":
-            window._filament_dress_tile(window.calendar_window, "days")
-            window._filament_place_near_title(window.calendar_window, "days")
     else:
         if active_theme() == "filament":
             flush_tile_geom(window.calendar_window)
