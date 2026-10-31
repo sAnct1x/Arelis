@@ -6,7 +6,7 @@ team/avatar-v14k/base-ui-plan.md for the steps that move her here.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QEvent, QObject, QRect, Qt
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 BAND_SHARE = 0.28
@@ -70,6 +70,23 @@ class PersonaStage(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
+
+        if parent is not None:
+            parent.installEventFilter(self)
+            self.follow()
+
+    def follow(self) -> None:
+        """Take her region of the parent in the active room's mode."""
+        from arelis.ui.theme_tokens import active_theme
+
+        parent = self.parentWidget()
+        if parent is not None:
+            self.place(parent.rect(), mode=region_mode(active_theme()))
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if obj is self.parentWidget() and event.type() == QEvent.Type.Resize:
+            self.follow()
+        return False
 
     def host(self, panel: QWidget) -> None:
         self.layout().addWidget(panel)

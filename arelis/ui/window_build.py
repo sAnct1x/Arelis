@@ -73,6 +73,7 @@ from arelis.ui.panels import (
     ThinkingPanel,
 )
 from arelis.ui.persona_face import PersonaPanel
+from arelis.ui.persona_stage import PersonaStage
 from arelis.ui.readiness_strip import ReadinessStrip
 from arelis.ui.scale import default_window_size
 from arelis.ui.settings_host import (
@@ -240,6 +241,9 @@ class WindowBuild:
         self.chat = self.conversation.chat
         self.chat.progress_clicked.connect(self._on_thinking_status_clicked)
         self._stage_layout.addWidget(self.conversation, stretch=1)
+        # Her base-UI place (base-ui-plan slice 2): empty for now, under the chat.
+        self.persona_stage = PersonaStage(self.stage)
+        self.persona_stage.stackUnder(self.conversation)
         self._filament = FilamentField()
         self._filament_parked: dict[str, Any] | None = None
         self._filament_chrome_peek = False
