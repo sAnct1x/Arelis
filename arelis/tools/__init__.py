@@ -389,9 +389,9 @@ def build_tool_registry(
     # Text diagrams write SVG and PNG (Allow). Jobs skip.
     if attended and (tools_cfg.get("diagram") or {}).get("enabled", True):
         registry.register(DiagramTool(workspace, None))
-    # Charts under results/. Allow. Jobs skip. No room folder: tool refuses.
+    # Reads and charts in the workspace folder, under results/. Jobs skip.
     if attended and (tools_cfg.get("data_cell") or {}).get("enabled", True):
-        registry.register(DataCellTool(workspace, None))
+        registry.register(DataCellTool(workspace))
     # PDF / Word / Excel / CSV / markdown. Allow. Jobs skip — nobody is there
     # to approve a file landing on disk.
     if attended and (tools_cfg.get("document") or {}).get("enabled", True):
