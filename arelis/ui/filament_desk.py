@@ -666,17 +666,17 @@ class FilamentDesk:
                 dest = QRect(int(parked[0]), int(parked[1]), int(size[0]), int(size[1]))
                 # Parked in a bigger window, the spot can sit on her hub now
                 # (Babbage, 1100x800: over the hub and 36 px past the left edge).
-                dest = self._filament_clear_of_hub(dest)
+                dest = self._filament_clear_of_hub(self._filament_fit_window(dest, widget))
             else:
                 fresh = QRect(origin, QSize(int(size[0]), int(size[1])))
-                dest = self._filament_clear_of_hub(self._filament_fit_window(fresh))
+                dest = self._filament_clear_of_hub(self._filament_fit_window(fresh, widget))
             self._filament_spawn_tile(widget, name, dest)
             return
         widget.move(origin)
         widget.show()
         widget.raise_()
 
-    def _filament_fit_window(self, dest: QRect) -> QRect:
+    def _filament_fit_window(self, dest: QRect, widget=None) -> QRect:
         """A spot we pick stays inside the window, under the title bar.
 
         At 1100x800 the title point sat low, so the chat tile hung past the
@@ -686,7 +686,15 @@ class FilamentDesk:
         w = self.window
         frame = QRect(w.mapToGlobal(QPoint(0, 0)), w.size())
         bar = getattr(w, "title_bar", None)
-        top = frame.top() + (bar.height() if bar is not None and bar.isVisible() else 0)
+        top = frame.top()
+        if bar is not None and bar.isVisible():
+            # The real strip: the slim bar sits on the glass wherever the
+            # chrome band put it, so its height alone undercounts it.
+            strip = QRect(bar.mapToGlobal(QPoint(0, 0)), bar.size())
+            top = max(top, strip.bottom() + 1)
+        if widget is not None and widget.isVisible():
+            # A framed tile's border sits above its geometry: keep that off the strip too.
+            top += max(0, widget.geometry().top() - widget.frameGeometry().top())
         fit = QRect(dest)
         fit.setHeight(min(fit.height(), max(180, frame.bottom() - top + 1)))
         if fit.bottom() > frame.bottom():
