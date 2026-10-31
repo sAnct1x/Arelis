@@ -193,6 +193,21 @@ class WebAvatar(QWidget):
         """The layout settled: the page takes its size, refits her and draws a frame."""
         self._call("refit()")
 
+    def rearm_surface(self) -> None:
+        """Rebuild the view's composited surface after a native window resize.
+
+        The render widget (the view's focus proxy) holds the texture the
+        window composes. After some native resizes it kept a stale one: the
+        page drew every frame but the hub stayed empty. A hide/show of that
+        widget makes Qt hand it a fresh surface; then the page fits and draws.
+        """
+        proxy = self.view.focusProxy() or self.view
+        if proxy.isVisible():
+            proxy.hide()
+            proxy.show()
+        proxy.update()
+        self.refit()
+
     def refresh_theme_icons(self) -> None:
         """Theme-change hook (settings_host): retint her to the new room."""
         from arelis.ui.persona_face.panel import alog
