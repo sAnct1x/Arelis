@@ -7,7 +7,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 from arelis.tools.data_cell import (
     DataCellTool,
@@ -25,8 +24,7 @@ def _tool(tmp_path: Path, *, root: str = "lab"):
     room = tmp_path / "room"
     room.mkdir()
     workspace = WorkspaceRoots([RootEntry(name=root, path=room.resolve())])
-    rooms = SimpleNamespace(active=SimpleNamespace(root=root))
-    return DataCellTool(workspace, rooms), room
+    return DataCellTool(workspace), room
 
 
 def _alive(pid: int) -> bool:
@@ -141,3 +139,15 @@ async def test_a_link_pointing_out_of_the_room_is_refused(tmp_path: Path) -> Non
                 link.unlink()
 
 
+async def test_the_registered_cell_reads_a_csv_in_the_workspace_folder(tmp_path: Path) -> None:
+    from arelis.tools import build_tool_registry
+
+    folder = tmp_path / "work"
+    folder.mkdir()
+    (folder / "readings.csv").write_text("v\n2\n5\n", encoding="utf-8")
+    workspace = WorkspaceRoots([RootEntry(name="work", path=folder.resolve())])
+    registry = build_tool_registry({"tools": {}, "agent": {}}, workspace, attended=True)
+    tool = registry.get("data_cell")
+    result = await tool.run(code='print(read_table("readings.csv")["v"].sum())')
+    assert result.ok, result.output
+    assert "7" in result.output

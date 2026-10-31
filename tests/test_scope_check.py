@@ -12,6 +12,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from scripts.scope_check import extra_paths, load_allow_globs, main, matches
 
 
@@ -101,6 +103,11 @@ def test_scope_check_flags_paths_outside_the_allow_list(tmp_path: Path, capsys) 
 
     assert main(["HEAD~1", "--root", str(extras_repo)]) == 2
     assert "pass --allow or --allow-file" in capsys.readouterr().err
+
+    with pytest.raises(SystemExit) as bad_base:
+        main(["no-such-ref", "--allow", "scripts/*", "--root", str(extras_repo)])
+    assert bad_base.value.code == 2
+    capsys.readouterr()
 
     rename_repo = tmp_path / "rename"
     rename_repo.mkdir()

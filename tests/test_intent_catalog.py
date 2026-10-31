@@ -50,7 +50,6 @@ Provide a concise comparative table and a short hype vs. reality verdict.
 
 def test_battery_research_is_not_weather() -> None:
     from arelis.core.intent_catalog import weather_intent_matches
-    from arelis.core.preflight import detect_intents
     from arelis.core.tool_subset import is_deep_dive_ask
 
     assert "temperature" in _BATTERY_RESEARCH.lower()
@@ -140,3 +139,17 @@ def test_first_unnegated_skips_declined_hits() -> None:
     assert both is not None and both.start() > 20
 
 
+
+
+def test_a_data_file_in_the_workspace_folder_is_seen(tmp_path, monkeypatch) -> None:
+    import arelis.config
+    from arelis.core import intent_catalog
+
+    (tmp_path / "readings.csv").write_text("v\n1\n", encoding="utf-8")
+    config = {"workspace": {"roots": [str(tmp_path)]}, "tools": {}}
+    monkeypatch.setattr(arelis.config, "load_config", lambda *a, **k: config)
+    monkeypatch.setattr(intent_catalog, "_FOLDER_NAME_CACHE", None)
+    monkeypatch.setattr(intent_catalog, "data_cell_enabled", lambda: True)
+    assert intent_catalog.data_file_names() == ["readings.csv"]
+    hints = detect_intents("what is the mean of v in readings.csv?", offer_data_cell=True)
+    assert "data_cell" in {hint.kind for hint in hints}
