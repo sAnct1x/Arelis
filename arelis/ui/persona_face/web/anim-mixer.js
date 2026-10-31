@@ -11,7 +11,7 @@ const ALIAS = { talking: 'speaking', rest: 'idle' };   // same names anim.js acc
 const KEEP_BASE = /^CC_Base_(NeckTwist0[12]|Head|FacialBone|JawRoot|.*Eye|Tongue.*|Teeth.*|UpperJaw)\./;   // head rows stay from anim.js
 const POOLS = {   // repeats = weight
   idle: ['Idle', 'Idle', 'WeightShift', 'WeightShift', 'v2_BreathingIdle', 'v2_BreathingIdle', 'v2_HappyIdle'],
-  listening: ['v2_ThoughtfulHeadNod', 'v2_ThoughtfulHeadNod', 'Agreeing', 'v2_BreathingIdle', 'Idle'],
+  listening: ['v2_ThoughtfulHeadNod', 'v2_ThoughtfulHeadNod', 'Agreeing'],   // no idle clip: entering listening always fades to a nod
   thinking: ['v2_BreathingIdle', 'Idle', 'v2_ThoughtfulHeadNod'],
   speaking: ['Talking', 'Talking', 'Agreeing'],
   done: ['v2_BreathingIdle', 'Idle'] };export function createAnimator(THREE, root, face, uAnim, opts = {}) {

@@ -15,7 +15,7 @@ const ALIAS = { talking: 'speaking' };
 const P = {
   //             breath/s depth  lean   tilt   look-up sway  flow  rim   shimmer gaze-range saccade-gap  smile  browUp browIn press
   idle:      { br: 0.23, bd: 1.0, lean: 0.0,   tilt: 0.0,   up: 0.0,   sway: 1.0, flow: 1.0, rim: 1.0,  sh: 0, gr: 1.0,  gap: 1.0, smile: 0.05, bu: 0.0,  bi: 0.0,  pr: 0.0 },
-  listening: { br: 0.22, bd: 0.85, lean: 0.045, tilt: 0.055, up: 0.0,   sway: 0.5, flow: 1.1, rim: 1.38, sh: 0, gr: 0.25, gap: 1.5, smile: 0.12, bu: 0.12, bi: 0.10, pr: 0.0 },
+  listening: { br: 0.22, bd: 0.85, lean: 0.08,  tilt: 0.13,  up: 0.0,   sway: 0.5, flow: 1.1, rim: 1.38, sh: 0, gr: 0.25, gap: 1.5, smile: 0.12, bu: 0.12, bi: 0.10, pr: 0.0 },
   thinking:  { br: 0.21, bd: 0.95, lean: -0.01, tilt: -0.03, up: 0.16,  sway: 0.6, flow: 2.3, rim: 1.08, sh: 1, gr: 0.45, gap: 1.6, smile: 0.0,  bu: 0.0,  bi: 0.05, pr: 0.14 },
   speaking:  { br: 0.26, bd: 0.75, lean: 0.02, tilt: 0.0,   up: 0.0,   sway: 0.8, flow: 1.25, rim: 1.12, sh: 0, gr: 0.4, gap: 0.8, smile: 0.09, bu: 0.0,  bi: 0.0,  pr: 0.0 },
   done:      { br: 0.2, bd: 1.15, lean: -0.012, tilt: 0.0, up: -0.02, sway: 0.55, flow: 0.8, rim: 1.0, sh: 0, gr: 0.6, gap: 1.4, smile: 0.16, bu: 0.0,  bi: 0.0,  pr: 0.0 },
