@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl, QUrlQuery, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget
 
 from arelis.paths import user_data_dir
@@ -137,6 +138,14 @@ def _console_page(parent):
     return _Page(parent)
 
 
+def backdrop_color() -> QColor:
+    """Her page background: transparent, or the room's bg0 under the opaque A/B arm."""
+    from arelis.ui import idle_ab
+    from arelis.ui.theme import color
+
+    return color("bg0") if idle_ab.opaque_backdrop() else QColor(Qt.GlobalColor.transparent)
+
+
 class WebAvatar(QWidget):
     """Hosts the scene. Call set_state and set_level; listen for failed."""
 
@@ -163,7 +172,9 @@ class WebAvatar(QWidget):
         s.setAttribute(QWebEngineSettings.WebAttribute.WebGLEnabled, True)
         page = self.view.page()
         # See-through dock: the scene clears to alpha 0 under ?transparent=1.
-        page.setBackgroundColor(Qt.GlobalColor.transparent)
+        # ARELIS_AVATAR_BACKDROP=opaque (blank-frame A/B) paints the room colour
+        # under her instead, so Qt composes her view as an opaque widget.
+        page.setBackgroundColor(backdrop_color())
         page.loadFinished.connect(self._loaded)
         page.renderProcessTerminated.connect(lambda *_: self._fail("render process ended"))
         self._poll = QTimer(self)
@@ -227,6 +238,7 @@ class WebAvatar(QWidget):
 
         self._tint = aether_hue_shift()
         alog("theme", name=active_theme(), tint=self._tint)
+        self.view.page().setBackgroundColor(backdrop_color())
         self._call(f"setTint({self._tint})")
 
     def _call(self, expr: str) -> None:
