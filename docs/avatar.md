@@ -24,8 +24,9 @@ motion clips. Put it in the same folder as the model:
 ```
 
 To keep it somewhere else, set `ARELIS_AVATAR_CLIPS` to its full path. This file is
-optional. Without it she still appears, speaks and blinks, but her body uses the older
-built-in poses.
+required: always copy it alongside `ellah.glb`. Without it she still appears, speaks
+and blinks, but her body stands still in its neutral rest pose, and Arelis logs an
+error naming the path it looked in.
 
 ## Where she stands
 
@@ -93,9 +94,9 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] glb load path=... bytes=...` | The model file is being opened. |
 | `[avatar] renderer init webgl2=... ratio=... size=WxH` | The drawing surface started. |
 | `[avatar] clip loaded name=...` | A motion clip arrived (gesture track, walk). |
-| `[avatar] clips load path=... bytes=...` | The motion file is being opened (`bytes=0` means it is missing). |
+| `[avatar] clips load path=... bytes=...` | The motion file is being opened. |
+| `[avatar] clips missing at <path>` | Error: the motion file is not there. Her body holds the rest pose. |
 | `[avatar] mixer clips=...` | The motion clips loaded, with how many. |
-| `[avatar] mixer clips unavailable, body stays on anim.js ...` | The motion file could not load. Her body uses the older built-in poses. |
 | `[avatar] glb loaded ms=...` | The model finished loading, with the time it took. |
 | `[avatar] scene ready ms=...` | She is built and drawing. |
 | `[avatar] ready` | The app saw her ready and swapped out the glow. |
