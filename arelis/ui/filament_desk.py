@@ -710,7 +710,9 @@ class FilamentDesk:
             getattr(w, "contacts_inbox", None),
             getattr(w, "world_window", None),
         ):
-            if widget is None or not widget.isVisible() or getattr(widget, "_filament_growing", False):
+            if widget is None or not widget.isVisible():
+                continue
+            if getattr(widget, "_filament_growing", False):
                 continue
             if hasattr(widget, "isFloating") and not widget.isFloating():
                 continue
