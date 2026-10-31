@@ -28,6 +28,8 @@ _ZH: dict[str, str] = {
     "audio": "音频",
     "window": "窗口",
     "allow": "允许",
+    "Server": "服务器",
+    "house": "家",
     "notify": "通知",
     "folders": "文件夹",
     "memory": "记忆",
@@ -561,6 +563,11 @@ def apply_language(window: Any, raw: Any) -> str:
 def _refresh_live_copy(window: Any) -> None:
     if window is None:
         return
+    strip = getattr(window, "readiness_strip", None)
+    relabel = getattr(strip, "relabel", None)
+    if callable(relabel):
+        # Its labels are composed ("house · 2 ▾"), so the widget walk cannot map them.
+        relabel()
     conv = getattr(window, "conversation", None)
     sync = getattr(conv, "_sync_composer_buttons", None)
     if callable(sync):

@@ -22,3 +22,27 @@ def test_zh_translates_caption_buttons_and_attach(qapp):
         i18n.localize(stage)
         bar.deleteLater()
         stage.deleteLater()
+
+
+def test_night_top_bar_server_and_house_follow_chinese(arelis_window) -> None:
+    """'server' and 'house · 2' are set after the walk, so they translate themselves."""
+    from arelis.presence.readiness import ChipLevel, ReadinessChip, ReadinessSnapshot
+
+    window = arelis_window()
+    strip = window.readiness_strip
+    strip.apply(
+        ReadinessSnapshot(
+            chips=(
+                ReadinessChip("server", "Server", ChipLevel.OK, "up"),
+                ReadinessChip("models", "Models", ChipLevel.WARN, "x"),
+                ReadinessChip("role", "Role", ChipLevel.WARN, "y"),
+            )
+        )
+    )
+    try:
+        i18n.apply_language(window, "zh")
+        assert strip._chips["server"].text() == "服务器"
+        assert strip.systems_btn.text() == "家 · 2 ▾"
+    finally:
+        i18n.apply_language(window, "en")
+    assert strip.systems_btn.text() == "house · 2 ▾"
