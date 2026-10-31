@@ -70,13 +70,13 @@ def test_quiesce_unparents_a_blocked_thread_before_deferred_delete(qt_app) -> No
         worker.wait(2000)
 
 
-def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
+def test_quit_joins_handed_off_workers(qt_app, monkeypatch) -> None:
     """Quit must join handed-off workers, including a mid-download prepare.
 
     Setup-not-finished parks a real ``_PrepareWorker`` without calling
     cancel(), then ``run_ui`` must signal cancel and join it well under
     ``HANDED_OFF_WAIT_S`` (1s read timeout, then ``cancelled()``). The
-    other exits park a parentless bake worker via aboutToQuit. A skipped
+    other exits park a parentless worker thread. A skipped
     cancel, a no-op wait, a skipped park, or a skipped drain leaves a
     worker running. Isolate QT_QPA_PLATFORM so Windows does not leak
     into the next test.
@@ -85,18 +85,12 @@ def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
     from arelis.setup.catalog import CATALOG
     from arelis.ui import launch as launch_mod
     from arelis.ui.live_threads import park_running_thread
-    from arelis.ui.persona_face.avatar import PersonaAvatar
     from arelis.ui.setup_wizard import _PrepareWorker
 
     monkeypatch.setenv("ARELIS_ALLOW_OFFSCREEN", "1")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
 
     started = threading.Event()
-
-    def fake_bake(size: object, cancel: object = None, publish: object = None) -> dict:
-        started.set()
-        time.sleep(3.2)
-        return {}
 
     def fake_download(
         model: object,
@@ -112,10 +106,6 @@ def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
                 raise RuntimeError("The download was stopped.")
             time.sleep(1.0)
 
-    monkeypatch.setattr("arelis.ui.persona_face.avatar.bake_layers", fake_bake)
-    monkeypatch.setattr(
-        "arelis.ui.persona_face.avatar.face_cache.load_layers", lambda *_a, **_k: None
-    )
     monkeypatch.setattr("arelis.ui.setup_wizard.download_model", fake_download)
 
     class _Lock:
@@ -143,23 +133,21 @@ def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
 
     monkeypatch.setattr(live, "drain_parked_threads", spy_drain)
 
-    def start_baker() -> tuple[PersonaAvatar, QThread]:
+    class _Sleeper(QThread):
+        def run(self) -> None:
+            started.set()
+            time.sleep(3.2)
+
+    def start_worker() -> QThread:
         started.clear()
-        avatar = PersonaAvatar()
-        avatar.resize(220, 300)
-        avatar.show()
-        qt_app.processEvents()
-        avatar._start_bake()
+        worker = _Sleeper()
+        worker.start()
         assert started.wait(2)
-        baker = avatar._baker
-        assert baker is not None and baker.isRunning()
-        return avatar, baker
+        assert worker.isRunning()
+        park_running_thread(worker)
+        return worker
 
-    def quit_parks(avatar: PersonaAvatar) -> None:
-        qt_app.aboutToQuit.emit()
-        assert avatar._baker is None
-
-    avatars: list[PersonaAvatar] = []
+    workers: list[QThread] = []
     prepare: _PrepareWorker | None = None
     try:
         monkeypatch.setattr(launch_mod, "prompt_for_workspace_root", lambda: None)
@@ -216,9 +204,8 @@ def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
         )
         monkeypatch.setattr("arelis.ui.app.ArelisWindow", BoomWindow)
 
-        avatar, baker = start_baker()
-        avatars.append(avatar)
-        quit_parks(avatar)
+        baker = start_worker()
+        workers.append(baker)
         before = len(drain_calls)
         with pytest.raises(RuntimeError, match="window failed"):
             launch_mod.run_ui({})
@@ -261,9 +248,8 @@ def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
             "arelis.presence.glass_inbound.install_owned_inbound", lambda *_a, **_k: None
         )
 
-        avatar, baker = start_baker()
-        avatars.append(avatar)
-        quit_parks(avatar)
+        baker = start_worker()
+        workers.append(baker)
         before = len(drain_calls)
         assert launch_mod.run_ui({}) == 0
         assert len(drain_calls) > before
@@ -273,6 +259,6 @@ def test_quit_joins_a_running_avatar_bake(qt_app, monkeypatch) -> None:
         if prepare is not None:
             prepare.cancel()
             prepare.wait(2000)
-        for avatar in avatars:
-            avatar.shutdown()
+        for worker in workers:
+            worker.wait(4000)
         real_drain(0.05)

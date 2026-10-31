@@ -764,7 +764,7 @@ def on_barge_in(window) -> None:
     the transcript is not a second one.
     """
     window.thinking.append("interrupted", kind="status")
-    stop_speech(window)
+    stop_speech(window, source="voice")
 
 
 def arm_speech(window) -> None:
@@ -857,12 +857,16 @@ def stop_playback(window) -> None:
     update_speaking(window)
 
 
-def stop_speech(window) -> None:
+def stop_speech(window, source: str = "system") -> None:
     # Cancelling synthesis matters as much as stopping the player. The
     # player drops the clips it holds, but the service would keep rendering
     # the rest of the answer, and conversation mode stays deaf until that
     # loop reaches its terminal event. Retract must not use this: see
     # stop_playback.
+    if getattr(window, "_speech_expected", False) or getattr(window, "_speech_playing", False):
+        from arelis.ui.persona_face.panel import alog
+
+        alog("stop", source=source)
     if window.voice is not None:
         window.voice.cancel_speech()
     if window.speech_player is not None:

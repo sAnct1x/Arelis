@@ -157,39 +157,27 @@ def test_nothing_sits_in_the_bottom_right(arelis_window, qt_app, caplog) -> None
     assert window.persona_panel.caption_text() != "thinking"
 
 
-def test_she_is_on_the_welcome_screen_and_bake_is_not_during_the_turn(
+def test_she_is_on_the_welcome_screen_and_stays_put_during_the_turn(
     arelis_window, qt_app
 ) -> None:
-    """Her dock is up before the first message, and the bake does not start mid-turn."""
+    """She is up before the first message and does not move when a turn starts."""
     window = arelis_window()
-    calls: list[bool] = []
-    avatar = window.persona_panel.avatar
-    original = avatar._start_bake
-
-    def wrapped() -> None:
-        calls.append(bool(window._turn_busy))
-        original()
-
-    avatar._start_bake = wrapped  # type: ignore[method-assign]
     window.resize(1440, 900)
     window.show()
     end = time.monotonic() + 0.7
     while time.monotonic() < end:
         qt_app.processEvents()
         time.sleep(0.01)
-    assert not window.persona_dock.isHidden()
+    assert window.persona_panel.isVisible()
     assert window.chat.empty.isVisible()
-    welcome = window.persona_dock.geometry()
+    welcome = window.persona_stage.geometry()
     assert welcome.width() >= 220
-    assert calls and not any(calls)
-    calls.clear()
     window.chat.add_user("hello")
     window._set_busy(True)
     for _ in range(6):
         qt_app.processEvents()
-    chatting = window.persona_dock.geometry()
+    chatting = window.persona_stage.geometry()
     assert abs(welcome.x() - chatting.x()) <= 4
     assert abs(welcome.width() - chatting.width()) <= 4
-    assert calls == []
 
 

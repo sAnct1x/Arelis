@@ -47,34 +47,6 @@ def test_her_dock_sits_on_the_right(arelis_window, qt_app) -> None:
     assert window.act_persona.shortcut().toString() == "Ctrl+1"
 
 
-def test_a_turn_reveals_her_and_a_hand_close_sticks(arelis_window, qt_app) -> None:
-    """A turn opens her dock. Closing it by hand keeps it closed until Ctrl+1."""
-    window = arelis_window()
-    window.show()
-    qt_app.processEvents()
-    assert not window.persona_dock.isHidden()
-    dispatch_event(window, Event(EventType.THINKING, {"text": "the moon pulls the water"}))
-    qt_app.processEvents()
-    assert not window.persona_dock.isHidden()
-    window.persona_dock.close()
-    qt_app.processEvents()
-    assert window.persona_dock.isHidden()
-    dispatch_event(window, Event(EventType.THINKING, {"text": "still pulling"}))
-    qt_app.processEvents()
-    assert window.persona_dock.isHidden()
-    window.act_persona.trigger()
-    qt_app.processEvents()
-    assert not window.persona_dock.isHidden()
-    dispatch_event(window, Event(EventType.THINKING, {"text": "open again"}))
-    window.persona_dock.close()
-    qt_app.processEvents()
-    window.act_persona.trigger()
-    qt_app.processEvents()
-    dispatch_event(window, Event(EventType.TOOL_START, {"tool": "weather", "args": {}}))
-    qt_app.processEvents()
-    assert not window.persona_dock.isHidden()
-
-
 def test_reasoning_collapses_above_the_answer_and_click_toggles_it(arelis_window, qt_app) -> None:
     """A turn with reasoning shows Thought for above the answer. Click opens and closes it."""
     window = arelis_window()
@@ -145,5 +117,3 @@ def _save_old_layout(qt_app, ini: str, mode: str) -> None:
     host.close()
     host.deleteLater()
     qt_app.processEvents()
-
-

@@ -57,7 +57,9 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setClearColor(0x000000, TRANSPARENT ? 0 : 1);
 // A lost context never comes back on its own here; report it so the panel shows the painted face instead of nothing.
-renderer.domElement.addEventListener('webglcontextlost', () => { window.__error = 'WebGL context lost'; });
+renderer.domElement.addEventListener('webglcontextlost', () => { console.warn('[avatar] webgl lost'); window.__error = 'WebGL context lost'; });
+renderer.domElement.addEventListener('webglcontextrestored', () => console.info('[avatar] webgl restored'));
+console.info('[avatar] renderer init webgl2=' + renderer.capabilities.isWebGL2 + ' ratio=' + renderer.getPixelRatio() + ' size=' + innerWidth + 'x' + innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -995,14 +997,16 @@ function onModel(gltf) {
   if (animator) { animator.api.materialize = (d) => startAppear(1, d); animator.api.dissolve = (d) => startAppear(0, d);
     Object.defineProperty(animator.api, 'appear', { get: () => appear.a }); }
   window.__ready = true;
+  console.info('[avatar] scene ready ms=' + Math.round(performance.now() - GLB_T0));
 }
 const loader = new GLTFLoader();
-const failed = (err) => { status.textContent = 'GLB load failed: ' + err; window.__error = String(err); };
+const GLB_T0 = performance.now();
+const failed = (err) => { console.error('[avatar] glb failed ' + err); status.textContent = 'GLB load failed: ' + err; window.__error = String(err); };
 const PRIMARY = params.get('glb') || GLB_PATH;   // ?glb= override for testing the fallback
 const BASE_LOOK = { ...LOOK };
 const useLook = (path) => { Object.assign(LOOK, BASE_LOOK); for (const [k, v] of Object.entries(MODEL_LOOK)) if (path.includes(k)) Object.assign(LOOK, v); };
-loader.load(PRIMARY, (g) => { window.__model = PRIMARY; useLook(PRIMARY); onModel(g); }, undefined, (err) => {
-  console.warn('primary GLB failed, using fallback', err);
+loader.load(PRIMARY, (g) => { console.info('[avatar] glb loaded ms=' + Math.round(performance.now() - GLB_T0)); window.__model = PRIMARY; useLook(PRIMARY); onModel(g); }, undefined, (err) => {
+  console.warn('[avatar] glb primary failed, using fallback ' + err);
   loader.load(FALLBACK_GLB_PATH, (g) => { window.__model = FALLBACK_GLB_PATH; useLook(FALLBACK_GLB_PATH); onModel(g); }, undefined, failed);
 });
 
@@ -1041,7 +1045,8 @@ if (TRANSPARENT) { const rnd = Math.random; Math.random = () => 0.5; composer.ad
 const _sz = new THREE.Vector2();
 function fitView() { renderer.getSize(_sz); if (_sz.x === innerWidth && _sz.y === innerHeight) return;
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); fitFull();
-  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); }
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+  console.info('[avatar] canvas resize size=' + innerWidth + 'x' + innerHeight); }
 addEventListener('resize', fitView);
 
 // Talking: level 0..1 drives a slow cycle through CC visemes (crossfaded). Blinking: random 2-6 s, ~150 ms.

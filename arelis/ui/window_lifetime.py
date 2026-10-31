@@ -380,7 +380,7 @@ class WindowLifetime:
         # Cancel an in-flight turn so Quit is not blocked on model/tools.
         # Do not schedule the next Allow card — that used to show the window.
         try:
-            self._cancel_turn(schedule_next=False)
+            self._cancel_turn(schedule_next=False, reason="quit")
         except Exception:
             log.exception("quit cancel failed")
         try:

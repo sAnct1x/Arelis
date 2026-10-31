@@ -263,12 +263,3 @@ def _hue(rgb: tuple[int, int, int]) -> int:
     from PySide6.QtGui import QColor
 
     return QColor(*rgb).hsvHue()
-
-
-def test_view_checks_start_true_for_her_open_dock(arelis_window) -> None:
-    """Ctrl+1 closes her dock on the first press after launch."""
-    window = arelis_window()
-    assert not window.persona_dock.isHidden()
-    assert window.act_persona.isChecked()
-    window.act_persona.trigger()
-    assert window._persona_user_closed

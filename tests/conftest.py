@@ -293,29 +293,3 @@ def _dispose_arelis_windows():
     app.processEvents()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.processEvents()
-
-
-@pytest.fixture(autouse=True)
-def _stop_persona_bakes():
-    """Stop every persona bake thread a test leaves behind, pass or fail.
-
-    A panel dropped while its bake QThread still runs makes Qt abort the whole
-    process ("QThread: Destroyed while thread is still running") during a later
-    test. A failed or timed-out wait for the bake used to leave exactly that.
-    """
-    yield
-    import sys
-
-    avatar_mod = sys.modules.get("arelis.ui.persona_face.avatar")
-    if avatar_mod is None:
-        return
-    from PySide6.QtWidgets import QApplication
-
-    if QApplication.instance() is None:
-        return
-    for widget in QApplication.allWidgets():
-        if isinstance(widget, avatar_mod.PersonaAvatar):
-            widget.shutdown()
-    from arelis.ui.live_threads import drain_parked_threads
-
-    drain_parked_threads()

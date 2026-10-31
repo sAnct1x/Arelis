@@ -299,6 +299,10 @@ def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
         refresh_wash = getattr(chat, "refresh_bubble_wash", None)
         if callable(refresh_wash):
             refresh_wash()
+    from arelis.ui.persona_stage import seat_persona
+
+    seat_persona(window)
+    window._sync_panel_margins()
     sync = getattr(window, "_sync_filament_face", None)
     if callable(sync):
         sync()

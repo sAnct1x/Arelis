@@ -1,7 +1,8 @@
 """Her place in the base UI: a fixed band of the stage, under chat and tiles.
 
-Not wired yet. The persona dock still hosts her at runtime; see
-team/avatar-v14k/base-ui-plan.md for the steps that move her here.
+Night and Sodium seat her here (right full-height band) and keep the persona
+dock as a hidden alias. Filament still hosts her in its tile until the hub
+slice lands.
 """
 
 from __future__ import annotations
@@ -82,6 +83,9 @@ class PersonaStage(QWidget):
         parent = self.parentWidget()
         if parent is not None:
             self.place(parent.rect(), mode=region_mode(active_theme()))
+        window = self.window()
+        if in_stage(window) and hasattr(window, "_sync_panel_margins"):
+            window._sync_panel_margins()
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if obj is self.parentWidget() and event.type() == QEvent.Type.Resize:
@@ -92,4 +96,52 @@ class PersonaStage(QWidget):
         self.layout().addWidget(panel)
 
     def place(self, stage: QRect, home_band: QRect | None = None, *, mode: str = "band") -> None:
-        self.setGeometry(persona_region(stage, home_band, mode=mode))
+        region = persona_region(stage, home_band, mode=mode)
+        if region != self.geometry():
+            from arelis.ui.persona_face.panel import alog
+
+            alog(
+                "resize",
+                mode=mode,
+                region=f"{region.x()},{region.y()},{region.width()}x{region.height()}",
+            )
+        self.setGeometry(region)
+
+
+def in_stage(window) -> bool:
+    """She sits in the base UI (not in the persona dock) in the active room."""
+    return bool(getattr(window, "_persona_in_stage", False))
+
+
+def _keep_dock_hidden(window, visible: bool) -> None:
+    if visible and in_stage(window):
+        window.persona_dock.hide()
+
+
+def seat_persona(window) -> None:
+    """Put her panel where the active room wants it. Safe to call again."""
+    from arelis.ui.theme_tokens import active_theme
+
+    stage = getattr(window, "persona_stage", None)
+    panel = getattr(window, "persona_panel", None)
+    dock = getattr(window, "persona_dock", None)
+    if stage is None or panel is None or dock is None:
+        return
+    if not getattr(window, "_persona_alias_hooked", False):
+        window._persona_alias_hooked = True
+        dock.visibilityChanged.connect(lambda v, w=window: _keep_dock_hidden(w, v))
+    band = region_mode(active_theme()) == "band"
+    if band:
+        if panel.parentWidget() is not stage:
+            stage.host(panel)
+        window._persona_in_stage = True
+        dock.hide()
+        stage.follow()
+        stage.show()
+        panel.show()
+    else:
+        window._persona_in_stage = False
+        stage.hide()
+        body = window.persona_host._body_host.layout()
+        if panel.parentWidget() is not window.persona_host._body_host:
+            body.addWidget(panel)

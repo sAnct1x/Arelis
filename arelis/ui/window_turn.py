@@ -237,7 +237,7 @@ class WindowTurn:
         # Stop means stop. Speech outlives the turn that produced it, so
         # cancelling the turn without cutting playback leaves her talking about
         # something the user has already abandoned.
-        stop_speech(self)
+        stop_speech(self, source="button" if reason == "stop" else reason)
         if hung:
             self.thinking.append(HUNG_MESSAGE, kind="status")
             self.chat.add_system(HUNG_MESSAGE)

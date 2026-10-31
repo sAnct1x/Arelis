@@ -833,7 +833,9 @@ class ConversationStage(GlassFrame):
 
         win = self.window()
         dock = getattr(win, "persona_dock", None)
-        she_is_up = dock is not None and not dock.isHidden()
+        from arelis.ui.persona_stage import in_stage
+
+        she_is_up = in_stage(win) or (dock is not None and not dock.isHidden())
         parked = not idle and active_theme() != "filament" and not she_is_up
         self._parked_orbit.setVisible(parked)
         self._parked_orbit.set_animating(parked)

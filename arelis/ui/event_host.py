@@ -771,7 +771,9 @@ def dispatch_event(window: Any, event: Event) -> None:
         if window._ignore_cancel_echo:
             window._ignore_cancel_echo = False
         else:
-            window._apply_stop_ui(publish_confirm_skip=False)
+            window._apply_stop_ui(
+                publish_confirm_skip=False, reason=str(p.get("reason") or "cancel")
+            )
             if not window._force_quit and not window._disposed:
                 window._later(0, window._show_next_pending_confirm)
     elif t == EventType.TURN_PAUSE:

@@ -12,11 +12,12 @@ so the two always match.
 
 ## Arelis in sodium and night
 
-Her 3D figure shows in her panel in every theme. In sodium and night she wears
+Her 3D figure shows in every theme: a band on the right in sodium and night, her
+tile in filament. In sodium and night she wears
 the room's colour: amber on sodium, her own violet on night. Only the colour
 changes. Her shape, face and motion are the same as in filament. Switching
-theme retints her straight away. When the 3D view cannot run, the painted face
-is used, as before.
+theme retints her straight away. When the 3D view cannot run, a still glow in
+the room's colour stands where she would be. See avatar.md.
 
 ## The idle orbit
 

@@ -73,7 +73,7 @@ from arelis.ui.panels import (
     ThinkingPanel,
 )
 from arelis.ui.persona_face import PersonaPanel
-from arelis.ui.persona_stage import PersonaStage
+from arelis.ui.persona_stage import PersonaStage, seat_persona
 from arelis.ui.readiness_strip import ReadinessStrip
 from arelis.ui.scale import default_window_size
 from arelis.ui.settings_host import (
@@ -284,7 +284,6 @@ class WindowBuild:
         self.spatial.preview_ready.connect(self.camera.set_preview)
         self.calendar = CalendarPanel(memory=self.store)
         self.persona_panel = PersonaPanel()
-        self.persona_panel.stop_speaking_requested.connect(self._on_persona_stop_speaking)
         self.thinking.bind(self)
         self.persona_host = InstrumentPanel("arelis", self.persona_panel)
         self.think_host = self.persona_host
@@ -319,12 +318,6 @@ class WindowBuild:
             | Qt.DockWidgetArea.BottomDockWidgetArea
         )
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.persona_dock)
-        # She looks toward the chat while speaking; the chat is across from her dock.
-        self.persona_dock.dockLocationChanged.connect(
-            lambda area: self.persona_panel.set_chat_side(
-                1.0 if area == Qt.DockWidgetArea.LeftDockWidgetArea else -1.0
-            )
-        )
 
         self.history_dock = GlassDockWidget("history", self)
         self.history_dock.setObjectName("HistoryDock")
@@ -396,6 +389,7 @@ class WindowBuild:
         self._adopt_old_thinking_layout()
         # Seal restored floats now, before the first show. Do not redock them
         # after paint — that shrink used to leave a second orbit on the right.
+        seat_persona(self)
         self._sanitize_floating_docks()
         self._stack_left_instruments()
         self._later(0, self._clamp_dock_widths)
@@ -585,11 +579,6 @@ class WindowBuild:
         if quiet_launch(self):
             return
         self.conversation.focus_input()
-
-    def _on_persona_stop_speaking(self) -> None:
-        from arelis.ui.voice_host import stop_speech
-
-        stop_speech(self)
 
     def _adopt_old_thinking_layout(self) -> None:
         """A layout saved by the old Thinking dock opens as her dock on the right."""

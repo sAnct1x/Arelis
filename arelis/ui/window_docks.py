@@ -339,12 +339,18 @@ def sync_panel_margins(window) -> None:
     ) or docked_in(window, window.camera_dock, Qt.DockWidgetArea.LeftDockWidgetArea)
     # Thinking on the right abuts the chat glass.
     right = docked_in(window, window.persona_dock, Qt.DockWidgetArea.RightDockWidgetArea)
+    from arelis.ui.persona_stage import in_stage
+
+    seated = in_stage(window)
     bottom = False
 
     # Chat: OUTER against the window when a side is empty; HALF when a dock
     # shares that edge (dock contributes the other HALF → gap == OUTER).
     chat_l = _PANEL_HALF if left else _PANEL_OUTER
     chat_r = _PANEL_HALF if right else _PANEL_OUTER
+    if seated:
+        # Her band is part of the stage: the chat ends where she begins.
+        chat_r = window.persona_stage.width() + _PANEL_OUTER
     chat_b = _PANEL_HALF if bottom else _PANEL_BOTTOM
     if active_theme() == "filament" and not left and not right and not bottom:
         window._stage_layout.setContentsMargins(0, 0, 0, 0)

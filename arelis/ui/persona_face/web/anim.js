@@ -170,7 +170,7 @@ export function createAnimator(THREE, root, face, uAnim, opts = {}) {
   };
   const GKEYS = ['lowFwd', 'lowOpen', 'midFwd'];
   // v8: continuous gesture track: real time segments of CMU 18_08 (arms per-frame retargeted + fitted, spine/head high-passed rotations), 30 fps
-  let TRK = null; try { fetch(new URL(new URLSearchParams(location.search).get('track') === 'cmu' ? './gesture-track.json' : './gesture-track-mix.json', import.meta.url)).then((r) => r.json()).then((j) => { TRK = j; api.trackReady = true; }).catch(() => {}); } catch (e) {}
+  let TRK = null; try { fetch(new URL(new URLSearchParams(location.search).get('track') === 'cmu' ? './gesture-track.json' : './gesture-track-mix.json', import.meta.url)).then((r) => r.json()).then((j) => { TRK = j; api.trackReady = true; console.info('[avatar] clip loaded name=gesture-track-mix segs=' + j.segs.length); }).catch(() => {}); } catch (e) {}
 const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vector3(), _eQ1 = new THREE.Quaternion(), _eQ2 = new THREE.Quaternion(), _eQ3 = new THREE.Quaternion();   // v13 end-on wrist
   const mo = { slots: [], last: -1, wasOn: false };
   let mseed = 9173; const mrnd = () => ((mseed = (mseed * 1664525 + 1013904223) >>> 0) / 4294967296);   // v8b: own RNG so the face timeline matches v7
@@ -178,7 +178,7 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
   const HDK = 0.02;   // v8b: mocap head damped (was 0.4)   // v8b: mocap head damped (was 0.4)
   const K9N = ['ux', 'uy', 'uz', 'fx', 'fy', 'fz', 'hx', 'hy', 'hz'];
   const MQ = { L: {}, R: {} }, MSP = [0, 0, 0], MHD = [0, 0, 0];
-  const moStart = (t0) => { let i, m; do { i = Math.floor(mrnd() * TRK.segs.length); m = mrnd() < 0.5; } while (i === mo.lastI && TRK.segs.length > 1); mo.lastI = i; mo.last = i + (m ? 'm' : '');   /* v15: never the same segment twice in a row (Agreeing chained into itself) */   // v8b: random span + mirror, never the same pair twice in a row
+  const moStart = (t0) => { let i, m; do { i = Math.floor(mrnd() * TRK.segs.length); m = mrnd() < 0.5; } while (i === mo.lastI && TRK.segs.length > 1); mo.lastI = i; mo.last = i + (m ? 'm' : ''); console.info('[avatar] clip play name=gesture seg=' + i + ' mirror=' + m);   /* v15: never the same segment twice in a row (Agreeing chained into itself) */   // v8b: random span + mirror, never the same pair twice in a row
     const len = TRK.segs[i].n / TRK.fps; for (const sl of mo.slots) sl.tg = 0;
     mo.slots.push({ i, m, t: Math.min(t0 ?? 0, Math.max(0, len - 2.6)) + mrnd() * Math.max(0, len - 2.2 - (t0 ?? 0)), w: 0, v: 0, tg: 1 }); };   /* v15: short segments (Agreeing, 1.9 s) start at their head */
   const moSample = (sl, key, j) => { if (sl.m) { if (key === 'L' || key === 'R') key = key === 'L' ? 'R' : 'L'; else if (j > 0) return -moSample({ ...sl, m: false }, key, j); } const S = TRK.segs[sl.i], f = Math.min(S.n - 1.001, sl.t * TRK.fps), i0 = Math.floor(f), u = f - i0; return S[key][i0][j] * (1 - u) + S[key][i0 + 1][j] * u; };
@@ -281,15 +281,16 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
   let WTRK = null, WTR = null, wT = 0, sT = 0, wph = 0, wk = 0, walkOn = false;  let wkA = 0;   // v15: slower walk-in weight for the arms (hands leave the hip over 0.75 s, not 0.3 s)   // wph: 0 idle, 1 start clip, 2 walk cycle, 3 stop clip, 4 settle to idle
   const WB = {}, GL = V3(), GW = V3(), hipB0 = hipP0 ? hipP0.clone() : null;
   const HEAD0 = R.Head ? wpos(R.Head.b) : V3(), HIP0 = hip ? wpos(hip.b) : V3(), wqa = Q(), wqb = Q();
-  try { fetch(new URL('./walk-track.json', import.meta.url)).then((r) => r.json()).then((j) => { WTRK = j; for (const n of j.bones) { const b = bone('CC_Base_' + n); if (b) WB[n] = b; } api.walkReady = true; }).catch(() => {}); } catch (e) {}
+  try { fetch(new URL('./walk-track.json', import.meta.url)).then((r) => r.json()).then((j) => { WTRK = j; console.info('[avatar] clip loaded name=walk-track'); for (const n of j.bones) { const b = bone('CC_Base_' + n); if (b) WB[n] = b; } api.walkReady = true; }).catch(() => {}); } catch (e) {}
   // v10c: Mixamo FemaleStartWalking / FemaleStopWalking transitions (walk-trans.json; root forward stripped into tz, re-applied as travel)
-  try { fetch(new URL('./walk-trans.json', import.meta.url)).then((r) => r.json()).then((j) => { WTR = j; api.transReady = true; }).catch(() => {}); } catch (e) {}
+  try { fetch(new URL('./walk-trans.json', import.meta.url)).then((r) => r.json()).then((j) => { WTR = j; api.transReady = true; console.info('[avatar] clip loaded name=walk-trans'); }).catch(() => {}); } catch (e) {}
   const WPQ = [], WPB = [], wHQ = Q(), wHB = Q(), wHP = V3(), wHPB = V3(), wsm = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
   api.setWalk = (on) => { walkOn = !!on; };
   Object.defineProperty(api, 'walkW', { get: () => wk });
   Object.defineProperty(api, 'level', { get: () => lvl.med || 0 });   // v11: smoothed voice level for the aether
   function update(dt) {
     T += dt; if (api.freezeT !== undefined) T = api.freezeT; const t = T; const dtc = api.freezeClocks ? 0 : dt;   // v13b test hook: freezeClocks stops breath, weight shift, posture, wrist drift and finger fidget clocks (contact fitting)   // v10 test hook: freezeT
+    if (wph !== api.__logWph) { api.__logWph = wph; console.info('[avatar] clip play name=' + ['idle', 'walk-start', 'walk', 'walk-stop', 'settle'][wph]); }
     { if (walkOn && WTRK && WTR && (wph === 0 || (wph === 3 && sT >= WTR.stop.n - 2.02))) { if (wph === 3) { GL.addScaledVector(WTR.offE, 1 - (WTR.fE || 0)); WTR.fE = 0; } wph = 1; sT = 0; }   // idle -> start clip
       if (hipP0) hipP0.copy(hipB0).add(GL); for (const L of LEGS) if (L) { if (!L.A0) L.A0 = L.A.clone(); L.A.copy(L.A0).add(GW); } }   // idle stands where the walk stopped
     // weights
