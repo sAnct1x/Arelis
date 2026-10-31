@@ -247,15 +247,15 @@ def apply_settings(window, values: dict[str, Any]) -> None:
 def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
     """Install a room palette and restyle the open window. No restart."""
     from PySide6.QtGui import QColor
-    from PySide6.QtWidgets import QApplication, QComboBox, QDockWidget, QWidget
+    from PySide6.QtWidgets import QComboBox, QDockWidget, QWidget
 
     from arelis.ui.dock_surface import apply_dock_surface
     from arelis.ui.glass import GlassFrame, Hairline
     from arelis.ui.theme import (
         PLATE,
         apply_theme,
+        install_stylesheet,
         polish_combo_popup,
-        stylesheet,
     )
 
     resolved = apply_theme(theme_id)
@@ -263,11 +263,7 @@ def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
     if persist:
         merge_local_config({"ui": {"theme": resolved}})
 
-    css = stylesheet()
-    window.setStyleSheet(css)
-    app = QApplication.instance()
-    if app is not None:
-        app.setStyleSheet(css)
+    install_stylesheet(window)
 
     pal = window.palette()
     pal.setColor(window.backgroundRole(), QColor(*PLATE["seal"]))

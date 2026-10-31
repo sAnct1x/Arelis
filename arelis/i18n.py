@@ -500,15 +500,12 @@ def apply_language(window: Any, raw: Any) -> str:
         from PySide6.QtGui import QFont
         from PySide6.QtWidgets import QApplication
 
-        from arelis.ui.theme import app_font, stylesheet
+        from arelis.ui.theme import app_font, install_stylesheet
         from arelis.ui.theme_tokens import FONT_PX
 
-        css = stylesheet()
-        if window is not None:
-            window.setStyleSheet(css)
+        install_stylesheet(window)
         app = QApplication.instance()
         if app is not None:
-            app.setStyleSheet(css)
             if family:
                 font = QFont(family)
                 font.setPixelSize(FONT_PX)

@@ -87,7 +87,7 @@ from arelis.ui.surface_report import log_report
 from arelis.ui.theme import (
     SHELL,
     apply_theme,
-    stylesheet,
+    install_stylesheet,
     theme_from_config,
 )
 from arelis.ui.window_docks import bind_docks
@@ -189,7 +189,7 @@ class WindowBuild:
             QMainWindow.DockOption.AnimatedDocks | QMainWindow.DockOption.AllowNestedDocks
         )
         apply_theme(theme_from_config(config))
-        self.setStyleSheet(stylesheet())
+        install_stylesheet(self)
         # Native Windows chrome removed — custom glass title bar
         self.setWindowFlags(
             Qt.WindowType.Window

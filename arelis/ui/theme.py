@@ -57,6 +57,7 @@ __all__ = [
     "color",
     "control_pad_y",
     "dock_tab_bar_qss",
+    "install_stylesheet",
     "load_fonts",
     "motion_enabled",
     "polish_combo_popup",
@@ -249,3 +250,23 @@ def polish_combo_popup(combo, *, compact: bool = False) -> None:
         parent.setPalette(pal)
         if hasattr(parent, "setFrameShape"):
             parent.setFrameShape(QFrame.Shape.NoFrame)
+
+
+def install_stylesheet(window=None) -> None:
+    """Give the current room's sheet to the app, once.
+
+    The window carries no copy of its own: a second identical sheet on the
+    window made every widget match the rules twice on a room switch.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    css = stylesheet()
+    app = QApplication.instance()
+    if app is None:
+        if window is not None:
+            window.setStyleSheet(css)
+        return
+    if app.styleSheet() != css:
+        app.setStyleSheet(css)
+    if window is not None and window.styleSheet():
+        window.setStyleSheet("")
