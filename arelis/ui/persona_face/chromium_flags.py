@@ -45,6 +45,17 @@ def arm(env: MutableMapping[str, str] | None = None) -> str:
     return name
 
 
+def effective_arm(env: MutableMapping[str, str] | None = None) -> str:
+    """The arm the flags actually carry: the default arm logs as d3d11, a pinned
+    --use-angle wins over ARELIS_GPU_ARM, and no GPU switch logs as none."""
+    target = os.environ if env is None else env
+    parts = str(target.get(VAR) or "").split()
+    angle = [p.split("=", 1)[1] for p in parts if p.startswith("--use-angle=")]
+    if angle:
+        return angle[-1]
+    return "nocomp" if "--disable-gpu-compositing" in parts else "none"
+
+
 def merge_flags(current: str, arm_name: str = "default") -> str:
     """Add our switches and --disable-features values; keep everything already there."""
     parts = current.split()

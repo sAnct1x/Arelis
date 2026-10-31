@@ -199,7 +199,7 @@ def graphics_lines(window: QWidget) -> list[str]:
 
     out.append(
         f"graphics chromium_flags={os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '-')} "
-        f"arm={chromium_flags.arm()}"
+        f"arm={chromium_flags.effective_arm()}"
     )
     from arelis.ui import idle_ab
 

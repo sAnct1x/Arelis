@@ -46,5 +46,7 @@ def test_gpu_arm_defaults_to_d3d11_and_none_adds_nothing() -> None:
         parts = set(chromium_flags.apply(env).split())
         assert parts & extra == want, name
         assert "--disable-renderer-backgrounding" in parts
+        assert chromium_flags.effective_arm(env) == ("none" if not want else min(want).split("=")[-1].replace("--disable-gpu-compositing", "nocomp")), name
     pinned = {"QTWEBENGINE_CHROMIUM_FLAGS": "--use-angle=gl"}
     assert set(chromium_flags.apply(pinned).split()) & extra == {"--use-angle=gl"}
+    assert chromium_flags.effective_arm(pinned) == "gl"
