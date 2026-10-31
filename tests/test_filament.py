@@ -93,3 +93,36 @@ def test_filament_confirm_arms_without_a_card(arelis_window) -> None:
         apply_window_theme(window, "sodium", persist=False)
 
 
+
+
+def test_leaving_filament_hides_unkept_tiles_before_unlocking_them(arelis_window, qt_app) -> None:
+    """A tile Sodium will not keep is hidden before it is relaid out or re-opacified."""
+    from PySide6.QtCore import QEvent, QObject
+
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    window.show()
+    apply_window_theme(window, "filament", persist=False)
+    window.act_calendar.trigger()
+    qt_app.processEvents()
+    cal = window.calendar_window
+    assert cal.isVisible()
+
+    class _Resized(QObject):
+        seen = 0
+
+        def eventFilter(self, obj, event):  # type: ignore[override]
+            if event.type() == QEvent.Type.Resize and obj.isWidgetType() and obj.isVisible():
+                if obj is cal or cal.isAncestorOf(obj):
+                    self.seen += 1
+            return False
+
+    spy = _Resized()
+    qt_app.installEventFilter(spy)
+    try:
+        apply_window_theme(window, "sodium", persist=False)
+    finally:
+        qt_app.removeEventFilter(spy)
+    assert cal.isHidden()
+    assert spy.seen == 0

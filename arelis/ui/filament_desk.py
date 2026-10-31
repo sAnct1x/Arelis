@@ -440,6 +440,11 @@ class FilamentDesk:
         w._filament_home = None
         w._filament_chrome_peek = False
         self._filament_set_chat_open(False)
+        # Tiles the parked layout does not keep go first. Unlocking a visible
+        # tile restates its opacity (a native layered-window change) and the
+        # calendar's minimum size (a resize and a relayout of its whole tree),
+        # all for a window hidden a few lines later.
+        self._filament_hide_unparked(parked)
         self._filament_lock_tiles(False)
         self._filament_apply_glass(False)
         w.clearMask()
@@ -496,6 +501,27 @@ class FilamentDesk:
         sync_idle_mode(w)
         w._apply_round_mask()
         w.update()
+
+    def _filament_hide_unparked(self, parked) -> None:
+        if parked is None:
+            return
+        w = self.window
+        docks = parked.get("docks") or {}
+        tiles = {
+            "history": w.history_dock,
+            "camera": w.camera_dock,
+            "notify": w.notify_inbox,
+            "contacts": w.contacts_inbox,
+            "calendar": w.calendar_window,
+            "world": getattr(w, "world_window", None),
+        }
+        w._filament_hiding = True
+        try:
+            for name, tile in tiles.items():
+                if tile is not None and not docks.get(name) and not tile.isHidden():
+                    tile.hide()
+        finally:
+            w._filament_hiding = False
 
     def _sync_filament_face(self) -> None:
         w = self.window
