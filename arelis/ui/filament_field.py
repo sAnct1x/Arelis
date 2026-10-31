@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable
 from typing import Literal
 
-from PySide6.QtCore import QObject, QPoint, QPointF, QRect, Qt, Signal
+from PySide6.QtCore import QLineF, QObject, QPoint, QPointF, QRect, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -896,25 +896,25 @@ class FilamentField:
         steps = self.strand_steps(w)
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
+        point = self._point_fn(rect)
+        left = rect.left()
         for s in range(_STRANDS):
-            prev: QPointF | None = None
+            prev: tuple[float, float] | None = None
+            prev_fade = 0.0
             for i in range(steps + 1):
                 t = i / steps
-                p = self._point(t, float(s), rect)
+                p = point(t, float(s))
+                p_fade = min(self._edge_fade(p[0], w, left), self._path_fade(t))
                 if prev is not None:
-                    fade = min(
-                        self._edge_fade(p.x(), w, rect.left()),
-                        self._edge_fade(prev.x(), w, rect.left()),
-                        self._path_fade(t),
-                        self._path_fade((i - 1) / steps),
-                    )
+                    fade = min(p_fade, prev_fade)
                     if fade > 0.12:
                         rgb = _tone(t, self.warm)
                         pen = QPen(_lit(rgb, (0.10 + s * 0.016) * fade))
                         pen.setWidthF(2.8 - s * 0.22)
                         painter.setPen(pen)
-                        painter.drawLine(prev, p)
+                        painter.drawLine(QLineF(prev[0], prev[1], p[0], p[1]))
                 prev = p
+                prev_fade = p_fade
 
         painter.setPen(Qt.PenStyle.NoPen)
         cx, cy, _rx, _ry = self.ellipse(rect)
@@ -923,9 +923,9 @@ class FilamentField:
         for i, d in enumerate(self.dust):
             if i % stride:
                 continue
-            p = self._point(d["t"], float(d.get("strand", 2.0)), rect)
+            px, py = point(d["t"], float(d.get("strand", 2.0)))
             fade = min(
-                self._edge_fade(p.x(), w, rect.left()),
+                self._edge_fade(px, w, left),
                 self._path_fade(d["t"]),
                 min(1.0, d["life"] * 2.2),
             )
@@ -934,13 +934,13 @@ class FilamentField:
             along = (
                 max(0.0, 1.0 - abs(d["t"] - speak_head) / 0.07) if self.words else 0.0
             )
-            ndx, ndy = p.x() - cx, p.y() - cy
+            ndx, ndy = px - cx, py - cy
             nlen = math.hypot(ndx, ndy) or 1.0
             off = d["s"] * 18.0
             sway = math.sin(self.time * 0.55 + d["life"] * 7 + d["z"] * 5)
-            x = p.x() + ndx / nlen * off + sway * (1.6 + d["size"] * 0.6)
+            x = px + ndx / nlen * off + sway * (1.6 + d["size"] * 0.6)
             y = (
-                p.y()
+                py
                 + ndy / nlen * off
                 + math.cos(self.time * 0.4 + d["t"] * 10) * (1.2 + d["size"] * 0.6)
             )
@@ -1173,19 +1173,53 @@ class FilamentField:
         return QPointF(cx + (t - 0.5) * 2 * half, cy + wave)
 
     def _point(self, t: float, strand: float, rect: QRect) -> QPointF:
-        w = rect.width()
+        x, y = self._point_fn(rect)(t, strand)
+        return QPointF(x, y)
+
+    def _point_fn(self, rect: QRect) -> Callable[[float, float], tuple[float, float]]:
+        """The current's point at (t, strand), with the per-paint constants taken once.
+
+        Same arithmetic as _coil and _wave in the same order, so the same pixels.
+        A field paint asks for about 1600 points; working the ellipse and the
+        ribbon halves out for each one was half of a 17 ms paint at 2560 px.
+        """
+        w, h = rect.width(), rect.height()
         knot = self._desk_width(w)
         full_half = self._ribbon_half(w)
         listen_half = min(max(knot * 0.82, full_half * 0.55), full_half)
-        coil = self._coil(t, strand, rect)
-        if self.form <= 0.5:
-            u = self.form / 0.5
-            listen = self._wave(t, strand, rect, listen_half)
-            return QPointF(_mix(coil.x(), listen.x(), u), _mix(coil.y(), listen.y(), u))
-        u = (self.form - 0.5) / 0.5
-        listen = self._wave(t, strand, rect, listen_half)
-        full = self._wave(t, strand, rect, full_half)
-        return QPointF(_mix(listen.x(), full.x(), u), _mix(listen.y(), full.y(), u))
+        cx, cy, rx, ry = self.ellipse(rect)
+        now = self.time
+        wcx = rect.left() + w * 0.5
+        wcy = rect.top() + h * 0.40
+        amp = h * 0.11
+        form = self.form
+        tau = math.tau
+        sin, cos = math.sin, math.cos
+
+        def wave(t: float, strand: float, half: float) -> tuple[float, float]:
+            wv = (
+                sin(t * math.pi * 2.05 + now * 0.3 + strand * 0.5) * amp
+                + sin(t * math.pi * 4.6 + now * 0.12) * amp * 0.28
+                + (strand - 1.5) * h * 0.01
+            )
+            return wcx + (t - 0.5) * 2 * half, wcy + wv
+
+        def point(t: float, strand: float) -> tuple[float, float]:
+            ang = t * tau + now * 1.05 + strand * 0.35
+            rad = 0.90 + 0.10 * sin(t * tau * 2.0 + strand)
+            kx, ky = cx + cos(ang) * rx * rad, cy + sin(ang) * ry * rad
+            if form <= 0.5:
+                u = form / 0.5
+                if u == 0.0:
+                    return kx, ky
+                lx, ly = wave(t, strand, listen_half)
+                return _mix(kx, lx, u), _mix(ky, ly, u)
+            u = (form - 0.5) / 0.5
+            lx, ly = wave(t, strand, listen_half)
+            fx, fy = wave(t, strand, full_half)
+            return _mix(lx, fx, u), _mix(ly, fy, u)
+
+        return point
 
     def _edge_fade(self, x: float, w: float, left: float) -> float:
         local = x - left
