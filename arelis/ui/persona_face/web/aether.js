@@ -1043,14 +1043,23 @@ if (TRANSPARENT) { const rnd = Math.random; Math.random = () => 0.5; composer.ad
 // Follow the view's size every frame, not only on 'resize': the dock can resize the view while
 // it is hidden, and a missed event left the canvas at its old size, clipped by the dock edge.
 const _sz = new THREE.Vector2();
-function fitView() { renderer.getSize(_sz); if (_sz.x === innerWidth && _sz.y === innerHeight) return;
+function fitView() { renderer.getSize(_sz); if (_sz.x === innerWidth && _sz.y === innerHeight) return false;
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); fitFull();
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
-  console.info('[avatar] canvas resize size=' + innerWidth + 'x' + innerHeight); }
-addEventListener('resize', fitView);
+  console.info('[avatar] canvas resize size=' + innerWidth + 'x' + innerHeight); return true; }
+// m1 blank: one draw, counted. A frame that throws or draws nothing is logged (at most once a second), and a throw before
+// the final pass leaves the buffer as it was: preserveDrawingBuffer keeps the last good frame, so nothing empty is presented.
+renderer.info.autoReset = false;
+const FS = { calls: 0, frames: 0, zero: 0, errs: 0, logAt: 0 };
+function safeRender(why) { renderer.info.reset(); try { composer.render(); } catch (e) { FS.errs++; flog('render error ' + why + ' ' + (e && e.message)); return false; }
+  const c = renderer.info.render.calls; FS.calls += c; FS.frames++; if (c === 0) { FS.zero++; flog('zero-call frame ' + why); } return true; }
+function flog(msg) { const now = performance.now(); if (now - FS.logAt < 1000) return; FS.logAt = now; console.warn('[avatar] ' + msg); }
+// m1 blank: setSize reassigns canvas.width/height, which clears it. From the resize event the next RAF draw could be
+// a compositor frame away, so a grab could catch the cleared canvas (blank on resize/maximize/restore). Redraw at once.
+addEventListener('resize', () => { if (fitView() && window.__ready) safeRender('resize'); });
 // m1: the host calls refit() once a layout settles. The page takes its real size, the camera its aspect and
 // framing, and one frame is drawn now, so a view resized while frames were held never shows an empty canvas.
-window.aether.refit = () => { fitView(); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); fitFull(); if (window.__ready) composer.render(); };
+window.aether.refit = () => { fitView(); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); fitFull(); if (window.__ready) safeRender('refit'); };
 
 // Talking: level 0..1 drives a slow cycle through CC visemes (crossfaded). Blinking: random 2-6 s, ~150 ms.
 let visT = 0, visLvl = 0;
@@ -1076,6 +1085,9 @@ const clock = new THREE.Clock();
 const FREEZE = new URLSearchParams(location.search).has('freeze') ? +new URLSearchParams(location.search).get('freeze') : null;   // test hook: fixed time so A/B renders match
 const ft = []; window.__frameMs = () => ft.length ? ft.reduce((a, b) => a + b) / ft.length : null;
 function frame(dt) {
+  try { frameBody(dt); } catch (e) { FS.errs++; flog('frame error ' + (e && e.message)); }   // the draw is skipped: the last good frame stays
+}
+function frameBody(dt) {
   const t0 = performance.now();
   fitView();
   uTime.value += dt;
@@ -1098,7 +1110,7 @@ function frame(dt) {
     if (FLO.k.value > 0) { FLO.k.value = Math.min(1, FLO.k.value + dt / 1.5); if (FLO.k.value >= 1) { FLO.o.value.copy(FLO.o2.value); FLO.k.value = 0; } } }
   if (FREEZE !== null) uTime.value = uFlow.value = FREEZE;
   galaxy.rotation.z = uTime.value * 0.03;
-  composer.render();
+  safeRender('frame');
   ft.push(performance.now() - t0); if (ft.length > 120) ft.shift();
 }
 /* m1d: Babbage saw her go blank at a steady size with frames running. Log what Chromium thinks of her visibility: every change, */
@@ -1106,6 +1118,6 @@ function frame(dt) {
 const visTag = () => 'state=' + document.visibilityState + ' hidden=' + document.hidden;
 document.addEventListener('visibilitychange', () => console.info('[avatar] visibility ' + visTag()));
 let lastFrameAt = 0, heartFrames = 0;
-setInterval(() => { console.info('[avatar] heartbeat frames=' + heartFrames + ' visibility=' + document.visibilityState + ' hidden=' + document.hidden); heartFrames = 0; }, 10000);
+setInterval(() => { console.info('[avatar] heartbeat frames=' + heartFrames + ' drawn=' + FS.frames + ' calls/frame=' + (FS.frames ? (FS.calls / FS.frames).toFixed(1) : '-') + ' zero=' + FS.zero + ' errors=' + FS.errs + ' visibility=' + document.visibilityState + ' hidden=' + document.hidden); heartFrames = 0; FS.calls = FS.frames = FS.zero = FS.errs = 0; }, 10000);
 renderer.setAnimationLoop(() => { const now = performance.now(); if (lastFrameAt && now - lastFrameAt > 250) console.info('[avatar] frame stall ms=' + Math.round(now - lastFrameAt) + ' visibility=' + document.visibilityState + ' hidden=' + document.hidden);
   lastFrameAt = now; heartFrames++; const dt = Math.min(clock.getDelta(), 0.1); if (window.__ready) frame(dt); });
