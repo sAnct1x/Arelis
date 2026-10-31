@@ -151,6 +151,14 @@ _OWED_TOOL_VERBS: dict[str, re.Pattern[str]] = {
     "memory": re.compile(r"\bremember\s+(?:that|this|it|the|my)\b"),
 }
 
+# "remind me, what does a light year measure?" asks to be told a fact again.
+# The word is the tool's name, but the ask is a question, not a timer.
+_NOT_A_TOOL_MENTION: dict[str, re.Pattern[str]] = {
+    "remind": re.compile(
+        r"\bremind\s+me\b[\s,:;-]*(?:what|who|how|why|where|which|whether|if|of|about)\b"
+    ),
+}
+
 
 def staged_file_rows(rows: Any) -> tuple[tuple[str, str], ...]:
     """(kind, name) for files staged this turn. Ignores anything else."""
@@ -217,10 +225,12 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
             continue
         spoken = name.replace("_", " ")
         pattern = _OWED_TOOL_VERBS.get(name)
+        not_tool = _NOT_A_TOOL_MENTION.get(name)
+        said = not_tool.sub(" ", text) if not_tool is not None else text
         if (
-            re.search(rf"\b{re.escape(spoken)}\b", text)
-            or ("_" in name and re.search(rf"\b{re.escape(name)}\b", text))
-            or (pattern is not None and pattern.search(text))
+            re.search(rf"\b{re.escape(spoken)}\b", said)
+            or ("_" in name and re.search(rf"\b{re.escape(name)}\b", said))
+            or (pattern is not None and pattern.search(said))
         ):
             owed.append(name)
     if (
