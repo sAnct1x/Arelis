@@ -79,6 +79,7 @@ class PersonaPanel(QWidget):
         self._lipsync = False
         self._pose = "rest"
         self._place_due = False
+        self._held = 0
         self._done_at: float | None = None
         self._status = ""
         self._status_at = 0.0
@@ -277,7 +278,25 @@ class PersonaPanel(QWidget):
             QTimer.singleShot(0, self, self._place_now)
         super().resizeEvent(event)
 
+    def hold_size(self) -> None:
+        """A room switch is under way: her view keeps its size until release_size.
+
+        Native tile windows pump messages mid-switch on Windows, so a deferred
+        placement could still land between the hub's steps.
+        """
+        self._held += 1
+
+    def release_size(self) -> None:
+        """The switch is done: her view takes the settled size, once."""
+        self._held = max(0, self._held - 1)
+        if self._held == 0 and self.web is not None and not self._place_due:
+            self._place_due = True
+            QTimer.singleShot(0, self, self._place_now)
+
     def _place_now(self) -> None:
+        if self._held:
+            self._place_due = False
+            return
         # The slim title bar and the hidden chrome reach her through posted
         # layout requests, some queued after this turn was. Let them land
         # first, so the page takes one size per switch, not one per step.

@@ -245,7 +245,23 @@ def apply_settings(window, values: dict[str, Any]) -> None:
 
 
 def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
-    """Install a room palette and restyle the open window. No restart."""
+    """Install a room palette and restyle the open window. No restart.
+
+    Her view holds its size for the whole switch and takes the settled hub
+    once: one view resize, so one canvas reallocation.
+    """
+    panel = getattr(window, "persona_panel", None)
+    hold = getattr(panel, "hold_size", None)
+    if callable(hold):
+        hold()
+    try:
+        return _apply_window_theme(window, theme_id, persist=persist)
+    finally:
+        if callable(hold):
+            panel.release_size()
+
+
+def _apply_window_theme(window, theme_id: str, *, persist: bool) -> str:
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import QComboBox, QDockWidget, QWidget
 
