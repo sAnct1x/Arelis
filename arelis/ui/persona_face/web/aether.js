@@ -1101,4 +1101,11 @@ function frame(dt) {
   composer.render();
   ft.push(performance.now() - t0); if (ft.length > 120) ft.shift();
 }
-renderer.setAnimationLoop(() => { const dt = Math.min(clock.getDelta(), 0.1); if (window.__ready) frame(dt); });
+/* m1d: Babbage saw her go blank at a steady size with frames running. Log what Chromium thinks of her visibility: every change, */
+/* every frame gap over 250 ms, and a 10 s heartbeat, so a blank shot can be matched to hidden/occluded in arelis.log. */
+const visTag = () => 'state=' + document.visibilityState + ' hidden=' + document.hidden;
+document.addEventListener('visibilitychange', () => console.info('[avatar] visibility ' + visTag()));
+let lastFrameAt = 0, heartFrames = 0;
+setInterval(() => { console.info('[avatar] heartbeat frames=' + heartFrames + ' visibility=' + document.visibilityState + ' hidden=' + document.hidden); heartFrames = 0; }, 10000);
+renderer.setAnimationLoop(() => { const now = performance.now(); if (lastFrameAt && now - lastFrameAt > 250) console.info('[avatar] frame stall ms=' + Math.round(now - lastFrameAt) + ' visibility=' + document.visibilityState + ' hidden=' + document.hidden);
+  lastFrameAt = now; heartFrames++; const dt = Math.min(clock.getDelta(), 0.1); if (window.__ready) frame(dt); });
