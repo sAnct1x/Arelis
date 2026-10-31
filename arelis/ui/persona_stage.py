@@ -90,13 +90,43 @@ class PersonaStage(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
+        self._batch = 0
 
         if parent is not None:
             parent.installEventFilter(self)
             self.follow()
 
+    def begin_batch(self) -> None:
+        """A room switch is under way: hold her region until end_batch.
+
+        The switch hides chrome bars and slims the title bar one at a time, so
+        the stage stepped through four sizes (273x546 .. 313x626 over 170 ms)
+        and her view took every one. During a batch follow() only waits.
+        """
+        self._batch += 1
+
+    def end_batch(self) -> None:
+        """The switch is done: let the layout settle once, then take one region."""
+        self._batch = max(0, self._batch - 1)
+        if self._batch:
+            return
+        from PySide6.QtWidgets import QApplication
+
+        top = self.window()
+        for _ in range(8):
+            before = self.parentWidget().size() if self.parentWidget() is not None else None
+            if top is not None and top.layout() is not None:
+                top.layout().activate()
+            QApplication.sendPostedEvents(None, QEvent.Type.LayoutRequest)
+            after = self.parentWidget().size() if self.parentWidget() is not None else None
+            if after == before:
+                break
+        self.follow()
+
     def follow(self) -> None:
         """Take her region of the parent in the active room's mode."""
+        if self._batch:
+            return
         from arelis.ui.theme_tokens import active_theme
 
         parent = self.parentWidget()

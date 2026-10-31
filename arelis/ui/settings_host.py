@@ -247,18 +247,20 @@ def apply_settings(window, values: dict[str, Any]) -> None:
 def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
     """Install a room palette and restyle the open window. No restart.
 
-    Her view holds its size for the whole switch and takes the settled hub
-    once: one view resize, so one canvas reallocation.
+    The whole switch is one batch: no repaint until it is done, and her stage
+    takes one region from the settled layout instead of one per chrome step.
     """
-    panel = getattr(window, "persona_panel", None)
-    hold = getattr(panel, "hold_size", None)
-    if callable(hold):
-        hold()
+    stage = getattr(window, "persona_stage", None)
+    batch = stage is not None and hasattr(stage, "begin_batch")
+    window.setUpdatesEnabled(False)
+    if batch:
+        stage.begin_batch()
     try:
         return _apply_window_theme(window, theme_id, persist=persist)
     finally:
-        if callable(hold):
-            panel.release_size()
+        if batch:
+            stage.end_batch()
+        window.setUpdatesEnabled(True)
 
 
 def _apply_window_theme(window, theme_id: str, *, persist: bool) -> str:
