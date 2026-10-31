@@ -78,6 +78,7 @@ class PersonaPanel(QWidget):
         self._listening = False
         self._lipsync = False
         self._pose = "rest"
+        self._place_due = False
         self._done_at: float | None = None
         self._status = ""
         self._status_at = 0.0
@@ -265,8 +266,20 @@ class PersonaPanel(QWidget):
         self.update(0, max(0, self.height() - _TEXT_H), self.width(), _TEXT_H)
 
     def resizeEvent(self, event) -> None:
-        self._place()
+        # One theme switch hides the chrome bars one at a time, so her panel
+        # stepped through three sizes and the page reallocated its canvas for
+        # each (a 116 ms frame on the switch into Filament). The veil follows
+        # at once; the page takes the settled size on the next turn.
+        height = max(1, self.height() - _TEXT_H)
+        self.loading.setGeometry(0, 0, max(1, self.width()), height)
+        if self.web is not None and not self._place_due:
+            self._place_due = True
+            QTimer.singleShot(0, self, self._place_now)
         super().resizeEvent(event)
+
+    def _place_now(self) -> None:
+        self._place_due = False
+        self._place()
 
     def hideEvent(self, event) -> None:
         self._level_timer.stop()
