@@ -85,7 +85,9 @@ class DataCellTool:
             return None
         try:
             entry = self.workspace.active_root()
-        except Exception:
+        except KeyError:
+            # active_root indexes the configured projects. No active project
+            # means no folder to read, which the caller reports as such.
             return None
         if entry is None or not entry.path.is_dir():
             return None
