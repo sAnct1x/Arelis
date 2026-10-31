@@ -16,6 +16,17 @@ Create the `avatar` folder if it is not there. Restart Arelis after adding the f
 To use a file somewhere else, set the `ARELIS_AVATAR_GLB` environment variable to its
 full path before starting Arelis.
 
+Her body movement comes from a second file, `ellah-anim.glb`, which holds recorded
+motion clips. Put it in the same folder as the model:
+
+```
+%LOCALAPPDATA%\Arelis\avatar\ellah-anim.glb
+```
+
+To keep it somewhere else, set `ARELIS_AVATAR_CLIPS` to its full path. This file is
+optional. Without it she still appears, speaks and blinks, but her body uses the older
+built-in poses.
+
 ## Where she stands
 
 She is part of the window itself, not a panel you open or close.
@@ -44,7 +55,9 @@ view refits when the window changes size.
 
 ## What she does
 
-- Thinking, speaking and done each have their own pose.
+- Her body moves with recorded motion: resting, breathing, shifting her weight, talking
+  with her hands, nodding while she listens or thinks. Each state blends into the next
+  over a moment instead of snapping to a fixed pose.
 - While she speaks, her mouth and jaw follow the voice.
 - When the microphone is listening, she shows it.
 - She blinks, shifts her weight and gestures on her own.
@@ -80,6 +93,9 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] glb load path=... bytes=...` | The model file is being opened. |
 | `[avatar] renderer init webgl2=... ratio=... size=WxH` | The drawing surface started. |
 | `[avatar] clip loaded name=...` | A motion clip arrived (gesture track, walk). |
+| `[avatar] clips load path=... bytes=...` | The motion file is being opened (`bytes=0` means it is missing). |
+| `[avatar] mixer clips=...` | The motion clips loaded, with how many. |
+| `[avatar] mixer clips unavailable, body stays on anim.js ...` | The motion file could not load. Her body uses the older built-in poses. |
 | `[avatar] glb loaded ms=...` | The model finished loading, with the time it took. |
 | `[avatar] scene ready ms=...` | She is built and drawing. |
 | `[avatar] ready` | The app saw her ready and swapped out the glow. |
