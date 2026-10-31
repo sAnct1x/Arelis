@@ -16,6 +16,9 @@ Create the `avatar` folder if it is not there. Restart Arelis after adding the f
 To use a file somewhere else, set the `ARELIS_AVATAR_GLB` environment variable to its
 full path before starting Arelis.
 
+Running Arelis from a source folder? It looks in that folder's `avatar` folder first,
+then in the one above. If neither has the file, the log says which places it checked.
+
 ## What she does
 
 - Thinking, speaking and done each have their own look.
