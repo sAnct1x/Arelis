@@ -32,19 +32,44 @@ STATE_MAP = {
 }
 
 
-def glb_path() -> Path:
+def _glb_candidates() -> list[Path]:
+    """Where the model may be, in order. The env override, when set, is the only one."""
     override = os.environ.get(GLB_ENV, "").strip()
     if override:
-        return Path(override).expanduser()
-    return user_data_dir() / "avatar" / "ellah.glb"
+        return [Path(override).expanduser()]
+    found = [user_data_dir() / "avatar" / "ellah.glb"]
+    # On a source checkout user_data_dir() is the repo, but the model is
+    # downloaded to the installed copy's folder. Look there too.
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if local:
+        installed = Path(local) / "Arelis" / "avatar" / "ellah.glb"
+        if installed != found[0]:
+            found.append(installed)
+    return found
+
+
+def glb_path() -> Path:
+    candidates = _glb_candidates()
+    for path in candidates:
+        if path.is_file():
+            return path
+    return candidates[0]
 
 
 def unavailable_reason() -> str | None:
     """Why the web avatar cannot start, or None when it may try."""
+    reason = _unavailable_reason()
+    if reason is not None:
+        _LOG.warning("web avatar off, painted face kept: %s", reason)
+    return reason
+
+
+def _unavailable_reason() -> str | None:
     if os.environ.get("ARELIS_WEB_AVATAR", "1").strip().lower() in {"0", "false", "no", "off"}:
         return "turned off by ARELIS_WEB_AVATAR"
     if not glb_path().is_file():
-        return f"no model at {glb_path()}"
+        checked = ", ".join(str(path) for path in _glb_candidates())
+        return f"no model at {glb_path()} (checked {checked})"
     if not (WEB_DIR / "index.html").is_file():
         return "scene files missing"
     try:
