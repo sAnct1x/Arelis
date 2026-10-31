@@ -252,24 +252,50 @@ def polish_combo_popup(combo, *, compact: bool = False) -> None:
             parent.setFrameShape(QFrame.Shape.NoFrame)
 
 
-def install_stylesheet(window=None) -> None:
-    """Give the current room's sheet to the app, once.
+def app_sheet() -> str:
+    """The app-level sheet: structure plus the hub's gated colour rules.
 
-    The window carries no copy of its own: a second identical sheet on the
-    window made every widget match the rules twice on a room switch.
+    The same text in every room, so a room switch never re-matches the app.
+    """
+    return _app_sheet_cached(stylesheet(), active_theme())
+
+
+def _app_sheet_cached(current: str, room: str) -> str:
+    from arelis.ui.theme_layers import hub_rules, split_sheet
+
+    global _APP_SHEET
+    if _APP_SHEET is None:
+        colours = {}
+        for tid in THEME_IDS:
+            _tokens._install_palette(tid)
+            colours[tid] = split_sheet(stylesheet())[1]
+        _tokens._install_palette(room)
+        _APP_SHEET = split_sheet(current)[0] + "\n" + hub_rules(colours)
+    return _APP_SHEET
+
+
+_APP_SHEET: str | None = None
+
+
+def install_stylesheet(window=None) -> None:
+    """Put the current room on screen.
+
+    The app sheet never changes after the first call. Colour goes on each
+    visible root window; hidden ones take it when they are next shown, so a
+    switch costs only what is on screen.
     """
     from PySide6.QtWidgets import QApplication
 
-    from arelis.ui.theme_layers import split_sheet
+    from arelis.ui import theme_layers
 
-    structural, colour = split_sheet(stylesheet())
-    css = structural + "\n" + colour
     app = QApplication.instance()
     if app is None:
         if window is not None:
-            window.setStyleSheet(css)
+            window.setStyleSheet(stylesheet())
         return
-    if app.styleSheet() != css:
-        app.setStyleSheet(css)
+    first = app.styleSheet() != app_sheet()
+    if first:
+        app.setStyleSheet(app_sheet())
     if window is not None and window.styleSheet():
         window.setStyleSheet("")
+    theme_layers.restyle(app, hidden=first)

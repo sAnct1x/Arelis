@@ -36,9 +36,9 @@ from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.theme import (
     app_font,
     apply_theme,
+    install_stylesheet,
     load_fonts,
     qt_font_directory,
-    stylesheet,
     theme_from_config,
 )
 from arelis.ui.window_resize import configure_native_windows
@@ -399,7 +399,7 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
             app.setWindowIcon(QIcon(str(icon_path)))
         apply_theme(theme_from_config(config))
         app.setFont(app_font(load_fonts()))
-        app.setStyleSheet(stylesheet())
+        install_stylesheet()
         notice(
             None,
             "Arelis is already running",
@@ -554,7 +554,7 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     apply_theme(theme_from_config(config))
     families = load_fonts()
     app.setFont(app_font(families))
-    app.setStyleSheet(stylesheet())
+    install_stylesheet()
 
     from arelis.ui.live_threads import drain_parked_threads
 

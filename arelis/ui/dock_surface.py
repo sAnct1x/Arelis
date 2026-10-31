@@ -32,6 +32,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QDockWidget, QWidget
 
 from arelis.ui.theme import COLORS, GLASS
+from arelis.ui.theme_layers import set_own_sheet
 from arelis.ui.window_resize import enable_win32_resize_frame, release_child_hwnd
 
 # Docked instruments are type in the void — no plate behind them. Floats are an
@@ -111,7 +112,7 @@ def apply_dock_surface(dock: QDockWidget, floating: bool | None = None) -> None:
     # autoFillBackground on any widget it styles, on the assumption that the
     # sheet is painting the background itself. Sealing first and styling second
     # therefore un-sets half of what was just asked for.
-    dock.setStyleSheet(_float_dock_qss() if floating else "")
+    set_own_sheet(dock, _float_dock_qss() if floating else "")
     _seal(dock, floating)
 
     shell = dock.widget()

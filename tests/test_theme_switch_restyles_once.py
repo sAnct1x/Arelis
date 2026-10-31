@@ -41,5 +41,8 @@ def test_switch_into_filament_restyles_like_one_app_sheet(arelis_window, qt_app)
     app = QApplication.instance()
     css = app.styleSheet()
     one_sheet = _count(lambda: app.setStyleSheet(css + " "), widgets)
-    # A second copy of the sheet on the window doubled this.
-    assert switch == one_sheet
+    # A second copy of the sheet on the window doubled this. The colour layer
+    # now sits on the window's children, so a switch costs at most one app
+    # sheet change and still reaches the composer.
+    assert all(s <= o for s, o in zip(switch, one_sheet, strict=True))
+    assert switch[1] >= 1
