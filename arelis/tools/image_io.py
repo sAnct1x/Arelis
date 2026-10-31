@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from arelis.paths import outputs_dir, state_dir, user_data_dir
+from arelis.tools.code_workspace import _walk_files
 from arelis.workspace import (
     UNSAFE_WINDOWS_PATH_MSG,
     WorkspaceRoots,
@@ -105,6 +106,28 @@ def _under_own_roots(raw: str) -> Path | None:
     return None
 
 
+def _named_in_workspace(workspace: WorkspaceRoots, raw: str) -> Path | None:
+    """The one workspace file called `raw` when the model passes a bare name.
+
+    Users say "describe m31.png" about a file that sits in a subfolder, and
+    the model passes just the name. analyze and plot recover from that by
+    searching; without this a picture in work/ was "not found" at the root.
+    A name that matches more than one file stays a miss rather than a guess.
+    """
+    if Path(raw).name != raw or Path(raw).suffix.lower() not in IMAGE_SUFFIXES:
+        return None
+    wanted = raw.casefold()
+    hits = [
+        path
+        for entry in workspace.roots
+        for path in _walk_files(entry.path)
+        if path.name.casefold() == wanted
+    ]
+    if len(hits) != 1:
+        return None
+    return workspace.resolve_read(str(hits[0])).path
+
+
 def resolve_image(workspace: WorkspaceRoots | None, path_str: str) -> Path:
     """An existing local image file, or an exception naming why not.
 
@@ -133,6 +156,11 @@ def resolve_image(workspace: WorkspaceRoots | None, path_str: str) -> Path:
         fallback = _under_own_roots(raw)
         if fallback is not None:
             found = fallback
+
+    if workspace is not None and (found is None or not found.is_file()):
+        named = _named_in_workspace(workspace, raw)
+        if named is not None:
+            found = named
 
     if found is None:
         allowed = ", ".join(str(p) for p in readable_image_roots())
