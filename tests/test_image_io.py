@@ -49,6 +49,11 @@ def _png(path: Path, *, size: tuple[int, int] = (8, 6)) -> Path:
 # --------------------------------------------------------------------------
 
 
+def test_a_bare_name_finds_the_picture_in_a_subfolder(roots: WorkspaceRoots) -> None:
+    picture = _png(_root(roots) / "work" / "m31.png")
+    assert resolve_image(roots, "m31.png") == picture.resolve()
+
+
 # --------------------------------------------------------------------------
 # And refuses everything else
 # --------------------------------------------------------------------------
