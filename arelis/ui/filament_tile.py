@@ -240,7 +240,8 @@ def play_tile_grow(
         widget._filament_grow_group = group
         group.start()
 
-    QTimer.singleShot(_TRAIL_MS, _start)
+    # Bound to the widget so a tile torn down mid-trail drops the timer.
+    QTimer.singleShot(_TRAIL_MS, widget, _start)
 
 
 def apply_tile_size(widget: QWidget, name: str, store: dict[str, tuple[int, int]]) -> None:
