@@ -73,3 +73,30 @@ def test_chat_tile_steps_off_her_hub_when_the_window_shrinks(arelis_window, qt_a
     QTest.qWait(300)
     hub = QRect(stage.mapToGlobal(QPoint(0, 0)), stage.size())
     assert not tile.geometry().intersects(hub)
+
+
+def test_a_chat_spot_parked_in_a_bigger_window_steps_off_her_hub(arelis_window, qt_app) -> None:
+    # Babbage, 1100x800: the parked spot put the tile over her hub and 36 px
+    # past the window's left edge.
+    w = arelis_window(
+        {
+            "ui": {
+                "default_width": 1100,
+                "default_height": 800,
+                "theme": "night",
+                "filament_ack": True,
+                "filament_tile_pos": {"chat": {"x": -36, "y": 300}},
+            }
+        }
+    )
+    w.show()
+    w.resize(1100, 800)
+    qt_app.processEvents()
+    w._choose_theme("filament", True)
+    w.filament._filament_set_chat_open(True)
+    QTest.qWait(1500)
+    stage = w.persona_stage
+    hub = QRect(stage.mapToGlobal(QPoint(0, 0)), stage.size())
+    tile = w._filament_chat_tile.geometry()
+    assert not tile.intersects(hub)
+    assert tile.left() >= w.geometry().left()

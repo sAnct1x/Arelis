@@ -66,7 +66,12 @@ def test_a_tile_grows_from_the_end_of_its_filament(
 
     w = _filament(arelis_window, qt_app)
     calls = []
-    monkeypatch.setattr(desk, "play_tile_grow", lambda wid, o, d, **k: calls.append((o, d)))
+
+    def grow(wid, o, d, **k):  # the real grow ends with the tile on d
+        calls.append((o, d))
+        wid.setGeometry(d)
+
+    monkeypatch.setattr(desk, "play_tile_grow", grow)
     if parked:
         top = w.mapToGlobal(QPoint(500, 300))
         w._filament_tile_pos["history"] = (top.x(), top.y())

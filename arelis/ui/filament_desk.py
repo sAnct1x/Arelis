@@ -664,6 +664,9 @@ class FilamentDesk:
         if active_theme() == "filament":
             if parked is not None and origin_on_a_desk(parked[0], parked[1], size[0], size[1]):
                 dest = QRect(int(parked[0]), int(parked[1]), int(size[0]), int(size[1]))
+                # Parked in a bigger window, the spot can sit on her hub now
+                # (Babbage, 1100x800: over the hub and 36 px past the left edge).
+                dest = self._filament_clear_of_hub(dest)
             else:
                 dest = self._filament_clear_of_hub(QRect(origin, QSize(int(size[0]), int(size[1]))))
             self._filament_spawn_tile(widget, name, dest)
