@@ -315,13 +315,6 @@ def _tool_followup_fallback(
 
     return chat_followup_from_tool(tool, out, ask=ask, data=data)
 
-# One extra round when the model tries to answer news from search snippets alone.
-_SCRAPE_AFTER_SEARCH_NOTICE = (
-    "You used web_search but have not scraped or fetched a page yet. "
-    "Snippets are not enough for a current-events answer. Call scrape now "
-    "with the URL: value from the best hit (must start with http), then answer."
-)
-
 _WRITE_AFTER_PAGE_NOTICE = (
     "You already have tool results. Write the answer in your own words now. "
     "Do not paste the page or the search list. Do not scrape a URL that just "

@@ -250,7 +250,6 @@ _SEND_SKIPPED = "The message was not sent because the send was skipped."
 # A call with no action is not a verb. "I did not image path.png because
 # the image was skipped" names a file and reads like a log line.
 _PLAIN_SKIPPED = "Okay, I skipped that since you said no."
-_UNKNOWN_DECLINED = "I didn't run that step because you said no."
 _DECLINED_FALLBACK_PHRASE = "run that step"
 _SCRIPT_RUN_KIND = "run_script_error"
 
