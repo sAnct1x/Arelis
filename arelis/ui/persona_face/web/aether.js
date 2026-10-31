@@ -7,7 +7,41 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { createAnimator } from './anim.js';
 import { GLB_PATH, FALLBACK_GLB_PATH, LOOK, MODEL_LOOK } from './config.js';
+// v13: elbow volume. Linear blend skinning collapses the forearm/biceps where the elbow bends (the "candy wrapper").
+// Vertices weighted only to arm bones (aElb, baked from skin weights) are skinned with dual quaternions instead,
+// which keeps their volume; everything else (face, hands, shoulders, legs) keeps the exact linear skinning, and aElb is
+// smooth at the edges so there is no seam. Applies to every skinned layer (hard body, depth, shell) so they stay in register.
+THREE.ShaderChunk.skinning_pars_vertex += /* glsl */`
+#ifdef USE_SKINNING
+  attribute float aElb;
+  vec4 m2q(mat3 m){ float t=m[0][0]+m[1][1]+m[2][2]; vec4 q;
+    if(t>0.0){ float s=sqrt(t+1.0)*2.0; q=vec4((m[1][2]-m[2][1])/s,(m[2][0]-m[0][2])/s,(m[0][1]-m[1][0])/s,0.25*s); }
+    else if(m[0][0]>m[1][1]&&m[0][0]>m[2][2]){ float s=sqrt(1.0+m[0][0]-m[1][1]-m[2][2])*2.0; q=vec4(0.25*s,(m[1][0]+m[0][1])/s,(m[2][0]+m[0][2])/s,(m[1][2]-m[2][1])/s); }
+    else if(m[1][1]>m[2][2]){ float s=sqrt(1.0+m[1][1]-m[0][0]-m[2][2])*2.0; q=vec4((m[1][0]+m[0][1])/s,0.25*s,(m[2][1]+m[1][2])/s,(m[2][0]-m[0][2])/s); }
+    else { float s=sqrt(1.0+m[2][2]-m[0][0]-m[1][1])*2.0; q=vec4((m[2][0]+m[0][2])/s,(m[2][1]+m[1][2])/s,0.25*s,(m[0][1]-m[1][0])/s); }
+    return normalize(q); }
+  vec4 qmul(vec4 a, vec4 b){ return vec4(a.w*b.xyz+b.w*a.xyz+cross(a.xyz,b.xyz), a.w*b.w-dot(a.xyz,b.xyz)); }
+  vec3 qrot(vec4 q, vec3 v){ return v + 2.0*cross(q.xyz, cross(q.xyz, v) + q.w*v); }
+  void dqOf(mat4 M, out vec4 r, out vec4 d){ mat3 R=mat3(M); float sc=length(R[0]); r=m2q(R/max(sc,1e-6)); d=0.5*qmul(vec4(M[3].xyz,0.0), r); }
+#endif
+`;
+THREE.ShaderChunk.skinning_vertex = THREE.ShaderChunk.skinning_vertex.replace('transformed = ( bindMatrixInverse * skinned ).xyz;', `transformed = ( bindMatrixInverse * skinned ).xyz;
+  if (aElb > 0.001) { vec3 dqp = ( bindMatrixInverse * vec4( qrot(dqR, skinVertex.xyz) + 2.0*( dqR.w*dqD.xyz - dqD.w*dqR.xyz + cross(dqR.xyz, dqD.xyz) ), 1.0 ) ).xyz;
+    transformed = mix(transformed, dqp, aElb); }`);
+THREE.ShaderChunk.skinbase_vertex += /* glsl */`
+#ifdef USE_SKINNING
+  vec4 dqR = vec4(0.0,0.0,0.0,1.0), dqD = vec4(0.0);
+  if (aElb > 0.001) { vec4 r0,d0,r1,d1,r2,d2,r3,d3; dqOf(boneMatX,r0,d0); dqOf(boneMatY,r1,d1); dqOf(boneMatZ,r2,d2); dqOf(boneMatW,r3,d3);
+    float s1=sign(dot(r0,r1)+1e-6), s2=sign(dot(r0,r2)+1e-6), s3=sign(dot(r0,r3)+1e-6);
+    vec4 R=r0*skinWeight.x + r1*s1*skinWeight.y + r2*s2*skinWeight.z + r3*s3*skinWeight.w;
+    vec4 D=d0*skinWeight.x + d1*s1*skinWeight.y + d2*s2*skinWeight.z + d3*s3*skinWeight.w;
+    float L=length(R); dqR=R/L; dqD=D/L; }
+#endif
+`;
+THREE.ShaderChunk.skinnormal_vertex = THREE.ShaderChunk.skinnormal_vertex.replace('objectNormal = vec4( skinMatrix * vec4( objectNormal, 0.0 ) ).xyz;', `vec3 nB = objectNormal; objectNormal = vec4( skinMatrix * vec4( objectNormal, 0.0 ) ).xyz;
+  if (aElb > 0.001) objectNormal = mix(objectNormal, mat3(bindMatrixInverse) * qrot(dqR, mat3(bindMatrix) * nB), aElb);`);
 if (new URLSearchParams(location.search).has('freeze')) { let s = 12345; Math.random = () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }   // test hook: seeded randoms so ?freeze A/B renders match
 
 const status = document.getElementById('s');
@@ -27,6 +61,11 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 200);
 const uTime = { value: 0 };
+const uFlow = { value: 0 };   // anim: flow clock for threads/swirls/stars (runs faster while thinking; equals uTime at rate 1)
+const uAnim = { value: new THREE.Vector4(1, 1, 0, 0) };   // anim: x glow mul, y rim mul, z shimmer (neutral = 1,1,0)
+const herLayers = [];   // her own layers that fade in with the reveal
+const links = { U: null, aura: null, floorRing: null };   // shared with anim.js: look anchors and the parts that follow her walk
+let armBones = null;
 const state = { mode: 'idle', level: 0 };           // idle | thinking | talking; level = voice 0..1
 const face = { blinkAt: 2 + Math.random() * 3, blinkT: -1, visemes: [] };   // filled once morph targets are found
 window.aether = { setState: (m) => (state.mode = m), setLevel: (v) => (state.level = v),
@@ -57,9 +96,9 @@ const SHELL_VS = /* glsl */`
   #include <skinning_pars_vertex>
   varying vec3 vN; varying vec3 vV; varying vec3 vW; varying vec3 vO; varying vec2 vUv2;
   attribute float aCav; attribute float aCavF; varying float vCav; varying float vCavF;
-  attribute float aHand; varying float vHand;   // pass 14: skin weight on hand/finger bones
+  attribute float aHand; varying float vHand; attribute float aWr; varying float vWr;   // pass 14: skin weight on hand/finger bones
   void main(){
-    vO = position; vUv2 = uv; vCav = aCav; vCavF = aCavF; vHand = aHand;
+    vO = position; vUv2 = uv; vCav = aCav; vCavF = aCavF; vHand = aHand; vWr = aWr;
     #include <beginnormal_vertex>
     #include <morphnormal_vertex>
     #include <skinbase_vertex>
@@ -73,9 +112,10 @@ const SHELL_VS = /* glsl */`
     vW = (modelMatrix * vec4(transformed,1.0)).xyz;
   }`;
 const SHELL_FS = /* glsl */`
-  uniform float uTime; uniform vec3 uA; uniform vec3 uB; uniform float uGlow; uniform float uDen; uniform float uNeckY;
+  uniform vec4 uAnim;
+  uniform float uTime; uniform vec3 uA; uniform vec3 uB; uniform float uGlow; uniform float uDen; uniform float uNeckY; uniform float uCollar; uniform float uWrist; uniform float uPalm; uniform vec2 uWrK; uniform vec2 uSeam;
   uniform sampler2D uAlphaMap; uniform float uHair; uniform vec4 uFace; uniform float uHipY; uniform float uFeat; uniform float uForm; uniform vec4 uNavel; uniform float uDbg; varying vec2 vUv2;
-  varying vec3 vN; varying vec3 vV; varying vec3 vW; varying vec3 vO; varying float vCav; varying float vCavF; varying float vHand;
+  varying vec3 vN; varying vec3 vV; varying vec3 vW; varying vec3 vO; varying float vCav; varying float vCavF; varying float vHand; varying float vWr;
   ${NOISE}
   float thread(float x){ float d=abs(fract(x)-0.5); float w=fwidth(x)*0.7; return smoothstep(w,0.0,d); }
   void main(){
@@ -84,8 +124,8 @@ const SHELL_FS = /* glsl */`
     // v8: the dress has a vertical mesh seam on the centre line (split normals), which the rim lit up. Turn the rim down there (below the neck).
     // Pelvis band: widen the fade so no small anatomical creases catch the rim (stylized, light not skin).
     float pelvis = smoothstep(uHipY - 0.2, uHipY - 0.12, vW.y) * (1.0 - smoothstep(uHipY - 0.02, uHipY + 0.04, vW.y));
-    float seam = mix(1.0, smoothstep(0.004, mix(0.02, 0.07, pelvis), abs(vW.x - uFace.x)), step(vW.y, uNeckY));   // world space: works whatever the mesh's bind axes
-    seam *= 1.0 - 0.8*smoothstep(0.5, 0.85, normalize(vN).y) * step(vW.y, uNeckY) * smoothstep(0.07, 0.11, abs(vW.x - uFace.x));   // pass 9: shoulder tops at grazing angle lit a rim strip that bloomed into soft boxes
+    float seam = mix(1.0, smoothstep(0.004, mix(0.02, 0.07, pelvis), abs(vW.x - uFace.x)), (1.0 - smoothstep(uNeckY - 0.02, uNeckY + 0.03, vW.y)));   // world space: works whatever the mesh's bind axes
+    seam *= 1.0 - 0.8*smoothstep(0.5, 0.85, normalize(vN).y) * (1.0 - smoothstep(uNeckY - 0.02, uNeckY + 0.03, vW.y)) * smoothstep(0.025, 0.06, abs(vW.x - uFace.x));   /* vr3: probe showed the neck-base line is the up-facing trapezius rim inside |x|<0.07 (row 183 contrast 1.45; layer toggles: body shells only); gate now reaches in to the neck */   // pass 9: shoulder tops at grazing angle lit a rim strip that bloomed into soft boxes
     rim *= seam;
     vec3 p = vO * uDen;
     // Domain-warped thread families -> irregular, interlaced, mostly running along the body.
@@ -182,6 +222,11 @@ const SHELL_FS = /* glsl */`
       col = mix(uA*0.25, ic, iris) * (1.0 - pupil*0.92) + vec3(1.0,0.97,1.0) * catchl * 1.3;
       gl_FragColor = vec4(col, 1.0); return;
     }
+    if (uHair < 0.5) {   // anim: listening rim boost + thinking shimmer (both zero at rest)
+      col += mix(uB, vec3(1.0,0.95,1.0), 0.4) * (edge*1.1 + pow(1.0-ndv, 2.4)*0.35*seam) * (uAnim.y - 1.0);
+      if (uAnim.z > 0.001) { float sp = smoothstep(0.55, 0.85, noise(vW*70.0 + vec3(0.0, -uTime*0.9, uTime*0.3)));
+        col += vec3(0.85,0.8,1.0) * sp * (0.55 + 0.45*sin(uTime*6.0 + vW.y*40.0)) * uAnim.z * 0.45; }
+    }
     float a = clamp(rim*0.95 + th + glow + edge, 0.0, 1.0);
     if (uForm > 0.0 && uHair < 0.5) a = mix(a, 1.0, (1.0 - calm) * 0.2);   // let the light/shadow modelling carry through instead of washing out
     if (uHair > 1.5) {   // brow / lash cards: fine bright strokes
@@ -201,6 +246,13 @@ const SHELL_FS = /* glsl */`
                * smoothstep(uFace.y - 0.12, uFace.y - 0.08, vW.y) * (1.0 - smoothstep(uFace.y + 0.03, uFace.y + 0.06, vW.y));
       col *= 1.0 - 0.3*fm; a *= 1.0 - 0.3*fm;   // fringe stays, only slightly translucent
     }
+    if (uHair < 0.5) { float lim = smoothstep(0.13, 0.2, abs(vW.x - uFace.x)) * (1.0 - smoothstep(uNeckY - 0.02, uNeckY + 0.03, vW.y)); col *= mix(1.0, gl_FrontFacing ? 0.78 : 0.25, max(smoothstep(0.0, 0.35, vHand), 0.6 * lim * (gl_FrontFacing ? 0.0 : 1.0))); a *= mix(1.0, 0.75, smoothstep(0.0, 0.35, vHand)); }   // v13: stacked additive finger layers summed into a glow ball; hands now sit at the forearm's level so fingers stay readable
+    if (uHair < 0.5) { float hk = smoothstep(0.0, 0.35, vHand), hr = smoothstep(0.6, 1.0, vHand) * (1.0 - 0.6 * smoothstep(uWrK.x, uWrK.y, vWr)); col *= 1.0 - 0.25 * hk * smoothstep(0.4, 0.9, ndv); col += mix(mix(uA, uB, 0.75), vec3(1.0), 0.2) * hr * pow(1.0 - ndv, 1.8) * 1.1; a = max(a, 0.85 * hr * pow(1.0 - ndv, 1.8)); }   /* vr6: hands beside the thigh glow (speaking f390) read faint: front-face hand dim 0.6 -> 0.78 (r7; vr6f 0.95), rim 0.8 -> 1.1 with edge power 1.8 (narrower) and 20% whiter, rim only on vHand 0.6-1.0 (vr6c rim 1.3 / power 1.3 / 0.35-0.95 made a glow ball on the wrist: walk f320, speaking f300) so the outline separates from the violet thigh */   /* vr5: rim 0.5 -> 0.8 so hands beside the thighs separate */   /* vr4: soft hand rim: fingers outline at 1x instead of summing to a blob (interior a little dimmer, edges lit) */
+    if (uHair < 0.5 && uForm > 0.0) { float nb = smoothstep(uNeckY - 0.14, uNeckY - 0.04, vW.y) * (1.0 - smoothstep(uNeckY + 0.01, uNeckY + 0.07, vW.y));
+      col += mix(uA, uB, 0.5) * nb * (0.22 + 0.3 * (1.0 - ndv) * (1.0 - smoothstep(0.4, 0.8, normalize(vN).y)));   /* vr3: no grazing boost on up-facing shoulder tops */ col *= 1.0 - 0.18 * smoothstep(uNeckY + 0.02, uNeckY + 0.1, vW.y); col += mix(uA, uB, 0.5) * (uCollar) * smoothstep(uNeckY - 0.20, uNeckY - 0.06, vW.y) * (1.0 - smoothstep(uNeckY - 0.05, uNeckY - 0.015, vW.y)) * (1.0 - smoothstep(0.05, 0.12, abs(vW.x - uFace.x))); }   /* r7: f450 neck-base step (neck ~112 -> chest ~70 lum in 3 px): collar side glow ramps up to the neck so the head layer's bright neck fades into the body; zero above uNeckY+0.01, face untouched */   // v13: neck seam lifted (was a dark band under the jaw), head glow eased toward the body's level
+    if (uHair < 0.5 && uForm > 0.0) { float sd = (vW.y - (uNeckY - uSeam.y)) / 0.012; col += mix(uA, uB, 0.5) * uSeam.x * exp(-sd*sd) * (1.0 - smoothstep(uNeckY - 0.03, uNeckY - 0.015, vW.y)) * (1.0 - smoothstep(0.06, 0.13, abs(vW.x - uFace.x))); }   // r8: fill the thin dark neck/chest seam line (body side, below the chin)
+    if (uHair < 0.5) { float wz = smoothstep(uWrK.x, uWrK.y, vWr); col *= 1.0 - uWrist * wz; col *= 1.0 + uPalm * smoothstep(0.6, 1.0, vHand) * (1.0 - smoothstep(0.2, 0.6, vWr)); a *= 1.0 - 0.5 * uWrist * wz; }   // r8: wrist knob (hand/forearm skin-weight blend zone) dimmed incl. its bloom
+    col *= uAnim.x;   // anim: breath / voice glow (1.0 at rest)
     gl_FragColor = vec4(col, a);
   }`;
 const shellNeck = { value: 1e9 };   // bind-pose height of the neck/chin line, set after load
@@ -210,8 +262,8 @@ const FACE = { value: new THREE.Vector4(0, -99, -99, 0) };   // eye-line centre 
 const WHITE = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); WHITE.needsUpdate = true;
 function shellMaterial(alphaMap = null, isCard = false, isEye = false) {
   return new THREE.ShaderMaterial({
-    uniforms: { uTime, uA: { value: V(LOOK.violet) }, uB: { value: V(LOOK.lilac) },
-      uGlow: { value: LOOK.innerGlow }, uDen: { value: LOOK.threadDensity }, uNeckY: shellNeck,
+    uniforms: { uTime: uFlow, uAnim, uA: { value: V(LOOK.violet) }, uB: { value: V(LOOK.lilac) },
+      uGlow: { value: LOOK.innerGlow }, uDen: { value: LOOK.threadDensity }, uNeckY: shellNeck, uCollar: { value: 1.0 }, uSeam: { value: new THREE.Vector2(0.6, 0.035) }, uWrK: { value: new THREE.Vector2(0.0, 1.0) }, uPalm: { value: 0.2 }, uWrist: { value: 0.85 },
       uAlphaMap: { value: alphaMap || WHITE }, uHair: { value: isEye ? 3 : alphaMap ? (isCard ? 2 : 1) : 0 }, uFace: FACE, uHipY: HIPY, uFeat: { value: LOOK.faceDetail ?? 0 }, uDbg: { value: +(new URLSearchParams(location.search).get('term') || 0) }, uNavel: NAVEL, uForm: { value: params.has('cavdbg') ? +params.get('cavdbg') + 1 : (LOOK.bodyForm ?? 0) } },
     vertexShader: SHELL_VS, fragmentShader: SHELL_FS,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -274,7 +326,7 @@ const STAR_FS = /* glsl */`
     gl_FragColor=vec4(mix(uA,vec3(0.88,0.82,1.0),clamp(core*0.7+big*0.2,0.0,1.0))*a*1.6,a); }`;
 function starMaterial(skinned, ref) {
   return new THREE.ShaderMaterial({
-    uniforms: { uTime, uA: { value: V(LOOK.violet) }, uB: { value: V(LOOK.lilac) }, uPx: { value: renderer.getPixelRatio() },
+    uniforms: { uTime: uFlow, uA: { value: V(LOOK.violet) }, uB: { value: V(LOOK.lilac) }, uPx: { value: renderer.getPixelRatio() },
       ...(skinned ? skinUniforms(ref) : {}) },
     vertexShader: `${skinned ? SKIN : ''}
       attribute float seed; ${skinned ? 'attribute vec4 sIdx; attribute vec4 sW;' : ''}
@@ -312,6 +364,172 @@ function makeAura(center, h) {
   const pts = new THREE.Points(g, starMaterial(false)); pts.frustumCulled = false; return pts;
 }
 
+
+
+// v12 materialize/dissolve: her own layers fill in bottom-up through a soft noisy front (screen-space height), opacity/discard only --
+// geometry, face, shape keys and hair are untouched. Background, galaxy and floor stay.
+const uRes = { value: new THREE.Vector2(1, 1) };
+const uRvDir = { value: 1 };   // v12f: +1 materializing, -1 dissolving
+const uNeckS = { value: 0.8 };   // v12b: neck height in screen space (0 bottom, 1 top)
+const REVEAL_GLSL = `uniform float uApp; uniform float uAppL; uniform vec2 uRes; uniform float uNeckS; uniform float uRvDir;
+  float rvH(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float rvN(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+    return mix(mix(rvH(i), rvH(i+vec2(1,0)), f.x), mix(rvH(i+vec2(0,1)), rvH(i+vec2(1,1)), f.x), f.y); }
+  float revealT(){ vec2 q=gl_FragCoord.xy/uRes; float n=0.6*rvN(gl_FragCoord.xy/14.0)+0.4*rvN(gl_FragCoord.xy/4.0);
+    float yy=min(q.y, uNeckS)/max(uNeckS,0.05); float hd=smoothstep(uNeckS-0.01, uNeckS+0.03, q.y); n=mix(n, 0.5+0.17*uRvDir+0.25*(rvN(gl_FragCoord.xy/40.0)-0.5), hd);   /* v12f: the head follows the neck and shoulders in both directions (arrives after them, leaves after them) */ return clamp(yy*0.3+0.7*n,0.0,1.0); }   /* v12e: the head fades as one soft piece at the shoulders' mean pace (no blotches) */   /* head shares the shoulders' threshold */
+  float rvHead(){ float lo=uRvDir>0.0?0.50:0.48, hi=uRvDir>0.0?1.0:0.96;   /* vr3: dissolve head left after the body (floating head at f65-75); window raised from 0.30-0.84 */ float x=clamp((uAppL-lo)/(hi-lo),0.0,1.0); return x*x*(3.0-2.0*x); }   /* vr2: the whole head/hair fades as one piece on its own ~1.2-1.5 s smootherstep window of the appear clock (was a 0.5 R sweep: 17->77 luminance in ~20 frames, read as a pop); arrives after the shoulders, leaves after them */
+  float revealM(){ float R=uAppL*2.8-0.9; float t=revealT(); float hd=smoothstep(uNeckS-0.01, uNeckS+0.03, gl_FragCoord.y/uRes.y); return mix(smoothstep(t, t+0.9, R), rvHead(), hd); }   /* vr2: body front 0.9 R wide (was 0.4) = ~0.8-1.2 s per pixel at the 3.6 s pace */
+  float revealD(){ float R=uAppL*2.8-0.9; float t=revealT(); float hd=smoothstep(uNeckS-0.01, uNeckS+0.03, gl_FragCoord.y/uRes.y); return mix(smoothstep(t-0.3, t+0.35, R), rvHead(), hd); }   /* vr2: solid layers dither in over most of the glow ramp (and on the head the same curve as its glow), so the solid surface itself fades rather than appearing behind the glow */`;
+function addReveal(m) {
+  if (!m || m.__rev) return; m.__rev = true; const hard = !(m.blending === THREE.AdditiveBlending) && (m.depthWrite !== false);
+  const wrap = (fs) => fs.replace(/void\s+main\s*\(\s*\)/, 'void main_rv()') + `\n${REVEAL_GLSL}\nvoid main(){ float m_rv=revealM(); ${hard ? 'float m_d=revealD(); if (m_d < rvH(gl_FragCoord.xy * 0.731 + 3.7)) discard;' : ''} m_rv *= mix(1.0, sqrt(m_rv), smoothstep(uNeckS-0.06, uNeckS+0.06, gl_FragCoord.y/uRes.y)); if (${hard ? 'false' : 'm_rv < 0.01'}) discard; main_rv(); ${hard ? 'gl_FragColor.rgb *= m_rv; gl_FragColor.a *= m_rv;' : 'gl_FragColor *= m_rv;'} }\n`;
+  if (m.isShaderMaterial) { m.uniforms.uApp = uApp; m.uniforms.uAppL = uAppL; m.uniforms.uRes = uRes; m.uniforms.uNeckS = uNeckS; m.uniforms.uRvDir = uRvDir; m.fragmentShader = wrap(m.fragmentShader); m.needsUpdate = true; }
+  else { const prev = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { prev && prev(sh, r); sh.uniforms.uApp = uApp; sh.uniforms.uAppL = uAppL; sh.uniforms.uRes = uRes; sh.uniforms.uNeckS = uNeckS; sh.uniforms.uRvDir = uRvDir; sh.fragmentShader = wrap(sh.fragmentShader); }; m.customProgramCacheKey = () => 'rv8' + (hard ? 1 : 0); m.needsUpdate = true; }
+}
+const revealOn = (o) => o && o.traverse((c) => { if (c.material) (Array.isArray(c.material) ? c.material : [c.material]).forEach(addReveal); });
+const appear = { a: 1, from: 1, to: 1, t: 1, dur: 3.6 };
+function startAppear(to, dur) { appear.from = appear.a; appear.to = to; appear.t = 0; appear.dur = Math.max(0.1, (+dur || 3.6) * (to > appear.a ? 1.35 : 1)); }   /* vr3: materialize builds 35% longer */
+
+// ---------- v11 animated aether: curl-noise flow, limb energy, moving rim light, floor motes ----------
+// Every layer is GPU-animated (no static sprite). Drawn before the post chain, so the ?hue= / setTint pass tints it like the rest.
+// Nothing is emitted above the neck line, and all of it fades out under the head, so none of it can read as hair.
+const uFX = { value: new THREE.Vector4(0, 0, 0, 0) };   // x voice level (smoothed), y walk weight, z travel z, w spare
+const uRing = { value: new THREE.Vector3() };
+const uArmPts = { value: [0,1,2,3,4,5].map(() => new THREE.Vector3(0, -9, 0)) };   // vr2: L/R shoulder, elbow, wrist (world) for the swirl arm fade
+const uApp = { value: 1 };
+const uAppL = { value: 1 };   // vr2: presence on a linear clock (the reveal sweep and the head fade use this; uApp stays eased for the aether layers)   // v12 materialize/dissolve progress: 0 = gone, 1 = fully present
+const uGain = { value: 1 };  // v11b: LOOK.fx.gain, overall brightness of the aether layers          // floor-ring centre (follows her travel)
+const CURL = /* glsl */`
+  vec3 pot(vec3 p){ return vec3(noise(p), noise(p+vec3(31.4,7.1,2.9)), noise(p+vec3(-9.3,17.7,41.1))); }
+  vec3 curl(vec3 p){ const float e=0.12; vec3 dx=vec3(e,0,0), dy=vec3(0,e,0), dz=vec3(0,0,e);
+    vec3 a=pot(p+dy)-pot(p-dy), b=pot(p+dz)-pot(p-dz), c=pot(p+dx)-pot(p-dx);
+    return vec3(a.z-b.y, b.x-c.z, c.y-a.x)/(2.0*e); }`;
+const FX_FS = /* glsl */`
+  uniform vec3 uA; uniform vec3 uB; uniform vec2 uRes; varying float vA; varying float vC;
+  void main(){ vec2 e=min(gl_FragCoord.xy, uRes-gl_FragCoord.xy); float edge=smoothstep(0.0, 0.09*uRes.y, min(e.x,e.y));   // v11b: fade near the frame edge (no bright border pixels)
+    vec2 q=gl_PointCoord-0.5; float d=length(q); if(d>0.5) discard;
+    float s=exp(-d*d*18.0); float a=min(s*vA,1.0)*edge;
+    gl_FragColor=vec4(mix(mix(uA,uB,clamp(vC,0.0,1.0)),vec3(0.86,0.8,1.0),clamp(vC-1.0,0.0,1.0))*a*1.5,a); }`;
+function fxMaterial(vs, ref, extra = {}) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: uFlow, uFX, uRing, uApp, uGain, uRes, uNeck: shellNeck, uA: { value: V(LOOK.violet) }, uB: { value: V(LOOK.lilac) }, uPx: { value: renderer.getPixelRatio() },
+      ...(ref ? skinUniforms(ref) : {}), ...extra },
+    vertexShader: `${NOISE}${CURL}${ref ? SKIN : ''}
+      uniform float uTime; uniform vec4 uFX; uniform vec3 uRing; uniform float uApp; uniform float uGain; uniform float uNeck; uniform float uPx; varying float vA; varying float vC;
+      ${vs}`,
+    fragmentShader: FX_FS, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending });
+}
+const headFade = /* glsl */`(1.0 - smoothstep(uNeck - 0.06, uNeck + 0.02, p.y))`;
+function surfaceGeo(samples, fill) {
+  const n = samples.length, g = new THREE.BufferGeometry();
+  const pos = new Float32Array(n * 3), si = new Float32Array(n * 4), sw = new Float32Array(n * 4), sd = new Float32Array(n * 4);
+  samples.forEach((s, i) => { pos.set([s.p.x, s.p.y, s.p.z], 3 * i); si.set(s.si, 4 * i); sw.set(s.sw, 4 * i); sd.set(fill(s, i), 4 * i); });
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('sIdx', new THREE.BufferAttribute(si, 4));
+  g.setAttribute('sW', new THREE.BufferAttribute(sw, 4)); g.setAttribute('fx', new THREE.BufferAttribute(sd, 4)); return g;
+}
+const pointsOf = (g, m, order) => { const p = new THREE.Points(g, m); p.frustumCulled = false; p.renderOrder = order; return p; };
+// 1) flow: motes born on her skin, carried off by slow curl noise with a soft rise; they trail behind while she walks
+function makeFlow(samples, ref) {
+  const g = surfaceGeo(samples, () => [Math.random(), Math.random(), Math.random(), Math.random()]);
+  return pointsOf(g, fxMaterial(`attribute vec4 sIdx; attribute vec4 sW; attribute vec4 fx;
+    void main(){ vec3 b=skinPoint(position,sIdx,sW);
+      float L=12.0+10.0*fx.y, sp=0.8+0.2*uFX.x;   /* vr3: slower, longer lives (was 8+8, 1.0) */ float ph=fract(fx.x+uTime*sp/L);
+      vec3 q=b*1.6+vec3(0.0,-uTime*0.07,fx.z*5.0);
+      vec3 p=b + curl(q)*0.085*ph + vec3(0.0,0.2*ph*(0.5+fx.w),0.0) + normalize(curl(q*0.5+3.0))*0.05*ph + vec3(sin(uTime*0.23+fx.z*31.0),0.0,cos(uTime*0.19+fx.w*27.0))*0.025*ph;   /* vr3: wider curl + slow lateral sway: more drifting life, same count */
+      p.z -= uFX.y*0.55*ph*ph;   // walking: the flow streams back off her
+      float g=smoothstep(0.0,0.6,uApp);   // v12: gather -- motes drift in from around her and settle onto her skin
+      vec3 dir=normalize(fract(sin(vec3(fx.x*91.7+fx.w*13.1, fx.y*47.3+fx.z*7.9, fx.z*63.1+fx.x*29.3))*43758.5453)*2.0-1.0+vec3(0.0,0.0,0.001))*vec3(1.0,0.6,1.0);
+      vec3 far=b+dir*(0.35+0.9*fx.w)+curl(b*0.8+vec3(0.0,uTime*0.05,fx.z))*0.25;
+      p=mix(far,p,g*g*(3.0-2.0*g));
+      float aN=sin(3.14159*ph)*(0.8+0.7*fx.w)*(0.85+0.5*uFX.x);
+      vA=mix((0.55+0.6*fx.w)*smoothstep(0.0,0.15,uApp)*(0.85+0.15*sin(uTime*0.5+fx.z*30.0)), aN, smoothstep(0.55,0.85,uApp))*uGain * ${headFade};
+      vC=0.35+0.9*fx.z;
+      vec4 mv=viewMatrix*vec4(p,1.0); gl_Position=projectionMatrix*mv; gl_PointSize=(2.0+2.6*fx.w)*uPx*(3.0/-mv.z); }`, ref), 6);
+}
+// 2) energy: pulses that travel along her limbs, core -> hands and feet (and up the torso to the collarbones)
+function makeEnergy(samples, ref) {
+  const g = surfaceGeo(samples, (s) => [s.lc, s.lid, Math.random(), Math.random()]);
+  return pointsOf(g, fxMaterial(`attribute vec4 sIdx; attribute vec4 sW; attribute vec4 fx;
+    void main(){ vec3 b=skinPoint(position,sIdx,sW); vec3 p=b + curl(b*3.0+vec3(0.0,uTime*0.05,0.0))*0.006;
+      float v=0.12*(1.0+0.7*uFX.x+0.4*uFX.y);   /* vr3: was 0.16 */
+      float j=fx.z*0.05+floor(fx.w*6.0)/6.0; float x=fract(fx.x*0.9 + j - uTime*v + fx.y*0.37), x2=fract(fx.x*0.9 + j*1.7 - uTime*v*0.63 + fx.y*0.71 + 0.5);
+      float pulse=exp(-pow((x-0.5)*7.0,2.0)) + 0.6*exp(-pow((x2-0.5)*10.0,2.0));
+      float tw=0.75+0.25*sin(uTime*(0.35+fx.w*0.4)+fx.z*40.0);   /* v13: slow shimmer, no per-particle flicker (read as boiling) */
+      vA=(0.08*tw + 1.3*pulse*(0.8+0.6*uFX.x)*(1.0-0.8*smoothstep(0.6,0.95,fx.x))*(fx.y<2.5?0.2:(fx.y>9.5?0.12:(fx.y>5.5?0.7:1.0))))*(0.5+0.5*fx.z) * ${headFade};
+      vA=min(vA,0.55)*uGain;
+      float tr=clamp((uApp-0.2)/0.5,0.0,1.0)*1.15, hump=exp(-pow((uApp-0.6)/0.17,2.0));   // v12: filaments trace her form, core -> hands/feet
+      float damp=(fx.y<2.5?0.3:(fx.y>9.5?0.25:1.0)); float vis=smoothstep(fx.x-0.08,fx.x,tr)*step(0.001,tr), front=exp(-pow((fx.x-tr)*11.0,2.0))*hump*damp;
+      vA=vis*vA + (front*0.7 + vis*hump*0.18)*(0.5+0.5*fx.z)*${headFade}; pulse=max(pulse,front);
+      vC=0.6+0.9*pulse;
+      vec4 mv=viewMatrix*vec4(p,1.0); gl_Position=projectionMatrix*mv; gl_PointSize=(1.5+1.6*fx.w+2.2*pulse)*uPx*(3.0/-mv.z); }`, ref), 6);
+}
+// 3) rim light: a breathing halo just off her silhouette; bright bands drift slowly up the body
+function makeRim(samples, ref) {
+  const g = surfaceGeo(samples, (s) => [s.n.x, s.n.y, s.n.z, Math.random()]);
+  return pointsOf(g, fxMaterial(`attribute vec4 sIdx; attribute vec4 sW; attribute vec4 fx;
+    void main(){ vec3 b=skinPoint(position,sIdx,sW), bn=skinPoint(position+fx.xyz*0.03,sIdx,sW); vec3 n=normalize(bn-b);
+      float br=0.5+0.5*sin(uTime*1.25 + fx.w*0.6);   // ~5 s breath
+      vec3 p=b + n*(0.012+0.008*br);   /* v13: no per-point radial jitter */
+      vec3 vd=normalize(cameraPosition-p); float rim=pow(1.0-abs(dot(n,vd)),3.0);
+      float band=0.35+0.65*pow(0.5+0.5*sin(p.y*5.0 - uTime*0.55 + 1.7*sin(uTime*0.13)),3.0);
+      vA=rim*band*(0.6+0.45*br+0.5*uFX.x)*uGain*smoothstep(0.55,0.95,uApp) * ${headFade};
+      vC=0.8+0.5*band;
+      vec4 mv=viewMatrix*vec4(p,1.0); gl_Position=projectionMatrix*mv; gl_PointSize=(2.2+1.2*fx.w)*uPx*(3.0/-mv.z); }`, ref), 6);
+}
+// 4) floor motes: rise from the ring in slow spirals and fade before head height; they lag behind while she walks
+function makeMotes(n, floorY, h) {
+  const g = new THREE.BufferGeometry(), pos = new Float32Array(n * 3), sd = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) { pos.set([Math.random() * 6.283, 0.28 + Math.pow(Math.random(), 0.7) * 0.8, floorY], 3 * i); sd.set([Math.random(), Math.random(), Math.random(), Math.random()], 4 * i); }
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('fx', new THREE.BufferAttribute(sd, 4));
+  return pointsOf(g, fxMaterial(`attribute vec4 fx;
+    void main(){ float L=9.5+6.5*fx.y, ph=fract(fx.x+uTime/L);   /* vr3: slower rise (was 7+5) */
+      float a=position.x + ph*(0.8+0.6*fx.z)*(fx.w<0.5?1.0:-1.0), r=position.y*(1.0+0.35*ph);
+      vec3 p=vec3(uRing.x+cos(a)*r, position.z + ph*${(h * 0.75).toFixed(3)}*(0.45+0.55*fx.z), uRing.z+sin(a)*r*0.85);
+      p += curl(p*1.2+vec3(0.0,-uTime*0.06,fx.w*7.0))*0.06*ph;
+      p.z -= uFX.y*0.8*ph;
+      float col=smoothstep(0.22,0.4,length(p.xz-uRing.xz));   // keep clear of her body column
+      vA=pow(sin(3.14159*ph),1.5)*(1.2+1.2*fx.w)*mix(1.0,col,smoothstep(${(floorY + h * 0.55).toFixed(3)},${(floorY + h * 0.8).toFixed(3)},p.y))*(1.0-smoothstep(${(floorY + h * 0.62).toFixed(3)},${(floorY + h * 0.85).toFixed(3)},p.y))*(0.9+0.3*uFX.x)*uGain*smoothstep(0.3,0.9,uApp);
+      vC=0.3+0.9*fx.z;
+      vec4 mv=viewMatrix*vec4(p,1.0); gl_Position=projectionMatrix*mv; gl_PointSize=(3.4+4.2*fx.w)*uPx*(3.0/-mv.z); }`, null), 4);
+}
+// limb coordinate for the energy pulses: chain order of the dominant bone + projection along it
+const CHAINS = [[/Hip$|Pelvis/, /Waist/, /Spine01/, /Spine02/], [/Clavicle/, /Upperarm/, /Forearm/, /Hand$/, /(Thumb|Index|Mid|Ring|Pinky)/], [/Thigh/, /Calf/, /Foot$/, /ToeBase$/]];
+function limbCoord(s, ref) { const bones = ref.skeleton.bones, k = s.sw.indexOf(Math.max(...s.sw)), bn = bones[s.si[k]]; if (!bn) return null;
+  const nm = bn.name.replace(/^CC_Base_/, ''); const side = /^L_/.test(nm) ? 0 : /^R_/.test(nm) ? 1 : 2;
+  for (let c = 0; c < CHAINS.length; c++) { const o = CHAINS[c].findIndex((r) => r.test(nm.replace(/^[LR]_/, ''))); if (o < 0) continue;
+    const ch = bn.children.find((x) => x.isBone); const p = skinnedNow(s, new THREE.Vector3()), b0 = bn.getWorldPosition(new THREE.Vector3());
+    let t = 0.5; if (ch) { const b1 = ch.getWorldPosition(new THREE.Vector3()), d = b1.clone().sub(b0); t = Math.max(0, Math.min(1, p.clone().sub(b0).dot(d) / Math.max(1e-6, d.lengthSq()))); }
+    return { lc: (o + t) / CHAINS[c].length, lid: c * 3 + side + (c > 0 && o >= CHAINS[c].length - 2 ? 10 : 0) }; }   // +10: hand/finger/foot/toe (dense, would bloom)
+  return null; }
+function triNormal(s) { const g = s.mesh.geometry, P = g.attributes.position; let best = null, bd = 1e9; const v = new THREE.Vector3();
+  // nearest vertex normal (bind pose); cheap and good enough for a halo
+  if (!g.attributes.normal) g.computeVertexNormals(); const N = g.attributes.normal;
+  if (!s.mesh.__grid) { const G = new Map(); for (let i = 0; i < P.count; i += 1) { v.fromBufferAttribute(P, i); const key = `${Math.round(v.x * 40)},${Math.round(v.y * 40)},${Math.round(v.z * 40)}`; if (!G.has(key)) G.set(key, i); } s.mesh.__grid = G; }
+  const key = `${Math.round(s.p.x * 40)},${Math.round(s.p.y * 40)},${Math.round(s.p.z * 40)}`; let i = s.mesh.__grid.get(key);
+  if (i === undefined) { for (let j = 0; j < P.count; j += 7) { v.fromBufferAttribute(P, j); const d = v.distanceToSquared(s.p); if (d < bd) { bd = d; best = j; } } i = best; }
+  return new THREE.Vector3().fromBufferAttribute(N, i).normalize(); }
+function makeAetherFX(notHair, ref, floorY, h, scene) {
+  const F = LOOK.fx || {}; if (F.on === false) return null;
+  const below = (s) => skinnedNow(s, new THREE.Vector3()).y < shellNeck.value - 0.03;
+  // v13: dense at her feet, thinning going up (keep-probability falls with height: 1 at the floor, ~0.15 at the shoulders)
+  const grad = (s) => { const y = (skinnedNow(s, new THREE.Vector3()).y - floorY) / Math.max(0.1, shellNeck.value - floorY); return Math.random() < 1.0 - 0.85 * Math.pow(Math.min(1, Math.max(0, y)), 0.8); };
+  // v14e: filament density follows limb volume. Upper arms/forearms sit high, so the height gradient left them a few strands (arms read as strings while speaking); give them a fixed ~55% keep instead.
+  const isArm = (s) => { const c = limbCoord(s, ref); return !!c && c.lid >= 3 && c.lid <= 5; };
+  const isHand = (s) => { const c = limbCoord(s, ref); return !!c && c.lid >= 13 && c.lid <= 15; };   // v14e: hand/finger surface: motes there fog the fingers into a blob, keep ~1 in 4
+  const gradV = (s) => isArm(s) ? Math.random() < 0.9 :   /* vr3: arm surface filaments denser (was 0.55) so arms read as volume */ isHand(s) ? Math.random() < 0.25 * (grad(s) ? 1 : 0) : grad(s);
+  const body = notHair.filter((o) => !/eye|teeth|tongue|brow|lash|tear|occlu/i.test(o.name));
+  const flowV = (s) => isArm(s) ? Math.random() < 0.2 : grad(s) && (skinnedNow(s, new THREE.Vector3()).y < shellNeck.value - 0.22 || Math.random() < 0.5);   /* vr3: free-floating flow motes thinned on arms and shoulders so they don't wrap her */
+  const flow = sampleSurface(body, Math.round((F.flow ?? 7000) * 6)).filter(below).filter(flowV).slice(0, F.flow ?? 7000);
+  const en = sampleSurface(body, Math.round((F.energy ?? 9000) * 8)).filter(below).filter(gradV).map((s) => { const c = limbCoord(s, ref); return c ? Object.assign(s, c) : null; }).filter(Boolean).slice(0, F.energy ?? 9000);
+  const rim = sampleSurface(body, Math.round((F.rim ?? 6000) * 4)).filter(below).filter(grad).slice(0, F.rim ?? 6000).map((s) => Object.assign(s, { n: triNormal(s) }));
+  uGain.value = F.gain ?? 1;
+  const arms = sampleSurface(body, Math.round((F.arms ?? 0) * 30)).filter(below).filter(grad).filter((s) => { const c = limbCoord(s, ref); return c && c.lid >= 3 && c.lid <= 5; })   /* upper/forearm only, not the dense hands */.slice(0, F.arms ?? 0);   // v11b: extra flowing light on the arms
+  const objs = [makeFlow(flow, ref), makeEnergy(en, ref), makeRim(rim, ref), makeMotes(F.motes ?? 1600, floorY, h)];
+  if (arms.length) objs.push(makeFlow(arms, ref));
+  for (const o of objs) scene.add(o);
+  return { counts: { flow: flow.length, arms: arms.length, energy: en.length, rim: rim.length, motes: F.motes ?? 1600 } };
+}
+
 // ---------- ribbons (GPU): dress ribbons, hair wisps, wide feature swirls ----------
 // One strip per ribbon: SEG x 2 vertices. Per-vertex: u (along), side (+-1).
 // Per-ribbon: root (bind pose) + skin, kind (0 dress, 1 hair, 2 feature), seed/spread/width/brightness, angle.
@@ -320,7 +538,7 @@ const RIBBON_VS = /* glsl */`
   attribute float u; attribute float side; attribute vec4 sIdx; attribute vec4 sW;
   attribute vec4 prm;    // x seed, y spread, z width, w brightness
   attribute vec2 kind;   // x kind, y base angle
-  uniform float uTime; uniform float uFloor; uniform vec3 uCenter; uniform float uH; uniform float uHairLen; uniform float uSwirlMax;
+  uniform float uTime; uniform float uFloor; uniform float uShinLo; uniform vec3 uCenter; uniform float uH; uniform float uHairLen; uniform float uSwirlMax; uniform vec3 uArm[6];
   varying vec2 vUv; varying float vSeed; varying float vBright; varying float vKind;
   vec3 bez(vec3 a, vec3 b, vec3 c, vec3 d, float t){ float s=1.0-t; return a*s*s*s+b*3.0*s*s*t+c*3.0*s*t*t+d*t*t*t; }
   vec3 path(vec3 r, float t){
@@ -339,6 +557,9 @@ const RIBBON_VS = /* glsl */`
       float ph = t*(6.0+sp*5.0) - T*0.7 + sd*20.0;
       p.x += env*sin(t*(5.0+sp*4.0) - T*0.8 + sd*20.0)*0.03 + wrap*sin(ph);
       p.z += env*cos(t*4.0 - T*0.6 + sd*11.0)*0.03 + wrap*cos(ph);   // spirals around the legs on the way down
+      { vec2 cd = normalize((cameraPosition - r).xz + vec2(1e-4, 0.0)); vec2 rel = (p - r).xz; float fw = dot(rel, cd), lat = abs(rel.x*cd.y - rel.y*cd.x);
+        float band = smoothstep(uFloor+uShinLo, uFloor+uShinLo+0.07, p.y) * (1.0 - smoothstep(uFloor+uH*0.40, uFloor+uH*0.46, p.y));
+        float m = band * (1.0 - smoothstep(0.12, 0.21, lat)); p.xz += cd * (mix(fw, min(fw, -0.08), m) - fw); }   /* r7: strands that fall across the camera side of the shins (walk f60) are eased behind the legs; floor pool (y < 5 cm) and knees up untouched */
       p.y = max(p.y, uFloor+0.003);
       return p;
     } else if (k < 1.5) {     // hair wisp: lifts off the head, drifts out and falls a little
@@ -374,6 +595,7 @@ const RIBBON_VS = /* glsl */`
       // v8: keep sweeps out of the face. Above the chin line, near the head, push them behind it.
       float headBand = smoothstep(uFloor + uH*0.78, uFloor + uH*0.82, q.y) * (1.0 - smoothstep(0.12, 0.22, abs(q.x - uCenter.x)));
       q.z = mix(q.z, min(q.z, uCenter.z - 0.16), headBand);
+      float frontB = (1.0 - smoothstep(0.16, 0.3, abs(q.x - uCenter.x))) * smoothstep(0.0, 0.2, t); q.z = mix(q.z, min(q.z, uCenter.z - 0.12), frontB);   // v13: no sweeps across the front of her body
       if (uSwirlMax > 0.0) { float top = uFloor + uH*uSwirlMax; if (q.y > top) q.y = top + (q.y - top)*0.15; }   // keep swirls below the head
       return q;
     }
@@ -396,6 +618,12 @@ const RIBBON_VS = /* glsl */`
       float band = smoothstep(uFloor + uH*0.5, uFloor + uH*0.54, p.y) * (1.0 - smoothstep(uFloor + uH*0.68, uFloor + uH*0.72, p.y));
       float overlap = 1.0 - smoothstep(0.1, 0.17, abs(p.x - uCenter.x));
       if (kind.x > 1.5) vBright *= 1.0 - band*overlap;
+    }
+    if (kind.x > 1.5) { // vr2: the wide swirls also fade where they cross an arm on screen (they cut across her left arm at 0:13); reads as passing behind it
+      vec2 q = c0.xy/c0.w*vec2(aspect,1.0); float dm = 9.0;
+      for (int j=0;j<2;j++) for (int i=0;i<3;i++) { vec3 PA = uArm[j*3+min(i,2)], PB = i<2 ? uArm[j*3+i+1] : uArm[j*3+2] + (uArm[j*3+2]-uArm[j*3+1])*0.4; vec4 A = projectionMatrix*viewMatrix*vec4(PA,1.0), B = projectionMatrix*viewMatrix*vec4(PB,1.0);   /* i=2: the hand, ~40% of a forearm past the wrist */
+        vec2 a2 = A.xy/A.w*vec2(aspect,1.0), b2 = B.xy/B.w*vec2(aspect,1.0), ab = b2-a2; float h = clamp(dot(q-a2,ab)/max(dot(ab,ab),1e-6),0.0,1.0); dm = min(dm, length(q-a2-ab*h)); }
+      vBright *= mix(0.12, 1.0, smoothstep(0.035, 0.09, dm));
     }
   }`;
 const RIBBON_FS = /* glsl */`
@@ -439,8 +667,8 @@ function makeRibbons(roots, ref, floorY, center, h) {
     g.setAttribute(name, new THREE.BufferAttribute(arr, sz));
   g.setIndex(index);
   const m = new THREE.ShaderMaterial({
-    uniforms: { uTime, uA: { value: V(LOOK.violet) }, uB: { value: V(LOOK.lilac) }, uFloor: { value: floorY },
-      uCenter: { value: center }, uH: { value: h }, uHairLen: { value: LOOK.hairLen ?? 1 }, uSwirlMax: { value: LOOK.swirlMaxY ?? 0 }, ...skinUniforms(ref) },
+    uniforms: { uTime: uFlow, uA: { value: V(LOOK.violet) }, uB: { value: V(LOOK.lilac) }, uFloor: { value: floorY }, uShinLo: { value: 0.02 },
+      uCenter: { value: center }, uH: { value: h }, uHairLen: { value: LOOK.hairLen ?? 1 }, uSwirlMax: { value: LOOK.swirlMaxY ?? 0 }, uArm: uArmPts, ...skinUniforms(ref) },
     vertexShader: RIBBON_VS, fragmentShader: RIBBON_FS,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   });
@@ -448,18 +676,19 @@ function makeRibbons(roots, ref, floorY, center, h) {
 }
 
 // ---------- floor: dotted concentric rings + radial lines ----------
+const FLO = { o: { value: new THREE.Vector2() }, o2: { value: new THREE.Vector2() }, k: { value: 0 }, ph: { value: 0 }, idle: 0 };   // v12d
 function makeFloor(y) {
   const m = new THREE.ShaderMaterial({
-    uniforms: { uTime, uA: { value: V(LOOK.violet) }, uB: { value: V(LOOK.lilac) } },
-    vertexShader: `varying vec2 vP; void main(){ vP=position.xy; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
-    fragmentShader: `uniform float uTime; uniform vec3 uA; uniform vec3 uB; varying vec2 vP;
+    uniforms: { uTime, uFX, uA: { value: V(LOOK.violet) }, uB: { value: V(LOOK.lilac) }, uO: FLO.o, uO2: FLO.o2, uK: FLO.k, uPh: FLO.ph },
+    vertexShader: `varying vec2 vP; varying vec2 vW; void main(){ vP=position.xy; vW=(modelMatrix*vec4(position,1.0)).xz; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+    fragmentShader: `uniform float uTime; uniform vec4 uFX; uniform vec3 uA; uniform vec3 uB; uniform vec2 uO; uniform vec2 uO2; uniform float uK; uniform float uPh; varying vec2 vP; varying vec2 vW;
+      float rg(vec2 o){ vec2 d=vW-o; d.y=-d.y; float r=length(d*vec2(1.0,1.15)); float x=r*9.0-uPh; float w=fwidth(x)*1.1;
+        return smoothstep(w,0.0,abs(fract(x)-0.5))*(0.6+0.4*sin(atan(d.y,d.x)*3.0 + r*4.0 - uTime*0.3)); }
       void main(){ float r=length(vP*vec2(1.0,1.15));
-        float x=r*9.0 - uTime*0.35;                     // rings drift outward
-        float w=fwidth(x)*1.1;
-        float ring=smoothstep(w,0.0,abs(fract(x)-0.5)-0.0);
-        float wob=0.6+0.4*sin(atan(vP.y,vP.x)*3.0 + r*4.0 - uTime*0.3);
+        /* v12d: ring lines are world-locked (centred on uO, crossfading to uO2), only the light pool follows her, so planted feet never slide against them */
+        float ring=mix(rg(uO),rg(uO2),uK); float wob=1.0;
         float fall=exp(-r*0.9)*smoothstep(0.08,0.35,r);
-        float a=ring*fall*wob*0.35 + exp(-r*r*10.0)*0.12;
+        float a=ring*fall*wob*0.35 + exp(-r*r*10.0)*0.12*(1.0-0.9*clamp(uFX.y,0.0,1.0));   /* v14: the light pool rides with her, so while she walks it fades (it read as the floor sliding under the planted feet) */
         gl_FragColor=vec4(mix(uA,uB,0.3)*a,1.0);}`,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, extensions: { derivatives: true },
   });
@@ -583,7 +812,7 @@ function bakeCavity(geo, ITER = 40, HP = 80, NAME = 'aCav', PCT = 0.9) {
 }
 
 // ---------- load ----------
-let mixer = null, idleFn = null;
+let mixer = null, idleFn = null, animator = null;
 const galaxy = makeGalaxy(); galaxy.renderOrder = 7; galaxy.position.set(0, 1.4, -9); galaxy.rotation.x = -0.35; scene.add(galaxy);
 const partOf = (o) => { const n = (o.name + ' ' + (o.parent ? o.parent.name : '')).toLowerCase();
   return n.includes('hair') ? 'hair' : n.includes('dress') ? 'dress' : 'other'; };
@@ -636,6 +865,18 @@ function onModel(gltf) {
         const isH = o.skeleton.bones.map((b) => /_(Hand|Thumb\d|Index\d|Mid\d|Ring\d|Pinky\d)$/.test(b.name));
         for (let i = 0; i < si.count; i++) for (let k = 0; k < 4; k++) if (isH[si.getComponent(i, k)]) hv[i] += sw.getComponent(i, k);
         o.geometry.setAttribute('aHand', new THREE.BufferAttribute(hv, 1)); }
+      if (!o.geometry.attributes.aWr && o.geometry.attributes.skinIndex) {   // r8: wrist proximity in bind pose (distance to the _Hand bone, normalised by forearm length)
+        const P = o.geometry.attributes.position, wv = new Float32Array(P.count), bs = o.skeleton.bones, inv = o.skeleton.boneInverses;
+        const bp = (i) => new THREE.Vector3().setFromMatrixPosition(inv[i].clone().invert());
+        const v = new THREE.Vector3(), hs = [];
+        bs.forEach((b, i) => { if (/_Hand$/.test(b.name)) { const f = bs.findIndex((c) => c === b.parent); const h = bp(i); let L = 0.25; if (f >= 0) { const fp = bp(f); L = Math.max(h.distanceTo(fp), 1e-4); if (/Twist/.test(bs[f].name) && bs[f].parent) { const g = bs.indexOf(bs[f].parent); if (g >= 0) L = Math.max(L, h.distanceTo(bp(g))); } } hs.push([h, L]); } });
+        for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(o.bindMatrix); let m = 0; for (const [h, L] of hs) { const d = v.distanceTo(h) / L; m = Math.max(m, 1 - THREE.MathUtils.smoothstep(d, 0.10, 0.5)); } wv[i] = m; }
+        o.geometry.setAttribute('aWr', new THREE.BufferAttribute(wv, 1)); }
+      if (!o.geometry.attributes.aElb && o.geometry.attributes.skinIndex) {   // v13: arm-only vertices get dual-quaternion skinning (elbow volume)
+        const si = o.geometry.attributes.skinIndex, sw = o.geometry.attributes.skinWeight, ev = new Float32Array(si.count);
+        const isA = o.skeleton.bones.map((b) => /_(Upperarm|UpperarmTwist\d+|Forearm|ForearmTwist\d+|Elbow\w*)$/.test(b.name));
+        for (let i = 0; i < si.count; i++) { let w = 0; for (let k = 0; k < 4; k++) if (isA[si.getComponent(i, k)]) w += sw.getComponent(i, k); ev[i] = Math.max(0, Math.min(1, (w - 0.9) / 0.09)); ev[i] = ev[i] * ev[i] * (3 - 2 * ev[i]); }
+        o.geometry.setAttribute('aElb', new THREE.BufferAttribute(ev, 1)); }
       const shell = new THREE.SkinnedMesh(o.geometry, shellMaterial(cardAlpha, !!cardAlpha && !isHair, /Std_Eye_/i.test(orig && orig.name || '')));   // same geometry, same skeleton
       if (isHair) shell.material.side = THREE.DoubleSide;
       shell.bind(o.skeleton, o.bindMatrix); shell.renderOrder = 2; shell.frustumCulled = false;
@@ -650,6 +891,7 @@ function onModel(gltf) {
   else if (view === '34') { camera.position.set(cx + h * 1.4, box.min.y + h * 0.55, cz + h * 1.9); camera.lookAt(cx, box.min.y + h * 0.48, cz); }
   else if (view === 'stomach') { camera.position.set(cx, box.min.y + h * 0.6, cz + h * 0.3); camera.lookAt(cx, box.min.y + h * 0.6, cz); }
   else if (view === 'side') { camera.position.set(cx + h * 0.4, box.min.y + h * 0.95, cz + h * 0.32); camera.lookAt(cx, box.min.y + h * 0.92, cz); }
+  else if (view === 'mid') { camera.position.set(cx, box.min.y + h * 0.79, cz + h * 0.82); camera.lookAt(cx, box.min.y + h * 0.785, cz); }
   else if (view === 'face') { camera.position.set(cx, box.min.y + h * 0.93, h * 0.55); camera.lookAt(cx, box.min.y + h * 0.92, cz); }
   else { camera.position.set(cx, box.min.y + h * 0.55, h * 2.35); camera.lookAt(cx, box.min.y + h * 0.48, cz); }
   window.__cam = camera;   // test hook: inspection renders move the camera directly
@@ -685,10 +927,11 @@ function onModel(gltf) {
   // Hair is many stacked cards; area sampling would pile stars on the head, so it gets a small share.
   // Keep the face calm: few stars above the neck line.
   const starSrc = [...sampleSurface(notHair, Math.round(LOOK.particles * 0.95)).filter((s) => { const q = skinnedNow(s, new THREE.Vector3());
-      return q.y < shellNeck.value || Math.random() < 0.15; }),
+      const y = (q.y - floorY) / Math.max(0.1, shellNeck.value - floorY); return q.y < shellNeck.value ? Math.random() < 1.0 - 0.7 * Math.pow(Math.min(1, Math.max(0, y)), 0.8) : Math.random() < 0.15; }),   // v13: thinning going up
                    ...sampleSurface(hair.length ? hair : skinned, Math.round(LOOK.particles * 0.01))];
-  scene.add(makeSurfaceStars(starSrc, ref));
-  scene.add(makeAura(center, h));
+  { const ss = makeSurfaceStars(starSrc, ref); scene.add(ss); herLayers.push(ss); }
+  { const au = makeAura(center, h); scene.add(au); links.aura = au; herLayers.push(au); }   // v10 walk: aura follows her travel
+  report.fx = (makeAetherFX(notHair, ref, floorY, h, scene) || {}).counts || 'off';   // v11 animated aether
   const pick = (meshes, k, test) => sampleSurface(meshes.length ? meshes : skinned, k * 8)
     .filter((s) => test(skinnedNow(s, new THREE.Vector3()))).slice(0, k);
   // long hair: roots binned by angle around the head so strands leave both sides and the back evenly (never the face)
@@ -715,21 +958,32 @@ function onModel(gltf) {
         ...pick(notHair, 60, (p) => p.y > floorY + h * 0.47 && p.y < floorY + h * 0.55 && Math.abs(p.x - cx) > 0.08).slice(0, Math.max(0, LOOK.featureRibbons - (LOOK.noHeadSwirls ? 0 : 2)))]
       .map((s, fi) => ({ ...s, kind: 2, fi })),
   ];
-  scene.add(makeRibbons(roots, ref, floorY, center, h));
-  scene.add(makeFloor(floorY + 0.001));
+  { const rb = makeRibbons(roots, ref, floorY, center, h); scene.add(rb); herLayers.push(rb); }
+  { const fl = makeFloor(floorY + 0.001); scene.add(fl); links.floorRing = fl; }   // v10 walk: the ring disc follows her
   report.ribbons = { dress: roots.filter((r) => r.kind === 0).length, hair: roots.filter((r) => r.kind === 1).length, feature: roots.filter((r) => r.kind === 2).length };
   // ---- face: CC viseme + blink morphs on every mesh that has them (body, brows, teeth, tongue) ----
   const VIS = ['V_Open', 'V_Wide', 'V_Tight_O', 'V_Explosive', 'V_Lip_Open', 'V_Dental_Lip', 'V_Affricate'];
   root.traverse((o) => {
     const d = o.morphTargetDictionary; if (!d || o.material.type === 'ShaderMaterial') return;
-    face.visemes.push({ inf: o.morphTargetInfluences, vis: VIS.map((n) => d[n]),
+    face.visemes.push({ inf: o.morphTargetInfluences, dict: d, vis: VIS.map((n) => d[n]),
       blink: ['Eye_Blink_L', 'Eye_Blink_R', 'Eye_Blink'].map((n) => d[n]).filter((i) => i !== undefined) });
   });
   report.morphMeshes = face.visemes.length;
   report.mapped = { visemes: VIS.filter((n) => face.visemes.some((f) => f.vis[VIS.indexOf(n)] !== undefined)),
     blink: [...new Set(face.visemes.flatMap((f) => f.blink.length ? ['Eye_Blink_L/R'] : []))] };
+  if (!mixer) {   // anim: motion layer (breath, sway, gaze, blinks, expressions, states)
+    animator = createAnimator(THREE, root, face, uAnim, { links });
+    window.avatar = animator.api;
+    animator.api.setTint = (deg) => window.aether.setTint(+deg || 0);   // v11: tint on the avatar API too
+    window.aether.setState = (m) => animator.api.setState(m); window.aether.setLevel = (v) => animator.api.setLevel(v);
+  }
   window.__report = report;
-  if (params.has('debug')) status.textContent = JSON.stringify(report); else status.remove();
+  status.remove();
+  root.traverse((o) => { if (o.isMesh || o.isPoints) o.frustumCulled = false; });   // v10 walk (walk-copy fix): bounding spheres are cached at the origin, so once she walks off it the hair occluder got culled (white head flare)
+  links.U = { FACE, NAVEL, HIPY, rest: { face: FACE.value.clone(), navel: NAVEL.value.clone(), hipY: HIPY.value } };   // v10 walk: world-space look anchors, moved with her by anim.js
+  revealOn(root); herLayers.forEach(revealOn);   // v12
+  if (animator) { animator.api.materialize = (d) => startAppear(1, d); animator.api.dissolve = (d) => startAppear(0, d);
+    Object.defineProperty(animator.api, 'appear', { get: () => appear.a }); }
   window.__ready = true;
 }
 const loader = new GLTFLoader();
@@ -747,16 +1001,13 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), LOOK.bloom.strength, LOOK.bloom.radius, LOOK.bloom.threshold);
 composer.addPass(bloom); composer.addPass(new OutputPass());
-// Room tint: rotate her hue by ?hue= degrees (setTint at runtime) so a legacy room
-// can wear its accent. Only hue moves (HSV, same as the painted orbit);
-// saturation, brightness, alpha and every shape stay put.
-// The pass is off at 0, so the untinted scene renders exactly as before.
+// v11: room tint, same HSV hue pass as the app (?hue= degrees, setTint at runtime); off at 0, so the untinted scene is unchanged
 const tint = (() => { const rnd = Math.random; Math.random = () => 0.5; const p = new ShaderPass({
   uniforms: { tDiffuse: { value: null }, uHue: { value: 0 } }, vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `uniform sampler2D tDiffuse; uniform float uHue; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv);
     vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0); vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
     vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r)); float d = q.x - min(q.w, q.y);
-    vec3 h = vec3(fract(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-10)) + uHue), d / (q.x + 1e-10), q.x);   // HSV, hue turned like the painted orbit
+    vec3 h = vec3(fract(abs(q.z + (q.w - q.y) / (6.0 * d + 1e-10)) + uHue), d / (q.x + 1e-10), q.x);
     vec3 rgb = h.z * mix(vec3(1.0), clamp(abs(fract(h.xxx + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0), h.y);
     gl_FragColor = vec4(rgb, c.a); }` }); Math.random = rnd; return p; })();
 window.aether.setTint = (deg) => { tint.uniforms.uHue.value = (((+deg || 0) % 360) + 360) % 360 / 360; tint.enabled = !!(+deg); };
@@ -773,6 +1024,7 @@ if (TRANSPARENT) { const rnd = Math.random; Math.random = () => 0.5; composer.ad
     + ' float e = 1.0 - smoothstep(0.45, 0.98, length((vUv - 0.5) * 2.0));'
     + ' e = mix(e, 1.0, smoothstep(0.2, 0.6, max(c.r, max(c.g, c.b))) * smoothstep(0.0, 0.3, e));'
     + ' c *= e; gl_FragColor = vec4(c, max(c.r, max(c.g, c.b))); }' })); Math.random = rnd; }
+
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
@@ -800,13 +1052,29 @@ function updateFace(t, dt) {
 const clock = new THREE.Clock();
 const FREEZE = new URLSearchParams(location.search).has('freeze') ? +new URLSearchParams(location.search).get('freeze') : null;   // test hook: fixed time so A/B renders match
 const ft = []; window.__frameMs = () => ft.length ? ft.reduce((a, b) => a + b) / ft.length : null;
-renderer.setAnimationLoop(() => {
+function frame(dt) {
   const t0 = performance.now();
-  const dt = Math.min(clock.getDelta(), 0.1); uTime.value += dt; if (FREEZE !== null) uTime.value = FREEZE; const t = uTime.value;
-  if (mixer) mixer.update(dt); if (idleFn) idleFn(t);
-  updateFace(t, dt);
-  galaxy.rotation.z = t * 0.03;
+  uTime.value += dt;
+  let flow = 1;
+  if (animator && FREEZE === null) flow = animator.update(dt);
+  else { if (mixer) mixer.update(dt); if (idleFn) idleFn(uTime.value); updateFace(uTime.value, dt); }
+  uFlow.value += dt * flow;
+  if (appear.t < 1) { appear.t = Math.min(1, appear.t + dt / appear.dur); const e = appear.t * appear.t * (3 - 2 * appear.t); appear.a = appear.from + (appear.to - appear.from) * e; }   // v12
+  uApp.value = appear.a; uAppL.value = appear.t >= 1 ? appear.to : appear.from + (appear.to - appear.from) * appear.t; if (appear.to !== appear.from) uRvDir.value = appear.to > appear.from ? 1 : -1; renderer.getDrawingBufferSize(uRes.value);
+  if (window.__root) { const AB = armBones || (armBones = ['L_Upperarm','L_Forearm','L_Hand','R_Upperarm','R_Forearm','R_Hand'].map((n) => window.__root.getObjectByName('CC_Base_' + n))); AB.forEach((b, i) => b && b.getWorldPosition(uArmPts.value[i])); }   // vr2
+  if (window.__cam) { const v = new THREE.Vector3(uRing.value.x, shellNeck.value, uRing.value.z).project(window.__cam); uNeckS.value = Math.min(1, Math.max(0.05, (v.y + 1) / 2)); }   // v12b
+  { const A = animator && animator.api, lv = A ? (A.level || 0) : 0, wk = A ? (A.walkW || 0) : 0;   // v11: aether reacts to speaking and walking (smoothed)
+    uFX.value.x += (lv - uFX.value.x) * Math.min(1, dt * 3); uFX.value.y += (wk - uFX.value.y) * Math.min(1, dt * 3);
+    if (links.floorRing) uRing.value.set(links.floorRing.position.x, 0, links.floorRing.position.z); }
+  if (links.floorRing) {   // v12d: ring drift stops while walking; after she settles, the pattern crossfades (never slides) to recentre on her
+    const P = links.floorRing.position, wph = animator && animator.api ? animator.api.walkPhase : 0, still = !wph && uFX.value.y < 0.02;
+    FLO.ph.value += dt * 0.35 * Math.max(0, 1 - uFX.value.y * 4) * (still ? 1 : 0);
+    FLO.idle = still ? FLO.idle + dt : 0;
+    if (FLO.k.value === 0 && FLO.idle > 0.8 && Math.hypot(FLO.o.value.x - P.x, FLO.o.value.y - P.z) > 0.001) FLO.o2.value.set(P.x, P.z), FLO.k.value = 1e-6;
+    if (FLO.k.value > 0) { FLO.k.value = Math.min(1, FLO.k.value + dt / 1.5); if (FLO.k.value >= 1) { FLO.o.value.copy(FLO.o2.value); FLO.k.value = 0; } } }
+  if (FREEZE !== null) uTime.value = uFlow.value = FREEZE;
+  galaxy.rotation.z = uTime.value * 0.03;
   composer.render();
   ft.push(performance.now() - t0); if (ft.length > 120) ft.shift();
-  window.__frames = (window.__frames || 0) + 1;
-});
+}
+renderer.setAnimationLoop(() => { const dt = Math.min(clock.getDelta(), 0.1); if (window.__ready) frame(dt); });
