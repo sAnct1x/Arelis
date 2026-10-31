@@ -503,7 +503,6 @@ class ConversationSession:
             "confirm_vision": True,
             "confirm_run": True,
             "json_fallback": True,
-            "skill_cards": True,
             "lessons": True,
             "exactness": True,
             "numeric_gate": True,

@@ -112,30 +112,6 @@ MUTATIONS: tuple[Mutation, ...] = (
     ),
 )
 
-# `skill_cards` is deliberately absent: no production code reads it. The
-# harness sets it at harness.py:643 and the 2026-08-14 note claims the skill
-# cards were disabled, but the switch is wired to nothing. Card *bodies* left
-# the prompt when compact_tool_policy landed; `skill_tool_subset` is the only
-# live lever. Do not add a mutation for a dead key — it would report a hole
-# that is really a no-op, which is the same lie in the other direction.
-DEAD_KEYS = (
-    "skill_cards",
-    "intent_preflight",
-    "weather_force_call",
-    "sms_force_call",
-    "email_force_call",
-    "agenda_force_call",
-    "image_force_call",
-    "vision_force_call",
-    "tasks_force_call",
-    "goals_force_call",
-    "recall_force_call",
-    "document_force_call",
-    "diagnostics_force_call",
-    "inspect_force_call",
-)
-
-
 @dataclass
 class Outcome:
     mutation: Mutation
@@ -218,9 +194,6 @@ async def run(selected: str | None) -> int:
         print(f"    guards: {outcome.mutation.guards}")
         print(f"    reason: {outcome.mutation.blind_spot}")
 
-    print()
-    if DEAD_KEYS:
-        print(f"not measured (config key is read by nothing): {', '.join(DEAD_KEYS)}")
     print()
     print(
         f"RESULT: {len(covered)} covered, {len(holes)} holes, "

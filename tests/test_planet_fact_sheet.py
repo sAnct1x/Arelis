@@ -36,7 +36,6 @@ def _fact_loop(router: _CapturingRouter, *, native: bool = False) -> tuple[Event
     tools.register(SolarTool())
     cfg = _config()
     cfg["agent"]["chat_fast_path"] = False
-    cfg["agent"]["intent_preflight"] = True
     if native:
         cfg["agent"]["native_tool_calling"] = True
     loop = AgentLoop(

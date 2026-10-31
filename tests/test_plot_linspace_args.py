@@ -137,7 +137,6 @@ async def test_nine_b_linspace_sine_cosine_draws_or_explains(
     cfg = _config()
     cfg["agent"]["chat_fast_path"] = False
     cfg["agent"]["max_rounds"] = 6
-    cfg["agent"]["intent_preflight"] = False
     cfg["agent"]["confirm_writes"] = False
     loop = AgentLoop(
         bus,

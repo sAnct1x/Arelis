@@ -78,11 +78,9 @@ def _config() -> dict:
     return {
         "agent": {
             "chat_fast_path": True,
-            "intent_preflight": True,
             "lessons": True,
             "max_rounds": 4,
             "json_fallback": False,
-            "weather_force_call": False,
         },
         "llamacpp": {"default_cap": 65536},
         "_persona_path": "does-not-exist.md",

@@ -92,7 +92,6 @@ def _loop(router: _ScriptedRouter) -> tuple[EventBus, AgentLoop]:
     cfg = _config()
     cfg["agent"]["chat_fast_path"] = False
     cfg["agent"]["max_rounds"] = 6
-    cfg["agent"]["intent_preflight"] = False
     loop = AgentLoop(
         bus,
         router,  # type: ignore[arg-type]
@@ -206,7 +205,6 @@ async def test_changed_bad_plot_args_stop_once_the_type_repeats(tmp_path: Path) 
     cfg = _config()
     cfg["agent"]["chat_fast_path"] = False
     cfg["agent"]["max_rounds"] = 6
-    cfg["agent"]["intent_preflight"] = False
     cfg["agent"]["confirm_writes"] = False
     loop = AgentLoop(
         bus,

@@ -536,10 +536,6 @@ async def main() -> int:
             tools=soak_reg,
             persona=persona,
             agent_cfg={
-                "sms_force_call": False,
-                "email_force_call": False,
-                "image_force_call": False,
-                "agenda_force_call": False,
                 "chat_fast_path": False,
                 "max_rounds": 6,
             },

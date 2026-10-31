@@ -209,7 +209,6 @@ def _loop(
     cfg = _config()
     cfg["agent"]["chat_fast_path"] = False
     cfg["agent"]["max_rounds"] = 6
-    cfg["agent"]["intent_preflight"] = False
     cfg["agent"]["native_tool_calling"] = native
     loop = AgentLoop(
         bus,
