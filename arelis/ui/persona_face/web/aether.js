@@ -62,6 +62,13 @@ document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 200);
+// Full-body framing at any aspect: her rest-pose skinned box (Box3 precise) plus a margin fits both the
+// vertical and the horizontal field of view; the slight look-down of the old fixed camera is kept.
+const FIT = { box: null, margin: 1.18, minW: 0.5 };   // minW: width floor (x height) so gestures stay in frame
+function fitFull() { const b = FIT.box; if (!b) return; const s = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+  const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), H = s.y * FIT.margin, W = Math.max(s.x, s.y * FIT.minW) * FIT.margin;
+  const d = Math.max(H / 2 / tv, W / 2 / (tv * camera.aspect)) + s.z / 2;
+  camera.position.set(c.x, c.y + d * 0.03, c.z + d); camera.lookAt(c.x, c.y, c.z); }
 const uTime = { value: 0 };
 const uFlow = { value: 0 };   // anim: flow clock for threads/swirls/stars (runs faster while thinking; equals uTime at rate 1)
 const uAnim = { value: new THREE.Vector4(1, 1, 0, 0) };   // anim: x glow mul, y rim mul, z shimmer (neutral = 1,1,0)
@@ -896,7 +903,7 @@ function onModel(gltf) {
   else if (view === 'side') { camera.position.set(cx + h * 0.4, box.min.y + h * 0.95, cz + h * 0.32); camera.lookAt(cx, box.min.y + h * 0.92, cz); }
   else if (view === 'mid') { camera.position.set(cx, box.min.y + h * 0.79, cz + h * 0.82); camera.lookAt(cx, box.min.y + h * 0.785, cz); }
   else if (view === 'face') { camera.position.set(cx, box.min.y + h * 0.93, h * 0.55); camera.lookAt(cx, box.min.y + h * 0.92, cz); }
-  else { camera.position.set(cx, box.min.y + h * 0.55, h * 2.35); camera.lookAt(cx, box.min.y + h * 0.48, cz); }
+  else { FIT.box = box.clone(); fitFull(); }
   window.__cam = camera;   // test hook: inspection renders move the camera directly
 
   if (gltf.animations.length) {
@@ -1033,7 +1040,7 @@ if (TRANSPARENT) { const rnd = Math.random; Math.random = () => 0.5; composer.ad
 // it is hidden, and a missed event left the canvas at its old size, clipped by the dock edge.
 const _sz = new THREE.Vector2();
 function fitView() { renderer.getSize(_sz); if (_sz.x === innerWidth && _sz.y === innerHeight) return;
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); fitFull();
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); }
 addEventListener('resize', fitView);
 
