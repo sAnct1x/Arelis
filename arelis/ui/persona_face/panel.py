@@ -6,9 +6,9 @@ import logging
 import time
 from collections.abc import Callable
 
-from PySide6.QtCore import QPointF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QRadialGradient
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 from arelis.ui.theme import app_font, color, load_fonts
 
@@ -269,7 +269,7 @@ class PersonaPanel(QWidget):
         # One theme switch hides the chrome bars one at a time, so her panel
         # stepped through three sizes and the page reallocated its canvas for
         # each (a 116 ms frame on the switch into Filament). The veil follows
-        # at once; the page takes the settled size on the next turn.
+        # at once; the page takes the settled size once the layout is done.
         height = max(1, self.height() - _TEXT_H)
         self.loading.setGeometry(0, 0, max(1, self.width()), height)
         if self.web is not None and not self._place_due:
@@ -278,6 +278,14 @@ class PersonaPanel(QWidget):
         super().resizeEvent(event)
 
     def _place_now(self) -> None:
+        # The slim title bar and the hidden chrome reach her through posted
+        # layout requests, some queued after this turn was. Let them land
+        # first, so the page takes one size per switch, not one per step.
+        for _ in range(8):
+            before = self.size()
+            QApplication.sendPostedEvents(None, QEvent.Type.LayoutRequest)
+            if self.size() == before:
+                break
         self._place_due = False
         self._place()
 
