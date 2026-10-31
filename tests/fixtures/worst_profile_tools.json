@@ -72,7 +72,8 @@
             "type": "integer"
           },
           "fact": {
-            "type": "string"
+            "type": "string",
+            "description": "Whole fact, any number."
           },
           "type": {
             "type": "string",
@@ -153,10 +154,12 @@
             ]
           },
           "parent_id": {
-            "type": "integer"
+            "type": "integer",
+            "description": "ONLY parent TASK id, never goal id."
           },
           "goal_id": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Attach to a GOAL id from goals."
           },
           "status": {
             "type": "string",
@@ -862,13 +865,16 @@
             ]
           },
           "query": {
-            "type": "string"
+            "type": "string",
+            "description": "arxiv or ads text, not a planet."
           },
           "target": {
-            "type": "string"
+            "type": "string",
+            "description": "Body name (Moon, Mars, 499) not a sentence."
           },
           "date": {
-            "type": "string"
+            "type": "string",
+            "description": "Omit for how far/closest/farthest. APOD or one sky day only."
           },
           "table": {
             "type": "string",
@@ -1256,7 +1262,8 @@
             "type": "string"
           },
           "content": {
-            "type": "string"
+            "type": "string",
+            "description": "File body REQUIRED for action=write."
           },
           "diff": {
             "type": "string"
@@ -1304,7 +1311,8 @@
             ]
           },
           "text": {
-            "type": "string"
+            "type": "string",
+            "description": "Note body REQUIRED for action=add."
           },
           "title": {
             "type": "string"

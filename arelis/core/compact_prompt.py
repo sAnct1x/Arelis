@@ -171,15 +171,15 @@ def skinny_parameters(
             key: value for key, value in props.items() if value != {}
         }
 
-        # Apply hints at top level when param_hints is enabled
+        from arelis.core.native_tool_calling import NATIVE_NOTES_ONLY_TEXT, NATIVE_PARAM_HINTS
+
+        # The short hints go out in every mode. Stripping them in the default
+        # (non-native) mode left the model no word on the fields that matter (#290).
+        for (tn, pn), desc in NATIVE_PARAM_HINTS.items():
+            if tn == tool_name and pn in filtered:
+                filtered[pn]["description"] = desc
+
         if param_hints and tool_name:
-            from arelis.core.native_tool_calling import NATIVE_NOTES_ONLY_TEXT, NATIVE_PARAM_HINTS
-
-            # Add descriptions for hinted parameters
-            for (tn, pn), desc in NATIVE_PARAM_HINTS.items():
-                if tn == tool_name and pn in filtered:
-                    filtered[pn]["description"] = desc
-
             # For notes tool in native mode, only expose 'text' parameter (not aliases)
             if tool_name == "notes" and NATIVE_NOTES_ONLY_TEXT:
                 # Remove content and body aliases, keep only text
