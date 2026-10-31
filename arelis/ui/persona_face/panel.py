@@ -10,7 +10,7 @@ from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QRadialGradient
 from PySide6.QtWidgets import QApplication, QWidget
 
-from arelis.ui.theme import app_font, color, load_fonts
+from arelis.ui.theme import color, load_fonts
 
 _DONE_S = 2.0
 _STATUS_S = 8.0
@@ -66,7 +66,9 @@ class PersonaPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("personaPanel")
-        self.setFont(app_font(load_fonts()))
+        # Registers the desk faces. Her font is the app font, so it follows
+        # a language change like every other widget.
+        load_fonts()
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
         # No floor of its own: her stage sizes her. The old dock floor (220x300)

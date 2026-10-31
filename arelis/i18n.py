@@ -487,6 +487,21 @@ def apply_language_face(code: str) -> str | None:
     return family
 
 
+def _follow_app_font(app: Any) -> None:
+    """Make every widget re-read the app font, parents first.
+
+    QApplication.setFont does not reach a widget under a root that carries its
+    own sheet (every colour root does): it keeps the face it was polished with.
+    The event makes it resolve its font again, at no restyle.
+    """
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QWidget
+
+    for top in app.topLevelWidgets():
+        for widget in (top, *top.findChildren(QWidget)):
+            QCoreApplication.sendEvent(widget, QEvent(QEvent.Type.ApplicationFontChange))
+
+
 def _quoted_family(stack: str) -> str:
     text = stack.strip()
     if text.startswith('"'):
@@ -502,29 +517,25 @@ def apply_language(window: Any, raw: Any) -> str:
 
     trace = PhaseTrace(f"language to={raw}")
     code = set_ui_language(raw)
-    family = apply_language_face(code)
+    apply_language_face(code)
     try:
-        from PySide6.QtGui import QFont
         from PySide6.QtWidgets import QApplication
 
         from arelis.ui.theme import app_font, install_stylesheet
-        from arelis.ui.theme_tokens import FONT_PX
 
         install_stylesheet(window)
         trace.mark("stylesheet")
         app = QApplication.instance()
         if app is not None:
-            if family:
-                font = QFont(family)
-                font.setPixelSize(FONT_PX)
-                app.setFont(font)
-            else:
-                app.setFont(app_font())
+            # The face lives here, not in the sheet: the sheet stays put and
+            # install_stylesheet above has nothing to re-apply.
+            app.setFont(app_font())
+            _follow_app_font(app)
         trace.mark("font")
     except Exception:
         # Styling is cosmetic: a failed font or stylesheet must not stop the
         # language switch, and the text below is still translated.
-        family = None
+        pass
     localize(window)
     trace.mark("localize")
     _refresh_live_copy(window)

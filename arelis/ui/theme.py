@@ -193,13 +193,22 @@ def app_font(families: dict[str, str] | None = None) -> QFont:
     every rule below says 13px. Widgets that a rule happens to reach were a
     third of a pixel smaller than widgets it does not, which is invisible until
     a fractional scale factor rounds the two apart.
+
+    The family is the face of the current language (``FONTS["body"]``), the
+    same stack the sheet used to name in every rule. The sheet names no face
+    of its own, so a language change only resets this font and leaves the app
+    sheet as it is.
     """
-    body = (families or {}).get("body", "Segoe UI")
     font = QFont()
     # Plex covers Greek the desk face drops. Segoe is the Windows floor.
-    font.setFamilies([body, "IBM Plex Sans", "Segoe UI"])
+    font.setFamilies(font_stack(FONTS["body"]))
     font.setPixelSize(FONT_PX)
     return font
+
+
+def font_stack(stack: str) -> list[str]:
+    """A CSS family list as Qt's sheet parser reads it, quotes off."""
+    return [part.strip().strip('"').strip("'") for part in stack.split(",") if part.strip()]
 
 
 def color(name: str) -> QColor:
