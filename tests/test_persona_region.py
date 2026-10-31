@@ -14,7 +14,7 @@ from arelis.ui.persona_stage import FIGURE_ASPECT, fit_figure, persona_region, r
         (QRect(0, 0, 1600, 900), None, QRect(1152, 0, 448, 900)),
         (QRect(0, 40, 800, 600), None, QRect(500, 40, 300, 600)),
         (QRect(0, 0, 3840, 2000), None, QRect(3280, 0, 560, 2000)),
-        (QRect(0, 0, 260, 400), None, QRect(0, 0, 260, 400)),
+        (QRect(0, 0, 260, 400), None, QRect(80, 0, 180, 400)),
         (QRect(0, 0, 5760, 1080), QRect(1920, 0, 1920, 1080), QRect(3302, 0, 538, 1080)),
     ],
 )

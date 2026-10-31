@@ -13,6 +13,10 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 BAND_SHARE = 0.28
 BAND_MIN = 300
 BAND_MAX = 560
+# The chat column keeps at least this much of the stage; her band gives way first,
+# down to BAND_FIT_MIN, the narrowest band her head-to-toe box still reads in.
+CHAT_MIN = 380
+BAND_FIT_MIN = 180
 # Filament hub: bottom-left corner, sized off the stage height.
 HUB_SHARE = 0.45
 HUB_MIN = 240
@@ -30,6 +34,8 @@ def persona_region(stage: QRect, home_band: QRect | None = None, *, mode: str = 
     """The part of the stage she owns.
 
     band: the right side, about 28% of the width, 300-560 px, full height.
+    On a narrow stage the band shrinks first so the chat keeps CHAT_MIN,
+    but never below BAND_FIT_MIN (she scales down head to toe, never cropped).
     hub: the bottom-left corner, a head-to-toe box about 45% of the height,
     240-640 px tall, scaled down when the stage is smaller.
     In a Filament span both sit on the home desk, not the union of desks.
@@ -42,7 +48,9 @@ def persona_region(stage: QRect, home_band: QRect | None = None, *, mode: str = 
         height = max(HUB_MIN, min(HUB_MAX, round(area.height() * HUB_SHARE)))
         box = fit_figure(QRect(0, 0, round(height * FIGURE_ASPECT), height), area)
         return QRect(area.left(), area.bottom() + 1 - box.height(), box.width(), box.height())
-    width = min(area.width(), max(BAND_MIN, min(BAND_MAX, round(area.width() * BAND_SHARE))))
+    width = max(BAND_MIN, min(BAND_MAX, round(area.width() * BAND_SHARE)))
+    width = max(BAND_FIT_MIN, min(width, area.width() - CHAT_MIN))
+    width = min(area.width(), width)
     return QRect(area.right() + 1 - width, area.top(), width, area.height())
 
 
@@ -91,6 +99,10 @@ class PersonaStage(QWidget):
             if mode == "hub" and parent is not None:
                 hub = QPointF(parent.mapTo(window, self.geometry().center()))
             field.set_hub(hub)
+            if hub is not None and getattr(window, "filament", None) is not None:
+                from arelis.ui.filament_desk import filament_tiles_clear_hub
+
+                filament_tiles_clear_hub(window)
         if in_stage(window) and hasattr(window, "_sync_panel_margins"):
             window._sync_panel_margins()
 

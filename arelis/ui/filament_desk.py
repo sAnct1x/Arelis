@@ -692,6 +692,34 @@ class FilamentDesk:
                 moved.moveTop(home.top())
         return moved
 
+    def _filament_tiles_clear_hub(self) -> None:
+        """Her hub moved (the window shrank): open tiles that now sit on it step aside.
+
+        Floating tiles are top-level, so a smaller window slid her hub under the
+        chat tile. The nudge is ours, so it is not saved as the user's spot.
+        """
+        w = self.window
+        if active_theme() != "filament":
+            return
+        for widget in (
+            getattr(w, "_filament_chat_tile", None),
+            getattr(w, "history_dock", None),
+            getattr(w, "calendar_window", None),
+            getattr(w, "camera_dock", None),
+            getattr(w, "notify_inbox", None),
+            getattr(w, "contacts_inbox", None),
+            getattr(w, "world_window", None),
+        ):
+            if widget is None or not widget.isVisible() or getattr(widget, "_filament_growing", False):
+                continue
+            if hasattr(widget, "isFloating") and not widget.isFloating():
+                continue
+            geo = QRect(widget.geometry())
+            dest = self._filament_clear_of_hub(geo)
+            if dest != geo:
+                widget._filament_placed_geo = QRect(dest)
+                widget.setGeometry(dest)
+
     def _filament_spawn_tile(self, widget, name: str, dest: QRect) -> None:
         """Every Filament tile opens here: it grows out of the end of its filament."""
         w = self.window
@@ -947,6 +975,10 @@ def bind(window) -> None:
 
 def sync_filament_face(window) -> None:
     _of(window)._sync_filament_face()
+
+
+def filament_tiles_clear_hub(window) -> None:
+    _of(window)._filament_tiles_clear_hub()
 
 
 def place_filament_floats(window, *, reshape: bool = True) -> None:
