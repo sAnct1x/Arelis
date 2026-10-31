@@ -22,10 +22,15 @@ SWITCHES = ("--disable-backgrounding-occluded-windows", "--disable-renderer-back
 
 # A/B switch for the Filament blank (966aeae: she renders but frames do not
 # reach the screen). Flip with an env var, no rebuild; read before Qt starts.
+# Default is d3d11: on Atria (gpuab, 2026-10-31) it held idle at 55-58 fps where
+# no flag held 44-53, no arm fixed the blank, and gl lost WebGL. "none" is the
+# old no-flag launch.
 ARM_VAR = "ARELIS_GPU_ARM"
+D3D11 = ("--use-angle=d3d11",)
 ARMS: dict[str, tuple[str, ...]] = {
-    "default": (),
-    "d3d11": ("--use-angle=d3d11",),
+    "default": D3D11,
+    "none": (),
+    "d3d11": D3D11,
     "gl": ("--use-angle=gl",),
     "nocomp": ("--disable-gpu-compositing",),
 }
@@ -53,7 +58,11 @@ def merge_flags(current: str, arm_name: str = "default") -> str:
     for feature in DISABLE_FEATURES:
         if feature not in features:
             features.append(feature)
+    # An --use-angle already in the variable wins over the arm's.
+    has_angle = any(p.startswith("--use-angle=") for p in rest)
     for switch in (*SWITCHES, *ARMS[arm_name]):
+        if has_angle and switch.startswith("--use-angle=") and switch in ARMS[arm_name]:
+            continue
         if switch not in rest:
             rest.append(switch)
     return " ".join([*rest, "--disable-features=" + ",".join(features)])
