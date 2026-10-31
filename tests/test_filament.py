@@ -126,3 +126,22 @@ def test_leaving_filament_hides_unkept_tiles_before_unlocking_them(arelis_window
         qt_app.removeEventFilter(spy)
     assert cal.isHidden()
     assert spy.seen == 0
+
+
+def test_leaving_filament_times_each_step_of_the_relayout(arelis_window, qt_app, caplog) -> None:
+    """The Atria line splits the leave relayout so its 370 ms has an owner."""
+    import logging
+
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    window.show()
+    apply_window_theme(window, "filament", persist=False)
+    window.act_contacts.trigger()
+    qt_app.processEvents()
+    with caplog.at_level(logging.INFO, logger="arelis.ui.timing"):
+        apply_window_theme(window, "night", persist=False)
+        qt_app.processEvents()
+    line = next(r.getMessage() for r in caplog.records if "theme to=night" in r.getMessage())
+    steps = ("leave_hide", "leave_unlock", "leave_chrome", "leave_docks", "leave_geometry")
+    assert all(f" {step}=" in line for step in steps), line

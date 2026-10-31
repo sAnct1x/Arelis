@@ -331,7 +331,15 @@ def _apply_window_theme(window, theme_id: str, *, persist: bool, trace=None) -> 
     window._sync_panel_margins()
     sync = getattr(window, "_sync_filament_face", None)
     if callable(sync):
-        sync()
+        if trace is not None:
+            trace.mark("seat")
+        # Leaving Filament marks its own steps on this trace (leave_*), so
+        # the Atria line says which one the tile relayout cost sits in.
+        window._theme_trace = trace
+        try:
+            sync()
+        finally:
+            window._theme_trace = None
     window.update()
     if trace is not None:
         trace.mark("layout")

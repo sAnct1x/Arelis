@@ -440,12 +440,15 @@ class FilamentDesk:
         w._filament_home = None
         w._filament_chrome_peek = False
         self._filament_set_chat_open(False)
+        mark = self._leave_mark
         # Tiles the parked layout does not keep go first. Unlocking a visible
         # tile restates its opacity (a native layered-window change) and the
         # calendar's minimum size (a resize and a relayout of its whole tree),
         # all for a window hidden a few lines later.
         self._filament_hide_unparked(parked)
+        mark("leave_hide")
         self._filament_lock_tiles(False)
+        mark("leave_unlock")
         self._filament_apply_glass(False)
         w.clearMask()
         self._filament_dock_chrome()
@@ -453,6 +456,7 @@ class FilamentDesk:
         apply = getattr(w.conversation, "apply_filament_desk", None)
         if callable(apply):
             apply(False)
+        mark("leave_chrome")
         if parked is None:
             w._sync_panel_margins()
             from arelis.ui.idle_host import sync_idle_mode
@@ -484,6 +488,7 @@ class FilamentDesk:
                     world.hide()
         finally:
             w._filament_hiding = False
+        mark("leave_docks")
         if self._filament_can_claim_desk():
             geo = parked.get("geometry")
             if parked.get("fullscreen"):
@@ -494,6 +499,7 @@ class FilamentDesk:
                 w.showNormal()
                 if geo:
                     w.restoreGeometry(geo)
+        mark("leave_geometry")
         w._sync_panel_margins()
         w._sync_view_checks()
         from arelis.ui.idle_host import sync_idle_mode
@@ -501,6 +507,12 @@ class FilamentDesk:
         sync_idle_mode(w)
         w._apply_round_mask()
         w.update()
+        mark("leave_mask")
+
+    def _leave_mark(self, phase: str) -> None:
+        trace = getattr(self.window, "_theme_trace", None)
+        if trace is not None:
+            trace.mark(phase)
 
     def _filament_hide_unparked(self, parked) -> None:
         if parked is None:
