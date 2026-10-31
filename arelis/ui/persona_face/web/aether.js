@@ -56,6 +56,8 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffe
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setClearColor(0x000000, TRANSPARENT ? 0 : 1);
+// A lost context never comes back on its own here; report it so the panel shows the painted face instead of nothing.
+renderer.domElement.addEventListener('webglcontextlost', () => { window.__error = 'WebGL context lost'; });
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
