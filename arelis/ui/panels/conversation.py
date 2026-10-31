@@ -677,6 +677,13 @@ class ConversationStage(GlassFrame):
         if hasattr(empty, "fit_prompt"):
             empty.fit_prompt(width, self.input.height(), typing=typing)
 
+    def _placeholder_width(self) -> int:
+        """The composer input's floor: its placeholder plus the text margins."""
+        from arelis.i18n import tr
+
+        fm = self.input.fontMetrics()
+        return fm.horizontalAdvance(tr("message Arelis…")) + 2 * SPACE["gap"] + 8
+
     def _fit_workbench_prompt(self) -> None:
         """Wrap and grow until the draft is on screen, then scroll."""
         if self._idle_mode:
@@ -795,7 +802,9 @@ class ConversationStage(GlassFrame):
             # width, or the first character sits where the transcript starts.
             self.input.setAlignment(Qt.AlignmentFlag.AlignLeft)
             self.input.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-            self.input.setMinimumWidth(0)
+            # The band gives way to this, so the placeholder reads in full
+            # in a narrow window instead of being squeezed to one letter.
+            self.input.setMinimumWidth(self._placeholder_width())
             self.input.setMaximumWidth(16777215)
             self.input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self.input.show()

@@ -10,6 +10,8 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, QObject, QPointF, QRect, Qt
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
+from arelis.ui.theme_tokens import SHELL
+
 BAND_SHARE = 0.28
 BAND_MIN = 300
 BAND_MAX = 560
@@ -17,6 +19,8 @@ BAND_MAX = 560
 # down to BAND_FIT_MIN, the narrowest band her head-to-toe box still reads in.
 CHAT_MIN = 380
 BAND_FIT_MIN = 180
+# The stage's own padding around the chat column, beyond the column's minimum.
+CHAT_PAD = 2 * SHELL["outer"]
 # Filament hub: bottom-left corner, sized off the stage height.
 HUB_SHARE = 0.45
 HUB_MIN = 240
@@ -30,11 +34,18 @@ def region_mode(theme: str) -> str:
     return "hub" if (theme or "").strip().lower() == "filament" else "band"
 
 
-def persona_region(stage: QRect, home_band: QRect | None = None, *, mode: str = "band") -> QRect:
+def persona_region(
+    stage: QRect,
+    home_band: QRect | None = None,
+    *,
+    mode: str = "band",
+    chat_min: int = CHAT_MIN,
+) -> QRect:
     """The part of the stage she owns.
 
     band: the right side, about 28% of the width, 300-560 px, full height.
-    On a narrow stage the band shrinks first so the chat keeps CHAT_MIN,
+    On a narrow stage the band shrinks first so the chat keeps chat_min
+    (CHAT_MIN, or more when the composer row needs more),
     but never below BAND_FIT_MIN (she scales down head to toe, never cropped).
     hub: the bottom-left corner, a head-to-toe box about 45% of the height,
     240-640 px tall, scaled down when the stage is smaller.
@@ -49,7 +60,7 @@ def persona_region(stage: QRect, home_band: QRect | None = None, *, mode: str = 
         box = fit_figure(QRect(0, 0, round(height * FIGURE_ASPECT), height), area)
         return QRect(area.left(), area.bottom() + 1 - box.height(), box.width(), box.height())
     width = max(BAND_MIN, min(BAND_MAX, round(area.width() * BAND_SHARE)))
-    width = max(BAND_FIT_MIN, min(width, area.width() - CHAT_MIN))
+    width = max(BAND_FIT_MIN, min(width, area.width() - max(CHAT_MIN, chat_min)))
     width = min(area.width(), width)
     return QRect(area.right() + 1 - width, area.top(), width, area.height())
 
@@ -90,9 +101,9 @@ class PersonaStage(QWidget):
 
         parent = self.parentWidget()
         mode = region_mode(active_theme())
-        if parent is not None:
-            self.place(parent.rect(), mode=mode)
         window = self.window()
+        if parent is not None:
+            self.place(parent.rect(), mode=mode, chat_min=_chat_min(window))
         field = getattr(window, "_filament", None)
         if field is not None and hasattr(field, "set_hub"):
             hub = None
@@ -107,15 +118,38 @@ class PersonaStage(QWidget):
             window._sync_panel_margins()
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        if obj is self.parentWidget() and event.type() == QEvent.Type.Resize:
+        if obj is not self.parentWidget():
+            return False
+        if event.type() == QEvent.Type.Resize:
+            self.follow()
+        elif event.type() == QEvent.Type.LayoutRequest and self._chat_need_moved():
+            # The composer row grew its minimum (the workbench plate opened):
+            # the band gives way now, not on the next window resize.
             self.follow()
         return False
+
+    def _chat_need_moved(self) -> bool:
+        from arelis.ui.theme_tokens import active_theme
+
+        parent = self.parentWidget()
+        mode = region_mode(active_theme())
+        if parent is None or mode != "band":
+            return False
+        want = persona_region(parent.rect(), mode=mode, chat_min=_chat_min(self.window()))
+        return want != self.geometry()
 
     def host(self, panel: QWidget) -> None:
         self.layout().addWidget(panel)
 
-    def place(self, stage: QRect, home_band: QRect | None = None, *, mode: str = "band") -> None:
-        region = persona_region(stage, home_band, mode=mode)
+    def place(
+        self,
+        stage: QRect,
+        home_band: QRect | None = None,
+        *,
+        mode: str = "band",
+        chat_min: int = CHAT_MIN,
+    ) -> None:
+        region = persona_region(stage, home_band, mode=mode, chat_min=chat_min)
         if region != self.geometry():
             from arelis.ui.persona_face.panel import alog
 
@@ -125,6 +159,14 @@ class PersonaStage(QWidget):
                 region=f"{region.x()},{region.y()},{region.width()}x{region.height()}",
             )
         self.setGeometry(region)
+
+
+def _chat_min(window) -> int:
+    """What the chat column needs: CHAT_MIN, or its composer row's minimum."""
+    conv = getattr(window, "conversation", None)
+    if conv is None or not hasattr(conv, "minimumSizeHint"):
+        return CHAT_MIN
+    return max(CHAT_MIN, conv.minimumSizeHint().width() + CHAT_PAD)
 
 
 def in_stage(window) -> bool:

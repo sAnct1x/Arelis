@@ -276,6 +276,21 @@ def stack_left_instruments(window) -> None:
         window._stacking_left = False
 
 
+def _stage_floor(window, chat_l: int, seated: bool) -> None:
+    """The stage never gets narrower than the chat row plus her narrowest band.
+
+    In a narrow window the history dock gives way, not the composer row.
+    """
+    from arelis.ui.persona_stage import BAND_FIT_MIN
+
+    floor = 420
+    conv = getattr(window, "conversation", None)
+    if seated and conv is not None:
+        floor = max(floor, chat_l + conv.minimumSizeHint().width() + BAND_FIT_MIN + _PANEL_OUTER)
+    if window.stage.minimumWidth() != floor:
+        window.stage.setMinimumWidth(floor)
+
+
 def sync_panel_margins(window) -> None:
     """Keep outer and inter-panel gutters equal (history | chat | thinking)."""
     left = docked_in(
@@ -295,6 +310,7 @@ def sync_panel_margins(window) -> None:
         # Her band is part of the stage: the chat ends where she begins.
         chat_r = window.persona_stage.width() + _PANEL_OUTER
     chat_b = _PANEL_HALF if bottom else _PANEL_BOTTOM
+    _stage_floor(window, chat_l, seated)
     if active_theme() == "filament" and not left and not right and not bottom:
         window._stage_layout.setContentsMargins(0, 0, 0, 0)
     else:
