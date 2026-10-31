@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
+    QLayoutItem,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -84,6 +86,107 @@ def _row_button(text: str, *, tooltip: str = "") -> QPushButton:
     if tooltip:
         btn.setToolTip(tooltip)
     return btn
+
+
+class _GroupFlow(QLayout):
+    """Button groups in a row that wraps whole groups onto the next line.
+
+    A Filament days tile is 360 px wide, below the bar's one-row minimum.
+    The tile's own setMinimumSize overrides the layout, so a single QHBoxLayout
+    was squeezed until every button lost its text (empty pills). Wrapping keeps
+    each group at its size hint. At full width it is the old bar exactly.
+    """
+
+    def __init__(self, parent: QWidget | None = None, spacing: int = 0) -> None:
+        super().__init__(parent)
+        self._items: list[QLayoutItem] = []
+        self.setSpacing(spacing)
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item: QLayoutItem) -> None:  # type: ignore[override]
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int) -> QLayoutItem | None:  # type: ignore[override]
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index: int) -> QLayoutItem | None:  # type: ignore[override]
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self) -> Qt.Orientation:
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._place(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect: QRect) -> None:  # type: ignore[override]
+        super().setGeometry(rect)
+        self._place(rect, apply=True)
+
+    def sizeHint(self) -> QSize:
+        gap = self.spacing()
+        hints = [i.sizeHint() for i in self._items]
+        width = sum(h.width() for h in hints) + gap * max(0, len(hints) - 1)
+        return QSize(width, max((h.height() for h in hints), default=0))
+
+    def minimumSize(self) -> QSize:
+        hints = [i.sizeHint() for i in self._items]
+        return QSize(
+            max((h.width() for h in hints), default=0),
+            max((h.height() for h in hints), default=0),
+        )
+
+    def _rows(self, width: int) -> list[list[QLayoutItem]]:
+        gap = self.spacing()
+        rows: list[list[QLayoutItem]] = []
+        used = 0
+        for item in self._items:
+            if item.isEmpty():
+                continue
+            w = item.sizeHint().width()
+            if rows and used + gap + w <= width:
+                rows[-1].append(item)
+                used += gap + w
+            else:
+                rows.append([item])
+                used = w
+        return rows
+
+    def _place(self, rect: QRect, *, apply: bool) -> int:
+        gap = self.spacing()
+        y = rect.y()
+        rows = self._rows(rect.width())
+        for n, row in enumerate(rows):
+            height = max(i.sizeHint().height() for i in row)
+            spare = rect.width() - sum(i.sizeHint().width() for i in row)
+            spare -= gap * (len(row) - 1)
+            spare = max(0, spare)
+            # The title group takes the spare width; a wrapped row sits right,
+            # where those buttons sat in the one-row bar.
+            grow = row[0] is self._items[0]
+            x = rect.x() + (0 if grow else spare)
+            for k, item in enumerate(row):
+                w = item.sizeHint().width() + (spare if grow and k == 0 else 0)
+                if apply:
+                    item.setGeometry(QRect(x, y, w, height))
+                x += w + gap
+            y += height + (gap if n < len(rows) - 1 else 0)
+        return y - rect.y()
+
+
+def _group(*widgets: QWidget, stretch: QWidget | None = None) -> QWidget:
+    box = QWidget()
+    lay = QHBoxLayout(box)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(SPACE["gap"])
+    for widget in widgets:
+        lay.addWidget(widget, stretch=1 if widget is stretch else 0)
+    return box
 
 
 class CalendarMonthView(QWidget):
@@ -1041,8 +1144,6 @@ class CalendarPanel(QWidget):
         cal_layout.setContentsMargins(*space_box("gap"))
         cal_layout.setSpacing(SPACE["gap"])
 
-        bar = QHBoxLayout()
-        bar.setSpacing(SPACE["gap"])
         self.prev_btn = _row_button("prev")
         self.today_btn = _row_button("today")
         self.next_btn = _row_button("next")
@@ -1051,10 +1152,6 @@ class CalendarPanel(QWidget):
         self.today_btn.clicked.connect(self._go_today)
         self.title_label = QLabel(month_title(self._anchor))
         self.title_label.setObjectName("CalendarMonthTitle")
-        bar.addWidget(self.prev_btn)
-        bar.addWidget(self.today_btn)
-        bar.addWidget(self.next_btn)
-        bar.addWidget(self.title_label, stretch=1)
 
         self._view_group = QButtonGroup(self)
         self._view_group.setExclusive(True)
@@ -1066,7 +1163,6 @@ class CalendarPanel(QWidget):
             btn.clicked.connect(lambda _=False, view=name: self._set_view(view))
             self._view_group.addButton(btn)
             self._view_btns[name] = btn
-            bar.addWidget(btn)
 
         self.sign_in_btn = _row_button(
             "sign in", tooltip="Open Google in the browser to connect or refresh"
@@ -1078,11 +1174,20 @@ class CalendarPanel(QWidget):
         self.new_btn.clicked.connect(lambda: self._open_new(self._anchor))
         self.status = QLabel("")
         self.status.setObjectName("InstrumentHint")
-        bar.addWidget(self.status)
-        bar.addWidget(self.sign_in_btn)
-        bar.addWidget(self.sync_btn)
-        bar.addWidget(self.new_btn)
-        cal_layout.addLayout(bar)
+        bar_host = QWidget()
+        bar = _GroupFlow(bar_host, SPACE["gap"])
+        bar.addWidget(
+            _group(
+                self.prev_btn,
+                self.today_btn,
+                self.next_btn,
+                self.title_label,
+                stretch=self.title_label,
+            )
+        )
+        bar.addWidget(_group(*self._view_btns.values()))
+        bar.addWidget(_group(self.status, self.sign_in_btn, self.sync_btn, self.new_btn))
+        cal_layout.addWidget(bar_host)
 
         self.views = QStackedWidget()
         self.month_view = CalendarMonthView()

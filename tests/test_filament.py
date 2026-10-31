@@ -158,3 +158,29 @@ def test_filament_menu_offers_the_language_actions(arelis_window) -> None:
     subs = {a.menu().title(): a.menu() for a in menu.actions() if a.menu() is not None}
     assert "Language" in subs
     assert subs["Language"].actions() == list(window._lang_actions.values())
+
+
+def test_filament_days_tile_keeps_its_bar_buttons_readable(arelis_window, qt_app) -> None:
+    """At 360 px the calendar bar was squeezed into empty pills; it wraps instead."""
+    from PySide6.QtWidgets import QPushButton
+
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    window.show()
+    apply_window_theme(window, "filament", persist=False)
+    window.act_calendar.trigger()
+    cal = window.calendar_window
+    cal.resize(360, 340)
+    for _ in range(5):
+        qt_app.processEvents()
+    assert cal.width() < 500
+    buttons = [
+        b
+        for b in cal.findChildren(QPushButton)
+        if b.isVisible() and b.objectName() == "InstrumentAction"
+    ]
+    assert len(buttons) >= 10
+    for button in buttons:
+        assert button.width() >= button.sizeHint().width(), button.text()
+        assert button.mapTo(cal, button.rect().topRight()).x() < cal.width(), button.text()
