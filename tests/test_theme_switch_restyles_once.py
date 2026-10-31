@@ -46,3 +46,7 @@ def test_switch_into_filament_restyles_like_one_app_sheet(arelis_window, qt_app)
     # sheet change and still reaches the composer.
     assert all(s <= o for s, o in zip(switch, one_sheet, strict=True))
     assert switch[1] >= 1
+    # A switch that restyles nothing is a no-op and must not pass either way.
+    assert sum(switch) >= 1
+    back = _count(lambda: w._choose_theme("night", True), widgets)
+    assert sum(back) >= 1
