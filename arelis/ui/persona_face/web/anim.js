@@ -218,6 +218,9 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
   const PELV = bone('CC_Base_Pelvis') || bone('CC_Base_Hip'), HB = { L: bone('CC_Base_L_Hand'), R: bone('CC_Base_R_Hand') }, M1 = { L: bone('CC_Base_L_Mid1'), R: bone('CC_Base_R_Mid1') };
   // v13b: contact helpers (local hip skin patch around the hand, CPU-skinned each frame; signed point-to-triangle distance)
   const CT = { L: null, R: null }; api.contactDbg = CT;
+  const CC = { L: null, R: null }; api.contactCache = CC;   // m1: baked contact turns per side (see the contact pass)
+  const ctDrift = (B, Q0) => { let m = 0; for (let i = 0; i < B.length; i++) m = Math.max(m, 1 - Math.abs(B[i].quaternion.dot(Q0[i]))); return m; };
+  const CTB = {}; const ctBones = (s) => CTB[s] || (CTB[s] = [R[s + '_Forearm'] && R[s + '_Forearm'].b, HB[s], R[s + '_Thumb1'] && R[s + '_Thumb1'].b, ...FING.filter((q) => q.s === s).flatMap((q) => q.segs.map((g) => g.r.b))].filter(Boolean));
   const CARM = /(Clavicle|Upperarm|UpArm|Forearm|Elbow|Hand|Index|Mid|Ring|Pinky|Thumb|Finger)/i;
   function ctBuild(c0) { const parts = []; const v = V3();
     root.traverse((m) => { if (!(m.isSkinnedMesh && /Body/i.test(m.name))) return; const g = m.geometry, pos = g.attributes.position, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, bn = m.skeleton.bones, idx = g.index;
@@ -745,6 +748,14 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
       if (wA < 0.02 || !HB[s]) { CT[s] = null; continue; }
       // v13c: contact on the real meshes. Hand-mesh vertices (sampled) against the live hip skin; palm/thenar and thumb pushed out
       // of the body at full strength and pulled onto it (0.5 mm) once the pose has arrived; fingers bend only about their curl axis.
+      /* m1: contact is resolved once per clip/pose, not every idle frame. While the hand blends in or out (hipw < 0.999) or the pose changes,
+         the full scan runs and its turns are baked as local deltas per bone, cached per pose, side and walk phase; a steady hold reapplies
+         them with no skin scan until the pose, side or walk phase changes or the hand leaves the hold. Breathing under a held pose keeps the baked turns (her energy
+         shell hides that sub-degree drift); api.contactDrift (1 - |dot|) re-bakes on drift for A/B, api.contactEveryFrame restores the old pass. */
+      const CB = ctBones(s), cKey = ip.name + '|' + ip.side + '|' + wph, steady = wA >= 0.999 && !api.contactEveryFrame && !api.contactLog;
+      if (steady && CC[s] && CC[s].key === cKey && (api.contactDrift === undefined || ctDrift(CB, CC[s].q0) < api.contactDrift)) { api.contactHits = (api.contactHits || 0) + 1; const D = CC[s].d; for (let i = 0; i < CB.length; i++) if (D[i]) CB[i].quaternion.multiply(D[i]); root.updateMatrixWorld(true); continue; }
+      const cQ0 = CB.map((b) => b.quaternion.clone());
+      if (!steady) CC[s] = null;
       root.updateMatrixWorld(true); const pal = () => wpos(HB[s]).lerp(wpos(M1[s]), 0.6);
       { const c0 = pal(); if (!CT[s] || CT[s].c0.distanceTo(c0) > 0.04) { CT[s] = ctBuild(c0); CT[s].c0 = c0; } }
       const C = CT[s]; C.w = wA; ctSkin(C); ctNear(C, pal(), 0.09); const kp = Math.min(1, Math.max(0, (wA - 0.85) / 0.15));
@@ -768,7 +779,8 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
       // v13e: on the way in/out the ring/pinky edge can still cut into the hip/thigh after the finger flex; turn the wrist just enough to clear it
       for (let it = 0; it < 4; it++) for (const f of ['Pinky', 'Ring', 'Mid', 'Index']) { const r = H[f].length && deep(f); if (!r || r.d >= 0) continue; move(r, TG, [HB[s]], 1); }
       for (let it = 0; it < 2; it++) { const r = deep('Palm'); if (!r || r.d >= 0) break; move(r, TG, [FA], 1); }
-      if (api.contactLog) { C.log = {}; for (const g of ['Palm', 'Thumb', 'Index', 'Mid', 'Ring', 'Pinky']) { const r = deep(g); C.log[g] = r ? +(r.d * 1000).toFixed(1) : null; } } }
+      if (api.contactLog) { C.log = {}; for (const g of ['Palm', 'Thumb', 'Index', 'Mid', 'Ring', 'Pinky']) { const r = deep(g); C.log[g] = r ? +(r.d * 1000).toFixed(1) : null; } }
+      if (steady) CC[s] = { key: cKey, q0: cQ0, d: CB.map((b, i) => { const d = cQ0[i].clone().invert().multiply(b.quaternion); return Math.abs(d.w) > 1 - 1e-12 ? null : d; }) }; }
     /* v15: finger/thumb output filter. Two cascaded first-order lags (tau 45 ms each) on every finger and thumb bone's local rotation, so the
        hip-pose blend, the hipw gate and the contact flex grid search can never snap a finger in one frame; the Mixamo finger data passes through (about 90 ms lag). */
     if (!api.noFingerFilter) { if (!FFB) { FFB = []; for (const F of FING) for (const g of F.segs) FFB.push({ b: g.r.b }); for (const s of ['L', 'R']) for (const k of [1, 2, 3]) { const bb = bone('CC_Base_' + s + '_Thumb' + k); if (bb) FFB.push({ b: bb }); } }
