@@ -116,3 +116,10 @@ def test_mars_year_keeps_the_division_they_wrote() -> None:
 # --- a year at the start of a reply is not list item 1 ----------------------
 
 
+
+
+def test_digits_in_a_file_name_are_not_math() -> None:
+
+    for ask in ("what is in m31.png", r"what is in C:\pics\m31.png", "what is in run2/m31.fits"):
+        assert "math" not in detect_exactness_need(ask).kinds, ask
+    assert "math" in detect_exactness_need("what is 31*4").kinds
