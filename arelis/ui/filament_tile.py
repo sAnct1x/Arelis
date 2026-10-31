@@ -37,7 +37,7 @@ DEFAULT_SIZES: dict[str, tuple[int, int]] = {
     "files": (340, 280),
     "history": (300, 360),
     "chat": (380, 400),
-    "days": (360, 340),
+    "days": (360, 412),
     "camera": (340, 280),
     "notify": (340, 280),
     "contacts": (320, 260),

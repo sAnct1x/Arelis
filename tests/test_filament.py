@@ -170,11 +170,17 @@ def test_filament_days_tile_keeps_its_bar_buttons_readable(arelis_window, qt_app
     window.show()
     apply_window_theme(window, "filament", persist=False)
     window.act_calendar.trigger()
+    from arelis.ui.filament_tile import DEFAULT_SIZES
+    from arelis.ui.panels.calendar import CalendarMonthView
+
     cal = window.calendar_window
-    cal.resize(360, 340)
+    cal.resize(*DEFAULT_SIZES["days"])
     for _ in range(5):
         qt_app.processEvents()
     assert cal.width() < 500
+    # The wrapped bar costs rows: the tile grows so the month grid keeps its pre-wrap
+    # 184 px (183 after other tests; 112 at the old 340 px height).
+    assert cal.findChild(CalendarMonthView).height() >= 180
     buttons = [
         b
         for b in cal.findChildren(QPushButton)
