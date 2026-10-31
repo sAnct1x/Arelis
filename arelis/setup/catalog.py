@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from arelis.llm.llama_launch import MMPROJ_BYTES
 from arelis.setup.hardware import HardwareSnapshot
 
 EMBED_TAG = "nomic-embed-text"
@@ -106,7 +107,7 @@ def by_tag(tag: str) -> CatalogModel | None:
 
 def disk_needed_gb(model: CatalogModel) -> float:
     """Chat weights plus the picture file, with a little slack."""
-    return model.download_gb + 0.6 + 1.0
+    return model.download_gb + MMPROJ_BYTES / 1e9 + 1.0
 
 
 def recommend(hardware: HardwareSnapshot) -> CatalogModel:
