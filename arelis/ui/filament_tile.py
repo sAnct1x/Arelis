@@ -230,10 +230,10 @@ def play_tile_grow(
             widget._filament_growing = False
             widget.setMinimumSize(240, 180)
             widget.setGeometry(dest)
+            # Where we put it is not a choice to save. Only a geometry the user
+            # gives it differs from this and reaches config.local.yaml.
+            widget._filament_placed_geo = QRect(widget.geometry())
             apply_tile_opacity(widget, opacity)
-            filt = getattr(widget, "_filament_size_filter", None)
-            if filt is not None:
-                filt._timer.start()
 
         group.finished.connect(_done)
         widget._filament_grow_group = group
@@ -292,6 +292,11 @@ class _GeomRemember(QObject):
 
         if active_theme() != "filament":
             return
+        if getattr(self._widget, "_filament_growing", False):
+            return
+        if self._widget.geometry() == getattr(self._widget, "_filament_placed_geo", None):
+            return
+        self._widget._filament_placed_geo = QRect(self._widget.geometry())
         remember_tile_size(self._widget, self._name, self._sizes)
         remember_tile_origin(self._widget, self._name, self._origins)
 

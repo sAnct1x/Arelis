@@ -665,12 +665,32 @@ class FilamentDesk:
             if parked is not None and origin_on_a_desk(parked[0], parked[1], size[0], size[1]):
                 dest = QRect(int(parked[0]), int(parked[1]), int(size[0]), int(size[1]))
             else:
-                dest = QRect(origin, QSize(int(size[0]), int(size[1])))
+                dest = self._filament_clear_of_hub(QRect(origin, QSize(int(size[0]), int(size[1]))))
             self._filament_spawn_tile(widget, name, dest)
             return
         widget.move(origin)
         widget.show()
         widget.raise_()
+
+    def _filament_clear_of_hub(self, dest: QRect) -> QRect:
+        """A tile we place never lands on her hub. A spot the user chose is theirs."""
+        w = self.window
+        stage = getattr(w, "persona_stage", None)
+        if stage is None or stage.isHidden():
+            return dest
+        hub = QRect(stage.mapToGlobal(QPoint(0, 0)), stage.size())
+        if not dest.intersects(hub):
+            return dest
+        moved = QRect(dest)
+        moved.moveLeft(hub.right() + 13)
+        home = self._filament_pin_home()
+        if home is not None and moved.right() > home.right():
+            # No room beside her: sit above her instead.
+            moved = QRect(dest)
+            moved.moveBottom(hub.top() - 13)
+            if moved.top() < home.top():
+                moved.moveTop(home.top())
+        return moved
 
     def _filament_spawn_tile(self, widget, name: str, dest: QRect) -> None:
         """Every Filament tile opens here: it grows out of the end of its filament."""

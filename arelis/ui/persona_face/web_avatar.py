@@ -86,16 +86,26 @@ def check_script(*, probe_gl: bool) -> str:
 _JS_LEVELS = {0: logging.INFO, 1: logging.WARNING, 2: logging.ERROR}
 
 
+_UNROLL_NOTE = "warning X3557: loop only executes for 1 iteration(s), forcing loop to unroll"
+
+
 def forward_console(level: int, message: str, line: int, source: str) -> None:
     """One page console line into the app log, under the ``[avatar]`` prefix."""
     from arelis.ui.persona_face.panel import LOG
 
     text = str(message)
+    level_no = _JS_LEVELS.get(int(level), logging.INFO)
     if text.startswith("[avatar] "):
         text = text[len("[avatar] ") :]
+    elif _UNROLL_NOTE in text:
+        # The D3D compiler's note that a one-pass loop was unrolled (three.js
+        # light loops with one light). Not a fault and nothing to act on, so it
+        # is a single short info line, not a WARNING with the whole info log.
+        LOG.info("[avatar] shader note unroll")
+        return
     else:
         text = f"js {text} ({Path(str(source)).name}:{line})"
-    LOG.log(_JS_LEVELS.get(int(level), logging.INFO), "[avatar] %s", text)
+    LOG.log(level_no, "[avatar] %s", text)
 
 
 def _console_page(parent):

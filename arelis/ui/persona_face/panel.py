@@ -69,12 +69,15 @@ class PersonaPanel(QWidget):
         self.setFont(app_font(load_fonts()))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
-        self.setMinimumSize(220, 300)
+        # No floor of its own: her stage sizes her. The old dock floor (220x300)
+        # overflowed a small hub, which clipped her off centre.
+        self.setMinimumSize(1, 1)
         self._state = "rest"
         self._speaking = False
         self._busy = False
         self._listening = False
         self._lipsync = False
+        self._pose = "rest"
         self._done_at: float | None = None
         self._status = ""
         self._status_at = 0.0
@@ -189,7 +192,13 @@ class PersonaPanel(QWidget):
         if reason is not None:
             alog("unavailable", reason=repr(reason))
             return reason
-        self.web.hide()
+        # The page loads shown and sized, under the veil. A hidden view is a
+        # hidden page to Chromium: it started at 0x0 and its frames and fetches
+        # were held back, so scene ready and the clips came about 9 s late and
+        # the first frames resized from 100x30. Before ready the canvas is clear.
+        self._place()
+        self.web.show()
+        self.loading.raise_()
         self.web.ready.connect(self._on_web_ready)
         self.web.failed.connect(self._on_web_failed)
         return None
@@ -222,8 +231,6 @@ class PersonaPanel(QWidget):
                 self._level_timer.start()
             else:
                 self._level_timer.stop()
-        if self.web is None:
-            return
         if speaking:
             state = "speaking"
         elif self._state in {"thinking", "done"}:
@@ -232,6 +239,12 @@ class PersonaPanel(QWidget):
             state = "listening"
         else:
             state = "rest"
+        if self.web is None:
+            return
+        if state != self._pose:
+            # One line per pose she takes, so a turn reads thinking, speaking, done.
+            self._pose = state
+            alog("clip play", name="idle" if state == "rest" else state)
         self.web.set_state(state)
         if not speaking:
             self.web.set_level(0.0)

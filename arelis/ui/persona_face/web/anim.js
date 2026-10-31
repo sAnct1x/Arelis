@@ -235,7 +235,16 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
     const vb = d5 * d2 - d1 * d6; if (vb <= 0 && d2 >= 0 && d6 <= 0) return out.copy(a).addScaledVector(ac, d2 / (d2 - d6));
     const va = d3 * d6 - d5 * d4; if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) return out.copy(b).addScaledVector(_cBC.subVectors(c, b), (d4 - d3) / ((d4 - d3) + (d5 - d6)));
     const dn = 1 / (va + vb + vc); return out.copy(a).addScaledVector(ab, vb * dn).addScaledVector(ac, vc * dn); }
-  function ctNear(C, c, r) { const r2 = r * r; for (const P of C.parts) { const W = P.W, T = P.tri, nl = []; for (let t = 0; t < T.length; t += 3) { const i = 3 * T[t]; const dx = W[i] - c.x, dy = W[i + 1] - c.y, dz = W[i + 2] - c.z; if (dx * dx + dy * dy + dz * dz < r2) nl.push(t); } P.near = nl; } }
+  function ctNear(C, c, r) { const r2 = r * r; for (const P of C.parts) { const W = P.W, T = P.tri, nl = []; for (let t = 0; t < T.length; t += 3) { const i = 3 * T[t]; const dx = W[i] - c.x, dy = W[i + 1] - c.y, dz = W[i + 2] - c.z; if (dx * dx + dy * dy + dz * dz < r2) nl.push(t); } P.near = nl;
+    /* m1: a bounding sphere per near triangle (centroid + radius) lets ctSD skip triangles that cannot beat the best so far. Same answer, a fraction of the work: */
+    /* the idle hip pose ran ctSD over every near triangle for every hand sample, about 45 ms a frame, which held idle at 8-20 fps. */
+    const B = P.nb && P.nb.length >= 4 * nl.length ? P.nb : (P.nb = new Float64Array(4 * nl.length + 64));
+    for (let q = 0; q < nl.length; q++) { const t = nl[q], a = 3 * T[t], b = 3 * T[t + 1], e = 3 * T[t + 2]; const cx = (W[a] + W[b] + W[e]) / 3, cy = (W[a + 1] + W[b + 1] + W[e + 1]) / 3, cz = (W[a + 2] + W[b + 2] + W[e + 2]) / 3;
+      let rr = 0; for (const k of [a, b, e]) { const ex = W[k] - cx, ey = W[k + 1] - cy, ez = W[k + 2] - cz; rr = Math.max(rr, ex * ex + ey * ey + ez * ez); }
+      B[4 * q] = cx; B[4 * q + 1] = cy; B[4 * q + 2] = cz; B[4 * q + 3] = Math.sqrt(rr) + 1e-6; }
+    let rm = 0; const ox = new Int32Array(nl.length); for (let q = 0; q < nl.length; q++) { ox[q] = q; rm = Math.max(rm, B[4 * q + 3]); }
+    ox.sort((u, w) => B[4 * u] - B[4 * w]); const xs = new Float64Array(nl.length); for (let k = 0; k < nl.length; k++) xs[k] = B[4 * ox[k]];
+    P.ox = ox; P.xs = xs; P.rm = rm; P.cand = P.cand && P.cand.length >= nl.length ? P.cand : new Int32Array(nl.length + 64); } }
   const HV = { L: null, R: null }; const HGR = /_(Hand|Thumb|Index|Mid|Ring|Pinky)\d?$/;
   function hvGet(s) { if (HV[s]) return HV[s]; const H = { Palm: [], Thumb: [], Index: [], Mid: [], Ring: [], Pinky: [] }; const cnt = {};
     root.traverse((m) => { if (!(m.isSkinnedMesh && /Body/i.test(m.name))) return; const g = m.geometry, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, bn = m.skeleton.bones;
@@ -244,9 +253,17 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
         if (cnt[key] % (key === 'Palm' ? 4 : 3) === 0) H[key].push({ m, i }); } });
     return (HV[s] = H); }
   const _hv = V3(); function hvPos(it) { const v = V3().fromBufferAttribute(it.m.geometry.attributes.position, it.i); it.m.applyBoneTransform(it.i, v); return v.applyMatrix4(it.m.matrixWorld); }
+  const ctLo = (xs, x) => { let lo = 0, hi = xs.length; while (lo < hi) { const m = (lo + hi) >> 1; if (xs[m] < x) lo = m + 1; else hi = m; } return lo; };
   function ctSD(C, p) { let best = 1e9; const bc = V3(), fn = V3(), tmp = V3();
-    for (const P of C.parts) { const W = P.W, T = P.tri, NL = P.near; const nn = NL ? NL.length : T.length / 3; for (let q = 0; q < nn; q++) { const t = NL ? NL[q] : 3 * q; _cA.fromArray(W, 3 * T[t]); _cB.fromArray(W, 3 * T[t + 1]); _cC.fromArray(W, 3 * T[t + 2]);
-      ctClosest(p, _cA, _cB, _cC, tmp); const d = tmp.distanceToSquared(p); if (d < best) { best = d; bc.copy(tmp); const N = P.N, i0 = 3 * T[t], i1 = 3 * T[t + 1], i2 = 3 * T[t + 2]; fn.set(N[i0] + N[i1] + N[i2], N[i0 + 1] + N[i1 + 1] + N[i2 + 1], N[i0 + 2] + N[i1 + 2] + N[i2 + 2]); } } }
+    for (const P of C.parts) { const W = P.W, T = P.tri, NL = P.near, NB = NL ? P.nb : null; let nn = NL ? NL.length : T.length / 3, Q = null;
+      if (NB && nn) {   /* m1: only the triangles whose bounding sphere can beat a known distance; they are then scanned in the original order, so the winner (and its normal) is the same */
+        const xs = P.xs, ox = P.ox, cand = P.cand, kx = Math.min(nn - 1, ctLo(xs, p.x)); let ub = 1e9, m = 0;
+        for (const q0 of [P.lastQ !== undefined && P.lastQ < nn ? P.lastQ : ox[kx], ox[kx]]) { const t0 = NL[q0]; _cA.fromArray(W, 3 * T[t0]); _cB.fromArray(W, 3 * T[t0 + 1]); _cC.fromArray(W, 3 * T[t0 + 2]); ub = Math.min(ub, ctClosest(p, _cA, _cB, _cC, tmp).distanceToSquared(p)); }
+        const R = Math.sqrt(ub) + P.rm;
+        for (let k = ctLo(xs, p.x - R); k < xs.length && xs[k] <= p.x + R; k++) { const q = ox[k], ex = p.x - NB[4 * q], ey = p.y - NB[4 * q + 1], ez = p.z - NB[4 * q + 2], lb = Math.sqrt(ex * ex + ey * ey + ez * ez) - NB[4 * q + 3]; if (lb > 0 && lb * lb > ub) continue; cand[m++] = q; }
+        Q = cand.subarray(0, m).sort(); nn = m; }
+      for (let k = 0; k < nn; k++) { const q = Q ? Q[k] : k, t = NL ? NL[q] : 3 * q; _cA.fromArray(W, 3 * T[t]); _cB.fromArray(W, 3 * T[t + 1]); _cC.fromArray(W, 3 * T[t + 2]);
+      ctClosest(p, _cA, _cB, _cC, tmp); const d = tmp.distanceToSquared(p); if (d < best) { best = d; bc.copy(tmp); if (NL) P.lastQ = q; const N = P.N, i0 = 3 * T[t], i1 = 3 * T[t + 1], i2 = 3 * T[t + 2]; fn.set(N[i0] + N[i1] + N[i2], N[i0 + 1] + N[i1 + 1] + N[i2 + 1], N[i0 + 2] + N[i1 + 2] + N[i2 + 2]); } } }
     const dir = V3().subVectors(p, bc); const d = Math.sqrt(best); fn.normalize();
     const sg = dir.dot(fn) >= 0 ? 1 : -1;   // side from the skinned vertex normals (triangle winding is not consistent on this mesh)
     return { d: sg * d, n: d > 1e-6 ? dir.multiplyScalar(sg / d) : fn }; }

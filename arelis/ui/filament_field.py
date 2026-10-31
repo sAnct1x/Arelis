@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import random
+import time
 from collections.abc import Callable
 from typing import Literal
 
@@ -467,6 +468,10 @@ def attach_on_rect(rect: QRect, from_pt: QPointF) -> QPointF:
     return QPointF(x, y)
 
 
+_PACE_SHARE = 3.0  # interval per ms of paint: about a third of the UI thread
+_PACE_MAX_MS = 100  # never slower than 10 Hz
+
+
 class FilamentField:
     """Sim + painter for the filament stream. Lives on ArelisWindow."""
 
@@ -474,6 +479,7 @@ class FilamentField:
         rng = random.Random(11)
         self.state: Weather = "idle"
         self.span = 1
+        self._paint_ms = 0.0
         self._desk_left = 0.0
         self._desk_w = 0.0
         self.form = 0.0
@@ -531,12 +537,25 @@ class FilamentField:
         self._load = str(name or "")
 
     def atmosphere_ms(self) -> int:
-        """Field timer. Camera + 3-span do not try for 30 Hz of 11 Mpx."""
+        """Field timer. Camera + 3-span do not try for 30 Hz of 11 Mpx.
+
+        Paced by what a paint really costs, too: the field paints on the UI
+        thread that also hands her frames to the screen, so a field that takes
+        20 ms a paint at 30 Hz held her at 8-38 fps. It keeps the field under
+        about a third of the thread. The sim steps by the real interval, so
+        the drift speed is the same, only sampled less often.
+        """
         if self._load == "camera":
-            return 50
-        if self.span >= 3:
-            return 40
-        return 33
+            base = 50
+        elif self.span >= 3:
+            base = 40
+        else:
+            base = 33
+        return int(min(_PACE_MAX_MS, max(base, self._paint_ms * _PACE_SHARE)))
+
+    def note_paint_ms(self, ms: float) -> None:
+        """Smoothed cost of one field paint, for the pacing above."""
+        self._paint_ms += (max(0.0, float(ms)) - self._paint_ms) * 0.2
 
     def strand_steps(self, w: float) -> int:
         """Segments per strand. Caps so a 7680 desk stays drawable."""
@@ -856,6 +875,11 @@ class FilamentField:
         return QRegion(rect)
 
     def paint(self, painter: QPainter, rect: QRect) -> None:
+        t0 = time.perf_counter()
+        self._paint(painter, rect)
+        self.note_paint_ms((time.perf_counter() - t0) * 1000.0)
+
+    def _paint(self, painter: QPainter, rect: QRect) -> None:
         w, h = rect.width(), rect.height()
         if w <= 0 or h <= 0:
             return

@@ -40,7 +40,15 @@ def sync_idle_mode(window) -> None:
         or (not window.world_window.isHidden())
     )
     filament = active_theme() == "filament"
-    window.readiness_strip.setVisible((not idle or instruments) and not filament)
+    # The strip sits above the stage. Showing it on send and hiding it on finish
+    # used to reflow the stage, so her band and canvas resized twice a turn
+    # (the blink). Outside Filament its height stays reserved while hidden.
+    strip = window.readiness_strip
+    policy = strip.sizePolicy()
+    if policy.retainSizeWhenHidden() == filament:
+        policy.setRetainSizeWhenHidden(not filament)
+        strip.setSizePolicy(policy)
+    strip.setVisible((not idle or instruments) and not filament)
     empty = getattr(window.chat, "empty", None)
     if empty is not None and hasattr(empty, "set_side_chrome"):
         empty.set_side_chrome(

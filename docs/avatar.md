@@ -83,7 +83,8 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] glb loaded ms=...` | The model finished loading, with the time it took. |
 | `[avatar] scene ready ms=...` | She is built and drawing. |
 | `[avatar] ready` | The app saw her ready and swapped out the glow. |
-| `[avatar] clip play name=...` | A gesture segment or a walk phase began. |
+| `[avatar] clip play name=...` | She took a pose (`thinking`, `speaking`, `done`, `listening`, `idle`; one line per change, so a turn reads thinking, speaking, done, idle), or a gesture segment or walk phase began. |
+| `[avatar] shader note unroll` | The D3D shader compiler unrolled a one-pass loop. Informational, not a fault. |
 | `[avatar] lipsync start` / `stop` | Speech began or ended. |
 | `[avatar] stop source=...` | Speech was stopped: `button`, `voice`, or another cause. |
 | `[avatar] theme name=... tint=...` | The room changed and she was retinted. |
