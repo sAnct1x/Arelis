@@ -189,6 +189,10 @@ class WebAvatar(QWidget):
             self._level = v
             self._call(f"setLevel({v:.3f})")
 
+    def refit(self) -> None:
+        """The layout settled: the page takes its size, refits her and draws a frame."""
+        self._call("refit()")
+
     def refresh_theme_icons(self) -> None:
         """Theme-change hook (settings_host): retint her to the new room."""
         from arelis.ui.persona_face.panel import alog

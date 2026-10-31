@@ -6,6 +6,7 @@ if (!window.avatar && window.aether) {
     setState: (s) => window.aether.setState(MODE[s] || 'idle'),
     setLevel: (v) => window.aether.setLevel(Math.max(0, Math.min(1, +v || 0))),
     setTint: (deg) => window.aether.setTint && window.aether.setTint(+deg || 0),
+    refit: () => window.aether.refit && window.aether.refit(),
   };
 }
 addEventListener('error', (e) => { window.__error = window.__error || String(e.message || e); });

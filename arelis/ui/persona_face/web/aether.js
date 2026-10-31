@@ -985,7 +985,7 @@ function onModel(gltf) {
     blink: [...new Set(face.visemes.flatMap((f) => f.blink.length ? ['Eye_Blink_L/R'] : []))] };
   if (!mixer) {   // anim: motion layer (breath, sway, gaze, blinks, expressions, states)
     animator = createAnimator(THREE, root, face, uAnim, { links });
-    window.avatar = animator.api;
+    window.avatar = animator.api; window.avatar.refit = () => window.aether.refit();   // m1: host refit after a layout settles
     animator.api.setTint = (deg) => window.aether.setTint(+deg || 0);   // v11: tint on the avatar API too
     window.aether.setState = (m) => animator.api.setState(m); window.aether.setLevel = (v) => animator.api.setLevel(v);
   }
@@ -1048,6 +1048,9 @@ function fitView() { renderer.getSize(_sz); if (_sz.x === innerWidth && _sz.y ==
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
   console.info('[avatar] canvas resize size=' + innerWidth + 'x' + innerHeight); }
 addEventListener('resize', fitView);
+// m1: the host calls refit() once a layout settles. The page takes its real size, the camera its aspect and
+// framing, and one frame is drawn now, so a view resized while frames were held never shows an empty canvas.
+window.aether.refit = () => { fitView(); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); fitFull(); if (window.__ready) composer.render(); };
 
 // Talking: level 0..1 drives a slow cycle through CC visemes (crossfaded). Blinking: random 2-6 s, ~150 ms.
 let visT = 0, visLvl = 0;

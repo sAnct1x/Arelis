@@ -211,6 +211,7 @@ class PersonaPanel(QWidget):
         self.web.show()
         self.web.raise_()
         self.loading.hide()
+        self.web.refit()
 
     def _on_web_failed(self, reason: str) -> None:
         self.web_avatar_reason = reason
@@ -288,6 +289,11 @@ class PersonaPanel(QWidget):
                 break
         self._place_due = False
         self._place()
+        # The view may have been resized while Chromium held frames back (a
+        # room switch): make the page fit and draw now, never an empty hub.
+        refit = getattr(self.web, "refit", None)
+        if callable(refit):
+            refit()
 
     def hideEvent(self, event) -> None:
         self._level_timer.stop()
