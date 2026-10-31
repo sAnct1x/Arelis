@@ -668,12 +668,32 @@ class FilamentDesk:
                 # (Babbage, 1100x800: over the hub and 36 px past the left edge).
                 dest = self._filament_clear_of_hub(dest)
             else:
-                dest = self._filament_clear_of_hub(QRect(origin, QSize(int(size[0]), int(size[1]))))
+                fresh = QRect(origin, QSize(int(size[0]), int(size[1])))
+                dest = self._filament_clear_of_hub(self._filament_fit_window(fresh))
             self._filament_spawn_tile(widget, name, dest)
             return
         widget.move(origin)
         widget.show()
         widget.raise_()
+
+    def _filament_fit_window(self, dest: QRect) -> QRect:
+        """A spot we pick stays inside the window, under the title bar.
+
+        At 1100x800 the title point sat low, so the chat tile hung past the
+        window bottom (or, with a tall saved size, over the title bar and off
+        the top) and read as clipped.
+        """
+        w = self.window
+        frame = QRect(w.mapToGlobal(QPoint(0, 0)), w.size())
+        bar = getattr(w, "title_bar", None)
+        top = frame.top() + (bar.height() if bar is not None and bar.isVisible() else 0)
+        fit = QRect(dest)
+        fit.setHeight(min(fit.height(), max(180, frame.bottom() - top + 1)))
+        if fit.bottom() > frame.bottom():
+            fit.moveBottom(frame.bottom())
+        if fit.top() < top:
+            fit.moveTop(top)
+        return fit
 
     def _filament_clear_of_hub(self, dest: QRect) -> QRect:
         """A tile we place never lands on her hub. A spot the user chose is theirs."""
