@@ -151,6 +151,24 @@ _OWED_TOOL_VERBS: dict[str, re.Pattern[str]] = {
     "memory": re.compile(r"\bremember\s+(?:that|this|it|the|my)\b"),
 }
 
+# "Analyze this: if a star's parallax is 0.01 arcsec ..." uses the verb, not
+# the tool. analyze reads a file, so with no file in the ask the word owes
+# nothing, and holding for it made the model call analyze with no path.
+_ANALYZE_REFERENT = re.compile(
+    r"\b(?:file|fits|data|table|sheet|column|rows?)\b"
+    r"|\w\.[a-z][a-z0-9]{1,4}\b"
+    r"|\b(?:use|call|run|with)\s+(?:the\s+)?analyze\b"
+    r"|\banalyze\s+tool\b"
+)
+
+
+def _analyze_has_referent(ctx: TurnContext, text: str) -> bool:
+    if getattr(ctx, "staged_files", ()):
+        return True
+    from arelis.core.intent_catalog import mentions_tabular_data
+
+    return mentions_tabular_data(text) or _ANALYZE_REFERENT.search(text) is not None
+
 
 def staged_file_rows(rows: Any) -> tuple[tuple[str, str], ...]:
     """(kind, name) for files staged this turn. Ignores anything else."""
@@ -214,6 +232,8 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
         if name in loop.tools_used:
             continue
         if picture and name == "image":
+            continue
+        if name == "analyze" and not _analyze_has_referent(ctx, text):
             continue
         spoken = name.replace("_", " ")
         pattern = _OWED_TOOL_VERBS.get(name)
