@@ -62,7 +62,7 @@ def return_to_idle(window) -> None:
     """Esc on an empty thread: close instruments and show Orbit."""
     if window.chat.has_messages:
         return
-    window.persona_dock.hide()
+    # She stays fully visible when idle (base-ui-plan); only instruments close.
     window.history_dock.hide()
     window.camera_dock.hide()
     window.calendar_window.hide()
@@ -119,7 +119,6 @@ def enter_away_rest(window) -> None:
         arm_away_rest_timer(window)
         return
     hidden = {
-        "thinking": not window.persona_dock.isHidden(),
         "history": not window.history_dock.isHidden(),
         "camera": not window.camera_dock.isHidden(),
         "calendar": not window.calendar_window.isHidden(),
@@ -130,7 +129,6 @@ def enter_away_rest(window) -> None:
         return
     window._away_hidden = hidden
     window._away_resting = True
-    window.persona_dock.hide()
     window.history_dock.hide()
     window.camera_dock.hide()
     window.calendar_window.hide()
@@ -164,8 +162,6 @@ def wake_from_away_rest(window) -> None:
     hidden = dict(window._away_hidden)
     window._away_resting = False
     window._away_hidden = {}
-    if hidden.get("thinking"):
-        window.persona_dock.show()
     if hidden.get("history"):
         window.history_dock.show()
         from arelis.ui.history_host import refresh_history
