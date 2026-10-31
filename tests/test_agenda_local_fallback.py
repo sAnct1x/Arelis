@@ -168,7 +168,6 @@ async def test_a_reply_cannot_say_added_when_every_create_failed() -> None:
     cfg["agent"]["chat_fast_path"] = False
     cfg["agent"]["confirm_writes"] = False
     cfg["agent"]["native_tool_calling"] = True
-    cfg["agent"]["agenda_force_call"] = False
     cfg["agent"]["json_fallback"] = False
     loop = AgentLoop(
         bus,

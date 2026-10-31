@@ -92,9 +92,6 @@ def _scratch(**overrides: Any) -> RoundScratch:
     base = dict(
         text="hello",
         agent_cfg={
-            "sms_force_call": True,
-            "email_force_call": True,
-            "agenda_force_call": True,
             "json_fallback": True,
         },
         available_all={"send_sms", "web_search", "scrape"},

@@ -48,7 +48,6 @@ def _loop(router: _ScriptedRouter, tool: _RecordingPython) -> tuple[EventBus, Ag
     cfg = _config()
     cfg["agent"]["chat_fast_path"] = False
     cfg["agent"]["max_rounds"] = 6
-    cfg["agent"]["intent_preflight"] = False
     loop = AgentLoop(
         bus,
         router,  # type: ignore[arg-type]

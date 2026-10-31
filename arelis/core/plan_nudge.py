@@ -226,7 +226,7 @@ _PLAN_COMPOSE_EMAIL = PlanSpec(
         "2) Allow still required, never skip the confirm card."
     ),
     steps=("send_email",),
-    skip_progress=True,  # email_force_call owns nudge/inject
+    skip_progress=True,  # email_force_call_notice owns nudge/inject
 )
 
 _PLAN_MULTI = PlanSpec(
@@ -375,7 +375,7 @@ _PLAN_AGENDA_CREATE = PlanSpec(
         "Allow required; do not give manual calendar-app steps only."
     ),
     steps=("agenda",),
-    skip_progress=True,  # agenda_force_call owns nudge/inject
+    skip_progress=True,  # agenda_force_call_notice owns nudge/inject
 )
 
 _PLAN_BROWSER_SEE = PlanSpec(
