@@ -26,3 +26,22 @@ def test_flags_merge_with_existing_ones_and_are_set_before_qt_starts() -> None:
 
     src = inspect.getsource(launch.run_ui)
     assert src.index("chromium_flags.apply()") < src.index("QApplication([])")
+
+
+def test_gpu_arm_adds_its_flag_and_unknown_falls_back() -> None:
+    from arelis.ui.persona_face import chromium_flags
+
+    expected = {
+        None: set(),
+        "default": set(),
+        "d3d11": {"--use-angle=d3d11"},
+        "gl": {"--use-angle=gl"},
+        "nocomp": {"--disable-gpu-compositing"},
+        "bogus": set(),
+    }
+    extra = {"--use-angle=d3d11", "--use-angle=gl", "--disable-gpu-compositing"}
+    for name, want in expected.items():
+        env = {} if name is None else {"ARELIS_GPU_ARM": name}
+        parts = set(chromium_flags.apply(env).split())
+        assert parts & extra == want, name
+        assert "--disable-renderer-backgrounding" in parts

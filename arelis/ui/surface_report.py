@@ -195,7 +195,12 @@ def graphics_lines(window: QWidget) -> list[str]:
     ]
     on = [n for n in _APP_ATTRS if QApplication.testAttribute(getattr(Qt.ApplicationAttribute, n))]
     out.append(f"graphics app_attrs={','.join(on) or '-'}")
-    out.append(f"graphics chromium_flags={os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '-')}")
+    from arelis.ui.persona_face import chromium_flags
+
+    out.append(
+        f"graphics chromium_flags={os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '-')} "
+        f"arm={chromium_flags.arm()}"
+    )
     handle = window.windowHandle()
     # The top-level's surface type is the API its backing store composites
     # her texture with (Direct3DSurface, OpenGLSurface, ...); Raster means none yet.
