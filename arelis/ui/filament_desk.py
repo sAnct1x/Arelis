@@ -888,9 +888,15 @@ class FilamentDesk:
         w._sync_view_checks()
         menu = QMenu(w)
         menu.setObjectName("FilamentMenu")
-        themes = menu.addMenu("themes")
+        from arelis.i18n import tr
+
+        themes = menu.addMenu(tr("themes"))
         for act in w._theme_actions.values():
             themes.addAction(act)
+        # The same actions as the View menu, which Filament has no bar for.
+        language = menu.addMenu(tr("Language"))
+        for act in w._lang_actions.values():
+            language.addAction(act)
         menu.addSeparator()
         settings = menu.addAction("settings")
         from arelis.ui.settings_host import open_settings

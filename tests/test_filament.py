@@ -145,3 +145,16 @@ def test_leaving_filament_times_each_step_of_the_relayout(arelis_window, qt_app,
     line = next(r.getMessage() for r in caplog.records if "theme to=night" in r.getMessage())
     steps = ("leave_hide", "leave_unlock", "leave_chrome", "leave_docks", "leave_geometry")
     assert all(f" {step}=" in line for step in steps), line
+
+
+def test_filament_menu_offers_the_language_actions(arelis_window) -> None:
+    """Filament has no View menu, so its own menu is the only way to switch language."""
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    window.show()
+    apply_window_theme(window, "filament", persist=False)
+    menu = window.filament._build_filament_menu()
+    subs = {a.menu().title(): a.menu() for a in menu.actions() if a.menu() is not None}
+    assert "Language" in subs
+    assert subs["Language"].actions() == list(window._lang_actions.values())
