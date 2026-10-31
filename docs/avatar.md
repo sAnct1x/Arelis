@@ -114,3 +114,17 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] webgl lost` / `restored` | The graphics context dropped or came back. |
 | `[avatar] failed reason=...` | The scene gave up; the glow stays. |
 | `[avatar] js ...` | Any other console message from the page, with file and line. |
+
+## Blank-frame A/B switches (diagnostics)
+
+These only matter when chasing blank frames, where she renders but some frames never reach
+the screen. Each is read once at start and shows in the `graphics chromium_flags=... arm=...
+qt_rhi=...` line of the startup surface report. Leaving them unset keeps normal behaviour.
+
+| Variable | Value | What it changes |
+|---|---|---|
+| `ARELIS_QT_RHI` | `opengl` | Qt shows her frames through OpenGL instead of Direct3D 11 (sets `QSG_RHI_BACKEND` and `QT_WIDGETS_RHI_BACKEND`). |
+| `ARELIS_GPU_ARM` | `novsync` | Direct3D 11 as usual, plus `--disable-gpu-vsync --disable-frame-rate-limit`. Logs as `arm=d3d11+novsync`. |
+| `ARELIS_GPU_ARM` | `none`, `d3d11`, `gl`, `nocomp` | Earlier arms, already measured on Atria. |
+| `ARELIS_AVATAR_BACKDROP` | `opaque` | Paints the room colour under her instead of a see-through page. |
+| `ARELIS_PRESERVE_BUFFER` | `off` | Her canvas without preserveDrawingBuffer. |

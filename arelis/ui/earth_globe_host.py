@@ -650,6 +650,9 @@ class EarthGlobeHost(QWidget):
         env["ARELIS_SOLAR_GL"] = "0"
         env.pop("QTWEBENGINE_CHROMIUM_FLAGS", None)
         env.pop("QT_OPENGL", None)
+        if env.pop("ARELIS_QT_RHI", None):  # the avatar RHI A/B is for this process only
+            env.pop("QSG_RHI_BACKEND", None)
+            env.pop("QT_WIDGETS_RHI_BACKEND", None)
         if sys.platform == "win32":
             env["QT_QPA_PLATFORM"] = "windows"
             env["ARELIS_ALLOW_OFFSCREEN"] = "1"

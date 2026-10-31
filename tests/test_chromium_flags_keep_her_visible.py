@@ -50,3 +50,27 @@ def test_gpu_arm_defaults_to_d3d11_and_none_adds_nothing() -> None:
     pinned = {"QTWEBENGINE_CHROMIUM_FLAGS": "--use-angle=gl"}
     assert set(chromium_flags.apply(pinned).split()) & extra == {"--use-angle=gl"}
     assert chromium_flags.effective_arm(pinned) == "gl"
+
+
+def test_qt_rhi_arm_pins_both_backends_before_qt_starts() -> None:
+    from arelis.ui import launch
+    from arelis.ui.persona_face import chromium_flags
+
+    env = {"ARELIS_QT_RHI": "OpenGL"}
+    assert chromium_flags.apply_rhi(env) == "opengl"
+    assert env["QSG_RHI_BACKEND"] == env["QT_WIDGETS_RHI_BACKEND"] == "opengl"
+    assert chromium_flags.rhi_arm(env) == "opengl"
+    for raw in ({}, {"ARELIS_QT_RHI": "bogus"}):
+        assert chromium_flags.apply_rhi(raw) == "default"
+        assert "QSG_RHI_BACKEND" not in raw
+    src = inspect.getsource(launch.run_ui)
+    assert src.index("chromium_flags.apply_rhi()") < src.index("QApplication([])")
+
+
+def test_novsync_arm_keeps_d3d11_and_drops_the_frame_cap() -> None:
+    from arelis.ui.persona_face import chromium_flags
+
+    env = {"ARELIS_GPU_ARM": "novsync"}
+    parts = set(chromium_flags.apply(env).split())
+    assert {"--use-angle=d3d11", "--disable-gpu-vsync", "--disable-frame-rate-limit"} <= parts
+    assert chromium_flags.effective_arm(env) == "d3d11+novsync"

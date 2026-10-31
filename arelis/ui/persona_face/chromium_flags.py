@@ -33,7 +33,42 @@ ARMS: dict[str, tuple[str, ...]] = {
     "d3d11": D3D11,
     "gl": ("--use-angle=gl",),
     "nocomp": ("--disable-gpu-compositing",),
+    # m1-blank3: d3d11 plus no vsync / frame-rate cap. Tests whether the blank
+    # is a present-timing race between Chromium's frame swap and Qt's flush.
+    "novsync": (*D3D11, "--disable-gpu-vsync", "--disable-frame-rate-limit"),
 }
+NOVSYNC = ("--disable-gpu-vsync", "--disable-frame-rate-limit")
+
+# m1-blank3 A/B: the Qt side that imports her frames. Since Qt 6.5.1 Chromium
+# renders into shared DXGI buffers and Qt's D3D11 RHI samples them (Qt blog,
+# "New graphics integration in Qt WebEngine 6.6 and even 6.5.1"). opengl moves
+# the consumer to Qt's OpenGL RHI (WGL_NV_DX_interop2 import, a different
+# sync path). Unset leaves Qt's default. Read before QApplication exists.
+RHI_VAR = "ARELIS_QT_RHI"
+RHI_KNOWN = ("opengl", "d3d11", "d3d12")
+RHI_ENV = ("QSG_RHI_BACKEND", "QT_WIDGETS_RHI_BACKEND")
+
+
+def apply_rhi(env: MutableMapping[str, str] | None = None) -> str:
+    """Pin Qt Quick and the widget backing store to ARELIS_QT_RHI; return it or 'default'."""
+    target = os.environ if env is None else env
+    name = str(target.get(RHI_VAR) or "").strip().lower()
+    if not name:
+        return "default"
+    if name not in RHI_KNOWN:
+        log.warning(
+            "%s=%s unknown, leaving Qt default (known: %s)", RHI_VAR, name, ", ".join(RHI_KNOWN)
+        )
+        return "default"
+    for var in RHI_ENV:
+        target[var] = name
+    return name
+
+
+def rhi_arm(env: MutableMapping[str, str] | None = None) -> str:
+    target = os.environ if env is None else env
+    name = str(target.get(RHI_VAR) or "").strip().lower()
+    return name if name in RHI_KNOWN else "default"
 
 
 def arm(env: MutableMapping[str, str] | None = None) -> str:
@@ -51,8 +86,9 @@ def effective_arm(env: MutableMapping[str, str] | None = None) -> str:
     target = os.environ if env is None else env
     parts = str(target.get(VAR) or "").split()
     angle = [p.split("=", 1)[1] for p in parts if p.startswith("--use-angle=")]
+    tail = "+novsync" if all(f in parts for f in NOVSYNC) else ""
     if angle:
-        return angle[-1]
+        return angle[-1] + tail
     return "nocomp" if "--disable-gpu-compositing" in parts else "none"
 
 
