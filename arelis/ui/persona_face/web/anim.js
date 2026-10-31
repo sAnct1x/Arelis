@@ -242,9 +242,7 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
     for (let q = 0; q < nl.length; q++) { const t = nl[q], a = 3 * T[t], b = 3 * T[t + 1], e = 3 * T[t + 2]; const cx = (W[a] + W[b] + W[e]) / 3, cy = (W[a + 1] + W[b + 1] + W[e + 1]) / 3, cz = (W[a + 2] + W[b + 2] + W[e + 2]) / 3;
       let rr = 0; for (const k of [a, b, e]) { const ex = W[k] - cx, ey = W[k + 1] - cy, ez = W[k + 2] - cz; rr = Math.max(rr, ex * ex + ey * ey + ez * ez); }
       B[4 * q] = cx; B[4 * q + 1] = cy; B[4 * q + 2] = cz; B[4 * q + 3] = Math.sqrt(rr) + 1e-6; }
-    let rm = 0; const ox = new Int32Array(nl.length); for (let q = 0; q < nl.length; q++) { ox[q] = q; rm = Math.max(rm, B[4 * q + 3]); }
-    ox.sort((u, w) => B[4 * u] - B[4 * w]); const xs = new Float64Array(nl.length); for (let k = 0; k < nl.length; k++) xs[k] = B[4 * ox[k]];
-    P.ox = ox; P.xs = xs; P.rm = rm; P.cand = P.cand && P.cand.length >= nl.length ? P.cand : new Int32Array(nl.length + 64); } }
+  } }
   const HV = { L: null, R: null }; const HGR = /_(Hand|Thumb|Index|Mid|Ring|Pinky)\d?$/;
   function hvGet(s) { if (HV[s]) return HV[s]; const H = { Palm: [], Thumb: [], Index: [], Mid: [], Ring: [], Pinky: [] }; const cnt = {};
     root.traverse((m) => { if (!(m.isSkinnedMesh && /Body/i.test(m.name))) return; const g = m.geometry, si = g.attributes.skinIndex, sw = g.attributes.skinWeight, bn = m.skeleton.bones;
@@ -253,17 +251,18 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
         if (cnt[key] % (key === 'Palm' ? 4 : 3) === 0) H[key].push({ m, i }); } });
     return (HV[s] = H); }
   const _hv = V3(); function hvPos(it) { const v = V3().fromBufferAttribute(it.m.geometry.attributes.position, it.i); it.m.applyBoneTransform(it.i, v); return v.applyMatrix4(it.m.matrixWorld); }
-  const ctLo = (xs, x) => { let lo = 0, hi = xs.length; while (lo < hi) { const m = (lo + hi) >> 1; if (xs[m] < x) lo = m + 1; else hi = m; } return lo; };
-  function ctSD(C, p) { let best = 1e9; const bc = V3(), fn = V3(), tmp = V3();
-    for (const P of C.parts) { const W = P.W, T = P.tri, NL = P.near, NB = NL ? P.nb : null; let nn = NL ? NL.length : T.length / 3, Q = null;
-      if (NB && nn) {   /* m1: only the triangles whose bounding sphere can beat a known distance; they are then scanned in the original order, so the winner (and its normal) is the same */
-        const xs = P.xs, ox = P.ox, cand = P.cand, kx = Math.min(nn - 1, ctLo(xs, p.x)); let ub = 1e9, m = 0;
-        for (const q0 of [P.lastQ !== undefined && P.lastQ < nn ? P.lastQ : ox[kx], ox[kx]]) { const t0 = NL[q0]; _cA.fromArray(W, 3 * T[t0]); _cB.fromArray(W, 3 * T[t0 + 1]); _cC.fromArray(W, 3 * T[t0 + 2]); ub = Math.min(ub, ctClosest(p, _cA, _cB, _cC, tmp).distanceToSquared(p)); }
-        const R = Math.sqrt(ub) + P.rm;
-        for (let k = ctLo(xs, p.x - R); k < xs.length && xs[k] <= p.x + R; k++) { const q = ox[k], ex = p.x - NB[4 * q], ey = p.y - NB[4 * q + 1], ez = p.z - NB[4 * q + 2], lb = Math.sqrt(ex * ex + ey * ey + ez * ez) - NB[4 * q + 3]; if (lb > 0 && lb * lb > ub) continue; cand[m++] = q; }
-        Q = cand.subarray(0, m).sort(); nn = m; }
-      for (let k = 0; k < nn; k++) { const q = Q ? Q[k] : k, t = NL ? NL[q] : 3 * q; _cA.fromArray(W, 3 * T[t]); _cB.fromArray(W, 3 * T[t + 1]); _cC.fromArray(W, 3 * T[t + 2]);
-      ctClosest(p, _cA, _cB, _cC, tmp); const d = tmp.distanceToSquared(p); if (d < best) { best = d; bc.copy(tmp); if (NL) P.lastQ = q; const N = P.N, i0 = 3 * T[t], i1 = 3 * T[t + 1], i2 = 3 * T[t + 2]; fn.set(N[i0] + N[i1] + N[i2], N[i0 + 1] + N[i1 + 1] + N[i2 + 1], N[i0 + 2] + N[i1 + 2] + N[i2 + 2]); } } }
+  const _cBC2 = V3();
+  function ctSD(C, p, hk) { let best = 1e9, bq = -1, bP = null; const tmp = _cBC2, px = p.x, py = p.y, pz = p.z;
+    for (let pi = 0; pi < C.parts.length; pi++) { const P = C.parts[pi], W = P.W, T = P.tri, NL = P.near, NB = NL ? P.nb : null, nn = NL ? NL.length : T.length / 3;
+      /* m1b: hand samples sit about 5 cm off the skin and the finger flex search asks about 14-40k of them a frame, so each query must be cheap. */
+      /* A triangle is tried only if its bounding sphere can beat the best so far (seeded from this sample's last winner). The scan keeps the original order, so the winner and its normal are unchanged. */
+      let su = Math.sqrt(best); const hq = NB && hk && hk.q ? hk.q[pi] : undefined;
+      if (hq !== undefined && hq < nn) { const t0 = NL[hq]; _cA.fromArray(W, 3 * T[t0]); _cB.fromArray(W, 3 * T[t0 + 1]); _cC.fromArray(W, 3 * T[t0 + 2]); su = Math.min(su, Math.sqrt(ctClosest(p, _cA, _cB, _cC, tmp).distanceToSquared(p))); }
+      for (let q = 0; q < nn; q++) { if (NB) { const ex = px - NB[4 * q], ey = py - NB[4 * q + 1], ez = pz - NB[4 * q + 2], rq = NB[4 * q + 3] + su; if (ex * ex + ey * ey + ez * ez > rq * rq) continue; }
+        const t = NL ? NL[q] : 3 * q; _cA.fromArray(W, 3 * T[t]); _cB.fromArray(W, 3 * T[t + 1]); _cC.fromArray(W, 3 * T[t + 2]);
+        const d = ctClosest(p, _cA, _cB, _cC, tmp).distanceToSquared(p); if (d < best) { best = d; bq = t; bP = P; if (NL && hk) (hk.q || (hk.q = []))[pi] = q; if (NB) su = Math.min(su, Math.sqrt(d)); } } }
+    const bc = V3(), fn = V3();
+    if (bP) { const W = bP.W, T = bP.tri, N = bP.N, i0 = 3 * T[bq], i1 = 3 * T[bq + 1], i2 = 3 * T[bq + 2]; _cA.fromArray(W, i0); _cB.fromArray(W, i1); _cC.fromArray(W, i2); ctClosest(p, _cA, _cB, _cC, bc); fn.set(N[i0] + N[i1] + N[i2], N[i0 + 1] + N[i1 + 1] + N[i2 + 1], N[i0 + 2] + N[i1 + 2] + N[i2 + 2]); }
     const dir = V3().subVectors(p, bc); const d = Math.sqrt(best); fn.normalize();
     const sg = dir.dot(fn) >= 0 ? 1 : -1;   // side from the skinned vertex normals (triangle winding is not consistent on this mesh)
     return { d: sg * d, n: d > 1e-6 ? dir.multiplyScalar(sg / d) : fn }; }
@@ -743,7 +742,7 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
       { const c0 = pal(); if (!CT[s] || CT[s].c0.distanceTo(c0) > 0.04) { CT[s] = ctBuild(c0); CT[s].c0 = c0; } }
       const C = CT[s]; C.w = wA; ctSkin(C); ctNear(C, pal(), 0.09); const kp = Math.min(1, Math.max(0, (wA - 0.85) / 0.15));
       const H = hvGet(s); const TG = 0.002;
-      const deep = (g) => { let best = null; for (const it of H[g]) { const v = hvPos(it); const r = ctSD(C, v); if (!best || r.d < best.d) best = { d: r.d, n: r.n, p: v }; } return best; };
+      const deep = (g) => { let best = null; for (const it of H[g]) { const v = hvPos(it); const r = ctSD(C, v, it); if (!best || r.d < best.d) best = { d: r.d, n: r.n, p: v }; } return best; };
       const move = (r, tgt, bones, k) => { if (!r) return; const e = Math.max(-0.015, Math.min(0.003, (r.d - tgt) * (r.d < tgt ? 1 : k)));   /* v13e: pulls capped at 3 mm (the fitted pose does the placing), pushes up to 15 mm */ if (Math.abs(e) < 1e-4) return; let p = r.p; const goal = p.clone().addScaledVector(r.n, -e);
         for (const bb of bones) { const bp = wpos(bb), a = p.clone().sub(bp), g = goal.clone().sub(bp); if (a.lengthSq() < 1e-8) continue;
           const dq = Q().setFromUnitVectors(a.normalize(), g.normalize()); const pw = wq(bb.parent); bb.quaternion.copy(pw.clone().invert().multiply(dq).multiply(pw).multiply(bb.quaternion)); bb.updateMatrixWorld(true); p = goal; } };

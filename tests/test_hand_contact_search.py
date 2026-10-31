@@ -36,7 +36,12 @@ let same = 0, calls = 0; const Q = 300;
 for (let k = 0; k < Q; k++) { const p = new THREE.Vector3(r() * 0.12 - 0.06, r() * 0.12 - 0.06, 0.004 + r() * 0.006);
   const before = __cc; const a = ctSD(C, p); calls += __cc - before; const b = brute(p);
   if (a.d === b.d && a.n.x === b.n.x && a.n.y === b.n.y && a.n.z === b.n.z) same++; }
-console.log(JSON.stringify({ same, Q, perQuery: calls / Q, n }));
+let same2 = 0, calls2 = 0, Q2 = 0;
+for (let k = 0; k < 30; k++) { const hk = {}, p0 = new THREE.Vector3(r() * 0.12 - 0.06, r() * 0.12 - 0.06, 0.04 + r() * 0.02);
+  for (let j = 0; j < 24; j++) { const p = p0.clone().add(new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).multiplyScalar(0.004));
+    const before = __cc; const a = ctSD(C, p, hk); calls2 += __cc - before; Q2++; const b = brute(p);
+    if (a.d === b.d && a.n.x === b.n.x && a.n.y === b.n.y && a.n.z === b.n.z) same2++; } }
+console.log(JSON.stringify({ same, Q, perQuery: calls / Q, n, same2, Q2, perQuery2: calls2 / Q2 }));
 """
 
 
@@ -61,3 +66,17 @@ def test_contact_distance_prunes_triangles_and_keeps_the_answer(tmp_path) -> Non
     res = json.loads(out.stdout.strip().splitlines()[-1])
     assert res["same"] == res["Q"]
     assert res["perQuery"] < res["n"] / 4
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_finger_flex_queries_off_the_skin_stay_cheap(tmp_path) -> None:
+    """The finger flex search asks about the same sample about 24 times a frame, about 5 cm off the skin."""
+    three = (WEB / "vendor" / "three" / "three.module.min.js").as_uri()
+    script = tmp_path / "contact.mjs"
+    script.write_text(HARNESS % {"three": three, "code": _contact_code()}, encoding="utf-8")
+    out = subprocess.run(
+        ["node", str(script)], capture_output=True, text=True, timeout=60, check=True
+    )
+    res = json.loads(out.stdout.strip().splitlines()[-1])
+    assert res["same2"] == res["Q2"]
+    assert res["perQuery2"] < 10
