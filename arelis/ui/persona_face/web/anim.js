@@ -24,7 +24,7 @@ const KEYS = Object.keys(P.idle);
 
 export function createAnimator(THREE, root, face, uAnim, opts = {}) {
   /* vr4: own seeded RNG for the choreography (?aseed=, test renders only), so particle sampling changes no longer reshuffle her idle poses */
-  let aseed = null;
+  const QS = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null; let aseed = QS && QS.has('aseed') ? (+QS.get('aseed') >>> 0) : null;
   const rnd = () => aseed === null ? Math.random() : ((aseed = (aseed * 1664525 + 1013904223) >>> 0) / 4294967296);
   root.updateMatrixWorld(true);
   const bone = (n) => root.getObjectByName(n);
@@ -106,6 +106,7 @@ export function createAnimator(THREE, root, face, uAnim, opts = {}) {
   const fol = { x: 0, y: 0 }, arm = { pw: 0, pa: 0, L: { x: 0, v: 0 }, R: { x: 0, v: 0 } };
   const fc = { L: { t: -1, next: 6 + rnd() * 8, amp: 0.1, dir: 1 }, R: { t: -1, next: 10 + rnd() * 8, amp: 0.1, dir: 1 } };   // v10: rare relaxed flex
   const wst = { L: { t: 4 + rnd() * 6, x: 0, z: 0, gx: 0, gz: 0, vx: 0, vz: 0 }, R: { t: 7 + rnd() * 6, x: 0, z: 0, gx: 0, gz: 0, vx: 0, vz: 0 } };   // v10: occasional wrist settle
+  let FFB = null;   // v15: finger output filter state
   const MF = { L: [0, 0, 0, 0, 0], R: [0, 0, 0, 0, 0] };   // v10: Mixamo finger track (per-finger curl deltas + thumb)
   // ---- gaze ----
   const gz = { tx: 0, ty: 0, ex: 0, ey: 0, sx: 0, sy: 0, st: 1, dur: 0.05, next: 0.6, hx: 0, hy: 0, hvx: 0, hvy: 0, mx: 0, my: 0, mnext: 0.3 };
@@ -169,7 +170,7 @@ export function createAnimator(THREE, root, face, uAnim, opts = {}) {
   };
   const GKEYS = ['lowFwd', 'lowOpen', 'midFwd'];
   // v8: continuous gesture track: real time segments of CMU 18_08 (arms per-frame retargeted + fitted, spine/head high-passed rotations), 30 fps
-  let TRK = null; try { fetch(new URL('./gesture-track-mix.json', import.meta.url)).then((r) => r.json()).then((j) => { TRK = j; api.trackReady = true; }).catch(() => {}); } catch (e) {}
+  let TRK = null; try { fetch(new URL(new URLSearchParams(location.search).get('track') === 'cmu' ? './gesture-track.json' : './gesture-track-mix.json', import.meta.url)).then((r) => r.json()).then((j) => { TRK = j; api.trackReady = true; }).catch(() => {}); } catch (e) {}
 const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vector3(), _eQ1 = new THREE.Quaternion(), _eQ2 = new THREE.Quaternion(), _eQ3 = new THREE.Quaternion();   // v13 end-on wrist
   const mo = { slots: [], last: -1, wasOn: false };
   let mseed = 9173; const mrnd = () => ((mseed = (mseed * 1664525 + 1013904223) >>> 0) / 4294967296);   // v8b: own RNG so the face timeline matches v7
@@ -177,9 +178,9 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
   const HDK = 0.02;   // v8b: mocap head damped (was 0.4)   // v8b: mocap head damped (was 0.4)
   const K9N = ['ux', 'uy', 'uz', 'fx', 'fy', 'fz', 'hx', 'hy', 'hz'];
   const MQ = { L: {}, R: {} }, MSP = [0, 0, 0], MHD = [0, 0, 0];
-  const moStart = (t0) => { let i, m; do { i = Math.floor(mrnd() * TRK.segs.length); m = mrnd() < 0.5; } while (i + (m ? 'm' : '') === mo.last); mo.last = i + (m ? 'm' : '');   // v8b: random span + mirror, never the same pair twice in a row
+  const moStart = (t0) => { let i, m; do { i = Math.floor(mrnd() * TRK.segs.length); m = mrnd() < 0.5; } while (i === mo.lastI && TRK.segs.length > 1); mo.lastI = i; mo.last = i + (m ? 'm' : '');   /* v15: never the same segment twice in a row (Agreeing chained into itself) */   // v8b: random span + mirror, never the same pair twice in a row
     const len = TRK.segs[i].n / TRK.fps; for (const sl of mo.slots) sl.tg = 0;
-    mo.slots.push({ i, m, t: (t0 ?? 0) + mrnd() * Math.max(0, len - 2.2 - (t0 ?? 0)), w: 0, v: 0, tg: 1 }); };
+    mo.slots.push({ i, m, t: Math.min(t0 ?? 0, Math.max(0, len - 2.6)) + mrnd() * Math.max(0, len - 2.2 - (t0 ?? 0)), w: 0, v: 0, tg: 1 }); };   /* v15: short segments (Agreeing, 1.9 s) start at their head */
   const moSample = (sl, key, j) => { if (sl.m) { if (key === 'L' || key === 'R') key = key === 'L' ? 'R' : 'L'; else if (j > 0) return -moSample({ ...sl, m: false }, key, j); } const S = TRK.segs[sl.i], f = Math.min(S.n - 1.001, sl.t * TRK.fps), i0 = Math.floor(f), u = f - i0; return S[key][i0][j] * (1 - u) + S[key][i0 + 1][j] * u; };
   const pulse = (x, a, r) => x < 0 ? 0 : x < a ? ease(x / a) : Math.exp(-(x - a) / r);   // attack then exp release
 
@@ -261,7 +262,7 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
   const WS_MOCAP = [-0.032, -0.047, -0.062, -0.057, -0.061, -0.061, -0.031, 0.021, 0.114, 0.245, 0.402, 0.561, 0.712, 0.822, 0.877, 0.874, 0.81, 0.688, 0.538, 0.378, 0.215, 0.074, -0.019, -0.076, -0.108, -0.121, -0.126, -0.129, -0.118, -0.093, -0.039, 0.044, 0.143, 0.244, 0.357, 0.483, 0.599, 0.694, 0.765, 0.805, 0.806, 0.783, 0.731, 0.624, 0.457, 0.233, -0.028, -0.293, -0.474, -0.489, -0.365, -0.149, 0.18, 0.523, 0.753, 0.835, 0.763, 0.522, 0.185, -0.171, -0.467, -0.661, -0.746, -0.745, -0.677, -0.563, -0.407, -0.251, -0.137, -0.058, 0.008, 0.054, 0.096, 0.145, 0.181, 0.185, 0.159, 0.111, 0.051, 0.0, -0.032, -0.053, -0.075, -0.104, -0.142, -0.189, -0.229, -0.238, -0.195, -0.103, 0.037, 0.208, 0.364, 0.481, 0.554, 0.575, 0.555, 0.507, 0.404, 0.218, -0.017, -0.273, -0.489, -0.59, -0.565, -0.495, -0.434, -0.415, -0.489, -0.618, -0.74, -0.815, -0.842, -0.809, -0.749, -0.659, -0.555, -0.457, -0.372, -0.314, -0.293, -0.307, -0.337, -0.374, -0.391, -0.377, -0.338, -0.298, -0.258, -0.227, -0.201, -0.184, -0.181, -0.172, -0.175, -0.187, -0.212, -0.24, -0.278, -0.306, -0.339, -0.362, -0.377, -0.38, -0.373, -0.333, -0.253, -0.11, 0.073, 0.254, 0.381, 0.422, 0.33, 0.111, -0.158, -0.424, -0.64, -0.768, -0.787, -0.731, -0.609, -0.478, -0.356, -0.233, -0.079, 0.105, 0.314, 0.528, 0.71, 0.815, 0.824, 0.771, 0.698, 0.606, 0.511, 0.426, 0.355, 0.289, 0.248, 0.248, 0.268, 0.31, 0.361, 0.413, 0.444, 0.473, 0.491, 0.514, 0.542, 0.569, 0.605, 0.641, 0.665, 0.668, 0.641, 0.567, 0.459, 0.337, 0.243, 0.221, 0.234, 0.195, 0.074, -0.104, -0.319, -0.556, -0.734, -0.843, -0.896, -0.905, -0.807, -0.59, -0.262, 0.119, 0.478, 0.743, 0.878, 0.908, 0.819, 0.657, 0.446, 0.228, -0.009, -0.224, -0.387, -0.494, -0.555, -0.561, -0.52, -0.475, -0.424, -0.364, -0.294, -0.209, -0.106, 0.004, 0.094, 0.153, 0.181, 0.178, 0.132, -0.015, -0.243, -0.508, -0.772, -0.974, -1.0, -0.848, -0.575, -0.252, 0.07, 0.328, 0.485, 0.519, 0.455, 0.324, 0.145, -0.04, -0.198, -0.307, -0.37, -0.371, -0.328, -0.242, -0.16];   // 10 Hz, normalised to +-1 (+ = weight on her left leg)
   const wsOff = rnd() * 20;
   const WS_MIX = [0.580, 0.573, 0.602, 0.609, 0.618, 0.636, 0.648, 0.663, 0.684, 0.706, 0.732, 0.735, 0.729, 0.724, 0.704, 0.706, 0.708, 0.716, 0.725, 0.689, 0.634, 0.597, 0.565, 0.552, 0.547, 0.547, 0.537, 0.521, 0.502, 0.508, 0.558, 0.601, 0.619, 0.577, 0.438, 0.274, 0.093, -0.074, -0.197, -0.289, -0.276, -0.179, 0.015, 0.151, 0.174, 0.058, -0.131, -0.328, -0.516, -0.648, -0.665, -0.662, -0.666, -0.678, -0.693, -0.712, -0.716, -0.724, -0.750, -0.775, -0.808, -0.831, -0.852, -0.861, -0.846, -0.815, -0.781, -0.756, -0.740, -0.738, -0.723, -0.718, -0.715, -0.717, -0.679, -0.622, -0.594, -0.616, -0.642, -0.679, -0.713, -0.735, -0.734, -0.719, -0.699, -0.682, -0.674, -0.682, -0.678, -0.664, -0.655, -0.620, -0.640, -0.660, -0.652, -0.648, -0.672, -0.722, -0.776, -0.774, -0.716, -0.597, -0.478, -0.420, -0.415, -0.496, -0.652, -0.894, -1.061, -1.046, -0.885, -0.629, -0.343, -0.044, 0.209, 0.335, 0.344, 0.362, 0.393, 0.412, 0.423, 0.409, 0.388, 0.402, 0.434, 0.479, 0.490, 0.514, 0.531, 0.533, 0.531, 0.499, 0.469, 0.478, 0.472, 0.476, 0.461, 0.454, 0.449, 0.443, 0.415, 0.386, 0.369, 0.347, 0.347, 0.368, 0.386, 0.422, 0.458, 0.493, 0.509, 0.494, 0.506, 0.516, 0.522, 0.536, 0.558, 0.583, 0.584, 0.568, 0.543, 0.505, 0.500, 0.502, 0.512, 0.540, 0.575];   // v9: Mixamo 'Idle' hips lateral offset over the feet, 10 Hz, scaled to the CMU range
-  const WSA = WS_MOCAP;
+  const WSA = new URLSearchParams(location.search).get('ws') === 'mix' ? WS_MIX : WS_MOCAP;
   const wsMocap = (t) => { const n = WSA.length - 1, u = ((t + wsOff) * 10) % (2 * n), x = u <= n ? u : 2 * n - u, i = Math.min(n - 1, Math.floor(x)), f = x - i; return WSA[i] * (1 - f) + WSA[i + 1] * f; };
   const ip = { name: null, last: null, side: 'L', next: 1 + rnd() * 1.5, hold: 0, L: { ...ZP }, R: { ...ZP }, vL: { ...ZP }, vR: { ...ZP } };
   const reseedIdle = (n) => { aseed = n >>> 0; ip.name = null; ip.last = null; ip.next = 1 + rnd() * 1.5; ip.hold = 0; };   // vr4: test hook (seed search)
@@ -277,7 +278,7 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
   let T = 0;
   // ---- v10 walk layer (merged from anim-walk.js, approved walk v2). setState('walk') / api.setWalk(true) blends idle -> walk; any other state blends back.
   // The baked track (walk-track.json) drives the body bones; the face, look, fingers and hands' finger motion stay from this animator.
-  let WTRK = null, WTR = null, wT = 0, sT = 0, wph = 0, wk = 0, walkOn = false;   // wph: 0 idle, 1 start clip, 2 walk cycle, 3 stop clip, 4 settle to idle
+  let WTRK = null, WTR = null, wT = 0, sT = 0, wph = 0, wk = 0, walkOn = false;  let wkA = 0;   // v15: slower walk-in weight for the arms (hands leave the hip over 0.75 s, not 0.3 s)   // wph: 0 idle, 1 start clip, 2 walk cycle, 3 stop clip, 4 settle to idle
   const WB = {}, GL = V3(), GW = V3(), hipB0 = hipP0 ? hipP0.clone() : null;
   const HEAD0 = R.Head ? wpos(R.Head.b) : V3(), HIP0 = hip ? wpos(hip.b) : V3(), wqa = Q(), wqb = Q();
   try { fetch(new URL('./walk-track.json', import.meta.url)).then((r) => r.json()).then((j) => { WTRK = j; for (const n of j.bones) { const b = bone('CC_Base_' + n); if (b) WB[n] = b; } api.walkReady = true; }).catch(() => {}); } catch (e) {}
@@ -341,11 +342,11 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
       if (ph.on && !mo.wasOn && !mo.slots.some((sl) => sl.tg > 0 && sl.w > 0.3)) moStart();
       mo.wasOn = ph.on;
       const cur = mo.slots[mo.slots.length - 1];
-      if (cur && cur.tg > 0 && cur.t > TRK.segs[cur.i].n / TRK.fps - 0.7) moStart(0.2 + mrnd() * 1.5);
+      if (cur && cur.tg > 0 && cur.t > TRK.segs[cur.i].n / TRK.fps - 1.3) moStart(0.2 + mrnd() * 1.5);   /* v15: hand over earlier, so the old segment is still moving while it fades */
       if (api.forceTrack) { mo.slots = [{ i: api.forceTrack.seg, t: api.forceTrack.t, w: 1, v: 0, tg: 1 }]; }
       for (const sl of mo.slots) { const g = (sl === mo.slots[mo.slots.length - 1] ? sl.tg : 0) * (api.forceTrack ? 1 : want), om = 3.2, h = Math.min(dt, 0.05);
         if (api.forceTrack) { sl.w = 1; sl.v = 0; } else { sl.v += (-2 * om * sl.v - om * om * (sl.w - g)) * h; sl.w = Math.max(0, Math.min(1, sl.w + sl.v * h)); }
-        if (!api.forceTrack) sl.t = Math.min(sl.t + dt, TRK.segs[sl.i].n / TRK.fps - 0.04); }
+        if (!api.forceTrack) { const rem = TRK.segs[sl.i].n / TRK.fps - 0.04 - sl.t; const rr = TRK.segs[sl.i].rate || 1; sl.t += rem > 0.5 ? dt * rr : Math.max(0, rem) * (1 - Math.exp(-dt * rr / 0.5)); }   /* v15: per-segment playback rate (Talking 0.8) */ }   /* v15: decelerate into the segment end (was a hard stop mid-crossfade: jerk at speaking f581) */
       mo.slots = mo.slots.filter((sl, k) => k === mo.slots.length - 1 || sl.w > 0.002);
       for (const s2 of ['L', 'R']) for (let j = 0; j < 9; j++) MQ[s2][K9N[j]] = mo.slots.reduce((a2, sl) => a2 + sl.w * moSample(sl, s2, j), 0);
       for (const s2 of ['L', 'R']) for (let j = 0; j < 5; j++) MF[s2][j] = TRK.segs[0][s2][0].length > 9 ? mo.slots.reduce((a2, sl) => a2 + sl.w * moSample(sl, s2, 9 + j), 0) : 0;
@@ -433,7 +434,7 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
       if (api.poseRaw) tgt = api.poseRaw[s] || ZP;   // test hook (tuning)
       const cA5 = Math.min(1, Math.max(0, (calmA - 0.45) / 0.25));   // v13b: full pose once calm (calmA sits ~0.7-0.8 in idle; scaling by it left the hand 25% short of the hip)
       const X = ip[s], Vv = ip['v' + s], om5 = api.forcePose !== undefined || api.poseRaw ? 30 : 3.2;
-      for (const k2 of PKEYS) { const g2 = (tgt[k2] || 0) * (ip.k || 1) * cA5; if (om5 > 10) { X[k2] = g2; Vv[k2] = 0; continue; } const h2 = Math.min(dt, 0.05); Vv[k2] += (-2 * om5 * Vv[k2] - om5 * om5 * (X[k2] - g2)) * h2; X[k2] += Vv[k2] * h2; } }
+      if (s === 'L') api.__sinceWalk = api.walkPhase > 0 ? 0 : (api.__sinceWalk ?? 99) + dt; const Gf = ip['g' + s] || (ip['g' + s] = {});   /* v15c: the eased pose start only runs in the 4 s after a walk (the settle), so plain idle is exactly v15 */ for (const k2 of PKEYS) { const g0 = (tgt[k2] || 0) * (ip.k || 1) * cA5; if (Gf[k2] === undefined || om5 > 10 || !(api.__sinceWalk < 4) || new RegExp(api.poseNoEase ?? '^(c|tb|sp|hipw)').test(k2)) Gf[k2] = g0;   /* v15c: fingers, thumb, spread and the hip-contact weight keep the v15 spring (the eased target made idle finger jolts f278/f393) */ else Gf[k2] += (g0 - Gf[k2]) * Math.min(1, dt / (api.poseTau ?? 0.3)); const g2 = Gf[k2];   /* v15b2: the pose spring follows an eased target, so a new pose starts without a kick (walk-to-idle settle f338) */ if (om5 > 10) { X[k2] = g2; Vv[k2] = 0; continue; } const h2 = Math.min(dt, 0.05); Vv[k2] += (-2 * om5 * Vv[k2] - om5 * om5 * (X[k2] - g2)) * h2; X[k2] += Vv[k2] * h2; } }
     for (const s of ['L', 'R']) { const A = arm[s], sg = s === 'L' ? 1 : -1, PZ = ip[s];
       A.v += (-25 * A.x - 3.2 * A.v - 0.15 * Math.max(-3, Math.min(3, accel))) * dt; A.x += A.v * dt; A.x = Math.max(-0.05, Math.min(0.05, A.x));
       const G = gest[s], ga = Math.max(0, G.a), beat = pulse(G.beat, 0.06, 0.18) * Math.min(1, ga * 2);
@@ -479,7 +480,7 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
         const pw = wq(bb.parent); bb.quaternion.copy(pw.clone().invert().multiply(dq).multiply(pw).multiply(bb.quaternion)); bb.updateMatrixWorld(true); } }
     // v10b: hipBoth also holds each hand's orientation in the pelvis frame (captured once the pose is reached), so torso sway can't roll the fingertips into the skin
     if (!api.noAnchor && PELV && ip.ancN === 'hipBoth') for (const s of ['L', 'R']) { const wA = Math.min(1, Math.max(0, ip[s].hipw || 0)), hb = HB[s]; if (!hb) continue;
-      if (wA < 0.5) { HROT[s] = null; HROTt[s] = 0; continue; } const pq = wq(PELV);
+      if (wA < 0.02) { HROT[s] = null; HROTt[s] = 0; continue; }   /* v15: the held hand orientation fades out with hipw (was dropped at 0.5: wrist snap at walk f62) */ const pq = wq(PELV);
       if (wA > 0.98) HROTt[s] += dt; if (!HROT[s] && HROTt[s] > 0.6) HROT[s] = pq.clone().invert().multiply(wq(hb));   // v13b: capture once the pose has settled (it was taken mid-transition)
       if (HROT[s]) { const tgt = wq(hb).slerp(pq.multiply(HROT[s]), wA); hb.quaternion.copy(wq(hb.parent).invert().multiply(tgt)); hb.updateMatrixWorld(true); } }
     if (ip.ancN !== 'hipBoth') { HROT.L = HROT.R = null; HROTt.L = HROTt.R = 0; }
@@ -647,14 +648,16 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
         if (sT >= J0 + JN) { wph = 2; x = 1; GL.add(WTR.offS); wHP.sub(WTR.offS); } }
       else if (wph === 2) { const f0 = ((wT % n) + n) % n; wT += fr; const f1 = ((wT % n) + n) % n; d = fr * WTRK.stride / n; sWalk(wT, WPQ, wHQ, wHP); x = 1; A = 'walk';
         const J = WTR.stopJoin[0]; if (!walkOn && (f0 < J && (f1 >= J || f1 < f0))) { wph = 3; WTR.fE = 0; sT = WTR.stopJoin[1] + (f1 >= J ? f1 - J : f1 + n - J); } }
-      else if (wph === 3) { const C = WTR.stop, [, S0, JN] = WTR.stopJoin; const z0 = sClip(C, sT, WPB, wHB, wHPB); sT += fr * Math.max(0.12, Math.min(1, (C.n - 2 - sT) / 7)); const z1 = sClip(C, sT, WPB, wHB, wHPB);   /* the clip ends mid-motion: ease its last frames to rest (no halt) */
-        wHPB.addScaledVector(WTR.offE, 1 - (WTR.fE || 0)); const y = wsm((sT - S0) / JN); wT += fr; sWalk(wT, WPQ, wHQ, wHP); x = 1 - y; d = y * (z1 - z0) + x * fr * WTRK.stride / n; A = 'mix'; if (sT >= C.n - 2.02) { wk = Math.max(0, wk - dt / 0.4); const p = 1 - wk; GL.addScaledVector(WTR.offE, p - (WTR.fE || 0)); WTR.fE = p; if (wk <= 0) { wph = 0; wk = 0; WTR.fE = 0; } } }   /* settle: the clip holds its last frame while idle fades back in; the join offset moves into the travel at the same rate */   // settle: the clip holds its last frame while idle fades back in
-      else if (wph === 4) { sClip(WTR.stop, WTR.stop.n - 1, WPB, wHB, wHPB); wk = Math.max(0, wk - dt / 0.4); x = 0; if (wk <= 0) { wph = 0; wk = 0; } }
+      else if (wph === 3) { const C = WTR.stop, [, S0, JN] = WTR.stopJoin; const z0 = sClip(C, sT, WPB, wHB, wHPB); sT += fr * Math.max(0.06, Math.min(1, (C.n - 2 - sT) / (api.stopEase ?? 16)));   /* v15d: decelerate over the last ~20 clip frames (was 7) so the lean-out eases instead of halting (spine 1.1 to 0 deg/frame at f290) */ const z1 = sClip(C, sT, WPB, wHB, wHPB);   /* the clip ends mid-motion: ease its last frames to rest (no halt) */
+        wHPB.addScaledVector(WTR.offE, 1 - (WTR.fE || 0)); const y = wsm((sT - S0) / JN); wT += fr; sWalk(wT, WPQ, wHQ, wHP); x = 1 - y; d = y * (z1 - z0) + x * fr * WTRK.stride / n; A = 'mix'; if (sT >= C.n - 2.02) { wk = Math.max(0, wk - dt / 0.8); const p = 1 - wk; GL.addScaledVector(WTR.offE, p - (WTR.fE || 0)); WTR.fE = p; if (wk <= 0) { wph = 0; wk = 0; WTR.fE = 0; } } }   /* settle: the clip holds its last frame while idle fades back in; the join offset moves into the travel at the same rate */   // settle: the clip holds its last frame while idle fades back in
+      else if (wph === 4) { sClip(WTR.stop, WTR.stop.n - 1, WPB, wHB, wHPB); wk = Math.max(0, wk - dt / 0.8); x = 0; if (wk <= 0) { wph = 0; wk = 0; } }
       // pose = clip pose (WPB) blended toward the walk pose (WPQ) by x, then over the idle body by wk (smoothstep)
-      const ws = wsm(wk);
-      WTR.bones.forEach((nm, k) => { const b = WB[nm]; if (!b) return; if (x > 0) WPB[k].slerp(WPQ[k], x); b.quaternion.slerp(WPB[k], ws); });
+      const ws = wsm(wk); if (wph === 1 || wph === 2) wkA = Math.min(wk, wkA + dt / 0.75); else wkA = Math.min(wkA, wk); const wsA = wsm(wkA); if (wph === 1 || wph === 2) api.__wkU = Math.min(wk, (api.__wkU || 0) + dt / 0.5); else api.__wkU = Math.min(api.__wkU || 0, wk); const wsU = wsm(api.__wkU);   /* v15b2: spine/neck/head walk-in over 0.5 s (the 0.3 s fade ended in a kink at f69 that the arms inherit) */
+      WTR.bones.forEach((nm, k) => { const b = WB[nm]; if (!b) return; if (x > 0) WPB[k].slerp(WPQ[k], x); b.quaternion.slerp(WPB[k], /(Clavicle|Upperarm|Forearm|Hand|Index|Mid|Ring|Pinky|Thumb)/.test(nm) ? wsA : /(Spine0|Neck|Head)/.test(nm) ? wsU : ws); });
       if (hip && par) { if (x > 0) { wHB.slerp(wHQ, x); wHPB.lerp(wHP, x); } hip.b.quaternion.slerp(wHB, ws);
         const SLu = par.worldToLocal(V3().set(0, 0, 1)).sub(par.worldToLocal(V3())); GL.addScaledVector(SLu, d); hip.b.position.lerp(wHPB.add(GL), ws);   /* travel first, so the pose and its travel are the same frame */ GW.copy(par.localToWorld(hipB0.clone().add(GL))).sub(par.localToWorld(hipB0.clone())); }
+      { /* v15d r2: torso lean-out low-pass (2 cascaded 1st-order slerp filters) through stop + settle, faded out after */ const TS = api.__ts = api.__ts || { f1: {}, f2: {}, on: 0 }; const act = WTR && (wph === 3 || wph === 4); TS.on = act ? 1 : Math.max(0, TS.on - dt / 0.5); const al = 1 - Math.exp(-dt / (api.tsTau ?? 0.11));
+        for (const nm of ['Hip', 'Waist', 'Spine01', 'Spine02']) { const b = nm === 'Hip' ? (hip && hip.b) : WB[nm]; if (!b) continue; if (!TS.f1[nm] || !(TS.on > 0) || api.tsOff) { TS.f1[nm] = b.quaternion.clone(); TS.f2[nm] = b.quaternion.clone(); continue; } const aa = nm === 'Hip' ? 1 - Math.exp(-dt / (api.tsTauH ?? 0.06)) : al; TS.f1[nm].slerp(b.quaternion, aa); TS.f2[nm].slerp(TS.f1[nm], aa); b.quaternion.slerp(TS.f2[nm], wsm(TS.on)); } }
       api.walkPhase = wph; api.walkDbg = { sT, wT, x, wk, d };
       root.updateMatrixWorld(true); }
     // vr2: toe pin. The baked walk drags the push-off toe forward ~10 cm along the floor before it lifts (heel up, toe 3 cm high: reads as a slide).
@@ -665,11 +668,11 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
         if (api.__hipL > 1e-4 && hip.b.parent) { const up = hip.b.parent.worldToLocal(V3().set(0, 1, 0)).sub(hip.b.parent.worldToLocal(V3())); hip.b.position.addScaledVector(up, api.__hipL); root.updateMatrixWorld(true); } }
       for (const L of LEGS) { const toe = L.toe || (L.toe = L.ft.children.find((c) => /ToeBase$/.test(c.name))); if (!toe) continue;
         const st = api.__tp[L.ft.name] || (api.__tp[L.ft.name] = { lock: null, off: V3(), w: 0 }); const T = wpos(toe);
-        if (!walking || api.toePin === 0) { st.lock = null; st.w = 0; continue; }
-        const spd = st.prev && dt > 0 ? Math.hypot(T.x - st.prev.x, T.z - st.prev.z) / dt : 9; st.prev = T.clone();   /* raw (unpinned) toe speed */
-        if (st.lock && (T.y > (api.tpUp ?? 0.045) || Math.hypot(st.lock.x - T.x, st.lock.z - T.z) > (api.tpMax ?? 0.12))) { st.rel = Math.hypot(st.lock.x - T.x, st.lock.z - T.z) > 0.03 ? (api.tpRelL ?? 0.45) : 0.12; st.lock = null; st.lf = Math.max(st.lf || 0, (api.tpRelLift ?? 0) * ((api.tpClr ?? 0.04) - T.y)); }   /* vr6: a release with >3 cm of debt (stop clip L f259-260: 61 mm one-frame jump; walk L f139, R f117) eases over 0.45 s and its lift rises through the smoothed lift, not in one frame */   /* vr4: release frame lifts first */
-        if (!st.lock && T.y < (api.tpDn ?? 0.026) && spd < (api.tpV ?? 0.6)) { st.lock = T.clone(); }
-        if (st.lock) { st.off.set(st.lock.x - T.x, 0, st.lock.z - T.z); st.w = 1; { const dbt = Math.hypot(st.off.x, st.off.z), cap = dbt > 0.025 ? 0.025 + (dbt - 0.025) * (api.tpSoft ?? 0.4) : dbt; if (dbt > 1e-6) st.off.multiplyScalar(cap / dbt); }   /* vr6: soft pin (all walk phases): past 2.5 cm of debt the toe creeps (40% of the baked motion) so the release has less to give back */ if (wph === 3) api.__hipNeed = Math.max(api.__hipNeed || 0, 0.02 * Math.min(1, Math.max(0, (Math.hypot(st.off.x, st.off.z) - 0.05) / 0.04))); }   /* vr5: stop clip: a pinned toe that has built up >5 cm of debt is about to release with a straight leg; raise the hips ahead of it */ else st.w = Math.max(0, st.w - dt / (st.rel ?? 0.12));
+        const fadeOnly = !walking; if (fadeOnly) { st.lock = null; if (api.toePin === 0 || api.noStopFade || !(st.w > 1e-3) || st.wTmp) { st.w = 0; continue; } st.w = Math.max(0, st.w - dt / (api.tpStopFade ?? 1.0)); st.lf = 0; }   /* v15d: when the walk ends the pinned toe hands over to idle over 1 s (was dropped in one frame: R toe 2.8 cm jump f337) */
+        const spd = fadeOnly ? 0 : st.prev && dt > 0 ? Math.hypot(T.x - st.prev.x, T.z - st.prev.z) / dt : 9; st.prev = T.clone();   /* raw (unpinned) toe speed */
+        if (st.lock && (T.y > (wph === 3 ? 0.08 : (api.tpUp ?? 0.045)) || Math.hypot(st.lock.x - T.x, st.lock.z - T.z) > (wph === 3 ? 0.2 : (api.tpMax ?? 0.12)))) { st.rel = Math.hypot(st.lock.x - T.x, st.lock.z - T.z) > 0.03 ? (api.tpRelL ?? 0.45) : 0.12; st.lock = null; st.lf = Math.max(st.lf || 0, (api.tpRelLift ?? 0) * ((api.tpClr ?? 0.04) - T.y)); }   /* vr6: a release with >3 cm of debt (stop clip L f259-260: 61 mm one-frame jump; walk L f139, R f117) eases over 0.45 s and its lift rises through the smoothed lift, not in one frame */   /* vr4: release frame lifts first */
+        if (!fadeOnly && !st.lock && T.y < (api.tpDn ?? 0.035) && spd < (api.tpV ?? 1.0))   /* v15b: lock a bit earlier (was 0.026 m, 0.6 m/s) */ { st.lock = T.clone(); }
+        if (st.lock) { st.off.set(st.lock.x - T.x, 0, st.lock.z - T.z); st.w = 1; { const dbt = Math.hypot(st.off.x, st.off.z), cap = dbt > 0.025 ? 0.025 + (dbt - 0.025) * (wph === 3 ? 1 : (api.tpSoft ?? 0.4)) : dbt; if (dbt > 1e-6) st.off.multiplyScalar(cap / dbt); }   /* vr6: soft pin (all walk phases): past 2.5 cm of debt the toe creeps (40% of the baked motion) so the release has less to give back */ if (wph === 3) api.__hipNeed = Math.max(api.__hipNeed || 0, 0.02 * Math.min(1, Math.max(0, (Math.hypot(st.off.x, st.off.z) - 0.05) / 0.04))); }   /* vr5: stop clip: a pinned toe that has built up >5 cm of debt is about to release with a straight leg; raise the hips ahead of it */ else st.w = Math.max(0, st.w - dt / (st.rel ?? 0.12));
         /* a moving toe skimming the floor (start/stop clip steps dip to y<=0 at 3 m/s) also reads as a slide: give it a few cm of clearance */
         const lift = st.lock ? 0 : Math.max(0, (api.tpClr ?? 0.04) - T.y) * Math.max(0, Math.min(1, (spd - 1) / 0.6)); st.lf = (st.lf || 0) + (lift - (st.lf || 0)) * Math.min(1, dt / (st.rel > 0.12 && st.w > 0 ? 0.1 : 0.05)); st.lf = Math.max(st.lf, Math.max(0, 0.006 - T.y)); /* vr4: pinned toes sank to -23 mm under the floor right before lift-off; floor clamp also while pinned */ if (!st.lock) st.lf = Math.max(st.lf, Math.max(0, 0.012 - T.y), spd > 1.5 && !(st.rel > 0.12 && st.w > 0) ? Math.max(0, (api.tpClr ?? 0.04) - T.y) : 0);   /* vr6: not during an eased debt release (the smoothed lift carries it) */   /* vr3: one-frame skims (f117 R, f259-260 L) slipped under the smoothed lift: unsmoothed floor clamp + full clearance for fast toes */
         if (st.w <= 1e-3) st.off.set(0, 0, 0); st.off.y = (st.lock ? Math.min(0, st.lock.y - T.y) : 0) + st.lf / Math.max(1e-3, wsm(Math.max(st.w, 1e-3)));   /* vr5: a pinned toe also keeps its height when the hips rise */
@@ -709,7 +712,13 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
     // (palm centre 13 mm, finger pads 6 mm, thumb pad 7 mm from the surface: real contact, no sinking). Signed distance against
     // the live skinned hip skin near the hand (arm verts excluded); the palm by a small forearm/upper-arm turn, the fingers and
     // thumb by a turn of their first joint. Stateless per frame, so it follows breathing, weight shift and torso sway.
-    if (!api.noContact && PELV) for (const s of ['L', 'R']) { const PZ = ip[s], wA = Math.min(1, Math.max(0, PZ.hipw || 0)); if (wA < 0.02 || !HB[s]) { CT[s] = null; continue; }
+    if (!api.noContact && PELV) for (const s of ['L', 'R']) { const PZ = ip[s]; let wA = Math.min(1, Math.max(0, PZ.hipw || 0));
+      if (wA < 0.02 && HB[s] && M1[s] && api.gestContact) { PELV.updateWorldMatrix(true, false); const an = HIPANC[s], tg = new THREE.Vector3(an[0], an[1], an[2]).applyMatrix4(PELV.matrixWorld), dP = wpos(HB[s]).lerp(wpos(M1[s]), 0.6).distanceTo(tg);
+        const nw = 1 - Math.min(1, Math.max(0, (dP - 0.07) / 0.08)); if (nw > 0) wA = 0.3 * nw * nw * (3 - 2 * nw); }   /* v15b (rejected, opt-in only): push-only contact for a gesture hand near the hip; made 30 px finger snaps */
+      if (wA < 0.02 && HB[s] && M1[s] && !api.noGestCurl) { PELV.updateWorldMatrix(true, false); const an = HIPANC[s], tg = new THREE.Vector3(an[0], an[1], an[2]).applyMatrix4(PELV.matrixWorld), dP = wpos(HB[s]).lerp(wpos(M1[s]), 0.6).distanceTo(tg);
+        api["__gcD" + s] = dP; const n0 = 1 - Math.min(1, Math.max(0, (dP - 0.09) / 0.1)), nT = n0 * n0 * (3 - 2 * n0), gk = '__gc' + s; api[gk] = (api[gk] || 0) + (nT - (api[gk] || 0)) * Math.min(1, dt / 0.2); const cv = (api.gestCurl ?? 0.3) * api[gk];
+        if (cv > 1e-3) { for (const F of FING) { if (F.s !== s) continue; const WS = [0.45, 0.35, 0.2]; F.segs.forEach((g, k) => g.r.b.quaternion.multiply(Q().setFromAxisAngle(g.ax, F.sg * cv * WS[k]))); } HB[s].updateMatrixWorld(true); } }   /* v15b2: a gesture hand resting near the hip (AskingAQuestion) curls its fingers a little, by a smooth proximity weight (no contact test, so no snaps) */
+      if (wA < 0.02 || !HB[s]) { CT[s] = null; continue; }
       // v13c: contact on the real meshes. Hand-mesh vertices (sampled) against the live hip skin; palm/thenar and thumb pushed out
       // of the body at full strength and pulled onto it (0.5 mm) once the pose has arrived; fingers bend only about their curl axis.
       root.updateMatrixWorld(true); const pal = () => wpos(HB[s]).lerp(wpos(M1[s]), 0.6);
@@ -736,6 +745,12 @@ const _eA = new THREE.Vector3(), _eB = new THREE.Vector3(), _eAx = new THREE.Vec
       for (let it = 0; it < 4; it++) for (const f of ['Pinky', 'Ring', 'Mid', 'Index']) { const r = H[f].length && deep(f); if (!r || r.d >= 0) continue; move(r, TG, [HB[s]], 1); }
       for (let it = 0; it < 2; it++) { const r = deep('Palm'); if (!r || r.d >= 0) break; move(r, TG, [FA], 1); }
       if (api.contactLog) { C.log = {}; for (const g of ['Palm', 'Thumb', 'Index', 'Mid', 'Ring', 'Pinky']) { const r = deep(g); C.log[g] = r ? +(r.d * 1000).toFixed(1) : null; } } }
+    /* v15: finger/thumb output filter. Two cascaded first-order lags (tau 45 ms each) on every finger and thumb bone's local rotation, so the
+       hip-pose blend, the hipw gate and the contact flex grid search can never snap a finger in one frame; the Mixamo finger data passes through (about 90 ms lag). */
+    if (!api.noFingerFilter) { if (!FFB) { FFB = []; for (const F of FING) for (const g of F.segs) FFB.push({ b: g.r.b }); for (const s of ['L', 'R']) for (const k of [1, 2, 3]) { const bb = bone('CC_Base_' + s + '_Thumb' + k); if (bb) FFB.push({ b: bb }); } }
+      const al = api.freezeClocks ? 1 : 1 - Math.exp(-Math.min(dt, 0.1) / 0.045);
+      for (const e of FFB) { const qt = e.b.quaternion; if (!e.q1 || al >= 1) { e.q1 = qt.clone(); e.q2 = qt.clone(); continue; } e.q1.slerp(qt, al); e.q2.slerp(e.q1, al); qt.copy(e.q2); } root.updateMatrixWorld(true); }
+    api.moDbg = mo.slots.map((sl) => [sl.i, +sl.w.toFixed(3), +sl.t.toFixed(2), sl.m ? 1 : 0]);   // v15 test hook: active gesture segments
     api.dbg = { t, b, wgt, ipn: ip.name, ips: ip.side, ...(api.debugBones ? { foot: Math.max(0, ...LEGS.map((L) => wpos(L.ft).distanceTo(L.A))), hipY: hip ? wpos(hip.b).y : 0 } : {}), vow: sp.vow, cons: inCons ? sp.cons : '', stress, phr: ph.on, gL: gest.L.a, gR: gest.R.a, gn: gest.next, gh: gest.hold, gLt: gest.L.tgt, stR, stP, gx, gy, hx, hy, ex: eyX, ey: eyY, bL, bR, L, glow: uAnim.value.x, rim: uAnim.value.y, sh: uAnim.value.z, flow: p.flow, settle, jaw: sp.jaw, smile: morphs.Mouth_Smile_L, w: { ...w } };
     return p.flow;   // swirl/thread flow rate (aether.js advances uFlow with it)
   }
