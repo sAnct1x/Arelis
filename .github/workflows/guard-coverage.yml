@@ -7,8 +7,9 @@ name: Guard coverage
 #
 # On 2026-08-14 twelve of nineteen guard rails were holes and nobody knew,
 # because the board was not run and 35 of its 68 scenarios handed the loop the
-# call they then asserted. As of 2026-09-17 it reports 16 covered, 0 holes and
-# 3 blind spots it names and justifies.
+# call they then asserted. As of 2026-10-30 it reports 4 covered, 0 holes and
+# 3 blind spots it names and justifies. Guards whose config key nothing reads
+# are listed as not measured.
 #
 # Weekly rather than per-push: it runs the whole board twenty times (about 70
 # seconds locally, longer on a runner) and the thing it guards against is slow

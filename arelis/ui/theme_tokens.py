@@ -170,7 +170,7 @@ HAIRLINE = {"rest": 100, "live": 210}
 
 # Control heights. Two tiers on purpose, and only two: dock furniture, and the
 # composer, which is the one row that is not furniture. A third tier is how the
-# workspace dock ended up with 24px buttons beside 28px ones.
+# old workspace dock ended up with 24px buttons beside 28px ones.
 METRICS = {
     "row": 28,  # search fields, dock actions, inbox buttons
     "control": 34,  # composer: role picker, attach, mic, send

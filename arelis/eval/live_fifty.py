@@ -113,7 +113,7 @@ def live_fifty_turns(*, token: str = BOARD_ID) -> list[ConversationTurn]:
         t("T24_sqrt", "square root of 2 to 8 decimals", expect_tools=("python", "calculator"), expect_tools_any=True, expect_answer_contains=("1.4142135",)),
         t("T25_md", f"write a markdown file that just says {token} coverage", expect_tools=("workspace", "document"), expect_tools_any=True),
         t("T26_task2", f"add a task to review the {token} pictures", expect_tools=("tasks",), expect_args={"action": "add"}),
-        t("T27_reality", "let's work on Reality", allow_no_tools=True, new_chat=True, notes="Room enter — closed path or model."),
+        t("T27_reality", "let's work on Reality", allow_no_tools=True, new_chat=True, notes="Was a room enter; rooms are gone, so plain chat."),
         t("T28_lab", "open the solar lab", allow_no_tools=True),
         t("T29_mars", "take me to Mars", allow_no_tools=True),
         t("T30_mars_size", "how big is Mars, like the radius", expect_tools=("solar", "catalog", "web_search"), expect_tools_any=True, allow_no_tools=True),

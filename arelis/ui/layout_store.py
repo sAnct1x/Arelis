@@ -60,7 +60,7 @@ def _keep_recent_workspace_file(text: str) -> bool:
 
 
 def load_recent_workspace_files() -> list[str]:
-    """Qualified or relative paths recently opened/saved in the workspace dock."""
+    """Qualified or relative paths recently opened or saved."""
     s = settings()
     raw = s.value("recent_workspace_files", [])
     if isinstance(raw, str):
