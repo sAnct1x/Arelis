@@ -260,7 +260,10 @@ def install_stylesheet(window=None) -> None:
     """
     from PySide6.QtWidgets import QApplication
 
-    css = stylesheet()
+    from arelis.ui.theme_layers import split_sheet
+
+    structural, colour = split_sheet(stylesheet())
+    css = structural + "\n" + colour
     app = QApplication.instance()
     if app is None:
         if window is not None:
