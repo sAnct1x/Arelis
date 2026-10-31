@@ -4,7 +4,7 @@
 import { createAnimator as createBase } from './anim.js?base';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // Arelis: the clip file is not shipped in web/. The host passes ?clips=<file url>; else it sits beside the mesh (?glb=);
-// else ./ellah-anim.glb. If it fails to load, the mixer stays off and anim.js poses the body as before.
+// else ./ellah-anim.glb. The clips are required: if they fail to load, an error is logged and the body holds its rest pose.
 const Q = new URLSearchParams(location.search);
 const CLIP_URL = Q.get('clips') || (Q.get('glb') ? Q.get('glb').replace(/[^/]*$/, 'ellah-anim.glb') : './ellah-anim.glb');
 const ALIAS = { talking: 'speaking', rest: 'idle' };   // same names anim.js accepts
@@ -15,6 +15,9 @@ const POOLS = {   // repeats = weight
   thinking: ['v2_BreathingIdle', 'Idle', 'v2_ThoughtfulHeadNod'],
   speaking: ['Talking', 'Talking', 'Agreeing'],
   done: ['v2_BreathingIdle', 'Idle'] };export function createAnimator(THREE, root, face, uAnim, opts = {}) {
+  const REST = [];   // every body bone's rest transform (the GLB's node pose, arms down), taken before anything moves
+  root.traverse((o) => { if (o.isBone && !KEEP_BASE.test(o.name + '.')) REST.push([o, o.position.clone(), o.quaternion.clone()]); });
+  const holdRest = () => { for (const [o, p, q] of REST) { o.position.copy(p); o.quaternion.copy(q); } };
   const base = createBase(THREE, root, face, uAnim, opts), api = base.api;
   let seed = 1234567; const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);   // own rng: never touches anim.js's
   const M = { mixer: null, clips: {}, cur: null, curName: '', mode: 'idle', left: 0, fade: 0.8 };
@@ -35,7 +38,7 @@ const POOLS = {   // repeats = weight
       TW.push({ h, t1, t2, rest: qf.invert().multiply(qh).invert() }); }
     api.mixerReady = true; api.mixerClips = Object.keys(M.clips);
     console.info('[avatar] mixer clips=' + api.mixerClips.length);
-  }, undefined, (e) => { api.mixerError = String(e); console.warn('[avatar] mixer clips unavailable, body stays on anim.js ' + CLIP_URL); });
+  }, undefined, (e) => { api.mixerError = String(e); console.error('[avatar] clips missing at ' + CLIP_URL); });
   api.mixerPlay = (name, fade = 0.3) => { api.mixerForce = name; if (M.mixer && M.clips[name]) play(name, fade); };   // test hook: hold one clip
   function pick() { if (api.mixerForce && M.clips[api.mixerForce]) return api.mixerForce; const pool = (POOLS[M.mode] || POOLS.idle).filter((n) => M.clips[n]); let n = pool[Math.floor(rnd() * pool.length)];
     if (n === M.curName && pool.length > 1) n = pool[(pool.indexOf(n) + 1) % pool.length]; return n; }
@@ -45,7 +48,8 @@ const POOLS = {   // repeats = weight
     M.cur = a; M.curName = name; M.left = c.duration; }
   function update(dt) {
     const flow = base.update(dt);
-    if (M.mixer) {
+    if (!M.mixer) holdRest();   // loading, or no clips: a neutral standing pose, never a half-posed body
+    else {
       if (!M.cur) play(pick(), 0);
       else if (M.wantSwitch && !(POOLS[M.mode] || POOLS.idle).includes(M.curName)) play(pick(), M.fade);   // state change: fade to a clip of the new pool
       M.wantSwitch = false;

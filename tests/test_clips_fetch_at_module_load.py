@@ -16,5 +16,5 @@ def test_clips_are_fetched_before_the_animator_is_built() -> None:
     src = (WEB_DIR / "anim.js").read_text(encoding="utf-8")
     head, _, body = src.partition("export function createAnimator(")
     assert body, "createAnimator moved"
-    assert re.search(r"for \(const n of \[GESTURE_CLIP, './walk-track.json', './walk-trans.json'\]\) clipJson", head)
+    assert re.search(r"clipJson\(GESTURE_CLIP\)", head)
     assert "fetch(" not in body, "a clip is still fetched inside createAnimator"

@@ -40,11 +40,20 @@ def glb_path() -> Path:
 
 
 def clips_path() -> Path:
-    """Her body clips (anim-mixer.js). Optional: without them anim.js poses the body."""
+    """Her body clips (anim-mixer.js). Required: without them her body holds its rest pose."""
     override = os.environ.get(CLIPS_ENV, "").strip()
     if override:
         return Path(override).expanduser()
     return glb_path().parent / "ellah-anim.glb"
+
+
+def check_clips() -> bool:
+    """True when the clips file is there; else one ERROR line naming where it must go."""
+    path = clips_path()
+    if path.is_file():
+        return True
+    logging.getLogger("arelis.avatar").error("[avatar] clips missing at %s", path)
+    return False
 
 
 def unavailable_reason() -> str | None:
@@ -182,7 +191,8 @@ class WebAvatar(QWidget):
         glb = glb_path()
         alog("glb load", path=glb, bytes=glb.stat().st_size if glb.is_file() else 0)
         clips = clips_path()
-        alog("clips load", path=clips, bytes=clips.stat().st_size if clips.is_file() else 0)
+        if check_clips():
+            alog("clips load", path=clips, bytes=clips.stat().st_size)
         self._deadline.start(_READY_TIMEOUT_MS)
         self.view.load(url)
 

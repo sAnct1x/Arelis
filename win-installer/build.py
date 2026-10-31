@@ -881,10 +881,14 @@ def prune_test_suites(site: Path) -> int:
 
 
 def check_avatar_assets(site: Path) -> None:
-    """The avatar scene ships in the wheel (package-data); its model never does."""
+    """The avatar scene ships in the wheel (package-data); its model and clips never do.
+
+    ellah.glb and ellah-anim.glb are user data in %LOCALAPPDATA%\\Arelis\\avatar
+    (docs/avatar.md), so no .glb may land in the tree.
+    """
     web = site / "arelis" / "ui" / "persona_face" / "web"
-    needed = ("index.html", "aether.js", "anim.js", "gesture-track-mix.json", "config.js",
-              "avatar-api.js",
+    needed = ("index.html", "aether.js", "anim.js", "anim-mixer.js", "gesture-track-mix.json",
+              "config.js", "avatar-api.js",
               "vendor/three/three.module.min.js", "vendor/three/addons/loaders/GLTFLoader.js",
               "vendor/three/addons/postprocessing/UnrealBloomPass.js")
     missing = [name for name in needed if not (web / name).is_file()]
