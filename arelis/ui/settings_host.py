@@ -250,20 +250,25 @@ def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
     The whole switch is one batch: no repaint until it is done, and her stage
     takes one region from the settled layout instead of one per chrome step.
     """
+    from arelis.ui.phase_trace import PhaseTrace
+
+    trace = PhaseTrace(f"theme to={theme_id}")
     stage = getattr(window, "persona_stage", None)
     batch = stage is not None and hasattr(stage, "begin_batch")
     window.setUpdatesEnabled(False)
     if batch:
         stage.begin_batch()
     try:
-        return _apply_window_theme(window, theme_id, persist=persist)
+        return _apply_window_theme(window, theme_id, persist=persist, trace=trace)
     finally:
         if batch:
             stage.end_batch()
         window.setUpdatesEnabled(True)
+        trace.mark("settle")
+        trace.finish_after_repaint()
 
 
-def _apply_window_theme(window, theme_id: str, *, persist: bool) -> str:
+def _apply_window_theme(window, theme_id: str, *, persist: bool, trace=None) -> str:
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import QComboBox, QDockWidget, QWidget
 
@@ -282,6 +287,8 @@ def _apply_window_theme(window, theme_id: str, *, persist: bool) -> str:
         merge_local_config({"ui": {"theme": resolved}})
 
     install_stylesheet(window)
+    if trace is not None:
+        trace.mark("stylesheet")
 
     pal = window.palette()
     pal.setColor(window.backgroundRole(), QColor(*PLATE["seal"]))
@@ -294,6 +301,8 @@ def _apply_window_theme(window, theme_id: str, *, persist: bool) -> str:
         apply_dock_surface(dock)
     for combo in window.findChildren(QComboBox):
         polish_combo_popup(combo, compact=combo.count() <= 2)
+    if trace is not None:
+        trace.mark("surfaces")
 
     for child in window.findChildren(QWidget):
         refresh = getattr(child, "refresh_theme_icons", None)
@@ -313,6 +322,9 @@ def _apply_window_theme(window, theme_id: str, *, persist: bool) -> str:
         refresh_wash = getattr(chat, "refresh_bubble_wash", None)
         if callable(refresh_wash):
             refresh_wash()
+    if trace is not None:
+        # Includes her webview retint (setTint) through refresh_theme_icons.
+        trace.mark("icons_webview")
     from arelis.ui.persona_stage import seat_persona
 
     seat_persona(window)
@@ -321,6 +333,8 @@ def _apply_window_theme(window, theme_id: str, *, persist: bool) -> str:
     if callable(sync):
         sync()
     window.update()
+    if trace is not None:
+        trace.mark("layout")
     return resolved
 
 

@@ -83,7 +83,7 @@ from arelis.ui.settings_host import (
 from arelis.ui.sms_chat import SmsChatRegistry
 from arelis.ui.spatial_hands import SpatialHands
 from arelis.ui.stage import StageBackground
-from arelis.ui.surface_report import log_report
+from arelis.ui.surface_report import log_graphics, log_report
 from arelis.ui.theme import (
     SHELL,
     apply_theme,
@@ -530,6 +530,8 @@ class WindowBuild:
         # once the window has settled catches it. See surface_report for why
         # these three lists are the ones worth printing.
         self._later(4000, lambda: log_report(self, tag="settled"))
+        self._later(0, lambda: log_graphics(self, tag="startup"))
+        self._later(4000, lambda: log_graphics(self, tag="settled"))
         if self._restore_session_id:
             # Bus is already running on the background thread by the time the
             # window is shown; a zero-delay shot waits one event-loop pass so

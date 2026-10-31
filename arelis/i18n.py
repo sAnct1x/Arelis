@@ -19,6 +19,10 @@ _ZH: dict[str, str] = {
     "Settings": "设置",
     "Drag to move": "拖动可移动",
     "Close": "关闭",
+    "Minimize": "最小化",
+    "Maximize": "最大化",
+    "Attach": "附件",
+    "Attach files (or drag onto the chat)": "添加文件（或拖到聊天里）",
     "Close settings": "关闭设置",
     "Settings tabs": "设置分页",
     "audio": "音频",
@@ -494,6 +498,9 @@ def _quoted_family(stack: str) -> str:
 
 def apply_language(window: Any, raw: Any) -> str:
     """Persist nothing. Switch the live window, face, and reply language."""
+    from arelis.ui.phase_trace import PhaseTrace
+
+    trace = PhaseTrace(f"language to={raw}")
     code = set_ui_language(raw)
     family = apply_language_face(code)
     try:
@@ -504,6 +511,7 @@ def apply_language(window: Any, raw: Any) -> str:
         from arelis.ui.theme_tokens import FONT_PX
 
         install_stylesheet(window)
+        trace.mark("stylesheet")
         app = QApplication.instance()
         if app is not None:
             if family:
@@ -512,12 +520,16 @@ def apply_language(window: Any, raw: Any) -> str:
                 app.setFont(font)
             else:
                 app.setFont(app_font())
+        trace.mark("font")
     except Exception:
         # Styling is cosmetic: a failed font or stylesheet must not stop the
         # language switch, and the text below is still translated.
         family = None
     localize(window)
+    trace.mark("localize")
     _refresh_live_copy(window)
+    trace.mark("live_copy")
+    trace.finish_after_repaint()
     return code
 
 

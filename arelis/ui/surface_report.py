@@ -172,3 +172,61 @@ def log_report(window: QWidget, *, tag: str = "") -> None:
         return
     label = f" ({tag})" if tag else ""
     log.info("Surface report%s:\n%s", label, "\n".join(lines))
+
+
+_APP_ATTRS = (
+    "AA_UseDesktopOpenGL",
+    "AA_UseOpenGLES",
+    "AA_UseSoftwareOpenGL",
+    "AA_ShareOpenGLContexts",
+)
+
+
+def graphics_lines(window: QWidget) -> list[str]:
+    """The graphics backend actually in use, and how her view is composited."""
+    import os
+
+    from PySide6.QtGui import QGuiApplication
+
+    out = [
+        f"graphics platform={QGuiApplication.platformName()} "
+        f"QSG_RHI_BACKEND={os.environ.get('QSG_RHI_BACKEND', '-')} "
+        f"QT_OPENGL={os.environ.get('QT_OPENGL', '-')}"
+    ]
+    on = [n for n in _APP_ATTRS if QApplication.testAttribute(getattr(Qt.ApplicationAttribute, n))]
+    out.append(f"graphics app_attrs={','.join(on) or '-'}")
+    out.append(f"graphics chromium_flags={os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '-')}")
+    handle = window.windowHandle()
+    # The top-level's surface type is the API its backing store composites
+    # her texture with (Direct3DSurface, OpenGLSurface, ...); Raster means none yet.
+    surface = handle.surfaceType().name if handle is not None else "no-handle"
+    mask = window.mask()
+    out.append(
+        f"graphics window surface={surface} {type(window).__name__} "
+        f"flags={int(window.windowFlags()):#x} "
+        f"native={window.internalWinId() or 0:#x} "
+        f"mask={'none' if mask.isEmpty() else mask.boundingRect().getRect()} attrs={_attrs(window)}"
+    )
+    # By class name: importing QtQuickWidgets here would ship a module the
+    # installer strips (test_installer_qt_modules).
+    views = [w for w in window.findChildren(QWidget) if w.inherits("QQuickWidget")]
+    if not views:
+        out.append("graphics her_view=none")
+    for quick in views:
+        stack = quick.testAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop)
+        out.append(
+            f"graphics her_view stack_on_top={stack} visible={quick.isVisible()} "
+            f"at {_where(quick, window)} attrs={_attrs(quick)} {_chain(quick)}"
+        )
+    return out
+
+
+def log_graphics(window: QWidget, *, tag: str = "") -> None:
+    try:
+        lines = graphics_lines(window)
+    except Exception as exc:  # a diagnostic must never take the window down
+        log.warning("graphics report failed: %s", exc)
+        return
+    label = f" ({tag})" if tag else ""
+    for line in lines:
+        log.info("%s%s", line, label)
