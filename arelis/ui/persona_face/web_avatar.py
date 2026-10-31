@@ -20,6 +20,7 @@ from arelis.paths import user_data_dir
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 GLB_ENV = "ARELIS_AVATAR_GLB"
+CLIPS_ENV = "ARELIS_AVATAR_CLIPS"
 _READY_TIMEOUT_MS = 30_000
 # PersonaPanel state -> window.avatar.setState name.
 STATE_MAP = {
@@ -36,6 +37,14 @@ def glb_path() -> Path:
     if override:
         return Path(override).expanduser()
     return user_data_dir() / "avatar" / "ellah.glb"
+
+
+def clips_path() -> Path:
+    """Her body clips (anim-mixer.js). Optional: without them anim.js poses the body."""
+    override = os.environ.get(CLIPS_ENV, "").strip()
+    if override:
+        return Path(override).expanduser()
+    return glb_path().parent / "ellah-anim.glb"
 
 
 def unavailable_reason() -> str | None:
@@ -157,6 +166,7 @@ class WebAvatar(QWidget):
         url = QUrl.fromLocalFile(str(WEB_DIR / "index.html"))
         query = QUrlQuery()
         query.addQueryItem("glb", QUrl.fromLocalFile(str(glb_path())).toString())
+        query.addQueryItem("clips", QUrl.fromLocalFile(str(clips_path())).toString())
         query.addQueryItem("transparent", "1")
         from arelis.ui import idle_ab
 
@@ -171,6 +181,8 @@ class WebAvatar(QWidget):
 
         glb = glb_path()
         alog("glb load", path=glb, bytes=glb.stat().st_size if glb.is_file() else 0)
+        clips = clips_path()
+        alog("clips load", path=clips, bytes=clips.stat().st_size if clips.is_file() else 0)
         self._deadline.start(_READY_TIMEOUT_MS)
         self.view.load(url)
 
