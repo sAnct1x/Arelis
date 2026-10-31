@@ -16,7 +16,6 @@ _DONE_S = 2.0
 _STATUS_S = 8.0
 _TEXT_H = 92
 _LEVEL_MS = 33
-_REARM_MS = 150  # after the window's last resize step
 _BLUSH = QColor(245, 163, 199)
 LOG = logging.getLogger("arelis.avatar")
 
@@ -93,11 +92,6 @@ class PersonaPanel(QWidget):
         self._status_timer.setSingleShot(True)
         self._status_timer.timeout.connect(self._invalidate_caption)
         self.web = None
-        self._rearm = QTimer(self)
-        self._rearm.setSingleShot(True)
-        self._rearm.setInterval(_REARM_MS)
-        self._rearm.timeout.connect(self._rearm_web)
-        self._watched = None
         self.web_avatar_reason = self._start_web()
         self._place()
 
@@ -300,38 +294,6 @@ class PersonaPanel(QWidget):
         refit = getattr(self.web, "refit", None)
         if callable(refit):
             refit()
-
-    def showEvent(self, event) -> None:
-        self._watch_window()
-        super().showEvent(event)
-
-    def _watch_window(self) -> None:
-        top = self.window()
-        if top is self._watched or top is self:
-            return
-        if self._watched is not None:
-            self._watched.removeEventFilter(self)
-        self._watched = top
-        top.installEventFilter(self)
-
-    def eventFilter(self, obj, event) -> bool:
-        # A native resize or state change of her window can leave the view's
-        # composited surface stale: the hub is in place and the page renders,
-        # but no frame reaches the screen until the view surface is rebuilt
-        # (Babbage, 89751d3: blank after restore to 1100x800 and after the
-        # later resize small, with the same 180x268 drawn fine in q5).
-        if obj is self._watched and event.type() in (
-            QEvent.Type.Resize,
-            QEvent.Type.WindowStateChange,
-        ):
-            if self.web is not None:
-                self._rearm.start()
-        return False
-
-    def _rearm_web(self) -> None:
-        rearm = getattr(self.web, "rearm_surface", None)
-        if callable(rearm) and self.isVisible():
-            rearm()
 
     def hideEvent(self, event) -> None:
         self._level_timer.stop()
