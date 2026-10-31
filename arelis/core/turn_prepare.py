@@ -384,6 +384,7 @@ async def _attach_tool_schemas_and_history(
             break
 
 
+_SHORT_ASK_WORDS = 12
 _SLASH_DATE = re.compile(r"(?<![\d/.])\d{1,2}/\d{1,2}/\d{2,4}(?![\d/])")
 _PAST_MONTH_DAY = re.compile(
     r"(?i)^\s*what\s+was\s+(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])\s*\??\s*$"
@@ -843,6 +844,11 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         active_plan=active_plan,
     )
+    # A short ask that expects no tool round answers from what the model
+    # knows. Thinking first was most of a 9 to 21 s first token (#368).
+    # Only the first request: a tool round still thinks as before.
+    if not expect_tool_round and len(text.split()) <= _SHORT_ASK_WORDS:
+        loop._think_off_next = True
     chat_tools = session_tool_schemas(loop.tools, agent_cfg)
     loop.memory.remember_turn_block(turn_tail)
     if loop._timer is not None and not offer_tools:

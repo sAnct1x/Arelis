@@ -153,7 +153,8 @@ async def test_nine_b_linspace_sine_cosine_draws_or_explains(
         await loop.run("plot sine from 0 to 2pi", "fast")
         assert False in router.thinks, router.thinks
         n_first = len(router.thinks)
-        await loop.run("what time is it?", "fast")
+        # Over the short-ask limit, so a think-off here can only be a leak (#368).
+        await loop.run("what time is it right now where I am, and is it still morning there?", "fast")
         rest = router.thinks[n_first:]
         assert rest, router.thinks
         assert rest[0] is not False, rest
