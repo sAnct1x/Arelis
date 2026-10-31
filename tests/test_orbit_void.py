@@ -263,3 +263,18 @@ def _hue(rgb: tuple[int, int, int]) -> int:
     from PySide6.QtGui import QColor
 
     return QColor(*rgb).hsvHue()
+
+
+def test_idle_timers_off_keeps_the_orb_still_and_says_so(qt_app) -> None:
+    """ARELIS_IDLE_TIMERS=off is an A/B switch for idle fps; the log line names it."""
+    from arelis.ui import idle_ab
+
+    idle_ab.load({"ARELIS_IDLE_TIMERS": "off"})
+    try:
+        orb = OrbitCanvas()
+        orb.show()
+        orb.set_animating(True)
+        assert not orb._timer.isActive()
+        assert "idle_timers=off preserve_buffer=on" in idle_ab.line()
+    finally:
+        idle_ab.load({})

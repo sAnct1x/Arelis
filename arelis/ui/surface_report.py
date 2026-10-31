@@ -201,6 +201,9 @@ def graphics_lines(window: QWidget) -> list[str]:
         f"graphics chromium_flags={os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '-')} "
         f"arm={chromium_flags.arm()}"
     )
+    from arelis.ui import idle_ab
+
+    out.append(idle_ab.line())
     handle = window.windowHandle()
     # The top-level's surface type is the API its backing store composites
     # her texture with (Direct3DSurface, OpenGLSurface, ...); Raster means none yet.

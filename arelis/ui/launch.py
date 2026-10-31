@@ -524,6 +524,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     from arelis.ui.persona_face import chromium_flags
 
     chromium_flags.apply()
+    from arelis.ui import idle_ab
+
+    idle_ab.load()
     from arelis.ui.solar_gl import gl_wanted
 
     if gl_wanted():

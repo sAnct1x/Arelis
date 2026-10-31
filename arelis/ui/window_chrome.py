@@ -171,6 +171,10 @@ class WindowChrome:
         self._atmosphere_timer.setInterval(300)
         if getattr(self, "_turn_busy", False) or not self.isActiveWindow():
             return
+        from arelis.ui import idle_ab
+
+        if not idle_ab.idle_timers():
+            return
         self.update()
         for frame in self._atmosphere_glass_frames():
             frame.update()

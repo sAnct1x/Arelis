@@ -52,7 +52,7 @@ const V = (a) => new THREE.Color(...a);
 // premultiplied. Over black that composites to exactly the opaque image; elsewhere only her light shows.
 const TRANSPARENT = params.has('transparent');
 if (TRANSPARENT) { document.documentElement.style.background = 'transparent'; document.body.style.background = 'transparent'; }
-const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: TRANSPARENT, premultipliedAlpha: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: params.get('pdb') !== '0', alpha: TRANSPARENT, premultipliedAlpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.setClearColor(0x000000, TRANSPARENT ? 0 : 1);

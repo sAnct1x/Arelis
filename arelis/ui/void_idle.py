@@ -271,13 +271,20 @@ class OrbitCanvas(QWidget):
             return
         self._thinking = want
         self._dim = 0.92 if want else 0.42
-        if want and self.isVisible() and not self._timer.isActive():
+        from arelis.ui import idle_ab
+
+        if want and self.isVisible() and not self._timer.isActive() and idle_ab.idle_timers():
             self._timer.start()
         elif not want and not self.isVisible():
             self._timer.stop()
         self.update()
 
     def set_animating(self, on: bool) -> None:
+        from arelis.ui import idle_ab
+
+        if on and not idle_ab.idle_timers():
+            self.update()
+            return
         if on:
             if not self._timer.isActive():
                 self._timer.start()

@@ -158,6 +158,10 @@ class WebAvatar(QWidget):
         query = QUrlQuery()
         query.addQueryItem("glb", QUrl.fromLocalFile(str(glb_path())).toString())
         query.addQueryItem("transparent", "1")
+        from arelis.ui import idle_ab
+
+        # Diagnostic (idle_ab): her canvas without preserveDrawingBuffer.
+        query.addQueryItem("pdb", "1" if idle_ab.preserve_buffer() else "0")
         from arelis.ui.void_idle import aether_hue_shift
 
         self._tint = aether_hue_shift()
