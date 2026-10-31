@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Callable
 from typing import Literal
 
 from PySide6.QtCore import QObject, QPoint, QPointF, QRect, Qt, Signal
@@ -99,6 +100,15 @@ _REALITY_BEAD = 70
 _STRANDS = 4
 _DUST = 1100
 
+
+RING_GROW_S = 1.8
+RING_WAIT_MAX_S = 6.0
+
+
+def _alog(event: str, **fields: object) -> None:
+    from arelis.ui.persona_face.panel import alog
+
+    alog(event, **fields)
 
 def _mix(a: float, b: float, t: float) -> float:
     return a + (b - a) * t
@@ -479,6 +489,12 @@ class FilamentField:
         self._live_phase = 0.0
         self._tethers: dict[str, dict] = {}
         self.hub: QPointF | None = None
+        # Load sequence: 1.0 is a full ring. begin_ring_growth drops it to 0,
+        # waits for her, then eases it back so the ring grows out of the hub.
+        self.ring_grow = 1.0
+        self._ring_phase = ""
+        self._ring_wait = 0.0
+        self._ring_gate: Callable[[], bool] | None = None
         self._load = ""
         self.dust = []
         for i in range(_DUST):
@@ -575,8 +591,39 @@ class FilamentField:
             return QRect(rect)
         return QRect(rect.left(), top, w, bot - top)
 
+    def begin_ring_growth(self, she_is_up: Callable[[], bool] | None = None) -> None:
+        """Start the Filament load: she shows first, then the ring grows from her hub."""
+        self.ring_grow = 0.0
+        self._ring_phase = "wait"
+        self._ring_wait = 0.0
+        self._ring_gate = she_is_up
+        _alog("filament load", step="she appears")
+
+    def _tick_ring(self, dt: float) -> None:
+        if self._ring_phase == "wait":
+            self._ring_wait += dt
+            gate = self._ring_gate
+            ready = gate is None or bool(gate())
+            if ready or self._ring_wait >= RING_WAIT_MAX_S:
+                self._ring_phase = "grow"
+                hub = self.hub
+                where = f"{int(hub.x())},{int(hub.y())}" if hub is not None else "centre"
+                _alog("filament load", step="ring grows", origin=where)
+            return
+        if self._ring_phase == "grow":
+            self.ring_grow = min(1.0, self.ring_grow + dt / RING_GROW_S)
+            if self.ring_grow >= 1.0:
+                self._ring_phase = ""
+                _alog("filament load", step="ring settled")
+
+    def ring_scale(self) -> float:
+        """Eased 0..1 size of the ring during the load (smoothstep, calm both ends)."""
+        g = max(0.0, min(1.0, self.ring_grow))
+        return g * g * (3.0 - 2.0 * g)
+
     def tick(self, dt: float) -> None:
         dt = min(0.05, max(0.0, float(dt)))
+        self._tick_ring(dt)
         want = _WEATHER[self.state]
         self.form = _ease(self.form, want["form"], dt, 1.85)
         self.speed = _ease(self.speed, want["speed"], dt, 1.1)
@@ -608,6 +655,14 @@ class FilamentField:
         cy = rect.top() + h * 0.40
         rx = min(desk * 0.48, h * 0.44)
         ry = rx * 0.50
+        g = self.ring_scale()
+        if g < 1.0:
+            # Grows out of her hub: the centre slides from the hub, the radii open.
+            if self.hub is not None:
+                cx = self.hub.x() + (cx - self.hub.x()) * g
+                cy = self.hub.y() + (cy - self.hub.y()) * g
+            rx *= max(g, 0.01)
+            ry *= max(g, 0.01)
         return cx, cy, rx, ry
 
     def set_open_faces(self, names: set[str]) -> None:
@@ -653,6 +708,14 @@ class FilamentField:
         if self.hub is not None:
             return QPointF(self.hub)
         return self.bead_point(name, rect)
+
+    def spawn_origin(self, name: str, plate: QRect, rect: QRect) -> QPointF:
+        """The one point a tile grows from and its strand meets: the end of its filament.
+
+        `plate` is the tile in window coordinates. Tethers bind here and the
+        opening seed is centred here, so the plate grows out of its own thread.
+        """
+        return attach_on_rect(plate, self.thread_start(name, rect))
 
     def hub_threads(self, rect: QRect) -> list[tuple[QPointF, QPointF]]:
         """Strands from her hub to the near side of the ring (start, end)."""

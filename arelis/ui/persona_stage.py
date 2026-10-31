@@ -120,25 +120,15 @@ def in_stage(window) -> bool:
     return bool(getattr(window, "_persona_in_stage", False))
 
 
-def _keep_dock_hidden(window, visible: bool) -> None:
-    if visible and in_stage(window):
-        window.persona_dock.hide()
-
-
 def seat_persona(window) -> None:
     """Seat her panel in the stage; follow() picks band or hub. Safe to call again."""
     stage = getattr(window, "persona_stage", None)
     panel = getattr(window, "persona_panel", None)
-    dock = getattr(window, "persona_dock", None)
-    if stage is None or panel is None or dock is None:
+    if stage is None or panel is None:
         return
-    if not getattr(window, "_persona_alias_hooked", False):
-        window._persona_alias_hooked = True
-        dock.visibilityChanged.connect(lambda v, w=window: _keep_dock_hidden(w, v))
     if panel.parentWidget() is not stage:
         stage.host(panel)
     window._persona_in_stage = True
-    dock.hide()
     stage.follow()
     stage.show()
     panel.show()

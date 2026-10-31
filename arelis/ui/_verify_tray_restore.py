@@ -146,7 +146,7 @@ def main() -> int:
     window.setup_tray(app)
     maximized = "--maximized" in sys.argv
     if "--docks" in sys.argv:
-        for dock in (window.persona_dock, window.history_dock):
+        for dock in (window.history_dock, window.camera_dock):
             dock.setFloating(False)
             dock.show()
     quit_scenario = "--quit" in sys.argv or "--quitbare" in sys.argv
@@ -154,14 +154,14 @@ def main() -> int:
     if floated:
         from arelis.ui.app import _apply_floating_dock_chrome, _glassify_floating_dock
 
-        window.persona_dock.show()
-        window.persona_dock.setFloating(True)
+        window.history_dock.show()
+        window.history_dock.setFloating(True)
         app.processEvents()
-        _apply_floating_dock_chrome(window.persona_dock, True)
-        _glassify_floating_dock(window.persona_dock)
-        window.persona_dock.move(1500, 300)
-        window.persona_dock.resize(420, 520)
-        window.persona_dock.show()
+        _apply_floating_dock_chrome(window.history_dock, True)
+        _glassify_floating_dock(window.history_dock)
+        window.history_dock.move(1500, 300)
+        window.history_dock.resize(420, 520)
+        window.history_dock.show()
     if maximized:
         window.showMaximized()
     else:
@@ -172,7 +172,7 @@ def main() -> int:
     report: dict[str, object] = {"scenario": "maximized" if maximized else "normal"}
 
     def _float_state() -> tuple[bool, bool, bool, tuple[int, int, int, int]]:
-        dock = window.persona_dock
+        dock = window.history_dock
         return (
             dock.isVisible(),
             dock.isFloating(),

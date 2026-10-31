@@ -17,7 +17,6 @@ from PySide6.QtWidgets import QApplication, QDockWidget, QMenu
 from arelis.config import merge_local_config
 from arelis.ui.dock_surface import apply_dock_chrome
 from arelis.ui.filament_field import (
-    attach_on_rect,
     chrome_band_on_glass,
     clamp_filament_span,
     filament_chosen_desks,
@@ -417,6 +416,9 @@ class FilamentDesk:
         from arelis.ui.persona_stage import seat_persona
 
         seat_persona(w)
+        # Load sequence: she is up first, then the ring grows out of her hub.
+        panel = w.persona_panel
+        w._filament.begin_ring_growth(lambda p=panel: not p.scene_pending())
         apply = getattr(w.conversation, "apply_filament_desk", None)
         if callable(apply):
             apply(True, chat_open=False)
@@ -588,8 +590,7 @@ class FilamentDesk:
                 continue
             geo = widget.frameGeometry()
             local = QRect(w.mapFromGlobal(geo.topLeft()), geo.size())
-            anchor = w._filament.anchor_point(name, w.rect())
-            w._filament.bind_tether(name, attach_on_rect(local, anchor))
+            w._filament.bind_tether(name, w._filament.spawn_origin(name, local, w.rect()))
 
     def _on_filament_float(self, name: str) -> None:
         w = self.window
@@ -660,37 +661,34 @@ class FilamentDesk:
         origin = w.mapToGlobal(QPoint(int(p.x()) + 12, int(p.y()) + 24))
         size = w._filament_tile_sizes.get(name) or DEFAULT_SIZES.get(name, (320, 280))
         parked = w._filament_tile_pos.get(name)
-        if (
-            active_theme() == "filament"
-            and parked is not None
-            and origin_on_a_desk(parked[0], parked[1], size[0], size[1])
-        ):
-            dest = QRect(int(parked[0]), int(parked[1]), int(size[0]), int(size[1]))
-            start = w._filament.bead_point(name, w.rect())
-            local = QRect(w.mapFromGlobal(dest.topLeft()), dest.size())
-            w._filament.bind_tether(name, attach_on_rect(local, start))
-            widget.setMinimumSize(240, 180)
-            apply_tile_opacity(widget, w._filament_opacity.get(name, DEFAULT_OPACITY))
-            widget.setGeometry(dest)
-            widget.show()
-            widget.raise_()
-            self._place_filament_floats()
-            return
         if active_theme() == "filament":
-            dest = QRect(w.mapFromGlobal(origin), QSize(int(size[0]), int(size[1])))
-            start = w._filament.bead_point(name, w.rect())
-            w._filament.bind_tether(name, attach_on_rect(dest, start))
-            play_tile_grow(
-                widget,
-                origin,
-                size,
-                opacity=w._filament_opacity.get(name, DEFAULT_OPACITY),
-            )
-            self._place_filament_floats()
+            if parked is not None and origin_on_a_desk(parked[0], parked[1], size[0], size[1]):
+                dest = QRect(int(parked[0]), int(parked[1]), int(size[0]), int(size[1]))
+            else:
+                dest = QRect(origin, QSize(int(size[0]), int(size[1])))
+            self._filament_spawn_tile(widget, name, dest)
             return
         widget.move(origin)
         widget.show()
         widget.raise_()
+
+    def _filament_spawn_tile(self, widget, name: str, dest: QRect) -> None:
+        """Every Filament tile opens here: it grows out of the end of its filament."""
+        w = self.window
+        local = QRect(w.mapFromGlobal(dest.topLeft()), dest.size())
+        seed = w._filament.spawn_origin(name, local, w.rect())
+        w._filament.bind_tether(name, seed)
+        start = w.mapToGlobal(QPoint(int(seed.x()), int(seed.y())))
+        from arelis.ui.persona_face.panel import alog
+
+        alog("tile spawn", name=name, origin=f"{int(seed.x())},{int(seed.y())}")
+        play_tile_grow(
+            widget,
+            start,
+            dest,
+            opacity=w._filament_opacity.get(name, DEFAULT_OPACITY),
+        )
+        self._place_filament_floats()
 
     def _filament_set_chat_open(self, on: bool) -> None:
         w = self.window

@@ -34,7 +34,7 @@ def test_a_crashed_turn_never_shows_its_exception_class() -> None:
 
 def test_the_chat_line_says_what_to_do_next() -> None:
     chat, _ = turn_failed_notice(RuntimeError("boom"))
-    assert "Thinking" in chat
+    assert "thinking" in chat and "Ctrl+1" not in chat
     assert "again" in chat.lower()
 
 

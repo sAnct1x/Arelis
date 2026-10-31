@@ -270,11 +270,9 @@ class WindowTurn:
             "Press stop to cancel it."
         )
         self.thinking.append(message, kind="status")
-        # With the thinking dock closed that line lands somewhere nobody is
-        # looking, and pressing Esc into total silence is what made the app feel
-        # hung in the first place.
-        if not self.persona_dock.isVisible():
-            self.chat.add_system(message)
+        # Thinking has no panel of its own any more, so the line also goes in
+        # the chat: Esc into total silence is what made the app feel hung.
+        self.chat.add_system(message)
 
     def _on_drive_pause(self) -> None:
         self.thinking.append("drive paused", kind="status")

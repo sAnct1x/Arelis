@@ -10,6 +10,7 @@ from PySide6.QtCore import (
     QPoint,
     QPropertyAnimation,
     QRect,
+    QSize,
     Qt,
     QTimer,
 )
@@ -179,24 +180,23 @@ def load_tile_sizes(config: dict) -> dict[str, tuple[int, int]]:
     return out
 
 
-def tile_grow_rects(origin: QPoint, size: tuple[int, int]) -> tuple[QRect, QRect]:
-    """Seed at the title, then the plate. Same origin so it grows out of the trail."""
-    width = max(240, int(size[0]))
-    height = max(180, int(size[1]))
-    seed = QRect(int(origin.x()), int(origin.y()), _SEED[0], _SEED[1])
-    dest = QRect(int(origin.x()), int(origin.y()), width, height)
-    return seed, dest
+def tile_grow_rects(origin: QPoint, dest: QRect) -> tuple[QRect, QRect]:
+    """Seed centred on the filament's end (the spawn origin), then the plate."""
+    plate = QRect(dest.topLeft(), QSize(max(240, dest.width()), max(180, dest.height())))
+    seed = QRect(0, 0, _SEED[0], _SEED[1])
+    seed.moveCenter(QPoint(int(origin.x()), int(origin.y())))
+    return seed, plate
 
 
 def play_tile_grow(
     widget: QWidget,
     origin: QPoint,
-    size: tuple[int, int],
+    dest: QRect,
     *,
     opacity: float = DEFAULT_OPACITY,
 ) -> None:
     """Trail first, then the plate grows out of that end. Not a pop."""
-    seed, dest = tile_grow_rects(origin, size)
+    seed, dest = tile_grow_rects(origin, dest)
     prior = getattr(widget, "_filament_grow_group", None)
     if prior is not None:
         prior.stop()

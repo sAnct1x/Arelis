@@ -467,7 +467,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.thinking.extend_stream(text)
         else:
             window.thinking.append(text, kind="trace")
-        window._reveal_dock(window.persona_dock, window.act_persona)
     elif t == EventType.STATUS:
         msg = p.get("message", "")
         if p.get("image_progress"):
@@ -553,8 +552,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             else:
                 spoken = headline
             window.bus.publish(Event(EventType.VOICE_SPEAK, {"text": spoken}))
-        else:
-            window._reveal_dock(window.persona_dock, window.act_persona)
         window.thinking.append(
             str(p.get("headline") or p.get("summary") or "waiting for you"),
             kind="tool",
@@ -597,7 +594,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             window._solar_view_args = {"tool": str(tool or ""), "args": dict(args)}
         # The errand is already in the thought line. Nothing extra above the composer.
         window.conversation.set_turn_visible(True)
-        window._reveal_dock(window.persona_dock, window.act_persona)
         # The shimmer is set for every tool now, so image needs no special
         # case beyond its own Thinking line.
         if str(tool or "") in {"image", "research_report"}:

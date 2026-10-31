@@ -26,6 +26,19 @@ She is part of the window itself, not a panel you open or close.
   run from her to the orbit ring, and the strand to each open tile starts at her. The
   chat keeps its full width here, since she is not in a side band.
 
+She is not a panel or dock in any room. There is no View menu entry for her and no
+Ctrl+1, and the saved window layout no longer records her.
+
+### The Filament load
+
+When you enter Filament she comes up first. Once her scene is ready (or after six
+seconds, or straight away if the 3D view cannot start), the orbit ring grows out of
+her hub point over about two seconds, easing in and out. The threads between her and
+the ring stay attached the whole time.
+
+A tile you open in Filament grows out of the end of its own filament: it starts as a
+small seed where its thread meets the plate, then opens to full size.
+
 She stays in view when the app goes idle. She is always framed head to toe and the
 view refits when the window changes size.
 
@@ -76,6 +89,10 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] theme name=... tint=...` | The room changed and she was retinted. |
 | `[avatar] resize mode=... region=X,Y,WxH` | Her place in the window changed. `mode=band` in Night and Sodium, `mode=hub` in Filament. |
 | `[avatar] canvas resize size=WxH` | The scene followed that change. |
+| `[avatar] filament load step=she appears` | Filament opened; the ring waits for her. |
+| `[avatar] filament load step=ring grows origin=X,Y` | The ring starts growing out of her hub at X,Y. |
+| `[avatar] filament load step=ring settled` | The ring is at full size. |
+| `[avatar] tile spawn name=... origin=X,Y` | A Filament tile started growing from its filament at X,Y. |
 | `[avatar] webgl lost` / `restored` | The graphics context dropped or came back. |
 | `[avatar] failed reason=...` | The scene gave up; the glow stays. |
 | `[avatar] js ...` | Any other console message from the page, with file and line. |

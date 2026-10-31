@@ -207,10 +207,10 @@ _ZH: dict[str, str] = {
     "Stopped.": "停了。",
     (
         "Something went wrong mid-turn, so I stopped rather than guess. "
-        "The details are in Thinking (Ctrl+1). Try again, or rephrase."
+        "The details are in this turn's thinking. Try again, or rephrase."
     ): (
         "这一轮中间出错了，我停下来了，没有瞎猜。"
-        "细节在「思考」（Ctrl+1）。再试一次，或者说得再清楚点。"
+        "细节在本轮的「思考」里。再试一次，或者说得再清楚点。"
     ),
     "I didn't open that file because it wasn't allowed.": (
         "那个文件没有被允许，所以我没有打开它。"

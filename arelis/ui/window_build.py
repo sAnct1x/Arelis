@@ -90,7 +90,6 @@ from arelis.ui.theme import (
     stylesheet,
     theme_from_config,
 )
-from arelis.ui.window_const import THINK_PULSE_MS as _THINK_PULSE_MS
 from arelis.ui.window_docks import bind_docks
 from arelis.ui.world_host import attach_world, bind_world
 from arelis.workspace import WorkspaceRoots
@@ -285,13 +284,11 @@ class WindowBuild:
         self.calendar = CalendarPanel(memory=self.store)
         self.persona_panel = PersonaPanel()
         self.thinking.bind(self)
-        self.persona_host = InstrumentPanel("arelis", self.persona_panel)
-        self.think_host = self.persona_host
         self.history_host = InstrumentPanel("history", self.history)
         self.camera_host = InstrumentPanel("camera", self.camera)
 
     def _build_docks(self) -> None:
-        assert hasattr(self, "persona_host"), (
+        assert hasattr(self, "history_host"), (
             "Instruments must be built before docks (docks wrap the instrument hosts)"
         )
         # The four dock object names below are not styling hooks — no QSS rule
@@ -299,26 +296,7 @@ class WindowBuild:
         # so they are what layout_store writes into ui_layout.ini and matches on
         # the way back. Drop one and that dock silently stops coming back where
         # it was left, days later, with nothing to connect it to.
-        self._persona_user_closed = False
-        self._persona_adjusting = False
-        self.persona_dock = GlassDockWidget("arelis", self)
-        self.persona_dock.setObjectName("PersonaDock")
-        self.think_dock = self.persona_dock
-        self._persona_shell = _dock_shell(
-            self.persona_host,
-            (_PANEL_HALF, _PANEL_TOP, _PANEL_OUTER, _PANEL_BOTTOM),
-        )
-        self._think_shell = self._persona_shell
-        self.persona_dock.setWidget(self._persona_shell)
-        # After setWidget, so the first surface pass reaches the shell and panel.
-        _hide_dock_title(self.persona_dock)
-        self.persona_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea
-            | Qt.DockWidgetArea.RightDockWidgetArea
-            | Qt.DockWidgetArea.BottomDockWidgetArea
-        )
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.persona_dock)
-
+        # She is not a dock: seat_persona hosts her panel in persona_stage.
         self.history_dock = GlassDockWidget("history", self)
         self.history_dock.setObjectName("HistoryDock")
         self._history_shell = _dock_shell(
@@ -354,7 +332,6 @@ class WindowBuild:
         # Without mins, QMainWindow will crush side docks to a few pixels.
         self._dock_min_width = 220
         for dock in (
-            self.persona_dock,
             self.history_dock,
             self.camera_dock,
         ):
@@ -376,17 +353,12 @@ class WindowBuild:
         # and leaves 4K-at-150% alone (that screen is already ~1440 logical).
         opening = default_window_size(self.config)
         self.resize(opening)
-        self.persona_dock.resize(370, 600)
-        self.resizeDocks([self.persona_dock], [370], Qt.Orientation.Horizontal)
         self.history_dock.resize(280, 600)
         self._apply_calm_instrument_defaults()
 
         restored = restore_window_layout(self, opening)
         if not restored:
             self._apply_calm_instrument_defaults()
-        else:
-            self._open_persona_saved_by_old_default()
-        self._adopt_old_thinking_layout()
         # Seal restored floats now, before the first show. Do not redock them
         # after paint — that shrink used to leave a second orbit on the right.
         seat_persona(self)
@@ -481,10 +453,6 @@ class WindowBuild:
         self._busy_watchdog = QTimer(self)
         self._busy_watchdog.setSingleShot(True)
         self._busy_watchdog.timeout.connect(self._on_busy_watchdog)
-        self._think_pulse_timer = QTimer(self)
-        self._think_pulse_timer.setSingleShot(True)
-        self._think_pulse_timer.setInterval(_THINK_PULSE_MS)
-        self._think_pulse_timer.timeout.connect(self._on_think_pulse_done)
 
         # Embed archived messages between turns only. Mid-turn would load nomic
         # and risk evicting the chat model on a 12GB card.
@@ -521,7 +489,7 @@ class WindowBuild:
         self._atmosphere_timer.start()
 
     def _connect_signals_and_bind(self) -> None:
-        assert hasattr(self, "think_dock"), (
+        assert hasattr(self, "history_dock"), (
             "Docks must be built before signals (view actions need docks)"
         )
         assert hasattr(self, "world_scene"), "Secondary windows must be built before signals"
@@ -579,32 +547,3 @@ class WindowBuild:
         if quiet_launch(self):
             return
         self.conversation.focus_input()
-
-    def _adopt_old_thinking_layout(self) -> None:
-        """A layout saved by the old Thinking dock opens as her dock on the right."""
-        from arelis.ui.layout_store import settings
-
-        state = settings().value("state")
-        raw = b""
-        if state is not None:
-            try:
-                raw = bytes(state)
-            except TypeError:
-                raw = b""
-        text = raw.decode("latin1", "ignore").replace("\x00", "")
-        if "ThinkingDock" not in text or "PersonaDock" in text:
-            return
-        self._place_persona_dock()
-
-    def _place_persona_dock(self) -> None:
-        dock = self.persona_dock
-        self._persona_adjusting = True
-        try:
-            if dock.isFloating():
-                dock.setFloating(False)
-            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-            self.resizeDocks([dock], [370], Qt.Orientation.Horizontal)
-            ui_cfg = self.config.get("ui", {}) or {}
-            dock.setVisible(bool(ui_cfg.get("thinking_open", True)))
-        finally:
-            self._persona_adjusting = False

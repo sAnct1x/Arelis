@@ -32,7 +32,7 @@ from arelis.core.evidence import looks_like_bot_wall
 
 TURN_FAILED_NOTICE = (
     "Something went wrong mid-turn, so I stopped rather than guess. "
-    "The details are in Thinking (Ctrl+1). Try again, or rephrase."
+    "The details are in this turn's thinking. Try again, or rephrase."
 )
 
 # Sentences aimed at the model. A tool that says "Call vision(path=…)" or

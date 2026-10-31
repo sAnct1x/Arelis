@@ -30,7 +30,6 @@ def sync_idle_mode(window) -> None:
         any(
             not dock.isHidden()
             for dock in (
-                window.persona_dock,
                 window.history_dock,
                 window.camera_dock,
             )

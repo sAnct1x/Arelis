@@ -21,7 +21,7 @@ def test_filament_hosts_her_in_the_hub_not_a_tile(arelis_window, qt_app, caplog)
     w = _filament(arelis_window, qt_app)
     stage = w.persona_stage
     assert w.persona_panel.parentWidget() is stage
-    assert stage.isVisible() and w.persona_dock.isHidden()
+    assert stage.isVisible()
     parent = stage.parentWidget()
     assert stage.geometry() == persona_region(parent.rect(), None, mode="hub")
     assert stage.geometry().center().x() < parent.width() / 2

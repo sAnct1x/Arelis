@@ -98,6 +98,10 @@ class PersonaPanel(QWidget):
         """Tests pass a clock so a status line does not take seconds to age."""
         self._clock = clock
 
+    def scene_pending(self) -> bool:
+        """Her scene is still on its way (not failed, not unavailable)."""
+        return self.web is not None and self.is_loading()
+
     def is_loading(self) -> bool:
         """True while the neutral veil stands in for her (loading or no scene)."""
         return not self.loading.isHidden()

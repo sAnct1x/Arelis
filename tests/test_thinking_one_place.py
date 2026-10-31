@@ -136,7 +136,6 @@ def test_nothing_sits_in_the_bottom_right(arelis_window, qt_app, caplog) -> None
 
     window = arelis_window()
     window.show()
-    window.persona_dock.show()
     qt_app.processEvents()
     window._set_busy(True)
     qt_app.processEvents()

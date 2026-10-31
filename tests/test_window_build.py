@@ -49,7 +49,7 @@ def _window() -> ArelisWindow:
 def test_the_shell_builds_at_all(qt_app) -> None:
     win = _window()
     assert win.conversation is not None
-    assert win.persona_dock.objectName() == "PersonaDock"
+    assert win.persona_panel.parentWidget() is win.persona_stage
 
 
 def test_every_phase_runs_once_and_after_what_it_needs(qt_app, monkeypatch) -> None:

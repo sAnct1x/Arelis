@@ -1,11 +1,11 @@
-"""Layout A: her face in the right dock, thinking inline in the chat."""
+"""Layout A: she lives in the stage, thinking inline in the chat."""
 
 from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QSettings, Qt, QUrl
-from PySide6.QtWidgets import QDockWidget, QMainWindow, QWidget
+from PySide6.QtCore import QUrl
+from PySide6.QtWidgets import QDockWidget
 
 from arelis.core.events import Event, EventType
 from arelis.location import UserLocation
@@ -31,20 +31,21 @@ def _thought_open(window) -> bool:
     return "because the moon" in text or "checking the tide table" in text
 
 
-def test_her_dock_sits_on_the_right(arelis_window, qt_app) -> None:
-    """The right dock is her face, about 370 px wide, and Thinking is gone."""
+def test_she_is_not_a_dock_and_has_no_toggle(arelis_window, qt_app) -> None:
+    """No persona dock, no Ctrl+1, nothing in the saved layout: she lives in the stage."""
+    from PySide6.QtGui import QKeySequence
+
     window = arelis_window()
-    window.resize(1440, 900)
     window.show()
     qt_app.processEvents()
-    dock = window.persona_dock
-    assert dock.objectName() == "PersonaDock"
-    assert window.dockWidgetArea(dock) == Qt.DockWidgetArea.RightDockWidgetArea
-    assert 330 <= dock.width() <= 420
     names = [item.objectName() for item in window.findChildren(QDockWidget)]
-    assert "ThinkingDock" not in names
-    assert window.act_persona.text() == "arelis"
-    assert window.act_persona.shortcut().toString() == "Ctrl+1"
+    assert "PersonaDock" not in names and "ThinkingDock" not in names
+    assert not hasattr(window, "persona_dock") and not hasattr(window, "act_persona")
+    keys = {a.shortcut() for a in window.actions()}
+    assert QKeySequence("Ctrl+1") not in keys
+    blob = bytes(window.saveState()).decode("latin1").replace("\x00", "")
+    assert "PersonaDock" not in blob
+    assert window.persona_panel.parentWidget() is window.persona_stage
 
 
 def test_reasoning_collapses_above_the_answer_and_click_toggles_it(arelis_window, qt_app) -> None:
@@ -77,43 +78,3 @@ def test_reasoning_collapses_above_the_answer_and_click_toggles_it(arelis_window
     closed = _plain(window)
     assert "because the moon pulls" not in closed
     assert "Tides are the rise and fall of the sea." in closed
-
-
-def _save_old_layout(qt_app, ini: str, mode: str) -> None:
-    host = QMainWindow()
-    host.setCentralWidget(QWidget())
-    host.resize(1440, 900)
-    made = {}
-    for name, area in (
-        ("ThinkingDock", Qt.DockWidgetArea.RightDockWidgetArea),
-        ("WorkspaceDock", Qt.DockWidgetArea.BottomDockWidgetArea),
-        ("HistoryDock", Qt.DockWidgetArea.LeftDockWidgetArea),
-        ("CameraDock", Qt.DockWidgetArea.LeftDockWidgetArea),
-    ):
-        dock = QDockWidget(host)
-        dock.setObjectName(name)
-        body = QWidget()
-        body.setMinimumSize(220, 160)
-        dock.setWidget(body)
-        host.addDockWidget(area, dock)
-        made[name] = dock
-    thinking = made["ThinkingDock"]
-    if mode == "hidden":
-        thinking.hide()
-    elif mode == "floating":
-        thinking.setFloating(True)
-        thinking.resize(400, 500)
-    elif mode == "bottom":
-        host.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, thinking)
-    host.show()
-    qt_app.processEvents()
-    store = QSettings(ini, QSettings.Format.IniFormat)
-    store.setValue("geometry", host.saveGeometry())
-    store.setValue("state", host.saveState())
-    store.setValue("size", host.size())
-    store.sync()
-    blob = bytes(host.saveState())
-    assert "ThinkingDock" in blob.decode("latin1").replace("\x00", "")
-    host.close()
-    host.deleteLater()
-    qt_app.processEvents()

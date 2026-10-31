@@ -30,7 +30,6 @@ _PLATE_ONLY = (
 )
 
 _DOCK_TILES = (
-    "thinking",
     "history",
     "notifications",
     "camera",
@@ -648,7 +647,6 @@ def apply_tile(window, name: str, *, show: bool, page: str = "") -> None:
 
     key = (name or "").strip().lower()
     mapping = {
-        "thinking": window.act_thinking,
         "history": window.act_history,
         "notifications": window.act_notifications,
         "camera": window.act_camera,

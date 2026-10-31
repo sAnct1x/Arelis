@@ -8,10 +8,7 @@ def test_night_hosts_her_in_the_band_not_the_dock(arelis_window, qt_app) -> None
     w.show()
     qt_app.processEvents()
     assert w.persona_panel.parentWidget() is w.persona_stage
-    assert w.persona_stage.isVisible() and w.persona_dock.isHidden()
-    w.persona_dock.show()
-    qt_app.processEvents()
-    assert w.persona_dock.isHidden()
+    assert w.persona_stage.isVisible()
     w._sync_panel_margins()
     right = w._stage_layout.contentsMargins().right()
     assert w.conversation.geometry().right() < w.persona_stage.geometry().left()

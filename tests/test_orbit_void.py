@@ -172,7 +172,7 @@ def test_idle_keeps_one_orbit_when_docks_open(arelis_window) -> None:
     window = arelis_window()
     window._reset_layout()
     window.history_dock.show()
-    window.think_dock.show()
+    window.camera_dock.show()
     sync_idle_mode(window)
     assert window.conversation.graphicsEffect() is None
     assert window.chat.empty.graphicsEffect() is None

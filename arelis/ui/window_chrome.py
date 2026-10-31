@@ -117,12 +117,6 @@ class WindowChrome:
     def _apply_calm_instrument_defaults(self) -> None:
         """Hide instruments for a conversation-first composition."""
         ui_cfg = self.config.get("ui", {})
-        if not ui_cfg.get("thinking_open", True):
-            self._persona_adjusting = True
-            try:
-                self.persona_dock.hide()
-            finally:
-                self._persona_adjusting = False
         if not ui_cfg.get("camera_open", False):
             self.camera_dock.hide()
         self.history_dock.hide()
@@ -130,39 +124,9 @@ class WindowChrome:
         if cal is not None:
             cal.hide()
 
-    def _open_persona_saved_by_old_default(self) -> None:
-        """A restored hidden dock from the old default is not a hand close.
-
-        `_persona_user_closed` is set only when she is closed by hand in this
-        session, after the window exists. A layout saved while the old default
-        hid her has no separate flag, so she opens. A previous session's hand
-        close looks the same in the saved state and also opens; this session's
-        hand close still sticks.
-        """
-        if getattr(self, "_persona_user_closed", False):
-            return
-        ui_cfg = self.config.get("ui", {}) or {}
-        if not ui_cfg.get("thinking_open", True):
-            return
-        if not self.persona_dock.isHidden():
-            return
-        self._persona_adjusting = True
-        try:
-            self.persona_dock.setVisible(True)
-        finally:
-            self._persona_adjusting = False
-
     def _on_thinking_status_clicked(self) -> None:
         """The status line opens this turn's thinking in the chat."""
         self.chat.expand_thinking()
-
-    def _pulse_thinking_instrument(self) -> None:
-        """One short amber hairline on the thinking plate, then rest."""
-        self.think_host.set_attention(True, ember=True)
-        self._think_pulse_timer.start()
-
-    def _on_think_pulse_done(self) -> None:
-        self.think_host.set_attention(False)
 
     def _atmosphere_glass_frames(self) -> list[GlassFrame]:
         """Plates the 10 Hz tick may invalidate.
@@ -212,19 +176,6 @@ class WindowChrome:
             frame.update()
 
     def _build_view_actions(self) -> None:
-        # Checks start from what each dock is set to, not isVisible(): the
-        # window is not shown yet, and the first visibilityChanged arrives mid
-        # chrome swap, where on_dock_visibility ignores it. Ctrl+1 then needed
-        # two presses to close her dock.
-        self.act_persona = QAction("arelis", self)
-        self.act_persona.setCheckable(True)
-        self.act_persona.setChecked(not self.persona_dock.isHidden())
-        self.act_persona.setShortcut(QKeySequence("Ctrl+1"))
-        self.act_persona.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
-        self.act_persona.triggered.connect(self._toggle_persona)
-        self.addAction(self.act_persona)
-        self.act_thinking = self.act_persona
-
         self.act_history = QAction("history", self)
         self.act_history.setCheckable(True)
         self.act_history.setChecked(not self.history_dock.isHidden())
@@ -638,7 +589,6 @@ class WindowChrome:
         widths: list[int] = []
         for dock in (
             self.history_dock,
-            self.persona_dock,
             self.camera_dock,
         ):
             if not dock.isVisible() or dock.isFloating():
@@ -696,7 +646,6 @@ class WindowChrome:
         menu.addAction(self.act_find)
         menu.addAction(self.act_search_history)
         menu.addSeparator()
-        menu.addAction(self.act_persona)
         menu.addAction(self.act_history)
         menu.addAction(self.act_notifications)
         menu.addAction(self.act_camera)
@@ -753,9 +702,8 @@ class WindowChrome:
 
     def _sync_view_checks(self) -> None:
         """Keep View-menu checkmarks aligned with the docks that are actually up."""
-        if not hasattr(self, "act_persona"):
+        if not hasattr(self, "act_history"):
             return
-        self.act_persona.setChecked(self.persona_dock.isVisible())
         self.act_history.setChecked(self.history_dock.isVisible())
         self.act_notifications.setChecked(self.notify_inbox.isVisible())
         self.act_camera.setChecked(self.camera_dock.isVisible())
@@ -844,10 +792,8 @@ class WindowChrome:
 
     def _reset_layout(self) -> None:
         self.camera.stop()
-        self.persona_dock.setFloating(False)
         self.history_dock.setFloating(False)
         self.camera_dock.setFloating(False)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.persona_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.history_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.camera_dock)
         self._stack_left_instruments()
@@ -859,7 +805,6 @@ class WindowChrome:
         self._calendar_sync_watchdog.stop()
         self.sms_chats.hide_all()
         self._apply_calm_instrument_defaults()
-        self.act_persona.setChecked(self.persona_dock.isVisible())
         self.act_history.setChecked(False)
         self.act_notifications.setChecked(False)
         self.act_camera.setChecked(False)

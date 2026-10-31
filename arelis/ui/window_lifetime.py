@@ -253,7 +253,6 @@ class WindowLifetime:
         instruments than you left would be its own small betrayal.
         """
         for dock in (
-            self.think_dock,
             self.history_dock,
             self.camera_dock,
         ):
@@ -282,7 +281,6 @@ class WindowLifetime:
                 dock.raise_()
 
         for dock in (
-            self.think_dock,
             self.history_dock,
             self.camera_dock,
         ):
