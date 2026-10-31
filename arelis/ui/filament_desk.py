@@ -403,7 +403,6 @@ class FilamentDesk:
         try:
             w.title_bar.set_slim(True)
             w.readiness_strip.hide()
-            w.persona_dock.hide()
             w.history_dock.hide()
             w.camera_dock.hide()
             w.notify_inbox.hide()
@@ -416,6 +415,10 @@ class FilamentDesk:
         self._filament_apply_glass(True)
         self._filament_lock_tiles(True)
         self._filament_place_entity()
+        # She stays in presence: float her as the "thinking" tile by its title,
+        # outside the scene, without counting as the user waking the desk.
+        self._filament_present_tile(w.persona_dock, "thinking")
+        w._filament_woken = False
         apply = getattr(w.conversation, "apply_filament_desk", None)
         if callable(apply):
             apply(True, chat_open=False)

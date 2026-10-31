@@ -228,6 +228,7 @@ arelis = [
     # The three.js avatar scene. The .glb model is user data and never ships.
     "ui/persona_face/web/*.html",
     "ui/persona_face/web/*.js",
+    "ui/persona_face/web/*.json",
     "ui/persona_face/web/vendor/three/*",
     "ui/persona_face/web/vendor/three/addons/*/*.js",
 ]

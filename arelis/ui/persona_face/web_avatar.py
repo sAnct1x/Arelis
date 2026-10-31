@@ -87,6 +87,28 @@ def _unavailable_reason() -> str | None:
     return None
 
 
+def check_script(*, probe_gl: bool) -> str:
+    """The page poll. WebGL is probed once, and the probe gives its context back.
+
+    Chromium keeps about 16 WebGL contexts per page and drops the oldest past
+    that. A detached test canvas stays active until GC, so probing on every
+    poll (4 a second, then every 2 s) used up the budget and the page dropped
+    the scene's own renderer, the oldest: no avatar, or a missed ready and
+    the painted head.
+    """
+    gl = ""
+    if probe_gl:
+        gl = (
+            ", gl: (() => { const g = document.createElement('canvas').getContext('webgl2');"
+            " const lose = g && g.getExtension('WEBGL_lose_context');"
+            " if (lose) lose.loseContext(); return !!g; })()"
+        )
+    return (
+        "JSON.stringify({ready: !!window.__ready, error: window.__error || null,"
+        " api: !!(window.avatar && window.avatar.setState)" + gl + "})"
+    )
+
+
 class WebAvatar(QWidget):
     """Hosts the scene. Call set_state and set_level; listen for failed."""
 
@@ -102,6 +124,7 @@ class WebAvatar(QWidget):
         self._dead = False
         self._state = "idle"
         self._level = -1.0
+        self._gl_known = False
         self.view = QWebEngineView(self)
         # Clicks go to the panel underneath, which owns stop-speaking.
         self.view.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -169,12 +192,7 @@ class WebAvatar(QWidget):
             self._poll.start()
 
     def _check(self) -> None:
-        js = (
-            "JSON.stringify({ready: !!window.__ready, error: window.__error || null,"
-            " api: !!(window.avatar && window.avatar.setState),"
-            " gl: !!document.createElement('canvas').getContext('webgl2')})"
-        )
-        self.view.page().runJavaScript(js, 0, self._on_check)
+        self.view.page().runJavaScript(check_script(probe_gl=not self._gl_known), 0, self._on_check)
 
     def _on_check(self, raw) -> None:
         if self._dead:
@@ -183,6 +201,8 @@ class WebAvatar(QWidget):
             info = json.loads(raw or "{}")
         except (TypeError, ValueError):
             info = {}
+        if "gl" in info:
+            self._gl_known = True
         if not info.get("gl", True):
             self._fail("WebGL unavailable")
         elif info.get("error"):
