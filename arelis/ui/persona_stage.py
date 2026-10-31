@@ -21,10 +21,10 @@ CHAT_MIN = 380
 BAND_FIT_MIN = 180
 # The stage's own padding around the chat column, beyond the column's minimum.
 CHAT_PAD = 2 * SHELL["outer"]
-# Filament hub: bottom-left corner, sized off the stage height.
+# Filament hub: bottom-left corner, sized off the stage height. No upper cap: like
+# the Night/Sodium band (full height) she grows with a maximized window.
 HUB_SHARE = 0.45
 HUB_MIN = 240
-HUB_MAX = 640
 # Head to toe she is about half as wide as tall, with the camera's margin.
 FIGURE_ASPECT = 0.5
 
@@ -48,7 +48,7 @@ def persona_region(
     (CHAT_MIN, or more when the composer row needs more),
     but never below BAND_FIT_MIN (she scales down head to toe, never cropped).
     hub: the bottom-left corner, a head-to-toe box about 45% of the height,
-    240-640 px tall, scaled down when the stage is smaller.
+    at least 240 px tall, scaled down when the stage is smaller.
     In a Filament span both sit on the home desk, not the union of desks.
     The region never leaves the stage.
     """
@@ -56,7 +56,7 @@ def persona_region(
     if area.isEmpty():
         area = QRect(stage)
     if mode == "hub":
-        height = max(HUB_MIN, min(HUB_MAX, round(area.height() * HUB_SHARE)))
+        height = max(HUB_MIN, round(area.height() * HUB_SHARE))
         box = fit_figure(QRect(0, 0, round(height * FIGURE_ASPECT), height), area)
         return QRect(area.left(), area.bottom() + 1 - box.height(), box.width(), box.height())
     width = max(BAND_MIN, min(BAND_MAX, round(area.width() * BAND_SHARE)))

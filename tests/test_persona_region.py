@@ -28,7 +28,7 @@ def test_band_sits_right_clamped_and_inside(stage: QRect, home: QRect | None, wa
     ("stage", "home", "want"),
     [
         (QRect(0, 0, 1600, 900), None, QRect(0, 495, 202, 405)),
-        (QRect(0, 0, 3840, 2160), None, QRect(0, 1520, 320, 640)),
+        (QRect(0, 0, 3840, 2160), None, QRect(0, 1188, 486, 972)),
         (QRect(0, 0, 5760, 1080), QRect(1920, 0, 1920, 1080), QRect(1920, 594, 243, 486)),
         (QRect(0, 0, 400, 200), None, QRect(0, 0, 100, 200)),
     ],
