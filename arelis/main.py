@@ -210,6 +210,10 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_cli(config, allow_write=bool(args.allow_write))
 
+    from arelis.dev_sync import sync_checkout_deps
+
+    sync_checkout_deps()
+
     from arelis.ui.app import run_ui
 
     if args.config:
