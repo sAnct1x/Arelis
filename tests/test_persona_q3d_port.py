@@ -15,3 +15,10 @@ def test_fills_and_shells_project_the_same_way():
     assert _projection(port.FILL_VERT) == _projection(port.SHELL_VERT)
     assert len(_projection(port.SHELL_VERT)) == 2
 
+
+def test_card_alpha_is_sampled_with_gltf_v():
+    src = "uniform sampler2D uAlphaMap; varying vec2 vUv2;\nvoid main(){ float ca = texture2D(uAlphaMap, vUv2).a; gl_FragColor = vec4(ca); }"
+    out = port.translate(src, "frag", {})
+    assert "glTFTex(uAlphaMap, vUv2)" in out and "texture2D(" not in out
+    assert "1.0 - (uv).y" in port.FRAG_PRE
+    assert "glTFTex(uAlphaMap, vUv)" in port.FILL_FRAG["card"]

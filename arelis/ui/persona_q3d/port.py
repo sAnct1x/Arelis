@@ -85,10 +85,16 @@ vec3 skinPoint(vec3 p, vec4 si, vec4 sw) { vec4 b = vec4(p, 1.0);
   return s.xyz; }
 """
 )
+# three samples glTF textures with flipY false (v = 0 is the top row of the image); Quick 3D's
+# texture() has v = 0 at the bottom row, and Texture.flipV only reaches the built-in materials'
+# texture transform. Unflipped, every card read its alpha upside down: hair strands broke into
+# specks and the brows thinned to a few dots. aether.js only samples the card alpha maps, so
+# every texture2D in a translated fragment stage becomes glTFTex.
 FRAG_PRE = (
     COMMON
     + """#define gl_FragColor FRAGCOLOR
 #define gl_FragCoord FRAGCOORD
+#define glTFTex(s, uv) texture(s, vec2((uv).x, 1.0 - (uv).y))
 """
 )
 
@@ -144,7 +150,7 @@ void MAIN() { FRAGCOLOR = vec4(uColor, 1.0); }
     # alphaMap cut-out (hair volume: alphaTest 0.45, opaque; cards: alphaTest 0.3, opacity 0.6)
     "card": FRAG_PRE
     + """VARYING vec2 vUv; VARYING vec3 vWp;
-void MAIN() { float a = uOpacity * texture(uAlphaMap, vUv).a; if (a < uAlphaTest) discard;
+void MAIN() { float a = uOpacity * glTFTex(uAlphaMap, vUv).a; if (a < uAlphaTest) discard;
   FRAGCOLOR = vec4(uColor, a); }
 """,
 }
@@ -429,6 +435,8 @@ def translate(src: str, stage: str, uniforms: dict[str, tuple[str, int]]) -> str
         defines.append("vec3 position;")
         loads.append("position = VERTEX;")
         src = re.sub(r"void\s+main\s*\(\s*\)\s*\{", "void main() { " + " ".join(loads), src)
+    if stage == "frag":
+        src = re.sub(r"\btexture2D\s*\(", "glTFTex(", src)  # see FRAG_PRE
     src = re.sub(r"\bvarying\b", "VARYING", src)
     src = re.sub(r"void\s+main\s*\(\s*\)", "\nvoid MAIN()", src)
     src = re.sub(
