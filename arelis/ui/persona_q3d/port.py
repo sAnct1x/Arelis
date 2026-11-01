@@ -118,7 +118,10 @@ void MAIN() {
          + BONE_TRANSFORMS[JOINTS.z] * WEIGHTS.z + BONE_TRANSFORMS[JOINTS.w] * WEIGHTS.w;
   vec4 w = S * vec4(VERTEX, 1.0); vUv = UV0; vWp = w.xyz;
   w.xyz += normalize(w.xyz - CAMERA_POSITION) * uPush;   // occluders sit behind the shells
-  POSITION = VIEWPROJECTION_MATRIX * w;
+  // same expression as SHELL_VERT: the shells draw over these fills at the same depth (three's
+  // LessEqual), and VIEWPROJECTION * w rounds differently, so the shells z-fought them in specks
+  vec4 mv = VIEW_MATRIX * w;
+  POSITION = PROJECTION_MATRIX * mv;
 }
 """
 )
