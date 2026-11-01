@@ -218,3 +218,26 @@ def test_her_pipeline_cache_is_saved_after_the_first_frame(tmp_path, monkeypatch
     saved = path.exists() and path.stat().st_size > 0
     host.close()
     assert saved
+
+
+def test_her_frames_are_paced_by_the_screen_refresh_not_by_each_finished_frame(
+    tmp_path, monkeypatch
+) -> None:
+    """Asked for frames nonstop, she draws one per refresh slot, not one as soon as the last lands."""
+    import time
+
+    from PySide6.QtCore import QTimer
+
+    host = _ready_host(tmp_path, monkeypatch)
+    host._render.interval_s = 0.05  # a 20 Hz screen, so the cadence is unmistakable
+    QTest.qWait(200)
+    frames: list[float] = []
+    host._render.frame_ready.connect(lambda: frames.append(time.perf_counter()))
+    nag = QTimer()
+    nag.setInterval(1)
+    nag.timeout.connect(host._request)  # a scene that changes every millisecond
+    nag.start()
+    QTest.qWait(1000)
+    nag.stop()
+    host.close()
+    assert 10 <= len(frames) <= 24, f"{len(frames)} frames in 1 s at a 50 ms refresh"
