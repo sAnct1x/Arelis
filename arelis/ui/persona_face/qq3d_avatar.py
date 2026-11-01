@@ -331,6 +331,7 @@ class QQ3DAvatar(QWidget):
             QTimer.singleShot(0, lambda: self._fail(f"scene error: {errs}"))
             return
         self.root = root
+        self._start_gpu_profile()
         self._apply_theme()
         root.setProperty("avatarState", self._state)
         self._poll = QTimer(self)
@@ -356,6 +357,32 @@ class QQ3DAvatar(QWidget):
         flush.start()
         watch = StallWatch(log)
         self.destroyed.connect(watch.stop)
+        self.destroyed.connect(log.close)
+        app = QCoreApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(log.close)
+
+    def _start_gpu_profile(self) -> None:
+        """Measurement build: ablation props from env, and per-frame GPU time (gpuprof.py)."""
+        from PySide6.QtCore import QCoreApplication
+
+        from arelis.ui.persona_face import gpuprof
+        from arelis.ui.persona_face.panel import alog
+
+        props = gpuprof.ablation()
+        for key, value in props.items():
+            self.root.setProperty(key, value)
+        log = self._gpu = gpuprof.gpu_log(self.view.quickWindow())
+        alog("qq3d gpuprof", profile=log is not None, **props)
+        if log is None:
+            return
+        self.view.quickWindow().afterRendering.connect(
+            log.frame, Qt.ConnectionType.DirectConnection
+        )
+        flush = QTimer(self)
+        flush.setInterval(_FLUSH_MS)
+        flush.timeout.connect(log.flush)
+        flush.start()
         self.destroyed.connect(log.close)
         app = QCoreApplication.instance()
         if app is not None:

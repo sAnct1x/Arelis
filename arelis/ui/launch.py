@@ -500,6 +500,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
 
     prepare_desktop_gl(os.environ)
     os.environ.setdefault("QT_QPA_FONTDIR", str(qt_font_directory()))
+    from arelis.ui.persona_face.gpuprof import enable_timestamps
+
+    enable_timestamps(os.environ)
 
     # A scheduled task holds the absolute path it was created with, so installing a
     # packaged build after running from a checkout leaves every job pointing at an

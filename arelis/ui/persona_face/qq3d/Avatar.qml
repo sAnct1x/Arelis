@@ -39,11 +39,19 @@ Item {
         return n
     }
     property var face: null   // Track B (persona_q3d/face.js), created once the model has loaded
+    // Measurement build only (persona_face/gpuprof.py): the host sets these from env vars at start.
+    property bool noBloom: false
+    property real bloomRes: 1
+    property bool compositeOnly: false
+    property real renderScale: 1
+    property var hiddenLayers: []
 
     View3D {
         id: view
         objectName: "view"
         anchors.fill: parent
+        explicitTextureWidth: root.renderScale < 1 ? Math.max(1, Math.round(width * root.dpr * root.renderScale)) : 0
+        explicitTextureHeight: root.renderScale < 1 ? Math.max(1, Math.round(height * root.dpr * root.renderScale)) : 0
         // The look's own output path, as tools/avatar_lookmatch.py PORT_SCENE renders iter5: no MSAA,
         // linear tonemap (three's OutputPass), and AetherBloom with config.js LOOK.bloom.
         environment: SceneEnvironment {
@@ -51,7 +59,8 @@ Item {
             clearColor: root.backdrop
             antialiasingMode: SceneEnvironment.NoAA
             tonemapMode: SceneEnvironment.TonemapModeLinear
-            effects: [AetherBloom { objectName: "bloom"; strength: 0.85; radius: 0.5; threshold: 0.55; keyAlpha: root.backdrop.a > 0 ? 0 : 1 }]
+            property AetherBloom bloom: AetherBloom { objectName: "bloom"; strength: 0.85; radius: 0.5; threshold: 0.55; keyAlpha: root.backdrop.a > 0 ? 0 : 1; res: root.bloomRes }
+            effects: root.noBloom ? [] : [bloom]
         }
         // v14k's camera (aether.js): 30 degrees vertical, at (0, 0.9, 3.95) looking at (0, 0.88, 0),
         // head to toe in her full-height band in every room. The scene is in metres, her model's own unit: the look's
@@ -68,7 +77,7 @@ Item {
             objectName: "figure"
             source: root.modelSource
             onStatusChanged: {
-                if (status === Loader3D.Ready) { root.startFace(item); root.sceneStatus = "ready" }
+                if (status === Loader3D.Ready) { root.startFace(item); root.ablate(item); root.sceneStatus = "ready" }
                 else if (status === Loader3D.Error) { root.sceneError = "model failed to load"; root.sceneStatus = "error" }
             }
         }
@@ -93,6 +102,20 @@ Item {
         }
         return n
     }
+    // Ablation: hide the named layers (or the whole figure) so each pass's GPU cost can be measured.
+    function ablate(model) {
+        if (compositeOnly) { model.visible = false; return }
+        if (!hiddenLayers || hiddenLayers.length === 0) return
+        var want = {}
+        for (var i = 0; i < hiddenLayers.length; i++) want[hiddenLayers[i]] = true
+        var stack = [model]
+        while (stack.length) {
+            var n = stack.pop()
+            if (n !== model && want[n.objectName]) n.visible = false
+            var d = n.data || []
+            for (var k = 0; k < d.length; k++) if (d[k] && d[k].visible !== undefined) stack.push(d[k])
+        }
+    }
     function startFace(model) {
         stripFaceTracks(model)
         face = Face.create(model, {})
@@ -115,13 +138,13 @@ Item {
     readonly property real dpr: view.Window.window ? view.Window.window.effectiveDevicePixelRatio : Screen.devicePixelRatio
     Binding {
         target: loader.item; property: "viewportSize"; when: loader.item && loader.item.viewportSize !== undefined
-        value: Qt.vector2d(view.width * root.dpr, view.height * root.dpr)
+        value: Qt.vector2d(view.width * root.dpr * root.renderScale, view.height * root.dpr * root.renderScale)
     }
     Binding { target: loader.item; property: "camera"; when: loader.item && loader.item.camera !== undefined; value: cam }
     Binding { target: loader.item; property: "aetherState"; when: loader.item && loader.item.aetherState !== undefined; value: root.avatarState }
     Binding {
         target: loader.item; property: "devicePixelRatio"; when: loader.item && loader.item.devicePixelRatio !== undefined
-        value: root.dpr
+        value: root.dpr * root.renderScale
     }
 
     // The layout settled. Quick 3D follows its size by itself; kept for the host API.

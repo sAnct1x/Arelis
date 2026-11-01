@@ -12,6 +12,8 @@ Effect {
     // 1 over a see-through clear (the app window): alpha keyed from her brightness, see composite.frag.
     // 0 (default) keeps the frame's own alpha, as the look-match harness renders on black.
     property real keyAlpha: 0
+    // Scales every bloom buffer (1 = the look; 0.5 = the measurement build's half-res bloom).
+    property real res: 1
     property real kr: 3
     property real scale: 1
     property vector2d dir: Qt.vector2d(1, 0)
@@ -24,17 +26,17 @@ Effect {
     Shader { id: brightFs; stage: Shader.Fragment; shader: Qt.resolvedUrl("bloom/bright.frag") }
     Shader { id: blurFs; stage: Shader.Fragment; shader: Qt.resolvedUrl("bloom/blur.frag") }
     Shader { id: compositeFs; stage: Shader.Fragment; shader: Qt.resolvedUrl("bloom/composite.frag") }
-    Buffer { id: bright; name: "bright"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.5 }
-    Buffer { id: h0; name: "h0"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.5 }
-    Buffer { id: v0; name: "v0"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.5 }
-    Buffer { id: h1; name: "h1"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.25 }
-    Buffer { id: v1; name: "v1"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.25 }
-    Buffer { id: h2; name: "h2"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.125 }
-    Buffer { id: v2; name: "v2"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.125 }
-    Buffer { id: h3; name: "h3"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.0625 }
-    Buffer { id: v3; name: "v3"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.0625 }
-    Buffer { id: h4; name: "h4"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.03125 }
-    Buffer { id: v4; name: "v4"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.03125 }
+    Buffer { id: bright; name: "bright"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.5 * res }
+    Buffer { id: h0; name: "h0"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.5 * res }
+    Buffer { id: v0; name: "v0"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.5 * res }
+    Buffer { id: h1; name: "h1"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.25 * res }
+    Buffer { id: v1; name: "v1"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.25 * res }
+    Buffer { id: h2; name: "h2"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.125 * res }
+    Buffer { id: v2; name: "v2"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.125 * res }
+    Buffer { id: h3; name: "h3"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.0625 * res }
+    Buffer { id: v3; name: "v3"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.0625 * res }
+    Buffer { id: h4; name: "h4"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.03125 * res }
+    Buffer { id: v4; name: "v4"; format: Buffer.RGBA16F; textureFilterOperation: Buffer.Linear; textureCoordOperation: Buffer.ClampToEdge; sizeMultiplier: 0.03125 * res }
     passes: [
         Pass { shaders: [brightFs]; output: bright },
         Pass { shaders: [blurFs]; output: h0; commands: [BufferInput { buffer: bright }, SetUniformValue { target: "kr"; value: 3.0 }, SetUniformValue { target: "scale"; value: 1.0 }, SetUniformValue { target: "dir"; value: Qt.vector2d(1, 0) }] },
