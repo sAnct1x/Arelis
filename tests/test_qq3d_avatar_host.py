@@ -131,3 +131,23 @@ def test_over_a_see_through_clear_the_bloom_keys_its_alpha(tmp_path, monkeypatch
     bloom = host.root.findChild(QObject, "bloom")
     assert bloom is not None and bloom.property("keyAlpha") == 1
     host.close()
+
+
+def test_her_view_runs_the_full_band_height(tmp_path, monkeypatch) -> None:
+    """A view stopping short of the band cut her floor and glow on a hard line (a box)."""
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "qq3d")
+    monkeypatch.setattr("arelis.ui.persona_face.qq3d_avatar.wanted", lambda theme=None: True)
+    from arelis.ui.persona_face.panel import PersonaPanel
+    from arelis.ui.persona_face.qq3d_avatar import unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    panel = PersonaPanel()
+    panel.resize(300, 700)
+    panel.show()
+    QTest.qWait(50)
+    assert panel.web is not None
+    assert panel.web.geometry().height() == panel.height()
+    panel.close()
