@@ -116,3 +116,18 @@ def test_missing_clips_log_one_error_naming_the_folder(tmp_path, monkeypatch, ca
     assert check_clips() is False
     errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
     assert errors == [f"[avatar] clips missing at {d / 'animations'}"]
+
+
+def test_she_loads_the_look_not_the_plain_model(tmp_path, monkeypatch) -> None:
+    from arelis.ui.persona_face.qq3d_avatar import model_path
+
+    d = _model(tmp_path, monkeypatch)
+    (d / "Ellah_aether.qml").write_text(_STAND_IN, encoding="utf-8")
+    assert model_path() == d / "Ellah_aether.qml"
+
+
+def test_over_a_see_through_clear_the_bloom_keys_its_alpha(tmp_path, monkeypatch) -> None:
+    host = _ready_host(tmp_path, monkeypatch)
+    bloom = host.root.findChild(QObject, "bloom")
+    assert bloom is not None and bloom.property("keyAlpha") == 1
+    host.close()

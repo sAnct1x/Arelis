@@ -9,6 +9,9 @@ Effect {
     property real strength: 0.85
     property real radius: 0.5
     property real threshold: 0.55
+    // 1 over a see-through clear (the app window): alpha keyed from her brightness, see composite.frag.
+    // 0 (default) keeps the frame's own alpha, as the look-match harness renders on black.
+    property real keyAlpha: 0
     property real kr: 3
     property real scale: 1
     property vector2d dir: Qt.vector2d(1, 0)

@@ -495,6 +495,8 @@ class FilamentField:
         self._live_phase = 0.0
         self._tethers: dict[str, dict] = {}
         self.hub: QPointF | None = None
+        # Window x where her band starts (Filament): the ring, ask and reality stay left of it.
+        self.band_left: float | None = None
         # Load sequence: 1.0 is a full ring. begin_ring_growth drops it to 0,
         # waits for her, then eases it back so the ring grows out of the hub.
         self.ring_grow = 1.0
@@ -664,17 +666,22 @@ class FilamentField:
                 d["life"] = 0.0
             d["life"] += dt * 0.16
 
-    def ellipse(self, rect: QRect) -> tuple[float, float, float, float]:
+    def ellipse(self, rect: QRect, settled: bool = False) -> tuple[float, float, float, float]:
+        """The ring; settled skips the load growth (where it comes to rest)."""
         w, h = float(rect.width()), float(rect.height())
         desk = self._desk_width(w)
-        if self._desk_w > 80.0:
+        if self.band_left is not None:
+            home = self.home_rect(rect)
+            desk = float(home.width())
+            cx = home.left() + desk * 0.5
+        elif self._desk_w > 80.0:
             cx = rect.left() + self._desk_left + desk * 0.5
         else:
             cx = rect.left() + w * 0.5
         cy = rect.top() + h * 0.40
         rx = min(desk * 0.48, h * 0.44)
         ry = rx * 0.50
-        g = self.ring_scale()
+        g = 1.0 if settled else self.ring_scale()
         if g < 1.0:
             # Grows out of her hub: the centre slides from the hub, the radii open.
             if self.hub is not None:
@@ -718,9 +725,11 @@ class FilamentField:
         cur["end"] = QPointF(end)
         cur["want"] = 1.0
 
-    def set_hub(self, point: QPointF | None) -> None:
-        """Her hub point (bottom left). Threads start here; None in other rooms."""
+    def set_hub(self, point: QPointF | None, band_left: float | None = None) -> None:
+        """Her centre in the band. Threads start here and the ring grows out of it, to settle
+        on the desk left of band_left (where her band starts); None in other rooms."""
         self.hub = QPointF(point) if point is not None else None
+        self.band_left = float(band_left) if point is not None and band_left is not None else None
 
     def thread_start(self, name: str, rect: QRect) -> QPointF:
         """Where an open tile's strand starts: her hub when she has one."""
@@ -844,16 +853,20 @@ class FilamentField:
         return self._radial(name, rect, float(found[1]) + 18.0)
 
     def home_rect(self, rect: QRect) -> QRect:
-        """The primary desk. Ask + chrome stay inside this, even on a 3-span."""
+        """The primary desk, short of her band. Ask + chrome stay inside this, even on a 3-span."""
         w, h = float(rect.width()), float(rect.height())
         desk = self._desk_width(w)
         if self._desk_w > 80.0:
-            return QRect(int(rect.left() + self._desk_left), rect.top(), int(desk), int(h))
-        return QRect(rect)
+            home = QRect(int(rect.left() + self._desk_left), rect.top(), int(desk), int(h))
+        else:
+            home = QRect(rect)
+        if self.band_left is not None and home.left() < self.band_left <= home.right():
+            home.setRight(int(self.band_left) - 1)
+        return home
 
     def prompt_point(self, rect: QRect) -> QPointF:
         """Ask cluster sits under the ring, on the home desk."""
-        cx, cy, _rx, ry = self.ellipse(rect)
+        cx, cy, _rx, ry = self.ellipse(rect, settled=True)
         return QPointF(cx, cy + ry + 96)
 
     def prompt_rect(self, rect: QRect) -> QRect:

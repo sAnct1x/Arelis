@@ -105,9 +105,11 @@ class PersonaStage(QWidget):
         field = getattr(window, "_filament", None)
         if field is not None and hasattr(field, "set_hub"):
             hub = None
+            band_left = None
             if active_theme() == "filament" and parent is not None:
                 hub = QPointF(parent.mapTo(window, self.geometry().center()))
-            field.set_hub(hub)
+                band_left = parent.mapTo(window, self.geometry().topLeft()).x()
+            field.set_hub(hub, band_left)
             if hub is not None and getattr(window, "filament", None) is not None:
                 from arelis.ui.filament_desk import filament_tiles_clear_hub
 

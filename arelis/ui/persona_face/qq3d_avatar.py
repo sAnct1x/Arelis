@@ -27,6 +27,8 @@ ENTRY = QML_DIR / "Avatar.qml"
 ENGINE_ENV = "ARELIS_AVATAR_ENGINE"
 DIR_ENV = "ARELIS_AVATAR_QQ3D_DIR"
 MODEL_FILE = "Ellah_anim.qml"
+# tools/avatar_q3d_export.py writes the look (aether shaders on the same skeleton and clips).
+LOOK_FILE = "Ellah_aether.qml"
 _READY_TIMEOUT_MS = 30_000
 _OFF = {"0", "false", "no", "off"}
 FRAMETIME_ENV = "ARELIS_FRAMETIME_LOG"
@@ -73,7 +75,13 @@ def model_dir() -> Path:
 
 
 def model_path() -> Path:
-    return model_dir() / MODEL_FILE
+    """Her look (LOOK_FILE, the aether port) when it is there, else the plain balsam model.
+
+    The plain model has PrincipledMaterials lit by the stand-in lights; under the look's
+    bloom and linear tonemap it reads as a white blown-out figure, so it is only a fallback.
+    """
+    look = model_dir() / LOOK_FILE
+    return look if look.is_file() else model_dir() / MODEL_FILE
 
 
 def clips_path() -> Path:
@@ -189,7 +197,11 @@ class QQ3DAvatar(QWidget):
         if self._frames is not None:
             self._start_frame_log(self._frames)
         model = model_path()
-        alog("qq3d load", path=model.parent, engine="qq3d")
+        alog("qq3d load", path=model, engine="qq3d")
+        if model.name != LOOK_FILE:
+            logging.getLogger("arelis.avatar").warning(
+                "[avatar] no look (%s) in %s: plain model", LOOK_FILE, model.parent
+            )
         check_clips()
         # The look (Ellah_aether.qml) imports Arelis.PersonaQ3D for its LayerGeometry; importing the
         # module registers that QML type.

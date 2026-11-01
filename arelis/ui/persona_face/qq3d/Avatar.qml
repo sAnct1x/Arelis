@@ -45,7 +45,7 @@ Item {
             clearColor: root.backdrop
             antialiasingMode: SceneEnvironment.NoAA
             tonemapMode: SceneEnvironment.TonemapModeLinear
-            effects: [AetherBloom { strength: 0.85; radius: 0.5; threshold: 0.55 }]
+            effects: [AetherBloom { objectName: "bloom"; strength: 0.85; radius: 0.5; threshold: 0.55; keyAlpha: root.backdrop.a > 0 ? 0 : 1 }]
         }
         // v14k's camera (aether.js): 30 degrees vertical, at (0, 0.9, 3.95) looking at (0, 0.88, 0),
         // head to toe in her full-height band in every room. The scene is in metres, her model's own unit: the look's
