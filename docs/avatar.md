@@ -34,7 +34,7 @@ She is part of the window itself, not a panel you open or close.
 
 - Night and Sodium: a band down the right side of the window, top to bottom. The chat
   ends where her band begins, so she never sits behind your messages.
-- Night with the Quick 3D figure (`ARELIS_AVATAR_ENGINE=qq3d`): she is the base layer
+- Night and Sodium with the Quick 3D figure (`ARELIS_AVATAR_ENGINE=qq3d`): she is the base layer
   of the whole window, as in Filament. She stands at the right, full height, head to
   toe, with no band or box around her. The chat keeps the space to her left, and her
   captions sit over her lower body.

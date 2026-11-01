@@ -87,7 +87,7 @@ def engine() -> str:
 
 
 # The rooms Quick 3D has landed in; every other room keeps the WebEngine host.
-ROOMS = frozenset({"filament", "night"})
+ROOMS = frozenset({"filament", "night", "sodium"})
 
 
 def wanted(theme: str) -> bool:
