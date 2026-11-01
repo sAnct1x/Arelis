@@ -131,6 +131,7 @@ async def _begin_turn(
     loop._agenda_create_failed = False
     loop._agenda_create_where = ""
     loop._painted = ""
+    loop._held_steps = ""
     loop._round_gap = False
     loop.model_started = False
     loop._cut_short_noted = False

@@ -586,6 +586,27 @@ def _with_round_gap(previous: str, incoming: str) -> str:
     return "\n\n" + body
 
 
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _kept_steps_answer(final: str, held: str) -> str:
+    """Put worked steps from a held tool round above the wrap-up.
+
+    A tool round holds its paint, so prose written next to a native call
+    never reached the bubble, and the last round's wrap-up became the whole
+    reply (#259). Only the latest held round is kept, and only when it has
+    numbers the wrap-up does not repeat. A wrap-up that restates the steps,
+    or a preamble with no numbers, stays the reply on its own.
+    """
+    head = held.strip()
+    if not head or final.startswith(head):
+        return final
+    numbers = set(_NUMBER.findall(head))
+    if not numbers or numbers <= set(_NUMBER.findall(final)):
+        return final
+    return f"{head}\n\n{final}"
+
+
 class _LiveAnswer:
     """Decides which part of a model stream is safe to paint into the chat now.
 
@@ -1805,7 +1826,10 @@ class AgentLoop:
         if hold_paint:
             # Never paint here: raw may still be a JSON-fallback tool call that
             # the caller parses after return. Final answers are painted in
-            # _finish (or a later round with tools=None).
+            # _finish (or a later round with tools=None). Prose beside a
+            # native call is the model's working, kept for _finish.
+            if tool_calls:
+                self._held_steps = strip_thinking_text(raw)
             return raw, tool_calls, ""
         tail = live.flush()
         if tail:
@@ -2090,6 +2114,10 @@ class AgentLoop:
         if passthrough_tool:
             passthrough = tool_passthrough_note(passthrough_tool)
             note = f"{note}\n{passthrough}" if note else passthrough
+        held = str(getattr(self, "_held_steps", "") or "")
+        self._held_steps = ""
+        if streamed.strip():
+            final = _kept_steps_answer(final, held)
         self._remember_sent_follow()
         self.memory.add("assistant", final, note=note)
 
