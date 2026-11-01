@@ -231,6 +231,7 @@ arelis = [
     "ui/persona_face/web/*.json",
     "ui/persona_face/web/vendor/three/*",
     "ui/persona_face/web/vendor/three/addons/*/*.js",
+    "ui/persona_face/qq3d/*.qml",
 ]
 sentinel = [
     "config/*.yaml",

@@ -16,8 +16,13 @@ INSTALLER = ROOT / "win-installer"
 ARELIS = ROOT / "arelis"
 
 # Modules imported under arelis/ that the prune still deletes on purpose.
-# None now: QtWebEngine and QtWebChannel ship for the three.js avatar.
-GUARDED_DROPPED: dict[str, str] = {}
+# QtWebEngine and QtWebChannel ship for the three.js avatar. The Quick 3D avatar
+# host is opt-in (ARELIS_AVATAR_ENGINE=qq3d) and guards its imports in
+# qq3d_avatar.unavailable_reason; the installer ships these once it is default.
+GUARDED_DROPPED: dict[str, str] = {
+    "QtQuick3D": "persona_face/qq3d_avatar.py, opt-in, guarded import",
+    "QtQuickWidgets": "persona_face/qq3d_avatar.py, opt-in, guarded import",
+}
 
 
 def _load_build():
