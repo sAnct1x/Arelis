@@ -201,3 +201,20 @@ def test_she_draws_when_her_window_is_restored_from_minimized(tmp_path, monkeypa
             break
     top.close()
     assert frames, "no frame after the window was restored"
+
+
+def test_her_pipeline_cache_is_saved_after_the_first_frame(tmp_path, monkeypatch) -> None:
+    # A hard-killed app never reaches Qt's own save-on-teardown.
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "data"))
+    host = _ready_host(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import pipeline_cache_path
+
+    path = pipeline_cache_path()
+    for _ in range(40):
+        if path.exists() and path.stat().st_size:
+            break
+        host.view.update()
+        QTest.qWait(50)
+    saved = path.exists() and path.stat().st_size > 0
+    host.close()
+    assert saved

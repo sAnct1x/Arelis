@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QThread, QTimer, QUrl, Signal
@@ -33,6 +35,46 @@ LOOK_FILE = "Ellah_aether.qml"
 _READY_TIMEOUT_MS = 30_000
 _OFF = {"0", "false", "no", "off"}
 FRAMETIME_ENV = "ARELIS_FRAMETIME_LOG"
+# Her first frames log their beginFrame/sync/render/endFrame times (start-up cost).
+_TIMED_FRAMES = 5
+# Bump when the cache's meaning changes; a key mismatch makes the next start ignore the file.
+_PIPELINE_CACHE_FORMAT = 1
+
+
+def pipeline_cache_path() -> Path:
+    """Her compiled pipelines (D3D11 bytecode, GL program binaries) across starts.
+
+    Qt only writes its automatic cache when her window is destroyed, which a killed or
+    crashed process never reaches, so every such start compiled every pipeline again
+    (Atria: 14 s from ready to her first frame). This file is written by the render
+    thread right after her first frame.
+    """
+    return user_data_dir() / "avatar" / "qq3d" / "pipeline.cache"
+
+
+def pipeline_cache_key() -> str:
+    from PySide6.QtCore import qVersion
+
+    backend = os.environ.get("ARELIS_QT_RHI") or os.environ.get("QSG_RHI_BACKEND") or "default"
+    return f"{_PIPELINE_CACHE_FORMAT}|qt{qVersion()}|{sys.platform}|{backend}"
+
+
+def _use_pipeline_cache(view) -> None:
+    """Point her window's QRhi at the cache file; a stale key (other Qt, backend) is ignored."""
+    path = pipeline_cache_path()
+    key = path.with_suffix(".key")
+    cfg = view.graphicsConfiguration()
+    cfg.setAutomaticPipelineCache(False)
+    try:
+        fresh = path.is_file() and key.read_text(encoding="utf-8") == pipeline_cache_key()
+    except OSError:
+        fresh = False
+    if fresh:
+        cfg.setPipelineCacheLoadFile(str(path))
+    cfg.setPipelineCacheSaveFile(str(path))  # also asks QRhi to collect the data
+    view.setGraphicsConfiguration(cfg)
+
+
 _FLUSH_MS = 1000
 # While her window says it is minimized, look again this often (the flag can be stale).
 _MINIMIZED_RETRY_MS = 250
@@ -375,6 +417,7 @@ class _RenderThread(QThread):
         self._calls = gil_free_calls(control)
         self._ctx = None  # OpenGL only: the context, owned by this thread while it runs
         self._size: tuple[int, int] | None = None
+        self._timed = 0  # frames whose step times were logged (the first _TIMED_FRAMES)
 
     # ---- GUI thread ----
 
@@ -471,18 +514,32 @@ class _RenderThread(QThread):
                 if self._stop:
                     break
                 size, self._job = self._job, None
+            t0 = time.perf_counter()
             self._target(size)
             self._control.beginFrame()
+            t1 = time.perf_counter()
             self._control.sync()
+            t2 = time.perf_counter()
             with self._cv:
                 self._synced = True  # the GUI thread may go on; the GPU work is ours
                 self._cv.notify_all()
             self._calls["render"]()
+            t3 = time.perf_counter()
             result = QRhiReadbackResult()
             batch = self._control.rhi().nextResourceUpdateBatch()
             batch.readBackTexture(QRhiReadbackDescription(self._tex), result)
             self._control.commandBuffer().resourceUpdate(batch)
             self._calls["endFrame"]()  # an offscreen frame: the readback is complete here
+            if self._timed < _TIMED_FRAMES:
+                self._timed += 1
+                if self._timed == 1:
+                    self._save_pipeline_cache()
+                t4 = time.perf_counter()
+                logging.getLogger("arelis.avatar").info(
+                    "[avatar] qq3d frame %d begin=%.1fms sync=%.1fms render=%.1fms end=%.1fms",
+                    self._timed, (t1 - t0) * 1e3, (t2 - t1) * 1e3, (t3 - t2) * 1e3,
+                    (t4 - t3) * 1e3,
+                )
             data = bytes(result.data)
             w, h = result.pixelSize.width(), result.pixelSize.height()
             img = QImage(data, w, h, w * 4, QImage.Format.Format_RGBA8888_Premultiplied).copy()
@@ -493,7 +550,23 @@ class _RenderThread(QThread):
                 self.busy = False
             self.frame_ready.emit()
 
+    def _save_pipeline_cache(self) -> None:
+        try:
+            data = bytes(self._control.rhi().pipelineCacheData())
+            if not data:
+                return
+            path = pipeline_cache_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, path)
+            path.with_suffix(".key").write_text(pipeline_cache_key(), encoding="utf-8")
+        except (OSError, RuntimeError, AttributeError):
+            logging.getLogger("arelis.avatar").debug("pipeline cache not saved", exc_info=True)
+
     def _release(self) -> None:
+        if self._timed:
+            self._save_pipeline_cache()  # pipelines first built after frame 1
         for res in (self._rt, self._rp, self._tex):
             if res is not None:
                 res.destroy()
@@ -550,6 +623,7 @@ class QQ3DAvatar(QWidget):
         fmt = QQuick3D.idealSurfaceFormat()  # OpenGL: a core 3.x context, not the 2.1 default
         fmt.setAlphaBufferSize(8)
         self.view.setFormat(fmt)
+        _use_pipeline_cache(self.view)
         self._render = _RenderThread(self.control, self.view)
         render = self._render
         _LIVE.add(render)
