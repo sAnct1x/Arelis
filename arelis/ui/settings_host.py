@@ -158,6 +158,13 @@ def apply_settings(window, values: dict[str, Any]) -> None:
                     setattr(loop, key, bool(agent_patch[key]))
         window._schedule_readiness_probe()
 
+    headroom = (values.get("llamacpp") or {}).get("avatar_headroom")
+    lc_cfg = window.config.setdefault("llamacpp", {})
+    if headroom is not None and bool(headroom) != (lc_cfg.get("avatar_headroom") is not False):
+        # Read by llama_server_args the next time Arelis starts llama-server.
+        lc_cfg["avatar_headroom"] = bool(headroom)
+        merge_local_config({"llamacpp": {"avatar_headroom": bool(headroom)}})
+
     models_patch = values.get("models") or {}
     if models_patch:
         clean = {

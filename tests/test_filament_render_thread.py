@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import threading
+import time
 
-from PySide6.QtCore import QRect
+from PySide6.QtCore import QCoreApplication, QRect
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 
@@ -28,10 +28,12 @@ def test_the_orbit_is_painted_off_the_gui_thread_and_matches_an_in_place_paint(m
     render = FieldRenderer(field)
     rect = QRect(0, 0, 640, 360)
     assert render.frame_for(rect, 1.0) is None  # first ask starts a paint
-    for _ in range(100):
-        if render.frame() is not None:
-            break
-        QTest.qWait(20)
+    # Not QTest.qWait: it holds the GIL while it waits, so the worker's Python paint
+    # only runs in the gaps (a 2 ms paint took 0.8 s locally, over 2 s on CI).
+    deadline = time.monotonic() + 10.0
+    while render.frame() is None and time.monotonic() < deadline:
+        QCoreApplication.processEvents()
+        time.sleep(0.01)
     frame = render.frame_for(rect, 1.0)
     render.stop()
     assert frame is not None

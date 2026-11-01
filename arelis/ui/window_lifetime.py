@@ -109,6 +109,9 @@ class WindowLifetime:
             lambda: self.camera.stop(),
             lambda: self.voice_controller.stop_all() if self.voice_controller is not None else None,
             lambda: stop_speech(self),
+            # The orbit's paint thread: aboutToQuit only fires from app.exec(), so a
+            # window torn down without it left the QThread running into Qt's abort.
+            lambda: self._filament_render.stop(),
         ):
             try:
                 release()
