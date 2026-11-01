@@ -8,8 +8,10 @@ it landed on, so frame times alternated 16 / 45 ms. The GUI thread still runs th
 
 from __future__ import annotations
 
+import atexit
 import copy
 import time
+import weakref
 
 from PySide6.QtCore import QObject, QRect, QSize, QThread, Signal, Slot
 from PySide6.QtGui import QImage, QPainter
@@ -69,6 +71,12 @@ class FieldRenderer(QObject):
         app = QCoreApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(self.stop)
+        # A process can end without app.exec() (a probe that builds the window and calls
+        # sys.exit): no aboutToQuit, and PySide's teardown then destroys the still-running
+        # QThread, which Qt answers with abort (0xC0000409 on Windows). Join it at exit.
+        # atexit runs these before PySide's own cleanup, which QtCore registered earlier.
+        ref = weakref.ref(self)
+        atexit.register(lambda: (r := ref()) is not None and r.stop())
         self.destroyed.connect(self._thread.quit)
 
     def request(self, rect: QRect, dpr: float) -> None:
@@ -107,5 +115,8 @@ class FieldRenderer(QObject):
 
     def stop(self) -> None:
         self._pending = None
-        self._thread.quit()
-        self._thread.wait(2000)
+        try:
+            self._thread.quit()
+            self._thread.wait(2000)
+        except RuntimeError:
+            pass  # Qt already deleted it
