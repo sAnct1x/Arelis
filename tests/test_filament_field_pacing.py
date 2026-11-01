@@ -30,7 +30,8 @@ def test_tick_backs_off_to_the_workers_own_paint_cost(qt_app, monkeypatch) -> No
             qt_app.processEvents()
             time.sleep(0.005)
         assert render.frame() is not None
-        assert field.atmosphere_ms() >= 39
+        assert field.atmosphere_ms() >= 80
+        field.note_worker_ms(0.0)
         field.set_load("camera")
         assert field.atmosphere_ms() == 50
     finally:

@@ -553,7 +553,7 @@ class FilamentField:
             base = 40
         else:
             base = 16
-        return max(base, math.ceil(getattr(self, "_worker_ms", 0.0)))
+        return max(base, math.ceil(2 * getattr(self, "_worker_ms", 0.0)))
 
     def strand_steps(self, w: float) -> int:
         """Segments per strand. Caps so a 7680 desk stays drawable."""
