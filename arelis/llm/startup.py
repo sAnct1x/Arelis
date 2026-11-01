@@ -357,6 +357,20 @@ def prefix_warmup_for(
         return None
 
 
+# The Qwen3.6 chat template raises "No user query found in messages." on a
+# request with no user row. A seed of system rows alone was rejected, so it
+# never prefilled anything and the first turn paid the whole prefix (#368).
+# One user row after the static prefix keeps every byte of the prefix and
+# the tool block identical to turn 1, and gives llama-server a user-message
+# boundary to checkpoint at, which a hybrid model needs to reuse the cache.
+_SEED_QUERY = "."
+
+
+def seed_messages(prefix: PrefixWarmup) -> list[dict[str, Any]]:
+    """The seed request: the static prefix, then one user row the template needs."""
+    return [*prefix.messages, {"role": "user", "content": _SEED_QUERY}]
+
+
 async def seed_prefix_cache(
     bus: EventBus,
     router: ModelRouter,
@@ -378,10 +392,11 @@ async def seed_prefix_cache(
         # without the cache entry this exists to create.
         stream = router.provider.stream_chat(
             model,
-            prefix.messages,
+            seed_messages(prefix),
             tools=prefix.tools,
             keep_alive=router.default_keep_alive,
             options={"num_ctx": prefix.num_ctx, "num_predict": 1},
+            think=False,
         )
         try:
             async for _kind, _payload in stream:
@@ -398,7 +413,7 @@ async def seed_prefix_cache(
     except Exception as exc:
         # Nothing is broken by this failing; the first turn just pays the
         # prefill itself, exactly as it did before.
-        log.info("Prefix cache seed skipped: %s", exc)
+        log.warning("Prefix cache seed skipped: %s", exc)
         return
     elapsed = time.perf_counter() - started
     log.info("Seeded prefix cache for %s in %.1fs", model, elapsed)

@@ -119,3 +119,33 @@ async def test_vision_on_chat_model_does_not_reseed_prefix(tmp_path) -> None:
     raw = base64.b64decode(separate.images[0])
     with Image.open(io.BytesIO(raw)) as opened:
         assert max(opened.size) == separate_tool_edge
+
+
+class _TemplateProvider:
+    """Applies the Qwen3.6 template's rule: a request with no user row is an error."""
+
+    def __init__(self) -> None:
+        self.prefilled: list[list[dict[str, Any]]] = []
+
+    async def stream_chat(self, model, messages, **kwargs):
+        del model, kwargs
+        if not any(m.get("role") == "user" for m in messages):
+            raise RuntimeError(
+                "llama-server returned HTTP 500: No user query found in messages."
+            )
+        self.prefilled.append(list(messages))
+        yield ("token", "x")
+
+
+@pytest.mark.asyncio
+async def test_prefix_seed_is_accepted_by_chat_template() -> None:
+    from arelis.llm.startup import seed_prefix_cache
+
+    prefix = _prefix()
+    router = _Router(warm=True, prefix=prefix)
+    router.provider = _TemplateProvider()  # type: ignore[assignment]
+    await seed_prefix_cache(_Bus(), router, prefix, announce=False)  # type: ignore[arg-type]
+    assert len(router.provider.prefilled) == 1
+    sent = router.provider.prefilled[0]
+    # Turn 1 starts with the same rows, so the prefilled prefix is reused.
+    assert sent[: len(prefix.messages)] == prefix.messages
