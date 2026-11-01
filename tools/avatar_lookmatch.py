@@ -31,6 +31,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 WEB_DIR = REPO / "arelis" / "ui" / "persona_face" / "web"
+FACE_JS = REPO / "arelis" / "ui" / "persona_q3d" / "face.js"
 PRIVATE = Path("/workspace/team/avatar-proto/threejs-prep")
 SIZE = (720, 960)
 STEPS = (
@@ -213,6 +214,7 @@ QML = """import QtQuick
 import QtQuick3D
 %(imports)s
 import "%(conv)s"
+import "%(face)s" as Face
 Item {
     id: root
     width: %(w)d; height: %(h)d
@@ -220,11 +222,15 @@ Item {
         x: %(vx)d; y: 0; width: %(vw)d; height: parent.height
 %(scene)s
     }
-    function pose(clip, ms, pos, look) {
+    property var face: null
+    Component.onCompleted: face = Face.create(ellah, { seed: 12345 })  // after the model is complete
+    function pose(clip, ms, pos, look, state, level, blink) {
         var d = ellah.data
         for (var i = 0; i < d.length; i++) if (d[i].objectName && d[i].animations !== undefined) {
             d[i].animations[0].running = false; d[i].enabled = d[i].objectName === clip
             if (d[i].enabled) d[i].currentFrame = ms %% d[i].endFrame }
+        face.setState(state); face.setSpeaking(level); face.holdBlink(blink)
+        for (var k = 0; k < %(steps)d; k++) face.update(0.1)  // same 100 ms steps as the page clock
         cam.position = pos; cam.lookAt(look)
         return true
     }
@@ -305,6 +311,8 @@ def run_qq3d(out: Path, qml_dir: Path, port: Path | None = None) -> None:
                 "imports": PORT_IMPORTS if port else "",
                 "scene": (PORT_SCENE if port else SPIKE_SCENE) % sub,
                 "conv": conv,
+                "face": FACE_JS.as_uri(),
+                "steps": STEPS,
                 "w": w,
                 "h": h,
                 "fov": cam["fov"],
@@ -328,6 +336,9 @@ def run_qq3d(out: Path, qml_dir: Path, port: Path | None = None) -> None:
             ms,
             QVector3D(*[x * s for x in cam["pos"]]),
             QVector3D(*[x * s for x in cam["look"]]),
+            m["state"],
+            m["level"],
+            m["blink"],
         )
         if port:
             _apply_uniforms(v.rootObject(), unis[name], worlds.get(name))
