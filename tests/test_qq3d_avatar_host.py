@@ -171,3 +171,22 @@ def test_in_filament_the_camera_slides_so_she_stands_right_of_centre(tmp_path, m
     assert abs(host.root.property("figureX") - FIGURE_X) < 1e-6
     assert host.root.property("camShift") < 0
     host.close()
+
+
+def test_her_host_puts_the_gui_thread_ahead_of_a_busy_model(tmp_path, monkeypatch) -> None:
+    QApplication.instance() or QApplication([])
+    from PySide6.QtCore import QThread
+
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    main = QThread.currentThread()
+    main.setPriority(QThread.Priority.NormalPriority)
+    host = QQ3DAvatar()
+    try:
+        assert main.priority() == QThread.Priority.HighPriority
+    finally:
+        host.close()
+        main.setPriority(QThread.Priority.NormalPriority)

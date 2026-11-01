@@ -244,6 +244,13 @@ class WindowBuild:
         self.persona_stage = PersonaStage(self.stage)
         self.persona_stage.stackUnder(self.conversation)
         self._filament = FilamentField()
+        # Off the GUI thread: her Quick 3D frames share it (filament_render).
+        from arelis.ui.filament_render import FieldRenderer
+
+        self._filament_render = FieldRenderer(self._filament, self)
+        self._filament_render.ready.connect(
+            lambda: self.update(self._filament.dirty_rect(self.rect()))
+        )
         self._filament_parked: dict[str, Any] | None = None
         self._filament_chrome_peek = False
         self._filament_hiding = False

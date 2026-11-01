@@ -35,6 +35,12 @@ Item {
     property string sceneStatus: "loading"   // loading | ready | error
     property string sceneError: ""
     readonly property string clip: mixer.clip
+    // Body clips in the loaded model (balsam Timelines); 0 means the clips did not come through.
+    readonly property int clipCount: {
+        var d = loader.item ? loader.item.data : [], n = 0
+        for (var i = 0; i < d.length; i++) if (d[i] && d[i].keyframeGroups !== undefined) n++
+        return n
+    }
     property var face: null   // Track B (persona_q3d/face.js), created once the model has loaded
 
     View3D {

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
@@ -98,12 +99,68 @@ def check_clips() -> bool:
     return False
 
 
+# Quoted file names: "meshes/x.mesh", "animations/x.qad", "aether_shaders/L3.vert",
+# resolvedUrl("aether_scene/g3").
+_REF = re.compile(r'"((?:file:|/|[A-Za-z]:|[\w.-]+/)[^"\n]*)"')
+
+
+def missing_files(model: Path) -> list[Path]:
+    """Every file the model QML names (meshes, maps, clips, shaders, geometry) that is missing.
+
+    Relative names resolve against the model's folder, as QML does. An absolute path baked in on
+    another machine (gate 1: /workspace/... on Windows) is reported as missing too.
+    """
+    if not model.is_file():
+        return [model]
+    out: list[Path] = []
+    seen: set[str] = set()
+    for ref in _REF.findall(model.read_text(encoding="utf-8", errors="replace")):
+        if ref in seen or ref.startswith("qrc:"):
+            continue
+        seen.add(ref)
+        if ref.startswith("file:"):
+            from PySide6.QtCore import QUrl
+
+            ref = QUrl(ref).toLocalFile()
+        path = Path(ref) if Path(ref).is_absolute() else model.parent / ref
+        # LayerGeometry and its morphs name a buffer prefix (".../g3"): its files are g3_*.bin.
+        if path.suffix == "" and any(path.parent.glob(path.name + "_*.bin")):
+            continue
+        if not path.exists():
+            out.append(path)
+    return out
+
+
+def model_error() -> str | None:
+    """Why her model cannot draw (no model, files or clips), logged as an ERROR, or None."""
+    log = logging.getLogger("arelis.avatar")
+    model = model_path()
+    if not model.is_file():
+        searched = [model_dir() / LOOK_FILE, model_dir() / MODEL_FILE]
+        log.error(
+            "[avatar] qq3d model missing: searched %s (data folder %s, override %s)",
+            ", ".join(str(p) for p in searched), user_data_dir(), DIR_ENV,
+        )
+        return f"no model at {searched[0]}"
+    if not check_clips():
+        return f"no clips at {clips_path()}"
+    gone = missing_files(model)
+    if gone:
+        log.error(
+            "[avatar] qq3d model %s: %d files it names are missing, first: %s",
+            model, len(gone), ", ".join(str(p) for p in gone[:5]),
+        )
+        return f"model files missing ({len(gone)}), first {gone[0]}"
+    return None
+
+
 def unavailable_reason() -> str | None:
     """Why the Quick 3D avatar cannot start, or None when it may try."""
     if os.environ.get("ARELIS_WEB_AVATAR", "1").strip().lower() in _OFF:
         return "turned off by ARELIS_WEB_AVATAR"
-    if not model_path().is_file():
-        return f"no model at {model_path()}"
+    why = model_error()
+    if why is not None:
+        return why
     if not ENTRY.is_file():
         return "scene files missing"
     try:
@@ -131,6 +188,61 @@ def theme_props() -> dict[str, object]:
     }
 
 
+_STALL_MS = 400.0
+
+
+def raise_gui_priority() -> None:
+    """Her frames render on the GUI thread (QQuickWidget): keep it ahead of a model on every core.
+
+    llama-server runs one normal-priority thread per core while it generates; at the same
+    priority the GUI thread waited its turn and frames went from 16 to 40+ ms. Above normal
+    (Windows THREAD_PRIORITY_ABOVE_NORMAL) still yields to the system, and the orbit painter
+    (filament_render) runs below normal so it never takes her slot.
+    """
+    from PySide6.QtCore import QThread
+
+    QThread.currentThread().setPriority(QThread.Priority.HighPriority)
+
+
+class StallWatch:
+    """With the frame log on: a frame later than _STALL_MS logs what the GUI thread was running.
+
+    A watcher thread reads the GUI thread's Python stack while the frame is late, so a gate
+    log names the cause of a spike (a Python call, or Qt's own work under app.exec).
+    """
+
+    def __init__(self, log: FrameLog) -> None:
+        import threading
+
+        self._log = log
+        self._gui = threading.get_ident()
+        self._seen: float | None = None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="frame-stall", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        import sys
+        import traceback
+
+        while not self._stop.wait(0.1):
+            last = self._log.last
+            if last is None or last == self._seen:
+                continue
+            late = self._log.clock() - last
+            if late < _STALL_MS:
+                continue
+            self._seen = last
+            frame = sys._current_frames().get(self._gui)
+            where = "".join(traceback.format_stack(frame, limit=8)) if frame else "?"
+            logging.getLogger("arelis.avatar").warning(
+                "[avatar] frame stall %.0f ms so far; GUI thread in:\n%s", late, where
+            )
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
 class FrameLog:
     """``ARELIS_FRAMETIME_LOG``: one ``t_epoch_ms,frame_ms`` line per rendered frame.
 
@@ -145,6 +257,7 @@ class FrameLog:
         self._clock = clock or (lambda: time.time() * 1000.0)
         self._file = open(path, "w", encoding="utf-8", buffering=1 << 16)
         self._last: float | None = None
+        self.clock = self._clock
 
     def frame(self, *_args) -> None:
         if self._file is None:
@@ -153,6 +266,10 @@ class FrameLog:
         if self._last is not None:
             self._file.write(f"{now:.2f},{now - self._last:.3f}\n")
         self._last = now
+
+    @property
+    def last(self) -> float | None:
+        return self._last
 
     def flush(self) -> None:
         if self._file is not None:
@@ -195,6 +312,7 @@ class QQ3DAvatar(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.view)
+        raise_gui_priority()
         self._frames = frame_log()
         if self._frames is not None:
             self._start_frame_log(self._frames)
@@ -204,7 +322,6 @@ class QQ3DAvatar(QWidget):
             logging.getLogger("arelis.avatar").warning(
                 "[avatar] no look (%s) in %s: plain model", LOOK_FILE, model.parent
             )
-        check_clips()
         # The look (Ellah_aether.qml) imports Arelis.PersonaQ3D for its LayerGeometry; importing the
         # module registers that QML type.
         import arelis.ui.persona_q3d.geometry  # noqa: F401
@@ -239,6 +356,8 @@ class QQ3DAvatar(QWidget):
         flush.setInterval(_FLUSH_MS)
         flush.timeout.connect(log.flush)
         flush.start()
+        watch = StallWatch(log)
+        self.destroyed.connect(watch.stop)
         self.destroyed.connect(log.close)
         app = QCoreApplication.instance()
         if app is not None:
@@ -291,12 +410,25 @@ class QQ3DAvatar(QWidget):
         if status == "error":
             self._fail(f"scene error: {self.root.property('sceneError')}")
         elif status == "ready":
+            from arelis.ui.persona_q3d import geometry
+
+            clips = int(self.root.property("clipCount") or 0)
+            if geometry.MISSING:
+                self._fail(f"geometry missing: {geometry.MISSING[0]}")
+                return
+            if clips == 0:
+                logging.getLogger("arelis.avatar").error(
+                    "[avatar] qq3d model %s loaded with no clips (Timelines); clips folder %s",
+                    model_path(), clips_path(),
+                )
+                self._fail("model has no clips")
+                return
             self._ready = True
             self._poll.stop()
             self._deadline.stop()
             from arelis.ui.persona_face.panel import alog
 
-            alog("ready", engine="qq3d", clips=self.root.property("clip") or "-")
+            alog("ready", engine="qq3d", clips=clips)
             self.ready.emit()
 
     def _fail(self, reason: str) -> None:
