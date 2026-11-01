@@ -559,6 +559,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))
     apply_theme(theme_from_config(config))
+    from arelis.ui.theme_tokens import active_theme
+
+    qq3d_avatar.log_engine_choice(active_theme())
     families = load_fonts()
     app.setFont(app_font(families))
     install_stylesheet()

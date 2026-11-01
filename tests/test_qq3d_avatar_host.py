@@ -292,17 +292,22 @@ def test_her_pipeline_cache_is_saved_after_the_first_frame(tmp_path, monkeypatch
     assert saved
 
 
-def test_model_lookup_prefers_a_user_copy_then_the_bundled_model(tmp_path, monkeypatch) -> None:
+def test_model_lookup_is_app_then_override_then_bundled(tmp_path, monkeypatch) -> None:
     from arelis.ui.persona_face import qq3d_avatar
 
     monkeypatch.delenv("ARELIS_AVATAR_QQ3D_DIR", raising=False)
+    monkeypatch.setattr(qq3d_avatar, "_saved_user_env", lambda name: "")
     monkeypatch.setattr(qq3d_avatar, "user_data_dir", lambda: tmp_path)
     user = tmp_path / "avatar" / "qq3d"
     user.mkdir(parents=True)
     (user / "pipeline.cache").write_bytes(b"x")  # a cache alone is not a model
-    assert qq3d_avatar.model_dir() == qq3d_avatar.BUNDLED_DIR
-    assert (qq3d_avatar.BUNDLED_DIR / qq3d_avatar.LOOK_FILE).is_file()
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    monkeypatch.setenv("ARELIS_AVATAR_QQ3D_DIR", str(other))  # set, but holds no model
+    bundled = qq3d_avatar.bundled_model_dir()
+    assert (bundled / qq3d_avatar.LOOK_FILE).is_file()
+    assert qq3d_avatar.model_source() == ("bundled", bundled)
+    (other / qq3d_avatar.LOOK_FILE).write_text("x", encoding="utf-8")
+    assert qq3d_avatar.model_source() == ("override", other)
     (user / qq3d_avatar.LOOK_FILE).write_text("x", encoding="utf-8")
-    assert qq3d_avatar.model_dir() == user
-    monkeypatch.setenv("ARELIS_AVATAR_QQ3D_DIR", str(tmp_path / "elsewhere"))
-    assert qq3d_avatar.model_dir() == tmp_path / "elsewhere"
+    assert qq3d_avatar.model_source() == ("app", user)
