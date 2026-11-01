@@ -173,3 +173,31 @@ def test_her_frames_render_off_the_gui_thread(tmp_path, monkeypatch) -> None:
     host.close()
     assert threads, "no frame rendered"
     assert threading.main_thread().ident not in threads
+
+
+def test_she_draws_when_her_window_is_restored_from_minimized(tmp_path, monkeypatch) -> None:
+    """A window that starts minimized and is restored at the same size still gets her frames."""
+    from PySide6.QtWidgets import QWidget
+
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    top = QWidget()
+    top.resize(200, 400)
+    top.showMinimized()
+    host = QQ3DAvatar(top)
+    host.resize(200, 400)
+    host.show()
+    QTest.qWait(300)
+    frames: list[int] = []
+    host._render.frame_ready.connect(lambda: frames.append(1))
+    top.showNormal()
+    for _ in range(100):
+        QTest.qWait(50)
+        if frames:
+            break
+    top.close()
+    assert frames, "no frame after the window was restored"

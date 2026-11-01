@@ -16,7 +16,7 @@ import os
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget
 
@@ -34,6 +34,9 @@ _READY_TIMEOUT_MS = 30_000
 _OFF = {"0", "false", "no", "off"}
 FRAMETIME_ENV = "ARELIS_FRAMETIME_LOG"
 _FLUSH_MS = 1000
+# While her window says it is minimized, look again this often (the flag can be stale).
+_MINIMIZED_RETRY_MS = 250
+_KICK_EVENTS = (QEvent.Type.WindowStateChange, QEvent.Type.Show, QEvent.Type.Expose)
 
 
 def engine() -> str:
@@ -529,6 +532,7 @@ class QQ3DAvatar(QWidget):
         # She never takes a click: stop is the stop button or a spoken "stop".
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._pending = False
+        self._watched = None
         self._kick = QTimer(self)
         self._kick.setSingleShot(True)
         self._kick.setInterval(0)
@@ -560,6 +564,7 @@ class QQ3DAvatar(QWidget):
             QTimer.singleShot(0, lambda: self._fail(why))
             return
         self._render.start(QThread.Priority.HighPriority)
+        self._watch_window()
         self.control.renderRequested.connect(self._request)
         self.control.sceneChanged.connect(self._request)
         raise_gui_priority()
@@ -616,14 +621,42 @@ class QQ3DAvatar(QWidget):
 
     def _request(self, *_args) -> None:
         self._pending = True
-        if not self._kick.isActive():
-            self._kick.start()
+        if not self._kick.isActive() or self._kick.remainingTime() > 0:
+            self._kick.start(0)
+
+    def _watch_window(self) -> None:
+        """Re-kick on her window's state changes and shows (the child's own showEvent does
+        not come when a minimized window is restored at the same size)."""
+        top = self.window()
+        if top is self._watched:
+            return
+        if self._watched is not None:
+            self._watched.removeEventFilter(self)
+        self._watched = top
+        if top is not None and top is not self:
+            top.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self._watched and event.type() in _KICK_EVENTS:
+            self._request()
+        return False
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.ParentChange:
+            self._watch_window()
+        return super().event(event)
 
     def _next_frame(self) -> None:
         if not self._pending or self._dead or getattr(self, "root", None) is None:
             return
-        if self.isHidden() or (self.window() is not None and self.window().isMinimized()):
-            return  # showEvent asks again
+        if not self.isVisible():
+            return  # still pending: showEvent (hers or the window's) asks again
+        top = self.window()
+        if top is not None and top.isMinimized():
+            # isMinimized() can be stale (a window that starts minimized, or restored without
+            # a resize, on Windows), so this only slows her down; it never parks her for good.
+            self._kick.start(_MINIMIZED_RETRY_MS)
+            return
         self.control.polishItems()
         if self._render.frame(self._pixel_size()):
             self._pending = False
@@ -635,7 +668,7 @@ class QQ3DAvatar(QWidget):
         self._image = self._render.image
         self.update()
         if self._pending:
-            self._kick.start()
+            self._kick.start(0)
 
     def paintEvent(self, _event) -> None:
         img = self._image
@@ -655,6 +688,7 @@ class QQ3DAvatar(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._watch_window()
         self._request()
 
     def _start_frame_log(self, log: FrameLog) -> None:

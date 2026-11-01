@@ -1250,14 +1250,17 @@ def verify() -> None:
             "app.quit()\n"
             "print('window ok')\n"
         )
+        # -X faulthandler: a native abort (a QThread destroyed while running, an access
+        # violation) has no Python traceback, and Qt's own message may not reach stderr.
         result = subprocess.run(
-            [str(python_exe()), "-c", window_probe],
+            [str(python_exe()), "-X", "faulthandler", "-c", window_probe],
             capture_output=True,
             text=True,
             env=ui_env,
         )
         if result.returncode != 0 or "window ok" not in result.stdout:
             sys.stderr.write("\nMain window cannot build in the built tree.\n\n")
+            sys.stderr.write(f"exit code {result.returncode}\n")
             sys.stderr.write((result.stdout or "") + "\n" + (result.stderr or "") + "\n")
             raise SystemExit(1)
     finally:
