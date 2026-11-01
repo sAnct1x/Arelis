@@ -23,3 +23,16 @@ def test_startup_line_names_engine_source_and_fallback(monkeypatch, caplog) -> N
     with caplog.at_level(logging.INFO, logger="arelis.avatar"):
         qq3d_avatar.log_engine_choice("filament")
     assert "[avatar] engine=qq3d source=env room=filament unavailable='no model at X'" in caplog.text
+
+
+def test_avatar_engine_flag_wins_over_env_and_saved_user_variable(monkeypatch) -> None:
+    import arelis.login_start as login_start
+    from arelis.main import main
+    from arelis.ui.persona_face import qq3d_avatar
+
+    monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "web")
+    monkeypatch.delenv("ARELIS_AVATAR_ENGINE_SOURCE", raising=False)
+    monkeypatch.setattr(qq3d_avatar, "_saved_user_env", lambda name: "web", raising=False)
+    monkeypatch.setattr(login_start, "remove_login_start", lambda: "ok")
+    assert main(["--avatar-engine", "qq3d", "--remove-login-start"]) == 0
+    assert qq3d_avatar.engine_choice() == ("qq3d", "flag")
