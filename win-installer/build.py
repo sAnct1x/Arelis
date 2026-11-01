@@ -914,7 +914,7 @@ def check_avatar_assets(site: Path) -> None:
     """
     web = site / "arelis" / "ui" / "persona_face" / "web"
     needed = ("index.html", "aether.js", "anim.js", "anim-mixer.js", "gesture-track-mix.json",
-              "config.js", "avatar-api.js",
+              "config.js", "avatar-api.js", "bloom-bright.js",
               "vendor/three/three.module.min.js", "vendor/three/addons/loaders/GLTFLoader.js",
               "vendor/three/addons/postprocessing/UnrealBloomPass.js")
     missing = [name for name in needed if not (web / name).is_file()]

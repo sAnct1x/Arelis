@@ -336,6 +336,7 @@ something behaves oddly on yours, open an issue. Current release is
 | [voice-wake.md](docs/voice-wake.md) | Hey Arelis, talk, dictate |
 | [voice-replies.md](docs/voice-replies.md) | Hearing each spoken sentence once |
 | [voice-weather.md](docs/voice-weather.md) | Weather said out loud |
+| [avatar-full-figure.md](docs/avatar-full-figure.md) | Her figure in Night and Sodium: head to toe, and speaking while a reply streams |
 | [browser-control.md](docs/browser-control.md) | Her browser |
 | [quit.md](docs/quit.md) | Close vs Quit, her Chrome, and why the window leaves at once |
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
