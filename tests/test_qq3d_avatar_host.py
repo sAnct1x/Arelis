@@ -131,3 +131,22 @@ def test_over_a_see_through_clear_the_bloom_keys_its_alpha(tmp_path, monkeypatch
     bloom = host.root.findChild(QObject, "bloom")
     assert bloom is not None and bloom.property("keyAlpha") == 1
     host.close()
+
+
+def test_her_host_puts_the_gui_thread_ahead_of_a_busy_model(tmp_path, monkeypatch) -> None:
+    QApplication.instance() or QApplication([])
+    from PySide6.QtCore import QThread
+
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    main = QThread.currentThread()
+    main.setPriority(QThread.Priority.NormalPriority)
+    host = QQ3DAvatar()
+    try:
+        assert main.priority() == QThread.Priority.HighPriority
+    finally:
+        host.close()
+        main.setPriority(QThread.Priority.NormalPriority)

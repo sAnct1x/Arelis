@@ -37,6 +37,11 @@ class LoadingVeil(QWidget):
         self.setObjectName("avatarLoading")
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.message = ""  # set when her figure cannot load: drawn over the glow, never blank
+
+    def set_message(self, text: str) -> None:
+        self.message = text
+        self.update()
 
     def tint(self) -> QColor:
         return QColor(color("accent"))
@@ -55,6 +60,13 @@ class LoadingVeil(QWidget):
         grad.setColorAt(0.0, inner)
         grad.setColorAt(1.0, outer)
         painter.fillRect(r, grad)
+        if self.message:
+            painter.setPen(QColor(color("text")))
+            painter.drawText(
+                r.adjusted(16, 16, -16, -16),
+                int(Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap),
+                self.message,
+            )
         painter.end()
 
 
@@ -192,6 +204,7 @@ class PersonaPanel(QWidget):
 
     def _swap_host(self) -> None:
         old, self.web = self.web, None
+        self.loading.set_message("")
         self.loading.show()
         self.loading.raise_()
         if old is not None:
@@ -223,6 +236,7 @@ class PersonaPanel(QWidget):
                 reason = f"web avatar failed to start: {exc}"
         if reason is not None:
             alog("unavailable", reason=repr(reason))
+            self._show_failure(reason)
             return reason
         # The page loads shown and sized, under the veil. A hidden view is a
         # hidden page to Chromium: it started at 0x0 and its frames and fetches
@@ -244,8 +258,14 @@ class PersonaPanel(QWidget):
         self.loading.hide()
         self.web.refit()
 
+    def _show_failure(self, reason: str) -> None:
+        """Quick 3D: the veil says why she is not drawn (a missing model is never a blank)."""
+        if self._engine == "qq3d":
+            self.loading.set_message(f"Her figure could not load: {reason}")
+
     def _on_web_failed(self, reason: str) -> None:
         self.web_avatar_reason = reason
+        self._show_failure(reason)
         web, self.web = self.web, None
         self.loading.show()
         if web is not None:

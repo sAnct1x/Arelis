@@ -166,7 +166,11 @@ class WindowChrome:
             self._filament.set_state(self._filament_weather())
             self._filament.tick(ms / 1000.0)
             self._place_filament_floats(reshape=False)
-            self.update(self._filament.dirty_rect(self.rect()))
+            render = getattr(self, "_filament_render", None)
+            if render is not None:
+                render.request(self.rect(), self.devicePixelRatioF())  # ready repaints
+            else:
+                self.update(self._filament.dirty_rect(self.rect()))
             return
         self._atmosphere_timer.setInterval(300)
         if getattr(self, "_turn_busy", False) or not self.isActiveWindow():
@@ -445,7 +449,13 @@ class WindowChrome:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         if active_theme() == "filament":
             painter.setClipRegion(event.region())
-            self._filament.paint(painter, self.rect())
+            render = getattr(self, "_filament_render", None)
+            frame = render.frame_for(self.rect(), self.devicePixelRatioF()) if render else None
+            if frame is None:
+                self._filament.paint(painter, self.rect())
+            else:
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                painter.drawImage(0, 0, frame)
             return
         path = QPainterPath()
         path.addRoundedRect(self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS)

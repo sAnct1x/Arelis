@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -77,6 +78,19 @@ def sprite_index(n: int) -> np.ndarray:
     return (q + np.array([0, 1, 2, 0, 2, 3], np.uint32)).ravel()
 
 
+LOG = logging.getLogger("arelis.avatar")
+MISSING: list[str] = []  # geometry sources that had no files, for the host to report
+
+
+def local_path(source: str) -> Path:
+    """A LayerGeometry source as a file path: a file: URL (Qt.resolvedUrl) or a plain path."""
+    if source.startswith("file:"):
+        from PySide6.QtCore import QUrl
+
+        return Path(QUrl(source).toLocalFile())
+    return Path(source)
+
+
 @QmlElement
 class LayerGeometry(QQuick3DGeometry):
     """source: export dir + geometry id (".../scene/g3"); spec: see pack(); points: sprite quads."""
@@ -128,7 +142,11 @@ class LayerGeometry(QQuick3DGeometry):
     def _rebuild(self):
         if not (self._source and self._spec):
             return
-        base = Path(self._source)
+        base = local_path(self._source)
+        if not base.with_name(base.name + "_position.bin").is_file():
+            LOG.error("[avatar] qq3d geometry missing: %s_position.bin", base)
+            MISSING.append(str(base))
+            return
         arrays = {
             f.stem[len(base.name) + 1 :]: np.fromfile(f, np.float32)
             for f in base.parent.glob(base.name + "_*.bin")
@@ -154,7 +172,8 @@ class LayerGeometry(QQuick3DGeometry):
             self.setIndexData(QByteArray(idx.read_bytes()))
             self.addAttribute(_A.Semantic.IndexSemantic, 0, _A.ComponentType.U32Type)
         if self._morphs and not self._points:
-            prefix, names = self._morphs.split(":")
+            prefix, names = self._morphs.rsplit(":", 1)
+            prefix = str(local_path(prefix))
             blobs = [Path(f"{prefix}_{n}.bin").read_bytes() for n in names.split(",")]
             self.setTargetData(QByteArray(b"".join(blobs)))
             for k, blob in enumerate(blobs):

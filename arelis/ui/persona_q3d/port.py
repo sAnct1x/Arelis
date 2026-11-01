@@ -671,10 +671,37 @@ def layer_plan(layers: list[dict]) -> list[dict]:
     return plan
 
 
+# The export's geometry and textures are copied beside the look and named relative to it, so the
+# folder works wherever it is put (gate 1: paths baked as /workspace/... drew nothing on Windows).
+SCENE_SUBDIR = "aether_scene"
+
+
+def geom_ref(gid: str) -> str:
+    """A LayerGeometry source, relative to the look's own file."""
+    return f'Qt.resolvedUrl("{SCENE_SUBDIR}/{gid}")'
+
+
+def morph_ref(gid: str, names: list[str]) -> str:
+    """LayerGeometry.morphs: the morph buffer prefix (relative to the look) and the target names."""
+    return f'Qt.resolvedUrl("morphs/{gid}") + ":{",".join(names)}"'
+
+
+def copy_scene(scene: Path, converted: Path) -> Path:
+    import shutil
+
+    dest = converted / SCENE_SUBDIR
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in scene.iterdir():
+        if f.suffix in (".bin", ".png"):
+            shutil.copy2(f, dest / f.name)
+    return dest
+
+
 def build(
     scene: Path, converted: Path, out_name: str = "Ellah_aether.qml", glb: Path | None = DEFAULT_GLB
 ) -> Path:
     layers = json.loads((scene / "layers.json").read_text())
+    copy_scene(scene, converted)
     morph_dir = converted / "morphs"
     morphs = face_morphs(glb, scene, layers, morph_dir)
     unis = json.loads((scene / "uniforms.json").read_text())["idle"]
@@ -755,7 +782,7 @@ def build(
                     props.append(f"property TextureInput {name}: TextureInput {{ enabled: false }}")
                 else:
                     props.append(
-                        f'property TextureInput {name}: TextureInput {{ texture: Texture {{ source: "{(scene / f"tex_{tex}.png").as_uri()}"; generateMipmaps: true; mipFilter: Texture.Linear }} }}'
+                        f'property TextureInput {name}: TextureInput {{ texture: Texture {{ source: "{SCENE_SUBDIR}/tex_{tex}.png"; generateMipmaps: true; mipFilter: Texture.Linear }} }}'
                     )
             else:
                 arr = re.match(r"(\w+?)(\d+)$", name)
@@ -814,7 +841,7 @@ def build(
             )
         if blend and i in rank:
             tf = (tf + "; " if tf else "") + f"depthBias: {(len(order) - rank[i]) * 1000}"
-        morph_src = f'; morphs: "{morph_dir / p["geom"]}:{",".join(names)}"' if names else ""
+        morph_src = f"; morphs: {morph_ref(p['geom'], names)}" if names else ""
         morph_targets = (
             "        morphTargets: ["
             + ", ".join(
@@ -830,7 +857,7 @@ def build(
             (shaders / f"S{i}.frag").write_text(FILL_FRAG["skin"])
             body.append(
                 f'    Model {{ objectName: "S{i}"; visible: skinOpacity > 0; {skin}{tf}{"; " if tf else ""}depthBias: {shell_bias + 500}\n'
-                f'        geometry: LayerGeometry {{ source: "{scene / p["geom"]}"; spec: "{p["spec"]}"; points: false{morph_src} }}\n'
+                f'        geometry: LayerGeometry {{ source: {geom_ref(p["geom"])}; spec: "{p["spec"]}"; points: false{morph_src} }}\n'
                 f"{morph_targets}"
                 f'        materials: CustomMaterial {{ objectName: "SM{i}"; shadingMode: CustomMaterial.Unshaded; sourceBlend: CustomMaterial.SrcAlpha; destinationBlend: CustomMaterial.OneMinusSrcAlpha; {cull}\n'
                 f'            vertexShader: "aether_shaders/L{i}.vert"; fragmentShader: "aether_shaders/S{i}.frag"\n'
@@ -840,7 +867,7 @@ def build(
             )
         body.append(
             f'    Model {{ objectName: "L{i}"; {skin}{tf}\n'
-            f'        geometry: LayerGeometry {{ source: "{scene / p["geom"]}"; spec: "{p["spec"]}"; points: {"true" if p["points"] else "false"}{morph_src} }}\n'
+            f'        geometry: LayerGeometry {{ source: {geom_ref(p["geom"])}; spec: "{p["spec"]}"; points: {"true" if p["points"] else "false"}{morph_src} }}\n'
             f"{morph_targets}"
             f'        materials: CustomMaterial {{ objectName: "M{i}"; shadingMode: CustomMaterial.Unshaded; {blend + "; " if blend else ""}{cull}\n'
             f'            vertexShader: "aether_shaders/L{i}.vert"; fragmentShader: "aether_shaders/L{i}.frag"\n'
