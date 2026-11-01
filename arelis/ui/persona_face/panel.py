@@ -184,12 +184,18 @@ class PersonaPanel(QWidget):
 
     def _start_web(self) -> str | None:
         """Start the three.js scene. Returns why not, or None when it is starting."""
-        from arelis.ui.persona_face import web_avatar
+        from arelis.ui.persona_face import qq3d_avatar, web_avatar
+        from arelis.ui.theme_tokens import active_theme
 
-        reason = web_avatar.unavailable_reason()
+        host = web_avatar
+        make = lambda: web_avatar.WebAvatar(self)  # noqa: E731
+        if qq3d_avatar.wanted(active_theme()):
+            host = qq3d_avatar
+            make = lambda: qq3d_avatar.QQ3DAvatar(self)  # noqa: E731
+        reason = host.unavailable_reason()
         if reason is None:
             try:
-                self.web = web_avatar.WebAvatar(self)
+                self.web = make()
             except Exception as exc:
                 reason = f"web avatar failed to start: {exc}"
         if reason is not None:
