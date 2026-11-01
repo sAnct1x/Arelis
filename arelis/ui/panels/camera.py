@@ -294,15 +294,27 @@ class PreviewConvertWorker(QThread):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._lock = threading.Lock()
+        # Single slot: GUI fills it only when empty, the worker empties it.
         self._latest: object | None = None
         self._new = threading.Event()
         self._stop = threading.Event()
 
-    def submit(self, frame: object) -> None:
-        with self._lock:
-            self._latest = frame
+    def submit(self, frame: object) -> bool:
+        """Post a frame unless one is still pending; the GUI thread drops it.
+
+        Replacing a pending frame freed it here (the last QVideoFrame ref
+        releases the capture buffer) and contended the lock with the worker,
+        which made this the top GUI-thread cost while streaming.
+        """
+        if self._latest is not None:
+            return False
+        self._latest = frame
         self._new.set()
+        return True
+
+    @property
+    def pending(self) -> bool:
+        return self._latest is not None
 
     def stop_worker(self) -> None:
         self._stop.set()
@@ -314,9 +326,7 @@ class PreviewConvertWorker(QThread):
             self._new.clear()
             if self._stop.is_set():
                 break
-            with self._lock:
-                frame = self._latest
-                self._latest = None
+            frame = self._latest
             if frame is None:
                 continue
             try:
@@ -326,6 +336,10 @@ class PreviewConvertWorker(QThread):
                 self.frame_ready.emit(rgb_to_qimage(rgb))
             except Exception:
                 log.debug("preview convert failed", exc_info=True)
+            finally:
+                # Busy until converted, and the frame is released here.
+                del frame
+                self._latest = None
 
 
 def _prefer_preview(camera, device, max_width: int | None = None) -> None:
@@ -705,10 +719,9 @@ class CameraPanel(QWidget):
             self.pose_video.emit(frame, time.perf_counter())
             return
         self._ensure_preview_worker()
-        if self._preview is None:
+        if self._preview is None or self._preview.pending:
             return
-        held = QVideoFrame(frame)
-        self._preview.submit(held)
+        self._preview.submit(QVideoFrame(frame))
 
     def _teardown_camera(self) -> None:
         cam = self._camera
