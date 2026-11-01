@@ -4,9 +4,10 @@ Same public API and signals as ``web_avatar.WebAvatar`` (set_state, set_level,
 refit, refresh_theme_icons, is_ready, ready, failed), so PersonaPanel does not
 change. The scene entry point is ``qq3d/Avatar.qml``; the model is not shipped:
 it is the balsam output (``Ellah_anim.qml`` with its meshes, maps and
-animations) read from the user's data folder, or ``ARELIS_AVATAR_QQ3D_DIR``.
+animations) read from the user's data folder (avatar/qq3d); ``ARELIS_AVATAR_QQ3D_DIR`` is
+only a fallback, copied into that folder on first use.
 
-Chosen with ``ARELIS_AVATAR_ENGINE=qq3d``; for now only in Filament.
+Chosen with ``ARELIS_AVATAR_ENGINE=qq3d`` or ``--avatar-engine qq3d``, in the rooms in ROOMS.
 """
 
 from __future__ import annotations
@@ -28,6 +29,9 @@ from arelis.ui.persona_face.web_avatar import STATE_MAP
 QML_DIR = Path(__file__).resolve().parent / "qq3d"
 ENTRY = QML_DIR / "Avatar.qml"
 ENGINE_ENV = "ARELIS_AVATAR_ENGINE"
+# Who set ENGINE_ENV when it was not the launcher, as "source:value"; source is
+# "flag" (main), "user-env" or "default".
+_ENGINE_SOURCE_ENV = "ARELIS_AVATAR_ENGINE_SOURCE"
 DIR_ENV = "ARELIS_AVATAR_QQ3D_DIR"
 MODEL_FILE = "Ellah_anim.qml"
 # tools/avatar_q3d_export.py writes the look (aether shaders on the same skeleton and clips).
@@ -81,9 +85,78 @@ _MINIMIZED_RETRY_MS = 250
 _KICK_EVENTS = (QEvent.Type.WindowStateChange, QEvent.Type.Show, QEvent.Type.Expose)
 
 
+def _saved_user_env(name: str) -> str:
+    """Windows: the value saved under HKCU\\Environment, or "".
+
+    A user variable set after Explorer started is in the registry but not in what Explorer
+    hands a desktop-icon launch until the next sign-in (or a settings broadcast Explorer
+    missed). That is how the Arelis (dev) icon ran the web host with
+    ARELIS_AVATAR_ENGINE=qq3d set.
+    """
+    if sys.platform != "win32":
+        return ""
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            value, _kind = winreg.QueryValueEx(key, name)
+    except OSError:
+        return ""
+    return str(value)
+
+
+def engine_choice() -> tuple[str, str]:
+    """(engine, source): 'qq3d' or 'web', and 'flag', 'env', 'user-env' or 'default'.
+
+    --avatar-engine sets the variable (source 'flag'). Unset in the process, the saved user
+    variable decides, so a stale launcher environment cannot pick the web host.
+    """
+    raw = os.environ.get(ENGINE_ENV, "")
+    if raw.strip():
+        # The marker counts only while it names the value it was written with.
+        mark, _, value = os.environ.get(_ENGINE_SOURCE_ENV, "").partition(":")
+        source = mark if mark and value == raw else "env"
+    else:
+        raw = _saved_user_env(ENGINE_ENV).strip()
+        source = "user-env" if raw else "default"
+        raw = raw or "web"
+        # Read the registry once: later calls (layout asks often) and children see it.
+        os.environ[ENGINE_ENV] = raw
+        os.environ[_ENGINE_SOURCE_ENV] = f"{source}:{raw}"
+    return ("qq3d" if raw.strip().lower() == "qq3d" else "web"), source
+
+
 def engine() -> str:
     """'qq3d' or 'web' (the default until Quick 3D passes its gates)."""
-    return "qq3d" if os.environ.get(ENGINE_ENV, "").strip().lower() == "qq3d" else "web"
+    return engine_choice()[0]
+
+
+def log_engine_choice(theme: str) -> None:
+    """One startup INFO line: the engine, why, and the reason for any fallback to web."""
+    eng, source = engine_choice()
+    room = (theme or "").strip().lower()
+    log = logging.getLogger("arelis.avatar")
+    if eng != "qq3d":
+        log.info("[avatar] engine=web source=%s room=%s", source, room)
+        return
+    if room not in ROOMS:
+        log.info(
+            "[avatar] engine=web source=%s room=%s fallback='qq3d does not host this room'",
+            source, room,
+        )
+        return
+    origin, folder = model_source()
+    why = unavailable_reason()
+    if why is not None:
+        log.info(
+            "[avatar] engine=qq3d source=%s room=%s model=%s dir=%r unavailable=%r",
+            source, room, origin, str(folder), why,
+        )
+        return
+    log.info(
+        "[avatar] engine=qq3d source=%s room=%s model=%s dir=%r", source, room, origin, str(folder)
+    )
+    install_model_in_background()
 
 
 # The rooms Quick 3D has landed in; every other room keeps the WebEngine host.
@@ -116,11 +189,92 @@ def surface_format():
     return fmt
 
 
-def model_dir() -> Path:
-    override = os.environ.get(DIR_ENV, "").strip()
-    if override:
-        return Path(override).expanduser()
+def app_model_dir() -> Path:
+    """Where the app keeps her model: user_data_dir()/avatar/qq3d, as the installer lays it out."""
     return user_data_dir() / "avatar" / "qq3d"
+
+
+def override_dir() -> Path | None:
+    """ARELIS_AVATAR_QQ3D_DIR from the process, else the saved Windows user variable, or None."""
+    raw = os.environ.get(DIR_ENV, "").strip() or _saved_user_env(DIR_ENV).strip()
+    return Path(raw).expanduser() if raw else None
+
+
+def _has_model(folder: Path | None) -> bool:
+    if folder is None:
+        return False
+    return (folder / LOOK_FILE).is_file() or (folder / MODEL_FILE).is_file()
+
+
+def model_source() -> tuple[str, Path]:
+    """('app', dir) when the app folder has a model, else ('override', dir), else ('none', app).
+
+    ARELIS_AVATAR_QQ3D_DIR is only a fallback: a model in the app's own folder always wins.
+    """
+    app = app_model_dir()
+    if _has_model(app):
+        return "app", app
+    other = override_dir()
+    if _has_model(other):
+        return "override", other
+    return "none", app
+
+
+def model_dir() -> Path:
+    return model_source()[1]
+
+
+def install_model() -> Path | None:
+    """Copy the override model into the app folder when the app folder has none; returns the copy.
+
+    The port (tools/avatar_q3d_export.py, convert.py, port.py) needs headless Chrome with
+    playwright, balsam and ellah-anim.glb, which a user PC does not have, so the app does not
+    build the model from ellah.glb; it adopts a built one. The copy goes to a sibling temp
+    folder and is renamed into place, so a half copy is never taken for a model.
+    """
+    import shutil
+    import tempfile
+
+    app = app_model_dir()
+    src = override_dir()
+    if _has_model(app) or not _has_model(src) or src.resolve() == app.resolve():
+        return None
+    log = logging.getLogger("arelis.avatar")
+    app.parent.mkdir(parents=True, exist_ok=True)
+    # A unique temp folder per start: two starts at once never share or wipe a half copy.
+    tmp = Path(tempfile.mkdtemp(prefix=app.name + ".installing-", dir=app.parent))
+    try:
+        shutil.copytree(
+            src, tmp, ignore=shutil.ignore_patterns("pipeline.cache"), dirs_exist_ok=True
+        )
+        if app.exists():  # a folder with no model in it (a pipeline cache, say): keep its files
+            for item in app.iterdir():  # copied, not moved, so a failure below loses nothing
+                if (tmp / item.name).exists():
+                    continue
+                if item.is_dir():
+                    shutil.copytree(item, tmp / item.name)
+                else:
+                    shutil.copy2(item, tmp / item.name)
+        if _has_model(app) or not _has_model(tmp):  # another start won, or the copy is short
+            shutil.rmtree(tmp, ignore_errors=True)
+            return app if _has_model(app) else None
+        if app.exists():
+            shutil.rmtree(app)
+        tmp.rename(app)
+    except OSError as exc:
+        log.error("[avatar] qq3d model copy from %s to %s failed: %s", src, app, exc)
+        shutil.rmtree(tmp, ignore_errors=True)
+        return app if _has_model(app) else None
+    log.info("[avatar] qq3d model copied from %s to %s", src, app)
+    return app
+
+
+def install_model_in_background() -> None:
+    """Run install_model off the GUI thread; this start draws from the override meanwhile."""
+    import threading
+
+    if model_source()[0] == "override":
+        threading.Thread(target=install_model, name="qq3d-model-copy", daemon=True).start()
 
 
 def model_path() -> Path:
@@ -186,8 +340,8 @@ def model_error() -> str | None:
     if not model.is_file():
         searched = [model_dir() / LOOK_FILE, model_dir() / MODEL_FILE]
         log.error(
-            "[avatar] qq3d model missing: searched %s (data folder %s, override %s)",
-            ", ".join(str(p) for p in searched), user_data_dir(), DIR_ENV,
+            "[avatar] qq3d model missing: searched %s (data folder %s, override %s=%s)",
+            ", ".join(str(p) for p in searched), user_data_dir(), DIR_ENV, override_dir(),
         )
         return f"no model at {searched[0]}"
     if not check_clips():
