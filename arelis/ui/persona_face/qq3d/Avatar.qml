@@ -11,9 +11,11 @@
 //   backdrop     clear colour under her (transparent unless the opaque arm)
 //   hub          true in Filament's bottom-left hub, false in a full-height band
 //   modelSource  her converted model (balsam Ellah_anim.qml) in the user data folder
-//   figure       the loaded model node (null until loaded), for B and C to drive
+//   figure       the loaded model node (null until loaded), for B to drive
+//   clip         the body clip the mixer is playing (read only)
 import QtQuick
 import QtQuick3D
+import "../../persona_q3d"
 
 Item {
     id: root
@@ -30,12 +32,7 @@ Item {
     readonly property alias figure: loader.item
     property string sceneStatus: "loading"   // loading | ready | error
     property string sceneError: ""
-    property string clip: ""
-
-    // Placeholder pose pick until track C's mixer lands: one clip per state.
-    readonly property var clipFor: ({
-        idle: "Idle", listening: "Listening", thinking: "v2_ThoughtfulHeadNod",
-        speaking: "Talking", done: "Agreeing" })
+    readonly property string clip: mixer.clip
 
     View3D {
         id: view
@@ -59,34 +56,17 @@ Item {
             source: root.modelSource
             scale: Qt.vector3d(100, 100, 100)
             onStatusChanged: {
-                if (status === Loader3D.Ready) { root.sceneStatus = "ready"; root.play() }
+                if (status === Loader3D.Ready) root.sceneStatus = "ready"
                 else if (status === Loader3D.Error) { root.sceneError = "model failed to load"; root.sceneStatus = "error" }
             }
         }
     }
 
-    onAvatarStateChanged: play()
+    // Track C: body clips, pools and crossfades (persona_q3d/Mixer.qml).
+    Mixer { id: mixer; objectName: "mixer"; model: loader.item }
+    onAvatarStateChanged: mixer.setState(avatarState)
+    Component.onCompleted: mixer.setState(avatarState)
 
-    function timelines() {
-        var out = {}
-        if (!loader.item) return out
-        var d = loader.item.data
-        for (var i = 0; i < d.length; i++)
-            if (d[i].objectName && d[i].animations !== undefined) out[d[i].objectName] = d[i]
-        return out
-    }
-    function clipNames() { return Object.keys(timelines()).join(",") }
-    // Track C slot: replace with the crossfading mixer and state pools.
-    function play() {
-        var t = timelines(), name = clipFor[avatarState] || "Idle"
-        if (!t[name]) name = "Idle"
-        if (!t[name]) return
-        for (var k in t) { t[k].animations[0].running = false; t[k].enabled = false }
-        t[name].enabled = true
-        t[name].animations[0].loops = Animation.Infinite
-        t[name].animations[0].restart()
-        clip = name
-    }
     // The layout settled. Quick 3D follows its size by itself; kept for the host API.
     function refit() { view.update() }
 }

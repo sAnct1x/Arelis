@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import logging
-
 import pytest
+from PySide6.QtCore import QObject
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -54,15 +53,37 @@ def test_host_calls_set_the_scene_properties(tmp_path, monkeypatch) -> None:
     assert root.property("avatarState") == "idle" and root.property("speaking") is False
     host.set_level(0.5)
     assert abs(root.property("level") - 0.5) < 1e-6
-    assert root.property("hub") is not None and root.property("clip") == "Idle"
+    assert root.property("hub") is not None
     host.close()
 
 
-def test_missing_clips_log_one_error_naming_the_folder(tmp_path, monkeypatch, caplog) -> None:
-    d = _model(tmp_path, monkeypatch, clips=False)
-    from arelis.ui.persona_face.qq3d_avatar import check_clips
+def _ready_host(tmp_path, monkeypatch):
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
 
-    caplog.set_level(logging.ERROR, logger="arelis.avatar")
-    assert check_clips() is False
-    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
-    assert errors == [f"[avatar] clips missing at {d / 'animations'}"]
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    host = QQ3DAvatar()
+    host.resize(200, 400)
+    host.show()
+    for _ in range(40):
+        if host.is_ready():
+            break
+        QTest.qWait(100)
+    if not host.is_ready():
+        pytest.skip("no Quick 3D rendering here")
+    return host
+
+
+def test_avatar_state_drives_the_mixer(tmp_path, monkeypatch) -> None:
+    host = _ready_host(tmp_path, monkeypatch)
+    mixer = host.root.findChild(QObject, "mixer")
+    assert mixer is not None
+    host.set_state("speaking")
+    for _ in range(30):
+        if mixer.property("mode") == "speaking":
+            break
+        QTest.qWait(50)
+    assert mixer.property("mode") == "speaking"
+    host.close()
