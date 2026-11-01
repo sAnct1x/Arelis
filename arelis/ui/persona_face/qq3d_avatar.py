@@ -588,6 +588,7 @@ class _RenderThread(QThread):
         self._size: tuple[int, int] | None = None
         self._no_cache_logged = False
         self._timed = 0  # frames whose step times were logged (the first _TIMED_FRAMES)
+        self._dispose_queued = False  # dispose waits for finished when a frame outlives stop
 
     # ---- GUI thread ----
 
@@ -620,21 +621,31 @@ class _RenderThread(QThread):
                 self._cv.wait(0.5)
             return True
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        """Ask the loop to end; True once run() has returned (False if still in a frame)."""
         with self._cv:
             self._stop = True
             self._cv.notify_all()
-        self.wait(5000)
+        return self.wait(5000)
 
     def dispose(self, *_args) -> None:
-        """Stop the thread, then free the scene, its window and the control, in that order."""
+        """Stop the thread, then free the scene, its window and the control, in that order.
+
+        A frame still in flight after the wait (a heavy model's first frame on a slow GPU)
+        keeps the thread, its control and its window alive until run() returns: freeing
+        them now would pull the control out from under _release, and dropping the last
+        wrapper of a running QThread aborts the process.
+        """
         import shiboken6
 
         if not shiboken6.isValid(self):  # Qt already freed it (a host that failed to start)
             _LIVE.discard(self)
             return
-        if self.isRunning():
-            self.stop()
+        if self.isRunning() and not self.stop():
+            if not self._dispose_queued:
+                self._dispose_queued = True
+                self.finished.connect(self.dispose, Qt.ConnectionType.QueuedConnection)
+            return
         _LIVE.discard(self)
         for name in ("root", "_window", "engine", "_control"):
             obj = getattr(self, name, None)
