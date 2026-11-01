@@ -1,4 +1,4 @@
-"""Opening chat in filament places its tile beside her hub, never over it."""
+"""Opening chat in filament places its tile beside her, never over her."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def test_chat_tile_opens_clear_of_her_hub(arelis_window, qt_app) -> None:
     assert not w._filament_chat_tile.geometry().intersects(hub)
 
 
-def test_her_panel_fits_a_small_hub(arelis_window, qt_app) -> None:
+def test_her_panel_fills_her_band_in_filament(arelis_window, qt_app) -> None:
     w = arelis_window(
         {
             "ui": {
@@ -44,7 +44,7 @@ def test_her_panel_fits_a_small_hub(arelis_window, qt_app) -> None:
     w._choose_theme("filament", True)
     qt_app.processEvents()
     stage = w.persona_stage
-    assert stage.width() < 220  # a hub smaller than the old dock floor
+    assert stage.height() == stage.parentWidget().height()  # full height, not a corner hub
     assert w.persona_panel.geometry() == stage.rect()
 
 
@@ -76,8 +76,8 @@ def test_chat_tile_steps_off_her_hub_when_the_window_shrinks(arelis_window, qt_a
 
 
 def test_a_chat_spot_parked_in_a_bigger_window_steps_off_her_hub(arelis_window, qt_app) -> None:
-    # Babbage, 1100x800: the parked spot put the tile over her hub and 36 px
-    # past the window's left edge.
+    # Babbage, 1100x800: a spot parked in a bigger window lands over her band
+    # and part past the window's right edge.
     w = arelis_window(
         {
             "ui": {
@@ -85,7 +85,7 @@ def test_a_chat_spot_parked_in_a_bigger_window_steps_off_her_hub(arelis_window, 
                 "default_height": 800,
                 "theme": "night",
                 "filament_ack": True,
-                "filament_tile_pos": {"chat": {"x": -36, "y": 300}},
+                "filament_tile_pos": {"chat": {"x": 900, "y": 300}},
             }
         }
     )
@@ -100,3 +100,4 @@ def test_a_chat_spot_parked_in_a_bigger_window_steps_off_her_hub(arelis_window, 
     tile = w._filament_chat_tile.geometry()
     assert not tile.intersects(hub)
     assert tile.left() >= w.geometry().left()
+    assert tile.right() <= w.geometry().right()

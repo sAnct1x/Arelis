@@ -15,8 +15,8 @@ ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "win-installer"
 ARELIS = ROOT / "arelis"
 
-# Modules imported under arelis/ that the prune still deletes on purpose.
-# None now: QtWebEngine and QtWebChannel ship for the three.js avatar.
+# Modules imported under arelis/ that the prune still deletes on purpose. None now:
+# the Quick 3D avatar's QtQuick3D, QtQuickWidgets and QtQml ship in QT_MODULES.
 GUARDED_DROPPED: dict[str, str] = {}
 
 

@@ -81,6 +81,8 @@ FLOATS = (
     ("reality", 0.00, 0),
 )
 FREE_FLOATS = frozenset({"reality"})
+# Atmosphere ticks between stacking refreshes of the floats (about 1 s).
+_RESTACK_TICKS = 30
 
 # Mini-world off the home corner. Rings are distinct radii so they read
 # as orbits, not one smudged ellipse. The center sits the same air off
@@ -495,6 +497,8 @@ class FilamentField:
         self._live_phase = 0.0
         self._tethers: dict[str, dict] = {}
         self.hub: QPointF | None = None
+        # Window x where her band starts (Filament): the ring, ask and reality stay left of it.
+        self.band_left: float | None = None
         # Load sequence: 1.0 is a full ring. begin_ring_growth drops it to 0,
         # waits for her, then eases it back so the ring grows out of the hub.
         self.ring_grow = 1.0
@@ -664,17 +668,22 @@ class FilamentField:
                 d["life"] = 0.0
             d["life"] += dt * 0.16
 
-    def ellipse(self, rect: QRect) -> tuple[float, float, float, float]:
+    def ellipse(self, rect: QRect, settled: bool = False) -> tuple[float, float, float, float]:
+        """The ring; settled skips the load growth (where it comes to rest)."""
         w, h = float(rect.width()), float(rect.height())
         desk = self._desk_width(w)
-        if self._desk_w > 80.0:
+        if self.band_left is not None:
+            home = self.home_rect(rect)
+            desk = float(home.width())
+            cx = home.left() + desk * 0.5
+        elif self._desk_w > 80.0:
             cx = rect.left() + self._desk_left + desk * 0.5
         else:
             cx = rect.left() + w * 0.5
         cy = rect.top() + h * 0.40
         rx = min(desk * 0.48, h * 0.44)
         ry = rx * 0.50
-        g = self.ring_scale()
+        g = 1.0 if settled else self.ring_scale()
         if g < 1.0:
             # Grows out of her hub: the centre slides from the hub, the radii open.
             if self.hub is not None:
@@ -718,9 +727,11 @@ class FilamentField:
         cur["end"] = QPointF(end)
         cur["want"] = 1.0
 
-    def set_hub(self, point: QPointF | None) -> None:
-        """Her hub point (bottom left). Threads start here; None in other rooms."""
+    def set_hub(self, point: QPointF | None, band_left: float | None = None) -> None:
+        """Her centre in the band. Threads start here and the ring grows out of it, to settle
+        on the desk left of band_left (where her band starts); None in other rooms."""
         self.hub = QPointF(point) if point is not None else None
+        self.band_left = float(band_left) if point is not None and band_left is not None else None
 
     def thread_start(self, name: str, rect: QRect) -> QPointF:
         """Where an open tile's strand starts: her hub when she has one."""
@@ -833,6 +844,25 @@ class FilamentField:
                 best_d = tdist
         return best
 
+    def float_points(self, name: str, rect: QRect) -> tuple[QPointF, QPointF]:
+        """(bead_point, title_point) for one float, with the anchor and ring worked out once."""
+        if name in FREE_FLOATS:
+            p = self._free_bead(rect)
+            return p, QPointF(p.x(), p.y() - _REALITY_TITLE_LIFT)
+        found = self.spec(name)
+        cx, cy, _rx, _ry = self.ellipse(rect)
+        if found is None:
+            return QPointF(cx, cy), QPointF(cx, cy)
+        p = self._point(found[0], 2.0, rect)
+        dx, dy = p.x() - cx, p.y() - cy
+        length = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / length, dy / length
+        bead_pad, title_pad = float(found[1]) * 0.62, float(found[1]) + 18.0
+        return (
+            QPointF(p.x() + ux * bead_pad, p.y() + uy * bead_pad),
+            QPointF(p.x() + ux * title_pad, p.y() + uy * title_pad),
+        )
+
     def title_point(self, name: str, rect: QRect) -> QPointF:
         if name in FREE_FLOATS:
             p = self._free_bead(rect)
@@ -844,16 +874,20 @@ class FilamentField:
         return self._radial(name, rect, float(found[1]) + 18.0)
 
     def home_rect(self, rect: QRect) -> QRect:
-        """The primary desk. Ask + chrome stay inside this, even on a 3-span."""
+        """The primary desk, short of her band. Ask + chrome stay inside this, even on a 3-span."""
         w, h = float(rect.width()), float(rect.height())
         desk = self._desk_width(w)
         if self._desk_w > 80.0:
-            return QRect(int(rect.left() + self._desk_left), rect.top(), int(desk), int(h))
-        return QRect(rect)
+            home = QRect(int(rect.left() + self._desk_left), rect.top(), int(desk), int(h))
+        else:
+            home = QRect(rect)
+        if self.band_left is not None and home.left() < self.band_left <= home.right():
+            home.setRight(int(self.band_left) - 1)
+        return home
 
     def prompt_point(self, rect: QRect) -> QPointF:
         """Ask cluster sits under the ring, on the home desk."""
-        cx, cy, _rx, ry = self.ellipse(rect)
+        cx, cy, _rx, ry = self.ellipse(rect, settled=True)
         return QPointF(cx, cy + ry + 96)
 
     def prompt_rect(self, rect: QRect) -> QRect:
@@ -1256,6 +1290,13 @@ class FilamentFloatBar(QObject):
         self._host = host
         self._open: set[str] = set()
         self._skip: set[str] = set()
+        # place() runs on every atmosphere tick. Only the positions move per tick;
+        # parent, visibility, stacking and chip size change on events, so those
+        # Qt calls (raise_ restacks and repaints, adjustSize re-polishes) run
+        # only when this signature changes, plus a stacking refresh now and then
+        # in case another widget was raised over the floats.
+        self._placed_sig: tuple | None = None
+        self._placed_ticks = 0
         self._buttons: dict[str, QPushButton] = {}
         self._beads: dict[str, QPushButton] = {}
         for name, _t, _oy in FLOATS:
@@ -1326,47 +1367,61 @@ class FilamentFloatBar(QObject):
     def place(self, window_rect: QRect) -> None:
         host = self._host
         win = host.window()
+        sig = (id(win), frozenset(self._open), frozenset(self._skip), window_rect.size().toTuple())
+        self._placed_ticks += 1
+        settle = sig != self._placed_sig or self._placed_ticks >= _RESTACK_TICKS
+        if settle:
+            self._placed_sig = sig
+            self._placed_ticks = 0
         for name, _t, _oy in FLOATS:
             btn = self._buttons[name]
             bead = self._beads[name]
             parent = win if name in FREE_FLOATS and win is not None else host
             if btn.parent() is not parent:
                 btn.setParent(parent)
+                settle = True
             if bead.parent() is not parent:
                 bead.setParent(parent)
+                settle = True
             if name in self._skip:
-                btn.hide()
-                bead.hide()
+                if not btn.isHidden():
+                    btn.hide()
+                if not bead.isHidden():
+                    bead.hide()
                 self._breath_title(btn, name, force_off=True)
                 continue
-            ap = self._field.bead_point(name, window_rect)
+            ap, p = self._field.float_points(name, window_rect)
             if parent is win:
                 local_a = ap.toPoint()
+                local = p.toPoint()
             else:
                 local_a = host.mapFrom(win, ap.toPoint()) if win is not None else ap.toPoint()
-            bead.show()
+                local = host.mapFrom(win, p.toPoint()) if win is not None else p.toPoint()
+            if bead.isHidden():
+                bead.show()
+                settle = True
             bx = int(local_a.x() - bead.width() / 2)
             by = int(local_a.y() - bead.height() / 2)
             if bead.x() != bx or bead.y() != by:
                 bead.move(bx, by)
-            bead.raise_()
+            if settle:
+                bead.raise_()
             if name in self._open:
-                btn.hide()
+                if not btn.isHidden():
+                    btn.hide()
                 self._breath_title(btn, name, force_off=True)
                 continue
-            btn.show()
-            p = self._field.title_point(name, window_rect)
-            if parent is win:
-                local = p.toPoint()
-            else:
-                local = host.mapFrom(win, p.toPoint()) if win is not None else p.toPoint()
-            btn.adjustSize()
+            if btn.isHidden():
+                btn.show()
+                settle = True
+            if self._breath_title(btn, name) or settle:
+                btn.adjustSize()
             x = int(local.x() - btn.width() / 2)
             y = int(local.y() - btn.height() / 2)
             if btn.x() != x or btn.y() != y:
                 btn.move(x, y)
-            self._breath_title(btn, name)
-            btn.raise_()
+            if settle:
+                btn.raise_()
         self._place_hands(window_rect)
 
     def _place_hands(self, window_rect: QRect) -> None:
@@ -1404,11 +1459,12 @@ class FilamentFloatBar(QObject):
         self.hands_btn.setChecked(bool(on))
         self.hands_btn.blockSignals(False)
 
-    def _breath_title(self, btn: QPushButton, name: str, *, force_off: bool = False) -> None:
-        """Soft opacity clock on a live title. Not a blink."""
+    def _breath_title(self, btn: QPushButton, name: str, *, force_off: bool = False) -> bool:
+        """Soft opacity clock on a live title. Not a blink. True when the chip was restyled."""
         live = (not force_off) and self._field.is_live(name)
         want = "true" if live else "false"
-        if btn.property("live") != want:
+        restyled = btn.property("live") != want
+        if restyled:
             btn.setProperty("live", want)
             style = btn.style()
             if style is not None:
@@ -1417,13 +1473,14 @@ class FilamentFloatBar(QObject):
         if not live:
             if btn.graphicsEffect() is not None:
                 btn.setGraphicsEffect(None)
-            return
+            return restyled
         effect = btn.graphicsEffect()
         if not isinstance(effect, QGraphicsOpacityEffect):
             effect = QGraphicsOpacityEffect(btn)
             btn.setGraphicsEffect(effect)
         breath = self._field.live_breath()
         effect.setOpacity(0.62 + 0.38 * breath)
+        return restyled
 
 
 class FilamentChatWindow(QWidget):

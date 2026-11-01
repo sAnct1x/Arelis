@@ -109,7 +109,20 @@ QT_MODULES = (
     "QtWebEngineCore",
     "QtWebEngineWidgets",
     "QtWebChannel",
+    # The Quick 3D avatar (arelis/ui/persona_face/qq3d_avatar.py, persona_q3d/).
+    # QtQml registers its LayerGeometry type (persona_q3d/geometry.py); QtQuickWidgets
+    # hosts the scene. Their DLLs, Qt6ShaderTools (Quick 3D bakes its shaders at run
+    # time) and the QML imports in QT_KEEP_QML stay with them.
+    "QtQml",
+    "QtQuick",
+    "QtQuickWidgets",
+    "QtQuick3D",
 )
+
+# QML import directories under PySide6/qml that the avatar's .qml files reach:
+# `import QtQuick`, `import QtQuick.Timeline` (inside QtQuick/) and `import QtQuick3D`,
+# plus QtQml, which QtQuick's own plugin imports. The rest of qml/ is still removed.
+QT_KEEP_QML = ("QtQml", "QtQuick", "QtQuick3D")
 
 # One import per dependency this project declares, in the form that actually proves it
 # arrived. Import names are not distribution names -- beautifulsoup4 is `bs4`, PyYAML is
@@ -677,7 +690,6 @@ def remove_build_only_packages() -> None:
 # in the codebase, or build-time material with no runtime role at all.
 QT_DROP_DIRECTORIES = {
     "translations": "Qt's own UI translations, most of it QtWebEngine's locales",
-    "qml": "QML modules, for a UI written in QML rather than Widgets",
     "metatypes": "JSON type registrations read by Qt's build tools, never at runtime",
     "include": "C++ headers for building against Qt",
     "typesystems": "shiboken binding definitions, used to generate PySide, not to run it",
@@ -696,12 +708,16 @@ QT_DROP_PREFIXES = (
     # Qt's other UI toolkit. Arelis is Widgets throughout. Qt6WebEngineCore.dll links
     # Qt6Quick, Qt6Qml, Qt6QmlModels and Qt6QmlMeta/WorkerScript, so only their
     # add-on families go; the import census below proves the core set arrived.
-    "QtQuick", "QtQml", "Qt6LabsStyleKit", "Qt6ShaderTools",
+    # The bindings go by exact family, not "QtQuick"/"QtQml": those prefixes took the
+    # QtQuick, QtQuickWidgets, QtQuick3D and QtQml bindings the Quick 3D avatar imports.
+    # Qt6ShaderTools stays too: Quick 3D bakes its shaders with it at run time.
+    "QtQuickControls2", "QtQuickTest", "Qt6LabsStyleKit",
     "Qt6QuickControls2", "Qt6QuickDialogs2", "Qt6QuickTemplates2", "Qt6QuickLayouts",
     "Qt6QuickParticles", "Qt6QuickShapes", "Qt6QuickTest",
     # Qt6QuickWidgets stays: Qt6WebEngineWidgets.dll links it (the web view widget
     # is a QQuickWidget), so dropping it fails the QtWebEngineWidgets DLL load.
-    "Qt6QuickTimeline", "Qt6QuickEffects", "Qt6QuickVectorImage",
+    # Qt6QuickTimeline stays: persona_q3d/Mixer.qml imports QtQuick.Timeline.
+    "Qt6QuickEffects", "Qt6QuickVectorImage",
     "Qt6QmlCompiler", "Qt6QmlLocalStorage", "Qt6QmlXmlListModel", "Qt6QmlNetwork",
     # 3D, charting and data visualisation.
     "Qt63D", "Qt3D", "Qt6Charts", "QtCharts",
@@ -767,6 +783,16 @@ def prune_qt(site: Path) -> int:
             shutil.rmtree(target)
             freed += size
             say(f"    {human(size):>10}  {name}/ -- {reason}")
+
+    qml = pyside / "qml"
+    if qml.is_dir():
+        size = 0
+        for entry in list(qml.iterdir()):
+            if entry.is_dir() and entry.name not in QT_KEEP_QML:
+                size += tree_size(entry)
+                shutil.rmtree(entry)
+        freed += size
+        say(f"    {human(size):>10}  qml/ except {', '.join(QT_KEEP_QML)} -- unused QML imports")
 
     families = 0
     family_bytes = 0
@@ -888,7 +914,7 @@ def check_avatar_assets(site: Path) -> None:
     """
     web = site / "arelis" / "ui" / "persona_face" / "web"
     needed = ("index.html", "aether.js", "anim.js", "anim-mixer.js", "gesture-track-mix.json",
-              "config.js", "avatar-api.js",
+              "config.js", "avatar-api.js", "bloom-bright.js",
               "vendor/three/three.module.min.js", "vendor/three/addons/loaders/GLTFLoader.js",
               "vendor/three/addons/postprocessing/UnrealBloomPass.js")
     missing = [name for name in needed if not (web / name).is_file()]
@@ -1224,14 +1250,17 @@ def verify() -> None:
             "app.quit()\n"
             "print('window ok')\n"
         )
+        # -X faulthandler: a native abort (a QThread destroyed while running, an access
+        # violation) has no Python traceback, and Qt's own message may not reach stderr.
         result = subprocess.run(
-            [str(python_exe()), "-c", window_probe],
+            [str(python_exe()), "-X", "faulthandler", "-c", window_probe],
             capture_output=True,
             text=True,
             env=ui_env,
         )
         if result.returncode != 0 or "window ok" not in result.stdout:
             sys.stderr.write("\nMain window cannot build in the built tree.\n\n")
+            sys.stderr.write(f"exit code {result.returncode}\n")
             sys.stderr.write((result.stdout or "") + "\n" + (result.stderr or "") + "\n")
             raise SystemExit(1)
     finally:

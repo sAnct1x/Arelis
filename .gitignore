@@ -141,3 +141,5 @@ mypy_out.txt
 
 # The avatar model lives in the user's data folder, never in the repo.
 *.glb
+# Her converted Quick 3D model (balsam output) is private too: user data folder only.
+/avatar/

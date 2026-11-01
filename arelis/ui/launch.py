@@ -551,6 +551,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     # (globalShareContext stays alive after park()). In-process WebEngine
     # stays for pytest / no solar GL.
     app = QApplication.instance() or QApplication([])
+    from arelis.ui.persona_face import qq3d_avatar
+
+    qq3d_avatar.surface_format()
     app.setApplicationName("Arelis")
     icon_path = app_icon_path()
     if icon_path.is_file():

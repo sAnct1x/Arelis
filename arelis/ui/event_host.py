@@ -220,6 +220,25 @@ def parse_role_set_message(message: str) -> str | None:
     return None
 
 
+def _persona_streaming(window, on: bool) -> None:
+    """She speaks while the reply streams in; a withdrawn draft puts her back to thinking.
+
+    The turn's end (ASSISTANT_DONE or ERROR) clears busy, and _set_busy moves her to done
+    unless speech is still playing.
+    """
+    panel = getattr(window, "persona_panel", None)
+    if panel is None:
+        return
+    if on:
+        panel.set_state("speaking")
+        return
+    speech = bool(getattr(window, "_speech_expected", False)) or bool(
+        getattr(window, "_speech_playing", False)
+    )
+    if not speech and getattr(window, "_turn_busy", False):
+        panel.set_state("thinking")
+
+
 def dispatch_event(window: Any, event: Event) -> None:
     """Render one bus event. Runs on the Qt thread via BusBridge.
 
@@ -325,6 +344,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         if not window._assistant_streaming:
             window.chat.begin_assistant()
             window._assistant_streaming = True
+            _persona_streaming(window, True)
         window.chat.append_delta(p.get("text", ""))
     elif t == EventType.ASSISTANT_RETRACT:
         if window._mobile_foreign:
@@ -336,6 +356,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         # any speech that streamed from it.
         window.chat.discard_stream()
         window._assistant_streaming = False
+        _persona_streaming(window, False)
         # VoiceService.on_retract already cancelled the withdrawn utterance.
         # This handler runs later, on the Qt thread, after the replacement
         # has bumped the speak id. stop_speech would stamp that new id as

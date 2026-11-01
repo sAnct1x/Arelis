@@ -820,7 +820,9 @@ def update_speaking(window) -> None:
         if speaking:
             panel.set_state("speaking")
         elif was_speaking:
-            if getattr(window, "_turn_busy", False):
+            if getattr(window, "_assistant_streaming", False):
+                pass  # the reply is still streaming in: she keeps speaking
+            elif getattr(window, "_turn_busy", False):
                 panel.set_state("thinking")
             else:
                 panel.set_state("done")

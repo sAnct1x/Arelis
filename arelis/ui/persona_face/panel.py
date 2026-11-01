@@ -37,6 +37,11 @@ class LoadingVeil(QWidget):
         self.setObjectName("avatarLoading")
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.message = ""  # set when her figure cannot load: drawn over the glow, never blank
+
+    def set_message(self, text: str) -> None:
+        self.message = text
+        self.update()
 
     def tint(self) -> QColor:
         return QColor(color("accent"))
@@ -55,6 +60,13 @@ class LoadingVeil(QWidget):
         grad.setColorAt(0.0, inner)
         grad.setColorAt(1.0, outer)
         painter.fillRect(r, grad)
+        if self.message:
+            painter.setPen(QColor(color("text")))
+            painter.drawText(
+                r.adjusted(16, 16, -16, -16),
+                int(Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap),
+                self.message,
+            )
         painter.end()
 
 
@@ -177,23 +189,54 @@ class PersonaPanel(QWidget):
         return QFontMetrics(font).elidedText(text, Qt.TextElideMode.ElideRight, limit)
 
     def refresh_theme_icons(self) -> None:
-        """Theme change: retint the veil. The scene retints through its own hook."""
+        """Theme change: retint the veil. The scene retints through its own hook.
+
+        Under ARELIS_AVATAR_ENGINE=qq3d a switch into or out of a room Quick 3D
+        hosts swaps her host, so each room gets the engine it was built for.
+        """
         self.loading.update()
+        from arelis.ui.persona_face import qq3d_avatar
+        from arelis.ui.theme_tokens import active_theme
+
+        want = "qq3d" if qq3d_avatar.wanted(active_theme()) else "web"
+        if qq3d_avatar.engine() == "qq3d" and want != self._engine:
+            self._swap_host()
+
+    def _swap_host(self) -> None:
+        old, self.web = self.web, None
+        self.loading.set_message("")
+        self.loading.show()
+        self.loading.raise_()
+        if old is not None:
+            old.hide()
+            old.deleteLater()
+        self._pose = ""
+        self.web_avatar_reason = self._start_web()
+        self._push()
 
     # ---- web scene ----
 
     def _start_web(self) -> str | None:
         """Start the three.js scene. Returns why not, or None when it is starting."""
-        from arelis.ui.persona_face import web_avatar
+        from arelis.ui.persona_face import qq3d_avatar, web_avatar
+        from arelis.ui.theme_tokens import active_theme
 
-        reason = web_avatar.unavailable_reason()
+        host = web_avatar
+        make = lambda: web_avatar.WebAvatar(self)  # noqa: E731
+        self._engine = "web"
+        if qq3d_avatar.wanted(active_theme()):
+            host = qq3d_avatar
+            make = lambda: qq3d_avatar.QQ3DAvatar(self)  # noqa: E731
+            self._engine = "qq3d"
+        reason = host.unavailable_reason()
         if reason is None:
             try:
-                self.web = web_avatar.WebAvatar(self)
+                self.web = make()
             except Exception as exc:
                 reason = f"web avatar failed to start: {exc}"
         if reason is not None:
-            alog("unavailable", reason=repr(reason))
+            alog("unavailable", reason=f"'{reason}'")  # not repr: it doubles a Windows path's \\
+            self._show_failure(reason)
             return reason
         # The page loads shown and sized, under the veil. A hidden view is a
         # hidden page to Chromium: it started at 0x0 and its frames and fetches
@@ -215,8 +258,14 @@ class PersonaPanel(QWidget):
         self.loading.hide()
         self.web.refit()
 
+    def _show_failure(self, reason: str) -> None:
+        """Quick 3D: the veil says why she is not drawn (a missing model is never a blank)."""
+        if self._engine == "qq3d":
+            self.loading.set_message(f"Her figure could not load: {reason}")
+
     def _on_web_failed(self, reason: str) -> None:
         self.web_avatar_reason = reason
+        self._show_failure(reason)
         web, self.web = self.web, None
         self.loading.show()
         if web is not None:

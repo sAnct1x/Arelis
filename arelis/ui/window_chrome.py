@@ -64,6 +64,9 @@ from arelis.ui.world_host import world_available
 log = logging.getLogger(__name__)
 
 _PANEL_OUTER = SHELL["outer"]
+# The window filters every event in the app; all but these go straight through.
+_KEY_EVENTS = frozenset({QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress})
+_FILTERED_EVENTS = _KEY_EVENTS | {QEvent.Type.MouseButtonPress, QEvent.Type.MouseMove}
 _PANEL_HALF = SHELL["half"]
 _PANEL_TOP = SHELL["top"]
 _PANEL_BOTTOM = SHELL["bottom"]
@@ -166,7 +169,11 @@ class WindowChrome:
             self._filament.set_state(self._filament_weather())
             self._filament.tick(ms / 1000.0)
             self._place_filament_floats(reshape=False)
-            self.update(self._filament.dirty_rect(self.rect()))
+            render = getattr(self, "_filament_render", None)
+            if render is not None:
+                render.request(self.rect(), self.devicePixelRatioF())  # ready repaints
+            else:
+                self.update(self._filament.dirty_rect(self.rect()))
             return
         self._atmosphere_timer.setInterval(300)
         if getattr(self, "_turn_busy", False) or not self.isActiveWindow():
@@ -359,13 +366,15 @@ class WindowChrome:
         the mode turned on and straight back off and the orbit looked dead.
         """
         et = event.type()
+        if et not in _FILTERED_EVENTS:
+            return super().eventFilter(obj, event)
         if et == QEvent.Type.MouseButtonPress:
             note_engagement(self)
             return super().eventFilter(obj, event)
         if et == QEvent.Type.MouseMove:
             self._filament_on_mouse_move(event)
             return super().eventFilter(obj, event)
-        if et not in {QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress}:
+        if et not in _KEY_EVENTS:
             return super().eventFilter(obj, event)
         if not isinstance(event, QKeyEvent):
             return super().eventFilter(obj, event)
@@ -445,7 +454,13 @@ class WindowChrome:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         if active_theme() == "filament":
             painter.setClipRegion(event.region())
-            self._filament.paint(painter, self.rect())
+            render = getattr(self, "_filament_render", None)
+            frame = render.frame_for(self.rect(), self.devicePixelRatioF()) if render else None
+            if frame is None:
+                self._filament.paint(painter, self.rect())
+            else:
+                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+                painter.drawImage(0, 0, frame)
             return
         path = QPainterPath()
         path.addRoundedRect(self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS)
