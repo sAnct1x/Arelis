@@ -3,8 +3,6 @@ centre reaches the stage, as in Night and Sodium."""
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QApplication
-
 
 def test_orbit_settles_left_of_her_and_her_centre_is_the_stage(arelis_window, qt_app) -> None:
     w = arelis_window({"ui": {"default_width": 1600, "default_height": 900, "theme": "filament"}})
@@ -17,5 +15,5 @@ def test_orbit_settles_left_of_her_and_her_centre_is_the_stage(arelis_window, qt
     assert cx + rx < band_left
     assert field.prompt_point(w.rect()).x() < band_left
     assert field.bead_point("reality", w.rect()).x() < band_left
-    hit = QApplication.widgetAt(stage.mapToGlobal(stage.rect().center()))
+    hit = w.childAt(stage.mapTo(w, stage.rect().center()))
     assert hit is not None and not w.conversation.isAncestorOf(hit) and hit is not w.conversation
