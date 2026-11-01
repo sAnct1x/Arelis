@@ -7,16 +7,23 @@
   places the window without activating it, waits for frames, settles, then runs:
     1 idle          app idle, llama idle
     2 llama_gen     app idle while llama-server generates a long reply to an external prompt
-    3 app_stream    the app streams a chat reply (prompt typed into the app's chat box)
-    4 idle2         app idle again
+    3 app_stream    the app streams a chat reply (sent headlessly, see below)
+    4 idle2         app idle again, started only once that reply has finished streaming
   The app writes one trace file; each phase is cut from it by trace row count at the phase
   boundaries (rows are flushed about once a second, so edges are accurate to ~1 s).
-  Total about 4 min of capture plus start-up, well under 15 min.
+  Total about 4 min of capture plus start-up and the wait for the reply to end (capped by
+  -StreamEndTimeout), under 15 min.
 
-  app_stream: there is no headless hook to send a chat turn, so the script activates the window,
-  pastes -ChatPrompt from the clipboard and presses Enter (the chat input must have focus on
-  launch; -ChatClickX/-ChatClickY click it first if not). Check arelis_*.err.log / the
-  chunk count printed for that phase to confirm the reply really streamed.
+  No keyboard, mouse, clipboard or foreground change on Atria. app_stream: the app is started
+  with ARELIS_AUTOCHAT_PROMPT=-ChatPrompt and ARELIS_AUTOCHAT_TRIGGER=<file>; creating the file
+  makes the app submit the prompt through its own chat box (arelis/ui/autochat.py, inert when
+  unset). The app appends "sent <ms>" / "done <ms>" to autochat.log; idle2 waits for "done".
+
+  llama tokens/s per phase: llama-server /metrics (start it with --metrics) is read at each
+  phase edge; tok_s = delta llamacpp:tokens_predicted_total / phase seconds, gen_tok_s = that
+  delta / delta llamacpp:tokens_predicted_seconds_total. Without /metrics, llama_gen falls back
+  to streamed chunks / seconds (one token per chunk) and the timings.predicted_per_second of
+  the final chunk when the reply ends inside the phase. Written to llama.csv and summary.csv.
 
   Writes into -Out:
     raw_all.csv       the app's raw ARELIS_FRAME_TRACE file
@@ -24,6 +31,8 @@
     phases.csv        phase,start_ms,end_ms (wall clock) and the trace row index range
     summary.csv       per phase and column: n, p50, p95, max, % over 33 ms
                       (tools/frametrace_summary.py)
+    llama.csv         phase,tokens,seconds,tok_s,gen_tok_s,source
+    autochat.log      the app's sent/done lines for the app_stream reply
     arelis.out.log / arelis.err.log
 
 .EXAMPLE
@@ -39,14 +48,16 @@ param(
     [int]$X = 60, [int]$Y = 40, [int]$Width = 2560, [int]$Height = 1440,
     [int]$PhaseSeconds = 60, [int]$SettleSeconds = 8, [int]$ReadyTimeout = 150,
     [string]$ChatPrompt = "Write a long, detailed essay on the history of timekeeping, from sundials to atomic clocks. Be thorough.",
-    [int]$ChatClickX = -1, [int]$ChatClickY = -1
+    [int]$StreamEndTimeout = 240
 )
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 $Out = (Resolve-Path $Out).Path
 $Trace = "$Out\trace_all.csv"
-Remove-Item -ErrorAction SilentlyContinue "$Out\trace_*.csv", "$Out\phases.csv", "$Out\summary.csv"
+$Trigger = "$Out\autochat.go"; $ChatLog = "$Out\autochat.log"
+Remove-Item -ErrorAction SilentlyContinue "$Out\trace_*.csv", "$Out\phases.csv", "$Out\summary.csv", "$Out\llama.csv", $Trigger, $ChatLog
 "phase,start_ms,end_ms,first_row,last_row" | Set-Content -Encoding ascii "$Out\phases.csv"
+"phase,tokens,seconds,tok_s,gen_tok_s,source" | Set-Content -Encoding ascii "$Out\llama.csv"
 function Now-Ms { [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
 
 Add-Type @"
@@ -56,13 +67,9 @@ public static class W {
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, IntPtr e);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);
 }
 "@
-Add-Type -AssemblyName System.Windows.Forms
 
 # Same streaming client as cpuprof_atria.ps1, straight to llama-server's HTTP API.
 function Start-Stream([int]$Seconds) {
@@ -76,23 +83,66 @@ function Start-Stream([int]$Seconds) {
         $req.Content = [System.Net.Http.StringContent]::new($body, [Text.Encoding]::UTF8, "application/json")
         $resp = $cli.SendAsync($req, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).Result
         $rd = [IO.StreamReader]::new($resp.Content.ReadAsStreamAsync().Result)
-        $end = (Get-Date).AddSeconds($sec); $n = 0
-        while ((Get-Date) -lt $end -and -not $rd.EndOfStream) { if ($rd.ReadLine().StartsWith("data:")) { $n++ } }
-        $rd.Dispose(); $cli.Dispose(); "chunks=$n"
+        $t0 = Get-Date; $end = $t0.AddSeconds($sec); $n = 0; $pps = ""
+        while ((Get-Date) -lt $end -and -not $rd.EndOfStream) {
+            $line = $rd.ReadLine()
+            if ($line.StartsWith("data:")) {
+                $n++
+                if ($line -match '"predicted_per_second"\s*:\s*([0-9.eE+-]+)') { $pps = $Matches[1] }
+            }
+        }
+        $s = ((Get-Date) - $t0).TotalSeconds
+        $rd.Dispose(); $cli.Dispose()
+        [pscustomobject]@{ chunks = $n; seconds = $s; predicted_per_second = $pps }
     }
 }
+
+# llama-server Prometheus counters, or $null when /metrics is off (no --metrics).
+function Llama-Counters {
+    try {
+        $txt = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 "$Llama/metrics").Content
+        $c = @{}
+        foreach ($m in [regex]::Matches($txt, '(?m)^llamacpp:(tokens_predicted_total|tokens_predicted_seconds_total)\s+([0-9.eE+-]+)')) {
+            $c[$m.Groups[1].Value] = [double]$m.Groups[2].Value
+        }
+        if ($c.Count -eq 2) { return $c }
+    } catch { }
+    return $null
+}
+$script:NoMetrics = $false
 
 function Trace-Rows { if (Test-Path $Trace) { @(Get-Content $Trace).Count } else { 0 } }
 
 function Phase([string]$phase, [scriptblock]$during = $null) {
     Write-Host "== $phase ($PhaseSeconds s)"
+    $m0 = Llama-Counters
     $a = Now-Ms; $r0 = Trace-Rows      # rows are flushed about once a second
     if ($during) { & $during } else { Start-Sleep -Seconds $PhaseSeconds }
     $b = Now-Ms; $r1 = Trace-Rows
+    $m1 = Llama-Counters
     "$phase,$a,$b,$r0,$r1" | Add-Content -Encoding ascii "$Out\phases.csv"
+    $sec = ($b - $a) / 1000.0
+    if ($m0 -and $m1) {
+        $tok = $m1.tokens_predicted_total - $m0.tokens_predicted_total
+        $gs = $m1.tokens_predicted_seconds_total - $m0.tokens_predicted_seconds_total
+        $gen = if ($gs -gt 0) { "{0:F2}" -f ($tok / $gs) } else { "" }
+        "$phase,$tok,{0:F1},{1:F2},$gen,metrics" -f $sec, ($tok / $sec) | Add-Content -Encoding ascii "$Out\llama.csv"
+    } else { $script:NoMetrics = $true }
 }
 
-$envs = @{ ARELIS_AVATAR_ENGINE = "qq3d"; ARELIS_QT_RHI = "d3d11"; ARELIS_AVATAR_QQ3D_DIR = $QQ3DDir; ARELIS_FRAME_TRACE = $Trace }
+function Wait-ChatLog([string]$event, [int]$timeout) {
+    $until = (Get-Date).AddSeconds($timeout)
+    while ((Get-Date) -lt $until) {
+        if ((Test-Path $ChatLog) -and (Select-String -Quiet -Path $ChatLog -Pattern "^(never_busy|$event) ")) {
+            return (Select-String -Quiet -Path $ChatLog -Pattern "^$event ")
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
+}
+
+$envs = @{ ARELIS_AVATAR_ENGINE = "qq3d"; ARELIS_QT_RHI = "d3d11"; ARELIS_AVATAR_QQ3D_DIR = $QQ3DDir; ARELIS_FRAME_TRACE = $Trace
+           ARELIS_AUTOCHAT_PROMPT = $ChatPrompt; ARELIS_AUTOCHAT_TRIGGER = $Trigger; ARELIS_AUTOCHAT_LOG = $ChatLog }
 foreach ($k in $envs.Keys) { Set-Item "env:$k" $envs[$k] }
 $p = Start-Process -FilePath $Python -ArgumentList "-m", "arelis" -WorkingDirectory $Repo -PassThru `
     -RedirectStandardOutput "$Out\arelis.out.log" -RedirectStandardError "$Out\arelis.err.log"
@@ -114,25 +164,24 @@ try {
     Start-Sleep -Seconds 3                                   # past prompt processing, into tokens
     Phase "llama_gen"
     $r = Receive-Job $job -Wait -AutoRemoveJob -ErrorAction SilentlyContinue
-    Write-Host "   llama_gen $r"
+    Write-Host "   llama_gen chunks=$($r.chunks) in $([Math]::Round($r.seconds, 1)) s"
+    if ($script:NoMetrics -and $r -and $r.seconds -gt 0) {   # no /metrics: the stream itself
+        "llama_gen,$($r.chunks),{0:F1},{1:F2},$($r.predicted_per_second),stream_chunks" -f $r.seconds, ($r.chunks / $r.seconds) |
+            Add-Content -Encoding ascii "$Out\llama.csv"
+    }
     Start-Sleep -Seconds 5
 
-    if ($hw -ne [IntPtr]::Zero) {
-        [W]::SetForegroundWindow($hw) | Out-Null; Start-Sleep -Milliseconds 400
-        if ($ChatClickX -ge 0) {
-            [W]::SetCursorPos($ChatClickX, $ChatClickY) | Out-Null
-            [W]::mouse_event(0x2, 0, 0, 0, [IntPtr]::Zero); [W]::mouse_event(0x4, 0, 0, 0, [IntPtr]::Zero)
-            Start-Sleep -Milliseconds 300
-        }
-        [System.Windows.Forms.Clipboard]::SetText($ChatPrompt)
-        [System.Windows.Forms.SendKeys]::SendWait("^v"); Start-Sleep -Milliseconds 200
-        [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-        Start-Sleep -Seconds 3                               # past prompt processing
-    } else { Write-Warning "app_stream: no window, prompt not sent" }
+    New-Item -ItemType File -Force -Path $Trigger | Out-Null  # the app submits -ChatPrompt itself
+    if (Wait-ChatLog "sent" 20) { Start-Sleep -Seconds 3 }     # past prompt processing
+    else { Write-Warning "app_stream: the app did not report the prompt sent" }
     Phase "app_stream"
+
+    Write-Host "== waiting for the reply to end (<= $StreamEndTimeout s)"
+    if (-not (Wait-ChatLog "done" $StreamEndTimeout)) { Write-Warning "reply still streaming or never started; idle2 is not idle" }
     Start-Sleep -Seconds 5
 
     Phase "idle2"
+    if ($script:NoMetrics) { Write-Warning "llama /metrics unavailable (start llama-server with --metrics): only llama_gen has tokens/s" }
 } finally {
     taskkill /T /F /PID $p.Id 2>&1 | Out-Null               # rows since the last ~1 s flush may be lost
     $p.WaitForExit(15000) | Out-Null

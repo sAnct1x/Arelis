@@ -696,6 +696,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         _release_ui_lock()
         raise
     _mark_launch(window, background)
+    from arelis.ui import autochat
+
+    autochat.install(window)  # measurement only; inert unless ARELIS_AUTOCHAT_PROMPT is set
     window.orchestrator = orchestrator
     # Inbound: by default the UI owns ingest. Close-to-tray keeps it alive when
     # the window hides; `arelis --core` can own ingest instead.

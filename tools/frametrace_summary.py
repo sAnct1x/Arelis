@@ -1,7 +1,9 @@
 """Summarise ARELIS_FRAME_TRACE captures: python tools/frametrace_summary.py <out_dir>.
 
 Reads trace_<phase>.csv files and writes summary.csv: per phase and column, n, p50, p95, max
-and the share of frames over 33 ms.
+and the share of frames over 33 ms. With llama.csv (from frametrace_atria.ps1) it adds per phase
+``llama_tok_s`` (n = tokens, p50_ms column = tokens/s over the phase) and ``llama_gen_tok_s``
+(tokens per second of llama's own generation time) rows.
 """
 
 from __future__ import annotations
@@ -57,6 +59,13 @@ def main(out: Path) -> None:
                         f"{over:.2f}",
                     ]
                 )
+    llama = out / "llama.csv"
+    if llama.exists():
+        with llama.open(newline="") as fh:
+            for r in csv.DictReader(fh):
+                for col, key in (("llama_tok_s", "tok_s"), ("llama_gen_tok_s", "gen_tok_s")):
+                    if r.get(key):
+                        rows.append([r["phase"], col, r["tokens"], r[key], "", "", ""])
     with (out / "summary.csv").open("w", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["phase", "column", "n", "p50_ms", "p95_ms", "max_ms", "pct_over_33ms"])
