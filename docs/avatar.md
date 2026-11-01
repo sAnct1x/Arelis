@@ -34,6 +34,10 @@ She is part of the window itself, not a panel you open or close.
 
 - Night and Sodium: a band down the right side of the window, top to bottom. The chat
   ends where her band begins, so she never sits behind your messages.
+- Night with the Quick 3D figure (`ARELIS_AVATAR_ENGINE=qq3d`): she is the base layer
+  of the whole window, as in Filament. She stands at the right, full height, head to
+  toe, with no band or box around her. The chat keeps the space to her left, and her
+  captions sit over her lower body.
 - Filament: she is the base layer of the whole window. She always stands at the
   window's full height, head to toe, with her centre a little right of centre. There
   is no band, no box and no edge around her. The orbit ring, reality and any tiles
@@ -108,7 +112,7 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] lipsync start` / `stop` | Speech began or ended. |
 | `[avatar] stop source=...` | Speech was stopped: `button`, `voice`, or another cause. |
 | `[avatar] theme name=... tint=...` | The room changed and she was retinted. |
-| `[avatar] resize region=X,Y,WxH` | Her place in the window changed: her band in Night and Sodium, the whole stage in Filament. |
+| `[avatar] resize region=X,Y,WxH` | Her place in the window changed: her band in Night and Sodium, the whole stage in Filament and in any room with the Quick 3D figure. |
 | `[avatar] canvas resize size=WxH` | The scene followed that change. |
 | `[avatar] filament load step=she appears` | Filament opened; the ring waits for her. |
 | `[avatar] filament load step=ring grows origin=X,Y` | The ring starts growing out of her hub at X,Y. |

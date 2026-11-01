@@ -130,6 +130,31 @@ def test_over_a_see_through_clear_the_bloom_keys_its_alpha(tmp_path, monkeypatch
     host = _ready_host(tmp_path, monkeypatch)
     bloom = host.root.findChild(QObject, "bloom")
     assert bloom is not None and bloom.property("keyAlpha") == 1
+
+
+def test_narrow_band_backs_the_camera_off_so_she_fits_across(tmp_path, monkeypatch) -> None:
+    host = _ready_host(tmp_path, monkeypatch)
+    cam = host.root.findChild(QObject, "cam")
+    host.resize(200, 400)
+    QTest.qWait(100)
+    wide = cam.property("camZ")
+    host.resize(50, 400)
+    QTest.qWait(100)
+    assert cam.property("camZ") > wide * 1.9
+    host.close()
+
+
+def test_frame_bottom_meets_her_soles_at_any_band_width(tmp_path, monkeypatch) -> None:
+    import math
+
+    host = _ready_host(tmp_path, monkeypatch)
+    root, cam = host.root, host.root.findChild(QObject, "cam")
+    for width in (200, 50):
+        host.resize(width, 400)
+        QTest.qWait(100)
+        half = math.tan(math.radians(cam.property("fieldOfView") / 2)) * cam.property("camZ")
+        bottom = cam.property("y") - cam.property("tilt") - half
+        assert abs(bottom - root.property("soleY")) < 1e-3
     host.close()
 
 

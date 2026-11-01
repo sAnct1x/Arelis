@@ -31,7 +31,14 @@ Item {
     property url modelSource
     readonly property alias figure: loader.item
     // The camera slides sideways, so she keeps her full height and only moves across the view.
-    readonly property real camShift: -(2 * figureX - 1) * Math.tan(15 * Math.PI / 180) * 3.95 * view.width / Math.max(1, view.height)
+    // Her soles in world metres, about 1 cm under the lowest pixel (box, v14k camera: -0.09).
+    readonly property real soleY: -0.10
+    // Her width over her height in frame, arms and idle sway in, with margin (box: 0.22 measured).
+    // Views narrower than this pull the camera back so she fits head to toe, scaled down.
+    readonly property real figureAspect: 0.25
+    readonly property real fitScale: view.height > 0 && view.width > 0
+        ? Math.max(1, figureAspect * view.height / view.width) : 1
+    readonly property real camShift: -(2 * figureX - 1) * Math.tan(15 * Math.PI / 180) * 3.95 * fitScale * view.width / Math.max(1, view.height)
     property string sceneStatus: "loading"   // loading | ready | error
     property string sceneError: ""
     readonly property string clip: mixer.clip
@@ -59,8 +66,14 @@ Item {
         // v14k's camera (aether.js): 30 degrees vertical, at (0, 0.9, 3.95) looking at (0, 0.88, 0),
         // head to toe in her full-height band in every room. The scene is in metres, her model's own unit: the look's
         // shaders compare world positions with world-space uniforms (uNeckY, uFace, ...) in metres.
-        PerspectiveCamera { id: cam; objectName: "cam"; position: Qt.vector3d(root.camShift, 0.9, 3.95)
-            eulerRotation.x: -Math.atan2(0.02, 3.95) * 180 / Math.PI
+        // On top of it: lifted so the frame bottom meets her soles, and a view narrower than she is
+        // backs the camera off by fitScale (lifted to match), so she stays whole, never cropped.
+        PerspectiveCamera { id: cam; objectName: "cam"
+            readonly property real tilt: 0.02   // v14k: the camera sits 2 cm above the point it looks at
+            readonly property real camZ: 3.95 * root.fitScale
+            readonly property real lookY: root.soleY + Math.tan(fieldOfView * Math.PI / 360) * camZ
+            position: Qt.vector3d(root.camShift, lookY + tilt, camZ)
+            eulerRotation.x: -Math.atan2(tilt, camZ) * 180 / Math.PI
             clipNear: 0.05; clipFar: 200; fieldOfView: 30; fieldOfViewOrientation: PerspectiveCamera.Vertical }
         // Track A slot: look (materials, rim, bloom, particles) replaces these lights.
         DirectionalLight { eulerRotation.x: -30; eulerRotation.y: 20; brightness: 1.2 }
