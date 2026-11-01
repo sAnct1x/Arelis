@@ -535,18 +535,25 @@ class FilamentField:
         """Extra paint cost on the desk, currently just `camera`."""
         self._load = str(name or "")
 
-    def atmosphere_ms(self) -> int:
-        """Field timer: 60 Hz. Camera and the 3-span desk (11 Mpx) tick slower.
+    def note_worker_ms(self, ms: float) -> None:
+        """CPU ms the filament-paint worker spent on its last frame (its own thread time)."""
+        self._worker_ms = max(0.0, float(ms))
 
-        The paint runs on filament_render's worker, which keeps one frame in flight and
-        replaces a waiting one, so a slow paint only drops frames; it never holds the GUI
-        thread, and pacing the tick by paint cost would only slow the orbit down.
+    def atmosphere_ms(self) -> int:
+        """Field timer: 60 Hz, never faster than the worker can paint a frame.
+
+        The paint runs on filament_render's worker and is mostly Python holding the GIL.
+        If the tick outran it, the worker would paint nonstop and starve the GUI thread
+        and her render, so the interval is at least the worker's last paint cost.
+        Camera and the 3-span desk (11 Mpx) start slower.
         """
         if self._load == "camera":
-            return 50
-        if self.span >= 3:
-            return 40
-        return 16
+            base = 50
+        elif self.span >= 3:
+            base = 40
+        else:
+            base = 16
+        return max(base, math.ceil(getattr(self, "_worker_ms", 0.0)))
 
     def strand_steps(self, w: float) -> int:
         """Segments per strand. Caps so a 7680 desk stays drawable."""

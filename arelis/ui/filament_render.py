@@ -34,7 +34,7 @@ class _Painter(QObject):
 
     @Slot(object, QRect, float)
     def paint(self, field: FilamentField, rect: QRect, dpr: float) -> None:
-        t0 = time.perf_counter()
+        t0 = time.thread_time()  # this thread's CPU only: GIL waits on the GUI don't count
         img = QImage(
             QSize(int(rect.width() * dpr), int(rect.height() * dpr)),
             QImage.Format.Format_ARGB32_Premultiplied,
@@ -43,7 +43,7 @@ class _Painter(QObject):
         p = QPainter(img)
         field._paint(p, QRect(0, 0, rect.width(), rect.height()))
         p.end()
-        self.done.emit(img, (time.perf_counter() - t0) * 1000.0)
+        self.done.emit(img, (time.thread_time() - t0) * 1000.0)
 
 
 class FieldRenderer(QObject):
@@ -106,6 +106,7 @@ class FieldRenderer(QObject):
     def _on_done(self, img: QImage, ms: float) -> None:
         self._image = img
         self._busy = False
+        self.field.note_worker_ms(ms)  # paces the tick: never faster than the worker paints
         self.ready.emit()
         if self._pending is not None:
             rect, dpr = self._pending
