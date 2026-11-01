@@ -751,12 +751,16 @@ class FilamentDesk:
         return fit
 
     def _filament_clear_of_hub(self, dest: QRect) -> QRect:
-        """A tile we place never lands on her band. A spot the user chose is theirs."""
+        """A tile we place never lands on her figure: it settles in the space to her left.
+
+        A spot the user chose is theirs.
+        """
         w = self.window
         stage = getattr(w, "persona_stage", None)
-        if stage is None or stage.isHidden():
+        if stage is None or stage.isHidden() or stage.parentWidget() is None:
             return dest
-        hub = QRect(stage.mapToGlobal(QPoint(0, 0)), stage.size())
+        zone = stage.zone()
+        hub = QRect(stage.parentWidget().mapToGlobal(zone.topLeft()), zone.size())
         if not dest.intersects(hub):
             return dest
         moved = QRect(dest)

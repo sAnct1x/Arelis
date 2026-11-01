@@ -34,10 +34,12 @@ She is part of the window itself, not a panel you open or close.
 
 - Night and Sodium: a band down the right side of the window, top to bottom. The chat
   ends where her band begins, so she never sits behind your messages.
-- Filament: she stands in the same right band, head to toe, scaled to fit. There is
-  no tile for her and no size limit. The orbit ring settles to her left, and the
-  threads to the ring and to each open tile start at her centre. When the window
-  spans two or three screens, she stands on your home screen.
+- Filament: she is the base layer of the whole window. She always stands at the
+  window's full height, head to toe, with her centre a little right of centre. There
+  is no band, no box and no edge around her. The orbit ring, reality and any tiles
+  you open sit in the space to her left, on top of her layer. Clicks on her go
+  straight through to the room behind her. When the window spans two or three
+  screens, she and the orbit stay on your home screen.
 
 She is not a panel or dock in any room. There is no View menu entry for her and no
 Ctrl+1, and the saved window layout no longer records her.
@@ -106,7 +108,7 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] lipsync start` / `stop` | Speech began or ended. |
 | `[avatar] stop source=...` | Speech was stopped: `button`, `voice`, or another cause. |
 | `[avatar] theme name=... tint=...` | The room changed and she was retinted. |
-| `[avatar] resize region=X,Y,WxH` | Her band in the window changed. |
+| `[avatar] resize region=X,Y,WxH` | Her place in the window changed: her band in Night and Sodium, the whole stage in Filament. |
 | `[avatar] canvas resize size=WxH` | The scene followed that change. |
 | `[avatar] filament load step=she appears` | Filament opened; the ring waits for her. |
 | `[avatar] filament load step=ring grows origin=X,Y` | The ring starts growing out of her hub at X,Y. |

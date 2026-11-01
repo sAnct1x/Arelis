@@ -23,9 +23,10 @@ def test_filament_hosts_her_full_height_not_a_tile(arelis_window, qt_app, caplog
     assert w.persona_panel.parentWidget() is stage
     assert stage.isVisible()
     parent = stage.parentWidget()
-    assert stage.geometry() == persona_region(parent.rect(), None, chat_min=_chat_min(w))
-    assert stage.geometry().height() == parent.height()
-    assert stage.geometry().center().x() > parent.width() / 2
+    # The base layer: all of the stage, full height; she stands right of centre.
+    assert stage.geometry() == persona_region(parent.rect(), None, chat_min=_chat_min(w), base_layer=True)
+    assert stage.geometry() == parent.rect()
+    assert w._filament.hub.x() > parent.mapTo(w, parent.rect().center()).x()
     from arelis.ui.filament_field import FLOATS
 
     assert "thinking" not in {f[0] for f in FLOATS}
@@ -36,8 +37,9 @@ def test_filament_threads_start_at_her_hub(arelis_window, qt_app) -> None:
     w = _filament(arelis_window, qt_app)
     field = w._filament
     stage = w.persona_stage
-    hub = QPointF(stage.parentWidget().mapTo(w, stage.geometry().center()))
-    assert field.hub == hub
+    hub = QPointF(field.hub)
+    zone = stage.zone()
+    assert zone.contains(stage.parentWidget().mapFrom(w, hub.toPoint()))
     assert field.thread_start("chat", w.rect()) == hub
     threads = field.hub_threads(w.rect())
     assert threads and all(start == hub for start, _ in threads)
@@ -63,7 +65,7 @@ def test_painted_tethers_leave_from_her_hub(arelis_window, qt_app) -> None:
 
 
 def test_across_two_desks_she_stands_on_the_home_desk(arelis_window, qt_app, monkeypatch) -> None:
-    """A 2 desk span seats her band on the home desk, not at the right edge of the union."""
+    """A 2 desk span seats her and the orbit on the home desk, not across the union."""
     from PySide6.QtCore import QRect
 
     from arelis.ui import filament_desk
@@ -82,6 +84,8 @@ def test_across_two_desks_she_stands_on_the_home_desk(arelis_window, qt_app, mon
     )
     filament_desk.filament_apply_shape(w)
     stage = w.persona_stage
-    band = QRect(stage.parentWidget().mapTo(w, stage.geometry().topLeft()), stage.size())
-    assert home.contains(band)
-    assert w._filament.hub == band.center().toPointF()
+    base = QRect(stage.parentWidget().mapTo(w, stage.geometry().topLeft()), stage.size())
+    assert base == home
+    assert home.contains(w._filament.hub.toPoint())
+    cx, _cy, rx, _ry = w._filament.ellipse(w.rect(), settled=True)
+    assert home.left() <= cx - rx and cx + rx < w._filament.hub.x()

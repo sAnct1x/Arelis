@@ -151,3 +151,23 @@ def test_her_view_runs_the_full_band_height(tmp_path, monkeypatch) -> None:
     assert panel.web is not None
     assert panel.web.geometry().height() == panel.height()
     panel.close()
+
+
+def test_in_filament_the_camera_slides_so_she_stands_right_of_centre(tmp_path, monkeypatch) -> None:
+    """She is the full-window base layer: the camera slides, so her centre lands right of centre."""
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    monkeypatch.setattr("arelis.ui.theme.active_theme", lambda: "filament")
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    host = QQ3DAvatar()
+    host.resize(1600, 900)
+    host.show()
+    QTest.qWait(50)
+    from arelis.ui.persona_stage import FIGURE_X
+
+    assert abs(host.root.property("figureX") - FIGURE_X) < 1e-6
+    assert host.root.property("camShift") < 0
+    host.close()

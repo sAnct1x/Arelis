@@ -356,7 +356,7 @@ class PersonaPanel(QWidget):
     def paint_caption(self, device: QWidget, top: int) -> None:
         painter = QPainter(device)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        width = self.width()
+        width = device.width()
         caption = self.caption_text()
         status = self.status_text()
         y = top + 8
@@ -407,7 +407,15 @@ class PersonaPanel(QWidget):
             self.web.setGeometry(0, 0, max(1, self.width()), self.height() if full else height)
             self._caption.setVisible(full)
             if full:
-                self._caption.setGeometry(0, max(0, self.height() - _TEXT_H), self.width(), _TEXT_H)
+                # Under her figure, not across the whole base layer.
+                from arelis.ui.persona_stage import figure_x
+                from arelis.ui.theme_tokens import active_theme
+
+                fx = figure_x(active_theme())
+                half = round(self.width() * min(fx, 1 - fx))
+                mid = round(self.width() * fx)
+                top = max(0, self.height() - _TEXT_H)
+                self._caption.setGeometry(mid - half, top, 2 * half, _TEXT_H)
                 self._caption.raise_()
 
     def _now(self) -> float:
