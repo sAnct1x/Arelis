@@ -29,6 +29,8 @@ DIR_ENV = "ARELIS_AVATAR_QQ3D_DIR"
 MODEL_FILE = "Ellah_anim.qml"
 _READY_TIMEOUT_MS = 30_000
 _OFF = {"0", "false", "no", "off"}
+FRAMETIME_ENV = "ARELIS_FRAMETIME_LOG"
+_FLUSH_MS = 1000
 
 
 def engine() -> str:
@@ -122,6 +124,44 @@ def theme_props() -> dict[str, object]:
     }
 
 
+class FrameLog:
+    """``ARELIS_FRAMETIME_LOG``: one ``t_epoch_ms,frame_ms`` line per rendered frame.
+
+    The gate script (gate_capture.file_frames) tails this file. The first frame
+    has no previous one and writes no line. Buffered, flushed every second,
+    closed with the host or at app exit.
+    """
+
+    def __init__(self, path: str, clock=None) -> None:
+        import time
+
+        self._clock = clock or (lambda: time.time() * 1000.0)
+        self._file = open(path, "w", encoding="utf-8", buffering=1 << 16)
+        self._last: float | None = None
+
+    def frame(self, *_args) -> None:
+        if self._file is None:
+            return
+        now = self._clock()
+        if self._last is not None:
+            self._file.write(f"{now:.2f},{now - self._last:.3f}\n")
+        self._last = now
+
+    def flush(self) -> None:
+        if self._file is not None:
+            self._file.flush()
+
+    def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
+
+def frame_log() -> FrameLog | None:
+    path = os.environ.get(FRAMETIME_ENV, "").strip()
+    return FrameLog(path) if path else None
+
+
 class QQ3DAvatar(QWidget):
     """Hosts the Quick 3D scene. Call set_state and set_level; listen for failed."""
 
@@ -148,6 +188,9 @@ class QQ3DAvatar(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.view)
+        self._frames = frame_log()
+        if self._frames is not None:
+            self._start_frame_log(self._frames)
         model = model_path()
         alog("qq3d load", path=model.parent, engine="qq3d")
         check_clips()
@@ -169,6 +212,22 @@ class QQ3DAvatar(QWidget):
         self._deadline.timeout.connect(lambda: self._fail("scene did not report ready"))
         self._deadline.start(_READY_TIMEOUT_MS)
         root.setProperty("modelSource", QUrl.fromLocalFile(str(model)))
+
+    def _start_frame_log(self, log: FrameLog) -> None:
+        from PySide6.QtCore import QCoreApplication
+
+        # QQuickWidget renders on the GUI thread: afterRendering is once per frame.
+        self.view.quickWindow().afterRendering.connect(
+            log.frame, Qt.ConnectionType.DirectConnection
+        )
+        flush = QTimer(self)
+        flush.setInterval(_FLUSH_MS)
+        flush.timeout.connect(log.flush)
+        flush.start()
+        self.destroyed.connect(log.close)
+        app = QCoreApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(log.close)
 
     def is_ready(self) -> bool:
         return self._ready and not self._dead

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QEvent, QObject
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -87,3 +89,30 @@ def test_avatar_state_drives_the_mixer(tmp_path, monkeypatch) -> None:
         QTest.qWait(50)
     assert mixer.property("mode") == "speaking"
     host.close()
+
+
+def test_frametime_log_writes_one_gate_line_per_frame(tmp_path, monkeypatch) -> None:
+    log = tmp_path / "frames.csv"
+    monkeypatch.setenv("ARELIS_FRAMETIME_LOG", str(log))
+    host = _ready_host(tmp_path, monkeypatch)
+    for _ in range(10):
+        host.view.update()
+        QTest.qWait(50)
+    host.close()
+    host.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    lines = log.read_text(encoding="utf-8").splitlines()
+    assert lines, "no frame lines"
+    for line in lines:  # gate_capture.file_frames: t_epoch_ms,frame_ms
+        t, ms = (float(x) for x in line.split(","))
+        assert t > 1.6e12 and 0 <= ms < 60_000
+
+
+def test_missing_clips_log_one_error_naming_the_folder(tmp_path, monkeypatch, caplog) -> None:
+    d = _model(tmp_path, monkeypatch, clips=False)
+    from arelis.ui.persona_face.qq3d_avatar import check_clips
+
+    caplog.set_level(logging.ERROR, logger="arelis.avatar")
+    assert check_clips() is False
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors == [f"[avatar] clips missing at {d / 'animations'}"]
