@@ -758,6 +758,10 @@ def _feature_patch(
     return _world_box(to_premul(cv, 1.02, face=True), box)
 
 
+class _BakeCancelledError(Exception):
+    pass
+
+
 def _stopped(cancel: threading.Event | None) -> bool:
     return cancel is not None and cancel.is_set()
 
@@ -775,7 +779,10 @@ def bake_layers(
     holds the rig lock.
     """
     with _LOCK:
-        return _bake_layers(size, cancel, publish)
+        try:
+            return _bake_layers(size, cancel, publish)
+        except _BakeCancelledError:
+            return {}
 
 
 def _bake_layers(
@@ -785,26 +792,35 @@ def _bake_layers(
 ) -> dict[str, np.ndarray]:
     width, height = raster_size(int(size))
     rig = shared_rig()
+
+    # The face phase is most of the bake and used to ignore cancel. Quit
+    # during it outlived the exit drain, and Qt aborted on the live thread.
+    def _step(paint, *args, **kwargs):
+        if _stopped(cancel):
+            raise _BakeCancelledError
+        return paint(*args, **kwargs)
+
     cover_cv = _canvas(width, height)
     rig.splat_front_hair(cover_cv, FACE_T, POSE, cover_only=True)
     cover = rig._cover
     cover = _new_hair_cover(cover)
     skin = _skin_canvas(rig, width, height, cover)
     layers: dict[str, np.ndarray] = {
-        "wisps": _paint_wisps(rig, width, height),
+        "wisps": _step(_paint_wisps, rig, width, height),
         "face": to_premul(skin, 1.02, face=True, bottom=False),
     }
     # The hair reads the skin's alpha as its neck matte. Reuse it, do not redraw it.
     _MATTE.clear()
     _MATTE[(width, height)] = layers["face"][..., 3].astype(np.float32)
     layers |= {
-        "back_0": _paint_back(rig, width, height, float(PHASE_T[0])),
-        "front_0": _paint_front(rig, width, height, float(PHASE_T[0])),
+        "back_0": _step(_paint_back, rig, width, height, float(PHASE_T[0])),
+        "front_0": _step(_paint_front, rig, width, height, float(PHASE_T[0])),
     }
     eye_box = (-0.28, 0.28, -0.10, 0.10)
     mouth_box = (-0.16, 0.16, 0.12, 0.30)
     for index, blink in enumerate(BLINK_LEVELS):
-        layers[f"eye_{index}"] = _feature_patch(
+        layers[f"eye_{index}"] = _step(
+            _feature_patch,
             rig,
             skin,
             cover,
@@ -817,11 +833,21 @@ def _bake_layers(
         )
     layers["gaze_0"] = layers["eye_0"]
     for index, gaze in enumerate(GAZE_LEVELS[1:], start=1):
-        layers[f"gaze_{index}"] = _feature_patch(
-            rig, skin, cover, mouth=0.0, blink=0.0, gaze=gaze, box=eye_box, eyes=True, lips=False
+        layers[f"gaze_{index}"] = _step(
+            _feature_patch,
+            rig,
+            skin,
+            cover,
+            mouth=0.0,
+            blink=0.0,
+            gaze=gaze,
+            box=eye_box,
+            eyes=True,
+            lips=False,
         )
     for index, openness in enumerate(MOUTH_LEVELS):
-        layers[f"mouth_{index}"] = _feature_patch(
+        layers[f"mouth_{index}"] = _step(
+            _feature_patch,
             rig,
             skin,
             cover,
@@ -834,7 +860,8 @@ def _bake_layers(
         )
     # Motion frames: a one-eye wink, a closed warm smile, and wide glances.
     for index, lid in enumerate(WINK_LEVELS, start=1):
-        layers[f"wink_{index}"] = _feature_patch(
+        layers[f"wink_{index}"] = _step(
+            _feature_patch,
             rig,
             skin,
             cover,
@@ -847,7 +874,8 @@ def _bake_layers(
             wink=lid,
         )
     for index, warm in enumerate(SMILE_LEVELS, start=1):
-        layers[f"smile_{index}"] = _feature_patch(
+        layers[f"smile_{index}"] = _step(
+            _feature_patch,
             rig,
             skin,
             cover,
@@ -860,11 +888,20 @@ def _bake_layers(
             smile=warm,
         )
     for index, look in enumerate(GLANCE_LEVELS):
-        layers[f"glance_{index}"] = _feature_patch(
-            rig, skin, cover, mouth=0.0, blink=0.0, gaze=look, box=eye_box, eyes=True, lips=False
+        layers[f"glance_{index}"] = _step(
+            _feature_patch,
+            rig,
+            skin,
+            cover,
+            mouth=0.0,
+            blink=0.0,
+            gaze=look,
+            box=eye_box,
+            eyes=True,
+            lips=False,
         )
-    layers["ring"] = _paint_ring(rig, width, height)
-    layers["star"] = _paint_star(rig, width, height)
+    layers["ring"] = _step(_paint_ring, rig, width, height)
+    layers["star"] = _step(_paint_star, rig, width, height)
     if publish is not None and not _stopped(cancel):
         publish(dict(layers), 1)
     for index in range(1, PHASE_COUNT):
