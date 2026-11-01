@@ -7,9 +7,17 @@ and is not consulted.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from arelis.paths import is_source_checkout
+
+# The Filament floats ask on every atmosphere tick, and the answer is three file
+# checks (unins000.exe, pyproject.toml, tests/) that cost about 5% of the UI
+# thread on Windows. The tree a process runs from does not change under it, so
+# the answer is reused for a few seconds; the key keeps a monkeypatched probe honest.
+_STAGE_TTL_S = 5.0
+_stage_cache: tuple[object, float, bool] | None = None
 
 
 @dataclass(frozen=True)
@@ -34,11 +42,17 @@ def world_stage_allowed() -> bool:
     An installer tree (unins000.exe at install_root) and a wheel in
     site-packages must not offer the stage.
     """
-    from arelis.update import install_root
+    global _stage_cache
+    from arelis import update
 
-    if install_root() is not None:
-        return False
-    return is_source_checkout()
+    key = (update.install_root, is_source_checkout)
+    now = time.monotonic()
+    cached = _stage_cache
+    if cached is not None and cached[0] == key and now - cached[1] < _STAGE_TTL_S:
+        return cached[2]
+    allowed = update.install_root() is None and is_source_checkout()
+    _stage_cache = (key, now, allowed)
+    return allowed
 
 
 def grant_for(

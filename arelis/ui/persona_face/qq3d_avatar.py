@@ -1,4 +1,4 @@
-"""Her figure in Qt Quick 3D, in a QQuickWidget: the WebEngine host's replacement.
+"""Her figure in Qt Quick 3D, rendered off the GUI thread: the WebEngine host's replacement.
 
 Same public API and signals as ``web_avatar.WebAvatar`` (set_state, set_level,
 refit, refresh_theme_icons, is_ready, ready, failed), so PersonaPanel does not
@@ -14,11 +14,13 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
+import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QWidget
 
 from arelis.paths import user_data_dir
 from arelis.ui.persona_face.web_avatar import STATE_MAP
@@ -33,7 +35,50 @@ LOOK_FILE = "Ellah_aether.qml"
 _READY_TIMEOUT_MS = 30_000
 _OFF = {"0", "false", "no", "off"}
 FRAMETIME_ENV = "ARELIS_FRAMETIME_LOG"
+# Her first frames log their beginFrame/sync/render/endFrame times (start-up cost).
+_TIMED_FRAMES = 5
+# Bump when the cache's meaning changes; a key mismatch makes the next start ignore the file.
+_PIPELINE_CACHE_FORMAT = 1
+
+
+def pipeline_cache_path() -> Path:
+    """Her compiled pipelines (D3D11 bytecode, GL program binaries) across starts.
+
+    Qt only writes its automatic cache when her window is destroyed, which a killed or
+    crashed process never reaches, so every such start compiled every pipeline again
+    (Atria: 14 s from ready to her first frame). This file is written by the render
+    thread right after her first frame.
+    """
+    return user_data_dir() / "avatar" / "qq3d" / "pipeline.cache"
+
+
+def pipeline_cache_key() -> str:
+    from PySide6.QtCore import qVersion
+
+    backend = os.environ.get("ARELIS_QT_RHI") or os.environ.get("QSG_RHI_BACKEND") or "default"
+    return f"{_PIPELINE_CACHE_FORMAT}|qt{qVersion()}|{sys.platform}|{backend}"
+
+
+def _use_pipeline_cache(view) -> None:
+    """Point her window's QRhi at the cache file; a stale key (other Qt, backend) is ignored."""
+    path = pipeline_cache_path()
+    key = path.with_suffix(".key")
+    cfg = view.graphicsConfiguration()
+    cfg.setAutomaticPipelineCache(False)
+    try:
+        fresh = path.is_file() and key.read_text(encoding="utf-8") == pipeline_cache_key()
+    except OSError:
+        fresh = False
+    if fresh:
+        cfg.setPipelineCacheLoadFile(str(path))
+    cfg.setPipelineCacheSaveFile(str(path))  # also asks QRhi to collect the data
+    view.setGraphicsConfiguration(cfg)
+
+
 _FLUSH_MS = 1000
+# While her window says it is minimized, look again this often (the flag can be stale).
+_MINIMIZED_RETRY_MS = 250
+_KICK_EVENTS = (QEvent.Type.WindowStateChange, QEvent.Type.Show, QEvent.Type.Expose)
 
 
 def engine() -> str:
@@ -49,9 +94,8 @@ def wanted(theme: str) -> bool:
 def surface_format():
     """The default surface format her see-through hub needs, or None (web engine).
 
-    A QQuickWidget stacked on top only shows the room under her when the
-    window's GL surface has an alpha channel; without one her box is opaque
-    black (box, OpenGL RHI). Call after the QApplication exists (the
+    Her render thread asks for the same format on its own window; the default
+    keeps every other Quick surface in step with it. Call after the QApplication exists (the
     ideal format needs it) and before the first window.
     """
     if engine() != "qq3d":
@@ -164,8 +208,8 @@ def unavailable_reason() -> str | None:
     if not ENTRY.is_file():
         return "scene files missing"
     try:
+        from PySide6.QtQuick import QQuickRenderControl  # noqa: F401
         from PySide6.QtQuick3D import QQuick3D  # noqa: F401
-        from PySide6.QtQuickWidgets import QQuickWidget  # noqa: F401
     except Exception as exc:
         return f"QtQuick3D unavailable: {exc}"
     return None
@@ -192,7 +236,7 @@ _STALL_MS = 400.0
 
 
 def raise_gui_priority() -> None:
-    """Her frames render on the GUI thread (QQuickWidget): keep it ahead of a model on every core.
+    """Keep the GUI thread (sync, blit, chat) ahead of a model on every core.
 
     llama-server runs one normal-priority thread per core while it generates; at the same
     priority the GUI thread waited its turn and frames went from 16 to 40+ ms. Above normal
@@ -286,15 +330,287 @@ def frame_log() -> FrameLog | None:
     return FrameLog(path) if path else None
 
 
+# QQuickRenderControl's frame calls by their C++ symbols. PySide keeps the GIL through a wrapped
+# call, so endFrame (which waits for the GPU) would stall every Python slot on the GUI thread for
+# the whole frame; a ctypes call drops the GIL for its duration.
+_SYMBOLS = {
+    "render": ("_ZN19QQuickRenderControl6renderEv", "?render@QQuickRenderControl@@QEAAXXZ"),
+    "endFrame": ("_ZN19QQuickRenderControl8endFrameEv", "?endFrame@QQuickRenderControl@@QEAAXXZ"),
+}
+_LIBS = ("libQt6Quick.so.6", "Qt6Quick.dll", "QtQuick.framework/QtQuick")
+
+
+def _quick_library():
+    import ctypes
+
+    from PySide6.QtCore import QLibraryInfo
+
+    dirs = [""] + [QLibraryInfo.path(p) for p in (QLibraryInfo.LibraryPath.LibrariesPath,
+                                                  QLibraryInfo.LibraryPath.BinariesPath)]
+    import PySide6
+
+    dirs.append(os.path.dirname(PySide6.__file__))
+    for d in dirs:
+        for name in _LIBS:
+            try:
+                return ctypes.CDLL(os.path.join(d, name) if d else name)
+            except OSError:
+                continue
+    return None
+
+
+def gil_free_calls(control) -> dict[str, object]:
+    """``{"render": f, "endFrame": f}`` calling the control without the GIL; a missing symbol
+    falls back to the PySide call (correct, but holding the GIL), logged once."""
+    import ctypes
+
+    import shiboken6
+
+    lib = _quick_library()
+    this = ctypes.c_void_p(shiboken6.getCppPointer(control)[0])
+    out: dict[str, object] = {}
+    for name, symbols in _SYMBOLS.items():
+        fn = None
+        for sym in symbols:
+            fn = getattr(lib, sym, None) if lib is not None else None
+            if fn is not None:
+                break
+        if fn is None:
+            logging.getLogger("arelis.avatar").warning(
+                "[avatar] qq3d %s keeps the GIL (no %s in Qt Quick)", name, symbols
+            )
+            out[name] = getattr(control, name)
+            continue
+        fn.restype = None
+        fn.argtypes = [ctypes.c_void_p]
+        out[name] = lambda fn=fn: fn(this)
+    return out
+
+
+_LIVE: set = set()  # running render threads, kept until dispose so GC never frees one mid-frame
+
+
+class _RenderThread(QThread):
+    """Her frames: sync, render and read back on this thread, never on the GUI thread.
+
+    The GUI thread asks for a frame only while this thread is idle, so it never waits on
+    the GPU: it blocks just for ``QQuickRenderControl.sync`` (copying the scene state, as
+    Qt's threaded render loop does) and then blits the last finished image. Waits use
+    ``threading`` conditions, which drop the GIL.
+    """
+
+    frame_ready = Signal()  # emitted on the render thread; queued to the GUI thread
+
+    def __init__(self, control, window) -> None:
+        import threading
+
+        super().__init__()
+        self.setObjectName("qq3d-render")
+        self._control = control
+        self._window = window
+        self._cv = threading.Condition()
+        self._job: tuple[int, int] | None = None  # pixel size of the next frame
+        self._synced = False
+        self._stop = False
+        self.busy = False
+        self.image = None
+        self.error: str | None = None
+        self._tex = self._rt = self._rp = None
+        self._calls = gil_free_calls(control)
+        self._ctx = None  # OpenGL only: the context, owned by this thread while it runs
+        self._size: tuple[int, int] | None = None
+        self._no_cache_logged = False
+        self._timed = 0  # frames whose step times were logged (the first _TIMED_FRAMES)
+
+    # ---- GUI thread ----
+
+    def initialize(self) -> str | None:
+        """Create her QRhi here (an OpenGL fallback surface must come from the GUI thread),
+        then hand its context to the render thread. Returns why it failed, or None."""
+        if not self._control.initialize():
+            return "Quick 3D render control did not initialise"
+        from PySide6.QtGui import QOpenGLContext, QRhi
+
+        rhi = self._control.rhi()
+        ctx = QOpenGLContext.currentContext()
+        gl = rhi is not None and rhi.backend() == QRhi.Implementation.OpenGLES2
+        if gl and ctx is not None:  # an OpenGL context is current on one thread only
+            ctx.doneCurrent()
+            ctx.moveToThread(self)
+            self._ctx = ctx
+        return None
+
+    def frame(self, size: tuple[int, int]) -> bool:
+        """Sync one frame (GUI blocked only for the sync); False when a frame is in flight."""
+        with self._cv:
+            if self.busy or self._stop or self.error:
+                return False
+            self.busy = True
+            self._synced = False
+            self._job = size
+            self._cv.notify_all()
+            while not self._synced and not self._stop and self.error is None:
+                self._cv.wait(0.5)
+            return True
+
+    def stop(self) -> None:
+        with self._cv:
+            self._stop = True
+            self._cv.notify_all()
+        self.wait(5000)
+
+    def dispose(self, *_args) -> None:
+        """Stop the thread, then free the scene, its window and the control, in that order."""
+        import shiboken6
+
+        if not shiboken6.isValid(self):  # Qt already freed it (a host that failed to start)
+            _LIVE.discard(self)
+            return
+        if self.isRunning():
+            self.stop()
+        _LIVE.discard(self)
+        for name in ("root", "_window", "engine", "_control"):
+            obj = getattr(self, name, None)
+            if obj is not None:
+                obj.deleteLater()
+                setattr(self, name, None)
+
+    # ---- render thread ----
+
+    def _target(self, size: tuple[int, int]) -> None:
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QRhiTexture
+        from PySide6.QtQuick import QQuickRenderTarget
+
+        if size == self._size:
+            return
+        for res in (self._rt, self._rp, self._tex):
+            if res is not None:
+                res.destroy()
+        rhi = self._control.rhi()
+        flags = QRhiTexture.Flag.RenderTarget | QRhiTexture.Flag.UsedAsTransferSource
+        self._tex = rhi.newTexture(QRhiTexture.Format.RGBA8, QSize(*size), 1, flags)
+        self._tex.create()
+        from PySide6.QtGui import QRhiColorAttachment, QRhiTextureRenderTargetDescription
+
+        desc = QRhiTextureRenderTargetDescription(QRhiColorAttachment(self._tex))
+        self._rt = rhi.newTextureRenderTarget(desc)
+        self._rp = self._rt.newCompatibleRenderPassDescriptor()
+        self._rt.setRenderPassDescriptor(self._rp)
+        self._rt.create()
+        self._window.setRenderTarget(QQuickRenderTarget.fromRhiRenderTarget(self._rt))
+        self._size = size
+
+    def run(self) -> None:
+        try:
+            self._loop()
+        except Exception as exc:  # pragma: no cover - a driver fault
+            with self._cv:
+                self.error = f"render thread: {exc}"
+                self.busy = False
+                self._cv.notify_all()
+        finally:
+            self._release()
+
+    def _loop(self) -> None:
+        from PySide6.QtGui import QImage, QRhiReadbackDescription, QRhiReadbackResult
+
+        while True:
+            with self._cv:
+                while self._job is None and not self._stop:
+                    self._cv.wait()
+                if self._stop:
+                    break
+                size, self._job = self._job, None
+            t0 = time.perf_counter()
+            self._target(size)
+            self._control.beginFrame()
+            t1 = time.perf_counter()
+            self._control.sync()
+            t2 = time.perf_counter()
+            with self._cv:
+                self._synced = True  # the GUI thread may go on; the GPU work is ours
+                self._cv.notify_all()
+            self._calls["render"]()
+            t3 = time.perf_counter()
+            result = QRhiReadbackResult()
+            batch = self._control.rhi().nextResourceUpdateBatch()
+            batch.readBackTexture(QRhiReadbackDescription(self._tex), result)
+            self._control.commandBuffer().resourceUpdate(batch)
+            self._calls["endFrame"]()  # an offscreen frame: the readback is complete here
+            if self._timed < _TIMED_FRAMES:
+                self._timed += 1
+                if self._timed == 1:
+                    self._save_pipeline_cache()
+                t4 = time.perf_counter()
+                logging.getLogger("arelis.avatar").info(
+                    "[avatar] qq3d frame %d begin=%.1fms sync=%.1fms render=%.1fms end=%.1fms",
+                    self._timed, (t1 - t0) * 1e3, (t2 - t1) * 1e3, (t3 - t2) * 1e3,
+                    (t4 - t3) * 1e3,
+                )
+            data = bytes(result.data)
+            w, h = result.pixelSize.width(), result.pixelSize.height()
+            img = QImage(data, w, h, w * 4, QImage.Format.Format_RGBA8888_Premultiplied).copy()
+            if self._control.rhi().isYUpInFramebuffer():
+                img = img.flipped(Qt.Orientation.Vertical)
+            with self._cv:
+                self.image = img
+                self.busy = False
+            self.frame_ready.emit()
+
+    def _save_pipeline_cache(self) -> None:
+        try:
+            data = bytes(self._control.rhi().pipelineCacheData())
+            if not data:
+                # Qt's Metal backend is built without MTLBinaryArchive, so it hands back no
+                # data even though it reports PipelineCacheDataLoadSave; macOS caches the
+                # compiled shaders itself. Nothing to save there.
+                if not self._no_cache_logged:
+                    self._no_cache_logged = True
+                    logging.getLogger("arelis.avatar").info(
+                        "[avatar] qq3d pipeline cache: backend %s gives no data, not saved",
+                        self._control.rhi().backendName(),
+                    )
+                return
+            path = pipeline_cache_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, path)
+            path.with_suffix(".key").write_text(pipeline_cache_key(), encoding="utf-8")
+        except (OSError, RuntimeError, AttributeError):
+            logging.getLogger("arelis.avatar").debug("pipeline cache not saved", exc_info=True)
+
+    def _release(self) -> None:
+        if self._timed:
+            self._save_pipeline_cache()  # pipelines first built after frame 1
+        for res in (self._rt, self._rp, self._tex):
+            if res is not None:
+                res.destroy()
+        self._control.invalidate()
+        if self._ctx is not None:  # back to the GUI thread, where the control is destroyed
+            from PySide6.QtCore import QCoreApplication
+
+            self._ctx.doneCurrent()
+            self._ctx.moveToThread(QCoreApplication.instance().thread())
+
+
 class QQ3DAvatar(QWidget):
-    """Hosts the Quick 3D scene. Call set_state and set_level; listen for failed."""
+    """Hosts the Quick 3D scene. Call set_state and set_level; listen for failed.
+
+    She stays an ordinary child widget in the main window (no native window, no airspace):
+    tiles and chat paint over her, and she moves, resizes and hides with the window. The
+    scene renders on its own thread through QQuickRenderControl; this widget only paints
+    the latest finished frame.
+    """
 
     failed = Signal(str)
     ready = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        from PySide6.QtQuickWidgets import QQuickWidget
+        from PySide6.QtQml import QQmlComponent, QQmlEngine
+        from PySide6.QtQuick import QQuickRenderControl, QQuickWindow
 
         from arelis.ui.persona_face.panel import alog
 
@@ -302,16 +618,46 @@ class QQ3DAvatar(QWidget):
         self._dead = False
         self._state = "idle"
         self._level = -1.0
-        self.view = QQuickWidget(self)
-        self.view.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
-        self.view.setClearColor(QColor(Qt.GlobalColor.transparent))
-        self.view.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop, True)
+        self._image = None
         # She never takes a click: stop is the stop button or a spoken "stop".
-        self.view.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(self.view)
+        self._pending = False
+        self._watched = None
+        self._kick = QTimer(self)
+        self._kick.setSingleShot(True)
+        self._kick.setInterval(0)
+        self._kick.timeout.connect(self._next_frame)
+        # Her window is never shown, so a platform without RHI windows (offscreen) would pick
+        # the software adaptation, which has no QRhi to render Quick 3D into.
+        software = QQuickWindow.sceneGraphBackend() in ("", "software")
+        if software and not os.environ.get("QT_QUICK_BACKEND"):
+            QQuickWindow.setSceneGraphBackend("rhi")
+        self.control = QQuickRenderControl()  # owned by _render: freed after its thread stops
+        self.view = QQuickWindow(self.control)
+        self.view.setColor(QColor(Qt.GlobalColor.transparent))
+        from PySide6.QtQuick3D import QQuick3D
+
+        fmt = QQuick3D.idealSurfaceFormat()  # OpenGL: a core 3.x context, not the 2.1 default
+        fmt.setAlphaBufferSize(8)
+        self.view.setFormat(fmt)
+        _use_pipeline_cache(self.view)
+        self._render = _RenderThread(self.control, self.view)
+        render = self._render
+        _LIVE.add(render)
+        self.destroyed.connect(lambda *_: render.dispose())
+        from PySide6.QtCore import QCoreApplication
+
+        QCoreApplication.instance().aboutToQuit.connect(lambda: render.dispose())
+        self._render.frame_ready.connect(self._on_frame, Qt.ConnectionType.QueuedConnection)
+        self.control.prepareThread(self._render)
+        why = self._render.initialize()
+        if why is not None:
+            QTimer.singleShot(0, lambda: self._fail(why))
+            return
+        self._render.start(QThread.Priority.HighPriority)
+        self._watch_window()
+        self.control.renderRequested.connect(self._request)
+        self.control.sceneChanged.connect(self._request)
         raise_gui_priority()
         self._frames = frame_log()
         if self._frames is not None:
@@ -326,13 +672,17 @@ class QQ3DAvatar(QWidget):
         # module registers that QML type.
         import arelis.ui.persona_q3d.geometry  # noqa: F401
 
-        self.view.setSource(QUrl.fromLocalFile(str(ENTRY)))
-        root = self.view.rootObject()
-        if self.view.status() != QQuickWidget.Status.Ready or root is None:
-            errs = "; ".join(e.toString() for e in self.view.errors()) or "no root"
+        self.engine = self._render.engine = QQmlEngine()
+        component = QQmlComponent(self.engine, QUrl.fromLocalFile(str(ENTRY)))
+        root = component.create() if component.isReady() else None
+        if root is None:
+            errs = "; ".join(e.toString() for e in component.errors()) or "no root"
             QTimer.singleShot(0, lambda: self._fail(f"scene error: {errs}"))
             return
-        self.root = root
+        self._component = component
+        root.setParentItem(self.view.contentItem())
+        self.root = self._render.root = root
+        self._fit()
         self._apply_theme()
         root.setProperty("avatarState", self._state)
         self._poll = QTimer(self)
@@ -344,14 +694,99 @@ class QQ3DAvatar(QWidget):
         self._deadline.timeout.connect(lambda: self._fail("scene did not report ready"))
         self._deadline.start(_READY_TIMEOUT_MS)
         root.setProperty("modelSource", QUrl.fromLocalFile(str(model)))
+        self._request()
+
+    # ---- frames ----
+
+    def _fit(self) -> None:
+        root = getattr(self, "root", None)
+        w, h = max(1, self.width()), max(1, self.height())
+        self.view.resize(w, h)  # SizeRootObjectToView
+        if root is not None:
+            root.setWidth(w)
+            root.setHeight(h)
+
+    def _pixel_size(self) -> tuple[int, int]:
+        dpr = self.devicePixelRatioF()
+        return max(1, round(self.width() * dpr)), max(1, round(self.height() * dpr))
+
+    def _request(self, *_args) -> None:
+        self._pending = True
+        if not self._kick.isActive() or self._kick.remainingTime() > 0:
+            self._kick.start(0)
+
+    def _watch_window(self) -> None:
+        """Re-kick on her window's state changes and shows (the child's own showEvent does
+        not come when a minimized window is restored at the same size)."""
+        top = self.window()
+        if top is self._watched:
+            return
+        if self._watched is not None:
+            self._watched.removeEventFilter(self)
+        self._watched = top
+        if top is not None and top is not self:
+            top.installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self._watched and event.type() in _KICK_EVENTS:
+            self._request()
+        return False
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.ParentChange:
+            self._watch_window()
+        return super().event(event)
+
+    def _next_frame(self) -> None:
+        if not self._pending or self._dead or getattr(self, "root", None) is None:
+            return
+        if not self.isVisible():
+            return  # still pending: showEvent (hers or the window's) asks again
+        top = self.window()
+        if top is not None and top.isMinimized():
+            # isMinimized() can be stale (a window that starts minimized, or restored without
+            # a resize, on Windows), so this only slows her down; it never parks her for good.
+            self._kick.start(_MINIMIZED_RETRY_MS)
+            return
+        self.control.polishItems()
+        if self._render.frame(self._pixel_size()):
+            self._pending = False
+        elif self._render.error:
+            self._fail(self._render.error)
+        # else a frame is in flight: _on_frame asks again when it lands
+
+    def _on_frame(self) -> None:
+        self._image = self._render.image
+        self.update()
+        if self._pending:
+            self._kick.start(0)
+
+    def paintEvent(self, _event) -> None:
+        img = self._image
+        if img is None:
+            return
+        from PySide6.QtGui import QPainter
+
+        img.setDevicePixelRatio(img.width() / max(1, self.width()))
+        painter = QPainter(self)
+        painter.drawImage(0, 0, img)
+        painter.end()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._fit()
+        self._request()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._watch_window()
+        self._request()
 
     def _start_frame_log(self, log: FrameLog) -> None:
         from PySide6.QtCore import QCoreApplication
 
-        # QQuickWidget renders on the GUI thread: afterRendering is once per frame.
-        self.view.quickWindow().afterRendering.connect(
-            log.frame, Qt.ConnectionType.DirectConnection
-        )
+        # afterRendering is once per frame, on the render thread.
+        self.view.afterRendering.connect(log.frame, Qt.ConnectionType.DirectConnection)
         flush = QTimer(self)
         flush.setInterval(_FLUSH_MS)
         flush.timeout.connect(log.flush)
