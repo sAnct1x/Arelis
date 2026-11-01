@@ -205,12 +205,14 @@ PORT_SCENE = """        environment: ExtendedSceneEnvironment { clearColor: "bla
             glowHDRMinimumValue: %(glow_min)f; glowHDRMaximumValue: 8; glowHDRScale: 2; glowLevel: %(glow_level)s; glowBlendMode: ExtendedSceneEnvironment.GlowBlendMode.Additive }
         PerspectiveCamera { id: cam; objectName: "cam"; clipNear: %(near)f; clipFar: %(far)f; fieldOfView: %(fov)f; fieldOfViewOrientation: PerspectiveCamera.Vertical }
         Ellah_aether { id: ellah; objectName: "ellah" }"""
+# Tuned by eye against v14k: UnrealBloomPass (strength 0.85, radius 0.5, threshold 0.55)
+# spreads a wide, faint haze, so the glow uses the big levels and no glowBloom pre-pass.
 GLOW = {
     "glow_strength": 1.0,
-    "glow_intensity": 0.85,
-    "glow_bloom": 0.25,
-    "glow_min": 0.55,
-    "glow_level": "ExtendedSceneEnvironment.GlowLevel.One | ExtendedSceneEnvironment.GlowLevel.Two | ExtendedSceneEnvironment.GlowLevel.Three | ExtendedSceneEnvironment.GlowLevel.Four",
+    "glow_intensity": 0.68,
+    "glow_bloom": 0.0,
+    "glow_min": 0.3,
+    "glow_level": "ExtendedSceneEnvironment.GlowLevel.Two | ExtendedSceneEnvironment.GlowLevel.Four | ExtendedSceneEnvironment.GlowLevel.Six | ExtendedSceneEnvironment.GlowLevel.Seven",
 }
 QML = """import QtQuick
 import QtQuick3D
@@ -300,7 +302,8 @@ def run_qq3d(out: Path, qml_dir: Path, port: Path | None = None) -> None:
         off = round(
             m["pan"] * w
         )  # same off-axis shift as setViewOffset: a View3D 2*off wider, slid by off
-        sub = {"fov": cam["fov"], "near": cam["near"], "far": cam["far"], **GLOW}
+        glow = {**GLOW, **json.loads(os.environ.get("AETHER_GLOW", "{}"))}  # tuning override
+        sub = {"fov": cam["fov"], "near": cam["near"], "far": cam["far"], **glow}
         src.write_text(
             QML
             % {
