@@ -100,6 +100,41 @@ def _config_int(section: dict[str, Any], key: str, default: int) -> int:
     return value
 
 
+HEADROOM_KEY = "avatar_headroom"
+HEADROOM_SPARE_CORES = 2
+
+
+def headroom_threads(physical: int | None = None) -> int:
+    """llama-server threads that leave two physical cores for the GUI and her render thread.
+
+    During generation llama-server keeps every core busy, so the GUI and render threads
+    are scheduled late (Atria frametrace: frames over 33 ms went from 3% idle to 17-27%
+    while generating, with only 4-12 ms of render work per frame).
+    """
+    if physical is None:
+        physical = _physical_cores()
+    return max(1, int(physical or 1) - HEADROOM_SPARE_CORES)
+
+
+def _physical_cores() -> int:
+    try:
+        import psutil  # type: ignore
+
+        count = psutil.cpu_count(logical=False)
+    except ImportError:
+        count = None
+    if not count:
+        logical = os.cpu_count() or 2
+        count = max(1, logical // 2)
+    return int(count)
+
+
+def headroom_on(config: dict[str, Any] | None) -> bool:
+    """``llamacpp.avatar_headroom``: off unless set to true."""
+    lc = config.get("llamacpp") if isinstance(config, dict) else None
+    return isinstance(lc, dict) and lc.get(HEADROOM_KEY) is True
+
+
 def llama_server_args(
     *,
     binary: str,
@@ -156,6 +191,9 @@ def llama_server_args(
     if template:
         # --jinja has to come first or llama-server ignores the file.
         args.extend(["--chat-template-file", template])
+    if headroom_on(config):
+        # _spawn also starts the server at below normal priority when --threads is set.
+        args.extend(["--threads", str(headroom_threads())])
     args.extend(["--host", host, "--port", str(port)])
     return args
 
@@ -502,7 +540,10 @@ def _spawn(args: list[str]) -> subprocess.Popen[bytes]:
     if sys.platform == "win32":
         no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-        kwargs["creationflags"] = no_window | new_group
+        flags = no_window | new_group
+        if "--threads" in args:  # only llama_server_args with avatar headroom on adds it
+            flags |= getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x00004000)
+        kwargs["creationflags"] = flags
     else:
         kwargs["start_new_session"] = True
     log.info("Starting llama-server")

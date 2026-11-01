@@ -328,6 +328,16 @@ class SettingsDialog(QDialog):
             "Closing the window leaves Arelis in the tray so inbound Notify keeps working."
         )
 
+        self.avatar_headroom = QCheckBox("Leave CPU headroom for the avatar")
+        self.avatar_headroom.setChecked(
+            ((config.get("llamacpp") or {}).get("avatar_headroom")) is True
+        )
+        self.avatar_headroom.setToolTip(
+            "The model server uses two fewer CPU cores and runs at lower priority, "
+            "so her animation stays smooth while she writes. Replies may come a little "
+            "slower. Takes effect the next time Arelis starts the model server."
+        )
+
         self.away_rest = QCheckBox("collapse unused panels")
         self.away_rest.setChecked(bool(away_rest))
         self.away_rest.setToolTip(
@@ -405,6 +415,7 @@ class SettingsDialog(QDialog):
 
         win_form.addRow(self.always_on_top)
         win_form.addRow(self.close_to_tray)
+        win_form.addRow(self.avatar_headroom)
         win_form.addRow(self.away_rest)
         win_form.addRow("After", self.away_rest_min)
         win_form.addRow("Interface scale", self.ui_scale)
@@ -1516,6 +1527,9 @@ class SettingsDialog(QDialog):
                 "confirm_send": self.confirm_send.isChecked(),
                 "confirm_run": self.confirm_run.isChecked(),
                 "ask_is_grant": self.ask_is_grant.isChecked(),
+            },
+            "llamacpp": {
+                "avatar_headroom": self.avatar_headroom.isChecked(),
             },
             "models": {
                 "fast": str(self.fast_model.currentData() or ""),
