@@ -1,19 +1,19 @@
-"""The filament field slows its own repaint when a paint is expensive, so her frames keep the UI thread."""
+"""The orbit ticks at 60 Hz: its paint runs on filament_render's worker, so a costly paint
+drops frames there instead of slowing the tick."""
 
 from __future__ import annotations
 
 from arelis.ui.filament_field import FilamentField
 
 
-def test_field_interval_follows_paint_cost() -> None:
+def test_orbit_ticks_at_60_hz_whatever_its_paint_costs(qt_app) -> None:
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QImage, QPainter
+
     field = FilamentField()
-    assert field.atmosphere_ms() == 33
-    for _ in range(40):
-        field.note_paint_ms(25.0)
-    assert 70 <= field.atmosphere_ms() <= 100
-    for _ in range(40):
-        field.note_paint_ms(200.0)
-    assert field.atmosphere_ms() == 100
-    for _ in range(60):
-        field.note_paint_ms(2.0)
-    assert field.atmosphere_ms() == 33
+    img = QImage(2560, 1440, QImage.Format.Format_ARGB32_Premultiplied)
+    for _ in range(20):
+        p = QPainter(img)
+        field.paint(p, QRect(0, 0, 2560, 1440))
+        p.end()
+    assert field.atmosphere_ms() <= 17

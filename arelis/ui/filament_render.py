@@ -106,7 +106,6 @@ class FieldRenderer(QObject):
     def _on_done(self, img: QImage, ms: float) -> None:
         self._image = img
         self._busy = False
-        self.field.note_paint_ms(ms)
         self.ready.emit()
         if self._pending is not None:
             rect, dpr = self._pending
