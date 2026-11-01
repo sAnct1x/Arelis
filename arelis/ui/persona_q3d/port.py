@@ -187,6 +187,29 @@ void MAIN() { float dq = length(gl_PointCoord - 0.5); if (dq > 0.5) discard;
 )
 
 
+# Look gains on top of the aether shell (iter5, by eye against v14k): rim peaks sat near 222 where
+# v14k reaches 255, and the glow over the head read weaker. Hair cards keep their own rim, so
+# the body rim stays brighter than the hair.
+RIM_GAIN = 1.25
+HEAD_GLOW = 2.0
+RIM_SRC = "float rim = pow(1.0 - ndv, 2.4);"
+GLOW_SRC = re.compile(r"float glow = uGlow[^;]*;")
+
+
+def look_gains(frag: str) -> str:
+    """Scale the shell rim by uRimGain and the glow above the neck by uHeadGlow."""
+    if frag.count(RIM_SRC) != 1 or len(GLOW_SRC.findall(frag)) != 1:
+        raise ValueError("shell fragment shader no longer has one rim and one glow term")
+    frag = frag.replace(RIM_SRC, RIM_SRC + " rim *= uRimGain;")
+    return GLOW_SRC.sub(
+        lambda m: (
+            m.group(0)
+            + " glow *= mix(1.0, uHeadGlow, smoothstep(uNeckY - 0.02, uNeckY + 0.06, vW.y));"
+        ),
+        frag,
+    )
+
+
 def _remove_func(src: str, sig: str) -> str:
     i = src.find(sig)
     if i < 0:
@@ -427,7 +450,8 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
         uniforms: dict[str, tuple[str, int]] = {}
         if p["kind"] == "shell":
             vert = SHELL_VERT
-            frag = translate(m["fs"], "frag", uniforms)
+            frag = look_gains(translate(m["fs"], "frag", uniforms))
+            uniforms.update(uRimGain=("float", 0), uHeadGlow=("float", 0))
         elif p["kind"] == "shader":
             vert = translate(m["vs"], "vert", uniforms)
             frag = translate(m["fs"], "frag", uniforms)
@@ -464,6 +488,8 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
                 uPush=0.004 if p.get("occluder") else 0.0,
                 uAlphaTest=m["alphaTest"],
             )
+        if p["kind"] == "shell":
+            vals.update(uRimGain=1.0 if lay["parent"] == "Hair" else RIM_GAIN, uHeadGlow=HEAD_GLOW)
         if p["kind"] == "galaxy":
             vals.update(uSize=m["size"], uScale=480.0)
         props = []
