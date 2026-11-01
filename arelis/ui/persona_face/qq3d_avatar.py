@@ -385,33 +385,6 @@ def gil_free_calls(control) -> dict[str, object]:
     return out
 
 
-def raise_render_priority() -> bool:
-    """Windows: put the calling (render) thread at THREAD_PRIORITY_ABOVE_NORMAL. No-op elsewhere.
-
-    llama-server keeps one normal-priority thread per core busy while it generates; at normal
-    priority her render thread queued behind them (wait before a frame went from 18 to 36-46 ms
-    p95 while each frame's own work stayed 7-12 ms). Above normal still yields to the system.
-    Set from inside the thread so it holds whatever QThread.start did. True when applied.
-    """
-    if sys.platform != "win32":
-        return False
-    import ctypes
-
-    k32 = ctypes.windll.kernel32
-    k32.GetCurrentThread.restype = ctypes.c_void_p
-    k32.SetThreadPriority.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    ok = bool(k32.SetThreadPriority(k32.GetCurrentThread(), 1))  # THREAD_PRIORITY_ABOVE_NORMAL
-    if not ok:
-        logging.getLogger("arelis.avatar").warning("[avatar] render thread priority not raised")
-    return ok
-
-
-def refresh_interval(screen) -> float:
-    """Seconds per vsync of ``screen`` (60 Hz when it reports nothing usable)."""
-    hz = screen.refreshRate() if screen is not None else 0.0
-    return 1.0 / hz if 20.0 <= hz <= 500.0 else 1.0 / 60.0
-
-
 _LIVE: set = set()  # running render threads, kept until dispose so GC never frees one mid-frame
 
 
@@ -425,7 +398,6 @@ class _RenderThread(QThread):
     """
 
     frame_ready = Signal()  # emitted on the render thread; queued to the GUI thread
-    vsync = Signal()  # the next refresh slot is open: the GUI thread may ask for a frame
 
     def __init__(self, control, window) -> None:
         import threading
@@ -439,9 +411,6 @@ class _RenderThread(QThread):
         self._synced = False
         self._stop = False
         self.busy = False
-        self.pacing = False  # waiting out the rest of this refresh interval
-        self.interval_s = 1.0 / 60.0  # one screen refresh; the GUI thread sets it from QScreen
-        self._next: float | None = None  # perf_counter time of the next refresh slot
         self.image = None
         self.error: str | None = None
         self._tex = self._rt = self._rp = None
@@ -471,7 +440,7 @@ class _RenderThread(QThread):
     def frame(self, size: tuple[int, int]) -> bool:
         """Sync one frame (GUI blocked only for the sync); False when a frame is in flight."""
         with self._cv:
-            if self.busy or self.pacing or self._stop or self.error:
+            if self.busy or self._stop or self.error:
                 return False
             self.busy = True
             self._synced = False
@@ -530,7 +499,6 @@ class _RenderThread(QThread):
         self._size = size
 
     def run(self) -> None:
-        raise_render_priority()
         try:
             self._loop()
         except Exception as exc:  # pragma: no cover - a driver fault
@@ -584,33 +552,8 @@ class _RenderThread(QThread):
                 img = img.flipped(Qt.Orientation.Vertical)
             with self._cv:
                 self.image = img
-                self.pacing = True  # set with busy cleared, so the GUI never sees "idle" early
                 self.busy = False
             self.frame_ready.emit()
-            self._pace(t0)
-
-    def _pace(self, started: float) -> None:
-        """Hold the next frame until the next refresh slot, then open it (``vsync``).
-
-        Her frames are offscreen (no swap chain to block in present), so the cadence is the
-        screen's refresh interval, phase-locked to the previous slot, waited out with
-        ``time.sleep`` (a high-resolution waitable timer on Windows since Python 3.11; it drops
-        the GIL). A frame that ran past its slot starts the next one at once.
-        """
-        step = self.interval_s
-        now = time.perf_counter()
-        slot = (self._next if self._next is not None else started) + step
-        if slot < now - step:  # fell more than a slot behind (idle, a stall): re-lock
-            slot = now
-        self._next = slot
-        while not self._stop:
-            left = slot - time.perf_counter()
-            if left <= 0:
-                break
-            time.sleep(min(left, 0.05))
-        with self._cv:
-            self.pacing = False
-        self.vsync.emit()
 
     def _save_pipeline_cache(self) -> None:
         try:
@@ -694,8 +637,6 @@ class QQ3DAvatar(QWidget):
 
         QCoreApplication.instance().aboutToQuit.connect(lambda: render.dispose())
         self._render.frame_ready.connect(self._on_frame, Qt.ConnectionType.QueuedConnection)
-        self._render.vsync.connect(self._on_vsync, Qt.ConnectionType.QueuedConnection)
-        self._render.interval_s = refresh_interval(self.screen())
         self.control.prepareThread(self._render)
         why = self._render.initialize()
         if why is not None:
@@ -759,16 +700,12 @@ class QQ3DAvatar(QWidget):
 
     def _request(self, *_args) -> None:
         self._pending = True
-        render = self._render
-        if render.busy or render.pacing:
-            return  # _on_vsync asks once this refresh slot is over
         if not self._kick.isActive() or self._kick.remainingTime() > 0:
             self._kick.start(0)
 
     def _watch_window(self) -> None:
         """Re-kick on her window's state changes and shows (the child's own showEvent does
         not come when a minimized window is restored at the same size)."""
-        self._render.interval_s = refresh_interval(self.screen())
         top = self.window()
         if top is self._watched:
             return
@@ -808,9 +745,7 @@ class QQ3DAvatar(QWidget):
 
     def _on_frame(self) -> None:
         self._image = self._render.image
-        self.update()  # the next frame waits for _on_vsync, not for this paint
-
-    def _on_vsync(self) -> None:
+        self.update()
         if self._pending:
             self._kick.start(0)
 
