@@ -500,6 +500,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
 
     prepare_desktop_gl(os.environ)
     os.environ.setdefault("QT_QPA_FONTDIR", str(qt_font_directory()))
+    from arelis.ui import cpuprof
+
+    cpuprof.raise_timer_resolution(os.environ)
 
     # A scheduled task holds the absolute path it was created with, so installing a
     # packaged build after running from a checkout leaves every job pointing at an
@@ -551,6 +554,7 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     # (globalShareContext stays alive after park()). In-process WebEngine
     # stays for pytest / no solar GL.
     app = QApplication.instance() or QApplication([])
+    cpuprof.start_wake_probe(os.environ)
     from arelis.ui.persona_face import qq3d_avatar
 
     qq3d_avatar.surface_format()
