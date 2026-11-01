@@ -22,7 +22,8 @@ def test_startup_line_names_engine_source_and_fallback(monkeypatch, caplog) -> N
     monkeypatch.setattr(qq3d_avatar, "unavailable_reason", lambda: "no model at X")
     with caplog.at_level(logging.INFO, logger="arelis.avatar"):
         qq3d_avatar.log_engine_choice("filament")
-    assert "[avatar] engine=qq3d source=env room=filament unavailable='no model at X'" in caplog.text
+    assert "[avatar] engine=qq3d source=env room=filament model=" in caplog.text
+    assert "unavailable='no model at X'" in caplog.text
 
 
 def test_avatar_engine_flag_wins_over_env_and_saved_user_variable(monkeypatch) -> None:

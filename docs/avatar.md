@@ -100,6 +100,22 @@ the log names the choice, for example
 `user-env` or `default`. When Quick 3D cannot draw her, the same line ends with
 `unavailable='...'` and the reason.
 
+### Where the Quick 3D model comes from
+
+The app reads her model from its own data folder, `avatar\qq3d` (the repo folder on
+the dev copy, `%LOCALAPPDATA%\Arelis` once installed). `ARELIS_AVATAR_QQ3D_DIR`,
+read from the process or from your saved Windows user variables, is only a fallback
+for when that folder has no model. When the fallback is used, the app draws from it
+right away and copies it into `avatar\qq3d` in the background, so the next start
+reads its own copy. The startup line says which: `model=app`, `model=override` or
+`model=none`, followed by the folder.
+
+The app cannot build the model from `ellah.glb` by itself. The port
+(`tools/avatar_q3d_export.py`, then `persona_q3d/convert.py` and `persona_q3d/port.py`)
+needs headless Chrome with playwright, balsam and `ellah-anim.glb`, which a normal PC
+does not have. Build it on a dev machine, then either copy the folder into
+`avatar\qq3d` or point `ARELIS_AVATAR_QQ3D_DIR` at it once.
+
 ## Reading the log
 
 Every avatar event is one line in the app log starting with `[avatar]`, so you can
