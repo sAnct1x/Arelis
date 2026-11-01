@@ -130,9 +130,9 @@ def _physical_cores() -> int:
 
 
 def headroom_on(config: dict[str, Any] | None) -> bool:
-    """``llamacpp.avatar_headroom``: off unless set to true."""
+    """``llamacpp.avatar_headroom``: on unless set to false."""
     lc = config.get("llamacpp") if isinstance(config, dict) else None
-    return isinstance(lc, dict) and lc.get(HEADROOM_KEY) is True
+    return not (isinstance(lc, dict) and lc.get(HEADROOM_KEY) is False)
 
 
 def llama_server_args(

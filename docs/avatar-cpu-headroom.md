@@ -4,10 +4,10 @@ While she writes a reply, the model server can keep every CPU core busy. Her ani
 then has to wait its turn, and she can stutter even though each frame takes only a few
 milliseconds to draw.
 
-## Turning it on
+## On by default
 
-Open Settings, then the window tab, and check **Leave CPU headroom for the avatar**.
-It is off unless you turn it on.
+The setting **Leave CPU headroom for the avatar** is on unless you turn it off. To
+turn it off, open Settings, then the window tab, and uncheck it.
 
 The change takes effect the next time Arelis starts the model server. Quit Arelis
 fully (not just to the tray) and start it again. If the model server was started some
@@ -27,3 +27,4 @@ Replies may come out a little slower, because the model server has fewer cores a
 lower priority. If replies feel too slow, turn the setting off again.
 
 In the settings file the key is `llamacpp.avatar_headroom` (`true` or `false`).
+If the key is missing, the setting is on.

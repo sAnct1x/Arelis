@@ -330,12 +330,12 @@ class SettingsDialog(QDialog):
 
         self.avatar_headroom = QCheckBox("Leave CPU headroom for the avatar")
         self.avatar_headroom.setChecked(
-            ((config.get("llamacpp") or {}).get("avatar_headroom")) is True
+            ((config.get("llamacpp") or {}).get("avatar_headroom")) is not False
         )
         self.avatar_headroom.setToolTip(
             "The model server uses two fewer CPU cores and runs at lower priority, "
             "so her animation stays smooth while she writes. Replies may come a little "
-            "slower. Takes effect the next time Arelis starts the model server."
+            "slower. On by default. Takes effect the next time Arelis starts the model server."
         )
 
         self.away_rest = QCheckBox("collapse unused panels")
