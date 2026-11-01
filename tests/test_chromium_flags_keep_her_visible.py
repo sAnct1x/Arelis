@@ -52,19 +52,36 @@ def test_gpu_arm_defaults_to_d3d11_and_none_adds_nothing() -> None:
     assert chromium_flags.effective_arm(pinned) == "gl"
 
 
-def test_qt_rhi_arm_pins_both_backends_before_qt_starts() -> None:
+def test_qt_rhi_defaults_to_vulkan_on_windows_and_falls_back_to_d3d11() -> None:
+    """qq3d gate1: on d3d11 her lower body vanished in 108/372 frames, on vulkan 0/374."""
     from arelis.ui import launch
     from arelis.ui.persona_face import chromium_flags
 
     env = {"ARELIS_QT_RHI": "OpenGL"}
-    assert chromium_flags.apply_rhi(env) == "opengl"
+    assert chromium_flags.apply_rhi(env, platform="win32") == "opengl"
     assert env["QSG_RHI_BACKEND"] == env["QT_WIDGETS_RHI_BACKEND"] == "opengl"
     assert chromium_flags.rhi_arm(env) == "opengl"
-    for raw in ({}, {"ARELIS_QT_RHI": "bogus"}):
-        assert chromium_flags.apply_rhi(raw) == "default"
-        assert "QSG_RHI_BACKEND" not in raw
+    # Nothing pinned on Windows: vulkan for both.
+    win: dict[str, str] = {}
+    assert chromium_flags.apply_rhi(win, platform="win32") == "vulkan"
+    assert win["QSG_RHI_BACKEND"] == win["QT_WIDGETS_RHI_BACKEND"] == "vulkan"
+    assert chromium_flags.vulkan_fallback(dict(win), probe=lambda: "") == "vulkan"
+    # Vulkan cannot start: d3d11 for both.
+    assert chromium_flags.vulkan_fallback(win, probe=lambda: "no driver") == "d3d11"
+    assert win["QSG_RHI_BACKEND"] == win["QT_WIDGETS_RHI_BACKEND"] == "d3d11"
+    assert chromium_flags.rhi_arm(win) == "d3d11"
+    # The user's own pin, a Qt var already set, or another OS: left alone.
+    for raw, plat in (
+        ({}, "linux"),
+        ({"ARELIS_QT_RHI": "bogus"}, "linux"),
+        ({"QSG_RHI_BACKEND": "d3d12"}, "win32"),
+        ({"QT_WIDGETS_RHI_BACKEND": "opengl"}, "win32"),
+    ):
+        assert chromium_flags.apply_rhi(raw, platform=plat) == "default"
+        assert "vulkan" not in raw.values()
     src = inspect.getsource(launch.run_ui)
     assert src.index("chromium_flags.apply_rhi()") < src.index("QApplication([])")
+    assert src.index("QApplication([])") < src.index("chromium_flags.vulkan_fallback()")
 
 
 def test_novsync_arm_keeps_d3d11_and_drops_the_frame_cap() -> None:

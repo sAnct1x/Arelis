@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import MutableMapping
+import sys
+from collections.abc import Callable, MutableMapping
 
 log = logging.getLogger(__name__)
 
@@ -45,16 +46,30 @@ NOVSYNC = ("--disable-gpu-vsync", "--disable-frame-rate-limit")
 # the consumer to Qt's OpenGL RHI (WGL_NV_DX_interop2 import, a different
 # sync path). Unset leaves Qt's default. Read before QApplication exists.
 RHI_VAR = "ARELIS_QT_RHI"
-RHI_KNOWN = ("opengl", "d3d11", "d3d12")
+RHI_KNOWN = ("opengl", "d3d11", "d3d12", "vulkan")
+# qq3d gate1 (6160ae6, RX 6700 XT): on d3d11 the part of her body below a
+# horizontal cut vanished in 108/372 frames, on vulkan in 0/374. The cause
+# inside the d3d11 path is still unknown; this is a backend choice, not a
+# d3d11 fix. Windows defaults to vulkan unless the user or Qt env pins one.
+RHI_DEFAULT_WIN = "vulkan"
+RHI_FALLBACK = "d3d11"
 RHI_ENV = ("QSG_RHI_BACKEND", "QT_WIDGETS_RHI_BACKEND")
 
 
-def apply_rhi(env: MutableMapping[str, str] | None = None) -> str:
-    """Pin Qt Quick and the widget backing store to ARELIS_QT_RHI; return it or 'default'."""
+def apply_rhi(env: MutableMapping[str, str] | None = None, platform: str | None = None) -> str:
+    """Pin Qt Quick and the widget backing store to ARELIS_QT_RHI; return it or 'default'.
+
+    On Windows with nothing pinned (no ARELIS_QT_RHI, no QSG_RHI_BACKEND, no
+    QT_WIDGETS_RHI_BACKEND) this pins vulkan; vulkan_fallback() undoes that
+    if Vulkan cannot start.
+    """
     target = os.environ if env is None else env
     name = str(target.get(RHI_VAR) or "").strip().lower()
     if not name:
-        return "default"
+        plat = sys.platform if platform is None else platform
+        if plat != "win32" or any(target.get(var) for var in RHI_ENV):
+            return "default"
+        name = RHI_DEFAULT_WIN
     if name not in RHI_KNOWN:
         log.warning(
             "%s=%s unknown, leaving Qt default (known: %s)", RHI_VAR, name, ", ".join(RHI_KNOWN)
@@ -65,10 +80,43 @@ def apply_rhi(env: MutableMapping[str, str] | None = None) -> str:
     return name
 
 
+def vulkan_fallback(
+    env: MutableMapping[str, str] | None = None, probe: Callable[[], str] | None = None
+) -> str:
+    """After QApplication exists, before the first window: if vulkan is pinned
+    and cannot start, log why and pin d3d11 instead. Returns the backend in use."""
+    target = os.environ if env is None else env
+    if any(target.get(var) != "vulkan" for var in RHI_ENV):
+        return rhi_arm(target)
+    reason = (probe or _vulkan_problem)()
+    if not reason:
+        return "vulkan"
+    log.warning("Qt RHI vulkan unavailable (%s), falling back to %s", reason, RHI_FALLBACK)
+    for var in RHI_ENV:
+        target[var] = RHI_FALLBACK
+    return RHI_FALLBACK
+
+
+def _vulkan_problem() -> str:
+    """Empty when a QVulkanInstance can be created, else the reason it cannot."""
+    try:
+        from PySide6.QtGui import QVulkanInstance
+    except Exception as exc:
+        return f"QVulkanInstance not importable: {exc}"
+    inst = QVulkanInstance()
+    if not inst.create():
+        return f"QVulkanInstance.create failed (VkResult {int(inst.errorCode())})"
+    inst.destroy()
+    return ""
+
+
 def rhi_arm(env: MutableMapping[str, str] | None = None) -> str:
     target = os.environ if env is None else env
     name = str(target.get(RHI_VAR) or "").strip().lower()
-    return name if name in RHI_KNOWN else "default"
+    if name in RHI_KNOWN and target.get(RHI_ENV[0]) == name:
+        return name
+    pinned = str(target.get(RHI_ENV[0]) or "").strip().lower()
+    return pinned if pinned in RHI_KNOWN else "default"
 
 
 def arm(env: MutableMapping[str, str] | None = None) -> str:

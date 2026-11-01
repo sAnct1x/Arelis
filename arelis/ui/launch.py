@@ -551,6 +551,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     # (globalShareContext stays alive after park()). In-process WebEngine
     # stays for pytest / no solar GL.
     app = QApplication.instance() or QApplication([])
+    # Qt reads the RHI vars at the first window, so a vulkan that cannot
+    # start still has time to become d3d11 here.
+    chromium_flags.vulkan_fallback()
     from arelis.ui.persona_face import qq3d_avatar
 
     qq3d_avatar.surface_format()

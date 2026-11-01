@@ -123,7 +123,7 @@ qt_rhi=...` line of the startup surface report. Leaving them unset keeps normal 
 
 | Variable | Value | What it changes |
 |---|---|---|
-| `ARELIS_QT_RHI` | `opengl` | Qt shows her frames through OpenGL instead of Direct3D 11 (sets `QSG_RHI_BACKEND` and `QT_WIDGETS_RHI_BACKEND`). |
+| `ARELIS_QT_RHI` | `vulkan`, `d3d11`, `d3d12`, `opengl` | Which graphics backend Qt uses to draw her (sets `QSG_RHI_BACKEND` and `QT_WIDGETS_RHI_BACKEND`). On Windows the default is `vulkan`, because on Direct3D 11 the lower part of her body could flicker out. If Vulkan cannot start, Arelis logs a warning with the reason and uses `d3d11`. Set `ARELIS_QT_RHI=d3d11` or `opengl` to choose one yourself. |
 | `ARELIS_GPU_ARM` | `novsync` | Direct3D 11 as usual, plus `--disable-gpu-vsync --disable-frame-rate-limit`. Logs as `arm=d3d11+novsync`. |
 | `ARELIS_GPU_ARM` | `none`, `d3d11`, `gl`, `nocomp` | Earlier arms, already measured on Atria. |
 | `ARELIS_AVATAR_BACKDROP` | `opaque` | Paints the room colour under her instead of a see-through page. |
