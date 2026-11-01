@@ -14,7 +14,7 @@ from arelis.tools.base import ToolRegistry, ToolResult
 from tests.hardening_helpers import _collect, _config, _deny, _ScriptedRouter
 
 _STEPS = "z = sqrt((1+beta)/(1-beta)) - 1 with beta = 0.1, so sqrt(1.1/0.9) - 1."
-_WRAP = "So the redshift is about 0.1054."
+_WRAP = "With beta = 0.1, 1 + beta = 1.1 and 1 - beta = 0.9, so z is about 0.1054."
 
 
 class _Calc:

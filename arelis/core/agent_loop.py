@@ -586,25 +586,14 @@ def _with_round_gap(previous: str, incoming: str) -> str:
     return "\n\n" + body
 
 
-_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+# Rounds whose held prose is worked math, not a "let me check" preamble.
+_STEP_TOOLS = frozenset({"cas", "calculator", "python", "units"})
 
 
-def _kept_steps_answer(final: str, held: str) -> str:
-    """Put worked steps from a held tool round above the wrap-up.
-
-    A tool round holds its paint, so prose written next to a native call
-    never reached the bubble, and the last round's wrap-up became the whole
-    reply (#259). Only the latest held round is kept, and only when it has
-    numbers the wrap-up does not repeat. A wrap-up that restates the steps,
-    or a preamble with no numbers, stays the reply on its own.
-    """
-    head = held.strip()
-    if not head or final.startswith(head):
-        return final
-    numbers = set(_NUMBER.findall(head))
-    if not numbers or numbers <= set(_NUMBER.findall(final)):
-        return final
-    return f"{head}\n\n{final}"
+def _step_tool_round(tool_calls: list[dict[str, Any]]) -> bool:
+    """True when every native call in the round is a math tool."""
+    names = {str((c.get("function") or {}).get("name") or "") for c in tool_calls}
+    return bool(names) and names <= _STEP_TOOLS
 
 
 class _LiveAnswer:
@@ -1829,7 +1818,11 @@ class AgentLoop:
             # _finish (or a later round with tools=None). Prose beside a
             # native call is the model's working, kept for _finish.
             if tool_calls:
-                self._held_steps = strip_thinking_text(raw)
+                # Held, never painted. Only a math round's text is steps;
+                # any later tool round replaces what was held.
+                self._held_steps = (
+                    strip_thinking_text(raw) if _step_tool_round(tool_calls) else ""
+                )
             return raw, tool_calls, ""
         tail = live.flush()
         if tail:
@@ -2116,8 +2109,9 @@ class AgentLoop:
             note = f"{note}\n{passthrough}" if note else passthrough
         held = str(getattr(self, "_held_steps", "") or "")
         self._held_steps = ""
-        if streamed.strip():
-            final = _kept_steps_answer(final, held)
+        # Shown once here and cleared, so it cannot be painted twice (#389).
+        if streamed.strip() and held.strip():
+            final = f"{held.strip()}\n\n{final}"
         self._remember_sent_follow()
         self.memory.add("assistant", final, note=note)
 
