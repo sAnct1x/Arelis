@@ -86,9 +86,13 @@ def engine() -> str:
     return "qq3d" if os.environ.get(ENGINE_ENV, "").strip().lower() == "qq3d" else "web"
 
 
+# The rooms Quick 3D has landed in; every other room keeps the WebEngine host.
+ROOMS = frozenset({"filament", "night"})
+
+
 def wanted(theme: str) -> bool:
-    """Quick 3D hosts her only in the rooms it has landed in (Filament so far)."""
-    return engine() == "qq3d" and (theme or "").strip().lower() == "filament"
+    """Quick 3D hosts her only in the rooms it has landed in (ROOMS)."""
+    return engine() == "qq3d" and (theme or "").strip().lower() in ROOMS
 
 
 def surface_format():

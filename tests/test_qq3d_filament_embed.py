@@ -1,4 +1,4 @@
-"""ARELIS_AVATAR_ENGINE=qq3d puts the Quick 3D host in Filament's hub; other rooms keep WebEngine."""
+"""ARELIS_AVATAR_ENGINE=qq3d puts the Quick 3D host in Filament and Night; other rooms keep WebEngine."""
 
 from __future__ import annotations
 
@@ -27,9 +27,9 @@ class _QQ3D(_Fake):
 
 @pytest.mark.parametrize(
     ("engine", "theme", "want"),
-    [("qq3d", "filament", _QQ3D), ("", "filament", _Web), ("qq3d", "night", _Web)],
+    [("qq3d", "filament", _QQ3D), ("", "filament", _Web), ("qq3d", "night", _QQ3D), ("qq3d", "sodium", _Web)],
 )
-def test_engine_switch_picks_quick3d_only_in_filament(monkeypatch, engine, theme, want) -> None:
+def test_engine_switch_picks_quick3d_only_in_its_rooms(monkeypatch, engine, theme, want) -> None:
     QApplication.instance() or QApplication([])
     from arelis.ui import theme_tokens
     from arelis.ui.persona_face import PersonaPanel, qq3d_avatar, web_avatar
@@ -66,7 +66,7 @@ def test_theme_switch_swaps_the_host(monkeypatch) -> None:
     from arelis.ui import theme_tokens
     from arelis.ui.persona_face import PersonaPanel, qq3d_avatar, web_avatar
 
-    room = {"name": "night"}
+    room = {"name": "sodium"}
     monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "qq3d")
     monkeypatch.setattr(theme_tokens, "active_theme", lambda: room["name"])
     for mod in (web_avatar, qq3d_avatar):
@@ -78,6 +78,10 @@ def test_theme_switch_swaps_the_host(monkeypatch) -> None:
     room["name"] = "filament"
     panel.refresh_theme_icons()
     assert type(panel.web) is _QQ3D
+    host = panel.web
+    room["name"] = "night"
+    panel.refresh_theme_icons()
+    assert panel.web is host
     room["name"] = "sodium"
     panel.refresh_theme_icons()
     assert type(panel.web) is _Web
