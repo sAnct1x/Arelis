@@ -147,6 +147,18 @@ void MAIN() {
     + """VARYING vec2 vUv; VARYING vec3 vWp;
 void MAIN() { FRAGCOLOR = vec4(uColor, 1.0); }
 """,
+    # skin opacity pass (see SKIN_OPACITY): her interior colour laid over what is behind her body
+    "skin": FRAG_PRE
+    + """VARYING vec2 vUv; VARYING vec3 vWp;
+void MAIN() {
+  // only where the neck fill above leaves her see-through: the head is already solid, and laying
+  // the colour over it would only veil the eyes and brows drawn before this pass
+  float nA = smoothstep(uNeckY - 0.03, uNeckY + 0.05, vWp.y) * (1.0 - smoothstep(0.055, 0.085, abs(vWp.x - uFace.x)) * (1.0 - smoothstep(uNeckY - 0.02, uNeckY + 0.06, vWp.y)));
+  float a = uSkinOpacity * (1.0 - nA);
+  if (a < 0.003) discard;
+  FRAGCOLOR = vec4(uColor, a);
+}
+""",
     # alphaMap cut-out (hair volume: alphaTest 0.45, opaque; cards: alphaTest 0.3, opacity 0.6)
     "card": FRAG_PRE
     + """VARYING vec2 vUv; VARYING vec3 vWp;
@@ -201,6 +213,13 @@ void MAIN() { float dq = length(gl_PointCoord - 0.5); if (dq > 0.5) discard;
 # the body rim stays brighter than the hair.
 RIM_GAIN = 1.25
 HEAD_GLOW = 2.0
+# Skin opacity (root skinOpacity; 0 = v14k, where the body below the neck is see-through and only
+# the additive shell glow draws it). Above 0, each body fill is drawn a second time in the
+# blended pass, just before the shells, as its interior colour at that alpha wherever the neck
+# fill leaves her see-through (below the neck): what is behind her body dims toward it and her
+# shell glow reads over a surface.
+# Hidden at 0, so the default frame is v14k's exactly.
+SKIN_OPACITY = 0.0
 RIM_SRC = "float rim = pow(1.0 - ndv, 2.4);"
 GLOW_SRC = re.compile(r"float glow = uGlow[^;]*;")
 
@@ -806,6 +825,19 @@ def build(
             if names
             else ""
         )
+        if p.get("frag") == "neck":
+            shell_bias = (len(order) - min(rank[x["i"]] for x in layers if x["ro"] == 2)) * 1000
+            (shaders / f"S{i}.frag").write_text(FILL_FRAG["skin"])
+            body.append(
+                f'    Model {{ objectName: "S{i}"; visible: skinOpacity > 0; {skin}{tf}{"; " if tf else ""}depthBias: {shell_bias + 500}\n'
+                f'        geometry: LayerGeometry {{ source: "{scene / p["geom"]}"; spec: "{p["spec"]}"; points: false{morph_src} }}\n'
+                f"{morph_targets}"
+                f'        materials: CustomMaterial {{ objectName: "SM{i}"; shadingMode: CustomMaterial.Unshaded; sourceBlend: CustomMaterial.SrcAlpha; destinationBlend: CustomMaterial.OneMinusSrcAlpha; {cull}\n'
+                f'            vertexShader: "aether_shaders/L{i}.vert"; fragmentShader: "aether_shaders/S{i}.frag"\n'
+                + "".join(f"            {pr}\n" for pr in props)
+                + "            property real uSkinOpacity: skinOpacity\n"
+                + "        } }"
+            )
         body.append(
             f'    Model {{ objectName: "L{i}"; {skin}{tf}\n'
             f'        geometry: LayerGeometry {{ source: "{scene / p["geom"]}"; spec: "{p["spec"]}"; points: {"true" if p["points"] else "false"}{morph_src} }}\n'
@@ -827,6 +859,8 @@ def build(
         + "    // render target size in framebuffer pixels; point sprites are sized in it (see point_sprites)\n"
         + "    property vector2d viewportSize: Qt.vector2d(720, 960)\n"
         + "    property real devicePixelRatio: 1\n"
+        + "    // how much her skin hides what is behind it (0 = v14k; see SKIN_OPACITY)\n"
+        + f"    property real skinOpacity: {SKIN_OPACITY!r}\n"
         + look_clock(unis)
         + "\n".join(body)
         + "\n}\n"

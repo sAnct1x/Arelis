@@ -22,3 +22,10 @@ def test_card_alpha_is_sampled_with_gltf_v():
     assert "glTFTex(uAlphaMap, vUv2)" in out and "texture2D(" not in out
     assert "1.0 - (uv).y" in port.FRAG_PRE
     assert "glTFTex(uAlphaMap, vUv)" in port.FILL_FRAG["card"]
+
+
+def test_skin_opacity_defaults_to_v14k_and_spares_the_head():
+    assert port.SKIN_OPACITY == 0.0
+    skin = port.FILL_FRAG["skin"]
+    assert "uSkinOpacity * (1.0 - nA)" in skin
+    assert "discard" in skin
