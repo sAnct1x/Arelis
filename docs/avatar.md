@@ -34,9 +34,12 @@ She is part of the window itself, not a panel you open or close.
 
 - Night and Sodium: a band down the right side of the window, top to bottom. The chat
   ends where her band begins, so she never sits behind your messages.
-- Filament: she is the hub at the bottom left. There is no tile for her. The threads
-  run from her to the orbit ring, and the strand to each open tile starts at her. The
-  chat keeps its full width here, since she is not in a side band.
+- Filament: she is the base layer of the whole window. She always stands at the
+  window's full height, head to toe, with her centre a little right of centre. There
+  is no band, no box and no edge around her. The orbit ring, reality and any tiles
+  you open sit in the space to her left, on top of her layer. Clicks on her go
+  straight through to the room behind her. When the window spans two or three
+  screens, she and the orbit stay on your home screen.
 
 She is not a panel or dock in any room. There is no View menu entry for her and no
 Ctrl+1, and the saved window layout no longer records her.
@@ -45,7 +48,7 @@ Ctrl+1, and the saved window layout no longer records her.
 
 When you enter Filament she comes up first. Once her scene is ready (or after six
 seconds, or straight away if the 3D view cannot start), the orbit ring grows out of
-her hub point over about two seconds, easing in and out. The threads between her and
+her centre over about two seconds, easing in and out. The threads between her and
 the ring stay attached the whole time.
 
 A tile you open in Filament grows out of the end of its own filament: it starts as a
@@ -105,7 +108,7 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] lipsync start` / `stop` | Speech began or ended. |
 | `[avatar] stop source=...` | Speech was stopped: `button`, `voice`, or another cause. |
 | `[avatar] theme name=... tint=...` | The room changed and she was retinted. |
-| `[avatar] resize mode=... region=X,Y,WxH` | Her place in the window changed. `mode=band` in Night and Sodium, `mode=hub` in Filament. |
+| `[avatar] resize region=X,Y,WxH` | Her place in the window changed: her band in Night and Sodium, the whole stage in Filament. |
 | `[avatar] canvas resize size=WxH` | The scene followed that change. |
 | `[avatar] filament load step=she appears` | Filament opened; the ring waits for her. |
 | `[avatar] filament load step=ring grows origin=X,Y` | The ring starts growing out of her hub at X,Y. |

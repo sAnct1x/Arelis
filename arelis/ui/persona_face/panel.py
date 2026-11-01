@@ -70,6 +70,20 @@ class LoadingVeil(QWidget):
         painter.end()
 
 
+class _CaptionStrip(QWidget):
+    """Her caption and status line, over a view that runs the band's full height."""
+
+    def __init__(self, panel: PersonaPanel) -> None:
+        super().__init__(panel)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.hide()
+
+    def paintEvent(self, event) -> None:
+        del event
+        self.parentWidget().paint_caption(self, 0)
+
+
 class PersonaPanel(QWidget):
     """Her figure, a state word, and one quiet status line."""
 
@@ -105,6 +119,7 @@ class PersonaPanel(QWidget):
         self._status_timer = QTimer(self)
         self._status_timer.setSingleShot(True)
         self._status_timer.timeout.connect(self._invalidate_caption)
+        self._caption = _CaptionStrip(self)
         self.web = None
         self.web_avatar_reason = self._start_web()
         self._place()
@@ -212,6 +227,7 @@ class PersonaPanel(QWidget):
             old.deleteLater()
         self._pose = ""
         self.web_avatar_reason = self._start_web()
+        self._place()
         self._push()
 
     # ---- web scene ----
@@ -316,6 +332,7 @@ class PersonaPanel(QWidget):
 
     def _invalidate_caption(self) -> None:
         self.update(0, max(0, self.height() - _TEXT_H), self.width(), _TEXT_H)
+        self._caption.update()
 
     def resizeEvent(self, event) -> None:
         # One theme switch hides the chrome bars one at a time, so her panel
@@ -352,12 +369,17 @@ class PersonaPanel(QWidget):
 
     def paintEvent(self, event) -> None:
         del event
-        painter = QPainter(self)
+        if self._caption.isVisible():
+            return
+        self.paint_caption(self, self.height() - _TEXT_H)
+
+    def paint_caption(self, device: QWidget, top: int) -> None:
+        painter = QPainter(device)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        width = self.width()
+        width = device.width()
         caption = self.caption_text()
         status = self.status_text()
-        y = self.height() - _TEXT_H + 8
+        y = top + 8
         if caption:
             self._draw_caption(painter, caption, y, width)
             y += 22
@@ -398,7 +420,23 @@ class PersonaPanel(QWidget):
         height = max(1, self.height() - _TEXT_H)
         self.loading.setGeometry(0, 0, max(1, self.width()), height)
         if self.web is not None:
-            self.web.setGeometry(0, 0, max(1, self.width()), height)
+            # Quick 3D's floor, threads and glow run to the bottom of her band: a view
+            # stopping short of it cut them on a hard line, a box on the stage.
+            # Her caption rides on top of the view instead.
+            full = self._engine == "qq3d"
+            self.web.setGeometry(0, 0, max(1, self.width()), self.height() if full else height)
+            self._caption.setVisible(full)
+            if full:
+                # Under her figure, not across the whole base layer.
+                from arelis.ui.persona_stage import figure_x
+                from arelis.ui.theme_tokens import active_theme
+
+                fx = figure_x(active_theme())
+                half = round(self.width() * min(fx, 1 - fx))
+                mid = round(self.width() * fx)
+                top = max(0, self.height() - _TEXT_H)
+                self._caption.setGeometry(mid - half, top, 2 * half, _TEXT_H)
+                self._caption.raise_()
 
     def _now(self) -> float:
         if self._clock is not None:

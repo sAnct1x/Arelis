@@ -18,4 +18,5 @@ def test_chat_tile_fits_window(arelis_window):
     assert frame.contains(tile), (frame, tile)
     assert tile.top() >= frame.top() + w.title_bar.height()
     stage = w.persona_stage
-    assert not tile.intersects(QRect(stage.mapToGlobal(QPoint(0, 0)), stage.size()))
+    zone = stage.zone()
+    assert not tile.intersects(QRect(stage.parentWidget().mapToGlobal(zone.topLeft()), zone.size()))
