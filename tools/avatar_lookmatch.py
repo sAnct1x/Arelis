@@ -111,7 +111,7 @@ def _serve(
     return f"http://127.0.0.1:{srv.server_port}/index.html", srv, tmp
 
 
-def run_web(out: Path, glb: Path, clips: Path) -> None:
+def run_web(out: Path, glb: Path, clips: Path, on_pose=None) -> None:
     import base64
 
     from playwright.sync_api import sync_playwright
@@ -154,6 +154,8 @@ def run_web(out: Path, glb: Path, clips: Path) -> None:
                 pg.clock.fast_forward(100)
                 pg.clock.fast_forward(100)
             cam = pg.evaluate(CAM_JS)
+            if on_pose:
+                on_pose(pg, name)
             pg.screenshot(path=str(out / f"v14k-{name}.png"))
             m = pg.evaluate(MASK_JS)
             (out / f"mask-{name}.png").write_bytes(base64.b64decode(m["url"].split(",", 1)[1]))
@@ -189,20 +191,37 @@ _GRAB_INTERNALS = """async () => { const THREE = await import('three'); window._
     window.__renderer.setPixelRatio(devicePixelRatio); window.__renderer.setSize(innerWidth, innerHeight, false); }
   return true; }"""
 
+SPIKE_SCENE = """        environment: SceneEnvironment { clearColor: "#14101c"; backgroundMode: SceneEnvironment.Color; antialiasingMode: SceneEnvironment.MSAA }
+        PerspectiveCamera { id: cam; objectName: "cam"; clipNear: 1; clipFar: 20000; fieldOfView: %(fov)f; fieldOfViewOrientation: PerspectiveCamera.Vertical }
+        DirectionalLight { eulerRotation.x: -30; eulerRotation.y: 20; brightness: 1.2 }
+        DirectionalLight { eulerRotation.x: -10; eulerRotation.y: 200; brightness: 0.5; color: "#b9a6ff" }
+        PointLight { position: Qt.vector3d(0, 150, 200); brightness: 0.6 }
+        Ellah_anim { id: ellah; objectName: "ellah"; scale: Qt.vector3d(100, 100, 100) }"""
+# The aether port (arelis/ui/persona_q3d): metres like three.js, black clear, sRGB out like
+# three's OutputPass, bloom from ExtendedSceneEnvironment glow standing in for UnrealBloomPass.
+PORT_SCENE = """        environment: ExtendedSceneEnvironment { clearColor: "black"; backgroundMode: SceneEnvironment.Color
+            antialiasingMode: SceneEnvironment.NoAA; tonemapMode: SceneEnvironment.TonemapModeLinear
+            glowEnabled: true; glowStrength: %(glow_strength)f; glowIntensity: %(glow_intensity)f; glowBloom: %(glow_bloom)f
+            glowHDRMinimumValue: %(glow_min)f; glowHDRMaximumValue: 8; glowHDRScale: 2; glowLevel: %(glow_level)s; glowBlendMode: ExtendedSceneEnvironment.GlowBlendMode.Additive }
+        PerspectiveCamera { id: cam; objectName: "cam"; clipNear: %(near)f; clipFar: %(far)f; fieldOfView: %(fov)f; fieldOfViewOrientation: PerspectiveCamera.Vertical }
+        Ellah_aether { id: ellah; objectName: "ellah" }"""
+GLOW = {
+    "glow_strength": 1.0,
+    "glow_intensity": 0.85,
+    "glow_bloom": 0.25,
+    "glow_min": 0.55,
+    "glow_level": "ExtendedSceneEnvironment.GlowLevel.One | ExtendedSceneEnvironment.GlowLevel.Two | ExtendedSceneEnvironment.GlowLevel.Three | ExtendedSceneEnvironment.GlowLevel.Four",
+}
 QML = """import QtQuick
 import QtQuick3D
+%(imports)s
 import "%(conv)s"
 Item {
     id: root
     width: %(w)d; height: %(h)d
     View3D {
         x: %(vx)d; y: 0; width: %(vw)d; height: parent.height
-        environment: SceneEnvironment { clearColor: "#14101c"; backgroundMode: SceneEnvironment.Color; antialiasingMode: SceneEnvironment.MSAA }
-        PerspectiveCamera { id: cam; objectName: "cam"; clipNear: 1; clipFar: 20000; fieldOfView: %(fov)f; fieldOfViewOrientation: PerspectiveCamera.Vertical }
-        DirectionalLight { eulerRotation.x: -30; eulerRotation.y: 20; brightness: 1.2 }
-        DirectionalLight { eulerRotation.x: -10; eulerRotation.y: 200; brightness: 0.5; color: "#b9a6ff" }
-        PointLight { position: Qt.vector3d(0, 150, 200); brightness: 0.6 }
-        Ellah_anim { id: ellah; objectName: "ellah"; scale: Qt.vector3d(100, 100, 100) }
+%(scene)s
     }
     function pose(clip, ms, pos, look) {
         var d = ellah.data
@@ -216,7 +235,42 @@ Item {
 """
 
 
-def run_qq3d(out: Path, qml_dir: Path) -> None:
+def _apply_uniforms(root, values: dict, world: dict | None) -> None:
+    """Set every port material's uniforms (QML properties) to the v14k values of this pose."""
+    from PySide6.QtCore import QObject
+    from PySide6.QtGui import QVector2D, QVector3D, QVector4D
+
+    vec = {2: QVector2D, 3: QVector3D, 4: QVector4D}
+    only = os.environ.get("AETHER_ONLY")  # debugging: comma list of layer indexes to keep
+    for i, u in enumerate(values):
+        node = root.findChild(QObject, f"L{i}")
+        if only and node is not None:
+            node.setProperty("visible", str(i) in only.split(","))
+        mat = root.findChild(QObject, f"M{i}")
+        if mat is None:
+            continue
+        for k, v in u.items():
+            if isinstance(v, list) and v and isinstance(v[0], list):
+                for j, x in enumerate(v):
+                    mat.setProperty(f"{k}{j}", vec[len(x)](*x))
+            elif isinstance(v, list):
+                if mat.property(k) is not None:
+                    mat.setProperty(k, vec[len(v)](*v))
+            elif mat.property(k) is not None:
+                mat.setProperty(k, float(v))
+        if world and str(i) in world:
+            from PySide6.QtGui import QQuaternion
+
+            from arelis.ui.persona_q3d.port import _decompose
+
+            node = root.findChild(QObject, f"L{i}")
+            p, q, sc = _decompose(world[str(i)])
+            node.setProperty("position", QVector3D(*p))
+            node.setProperty("rotation", QQuaternion(*q))
+            node.setProperty("scale", QVector3D(*sc))
+
+
+def run_qq3d(out: Path, qml_dir: Path, port: Path | None = None) -> None:
     os.environ.setdefault("QSG_RHI_BACKEND", "opengl")
     os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
     from PySide6.QtCore import QEventLoop, QTimer, QUrl
@@ -225,19 +279,33 @@ def run_qq3d(out: Path, qml_dir: Path) -> None:
     from PySide6.QtQuick3D import QQuick3D
 
     meta = json.loads((out / "poses.json").read_text())
+    unis = {}
+    if port:
+        sys.path.insert(0, str(REPO))
+        import arelis.ui.persona_q3d.geometry  # noqa: F401  (registers Arelis.PersonaQ3D)
+
+        unis = json.loads((port / "uniforms.json").read_text())
+        worlds = (
+            json.loads((port / "worlds.json").read_text())
+            if (port / "worlds.json").exists()
+            else {}
+        )
     w, h = meta["size"]
     app = QGuiApplication.instance() or QGuiApplication(sys.argv[:1])
     QSurfaceFormat.setDefaultFormat(QQuick3D.idealSurfaceFormat())
     for name, m in meta["poses"].items():
         cam = m["camera"]
         src = out / "_qq3d.qml"
-        conv = (qml_dir / "converted").resolve().as_uri()
+        conv = (qml_dir if port else qml_dir / "converted").resolve().as_uri()
         off = round(
             m["pan"] * w
         )  # same off-axis shift as setViewOffset: a View3D 2*off wider, slid by off
+        sub = {"fov": cam["fov"], "near": cam["near"], "far": cam["far"], **GLOW}
         src.write_text(
             QML
             % {
+                "imports": "import QtQuick3D.Helpers\nimport Arelis.PersonaQ3D" if port else "",
+                "scene": (PORT_SCENE if port else SPIKE_SCENE) % sub,
                 "conv": conv,
                 "w": w,
                 "h": h,
@@ -253,7 +321,9 @@ def run_qq3d(out: Path, qml_dir: Path) -> None:
         if v.status() != QQuickView.Status.Ready:
             raise SystemExit("qq3d: " + "; ".join(e.toString() for e in v.errors()))
         v.show()
-        s = 100.0  # metres (three.js) to the spike's scene units (model scaled by 100)
+        s = (
+            1.0 if port else 100.0
+        )  # metres (three.js) to the spike's scene units (model scaled by 100)
         ms = round((cam["clipTime"] or 0.0) * 1000)
         v.rootObject().pose(
             cam["clip"] or "Idle",
@@ -261,6 +331,8 @@ def run_qq3d(out: Path, qml_dir: Path) -> None:
             QVector3D(*[x * s for x in cam["pos"]]),
             QVector3D(*[x * s for x in cam["look"]]),
         )
+        if port:
+            _apply_uniforms(v.rootObject(), unis[name], worlds.get(name))
         loop = QEventLoop()
         QTimer.singleShot(2500, loop.quit)
         loop.exec()
@@ -415,6 +487,11 @@ def main() -> int:
     ap.add_argument("--clips", type=Path, default=PRIVATE / "ellah-anim.glb")
     ap.add_argument("--qml-dir", type=Path, help="folder holding the balsam output as converted/")
     ap.add_argument(
+        "--port",
+        type=Path,
+        help="render the aether port: export dir from tools/avatar_q3d_export.py",
+    )
+    ap.add_argument(
         "--qt-python", default=sys.executable, help="interpreter with PySide6 QtQuick3D (all)"
     )
     a = ap.parse_args()
@@ -423,7 +500,7 @@ def main() -> int:
     elif a.cmd == "qq3d":
         if not a.qml_dir:
             ap.error("--qml-dir is required")
-        run_qq3d(a.out, a.qml_dir)
+        run_qq3d(a.out, a.qml_dir, a.port)
     elif a.cmd == "compare":
         compare(a.out)
     else:
@@ -444,6 +521,7 @@ def main() -> int:
                 str(a.out),
                 "--qml-dir",
                 str(a.qml_dir),
+                *(["--port", str(a.port)] if a.port else []),
             ],
             check=True,
         )
