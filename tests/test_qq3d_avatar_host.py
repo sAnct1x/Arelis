@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication
 _STAND_IN = """import QtQuick
 import QtQuick3D
 import QtQuick.Timeline
+import Arelis.PersonaQ3D
 Node {
     Model { source: "#Cube"; scale: Qt.vector3d(0.3, 1.7, 0.3); materials: PrincipledMaterial {} }
     Timeline { objectName: "Idle"; startFrame: 0; endFrame: 1000

@@ -214,6 +214,9 @@ def look_gains(frag: str) -> str:
 # weights (visemes, jaw, blinks) move them. The export carries no morph data; it comes from the GLB,
 # whose primitives hold the exported vertices in the same order. Only the names face.js writes are
 # kept, as absolute target positions (Quick 3D blends base + w * (target - base)).
+# QQuick3DGeometry::addTargetAttribute ignores attributes past 32 per geometry
+# (QQuick3DGeometryPrivate::MAX_TARGET_ATTRIBUTE_COUNT, Qt 6.11); each face morph is one Position.
+MAX_MORPHS = 32
 FACE_JS = Path(__file__).with_name("face.js")
 DEFAULT_GLB = Path("/workspace/team/avatar-proto/threejs-prep/models/ellah.glb")
 
@@ -268,7 +271,10 @@ def export_morphs(glb: Path, scene: Path, layers: list[dict], out: Path) -> dict
     """Write out/<geom>_<name>.bin (absolute positions) for every face morph that moves a layer's mesh."""
     import numpy as np
 
-    wanted = set(re.findall(r"'([A-Z][A-Za-z]+(?:_[A-Za-z0-9]+)+)'", FACE_JS.read_text()))
+    order = list(
+        dict.fromkeys(re.findall(r"'([A-Z][A-Za-z]+(?:_[A-Za-z0-9]+)+)'", FACE_JS.read_text()))
+    )
+    wanted = set(order)
     doc, acc = _glb(glb)
     prims = []
     for mesh in doc["meshes"]:
@@ -289,9 +295,42 @@ def export_morphs(glb: Path, scene: Path, layers: list[dict], out: Path) -> dict
                 if d is not None and np.abs(d).max() > 1e-6:
                     (pos + d).astype(np.float32).tofile(out / f"{gid}_{name}.bin")
                     keep.append(name)
+            if len(keep) > MAX_MORPHS:
+                # face.js lists the mouth first; past the cap the rarest expressions drop
+                keep.sort(key=order.index)
+                import warnings
+
+                warnings.warn(
+                    f"{gid}: {len(keep)} face morphs, Quick 3D keeps {MAX_MORPHS}; dropped {keep[MAX_MORPHS:]}",
+                    stacklevel=2,
+                )
+                keep = keep[:MAX_MORPHS]
             if keep:
                 found[gid] = keep
             break
+    return found
+
+
+class NoFaceMorphs(UserWarning):
+    """The port built without face morphs: her mouth and eyes will not move."""
+
+
+def face_morphs(
+    glb: Path | None, scene: Path, layers: list[dict], out: Path
+) -> dict[str, list[str]]:
+    """export_morphs, but a missing GLB (or one with no face morphs) is a loud warning, not a quiet
+    build where face.js runs and nothing on her face moves."""
+    import sys
+    import warnings
+
+    found = export_morphs(glb, scene, layers, out) if glb and glb.exists() else {}
+    if not found:
+        why = (
+            f"{glb} not found" if not (glb and glb.exists()) else f"no face morphs matched in {glb}"
+        )
+        msg = f"WARNING: building without face morphs ({why}); her mouth and eyes will not move. Pass --glb."
+        print("\n" + "!" * len(msg) + "\n" + msg + "\n" + "!" * len(msg), file=sys.stderr)
+        warnings.warn(msg, NoFaceMorphs, stacklevel=2)
     return found
 
 
@@ -305,6 +344,11 @@ def with_morphs(vert: str, n: int) -> str:
         f" for (int k = 0; k < {n}; k++) MORPHED_VERTEX += MORPH_WEIGHTS[k] * (MORPH_POSITION(k) - VERTEX);"
     )
     return vert[:i] + blend + body
+
+
+# Uniforms that follow the render target instead of the export: aether.js feeds them from the
+# renderer (uPx = pixel ratio; the galaxy's size attenuation scale is half the drawing-buffer height).
+SCREEN = {"uVp": "viewportSize", "uPx": "devicePixelRatio", "uScale": "viewportSize.y / 2"}
 
 
 def _remove_func(src: str, sig: str) -> str:
@@ -525,7 +569,7 @@ def build(
 ) -> Path:
     layers = json.loads((scene / "layers.json").read_text())
     morph_dir = converted / "morphs"
-    morphs = export_morphs(glb, scene, layers, morph_dir) if glb and glb.exists() else {}
+    morphs = face_morphs(glb, scene, layers, morph_dir)
     unis = json.loads((scene / "uniforms.json").read_text())["idle"]
     base = (converted / "Ellah_anim.qml").read_text()
     ids = balsam_ids(base)
@@ -611,9 +655,7 @@ def build(
                 v = vals.get(name)
                 if v is None and arr and isinstance(vals.get(arr.group(1)), list):
                     v = vals[arr.group(1)][int(arr.group(2))]
-                val = (
-                    _qml_value(typ, v if v is not None else 0) if name != "uVp" else "viewportSize"
-                )
+                val = SCREEN.get(name) or _qml_value(typ, v if v is not None else 0)
                 if name in SPEAK and isinstance(v, list):
                     val = SPEAK[name].format(*v)
                 props.append(f"property {GLSL_QML[typ]} {name}: {val}")
@@ -682,6 +724,7 @@ def build(
         + "    property real speakingLevel: 0\n"
         + "    // render target size in framebuffer pixels; point sprites are sized in it (see point_sprites)\n"
         + "    property vector2d viewportSize: Qt.vector2d(720, 960)\n"
+        + "    property real devicePixelRatio: 1\n"
         + "\n".join(body)
         + "\n}\n"
     )

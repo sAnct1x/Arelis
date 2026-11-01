@@ -79,3 +79,12 @@ def test_point_layers_do_not_rely_on_point_size():
     assert out["seed"].tolist() == [0.25] * 4 + [0.5] * 4
     assert np.abs(out["_corner"]).max() == 0.5 and len(out["_corner"]) == 16
     assert sprite_index(2).tolist() == [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]
+
+
+def test_port_warns_when_the_face_morph_source_is_missing(tmp_path) -> None:
+    import pytest
+
+    from arelis.ui.persona_q3d import port
+
+    with pytest.warns(port.NoFaceMorphs, match="mouth and eyes will not move"):
+        assert port.face_morphs(tmp_path / "ellah.glb", tmp_path, [], tmp_path / "morphs") == {}

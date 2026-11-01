@@ -194,6 +194,10 @@ class QQ3DAvatar(QWidget):
         model = model_path()
         alog("qq3d load", path=model.parent, engine="qq3d")
         check_clips()
+        # The look (Ellah_aether.qml) imports Arelis.PersonaQ3D for its LayerGeometry; importing the
+        # module registers that QML type.
+        import arelis.ui.persona_q3d.geometry  # noqa: F401
+
         self.view.setSource(QUrl.fromLocalFile(str(ENTRY)))
         root = self.view.rootObject()
         if self.view.status() != QQuickWidget.Status.Ready or root is None:

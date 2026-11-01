@@ -46,17 +46,19 @@ Item {
             antialiasingMode: SceneEnvironment.MSAA
         }
         // Head to toe in a box about half as wide as tall (persona_stage.FIGURE_ASPECT).
-        PerspectiveCamera { id: cam; objectName: "cam"; position: Qt.vector3d(0, 88, root.hub ? 330 : 345)
-            clipNear: 1; clipFar: 5000; fieldOfView: 35 }
+        // The scene is in metres, her model's own unit: the look's shaders compare world positions
+        // with world-space uniforms (uNeckY, uFace, ...) exported from aether.js in metres, so the
+        // figure must not be scaled.
+        PerspectiveCamera { id: cam; objectName: "cam"; position: Qt.vector3d(0, 0.88, root.hub ? 3.30 : 3.45)
+            clipNear: 0.01; clipFar: 50; fieldOfView: 35 }
         // Track A slot: look (materials, rim, bloom, particles) replaces these lights.
         DirectionalLight { eulerRotation.x: -30; eulerRotation.y: 20; brightness: 1.2 }
         DirectionalLight { eulerRotation.x: -10; eulerRotation.y: 200; brightness: 0.5; color: root.accent }
-        PointLight { position: Qt.vector3d(0, 150, 200); brightness: 0.6 }
+        PointLight { position: Qt.vector3d(0, 1.5, 2.0); brightness: 0.6 }
         Loader3D {
             id: loader
             objectName: "figure"
             source: root.modelSource
-            scale: Qt.vector3d(100, 100, 100)
             onStatusChanged: {
                 if (status === Loader3D.Ready) { root.startFace(item); root.sceneStatus = "ready" }
                 else if (status === Loader3D.Error) { root.sceneError = "model failed to load"; root.sceneStatus = "error" }
@@ -99,6 +101,17 @@ Item {
             var fig = loader.item
             if (fig && fig.speakingLevel !== undefined) fig.speakingLevel = root.face.level   // the look's uAnim/uFX
         }
+    }
+
+    // The look sizes its point sprites in framebuffer pixels (persona_q3d/port.py point_sprites).
+    readonly property real dpr: view.Window.window ? view.Window.window.effectiveDevicePixelRatio : Screen.devicePixelRatio
+    Binding {
+        target: loader.item; property: "viewportSize"; when: loader.item && loader.item.viewportSize !== undefined
+        value: Qt.vector2d(view.width * root.dpr, view.height * root.dpr)
+    }
+    Binding {
+        target: loader.item; property: "devicePixelRatio"; when: loader.item && loader.item.devicePixelRatio !== undefined
+        value: root.dpr
     }
 
     // The layout settled. Quick 3D follows its size by itself; kept for the host API.
