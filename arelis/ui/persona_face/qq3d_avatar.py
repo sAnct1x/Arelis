@@ -233,26 +233,38 @@ def install_model() -> Path | None:
     folder and is renamed into place, so a half copy is never taken for a model.
     """
     import shutil
+    import tempfile
 
     app = app_model_dir()
     src = override_dir()
     if _has_model(app) or not _has_model(src) or src.resolve() == app.resolve():
         return None
     log = logging.getLogger("arelis.avatar")
-    tmp = app.with_name(app.name + ".installing")
+    app.parent.mkdir(parents=True, exist_ok=True)
+    # A unique temp folder per start: two starts at once never share or wipe a half copy.
+    tmp = Path(tempfile.mkdtemp(prefix=app.name + ".installing-", dir=app.parent))
     try:
-        shutil.rmtree(tmp, ignore_errors=True)
-        shutil.copytree(src, tmp, ignore=shutil.ignore_patterns("pipeline.cache"))
+        shutil.copytree(
+            src, tmp, ignore=shutil.ignore_patterns("pipeline.cache"), dirs_exist_ok=True
+        )
         if app.exists():  # a folder with no model in it (a pipeline cache, say): keep its files
-            for item in app.iterdir():
-                if not (tmp / item.name).exists():
-                    shutil.move(str(item), str(tmp / item.name))
+            for item in app.iterdir():  # copied, not moved, so a failure below loses nothing
+                if (tmp / item.name).exists():
+                    continue
+                if item.is_dir():
+                    shutil.copytree(item, tmp / item.name)
+                else:
+                    shutil.copy2(item, tmp / item.name)
+        if _has_model(app) or not _has_model(tmp):  # another start won, or the copy is short
+            shutil.rmtree(tmp, ignore_errors=True)
+            return app if _has_model(app) else None
+        if app.exists():
             shutil.rmtree(app)
         tmp.rename(app)
     except OSError as exc:
         log.error("[avatar] qq3d model copy from %s to %s failed: %s", src, app, exc)
         shutil.rmtree(tmp, ignore_errors=True)
-        return None
+        return app if _has_model(app) else None
     log.info("[avatar] qq3d model copied from %s to %s", src, app)
     return app
 
