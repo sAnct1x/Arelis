@@ -132,3 +132,9 @@ def test_installer_ships_qq3d_model_to_avatar_qq3d(tmp_path: Path) -> None:
     assert '"/DQq3dTree={QQ3D_STAGE}"' in src
     iss = (INSTALLER / "arelis.iss").read_text(encoding="utf-8")
     assert 'Source: "{#Qq3dTree}\\*"; DestDir: "{localappdata}\\Arelis\\avatar\\qq3d"' in iss
+    # CI has no model (it comes from ellah.glb): it builds with --no-qq3d, and the line drops.
+    assert "#ifdef Qq3dTree" in iss
+    workflow = (INSTALLER.parent / ".github" / "workflows" / "windows-installer.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "python win-installer/build.py --no-qq3d" in workflow

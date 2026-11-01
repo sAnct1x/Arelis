@@ -1131,7 +1131,7 @@ def copy_companion_into_tree() -> None:
         say(f"  companion {offer.version_name} ({offer.signed})")
 
 
-def package_installer(version: str) -> Path | None:
+def package_installer(version: str, with_qq3d: bool = True) -> Path | None:
     """Compile the tree into one setup .exe, if Inno Setup is here to do it.
 
     Optional rather than required, because the tree above is the part that has to be
@@ -1153,7 +1153,7 @@ def package_installer(version: str) -> Path | None:
             str(iscc),
             f"/DAppVersion={version}",
             f"/DSourceTree={TREE}",
-            f"/DQq3dTree={QQ3D_STAGE}",
+            *([f"/DQq3dTree={QQ3D_STAGE}"] if with_qq3d else []),
             str(ISS),
         ],
         "Compiling the installer",
@@ -1419,6 +1419,14 @@ def main(argv: list[str] | None = None) -> int:
             f"Required for a setup .exe. Default: ${QQ3D_ENV}."
         ),
     )
+    parser.add_argument(
+        "--no-qq3d",
+        action="store_true",
+        help=(
+            "Build the setup .exe without her Quick 3D model (CI and smoke builds). "
+            "The installed app then shows the web figure until a model is in avatar\\qq3d."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if sys.platform != "win32":
@@ -1436,7 +1444,7 @@ def main(argv: list[str] | None = None) -> int:
         report_size("Built tree")
         return 0
 
-    if not args.no_installer and args.qq3d_dir is None:
+    if not args.no_installer and not args.no_qq3d and args.qq3d_dir is None:
         stage_qq3d(None)
 
     started = time.monotonic()
@@ -1448,9 +1456,9 @@ def main(argv: list[str] | None = None) -> int:
         say("\n== Verification ==")
         verify()
         say("\n== Quick 3D model ==")
-        say(f"  {stage_qq3d(args.qq3d_dir)}")
+        say("  skipped (--no-qq3d)" if args.no_qq3d else f"  {stage_qq3d(args.qq3d_dir)}")
         say("\n== Setup .exe ==")
-        installer = package_installer(installed_version())
+        installer = package_installer(installed_version(), with_qq3d=not args.no_qq3d)
         if installer and args.install:
             say("\n== Install ==")
             install_over_existing(installer)
@@ -1494,9 +1502,9 @@ def main(argv: list[str] | None = None) -> int:
     installer = None
     if not args.no_installer:
         say("\n== Quick 3D model ==")
-        say(f"  {stage_qq3d(args.qq3d_dir)}")
+        say("  skipped (--no-qq3d)" if args.no_qq3d else f"  {stage_qq3d(args.qq3d_dir)}")
         say("\n== Setup .exe ==")
-        installer = package_installer(installed_version())
+        installer = package_installer(installed_version(), with_qq3d=not args.no_qq3d)
         if installer and args.install:
             say("\n== Install ==")
             install_over_existing(installer)

@@ -38,9 +38,6 @@
 #ifndef SourceTree
   #define SourceTree "dist\Arelis"
 #endif
-#ifndef Qq3dTree
-  #define Qq3dTree "dist\qq3d"
-#endif
 
 ; VersionInfoVersion and VersionInfoProductVersion are Windows file versions.
 ; They take four numeric parts and nothing else. A three-part AppVersion such
@@ -127,7 +124,10 @@ Source: "{#SourceTree}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 ; Her Quick 3D model, staged by build.py --qq3d-dir (never in git). It goes where
 ; qq3d_avatar.model_dir() looks in an installed build: the data root, not {app}. Kept on
 ; a plain uninstall like other data; the wipe removes it with the rest of Arelis.
+; Left out when build.py --no-qq3d passes no Qq3dTree (CI and smoke builds).
+#ifdef Qq3dTree
 Source: "{#Qq3dTree}\*"; DestDir: "{localappdata}\Arelis\avatar\qq3d"; Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
+#endif
 
 [InstallDelete]
 ; Runs before the new files are copied. Inno writes what it ships and deletes nothing else,
