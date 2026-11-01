@@ -101,7 +101,7 @@ class PersonaStage(QWidget):
         parent = self.parentWidget()
         window = self.window()
         if parent is not None:
-            self.place(parent.rect(), chat_min=_chat_min(window))
+            self.place(parent.rect(), self._home_band(), chat_min=_chat_min(window))
         field = getattr(window, "_filament", None)
         if field is not None and hasattr(field, "set_hub"):
             hub = None
@@ -132,8 +132,18 @@ class PersonaStage(QWidget):
         parent = self.parentWidget()
         if parent is None:
             return False
-        want = persona_region(parent.rect(), chat_min=_chat_min(self.window()))
+        want = persona_region(parent.rect(), self._home_band(), chat_min=_chat_min(self.window()))
         return want != self.geometry()
+
+    def _home_band(self) -> QRect | None:
+        """The home desk in a Filament span of 2 or 3 desks, in stage coordinates."""
+        from arelis.ui.theme_tokens import active_theme
+
+        window, parent = self.window(), self.parentWidget()
+        home = getattr(window, "_filament_home_band", None)
+        if home is None or parent is None or active_theme() != "filament":
+            return None
+        return QRect(parent.mapFrom(window, home.topLeft()), home.size())
 
     def host(self, panel: QWidget) -> None:
         self.layout().addWidget(panel)

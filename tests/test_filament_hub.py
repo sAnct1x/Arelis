@@ -60,3 +60,28 @@ def test_painted_tethers_leave_from_her_hub(arelis_window, qt_app) -> None:
         painter.end()
         del field._tethers["probe"]
     assert starts and all(s == field.hub for s in starts)
+
+
+def test_across_two_desks_she_stands_on_the_home_desk(arelis_window, qt_app, monkeypatch) -> None:
+    """A 2 desk span seats her band on the home desk, not at the right edge of the union."""
+    from PySide6.QtCore import QRect
+
+    from arelis.ui import filament_desk
+
+    w = _filament(arelis_window, qt_app)
+    w.resize(1600, 800)
+    qt_app.processEvents()
+    home = QRect(0, 0, 800, 800)
+    union = QRect(0, 0, 1600, 800)
+    monkeypatch.setattr(filament_desk.FilamentDesk, "_filament_can_claim_desk", lambda self: True)
+    monkeypatch.setattr(filament_desk.FilamentDesk, "_filament_pin_home", lambda self: home)
+    monkeypatch.setattr(
+        filament_desk,
+        "filament_chosen_desks",
+        lambda *a, **k: (union, home, [home, QRect(800, 0, 800, 800)]),
+    )
+    filament_desk.filament_apply_shape(w)
+    stage = w.persona_stage
+    band = QRect(stage.parentWidget().mapTo(w, stage.geometry().topLeft()), stage.size())
+    assert home.contains(band)
+    assert w._filament.hub == band.center().toPointF()

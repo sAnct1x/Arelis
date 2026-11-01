@@ -207,6 +207,7 @@ class FilamentDesk:
     def _filament_apply_shape(self) -> None:
         w = self.window
         w.clearMask()
+        w._filament_home_band = None
         if not self._filament_can_claim_desk():
             w._filament.set_span(w._filament_span)
             self._filament_place_chrome()
@@ -232,6 +233,12 @@ class FilamentDesk:
             desk_left=float(desk_left),
             desk_width=float(desk_w),
         )
+        # Across 2 or 3 desks she stands on the home desk, inside the mask, not at the
+        # far edge of the union (another desk, or cut by the mask on uneven desks).
+        w._filament_home_band = QRect(band) if count >= 2 and band.width() >= 280 else None
+        stage = getattr(w, "persona_stage", None)
+        if stage is not None:
+            stage.follow()
         self._filament_place_chrome()
 
     def _filament_place_chrome(self) -> None:
