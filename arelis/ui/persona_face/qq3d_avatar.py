@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -254,8 +255,6 @@ class StallWatch:
     """
 
     def __init__(self, log: FrameLog) -> None:
-        import threading
-
         self._log = log
         self._gui = threading.get_ident()
         self._seen: float | None = None
@@ -321,6 +320,69 @@ class FrameLog:
         if self._file is not None:
             self._file.close()
             self._file = None
+
+
+class FrameTrace:
+    """``ARELIS_FRAME_TRACE``: one CSV row per frame, buffered, flushed about once a second.
+
+    Measurement only. ``kind=render`` rows come from the render thread (wait = idle time since
+    the previous frame finished, then the four step times); ``kind=blit`` rows come from the
+    GUI thread's paint of that frame, with pickup = ms from the frame being ready to its paint.
+    """
+
+    HEADER = "kind,t_ns,frame,wait_ms,begin_ms,sync_ms,render_ms,end_ms,total_ms,pickup_ms\n"
+
+    def __init__(self, path: str) -> None:
+        self._lock = threading.Lock()
+        self._fh = open(path, "a", encoding="ascii", buffering=1 << 16)
+        if self._fh.tell() == 0:
+            self._fh.write(self.HEADER)
+        self._last_flush = time.perf_counter_ns()
+        self.ready_ns = 0  # when the newest frame was handed to the GUI thread
+        self.ready_frame = 0
+        self._blitted = 0
+
+    def _write(self, row: str) -> None:
+        with self._lock:
+            if self._fh is None:
+                return
+            self._fh.write(row)
+            now = time.perf_counter_ns()
+            if now - self._last_flush > 1_000_000_000:
+                self._fh.flush()
+                self._last_flush = now
+
+    def render(self, n: int, t0: int, wait: int, b: int, s: int, r: int, e: int) -> None:
+        ms = 1e-6
+        self._write(
+            f"render,{t0},{n},{wait * ms:.3f},{b * ms:.3f},{s * ms:.3f},{r * ms:.3f},"
+            f"{e * ms:.3f},{(b + s + r + e) * ms:.3f},\n"
+        )
+
+    def blit(self) -> None:
+        n = self.ready_frame
+        if not n or n == self._blitted:
+            return  # a repaint of a frame already counted
+        self._blitted = n
+        now = time.perf_counter_ns()
+        self._write(f"blit,{now},{n},,,,,,,{(now - self.ready_ns) * 1e-6:.3f}\n")
+
+    def close(self) -> None:
+        with self._lock:
+            if self._fh is not None:
+                self._fh.close()
+                self._fh = None
+
+
+def frame_trace() -> FrameTrace | None:
+    path = os.environ.get("ARELIS_FRAME_TRACE", "").strip()
+    if not path:
+        return None
+    try:
+        return FrameTrace(path)
+    except OSError:
+        logging.getLogger("arelis.avatar").warning("frame trace not opened: %s", path)
+        return None
 
 
 def frame_log() -> FrameLog | None:
@@ -428,7 +490,6 @@ class _RenderThread(QThread):
     vsync = Signal()  # the next refresh slot is open: the GUI thread may ask for a frame
 
     def __init__(self, control, window) -> None:
-        import threading
 
         super().__init__()
         self.setObjectName("qq3d-render")
@@ -449,6 +510,8 @@ class _RenderThread(QThread):
         self._ctx = None  # OpenGL only: the context, owned by this thread while it runs
         self._size: tuple[int, int] | None = None
         self._timed = 0  # frames whose step times were logged (the first _TIMED_FRAMES)
+        self.trace = frame_trace()
+        self._traced = 0
 
     # ---- GUI thread ----
 
@@ -544,6 +607,8 @@ class _RenderThread(QThread):
     def _loop(self) -> None:
         from PySide6.QtGui import QImage, QRhiReadbackDescription, QRhiReadbackResult
 
+        trace = self.trace
+        idle_from = time.perf_counter_ns()
         while True:
             with self._cv:
                 while self._job is None and not self._stop:
@@ -551,22 +616,34 @@ class _RenderThread(QThread):
                 if self._stop:
                     break
                 size, self._job = self._job, None
+            if trace is not None:
+                n0 = time.perf_counter_ns()
             t0 = time.perf_counter()
             self._target(size)
             self._control.beginFrame()
             t1 = time.perf_counter()
+            if trace is not None:
+                n1 = time.perf_counter_ns()
             self._control.sync()
             t2 = time.perf_counter()
+            if trace is not None:
+                n2 = time.perf_counter_ns()
             with self._cv:
                 self._synced = True  # the GUI thread may go on; the GPU work is ours
                 self._cv.notify_all()
             self._calls["render"]()
             t3 = time.perf_counter()
+            if trace is not None:
+                n3 = time.perf_counter_ns()
             result = QRhiReadbackResult()
             batch = self._control.rhi().nextResourceUpdateBatch()
             batch.readBackTexture(QRhiReadbackDescription(self._tex), result)
             self._control.commandBuffer().resourceUpdate(batch)
             self._calls["endFrame"]()  # an offscreen frame: the readback is complete here
+            if trace is not None:
+                n4 = time.perf_counter_ns()
+                self._traced += 1
+                trace.render(self._traced, n0, n0 - idle_from, n1 - n0, n2 - n1, n3 - n2, n4 - n3)
             if self._timed < _TIMED_FRAMES:
                 self._timed += 1
                 if self._timed == 1:
@@ -586,6 +663,11 @@ class _RenderThread(QThread):
                 self.image = img
                 self.pacing = True  # set with busy cleared, so the GUI never sees "idle" early
                 self.busy = False
+                if trace is not None:
+                    trace.ready_frame = self._traced
+                    trace.ready_ns = time.perf_counter_ns()
+            if trace is not None:
+                idle_from = time.perf_counter_ns()
             self.frame_ready.emit()
             self._pace(t0)
 
@@ -638,6 +720,8 @@ class _RenderThread(QThread):
 
             self._ctx.doneCurrent()
             self._ctx.moveToThread(QCoreApplication.instance().thread())
+        if self.trace is not None:
+            self.trace.close()
 
 
 class QQ3DAvatar(QWidget):
@@ -818,6 +902,9 @@ class QQ3DAvatar(QWidget):
         img = self._image
         if img is None:
             return
+        trace = getattr(getattr(self, "_render", None), "trace", None)
+        if trace is not None:
+            trace.blit()
         from PySide6.QtGui import QPainter
 
         img.setDevicePixelRatio(img.width() / max(1, self.width()))
