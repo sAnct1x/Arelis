@@ -90,6 +90,16 @@ The glow stays, and she does not appear, when the 3D view cannot run:
 
 To turn the 3D view off on purpose, set `ARELIS_WEB_AVATAR=0`.
 
+## Choosing the Quick 3D figure
+
+Set `ARELIS_AVATAR_ENGINE=qq3d`, or start with `--avatar-engine qq3d` (the flag wins).
+On Windows a user variable you set after signing in is read from your saved settings
+too, so a desktop icon picks it up without signing out first. The first avatar line in
+the log names the choice, for example
+`[avatar] engine=qq3d source=user-env room=filament`. The source is `flag`, `env`,
+`user-env` or `default`. When Quick 3D cannot draw her, the same line ends with
+`unavailable='...'` and the reason.
+
 ## Reading the log
 
 Every avatar event is one line in the app log starting with `[avatar]`, so you can
