@@ -28,6 +28,20 @@ required: always copy it alongside `ellah.glb`. Without it she still appears, sp
 and blinks, but her body stands still in its neutral rest pose, and Arelis logs an
 error naming the path it looked in.
 
+## The Quick 3D model (installed builds)
+
+The Windows installer ships her built Quick 3D model and puts it here, so a fresh
+install needs no download:
+
+```
+%LOCALAPPDATA%\Arelis\avatar\qq3d\Ellah_aether.qml
+```
+
+A plain uninstall keeps that folder; choosing to delete all Arelis data removes it. To
+use a different copy, set `ARELIS_AVATAR_QQ3D_DIR` to its folder. If you moved your data
+with `ARELIS_DATA_DIR`, copy the `qq3d` folder into that data folder's `avatar` folder
+yourself, because the installer always writes to `%LOCALAPPDATA%\Arelis`.
+
 ## Where she stands
 
 She is part of the window itself, not a panel you open or close.

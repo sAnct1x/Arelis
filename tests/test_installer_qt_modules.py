@@ -11,6 +11,8 @@ import ast
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = ROOT / "win-installer"
 ARELIS = ROOT / "arelis"
@@ -102,3 +104,31 @@ def test_no_other_prefix_eats_a_required_module() -> None:
         )
 
 
+def test_installer_ships_qq3d_model_to_avatar_qq3d(tmp_path: Path) -> None:
+    # Fresh installs had no Quick 3D model because nothing shipped it. build.py stages
+    # the --qq3d-dir folder into the payload and arelis.iss installs it to avatar\qq3d.
+    build = _load_build()
+    fake = tmp_path / "qq3d-src"
+    (fake / "meshes").mkdir(parents=True)
+    (fake / build.QQ3D_LOOK).write_text("import QtQuick3D\nNode {}\n", encoding="utf-8")
+    (fake / "meshes" / "body.mesh").write_bytes(b"\0")
+    staged = build.stage_qq3d(fake, tmp_path / "dist" / "qq3d")
+    assert (staged / "Ellah_aether.qml").is_file()
+    assert (staged / "meshes" / "body.mesh").is_file()
+
+    for bad in (None, tmp_path / "missing"):
+        with pytest.raises(SystemExit):
+            build.stage_qq3d(bad, tmp_path / "out")
+    (fake / build.QQ3D_LOOK).unlink()
+    with pytest.raises(SystemExit, match=r"Ellah_aether\.qml"):
+        build.stage_qq3d(fake, tmp_path / "out")
+    (fake / build.QQ3D_LOOK).write_text("x", encoding="utf-8")
+    (fake / "ellah.glb").write_bytes(b"\0")
+    with pytest.raises(SystemExit, match="glb"):
+        build.stage_qq3d(fake, tmp_path / "out")
+
+    # The compile passes the staged folder, and the script maps it to the data root.
+    src = (INSTALLER / "build.py").read_text(encoding="utf-8")
+    assert '"/DQq3dTree={QQ3D_STAGE}"' in src
+    iss = (INSTALLER / "arelis.iss").read_text(encoding="utf-8")
+    assert 'Source: "{#Qq3dTree}\\*"; DestDir: "{localappdata}\\Arelis\\avatar\\qq3d"' in iss

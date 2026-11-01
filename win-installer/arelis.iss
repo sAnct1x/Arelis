@@ -3,7 +3,7 @@
 ; Run build.py first; this only packages what that produced. It is invoked with the
 ; version and the source tree passed in, so nothing here has to be edited per release:
 ;
-;     ISCC.exe /DAppVersion=0.1.0 /DSourceTree=..\dist\Arelis win-installer\arelis.iss
+;     ISCC.exe /DAppVersion=0.1.0 /DSourceTree=..\dist\Arelis /DQq3dTree=..\dist\qq3d win-installer\arelis.iss
 ;
 ; Per-user, and not by accident
 ; ============================
@@ -37,6 +37,9 @@
 #endif
 #ifndef SourceTree
   #define SourceTree "dist\Arelis"
+#endif
+#ifndef Qq3dTree
+  #define Qq3dTree "dist\qq3d"
 #endif
 
 ; VersionInfoVersion and VersionInfoProductVersion are Windows file versions.
@@ -121,6 +124,10 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 ; The whole built tree. recursesubdirs with an empty-directory sweep, because Qt's plugin
 ; layout and the Playwright driver both care about directories that exist.
 Source: "{#SourceTree}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Her Quick 3D model, staged by build.py --qq3d-dir (never in git). It goes where
+; qq3d_avatar.model_dir() looks in an installed build: the data root, not {app}. Kept on
+; a plain uninstall like other data; the wipe removes it with the rest of Arelis.
+Source: "{#Qq3dTree}\*"; DestDir: "{localappdata}\Arelis\avatar\qq3d"; Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
 
 [InstallDelete]
 ; Runs before the new files are copied. Inno writes what it ships and deletes nothing else,

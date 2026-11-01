@@ -143,3 +143,6 @@ mypy_out.txt
 *.glb
 # Her converted Quick 3D model (balsam output) is private too: user data folder only.
 /avatar/
+# A qq3d model folder at the root (installer build input). dist/ covers the staged copy.
+# Not "qq3d/" anywhere: arelis/ui/persona_face/qq3d/ is tracked source.
+/qq3d/
