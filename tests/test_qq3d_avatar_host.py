@@ -145,8 +145,82 @@ def test_her_host_puts_the_gui_thread_ahead_of_a_busy_model(tmp_path, monkeypatc
     main = QThread.currentThread()
     main.setPriority(QThread.Priority.NormalPriority)
     host = QQ3DAvatar()
+    if host.control.rhi() is None:  # no GPU or GL here: she fails before her render thread
+        host.close()
+        pytest.skip("no Quick 3D rendering here")
     try:
         assert main.priority() == QThread.Priority.HighPriority
     finally:
         host.close()
         main.setPriority(QThread.Priority.NormalPriority)
+
+
+def test_her_frames_render_off_the_gui_thread(tmp_path, monkeypatch) -> None:
+    """Her scene renders on its own thread, so chat, Python and the filament timer never share her frame."""
+    import threading
+
+    from PySide6.QtCore import Qt
+
+    host = _ready_host(tmp_path, monkeypatch)
+    view = host.view.quickWindow() if hasattr(host.view, "quickWindow") else host.view
+    threads: set[int] = set()
+    view.afterRendering.connect(
+        lambda: threads.add(threading.get_ident()), Qt.ConnectionType.DirectConnection
+    )
+    for _ in range(40):
+        host.root.setProperty("level", 0.5 if len(threads) % 2 else 0.25)
+        view.update()
+        QTest.qWait(50)
+        if threads:
+            break
+    host.close()
+    assert threads, "no frame rendered"
+    assert threading.main_thread().ident not in threads
+
+
+def test_she_draws_when_her_window_is_restored_from_minimized(tmp_path, monkeypatch) -> None:
+    """A window that starts minimized and is restored at the same size still gets her frames."""
+    from PySide6.QtWidgets import QWidget
+
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    top = QWidget()
+    top.resize(200, 400)
+    top.showMinimized()
+    host = QQ3DAvatar(top)
+    if host.control.rhi() is None:  # no GPU or GL here: she never draws, minimized or not
+        top.close()
+        pytest.skip("no Quick 3D rendering here")
+    host.resize(200, 400)
+    host.show()
+    QTest.qWait(300)
+    frames: list[int] = []
+    host._render.frame_ready.connect(lambda: frames.append(1))
+    top.showNormal()
+    for _ in range(100):
+        QTest.qWait(50)
+        if frames:
+            break
+    top.close()
+    assert frames, "no frame after the window was restored"
+
+
+def test_her_pipeline_cache_is_saved_after_the_first_frame(tmp_path, monkeypatch) -> None:
+    # A hard-killed app never reaches Qt's own save-on-teardown.
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "data"))
+    host = _ready_host(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import pipeline_cache_path
+
+    path = pipeline_cache_path()
+    for _ in range(40):
+        if path.exists() and path.stat().st_size:
+            break
+        host.view.update()
+        QTest.qWait(50)
+    saved = path.exists() and path.stat().st_size > 0
+    host.close()
+    assert saved
