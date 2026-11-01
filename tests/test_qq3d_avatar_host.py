@@ -213,7 +213,13 @@ def test_her_pipeline_cache_is_saved_after_the_first_frame(tmp_path, monkeypatch
     # A hard-killed app never reaches Qt's own save-on-teardown.
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "data"))
     host = _ready_host(tmp_path, monkeypatch)
+    from PySide6.QtGui import QRhi
+
     from arelis.ui.persona_face.qq3d_avatar import pipeline_cache_path
+
+    if host.control.rhi().backend() == QRhi.Implementation.Metal:
+        host.close()  # Qt's Metal backend keeps no pipeline cache data (binary archives off)
+        pytest.skip("Metal gives no pipeline cache data")
 
     path = pipeline_cache_path()
     for _ in range(40):

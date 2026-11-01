@@ -417,6 +417,7 @@ class _RenderThread(QThread):
         self._calls = gil_free_calls(control)
         self._ctx = None  # OpenGL only: the context, owned by this thread while it runs
         self._size: tuple[int, int] | None = None
+        self._no_cache_logged = False
         self._timed = 0  # frames whose step times were logged (the first _TIMED_FRAMES)
 
     # ---- GUI thread ----
@@ -559,6 +560,15 @@ class _RenderThread(QThread):
         try:
             data = bytes(self._control.rhi().pipelineCacheData())
             if not data:
+                # Qt's Metal backend is built without MTLBinaryArchive, so it hands back no
+                # data even though it reports PipelineCacheDataLoadSave; macOS caches the
+                # compiled shaders itself. Nothing to save there.
+                if not self._no_cache_logged:
+                    self._no_cache_logged = True
+                    logging.getLogger("arelis.avatar").info(
+                        "[avatar] qq3d pipeline cache: backend %s gives no data, not saved",
+                        self._control.rhi().backendName(),
+                    )
                 return
             path = pipeline_cache_path()
             path.parent.mkdir(parents=True, exist_ok=True)
