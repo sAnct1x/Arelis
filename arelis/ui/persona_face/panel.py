@@ -235,7 +235,7 @@ class PersonaPanel(QWidget):
             except Exception as exc:
                 reason = f"web avatar failed to start: {exc}"
         if reason is not None:
-            alog("unavailable", reason=repr(reason))
+            alog("unavailable", reason=f"'{reason}'")  # not repr: it doubles a Windows path's \\
             self._show_failure(reason)
             return reason
         # The page loads shown and sized, under the veil. A hidden view is a
