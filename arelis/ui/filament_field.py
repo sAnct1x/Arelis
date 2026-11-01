@@ -1342,7 +1342,9 @@ class FilamentFloatBar(QObject):
         for name, _t, _oy in FLOATS:
             btn = self._buttons[name]
             bead = self._beads[name]
-            parent = win if name in FREE_FLOATS and win is not None else host
+            # On the window, not the conversation: in Filament the conversation stops where
+            # her figure starts, and a ring word drifting past that edge was cut ("da").
+            parent = win if win is not None else host
             if btn.parent() is not parent:
                 btn.setParent(parent)
             if bead.parent() is not parent:
