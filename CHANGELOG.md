@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+The first reply after Arelis starts is faster. The startup warm-up now really
+prefills the persona and tool list on the chat server. Before, the chat
+template rejected it, so the first question paid that whole cost (#368).
+
 Filament is now the main theme and the default for new installs. Sodium and
 night are listed as Sodium (legacy) and Night (legacy) and still fully work.
 A saved choice is kept, and an install that never picked a theme stays on
