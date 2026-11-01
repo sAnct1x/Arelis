@@ -328,6 +328,23 @@ def balsam_ids(qml: str) -> dict[str, str]:
     }
 
 
+def no_depth_test(vert: str) -> str:
+    """three's depthTest:false. Put the vertex at the near plane so the layer passes the depth test.
+
+    Inserted at the end of MAIN rather than wrapping it: Quick 3D only declares the
+    attributes MAIN itself uses.
+    """
+    i = vert.index("void MAIN")
+    i = vert.index("{", i)
+    depth = 0
+    for k in range(i, len(vert)):
+        depth += {"{": 1, "}": -1}.get(vert[k], 0)
+        if depth == 0:
+            z = " POSITION.z = mix(NEAR_CLIP_VALUE, 1.0, 1e-3) * POSITION.w; "
+            return vert[:k] + z + vert[k:]
+    raise ValueError("no MAIN")
+
+
 def layer_plan(layers: list[dict]) -> list[dict]:
     """Decide, per exported object, what Quick 3D draws (or that it is skipped, and why)."""
     plan = []
@@ -366,6 +383,17 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
     shaders = converted / "aether_shaders"
     shaders.mkdir(exist_ok=True)
     body: list[str] = []
+    # three draws transparent objects by renderOrder, then scene order. Quick 3D sorts them
+    # back to front by camera distance plus Model.depthBias, so a large bias per rank keeps
+    # three's order. Depth-only passes that three draws after the shells (the body
+    # occluders, renderOrder 6) go in that ordered pass too, or they would hide shells
+    # behind other body parts that v14k shows (the torso edge under the arm).
+    first_colour = min(x["ro"] for x in layers if x["mat"]["tr"] and x["mat"]["cw"])
+    late_depth = {
+        x["i"] for x in layers if x["mat"]["tr"] and not x["mat"]["cw"] and x["ro"] > first_colour
+    }
+    order = sorted((x["ro"], x["i"]) for x in layers if x["mat"]["tr"])
+    rank = {i: n for n, (_, i) in enumerate(order)}
     for p in layer_plan(layers):
         lay, i = layers[p["i"]], p["i"]
         m = lay["mat"]
@@ -378,6 +406,8 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
         elif p["kind"] == "shader":
             vert = translate(m["vs"], "vert", uniforms)
             frag = translate(m["fs"], "frag", uniforms)
+            if not m["dt"]:
+                vert = no_depth_test(vert)
         elif p["kind"] == "galaxy":
             vert, frag = GALAXY_VERT, GALAXY_FRAG
             uniforms = {"uSize": ("float", 0), "uScale": ("float", 0)}
@@ -426,7 +456,12 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
                 if name in SPEAK and isinstance(v, list):
                     val = SPEAK[name].format(*v)
                 props.append(f"property {GLSL_QML[typ]} {name}: {val}")
-        if m["blend"] == 2:
+        if i in late_depth:
+            blend = (
+                "sourceBlend: CustomMaterial.Zero; destinationBlend: CustomMaterial.One; "
+                "depthDrawMode: Material.AlwaysDepthDraw"
+            )
+        elif m["blend"] == 2:
             blend = "sourceBlend: CustomMaterial.SrcAlpha; destinationBlend: CustomMaterial.One"
         elif (m["tr"] and p["kind"] in ("shader", "shell")) or (
             p.get("frag") == "card" and m["alphaTest"] < 0.4
@@ -453,6 +488,8 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
             if p["skin"] and p["skin"]["ref"] is None
             else "; ".join(f"{k}: {v}" for k, v in transform_props(lay["world"]).items())
         )
+        if blend and i in rank:
+            tf = (tf + "; " if tf else "") + f"depthBias: {(len(order) - rank[i]) * 1000}"
         body.append(
             f'    Model {{ objectName: "L{i}"; {skin}{tf}\n'
             f'        geometry: LayerGeometry {{ source: "{scene / p["geom"]}"; spec: "{p["spec"]}"; points: {"true" if p["points"] else "false"} }}\n'

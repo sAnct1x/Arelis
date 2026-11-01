@@ -198,23 +198,17 @@ SPIKE_SCENE = """        environment: SceneEnvironment { clearColor: "#14101c"; 
         PointLight { position: Qt.vector3d(0, 150, 200); brightness: 0.6 }
         Ellah_anim { id: ellah; objectName: "ellah"; scale: Qt.vector3d(100, 100, 100) }"""
 # The aether port (arelis/ui/persona_q3d): metres like three.js, black clear, sRGB out like
-# three's OutputPass, bloom from ExtendedSceneEnvironment glow standing in for UnrealBloomPass.
-PORT_SCENE = """        environment: ExtendedSceneEnvironment { clearColor: "black"; backgroundMode: SceneEnvironment.Color
+# three's OutputPass, and AetherBloom (a port of three's UnrealBloomPass) on the linear frame.
+PORT_SCENE = """        environment: SceneEnvironment { clearColor: "black"; backgroundMode: SceneEnvironment.Color
             antialiasingMode: SceneEnvironment.NoAA; tonemapMode: SceneEnvironment.TonemapModeLinear
-            glowEnabled: true; glowStrength: %(glow_strength)f; glowIntensity: %(glow_intensity)f; glowBloom: %(glow_bloom)f
-            glowHDRMinimumValue: %(glow_min)f; glowHDRMaximumValue: 8; glowHDRScale: 2; glowLevel: %(glow_level)s; glowBlendMode: ExtendedSceneEnvironment.GlowBlendMode.Additive }
+            effects: [AetherBloom { strength: %(strength)f; radius: %(radius)f; threshold: %(threshold)f }] }
         PerspectiveCamera { id: cam; objectName: "cam"; clipNear: %(near)f; clipFar: %(far)f; fieldOfView: %(fov)f; fieldOfViewOrientation: PerspectiveCamera.Vertical }
         Ellah_aether { id: ellah; objectName: "ellah" }"""
-# Tuned by eye against v14k: UnrealBloomPass (strength 0.85, radius 0.5, threshold 0.55)
-# spreads a wide, faint haze, so the glow uses the big levels and no glowBloom pre-pass.
-# glow_min 2.0: lower thresholds bloomed the hair and face to pink-white and hid the features.
-GLOW = {
-    "glow_strength": 1.0,
-    "glow_intensity": 0.68,
-    "glow_bloom": 0.0,
-    "glow_min": 2.0,
-    "glow_level": "ExtendedSceneEnvironment.GlowLevel.Two | ExtendedSceneEnvironment.GlowLevel.Four | ExtendedSceneEnvironment.GlowLevel.Six | ExtendedSceneEnvironment.GlowLevel.Seven",
-}
+PORT_IMPORTS = f'import Arelis.PersonaQ3D\nimport "{(REPO / "arelis/ui/persona_q3d").as_uri()}"'
+# config.js LOOK.bloom, the values aether.js hands UnrealBloomPass.
+# iter3 used ExtendedSceneEnvironment glow; its threshold is on the max channel, so violet hair
+# (blue near 1, low green) crossed it long before the whiter rim did. The bloom port thresholds on luma.
+BLOOM = {"strength": 0.85, "radius": 0.5, "threshold": 0.55}
 QML = """import QtQuick
 import QtQuick3D
 %(imports)s
@@ -303,12 +297,12 @@ def run_qq3d(out: Path, qml_dir: Path, port: Path | None = None) -> None:
         off = round(
             m["pan"] * w
         )  # same off-axis shift as setViewOffset: a View3D 2*off wider, slid by off
-        glow = {**GLOW, **json.loads(os.environ.get("AETHER_GLOW", "{}"))}  # tuning override
+        glow = {**BLOOM, **json.loads(os.environ.get("AETHER_BLOOM", "{}"))}  # tuning override
         sub = {"fov": cam["fov"], "near": cam["near"], "far": cam["far"], **glow}
         src.write_text(
             QML
             % {
-                "imports": "import QtQuick3D.Helpers\nimport Arelis.PersonaQ3D" if port else "",
+                "imports": PORT_IMPORTS if port else "",
                 "scene": (PORT_SCENE if port else SPIKE_SCENE) % sub,
                 "conv": conv,
                 "w": w,

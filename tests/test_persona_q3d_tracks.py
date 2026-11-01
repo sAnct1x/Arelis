@@ -38,3 +38,14 @@ def test_clip_without_a_track_gets_the_rest_pose():
     )
     assert out.count("KeyframeGroup") == 2  # Talking keeps its own track only
     assert "enabled: true" not in out
+
+
+def test_no_depth_test_pins_z_inside_main():
+    from arelis.ui.persona_q3d.port import no_depth_test
+
+    vert = "void helper() { }\nvoid MAIN() { if (true) { POSITION = vec4(0.0); } }\n"
+    out = no_depth_test(vert)
+    main = out[out.index("void MAIN") :]
+    assert "NEAR_CLIP_VALUE" in main
+    assert main.rstrip().endswith("}")
+    assert "NEAR_CLIP_VALUE" not in out[: out.index("void MAIN")]

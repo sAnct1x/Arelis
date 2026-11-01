@@ -112,9 +112,9 @@ def run_qq3d(out: Path, qml_dir: Path) -> None:
     QSurfaceFormat.setDefaultFormat(QQuick3D.idealSurfaceFormat())
     for name, s in state.items():
         src = out / "_review.qml"
-        glow = {**lm.GLOW, **json.loads(os.environ.get("AETHER_GLOW", "{}"))}
+        glow = {**lm.BLOOM, **json.loads(os.environ.get("AETHER_BLOOM", "{}"))}
         qml = lm.QML % {
-            "imports": "import QtQuick3D.Helpers\nimport Arelis.PersonaQ3D",
+            "imports": lm.PORT_IMPORTS,
             "scene": lm.PORT_SCENE % {"fov": s["fov"], "near": s["near"], "far": s["far"], **glow},
             "conv": qml_dir.resolve().as_uri(),
             "w": W,
