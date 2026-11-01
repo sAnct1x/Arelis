@@ -210,6 +210,103 @@ def look_gains(frag: str) -> str:
     )
 
 
+# Face morphs. aether.js draws the shells and fills on three's skinned meshes, so the face's morph
+# weights (visemes, jaw, blinks) move them. The export carries no morph data; it comes from the GLB,
+# whose primitives hold the exported vertices in the same order. Only the names face.js writes are
+# kept, as absolute target positions (Quick 3D blends base + w * (target - base)).
+FACE_JS = Path(__file__).with_name("face.js")
+DEFAULT_GLB = Path("/workspace/team/avatar-proto/threejs-prep/models/ellah.glb")
+
+
+def _glb(path: Path):
+    import struct
+
+    import numpy as np
+
+    raw = path.read_bytes()
+    n = struct.unpack("<I", raw[12:16])[0]
+    doc = json.loads(raw[20 : 20 + n])
+    o = 20 + n
+    blob = raw[o + 8 : o + 8 + struct.unpack("<I", raw[o : o + 4])[0]]
+
+    def acc(i: int):
+        a = doc["accessors"][i]
+        width = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}[a["type"]]
+        out = np.zeros((a["count"], width), np.float32)
+        if "bufferView" in a:
+            bv = doc["bufferViews"][a["bufferView"]]
+            stride = bv.get("byteStride", 4 * width)
+            off = bv.get("byteOffset", 0) + a.get("byteOffset", 0)
+            rows = np.frombuffer(blob, np.uint8, count=a["count"] * stride, offset=off)
+            out[:] = rows.reshape(a["count"], stride)[:, : 4 * width].copy().view(np.float32)
+        if "sparse" in a:
+            sp = a["sparse"]
+            ib, vb = (
+                doc["bufferViews"][sp["indices"]["bufferView"]],
+                doc["bufferViews"][sp["values"]["bufferView"]],
+            )
+            it = {5121: np.uint8, 5123: np.uint16, 5125: np.uint32}[sp["indices"]["componentType"]]
+            idx = np.frombuffer(
+                blob,
+                it,
+                count=sp["count"],
+                offset=ib.get("byteOffset", 0) + sp["indices"].get("byteOffset", 0),
+            )
+            vals = np.frombuffer(
+                blob,
+                np.float32,
+                count=sp["count"] * width,
+                offset=vb.get("byteOffset", 0) + sp["values"].get("byteOffset", 0),
+            )
+            out[idx] = vals.reshape(-1, width)
+        return out
+
+    return doc, acc
+
+
+def export_morphs(glb: Path, scene: Path, layers: list[dict], out: Path) -> dict[str, list[str]]:
+    """Write out/<geom>_<name>.bin (absolute positions) for every face morph that moves a layer's mesh."""
+    import numpy as np
+
+    wanted = set(re.findall(r"'([A-Z][A-Za-z]+(?:_[A-Za-z0-9]+)+)'", FACE_JS.read_text()))
+    doc, acc = _glb(glb)
+    prims = []
+    for mesh in doc["meshes"]:
+        names = (mesh.get("extras") or {}).get("targetNames", [])
+        for prim in mesh["primitives"]:
+            if prim.get("targets"):
+                prims.append((acc(prim["attributes"]["POSITION"]), names, prim["targets"]))
+    out.mkdir(parents=True, exist_ok=True)
+    found: dict[str, list[str]] = {}
+    for gid in sorted({lay["geom"]["id"] for lay in layers if lay["type"] == "SkinnedMesh"}):
+        pos = np.fromfile(scene / f"{gid}_position.bin", np.float32).reshape(-1, 3)
+        for base, names, targets in prims:
+            if base.shape != pos.shape or not np.array_equal(base, pos):
+                continue
+            keep = []
+            for name, t in zip(names, targets, strict=True):
+                d = acc(t["POSITION"]) if name in wanted and "POSITION" in t else None
+                if d is not None and np.abs(d).max() > 1e-6:
+                    (pos + d).astype(np.float32).tofile(out / f"{gid}_{name}.bin")
+                    keep.append(name)
+            if keep:
+                found[gid] = keep
+            break
+    return found
+
+
+def with_morphs(vert: str, n: int) -> str:
+    """Read the morphed position wherever the vertex stage reads VERTEX. Quick 3D only morphs it
+    itself when the shader leaves POSITION alone, and every aether vertex stage writes POSITION."""
+    i = vert.index("void MAIN() {") + len("void MAIN() {")
+    body = vert[i:].replace("VERTEX", "MORPHED_VERTEX")
+    blend = (
+        " vec3 MORPHED_VERTEX = VERTEX;"
+        f" for (int k = 0; k < {n}; k++) MORPHED_VERTEX += MORPH_WEIGHTS[k] * (MORPH_POSITION(k) - VERTEX);"
+    )
+    return vert[:i] + blend + body
+
+
 def _remove_func(src: str, sig: str) -> str:
     i = src.find(sig)
     if i < 0:
@@ -423,8 +520,12 @@ def layer_plan(layers: list[dict]) -> list[dict]:
     return plan
 
 
-def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> Path:
+def build(
+    scene: Path, converted: Path, out_name: str = "Ellah_aether.qml", glb: Path | None = DEFAULT_GLB
+) -> Path:
     layers = json.loads((scene / "layers.json").read_text())
+    morph_dir = converted / "morphs"
+    morphs = export_morphs(glb, scene, layers, morph_dir) if glb and glb.exists() else {}
     unis = json.loads((scene / "uniforms.json").read_text())["idle"]
     base = (converted / "Ellah_anim.qml").read_text()
     ids = balsam_ids(base)
@@ -475,6 +576,9 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
             }
         if p["points"]:
             uniforms["uVp"] = ("vec2", 0)
+        names = morphs.get(p["geom"], []) if p["kind"] in ("shell", "fill") else []
+        if names:
+            vert = with_morphs(vert, len(names))
         (shaders / f"L{i}.vert").write_text(vert)
         (shaders / f"L{i}.frag").write_text(frag)
         vals = dict(unis[i])
@@ -547,9 +651,21 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
         )
         if blend and i in rank:
             tf = (tf + "; " if tf else "") + f"depthBias: {(len(order) - rank[i]) * 1000}"
+        morph_src = f'; morphs: "{morph_dir / p["geom"]}:{",".join(names)}"' if names else ""
+        morph_targets = (
+            "        morphTargets: ["
+            + ", ".join(
+                f'MorphTarget {{ objectName: "{n}"; attributes: MorphTarget.Position }}'
+                for n in names
+            )
+            + "]\n"
+            if names
+            else ""
+        )
         body.append(
             f'    Model {{ objectName: "L{i}"; {skin}{tf}\n'
-            f'        geometry: LayerGeometry {{ source: "{scene / p["geom"]}"; spec: "{p["spec"]}"; points: {"true" if p["points"] else "false"} }}\n'
+            f'        geometry: LayerGeometry {{ source: "{scene / p["geom"]}"; spec: "{p["spec"]}"; points: {"true" if p["points"] else "false"}{morph_src} }}\n'
+            f"{morph_targets}"
             f'        materials: CustomMaterial {{ objectName: "M{i}"; shadingMode: CustomMaterial.Unshaded; {blend + "; " if blend else ""}{cull}\n'
             f'            vertexShader: "aether_shaders/L{i}.vert"; fragmentShader: "aether_shaders/L{i}.frag"\n'
             + "".join(f"            {pr}\n" for pr in props)
@@ -578,8 +694,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--scene", type=Path, default=DEFAULT_SCENE)
     ap.add_argument("--converted", type=Path, required=True)
+    ap.add_argument("--glb", type=Path, default=DEFAULT_GLB, help="source of the face morphs")
     a = ap.parse_args(argv)
-    print(build(a.scene, a.converted))
+    print(build(a.scene, a.converted, glb=a.glb))
     return 0
 
 

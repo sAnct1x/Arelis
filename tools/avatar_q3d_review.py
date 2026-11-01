@@ -5,7 +5,8 @@ camera, setState + mixerPlay, then N steps of __step(1/30) with setLevel before 
 That frame includes anim.js's procedural motion on top of the clip, so a bare clip cannot
 match it. This tool runs the kit's page the same way and copies, per pose, the local
 transform of every bone, every aether uniform and the camera onto the Quick 3D scene, then
-renders <pose>.png at 720x960. Morph targets (blink, visemes) are not ported yet.
+renders <pose>.png at 720x960. Morph targets come from face.js at the pose's state and level,
+not from the page, so the mouth shape is close rather than equal.
 
   web:  python tools/avatar_q3d_review.py web  --out DIR   (playwright, kit server on :8765)
   qq3d: python tools/avatar_q3d_review.py qq3d --out DIR   (PySide6, under xvfb-run)
@@ -117,6 +118,8 @@ def run_qq3d(out: Path, qml_dir: Path) -> None:
             "imports": lm.PORT_IMPORTS,
             "scene": lm.PORT_SCENE % {"fov": s["fov"], "near": s["near"], "far": s["far"], **glow},
             "conv": qml_dir.resolve().as_uri(),
+            "face": lm.FACE_JS.as_uri(),
+            "steps": lm.STEPS,
             "w": W,
             "h": H,
             "vx": 0,
@@ -131,7 +134,18 @@ def run_qq3d(out: Path, qml_dir: Path) -> None:
             raise SystemExit("qq3d: " + "; ".join(e.toString() for e in v.errors()))
         v.show()
         r = v.rootObject()
-        r.pose("none", 0, QVector3D(*s["pos"]), QVector3D(*s["look"]))
+        st, _, level, _, _ = POSES[name]
+        # face.js runs its morphs (mouth, blink) at the pose's state and level; setBones then puts
+        # the page's bones back, so head and neck still match the reference
+        r.pose(
+            "none",
+            0,
+            QVector3D(*s["pos"]),
+            QVector3D(*s["look"]),
+            st,
+            level,
+            1.0 if name == "blink" else None,
+        )
         r.setBones(s["bones"])
         r.setProperty("speakingLevel", s["level"])
         lm._apply_uniforms(r, s["uniforms"], s["worlds"])

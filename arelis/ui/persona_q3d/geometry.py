@@ -88,6 +88,7 @@ class LayerGeometry(QQuick3DGeometry):
         self._source = ""
         self._spec = ""
         self._points = False
+        self._morphs = ""
 
     def _get_source(self):
         return self._source
@@ -110,9 +111,19 @@ class LayerGeometry(QQuick3DGeometry):
         self._points = bool(v)
         self._rebuild()
 
+    def _get_morphs(self):
+        return self._morphs
+
+    def _set_morphs(self, v):
+        self._morphs = v
+        self._rebuild()
+
     source = Property(str, _get_source, _set_source, notify=changed)
     spec = Property(str, _get_spec, _set_spec, notify=changed)
     points = Property(bool, _get_points, _set_points, notify=changed)
+    # "<dir>/<geom id>:<name>,<name>": morph targets in Model.morphTargets order, each file
+    # <dir>/<geom id>_<name>.bin holding absolute positions (see port.export_morphs)
+    morphs = Property(str, _get_morphs, _set_morphs, notify=changed)
 
     def _rebuild(self):
         if not (self._source and self._spec):
@@ -142,6 +153,12 @@ class LayerGeometry(QQuick3DGeometry):
         elif idx.exists():
             self.setIndexData(QByteArray(idx.read_bytes()))
             self.addAttribute(_A.Semantic.IndexSemantic, 0, _A.ComponentType.U32Type)
+        if self._morphs and not self._points:
+            prefix, names = self._morphs.split(":")
+            blobs = [Path(f"{prefix}_{n}.bin").read_bytes() for n in names.split(",")]
+            self.setTargetData(QByteArray(b"".join(blobs)))
+            for k, blob in enumerate(blobs):
+                self.addTargetAttribute(k, _A.Semantic.PositionSemantic, k * len(blob), 12)
         self.setPrimitiveType(QQuick3DGeometry.PrimitiveType.Triangles)
         lo, hi = pos.min(0), pos.max(0)
         pad = 10.0  # skinned and animated layers move far from their bind pose; never cull them

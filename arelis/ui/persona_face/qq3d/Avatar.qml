@@ -16,6 +16,7 @@
 import QtQuick
 import QtQuick3D
 import "../../persona_q3d"
+import "../../persona_q3d/face.js" as Face
 
 Item {
     id: root
@@ -33,6 +34,7 @@ Item {
     property string sceneStatus: "loading"   // loading | ready | error
     property string sceneError: ""
     readonly property string clip: mixer.clip
+    property var face: null   // Track B (persona_q3d/face.js), created once the model has loaded
 
     View3D {
         id: view
@@ -56,7 +58,7 @@ Item {
             source: root.modelSource
             scale: Qt.vector3d(100, 100, 100)
             onStatusChanged: {
-                if (status === Loader3D.Ready) root.sceneStatus = "ready"
+                if (status === Loader3D.Ready) { root.startFace(item); root.sceneStatus = "ready" }
                 else if (status === Loader3D.Error) { root.sceneError = "model failed to load"; root.sceneStatus = "error" }
             }
         }
@@ -64,8 +66,40 @@ Item {
 
     // Track C: body clips, pools and crossfades (persona_q3d/Mixer.qml).
     Mixer { id: mixer; objectName: "mixer"; model: loader.item }
-    onAvatarStateChanged: mixer.setState(avatarState)
+    onAvatarStateChanged: { mixer.setState(avatarState); if (face) face.setState(avatarState) }
     Component.onCompleted: mixer.setState(avatarState)
+
+    // Track B: the face owns the head and neck. Strip those clip tracks before the mixer first samples
+    // (its init runs on the first frame), then drive the face after each mixer frame.
+    readonly property var faceBones: ["CC_Base_Head", "CC_Base_NeckTwist01"]
+    Node { id: strippedTrack; objectName: "" }   // stripped KeyframeGroups write here, off the skeleton
+    function stripFaceTracks(model) {
+        var d = model.data, n = 0
+        for (var i = 0; i < d.length; i++) {
+            var gs = d[i] && d[i].keyframeGroups
+            if (!gs) continue
+            for (var k = 0; k < gs.length; k++)
+                if (gs[k].target && faceBones.indexOf(gs[k].target.objectName) >= 0) { gs[k].target = strippedTrack; n++ }
+        }
+        return n
+    }
+    function startFace(model) {
+        stripFaceTracks(model)
+        face = Face.create(model, {})
+        face.setState(avatarState)
+        face.setSpeaking(speaking ? level : 0)
+    }
+    onSpeakingChanged: if (face) face.setSpeaking(speaking ? level : 0)
+    onLevelChanged: if (face) face.setSpeaking(speaking ? level : 0)
+    Connections {
+        target: mixer
+        function onTicked(dt) {
+            if (!root.face) return
+            root.face.update(dt)
+            var fig = loader.item
+            if (fig && fig.speakingLevel !== undefined) fig.speakingLevel = root.face.level   // the look's uAnim/uFX
+        }
+    }
 
     // The layout settled. Quick 3D follows its size by itself; kept for the host API.
     function refit() { view.update() }

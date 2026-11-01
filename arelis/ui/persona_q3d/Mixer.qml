@@ -17,6 +17,7 @@ QtObject {
     readonly property string clip: _clip
     readonly property string mode: _mode
     readonly property real weight: _w   // weight of the incoming clip, 1 when no fade is running
+    signal ticked(real dt)   // after each frame's clip pose is written: the face drives on top of it here
     property string _clip: ""
     property string _mode: "idle"
     property real _w: 1
@@ -102,6 +103,6 @@ QtObject {
 
     property FrameAnimation _frames: FrameAnimation {
         running: mix.running && mix.model !== null
-        onTriggered: { if (!mix._logic) mix.init(); mix.tick(Math.min(frameTime, 0.1)) }
+        onTriggered: { if (!mix._logic) mix.init(); var dt = Math.min(frameTime, 0.1); mix.tick(dt); mix.ticked(dt) }
     }
 }
