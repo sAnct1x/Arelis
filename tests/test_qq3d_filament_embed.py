@@ -59,3 +59,25 @@ def test_quick3d_engine_asks_for_an_alpha_surface(monkeypatch) -> None:
         assert QSurfaceFormat.defaultFormat().alphaBufferSize() == 8
     finally:
         QSurfaceFormat.setDefaultFormat(before)
+
+
+def test_theme_switch_swaps_the_host(monkeypatch) -> None:
+    QApplication.instance() or QApplication([])
+    from arelis.ui import theme_tokens
+    from arelis.ui.persona_face import PersonaPanel, qq3d_avatar, web_avatar
+
+    room = {"name": "night"}
+    monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "qq3d")
+    monkeypatch.setattr(theme_tokens, "active_theme", lambda: room["name"])
+    for mod in (web_avatar, qq3d_avatar):
+        monkeypatch.setattr(mod, "unavailable_reason", lambda: None)
+    monkeypatch.setattr(web_avatar, "WebAvatar", _Web)
+    monkeypatch.setattr(qq3d_avatar, "QQ3DAvatar", _QQ3D)
+    panel = PersonaPanel()
+    assert type(panel.web) is _Web
+    room["name"] = "filament"
+    panel.refresh_theme_icons()
+    assert type(panel.web) is _QQ3D
+    room["name"] = "sodium"
+    panel.refresh_theme_icons()
+    assert type(panel.web) is _Web
