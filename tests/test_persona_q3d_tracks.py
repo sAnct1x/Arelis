@@ -105,3 +105,20 @@ def test_look_clock_drives_the_per_frame_uniforms() -> None:
         "FrameAnimation { running: clockRunning" in clock
         and "property real aetherTime: 2.9" in clock
     )
+
+
+def test_face_morph_export_keeps_every_mouth_shape_within_32() -> None:
+    from arelis.ui.persona_q3d import port
+
+    src = port.FACE_JS.read_text()
+    names = port.face_names(src)
+    sh = {n for shape in port.mouth_shapes(src).values() for n in shape}
+    # face.js writes these as bare keys; the quoted-only scan missed all of them
+    assert (
+        {"V_Open", "Jaw_Open", "V_Lip_Open", "V_Explosive", "Mouth_Funnel_Up_L"} <= sh <= set(names)
+    )
+    member = {n for g in port.merged_mouth(src).values() for n in g[1:]}
+    units = [n for n in names if n not in member][: port.MAX_MORPHS]
+    must = {n for n in sh if n.startswith(("V_", "Jaw_"))} | {"Eye_Blink_L", "Eye_Blink_R"}
+    must |= {n for n in names if port.CORE.fullmatch(n)}
+    assert must <= set(units) and len(units) <= 32

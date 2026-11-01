@@ -295,14 +295,101 @@ def _glb(path: Path):
     return doc, acc
 
 
+# How much face.js drives each morph: mean weight over two minutes in each state (speaking at a
+# varied level), measured with tools/face_morph_usage.js. Past the cap, the least used go first.
+FACE_USE = {
+    "Mouth_Smile_L": 0.2076, "Mouth_Smile_R": 0.1702, "Eye_Squint_L": 0.1499, "Eye_Squint_R": 0.1441,
+    "Cheek_Raise_L": 0.1310, "Cheek_Raise_R": 0.1037, "Brow_Raise_Inner_R": 0.0868,
+    "Brow_Raise_Inner_L": 0.0864, "Brow_Raise_Outer_L": 0.0739, "Eye_Blink_L": 0.0559,
+    "Eye_Blink_R": 0.0545, "Brow_Raise_Outer_R": 0.0508, "Mouth_Press_L": 0.0485,
+    "Mouth_Dimple_L": 0.0470, "Mouth_Press_R": 0.0422, "Brow_Compress_R": 0.0368,
+    "Brow_Compress_L": 0.0325, "Mouth_Dimple_R": 0.0310, "Mouth_Tighten_L": 0.0301,
+    "Mouth_Tighten_R": 0.0243, "V_Wide": 0.0230, "V_Open": 0.0183, "V_Tight_O": 0.0163,
+    "V_Lip_Open": 0.0156, "Nose_Crease_L": 0.0154, "V_Explosive": 0.0135, "Jaw_Open": 0.0134,
+    "Mouth_Stretch_L": 0.0121, "Mouth_Stretch_R": 0.0107, "Nose_Crease_R": 0.0105,
+    "Mouth_Roll_In_Lower_L": 0.0104, "Mouth_Roll_In_Lower_R": 0.0104, "Mouth_Funnel_Up_L": 0.0092,
+    "Mouth_Funnel_Up_R": 0.0092, "Nose_Nostril_Dilate_L": 0.0076, "Nose_Nostril_Dilate_R": 0.0076,
+    "Brow_Drop_L": 0.0072, "V_Dental_Lip": 0.0069, "Mouth_Shrug_Lower": 0.0061,
+    "Mouth_Pucker_Up_L": 0.0056, "Mouth_Pucker_Up_R": 0.0056, "Mouth_Funnel_Down_L": 0.0053,
+    "Mouth_Funnel_Down_R": 0.0053, "Mouth_Pucker_Down_L": 0.0051, "Mouth_Pucker_Down_R": 0.0051,
+    "Mouth_Close": 0.0049, "Mouth_Roll_In_Upper_L": 0.0049, "Mouth_Roll_In_Upper_R": 0.0049,
+    "Nose_Nostril_Raise_L": 0.0048, "V_Tight": 0.0046, "Brow_Drop_R": 0.0045, "Eye_Wide_L": 0.0041,
+    "Nose_Nostril_Raise_R": 0.0041, "V_Affricate": 0.0037, "Eye_Wide_R": 0.0034,
+    "Mouth_Pull_Upper_L": 0.0027, "Mouth_Frown_L": 0.0025, "Mouth_Smile_Sharp_L": 0.0024,
+    "Mouth_Shrug_Upper": 0.0021, "Mouth_Smile_Sharp_R": 0.0021, "Mouth_Frown_R": 0.0020,
+    "Nose_Sneer_L": 0.0014, "Cheek_Puff_L": 0.0013, "Cheek_Puff_R": 0.0013,
+    "Mouth_Up_Upper_L": 0.0012, "Mouth_Up_Upper_R": 0.0012, "Nose_Sneer_R": 0.0,
+    "Eye_L_Look_Down": 0.0, "Eye_R_Look_Down": 0.0,
+}  # fmt: skip
+# Kept whatever their use: blinks, the visemes and the jaw, then her core expressions.
+CORE = re.compile(r"(Mouth_Smile|Brow_Raise_Inner|Brow_Raise_Outer|Eye_Squint|Cheek_Raise)_[LR]")
+_CC = r"[A-Z][A-Za-z]*(?:_[A-Za-z0-9]+)+"
+
+
+def _block(src: str, start: str, end: str) -> str:
+    i = src.find(start)
+    return src[i : src.index(end, i)] if i >= 0 else ""
+
+
+def mouth_shapes(src: str) -> dict[str, dict[str, float]]:
+    """face.js SH: viseme -> {morph: weight}. Keys are bare (`V_Open: 0.8`), not quoted."""
+    gone = set(re.findall(rf"delete s\.({_CC})", src))
+    out = {}
+    for vis, body in re.findall(
+        r"^\s*(\w+):\s*\{([^}]*)\}", _block(src, "const SH = {", "\n  };"), re.M
+    ):
+        out[vis] = {
+            k: float(v) for k, v in re.findall(rf"\b({_CC}):\s*([0-9.]+)", body) if k not in gone
+        }
+    return out
+
+
+def face_names(src: str) -> list[str]:
+    """Every morph face.js drives (its FACE_NAMES: the SH mouth shapes, the MICRO keys and the
+    quoted list), most needed first, which is the order the MAX_MORPHS cap cuts by.
+
+    The quoted list alone misses every mouth shape: SH and MICRO write bare keys, so Quick 3D
+    never opened her lips. Order: blinks, visemes and jaw, core expressions, the rest by FACE_USE."""
+    mouth = {n for shape in mouth_shapes(src).values() for n in shape}
+    names = mouth | set(re.findall(rf"\b({_CC}):", _block(src, "const MICRO = [", "\n  ];")))
+    names |= set(re.findall(rf"'({_CC})'", _block(src, "const FACE_NAMES = new Set(", ");")))
+
+    def use(n: str) -> float:  # an L/R pair ranks together, so a cut takes both sides
+        side = re.sub(r"_[LR]$", "", n)
+        pair = [m for m in (side + "_L", side + "_R") if m in FACE_USE] if side != n else [n]
+        return sum(FACE_USE.get(m, 0.0) for m in pair) / max(1, len(pair))
+
+    def rank(n: str) -> tuple:
+        if n.startswith(("Eye_Blink_", "V_", "Jaw_")):
+            tier = 0
+        else:
+            tier = 1 if CORE.fullmatch(n) else 2 if n in mouth else 3
+        return (tier, -use(n), n)
+
+    return sorted(names, key=rank)
+
+
+def merged_mouth(src: str) -> dict[str, list[str]]:
+    """Mouth shapes face.js always drives together at the same weight (the L and R of a pucker,
+    a funnel, a lip roll) share one Quick 3D morph: lead name -> every name in it. Only names SH
+    alone drives qualify; anything MICRO or the expression layer moves stays on its own."""
+    sh = mouth_shapes(src)
+    other = set(re.findall(rf"\b({_CC}):", _block(src, "const MICRO = [", "\n  ];")))
+    other |= set(re.findall(rf"morphs\.({_CC})", src))
+    sig: dict[tuple, list[str]] = {}
+    for n in sorted({n for shape in sh.values() for n in shape} - other):
+        sig.setdefault(tuple((v, w[n]) for v, w in sh.items() if n in w), []).append(n)
+    return {g[0]: g for g in sig.values()}
+
+
 def export_morphs(glb: Path, scene: Path, layers: list[dict], out: Path) -> dict[str, list[str]]:
     """Write out/<geom>_<name>.bin (absolute positions) for every face morph that moves a layer's mesh."""
     import numpy as np
 
-    order = list(
-        dict.fromkeys(re.findall(r"'([A-Z][A-Za-z]+(?:_[A-Za-z0-9]+)+)'", FACE_JS.read_text()))
-    )
-    wanted = set(order)
+    src = FACE_JS.read_text()
+    order = face_names(src)
+    groups = merged_mouth(src)
+    member = {n for g in groups.values() for n in g[1:]}
     doc, acc = _glb(glb)
     prims = []
     for mesh in doc["meshes"]:
@@ -317,24 +404,33 @@ def export_morphs(glb: Path, scene: Path, layers: list[dict], out: Path) -> dict
         for base, names, targets in prims:
             if base.shape != pos.shape or not np.array_equal(base, pos):
                 continue
+            deltas = {
+                n: d
+                for n, t in zip(names, targets, strict=True)
+                if n in order and "POSITION" in t and np.abs(d := acc(t["POSITION"])).max() > 1e-6
+            }
             keep = []
-            for name, t in zip(names, targets, strict=True):
-                d = acc(t["POSITION"]) if name in wanted and "POSITION" in t else None
-                if d is not None and np.abs(d).max() > 1e-6:
-                    (pos + d).astype(np.float32).tofile(out / f"{gid}_{name}.bin")
-                    keep.append(name)
+            for name in order:
+                if name in member:
+                    continue  # rides on its group's lead morph
+                parts = [deltas[n] for n in groups.get(name, [name]) if n in deltas]
+                if parts:
+                    keep.append((name, sum(parts)))
             if len(keep) > MAX_MORPHS:
-                # face.js lists the mouth first; past the cap the rarest expressions drop
-                keep.sort(key=order.index)
+                cut = {re.sub(r"_[LR]$", "", n) for n, _ in keep[MAX_MORPHS:]}
+                kept = [k for k in keep[:MAX_MORPHS] if re.sub(r"_[LR]$", "", k[0]) not in cut]
                 import warnings
 
                 warnings.warn(
-                    f"{gid}: {len(keep)} face morphs, Quick 3D keeps {MAX_MORPHS}; dropped {keep[MAX_MORPHS:]}",
+                    f"{gid}: {len(keep)} face morphs, Quick 3D keeps {MAX_MORPHS}; "
+                    f"dropped {[n for n, _ in keep if n not in {k for k, _ in kept}]}",
                     stacklevel=2,
                 )
-                keep = keep[:MAX_MORPHS]
+                keep = kept
+            for name, d in keep:
+                (pos + d).astype(np.float32).tofile(out / f"{gid}_{name}.bin")
             if keep:
-                found[gid] = keep
+                found[gid] = [n for n, _ in keep]
             break
     return found
 
