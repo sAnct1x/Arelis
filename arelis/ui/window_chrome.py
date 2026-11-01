@@ -64,6 +64,9 @@ from arelis.ui.world_host import world_available
 log = logging.getLogger(__name__)
 
 _PANEL_OUTER = SHELL["outer"]
+# The window filters every event in the app; all but these go straight through.
+_KEY_EVENTS = frozenset({QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress})
+_FILTERED_EVENTS = _KEY_EVENTS | {QEvent.Type.MouseButtonPress, QEvent.Type.MouseMove}
 _PANEL_HALF = SHELL["half"]
 _PANEL_TOP = SHELL["top"]
 _PANEL_BOTTOM = SHELL["bottom"]
@@ -363,13 +366,15 @@ class WindowChrome:
         the mode turned on and straight back off and the orbit looked dead.
         """
         et = event.type()
+        if et not in _FILTERED_EVENTS:
+            return super().eventFilter(obj, event)
         if et == QEvent.Type.MouseButtonPress:
             note_engagement(self)
             return super().eventFilter(obj, event)
         if et == QEvent.Type.MouseMove:
             self._filament_on_mouse_move(event)
             return super().eventFilter(obj, event)
-        if et not in {QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress}:
+        if et not in _KEY_EVENTS:
             return super().eventFilter(obj, event)
         if not isinstance(event, QKeyEvent):
             return super().eventFilter(obj, event)
