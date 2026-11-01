@@ -1,4 +1,4 @@
-"""Quick 3D in Night: her view is the stage's base layer, so the look's haze has no band edge (a box)."""
+"""Quick 3D in Night and Sodium: her view is the stage's base layer, so the look's haze has no band edge (a box)."""
 
 from __future__ import annotations
 
