@@ -207,11 +207,12 @@ PORT_SCENE = """        environment: ExtendedSceneEnvironment { clearColor: "bla
         Ellah_aether { id: ellah; objectName: "ellah" }"""
 # Tuned by eye against v14k: UnrealBloomPass (strength 0.85, radius 0.5, threshold 0.55)
 # spreads a wide, faint haze, so the glow uses the big levels and no glowBloom pre-pass.
+# glow_min 2.0: lower thresholds bloomed the hair and face to pink-white and hid the features.
 GLOW = {
     "glow_strength": 1.0,
     "glow_intensity": 0.68,
     "glow_bloom": 0.0,
-    "glow_min": 0.3,
+    "glow_min": 2.0,
     "glow_level": "ExtendedSceneEnvironment.GlowLevel.Two | ExtendedSceneEnvironment.GlowLevel.Four | ExtendedSceneEnvironment.GlowLevel.Six | ExtendedSceneEnvironment.GlowLevel.Seven",
 }
 QML = """import QtQuick

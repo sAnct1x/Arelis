@@ -23,6 +23,7 @@ from pathlib import Path
 
 DEFAULT_SCENE = Path("/workspace/team/avatar-qq3d/scene")
 
+FILL_MESH = "VERTEX=position;UV0=uv;JOINTS=skinIndex;WEIGHTS=skinWeight"  # fills need no shell attributes (teeth/tongue lack aCav)
 MESH = "VERTEX=position;NORMAL=normal;UV0=uv;UV1=aCav,aCavF;TANGENT=aHand,aWr,aElb;JOINTS=skinIndex;WEIGHTS=skinWeight"
 ATTR_SLOT = {  # three attribute -> Quick 3D expression (vertex stage)
     "position": "VERTEX",
@@ -262,6 +263,14 @@ def translate(src: str, stage: str, uniforms: dict[str, tuple[str, int]]) -> str
     return pre + "\n".join(defines) + "\n" + src
 
 
+# aether.js anim loop at a steady voice level L (lvl.med = lvl.slow = L, uFX.x eased to L):
+# uAnim = (glow * (1 + 0.16 L) * (1 + 0.1 L), rim + 0.12 L, shimmer, 0)
+SPEAK = {
+    "uAnim": "Qt.vector4d({0} * (1 + 0.16 * speakingLevel) * (1 + 0.1 * speakingLevel), {1} + 0.12 * speakingLevel, {2}, {3})",
+    "uFX": "Qt.vector4d(speakingLevel, {1}, {2}, {3})",
+}
+
+
 def _qml_value(typ: str, v) -> str:
     if typ in ("float", "int"):
         return repr(float(v)) if typ == "float" else str(int(v))
@@ -338,13 +347,13 @@ def layer_plan(layers: list[dict]) -> list[dict]:
         elif not m["cw"]:
             # Depth only. Opaque black is the same thing here: Quick 3D draws opaque Models
             # first, over the black clear, so only the depth is left for the additive layers.
-            p.update(kind="fill", frag="solid", spec=MESH, occluder=True)
+            p.update(kind="fill", frag="solid", spec=FILL_MESH, occluder=True)
         elif m["alphaMap"] is not None:
-            p.update(kind="fill", frag="card", spec=MESH)
+            p.update(kind="fill", frag="card", spec=FILL_MESH)
         elif lay["parent"] == "CC_Base_Body":
-            p.update(kind="fill", frag="neck", spec=MESH)
+            p.update(kind="fill", frag="neck", spec=FILL_MESH)
         else:
-            p.update(kind="fill", frag="solid", spec=MESH)
+            p.update(kind="fill", frag="solid", spec=FILL_MESH)
         plan.append(p)
     return plan
 
@@ -413,9 +422,10 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
                 v = vals.get(name)
                 if v is None and arr and isinstance(vals.get(arr.group(1)), list):
                     v = vals[arr.group(1)][int(arr.group(2))]
-                props.append(
-                    f"property {GLSL_QML[typ]} {name}: {_qml_value(typ, v if v is not None else 0)}"
-                )
+                val = _qml_value(typ, v if v is not None else 0)
+                if name in SPEAK and isinstance(v, list):
+                    val = SPEAK[name].format(*v)
+                props.append(f"property {GLSL_QML[typ]} {name}: {val}")
         if m["blend"] == 2:
             blend = "sourceBlend: CustomMaterial.SrcAlpha; destinationBlend: CustomMaterial.One"
         elif (m["tr"] and p["kind"] in ("shader", "shell")) or (
@@ -458,6 +468,8 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
     src = (
         src[:k]
         + "\n    // ---- aether layers (arelis/ui/persona_q3d/port.py) ----\n"
+        + "    // voice level 0..1 from the host/face track; drives uAnim (glow, rim) and uFX.x (motes, strands)\n"
+        + "    property real speakingLevel: 0\n"
         + "\n".join(body)
         + "\n}\n"
     )
