@@ -312,12 +312,12 @@ def sync_panel_margins(window) -> None:
     chat_r = _PANEL_HALF if right else _PANEL_OUTER
     if seated:
         # Her band is part of the stage: the chat ends where she begins.
-        chat_r = window.persona_stage.width() + _PANEL_OUTER
+        chat_r = window.persona_stage.right_reserve() + _PANEL_OUTER
     chat_b = _PANEL_HALF if bottom else _PANEL_BOTTOM
     _stage_floor(window, chat_l, seated)
     if active_theme() == "filament" and not left and not right and not bottom:
         # The orbit and ask own the desk; her band (and clicks on her) stay hers.
-        band = window.persona_stage.width() if seated else 0
+        band = window.persona_stage.right_reserve() if seated else 0
         window._stage_layout.setContentsMargins(0, 0, band, 0)
     else:
         window._stage_layout.setContentsMargins(chat_l, _PANEL_TOP, chat_r, chat_b)

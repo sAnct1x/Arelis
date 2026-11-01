@@ -23,8 +23,5 @@ void MAIN() {
     vec3 lit = clamp(rgb, 0.0, 1.0);
     float m = max(lit.r, max(lit.g, lit.b));
     float enc = m <= 0.0031308 ? 12.92 * m : 1.055 * pow(m, 1.0 / 2.4) - 0.055;
-    // The view is a band in the window: fade its inner (left) edge so the floor and threads
-    // do not stop on a hard line. Scaling rgb and alpha together keeps it premultiplied.
-    float edge = smoothstep(0.0, 0.12, INPUT_UV.x);
-    FRAGCOLOR = vec4(lit, clamp(enc, 0.0, 1.0)) * edge;
+    FRAGCOLOR = vec4(lit, clamp(enc, 0.0, 1.0));
 }

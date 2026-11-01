@@ -27,8 +27,11 @@ Item {
     property color bg: "#14101c"
     property color text: "#e6e0f5"
     property color backdrop: "transparent"
+    property real figureX: 0.5   // where her centre stands across the view, 0..1 (Filament: right of centre)
     property url modelSource
     readonly property alias figure: loader.item
+    // The camera slides sideways, so she keeps her full height and only moves across the view.
+    readonly property real camShift: -(2 * figureX - 1) * Math.tan(15 * Math.PI / 180) * 3.95 * view.width / Math.max(1, view.height)
     property string sceneStatus: "loading"   // loading | ready | error
     property string sceneError: ""
     readonly property string clip: mixer.clip
@@ -56,7 +59,7 @@ Item {
         // v14k's camera (aether.js): 30 degrees vertical, at (0, 0.9, 3.95) looking at (0, 0.88, 0),
         // head to toe in her full-height band in every room. The scene is in metres, her model's own unit: the look's
         // shaders compare world positions with world-space uniforms (uNeckY, uFace, ...) in metres.
-        PerspectiveCamera { id: cam; objectName: "cam"; position: Qt.vector3d(0, 0.9, 3.95)
+        PerspectiveCamera { id: cam; objectName: "cam"; position: Qt.vector3d(root.camShift, 0.9, 3.95)
             eulerRotation.x: -Math.atan2(0.02, 3.95) * 180 / Math.PI
             clipNear: 0.05; clipFar: 200; fieldOfView: 30; fieldOfViewOrientation: PerspectiveCamera.Vertical }
         // Track A slot: look (materials, rim, bloom, particles) replaces these lights.

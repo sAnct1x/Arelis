@@ -133,6 +133,41 @@ def test_over_a_see_through_clear_the_bloom_keys_its_alpha(tmp_path, monkeypatch
     host.close()
 
 
+def test_her_view_runs_the_full_band_height(tmp_path, monkeypatch) -> None:
+    """A view stopping short of the band cut her floor and glow on a hard line (a box)."""
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "qq3d")
+    monkeypatch.setattr("arelis.ui.persona_face.qq3d_avatar.wanted", lambda theme=None: True)
+    from arelis.ui.persona_face.panel import PersonaPanel
+    from arelis.ui.persona_face.qq3d_avatar import unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    panel = PersonaPanel()
+    panel.resize(300, 700)
+    panel.show()
+    QTest.qWait(50)
+    if panel.web is None:  # no GPU or GL here: her host failed and the panel dropped it
+        panel.close()
+        pytest.skip("no Quick 3D rendering here")
+    assert panel.web.geometry().height() == panel.height()
+    panel.close()
+
+
+def test_in_filament_the_camera_slides_so_she_stands_right_of_centre(tmp_path, monkeypatch) -> None:
+    """She is the full-window base layer: the camera slides, so her centre lands right of centre."""
+    monkeypatch.setattr("arelis.ui.theme.active_theme", lambda: "filament")
+    host = _ready_host(tmp_path, monkeypatch)  # skips where Quick 3D cannot render (no root)
+    host.resize(1600, 900)
+    QTest.qWait(50)
+    from arelis.ui.persona_stage import FIGURE_X
+
+    assert abs(host.root.property("figureX") - FIGURE_X) < 1e-6
+    assert host.root.property("camShift") < 0
+    host.close()
+
+
 def test_her_host_puts_the_gui_thread_ahead_of_a_busy_model(tmp_path, monkeypatch) -> None:
     QApplication.instance() or QApplication([])
     from PySide6.QtCore import QThread
