@@ -13,6 +13,11 @@ import pytest
 # from this variable when it configures.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("PYTEST_QT_API", "pyside6")
+# The Qt Quick scene graph backend is chosen once per process, by whichever Quick window
+# initialises first. Offscreen has no RHI windows, so a web avatar's QQuickWidget made
+# first would lock the process to "software" and every later Quick 3D host would fail to
+# initialise (order-dependent failures). Pick the RHI backend for the whole run.
+os.environ.setdefault("QT_QUICK_BACKEND", "rhi")
 
 
 def pytest_addoption(parser) -> None:
