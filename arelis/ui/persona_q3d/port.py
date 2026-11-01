@@ -117,6 +117,7 @@ void MAIN() {
   mat4 S = BONE_TRANSFORMS[JOINTS.x] * WEIGHTS.x + BONE_TRANSFORMS[JOINTS.y] * WEIGHTS.y
          + BONE_TRANSFORMS[JOINTS.z] * WEIGHTS.z + BONE_TRANSFORMS[JOINTS.w] * WEIGHTS.w;
   vec4 w = S * vec4(VERTEX, 1.0); vUv = UV0; vWp = w.xyz;
+  w.xyz += normalize(w.xyz - CAMERA_POSITION) * uPush;   // occluders sit behind the shells
   POSITION = VIEWPROJECTION_MATRIX * w;
 }
 """
@@ -335,7 +336,9 @@ def layer_plan(layers: list[dict]) -> list[dict]:
         elif m["type"] == "PointsMaterial":
             p.update(kind="galaxy", spec="VERTEX=position;COLOR=color")
         elif not m["cw"]:
-            p.update(kind="skip", why="depth only (occluder, teeth, tongue)")
+            # Depth only. Opaque black is the same thing here: Quick 3D draws opaque Models
+            # first, over the black clear, so only the depth is left for the additive layers.
+            p.update(kind="fill", frag="solid", spec=MESH, occluder=True)
         elif m["alphaMap"] is not None:
             p.update(kind="fill", frag="card", spec=MESH)
         elif lay["parent"] == "CC_Base_Body":
@@ -376,6 +379,7 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
                 "uNeckY": ("float", 0),
                 "uFace": ("vec4", 0),
                 "uOpacity": ("float", 0),
+                "uPush": ("float", 0),
                 "uAlphaTest": ("float", 0),
                 "uAlphaMap": ("sampler2D", 0),
             }
@@ -385,10 +389,11 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
         if p["kind"] == "fill":
             shell = next(u for u in unis if "uNeckY" in u)
             vals.update(
-                uColor=m["color"],
+                uColor=[0, 0, 0] if p.get("occluder") else m["color"],
                 uNeckY=shell["uNeckY"],
                 uFace=shell["uFace"],
                 uOpacity=m["opacity"],
+                uPush=0.004 if p.get("occluder") else 0.0,
                 uAlphaTest=m["alphaTest"],
             )
         if p["kind"] == "galaxy":
