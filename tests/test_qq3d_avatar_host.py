@@ -292,6 +292,7 @@ def test_her_pipeline_cache_is_saved_after_the_first_frame(tmp_path, monkeypatch
     assert saved
 
 
+@pytest.mark.real_qq3d_model
 def test_model_lookup_is_app_then_override_then_bundled(tmp_path, monkeypatch) -> None:
     from arelis.ui.persona_face import qq3d_avatar
 

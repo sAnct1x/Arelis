@@ -252,6 +252,7 @@ testpaths = ["tests"]
 addopts = ["--ignore=sentinel"]
 markers = [
     "serial: timing-sensitive; excluded from the xdist step and run right after it",
+    "real_qq3d_model: reads her real bundled model (arelis/assets/qq3d) instead of the suite's stand-in",
 ]
 # pytest-qt. The app is PySide6. Leaving this blank lets the plugin guess,
 # and a machine with another binding installed would bind the wrong one.
