@@ -454,10 +454,87 @@ def translate(src: str, stage: str, uniforms: dict[str, tuple[str, int]]) -> str
 
 # aether.js anim loop at a steady voice level L (lvl.med = lvl.slow = L, uFX.x eased to L):
 # uAnim = (glow * (1 + 0.16 L) * (1 + 0.1 L), rim + 0.12 L, shimmer, 0)
-SPEAK = {
-    "uAnim": "Qt.vector4d({0} * (1 + 0.16 * speakingLevel) * (1 + 0.1 * speakingLevel), {1} + 0.12 * speakingLevel, {2}, {3})",
-    "uFX": "Qt.vector4d(speakingLevel, {1}, {2}, {3})",
+
+
+# ---- the look clock: aether.js frameBody() per-frame uniforms, driven from the look itself ----
+# Each entry is the QML expression a material uniform binds to. The review tool sets material
+# properties directly for its frozen poses, which replaces these bindings (and it stops the clock).
+DRIVEN = {
+    "uAnim": "lookAnim",  # anim.js light terms: breath/voice glow, state rim, thinking shimmer
+    "uFX": "Qt.vector4d(fxLevel, 0, 0, 0)",  # x voice level (smoothed), y walk weight (no walk)
+    "uPh": "floorPhase",  # FLO.ph: the floor rings' drift
+    "uNeckS": "neckScreenY",  # the neck line's height on screen (0 bottom, 1 top)
+    "uRes": "viewportSize",  # renderer.getDrawingBufferSize
 }
+ARM_BONES = ["L_Upperarm", "L_Forearm", "L_Hand", "R_Upperarm", "R_Forearm", "R_Hand"]
+# anim.js P: per-state flow clock rate, rim gain, shimmer and breaths per second
+LOOK_STATES = {
+    "idle": (1.0, 1.0, 0, 0.23),
+    "listening": (1.1, 1.38, 0, 0.22),
+    "thinking": (2.3, 1.08, 1, 0.21),
+    "speaking": (1.25, 1.12, 0, 0.26),
+    "done": (0.8, 1.0, 0, 0.2),
+}
+
+
+def driven(name: str, real_clock: bool, ids: dict[str, str]) -> str | None:
+    """The look-clock expression for uniform `name`, or None when it stays a constant.
+    real_clock: the layer reads aether.js's uTime (floor rings) rather than uFlow (the rest)."""
+    if name == "uTime":
+        return "aetherTime" if real_clock else "aetherFlow"
+    arm = re.fullmatch(r"uArm(\d)", name)
+    if arm:
+        return f"{ids['CC_Base_' + ARM_BONES[int(arm.group(1))]]}.scenePosition"
+    return DRIVEN.get(name)
+
+
+def look_clock(unis: list[dict]) -> str:
+    """Root properties and the FrameAnimation that advance them (aether.js frameBody + anim.js light)."""
+    t0 = next(u["uTime"] for u in unis if "uAnim" in u)
+    ph0 = next((u["uPh"] for u in unis if "uPh" in u), 0.0)
+    ring = next((u["uRing"] for u in unis if "uRing" in u), [0, 0, 0])
+    neck = next(u["uNeckY"] for u in unis if "uNeckY" in u)
+    ns0 = next((u["uNeckS"] for u in unis if "uNeckS" in u), 0.8)
+    states = ", ".join(f"{k}: [{', '.join(str(x) for x in v)}]" for k, v in LOOK_STATES.items())
+    return f"""    // ---- look clock (arelis/ui/persona_q3d/port.py look_clock): what aether.js frameBody() animates ----
+    // Any host gets it: set aetherState and speakingLevel, and camera for the neck line. The review
+    // tool sets clockRunning false and writes the frozen pose's uniforms itself.
+    property bool clockRunning: true
+    property string aetherState: "idle"
+    property var camera: null
+    property real aetherTime: {t0!r}
+    property real aetherFlow: {t0!r}
+    property real fxLevel: 0
+    property real slowLevel: 0
+    property real floorPhase: {ph0!r}
+    property real neckScreenY: {ns0!r}
+    property vector4d lookAnim: Qt.vector4d(1, 1, 0, 0)
+    readonly property var lookStates: ({{ {states} }})
+    property var lookW: ({{ idle: 1 }})
+    property var lookW1: ({{ idle: 1 }})
+    FrameAnimation {{ running: clockRunning; onTriggered: lookTick(Math.min(frameTime, 0.1)) }}
+    function lookTick(dt) {{
+        var k = 1 - Math.exp(-dt / 0.11), p = [0, 0, 0, 0]
+        for (var m in lookStates) {{
+            var w1 = (lookW1[m] || 0) + ((m === aetherState ? 1 : 0) - (lookW1[m] || 0)) * k
+            var w = (lookW[m] || 0) + (w1 - (lookW[m] || 0)) * k
+            lookW1[m] = w1; lookW[m] = w
+            for (var j = 0; j < 4; j++) p[j] += w * lookStates[m][j]
+        }}
+        aetherTime += dt
+        aetherFlow += dt * p[0]
+        fxLevel += (speakingLevel - fxLevel) * Math.min(1, dt * 3)
+        slowLevel += (speakingLevel - slowLevel) * (1 - Math.exp(-dt / 0.6))
+        floorPhase += dt * 0.35
+        var b = 0.5 + 0.5 * Math.sin(2 * Math.PI * p[3] * aetherTime)
+        lookAnim = Qt.vector4d((1 + 0.04 * (b - 0.5)) * (1 + 0.16 * speakingLevel + 0.1 * slowLevel),
+                               p[1] + 0.12 * speakingLevel, p[2] * (0.875 + 0.125 * Math.sin(aetherTime * 0.9 * 6.2832)), 0)
+        if (camera) {{
+            var v = camera.mapToViewport(Qt.vector3d({ring[0]!r}, {neck!r}, {ring[2]!r}))
+            neckScreenY = Math.min(1, Math.max(0.05, 1 - v.y))
+        }}
+    }}
+"""
 
 
 def _qml_value(typ: str, v) -> str:
@@ -655,9 +732,11 @@ def build(
                 v = vals.get(name)
                 if v is None and arr and isinstance(vals.get(arr.group(1)), list):
                     v = vals[arr.group(1)][int(arr.group(2))]
-                val = SCREEN.get(name) or _qml_value(typ, v if v is not None else 0)
-                if name in SPEAK and isinstance(v, list):
-                    val = SPEAK[name].format(*v)
+                val = (
+                    SCREEN.get(name)
+                    or driven(name, "uPh" in unis[i], ids)
+                    or _qml_value(typ, v if v is not None else 0)
+                )
                 props.append(f"property {GLSL_QML[typ]} {name}: {val}")
         if i in late_depth:
             blend = (
@@ -691,6 +770,18 @@ def build(
             if p["skin"] and p["skin"]["ref"] is None
             else "; ".join(f"{k}: {v}" for k, v in transform_props(lay["world"]).items())
         )
+        if p["kind"] == "galaxy":
+            # aether.js: galaxy.rotation.z = uTime * 0.03, on top of its fixed tilt
+            _, q, _ = _decompose(lay["world"])
+            a = -0.03 * next(u["uTime"] for u in unis if "uPh" in u) / 2
+            ca, sa = math.cos(a), math.sin(a)
+            w_, x_, y_, z_ = q
+            q0 = (w_ * ca - z_ * sa, x_ * ca + y_ * sa, y_ * ca - x_ * sa, z_ * ca + w_ * sa)
+            tf = tf.replace(
+                transform_props(lay["world"])["rotation"],
+                "Qt.quaternion({:.9g}, {:.9g}, {:.9g}, {:.9g})".format(*q0)
+                + ".times(Quaternion.fromAxisAndAngle(0, 0, 1, aetherTime * 0.03 * 57.2957795))",
+            )
         if blend and i in rank:
             tf = (tf + "; " if tf else "") + f"depthBias: {(len(order) - rank[i]) * 1000}"
         morph_src = f'; morphs: "{morph_dir / p["geom"]}:{",".join(names)}"' if names else ""
@@ -725,6 +816,7 @@ def build(
         + "    // render target size in framebuffer pixels; point sprites are sized in it (see point_sprites)\n"
         + "    property vector2d viewportSize: Qt.vector2d(720, 960)\n"
         + "    property real devicePixelRatio: 1\n"
+        + look_clock(unis)
         + "\n".join(body)
         + "\n}\n"
     )

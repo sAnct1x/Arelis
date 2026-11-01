@@ -244,6 +244,9 @@ def _apply_uniforms(root, values: dict, world: dict | None) -> None:
     from PySide6.QtGui import QVector2D, QVector3D, QVector4D
 
     vec = {2: QVector2D, 3: QVector3D, 4: QVector4D}
+    look = root.findChild(QObject, "ellah")
+    if look is not None and look.property("clockRunning") is not None:
+        look.setProperty("clockRunning", False)  # the look clock stays off: this pose is frozen
     only = os.environ.get("AETHER_ONLY")  # debugging: comma list of layer indexes to keep
     for i, u in enumerate(values):
         node = root.findChild(QObject, f"L{i}")

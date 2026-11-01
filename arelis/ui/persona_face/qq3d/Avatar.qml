@@ -9,7 +9,6 @@
 //   tint         hue turn in degrees for the room (0 keeps her violet)
 //   accent, bg, text   the room's theme colours
 //   backdrop     clear colour under her (transparent unless the opaque arm)
-//   hub          true in Filament's bottom-left hub, false in a full-height band
 //   modelSource  her converted model (balsam Ellah_anim.qml) in the user data folder
 //   figure       the loaded model node (null until loaded), for B to drive
 //   clip         the body clip the mixer is playing (read only)
@@ -28,7 +27,6 @@ Item {
     property color bg: "#14101c"
     property color text: "#e6e0f5"
     property color backdrop: "transparent"
-    property bool hub: false
     property url modelSource
     readonly property alias figure: loader.item
     property string sceneStatus: "loading"   // loading | ready | error
@@ -40,17 +38,21 @@ Item {
         id: view
         objectName: "view"
         anchors.fill: parent
+        // The look's own output path, as tools/avatar_lookmatch.py PORT_SCENE renders iter5: no MSAA,
+        // linear tonemap (three's OutputPass), and AetherBloom with config.js LOOK.bloom.
         environment: SceneEnvironment {
             backgroundMode: root.backdrop.a > 0 ? SceneEnvironment.Color : SceneEnvironment.Transparent
             clearColor: root.backdrop
-            antialiasingMode: SceneEnvironment.MSAA
+            antialiasingMode: SceneEnvironment.NoAA
+            tonemapMode: SceneEnvironment.TonemapModeLinear
+            effects: [AetherBloom { strength: 0.85; radius: 0.5; threshold: 0.55 }]
         }
-        // Head to toe in a box about half as wide as tall (persona_stage.FIGURE_ASPECT).
-        // The scene is in metres, her model's own unit: the look's shaders compare world positions
-        // with world-space uniforms (uNeckY, uFace, ...) exported from aether.js in metres, so the
-        // figure must not be scaled.
-        PerspectiveCamera { id: cam; objectName: "cam"; position: Qt.vector3d(0, 0.88, root.hub ? 3.30 : 3.45)
-            clipNear: 0.01; clipFar: 50; fieldOfView: 35 }
+        // v14k's camera (aether.js): 30 degrees vertical, at (0, 0.9, 3.95) looking at (0, 0.88, 0),
+        // head to toe in her full-height band in every room. The scene is in metres, her model's own unit: the look's
+        // shaders compare world positions with world-space uniforms (uNeckY, uFace, ...) in metres.
+        PerspectiveCamera { id: cam; objectName: "cam"; position: Qt.vector3d(0, 0.9, 3.95)
+            eulerRotation.x: -Math.atan2(0.02, 3.95) * 180 / Math.PI
+            clipNear: 0.05; clipFar: 200; fieldOfView: 30; fieldOfViewOrientation: PerspectiveCamera.Vertical }
         // Track A slot: look (materials, rim, bloom, particles) replaces these lights.
         DirectionalLight { eulerRotation.x: -30; eulerRotation.y: 20; brightness: 1.2 }
         DirectionalLight { eulerRotation.x: -10; eulerRotation.y: 200; brightness: 0.5; color: root.accent }
@@ -109,6 +111,8 @@ Item {
         target: loader.item; property: "viewportSize"; when: loader.item && loader.item.viewportSize !== undefined
         value: Qt.vector2d(view.width * root.dpr, view.height * root.dpr)
     }
+    Binding { target: loader.item; property: "camera"; when: loader.item && loader.item.camera !== undefined; value: cam }
+    Binding { target: loader.item; property: "aetherState"; when: loader.item && loader.item.aetherState !== undefined; value: root.avatarState }
     Binding {
         target: loader.item; property: "devicePixelRatio"; when: loader.item && loader.item.devicePixelRatio !== undefined
         value: root.dpr

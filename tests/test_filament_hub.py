@@ -1,4 +1,4 @@
-"""Filament seats her as the bottom-left hub: no tile, threads start at her."""
+"""Filament seats her full height in the right band: no tile, threads start at her centre."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ def _filament(arelis_window, qt_app):
     return w
 
 
-def test_filament_hosts_her_in_the_hub_not_a_tile(arelis_window, qt_app, caplog) -> None:
-    from arelis.ui.persona_stage import persona_region
+def test_filament_hosts_her_full_height_not_a_tile(arelis_window, qt_app, caplog) -> None:
+    from arelis.ui.persona_stage import _chat_min, persona_region
 
     caplog.set_level(logging.INFO, logger="arelis.avatar")
     w = _filament(arelis_window, qt_app)
@@ -23,12 +23,13 @@ def test_filament_hosts_her_in_the_hub_not_a_tile(arelis_window, qt_app, caplog)
     assert w.persona_panel.parentWidget() is stage
     assert stage.isVisible()
     parent = stage.parentWidget()
-    assert stage.geometry() == persona_region(parent.rect(), None, mode="hub")
-    assert stage.geometry().center().x() < parent.width() / 2
+    assert stage.geometry() == persona_region(parent.rect(), None, chat_min=_chat_min(w))
+    assert stage.geometry().height() == parent.height()
+    assert stage.geometry().center().x() > parent.width() / 2
     from arelis.ui.filament_field import FLOATS
 
     assert "thinking" not in {f[0] for f in FLOATS}
-    assert any("[avatar] resize mode=hub" in r.getMessage() for r in caplog.records)
+    assert any("[avatar] resize" in r.getMessage() for r in caplog.records)
 
 
 def test_filament_threads_start_at_her_hub(arelis_window, qt_app) -> None:

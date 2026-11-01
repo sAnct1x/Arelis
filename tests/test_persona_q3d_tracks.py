@@ -88,3 +88,20 @@ def test_port_warns_when_the_face_morph_source_is_missing(tmp_path) -> None:
 
     with pytest.warns(port.NoFaceMorphs, match="mouth and eyes will not move"):
         assert port.face_morphs(tmp_path / "ellah.glb", tmp_path, [], tmp_path / "morphs") == {}
+
+
+def test_look_clock_drives_the_per_frame_uniforms() -> None:
+    from arelis.ui.persona_q3d import port
+
+    ids = {f"CC_Base_{b}": f"id_{b}" for b in port.ARM_BONES}
+    assert port.driven("uTime", False, ids) == "aetherFlow"  # uFlow: the state-rate clock
+    assert port.driven("uTime", True, ids) == "aetherTime"  # the floor rings read the real clock
+    assert port.driven("uArm4", False, ids) == "id_R_Forearm.scenePosition"
+    for name in ("uAnim", "uFX", "uPh", "uNeckS", "uRes"):
+        assert port.driven(name, False, ids)
+    assert port.driven("uA", False, ids) is None  # palette colours stay constants
+    clock = port.look_clock([{"uTime": 2.9, "uAnim": [1, 1, 0, 0], "uNeckY": 1.5}])
+    assert (
+        "FrameAnimation { running: clockRunning" in clock
+        and "property real aetherTime: 2.9" in clock
+    )

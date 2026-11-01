@@ -56,7 +56,6 @@ def test_host_calls_set_the_scene_properties(tmp_path, monkeypatch) -> None:
     assert root.property("avatarState") == "idle" and root.property("speaking") is False
     host.set_level(0.5)
     assert abs(root.property("level") - 0.5) < 1e-6
-    assert root.property("hub") is not None
     host.close()
 
 

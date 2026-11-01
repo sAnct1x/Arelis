@@ -744,7 +744,7 @@ class FilamentDesk:
         return fit
 
     def _filament_clear_of_hub(self, dest: QRect) -> QRect:
-        """A tile we place never lands on her hub. A spot the user chose is theirs."""
+        """A tile we place never lands on her band. A spot the user chose is theirs."""
         w = self.window
         stage = getattr(w, "persona_stage", None)
         if stage is None or stage.isHidden():
@@ -753,14 +753,11 @@ class FilamentDesk:
         if not dest.intersects(hub):
             return dest
         moved = QRect(dest)
-        moved.moveLeft(hub.right() + 13)
+        moved.moveRight(hub.left() - 13)
         home = self._filament_pin_home()
-        if home is not None and moved.right() > home.right():
-            # No room beside her: sit above her instead.
-            moved = QRect(dest)
-            moved.moveBottom(hub.top() - 13)
-            if moved.top() < home.top():
-                moved.moveTop(home.top())
+        if home is not None and moved.left() < home.left():
+            # No room beside her: keep to the desk's left edge.
+            moved.moveLeft(home.left())
         return moved
 
     def _filament_tiles_clear_hub(self) -> None:
