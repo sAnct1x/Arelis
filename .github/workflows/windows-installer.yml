@@ -122,8 +122,7 @@ jobs:
         run: choco install innosetup -y --no-progress
 
       - name: Build the installer
-        # No model in CI: it is built from ellah.glb, which never leaves the dev box.
-        run: python win-installer/build.py --no-qq3d
+        run: python win-installer/build.py
 
       # Nothing here is code-signed, so the digest is what a cautious person actually
       # has to check against. Written beside the installer and shown in the run summary,

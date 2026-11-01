@@ -290,3 +290,19 @@ def test_her_pipeline_cache_is_saved_after_the_first_frame(tmp_path, monkeypatch
     saved = path.exists() and path.stat().st_size > 0
     host.close()
     assert saved
+
+
+def test_model_lookup_prefers_a_user_copy_then_the_bundled_model(tmp_path, monkeypatch) -> None:
+    from arelis.ui.persona_face import qq3d_avatar
+
+    monkeypatch.delenv("ARELIS_AVATAR_QQ3D_DIR", raising=False)
+    monkeypatch.setattr(qq3d_avatar, "user_data_dir", lambda: tmp_path)
+    user = tmp_path / "avatar" / "qq3d"
+    user.mkdir(parents=True)
+    (user / "pipeline.cache").write_bytes(b"x")  # a cache alone is not a model
+    assert qq3d_avatar.model_dir() == qq3d_avatar.BUNDLED_DIR
+    assert (qq3d_avatar.BUNDLED_DIR / qq3d_avatar.LOOK_FILE).is_file()
+    (user / qq3d_avatar.LOOK_FILE).write_text("x", encoding="utf-8")
+    assert qq3d_avatar.model_dir() == user
+    monkeypatch.setenv("ARELIS_AVATAR_QQ3D_DIR", str(tmp_path / "elsewhere"))
+    assert qq3d_avatar.model_dir() == tmp_path / "elsewhere"

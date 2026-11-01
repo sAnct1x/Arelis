@@ -141,8 +141,5 @@ mypy_out.txt
 
 # The avatar model lives in the user's data folder, never in the repo.
 *.glb
-# Her converted Quick 3D model (balsam output) is private too: user data folder only.
+# A local avatar data folder. Her built Quick 3D model is committed in arelis/assets/qq3d.
 /avatar/
-# A qq3d model folder at the root (installer build input). dist/ covers the staged copy.
-# Not "qq3d/" anywhere: arelis/ui/persona_face/qq3d/ is tracked source.
-/qq3d/

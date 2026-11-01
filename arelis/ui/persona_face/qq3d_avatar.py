@@ -22,7 +22,7 @@ from PySide6.QtCore import QEvent, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget
 
-from arelis.paths import user_data_dir
+from arelis.paths import PACKAGE_ROOT, user_data_dir
 from arelis.ui.persona_face.web_avatar import STATE_MAP
 
 QML_DIR = Path(__file__).resolve().parent / "qq3d"
@@ -32,6 +32,9 @@ DIR_ENV = "ARELIS_AVATAR_QQ3D_DIR"
 MODEL_FILE = "Ellah_anim.qml"
 # tools/avatar_q3d_export.py writes the look (aether shaders on the same skeleton and clips).
 LOOK_FILE = "Ellah_aether.qml"
+# Her built model, committed with the package (docs/avatar.md). The installer copies it to
+# the data folder, which wins when it holds a model.
+BUNDLED_DIR = PACKAGE_ROOT / "assets" / "qq3d"
 _READY_TIMEOUT_MS = 30_000
 _OFF = {"0", "false", "no", "off"}
 FRAMETIME_ENV = "ARELIS_FRAMETIME_LOG"
@@ -117,10 +120,14 @@ def surface_format():
 
 
 def model_dir() -> Path:
+    """ARELIS_AVATAR_QQ3D_DIR, else data avatar\\qq3d if it holds a model, else the bundled one."""
     override = os.environ.get(DIR_ENV, "").strip()
     if override:
         return Path(override).expanduser()
-    return user_data_dir() / "avatar" / "qq3d"
+    user = user_data_dir() / "avatar" / "qq3d"
+    if (user / LOOK_FILE).is_file() or (user / MODEL_FILE).is_file():
+        return user
+    return BUNDLED_DIR
 
 
 def model_path() -> Path:

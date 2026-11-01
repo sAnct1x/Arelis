@@ -28,19 +28,34 @@ required: always copy it alongside `ellah.glb`. Without it she still appears, sp
 and blinks, but her body stands still in its neutral rest pose, and Arelis logs an
 error naming the path it looked in.
 
-## The Quick 3D model (installed builds)
+## The Quick 3D model
 
-The Windows installer ships her built Quick 3D model and puts it here, so a fresh
-install needs no download:
+Her built Quick 3D model is part of Arelis. It is committed in `arelis/assets/qq3d`
+(`Ellah_aether.qml` plus its meshes, maps, clips, shaders and geometry) and ships in the
+package, so a checkout and every installer have it with no download and no build flag.
+`ellah.glb` and renders are never committed.
+
+Arelis looks for it in this order:
+
+1. `ARELIS_AVATAR_QQ3D_DIR`, when set (a copy you are testing).
+2. `avatar\qq3d` in your data folder, when it holds `Ellah_aether.qml` (or `Ellah_anim.qml`).
+3. The bundled `arelis/assets/qq3d`.
+
+The Windows installer puts the model in your data folder, not the program folder:
 
 ```
 %LOCALAPPDATA%\Arelis\avatar\qq3d\Ellah_aether.qml
 ```
 
-A plain uninstall keeps that folder; choosing to delete all Arelis data removes it. To
-use a different copy, set `ARELIS_AVATAR_QQ3D_DIR` to its folder. If you moved your data
-with `ARELIS_DATA_DIR`, copy the `qq3d` folder into that data folder's `avatar` folder
-yourself, because the installer always writes to `%LOCALAPPDATA%\Arelis`.
+A plain uninstall keeps that folder; choosing to delete all Arelis data removes it. If you
+moved your data with `ARELIS_DATA_DIR`, copy the `qq3d` folder into that data folder's
+`avatar` folder yourself, because the installer always writes to `%LOCALAPPDATA%\Arelis`.
+
+To rebuild it after the look changes, run `tools/avatar_q3d_export.py` (writes the scene),
+then `python -m arelis.ui.persona_q3d.convert --out DIR` (balsam on `ellah-anim.glb`), then
+`python -m arelis.ui.persona_q3d.port --converted DIR`, and copy `DIR` over
+`arelis/assets/qq3d`. Check that no `.glb` landed in it and that no file is over 50 MB
+(GitHub refuses files over 100 MB).
 
 ## Where she stands
 

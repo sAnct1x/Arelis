@@ -906,6 +906,12 @@ def prune_test_suites(site: Path) -> int:
     return freed
 
 
+# Where the committed model (arelis/assets/qq3d) lands in the tree. arelis.iss names the
+# same path twice: excluded from {app}, installed to the data folder instead.
+QQ3D_IN_SITE = Path("arelis") / "assets" / "qq3d"
+QQ3D_LOOK = "Ellah_aether.qml"
+
+
 def check_avatar_assets(site: Path) -> None:
     """The avatar scene ships in the wheel (package-data); its model and clips never do.
 
@@ -924,6 +930,12 @@ def check_avatar_assets(site: Path) -> None:
     if models:
         raise SystemExit(f"a .glb model got into the tree, which must not ship: {models}")
     say(f"    {human(tree_size(web)):>10}  avatar scene (three.js, no model)")
+    # Her built Quick 3D model is committed in arelis/assets/qq3d and ships in the wheel.
+    # arelis.iss installs this copy to %LOCALAPPDATA%\\Arelis\\avatar\\qq3d.
+    qq3d = site / QQ3D_IN_SITE
+    if not (qq3d / QQ3D_LOOK).is_file():
+        raise SystemExit(f"her Quick 3D model is missing from the tree: {qq3d / QQ3D_LOOK}")
+    say(f"    {human(tree_size(qq3d)):>10}  Quick 3D model")
 
 
 def prune(before: int) -> None:
@@ -985,35 +997,6 @@ def report_size(label: str) -> int:
 
 
 ISS = HERE / "arelis.iss"
-
-# Her built Quick 3D model (tools/avatar_q3d_export.py, then persona_q3d/convert.py and
-# persona_q3d/port.py). Never in git, so the builder names it at build time. It is staged
-# beside the program tree, not in it, because arelis.iss installs it into the data root
-# (%LOCALAPPDATA%\Arelis\avatar\qq3d, what qq3d_avatar.model_dir() resolves to).
-QQ3D_ENV = "ARELIS_QQ3D_BUILD_DIR"
-QQ3D_LOOK = "Ellah_aether.qml"
-QQ3D_STAGE = DIST / "qq3d"
-
-
-def stage_qq3d(source: Path | None, dest: Path = QQ3D_STAGE) -> Path:
-    """Copy the built qq3d model folder into the installer payload, or stop the build."""
-    if source is None:
-        raise SystemExit(
-            f"no qq3d model folder given. Pass --qq3d-dir <folder> or set {QQ3D_ENV}; "
-            f"it must hold {QQ3D_LOOK} (see docs/avatar.md)."
-        )
-    source = Path(source).expanduser()
-    if not source.is_dir():
-        raise SystemExit(f"qq3d model folder not found: {source}")
-    if not (source / QQ3D_LOOK).is_file():
-        raise SystemExit(f"qq3d model folder {source} has no {QQ3D_LOOK}")
-    models = sorted(str(p.relative_to(source)) for p in source.rglob("*.glb"))
-    if models:
-        raise SystemExit(f"a .glb is in the qq3d folder, which must not ship: {models}")
-    if dest.exists():
-        shutil.rmtree(dest)
-    shutil.copytree(source, dest)
-    return dest
 
 # The directories Inno Setup installs under, most likely first. %LOCALAPPDATA%\Programs
 # leads because that is where it lands from the winget line this file prints: an
@@ -1131,7 +1114,7 @@ def copy_companion_into_tree() -> None:
         say(f"  companion {offer.version_name} ({offer.signed})")
 
 
-def package_installer(version: str, with_qq3d: bool = True) -> Path | None:
+def package_installer(version: str) -> Path | None:
     """Compile the tree into one setup .exe, if Inno Setup is here to do it.
 
     Optional rather than required, because the tree above is the part that has to be
@@ -1153,7 +1136,6 @@ def package_installer(version: str, with_qq3d: bool = True) -> Path | None:
             str(iscc),
             f"/DAppVersion={version}",
             f"/DSourceTree={TREE}",
-            *([f"/DQq3dTree={QQ3D_STAGE}"] if with_qq3d else []),
             str(ISS),
         ],
         "Compiling the installer",
@@ -1409,24 +1391,6 @@ def main(argv: list[str] | None = None) -> int:
             "comparison to make when something works unpruned and not pruned."
         ),
     )
-    parser.add_argument(
-        "--qq3d-dir",
-        type=Path,
-        default=os.environ.get(QQ3D_ENV) or None,
-        help=(
-            f"Her built Quick 3D model folder (holds {QQ3D_LOOK}). Shipped in the "
-            f"installer and installed to %%LOCALAPPDATA%%\\Arelis\\avatar\\qq3d. "
-            f"Required for a setup .exe. Default: ${QQ3D_ENV}."
-        ),
-    )
-    parser.add_argument(
-        "--no-qq3d",
-        action="store_true",
-        help=(
-            "Build the setup .exe without her Quick 3D model (CI and smoke builds). "
-            "The installed app then shows the web figure until a model is in avatar\\qq3d."
-        ),
-    )
     args = parser.parse_args(argv)
 
     if sys.platform != "win32":
@@ -1444,9 +1408,6 @@ def main(argv: list[str] | None = None) -> int:
         report_size("Built tree")
         return 0
 
-    if not args.no_installer and not args.no_qq3d and args.qq3d_dir is None:
-        stage_qq3d(None)
-
     started = time.monotonic()
 
     if args.installer_only:
@@ -1455,10 +1416,8 @@ def main(argv: list[str] | None = None) -> int:
         total = report_size("Existing tree")
         say("\n== Verification ==")
         verify()
-        say("\n== Quick 3D model ==")
-        say("  skipped (--no-qq3d)" if args.no_qq3d else f"  {stage_qq3d(args.qq3d_dir)}")
         say("\n== Setup .exe ==")
-        installer = package_installer(installed_version(), with_qq3d=not args.no_qq3d)
+        installer = package_installer(installed_version())
         if installer and args.install:
             say("\n== Install ==")
             install_over_existing(installer)
@@ -1501,10 +1460,8 @@ def main(argv: list[str] | None = None) -> int:
 
     installer = None
     if not args.no_installer:
-        say("\n== Quick 3D model ==")
-        say("  skipped (--no-qq3d)" if args.no_qq3d else f"  {stage_qq3d(args.qq3d_dir)}")
         say("\n== Setup .exe ==")
-        installer = package_installer(installed_version(), with_qq3d=not args.no_qq3d)
+        installer = package_installer(installed_version())
         if installer and args.install:
             say("\n== Install ==")
             install_over_existing(installer)

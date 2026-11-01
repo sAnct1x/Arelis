@@ -10,15 +10,13 @@ Do not run this unless you mean to build a tree. The live install at
 ## Build it
 
 ```powershell
-python win-installer\build.py --qq3d-dir C:\path\to\qq3d
+python win-installer\build.py
 ```
 
-`--qq3d-dir` (or `ARELIS_QQ3D_BUILD_DIR`) names her built Quick 3D model folder, the
-output of `tools/avatar_q3d_export.py`, then `persona_q3d/convert.py` and
-`persona_q3d/port.py`. It must hold `Ellah_aether.qml` and no `.glb`. The build copies it
-to `dist\qq3d` and the setup `.exe` installs it to `%LOCALAPPDATA%\Arelis\avatar\qq3d`.
-It is never committed to git, so the build stops if the folder is missing. Only
-`--no-installer` and `--measure-only` builds can skip it.
+Her Quick 3D model is committed in `arelis/assets/qq3d`, so it is in every tree with no
+flag. The setup `.exe` installs it to `%LOCALAPPDATA%\Arelis\avatar\qq3d` rather than the
+program folder, so a plain uninstall keeps it and deleting all data removes it. The build
+stops if the model is missing from the tree or any `.glb` got in.
 
 Any Python 3.11 or newer will do as the *build* interpreter. The
 interpreter that gets **shipped** is downloaded. It is not the one you
@@ -32,7 +30,6 @@ installed and the setup `.exe` gets compiled.
 | `--no-installer` | Stop at the verified tree. |
 | `--no-prune` | Keep all of Qt. Four times the size. |
 | `--measure-only` | Report the size of an existing tree and exit. |
-| `--qq3d-dir PATH` | Her Quick 3D model folder to ship. Required for a setup `.exe`. |
 | `--keep-tree` | Reuse `dist/Arelis` instead of unpacking a clean interpreter. |
 
 Everything above works without Inno Setup. You just get a directory. To
@@ -196,7 +193,8 @@ is gone.
 
 It then asks whether to delete data too. **No** is the default, so a
 reinstall still finds conversations, memory, saved jobs, OAuth tokens,
-and downloaded models under `%LOCALAPPDATA%\Arelis`.
+and downloaded models under `%LOCALAPPDATA%\Arelis`, including her Quick 3D model in
+`avatar\qq3d`.
 
 **Yes** also removes:
 
