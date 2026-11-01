@@ -150,3 +150,26 @@ def test_her_host_puts_the_gui_thread_ahead_of_a_busy_model(tmp_path, monkeypatc
     finally:
         host.close()
         main.setPriority(QThread.Priority.NormalPriority)
+
+
+def test_her_frames_render_off_the_gui_thread(tmp_path, monkeypatch) -> None:
+    """Her scene renders on its own thread, so chat, Python and the filament timer never share her frame."""
+    import threading
+
+    from PySide6.QtCore import Qt
+
+    host = _ready_host(tmp_path, monkeypatch)
+    view = host.view.quickWindow() if hasattr(host.view, "quickWindow") else host.view
+    threads: set[int] = set()
+    view.afterRendering.connect(
+        lambda: threads.add(threading.get_ident()), Qt.ConnectionType.DirectConnection
+    )
+    for _ in range(40):
+        host.root.setProperty("level", 0.5 if len(threads) % 2 else 0.25)
+        view.update()
+        QTest.qWait(50)
+        if threads:
+            break
+    host.close()
+    assert threads, "no frame rendered"
+    assert threading.main_thread().ident not in threads
