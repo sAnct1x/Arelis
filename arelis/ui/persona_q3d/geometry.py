@@ -54,9 +54,32 @@ def pack(arrays: dict[str, np.ndarray], spec: str, count: int) -> tuple[bytes, l
     return data.tobytes(), [*layout, ("stride", off)]
 
 
+SPRITE_SLOT = "UV1"  # corner of the sprite quad, read by port.SPRITE_VERT_PRE
+_CORNERS = np.array([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]], np.float32)
+
+
+def sprite_arrays(arrays: dict[str, np.ndarray], spec: str) -> tuple[dict[str, np.ndarray], str]:
+    """Point layers as camera-facing quads: every point becomes 4 vertices sharing its attributes.
+
+    Point size (gl_PointSize) only exists on OpenGL and Vulkan; D3D11 and Metal draw every point
+    at 1 px. The vertex shader moves each corner by the point size in pixels instead.
+    """
+    n = len(arrays["position"]) // 3
+    out = {k: np.repeat(v.reshape(n, -1), 4, axis=0).ravel() for k, v in arrays.items()}
+    if any(part.startswith(SPRITE_SLOT + "=") for part in spec.split(";")):
+        raise ValueError(f"point layer spec already uses {SPRITE_SLOT}: {spec}")
+    out["_corner"] = np.tile(_CORNERS, (n, 1)).ravel()
+    return out, f"{spec};{SPRITE_SLOT}=_corner"
+
+
+def sprite_index(n: int) -> np.ndarray:
+    q = np.arange(n, dtype=np.uint32)[:, None] * 4
+    return (q + np.array([0, 1, 2, 0, 2, 3], np.uint32)).ravel()
+
+
 @QmlElement
 class LayerGeometry(QQuick3DGeometry):
-    """source: export dir + geometry id (".../scene/g3"); spec: see pack(); points: draw points."""
+    """source: export dir + geometry id (".../scene/g3"); spec: see pack(); points: sprite quads."""
 
     changed = Signal()
 
@@ -101,8 +124,11 @@ class LayerGeometry(QQuick3DGeometry):
             if not f.stem.endswith("_index")
         }
         pos = arrays["position"].reshape(-1, 3)
-        count = len(pos)
-        data, layout = pack(arrays, self._spec, count)
+        spec = self._spec
+        if self._points:
+            arrays, spec = sprite_arrays(arrays, spec)
+        count = len(arrays["position"]) // 3
+        data, layout = pack(arrays, spec, count)
         self.clear()
         self.setVertexData(QByteArray(data))
         self.setStride(layout[-1][1])
@@ -110,11 +136,13 @@ class LayerGeometry(QQuick3DGeometry):
             ct = _A.ComponentType.I32Type if is_int else _A.ComponentType.F32Type
             self.addAttribute(sem, off, ct)
         idx = base.parent / (base.name + "_index.bin")
-        if idx.exists() and not self._points:
+        if self._points:
+            self.setIndexData(QByteArray(sprite_index(len(pos)).tobytes()))
+            self.addAttribute(_A.Semantic.IndexSemantic, 0, _A.ComponentType.U32Type)
+        elif idx.exists():
             self.setIndexData(QByteArray(idx.read_bytes()))
             self.addAttribute(_A.Semantic.IndexSemantic, 0, _A.ComponentType.U32Type)
-        pt = QQuick3DGeometry.PrimitiveType
-        self.setPrimitiveType(pt.Points if self._points else pt.Triangles)
+        self.setPrimitiveType(QQuick3DGeometry.PrimitiveType.Triangles)
         lo, hi = pos.min(0), pos.max(0)
         pad = 10.0  # skinned and animated layers move far from their bind pose; never cull them
         self.setBounds(QVector3D(*(lo - pad)), QVector3D(*(hi + pad)))

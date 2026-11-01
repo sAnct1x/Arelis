@@ -77,7 +77,6 @@ COMMON = """#define modelMatrix MODEL_MATRIX
 VERT_PRE = (
     COMMON
     + """#define gl_Position POSITION
-#define gl_PointSize POINT_SIZE
 // aether.js skinPoint: bindM and the bone inverse live in the Skin's inverse bind poses, so the
 // bone transform maps the bind-space point straight to world space (uModel * bindMInv is identity).
 vec3 skinPoint(vec3 p, vec4 si, vec4 sw) { vec4 b = vec4(p, 1.0);
@@ -146,19 +145,45 @@ void MAIN() { float a = uOpacity * texture(uAlphaMap, vUv).a; if (a < uAlphaTest
   FRAGCOLOR = vec4(uColor, a); }
 """,
 }
-GALAXY_VERT = (
+
+
+# Point layers. gl_PointSize (Quick 3D POINT_SIZE) is honoured on OpenGL and Vulkan only; D3D11
+# and Metal draw every point at 1 px. So LayerGeometry(points: true) turns each point into a quad
+# whose 4 vertices carry the corner in UV1 (-0.5..0.5), and the vertex stage moves each corner by
+# the same size in framebuffer pixels that aether.js gives gl_PointSize. vPc replaces
+# gl_PointCoord (0..1 across the sprite; y runs up rather than down, and every aether sprite
+# fragment shader is radially symmetric).
+def sprite_size(size: str) -> str:
+    return f"vPc = UV1 + 0.5; POSITION.xy += UV1 * ({size}) * 2.0 / uVp * POSITION.w;"
+
+
+def point_sprites(src: str, stage: str) -> str:
+    """Rewrite a point layer's gl_PointSize / gl_PointCoord onto the quad expansion."""
+    if stage == "vert":
+        out, n = re.subn(r"gl_PointSize\s*=\s*([^;]+);", lambda m: sprite_size(m.group(1)), src)
+        if n != 1:
+            raise ValueError(f"expected one gl_PointSize write, found {n}")
+    else:
+        out = src.replace("gl_PointCoord", "vPc")
+    i = out.index("\nvoid MAIN")
+    return out[:i] + "\nVARYING vec2 vPc;\n" + out[i:]
+
+
+GALAXY_VERT = point_sprites(
     VERT_PRE
     + """VARYING vec3 vC;
 void MAIN() { vC = COLOR.rgb; vec4 mv = VIEW_MATRIX * MODEL_MATRIX * vec4(VERTEX, 1.0);
-  POSITION = PROJECTION_MATRIX * mv; POINT_SIZE = uSize * (uScale / -mv.z); }
-"""
+  POSITION = PROJECTION_MATRIX * mv; gl_PointSize = uSize * (uScale / -mv.z); }
+""",
+    "vert",
 )
-GALAXY_FRAG = (
+GALAXY_FRAG = point_sprites(
     FRAG_PRE
     + """VARYING vec3 vC;
 void MAIN() { float dq = length(gl_PointCoord - 0.5); if (dq > 0.5) discard;
   FRAGCOLOR = vec4(vC * smoothstep(0.5, 0.0, dq), 1.0); }
-"""
+""",
+    "frag",
 )
 
 
@@ -255,7 +280,7 @@ def translate(src: str, stage: str, uniforms: dict[str, tuple[str, int]]) -> str
         pre = (
             pre.replace(
                 pre[pre.index("// aether.js skinPoint") :],
-                "#define gl_Position POSITION\n#define gl_PointSize POINT_SIZE\n",
+                "#define gl_Position POSITION\n",
             )
             if stage == "vert"
             else pre
@@ -406,6 +431,8 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
         elif p["kind"] == "shader":
             vert = translate(m["vs"], "vert", uniforms)
             frag = translate(m["fs"], "frag", uniforms)
+            if p["points"]:
+                vert, frag = point_sprites(vert, "vert"), point_sprites(frag, "frag")
             if not m["dt"]:
                 vert = no_depth_test(vert)
         elif p["kind"] == "galaxy":
@@ -422,6 +449,8 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
                 "uAlphaTest": ("float", 0),
                 "uAlphaMap": ("sampler2D", 0),
             }
+        if p["points"]:
+            uniforms["uVp"] = ("vec2", 0)
         (shaders / f"L{i}.vert").write_text(vert)
         (shaders / f"L{i}.frag").write_text(frag)
         vals = dict(unis[i])
@@ -452,7 +481,9 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
                 v = vals.get(name)
                 if v is None and arr and isinstance(vals.get(arr.group(1)), list):
                     v = vals[arr.group(1)][int(arr.group(2))]
-                val = _qml_value(typ, v if v is not None else 0)
+                val = (
+                    _qml_value(typ, v if v is not None else 0) if name != "uVp" else "viewportSize"
+                )
                 if name in SPEAK and isinstance(v, list):
                     val = SPEAK[name].format(*v)
                 props.append(f"property {GLSL_QML[typ]} {name}: {val}")
@@ -507,6 +538,8 @@ def build(scene: Path, converted: Path, out_name: str = "Ellah_aether.qml") -> P
         + "\n    // ---- aether layers (arelis/ui/persona_q3d/port.py) ----\n"
         + "    // voice level 0..1 from the host/face track; drives uAnim (glow, rim) and uFX.x (motes, strands)\n"
         + "    property real speakingLevel: 0\n"
+        + "    // render target size in framebuffer pixels; point sprites are sized in it (see point_sprites)\n"
+        + "    property vector2d viewportSize: Qt.vector2d(720, 960)\n"
         + "\n".join(body)
         + "\n}\n"
     )
