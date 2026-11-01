@@ -2,10 +2,10 @@
 
 Same public API and signals as ``web_avatar.WebAvatar`` (set_state, set_level,
 refit, refresh_theme_icons, is_ready, ready, failed), so PersonaPanel does not
-change. The scene entry point is ``qq3d/Avatar.qml``; the model is not shipped:
-it is the balsam output (``Ellah_anim.qml`` with its meshes, maps and
-animations) read from the user's data folder (avatar/qq3d); ``ARELIS_AVATAR_QQ3D_DIR`` is
-only a fallback, copied into that folder on first use.
+change. The scene entry point is ``qq3d/Avatar.qml``; the model is the balsam output
+(``Ellah_anim.qml`` with its meshes, maps and animations), read from the user's data
+folder (avatar/qq3d), else ``ARELIS_AVATAR_QQ3D_DIR`` (copied into that folder on first
+use), else the copy bundled in arelis/assets/qq3d.
 
 Chosen with ``ARELIS_AVATAR_ENGINE=qq3d`` or ``--avatar-engine qq3d``, in the rooms in ROOMS.
 """
@@ -23,7 +23,7 @@ from PySide6.QtCore import QEvent, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget
 
-from arelis.paths import user_data_dir
+from arelis.paths import PACKAGE_ROOT, user_data_dir
 from arelis.ui.persona_face.web_avatar import STATE_MAP
 
 QML_DIR = Path(__file__).resolve().parent / "qq3d"
@@ -36,6 +36,9 @@ DIR_ENV = "ARELIS_AVATAR_QQ3D_DIR"
 MODEL_FILE = "Ellah_anim.qml"
 # tools/avatar_q3d_export.py writes the look (aether shaders on the same skeleton and clips).
 LOOK_FILE = "Ellah_aether.qml"
+# Her built model, committed with the package (docs/avatar.md). The installer copies it to
+# the data folder, which wins when it holds a model.
+BUNDLED_DIR = PACKAGE_ROOT / "assets" / "qq3d"
 _READY_TIMEOUT_MS = 30_000
 _OFF = {"0", "false", "no", "off"}
 FRAMETIME_ENV = "ARELIS_FRAMETIME_LOG"
@@ -194,6 +197,11 @@ def app_model_dir() -> Path:
     return user_data_dir() / "avatar" / "qq3d"
 
 
+def bundled_model_dir() -> Path:
+    """Her model as committed with the package (arelis/assets/qq3d), the last resort."""
+    return BUNDLED_DIR
+
+
 def override_dir() -> Path | None:
     """ARELIS_AVATAR_QQ3D_DIR from the process, else the saved Windows user variable, or None."""
     raw = os.environ.get(DIR_ENV, "").strip() or _saved_user_env(DIR_ENV).strip()
@@ -207,9 +215,10 @@ def _has_model(folder: Path | None) -> bool:
 
 
 def model_source() -> tuple[str, Path]:
-    """('app', dir) when the app folder has a model, else ('override', dir), else ('none', app).
+    """Where her model is read from: ('app', dir), ('override', dir) or ('bundled', dir).
 
-    ARELIS_AVATAR_QQ3D_DIR is only a fallback: a model in the app's own folder always wins.
+    The app folder wins when it holds a model, then ARELIS_AVATAR_QQ3D_DIR (process or
+    saved user variable) when it holds one, then the model bundled with the package.
     """
     app = app_model_dir()
     if _has_model(app):
@@ -217,7 +226,7 @@ def model_source() -> tuple[str, Path]:
     other = override_dir()
     if _has_model(other):
         return "override", other
-    return "none", app
+    return "bundled", bundled_model_dir()
 
 
 def model_dir() -> Path:
@@ -579,6 +588,7 @@ class _RenderThread(QThread):
         self._size: tuple[int, int] | None = None
         self._no_cache_logged = False
         self._timed = 0  # frames whose step times were logged (the first _TIMED_FRAMES)
+        self._dispose_queued = False  # dispose waits for finished when a frame outlives stop
 
     # ---- GUI thread ----
 
@@ -611,21 +621,31 @@ class _RenderThread(QThread):
                 self._cv.wait(0.5)
             return True
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        """Ask the loop to end; True once run() has returned (False if still in a frame)."""
         with self._cv:
             self._stop = True
             self._cv.notify_all()
-        self.wait(5000)
+        return self.wait(5000)
 
     def dispose(self, *_args) -> None:
-        """Stop the thread, then free the scene, its window and the control, in that order."""
+        """Stop the thread, then free the scene, its window and the control, in that order.
+
+        A frame still in flight after the wait (a heavy model's first frame on a slow GPU)
+        keeps the thread, its control and its window alive until run() returns: freeing
+        them now would pull the control out from under _release, and dropping the last
+        wrapper of a running QThread aborts the process.
+        """
         import shiboken6
 
         if not shiboken6.isValid(self):  # Qt already freed it (a host that failed to start)
             _LIVE.discard(self)
             return
-        if self.isRunning():
-            self.stop()
+        if self.isRunning() and not self.stop():
+            if not self._dispose_queued:
+                self._dispose_queued = True
+                self.finished.connect(self.dispose, Qt.ConnectionType.QueuedConnection)
+            return
         _LIVE.discard(self)
         for name in ("root", "_window", "engine", "_control"):
             obj = getattr(self, name, None)

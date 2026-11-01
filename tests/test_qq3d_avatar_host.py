@@ -290,3 +290,63 @@ def test_her_pipeline_cache_is_saved_after_the_first_frame(tmp_path, monkeypatch
     saved = path.exists() and path.stat().st_size > 0
     host.close()
     assert saved
+
+
+@pytest.mark.real_qq3d_model
+def test_model_lookup_is_app_then_override_then_bundled(tmp_path, monkeypatch) -> None:
+    from arelis.ui.persona_face import qq3d_avatar
+
+    monkeypatch.delenv("ARELIS_AVATAR_QQ3D_DIR", raising=False)
+    monkeypatch.setattr(qq3d_avatar, "_saved_user_env", lambda name: "")
+    monkeypatch.setattr(qq3d_avatar, "user_data_dir", lambda: tmp_path)
+    user = tmp_path / "avatar" / "qq3d"
+    user.mkdir(parents=True)
+    (user / "pipeline.cache").write_bytes(b"x")  # a cache alone is not a model
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    monkeypatch.setenv("ARELIS_AVATAR_QQ3D_DIR", str(other))  # set, but holds no model
+    bundled = qq3d_avatar.bundled_model_dir()
+    assert (bundled / qq3d_avatar.LOOK_FILE).is_file()
+    assert qq3d_avatar.model_source() == ("bundled", bundled)
+    (other / qq3d_avatar.LOOK_FILE).write_text("x", encoding="utf-8")
+    assert qq3d_avatar.model_source() == ("override", other)
+    (user / qq3d_avatar.LOOK_FILE).write_text("x", encoding="utf-8")
+    assert qq3d_avatar.model_source() == ("app", user)
+
+
+def test_dispose_during_a_slow_frame_waits_for_it_before_freeing_the_control(
+    tmp_path, monkeypatch
+) -> None:
+    """A frame outliving stop()'s wait must keep the control until run() returns."""
+    import time
+
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face import qq3d_avatar
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    host = QQ3DAvatar()
+    host.resize(200, 400)
+    host.show()
+    render = host._render
+    real_render, real_wait = render._calls["render"], qq3d_avatar._RenderThread.wait
+    render._calls["render"] = lambda: (time.sleep(0.6), real_render())
+    monkeypatch.setattr(
+        qq3d_avatar._RenderThread, "wait", lambda self, ms=-1: real_wait(self, 50 if ms > 0 else ms)
+    )
+    for _ in range(100):
+        if render.busy or render.error:
+            break
+        QTest.qWait(10)
+    if not render.busy:
+        pytest.skip("no Quick 3D rendering here")
+    host._dead = True  # only the render thread is under test
+    render.dispose()
+    for _ in range(100):
+        if not render.isRunning() and render not in qq3d_avatar._LIVE:
+            break
+        QTest.qWait(20)
+    assert render.error is None
+    assert render not in qq3d_avatar._LIVE

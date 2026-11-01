@@ -102,3 +102,39 @@ def test_no_other_prefix_eats_a_required_module() -> None:
         )
 
 
+def test_installer_ships_the_committed_qq3d_model_by_default() -> None:
+    # Fresh installs had no Quick 3D model because nothing shipped it. It is now committed
+    # in arelis/assets/qq3d, so every tree carries it and plain build.py ships it.
+    import tomllib
+    from pathlib import PurePosixPath
+
+    build = _load_build()
+    model = ARELIS / build.QQ3D_IN_SITE.relative_to("arelis")
+    assert (model / build.QQ3D_LOOK).is_file()
+    files = [p for p in model.rglob("*") if p.is_file()]
+    assert not [p for p in files if p.suffix == ".glb"]
+    assert max(p.stat().st_size for p in files) < 100 * 1024 * 1024  # GitHub's per-file cap
+    # Every model file is package data, so the wheel (and so the tree) holds all of it.
+    globs = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"][
+        "setuptools"
+    ]["package-data"]["arelis"]
+    rels = [PurePosixPath(p.relative_to(ARELIS).as_posix()) for p in files]
+    assert not [r for r in rels if not any(r.match(g) for g in globs)]
+    # The tree check passes on a checkout-shaped site (arelis/ beside it) and needs the model.
+    build.check_avatar_assets(ROOT)
+
+    # arelis.iss moves it out of {app} into the data folder, kept on a plain uninstall.
+    iss = (INSTALLER / "arelis.iss").read_text(encoding="utf-8")
+    assert 'Excludes: "\\Lib\\site-packages\\arelis\\assets\\qq3d"' in iss
+    assert (
+        'Source: "{#SourceTree}\\Lib\\site-packages\\arelis\\assets\\qq3d\\*"; '
+        'DestDir: "{localappdata}\\Arelis\\avatar\\qq3d"'
+    ) in iss
+    assert "uninsneveruninstall" in iss.split("assets\\qq3d\\*", 1)[1].splitlines()[0]
+    assert "#ifdef Qq3dTree" not in iss
+    # No flag, no staged folder: CI and local builds are the same plain command.
+    workflow = (INSTALLER.parent / ".github" / "workflows" / "windows-installer.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "run: python win-installer/build.py\n" in workflow
+    assert "--qq3d-dir" not in (INSTALLER / "build.py").read_text(encoding="utf-8")

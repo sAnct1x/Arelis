@@ -230,6 +230,28 @@ def arelis_window(qt_app):
             pass
 
 
+QQ3D_STAND_IN = Path(__file__).parent / "fixtures" / "qq3d_stand_in"
+
+
+@pytest.fixture(autouse=True)
+def _qq3d_stand_in_model(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Her bundled model, for the suite, is a one-cube stand-in unless a test asks for hers.
+
+    model_source() falls back to the model committed under arelis/assets/qq3d (78 MB of
+    meshes and custom materials). So any test that built a Quick 3D host without pointing
+    it somewhere rendered her real model on a background thread: a layout test in Night did,
+    and on the macOS runner the Metal pipeline build for her materials logged a Qt warning
+    from that render thread while pytest-qt was swapping its message handler in teardown,
+    and the worker segfaulted in PySide's msgHandlerCallback. A test about the real model
+    says so with @pytest.mark.real_qq3d_model.
+    """
+    if request.node.get_closest_marker("real_qq3d_model") is None:
+        from arelis.ui.persona_face import qq3d_avatar
+
+        monkeypatch.setattr(qq3d_avatar, "BUNDLED_DIR", QQ3D_STAND_IN)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _dispose_arelis_windows():
     """Take each window apart after the test that built it.

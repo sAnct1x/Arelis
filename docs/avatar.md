@@ -28,6 +28,32 @@ required: always copy it alongside `ellah.glb`. Without it she still appears, sp
 and blinks, but her body stands still in its neutral rest pose, and Arelis logs an
 error naming the path it looked in.
 
+## The Quick 3D model
+
+Her built Quick 3D model is part of Arelis. It is committed in `arelis/assets/qq3d`
+(`Ellah_aether.qml` plus its meshes, maps, clips, shaders and geometry) and ships in the
+package, so a checkout and every installer have it with no download and no build flag.
+`ellah.glb` and renders are never committed.
+
+Where Arelis reads it from is described once, under
+[Where the Quick 3D model comes from](#where-the-quick-3d-model-comes-from).
+
+The Windows installer puts the model in your data folder, not the program folder:
+
+```
+%LOCALAPPDATA%\Arelis\avatar\qq3d\Ellah_aether.qml
+```
+
+A plain uninstall keeps that folder; choosing to delete all Arelis data removes it. If you
+moved your data with `ARELIS_DATA_DIR`, copy the `qq3d` folder into that data folder's
+`avatar` folder yourself, because the installer always writes to `%LOCALAPPDATA%\Arelis`.
+
+To rebuild it after the look changes, run `tools/avatar_q3d_export.py` (writes the scene),
+then `python -m arelis.ui.persona_q3d.convert --out DIR` (balsam on `ellah-anim.glb`), then
+`python -m arelis.ui.persona_q3d.port --converted DIR`, and copy `DIR` over
+`arelis/assets/qq3d`. Check that no `.glb` landed in it and that no file is over 50 MB
+(GitHub refuses files over 100 MB).
+
 ## Where she stands
 
 She is part of the window itself, not a panel you open or close.
@@ -102,13 +128,18 @@ the log names the choice, for example
 
 ### Where the Quick 3D model comes from
 
-The app reads her model from its own data folder, `avatar\qq3d` (the repo folder on
-the dev copy, `%LOCALAPPDATA%\Arelis` once installed). `ARELIS_AVATAR_QQ3D_DIR`,
-read from the process or from your saved Windows user variables, is only a fallback
-for when that folder has no model. When the fallback is used, the app draws from it
-right away and copies it into `avatar\qq3d` in the background, so the next start
-reads its own copy. The startup line says which: `model=app`, `model=override` or
-`model=none`, followed by the folder.
+Arelis looks for her model in this order and uses the first folder that holds
+`Ellah_aether.qml` (or `Ellah_anim.qml`):
+
+1. `avatar\qq3d` in the app's data folder (the repo folder on the dev copy,
+   `%LOCALAPPDATA%\Arelis` once installed, where the installer puts it).
+2. `ARELIS_AVATAR_QQ3D_DIR`, read from the process or from your saved Windows user
+   variables. When this one is used, the app draws from it right away and copies it into
+   `avatar\qq3d` in the background, so the next start reads its own copy.
+3. The bundled `arelis/assets/qq3d`. It is never copied.
+
+The startup line says which: `model=app`, `model=override` or `model=bundled`, followed
+by the folder.
 
 The app cannot build the model from `ellah.glb` by itself. The port
 (`tools/avatar_q3d_export.py`, then `persona_q3d/convert.py` and `persona_q3d/port.py`)

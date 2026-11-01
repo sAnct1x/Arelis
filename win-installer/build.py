@@ -906,6 +906,12 @@ def prune_test_suites(site: Path) -> int:
     return freed
 
 
+# Where the committed model (arelis/assets/qq3d) lands in the tree. arelis.iss names the
+# same path twice: excluded from {app}, installed to the data folder instead.
+QQ3D_IN_SITE = Path("arelis") / "assets" / "qq3d"
+QQ3D_LOOK = "Ellah_aether.qml"
+
+
 def check_avatar_assets(site: Path) -> None:
     """The avatar scene ships in the wheel (package-data); its model and clips never do.
 
@@ -924,6 +930,12 @@ def check_avatar_assets(site: Path) -> None:
     if models:
         raise SystemExit(f"a .glb model got into the tree, which must not ship: {models}")
     say(f"    {human(tree_size(web)):>10}  avatar scene (three.js, no model)")
+    # Her built Quick 3D model is committed in arelis/assets/qq3d and ships in the wheel.
+    # arelis.iss installs this copy to %LOCALAPPDATA%\\Arelis\\avatar\\qq3d.
+    qq3d = site / QQ3D_IN_SITE
+    if not (qq3d / QQ3D_LOOK).is_file():
+        raise SystemExit(f"her Quick 3D model is missing from the tree: {qq3d / QQ3D_LOOK}")
+    say(f"    {human(tree_size(qq3d)):>10}  Quick 3D model")
 
 
 def prune(before: int) -> None:
