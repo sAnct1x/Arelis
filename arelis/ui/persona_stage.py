@@ -1,10 +1,11 @@
 """Her place in the base UI, under chat and tiles.
 
-Night and Sodium seat her in the right full-height band, head to toe and scaled
-to fit. In Filament she is the base layer: her view fills the stage (the home
-desk in a span) and she stands right of centre (FIGURE_X), full height; the orbit,
-reality and tiles live left of her figure zone and grow out of her centre
-(set_hub). The persona dock is kept only as a hidden alias.
+With WebEngine, Night and Sodium seat her in the right full-height band, head to
+toe and scaled to fit. In Filament, and in every room Quick 3D hosts her, she is
+the base layer: her view fills the stage (the home desk in a span) and she stands
+right of centre (FIGURE_X), full height; the chat, and in Filament the orbit,
+reality and tiles, live left of her figure zone (in Filament they grow out of her
+centre, set_hub). The persona dock is kept only as a hidden alias.
 """
 
 from __future__ import annotations
@@ -29,13 +30,25 @@ FIGURE_X = 0.82
 FIGURE_LEFT = 0.66
 
 
+def base_layer(theme: str) -> bool:
+    """Her view is the stage's base layer: Filament, and every room Quick 3D hosts her in.
+
+    The WebEngine host keeps Night and Sodium in the right band. Quick 3D's look carries
+    its own backdrop haze, which in a band ends on the band's edges: a box.
+    """
+    from arelis.ui.persona_face import qq3d_avatar
+
+    room = (theme or "").strip().lower()
+    return room == "filament" or qq3d_avatar.wanted(room)
+
+
 def figure_x(theme: str) -> float:
     """Where her centre stands across her view, 0..1."""
-    return FIGURE_X if (theme or "").strip().lower() == "filament" else 0.5
+    return FIGURE_X if base_layer(theme) else 0.5
 
 
 def figure_zone(region: QRect) -> QRect:
-    """Filament: the part of her full-stage region her figure takes (right of FIGURE_LEFT)."""
+    """Base layer: the part of her full-stage region her figure takes (right of FIGURE_LEFT)."""
     left = region.left() + round(region.width() * FIGURE_LEFT)
     return QRect(left, region.top(), region.right() + 1 - left, region.height())
 
@@ -127,7 +140,7 @@ class PersonaStage(QWidget):
                 parent.rect(),
                 self._home_band(),
                 chat_min=_chat_min(window),
-                base_layer=active_theme() == "filament",
+                base_layer=base_layer(active_theme()),
             )
         field = getattr(window, "_filament", None)
         if field is not None and hasattr(field, "set_hub"):
@@ -167,7 +180,7 @@ class PersonaStage(QWidget):
             parent.rect(),
             self._home_band(),
             chat_min=_chat_min(self.window()),
-            base_layer=active_theme() == "filament",
+            base_layer=base_layer(active_theme()),
         )
         return want != self.geometry()
 
@@ -175,7 +188,7 @@ class PersonaStage(QWidget):
         """Where her figure stands, in parent coordinates (Filament: her figure zone)."""
         from arelis.ui.theme_tokens import active_theme
 
-        if active_theme() == "filament":
+        if base_layer(active_theme()):
             return figure_zone(self.geometry())
         return QRect(self.geometry())
 
