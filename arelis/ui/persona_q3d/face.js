@@ -22,7 +22,7 @@ const P = {
   idle:      { br: 0.23, bd: 1.0, lean: 0.0,   tilt: 0.0,   up: 0.0,   sway: 1.0, flow: 1.0, rim: 1.0,  sh: 0, gr: 1.0,  gap: 1.0, smile: 0.05, bu: 0.0,  bi: 0.0,  pr: 0.0 },
   listening: { br: 0.22, bd: 0.85, lean: 0.08,  tilt: 0.13,  up: 0.0,   sway: 0.5, flow: 1.1, rim: 1.38, sh: 0, gr: 0.25, gap: 1.5, smile: 0.12, bu: 0.12, bi: 0.10, pr: 0.0 },
   thinking:  { br: 0.21, bd: 0.95, lean: -0.01, tilt: -0.03, up: 0.16,  sway: 0.6, flow: 2.3, rim: 1.08, sh: 1, gr: 0.45, gap: 1.6, smile: 0.0,  bu: 0.0,  bi: 0.05, pr: 0.14 },
-  speaking:  { br: 0.26, bd: 0.75, lean: 0.02, tilt: 0.0,   up: 0.0,   sway: 0.8, flow: 1.25, rim: 1.12, sh: 0, gr: 0.4, gap: 0.8, smile: 0.09, bu: 0.0,  bi: 0.0,  pr: 0.0 },
+  speaking:  { br: 0.26, bd: 0.75, lean: 0.02, tilt: 0.0,   up: 0.0,   sway: 0.8, flow: 1.25, rim: 1.12, sh: 0, gr: 0.4, gap: 1.3, smile: 0.09, bu: 0.0,  bi: 0.0,  pr: 0.0 },
   done:      { br: 0.2, bd: 1.15, lean: -0.012, tilt: 0.0, up: -0.02, sway: 0.55, flow: 0.8, rim: 1.0, sh: 0, gr: 0.6, gap: 1.4, smile: 0.16, bu: 0.0,  bi: 0.0,  pr: 0.0 },
 };
 const KEYS = Object.keys(P.idle);
@@ -57,9 +57,19 @@ function create(root, opts) {
     const pw = qarr(b.parent.sceneRotation);
     R[n] = { b, q0: qarr(b.rotation), pw, pwi: [pw[0], -pw[1], -pw[2], -pw[3]] };
   }
-  // world-space rotation (pitch x, yaw y, roll z) applied on top of the rest pose
-  const rot = (n, x, y, z) => { const r = R[n]; if (!r) return;
-    const o = qmul(qmul(qmul(r.pwi, qeulerYXZ(x, y, z)), r.pw), r.q0); r.b.rotation = Qt.quaternion(o[0], o[1], o[2], o[3]); };
+  // World-space rotation (pitch x, yaw y, roll z) applied on top of the rest pose. `level` (0..1) is how much of the
+  // trunk's turn since rest (the parent's live sceneRotation against its rest one) the bone takes back: 0 rides the
+  // body like v14k did, 1 holds the bone's rest world orientation. The body clips curl the chest ~20 deg forward and
+  // yaw it toward her right (Idle) or left (Talking), so a bone that only rides its parent ends up looking down and
+  // away; the head levels itself, the neck takes half.
+  const rot = (n, x, y, z, level) => { const r = R[n]; if (!r) return;
+    const pn = qarr(r.b.parent.sceneRotation), pni = [pn[0], -pn[1], -pn[2], -pn[3]];
+    let d = qmul(pn, r.pwi); const k = 1 - (level || 0);   // trunk turn since rest, in world
+    if (k < 1) { const sg = d[0] < 0 ? -1 : 1; d = [1 - k + k * d[0] * sg, k * d[1] * sg, k * d[2] * sg, k * d[3] * sg];
+      const l = Math.hypot(d[0], d[1], d[2], d[3]); d = d.map((v) => v / l); }
+    const o = qmul(qmul(qmul(qmul(pni, d), qeulerYXZ(x, y, z)), r.pw), r.q0); r.b.rotation = Qt.quaternion(o[0], o[1], o[2], o[3]); };
+  // Where her head rests: level, turned a little to her own left (+y turns her face toward +x, the viewer's right).
+  const HOME_YAW = 0.09;
 
   // layered noise, roughly -1..1, never repeats in practice
   const seeds = {}; const S = (k) => seeds[k] ?? (seeds[k] = rnd() * 100);
@@ -173,7 +183,7 @@ function create(root, opts) {
     // ---- speech timing: syllable onsets from the level envelope, stress, phrase boundaries ----
     const L = lvl.fast, dL = L - sp.lastL; sp.lastL = L; sp.age += dt; sp.stressT += dt;
     if (dL < -0.001) { sp.falling = true; sp.lmin = Math.min(sp.lmin, L); } else if (!sp.falling) sp.lmax = Math.max(sp.lmax, L);
-    const onset = (sp.falling && dL > 0.001 && sp.lmax - sp.lmin > 0.08 && sp.age > 0.08) || (L > 0.25 && sp.age > 0.32);
+    const onset = (sp.falling && dL > 0.001 && sp.lmax - sp.lmin > 0.08 && sp.age > 0.13) || (L > 0.25 && sp.age > 0.38);
     if (onset) { sp.lmax = L; sp.lmin = 9; }
     if (sp.falling && dL > 0.001 && !onset) sp.falling = false;
     let syl = false;
@@ -201,7 +211,7 @@ function create(root, opts) {
     let stR = 0, stP = 0, stE = 0;
     if (ev.st >= 0) { ev.st += dt; const u = ev.st / ev.stretchDur;
       if (u >= 1) { ev.st = -1; ev.stretchAt = 8 + rnd() * 22; }
-      else { const m = Math.pow(Math.sin(Math.PI * u), 1.2) * 0.2 * ev.k * calm, th = -Math.PI / 2 + u * Math.PI * 0.8;   // side -> forward -> part way over
+      else { const m = Math.pow(Math.sin(Math.PI * u), 1.2) * 0.06 * ev.k * calm, th = -Math.PI / 2 + u * Math.PI * 0.8;   // side -> forward -> part way over
         stR = m * Math.sin(th) * ev.side; stP = m * Math.cos(th) * 0.75; stE = Math.sin(Math.PI * u); } }
     // ---- breath (asymmetric: inhale 40 %, exhale 60 %; depth varies per breath; an occasional sigh) ----
     const rate = p.br * bRate * (1 + 0.08 * N(t * 0.4, 'br'));
@@ -246,20 +256,20 @@ function create(root, opts) {
     //     v3 added 0.03*stress straight to the head pitch with an 80 ms attack -> ~0.6 deg/frame jumps that made the
     //     alpha-tested back hair seen through the see-through neck crawl (the 5-7 s neck flicker).
     if (syl) { const a = Math.min(1, L * 1.4) * w.speaking, st0 = sp.stressT === 0;
-      hs.vx += (st0 ? 0.55 * sp.stress : 0.16 + 0.12 * rnd()) * a;                 // nod down on each syllable, bigger on stress
-      hs.vz += (st0 ? (rnd() < 0.5 ? -1 : 1) * 0.35 : (rnd() - 0.5) * 0.18) * a;   // small tilt, a clear one on stress
-      hs.vy += (rnd() - 0.5) * 0.16 * a; }
-    { const om3 = 11, om4 = 8; hs.vx += (-2 * om3 * hs.vx - om3 * om3 * hs.x) * dt; hs.x += hs.vx * dt;
+      hs.vx += (st0 ? 0.3 * sp.stress : 0.07 + 0.05 * rnd()) * a;                 // nod down on each syllable, bigger on stress
+      hs.vz += (st0 ? (rnd() < 0.5 ? -1 : 1) * 0.2 : (rnd() - 0.5) * 0.08) * a;   // small tilt, a clear one on stress
+      hs.vy += (rnd() - 0.5) * 0.08 * a; }
+    { const om3 = 7, om4 = 5.5; hs.vx += (-2 * om3 * hs.vx - om3 * om3 * hs.x) * dt; hs.x += hs.vx * dt;
       hs.vz += (-2 * om4 * hs.vz - om4 * om4 * hs.z) * dt; hs.z += hs.vz * dt; hs.vy += (-2 * om4 * hs.vy - om4 * om4 * hs.y) * dt; hs.y += hs.vy * dt;
       const tgt = w.speaking * (0.03 * lvl.nod + 0.008 * N(t * 0.9, 'nod') + 0.07 * ph.nodK * nodE - 0.03 * lift) + 0.03 * sg2 * (1 - 2 * (bph % 1 > 0.4));
       hs.vs += (-2 * 7 * hs.vs - 49 * (hs.s - tgt)) * dt; hs.s += hs.vs * dt; }
-    const hy = hs.y + gz.hy + 0.04 * D('hy', 2, 6) + 0.012 * N(t * 0.37, 'hy') + 0.005 * N(t * 1.3, 'hy2');
-    const hx = gz.hx + 0.022 * D('hx', 2, 7) + 0.008 * N(t * 0.29, 'hx') + 0.004 * N(t * 1.1, 'hx2') + 0.008 * b - p.up * 0.35 + 0.05 * settle
+    const hy = HOME_YAW + hs.y + gz.hy + 0.02 * D('hy', 4, 10) + 0.006 * N(t * 0.37, 'hy') + 0.005 * N(t * 1.3, 'hy2');
+    const hx = gz.hx + 0.01 * D('hx', 4, 10) + 0.005 * N(t * 0.29, 'hx') + 0.004 * N(t * 1.1, 'hx2') + 0.008 * b - p.up * 0.35 + 0.05 * settle
              + hs.s + hs.x + stP;   // beats on stress, nod at phrase end
-    const hz = hs.z + p.tilt + 0.026 * D('hz', 3, 9) + 0.008 * N(t * 0.21, 'hz') + 0.07 * ph.tiltK * nodE * w.speaking + stR;
+    const hz = hs.z + p.tilt + 0.012 * D('hz', 5, 12) + 0.005 * N(t * 0.21, 'hz') + 0.07 * ph.tiltK * nodE * w.speaking + stR;
     const hyL = hy, hxL = hx;   // m1 mixer: no scripted spine carries part of the turn any more
-    rot('NeckTwist01', hxL * 0.3 - 0.008 * b, hyL * 0.35, hz * 0.35);
-    rot('Head', hxL * 0.7 - p.lean * 0.6 + 0.02 * b + HDK * MHD[0], hyL * 0.65 + HDK * MHD[1], hz * 0.65 + HDK * MHD[2]);   // v8: + mocap head (high-passed, additive)
+    rot('NeckTwist01', hxL * 0.3 - 0.008 * b, hyL * 0.35, hz * 0.35, 0.5);
+    rot('Head', hxL * 0.7 - p.lean * 0.6 + 0.02 * b + HDK * MHD[0], hyL * 0.65 + HDK * MHD[1], hz * 0.65 + HDK * MHD[2], 1);   // v8: + mocap head (high-passed, additive)
     // eyes = gaze minus what the head already did
     const eyY = Math.max(-0.4, Math.min(0.4, gy - gz.hy)) + gz.my, eyX = Math.max(-0.25, Math.min(0.25, gx - gz.hx)) + gz.mx;
     rot('L_Eye', eyX, eyY, 0); rot('R_Eye', eyX, eyY * 0.97, 0);

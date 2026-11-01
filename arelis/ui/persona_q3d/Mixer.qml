@@ -26,6 +26,11 @@ QtObject {
     property var _bones: []       // [{node, prop, rest}] union of every clip's tracks, minus KEEP_BASE
     property var _keep: []        // [{node, prop}] bones a clip touches that the mixer must leave alone
 
+    // The clips (Mixamo, retargeted onto her CC skeleton) carry her trunk ~6 deg further forward than her own rest
+    // pose (hip to neck: +1 deg in v2_BreathingIdle against -5.4 at rest). Every frame the blended waist is turned
+    // back about the world x axis by this much, so she stands as upright as her rest pose (POSES.md).
+    property real uprightDeg: 6.5
+    property var _waist: null
     readonly property var keepBase: /^CC_Base_(NeckTwist0[12]|Head|FacialBone|JawRoot|.*Eye|Tongue.*|Teeth.*|UpperJaw)$/
 
     function setState(name) { if (_logic) _logic.setState(name); else _pending = name }
@@ -38,7 +43,7 @@ QtObject {
             var t = d[i]
             if (!t || !t.objectName || t.keyframeGroups === undefined) continue
             tl[t.objectName] = t
-            dur[t.objectName] = (t.endFrame - t.startFrame) / 1000
+            dur[t.objectName] = (t.endFrame - t.startFrame) / 1000 / rate(t.objectName)
             t.animations[0].running = false
             for (var k = 0; k < t.keyframeGroups.length; k++) {
                 var g = t.keyframeGroups[k], key = g.target.objectName + "." + g.property
@@ -49,6 +54,7 @@ QtObject {
             }
         }
         _tl = tl; _bones = bones; _keep = keep
+        for (i = 0; i < bones.length; i++) if (bones[i].node.objectName === "CC_Base_Waist" && bones[i].prop === "rotation") _waist = bones[i].node
         // dropped constant tracks: the bone still has to be reset, and it is not in any group of most clips, but it
         // is in Talking's, so the union above already holds it. Every Timeline stays enabled and idle; a sample is
         // a currentFrame write.
@@ -58,9 +64,11 @@ QtObject {
         _mode = _logic.state().mode
     }
 
+    function rate(name) { return Logic.RATE[name] || 1 }
+
     function sample(name, t) {
         for (var i = 0; i < _bones.length; i++) _bones[i].node[_bones[i].prop] = _bones[i].rest
-        var tl = _tl[name], f = tl.startFrame + t * 1000
+        var tl = _tl[name], f = tl.startFrame + t * rate(name) * 1000
         if (tl.currentFrame === f) tl.currentFrame = f + 0.001   // a write only evaluates on change
         tl.currentFrame = f
         var out = new Array(_bones.length)
@@ -82,6 +90,13 @@ QtObject {
         return Qt.vector3d(a.x + (b.x - a.x) * w, a.y + (b.y - a.y) * w, a.z + (b.z - a.z) * w)
     }
 
+    function upright() {   // waist local = parent^-1 * Rx(-uprightDeg) * parent * waist
+        if (!_waist || !uprightDeg) return
+        var p = _waist.parent.sceneRotation, a = -uprightDeg * Math.PI / 360
+        var pq = Qt.quaternion(p.scalar, p.x, p.y, p.z), rx = Qt.quaternion(Math.cos(a), Math.sin(a), 0, 0)
+        _waist.rotation = pq.inverted().times(rx).times(pq).times(_waist.rotation)
+    }
+
     function tick(dt) {
         if (!_logic) return
         var held = []
@@ -96,6 +111,7 @@ QtObject {
                 for (i = 0; i < _bones.length; i++) _bones[i].node[_bones[i].prop] = cur[i]
             }
             _clip = bl.cur.name; _w = bl.w
+            upright()
         }
         for (i = 0; i < _keep.length; i++) _keep[i].node[_keep[i].prop] = held[i]
         _mode = _logic.state().mode

@@ -5,12 +5,17 @@
 
 var ALIAS = { talking: 'speaking', rest: 'idle' };   // same names anim.js accepts
 var POOLS = {   // repeats = weight
-    idle: ['Idle', 'Idle', 'WeightShift', 'WeightShift', 'v2_BreathingIdle', 'v2_BreathingIdle', 'v2_HappyIdle'],
+    // calm idle (POSES.md): the breathing clip only. Idle swings her chest ~17 deg in yaw, WeightShift and HappyIdle
+    // shift her weight every few seconds; together they read as antsy.
+    idle: ['v2_BreathingIdle'],
     listening: ['Listening', 'Listening', 'v2_ThoughtfulHeadNod', 'Agreeing'],   // no idle clip: entering listening always fades away from idle
     thinking: ['v2_BreathingIdle', 'Idle', 'v2_ThoughtfulHeadNod'],
     speaking: ['Talking', 'Talking', 'Agreeing'],
-    done: ['v2_BreathingIdle', 'Idle'] };
+    done: ['v2_BreathingIdle'] };
 var FADE = 0.8;
+// Playback rate per clip (clip seconds per wall second). Talking's Mixamo gesture cycle at 1x reads rushed against her
+// voice; 0.7 puts a beat at roughly every 1.2 s. Mixer.qml divides the clip length by the rate and samples t * rate.
+var RATE = { Talking: 0.7 };
 
 // durations: { clipName: seconds }. Returns { setState(name), step(dt) -> blend, play(name), state() }.
 // blend = { cur: {name, t}, prev: {name, t} or null, w: weight of cur in [0, 1] } (prev weight is 1 - w).
