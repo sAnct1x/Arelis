@@ -29,3 +29,14 @@ def test_skin_opacity_defaults_to_v14k_and_spares_the_head():
     skin = port.FILL_FRAG["skin"]
     assert "uSkinOpacity * (1.0 - nA)" in skin
     assert "discard" in skin
+
+
+def test_neck_cut_follows_her_head():
+    # The neck fill cuts her see-through below uNeckY. Measured on the posed point, that line
+    # stayed put while her head moved: looking down dropped her chin and lower face under it, the
+    # face fill was discarded and her eyes, teeth and hair showed through. It must ride the mesh.
+    from pathlib import Path
+
+    face_fill = Path(port.__file__).parents[2] / "assets/qq3d/aether_shaders/L1.vert"
+    for vert in (port.FILL_VERT, face_fill.read_text()):
+        assert re.findall(r"vWp = ([\w.]+);", vert) in (["VERTEX"], ["MORPHED_VERTEX"])

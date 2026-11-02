@@ -15,7 +15,10 @@ VARYING vec2 vUv; VARYING vec3 vWp;
 void MAIN() { vec3 MORPHED_VERTEX = VERTEX; for (int k = 0; k < 1; k++) MORPHED_VERTEX += MORPH_WEIGHTS[k] * (MORPH_POSITION(k) - VERTEX);
   mat4 S = BONE_TRANSFORMS[JOINTS.x] * WEIGHTS.x + BONE_TRANSFORMS[JOINTS.y] * WEIGHTS.y
          + BONE_TRANSFORMS[JOINTS.z] * WEIGHTS.z + BONE_TRANSFORMS[JOINTS.w] * WEIGHTS.w;
-  vec4 w = S * vec4(MORPHED_VERTEX, 1.0); vUv = UV0; vWp = w.xyz;
+  // vWp feeds the neck cut (FILL_FRAG neck/skin), so it is the bind-pose point, not the posed one:
+  // a world-space cut stays put while her head moves, and looking down took the chin and lower
+  // face under uNeckY, so that fill was discarded and her eyes, teeth and hair showed through
+  vec4 w = S * vec4(MORPHED_VERTEX, 1.0); vUv = UV0; vWp = MORPHED_VERTEX;
   w.xyz += normalize(w.xyz - CAMERA_POSITION) * uPush;   // occluders sit behind the shells
   // same expression as SHELL_VERT: the shells draw over these fills at the same depth (three's
   // LessEqual), and VIEWPROJECTION * w rounds differently, so the shells z-fought them in specks
