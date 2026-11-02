@@ -209,3 +209,22 @@ on Windows it always draws above its sibling widgets, so tiles and chrome couldn
 of it. `QQuickWidget` is composited in widget z-order, so `lower()` puts it under everything.
 The orbit is still painted in Python (`filament_render.py`) in this slice and uploaded as an
 image. Slice 2 moves it into QML and shaders.
+
+### Slice 2: the orbit on the GPU
+
+Under the flag `qq3d/QuickOrbit.qml` draws the ring (with its `ring_grow` intro out of her
+hub), the four additive strands, the 1100 dust grains and the three hub threads as
+`ShaderEffect`s over the void, with no Python per frame. The stages are GLSL in
+`qq3d/orbit/` (each is `common.glsl`, the same path arithmetic as `FilamentField._point_fn`,
+plus its body) baked to `.qsb` by `python tools/build_orbit_shaders.py`; the `.qsb` files are
+committed and ship with the package. Re-run the script after editing a stage.
+
+State flows through one `OrbitState` QObject (`persona_face/orbit_state.py`), set as the
+`orbitState` context property: the settled ring, hub, ribbon halves, fade margin, span,
+weather targets, ring phase and colours. The atmosphere tick calls `update()`, and each
+property emits only when it changes. QML eases the weather and runs the clock on a
+`FrameAnimation`. Python sends a `sync` of the sim clock once a second so the beads stay on
+the path. The `FieldRenderer` worker paints only what is not ported yet (beads with the
+reality orbit, stems, tethers; slice 3) onto a clear image, which the surface adds over the
+GPU layers. Chips are still widgets. `[filament] orbit fps=N` comes from QML's frame counter
+every 5 s (`OrbitState.reportFps`).

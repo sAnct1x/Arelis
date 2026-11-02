@@ -37,6 +37,10 @@ def snapshot(field: FilamentField) -> FilamentField:
 class _Painter(QObject):
     done = Signal(QImage, float)
 
+    def __init__(self, unported_only: bool = False) -> None:
+        super().__init__()
+        self.unported_only = unported_only
+
     @Slot(object, QRect, float)
     def paint(self, field: FilamentField, rect: QRect, dpr: float) -> None:
         # Always answer, even when the paint raises: FieldRenderer holds _busy until done
@@ -53,7 +57,10 @@ class _Painter(QObject):
             img.setDevicePixelRatio(dpr)
             p = QPainter(img)
             try:
-                field._paint(p, QRect(0, 0, rect.width(), rect.height()))
+                if self.unported_only:
+                    field.paint_unported(p, QRect(0, 0, rect.width(), rect.height()))
+                else:
+                    field._paint(p, QRect(0, 0, rect.width(), rect.height()))
             finally:
                 p.end()
         except Exception:
@@ -64,12 +71,18 @@ class _Painter(QObject):
 
 
 class FieldRenderer(QObject):
-    """request() after each tick; frame() is the newest painted orbit (None until the first)."""
+    """request() after each tick; frame() is the newest painted orbit (None until the first).
+
+    unported_only (ARELIS_SURFACE=quick): the GPU draws the void, strands, dust and hub
+    threads, so the worker paints only the beads, stems and tethers, on a clear image.
+    """
 
     _job = Signal(object, QRect, float)
     ready = Signal()
 
-    def __init__(self, field: FilamentField, parent: QObject | None = None) -> None:
+    def __init__(
+        self, field: FilamentField, parent: QObject | None = None, *, unported_only: bool = False
+    ) -> None:
         super().__init__(parent)
         self.field = field
         self._image: QImage | None = None
@@ -81,7 +94,7 @@ class FieldRenderer(QObject):
         self._pending: tuple[QRect, float] | None = None
         self._thread = QThread()
         self._thread.setObjectName("filament-paint")
-        self._worker = _Painter()
+        self._worker = _Painter(unported_only)
         self._worker.moveToThread(self._thread)
         self._job.connect(self._worker.paint)
         self._worker.done.connect(self._on_done)

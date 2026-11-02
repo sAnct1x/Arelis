@@ -246,13 +246,15 @@ class WindowBuild:
         self._filament = FilamentField()
         # Off the GUI thread: her Quick 3D frames share it (filament_render).
         from arelis.ui.filament_render import FieldRenderer
-
-        self._filament_render = FieldRenderer(self._filament, self)
         from arelis.ui.persona_face import quick_surface
 
+        quick = quick_surface.enabled()
+        # Under the flag the GPU draws the void, ring, strands, dust and hub threads
+        # (QuickOrbit.qml); the worker paints only the beads, stems and tethers.
+        self._filament_render = FieldRenderer(self._filament, self, unported_only=quick)
         self._quick_surface = None
-        if quick_surface.enabled():
-            # One full-window Quick layer under every widget: void, orbit frame, her figure.
+        if quick:
+            # One full-window Quick layer under every widget: void, GPU orbit, her figure.
             quick_surface.surface_for(self)
             self._filament_render.ready.connect(self._push_orbit_to_surface)
         else:

@@ -3,7 +3,9 @@
 The default ("widget") keeps QQ3DAvatar: an offscreen QQuickRenderControl texture read back
 to a QImage every frame, and the Filament orbit blitted by the window's paintEvent. Under
 the flag the window's bottom layer is a single QQuickWidget (QuickSurface) that draws the
-void, the orbit frame as an Image layer, and her Avatar.qml at her panel's rect; nothing is
+void, the Filament orbit (slice 2: ring, strands, dust and hub threads drawn by
+QuickOrbit.qml's shaders from OrbitState; the beads, stems and tethers still a worker-painted
+image layer over them), and her Avatar.qml at her panel's rect; nothing is
 read back from the GPU. QuickSurfaceAvatar stands in for QQ3DAvatar with the same API.
 
 QQuickWidget, not createWindowContainer: a container is a native child window, and on
@@ -100,6 +102,10 @@ def _quick_widget_class():
             self._images = _image_provider()
             self.engine().addImageProvider(_ORBIT_PROVIDER, self._images)
             self._image_n = 0
+            from arelis.ui.persona_face.orbit_state import OrbitState
+
+            self.orbit_state = OrbitState(self)
+            self.rootContext().setContextProperty("orbitState", self.orbit_state)
             # No pipeline cache here: a QQuickWidget renders with its top-level window's
             # backing-store QRhi, which Qt creates without EnablePipelineCacheDataSave and
             # without the QQuickGraphicsConfiguration (qquickwidget.cpp rhiConfig says so).
@@ -139,7 +145,7 @@ def _quick_widget_class():
                 root.setProperty("voidColor", color)
 
         def set_orbit(self, image: QImage | None) -> None:
-            """Show the orbit frame (CPU-painted this slice) under her; None clears it."""
+            """The worker's layer (beads, stems, tethers) over the GPU orbit; None clears it."""
             self._set_image("orbit", "orbitSource", image)
 
         def set_backdrop(self, image: QImage | None) -> None:
