@@ -28,9 +28,12 @@ QtObject {
 
     // The clips (Mixamo, retargeted onto her CC skeleton) carry her trunk ~6 deg further forward than her own rest
     // pose (hip to neck: +1 deg in v2_BreathingIdle against -5.4 at rest). Every frame the blended waist is turned
-    // back about the world x axis by this much, so she stands as upright as her rest pose (POSES.md).
+    // back about the world x axis by this much, so she stands as upright as her rest pose (POSES.md). The turn is
+    // spread evenly over Waist, Spine01 and Spine02: all of it on the Waist alone folded her belly at that one joint
+    // (Talking: ~16 deg there against ~5 on each spine bone above it).
     property real uprightDeg: 6.5
-    property var _waist: null
+    readonly property var uprightBones: ["CC_Base_Waist", "CC_Base_Spine01", "CC_Base_Spine02"]
+    property var _spine: []
     readonly property var keepBase: /^CC_Base_(NeckTwist0[12]|Head|FacialBone|JawRoot|.*Eye|Tongue.*|Teeth.*|UpperJaw)$/
 
     function setState(name) { if (_logic) _logic.setState(name); else _pending = name }
@@ -54,7 +57,10 @@ QtObject {
             }
         }
         _tl = tl; _bones = bones; _keep = keep
-        for (i = 0; i < bones.length; i++) if (bones[i].node.objectName === "CC_Base_Waist" && bones[i].prop === "rotation") _waist = bones[i].node
+        var spine = []
+        for (var u = 0; u < uprightBones.length; u++)
+            for (i = 0; i < bones.length; i++) if (bones[i].node.objectName === uprightBones[u] && bones[i].prop === "rotation") spine.push(bones[i].node)
+        _spine = spine
         // dropped constant tracks: the bone still has to be reset, and it is not in any group of most clips, but it
         // is in Talking's, so the union above already holds it. Every Timeline stays enabled and idle; a sample is
         // a currentFrame write.
@@ -90,11 +96,13 @@ QtObject {
         return Qt.vector3d(a.x + (b.x - a.x) * w, a.y + (b.y - a.y) * w, a.z + (b.z - a.z) * w)
     }
 
-    function upright() {   // waist local = parent^-1 * Rx(-uprightDeg) * parent * waist
-        if (!_waist || !uprightDeg) return
-        var p = _waist.parent.sceneRotation, a = -uprightDeg * Math.PI / 360
-        var pq = Qt.quaternion(p.scalar, p.x, p.y, p.z), rx = Qt.quaternion(Math.cos(a), Math.sin(a), 0, 0)
-        _waist.rotation = pq.inverted().times(rx).times(pq).times(_waist.rotation)
+    function upright() {   // each spine bone: local = parent^-1 * Rx(-uprightDeg / n) * parent * local, base first
+        if (!_spine.length || !uprightDeg) return
+        var a = -uprightDeg / _spine.length * Math.PI / 360, rx = Qt.quaternion(Math.cos(a), Math.sin(a), 0, 0)
+        for (var i = 0; i < _spine.length; i++) {
+            var b = _spine[i], p = b.parent.sceneRotation, pq = Qt.quaternion(p.scalar, p.x, p.y, p.z)
+            b.rotation = pq.inverted().times(rx).times(pq).times(b.rotation)
+        }
     }
 
     function tick(dt) {
