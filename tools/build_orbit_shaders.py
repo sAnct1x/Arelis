@@ -15,7 +15,18 @@ import tempfile
 from pathlib import Path
 
 ORBIT = Path(__file__).resolve().parents[1] / "arelis" / "ui" / "persona_face" / "qq3d" / "orbit"
-STAGES = ("strand.vert", "thread.vert", "line.frag", "dust.vert", "dust.frag", "overlay.frag")
+STAGES = (
+    "strand.vert",
+    "thread.vert",
+    "line.frag",
+    "dust.vert",
+    "dust.frag",
+    "overlay.frag",
+    "tree.vert",
+    "pulse.vert",
+    "flare.vert",
+    "flare.frag",
+)
 TARGETS = ["--glsl", "100es,120,150", "--hlsl", "50", "--msl", "12"]
 
 

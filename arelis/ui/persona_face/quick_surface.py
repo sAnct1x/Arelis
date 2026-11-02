@@ -3,8 +3,8 @@
 The default ("widget") keeps QQ3DAvatar: an offscreen QQuickRenderControl texture read back
 to a QImage every frame, and the Filament orbit blitted by the window's paintEvent. Under
 the flag the window's bottom layer is a single QQuickWidget (QuickSurface) that draws the
-void, the Filament orbit (slice 2: ring, strands, dust and hub threads drawn by
-QuickOrbit.qml's shaders from OrbitState; the beads, stems and tethers still a worker-painted
+void, the Filament orbit (slice 2: ring, strands, dust and hub threads, and in idle the
+v11b orbit tree, drawn by QuickOrbit.qml's shaders from OrbitState; the beads, stems and tethers still a worker-painted
 image layer over them), and her Avatar.qml at her panel's rect; nothing is
 read back from the GPU. QuickSurfaceAvatar stands in for QQ3DAvatar with the same API.
 

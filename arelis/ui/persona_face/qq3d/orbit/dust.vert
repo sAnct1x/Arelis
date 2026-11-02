@@ -54,6 +54,19 @@ void main() {
     float sway = sin(time * 0.55 + life * 7.0 + z * 5.0);
     vec2 c = vec2(p.x + nd.x / nl * off + sway * (1.6 + size0 * 0.6),
                   p.y + nd.y / nl * off + cos(time * 0.4 + t * 10.0) * (1.2 + size0 * 0.6));
+    // Idle under the orbit tree: the grains leave the ring and hang round the tree as its
+    // sparkle (orbit_v11b's spark field), drifting and twinkling on flow.
+    if (treeOn > 0.0) {
+        float g1 = h(i, 7.0) + h(i, 8.0) + h(i, 9.0) - 1.5;
+        float g2 = h(i, 10.0) + h(i, 11.0) + h(i, 12.0) - 1.5;
+        vec2 sc = vec2(tree.z + g1 * 0.55 * view.y,
+                       h(i, 13.0) < 0.6 ? view.y * 0.29 + g2 * 0.33 * view.y
+                                        : view.y * (0.06 + 0.9 * h(i, 14.0)));
+        sc += vec2(sin(flow * 0.21 + life0 * 9.0), cos(flow * 0.17 + z * 7.0)) * (3.0 + size0);
+        float tw = 0.55 + 0.45 * sin(TAU * (flow / TREE_LOOP * (1.0 + floor(h(i, 15.0) * 2.0)) + h(i, 16.0)));
+        c = mix(c, sc, treeOn);
+        fade = mix(fade, 0.6 * edgeFade(sc.x) * tw * step(2.0, sc.y) * step(sc.y, view.y - 2.0), treeOn);
+    }
     vec3 rgb = (hot || size0 > 2.8) ? coreColor.rgb : tone(t);
     float glow = (0.34 + z * 0.52 + pulseT * 0.22 + along * 0.7) * fade;
     if (hot) glow = min(1.35, glow * 1.85);
