@@ -1,9 +1,11 @@
-"""face.js holds her head level and a little to her left whatever the body clip does to her chest.
+"""face.js holds her head level and turned a little toward the UI whatever the body clip does to her chest.
 
 The clips curl her chest forward and turn it (v14k: head down ~15-30 deg and turned to her right),
 because the head was only driven on top of its parent. Here a stand-in chest is pitched 20 deg
 forward and yawed 15 deg to her right after face.js starts; the head's world forward must stay
-level and point slightly to her left (+x).
+level and point slightly to screen-left (-x, her own right), toward the chat and tiles,
+since Quick 3D stands her right of centre in every room. The whole figure is also turned 17 deg to
+face the off-centre camera, and the head must turn with it rather than hold its old world direction.
 """
 
 from __future__ import annotations
@@ -33,7 +35,9 @@ QtObject {
             a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1], a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0]]
         const rad = Math.PI / 180, pitch = [Math.cos(10 * rad), Math.sin(10 * rad), 0, 0]   // 20 deg: +z tips down
         const yaw = [Math.cos(-7.5 * rad), 0, Math.sin(-7.5 * rad), 0]                          // 15 deg toward -x (her right)
-        const c = mul(yaw, pitch)
+        const fig = [Math.cos(-8.5 * rad), 0, Math.sin(-8.5 * rad), 0]                         // then Avatar.qml turns her 17 deg to face the camera (it follows the view size)
+        root.sceneRotation = Qt.quaternion(fig[0], fig[1], fig[2], fig[3])
+        const c = mul(fig, mul(yaw, pitch))
         chest.sceneRotation = Qt.quaternion(c[0], c[1], c[2], c[3])
         const out = []
         for (let i = 0; i < 120; i++) { f.update(1 / 30)
@@ -46,7 +50,7 @@ QtObject {
 """
 
 
-def test_head_stays_level_and_slightly_left_when_the_chest_leans_and_turns(
+def test_head_stays_level_and_turned_toward_the_ui_when_the_chest_leans_and_turns(
     qapp: object, tmp_path: Path
 ) -> None:
     src = tmp_path / "t.qml"
@@ -59,4 +63,4 @@ def test_head_stays_level_and_slightly_left_when_the_chest_leans_and_turns(
     rows = json.loads(raw)
     yaws, pitches = [r[0] for r in rows], [r[1] for r in rows]
     assert max(abs(p) for p in pitches) < 4, pitches  # level, not carried down by the chest
-    assert 1 < sum(yaws) / len(yaws) < 10, yaws  # a little to her left, not to her right
+    assert -27 < sum(yaws) / len(yaws) < -18, yaws  # the figure's camera turn plus a little more toward the UI

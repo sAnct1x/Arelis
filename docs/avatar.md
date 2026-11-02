@@ -70,6 +70,8 @@ She is part of the window itself, not a panel you open or close.
   you open sit in the space to her left, on top of her layer. Clicks on her go
   straight through to the room behind her. When the window spans two or three
   screens, she and the orbit stay on your home screen.
+- With the Quick 3D figure, in every room, her head rests turned a little toward the
+  chat and tiles on the left of the screen, not away from them.
 
 She is not a panel or dock in any room. There is no View menu entry for her and no
 Ctrl+1, and the saved window layout no longer records her.

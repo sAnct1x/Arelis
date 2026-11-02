@@ -6,7 +6,7 @@ hip to neck in the side plane: + is forward; her rest pose reads -5.4 deg.
 
 ## Idle (calm)
 - Head level: pitch within +/-3 deg of her rest pose, never carried down by the chest.
-- Head turned slightly to her left: yaw about +4 deg (face.js HOME_YAW 0.09 rad), drifting +/-3 deg.
+- Head turned slightly toward the UI (screen-left, her own right): yaw about -5 deg (face.js HOME_YAW -0.09 rad), drifting +/-3 deg.
 - The head and neck hold their world orientation against the clip's trunk turn (face.js `rot` level:
   head 1, neck 0.5), so a curled or turned chest does not tip or turn the head.
 - Body mostly still: only v2_BreathingIdle plays (mixer.js POOLS.idle and done). Idle, WeightShift and
