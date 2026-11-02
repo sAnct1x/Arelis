@@ -90,10 +90,14 @@ QtObject {
         return Qt.vector3d(a.x + (b.x - a.x) * w, a.y + (b.y - a.y) * w, a.z + (b.z - a.z) * w)
     }
 
-    function upright() {   // waist local = parent^-1 * Rx(-uprightDeg) * parent * waist
+    function upright() {   // waist local = parent^-1 * F Rx(-uprightDeg) F^-1 * parent * waist, F = her figure turn
         if (!_waist || !uprightDeg) return
+        // Lean about her own side-to-side axis: Avatar.qml yaws the whole figure to face the camera, and a lean
+        // about world x would then roll her sideways.
         var p = _waist.parent.sceneRotation, a = -uprightDeg * Math.PI / 360
-        var pq = Qt.quaternion(p.scalar, p.x, p.y, p.z), rx = Qt.quaternion(Math.cos(a), Math.sin(a), 0, 0)
+        var f = model ? model.sceneRotation : Qt.quaternion(1, 0, 0, 0), fq = Qt.quaternion(f.scalar, f.x, f.y, f.z)
+        var pq = Qt.quaternion(p.scalar, p.x, p.y, p.z)
+        var rx = fq.times(Qt.quaternion(Math.cos(a), Math.sin(a), 0, 0)).times(fq.inverted())
         _waist.rotation = pq.inverted().times(rx).times(pq).times(_waist.rotation)
     }
 

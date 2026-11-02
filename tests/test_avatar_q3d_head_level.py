@@ -30,20 +30,22 @@ QtObject {
         const head = bone("CC_Base_Head"), chest = bone("CC_Base_Spine02", [bone("CC_Base_NeckTwist01"), head])
         const root = bone("ellah", [chest])
         const link = (n) => n.children.forEach((c) => { c.parent = n; link(c) }); link(root)
-        const f = Face.create(root, { seed: 5 })
         const mul = (a, b) => [a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3], a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
             a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1], a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0]]
         const rad = Math.PI / 180, pitch = [Math.cos(10 * rad), Math.sin(10 * rad), 0, 0]   // 20 deg: +z tips down
         const yaw = [Math.cos(-7.5 * rad), 0, Math.sin(-7.5 * rad), 0]                          // 15 deg toward -x (her right)
-        const fig = [Math.cos(-8.5 * rad), 0, Math.sin(-8.5 * rad), 0]                         // then Avatar.qml turns her 17 deg to face the camera (it follows the view size)
-        root.sceneRotation = Qt.quaternion(fig[0], fig[1], fig[2], fig[3])
-        const c = mul(fig, mul(yaw, pitch))
-        chest.sceneRotation = Qt.quaternion(c[0], c[1], c[2], c[3])
+        const turn = (deg) => [Math.cos(-deg / 2 * rad), 0, Math.sin(-deg / 2 * rad), 0]        // Avatar.qml's turn to face the camera
+        const set = (n, r) => { n.sceneRotation = Qt.quaternion(r[0], r[1], r[2], r[3]) }
+        set(root, turn(10)); set(chest, turn(10)); set(head, turn(10))   // already turned when face.js starts, as in the app
+        const f = Face.create(root, { seed: 5 })
         const out = []
-        for (let i = 0; i < 120; i++) { f.update(1 / 30)
-            const h = head.rotation, w = mul(c, [h.scalar, h.x, h.y, h.z])
-            const z = mul(mul(w, [0, 0, 0, 1]), [w[0], -w[1], -w[2], -w[3]])   // world +z of the head
-            out.push([Math.atan2(z[1], z[3]) / rad, Math.asin(z[2]) / rad]) }
+        for (const deg of [10, 17]) {   // then the view resizes and the turn changes mid-run
+            const fig = turn(deg), c = mul(fig, mul(yaw, pitch))
+            set(root, fig); set(chest, c)
+            for (let i = 0; i < 60; i++) { f.update(1 / 30)
+                const h = head.rotation, w = mul(c, [h.scalar, h.x, h.y, h.z])
+                const z = mul(mul(w, [0, 0, 0, 1]), [w[0], -w[1], -w[2], -w[3]])   // world +z of the head
+                out.push([Math.atan2(z[1], z[3]) / rad, Math.asin(z[2]) / rad, deg]) } }
         return JSON.stringify(out)
     }
 }
@@ -61,6 +63,8 @@ def test_head_stays_level_and_turned_toward_the_ui_when_the_chest_leans_and_turn
     assert obj is not None, [e.toString() for e in comp.errors()]
     raw = QtCore.QMetaObject.invokeMethod(obj, "run", QtCore.Q_RETURN_ARG("QVariant"))
     rows = json.loads(raw)
-    yaws, pitches = [r[0] for r in rows], [r[1] for r in rows]
+    pitches = [r[1] for r in rows]
     assert max(abs(p) for p in pitches) < 4, pitches  # level, not carried down by the chest
-    assert -27 < sum(yaws) / len(yaws) < -18, yaws  # the figure's camera turn plus a little more toward the UI
+    for deg in (10, 17):  # her figure's camera turn plus a little more toward the UI, no more, no less
+        yaws = [r[0] for r in rows if r[2] == deg]
+        assert -deg - 10 < sum(yaws) / len(yaws) < -deg - 1, (deg, yaws)
