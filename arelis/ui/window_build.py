@@ -202,6 +202,9 @@ class WindowBuild:
         # kept the last bitmap across a dock resize, which is the offset orbit
         # after tray-quit + a restored float. Corners are a mask, not alpha.
         seal_tool_window(self)
+        from arelis.ui import sodium_diag
+
+        sodium_diag.pre_create(self)
         self.menuBar().hide()
 
     def _build_chrome(self) -> None:

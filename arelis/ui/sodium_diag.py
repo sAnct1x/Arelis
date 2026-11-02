@@ -33,6 +33,47 @@ def _attrs(w: QWidget) -> str:
     return a(w)
 
 
+def _surface(win: QWidget) -> str:
+    """Main HWND format alpha and whether Windows made it a layered window."""
+    h = win.windowHandle()
+    alpha = h.format().alphaBufferSize() if h is not None else "nohandle"
+    ex = "n/a"
+    try:
+        import ctypes
+
+        ex_style = ctypes.windll.user32.GetWindowLongW(int(win.winId()), -20)
+        ex = f"0x{ex_style & 0xFFFFFFFF:x} layered={bool(ex_style & 0x80000)}"
+    except (AttributeError, OSError):
+        ex = "n/a (not windows)"
+    return f"alpha={alpha} exstyle={ex}"
+
+
+def pre_create(win: QWidget) -> None:
+    """Create the main HWND with an alpha-free format (her qq3d default format asks for
+    alpha 8, which makes a frameless Windows top-level a layered window)."""
+    import os
+
+    from PySide6.QtGui import QSurfaceFormat
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None or (app.platformName() == "offscreen" and not os.environ.get("ARELIS_DIAG")):
+        return
+    if os.environ.get("ARELIS_DIAG_KEEP_ALPHA"):
+        return
+    keep = QSurfaceFormat.defaultFormat()
+    if keep.alphaBufferSize() <= 0:
+        return
+    opaque = QSurfaceFormat(keep)
+    opaque.setAlphaBufferSize(0)
+    QSurfaceFormat.setDefaultFormat(opaque)
+    try:
+        win.winId()
+    finally:
+        QSurfaceFormat.setDefaultFormat(keep)
+    log.info("[diag] pre_create %s", _surface(win))
+
+
 def _tick(win: QWidget, cnt: _Count) -> None:
     from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar
     from arelis.ui.theme_tokens import active_theme
@@ -43,33 +84,22 @@ def _tick(win: QWidget, cnt: _Count) -> None:
             av.installEventFilter(cnt)
             av._diag_hooked = True
     frames = [getattr(getattr(av, "_render", None), "count", 0) for av in hers]
-    log.info("[diag] theme=%s qq3d_frames=%s paints=%s attrs=%s visible=%s",
+    log.info("[diag] theme=%s qq3d_frames=%s paints=%s attrs=%s visible=%s %s",
              active_theme(), frames, dict(cnt.n), _attrs(win),
-             [av.isVisible() for av in hers])
+             [av.isVisible() for av in hers], _surface(win))
 
 
 def on_show(win: QWidget) -> None:
     import os
 
     from PySide6.QtWidgets import QApplication
-    from shiboken6 import isValid
-
-    from arelis.ui.glass import seal_tool_window
-
     app = QApplication.instance()
     if app is None or (app.platformName() == "offscreen" and not os.environ.get("ARELIS_DIAG")):
         return  # the suite: Windows launches only
 
     log.info("[diag] show attrs_before=%s", _attrs(win))
 
-    def reseal() -> None:
-        if not isValid(win):
-            return
-        seal_tool_window(win)
-        log.info("[diag] resealed attrs_after=%s", _attrs(win))
-
-    QTimer.singleShot(0, reseal)
-    QTimer.singleShot(1000, reseal)
+    log.info("[diag] show %s", _surface(win))
     if getattr(win, "_diag_timer", None) is None:
         cnt = _Count(win)
         win.installEventFilter(cnt)
