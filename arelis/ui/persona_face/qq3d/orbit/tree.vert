@@ -48,9 +48,9 @@ vec2 rootAt(vec2 end, float side, float L, float a, float b, float s) {
 }
 
 void main() {
-    // Two layers of half the columns each (strand 0, 1): a GridMesh has 16-bit indices. The
-    // half falls on a fiber's first column (fiber 512), so no fiber is cut between them.
-    float col = floor(qt_MultiTexCoord0.x * (COLS * 0.5 - 1.0) + 0.5) + strand * COLS * 0.5;
+    // Four layers of a quarter of the columns each (strand 0-3): a GridMesh has 16-bit indices.
+    // Each quarter starts on a fiber's first column (fibers 256, 512, 906), so none is cut.
+    float col = floor(qt_MultiTexCoord0.x * (COLS * 0.25 - 1.0) + 0.5) + strand * COLS * 0.25;
     float f, s;
     if (col < C_TWIG) {
         f = floor(col / K);

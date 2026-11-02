@@ -8,8 +8,10 @@ from PySide6.QtCore import QPointF, QRect, QUrl
 from PySide6.QtTest import QTest
 
 TREE_LAYERS = (
-    "orbitTree",
-    "orbitTree1",
+    "orbitTreeTex0",
+    "orbitTreeTex1",
+    "orbitTreeTex2",
+    "orbitTreeTex3",
     "orbitTreeGlow",
     "orbitPool",
     "orbitPulses",

@@ -41,7 +41,8 @@ def test_under_the_tree_the_hidden_ring_layers_draw_nothing(qt_app) -> None:
     k, k_twig = float(consts["K"]), float(consts["K_TWIG"])
     f_twig, f_lroot, fibers = (float(consts[n]) for n in ("F_TWIG", "F_LROOT", "FIBERS"))
     cols = f_twig * k + (f_lroot - f_twig) * k_twig + (fibers - f_lroot) * k
-    for name in ("orbitTree", "orbitTree1"):
+    for name in ("orbitTree", "orbitTree1", "orbitTree2", "orbitTree3"):
         mesh = root.findChild(QQuickItem, name).property("mesh")
-        assert mesh.property("resolution").width() + 1 == cols / 2, name
-    assert (cols / 2) % k == 0 and cols / 2 < f_twig * k  # the halves split between limb fibers
+        assert mesh.property("resolution").width() + 1 == cols / 4, name
+    assert (cols / 4) % k == 0 and cols / 2 < f_twig * k  # the quarters split between fibers
+    assert (cols * 3 / 4 - f_twig * k) % k_twig == 0
