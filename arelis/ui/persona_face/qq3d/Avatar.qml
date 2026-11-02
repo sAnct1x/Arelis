@@ -48,6 +48,10 @@ Item {
         for (var i = 0; i < d.length; i++) if (d[i] && d[i].keyframeGroups !== undefined) n++
         return n
     }
+    // False until the mixer has written her first clip pose: a loaded model shows its bind pose
+    // (the T-pose) until then, and on a cold start that frame stays up through the pipeline
+    // compile stall. She is hidden, and the host is not told she is ready, until she is posed.
+    property bool posed: false
     property var face: null   // Track B (persona_q3d/face.js), created once the model has loaded
 
     View3D {
@@ -87,8 +91,9 @@ Item {
             // rests her head a little further toward the UI.
             eulerRotation.y: Math.atan2(cam.position.x, cam.camZ) * 180 / Math.PI
             source: root.modelSource
+            visible: root.posed
             onStatusChanged: {
-                if (status === Loader3D.Ready) { root.startFace(item); root.sceneStatus = "ready" }
+                if (status === Loader3D.Ready) root.startFace(item)
                 else if (status === Loader3D.Error) { root.sceneError = "model failed to load"; root.sceneStatus = "error" }
             }
         }
@@ -124,6 +129,7 @@ Item {
     Connections {
         target: mixer
         function onTicked(dt) {
+            if (!root.posed && loader.status === Loader3D.Ready) { root.posed = true; root.sceneStatus = "ready" }
             if (!root.face) return
             root.face.update(dt)
             var fig = loader.item
