@@ -162,20 +162,82 @@ Item {
     }
 
     Layer {
+        id: fibers0
         objectName: "orbitTree"
-        visible: orbit.treeShow > 0.001
         treeOn: orbit.treeShow
-        strand: 0   // half the columns each: a GridMesh has 16-bit indices
-        mesh: GridMesh { resolution: Qt.size(49152 / 2 - 1, 1) }   // tree.vert COLS
+        strand: 0
+        mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
         vertexShader: "orbit/tree.vert.qsb"
     }
-    Layer {
-        objectName: "orbitTree1"
+    ShaderEffectSource {
+        id: fibersTex0
+        objectName: "orbitTreeTex0"
+        anchors.fill: parent
         visible: orbit.treeShow > 0.001
+        sourceItem: fibers0
+        hideSource: true
+        live: false
+    }
+    Layer {
+        id: fibers1
+        objectName: "orbitTree1"
         treeOn: orbit.treeShow
-        strand: 1   // half the columns each: a GridMesh has 16-bit indices
-        mesh: GridMesh { resolution: Qt.size(49152 / 2 - 1, 1) }   // tree.vert COLS
+        strand: 1
+        mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
         vertexShader: "orbit/tree.vert.qsb"
+    }
+    ShaderEffectSource {
+        id: fibersTex1
+        objectName: "orbitTreeTex1"
+        anchors.fill: parent
+        visible: orbit.treeShow > 0.001
+        sourceItem: fibers1
+        hideSource: true
+        live: false
+    }
+    Layer {
+        id: fibers2
+        objectName: "orbitTree2"
+        treeOn: orbit.treeShow
+        strand: 2
+        mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
+        vertexShader: "orbit/tree.vert.qsb"
+    }
+    ShaderEffectSource {
+        id: fibersTex2
+        objectName: "orbitTreeTex2"
+        anchors.fill: parent
+        visible: orbit.treeShow > 0.001
+        sourceItem: fibers2
+        hideSource: true
+        live: false
+    }
+    Layer {
+        id: fibers3
+        objectName: "orbitTree3"
+        treeOn: orbit.treeShow
+        strand: 3
+        mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
+        vertexShader: "orbit/tree.vert.qsb"
+    }
+    ShaderEffectSource {
+        id: fibersTex3
+        objectName: "orbitTreeTex3"
+        anchors.fill: parent
+        visible: orbit.treeShow > 0.001
+        sourceItem: fibers3
+        hideSource: true
+        live: false
+    }
+    // The fibers are most of a frame's cost (vertex work and thin-triangle raster), so each
+    // quarter draws into its own full-size texture and half of them redraw per frame (quarters
+    // 0+1, the major limbs, then 2+3): every fiber moves at half the frame rate, none thinner.
+    FrameAnimation {
+        running: orbit.visible && orbit.treeShow > 0.001
+        onTriggered: {
+            if (currentFrame % 2 == 0) { fibersTex0.scheduleUpdate(); fibersTex1.scheduleUpdate() }
+            else { fibersTex2.scheduleUpdate(); fibersTex3.scheduleUpdate() }
+        }
     }
 
     Layer {

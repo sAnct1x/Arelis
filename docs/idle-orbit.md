@@ -15,6 +15,8 @@ spread left across the floor, and soft dots of light travel from her feet along 
 up the trunk and out each branch, so each tile glows briefly when one arrives.
 While the chat window sits over the tree, the tree fades away behind it, and it fades
 back in when you close the chat.
+To test this, set ARELIS_TEST_CHAT_RECT=tree before launch: the chat opens over the tree. You
+can also give a spot in window pixels, for example ARELIS_TEST_CHAT_RECT=600,200,380,400.
 
 ## Arelis in sodium and night
 
