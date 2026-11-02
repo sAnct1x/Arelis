@@ -230,3 +230,6 @@ the path. The `FieldRenderer` worker paints only what is not ported yet (beads w
 reality orbit, stems, tethers; slice 3) onto a clear image, which the surface adds over the
 GPU layers. Chips are still widgets. `[filament] orbit fps=N` comes from QML's frame counter
 every 5 s (`OrbitState.reportFps`).
+
+The Quick 3D mixer stands her upright by turning Waist, Spine01 and Spine02 back about a
+third of the 6.5 deg each, so her stomach no longer folds at the waist.
