@@ -66,3 +66,9 @@ def test_every_tile_gets_a_packet_soon_after_she_starts_generating() -> None:
             if pa < 0.82 <= pb:  # its packet reaches the tile (flare.vert: phase 0.82)
                 lit.add(j)
     assert lit == {0, 1, 2, 3, 4, 5, 10}
+    # And each of those seven nodes has a flare to light: the flare mesh is 4 columns a node.
+    from PySide6.QtCore import QObject
+
+    flares = orbit.findChild(QObject, "orbitFlares")
+    res = flares.property("mesh").property("resolution")
+    assert (res.width() + 1) // 4 == 7
