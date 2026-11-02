@@ -801,9 +801,6 @@ class QQ3DAvatar(QWidget):
 
         self._ready = False
         self._dead = False
-        from arelis.ui import void_idle
-
-        void_idle.set_avatar_warming(True)  # cleared by her first frame or a failure
         self._state = "idle"
         self._level = -1.0
         self._image = None
@@ -834,6 +831,10 @@ class QQ3DAvatar(QWidget):
         _LIVE.add(render)
         self.destroyed.connect(lambda *_: render.dispose())
         self.destroyed.connect(lambda *_: _end_warming())
+        from arelis.ui import void_idle
+
+        # Only now: a raise above would leave the orbit slowed with no hook to clear it.
+        void_idle.set_avatar_warming(True)  # cleared by her first frame or a failure
         from PySide6.QtCore import QCoreApplication
 
         QCoreApplication.instance().aboutToQuit.connect(lambda: render.dispose())
