@@ -1453,15 +1453,18 @@ def _settled_break(body: str) -> int:
     otherwise render as a second list or table.
     """
     best = 0
-    fence = False
+    fence = ""  # the opening run, e.g. "````"; a close needs the same char, at least as long
     dollars = False
     pos = 0
     lines = body.split("\n")
     for i, line in enumerate(lines[:-1]):
         pos += len(line) + 1
         bare = line.strip()
-        if bare.startswith(("```", "~~~")):
-            fence = not fence
+        run = len(bare) - len(bare.lstrip(bare[:1])) if bare[:1] in "`~" else 0
+        if not fence and run >= 3:
+            fence = bare[:run]
+        elif fence and run >= len(fence) and bare[0] == fence[0] and not bare[run:].strip():
+            fence = ""
         elif not fence and bare == "$$":
             dollars = not dollars
         if fence or dollars or bare or i == 0 or not lines[i - 1].strip():

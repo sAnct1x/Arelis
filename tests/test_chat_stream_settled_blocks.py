@@ -34,3 +34,9 @@ def test_streaming_leaves_finished_paragraphs_alone(qt_app):
     assert "word by word" in panel.view.toPlainText()
     panel.finish_assistant()
     assert "The second one is still streaming in" in panel.view.toPlainText()
+    # A ```` fence is closed only by a run of at least four backticks, so the
+    # blank line inside it is never a safe break.
+    from arelis.ui.panels.chat import _settled_break
+
+    part = "A.\n\nB para.\n\n````\n```\ninner\n\nstill code\n"
+    assert _settled_break(part) <= part.index("````")
