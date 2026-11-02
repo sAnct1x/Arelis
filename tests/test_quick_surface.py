@@ -101,3 +101,39 @@ def test_frametime_log_records_surface_frames(qt_app, monkeypatch, tmp_path) -> 
     shiboken6.delete(surface)  # the log closes with its surface
     lines = path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2 and all(float(v) >= 0 for v in lines[0].split(","))
+
+
+def test_the_cropped_overlay_is_placed_at_its_offset(qt_app, monkeypatch) -> None:
+    """The worker's overlay covers only its box: the surface puts it there, not over the window."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QImage
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.persona_face.quick_surface import _quick_widget_class
+
+    host = QWidget()
+    host.resize(800, 500)
+    s = _quick_widget_class()(host)
+    s.resize(800, 500)
+    host.show()
+    QTest.qWait(100)
+    img = QImage(400, 200, QImage.Format.Format_ARGB32_Premultiplied)
+    img.setDevicePixelRatio(2.0)
+    img.setOffset(QPoint(120, 60))
+    img.fill(0)
+    s.set_orbit(img)
+    r = s.rootObject().property("orbitRect")
+    assert (r.x(), r.y(), r.width(), r.height()) == (120, 60, 200, 100)
+    host.hide()
+
+
+def test_her_view_has_its_camera_so_the_chest_strand_does_not_warn() -> None:
+    """mapFrom3DScene (the chest strand, each frame) warns every call unless the View3D has a camera."""
+    import re
+    from pathlib import Path
+
+    import arelis.ui.persona_face as pf
+
+    src = (Path(pf.__file__).parent / "qq3d" / "Avatar.qml").read_text(encoding="utf-8")
+    view = src[src.index("View3D {"):]
+    assert re.search(r"^\s*camera:\s*cam\s*$", view, re.M)

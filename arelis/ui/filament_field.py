@@ -625,6 +625,36 @@ class FilamentField:
             return QRect(rect)
         return QRect(rect.left(), top, w, bot - top)
 
+    def overlay_rect(self, rect: QRect) -> QRect:
+        """The box paint_unported draws in: every bead with its halo, the reality orbit with its
+        title, the stems and the tethers' curves. The worker paints only this box, so the
+        surface clears and uploads a fraction of the window each tick, not all of it."""
+        pts: list[QPointF] = []
+        for name, _t, _pad in FLOATS:
+            if name in self._hidden:
+                continue
+            pts.append(self.bead_point(name, rect))
+            if name not in FREE_FLOATS and name not in self._open and name not in self._tethers:
+                pts.append(self.anchor_point(name, rect))
+                pts.append(self.title_point(name, rect))
+        for name, tether in self._tethers.items():
+            if float(tether["grow"]) < 0.02:
+                continue
+            start, end = self.thread_start(name, rect), tether["end"]
+            pts.extend(self._tether_point(start, end, i / 8) for i in range(9))
+        if not pts:
+            return QRect()
+        # The widest stamp: the reality bead's halo with its rings and title lift.
+        margin = max(48.0, _REALITY_RX * _REALITY_RINGS[-1] + 12.0, _REALITY_TITLE_LIFT + 20.0)
+        left = min(p.x() for p in pts) - margin
+        top = min(p.y() for p in pts) - margin
+        right = max(p.x() for p in pts) + margin
+        bot = max(p.y() for p in pts) + margin
+        box = QRect(math.floor(left), math.floor(top), 0, 0)
+        box.setRight(math.ceil(right))
+        box.setBottom(math.ceil(bot))
+        return box.intersected(rect)
+
     def begin_ring_growth(self, she_is_up: Callable[[], bool] | None = None) -> None:
         """Start the Filament load: she shows first, then the ring grows from her hub."""
         self.ring_grow = 0.0

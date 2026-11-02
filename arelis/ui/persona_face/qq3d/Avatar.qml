@@ -62,6 +62,9 @@ Item {
         id: view
         objectName: "view"
         anchors.fill: parent
+        // Named, not found: mapFrom3DScene (the chest strand) needs the view's camera set, and
+        // warns on every call (each frame) without it.
+        camera: cam
         // The look's own output path, as tools/avatar_lookmatch.py PORT_SCENE renders iter5: no MSAA,
         // linear tonemap (three's OutputPass), and AetherBloom with config.js LOOK.bloom.
         environment: SceneEnvironment {

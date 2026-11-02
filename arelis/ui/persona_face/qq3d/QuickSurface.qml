@@ -9,6 +9,8 @@ Rectangle {
     id: surface
     property color voidColor: "transparent"
     property string orbitSource: ""
+    // Where the worker's image sits (window px): it covers only the beads, stems and tethers.
+    property rect orbitRect: Qt.rect(0, 0, width, height)
     // Night and Sodium: the room's atmosphere (the window's own paint would be punched out).
     property string backdropSource: ""
     // True from her scene's attach until she is posed (quick_surface.py): a calm breathing
@@ -36,7 +38,8 @@ Rectangle {
     Image {
         id: overlayImage
         objectName: "orbit"
-        anchors.fill: parent
+        x: surface.orbitRect.x; y: surface.orbitRect.y
+        width: surface.orbitRect.width; height: surface.orbitRect.height
         source: surface.orbitSource
         visible: false
         cache: false
@@ -46,7 +49,8 @@ Rectangle {
 
     ShaderEffect {
         objectName: "orbitOverlay"
-        anchors.fill: parent
+        x: surface.orbitRect.x; y: surface.orbitRect.y
+        width: surface.orbitRect.width; height: surface.orbitRect.height
         visible: surface.orbitSource !== "" && overlayImage.status === Image.Ready
         property variant source: overlayImage
         fragmentShader: "orbit/overlay.frag.qsb"

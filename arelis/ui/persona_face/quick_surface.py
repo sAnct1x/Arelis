@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import os
 
-from PySide6.QtCore import QEvent, QPointF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QWidget
 
@@ -156,7 +156,19 @@ def _quick_widget_class():
                 root.setProperty("voidColor", color)
 
         def set_orbit(self, image: QImage | None) -> None:
-            """The worker's layer (beads, stems, tethers) over the GPU orbit; None clears it."""
+            """The worker's layer (beads, stems, tethers) over the GPU orbit; None clears it.
+
+            The image covers only the box those fill (QImage.offset() in window px), so the
+            overlay is placed there rather than stretched over the window.
+            """
+            root = self.rootObject()
+            if root is not None and image is not None and not image.isNull():
+                dpr = image.devicePixelRatio() or 1.0
+                off = image.offset()
+                root.setProperty(
+                    "orbitRect",
+                    QRectF(off.x(), off.y(), image.width() / dpr, image.height() / dpr),
+                )
             self._set_image("orbit", "orbitSource", image)
 
         def set_backdrop(self, image: QImage | None) -> None:
