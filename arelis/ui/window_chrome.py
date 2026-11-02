@@ -9,10 +9,11 @@ import asyncio
 import logging
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
+    QColor,
     QKeyEvent,
     QKeySequence,
     QPainter,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.presence.readiness import ChipLevel, probe_readiness
+from arelis.ui.filament_field import FILAMENT_VOID
 from arelis.ui.glass import GlassFrame, advance_rim_pulse
 from arelis.ui.hands_host import park_hands, resume_hands
 from arelis.ui.idle_host import note_engagement, sync_idle_mode
@@ -456,11 +458,21 @@ class WindowChrome:
             painter.setClipRegion(event.region())
             render = getattr(self, "_filament_render", None)
             frame = render.frame_for(self.rect(), self.devicePixelRatioF()) if render else None
-            if frame is None:
-                self._filament.paint(painter, self.rect())
-            else:
-                painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            if frame is not None:
                 painter.drawImage(0, 0, frame)
+                render.note_shown(frame)
+                return
+            # No worker frame at this size yet (first frame, resize, DPR change, span
+            # grow; frame_for has asked for one). Never paint the field here: a full
+            # Python field paint on the UI thread was the startup stall. Stretch the
+            # last frame if there is one, else the plain void; ready repaints us.
+            last = render.frame() if render else None
+            if last is not None:
+                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+                painter.drawImage(QRectF(self.rect()), last)
+            else:
+                painter.fillRect(self.rect(), QColor(*FILAMENT_VOID))
             return
         path = QPainterPath()
         path.addRoundedRect(self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS)

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import math
 import random
-import time
 from collections.abc import Callable
 from typing import Literal
 
@@ -30,7 +29,6 @@ from PySide6.QtGui import (
     QImage,
     QPainter,
     QPen,
-    QPixmap,
     QRadialGradient,
     QRegion,
 )
@@ -135,7 +133,10 @@ def _lit(rgb: tuple[int, int, int], alpha: float) -> QColor:
     return QColor(rgb[0], rgb[1], rgb[2], max(0, min(255, int(alpha * 255))))
 
 
-_ORB_CACHE: dict[tuple[int, ...], QPixmap] = {}
+# QImage, not QPixmap: the stamps are built and drawn on the filament-paint worker,
+# and QPixmap is only safe on the GUI thread. That was why warm_orb_stamps used to
+# run on the GUI thread (FieldRenderer init and every _paint), stalling startup.
+_ORB_CACHE: dict[tuple[int, ...], QImage] = {}
 
 
 def _orb_key(
@@ -196,7 +197,7 @@ def _orb_stamp(
     *,
     core: float = 0.0,
     pin: float = 0.0,
-) -> QPixmap:
+) -> QImage:
     """Bake one glow into RAM. Same look, no per-frame gradient build."""
     key = _orb_key(radius, rgb, core, pin)
     hit = _ORB_CACHE.get(key)
@@ -219,9 +220,8 @@ def _orb_stamp(
         pin=0.85 if key[5] else 0.0,
     )
     qp.end()
-    pix = QPixmap.fromImage(img)
-    _ORB_CACHE[key] = pix
-    return pix
+    _ORB_CACHE[key] = img
+    return img
 
 
 def warm_orb_stamps() -> None:
@@ -269,7 +269,7 @@ def _paint_soft_orb(
         return
     painter.setOpacity(min(1.0, max(0.0, glow)))
     half = stamp.width() * 0.5
-    painter.drawPixmap(QPointF(p.x() - half, p.y() - half), stamp)
+    painter.drawImage(QPointF(p.x() - half, p.y() - half), stamp)
     painter.setOpacity(1.0)
 
 
@@ -470,8 +470,6 @@ def attach_on_rect(rect: QRect, from_pt: QPointF) -> QPointF:
     return QPointF(x, y)
 
 
-_PACE_SHARE = 3.0  # interval per ms of paint: about a third of the UI thread
-_PACE_MAX_MS = 100  # never slower than 10 Hz
 
 
 class FilamentField:
@@ -481,7 +479,6 @@ class FilamentField:
         rng = random.Random(11)
         self.state: Weather = "idle"
         self.span = 1
-        self._paint_ms = 0.0
         self._desk_left = 0.0
         self._desk_w = 0.0
         self.form = 0.0
@@ -541,25 +538,20 @@ class FilamentField:
         self._load = str(name or "")
 
     def atmosphere_ms(self) -> int:
-        """Field timer. Camera + 3-span do not try for 30 Hz of 11 Mpx.
+        """Field timer: 33 ms (30 Hz), 40 ms on a 3-span desk, 50 ms with the camera live.
 
-        Paced by what a paint really costs, too: the field paints on the UI
-        thread that also hands her frames to the screen, so a field that takes
-        20 ms a paint at 30 Hz held her at 8-38 fps. It keeps the field under
-        about a third of the thread. The sim steps by the real interval, so
-        the drift speed is the same, only sampled less often.
+        Fixed, not stretched by paint cost. The old pacing (max(33, 3x smoothed paint
+        ms)) dated from when the field painted on the UI thread. With the paint on the
+        worker it only capped the orbit, and the slow cold first paint stretched the
+        interval for seconds after startup. The worker now drops ticks while a frame is
+        in flight (FieldRenderer.request), which bounds the cost instead. Not 16 ms:
+        that flat rate cost her frames in the Windows bench.
         """
         if self._load == "camera":
-            base = 50
-        elif self.span >= 3:
-            base = 40
-        else:
-            base = 33
-        return int(min(_PACE_MAX_MS, max(base, self._paint_ms * _PACE_SHARE)))
-
-    def note_paint_ms(self, ms: float) -> None:
-        """Smoothed cost of one field paint, for the pacing above."""
-        self._paint_ms += (max(0.0, float(ms)) - self._paint_ms) * 0.2
+            return 50
+        if self.span >= 3:
+            return 40
+        return 33
 
     def strand_steps(self, w: float) -> int:
         """Segments per strand. Caps so a 7680 desk stays drawable."""
@@ -909,15 +901,12 @@ class FilamentField:
         return QRegion(rect)
 
     def paint(self, painter: QPainter, rect: QRect) -> None:
-        t0 = time.perf_counter()
         self._paint(painter, rect)
-        self.note_paint_ms((time.perf_counter() - t0) * 1000.0)
 
     def _paint(self, painter: QPainter, rect: QRect) -> None:
         w, h = rect.width(), rect.height()
         if w <= 0 or h <= 0:
             return
-        warm_orb_stamps()
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
