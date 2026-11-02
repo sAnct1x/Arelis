@@ -13,6 +13,8 @@ so the two always match.
 In filament, when she is idle, the orbit grows as a living tree of fine light: its roots
 spread left across the floor, and soft dots of light travel from her feet along the floor,
 up the trunk and out each branch, so each tile glows briefly when one arrives.
+While the chat window sits over the tree, the tree fades away behind it, and it fades
+back in when you close the chat.
 
 ## Arelis in sodium and night
 
