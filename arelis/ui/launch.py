@@ -205,6 +205,28 @@ def _present_at_startup(window: Any) -> None:
         state &= ~Qt.WindowState.WindowMaximized
     window.setWindowState(state)
     show_without_activating(window)
+    _settle_maximized_surface(window)
+
+
+
+def _settle_maximized_surface(window: Any, *, tries: int = 50) -> None:
+    """Give a maximized launch one real resize once Windows exposes it.
+
+    Mapped maximized without activation, the HWND is not exposed at show, and Qt's
+    raster surface is never presented until a real geometry change: Night and Sodium
+    stayed black (Filament got its resize from placing itself on the desk). A 1 px
+    round trip after the first expose is that geometry change.
+    """
+    if window.isHidden() or not window.isMaximized():
+        return
+    handle = window.windowHandle()
+    if handle is None or not handle.isExposed():
+        if tries > 0:
+            QTimer.singleShot(100, lambda: _settle_maximized_surface(window, tries=tries - 1))
+        return
+    size = window.size()
+    window.resize(size.width() - 1, size.height())
+    QTimer.singleShot(200, lambda: window.resize(size))
 
 
 def _open_ui_reason(msg: object) -> str:
