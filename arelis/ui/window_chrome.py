@@ -172,6 +172,9 @@ class WindowChrome:
             self._filament.set_state(self._filament_weather())
             self._filament.tick(ms / 1000.0)
             self._place_filament_floats(reshape=False)
+            surface = getattr(self, "_quick_surface", None)
+            if surface is not None:
+                surface.orbit_state.update(self._filament, self.rect())
             render = getattr(self, "_filament_render", None)
             if render is not None:
                 render.request(self.rect(), self.devicePixelRatioF())  # ready repaints
@@ -453,7 +456,11 @@ class WindowChrome:
         return True
 
     def _push_orbit_to_surface(self) -> None:
-        """ARELIS_SURFACE=quick: the worker's orbit frame goes to the Quick layer, not a blit."""
+        """ARELIS_SURFACE=quick: the worker's layer (beads, stems, tethers) goes to the surface.
+
+        No note_shown here: under the flag the orbit is the GPU's, and QuickOrbit.qml's own
+        frame counter logs '[filament] orbit fps=N' (OrbitState.reportFps).
+        """
         surface = getattr(self, "_quick_surface", None)
         render = getattr(self, "_filament_render", None)
         if surface is None or render is None:
@@ -464,7 +471,6 @@ class WindowChrome:
         frame = render.frame_for(self.rect(), self.devicePixelRatioF())
         if frame is not None:
             surface.set_orbit(frame)
-            render.note_shown(frame)
 
     def _sync_surface_void(self, surface) -> bool:
         """The Quick layer paints the whole backdrop. True: Filament (void + orbit).
@@ -477,6 +483,7 @@ class WindowChrome:
         filament = active_theme() == "filament"
         if getattr(self, "_surface_void_filament", None) is not filament:
             self._surface_void_filament = filament
+            surface.orbit_state.set_active(filament)
             surface.set_void(
                 QColor(*FILAMENT_VOID) if filament else QColor(Qt.GlobalColor.transparent)
             )

@@ -237,6 +237,8 @@ arelis = [
     "ui/persona_face/web/vendor/three/*",
     "ui/persona_face/web/vendor/three/addons/*/*.js",
     "ui/persona_face/qq3d/*.qml",
+    # The Filament orbit's ShaderEffect stages (QuickOrbit.qml): GLSL and the baked .qsb.
+    "ui/persona_face/qq3d/orbit/*",
     "ui/persona_q3d/*.qml",
     "ui/persona_q3d/*.js",
 ]

@@ -1,0 +1,147 @@
+// The Filament orbit on the GPU (ARELIS_SURFACE=quick, slice 2): the ring and its load-time
+// growth out of her hub, the four strands of the current, the dust, and the hub threads, as
+// ShaderEffects over the void. No Python per frame: OrbitState (quick_surface.py) carries the
+// geometry and the weather and emits on change; this file eases the weather and runs the clock
+// on a FrameAnimation, as FilamentField.tick does, and takes a 1 s sync of the sim's clock so
+// the beads, stems and tethers the Python worker still paints (the overlay) stay on the path.
+import QtQuick
+
+Item {
+    id: orbit
+    required property QtObject st
+    visible: st.active
+
+    property real time: 0
+    property real form: 0
+    property real speed: 0.08
+    property real pulse: 0
+    property real warm: 0
+    property real words: 0
+    property real dustClock: 0
+    property real ringGrow: 1
+    property real clockErr: 0
+    property bool synced: false
+    property bool clockRunning: true  // a still (a comparison grab) freezes the clock
+    readonly property real ringScale: {
+        const g = Math.max(0, Math.min(1, ringGrow));
+        return g * g * (3 - 2 * g);
+    }
+    readonly property real speakHead: (time * 0.14) % 1.0
+    readonly property real pulseT: (Math.sin(time * 1.15) * 0.5 + 0.5) * pulse
+        + Math.pow(Math.max(0, Math.sin(time * 1.55)), 8) * words * 0.85
+
+    property int fpsFrames: 0
+    property real fpsSpan: 0
+
+    function ease(cur, want, dt, sec) {
+        return cur + (want - cur) * (1 - Math.exp(-dt / Math.max(0.05, sec)));
+    }
+
+    function step(raw) {
+        fpsFrames += 1;
+        fpsSpan += raw;
+        if (fpsSpan >= 5.0) {
+            st.reportFps(Math.round(fpsFrames / fpsSpan));
+            fpsFrames = 0;
+            fpsSpan = 0;
+        }
+        const dt = Math.min(0.05, Math.max(0, raw));
+        const phase = st.ringPhase;
+        if (phase === "grow")
+            ringGrow = Math.min(1, ringGrow + dt / st.ringGrowSeconds);
+        else if (phase === "wait")
+            ringGrow = 0;
+        else
+            ringGrow = 1;
+        const want = st.target;  // form, speed, pulse, warm, words
+        form = ease(form, want[0], dt, 1.85);
+        speed = ease(speed, want[1], dt, 1.1);
+        pulse = ease(pulse, want[2], dt, 0.9);
+        warm = ease(warm, want[3], dt, 1.2);
+        words = ease(words, want[4], dt, 0.8);
+        const fix = clockErr * Math.min(1, dt * 3);
+        clockErr -= fix;
+        time += dt * speed * 1.7 + fix;
+        dustClock += dt * (0.012 + speed * 0.028);
+    }
+
+    function takeSync() {
+        const s = st.sync;  // time, form, speed, pulse, warm, words
+        if (!s || s.length < 6)
+            return;
+        if (!synced || Math.abs(s[0] - time) > 0.5) {
+            time = s[0];
+            clockErr = 0;
+            synced = true;
+        } else {
+            clockErr = s[0] - time;
+        }
+        form = s[1]; speed = s[2]; pulse = s[3]; warm = s[4]; words = s[5];
+    }
+
+    Connections {
+        target: orbit.st
+        function onSyncChanged() { orbit.takeSync(); }
+        function onRingPhaseChanged() { orbit.ringGrow = orbit.st.ringGrow; }
+    }
+    Component.onCompleted: { takeSync(); ringGrow = st.ringPhase === "" ? 1 : st.ringGrow; }
+
+    FrameAnimation {
+        running: orbit.visible && orbit.clockRunning
+        onTriggered: orbit.step(frameTime)
+    }
+
+    component Layer: ShaderEffect {
+        anchors.fill: parent
+        property real time: orbit.time
+        property real form: orbit.form
+        property real warm: orbit.warm
+        property real pulseT: orbit.pulseT
+        property real words: orbit.words
+        property real speakHead: orbit.speakHead
+        property real ringScale: orbit.ringScale
+        property real fullHalf: orbit.st.fullHalf
+        property real listenHalf: orbit.st.listenHalf
+        property real fadeMargin: orbit.st.fadeMargin
+        property real strand: 0
+        property real dustClock: orbit.dustClock
+        property real speed: orbit.speed
+        property real hasHub: orbit.st.hasHub ? 1 : 0
+        property real pad0: 0
+        property size view: Qt.size(orbit.width, orbit.height)
+        property point hub: orbit.st.hub
+        property vector4d ring: orbit.st.ring
+        property color ice: orbit.st.ice
+        property color gold: orbit.st.gold
+        property color coreColor: orbit.st.core
+        fragmentShader: "orbit/line.frag.qsb"
+    }
+
+    Repeater {
+        model: 4
+        Layer {
+            required property int index
+            strand: index
+            mesh: GridMesh { resolution: Qt.size(192, 1) }
+            vertexShader: "orbit/strand.vert.qsb"
+        }
+    }
+
+    Layer {
+        objectName: "orbitDust"
+        mesh: GridMesh { resolution: Qt.size(4 * 1100 - 1, 1) }
+        vertexShader: "orbit/dust.vert.qsb"
+        fragmentShader: "orbit/dust.frag.qsb"
+    }
+
+    Repeater {
+        model: 3
+        Layer {
+            required property int index
+            visible: orbit.st.hasHub
+            strand: index
+            mesh: GridMesh { resolution: Qt.size(48, 1) }
+            vertexShader: "orbit/thread.vert.qsb"
+        }
+    }
+}

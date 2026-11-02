@@ -992,6 +992,25 @@ class FilamentField:
         self._paint_tethers(painter, rect)
         painter.restore()
 
+    def paint_unported(self, painter: QPainter, rect: QRect) -> None:
+        """ARELIS_SURFACE=quick: only what QuickOrbit.qml does not draw yet, on clear.
+
+        The void, the strands, the dust and the hub threads are on the GPU there; the beads
+        (with the reality orbit), the stems and the tethers are still this paint, added onto
+        a transparent layer the surface adds over the GPU orbit, as _paint adds them.
+        """
+        if rect.width() <= 0 or rect.height() <= 0:
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.fillRect(rect, Qt.GlobalColor.transparent)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Plus)
+        self._paint_beads(painter, rect)
+        self._paint_stems(painter, rect)
+        self._paint_tethers(painter, rect)
+        painter.restore()
+
     def _paint_beads(self, painter: QPainter, rect: QRect) -> None:
         """One particle per tile, off the dust, same path-speed as the word."""
         painter.setPen(Qt.PenStyle.NoPen)
