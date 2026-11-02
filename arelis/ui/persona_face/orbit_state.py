@@ -1,7 +1,9 @@
 # ruff: noqa: N815  (Qt property and signal names are QML-facing camelCase)
 """What QuickOrbit.qml needs from the Filament sim, as one QObject (ARELIS_SURFACE=quick).
 
-Slice 2 draws the ring, the strands, the dust and the hub threads on the GPU. Python no longer
+Slice 2 draws the ring, the strands, the dust and the hub threads on the GPU; in idle the
+orbit tree (Iris's v11b: trunk, limbs, roots, floor link, light packets, node flares) stands
+for the ring, from the anchors here. Python no longer
 paints them, and nothing here runs per frame: the atmosphere tick (30 Hz, the sim's own clock)
 calls update(), and each property emits only when its value changes. Geometry changes on
 resize, span and hub moves; the weather on a state change; the ring's growth on its phase
@@ -22,6 +24,7 @@ from arelis.ui import filament_field as ff
 
 LOG = logging.getLogger("arelis.avatar")
 SYNC_S = 1.0
+TREE_FLOOR = 0.955  # the floor the tree stands on, as a share of the height (v11b: 1328/1392)
 
 
 class OrbitState(QObject):
@@ -41,6 +44,8 @@ class OrbitState(QObject):
     goldChanged = Signal()
     coreChanged = Signal()
     syncChanged = Signal()
+    treeChanged = Signal()
+    feetChanged = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -61,6 +66,8 @@ class OrbitState(QObject):
             "gold": QColor(*ff._GOLD),
             "core": QColor(*ff._CORE),
             "sync": [],
+            "tree": QVector4D(),
+            "feet": QPointF(),
         }
         self._sync_at = 0.0
         self.emits = 0  # how many property changes went to QML (the test and the bench read it)
@@ -82,6 +89,7 @@ class OrbitState(QObject):
         cx, cy, rx, ry = field.ellipse(rect, settled=True)
         self._set("ring", QVector4D(cx, cy, rx, ry))
         hub = field.hub
+        self._set_tree(rect, cx, cy, rx, ry, hub)
         self._set("hasHub", hub is not None)
         if hub is not None:
             self._set("hub", QPointF(hub))
@@ -106,6 +114,20 @@ class OrbitState(QObject):
                 [field.time, field.form, field.speed, field.pulse, field.warm, field.words],
             )
 
+    def _set_tree(
+        self, rect: QRect, cx: float, cy: float, rx: float, ry: float, hub: QPointF | None
+    ) -> None:
+        """The orbit tree's anchors (Iris's v11b): its base on the floor under the ring, its fork
+        inside the ring, and her feet on the floor below her hub, where the floor link and the
+        light packets start. The limbs, roots and packets are the GPU's (tree.vert)."""
+        h = float(rect.height())
+        floor = rect.top() + h * TREE_FLOOR
+        base_x = cx - rx * 0.03
+        fork_y = cy + max(ry * 0.55, h * 0.10)
+        self._set("tree", QVector4D(base_x, floor, cx + rx * 0.02, fork_y))
+        feet_x = hub.x() if hub is not None else min(cx + rx * 1.6, rect.right() - 40.0)
+        self._set("feet", QPointF(feet_x, floor))
+
     @Slot(int)
     def reportFps(self, fps: int) -> None:
         """QML's frame counter, every 5 s: the same line the widget path logs."""
@@ -128,3 +150,5 @@ class OrbitState(QObject):
     gold = Property(QColor, lambda self: self._values["gold"], notify=goldChanged)
     core = Property(QColor, lambda self: self._values["core"], notify=coreChanged)
     sync = Property(list, lambda self: self._values["sync"], notify=syncChanged)
+    tree = Property(QVector4D, lambda self: self._values["tree"], notify=treeChanged)
+    feet = Property(QPointF, lambda self: self._values["feet"], notify=feetChanged)

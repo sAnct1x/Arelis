@@ -4,6 +4,9 @@
 // geometry and the weather and emits on change; this file eases the weather and runs the clock
 // on a FrameAnimation, as FilamentField.tick does, and takes a 1 s sync of the sim's clock so
 // the beads, stems and tethers the Python worker still paints (the overlay) stay on the path.
+// In idle the orbit tree (Iris's v11b) stands for the ring: fibers, roots and floor link
+// (tree.vert), light packets as travelling dots (pulse.vert) and node flares (flare.vert),
+// all moving on `flow`, seconds of calm time; the ring's strands come back as form rises.
 import QtQuick
 
 Item {
@@ -18,6 +21,8 @@ Item {
     property real warm: 0
     property real words: 0
     property real dustClock: 0
+    property real flow: 0
+    readonly property real treeOn: 1 - Math.max(0, Math.min(1, (form - 0.1) / 0.5))
     property real ringGrow: 1
     property real clockErr: 0
     property bool synced: false
@@ -63,6 +68,7 @@ Item {
         clockErr -= fix;
         time += dt * speed * 1.7 + fix;
         dustClock += dt * (0.012 + speed * 0.028);
+        flow = (flow + dt) % 600.0;  // a whole number of 6 s packet loops, so the wrap is seamless
     }
 
     function takeSync() {
@@ -114,6 +120,10 @@ Item {
         property color ice: orbit.st.ice
         property color gold: orbit.st.gold
         property color coreColor: orbit.st.core
+        property vector4d tree: orbit.st.tree
+        property point feet: orbit.st.feet
+        property real flow: orbit.flow
+        property real treeOn: orbit.treeOn
         fragmentShader: "orbit/line.frag.qsb"
     }
 
@@ -125,6 +135,13 @@ Item {
             mesh: GridMesh { resolution: Qt.size(192, 1) }
             vertexShader: "orbit/strand.vert.qsb"
         }
+    }
+
+    Layer {
+        objectName: "orbitTree"
+        visible: orbit.treeOn > 0.001
+        mesh: GridMesh { resolution: Qt.size(520 * 48 - 1, 1) }
+        vertexShader: "orbit/tree.vert.qsb"
     }
 
     Layer {
@@ -143,5 +160,21 @@ Item {
             mesh: GridMesh { resolution: Qt.size(48, 1) }
             vertexShader: "orbit/thread.vert.qsb"
         }
+    }
+
+    Layer {
+        objectName: "orbitFlares"
+        visible: orbit.treeOn > 0.001
+        mesh: GridMesh { resolution: Qt.size(4 * 6 - 1, 1) }
+        vertexShader: "orbit/flare.vert.qsb"
+        fragmentShader: "orbit/flare.frag.qsb"
+    }
+
+    Layer {
+        objectName: "orbitPulses"
+        visible: orbit.treeOn > 0.001
+        mesh: GridMesh { resolution: Qt.size(4 * (11 * 6 + 36 * 3) - 1, 1) }
+        vertexShader: "orbit/pulse.vert.qsb"
+        fragmentShader: "orbit/dust.frag.qsb"
     }
 }

@@ -15,7 +15,8 @@ void main() {
     float fade = min(edgeFade(p.x), pathFade(t));
     // Python skips a segment whose fade is 0.12 or less.
     float a = fade > 0.12 ? (0.10 + strand * 0.016) * fade : 0.0;
-    vColor = vec4(tone(t), a);
+    // Idle: the tree (tree.vert) stands for the ring; the current comes back as form rises.
+    vColor = vec4(tone(t), a * (1.0 - treeOn));
     vLine = vec2(side * reach, halfW);
     gl_Position = qt_Matrix * vec4(p + n * side * reach, 0.0, 1.0);
 }

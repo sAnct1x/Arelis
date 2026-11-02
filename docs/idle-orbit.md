@@ -10,6 +10,10 @@ Filament is drawn in Arelis's own violet and lilac. The room reads those
 colours from the same file her 3D figure uses (`persona_face/web/config.js`),
 so the two always match.
 
+In filament, when she is idle, the orbit grows as a living tree of fine light: its roots
+spread left across the floor, and soft dots of light travel from her feet along the floor,
+up the trunk and out each branch, so each tile glows briefly when one arrives.
+
 ## Arelis in sodium and night
 
 Her 3D figure shows in every theme: a band on the right in sodium and night, her

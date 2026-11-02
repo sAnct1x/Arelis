@@ -28,7 +28,7 @@ void main() {
     vec2 d = bez(hub, e, min(1.0, u + 0.004)) - bez(hub, e, max(0.0, u - 0.004));
     vec2 n = normalize(vec2(-d.y, d.x) + vec2(1e-6));
     float halfW = 0.7;
-    vColor = vec4(gold.rgb, hasHub > 0.5 ? 0.10 + 0.14 * u : 0.0);
+    vColor = vec4(gold.rgb, hasHub > 0.5 ? (0.10 + 0.14 * u) * (1.0 - treeOn) : 0.0);
     vLine = vec2(side * (halfW + 1.0), halfW);
     gl_Position = qt_Matrix * vec4(p + n * side * (halfW + 1.0), 0.0, 1.0);
 }
