@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+from arelis.core.events import Event, EventType
+from arelis.ui.event_host import dispatch_event
 from tests.test_scene_loads_visible import _FakeScene
 
 
@@ -16,7 +21,11 @@ def test_streamed_text_drives_mouth_and_audio_wins(qt_app, monkeypatch) -> None:
     panel = PersonaPanel()
     panel.set_clock(lambda: now[0])
     panel.set_state("speaking")
-    panel.note_text("Hello there, ")
+    window = SimpleNamespace(
+        _mobile_foreign=False, _assistant_streaming=True, _clear_model_loading=lambda: None,
+        conversation=MagicMock(), chat=MagicMock(), persona_panel=panel,
+    )
+    dispatch_event(window, Event(EventType.ASSISTANT_DELTA, {"text": "Hello there, "}))
     seen = []
     for _ in range(10):
         now[0] += 0.033
