@@ -46,3 +46,17 @@ def test_tree_stands_under_the_ring_and_stays_while_she_thinks(qt_app) -> None:
             assert layer is not None and layer.property("visible") is True, (name, form)
             shader = QML_DIR / layer.property("vertexShader").toString()
             assert shader.is_file(), shader
+
+
+def test_tree_waits_hidden_before_the_load_starts(qt_app) -> None:
+    """Her T-pose: before begin_ring_growth the GPU tree is held at 'wait' with no growth."""
+    from arelis.ui.filament_field import FilamentField
+    from arelis.ui.persona_face.orbit_state import OrbitState
+
+    field = FilamentField()
+    field.set_hub(QPointF(1000, 320), 900)
+    assert field.ring_started is False
+    state = OrbitState()
+    state.update(field, QRect(0, 0, 1200, 700), now=0.0)
+    assert state.property("ringPhase") == "wait"
+    assert state.property("ringGrow") == 0.0
