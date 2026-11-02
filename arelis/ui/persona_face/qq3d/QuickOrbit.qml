@@ -23,6 +23,7 @@ Item {
     property real words: 0
     property real dustClock: 0
     property real flow: 0
+    readonly property real flowRate: 0.4
     // The tree stands in every state (idle, thinking, speaking); form only brightens its packets.
     readonly property real treeOn: 1
     // The tree's own layers (fibers, glow, pool, packets, flares): faded out, then not drawn at
@@ -74,7 +75,8 @@ Item {
         clockErr -= fix;
         time += dt * speed * 1.7 + fix;
         dustClock += dt * (0.012 + speed * 0.028);
-        flow = (flow + dt) % 600.0;  // a whole number of 6 s packet loops, so the wrap is seamless
+        // flow runs at FLOW_RATE of real time: a 15 s packet loop and a slow wind, calm water.
+        flow = (flow + dt * flowRate) % 600.0;  // a whole number of loops, so the wrap is seamless
     }
 
     function takeSync() {
@@ -128,6 +130,7 @@ Item {
         property color coreColor: orbit.st.core
         property vector4d tree: orbit.st.tree
         property point feet: orbit.st.feet
+        property point reality: orbit.st.reality
         property real flow: orbit.flow
         property real treeOn: orbit.treeOn
         fragmentShader: "orbit/line.frag.qsb"

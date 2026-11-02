@@ -32,7 +32,12 @@ def test_flag_on_builds_one_quick_surface_without_readback(qt_app, monkeypatch) 
     panel = win.persona_panel
     assert isinstance(panel, PersonaPanel)
     host = panel.web
+    seen = []  # the breathing loading state holds her slot until her scene is ready
     for _ in range(60):
+        surface = getattr(host, "surface", None)
+        quick_root = surface.rootObject() if surface is not None else None
+        if quick_root is not None:
+            seen.append(quick_root.property("loading"))
         if host is not None and host.is_ready():
             break
         QTest.qWait(100)
@@ -43,6 +48,8 @@ def test_flag_on_builds_one_quick_surface_without_readback(qt_app, monkeypatch) 
         win.children().index(c) for c in win.findChildren(type(win.stage)) if c.parentWidget() is win
     )
     assert host.root is not None and host.root.parentItem().objectName() == "avatarSlot"
+    QTest.qWait(200)
+    assert True in seen and surfaces[0].rootObject().property("loading") is False, seen
     host.set_state("speaking")
     assert host.root.property("speaking") is True
     assert readback == []

@@ -11,6 +11,10 @@ Rectangle {
     property string orbitSource: ""
     // Night and Sodium: the room's atmosphere (the window's own paint would be punched out).
     property string backdropSource: ""
+    // True from her scene's attach until she is posed (quick_surface.py): a calm breathing
+    // light where she will stand, so a cold start (her model, the pipeline compile) reads as
+    // her arriving, not as a frozen window.
+    property bool loading: false
     color: voidColor
 
     Image {
@@ -74,5 +78,49 @@ Rectangle {
         id: slot
         objectName: "avatarSlot"
         visible: false
+    }
+
+    Item {
+        id: loadingState
+        objectName: "loadingState"
+        x: slot.x; y: slot.y; width: slot.width; height: slot.height
+        opacity: surface.loading ? 1 : 0
+        visible: opacity > 0.01
+        Behavior on opacity { NumberAnimation { duration: 900; easing.type: Easing.InOutSine } }
+        property real breath: 0
+        SequentialAnimation on breath {
+            running: loadingState.visible
+            loops: Animation.Infinite
+            NumberAnimation { from: 0; to: 1; duration: 2400; easing.type: Easing.InOutSine }
+            NumberAnimation { from: 1; to: 0; duration: 2400; easing.type: Easing.InOutSine }
+        }
+        Repeater {
+            model: 3
+            Rectangle {
+                readonly property real r: 26 + index * 22 + loadingState.breath * (10 + index * 8)
+                x: loadingState.width * 0.5 - r
+                y: loadingState.height * 0.46 - r
+                width: r * 2; height: r * 2; radius: r
+                color: "transparent"
+                border.width: 1.2
+                border.color: Qt.rgba(0.66, 0.56, 1.0, (0.42 - index * 0.11) * (0.55 + 0.45 * loadingState.breath))
+            }
+        }
+        Rectangle {
+            readonly property real r: 7 + loadingState.breath * 3
+            x: loadingState.width * 0.5 - r
+            y: loadingState.height * 0.46 - r
+            width: r * 2; height: r * 2; radius: r
+            color: Qt.rgba(0.86, 0.80, 1.0, 0.55 + 0.4 * loadingState.breath)
+        }
+        Text {
+            objectName: "loadingText"
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: loadingState.height * 0.46 + 96
+            text: "She is waking up"
+            color: Qt.rgba(0.80, 0.74, 1.0, 0.45 + 0.35 * loadingState.breath)
+            font.pixelSize: 15
+            font.letterSpacing: 1.5
+        }
     }
 }

@@ -18,11 +18,12 @@ Invariants the next sitting will break if they "clean up":
 from __future__ import annotations
 
 import math
+import os
 import random
 from collections.abc import Callable
 from typing import Literal
 
-from PySide6.QtCore import QLineF, QObject, QPoint, QPointF, QRect, Qt, Signal
+from PySide6.QtCore import QLineF, QObject, QPoint, QPointF, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -68,7 +69,8 @@ _WEATHER = {
 # t walks the current left→right. On a 3-span the bands are desks:
 # left history/notify/contacts, home chat/thinking/camera,
 # right days. Reality is not on the current, it sits
-# alone at the bottom-right of the primary. pad is radial px outside the light.
+# alone in the top-left corner of the primary. pad is radial px outside the light.
+# On the quick surface (crown) the six sit at CROWN_DEG round the tree's crown instead.
 FLOATS = (
     ("history", 0.10, 58),
     ("notify", 0.18, 58),
@@ -79,12 +81,15 @@ FLOATS = (
     ("reality", 0.00, 0),
 )
 FREE_FLOATS = frozenset({"reality"})
+# Each tile's place round the tree's crown, degrees on the settled ring (screen y down, so
+# 270 is the top), in FLOATS order. common.glsl crownTip has the same table and arithmetic.
+CROWN_DEG = (172.0, 214.0, 252.0, 290.0, 328.0, 8.0)
 # Atmosphere ticks between stacking refreshes of the floats (about 1 s).
 _RESTACK_TICKS = 30
 
 # Mini-world off the home corner. Rings are distinct radii so they read
-# as orbits, not one smudged ellipse. The center sits the same air off
-# the right edge and the bottom — not jammed in the corner.
+# as orbits, not one smudged ellipse. It sits in the top-left corner of the
+# home desk, at the end of its own limb of the tree.
 _REALITY_RX = 42.5
 _REALITY_RY = 21.25
 _REALITY_RINGS = (
@@ -93,7 +98,9 @@ _REALITY_RINGS = (
     1.22,
     1.58,
 )
-_REALITY_INSET = 176.0
+# From the home desk's top-left: clear of the caption bar, its title above the rings.
+_REALITY_INSET_X = 110.0
+_REALITY_INSET_Y = 140.0
 _REALITY_HIT = 65.0
 _REALITY_TITLE_LIFT = 45.0
 _REALITY_BEAD = 70
@@ -102,7 +109,8 @@ _STRANDS = 4
 _DUST = 1100
 
 
-RING_GROW_S = 1.8
+RING_GROW_S = 3.0
+CAPTURE_CHAT_ENV = "ARELIS_CAPTURE_CHAT"
 RING_WAIT_MAX_S = 6.0
 
 
@@ -494,6 +502,12 @@ class FilamentField:
         self._live_phase = 0.0
         self._tethers: dict[str, dict] = {}
         self.hub: QPointF | None = None
+        # Her chest bone on screen (quick surface, every frame she is posed): the chat strand
+        # starts here, so it leaves her body where a reach would, and follows her animation.
+        self.heart: QPointF | None = None
+        # The quick surface's orbit tree stands for the ring (OrbitState sets this): the tiles
+        # then sit on fixed points of its crown (crown_point), not riding the current.
+        self.crown = False
         # Window x where her band starts (Filament): the ring, ask and reality stay left of it.
         self.band_left: float | None = None
         # The open chat tile's rect in window coords (None when closed): the GPU orbit tree fades
@@ -731,8 +745,13 @@ class FilamentField:
         self.hub = QPointF(point) if point is not None else None
         self.band_left = float(band_left) if point is not None and band_left is not None else None
 
+    def set_heart(self, point: QPointF | None) -> None:
+        self.heart = QPointF(point) if point is not None else None
+
     def thread_start(self, name: str, rect: QRect) -> QPointF:
-        """Where an open tile's strand starts: her hub when she has one."""
+        """Where an open tile's strand starts: her chest (tracked), else her hub."""
+        if self.heart is not None and self.hub is not None:
+            return QPointF(self.heart)
         if self.hub is not None:
             return QPointF(self.hub)
         return self.bead_point(name, rect)
@@ -790,15 +809,33 @@ class FilamentField:
         if found is None:
             cx, cy, _rx, _ry = self.ellipse(rect)
             return QPointF(cx, cy)
+        if self.crown:
+            return self.crown_point(name, rect)
         return self._point(found[0], 2.0, rect)
 
-    def _free_bead(self, rect: QRect) -> QPointF:
-        """Reality sits off the current, same air to the right and the bottom."""
+    def crown_point(self, name: str, rect: QRect) -> QPointF:
+        """A tile's light on the tree's crown: a fixed point of the ring, drifting a few px.
+
+        The tips used to ride the current (round the ring, and out to the full-width ribbon
+        when she thinks), so the limbs swept the whole window. Here they stay in the crown.
+        """
+        j = next(i for i, (key, _t, _p) in enumerate(FLOATS) if key == name)
+        cx, cy, rx, ry = self.ellipse(rect)
+        ang = math.radians(CROWN_DEG[j]) + 0.035 * math.sin(self.time * 0.6 + j * 1.9)
+        rad = 0.9 * (1.0 + 0.02 * math.sin(self.time * 0.45 + j * 2.3))
+        return QPointF(cx + math.cos(ang) * rx * rad, cy + math.sin(ang) * ry * rad)
+
+    def reality_center(self, rect: QRect) -> QPointF:
+        """Reality's resting point, before its few px of drift."""
         home = self.home_rect(rect)
         if not home.isValid():
             home = QRect(rect)
-        x = float(home.right()) - _REALITY_INSET
-        y = float(home.bottom()) - _REALITY_INSET
+        return QPointF(home.left() + _REALITY_INSET_X, home.top() + _REALITY_INSET_Y)
+
+    def _free_bead(self, rect: QRect) -> QPointF:
+        """Reality sits off the current, alone in the home desk's top-left corner."""
+        c = self.reality_center(rect)
+        x, y = c.x(), c.y()
         sway = math.sin(self.time * 0.70 + 1.3) * 3.0
         bob = math.cos(self.time * 0.55) * 2.5
         return QPointF(x + sway, y + bob)
@@ -851,7 +888,7 @@ class FilamentField:
         cx, cy, _rx, _ry = self.ellipse(rect)
         if found is None:
             return QPointF(cx, cy), QPointF(cx, cy)
-        p = self._point(found[0], 2.0, rect)
+        p = self.crown_point(name, rect) if self.crown else self._point(found[0], 2.0, rect)
         dx, dy = p.x() - cx, p.y() - cy
         length = math.hypot(dx, dy) or 1.0
         ux, uy = dx / length, dy / length
@@ -884,8 +921,11 @@ class FilamentField:
         return home
 
     def prompt_point(self, rect: QRect) -> QPointF:
-        """Ask cluster sits under the ring, on the home desk."""
-        cx, cy, _rx, ry = self.ellipse(rect, settled=True)
+        """Ask cluster sits under the ring, on the home desk; under the crown it stands left
+        of the tree's trunk (which rises from under the ring's centre), not on it."""
+        cx, cy, rx, ry = self.ellipse(rect, settled=True)
+        if self.crown:
+            return QPointF(cx - rx * 0.95, cy + ry + 96)
         return QPointF(cx, cy + ry + 96)
 
     def prompt_rect(self, rect: QRect) -> QRect:
@@ -1564,6 +1604,27 @@ class FilamentChatWindow(QWidget):
         self.body_layout.setContentsMargins(0, 0, 0, 0)
         self.body_layout.setSpacing(8)
         root.addWidget(self.body, stretch=1)
+        # ARELIS_CAPTURE_CHAT=<path.png>: the tile is its own window, so a grab of the main
+        # window misses it. Ctrl+Shift+F12 on the tile, and 1.5 s after each show, write the
+        # tile alone to that path ("{n}" in the path numbers each capture).
+        self._captures = 0
+        if os.environ.get(CAPTURE_CHAT_ENV, "").strip():
+            from PySide6.QtGui import QKeySequence, QShortcut
+
+            grab = QShortcut(QKeySequence("Ctrl+Shift+F12"), self)
+            grab.setContext(Qt.ShortcutContext.WindowShortcut)
+            grab.activated.connect(self.capture)
+
+    def capture(self) -> str | None:
+        """Write the tile alone to ARELIS_CAPTURE_CHAT; the path written, or None when unset."""
+        raw = os.environ.get(CAPTURE_CHAT_ENV, "").strip()
+        if not raw:
+            return None
+        self._captures += 1
+        path = raw.replace("{n}", str(self._captures))
+        self.grab().save(path)
+        _alog("chat capture", path=path)
+        return path
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -1571,6 +1632,8 @@ class FilamentChatWindow(QWidget):
 
         enable_win32_resize_frame(self)
         self.setMouseTracking(True)
+        if os.environ.get(CAPTURE_CHAT_ENV, "").strip():
+            QTimer.singleShot(1500, self.capture)
 
     def changeEvent(self, event) -> None:  # type: ignore[override]
         from PySide6.QtCore import QEvent

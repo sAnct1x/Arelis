@@ -60,3 +60,51 @@ def test_tree_waits_hidden_before_the_load_starts(qt_app) -> None:
     state.update(field, QRect(0, 0, 1200, 700), now=0.0)
     assert state.property("ringPhase") == "wait"
     assert state.property("ringGrow") == 0.0
+
+
+def _crown_field(qt_app):
+    from arelis.ui.filament_field import FilamentField
+    from arelis.ui.persona_face.orbit_state import OrbitState
+
+    rect = QRect(0, 0, 1280, 696)
+    field = FilamentField()
+    field.set_hub(QPointF(1000, 330), 860)
+    state = OrbitState()
+    state.update(field, rect, now=0.0)
+    return field, state, rect
+
+
+def test_tiles_stay_in_the_crown_while_she_thinks(qt_app) -> None:
+    """The limbs end on the tiles: tiles that rode the current swept them toward her."""
+    from arelis.ui.filament_field import FLOATS, FREE_FLOATS
+
+    field, _state, rect = _crown_field(qt_app)
+    cx, cy, rx, ry = field.ellipse(rect, settled=True)
+    for form, t in ((0.0, 3.0), (1.0, 11.0), (1.0, 40.0)):
+        field.form, field.time = form, t
+        for name, _t, _pad in FLOATS:
+            if name in FREE_FLOATS:
+                continue
+            p = field.bead_point(name, rect)
+            assert abs(p.x() - cx) < rx + 60 and abs(p.y() - cy) < ry + 60, (name, form, p)
+
+
+def test_reality_sits_top_left_and_the_tree_reaches_it(qt_app) -> None:
+    field, state, rect = _crown_field(qt_app)
+    home = field.home_rect(rect)
+    p = field.bead_point("reality", rect)
+    assert p.x() < home.left() + home.width() * 0.2 and p.y() < home.top() + home.height() * 0.3
+    assert state.property("reality") == field.reality_center(rect)  # its limb's end (pulses)
+
+
+def test_ask_stands_off_the_trunk(qt_app) -> None:
+    field, state, rect = _crown_field(qt_app)
+    ask = field.prompt_rect(rect)
+    base_x = state.property("tree").x()
+    assert ask.right() < base_x - 40  # the trunk rises from base_x, the ask stands left of it
+
+
+def test_chat_strand_leaves_her_chest_not_her_hub(qt_app) -> None:
+    field, _state, rect = _crown_field(qt_app)
+    field.set_heart(QPointF(1004, 250))
+    assert field.thread_start("chat", rect) == QPointF(1004, 250)

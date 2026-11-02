@@ -184,7 +184,10 @@ void main() {
             float tot = routeTot(j);
             pl += pkt(j, s * lf / tot, tot);
         }
-        a = (0.4 + th(f, 6.0) * 0.6) * brk * (0.45 + 0.55 * smoothstep(0.0, 0.1, s)) * 0.09 * (1.0 + 1.5 * pl);
+        // They leave her feet brightest (s 0) and thin toward the root, a sheen running away from her.
+        float sheen = 0.7 + 0.3 * sin(TAU * (ph - 2.0 * s) + th(i, 9.0) * TAU);
+        a = (0.4 + th(f, 6.0) * 0.6) * max(brk, 0.5 * (1.0 - s)) * (1.6 - 0.9 * s) * sheen * 0.09
+          * (1.0 + 1.5 * pl);
         gpos = 0.0;
     } else if (f < F_WRAP) {
         // The flare at the trunk's foot: buttress strands from low on the trunk, swept out
