@@ -40,3 +40,17 @@ def test_streaming_leaves_finished_paragraphs_alone(qt_app):
 
     part = "A.\n\nB para.\n\n````\n```\ninner\n\nstill code\n"
     assert _settled_break(part) <= part.index("````")
+
+    # A long list settles item by item: finished items stay put and the list goes on.
+    panel.begin_assistant()
+    panel.append_delta("Steps:\n\n- one\n- two\n")
+    panel._flush_stream_paint()
+    item = _first_block(panel).next()
+    assert item.textList() is not None
+    item.setUserState(9)
+    for n in ("three", "four", "five"):
+        panel.append_delta(f"- {n}\n")
+        panel._flush_stream_paint()
+    item = _first_block(panel).next()
+    assert item.userState() == 9
+    assert item.textList().count() == 5
