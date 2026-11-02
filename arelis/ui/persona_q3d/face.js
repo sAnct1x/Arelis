@@ -68,8 +68,10 @@ function create(root, opts) {
     if (k < 1) { const sg = d[0] < 0 ? -1 : 1; d = [1 - k + k * d[0] * sg, k * d[1] * sg, k * d[2] * sg, k * d[3] * sg];
       const l = Math.hypot(d[0], d[1], d[2], d[3]); d = d.map((v) => v / l); }
     const o = qmul(qmul(qmul(qmul(pni, d), qeulerYXZ(x, y, z)), r.pw), r.q0); r.b.rotation = Qt.quaternion(o[0], o[1], o[2], o[3]); };
-  // Where her head rests: level, turned a little to her own left (+y turns her face toward +x, the viewer's right).
-  const HOME_YAW = 0.09;
+  // Where her head rests: level, turned a little toward the UI. +y turns her face toward +x, the viewer's right.
+  // Every room Quick 3D hosts her in stands her right of centre (persona_stage.FIGURE_X) with the chat, orbit and
+  // tiles on screen-left, so she rests turned to -x: the viewer's left, her own right.
+  const HOME_YAW = -0.09;
 
   // layered noise, roughly -1..1, never repeats in practice
   const seeds = {}; const S = (k) => seeds[k] ?? (seeds[k] = rnd() * 100);
