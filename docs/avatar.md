@@ -192,3 +192,20 @@ qt_rhi=...` line of the startup surface report. Leaving them unset keeps normal 
 | `ARELIS_GPU_ARM` | `none`, `d3d11`, `gl`, `nocomp` | Earlier arms, already measured on Atria. |
 | `ARELIS_AVATAR_BACKDROP` | `opaque` | Paints the room colour under her instead of a see-through page. |
 | `ARELIS_PRESERVE_BUFFER` | `off` | Her canvas without preserveDrawingBuffer. |
+
+## One Quick surface (`ARELIS_SURFACE=quick`, slice 1)
+
+`ARELIS_SURFACE=quick` (process env, else the saved Windows user variable) makes the window's
+bottom layer a single full-window `QQuickWidget` (`arelis/ui/persona_face/quick_surface.py`,
+`qq3d/QuickSurface.qml`). It paints the void, shows the Filament orbit frame as an `Image`
+layer, and hosts her `Avatar.qml` at her panel's rect through `QuickSurfaceAvatar`, which has
+the same API as `QQ3DAvatar`. Nothing is read back from the GPU, and the window's
+`paintEvent` stops blitting the orbit. Unset, or any other value, keeps the default widget path
+(the `QQuickRenderControl` readback and the paintEvent blit). Startup logs
+`[avatar] surface=quick|widget source=...`.
+
+Why `QQuickWidget` and not `createWindowContainer`: a container is a native child window, and
+on Windows it always draws above its sibling widgets, so tiles and chrome couldn't sit on top
+of it. `QQuickWidget` is composited in widget z-order, so `lower()` puts it under everything.
+The orbit is still painted in Python (`filament_render.py`) in this slice and uploaded as an
+image. Slice 2 moves it into QML and shaders.

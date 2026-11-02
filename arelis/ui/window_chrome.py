@@ -451,7 +451,36 @@ class WindowChrome:
             return False
         return True
 
+    def _push_orbit_to_surface(self) -> None:
+        """ARELIS_SURFACE=quick: the worker's orbit frame goes to the Quick layer, not a blit."""
+        surface = getattr(self, "_quick_surface", None)
+        render = getattr(self, "_filament_render", None)
+        if surface is None or render is None:
+            return
+        if active_theme() != "filament":
+            surface.set_orbit(None)
+            return
+        frame = render.frame_for(self.rect(), self.devicePixelRatioF())
+        if frame is not None:
+            surface.set_orbit(frame)
+            render.note_shown(frame)
+
+    def _sync_surface_void(self, surface) -> bool:
+        """The Quick layer paints the void in Filament; elsewhere it is clear. True: Filament."""
+        filament = active_theme() == "filament"
+        if getattr(self, "_surface_void_filament", None) is not filament:
+            self._surface_void_filament = filament
+            surface.set_void(
+                QColor(*FILAMENT_VOID) if filament else QColor(Qt.GlobalColor.transparent)
+            )
+            if not filament:
+                surface.set_orbit(None)
+        return filament
+
     def paintEvent(self, event: QPaintEvent) -> None:
+        surface = getattr(self, "_quick_surface", None)
+        if surface is not None and self._sync_surface_void(surface):
+            return  # the Quick surface under every widget draws the void and the orbit
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         if active_theme() == "filament":
