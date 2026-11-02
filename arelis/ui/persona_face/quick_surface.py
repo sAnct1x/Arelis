@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import os
 
-from PySide6.QtCore import QEvent, QPointF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QWidget
 
@@ -120,6 +120,10 @@ def _quick_widget_class():
             self._frames = qq3d_avatar.frame_log()
             if self._frames is not None:
                 qq3d_avatar.attach_frame_log(self, self.quickWindow(), self._frames)
+            # Her Loader3D is asynchronous: its incubation runs on this window's frames. A
+            # QQuickWidget's engine gets no incubation controller by itself, so without this
+            # the async load would never finish.
+            self.engine().setIncubationController(self.quickWindow().incubationController())
             self.setSource(QUrl.fromLocalFile(str(SURFACE_QML)))
             self._window = window
             window._quick_surface = self
@@ -140,13 +144,31 @@ def _quick_widget_class():
             root = self.rootObject()
             return None if root is None else root.findChild(QQuickItem, "avatarSlot")
 
+        def set_loading(self, on: bool) -> None:
+            """The breathing loading state where she will stand (QuickSurface.qml)."""
+            root = self.rootObject()
+            if root is not None:
+                root.setProperty("loading", bool(on))
+
         def set_void(self, color: QColor) -> None:
             root = self.rootObject()
             if root is not None:
                 root.setProperty("voidColor", color)
 
         def set_orbit(self, image: QImage | None) -> None:
-            """The worker's layer (beads, stems, tethers) over the GPU orbit; None clears it."""
+            """The worker's layer (beads, stems, tethers) over the GPU orbit; None clears it.
+
+            The image covers only the box those fill (QImage.offset() in window px), so the
+            overlay is placed there rather than stretched over the window.
+            """
+            root = self.rootObject()
+            if root is not None and image is not None and not image.isNull():
+                dpr = image.devicePixelRatio() or 1.0
+                off = image.offset()
+                root.setProperty(
+                    "orbitRect",
+                    QRectF(off.x(), off.y(), image.width() / dpr, image.height() / dpr),
+                )
             self._set_image("orbit", "orbitSource", image)
 
         def set_backdrop(self, image: QImage | None) -> None:
@@ -254,6 +276,8 @@ class QuickSurfaceAvatar(QWidget):
         self._deadline.setSingleShot(True)
         self._deadline.timeout.connect(lambda: self._fail("scene did not report ready"))
         self._deadline.start(qq3d_avatar._READY_TIMEOUT_MS)
+        self.surface.set_loading(True)
+        root.chestChanged.connect(self._on_chest)
         root.setProperty("modelSource", QUrl.fromLocalFile(str(model)))
 
     def _watch_ancestors(self) -> None:
@@ -339,11 +363,29 @@ class QuickSurfaceAvatar(QWidget):
     refresh_theme_icons = QQ3DAvatar.refresh_theme_icons
     _apply_theme = QQ3DAvatar._apply_theme
     _set = QQ3DAvatar._set
-    _on_status = QQ3DAvatar._on_status
+
+    def _on_status(self, *args) -> None:
+        QQ3DAvatar._on_status(self, *args)
+        if self._ready and self.surface is not None:
+            self.surface.set_loading(False)
+
+    def _on_chest(self) -> None:
+        """Her chest bone, mapped to the window: where the Filament chat strand starts."""
+        root, slot = self.root, getattr(self, "_slot", None)
+        field = getattr(self.window(), "_filament", None)
+        if root is None or slot is None or field is None or not hasattr(field, "set_heart"):
+            return
+        c = root.property("chest")
+        if c is None or c.x() < 0:
+            field.set_heart(None)
+            return
+        field.set_heart(QPointF(slot.x() + c.x(), slot.y() + c.y()))
 
     def _fail(self, reason: str) -> None:
         if not self._dead:
             slot = getattr(self, "_slot", None)
             if slot is not None:
                 slot.setVisible(False)
+            if self.surface is not None:
+                self.surface.set_loading(False)
         QQ3DAvatar._fail(self, reason)

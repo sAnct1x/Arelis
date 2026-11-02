@@ -386,3 +386,16 @@ def test_she_stays_hidden_and_not_ready_until_the_mixer_poses_her(tmp_path, monk
         pytest.skip("no Quick 3D rendering here")
     assert figure.property("visible") is True
     host.close()
+
+
+def test_her_view_has_its_camera_so_the_chest_strand_does_not_warn(tmp_path, monkeypatch) -> None:
+    """mapFrom3DScene (the chest strand, each frame) warns every call without the view's camera."""
+    from PySide6.QtQml import QQmlEngine, QQmlExpression
+
+    host = _ready_host(tmp_path, monkeypatch)
+    view = host.root.findChild(QObject, "view")
+    # QQuick3DCamera* has no Python converter: ask QML, on the loaded scene.
+    expr = QQmlExpression(QQmlEngine.contextForObject(view), view, "camera !== null")
+    has_camera, _undefined = expr.evaluate()
+    host.close()
+    assert has_camera is True

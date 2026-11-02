@@ -32,7 +32,12 @@ def test_flag_on_builds_one_quick_surface_without_readback(qt_app, monkeypatch) 
     panel = win.persona_panel
     assert isinstance(panel, PersonaPanel)
     host = panel.web
+    seen = []  # the breathing loading state holds her slot until her scene is ready
     for _ in range(60):
+        surface = getattr(host, "surface", None)
+        quick_root = surface.rootObject() if surface is not None else None
+        if quick_root is not None:
+            seen.append(quick_root.property("loading"))
         if host is not None and host.is_ready():
             break
         QTest.qWait(100)
@@ -43,6 +48,8 @@ def test_flag_on_builds_one_quick_surface_without_readback(qt_app, monkeypatch) 
         win.children().index(c) for c in win.findChildren(type(win.stage)) if c.parentWidget() is win
     )
     assert host.root is not None and host.root.parentItem().objectName() == "avatarSlot"
+    QTest.qWait(200)
+    assert True in seen and surfaces[0].rootObject().property("loading") is False, seen
     host.set_state("speaking")
     assert host.root.property("speaking") is True
     assert readback == []
@@ -94,3 +101,28 @@ def test_frametime_log_records_surface_frames(qt_app, monkeypatch, tmp_path) -> 
     shiboken6.delete(surface)  # the log closes with its surface
     lines = path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2 and all(float(v) >= 0 for v in lines[0].split(","))
+
+
+def test_the_cropped_overlay_is_placed_at_its_offset(qt_app, monkeypatch) -> None:
+    """The worker's overlay covers only its box: the surface puts it there, not over the window."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QImage
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.persona_face.quick_surface import _quick_widget_class
+
+    host = QWidget()
+    host.resize(800, 500)
+    s = _quick_widget_class()(host)
+    s.resize(800, 500)
+    host.show()
+    QTest.qWait(100)
+    img = QImage(400, 200, QImage.Format.Format_ARGB32_Premultiplied)
+    img.setDevicePixelRatio(2.0)
+    img.setOffset(QPoint(120, 60))
+    img.fill(0)
+    s.set_orbit(img)
+    r = s.rootObject().property("orbitRect")
+    assert (r.x(), r.y(), r.width(), r.height()) == (120, 60, 200, 100)
+    host.hide()
+

@@ -50,15 +50,23 @@ class _Painter(QObject):
         img = QImage()
         try:
             warm_orb_stamps()  # on this thread: the GUI thread never builds a stamp
+            full = QRect(0, 0, rect.width(), rect.height())
+            # unported_only: just the box the beads, stems and tethers fill (offset() says
+            # where): clearing and uploading the whole window each tick was the cost.
+            box = field.overlay_rect(full) if self.unported_only else full
+            if box.isEmpty():
+                box = QRect(0, 0, 1, 1)
             img = QImage(
-                QSize(int(rect.width() * dpr), int(rect.height() * dpr)),
+                QSize(int(box.width() * dpr), int(box.height() * dpr)),
                 QImage.Format.Format_ARGB32_Premultiplied,
             )
             img.setDevicePixelRatio(dpr)
+            img.setOffset(box.topLeft())
             p = QPainter(img)
             try:
                 if self.unported_only:
-                    field.paint_unported(p, QRect(0, 0, rect.width(), rect.height()))
+                    p.translate(-box.left(), -box.top())
+                    field.paint_unported(p, full)
                 else:
                     field._paint(p, QRect(0, 0, rect.width(), rect.height()))
             finally:
@@ -86,6 +94,7 @@ class FieldRenderer(QObject):
         super().__init__(parent)
         self.field = field
         self._image: QImage | None = None
+        self._image_for: tuple[QSize, float] | None = None  # the (size, dpr) it was painted for
         self._busy = False
         self._busy_size: tuple[QSize, float] | None = None
         self._shown_key = 0
@@ -133,11 +142,7 @@ class FieldRenderer(QObject):
     def frame_for(self, rect: QRect, dpr: float) -> QImage | None:
         """The newest frame if it was painted at this size; else None (asks for one)."""
         img = self._image
-        if (
-            img is None
-            or img.devicePixelRatio() != dpr
-            or img.size() != QSize(int(rect.width() * dpr), int(rect.height() * dpr))
-        ):
+        if img is None or self._image_for != (rect.size(), dpr):
             self.request(rect, dpr)
             return None
         return img
@@ -146,6 +151,7 @@ class FieldRenderer(QObject):
     def _on_done(self, img: QImage, ms: float) -> None:
         if not img.isNull():  # a failed paint keeps the last good frame
             self._image = img
+            self._image_for = self._busy_size
         self._busy = False
         self._busy_size = None
         self.ready.emit()

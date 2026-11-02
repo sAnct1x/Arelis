@@ -537,7 +537,8 @@ class ConversationStage(GlassFrame):
             if hasattr(self.chat.empty, "set_animating"):
                 self.chat.empty.set_animating(False)
             self.chat.empty.hide()
-            self.chat.view.show()
+            if not self.chat._view_parked:
+                self.chat.view.show()
         self._place_composer(want)
         self._sync_parked_orbit(want)
         self._sync_composer_buttons()
@@ -553,6 +554,7 @@ class ConversationStage(GlassFrame):
         """Field is the face. Composer and transcript live on the chat tile."""
         was = getattr(self, "_filament_desk", False)
         self._filament_desk = bool(on)
+        self.chat.set_view_parked(bool(on) and not chat_open)
         if not on:
             self._apply_talk_mark_size()
             if was:

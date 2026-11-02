@@ -7,7 +7,7 @@ for the ring, from the anchors here. Python no longer
 paints them, and nothing here runs per frame: the atmosphere tick (30 Hz, the sim's own clock)
 calls update(), and each property emits only when its value changes. Geometry changes on
 resize, span and hub moves; the weather on a state change; the ring's growth on its phase
-changes (QML runs the 1.8 s grow itself). The one steady emit is `sync`, the sim's clock and
+changes (QML runs the 3 s grow itself). The one steady emit is `sync`, the sim's clock and
 eased weather once a second (and on a weather change), so QML's clock stays on the clock the
 Python worker paints the beads, stems and tethers with.
 """
@@ -61,6 +61,7 @@ class OrbitState(QObject):
     syncChanged = Signal()
     treeChanged = Signal()
     feetChanged = Signal()
+    realityChanged = Signal()
     treeCoveredChanged = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -85,6 +86,7 @@ class OrbitState(QObject):
             "sync": [],
             "tree": QVector4D(),
             "feet": QPointF(),
+            "reality": QPointF(-1.0, -1.0),
             "treeCovered": False,
         }
         self._sync_at = 0.0
@@ -103,11 +105,17 @@ class OrbitState(QObject):
     def update(self, field: ff.FilamentField, rect: QRect, now: float | None = None) -> None:
         """After a sim tick: push what changed. Cheap; the GPU does the per-frame work."""
         self._set("active", True)
+        # The tree stands for the ring here: the worker puts the tiles' beads and words on
+        # its crown (FilamentField.crown_point), where common.glsl crownTip ends the limbs.
+        field.crown = True
         w = float(rect.width())
         cx, cy, rx, ry = field.ellipse(rect, settled=True)
         self._set("ring", QVector4D(cx, cy, rx, ry))
         hub = field.hub
         self._set_tree(rect, cx, cy, rx, ry, hub)
+        # The reality tile's light, where the tree's last minor limb ends (common.glsl).
+        hidden = "reality" in field._hidden
+        self._set("reality", QPointF(-1.0, -1.0) if hidden else field.reality_center(rect))
         self._set("treeCovered", tree_covered(field.cover, rect, cx, cy, rx, ry))
         self._set("hasHub", hub is not None)
         if hub is not None:
@@ -175,6 +183,7 @@ class OrbitState(QObject):
     sync = Property(list, lambda self: self._values["sync"], notify=syncChanged)
     tree = Property(QVector4D, lambda self: self._values["tree"], notify=treeChanged)
     feet = Property(QPointF, lambda self: self._values["feet"], notify=feetChanged)
+    reality = Property(QPointF, lambda self: self._values["reality"], notify=realityChanged)
     treeCovered = Property(
         bool, lambda self: self._values["treeCovered"], notify=treeCoveredChanged
     )

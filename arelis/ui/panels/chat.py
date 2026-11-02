@@ -80,8 +80,8 @@ def _marked_bubble(fmt) -> bool:
     return False
 
 
-def wash_message_cells(document) -> None:
-    """One translucent coat behind each message.
+def wash_message_cells(document, start: int = 0, end: int | None = None) -> None:
+    """One translucent coat behind each message (only those touching start..end when given).
 
     A CSS background paints again on every line under the words. ``bgcolor``
     is a single rectangle and it drops alpha, which is the hard black plate.
@@ -91,12 +91,14 @@ def wash_message_cells(document) -> None:
     wash = color("bubble_wash")
     want = wash.getRgb()
 
+    hi = document.characterCount() if end is None else end
+
     def walk(frame) -> None:
-        it = frame.begin()
-        while not it.atEnd():
-            child = it.currentFrame()
-            it += 1
+        # childFrames, not the frame iterator: the iterator steps every block of the transcript.
+        for child in frame.childFrames():
             if not isinstance(child, QTextTable):
+                continue
+            if child.lastPosition() < start or child.firstPosition() > hi:
                 continue
             for row in range(child.rows()):
                 for col in range(child.columns()):
@@ -251,6 +253,7 @@ class ChatPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        self._view_parked = False
         self.empty = OrbitIdle()
         self.empty_title = self.empty.listen_word
         self.empty_hint = self.empty.listen_word
@@ -351,12 +354,18 @@ class ChatPanel(QWidget):
     def has_messages(self) -> bool:
         return self._has_messages
 
-    def _wash_bubbles(self, *_args) -> None:
+    def _wash_bubbles(self, *args) -> None:
+        """Coat the bubbles an edit touched. Walking every cell of the whole transcript on
+        each streamed edit made a token's cost grow with the chat's history."""
         if self._washing:
             return
         self._washing = True
         try:
-            wash_message_cells(self.view.document())
+            if len(args) == 3:
+                at, _removed, added = args
+                wash_message_cells(self.view.document(), at, at + added)
+            else:
+                wash_message_cells(self.view.document())
         finally:
             self._washing = False
 
@@ -427,9 +436,22 @@ class ChatPanel(QWidget):
 
     def _ensure_view(self) -> None:
         if not self._has_messages:
+            self._has_messages = True
+            if self._view_parked:
+                return
             self.empty.hide()
             self.view.show()
-            self._has_messages = True
+
+    def set_view_parked(self, parked: bool) -> None:
+        """Filament with the chat tile closed: the transcript stays off the main window.
+
+        The panel still holds her voice mark there, but the view (the transcript) belongs on
+        the tile. Shown, a streamed reply painted over the tree and every token repainted and
+        recomposed the window. Parked, the document still fills and the tile opens on it.
+        """
+        self._view_parked = bool(parked)
+        if self._view_parked:
+            self.view.hide()
 
     def mark_turn(self, busy: bool) -> None:
         self._turn_busy = bool(busy)

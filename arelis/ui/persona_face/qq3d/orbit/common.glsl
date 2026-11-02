@@ -30,6 +30,7 @@ layout(std140, binding = 0) uniform buf {
     vec2 feet;         // her feet on the floor, where the floor link and the packets start
     float flow;        // seconds of calm flow (QuickOrbit.qml): sway, packets, flares
     float treeOn;      // 1: the tree shows in every state (the old strands and threads stay off)
+    vec2 reality;      // the reality tile's light (OrbitState.reality); x < 0: none
 };
 
 const float PI = 3.14159265358979;
@@ -86,28 +87,35 @@ vec3 tone(float t) {
 
 // ---- The orbit tree (Iris's v11b, orbit_v11b.py): geometry in the mockup's 1392 px tall frame,
 // scaled by treeK. The six main limbs end on the tile beads (FilamentField.bead_point: the
-// current's point at the tile's t on strand 2, pushed out radially by pad * 0.62), so the
-// worker's beads and labels sit on the branch tips as they ride the ring.
-const float TREE_LOOP = 6.0;  // the packet loop, seconds (spec: seamless 6 s)
+// tile's crown point, pushed out radially by pad * 0.62), so the worker's beads and labels
+// sit on the branch tips.
+const float TREE_LOOP = 6.0;  // the packet loop in flow units (QuickOrbit.qml runs flow at FLOW_RATE: 15 s)
 
 float treeK() { return view.y / 1392.0; }
 float th(float i, float k) { return fract(sin(i * 12.9898 + k * 78.233) * 43758.5453); }
 
-float nodeT(int j) {  // FLOATS in filament_field.py: history notify contacts chat camera days
-    if (j == 0) return 0.10;
-    if (j == 1) return 0.18;
-    if (j == 2) return 0.26;
-    if (j == 3) return 0.42;
-    if (j == 4) return 0.58;
-    return 0.74;
+// The tiles' places round the crown (FilamentField.crown_point, CROWN_DEG): fixed points of the
+// ring drifting a few px, so the limbs stay in the crown in every state.
+float crownDeg(int j) {  // FLOATS in filament_field.py: history notify contacts chat camera days
+    if (j == 0) return 172.0;
+    if (j == 1) return 214.0;
+    if (j == 2) return 252.0;
+    if (j == 3) return 290.0;
+    if (j == 4) return 328.0;
+    return 8.0;
 }
 
 vec2 nodeTip(int j) {
-    vec2 p = pathPoint(nodeT(j), 2.0);
-    vec2 d = p - curEllipse().xy;
-    float l = length(d);
+    vec4 e = curEllipse();
+    float fj = float(j);
+    float ang = radians(crownDeg(j)) + 0.035 * sin(time * 0.6 + fj * 1.9);
+    float rad = 0.9 * (1.0 + 0.02 * sin(time * 0.45 + fj * 2.3));
+    vec2 d = vec2(cos(ang), sin(ang));
+    vec2 p = e.xy + vec2(d.x * e.z, d.y * e.w) * rad;
+    vec2 r = p - e.xy;
+    float l = length(r);
     if (l == 0.0) l = 1.0;
-    return p + d / l * (j == 3 ? 62.0 : 58.0) * 0.62;
+    return p + r / l * (j == 3 ? 62.0 : 58.0) * 0.62;
 }
 
 vec2 bez3(vec2 a, vec2 b, vec2 c, vec2 d, float s) {
@@ -159,9 +167,9 @@ vec2 treeSway(vec2 x) {
     float ph = TAU * flow / TREE_LOOP;
     float hgt = pow(clamp((tree.y - x.y) / (1150.0 * k), 0.0, 1.0), 1.7);
     float xx = x.x / k, yy = x.y / k;
-    float dx = hgt * (9.0 * sin(ph + 0.0022 * xx + 0.0015 * yy)
-                      + 3.5 * sin(2.0 * ph + 0.004 * yy + 1.3 + 0.002 * xx));
-    float dy = hgt * (2.5 * sin(ph + 0.003 * xx + 2.1) + 1.2 * sin(2.0 * ph + 0.005 * xx));
+    float dx = hgt * (5.0 * sin(ph + 0.0022 * xx + 0.0015 * yy)
+                      + 1.8 * sin(2.0 * ph + 0.004 * yy + 1.3 + 0.002 * xx));
+    float dy = hgt * (1.4 * sin(ph + 0.003 * xx + 2.1) + 0.6 * sin(2.0 * ph + 0.005 * xx));
     return x + vec2(dx, dy) * k;
 }
 
@@ -179,6 +187,8 @@ vec2 floorAt(float s) {
 // Returns the point at r in 0..1 along it, and the share of the route spent before the limb.
 vec2 limbTarget(int j) {
     if (j < 6) return nodeTip(j);
+    // The last minor limb reaches the reality tile in its corner, so its packets light it too.
+    if (j == 10 && reality.x >= 0.0) return reality;
     vec3 m = minorSpec(j - 6);
     return tree.zw + m.xy * treeK();
 }

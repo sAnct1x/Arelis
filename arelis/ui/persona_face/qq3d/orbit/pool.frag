@@ -1,5 +1,5 @@
-// The floor pool (pool.vert): soft broken haze, a clearer core band, drifting patches, and a
-// warm swell where a packet runs along the floor from her feet to the root.
+// The floor pool (pool.vert): it wells up under her feet and runs out to the tree's root, in
+// slow swells away from her, with a warm swell where a packet runs along the floor.
 layout(location = 0) in vec2 vP;
 layout(location = 0) out vec4 fragColor;
 
@@ -34,10 +34,16 @@ void main() {
         pp += fadeIn * (e > 0.0 ? exp(-(e / 60.0) * (e / 60.0)) : exp(e / 150.0));
     }
     float on = treeOn * (ringScale >= 1.0 ? 1.0 : ringScale);
-    // the brightest part sits under the root, where the trunk's fibers splay over the floor
+    // The light wells up out of her: the brightest part is under her feet, and it runs out
+    // along the floor to the root, thinning, in slow swells that travel away from her.
+    float fx = (vP.x - feet.x) / (150.0 * k);
+    float src = exp(-fx * fx - dy * dy * 1.2);
     float rx = (vP.x - tree.x) / (170.0 * k);
     float root = exp(-rx * rx - dy * dy * 1.4);
-    float a = (pool * 0.9 + core * 0.7 + root * 0.9) * br * (0.65 + 0.45 * pp) * 0.8 * on;
+    float swell = 0.75 + 0.25 * sin(TAU * (ph / TAU - sx * 1.5));
+    float lean = mix(1.0, 0.55, sx);   // full at her feet, thinner at the root
+    float a = (pool * 0.8 * lean * swell + core * 0.7 * lean + src * 1.25 + root * 0.45)
+            * br * (0.65 + 0.45 * pp) * 0.8 * on;
     vec3 rgb = gold.rgb * 0.75 + ice.rgb * 0.3 + coreColor.rgb * 0.12 * core;
     fragColor = vec4(rgb * a, 0.0) * qt_Opacity;
 }

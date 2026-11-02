@@ -34,7 +34,7 @@ void main() {
         c = routeAt(j, clamp(r, 0.0, 1.0), limbFrom);
         float fade = smoothstep(0.0, 0.03, ph) * (1.0 - smoothstep(0.79, 0.82, ph))
                    * step(0.0, r) * step(r, 1.0);
-        float amp = j < 6 ? 1.0 : 0.6;
+        float amp = j < 6 || (j == 10 && reality.x >= 0.0) ? 1.0 : 0.6;
         glow = amp * fade * (q == 0.0 ? 1.0 : 0.8 * exp(-q * 0.35));
         float sz = q == 0.0 ? 1.0 : 0.75 - q * 0.1;
         halo = max(2.0, floor((j < 6 ? 16.0 : 12.0) * sz * max(k * 1.6, 0.7) + 0.5));
