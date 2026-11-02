@@ -492,6 +492,12 @@ class FrameLog:
             self._file = None
 
 
+def _end_warming() -> None:
+    from arelis.ui import void_idle
+
+    void_idle.set_avatar_warming(False)
+
+
 def frame_log() -> FrameLog | None:
     path = os.environ.get(FRAMETIME_ENV, "").strip()
     return FrameLog(path) if path else None
@@ -794,6 +800,9 @@ class QQ3DAvatar(QWidget):
 
         self._ready = False
         self._dead = False
+        from arelis.ui import void_idle
+
+        void_idle.set_avatar_warming(True)  # cleared by her first frame or a failure
         self._state = "idle"
         self._level = -1.0
         self._image = None
@@ -823,6 +832,7 @@ class QQ3DAvatar(QWidget):
         render = self._render
         _LIVE.add(render)
         self.destroyed.connect(lambda *_: render.dispose())
+        self.destroyed.connect(lambda *_: _end_warming())
         from PySide6.QtCore import QCoreApplication
 
         QCoreApplication.instance().aboutToQuit.connect(lambda: render.dispose())
@@ -934,6 +944,10 @@ class QQ3DAvatar(QWidget):
         # else a frame is in flight: _on_frame asks again when it lands
 
     def _on_frame(self) -> None:
+        if self._image is None:
+            from arelis.ui import void_idle
+
+            void_idle.set_avatar_warming(False)
         self._image = self._render.image
         self.update()
         if self._pending:
@@ -1048,6 +1062,9 @@ class QQ3DAvatar(QWidget):
         if self._dead:
             return
         self._dead = True
+        from arelis.ui import void_idle
+
+        void_idle.set_avatar_warming(False)
         for t in ("_poll", "_deadline"):
             timer = getattr(self, t, None)
             if timer is not None:
