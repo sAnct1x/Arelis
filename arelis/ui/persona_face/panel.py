@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Callable
 
@@ -17,6 +18,10 @@ _STATUS_S = 8.0
 _TEXT_H = 92
 _LEVEL_MS = 33
 _BLUSH = QColor(245, 163, 199)
+# A typed reply has no audio, so streamed text drives her mouth: a calm syllable
+# envelope (about 4 a second) that holds while tokens keep arriving.
+_TEXT_HOLD_S = 0.45
+_TEXT_SYL_HZ = 3.8
 LOG = logging.getLogger("arelis.avatar")
 
 
@@ -111,6 +116,7 @@ class PersonaPanel(QWidget):
         self._status = ""
         self._status_at = 0.0
         self._level: Callable[[], float | None] | None = None
+        self._text_at: float | None = None
         self._clock: Callable[[], float] | None = None
         self.loading = LoadingVeil(self)
         self._level_timer = QTimer(self)
@@ -171,6 +177,21 @@ class PersonaPanel(QWidget):
 
     def set_level_source(self, source: Callable[[], float | None] | None) -> None:
         self._level = source
+
+    def note_text(self, text: str) -> None:
+        """A streamed reply chunk arrived: her mouth moves with it while no voice plays."""
+        if text and text.strip():
+            self._text_at = self._now()
+
+    def _text_level(self) -> float | None:
+        if self._text_at is None:
+            return None
+        now = self._now()
+        if now - self._text_at > _TEXT_HOLD_S:
+            return None
+        beat = 0.5 - 0.5 * math.cos(2 * math.pi * _TEXT_SYL_HZ * now)
+        swell = 0.85 + 0.15 * math.sin(2 * math.pi * 0.7 * now)
+        return (0.12 + 0.33 * beat) * swell
 
     def show_status(self, text: str) -> None:
         self._status = " ".join(text.split())
@@ -323,13 +344,18 @@ class PersonaPanel(QWidget):
             self.web.set_level(0.0)
 
     def _tick_level(self) -> None:
-        if self.web is None or self._level is None:
+        if self.web is None:
             return
-        try:
-            level = self._level()
-        # A broken level source must not stop her; she keeps her own envelope.
-        except Exception:
-            level = None
+        level = None
+        if self._level is not None:
+            try:
+                level = self._level()
+            # A broken level source must not stop her; she keeps her own envelope.
+            except Exception:
+                level = None
+        if level is None:
+            # No voice audio (a typed reply): the streamed text moves her mouth.
+            level = self._text_level()
         self.web.set_level(level)
 
     # ---- painting and layout ----

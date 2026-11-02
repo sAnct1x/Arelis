@@ -168,7 +168,7 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] ready` | The app saw her ready and swapped out the glow. |
 | `[avatar] clip play name=...` | She took a pose (`thinking`, `speaking`, `done`, `listening`, `idle`; one line per change, so a turn reads thinking, speaking, done, idle), or a gesture segment or walk phase began. |
 | `[avatar] shader note unroll` | The D3D shader compiler unrolled a one-pass loop. Informational, not a fault. |
-| `[avatar] lipsync start` / `stop` | Speech began or ended. |
+| `[avatar] lipsync start` / `stop` | Speech began or ended. A typed reply counts too: while its text streams in, each chunk keeps a calm syllable envelope (about 4 a second) on her mouth until about half a second after the last chunk; voice audio takes over whenever it plays. |
 | `[avatar] stop source=...` | Speech was stopped: `button`, `voice`, or another cause. |
 | `[avatar] theme name=... tint=...` | The room changed and she was retinted. |
 | `[avatar] resize region=X,Y,WxH` | Her place in the window changed: her band in Night and Sodium, the whole stage in Filament and in any room with the Quick 3D figure. |

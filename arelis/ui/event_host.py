@@ -345,6 +345,9 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.chat.begin_assistant()
             window._assistant_streaming = True
             _persona_streaming(window, True)
+        panel = getattr(window, "persona_panel", None)
+        if panel is not None:
+            panel.note_text(str(p.get("text", "")))
         window.chat.append_delta(p.get("text", ""))
     elif t == EventType.ASSISTANT_RETRACT:
         if window._mobile_foreign:
