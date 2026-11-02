@@ -45,6 +45,12 @@ def _surface(win: QWidget) -> str:
         ex = f"0x{ex_style & 0xFFFFFFFF:x} layered={bool(ex_style & 0x80000)}"
     except (AttributeError, OSError):
         ex = "n/a (not windows)"
+    if h is not None:
+        g = h.geometry()
+        ex += (f" exposed={h.isExposed()} surface={h.surfaceType().name}"
+               f" state={h.windowStates()} dpr={h.devicePixelRatio()}"
+               f" geo={g.x()},{g.y()},{g.width()}x{g.height()}"
+               f" screen={h.screen().name() if h.screen() else None}")
     return f"alpha={alpha} exstyle={ex}"
 
 
@@ -115,6 +121,25 @@ def on_show(win: QWidget) -> None:
     log.info("[diag] show attrs_before=%s", _attrs(win))
 
     log.info("[diag] show %s", _surface(win))
+    nudge = os.environ.get("ARELIS_DIAG_NUDGE", "")
+    if nudge and not getattr(win, "_diag_nudged", False):
+        win._diag_nudged = True
+
+        def do_nudge() -> None:
+            log.info("[diag] nudge %s before %s", nudge, _surface(win))
+            if nudge == "resize":
+                g = win.geometry()
+                win.resize(g.width() - 1, g.height())
+                QTimer.singleShot(200, lambda: win.resize(g.width(), g.height()))
+            elif nudge == "hideshow":
+                win.hide()
+                QTimer.singleShot(300, win.show)
+            elif nudge == "repaint":
+                win.repaint()
+            QTimer.singleShot(1500, lambda: log.info("[diag] nudge %s after %s", nudge,
+                                                     _surface(win)))
+
+        QTimer.singleShot(8000, do_nudge)
     if getattr(win, "_diag_timer", None) is None:
         cnt = _Count(win)
         win.installEventFilter(cnt)
