@@ -203,8 +203,32 @@ def _present_at_startup(window: Any) -> None:
     # launch stays at normal size until the user asks for the window.
     if quiet_launch(window):
         state &= ~Qt.WindowState.WindowMaximized
+    if state & Qt.WindowState.WindowMaximized:
+        _home_on_primary(window)
     window.setWindowState(state)
     show_without_activating(window)
+
+
+def _home_on_primary(window: Any) -> None:
+    """Put a maximized launch's normal geometry on the primary screen before show.
+
+    The saved normal rect can sit on another monitor. Windows then creates the HWND
+    there, unexposed, and maximizes it across onto the primary; the raster surface
+    never presents until a real resize, so the window stays black (Night/Sodium).
+    """
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    screen = app.primaryScreen() if app is not None else None
+    if screen is None:
+        return
+    avail = screen.availableGeometry()
+    rect = window.geometry()
+    if avail.contains(rect.center()):
+        return
+    rect.setSize(rect.size().boundedTo(avail.size()))
+    rect.moveCenter(avail.center())
+    window.setGeometry(rect)
 
 
 def _open_ui_reason(msg: object) -> str:
