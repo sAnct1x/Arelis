@@ -350,3 +350,39 @@ def test_dispose_during_a_slow_frame_waits_for_it_before_freeing_the_control(
         QTest.qWait(20)
     assert render.error is None
     assert render not in qq3d_avatar._LIVE
+
+
+def test_she_stays_hidden_and_not_ready_until_the_mixer_poses_her(tmp_path, monkeypatch) -> None:
+    """A loaded model shows its bind pose (the T-pose) until the mixer's first frame writes a clip
+    pose: she is not drawn, and the host is not ready, before that."""
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    host = QQ3DAvatar()
+    if host.root is None:
+        pytest.skip("no Quick 3D scene here")
+    mixer = host.root.findChild(QObject, "mixer")
+    mixer.setProperty("running", False)  # her first pose has not been written yet
+    host.resize(200, 400)
+    host.show()
+    figure = host.root.findChild(QObject, "figure")
+    for _ in range(20):
+        if host.root.property("clipCount"):  # the model has loaded
+            break
+        QTest.qWait(50)
+    if not host.root.property("clipCount"):
+        pytest.skip("the stand-in model did not load here")
+    QTest.qWait(300)
+    assert figure.property("visible") is False and not host.is_ready()
+    mixer.setProperty("running", True)
+    for _ in range(40):
+        if host.is_ready():
+            break
+        QTest.qWait(100)
+    if not host.is_ready():
+        pytest.skip("no Quick 3D rendering here")
+    assert figure.property("visible") is True
+    host.close()
