@@ -11,6 +11,8 @@ This object reads and writes those attributes. It does not keep a second span.
 
 from __future__ import annotations
 
+import os
+
 from PySide6.QtCore import QByteArray, QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import QApplication, QDockWidget, QMenu
 
@@ -708,6 +710,10 @@ class FilamentDesk:
         origin = w.mapToGlobal(QPoint(int(p.x()) + 12, int(p.y()) + 24))
         size = w._filament_tile_sizes.get(name) or DEFAULT_SIZES.get(name, (320, 280))
         parked = w._filament_tile_pos.get(name)
+        test_rect = _test_chat_rect(w) if name == "chat" else None
+        if active_theme() == "filament" and test_rect is not None:
+            self._filament_spawn_tile(widget, name, test_rect)
+            return
         if active_theme() == "filament":
             if parked is not None and origin_on_a_desk(parked[0], parked[1], size[0], size[1]):
                 dest = QRect(int(parked[0]), int(parked[1]), int(size[0]), int(size[1]))
@@ -1098,6 +1104,24 @@ def filament_present_tile(window, dock: QDockWidget, name: str) -> None:
 
 def filament_place_near_title(window, widget, name: str) -> None:
     _of(window)._filament_place_near_title(widget, name)
+
+
+def _test_chat_rect(w) -> QRect | None:
+    """ARELIS_TEST_CHAT_RECT, for a tester to open the chat tile at a known spot: "x,y,w,h" in
+    window px, or "tree" for a tile over the orbit tree (the chat-cover fade). Global rect."""
+    raw = os.environ.get("ARELIS_TEST_CHAT_RECT", "").strip().lower()
+    if not raw:
+        return None
+    if raw == "tree":
+        cx, cy, rx, ry = w._filament.ellipse(w.rect(), settled=True)
+        local = QRect(int(cx - rx), int(cy - ry), int(rx * 2), int(ry * 2.6))
+    else:
+        try:
+            x, y, cw, ch = (int(v) for v in raw.split(","))
+        except ValueError:
+            return None
+        local = QRect(x, y, cw, ch)
+    return QRect(w.mapToGlobal(local.topLeft()), local.size())
 
 
 def filament_set_chat_open(window, on: bool) -> None:
