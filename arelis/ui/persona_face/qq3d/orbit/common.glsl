@@ -29,7 +29,7 @@ layout(std140, binding = 0) uniform buf {
     vec4 tree;         // Filament orbit tree (v11b): trunk base xy, fork xy (OrbitState.tree)
     vec2 feet;         // her feet on the floor, where the floor link and the packets start
     float flow;        // seconds of calm flow (QuickOrbit.qml): sway, packets, flares
-    float treeOn;      // 1 while the tree shows (idle form), 0 as the current takes over
+    float treeOn;      // 1: the tree shows in every state (the old strands and threads stay off)
 };
 
 const float PI = 3.14159265358979;
@@ -230,15 +230,16 @@ float packetOffset(int j) {
 float packetPhase(int j) { return fract(packetOffset(j) + flow / TREE_LOOP); }
 float packetHead(int j) { return packetPhase(j) / 0.82; }
 
-// Twig i (0..35): six per main limb, off the limb at a hashed point, turned off its tangent,
+// Twig i (0..71): twelve per main limb, the odd ones long secondary limbs, off the limb at a hashed point, turned off its tangent,
 // ending in an open curl (twig_from + curl of the mockup). s 0..1: the first 72% is the twig's
 // own curve, the rest the curl.
-const float TWIGS = 36.0;
+const float TWIGS = 72.0;
 
 vec2 twigAt(float i, float s) {
-    int j = int(floor(i / 6.0));
+    int j = int(floor(i / 12.0));
     float k = treeK();
-    float at = 0.2 + th(i, 11.0) * 0.66;
+    bool lng = mod(i, 2.0) > 0.5;
+    float at = (lng ? 0.12 : 0.2) + th(i, 11.0) * (lng ? 0.6 : 0.66);
     vec2 p = branchAt(j, at);
     vec2 tn = branchAt(j, at + 0.01) - branchAt(j, at - 0.01);
     tn /= max(length(tn), 1e-4);
@@ -247,7 +248,7 @@ vec2 twigAt(float i, float s) {
     vec2 dn = vec2(tn.x * cos(rot) - tn.y * sin(rot), tn.x * sin(rot) + tn.y * cos(rot));
     dn.y -= 0.2;
     dn = normalize(dn);
-    float L = (90.0 + th(i, 14.0) * 190.0) * k;
+    float L = (lng ? 170.0 + th(i, 14.0) * 230.0 : 90.0 + th(i, 14.0) * 190.0) * k;
     vec2 e = p + dn * L;
     vec2 pp = vec2(-dn.y, dn.x);
     if (s <= 0.72)

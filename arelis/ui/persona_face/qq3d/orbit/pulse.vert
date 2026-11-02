@@ -42,12 +42,13 @@ void main() {
         core = max(1.0, floor((j < 6 ? 4.5 : 3.5) * sz * max(k * 1.6, 0.7) + 0.5));
         pin = q < 2.0 ? 0.85 : 0.0;
         lock = j < 6 && r > limbFrom + (1.0 - limbFrom) * 0.86;
+        glow *= 1.0 + 1.2 * form;   // thinking, speaking: brighter packets up to the tiles
     } else {
         float t = floor((i - 66.0) / 3.0);
         float q = mod(i - 66.0, 3.0);
         float ph = fract(th(t, 21.0) + flow / TREE_LOOP);
         float r = ph / 0.55 - q * 0.03;   // runs out in the first 55% of its loop
-        c = twigAt(t, clamp(r, 0.0, 0.98));
+        c = twigAt(t * 2.0, clamp(r, 0.0, 0.98));   // the short twigs, on every limb
         float fade = smoothstep(0.0, 0.08, r) * (1.0 - smoothstep(0.85, 0.98, r))
                    * step(0.0, r) * step(r, 1.0);
         glow = fade * (q == 0.0 ? 1.0 : 0.6 / q);
