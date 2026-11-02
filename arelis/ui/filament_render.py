@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import atexit
 import copy
+import logging
 import time
 import weakref
 
@@ -17,6 +18,10 @@ from PySide6.QtCore import QObject, QRect, QSize, QThread, Signal, Slot
 from PySide6.QtGui import QImage, QPainter
 
 from arelis.ui.filament_field import FilamentField, warm_orb_stamps
+
+# The logger the '[avatar]' lines use (persona_face.panel.alog), so the bench log has both.
+LOG = logging.getLogger("arelis.avatar")
+FPS_LOG_S = 5.0
 
 
 def snapshot(field: FilamentField) -> FilamentField:
@@ -35,6 +40,7 @@ class _Painter(QObject):
     @Slot(object, QRect, float)
     def paint(self, field: FilamentField, rect: QRect, dpr: float) -> None:
         t0 = time.perf_counter()
+        warm_orb_stamps()  # on this thread: the GUI thread never builds a stamp
         img = QImage(
             QSize(int(rect.width() * dpr), int(rect.height() * dpr)),
             QImage.Format.Format_ARGB32_Premultiplied,
@@ -54,10 +60,13 @@ class FieldRenderer(QObject):
 
     def __init__(self, field: FilamentField, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        warm_orb_stamps()  # stamps are made on the GUI thread; the worker only draws them
         self.field = field
         self._image: QImage | None = None
         self._busy = False
+        self._busy_size: tuple[QSize, float] | None = None
+        self._shown_key = 0
+        self._shown = 0
+        self._fps_t0 = time.monotonic()
         self._pending: tuple[QRect, float] | None = None
         self._thread = QThread()
         self._thread.setObjectName("filament-paint")
@@ -80,18 +89,25 @@ class FieldRenderer(QObject):
         self.destroyed.connect(self._thread.quit)
 
     def request(self, rect: QRect, dpr: float) -> None:
-        """Paint the field as it is now. One job in flight; a newer one replaces a waiting one."""
+        """Paint the field as it is now. One job in flight; ticks during it are skipped.
+
+        A tick that lands while a frame is in flight is dropped, not queued: queuing it
+        painted back to back, so a slow paint ran the worker flat out. Only a new size
+        or DPR (resize, span grow) is kept, so frame_for gets a frame at that size.
+        """
         if self._busy:
-            self._pending = (QRect(rect), dpr)
+            if self._busy_size != (rect.size(), dpr):
+                self._pending = (QRect(rect), dpr)
             return
         self._busy = True
+        self._busy_size = (rect.size(), dpr)
         self._job.emit(snapshot(self.field), QRect(rect), dpr)
 
     def frame(self) -> QImage | None:
         return self._image
 
     def frame_for(self, rect: QRect, dpr: float) -> QImage | None:
-        """The newest frame if it was painted at this size; else None (paint in place)."""
+        """The newest frame if it was painted at this size; else None (asks for one)."""
         img = self._image
         if (
             img is None
@@ -106,12 +122,28 @@ class FieldRenderer(QObject):
     def _on_done(self, img: QImage, ms: float) -> None:
         self._image = img
         self._busy = False
-        self.field.note_paint_ms(ms)
+        self._busy_size = None
         self.ready.emit()
         if self._pending is not None:
             rect, dpr = self._pending
             self._pending = None
             self.request(rect, dpr)
+
+    def note_shown(self, img: QImage) -> None:
+        """paintEvent drew this worker frame. Every 5 s log '[filament] orbit fps=N'.
+
+        Counts distinct worker frames that reached the screen, not ticks or requests:
+        a repaint of the same frame (a hover, a layout flush) does not count.
+        """
+        key = img.cacheKey()
+        if key != self._shown_key:
+            self._shown_key = key
+            self._shown += 1
+        now = time.monotonic()
+        if now - self._fps_t0 >= FPS_LOG_S:
+            LOG.info("[filament] orbit fps=%d", round(self._shown / (now - self._fps_t0)))
+            self._shown = 0
+            self._fps_t0 = now
 
     def stop(self) -> None:
         self._pending = None
