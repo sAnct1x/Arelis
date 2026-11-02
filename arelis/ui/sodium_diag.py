@@ -83,6 +83,21 @@ def _tick(win: QWidget, cnt: _Count) -> None:
         if not getattr(av, "_diag_hooked", False):
             av.installEventFilter(cnt)
             av._diag_hooked = True
+    n = getattr(win, "_diag_n", 0) + 1
+    win._diag_n = n
+    if n in (2, 5, 10):  # about 4, 10 and 20 s after show
+        import os
+        import tempfile
+
+        out = os.path.join(tempfile.gettempdir(), "arelis_diag")
+        os.makedirs(out, exist_ok=True)
+        img = win.grab().toImage()
+        path = os.path.join(out, f"grab_{active_theme()}_{n * 2:02d}s.png")
+        img.save(path)
+        dark = sum(1 for y in range(0, img.height(), 16) for x in range(0, img.width(), 16)
+                   if img.pixelColor(x, y).value() < 8)
+        total = len(range(0, img.height(), 16)) * len(range(0, img.width(), 16))
+        log.info("[diag] grab %s black_frac=%.2f", path, dark / max(1, total))
     frames = [getattr(getattr(av, "_render", None), "count", 0) for av in hers]
     log.info("[diag] theme=%s qq3d_frames=%s paints=%s attrs=%s visible=%s %s",
              active_theme(), frames, dict(cnt.n), _attrs(win),

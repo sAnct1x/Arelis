@@ -477,6 +477,11 @@ class WindowChrome:
         path = QPainterPath()
         path.addRoundedRect(self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS)
         painter.setClipPath(path)
+        import os
+
+        if os.environ.get("ARELIS_DIAG_NO_ATMOS"):  # DIAGNOSTIC
+            painter.fillRect(self.rect(), QColor(40, 60, 90))
+            return
         paint_atmosphere(painter, self.rect(), drift=self._atmosphere_phase)
 
     def event(self, event) -> bool:
