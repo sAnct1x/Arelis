@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import math
+import re
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -37,7 +38,7 @@ from arelis.local_open import open_local_file, reveal_local_file
 from arelis.ui.attach_bar import ATTACH_TILE
 from arelis.ui.chat_browser import CHART_SCHEME, ChatBrowser
 from arelis.ui.chat_find import ChatFindBar
-from arelis.ui.markdown import render_markdown
+from arelis.ui.markdown import _TABLE_RULE, render_markdown
 from arelis.ui.math_images import math_html, prewarm
 from arelis.ui.theme import COLORS, SPACE, color
 from arelis.ui.void_idle import OrbitIdle
@@ -312,7 +313,9 @@ class ChatPanel(QWidget):
         self._file_tokens: dict[str, tuple[str, str]] = {}
         # The open bubble's settled part: (chars of the reply, offset into its cell)
         # already written and left alone; each paint rewrites only what follows.
-        self._settled: tuple[int, int] | None = None
+        # kind "ul"/"ol"/"table" with items: the tail is one list or table, of which
+        # that many items or rows are complete; paints then only append to it.
+        self._settled: tuple[int, int, str, int] | None = None
         self._caret_timer = QTimer(self)
         self._caret_timer.setInterval(530)
         self._caret_timer.timeout.connect(self._blink_caret)
@@ -1219,8 +1222,14 @@ class ChatPanel(QWidget):
         """
         if self._settled is None or not body.strip():
             return False
-        done, index = self._settled
+        done, index, kind, items = self._settled
         if len(body) < done or _settled_break(body) != done:
+            return False
+        if kind:
+            return self._extend_run(body, done, index, kind, items)
+        if any(_item_kind(line.lstrip()) or "|" in line for line in body[done:].split("\n")):
+            # insertHtml folds the block before a list into it, and cannot extend a table:
+            # full paints until the break before the run settles it.
             return False
         block = self._cell_block(index)
         if block is None:
@@ -1273,7 +1282,88 @@ class ChatPanel(QWidget):
             cell = table.cellAt(0, 0)
             first = cell.firstCursorPosition().block().blockNumber()
             index = cell.lastCursorPosition().block().blockNumber() - first + 1
-        self._settled = (done, index)
+        run = _run_after(body, done)
+        if run is not None and run[1]:
+            self._settled = (done, index, run[0], len(run[1]))
+            return
+        self._settled = (done, index, "", 0)
+
+    def _extend_run(self, body: str, done: int, index: int, kind: str, items: int) -> bool:
+        """The tail is one list or table: keep its complete items, append the rest.
+
+        New items copy the block and character format of the last complete one,
+        so they draw as the full render would. Anything else (the run ends, a
+        nested item) returns False for a full paint, which settles again.
+        """
+        run = _run_after(body, done)
+        if run is None or run[0] != kind or len(run[1]) < items:
+            return False
+        complete, partial = run[1], run[2]
+        block = self._cell_block(index)
+        cell = self._stream_cell()
+        if block is None or cell is None:
+            return False
+        ink = _ink("text")
+        cursor = QTextCursor(self.view.document())
+        if kind == "table":
+            outer = QTextCursor(block).currentTable()
+            if outer is None or outer.cellAt(0, 0) == cell:
+                block = block.next()
+                outer = QTextCursor(block).currentTable() if block.isValid() else None
+            if outer is None or outer.cellAt(0, 0) == cell or outer.rows() < items + 1:
+                return False
+            rows = complete[items:] + ([partial] if partial.strip() else [])
+            cells = [_row_cells(run[3], r) for r in rows]
+            if any(len(c) != outer.columns() for c in cells):
+                return False
+            cursor.beginEditBlock()
+            if outer.rows() > items + 1:
+                outer.removeRows(items + 1, outer.rows() - items - 1)
+            after = outer.lastPosition() + 1
+            if after < cell.lastPosition():
+                cursor.setPosition(after)
+                cursor.setPosition(cell.lastPosition(), QTextCursor.MoveMode.KeepAnchor)
+                cursor.removeSelectedText()
+            model = [outer.cellAt(items, c).firstCursorPosition() for c in range(outer.columns())]
+            fmts = [(m.blockFormat(), m.charFormat()) for m in model]
+            if cells:
+                outer.appendRows(len(cells))
+            for r, row in enumerate(cells):
+                for c, inner in enumerate(row):
+                    at = outer.cellAt(items + 1 + r, c).firstCursorPosition()
+                    at.setBlockFormat(fmts[c][0])
+                    at.setCharFormat(fmts[c][1])
+                    at.insertHtml(f'<span style="color:{ink};">{inner}</span>')
+            end = outer.cellAt(outer.rows() - 1, outer.columns() - 1).lastCursorPosition()
+        else:
+            lst = block.textList()
+            if lst is None or lst.count() < items:
+                return False
+            lines = complete[items:] + ([partial] if partial.strip() else [])
+            inners = [_item_inner(line) for line in lines]
+            last = lst.item(items - 1)
+            # The list's margin rides on its first item's top and its last item's bottom.
+            bottom = lst.item(lst.count() - 1).blockFormat().bottomMargin()
+            cursor.beginEditBlock()
+            cursor.setPosition(last.position() + last.length() - 1)
+            cursor.setPosition(cell.lastPosition(), QTextCursor.MoveMode.KeepAnchor)
+            cursor.removeSelectedText()
+            fmt, cfmt = last.blockFormat(), QTextCursor(last).charFormat()
+            here = QTextCursor(last)
+            edge = last.blockFormat()
+            edge.setBottomMargin(0 if inners else bottom)
+            here.setBlockFormat(edge)
+            fmt.setTopMargin(0)
+            for n, inner in enumerate(inners):
+                fmt.setBottomMargin(bottom if n == len(inners) - 1 else 0)
+                cursor.insertBlock(fmt, cfmt)
+                cursor.insertHtml(f'<span style="color:{ink};">{inner}</span>')
+            end = cursor
+        if self._caret_on:
+            end.insertHtml(_caret_html())
+        cursor.endEditBlock()
+        self._settled = (done, index, kind, len(complete))
+        return True
 
     def _stop_caret(self) -> None:
         self._caret_timer.stop()
@@ -1448,9 +1538,8 @@ def _user_bubble_html(
 def _settled_break(body: str) -> int:
     """Index just past the last blank line that no later text can change.
 
-    Not inside a code fence or a $$ block, and the next line starts a new
-    paragraph or heading, not a list item, indent or table row, which would
-    otherwise render as a second list or table.
+    Not inside a code fence or a $$ block, not between two items of one loose
+    list, and not before an indent, fence, $$ or raw HTML.
     """
     best = 0
     fence = ""  # the opening run, e.g. "````"; a close needs the same char, at least as long
@@ -1472,11 +1561,62 @@ def _settled_break(body: str) -> int:
         nxt = lines[i + 1]
         if i + 2 >= len(lines) or not nxt.strip():
             continue
-        head = nxt.lstrip()
-        if nxt[:1] in (" ", "\t") or head[:1] in "-*+|>`~$<" or head[:1].isdigit():
+        prev = lines[i - 1]
+        if _item_kind(nxt.lstrip()) and (prev[:1] in (" ", "\t") or _item_kind(prev.lstrip())):
+            continue  # an item after an item: the same loose list goes on
+        if nxt[:1] in (" ", "\t") or nxt[:1] in "`~$<":
             continue
         best = pos
     return best
+
+
+_ITEM = re.compile(r"^([-*+]|\d{1,9}[.)])\s+\S")
+
+
+def _run_after(body: str, done: int):
+    """(kind, complete lines, partial line, header) when body[done:] is one flat run.
+
+    A top-level list of one kind, or a table, with nothing before or after it.
+    The partial last line is still streaming. None for anything else.
+    """
+    lines = body[done:].split("\n")
+    complete, partial = lines[:-1], lines[-1]
+    if not complete:
+        return None
+    if "|" in complete[0]:
+        if len(complete) < 2 or not _TABLE_RULE.match(complete[1]):
+            return None
+        rows = complete[2:]
+        if not all("|" in r and r.strip() for r in rows) or (partial and "|" not in partial):
+            return None
+        return "table", rows, partial, complete[0] + "\n" + complete[1]
+    kind = _item_kind(complete[0])
+    if not kind or any(_item_kind(line) != kind for line in complete):
+        return None
+    if partial and _item_kind(partial) != kind:
+        return None
+    return kind, complete, partial, ""
+
+
+def _item_kind(line: str) -> str:
+    match = _ITEM.match(line)
+    if match is None:
+        return ""
+    return "ol" if match.group(1)[0].isdigit() else "ul"
+
+
+def _item_inner(line: str) -> str:
+    """One item's inline HTML, as the full render writes it inside its li."""
+    # As a bullet: a lone numbered line can read as prose; the inline HTML is the same.
+    text = "- " + _ITEM.sub(lambda m: m.group(0)[-1], line, count=1)
+    found = re.search(r"<li>(.*)</li>", render_markdown(text, math=math_html, streaming=True), re.S)
+    return found.group(1) if found else html.escape(line)
+
+
+def _row_cells(header: str, row: str) -> list[str]:
+    """One row's cell HTML, as the full render writes it inside each td."""
+    rendered = render_markdown(header + "\n" + row, math=math_html, streaming=True)
+    return re.findall(r"<td[^>]*>(.*?)</td>", rendered, re.S)
 
 
 def _caret_html() -> str:
