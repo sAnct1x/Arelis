@@ -28,8 +28,9 @@ void main() {
         a = (outer ? 0.07 : 0.16) * (0.55 + 0.45 * smoothstep(0.0, 0.25, s)) * (1.0 - 0.5 * smoothstep(0.7, 1.0, s));
     } else {
         int j = path - 1;
-        P = branchAt(j, s);
-        P2 = branchAt(j, s2);
+        Limb L = limbOf(j);
+        P = limbPoint(L, s);
+        P2 = limbPoint(L, s2);
         float main = j < 6 ? 1.0 : 0.6;
         hw = (outer ? 26.0 * (1.0 - s) + 6.0 : 9.0 * (1.0 - s) + 2.5) * k * (0.7 + 0.3 * main);
         a = (outer ? 0.05 : 0.11) * main * (1.0 - smoothstep(0.55, 1.0, s));

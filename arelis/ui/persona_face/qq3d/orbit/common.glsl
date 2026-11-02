@@ -190,25 +190,46 @@ float limbSide(int j, vec2 st) {
     return tg.x > st.x ? 1.0 : -1.0;
 }
 
-vec2 branchAt(int j, float s) {  // s 0..1 along the limb only
-    float u = limbU(j);
-    vec2 st = trunkAt(u);
-    vec2 tg = limbTarget(j);
-    float bend = j < 6 ? 0.2 : 0.25;
-    return limbAt(st, trunkTan(u), tg, limbSide(j, st), bend, s);
+// Limb j's constants (its tip, where it leaves the trunk, the trunk's tangent there, its
+// side): worked out once per vertex. nodeTip runs the whole path; a vertex that called
+// branchAt / limbU / limbTarget separately paid for it a dozen times.
+struct Limb { vec2 st; vec2 tn; vec2 tg; float side; float bend; float u; };
+
+Limb limbOf(int j) {
+    Limb L;
+    L.tg = limbTarget(j);
+    L.u = j < 6 ? limbStart(L.tg) : minorSpec(j - 6).z;
+    L.st = trunkAt(L.u);
+    L.tn = trunkTan(L.u);
+    L.side = L.tg.x > L.st.x ? 1.0 : -1.0;
+    L.bend = j < 6 ? 0.2 : 0.25;
+    return L;
+}
+
+vec2 limbPoint(Limb L, float s) {  // s 0..1 along the limb only
+    return limbAt(L.st, L.tn, L.tg, L.side, L.bend, s);
+}
+
+vec2 branchAt(int j, float s) { return limbPoint(limbOf(j), s); }
+
+// Packet j's whole route length: the floor from her feet, up the trunk, out the limb.
+float routeTot(int j) {
+    Limb L = limbOf(j);
+    return length(tree.xy - feet) * 1.05 + trunkLen() * L.u + length(L.tg - L.st) * 1.15;
 }
 
 vec2 routeAt(int j, float r, out float limbFrom) {
     float lf = length(tree.xy - feet) * 1.05;
-    float u = limbU(j);
+    Limb L = limbOf(j);
+    float u = L.u;
     float lt = trunkLen() * u;
-    float ll = length(limbTarget(j) - trunkAt(u)) * 1.15;
+    float ll = length(L.tg - L.st) * 1.15;
     float tot = max(lf + lt + ll, 1.0);
     float d = r * tot;
     limbFrom = (lf + lt) / tot;
     if (d < lf) return floorAt(d / max(lf, 1.0));
     if (d < lf + lt) return trunkAt((d - lf) / max(lt, 1.0) * u);
-    return branchAt(j, (d - lf - lt) / max(ll, 1.0));
+    return limbPoint(L, (d - lf - lt) / max(ll, 1.0));
 }
 
 // Packet j's head along its route (0..1, it travels 82% of the loop) and its brightness.
@@ -235,13 +256,12 @@ float packetHead(int j) { return packetPhase(j) / 0.82; }
 // own curve, the rest the curl.
 const float TWIGS = 72.0;
 
-vec2 twigAt(float i, float s) {
-    int j = int(floor(i / 12.0));
+vec2 twigAt(Limb B, float i, float s) {  // B: limbOf(twig i's limb, i / 12)
     float k = treeK();
     bool lng = mod(i, 2.0) > 0.5;
     float at = (lng ? 0.12 : 0.2) + th(i, 11.0) * (lng ? 0.6 : 0.66);
-    vec2 p = branchAt(j, at);
-    vec2 tn = branchAt(j, at + 0.01) - branchAt(j, at - 0.01);
+    vec2 p = limbPoint(B, at);
+    vec2 tn = limbPoint(B, at + 0.01) - limbPoint(B, at - 0.01);
     tn /= max(length(tn), 1e-4);
     float sd = th(i, 12.0) < 0.5 ? -1.0 : 1.0;
     float rot = sd * (0.35 + th(i, 13.0) * 0.40);

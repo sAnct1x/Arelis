@@ -27,8 +27,7 @@ void main() {
     float lf = length(tree.xy - feet) * 1.05;
     float sx = clamp((vP.x - feet.x) / (tree.x - feet.x + 1e-3), 0.0, 1.0);
     for (int j = 0; j < 6; ++j) {
-        float u = limbU(j);
-        float tot = lf + trunkLen() * u + length(limbTarget(j) - trunkAt(u)) * 1.15;
+        float tot = routeTot(j);
         float g = packetPhase(j);
         float fadeIn = smoothstep(0.0, 0.03, g);
         float e = (sx * lf / tot - packetHead(j)) * tot / k;
