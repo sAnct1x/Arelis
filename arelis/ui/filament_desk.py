@@ -871,6 +871,7 @@ class FilamentDesk:
         tile.body_layout.addWidget(conv._composer)
         conv.chat.setMinimumWidth(0)
         conv._composer.setMinimumWidth(0)
+        conv.chat.set_view_parked(False)
         conv.chat.show()
         empty = getattr(conv.chat, "empty", None)
         if empty is not None:
@@ -895,6 +896,7 @@ class FilamentDesk:
         if lay is not None:
             lay.insertWidget(1, conv.chat, stretch=1)
             lay.addWidget(conv._composer)
+        conv.chat.set_view_parked(True)
         conv.chat.hide()
         conv._composer.hide()
 

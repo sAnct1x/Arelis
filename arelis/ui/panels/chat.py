@@ -253,6 +253,7 @@ class ChatPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        self._view_parked = False
         self.empty = OrbitIdle()
         self.empty_title = self.empty.listen_word
         self.empty_hint = self.empty.listen_word
@@ -435,9 +436,22 @@ class ChatPanel(QWidget):
 
     def _ensure_view(self) -> None:
         if not self._has_messages:
+            self._has_messages = True
+            if self._view_parked:
+                return
             self.empty.hide()
             self.view.show()
-            self._has_messages = True
+
+    def set_view_parked(self, parked: bool) -> None:
+        """Filament with the chat tile closed: the transcript stays off the main window.
+
+        The panel still holds her voice mark there, but the view (the transcript) belongs on
+        the tile. Shown, a streamed reply painted over the tree and every token repainted and
+        recomposed the window. Parked, the document still fills and the tile opens on it.
+        """
+        self._view_parked = bool(parked)
+        if self._view_parked:
+            self.view.hide()
 
     def mark_turn(self, busy: bool) -> None:
         self._turn_busy = bool(busy)
