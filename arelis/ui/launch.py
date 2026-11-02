@@ -203,32 +203,30 @@ def _present_at_startup(window: Any) -> None:
     # launch stays at normal size until the user asks for the window.
     if quiet_launch(window):
         state &= ~Qt.WindowState.WindowMaximized
-    if state & Qt.WindowState.WindowMaximized:
-        _home_on_primary(window)
     window.setWindowState(state)
     show_without_activating(window)
+    _settle_maximized_surface(window)
 
 
-def _home_on_primary(window: Any) -> None:
-    """Put a maximized launch's normal geometry on the primary screen before show.
 
-    The saved normal rect can sit on another monitor. Windows then creates the HWND
-    there, unexposed, and maximizes it across onto the primary; the raster surface
-    never presents until a real resize, so the window stays black (Night/Sodium).
+def _settle_maximized_surface(window: Any, *, tries: int = 50) -> None:
+    """Give a maximized launch one real resize once Windows exposes it.
+
+    Mapped maximized without activation, the HWND is not exposed at show, and Qt's
+    raster surface is never presented until a real geometry change: Night and Sodium
+    stayed black (Filament got its resize from placing itself on the desk). A 1 px
+    round trip after the first expose is that geometry change.
     """
-    from PySide6.QtWidgets import QApplication
-
-    app = QApplication.instance()
-    screen = app.primaryScreen() if app is not None else None
-    if screen is None:
+    if window.isHidden() or not window.isMaximized():
         return
-    avail = screen.availableGeometry()
-    rect = window.geometry()
-    if avail.contains(rect.center()):
+    handle = window.windowHandle()
+    if handle is None or not handle.isExposed():
+        if tries > 0:
+            QTimer.singleShot(100, lambda: _settle_maximized_surface(window, tries=tries - 1))
         return
-    rect.setSize(rect.size().boundedTo(avail.size()))
-    rect.moveCenter(avail.center())
-    window.setGeometry(rect)
+    size = window.size()
+    window.resize(size.width() - 1, size.height())
+    QTimer.singleShot(200, lambda: window.resize(size))
 
 
 def _open_ui_reason(msg: object) -> str:
