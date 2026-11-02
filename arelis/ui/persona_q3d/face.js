@@ -37,6 +37,8 @@ function qeulerYXZ(x, y, z) {   // same as three.js Euler(x, y, z, 'YXZ'), as [w
 const flatMap = (a, fn) => a.reduce((o, x) => o.concat(fn(x)), []);
 const fromEntries = (ps) => { const o = {}; for (const [k, v] of ps) o[k] = v; return o; };
 const qarr = (q) => [q.scalar, q.x, q.y, q.z];
+function qinv(q) { return [q[0], -q[1], -q[2], -q[3]]; }
+
 function walk(n, f) { f(n); const c = n.children || []; for (let i = 0; i < c.length; i++) walk(c[i], f); }
 
 function create(root, opts) {
@@ -54,8 +56,10 @@ function create(root, opts) {
   const R = {};
   for (const n of ['NeckTwist01', 'Head', 'L_Eye', 'R_Eye', 'JawRoot']) {
     const b = nodes['CC_Base_' + n]; if (!b) continue;
-    const pw = qarr(b.parent.sceneRotation);
-    R[n] = { b, q0: qarr(b.rotation), pw, pwi: [pw[0], -pw[1], -pw[2], -pw[3]] };
+    // The parent's rest rotation in her own (figure) frame, so turning the whole figure (Avatar.qml yaws her to
+    // face the camera) turns her rest with it instead of reading as trunk turn the head takes back.
+    const pwl = qmul(qinv(qarr(root.sceneRotation)), qarr(b.parent.sceneRotation));
+    R[n] = { b, q0: qarr(b.rotation), pwl };
   }
   // World-space rotation (pitch x, yaw y, roll z) applied on top of the rest pose. `level` (0..1) is how much of the
   // trunk's turn since rest (the parent's live sceneRotation against its rest one) the bone takes back: 0 rides the
@@ -63,13 +67,16 @@ function create(root, opts) {
   // yaw it toward her right (Idle) or left (Talking), so a bone that only rides its parent ends up looking down and
   // away; the head levels itself, the neck takes half.
   const rot = (n, x, y, z, level) => { const r = R[n]; if (!r) return;
-    const pn = qarr(r.b.parent.sceneRotation), pni = [pn[0], -pn[1], -pn[2], -pn[3]];
-    let d = qmul(pn, r.pwi); const k = 1 - (level || 0);   // trunk turn since rest, in world
+    const pn = qarr(r.b.parent.sceneRotation), pni = qinv(pn);
+    const rq = qarr(root.sceneRotation), pw = qmul(rq, r.pwl);
+    let d = qmul(pn, qinv(pw)); const k = 1 - (level || 0);   // trunk turn since rest, in world
     if (k < 1) { const sg = d[0] < 0 ? -1 : 1; d = [1 - k + k * d[0] * sg, k * d[1] * sg, k * d[2] * sg, k * d[3] * sg];
       const l = Math.hypot(d[0], d[1], d[2], d[3]); d = d.map((v) => v / l); }
-    const o = qmul(qmul(qmul(qmul(pni, d), qeulerYXZ(x, y, z)), r.pw), r.q0); r.b.rotation = Qt.quaternion(o[0], o[1], o[2], o[3]); };
-  // Where her head rests: level, turned a little to her own left (+y turns her face toward +x, the viewer's right).
-  const HOME_YAW = 0.09;
+    const o = qmul(qmul(qmul(qmul(pni, d), qmul(qmul(rq, qeulerYXZ(x, y, z)), qinv(rq))), pw), r.q0); r.b.rotation = Qt.quaternion(o[0], o[1], o[2], o[3]); };
+  // Where her head rests: level, turned a little toward the UI. +y turns her face toward +x, the viewer's right.
+  // Every room Quick 3D hosts her in stands her right of centre (persona_stage.FIGURE_X) with the chat, orbit and
+  // tiles on screen-left, so she rests turned to -x: the viewer's left, her own right.
+  const HOME_YAW = -0.09;
 
   // layered noise, roughly -1..1, never repeats in practice
   const seeds = {}; const S = (k) => seeds[k] ?? (seeds[k] = rnd() * 100);
