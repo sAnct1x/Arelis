@@ -233,3 +233,5 @@ every 5 s (`OrbitState.reportFps`).
 
 The Quick 3D mixer stands her upright by turning Waist, Spine01 and Spine02 back about a
 third of the 6.5 deg each, so her stomach no longer folds at the waist.
+
+- Arelis rests facing you or a touch toward the chat side, in every theme and state. She still sways and looks around, but no animation leaves her turned away.
