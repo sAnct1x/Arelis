@@ -1552,6 +1552,8 @@ class FilamentChatWindow(QWidget):
         close_btn.setFixedSize(METRICS["row"], METRICS["row"])
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setToolTip("hide chat: talk still works")
+        # UIA: Name "Close chat" (the AutomationId stays SettingsClose for the theme rule).
+        close_btn.setAccessibleName("Close chat")
         close_btn.clicked.connect(self.close)
         head.addWidget(close_btn)
         watch_caption(self, close_btn)
