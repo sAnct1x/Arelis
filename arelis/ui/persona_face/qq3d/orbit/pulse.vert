@@ -28,8 +28,7 @@ void main() {
         float q = mod(i, 6.0);            // 0 the head, 1..5 the trail
         float ph = packetPhase(j);
         float lf = length(tree.xy - feet) * 1.05;
-        float u = limbU(j);
-        float tot = lf + trunkLen() * u + length(limbTarget(j) - trunkAt(u)) * 1.15;
+        float tot = routeTot(j);
         float r = packetHead(j) - q * 8.0 * k / max(tot, 1.0);
         float limbFrom;
         c = routeAt(j, clamp(r, 0.0, 1.0), limbFrom);
@@ -48,7 +47,7 @@ void main() {
         float q = mod(i - 66.0, 3.0);
         float ph = fract(th(t, 21.0) + flow / TREE_LOOP);
         float r = ph / 0.55 - q * 0.03;   // runs out in the first 55% of its loop
-        c = twigAt(t * 2.0, clamp(r, 0.0, 0.98));   // the short twigs, on every limb
+        c = twigAt(limbOf(int(floor(t * 2.0 / 12.0))), t * 2.0, clamp(r, 0.0, 0.98));   // the short twigs, on every limb
         float fade = smoothstep(0.0, 0.08, r) * (1.0 - smoothstep(0.85, 0.98, r))
                    * step(0.0, r) * step(r, 1.0);
         glow = fade * (q == 0.0 ? 1.0 : 0.6 / q);

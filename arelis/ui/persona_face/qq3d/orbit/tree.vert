@@ -1,5 +1,5 @@
 // The orbit tree's fibers (v11b): hair-fine ribbons, many per limb, added like the strands.
-// GridMesh (FIBERS / 2 * K - 1) x 1, twice: K columns per fiber; each fiber's first and last column have no
+// GridMesh (COLS / 2 - 1) x 1, twice: K columns per fiber (K_TWIG a twig); each fiber's first and last column have no
 // width, so the cell that joins one fiber to the next has no area. Everything moves with flow
 // (the wind, the braid's twist, the roots' drift) and brightens under its branch's packet.
 layout(location = 0) in vec4 qt_Vertex;
@@ -20,6 +20,13 @@ const float F_RROOT = 1122.0;
 const float F_WISP = 1152.0;
 const float F_FLARE = 1176.0;
 const float F_WRAP = 1216.0;
+// Columns: K per fiber, but a twig (short, its wander under a pixel) needs only K_TWIG.
+// That is 17% fewer vertices than K for every fiber; QuickOrbit.qml's two orbitTree
+// GridMeshes are (COLS / 2 - 1) x 1 each.
+const float K_TWIG = 24.0;
+const float C_TWIG = F_TWIG * K;
+const float C_LROOT = C_TWIG + (F_LROOT - F_TWIG) * K_TWIG;
+const float COLS = C_LROOT + (FIBERS - F_LROOT) * K;   // 49152
 
 float wob(float f, float s, float k) {  // a smooth per-fiber wander, -1..1, drifting with flow
     return 0.6 * sin(s * (5.0 + 4.0 * th(f, k)) + th(f, k + 1.0) * TAU + flow * 0.35)
@@ -41,11 +48,24 @@ vec2 rootAt(vec2 end, float side, float L, float a, float b, float s) {
 }
 
 void main() {
-    // Two layers of half the fibers each (strand 0, 1): a GridMesh has 16-bit indices.
-    float col = floor(qt_MultiTexCoord0.x * (FIBERS * 0.5 * K - 1.0) + 0.5);
-    float f = floor(col / K);
-    float s = (col - f * K) / (K - 1.0);
-    f += strand * FIBERS * 0.5;
+    // Two layers of half the columns each (strand 0, 1): a GridMesh has 16-bit indices. The
+    // half falls on a fiber's first column (fiber 512), so no fiber is cut between them.
+    float col = floor(qt_MultiTexCoord0.x * (COLS * 0.5 - 1.0) + 0.5) + strand * COLS * 0.5;
+    float f, s;
+    if (col < C_TWIG) {
+        f = floor(col / K);
+        s = (col - f * K) / (K - 1.0);
+    } else if (col < C_LROOT) {
+        float c = col - C_TWIG;
+        float i = floor(c / K_TWIG);
+        f = F_TWIG + i;
+        s = (c - i * K_TWIG) / (K_TWIG - 1.0);
+    } else {
+        float c = col - C_LROOT;
+        float i = floor(c / K);
+        f = F_LROOT + i;
+        s = (c - i * K) / (K - 1.0);
+    }
     float side = qt_MultiTexCoord0.y * 2.0 - 1.0;
     float k = treeK();
     float halfW = (0.42 + th(f, 1.0) * 0.38);
@@ -62,13 +82,14 @@ void main() {
         // A main or minor limb: up the trunk, out the limb, the trunk part braided.
         bool minor = f >= F_MINOR;
         int j = minor ? 6 + int(floor((f - F_MINOR) / 30.0)) : int(floor(f / 80.0));
-        float u = limbU(j);
+        Limb Lb = limbOf(j);
+        float u = Lb.u;
         float lt = trunkLen() * u;
-        float ll = length(limbTarget(j) - trunkAt(u)) * 1.15;
+        float ll = length(Lb.tg - Lb.st) * 1.15;
         float sT = lt / max(lt + ll, 1.0);
         float s2 = min(1.0, s + 0.01);
-        P = s < sT ? trunkAt(s / sT * u) : branchAt(j, (s - sT) / max(1.0 - sT, 1e-3));
-        P2 = s2 < sT ? trunkAt(s2 / sT * u) : branchAt(j, (s2 - sT) / max(1.0 - sT, 1e-3));
+        P = s < sT ? trunkAt(s / sT * u) : limbPoint(Lb, (s - sT) / max(1.0 - sT, 1e-3));
+        P2 = s2 < sT ? trunkAt(s2 / sT * u) : limbPoint(Lb, (s2 - sT) / max(1.0 - sT, 1e-3));
         float d = s * (lt + ll) / k;      // mockup px from the base
         float dT = lt / k;
         float sl = clamp((d - dT) / max(ll / k, 1.0), 0.0, 1.0);
@@ -115,8 +136,9 @@ void main() {
     } else if (f < F_LROOT) {
         // A twig with its curl, six fibers each.
         float i = floor((f - F_TWIG) / 6.0);
-        P = twigAt(i, s);
-        P2 = twigAt(i, min(1.0, s + 0.01));
+        Limb Lb = limbOf(int(floor(i / 12.0)));
+        P = twigAt(Lb, i, s);
+        P2 = twigAt(Lb, i, min(1.0, s + 0.01));
         off = ((th(f, 2.0) * 2.0 - 1.0) * 3.5 * (1.0 - s) + wob(f, s * 5.0, 3.0) * 0.8) * k;
         // tapering, and fading out along its open curl (no closed ring at the tip)
         float fade = smoothstep(0.0, 0.08, s) * (1.0 - smoothstep(0.62, 1.0, s));
@@ -159,7 +181,7 @@ void main() {
         float pl = 0.0;
         float lf = length(tree.xy - feet) * 1.05;
         for (int j = 0; j < 6; ++j) {
-            float tot = lf + trunkLen() * limbU(j) + length(limbTarget(j) - trunkAt(limbU(j))) * 1.15;
+            float tot = routeTot(j);
             pl += pkt(j, s * lf / tot, tot);
         }
         a = (0.4 + th(f, 6.0) * 0.6) * brk * (0.45 + 0.55 * smoothstep(0.0, 0.1, s)) * 0.09 * (1.0 + 1.5 * pl);

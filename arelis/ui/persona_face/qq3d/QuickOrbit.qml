@@ -134,6 +134,7 @@ Item {
         Layer {
             required property int index
             strand: index
+            visible: orbit.treeOn < 0.999   // under the tree its alpha is 0: draw nothing
             mesh: GridMesh { resolution: Qt.size(192, 1) }
             vertexShader: "orbit/strand.vert.qsb"
         }
@@ -157,15 +158,15 @@ Item {
     Layer {
         objectName: "orbitTree"
         visible: orbit.treeOn > 0.001
-        strand: 0   // half the fibers each: a GridMesh has 16-bit indices
-        mesh: GridMesh { resolution: Qt.size(620 * 48 - 1, 1) }
+        strand: 0   // half the columns each: a GridMesh has 16-bit indices
+        mesh: GridMesh { resolution: Qt.size(49152 / 2 - 1, 1) }   // tree.vert COLS
         vertexShader: "orbit/tree.vert.qsb"
     }
     Layer {
         objectName: "orbitTree1"
         visible: orbit.treeOn > 0.001
-        strand: 1   // half the fibers each: a GridMesh has 16-bit indices
-        mesh: GridMesh { resolution: Qt.size(620 * 48 - 1, 1) }
+        strand: 1   // half the columns each: a GridMesh has 16-bit indices
+        mesh: GridMesh { resolution: Qt.size(49152 / 2 - 1, 1) }   // tree.vert COLS
         vertexShader: "orbit/tree.vert.qsb"
     }
 
@@ -180,7 +181,7 @@ Item {
         model: 3
         Layer {
             required property int index
-            visible: orbit.st.hasHub
+            visible: orbit.st.hasHub && orbit.treeOn < 0.999
             strand: index
             mesh: GridMesh { resolution: Qt.size(48, 1) }
             vertexShader: "orbit/thread.vert.qsb"
