@@ -16,6 +16,7 @@ from PySide6.QtGui import (
     QGuiApplication,
     QMouseEvent,
     QTextCursor,
+    QTextDocument,
     QTextFormat,
     QTextTable,
 )
@@ -309,6 +310,9 @@ class ChatPanel(QWidget):
         # renderer uses them so ![name](name) is not drawn a second time.
         self._shown_charts: list[str] = []
         self._file_tokens: dict[str, tuple[str, str]] = {}
+        # The open bubble's settled part: (chars of the reply, offset into its cell)
+        # already written and left alone; each paint rewrites only what follows.
+        self._settled: tuple[int, int] | None = None
         self._caret_timer = QTimer(self)
         self._caret_timer.setInterval(530)
         self._caret_timer.timeout.connect(self._blink_caret)
@@ -527,6 +531,7 @@ class ChatPanel(QWidget):
             return
         self._has_messages = False
         self._anchor = None
+        self._settled = None
         self.view.clear()
         self.view.hide()
         self.empty.show()
@@ -715,6 +720,7 @@ class ChatPanel(QWidget):
         if live is not None and _thought_has_body(live):
             self._place_thought(live)
         self._anchor = self._end_position()
+        self._settled = None
         self._stream_text = []
         self._last_assistant_body = None
         self._stream_open = True
@@ -790,6 +796,12 @@ class ChatPanel(QWidget):
             parked = self.view.verticalScrollBar().value()
         self.view.arm_math()
         body = "".join(self._stream_text)
+        if self._repaint_tail(body):
+            if parked is not None:
+                self._pin_to(parked)
+            self._scroll(follow=follow)
+            self._note_paint_cost(time.perf_counter() - started)
+            return
         if body.strip():
             html = _assistant_body_html(
                 body,
@@ -800,6 +812,7 @@ class ChatPanel(QWidget):
         else:
             html = _caret_html() if self._caret_on else ""
         self._replace_from_anchor(html)
+        self._settle(body)
         if parked is not None:
             self._pin_to(parked)
         self._scroll(follow=follow)
@@ -841,6 +854,7 @@ class ChatPanel(QWidget):
         self._stream_open = False
         self._stream_text = []
         self._anchor = None
+        self._settled = None
         self._last_assistant_body = body
         self._flush_pending_notices()
         self._place_last_acts()
@@ -863,6 +877,7 @@ class ChatPanel(QWidget):
         self._stream_open = False
         self._stream_text = []
         self._anchor = None
+        self._settled = None
         self._flush_pending_notices()
         self._scroll(follow=True)
 
@@ -1068,6 +1083,7 @@ class ChatPanel(QWidget):
         self._stream_open = False
         self._has_messages = False
         self._anchor = None
+        self._settled = None
         self._stream_text = []
         self._last_assistant_body = None
         self._last_user_text = ""
@@ -1178,6 +1194,86 @@ class ChatPanel(QWidget):
         self.view.setTextCursor(cursor)
         if html:
             self.view.append(html)
+
+    def _stream_cell(self):
+        """The open bubble's answer cell, or None when the document no longer ends in it."""
+        if self._anchor is None:
+            return None
+        cursor = QTextCursor(self.view.document())
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.movePosition(QTextCursor.MoveOperation.PreviousBlock)
+        table = cursor.currentTable()
+        if table is None or table.firstPosition() < self._anchor:
+            return None
+        return table.cellAt(0, 0)
+
+    def _repaint_tail(self, body: str) -> bool:
+        """Rewrite only the reply after its last settled block, inside the open cell.
+
+        A full paint re-lays out the whole message and re-washes its cell, so it
+        grows with the reply and holds the GUI thread (and the quick surface's
+        frame) for tens of ms on every paint. Blocks before the last safe break
+        do not change while the reply streams: a full paint runs once each time
+        that break moves, and the paints between rewrite only the blocks after
+        it. Finish still renders the whole answer.
+        """
+        if self._settled is None or not body.strip():
+            return False
+        done, index = self._settled
+        if len(body) < done or _settled_break(body) != done:
+            return False
+        block = self._cell_block(index)
+        if block is None:
+            return False
+        cursor = QTextCursor(self.view.document())
+        cursor.beginEditBlock()
+        cursor.setPosition(block.position())
+        cursor.setPosition(self._stream_cell().lastPosition(), QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        html = render_markdown(
+            body[done:], math=math_html, shown_files=self._shown_charts, streaming=True
+        )
+        if self._caret_on:
+            html += _caret_html()
+        if html:
+            # The cell's ink rides on its td; a bare fragment would come in black.
+            cursor.insertHtml(f'<div style="color:{_ink("text")};">{html}</div>')
+        cursor.endEditBlock()
+        return True
+
+    def _cell_block(self, index: int):
+        """The index-th block of the open cell, or None when the cell has fewer."""
+        cell = self._stream_cell()
+        if cell is None:
+            return None
+        block = cell.firstCursorPosition().block()
+        for _ in range(index):
+            block = block.next()
+            if not block.isValid() or block.position() > cell.lastPosition():
+                return None
+        return block
+
+    def _settle(self, body: str) -> None:
+        """After a full paint, note where the settled blocks end in the open cell."""
+        self._settled = None
+        if not body.strip() or self._stream_cell() is None:
+            return
+        done = _settled_break(body)
+        index = 0
+        if done:
+            scratch = QTextDocument()
+            scratch.setHtml(_assistant_body_html(body[:done], self._shown_charts))
+            table = None
+            block = scratch.begin()
+            while table is None and block.isValid():
+                table = QTextCursor(block).currentTable()
+                block = block.next()
+            if table is None:
+                return
+            cell = table.cellAt(0, 0)
+            first = cell.firstCursorPosition().block().blockNumber()
+            index = cell.lastCursorPosition().block().blockNumber() - first + 1
+        self._settled = (done, index)
 
     def _stop_caret(self) -> None:
         self._caret_timer.stop()
@@ -1347,6 +1443,37 @@ def _user_bubble_html(
         "</td></tr></table>"
         "</td></tr></table>"
     )
+
+
+def _settled_break(body: str) -> int:
+    """Index just past the last blank line that no later text can change.
+
+    Not inside a code fence or a $$ block, and the next line starts a new
+    paragraph or heading, not a list item, indent or table row, which would
+    otherwise render as a second list or table.
+    """
+    best = 0
+    fence = False
+    dollars = False
+    pos = 0
+    lines = body.split("\n")
+    for i, line in enumerate(lines[:-1]):
+        pos += len(line) + 1
+        bare = line.strip()
+        if bare.startswith(("```", "~~~")):
+            fence = not fence
+        elif not fence and bare == "$$":
+            dollars = not dollars
+        if fence or dollars or bare or i == 0 or not lines[i - 1].strip():
+            continue
+        nxt = lines[i + 1]
+        if i + 2 >= len(lines) or not nxt.strip():
+            continue
+        head = nxt.lstrip()
+        if nxt[:1] in (" ", "\t") or head[:1] in "-*+|>`~$<" or head[:1].isdigit():
+            continue
+        best = pos
+    return best
 
 
 def _caret_html() -> str:
