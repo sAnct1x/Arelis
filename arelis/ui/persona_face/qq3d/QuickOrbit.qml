@@ -25,6 +25,10 @@ Item {
     property real flow: 0
     // The tree stands in every state (idle, thinking, speaking); form only brightens its packets.
     readonly property real treeOn: 1
+    // The tree's own layers (fibers, glow, pool, packets, flares): faded out, then not drawn at
+    // all, while the Filament chat tile covers it (OrbitState.treeCovered); back softly after.
+    property real treeShow: st && st.treeCovered ? 0 : 1
+    Behavior on treeShow { NumberAnimation { duration: 650; easing.type: Easing.InOutSine } }
     property real ringGrow: 0
     property real clockErr: 0
     property bool synced: false
@@ -142,14 +146,16 @@ Item {
 
     Layer {
         objectName: "orbitPool"
-        visible: orbit.treeOn > 0.001
+        visible: orbit.treeShow > 0.001
+        treeOn: orbit.treeShow
         vertexShader: "orbit/pool.vert.qsb"
         fragmentShader: "orbit/pool.frag.qsb"
     }
 
     Layer {
         objectName: "orbitTreeGlow"
-        visible: orbit.treeOn > 0.001
+        visible: orbit.treeShow > 0.001
+        treeOn: orbit.treeShow
         mesh: GridMesh { resolution: Qt.size(24 * 64 - 1, 1) }
         vertexShader: "orbit/glow.vert.qsb"
         fragmentShader: "orbit/glow.frag.qsb"
@@ -157,14 +163,16 @@ Item {
 
     Layer {
         objectName: "orbitTree"
-        visible: orbit.treeOn > 0.001
+        visible: orbit.treeShow > 0.001
+        treeOn: orbit.treeShow
         strand: 0   // half the columns each: a GridMesh has 16-bit indices
         mesh: GridMesh { resolution: Qt.size(49152 / 2 - 1, 1) }   // tree.vert COLS
         vertexShader: "orbit/tree.vert.qsb"
     }
     Layer {
         objectName: "orbitTree1"
-        visible: orbit.treeOn > 0.001
+        visible: orbit.treeShow > 0.001
+        treeOn: orbit.treeShow
         strand: 1   // half the columns each: a GridMesh has 16-bit indices
         mesh: GridMesh { resolution: Qt.size(49152 / 2 - 1, 1) }   // tree.vert COLS
         vertexShader: "orbit/tree.vert.qsb"
@@ -190,7 +198,8 @@ Item {
 
     Layer {
         objectName: "orbitFlares"
-        visible: orbit.treeOn > 0.001
+        visible: orbit.treeShow > 0.001
+        treeOn: orbit.treeShow
         mesh: GridMesh { resolution: Qt.size(4 * 6 - 1, 1) }
         vertexShader: "orbit/flare.vert.qsb"
         fragmentShader: "orbit/flare.frag.qsb"
@@ -198,7 +207,8 @@ Item {
 
     Layer {
         objectName: "orbitPulses"
-        visible: orbit.treeOn > 0.001
+        visible: orbit.treeShow > 0.001
+        treeOn: orbit.treeShow
         mesh: GridMesh { resolution: Qt.size(4 * (11 * 6 + 36 * 3) - 1, 1) }
         vertexShader: "orbit/pulse.vert.qsb"
         fragmentShader: "orbit/dust.frag.qsb"
