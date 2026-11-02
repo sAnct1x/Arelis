@@ -100,7 +100,14 @@ def _quick_widget_class():
             self._images = _image_provider()
             self.engine().addImageProvider(_ORBIT_PROVIDER, self._images)
             self._image_n = 0
-            qq3d_avatar._use_pipeline_cache(self.quickWindow())
+            # No pipeline cache here: a QQuickWidget renders with its top-level window's
+            # backing-store QRhi, which Qt creates without EnablePipelineCacheDataSave and
+            # without the QQuickGraphicsConfiguration (qquickwidget.cpp rhiConfig says so).
+            # D3D11 only looks up its bytecode cache under that flag, so every start compiles
+            # every pipeline on the GUI thread: the slower ready than the readback path.
+            logging.getLogger("arelis.avatar").info(
+                "[avatar] quick surface: no pipeline cache (QQuickWidget uses the window's QRhi)"
+            )
             # ARELIS_FRAMETIME_LOG: the same frames.csv as the readback path, one line per
             # surface frame (her, the orbit image and the backdrop render together here).
             self._frames = qq3d_avatar.frame_log()
