@@ -54,8 +54,9 @@ class OrbitState(QObject):
             "hub": QPointF(),
             "hasHub": False,
             "ring": QVector4D(),
-            "ringGrow": 1.0,
-            "ringPhase": "",
+            # Hidden until the Filament load grows it: no full tree during her T-pose.
+            "ringGrow": 0.0,
+            "ringPhase": "wait",
             "span": 1,
             "weather": "idle",
             "target": [0.0, 0.08, 0.0, 0.0, 0.0],
@@ -85,7 +86,6 @@ class OrbitState(QObject):
     def update(self, field: ff.FilamentField, rect: QRect, now: float | None = None) -> None:
         """After a sim tick: push what changed. Cheap; the GPU does the per-frame work."""
         self._set("active", True)
-        field.gpu_tree = True
         w = float(rect.width())
         cx, cy, rx, ry = field.ellipse(rect, settled=True)
         self._set("ring", QVector4D(cx, cy, rx, ry))
@@ -100,6 +100,10 @@ class OrbitState(QObject):
         self._set("fadeMargin", field._fade_margin(w))
         self._set("span", int(field.span))
         phase = field._ring_phase
+        # Before the load starts the field's phase is "" too (a full ring): hold it at "wait"
+        # so the tree grows once, from nothing, instead of flashing full first.
+        if not field.ring_started:
+            phase = "wait"
         if phase != self._values["ringPhase"]:
             self._set("ringGrow", float(field.ring_grow))
             self._set("ringPhase", phase)

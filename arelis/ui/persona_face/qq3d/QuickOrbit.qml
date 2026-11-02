@@ -4,9 +4,10 @@
 // geometry and the weather and emits on change; this file eases the weather and runs the clock
 // on a FrameAnimation, as FilamentField.tick does, and takes a 1 s sync of the sim's clock so
 // the beads, stems and tethers the Python worker still paints (the overlay) stay on the path.
-// In idle the orbit tree (Iris's v11b) stands for the ring: fibers, roots and floor link
-// (tree.vert) with their glow (glow.vert) over the floor pool (pool.vert), light packets as travelling dots (pulse.vert) and node flares (flare.vert),
-// all moving on `flow`, seconds of calm time; the ring's strands come back as form rises.
+// The orbit tree (Iris's v11b) stands for the ring in every state: fibers, roots and floor
+// link (tree.vert) with their glow (glow.vert) over the floor pool (pool.vert), light packets
+// as travelling dots (pulse.vert) and node flares (flare.vert), all moving on `flow`, seconds
+// of calm time. Thinking and speaking only brighten the packets; the tree never fades out.
 import QtQuick
 
 Item {
@@ -22,8 +23,9 @@ Item {
     property real words: 0
     property real dustClock: 0
     property real flow: 0
-    readonly property real treeOn: 1 - Math.max(0, Math.min(1, (form - 0.1) / 0.5))
-    property real ringGrow: 1
+    // The tree stands in every state (idle, thinking, speaking); form only brightens its packets.
+    readonly property real treeOn: 1
+    property real ringGrow: 0
     property real clockErr: 0
     property bool synced: false
     property bool clockRunning: true  // a still (a comparison grab) freezes the clock
@@ -156,14 +158,14 @@ Item {
         objectName: "orbitTree"
         visible: orbit.treeOn > 0.001
         strand: 0   // half the fibers each: a GridMesh has 16-bit indices
-        mesh: GridMesh { resolution: Qt.size(548 * 48 - 1, 1) }
+        mesh: GridMesh { resolution: Qt.size(620 * 48 - 1, 1) }
         vertexShader: "orbit/tree.vert.qsb"
     }
     Layer {
         objectName: "orbitTree1"
         visible: orbit.treeOn > 0.001
         strand: 1   // half the fibers each: a GridMesh has 16-bit indices
-        mesh: GridMesh { resolution: Qt.size(548 * 48 - 1, 1) }
+        mesh: GridMesh { resolution: Qt.size(620 * 48 - 1, 1) }
         vertexShader: "orbit/tree.vert.qsb"
     }
 

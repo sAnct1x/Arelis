@@ -35,7 +35,10 @@ void main() {
         pp += fadeIn * (e > 0.0 ? exp(-(e / 60.0) * (e / 60.0)) : exp(e / 150.0));
     }
     float on = treeOn * (ringScale >= 1.0 ? 1.0 : ringScale);
-    float a = (pool * 0.9 + core * 0.7) * br * (0.65 + 0.45 * pp) * 0.42 * on;
+    // the brightest part sits under the root, where the trunk's fibers splay over the floor
+    float rx = (vP.x - tree.x) / (170.0 * k);
+    float root = exp(-rx * rx - dy * dy * 1.4);
+    float a = (pool * 0.9 + core * 0.7 + root * 0.9) * br * (0.65 + 0.45 * pp) * 0.8 * on;
     vec3 rgb = gold.rgb * 0.75 + ice.rgb * 0.3 + coreColor.rgb * 0.12 * core;
     fragColor = vec4(rgb * a, 0.0) * qt_Opacity;
 }

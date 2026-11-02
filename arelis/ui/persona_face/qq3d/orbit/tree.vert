@@ -8,17 +8,18 @@ layout(location = 0) out vec4 vColor;
 layout(location = 1) out vec2 vLine;
 
 const float K = 48.0;
-const float FIBERS = 1096.0;
-// Fiber ranges: 6 x 80 main limb fibers, 5 x 30 minor, 36 x 8 twig, 60 left roots,
+const float FIBERS = 1240.0;
+// Fiber ranges: 6 x 80 main limb fibers, 5 x 30 minor, 72 x 6 twig (half of them long
+// secondary limbs, for a dense crown), 60 left roots,
 // 30 right roots, 24 floor wisps, 40 base-flare buttresses, 24 base wraps. Every limb fiber
 // runs from the floor up the trunk, so the trunk is the dense bundle of all of them.
 const float F_MINOR = 480.0;
 const float F_TWIG = 630.0;
-const float F_LROOT = 918.0;
-const float F_RROOT = 978.0;
-const float F_WISP = 1008.0;
-const float F_FLARE = 1032.0;
-const float F_WRAP = 1072.0;
+const float F_LROOT = 1062.0;
+const float F_RROOT = 1122.0;
+const float F_WISP = 1152.0;
+const float F_FLARE = 1176.0;
+const float F_WRAP = 1216.0;
 
 float wob(float f, float s, float k) {  // a smooth per-fiber wander, -1..1, drifting with flow
     return 0.6 * sin(s * (5.0 + 4.0 * th(f, k)) + th(f, k + 1.0) * TAU + flow * 0.35)
@@ -101,7 +102,7 @@ void main() {
         float lf = length(tree.xy - feet) * 1.05;
         float tot = lf + lt + ll;
         float pl = pkt(j, (lf + s * (lt + ll)) / max(tot, 1.0), tot) * (minor ? 0.55 : 1.0);
-        a = (0.35 + 1.4 * pow(th(f, 14.0), 3.0)) * dep * fade * trk * 0.12 * (1.0 + 3.0 * pl);
+        a = (0.35 + 1.4 * pow(th(f, 14.0), 3.0)) * dep * fade * trk * 0.12 * (1.0 + (3.0 + 3.0 * form) * pl);
         if (mod(f, 14.0) < 0.5) {  // the luminous core: a few soft wide fibers near the centre line
             off *= 0.25;
             halfW = (d <= dT ? 4.5 : 3.0 * (1.0 - sl) + 0.8) * max(k * 1.4, 0.6);
@@ -112,8 +113,8 @@ void main() {
         lockTip = minor ? 0.0 : smoothstep(0.86, 1.0, s);
         gpos = s;
     } else if (f < F_LROOT) {
-        // A twig with its curl, four fibers each.
-        float i = floor((f - F_TWIG) / 8.0);
+        // A twig with its curl, six fibers each.
+        float i = floor((f - F_TWIG) / 6.0);
         P = twigAt(i, s);
         P2 = twigAt(i, min(1.0, s + 0.01));
         off = ((th(f, 2.0) * 2.0 - 1.0) * 3.5 * (1.0 - s) + wob(f, s * 5.0, 3.0) * 0.8) * k;
