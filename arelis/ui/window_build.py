@@ -248,9 +248,17 @@ class WindowBuild:
         from arelis.ui.filament_render import FieldRenderer
 
         self._filament_render = FieldRenderer(self._filament, self)
-        self._filament_render.ready.connect(
-            lambda: self.update(self._filament.dirty_rect(self.rect()))
-        )
+        from arelis.ui.persona_face import quick_surface
+
+        self._quick_surface = None
+        if quick_surface.enabled():
+            # One full-window Quick layer under every widget: void, orbit frame, her figure.
+            quick_surface.surface_for(self)
+            self._filament_render.ready.connect(self._push_orbit_to_surface)
+        else:
+            self._filament_render.ready.connect(
+                lambda: self.update(self._filament.dirty_rect(self.rect()))
+            )
         self._filament_parked: dict[str, Any] | None = None
         self._filament_chrome_peek = False
         self._filament_hiding = False

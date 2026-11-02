@@ -493,6 +493,24 @@ class FrameLog:
             self._file = None
 
 
+def attach_frame_log(owner, view, log: FrameLog) -> None:
+    """Log one line per frame ``view`` renders, flushed every second; closed with ``owner``."""
+    from PySide6.QtCore import QCoreApplication
+
+    # afterRendering is once per frame, on whichever thread renders the window.
+    view.afterRendering.connect(log.frame, Qt.ConnectionType.DirectConnection)
+    flush = QTimer(owner)
+    flush.setInterval(_FLUSH_MS)
+    flush.timeout.connect(log.flush)
+    flush.start()
+    watch = StallWatch(log)
+    owner.destroyed.connect(watch.stop)
+    owner.destroyed.connect(log.close)
+    app = QCoreApplication.instance()
+    if app is not None:
+        app.aboutToQuit.connect(log.close)
+
+
 def _end_warming() -> None:
     from arelis.ui import void_idle
 
@@ -989,20 +1007,7 @@ class QQ3DAvatar(QWidget):
         self._request()
 
     def _start_frame_log(self, log: FrameLog) -> None:
-        from PySide6.QtCore import QCoreApplication
-
-        # afterRendering is once per frame, on the render thread.
-        self.view.afterRendering.connect(log.frame, Qt.ConnectionType.DirectConnection)
-        flush = QTimer(self)
-        flush.setInterval(_FLUSH_MS)
-        flush.timeout.connect(log.flush)
-        flush.start()
-        watch = StallWatch(log)
-        self.destroyed.connect(watch.stop)
-        self.destroyed.connect(log.close)
-        app = QCoreApplication.instance()
-        if app is not None:
-            app.aboutToQuit.connect(log.close)
+        attach_frame_log(self, self.view, log)
 
     def is_ready(self) -> bool:
         return self._ready and not self._dead

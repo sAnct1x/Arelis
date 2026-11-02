@@ -242,7 +242,11 @@ class PersonaPanel(QWidget):
         self._engine = "web"
         if qq3d_avatar.wanted(active_theme()):
             host = qq3d_avatar
-            make = lambda: qq3d_avatar.QQ3DAvatar(self)  # noqa: E731
+            from arelis.ui.persona_face import quick_surface
+
+            # ARELIS_SURFACE=quick: the window's Quick surface draws her (no readback).
+            cls = quick_surface.QuickSurfaceAvatar if quick_surface.enabled() else None
+            make = lambda: (cls or qq3d_avatar.QQ3DAvatar)(self)  # noqa: E731
             self._engine = "qq3d"
         reason = host.unavailable_reason()
         if reason is None:

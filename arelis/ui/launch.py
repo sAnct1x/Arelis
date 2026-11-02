@@ -584,6 +584,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     from arelis.ui.theme_tokens import active_theme
 
     qq3d_avatar.log_engine_choice(active_theme())
+    from arelis.ui.persona_face import quick_surface
+
+    quick_surface.log_surface_choice()
     families = load_fonts()
     app.setFont(app_font(families))
     install_stylesheet()
