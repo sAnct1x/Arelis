@@ -82,6 +82,10 @@ Item {
         Loader3D {
             id: loader
             objectName: "figure"
+            // The camera slides sideways to put her right of centre, so it sees her from her right: unturned she
+            // reads as facing screen-right, away from the UI. Turn her to face the camera; face.js HOME_YAW then
+            // rests her head a little further toward the UI.
+            eulerRotation.y: Math.atan2(cam.position.x, cam.camZ) * 180 / Math.PI
             source: root.modelSource
             onStatusChanged: {
                 if (status === Loader3D.Ready) { root.startFace(item); root.sceneStatus = "ready" }
