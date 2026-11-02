@@ -7,7 +7,19 @@ Rectangle {
     id: surface
     property color voidColor: "transparent"
     property string orbitSource: ""
+    // Night and Sodium: the room's atmosphere (the window's own paint would be punched out).
+    property string backdropSource: ""
     color: voidColor
+
+    Image {
+        objectName: "backdrop"
+        anchors.fill: parent
+        source: surface.backdropSource
+        visible: surface.backdropSource !== ""
+        cache: false
+        smooth: false
+        fillMode: Image.Stretch
+    }
 
     Image {
         objectName: "orbit"

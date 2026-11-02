@@ -57,10 +57,10 @@ def _image_provider():
     class OrbitImages(QQuickImageProvider):
         def __init__(self) -> None:
             super().__init__(QQuickImageProvider.ImageType.Image)
-            self.image = QImage()
+            self.images: dict[str, QImage] = {}
 
-        def requestImage(self, _id, size, _requested):
-            img = self.image
+        def requestImage(self, id_, size, _requested):
+            img = self.images.get(id_.split("/", 1)[0], QImage())
             if size is not None:
                 size.setWidth(img.width())
                 size.setHeight(img.height())
@@ -97,9 +97,9 @@ def _quick_widget_class():
             self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             import arelis.ui.persona_q3d.geometry  # noqa: F401  (registers LayerGeometry)
 
-            self._orbit = _image_provider()
-            self.engine().addImageProvider(_ORBIT_PROVIDER, self._orbit)
-            self._orbit_n = 0
+            self._images = _image_provider()
+            self.engine().addImageProvider(_ORBIT_PROVIDER, self._images)
+            self._image_n = 0
             qq3d_avatar._use_pipeline_cache(self.quickWindow())
             self.setSource(QUrl.fromLocalFile(str(SURFACE_QML)))
             self._window = window
@@ -128,15 +128,24 @@ def _quick_widget_class():
 
         def set_orbit(self, image: QImage | None) -> None:
             """Show the orbit frame (CPU-painted this slice) under her; None clears it."""
+            self._set_image("orbit", "orbitSource", image)
+
+        def set_backdrop(self, image: QImage | None) -> None:
+            """Night and Sodium: the room's atmosphere under everything; None clears it."""
+            self._set_image("backdrop", "backdropSource", image)
+
+        def _set_image(self, name: str, prop: str, image: QImage | None) -> None:
             root = self.rootObject()
             if root is None:
                 return
             if image is None or image.isNull():
-                root.setProperty("orbitSource", "")
+                self._images.images.pop(name, None)
+                if root.property(prop):
+                    root.setProperty(prop, "")
                 return
-            self._orbit.image = image
-            self._orbit_n += 1
-            root.setProperty("orbitSource", f"image://{_ORBIT_PROVIDER}/{self._orbit_n}")
+            self._images.images[name] = image
+            self._image_n += 1
+            root.setProperty(prop, f"image://{_ORBIT_PROVIDER}/{name}/{self._image_n}")
 
     return QuickSurface
 

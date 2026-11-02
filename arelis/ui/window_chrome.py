@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QAction,
     QActionGroup,
     QColor,
+    QImage,
     QKeyEvent,
     QKeySequence,
     QPainter,
@@ -466,7 +467,13 @@ class WindowChrome:
             render.note_shown(frame)
 
     def _sync_surface_void(self, surface) -> bool:
-        """The Quick layer paints the void in Filament; elsewhere it is clear. True: Filament."""
+        """The Quick layer paints the whole backdrop. True: Filament (void + orbit).
+
+        Under a QQuickWidget Qt punches its rect out of the window's backing store and
+        composites the widget's texture underneath, so whatever this window paints there
+        is erased. The surface covers the window, so a Night or Sodium backdrop painted
+        here came out black; those rooms get their atmosphere as a surface image instead.
+        """
         filament = active_theme() == "filament"
         if getattr(self, "_surface_void_filament", None) is not filament:
             self._surface_void_filament = filament
@@ -475,12 +482,39 @@ class WindowChrome:
             )
             if not filament:
                 surface.set_orbit(None)
-        return filament
+        if filament:
+            self._surface_backdrop_key = None
+            surface.set_backdrop(None)
+            return True
+        dpr = self.devicePixelRatioF()
+        key = (active_theme(), self.width(), self.height(), dpr)
+        if getattr(self, "_surface_backdrop_key", None) != key:
+            self._surface_backdrop_key = key
+            surface.set_backdrop(self._paint_backdrop(dpr))
+        return False
+
+    def _paint_backdrop(self, dpr: float) -> QImage:
+        """This room's atmosphere at window size (the grain's sub-pixel drift is not kept)."""
+        img = QImage(
+            max(1, round(self.width() * dpr)),
+            max(1, round(self.height() * dpr)),
+            QImage.Format.Format_ARGB32_Premultiplied,
+        )
+        img.setDevicePixelRatio(dpr)
+        img.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(img)
+        path = QPainterPath()
+        path.addRoundedRect(self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS)
+        painter.setClipPath(path)
+        paint_atmosphere(painter, self.rect(), drift=self._atmosphere_phase)
+        painter.end()
+        return img
 
     def paintEvent(self, event: QPaintEvent) -> None:
         surface = getattr(self, "_quick_surface", None)
-        if surface is not None and self._sync_surface_void(surface):
-            return  # the Quick surface under every widget draws the void and the orbit
+        if surface is not None:
+            self._sync_surface_void(surface)
+            return  # the Quick surface under every widget draws the backdrop
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         if active_theme() == "filament":
