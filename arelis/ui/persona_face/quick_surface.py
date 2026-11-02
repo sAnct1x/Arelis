@@ -101,6 +101,11 @@ def _quick_widget_class():
             self.engine().addImageProvider(_ORBIT_PROVIDER, self._images)
             self._image_n = 0
             qq3d_avatar._use_pipeline_cache(self.quickWindow())
+            # ARELIS_FRAMETIME_LOG: the same frames.csv as the readback path, one line per
+            # surface frame (her, the orbit image and the backdrop render together here).
+            self._frames = qq3d_avatar.frame_log()
+            if self._frames is not None:
+                qq3d_avatar.attach_frame_log(self, self.quickWindow(), self._frames)
             self.setSource(QUrl.fromLocalFile(str(SURFACE_QML)))
             self._window = window
             window._quick_surface = self

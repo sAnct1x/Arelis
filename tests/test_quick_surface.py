@@ -75,3 +75,22 @@ def test_night_backdrop_is_drawn_by_the_surface(qt_app, monkeypatch) -> None:
     )
     px = shot.pixelColor(shot.width() // 2, shot.height() // 2)
     assert px.alpha() == 255 and (px.red(), px.green(), px.blue()) != (0, 0, 0)
+
+
+def test_frametime_log_records_surface_frames(qt_app, monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("ARELIS_SURFACE", "quick")
+    path = tmp_path / "frames.csv"
+    monkeypatch.setenv("ARELIS_FRAMETIME_LOG", str(path))
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.persona_face import quick_surface
+
+    win = QWidget()
+    surface = quick_surface.surface_for(win)
+    for _ in range(3):  # offscreen Qt has no QRhi, so stand in for three rendered frames
+        surface.quickWindow().afterRendering.emit()
+    import shiboken6
+
+    shiboken6.delete(surface)  # the log closes with its surface
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2 and all(float(v) >= 0 for v in lines[0].split(","))
