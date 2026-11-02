@@ -43,20 +43,31 @@ class _Painter(QObject):
 
     @Slot(object, QRect, float)
     def paint(self, field: FilamentField, rect: QRect, dpr: float) -> None:
+        # Always answer, even when the paint raises: FieldRenderer holds _busy until done
+        # arrives and drops every tick meanwhile, and paintEvent no longer paints the field
+        # itself, so one lost done froze the field (void or one stale frame) for good.
         t0 = time.perf_counter()
-        warm_orb_stamps()  # on this thread: the GUI thread never builds a stamp
-        img = QImage(
-            QSize(int(rect.width() * dpr), int(rect.height() * dpr)),
-            QImage.Format.Format_ARGB32_Premultiplied,
-        )
-        img.setDevicePixelRatio(dpr)
-        p = QPainter(img)
-        if self.unported_only:
-            field.paint_unported(p, QRect(0, 0, rect.width(), rect.height()))
-        else:
-            field._paint(p, QRect(0, 0, rect.width(), rect.height()))
-        p.end()
-        self.done.emit(img, (time.perf_counter() - t0) * 1000.0)
+        img = QImage()
+        try:
+            warm_orb_stamps()  # on this thread: the GUI thread never builds a stamp
+            img = QImage(
+                QSize(int(rect.width() * dpr), int(rect.height() * dpr)),
+                QImage.Format.Format_ARGB32_Premultiplied,
+            )
+            img.setDevicePixelRatio(dpr)
+            p = QPainter(img)
+            try:
+                if self.unported_only:
+                    field.paint_unported(p, QRect(0, 0, rect.width(), rect.height()))
+                else:
+                    field._paint(p, QRect(0, 0, rect.width(), rect.height()))
+            finally:
+                p.end()
+        except Exception:
+            LOG.exception("[filament] worker paint failed")
+            img = QImage()
+        finally:
+            self.done.emit(img, (time.perf_counter() - t0) * 1000.0)
 
 
 class FieldRenderer(QObject):
@@ -133,7 +144,8 @@ class FieldRenderer(QObject):
 
     @Slot(QImage, float)
     def _on_done(self, img: QImage, ms: float) -> None:
-        self._image = img
+        if not img.isNull():  # a failed paint keeps the last good frame
+            self._image = img
         self._busy = False
         self._busy_size = None
         self.ready.emit()
