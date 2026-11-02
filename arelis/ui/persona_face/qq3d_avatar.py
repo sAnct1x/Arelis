@@ -723,6 +723,7 @@ class _RenderThread(QThread):
             batch.readBackTexture(QRhiReadbackDescription(self._tex), result)
             self._control.commandBuffer().resourceUpdate(batch)
             self._calls["endFrame"]()  # an offscreen frame: the readback is complete here
+            self.count = getattr(self, "count", 0) + 1  # diag: frames read back
             if self._timed < _TIMED_FRAMES:
                 self._timed += 1
                 if self._timed == 1:

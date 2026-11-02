@@ -532,6 +532,9 @@ class WindowChrome:
         sync_idle_mode(self)
         if active_theme() == "filament" and self._filament_parked is not None:
             self._later(0, self._filament_place_entity)
+        from arelis.ui import sodium_diag
+
+        sodium_diag.on_show(self)
 
     def _sync_browser_anchor(self) -> None:
         """Park her Chrome on one desk. Never pass the 1/2/3 span as its size."""
