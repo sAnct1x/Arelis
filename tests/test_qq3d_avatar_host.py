@@ -362,7 +362,7 @@ def test_she_stays_hidden_and_not_ready_until_the_mixer_poses_her(tmp_path, monk
     if unavailable_reason():
         pytest.skip(unavailable_reason())
     host = QQ3DAvatar()
-    if host.root is None:
+    if getattr(host, "root", None) is None:
         pytest.skip("no Quick 3D scene here")
     mixer = host.root.findChild(QObject, "mixer")
     mixer.setProperty("running", False)  # her first pose has not been written yet
