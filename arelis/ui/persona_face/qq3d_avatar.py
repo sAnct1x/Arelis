@@ -84,6 +84,7 @@ def _use_pipeline_cache(view) -> None:
 
 _FLUSH_MS = 1000
 # While her window says it is minimized, look again this often (the flag can be stale).
+_MIN_FRAME_MS = 16  # about 60 fps: her loop re-armed at 0 ms had no cap
 _MINIMIZED_RETRY_MS = 250
 _KICK_EVENTS = (QEvent.Type.WindowStateChange, QEvent.Type.Show, QEvent.Type.Expose)
 
@@ -898,10 +899,19 @@ class QQ3DAvatar(QWidget):
         dpr = self.devicePixelRatioF()
         return max(1, round(self.width() * dpr)), max(1, round(self.height() * dpr))
 
+    def _frame_delay_ms(self) -> int:
+        """Wait so frames start at most every _MIN_FRAME_MS. Uncapped, every frame forced a
+        repaint of whatever overlaps her (the Night/Sodium orbit) and starved GUI input."""
+        import time
+
+        since = (time.monotonic() - getattr(self, "_frame_t", 0.0)) * 1000.0
+        return max(0, int(_MIN_FRAME_MS - since))
+
     def _request(self, *_args) -> None:
         self._pending = True
-        if not self._kick.isActive() or self._kick.remainingTime() > 0:
-            self._kick.start(0)
+        delay = self._frame_delay_ms()
+        if not self._kick.isActive() or self._kick.remainingTime() > delay:
+            self._kick.start(delay)
 
     def _watch_window(self) -> None:
         """Re-kick on her window's state changes and shows (the child's own showEvent does
@@ -936,6 +946,9 @@ class QQ3DAvatar(QWidget):
             # a resize, on Windows), so this only slows her down; it never parks her for good.
             self._kick.start(_MINIMIZED_RETRY_MS)
             return
+        import time
+
+        self._frame_t = time.monotonic()
         self.control.polishItems()
         if self._render.frame(self._pixel_size()):
             self._pending = False
@@ -951,7 +964,7 @@ class QQ3DAvatar(QWidget):
         self._image = self._render.image
         self.update()
         if self._pending:
-            self._kick.start(0)
+            self._kick.start(self._frame_delay_ms())
 
     def paintEvent(self, _event) -> None:
         img = self._image
