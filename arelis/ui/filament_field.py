@@ -494,6 +494,8 @@ class FilamentField:
         self._live_phase = 0.0
         self._tethers: dict[str, dict] = {}
         self.hub: QPointF | None = None
+        # ARELIS_SURFACE=quick: the GPU orbit tree stands for the ring in idle (OrbitState sets it).
+        self.gpu_tree = False
         # Window x where her band starts (Filament): the ring, ask and reality stay left of it.
         self.band_left: float | None = None
         # Load sequence: 1.0 is a full ring. begin_ring_growth drops it to 0,
@@ -804,6 +806,11 @@ class FilamentField:
         length = math.hypot(dx, dy) or 1.0
         return QPointF(p.x() + dx / length * pad, p.y() + dy / length * pad)
 
+    def tree_hides(self, name: str) -> bool:
+        """The idle orbit tree has a tile on each branch tip and no free reality world; it comes
+        back as the current takes over (listen, speak)."""
+        return self.gpu_tree and name in FREE_FLOATS and self.form < 0.35
+
     def bead_point(self, name: str, rect: QRect) -> QPointF:
         """The tile's own particle, off the dust, same motion as the word."""
         if name in FREE_FLOATS:
@@ -817,7 +824,7 @@ class FilamentField:
         best: str | None = None
         best_d = 1e9
         for name, _t, _pad in FLOATS:
-            if name in self._hidden:
+            if name in self._hidden or self.tree_hides(name):
                 continue
             a = self.bead_point(name, rect)
             # The glow is wider than the old 26px dot. A pinch lands on it.
@@ -1015,7 +1022,7 @@ class FilamentField:
         """One particle per tile, off the dust, same path-speed as the word."""
         painter.setPen(Qt.PenStyle.NoPen)
         for name, t, _pad in FLOATS:
-            if name in self._hidden:
+            if name in self._hidden or self.tree_hides(name):
                 continue
             p = self.bead_point(name, rect)
             open_ = name in self._open
