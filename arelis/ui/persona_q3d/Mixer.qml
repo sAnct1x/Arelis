@@ -32,6 +32,12 @@ QtObject {
     // spread evenly over Waist, Spine01 and Spine02: all of it on the Waist alone folded her belly at that one joint
     // (Talking: ~16 deg there against ~5 on each spine bone above it).
     property real uprightDeg: 6.5
+    // The clips swing her hips about the vertical, and some hold a turn for seconds (Talking sits ~17 deg toward
+    // viewer's right), so her resting body angle drifted right of the camera. settle() takes the slow part of the
+    // Hip's turn (a ~3 s average) off every frame and rests her restYawDeg toward viewer's left; quick sways stay.
+    property real restYawDeg: -3
+    property real _hipYaw: 0
+    property var _hip: null
     readonly property var uprightBones: ["CC_Base_Waist", "CC_Base_Spine01", "CC_Base_Spine02"]
     property var _spine: []
     readonly property var keepBase: /^CC_Base_(NeckTwist0[12]|Head|FacialBone|JawRoot|.*Eye|Tongue.*|Teeth.*|UpperJaw)$/
@@ -61,6 +67,7 @@ QtObject {
         for (var u = 0; u < uprightBones.length; u++)
             for (i = 0; i < bones.length; i++) if (bones[i].node.objectName === uprightBones[u] && bones[i].prop === "rotation") spine.push(bones[i].node)
         _spine = spine
+        for (i = 0; i < bones.length; i++) if (bones[i].node.objectName === "CC_Base_Hip" && bones[i].prop === "rotation") _hip = bones[i].node
         // dropped constant tracks: the bone still has to be reset, and it is not in any group of most clips, but it
         // is in Talking's, so the union above already holds it. Every Timeline stays enabled and idle; a sample is
         // a currentFrame write.
@@ -109,6 +116,18 @@ QtObject {
         }
     }
 
+    function settle(dt) {   // hip local = parent^-1 * F Ry(restYawDeg - slow yaw) F^-1 * parent * hip
+        if (!_hip) return
+        var f = model && model.sceneRotation ? model.sceneRotation : Qt.quaternion(1, 0, 0, 0), fq = Qt.quaternion(f.scalar, f.x, f.y, f.z)
+        var h = _hip.sceneRotation, hq = fq.inverted().times(Qt.quaternion(h.scalar, h.x, h.y, h.z))
+        var z = hq.times(Qt.quaternion(0, 0, 0, 1)).times(hq.conjugated())   // her forward, in her own frame
+        var yaw = Math.atan2(z.x, z.z) * 180 / Math.PI
+        _hipYaw += (yaw - _hipYaw) * Math.min(1, dt / 3)
+        var a = (restYawDeg - _hipYaw) * Math.PI / 360, p = _hip.parent ? _hip.parent.sceneRotation : Qt.quaternion(1, 0, 0, 0)
+        var pq = Qt.quaternion(p.scalar, p.x, p.y, p.z), ry = fq.times(Qt.quaternion(Math.cos(a), 0, Math.sin(a), 0)).times(fq.inverted())
+        _hip.rotation = pq.inverted().times(ry).times(pq).times(_hip.rotation)
+    }
+
     function tick(dt) {
         if (!_logic) return
         var held = []
@@ -123,6 +142,7 @@ QtObject {
                 for (i = 0; i < _bones.length; i++) _bones[i].node[_bones[i].prop] = cur[i]
             }
             _clip = bl.cur.name; _w = bl.w
+            settle(dt)
             upright()
         }
         for (i = 0; i < _keep.length; i++) _keep[i].node[_keep[i].prop] = held[i]
