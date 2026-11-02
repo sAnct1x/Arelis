@@ -231,8 +231,8 @@ float packetPhase(int j) { return fract(packetOffset(j) + flow / TREE_LOOP); }
 float packetHead(int j) { return packetPhase(j) / 0.82; }
 
 // Twig i (0..35): six per main limb, off the limb at a hashed point, turned off its tangent,
-// ending in a curl (twig_from + curl of the mockup). s 0..1: the first 72% is the twig's own
-// curve, the rest the curl, tightening.
+// ending in an open curl (twig_from + curl of the mockup). s 0..1: the first 72% is the twig's
+// own curve, the rest the curl.
 const float TWIGS = 36.0;
 
 vec2 twigAt(float i, float s) {
@@ -252,11 +252,12 @@ vec2 twigAt(float i, float s) {
     vec2 pp = vec2(-dn.y, dn.x);
     if (s <= 0.72)
         return bez3(p, p + tn * L * 0.35, e - dn * L * 0.3 + pp * sd * L * 0.18, e, s / 0.72);
+    // An open curl: a little over half a turn, its radius easing out, so it never closes.
     float q = (s - 0.72) / 0.28;
-    float size = (10.0 + th(i, 15.0) * 16.0) * k;
-    float turns = 1.3;
-    float phi = sd * turns * TAU * pow(q, 1.3);
-    float rc = size * (1.0 - 0.6 * q);
+    float size = (12.0 + th(i, 15.0) * 14.0) * k;
+    float turns = 0.5 + th(i, 16.0) * 0.25;
+    float phi = sd * turns * TAU * pow(q, 1.2);
+    float rc = size * (1.0 + 0.25 * q);
     vec2 c = e + pp * sd * size;
     vec2 r0 = -pp * sd;
     vec2 rr = vec2(r0.x * cos(phi) - r0.y * sin(phi), r0.x * sin(phi) + r0.y * cos(phi));

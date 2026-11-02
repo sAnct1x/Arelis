@@ -64,8 +64,12 @@ void main() {
                                         : view.y * (0.06 + 0.9 * h(i, 14.0)));
         sc += vec2(sin(flow * 0.21 + life0 * 9.0), cos(flow * 0.17 + z * 7.0)) * (3.0 + size0);
         float tw = 0.55 + 0.45 * sin(TAU * (flow / TREE_LOOP * (1.0 + floor(h(i, 15.0) * 2.0)) + h(i, 16.0)));
+        // tiny, faint, and fainter still inside the crown, so no grain reads as a packet dot
+        vec2 cr = (sc - vec2(tree.z, ring.y)) / max(ring.zw * vec2(1.2, 1.9), vec2(1.0));
+        float out_ = smoothstep(0.8, 1.2, length(cr));
         c = mix(c, sc, treeOn);
-        fade = mix(fade, 0.6 * edgeFade(sc.x) * tw * step(2.0, sc.y) * step(sc.y, view.y - 2.0), treeOn);
+        fade = mix(fade, (0.12 + 0.18 * out_) * edgeFade(sc.x) * tw
+                         * step(2.0, sc.y) * step(sc.y, view.y - 2.0), treeOn);
     }
     vec3 rgb = (hot || size0 > 2.8) ? coreColor.rgb : tone(t);
     float glow = (0.34 + z * 0.52 + pulseT * 0.22 + along * 0.7) * fade;
@@ -74,8 +78,13 @@ void main() {
     float halo = max(2.0, floor(size0 * (hot ? 3.8 : 2.6) + 0.5));
     float core = floor(size0 * (hot ? 0.70 : 0.48) + 0.5);
     float pin = (hot || size0 > 2.6 || size0 > 1.4) ? 0.85 : 0.0;
+    if (treeOn > 0.5) {  // the tree's sparkle: a pin of light, no orb
+        halo = 2.0;
+        core = 0.0;
+        pin = 0.0;
+    }
     float reach = halo + 2.0;
-    if (fade < 0.14) reach = 0.0;  // a grain Python would skip: a zero quad
+    if (fade < (treeOn > 0.5 ? 0.02 : 0.14)) reach = 0.0;  // a grain Python would skip: a zero quad
     vQ = corner * reach;
     vRgbGlow = vec4(rgb, clamp(glow, 0.0, 1.0));
     vOrb = vec3(halo, core, pin);

@@ -5,7 +5,7 @@
 // on a FrameAnimation, as FilamentField.tick does, and takes a 1 s sync of the sim's clock so
 // the beads, stems and tethers the Python worker still paints (the overlay) stay on the path.
 // In idle the orbit tree (Iris's v11b) stands for the ring: fibers, roots and floor link
-// (tree.vert), light packets as travelling dots (pulse.vert) and node flares (flare.vert),
+// (tree.vert) with their glow (glow.vert) over the floor pool (pool.vert), light packets as travelling dots (pulse.vert) and node flares (flare.vert),
 // all moving on `flow`, seconds of calm time; the ring's strands come back as form rises.
 import QtQuick
 
@@ -138,9 +138,32 @@ Item {
     }
 
     Layer {
+        objectName: "orbitPool"
+        visible: orbit.treeOn > 0.001
+        vertexShader: "orbit/pool.vert.qsb"
+        fragmentShader: "orbit/pool.frag.qsb"
+    }
+
+    Layer {
+        objectName: "orbitTreeGlow"
+        visible: orbit.treeOn > 0.001
+        mesh: GridMesh { resolution: Qt.size(24 * 64 - 1, 1) }
+        vertexShader: "orbit/glow.vert.qsb"
+        fragmentShader: "orbit/glow.frag.qsb"
+    }
+
+    Layer {
         objectName: "orbitTree"
         visible: orbit.treeOn > 0.001
-        mesh: GridMesh { resolution: Qt.size(520 * 48 - 1, 1) }
+        strand: 0   // half the fibers each: a GridMesh has 16-bit indices
+        mesh: GridMesh { resolution: Qt.size(548 * 48 - 1, 1) }
+        vertexShader: "orbit/tree.vert.qsb"
+    }
+    Layer {
+        objectName: "orbitTree1"
+        visible: orbit.treeOn > 0.001
+        strand: 1   // half the fibers each: a GridMesh has 16-bit indices
+        mesh: GridMesh { resolution: Qt.size(548 * 48 - 1, 1) }
         vertexShader: "orbit/tree.vert.qsb"
     }
 

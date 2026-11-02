@@ -85,6 +85,7 @@ class OrbitState(QObject):
     def update(self, field: ff.FilamentField, rect: QRect, now: float | None = None) -> None:
         """After a sim tick: push what changed. Cheap; the GPU does the per-frame work."""
         self._set("active", True)
+        field.gpu_tree = True
         w = float(rect.width())
         cx, cy, rx, ry = field.ellipse(rect, settled=True)
         self._set("ring", QVector4D(cx, cy, rx, ry))

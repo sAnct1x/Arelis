@@ -574,7 +574,7 @@ class FilamentDesk:
         notify = getattr(w, "notify_inbox", None)
         contacts = getattr(w, "contacts_inbox", None)
         world = getattr(w, "world_window", None)
-        floats.skip("reality", not world_available())
+        floats.skip("reality", not world_available() or w._filament.tree_hides("reality"))
         hidden = set()
         if not world_available():
             hidden.add("reality")

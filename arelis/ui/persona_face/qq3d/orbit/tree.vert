@@ -1,5 +1,5 @@
 // The orbit tree's fibers (v11b): hair-fine ribbons, many per limb, added like the strands.
-// GridMesh (FIBERS * K - 1) x 1: K columns per fiber; each fiber's first and last column have no
+// GridMesh (FIBERS / 2 * K - 1) x 1, twice: K columns per fiber; each fiber's first and last column have no
 // width, so the cell that joins one fiber to the next has no area. Everything moves with flow
 // (the wind, the braid's twist, the roots' drift) and brightens under its branch's packet.
 layout(location = 0) in vec4 qt_Vertex;
@@ -8,16 +8,17 @@ layout(location = 0) out vec4 vColor;
 layout(location = 1) out vec2 vLine;
 
 const float K = 48.0;
-const float FIBERS = 520.0;
-// Fiber ranges: 6 x 28 main limb fibers, 5 x 12 minor, 36 x 4 twig, 48 left roots,
-// 30 right roots, 24 floor wisps, 28 base-flare buttresses, 18 base wraps.
-const float F_MINOR = 168.0;
-const float F_TWIG = 228.0;
-const float F_LROOT = 372.0;
-const float F_RROOT = 420.0;
-const float F_WISP = 450.0;
-const float F_FLARE = 474.0;
-const float F_WRAP = 502.0;
+const float FIBERS = 1096.0;
+// Fiber ranges: 6 x 80 main limb fibers, 5 x 30 minor, 36 x 8 twig, 60 left roots,
+// 30 right roots, 24 floor wisps, 40 base-flare buttresses, 24 base wraps. Every limb fiber
+// runs from the floor up the trunk, so the trunk is the dense bundle of all of them.
+const float F_MINOR = 480.0;
+const float F_TWIG = 630.0;
+const float F_LROOT = 918.0;
+const float F_RROOT = 978.0;
+const float F_WISP = 1008.0;
+const float F_FLARE = 1032.0;
+const float F_WRAP = 1072.0;
 
 float wob(float f, float s, float k) {  // a smooth per-fiber wander, -1..1, drifting with flow
     return 0.6 * sin(s * (5.0 + 4.0 * th(f, k)) + th(f, k + 1.0) * TAU + flow * 0.35)
@@ -39,9 +40,11 @@ vec2 rootAt(vec2 end, float side, float L, float a, float b, float s) {
 }
 
 void main() {
-    float col = floor(qt_MultiTexCoord0.x * (FIBERS * K - 1.0) + 0.5);
+    // Two layers of half the fibers each (strand 0, 1): a GridMesh has 16-bit indices.
+    float col = floor(qt_MultiTexCoord0.x * (FIBERS * 0.5 * K - 1.0) + 0.5);
     float f = floor(col / K);
     float s = (col - f * K) / (K - 1.0);
+    f += strand * FIBERS * 0.5;
     float side = qt_MultiTexCoord0.y * 2.0 - 1.0;
     float k = treeK();
     float halfW = (0.42 + th(f, 1.0) * 0.38);
@@ -57,7 +60,7 @@ void main() {
     if (f < F_TWIG) {
         // A main or minor limb: up the trunk, out the limb, the trunk part braided.
         bool minor = f >= F_MINOR;
-        int j = minor ? 6 + int(floor((f - F_MINOR) / 12.0)) : int(floor(f / 28.0));
+        int j = minor ? 6 + int(floor((f - F_MINOR) / 30.0)) : int(floor(f / 80.0));
         float u = limbU(j);
         float lt = trunkLen() * u;
         float ll = length(limbTarget(j) - trunkAt(u)) * 1.15;
@@ -98,7 +101,7 @@ void main() {
         float lf = length(tree.xy - feet) * 1.05;
         float tot = lf + lt + ll;
         float pl = pkt(j, (lf + s * (lt + ll)) / max(tot, 1.0), tot) * (minor ? 0.55 : 1.0);
-        a = (0.35 + 1.4 * pow(th(f, 14.0), 3.0)) * dep * fade * trk * 0.15 * (1.0 + 3.0 * pl);
+        a = (0.35 + 1.4 * pow(th(f, 14.0), 3.0)) * dep * fade * trk * 0.12 * (1.0 + 3.0 * pl);
         if (mod(f, 14.0) < 0.5) {  // the luminous core: a few soft wide fibers near the centre line
             off *= 0.25;
             halfW = (d <= dT ? 4.5 : 3.0 * (1.0 - sl) + 0.8) * max(k * 1.4, 0.6);
@@ -110,13 +113,14 @@ void main() {
         gpos = s;
     } else if (f < F_LROOT) {
         // A twig with its curl, four fibers each.
-        float i = floor((f - F_TWIG) / 4.0);
+        float i = floor((f - F_TWIG) / 8.0);
         P = twigAt(i, s);
         P2 = twigAt(i, min(1.0, s + 0.01));
         off = ((th(f, 2.0) * 2.0 - 1.0) * 3.5 * (1.0 - s) + wob(f, s * 5.0, 3.0) * 0.8) * k;
-        float fade = smoothstep(0.0, 0.08, s) * (1.0 - 0.7 * smoothstep(0.85, 1.0, s));
-        a = (0.5 + th(f, 4.0)) * fade * 0.11;
-        halfW *= 0.8;
+        // tapering, and fading out along its open curl (no closed ring at the tip)
+        float fade = smoothstep(0.0, 0.08, s) * (1.0 - smoothstep(0.62, 1.0, s));
+        a = (0.5 + th(f, 4.0)) * fade * 0.12;
+        halfW *= 0.85 - 0.5 * s;
         gpos = 0.6 + 0.4 * s;
     } else if (f < F_WISP) {
         // The roots: thin ones flowing far to the left across the floor (Vela's note 2), and
@@ -124,7 +128,7 @@ void main() {
         bool left = f < F_RROOT;
         float i = left ? floor((f - F_LROOT) / 3.0) : floor((f - F_RROOT) / 3.0) + 40.0;
         float sd = left ? -1.0 : 1.0;
-        float L = (left ? 340.0 + th(i, 2.0) * 680.0 : (180.0 + th(i, 2.0) * 340.0) * 1.35) * k;
+        float L = (left ? 300.0 + th(i, 2.0) * 760.0 : (180.0 + th(i, 2.0) * 340.0) * 1.35) * k;
         float ey = left ? -30.0 + th(i, 3.0) * 72.0 : -40.0 + th(i, 3.0) * 80.0;
         // the left roots fan: the longer, the lower and the more they lift off the floor between
         vec2 end = tree.xy + vec2(sd * L, ey * k);

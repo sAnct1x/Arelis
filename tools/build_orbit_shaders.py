@@ -26,6 +26,10 @@ STAGES = (
     "pulse.vert",
     "flare.vert",
     "flare.frag",
+    "glow.vert",
+    "glow.frag",
+    "pool.vert",
+    "pool.frag",
 )
 TARGETS = ["--glsl", "100es,120,150", "--hlsl", "50", "--msl", "12"]
 
