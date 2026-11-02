@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import time
 
-from PySide6.QtCore import Property, QObject, QPointF, QRect, QRectF, Signal, Slot
+from PySide6.QtCore import Property, QObject, QPointF, QRect, Signal, Slot
 from PySide6.QtGui import QColor, QVector4D
 
 from arelis.ui import filament_field as ff
@@ -25,21 +25,6 @@ from arelis.ui import filament_field as ff
 LOG = logging.getLogger("arelis.avatar")
 SYNC_S = 1.0
 TREE_FLOOR = 0.955  # the floor the tree stands on, as a share of the height (v11b: 1328/1392)
-
-COVER_SHARE = 0.25  # the chat tile covers the tree when it hides this share of the tree's box
-
-
-def tree_covered(
-    cover: QRect | None, rect: QRect, cx: float, cy: float, rx: float, ry: float
-) -> bool:
-    """The open chat tile hides enough of the tree (its crown round the ring down to the floor)
-    that drawing it is wasted: QuickOrbit.qml fades it out and stops drawing it."""
-    if cover is None or cover.isEmpty():
-        return False
-    floor = rect.top() + rect.height() * TREE_FLOOR
-    box = QRectF(cx - rx * 1.3, cy - ry * 1.4, rx * 2.6, max(1.0, floor - (cy - ry * 1.4)))
-    hit = box.intersected(QRectF(cover))
-    return hit.width() * hit.height() >= COVER_SHARE * box.width() * box.height()
 
 
 class OrbitState(QObject):
@@ -61,7 +46,6 @@ class OrbitState(QObject):
     syncChanged = Signal()
     treeChanged = Signal()
     feetChanged = Signal()
-    treeCoveredChanged = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -85,7 +69,6 @@ class OrbitState(QObject):
             "sync": [],
             "tree": QVector4D(),
             "feet": QPointF(),
-            "treeCovered": False,
         }
         self._sync_at = 0.0
         self.emits = 0  # how many property changes went to QML (the test and the bench read it)
@@ -108,7 +91,6 @@ class OrbitState(QObject):
         self._set("ring", QVector4D(cx, cy, rx, ry))
         hub = field.hub
         self._set_tree(rect, cx, cy, rx, ry, hub)
-        self._set("treeCovered", tree_covered(field.cover, rect, cx, cy, rx, ry))
         self._set("hasHub", hub is not None)
         if hub is not None:
             self._set("hub", QPointF(hub))
@@ -175,6 +157,3 @@ class OrbitState(QObject):
     sync = Property(list, lambda self: self._values["sync"], notify=syncChanged)
     tree = Property(QVector4D, lambda self: self._values["tree"], notify=treeChanged)
     feet = Property(QPointF, lambda self: self._values["feet"], notify=feetChanged)
-    treeCovered = Property(
-        bool, lambda self: self._values["treeCovered"], notify=treeCoveredChanged
-    )

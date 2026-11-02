@@ -157,15 +157,6 @@ class WindowChrome:
                 frames.append(frame)
         return frames
 
-    def _filament_chat_cover(self) -> QRect | None:
-        """The open chat tile in window coords (it is its own window), or None when closed."""
-        tile = getattr(self, "_filament_chat_tile", None)
-        if not getattr(self, "_filament_chat_open", False) or tile is None or not tile.isVisible():
-            return None
-        if tile.isWindow():
-            return QRect(self.mapFromGlobal(tile.geometry().topLeft()), tile.size())
-        return QRect(tile.mapTo(self, QPoint(0, 0)), tile.size())
-
     def _tick_atmosphere(self) -> None:
         if self.isMinimized():
             return
@@ -183,7 +174,6 @@ class WindowChrome:
             self._place_filament_floats(reshape=False)
             surface = getattr(self, "_quick_surface", None)
             if surface is not None:
-                self._filament.cover = self._filament_chat_cover()
                 surface.orbit_state.update(self._filament, self.rect())
             render = getattr(self, "_filament_render", None)
             if render is not None:

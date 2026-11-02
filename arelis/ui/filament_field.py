@@ -496,9 +496,6 @@ class FilamentField:
         self.hub: QPointF | None = None
         # Window x where her band starts (Filament): the ring, ask and reality stay left of it.
         self.band_left: float | None = None
-        # The open chat tile's rect in window coords (None when closed): the GPU orbit tree fades
-        # out while the tile covers it (OrbitState.treeCovered), so it costs nothing under it.
-        self.cover: QRect | None = None
         # Load sequence: 1.0 is a full ring. begin_ring_growth drops it to 0,
         # waits for her, then eases it back so the ring grows out of the hub.
         self.ring_grow = 1.0
