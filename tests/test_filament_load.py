@@ -136,7 +136,7 @@ def _reality_ink(field, rect) -> float:
 
 
 @pytest.mark.parametrize("parked", [False, True])
-def test_a_tile_grows_from_the_end_of_its_filament(
+def test_a_tile_grows_from_its_node_on_the_tree(
     arelis_window, qt_app, monkeypatch, parked
 ) -> None:
     import arelis.ui.filament_desk as desk
@@ -152,14 +152,38 @@ def test_a_tile_grows_from_the_end_of_its_filament(
     if parked:
         top = w.mapToGlobal(QPoint(500, 300))
         w._filament_tile_pos["history"] = (top.x(), top.y())
+    node = w.mapToGlobal(w._filament.bead_point("history", w.rect()).toPoint())
     w._toggle_history(True)
     qt_app.processEvents()
     assert len(calls) == 1
     origin, dest = calls[0]
     local = QRect(w.mapFromGlobal(dest.topLeft()), dest.size())
+    # its own spot on the tree (the node drifts a few px with the sim's clock)
+    assert (origin - node).manhattanLength() <= 8, (origin, node)
     seed = w._filament.spawn_origin("history", local, w.rect())
-    assert origin == w.mapToGlobal(QPoint(int(seed.x()), int(seed.y())))
     assert w._filament._tethers["history"]["end"] == seed
+
+
+def test_a_tile_reopens_at_its_saved_size_and_spot_even_past_the_window(
+    arelis_window, qt_app, monkeypatch
+) -> None:
+    import arelis.ui.filament_desk as desk
+
+    w = _filament(arelis_window, qt_app)
+    calls = []
+
+    def grow(wid, o, d, **k):
+        calls.append(QRect(d))
+        wid.setGeometry(d)
+
+    monkeypatch.setattr(desk, "play_tile_grow", grow)
+    # bigger than the old 720x800 cap, and hanging off the window's right edge
+    spot = w.mapToGlobal(QPoint(w.width() - 300, 40))
+    w._filament_tile_sizes["history"] = (1100, 760)
+    w._filament_tile_pos["history"] = (spot.x(), spot.y())
+    w._toggle_history(True)
+    qt_app.processEvents()
+    assert calls == [QRect(spot.x(), spot.y(), 1100, 760)]
 
 
 def test_the_seed_is_centred_on_the_spawn_origin() -> None:
