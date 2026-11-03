@@ -234,6 +234,27 @@ QQ3D_STAND_IN = Path(__file__).parent / "fixtures" / "qq3d_stand_in"
 
 
 @pytest.fixture(autouse=True)
+def _avatar_choice_env_is_per_test():
+    """Each test starts with the avatar engine and surface variables it found.
+
+    engine_choice() and surface_choice() write what they read from the saved user variables
+    into os.environ, so later calls in the process see the same choice. monkeypatch.delenv
+    on an unset name records nothing to undo, so a test that deleted the variable and then
+    let engine_choice() run left ARELIS_AVATAR_ENGINE=qq3d behind for every later test on
+    that xdist worker: web-host layout tests then built the Quick surface host and failed
+    or crashed depending on which worker ran them.
+    """
+    names = ("ARELIS_AVATAR_ENGINE", "ARELIS_AVATAR_ENGINE_SOURCE", "ARELIS_SURFACE")
+    before = {n: os.environ.get(n) for n in names}
+    yield
+    for n, v in before.items():
+        if v is None:
+            os.environ.pop(n, None)
+        else:
+            os.environ[n] = v
+
+
+@pytest.fixture(autouse=True)
 def _qq3d_stand_in_model(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
     """Her bundled model, for the suite, is a one-cube stand-in unless a test asks for hers.
 

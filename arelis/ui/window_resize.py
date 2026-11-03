@@ -321,17 +321,38 @@ def _virtual_desktop_native() -> tuple[int, int, int, int]:
     )
 
 
-def _fill_minmax_info(info: Any) -> None:
-    """Let a frameless HWND span the whole row. Default max track is one desk."""
-    vx, vy, vw, vh = _virtual_desktop_native()
+def _fill_minmax_info(
+    info: Any,
+    widget: QWidget | None = None,
+    virtual: tuple[int, int, int, int] | None = None,
+) -> None:
+    """Let a frameless HWND span the whole row, inside the widget's own min and max size.
+
+    Answering WM_GETMINMAXINFO skips Qt's own answer, so the widget's limits have to be
+    put in here. Without them a Filament tile could be edge-dragged past its maximum,
+    and the first move() after that (a title drag) clamped it back down in one jump.
+    """
+    vx, vy, vw, vh = virtual if virtual is not None else _virtual_desktop_native()
     info.ptMaxPosition.x = vx
     info.ptMaxPosition.y = vy
     info.ptMaxSize.x = vw
     info.ptMaxSize.y = vh
-    info.ptMaxTrackSize.x = vw
-    info.ptMaxTrackSize.y = vh
-    info.ptMinTrackSize.x = 1
-    info.ptMinTrackSize.y = 1
+    min_w, min_h, max_w, max_h = 1, 1, vw, vh
+    if widget is not None:
+        handle = widget.windowHandle()
+        dpr = float(handle.devicePixelRatio()) if handle is not None else 1.0
+        dpr = max(1.0, dpr)
+        lo, hi = widget.minimumSize(), widget.maximumSize()
+        min_w = max(1, round(lo.width() * dpr))
+        min_h = max(1, round(lo.height() * dpr))
+        if hi.width() < _WIDGET_SIZE_MAX:
+            max_w = min(vw, max(min_w, round(hi.width() * dpr)))
+        if hi.height() < _WIDGET_SIZE_MAX:
+            max_h = min(vh, max(min_h, round(hi.height() * dpr)))
+    info.ptMaxTrackSize.x = max_w
+    info.ptMaxTrackSize.y = max_h
+    info.ptMinTrackSize.x = min_w
+    info.ptMinTrackSize.y = min_h
 
 
 def _native_place_rect(rect: QRect, dpr: float) -> tuple[int, int, int, int]:
@@ -557,7 +578,7 @@ def handle_native_resize(
 
         try:
             info = _MinMaxInfo.from_address(int(msg.lParam))
-            _fill_minmax_info(info)
+            _fill_minmax_info(info, widget)
         except (TypeError, ValueError, OverflowError):
             return None
         return True, 0

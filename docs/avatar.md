@@ -200,15 +200,16 @@ qt_rhi=...` line of the startup surface report. Leaving them unset keeps normal 
 | `ARELIS_AVATAR_BACKDROP` | `opaque` | Paints the room colour under her instead of a see-through page. |
 | `ARELIS_PRESERVE_BUFFER` | `off` | Her canvas without preserveDrawingBuffer. |
 
-## One Quick surface (`ARELIS_SURFACE=quick`, slice 1)
+## One Quick surface (`ARELIS_SURFACE`, default quick, slice 1)
 
 `ARELIS_SURFACE=quick` (process env, else the saved Windows user variable) makes the window's
 bottom layer a single full-window `QQuickWidget` (`arelis/ui/persona_face/quick_surface.py`,
 `qq3d/QuickSurface.qml`). It paints the void, shows the Filament orbit frame as an `Image`
 layer, and hosts her `Avatar.qml` at her panel's rect through `QuickSurfaceAvatar`, which has
 the same API as `QQ3DAvatar`. Nothing is read back from the GPU, and the window's
-`paintEvent` stops blitting the orbit. Unset, or any other value, keeps the default widget path
-(the `QQuickRenderControl` readback and the paintEvent blit). Startup logs
+`paintEvent` stops blitting the orbit. The Quick surface (her tree orbit) is now the default:
+unset means quick. Set `ARELIS_SURFACE=widget` (any value other than `quick`) to get the old
+orbit back (the `QQuickRenderControl` readback and the paintEvent blit). Startup logs
 `[avatar] surface=quick|widget source=...`.
 
 Why `QQuickWidget` and not `createWindowContainer`: a container is a native child window, and

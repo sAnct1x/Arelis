@@ -47,6 +47,6 @@ def test_a_changed_pyproject_syncs_once_and_a_failed_sync_retries(tmp_path, monk
     monkeypatch.setattr(main_mod, "configure_logging", lambda: None)
     monkeypatch.setattr(main_mod, "install_unhandled_hook", lambda: None)
     monkeypatch.setattr("arelis.hidden_proc.install_hidden_subprocess", lambda: None)
-    monkeypatch.setattr("arelis.ui.app.run_ui", lambda *a, **k: 0)
+    monkeypatch.setattr("arelis.ui.launch.run_ui", lambda *a, **k: 0)
     with pytest.raises(LaunchedError):
         main_mod.main([])

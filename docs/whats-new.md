@@ -14,6 +14,12 @@ Notes: [v0.3.3](releases/v0.3.3.md). Older:
 [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
 [v0.2.1](releases/v0.2.1.md).
 
+## In this checkout
+
+- Launch: a small splash shows her energy breathing right away, with a line that says what is loading (Loading model, Starting voice, Building her). It closes when the main window appears.
+- Filament uses the Quick surface (her tree orbit) by default. Set `ARELIS_SURFACE=widget` for the old orbit.
+- Filament tiles: dragging a tile by its title keeps the size you gave it. An edge resize stops at the tile's smallest and largest size instead of snapping back on the next drag.
+
 ## 0.3.3
 
 New chat model and some cleanup. Full notes: [v0.3.3](releases/v0.3.3.md).
