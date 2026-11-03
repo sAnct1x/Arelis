@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QEventLoop, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QEventLoop, QMetaObject, QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import (
     QComboBox,
@@ -286,6 +286,49 @@ def _format_rows(device) -> list[tuple[int, int, float, str, object]]:
         rows.append((int(res.width()), int(res.height()), fps, pix, fmt))
     return rows
 
+
+
+_REAPER: QThread | None = None
+_REAPING: set[QObject] = set()
+
+
+def stop_off_gui_thread(cam: QObject) -> None:
+    """Stop and delete a QCamera on its own thread, not the GUI thread.
+
+    On Windows QCamera.stop() waits ~0.55 s for the media source to shut down, and it
+    must run on the camera's thread, so on close it froze the window. The camera
+    (with its platform child) moves to a parked thread with an event loop and stops
+    there; the Python ref is held until Qt deletes it.
+    """
+    global _REAPER
+    try:
+        if _REAPER is None:
+            _REAPER = QThread()
+            _REAPER.setObjectName("arelis-camera-reaper")
+            _REAPER.start(QThread.Priority.LowPriority)
+        cam.setParent(None)
+        cam.moveToThread(_REAPER)
+        _REAPING.add(cam)
+        cam.destroyed.connect(lambda *_: _REAPING.discard(cam))
+        QMetaObject.invokeMethod(cam, "stop", Qt.ConnectionType.QueuedConnection)
+        cam.deleteLater()
+    except Exception:
+        log.debug("camera off-thread stop failed; stopping inline", exc_info=True)
+        try:
+            cam.stop()
+            cam.deleteLater()
+        except Exception:
+            pass
+
+
+def stop_camera_reaper(timeout_ms: int = 2000) -> None:
+    """Quit: let pending stops finish, then end the thread before Python finalizes."""
+    global _REAPER
+    reaper, _REAPER = _REAPER, None
+    if reaper is None:
+        return
+    reaper.quit()
+    reaper.wait(timeout_ms)
 
 class PreviewConvertWorker(QThread):
     """Latest-frame-only. Preview convert stays off the HWND thread."""
@@ -726,6 +769,7 @@ class CameraPanel(QWidget):
     def _teardown_camera(self) -> None:
         cam = self._camera
         sink = self._sink
+        session = self._session
         self._camera = None
         self._session = None
         self._image_capture = None
@@ -742,14 +786,12 @@ class CameraPanel(QWidget):
             self.video.set_frame(QImage())
         if cam is None:
             return
-        try:
-            cam.stop()
-        except Exception:
-            log.debug("camera stop raised", exc_info=True)
-        try:
-            cam.deleteLater()
-        except Exception:
-            pass
+        if session is not None:
+            try:
+                session.setCamera(None)  # detach on this thread before the camera moves
+            except Exception:
+                pass
+        stop_off_gui_thread(cam)
 
     def snapshot(self) -> None:
         if not self._running or self._image_capture is None:

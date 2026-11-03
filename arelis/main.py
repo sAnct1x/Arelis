@@ -227,14 +227,38 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.config:
         if args.background:
-            return run_ui(config, background=True)
-        return run_ui(config)
+            return _leave_ui(run_ui(config, background=True))
+        return _leave_ui(run_ui(config))
     # Normal installer / Start-menu path: load inside run_ui so first-run
     # glass is not skipped by a pre-loaded config dict. --config still
     # passes the loaded dict; prompts still run (see apply_first_run_glass).
     if args.background:
-        return run_ui(background=True)
-    return run_ui()
+        return _leave_ui(run_ui(background=True))
+    return _leave_ui(run_ui())
+
+
+def _leave_ui(code: int) -> int:
+    """After the UI shut down in order, leave without interpreter finalization.
+
+    run_ui has stopped the loop, flushed writes, joined parked QThreads and the
+    camera thread. What finalization still did was join non-daemon executor
+    threads (a Whisper transcription mid-run) and then destroy Qt / ONNX objects
+    in GC order: Quit took 11 s and died with 0xC0000409 on Windows.
+    """
+    from arelis.ui import launch
+
+    if not launch.UI_EXITED:
+        return code
+    import logging
+
+    logging.getLogger(__name__).info("process exit code=%s", code)
+    logging.shutdown()
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (OSError, ValueError, AttributeError):
+            pass
+    os._exit(int(code or 0))
 
 
 if __name__ == "__main__":

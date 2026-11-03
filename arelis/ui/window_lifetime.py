@@ -8,8 +8,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import tempfile
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
@@ -280,6 +282,32 @@ class WindowLifetime:
         btn.show()
         btn.raise_()
         self._test_quit_btn = btn
+        # Hidden in the tray the button leaves the UIA tree, and IPC shutdown needs
+        # the auth token: a file a tester creates also quits (test mode only).
+        flag = Path(
+            os.environ.get("ARELIS_TEST_QUIT_FILE", "")
+            or Path(tempfile.gettempdir()) / "arelis-test-quit"
+        )
+        try:
+            flag.unlink(missing_ok=True)  # a stale flag must not quit the next launch
+        except OSError:
+            pass
+        poll = QTimer(self)
+        poll.setInterval(500)
+
+        def _check() -> None:
+            if flag.exists():
+                try:
+                    flag.unlink()
+                except OSError:
+                    pass
+                poll.stop()
+                log.info("test quit: %s", flag)
+                self.quit_from_tray()
+
+        poll.timeout.connect(_check)
+        poll.start()
+        self._test_quit_poll = poll
 
     def _park_floating_docks(self) -> None:
         """Take floating instruments with the glass when it leaves the screen.

@@ -248,3 +248,30 @@ def test_test_quit_button_runs_the_full_quit(qt_app: Any, monkeypatch: Any) -> N
         host.deleteLater()
     finally:
         _stop_loop(loop, thread)
+
+
+def test_test_quit_file_quits_from_the_tray(qt_app: Any, monkeypatch: Any, tmp_path) -> None:
+    """Hidden in the tray the button is gone from UIA; the flag file still quits."""
+    from PySide6.QtWidgets import QApplication
+
+    flag = tmp_path / "quit.flag"
+    monkeypatch.setenv("ARELIS_TEST_QUIT", "1")
+    monkeypatch.setenv("ARELIS_TEST_QUIT_FILE", str(flag))
+    loop, thread = _start_loop()
+    try:
+        host = _CloseHost(
+            force_quit=False, loop=loop, inbound=_SlowInbound(), indexer=_SlowIndexer()
+        )
+        quits: list[str] = []
+        host.quit_from_tray = lambda: quits.append("quit")
+        host._install_test_quit()
+        flag.write_text("")
+        deadline = time.monotonic() + 3.0
+        while not quits and time.monotonic() < deadline:
+            QApplication.processEvents()
+            time.sleep(0.02)
+        assert quits == ["quit"]
+        assert not flag.exists()
+        host.deleteLater()
+    finally:
+        _stop_loop(loop, thread)

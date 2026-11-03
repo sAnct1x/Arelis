@@ -475,6 +475,10 @@ def _second_launch(config: dict[str, Any], ui_lock: Any) -> int | None:
     return _raise_running_instance(config)
 
 
+# Set once app.exec() returns: main() then leaves with os._exit (see main._leave_ui).
+UI_EXITED = False
+
+
 def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) -> int:
     # Before any QApplication — a native child HWND is the offset ghost, and
     # this attribute is what stops one winId() from promoting every sibling.
@@ -856,6 +860,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     _start_sentinel_child()
     try:
         code = app.exec()
+        global UI_EXITED
+        UI_EXITED = True
 
         # Tray Quit is meant to feel instant, so every wait below is a ceiling
         # rather than a duration, and the force-quit ceilings are the tighter of
@@ -940,7 +946,9 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         return code
     finally:
         from arelis.sentinel_control import stop as stop_sentinel
+        from arelis.ui.panels.camera import stop_camera_reaper
 
         stop_sentinel()
         drain_parked_threads()
+        stop_camera_reaper()
         _release_ui_lock()
