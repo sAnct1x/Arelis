@@ -39,7 +39,7 @@ class LaunchSplash(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint,
         )
         self.setObjectName("LaunchSplash")
-        self.setWindowTitle("Arelis")
+        # No title: a titled window would be what an installer probe finds first.
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.resize(320, 260)
         self._void = QColor(*(void or _VOID))

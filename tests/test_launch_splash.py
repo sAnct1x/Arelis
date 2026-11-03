@@ -25,3 +25,40 @@ def test_load_runs_off_ui_while_splash_animates() -> None:
         assert splash.frames - seen >= 3  # it kept painting during the load
     finally:
         splash.finish()
+
+
+def test_no_window_is_up_before_first_run_setup(monkeypatch, tmp_path) -> None:
+    """The installer probe's first titled window must be the welcome dialog, not her splash."""
+    QApplication.instance() or QApplication([])
+    from arelis.ui import launch as launch_mod
+
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(launch_mod, "_second_launch", lambda *_a, **_k: 0)
+    from PySide6.QtCore import QEvent, QObject
+
+    class _Shows(QObject):
+        def __init__(self) -> None:
+            super().__init__()
+            self.shown: list[str] = []
+            self.open = True
+
+        def eventFilter(self, obj, event) -> bool:
+            if self.open and event.type() == QEvent.Type.Show and obj.isWidgetType():
+                if obj.isWindow():
+                    self.shown.append(obj.windowTitle() or obj.objectName())
+            return False
+
+    shows = _Shows()
+    QApplication.instance().installEventFilter(shows)
+
+    def _setup(*_a, **_k):
+        shows.open = False  # only what came up before setup counts
+        return None  # unfinished setup: run_ui stops here
+
+    monkeypatch.setattr(launch_mod, "apply_first_run_glass", _setup)
+    monkeypatch.setattr("arelis.ui.dialog.notice", lambda *_a, **_k: None)
+    try:
+        assert launch_mod.run_ui({}) == 1
+    finally:
+        QApplication.instance().removeEventFilter(shows)
+    assert shows.shown == []
