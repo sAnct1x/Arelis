@@ -121,3 +121,12 @@ def _dialog_config() -> dict:
     }
 
 
+
+
+def test_test_switch_turns_stt_off(monkeypatch) -> None:
+    """ARELIS_TEST_NO_STT=1 keeps room audio out of timing runs (v11c)."""
+    from arelis.voice import stt_enabled
+
+    cfg = {"voice": {"enabled": True, "stt": {"enabled": True}}}
+    monkeypatch.setenv("ARELIS_TEST_NO_STT", "1")
+    assert stt_enabled(cfg) is False
