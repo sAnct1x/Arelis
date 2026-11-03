@@ -682,7 +682,10 @@ def preload_voice(window) -> None:
             window.voice.preload(), window.loop
         )
 
-    wake_future.add_done_callback(lambda fut: QTimer.singleShot(0, lambda: _wake_done(fut)))
+    # The done callback runs on the asyncio thread, which has no Qt event loop: a
+    # QTimer.singleShot made there never fired, so the ear never read ready and idle sat on
+    # "getting the ear…" all run (Whisper and TTS preload never started either).
+    wake_future.add_done_callback(lambda fut: window._ui_call.emit(lambda: _wake_done(fut)))
     window._voice_preload_future = wake_future
 
 

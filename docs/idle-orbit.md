@@ -10,6 +10,14 @@ Filament is drawn in Arelis's own violet and lilac. The room reads those
 colours from the same file her 3D figure uses (`persona_face/web/config.js`),
 so the two always match.
 
+In filament, when she is idle, the orbit grows as a living tree of fine light: its roots
+spread left across the floor, and soft dots of light travel from her feet along the floor,
+up the trunk and out each branch, so each tile glows briefly when one arrives.
+While the chat window sits over the tree, the tree fades away behind it, and it fades
+back in when you close the chat.
+To test this, set ARELIS_TEST_CHAT_RECT=tree before launch: the chat opens over the tree. You
+can also give a spot in window pixels, for example ARELIS_TEST_CHAT_RECT=600,200,380,400.
+
 ## Arelis in sodium and night
 
 Her 3D figure shows in every theme: a band on the right in sodium and night, her
@@ -30,6 +38,29 @@ the orb in her panel while her face loads, use the same look.
 
 It breathes while she is thinking, and it stops moving when the window is
 hidden.
+
+## The Filament tree
+
+In Filament the orbit is a tree that stands left of her. Its trunk rises from
+the floor and its limbs end on the tiles, which hold fixed places in its crown
+(history, notifications, contacts, chat, camera, days) and only drift a little.
+They stay in the crown while she thinks or speaks; nothing sweeps toward her.
+The reality tile sits in the top-left corner, and its own limb reaches it, so
+pulses run to every tile. The ask stands below the crown, left of the trunk.
+
+The light along the limbs moves slowly (one loop takes about 15 seconds), the
+sway is gentle, and the ring grows in over 3 seconds. The pool on the floor
+and the roots start at her feet: the light is brightest under her and runs out
+toward the tree. The chat strand leaves her chest and follows it as she moves.
+
+While her model loads, her place shows a calm breathing light with the words
+"She is waking up". The model loads in the background, so the window opens
+straight away.
+
+To save a picture of the chat tile on its own, start Arelis with
+`ARELIS_CAPTURE_CHAT` set to a file path. The tile is saved shortly after it
+opens, and again each time you press Ctrl+Shift+F12. Put `{n}` in the path to
+number the pictures, for example `ARELIS_CAPTURE_CHAT=C:\shots\chat-{n}.png`.
 
 ## Fixed
 

@@ -32,7 +32,12 @@ def test_flag_on_builds_one_quick_surface_without_readback(qt_app, monkeypatch) 
     panel = win.persona_panel
     assert isinstance(panel, PersonaPanel)
     host = panel.web
+    seen = []  # the breathing loading state holds her slot until her scene is ready
     for _ in range(60):
+        surface = getattr(host, "surface", None)
+        quick_root = surface.rootObject() if surface is not None else None
+        if quick_root is not None:
+            seen.append(quick_root.property("loading"))
         if host is not None and host.is_ready():
             break
         QTest.qWait(100)
@@ -40,9 +45,13 @@ def test_flag_on_builds_one_quick_surface_without_readback(qt_app, monkeypatch) 
     surfaces = win.findChildren(QQuickWidget)
     assert len(surfaces) == 1 and surfaces[0].parentWidget() is win
     assert win.children().index(surfaces[0]) <= min(
-        win.children().index(c) for c in win.findChildren(type(win.stage)) if c.parentWidget() is win
+        win.children().index(c)
+        for c in win.findChildren(type(win.stage))
+        if c.parentWidget() is win
     )
     assert host.root is not None and host.root.parentItem().objectName() == "avatarSlot"
+    QTest.qWait(200)
+    assert True in seen and surfaces[0].rootObject().property("loading") is False, seen
     host.set_state("speaking")
     assert host.root.property("speaking") is True
     assert readback == []
@@ -70,8 +79,10 @@ def test_night_backdrop_is_drawn_by_the_surface(qt_app, monkeypatch) -> None:
     win.hide()
     apply_theme("sodium")
     assert source.startswith("image://")
-    shot = surface.engine().imageProvider("arelisorbit").requestImage(
-        source.split("//", 1)[1].split("/", 1)[1], None, None
+    shot = (
+        surface.engine()
+        .imageProvider("arelisorbit")
+        .requestImage(source.split("//", 1)[1].split("/", 1)[1], None, None)
     )
     px = shot.pixelColor(shot.width() // 2, shot.height() // 2)
     assert px.alpha() == 255 and (px.red(), px.green(), px.blue()) != (0, 0, 0)
@@ -94,3 +105,73 @@ def test_frametime_log_records_surface_frames(qt_app, monkeypatch, tmp_path) -> 
     shiboken6.delete(surface)  # the log closes with its surface
     lines = path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2 and all(float(v) >= 0 for v in lines[0].split(","))
+
+
+def test_the_cropped_overlay_is_placed_at_its_offset(qt_app, monkeypatch) -> None:
+    """The worker's overlay covers only its box: the surface puts it there, not over the window."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QImage
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.persona_face.quick_surface import _quick_widget_class
+
+    host = QWidget()
+    host.resize(800, 500)
+    s = _quick_widget_class()(host)
+    s.resize(800, 500)
+    host.show()
+    QTest.qWait(100)
+    img = QImage(400, 200, QImage.Format.Format_ARGB32_Premultiplied)
+    img.setDevicePixelRatio(2.0)
+    img.setOffset(QPoint(120, 60))
+    img.fill(0)
+    s.set_orbit(img)
+    r = s.rootObject().property("orbitRect")
+    assert (r.x(), r.y(), r.width(), r.height()) == (120, 60, 200, 100)
+    host.hide()
+
+
+_LOAD_SURFACE = """
+import os
+os.environ["ARELIS_SURFACE"] = "quick"
+from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtTest import QTest
+app = QApplication([])
+from arelis.ui.persona_face import quick_surface
+host = QWidget()
+host.resize(640, 400)
+s = quick_surface.surface_for(host)
+host.show()
+QTest.qWait(600)
+print("root", s.rootObject() is not None)
+"""
+
+
+def test_the_surface_loads_without_unbound_shader_properties() -> None:
+    """Every field of common.glsl's block has a property on the overlay ShaderEffect.
+
+    Offscreen never renders a QQuickWidget (no warning there either way), so the surface is
+    loaded in a child process on the X display.
+    """
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from arelis.ui.persona_face import qq3d_avatar
+
+    if qq3d_avatar.unavailable_reason():
+        pytest.skip(qq3d_avatar.unavailable_reason())
+    if not os.environ.get("DISPLAY"):
+        pytest.skip("needs an X display: offscreen never renders the surface")
+    env = dict(os.environ, QT_QPA_PLATFORM="xcb", PYTHONPATH=str(Path(__file__).parents[1]))
+    run = subprocess.run(
+        [sys.executable, "-c", _LOAD_SURFACE],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert "root True" in run.stdout, run.stderr[-2000:]
+    assert "does not have a matching property" not in run.stderr

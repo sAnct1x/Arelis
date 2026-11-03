@@ -48,12 +48,23 @@ Item {
         for (var i = 0; i < d.length; i++) if (d[i] && d[i].keyframeGroups !== undefined) n++
         return n
     }
+    // False until the mixer has written her first clip pose: a loaded model shows its bind pose
+    // (the T-pose) until then, and on a cold start that frame stays up through the pipeline
+    // compile stall. She is hidden, and the host is not told she is ready, until she is posed.
+    property bool posed: false
     property var face: null   // Track B (persona_q3d/face.js), created once the model has loaded
+    // Her chest (CC_Base_Spine02) in this item's px, every frame she is posed; (-1, -1) until then.
+    // The Filament chat strand starts here (quick_surface.py), so it follows her animation.
+    property point chest: Qt.point(-1, -1)
+    property var chestBone: null
 
     View3D {
         id: view
         objectName: "view"
         anchors.fill: parent
+        // Named, not found: mapFrom3DScene (the chest strand) needs the view's camera set, and
+        // warns on every call (each frame) without it.
+        camera: cam
         // The look's own output path, as tools/avatar_lookmatch.py PORT_SCENE renders iter5: no MSAA,
         // linear tonemap (three's OutputPass), and AetherBloom with config.js LOOK.bloom.
         environment: SceneEnvironment {
@@ -87,8 +98,12 @@ Item {
             // rests her head a little further toward the UI.
             eulerRotation.y: Math.atan2(cam.position.x, cam.camZ) * 180 / Math.PI
             source: root.modelSource
+            // Her model (a large balsam scene) compiles off the GUI thread and builds over
+            // frames, so the window and its loading state draw while she loads.
+            asynchronous: true
+            visible: root.posed
             onStatusChanged: {
-                if (status === Loader3D.Ready) { root.startFace(item); root.sceneStatus = "ready" }
+                if (status === Loader3D.Ready) root.startFace(item)
                 else if (status === Loader3D.Error) { root.sceneError = "model failed to load"; root.sceneStatus = "error" }
             }
         }
@@ -113,7 +128,15 @@ Item {
         }
         return n
     }
+    function findBone(n, name) {
+        if (!n) return null
+        if (n.objectName === name) return n
+        var c = n.children || []
+        for (var i = 0; i < c.length; i++) { var f = findBone(c[i], name); if (f) return f }
+        return null
+    }
     function startFace(model) {
+        chestBone = findBone(model, "CC_Base_Spine02")
         stripFaceTracks(model)
         face = Face.create(model, {})
         face.setState(avatarState)
@@ -124,6 +147,11 @@ Item {
     Connections {
         target: mixer
         function onTicked(dt) {
+            if (!root.posed && loader.status === Loader3D.Ready) { root.posed = true; root.sceneStatus = "ready" }
+            if (root.posed && root.chestBone) {
+                var c = view.mapFrom3DScene(root.chestBone.scenePosition)
+                root.chest = Qt.point(c.x, c.y)
+            }
             if (!root.face) return
             root.face.update(dt)
             var fig = loader.item

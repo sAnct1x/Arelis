@@ -6,9 +6,15 @@ import logging
 import math
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, QRect
+from PySide6.QtCore import Q_ARG, QMetaObject, QPoint, QPointF, QRect, Qt
 
-from arelis.ui.filament_field import RING_GROW_S, FilamentField
+from arelis.ui.filament_field import (
+    FLOATS,
+    FREE_FLOATS,
+    RING_GROW_S,
+    TITLE_FADE_S,
+    FilamentField,
+)
 
 
 def _filament(arelis_window, qt_app):
@@ -42,6 +48,9 @@ def test_entering_filament_grows_the_ring_out_of_her_hub(arelis_window, qt_app, 
     field, rect = w._filament, w.rect()
     hub = QPointF(field.hub)
     field.ring_grow, field._ring_phase = 0.0, "wait"
+    # She is up: under qq3d offscreen her scene never reports ready, so the gate would hold
+    # the ring for RING_WAIT_MAX_S, past this loop. The gate has its own path in the app.
+    field._ring_gate = None
     cx, cy, rx, _ry = field.ellipse(rect)
     assert math.hypot(cx - hub.x(), cy - hub.y()) < 1.0 and rx < 10.0
     last_rx = rx
@@ -56,6 +65,74 @@ def test_entering_filament_grows_the_ring_out_of_her_hub(arelis_window, qt_app, 
     assert "[avatar] filament load step=she appears" in text
     assert "[avatar] filament load step=ring grows origin=" in text
     assert "[avatar] filament load step=ring settled" in text
+
+
+def test_tile_titles_fade_in_at_their_spot_once_the_ring_settles(arelis_window, qt_app) -> None:
+    w = _filament(arelis_window, qt_app)
+    field, rect = w._filament, w.rect()
+    field.crown = True  # the tree's crown (OrbitState): titles ride the ring itself
+    field.begin_ring_growth(None)
+    name = next(n for n, _t, _p in FLOATS if n not in FREE_FLOATS)
+    spot = field.float_points(name, rect)[1]
+    layers = _quick_orbit_layers(field, rect)
+    shows = []
+    for _ in range(int((RING_GROW_S + TITLE_FADE_S) / 0.05) + 6):
+        field.tick(0.05)
+        if layers:  # the GPU's pulses and node rings (reality's light) on the titles' value
+            st, orbit, flares, pulses = layers
+            st.update(field, rect)
+            for _f in range(3):  # its own ring clock runs ahead, as when the field's frames stall
+                QMetaObject.invokeMethod(
+                    orbit, "step", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 0.05)
+                )
+            show = field.title_show()
+            assert abs(flares.property("opacity") - show) < 1e-6
+            assert abs(pulses.property("opacity") - show) < 1e-6
+        here = field.float_points(name, rect)[1]
+        assert math.hypot(here.x() - spot.x(), here.y() - spot.y()) < 12.0  # its drift, never the trip from her hub
+        shows.append((field.ring_grow, field.title_show()))
+        if 0.0 < shows[-1][1] < 0.15:
+            early = _reality_ink(field, rect)
+    assert all(show == 0.0 for grow, show in shows if grow < 1.0)
+    assert shows[-1][1] == 1.0
+    assert early < 0.25 * _reality_ink(field, rect)  # reality's rings fade in with the rest
+
+
+def _quick_orbit_layers(field, rect):
+    from PySide6.QtCore import QObject, QUrl
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+
+    from arelis.ui.persona_face.orbit_state import OrbitState
+    from arelis.ui.persona_face.qq3d_avatar import QML_DIR
+
+    st = OrbitState()
+    st.update(field, rect)
+    engine = QQmlEngine()
+    engine.rootContext().setContextProperty("orbitState", st)
+    comp = QQmlComponent(engine)
+    comp.setData(
+        b"import QtQuick\nQuickOrbit { st: orbitState }\n",
+        QUrl.fromLocalFile(str(QML_DIR / "_t.qml")),
+    )
+    orbit = comp.create()
+    if orbit is None:
+        return None
+    _quick_orbit_layers.keep = (engine, comp)
+    find = orbit.findChild
+    return st, orbit, find(QObject, "orbitFlares"), find(QObject, "orbitPulses")
+
+
+def _reality_ink(field, rect) -> float:
+    from PySide6.QtGui import QImage, QPainter
+
+    img = QImage(rect.size(), QImage.Format.Format_ARGB32)
+    img.fill(0)
+    hidden, field._hidden = field._hidden, {n for n, _t, _p in FLOATS if n not in FREE_FLOATS}
+    painter = QPainter(img)
+    field._paint_beads(painter, rect)
+    painter.end()
+    field._hidden = hidden
+    return sum(img.constBits().tobytes()[3::4])
 
 
 @pytest.mark.parametrize("parked", [False, True])

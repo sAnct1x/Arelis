@@ -1,11 +1,13 @@
 # ruff: noqa: N815  (Qt property and signal names are QML-facing camelCase)
 """What QuickOrbit.qml needs from the Filament sim, as one QObject (ARELIS_SURFACE=quick).
 
-Slice 2 draws the ring, the strands, the dust and the hub threads on the GPU. Python no longer
+Slice 2 draws the ring, the strands, the dust and the hub threads on the GPU; in idle the
+orbit tree (Iris's v11b: trunk, limbs, roots, floor link, light packets, node flares) stands
+for the ring, from the anchors here. Python no longer
 paints them, and nothing here runs per frame: the atmosphere tick (30 Hz, the sim's own clock)
 calls update(), and each property emits only when its value changes. Geometry changes on
 resize, span and hub moves; the weather on a state change; the ring's growth on its phase
-changes (QML runs the 1.8 s grow itself). The one steady emit is `sync`, the sim's clock and
+changes (QML runs the 3 s grow itself). The one steady emit is `sync`, the sim's clock and
 eased weather once a second (and on a weather change), so QML's clock stays on the clock the
 Python worker paints the beads, stems and tethers with.
 """
@@ -15,13 +17,29 @@ from __future__ import annotations
 import logging
 import time
 
-from PySide6.QtCore import Property, QObject, QPointF, QRect, Signal, Slot
+from PySide6.QtCore import Property, QObject, QPointF, QRect, QRectF, Signal, Slot
 from PySide6.QtGui import QColor, QVector4D
 
 from arelis.ui import filament_field as ff
 
 LOG = logging.getLogger("arelis.avatar")
 SYNC_S = 1.0
+TREE_FLOOR = 0.955  # the floor the tree stands on, as a share of the height (v11b: 1328/1392)
+
+COVER_SHARE = 0.25  # the chat tile covers the tree when it hides this share of the tree's box
+
+
+def tree_covered(
+    cover: QRect | None, rect: QRect, cx: float, cy: float, rx: float, ry: float
+) -> bool:
+    """The open chat tile hides enough of the tree (its crown round the ring down to the floor)
+    that drawing it is wasted: QuickOrbit.qml fades it out and stops drawing it."""
+    if cover is None or cover.isEmpty():
+        return False
+    floor = rect.top() + rect.height() * TREE_FLOOR
+    box = QRectF(cx - rx * 1.3, cy - ry * 1.4, rx * 2.6, max(1.0, floor - (cy - ry * 1.4)))
+    hit = box.intersected(QRectF(cover))
+    return hit.width() * hit.height() >= COVER_SHARE * box.width() * box.height()
 
 
 class OrbitState(QObject):
@@ -41,6 +59,11 @@ class OrbitState(QObject):
     goldChanged = Signal()
     coreChanged = Signal()
     syncChanged = Signal()
+    treeChanged = Signal()
+    feetChanged = Signal()
+    realityChanged = Signal()
+    treeCoveredChanged = Signal()
+    titleShowChanged = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -49,8 +72,9 @@ class OrbitState(QObject):
             "hub": QPointF(),
             "hasHub": False,
             "ring": QVector4D(),
-            "ringGrow": 1.0,
-            "ringPhase": "",
+            # Hidden until the Filament load grows it: no full tree during her T-pose.
+            "ringGrow": 0.0,
+            "ringPhase": "wait",
             "span": 1,
             "weather": "idle",
             "target": [0.0, 0.08, 0.0, 0.0, 0.0],
@@ -61,6 +85,12 @@ class OrbitState(QObject):
             "gold": QColor(*ff._GOLD),
             "core": QColor(*ff._CORE),
             "sync": [],
+            "tree": QVector4D(),
+            "feet": QPointF(),
+            "reality": QPointF(-1.0, -1.0),
+            "treeCovered": False,
+            # FilamentField.title_show: the tile titles' fade, which QML's beads and rings share.
+            "titleShow": 0.0,
         }
         self._sync_at = 0.0
         self.emits = 0  # how many property changes went to QML (the test and the bench read it)
@@ -78,10 +108,18 @@ class OrbitState(QObject):
     def update(self, field: ff.FilamentField, rect: QRect, now: float | None = None) -> None:
         """After a sim tick: push what changed. Cheap; the GPU does the per-frame work."""
         self._set("active", True)
+        # The tree stands for the ring here: the worker puts the tiles' beads and words on
+        # its crown (FilamentField.crown_point), where common.glsl crownTip ends the limbs.
+        field.crown = True
         w = float(rect.width())
         cx, cy, rx, ry = field.ellipse(rect, settled=True)
         self._set("ring", QVector4D(cx, cy, rx, ry))
         hub = field.hub
+        self._set_tree(rect, cx, cy, rx, ry, hub)
+        # The reality tile's light, where the tree's last minor limb ends (common.glsl).
+        hidden = "reality" in field._hidden
+        self._set("reality", QPointF(-1.0, -1.0) if hidden else field.reality_center(rect))
+        self._set("treeCovered", tree_covered(field.cover, rect, cx, cy, rx, ry))
         self._set("hasHub", hub is not None)
         if hub is not None:
             self._set("hub", QPointF(hub))
@@ -91,9 +129,16 @@ class OrbitState(QObject):
         self._set("fadeMargin", field._fade_margin(w))
         self._set("span", int(field.span))
         phase = field._ring_phase
+        # Before the load starts the field's phase is "" too (a full ring): hold it at "wait"
+        # so the tree grows once, from nothing, instead of flashing full first.
+        if not field.ring_started:
+            phase = "wait"
         if phase != self._values["ringPhase"]:
             self._set("ringGrow", float(field.ring_grow))
             self._set("ringPhase", phase)
+        # The pulses and node rings (and so reality's light) fade in on the titles' own value,
+        # not on QML's ring clock, which settles ahead of the field's when frames stall.
+        self._set("titleShow", float(field.title_show()) if field.ring_started else 0.0)
         want = ff._WEATHER[field.state]
         self._set("target", [want[k] for k in ("form", "speed", "pulse", "warm", "words")])
         weather_moved = self._values["weather"] != field.state
@@ -105,6 +150,20 @@ class OrbitState(QObject):
                 "sync",
                 [field.time, field.form, field.speed, field.pulse, field.warm, field.words],
             )
+
+    def _set_tree(
+        self, rect: QRect, cx: float, cy: float, rx: float, ry: float, hub: QPointF | None
+    ) -> None:
+        """The orbit tree's anchors (Iris's v11b): its base on the floor under the ring, its fork
+        inside the ring, and her feet on the floor below her hub, where the floor link and the
+        light packets start. The limbs, roots and packets are the GPU's (tree.vert)."""
+        h = float(rect.height())
+        floor = rect.top() + h * TREE_FLOOR
+        base_x = cx - rx * 0.03
+        fork_y = cy + max(ry * 0.55, h * 0.10)
+        self._set("tree", QVector4D(base_x, floor, cx + rx * 0.02, fork_y))
+        feet_x = hub.x() if hub is not None else min(cx + rx * 1.6, rect.right() - 40.0)
+        self._set("feet", QPointF(feet_x, floor))
 
     @Slot(int)
     def reportFps(self, fps: int) -> None:
@@ -128,3 +187,10 @@ class OrbitState(QObject):
     gold = Property(QColor, lambda self: self._values["gold"], notify=goldChanged)
     core = Property(QColor, lambda self: self._values["core"], notify=coreChanged)
     sync = Property(list, lambda self: self._values["sync"], notify=syncChanged)
+    tree = Property(QVector4D, lambda self: self._values["tree"], notify=treeChanged)
+    feet = Property(QPointF, lambda self: self._values["feet"], notify=feetChanged)
+    reality = Property(QPointF, lambda self: self._values["reality"], notify=realityChanged)
+    treeCovered = Property(
+        bool, lambda self: self._values["treeCovered"], notify=treeCoveredChanged
+    )
+    titleShow = Property(float, lambda self: self._values["titleShow"], notify=titleShowChanged)
