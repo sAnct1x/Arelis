@@ -38,7 +38,11 @@ const flatMap = (a, fn) => a.reduce((o, x) => o.concat(fn(x)), []);
 const fromEntries = (ps) => { const o = {}; for (const [k, v] of ps) o[k] = v; return o; };
 const qarr = (q) => [q.scalar, q.x, q.y, q.z];
 function qinv(q) { return [q[0], -q[1], -q[2], -q[3]]; }
-
+// One step of a critically damped spring toward `to`, solved exactly rather than with an Euler step, so a long
+// frame (the mixer passes up to 0.1 s after a stall) lands where the spring would have been instead of overshooting.
+// An Euler step with om * dt near 1 throws the head past its target and, held there, rings out of range.
+function spring(o, x, v, to, om, dt) { const d = o[x] - to, j = o[v] + om * d, e = Math.exp(-om * dt);
+  o[x] = to + (d + j * dt) * e; o[v] = (o[v] - om * j * dt) * e; }
 function walk(n, f) { f(n); const c = n.children || []; for (let i = 0; i < c.length; i++) walk(c[i], f); }
 
 function create(root, opts) {
@@ -257,8 +261,7 @@ function create(root, opts) {
     if (gz.st >= (gz.hd || 0)) { gz.htY = gz.ty * 0.55; gz.htX = gz.tx * 0.4; }   // head starts 60-140 ms after the eyes
     const hY = gz.htY || 0, hX = gz.htX || 0;
     const om = 6.5;
-    gz.hvy += (-2 * om * gz.hvy - om * om * (gz.hy - hY)) * dt; gz.hy += gz.hvy * dt;
-    gz.hvx += (-2 * om * gz.hvx - om * om * (gz.hx - hX)) * dt; gz.hx += gz.hvx * dt;
+    spring(gz, 'hy', 'hvy', hY, om, dt); spring(gz, 'hx', 'hvx', hX, om, dt);
     // v4: speech head motion is a critically damped spring kicked by syllables (velocity impulses), never a position step.
     //     v3 added 0.03*stress straight to the head pitch with an 80 ms attack -> ~0.6 deg/frame jumps that made the
     //     alpha-tested back hair seen through the see-through neck crawl (the 5-7 s neck flicker).
@@ -266,10 +269,9 @@ function create(root, opts) {
       hs.vx += (st0 ? 0.3 * sp.stress : 0.07 + 0.05 * rnd()) * a;                 // nod down on each syllable, bigger on stress
       hs.vz += (st0 ? (rnd() < 0.5 ? -1 : 1) * 0.2 : (rnd() - 0.5) * 0.08) * a;   // small tilt, a clear one on stress
       hs.vy += (rnd() - 0.5) * 0.08 * a; }
-    { const om3 = 7, om4 = 5.5; hs.vx += (-2 * om3 * hs.vx - om3 * om3 * hs.x) * dt; hs.x += hs.vx * dt;
-      hs.vz += (-2 * om4 * hs.vz - om4 * om4 * hs.z) * dt; hs.z += hs.vz * dt; hs.vy += (-2 * om4 * hs.vy - om4 * om4 * hs.y) * dt; hs.y += hs.vy * dt;
+    { const om3 = 7, om4 = 5.5; spring(hs, 'x', 'vx', 0, om3, dt); spring(hs, 'z', 'vz', 0, om4, dt); spring(hs, 'y', 'vy', 0, om4, dt);
       const tgt = w.speaking * (0.03 * lvl.nod + 0.008 * N(t * 0.9, 'nod') + 0.07 * ph.nodK * nodE - 0.03 * lift) + 0.03 * sg2 * (1 - 2 * (bph % 1 > 0.4));
-      hs.vs += (-2 * 7 * hs.vs - 49 * (hs.s - tgt)) * dt; hs.s += hs.vs * dt; }
+      spring(hs, 's', 'vs', tgt, 7, dt); }
     const hy = HOME_YAW + hs.y + gz.hy + 0.02 * D('hy', 4, 10) + 0.006 * N(t * 0.37, 'hy') + 0.005 * N(t * 1.3, 'hy2');
     const hx = gz.hx + 0.01 * D('hx', 4, 10) + 0.005 * N(t * 0.29, 'hx') + 0.004 * N(t * 1.1, 'hx2') + 0.008 * b - p.up * 0.35 + 0.05 * settle
              + hs.s + hs.x + stP;   // beats on stress, nod at phrase end

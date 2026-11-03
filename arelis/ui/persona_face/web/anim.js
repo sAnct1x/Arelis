@@ -29,6 +29,12 @@ const clipJson = (name) => CLIPS[name] || (CLIPS[name] = fetch(new URL(name, imp
 const GESTURE_CLIP = typeof location !== 'undefined' && new URLSearchParams(location.search).get('track') === 'cmu' ? './gesture-track.json' : './gesture-track-mix.json';
 try { clipJson(GESTURE_CLIP).catch(() => {}); } catch (e) {}
 
+// One step of a critically damped spring toward `to`, solved exactly rather than with an Euler step, so a long
+// frame after a stall lands where the spring would have been instead of overshooting. An Euler step with
+// om * dt near 1 throws the head past its target and, held there, rings out of range.
+function spring(o, x, v, to, om, dt) { const d = o[x] - to, j = o[v] + om * d, e = Math.exp(-om * dt);
+  o[x] = to + (d + j * dt) * e; o[v] = (o[v] - om * j * dt) * e; }
+
 export function createAnimator(THREE, root, face, uAnim, opts = {}) {
   /* vr4: own seeded RNG for the choreography (?aseed=, test renders only), so particle sampling changes no longer reshuffle her idle poses */
   const QS = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null; let aseed = QS && QS.has('aseed') ? (+QS.get('aseed') >>> 0) : null;
@@ -237,8 +243,7 @@ export function createAnimator(THREE, root, face, uAnim, opts = {}) {
     if (gz.st >= (gz.hd || 0)) { gz.htY = gz.ty * 0.55; gz.htX = gz.tx * 0.4; }   // head starts 60-140 ms after the eyes
     const hY = gz.htY || 0, hX = gz.htX || 0;
     const om = 6.5;
-    gz.hvy += (-2 * om * gz.hvy - om * om * (gz.hy - hY)) * dt; gz.hy += gz.hvy * dt;
-    gz.hvx += (-2 * om * gz.hvx - om * om * (gz.hx - hX)) * dt; gz.hx += gz.hvx * dt;
+    spring(gz, 'hy', 'hvy', hY, om, dt); spring(gz, 'hx', 'hvx', hX, om, dt);
     // v4: speech head motion is a critically damped spring kicked by syllables (velocity impulses), never a position step.
     //     v3 added 0.03*stress straight to the head pitch with an 80 ms attack -> ~0.6 deg/frame jumps that made the
     //     alpha-tested back hair seen through the see-through neck crawl (the 5-7 s neck flicker).
@@ -246,10 +251,9 @@ export function createAnimator(THREE, root, face, uAnim, opts = {}) {
       hs.vx += (st0 ? 0.55 * sp.stress : 0.16 + 0.12 * rnd()) * a;                 // nod down on each syllable, bigger on stress
       hs.vz += (st0 ? (rnd() < 0.5 ? -1 : 1) * 0.35 : (rnd() - 0.5) * 0.18) * a;   // small tilt, a clear one on stress
       hs.vy += (rnd() - 0.5) * 0.16 * a; }
-    { const om3 = 11, om4 = 8; hs.vx += (-2 * om3 * hs.vx - om3 * om3 * hs.x) * dt; hs.x += hs.vx * dt;
-      hs.vz += (-2 * om4 * hs.vz - om4 * om4 * hs.z) * dt; hs.z += hs.vz * dt; hs.vy += (-2 * om4 * hs.vy - om4 * om4 * hs.y) * dt; hs.y += hs.vy * dt;
+    { const om3 = 11, om4 = 8; spring(hs, 'x', 'vx', 0, om3, dt); spring(hs, 'z', 'vz', 0, om4, dt); spring(hs, 'y', 'vy', 0, om4, dt);
       const tgt = w.speaking * (0.03 * lvl.nod + 0.008 * N(t * 0.9, 'nod') + 0.07 * ph.nodK * nodE - 0.03 * lift) + 0.03 * sg2 * (1 - 2 * (bph % 1 > 0.4));
-      hs.vs += (-2 * 7 * hs.vs - 49 * (hs.s - tgt)) * dt; hs.s += hs.vs * dt; }
+      spring(hs, 's', 'vs', tgt, 7, dt); }
     const hy = hs.y + gz.hy + 0.04 * D('hy', 2, 6) + 0.012 * N(t * 0.37, 'hy') + 0.005 * N(t * 1.3, 'hy2');
     const hx = gz.hx + 0.022 * D('hx', 2, 7) + 0.008 * N(t * 0.29, 'hx') + 0.004 * N(t * 1.1, 'hx2') + 0.008 * b - p.up * 0.35 + 0.05 * settle
              + hs.s + hs.x + stP;   // beats on stress, nod at phrase end
