@@ -37,6 +37,10 @@ Item {
     property real treeShow: st && st.treeCovered ? 0 : 1
     Behavior on treeShow { NumberAnimation { duration: 650; easing.type: Easing.InOutSine } }
     property real ringGrow: 0
+    // The node flares (the ring round each tile) fade in as the ring settles, in step with
+    // the tile titles (FilamentField.title_show, TITLE_FADE_S): same start, InOutSine, 750 ms.
+    property real nodeShow: ringScale >= 1 ? 1 : 0
+    Behavior on nodeShow { NumberAnimation { duration: 750; easing.type: Easing.InOutSine } }
     property real clockErr: 0
     property bool synced: false
     property bool clockRunning: true  // a still (a comparison grab) freezes the clock
@@ -274,6 +278,7 @@ Item {
     Layer {
         objectName: "orbitFlares"
         visible: orbit.treeShow > 0.001
+        opacity: orbit.nodeShow
         treeOn: orbit.treeShow
         mesh: GridMesh { resolution: Qt.size(4 * 7 - 1, 1) }
         vertexShader: "orbit/flare.vert.qsb"

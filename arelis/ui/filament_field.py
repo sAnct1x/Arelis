@@ -112,6 +112,9 @@ _DUST = 1100
 RING_GROW_S = 3.0
 CAPTURE_CHAT_ENV = "ARELIS_CAPTURE_CHAT"
 RING_WAIT_MAX_S = 6.0
+# Tile titles and beads fade in at their spot once the ring settles, with the node flares
+# (QuickOrbit.qml nodeShow): same start, same InOutSine, same length.
+TITLE_FADE_S = 0.75
 
 
 def _alog(event: str, **fields: object) -> None:
@@ -521,6 +524,10 @@ class FilamentField:
         self.ring_started = False
         self._ring_wait = 0.0
         self._ring_gate: Callable[[], bool] | None = None
+        # Seconds the titles have been fading in (TITLE_FADE_S is fully shown).
+        self._title_age = TITLE_FADE_S
+        # True while a title or bead point is worked out: they hang on the settled ring.
+        self._pin = False
         self._load = ""
         self.dust = []
         for i in range(_DUST):
@@ -662,9 +669,12 @@ class FilamentField:
         self.ring_started = True
         self._ring_wait = 0.0
         self._ring_gate = she_is_up
+        self._title_age = 0.0
         _alog("filament load", step="she appears")
 
     def _tick_ring(self, dt: float) -> None:
+        if self._ring_phase == "":
+            self._title_age = min(TITLE_FADE_S, self._title_age + dt)
         if self._ring_phase == "wait":
             self._ring_wait += dt
             gate = self._ring_gate
@@ -680,6 +690,11 @@ class FilamentField:
             if self.ring_grow >= 1.0:
                 self._ring_phase = ""
                 _alog("filament load", step="ring settled")
+
+    def title_show(self) -> float:
+        """0..1 opacity of the tile titles and beads: an InOutSine fade once the ring settles."""
+        t = max(0.0, min(1.0, self._title_age / TITLE_FADE_S))
+        return 0.5 - 0.5 * math.cos(math.pi * t)
 
     def ring_scale(self) -> float:
         """Eased 0..1 size of the ring during the load (smoothstep, calm both ends)."""
@@ -725,7 +740,7 @@ class FilamentField:
         cy = rect.top() + h * 0.40
         rx = min(desk * 0.48, h * 0.44)
         ry = rx * 0.50
-        g = 1.0 if settled else self.ring_scale()
+        g = 1.0 if settled or self._pin else self.ring_scale()
         if g < 1.0:
             # Grows out of her hub: the centre slides from the hub, the radii open.
             if self.hub is not None:
@@ -910,6 +925,14 @@ class FilamentField:
         return best
 
     def float_points(self, name: str, rect: QRect) -> tuple[QPointF, QPointF]:
+        """On the settled ring: a title never rides the ring out of her hub."""
+        pin, self._pin = self._pin, True
+        try:
+            return self._float_points(name, rect)
+        finally:
+            self._pin = pin
+
+    def _float_points(self, name: str, rect: QRect) -> tuple[QPointF, QPointF]:
         """(bead_point, title_point) for one float, with the anchor and ring worked out once."""
         if name in FREE_FLOATS:
             p = self._free_bead(rect)
@@ -1090,10 +1113,13 @@ class FilamentField:
     def _paint_beads(self, painter: QPainter, rect: QRect) -> None:
         """One particle per tile, off the dust, same path-speed as the word."""
         painter.setPen(Qt.PenStyle.NoPen)
+        show = self.title_show()
+        if show <= 0.0:
+            return
         for name, t, _pad in FLOATS:
             if name in self._hidden:
                 continue
-            p = self.bead_point(name, rect)
+            p = self.float_points(name, rect)[0]
             open_ = name in self._open
             pulse = 0.5 + 0.5 * math.sin(self.time * 1.7 + t * 8.0)
             if name in FREE_FLOATS:
@@ -1111,7 +1137,7 @@ class FilamentField:
                     p,
                     halo,
                     _CORE,
-                    glow,
+                    glow * show,
                     core=core,
                     pin=1.8 if not open_ else 0.9,
                 )
@@ -1141,7 +1167,7 @@ class FilamentField:
                 p,
                 halo,
                 rgb,
-                glow,
+                glow * show,
                 core=core,
                 pin=1.6 if not open_ else 0.9,
             )
@@ -1181,8 +1207,18 @@ class FilamentField:
             _paint_soft_orb(painter, q, 3.2, _CORE, 0.56, core=1.1, pin=0.5)
 
     def _paint_stems(self, painter: QPainter, rect: QRect) -> None:
-        """Short strand from the light to each closed title."""
+        """Short strand from the light to each closed title, on the settled ring with it."""
+        show = self.title_show()
+        if show <= 0.0:
+            return
         painter.setBrush(Qt.BrushStyle.NoBrush)
+        pin, self._pin = self._pin, True
+        try:
+            self._paint_stem_lines(painter, rect, show)
+        finally:
+            self._pin = pin
+
+    def _paint_stem_lines(self, painter: QPainter, rect: QRect, show: float) -> None:
         for name, _t, _pad in FLOATS:
             if name in FREE_FLOATS:
                 continue
@@ -1197,7 +1233,7 @@ class FilamentField:
                     u = i / 5
                     p = QPointF(_mix(src.x(), dst.x(), u), _mix(src.y(), dst.y(), u))
                     if prev is not None:
-                        pen = QPen(_lit(_GOLD, 0.16 + u * 0.10))
+                        pen = QPen(_lit(_GOLD, (0.16 + u * 0.10) * show))
                         pen.setWidthF(1.6)
                         painter.setPen(pen)
                         painter.drawLine(prev, p)
@@ -1486,6 +1522,7 @@ class FilamentFloatBar(QObject):
             if bead.isHidden():
                 bead.show()
                 settle = True
+            _fade(bead, self._field.title_show())
             bx = int(local_a.x() - bead.width() / 2)
             by = int(local_a.y() - bead.height() / 2)
             if bead.x() != bx or bead.y() != by:
@@ -1556,17 +1593,23 @@ class FilamentFloatBar(QObject):
             if style is not None:
                 style.unpolish(btn)
                 style.polish(btn)
-        if not live:
-            if btn.graphicsEffect() is not None:
-                btn.setGraphicsEffect(None)
-            return restyled
-        effect = btn.graphicsEffect()
-        if not isinstance(effect, QGraphicsOpacityEffect):
-            effect = QGraphicsOpacityEffect(btn)
-            btn.setGraphicsEffect(effect)
-        breath = self._field.live_breath()
-        effect.setOpacity(0.62 + 0.38 * breath)
+        show = self._field.title_show()
+        level = (0.62 + 0.38 * self._field.live_breath()) if live else 1.0
+        _fade(btn, level * show)
         return restyled
+
+
+def _fade(widget: QWidget, level: float) -> None:
+    """Opacity on a chip or bead; no effect at full (an effect costs an offscreen pass)."""
+    effect = widget.graphicsEffect()
+    if level >= 0.999:
+        if effect is not None:
+            widget.setGraphicsEffect(None)
+        return
+    if not isinstance(effect, QGraphicsOpacityEffect):
+        effect = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(effect)
+    effect.setOpacity(max(0.0, level))
 
 
 class FilamentChatWindow(QWidget):
