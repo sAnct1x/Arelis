@@ -28,6 +28,9 @@ def breath_at(t: float) -> float:
     return 0.5 - 0.5 * math.cos(math.pi * (t / _BREATH_S))
 
 
+SPLASH_TITLE = "Arelis loading"
+
+
 class LaunchSplash(QWidget):
     """Small frameless plate shown before the main window exists."""
 
@@ -39,7 +42,10 @@ class LaunchSplash(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint,
         )
         self.setObjectName("LaunchSplash")
-        # No title: a titled window would be what an installer probe finds first.
+        # An explicit title: with none, Windows shows Qt's applicationDisplayName ('Arelis'),
+        # and the installer window-probe would pass on this splash alone. The probe skips
+        # exactly this title (scripts/installer_smoke.py SPLASH_TITLE).
+        self.setWindowTitle(SPLASH_TITLE)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.resize(320, 260)
         self._void = QColor(*(void or _VOID))
