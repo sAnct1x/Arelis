@@ -416,7 +416,7 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
         monkeypatch.setattr("arelis.ui.update_prompt.schedule_update_check", lambda *_a, **_k: None)
         monkeypatch.setattr(launch_mod, "_start_activation_listener", lambda *_a, **_k: None)
         monkeypatch.setattr(
-            "arelis.presence.glass_inbound.install_owned_inbound", lambda *_a, **_k: None
+            "arelis.ui.launch.install_owned_inbound_off_ui", lambda *_a, **_k: None
         )
         monkeypatch.setattr("arelis.presence.lock.external_core_available", lambda _c: False)
         monkeypatch.setattr(

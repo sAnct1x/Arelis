@@ -42,11 +42,46 @@ def surface_choice() -> tuple[str, str]:
         source = "user-env" if raw else "default"
         if raw:
             os.environ[SURFACE_ENV] = raw  # read the registry once
-    return ("quick" if raw.lower() == "quick" else "widget"), source
+    return ("quick" if raw.lower() in ("quick", THREADED) else "widget"), source
+
+
+# ARELIS_SURFACE=quickwindow (v11c, in progress): the same surface as a QQuickView on the
+# threaded render loop with its own QRhi, so her frames and pipeline compiles leave the GUI
+# thread and the pipeline cache works. Not the default yet. A native child window always
+# paints over its sibling widgets, so every widget of the window (floats, chat stage, tiles,
+# chrome, docks) would be hidden under it: WidgetMirror draws them onto the surface instead.
+THREADED = "quickwindow"
 
 
 def enabled() -> bool:
     return surface_choice()[0] == "quick"
+
+
+def threaded() -> bool:
+    return enabled() and os.environ.get(SURFACE_ENV, "").strip().lower() == THREADED
+
+
+def pipeline_cache_path():
+    from arelis.paths import cache_dir
+
+    return cache_dir() / "quick" / "pipelines.bin"
+
+
+def pipeline_cache_config():
+    """A graphics configuration that loads and saves the QRhi pipeline cache.
+
+    Only a QQuickWindow honours it (a QQuickWidget renders with its top-level window's
+    QRhi, which never gets it): D3D11 then reuses compiled bytecode from the last run.
+    """
+    from PySide6.QtQuick import QQuickGraphicsConfiguration
+
+    path = pipeline_cache_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cfg = QQuickGraphicsConfiguration()
+    if path.is_file():
+        cfg.setPipelineCacheLoadFile(str(path))
+    cfg.setPipelineCacheSaveFile(str(path))
+    return cfg
 
 
 def log_surface_choice() -> None:
@@ -72,10 +107,64 @@ def _image_provider():
     return OrbitImages()
 
 
+class _SurfaceApi:
+    """What the window and her host ask of the surface, whichever Quick host draws it."""
+
+    def slot(self):
+        from PySide6.QtQuick import QQuickItem
+
+        root = self.rootObject()
+        return None if root is None else root.findChild(QQuickItem, "avatarSlot")
+
+    def set_loading(self, on: bool) -> None:
+        """The breathing loading state where she will stand (QuickSurface.qml)."""
+        root = self.rootObject()
+        if root is not None:
+            root.setProperty("loading", bool(on))
+
+    def set_void(self, color: QColor) -> None:
+        root = self.rootObject()
+        if root is not None:
+            root.setProperty("voidColor", color)
+
+    def set_orbit(self, image: QImage | None) -> None:
+        """The worker's layer (beads, stems, tethers) over the GPU orbit; None clears it.
+
+        The image covers only the box those fill (QImage.offset() in window px), so the
+        overlay is placed there rather than stretched over the window.
+        """
+        root = self.rootObject()
+        if root is not None and image is not None and not image.isNull():
+            dpr = image.devicePixelRatio() or 1.0
+            off = image.offset()
+            root.setProperty(
+                "orbitRect",
+                QRectF(off.x(), off.y(), image.width() / dpr, image.height() / dpr),
+            )
+        self._set_image("orbit", "orbitSource", image)
+
+    def set_backdrop(self, image: QImage | None) -> None:
+        """Night and Sodium: the room's atmosphere under everything; None clears it."""
+        self._set_image("backdrop", "backdropSource", image)
+
+    def _set_image(self, name: str, prop: str, image: QImage | None) -> None:
+        root = self.rootObject()
+        if root is None:
+            return
+        if image is None or image.isNull():
+            self._images.images.pop(name, None)
+            if root.property(prop):
+                root.setProperty(prop, "")
+            return
+        self._images.images[name] = image
+        self._image_n += 1
+        root.setProperty(prop, f"image://{_ORBIT_PROVIDER}/{name}/{self._image_n}")
+
+
 def _quick_widget_class():
     from PySide6.QtQuickWidgets import QQuickWidget
 
-    class QuickSurface(QQuickWidget):
+    class QuickSurface(_SurfaceApi, QQuickWidget):
         """The window's single full-window Quick layer, kept lowest and window-sized."""
 
         def __init__(self, window: QWidget) -> None:
@@ -138,56 +227,6 @@ def _quick_widget_class():
                 self.lower()
             return False
 
-        def slot(self):
-            from PySide6.QtQuick import QQuickItem
-
-            root = self.rootObject()
-            return None if root is None else root.findChild(QQuickItem, "avatarSlot")
-
-        def set_loading(self, on: bool) -> None:
-            """The breathing loading state where she will stand (QuickSurface.qml)."""
-            root = self.rootObject()
-            if root is not None:
-                root.setProperty("loading", bool(on))
-
-        def set_void(self, color: QColor) -> None:
-            root = self.rootObject()
-            if root is not None:
-                root.setProperty("voidColor", color)
-
-        def set_orbit(self, image: QImage | None) -> None:
-            """The worker's layer (beads, stems, tethers) over the GPU orbit; None clears it.
-
-            The image covers only the box those fill (QImage.offset() in window px), so the
-            overlay is placed there rather than stretched over the window.
-            """
-            root = self.rootObject()
-            if root is not None and image is not None and not image.isNull():
-                dpr = image.devicePixelRatio() or 1.0
-                off = image.offset()
-                root.setProperty(
-                    "orbitRect",
-                    QRectF(off.x(), off.y(), image.width() / dpr, image.height() / dpr),
-                )
-            self._set_image("orbit", "orbitSource", image)
-
-        def set_backdrop(self, image: QImage | None) -> None:
-            """Night and Sodium: the room's atmosphere under everything; None clears it."""
-            self._set_image("backdrop", "backdropSource", image)
-
-        def _set_image(self, name: str, prop: str, image: QImage | None) -> None:
-            root = self.rootObject()
-            if root is None:
-                return
-            if image is None or image.isNull():
-                self._images.images.pop(name, None)
-                if root.property(prop):
-                    root.setProperty(prop, "")
-                return
-            self._images.images[name] = image
-            self._image_n += 1
-            root.setProperty(prop, f"image://{_ORBIT_PROVIDER}/{name}/{self._image_n}")
-
     return QuickSurface
 
 
@@ -201,8 +240,165 @@ def surface_for(window: QWidget):
     if have is not None:
         return have
     if _SURFACE_CLASS is None:
-        _SURFACE_CLASS = _quick_widget_class()
+        _SURFACE_CLASS = _quick_window_class() if threaded() else _quick_widget_class()
     return _SURFACE_CLASS(window)
+
+
+class WidgetMirror:
+    """The window's widgets, drawn as the top layer of a QQuickView surface.
+
+    Root cause it answers: a createWindowContainer child is a native window, and a native
+    child always paints over its sibling widgets, so with ARELIS_SURFACE=quickwindow the
+    whole widget layer was painted to the top-level window underneath it and never seen.
+    The widgets stay real (the view is transparent for input, so clicks, keys and hover
+    still reach them); only their pixels are re-rendered, by dirty region, into one
+    transparent image the surface shows over everything ("widgets" in QuickSurface.qml).
+    """
+
+    def __init__(self, surface, window: QWidget, container: QWidget) -> None:
+        from PySide6.QtCore import QObject
+        from PySide6.QtGui import QRegion
+        from PySide6.QtWidgets import QApplication
+
+        self.surface = surface
+        self.window = window
+        self.container = container
+        self.image = QImage()
+        self.dirty = QRegion()
+        self._busy = False
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(0)
+        self._timer.timeout.connect(self.flush)
+        mirror = self
+
+        class _Watch(QObject):
+            def eventFilter(self, obj, event) -> bool:
+                if event.type() == QEvent.Type.Paint and not mirror._busy:
+                    mirror._painted(obj, event)
+                return False
+
+        self._watch = _Watch()
+        QApplication.instance().installEventFilter(self._watch)
+        self.mark_all()
+
+    def stop(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self._watch)
+        self._timer.stop()
+
+    def _painted(self, obj, event) -> None:
+        if not isinstance(obj, QWidget) or obj is self.container:
+            return
+        if obj is not self.window and obj.window() is not self.window:
+            return
+        rect = event.rect()
+        if obj is not self.window:
+            rect = rect.translated(obj.mapTo(self.window, rect.topLeft()) - rect.topLeft())
+        self.dirty += rect
+        self._timer.start()
+
+    def mark_all(self) -> None:
+        self.dirty += self.window.rect()
+        self._timer.start()
+
+    def flush(self) -> None:
+        """Re-render the dirty region of the widget layer and hand it to the surface."""
+        from PySide6.QtGui import QPainter, QRegion
+
+        win = self.window
+        if not win.isVisible():
+            return
+        dpr = win.devicePixelRatioF() or 1.0
+        size = win.size() * dpr
+        if self.image.size() != size:
+            self.image = QImage(size, QImage.Format.Format_ARGB32_Premultiplied)
+            self.image.setDevicePixelRatio(dpr)
+            self.image.fill(Qt.GlobalColor.transparent)
+            self.dirty = QRegion(win.rect())
+        region, self.dirty = self.dirty & win.rect(), QRegion()
+        if region.isEmpty():
+            return
+        painter = QPainter(self.image)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        for r in region:
+            painter.fillRect(r, Qt.GlobalColor.transparent)
+        painter.end()
+        self._busy = True  # render() sends paint events of its own: not new damage
+        try:
+            # render() puts the region's bounding box at the offset, not the region's origin.
+            at = region.boundingRect().topLeft()
+            win.render(self.image, at, region, QWidget.RenderFlag.DrawChildren)
+        finally:
+            self._busy = False
+        self.surface._set_image("widgets", "widgetsSource", self.image.copy())
+
+
+def _quick_window_class():
+    from PySide6.QtQuick import QQuickView, QQuickWindow
+
+    class QuickSurfaceWindow(_SurfaceApi, QQuickView):
+        """The surface as a QQuickView in a window container (ARELIS_SURFACE=quickwindow)."""
+
+        def __init__(self, window: QWidget) -> None:
+            if QQuickWindow.sceneGraphBackend() in ("", "software") and not os.environ.get(
+                "QT_QUICK_BACKEND"
+            ):
+                QQuickWindow.setSceneGraphBackend("rhi")
+            super().__init__()
+            from PySide6.QtQuick3D import QQuick3D
+
+            # Before the scene graph starts: the cache file is read when the QRhi is made.
+            self.setGraphicsConfiguration(pipeline_cache_config())
+            fmt = QQuick3D.idealSurfaceFormat()
+            fmt.setAlphaBufferSize(8)
+            self.setFormat(fmt)
+            self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+            self.setColor(QColor(Qt.GlobalColor.transparent))
+            self.setFlag(Qt.WindowType.WindowTransparentForInput, True)
+            import arelis.ui.persona_q3d.geometry  # noqa: F401  (registers LayerGeometry)
+
+            self._images = _image_provider()
+            self.engine().addImageProvider(_ORBIT_PROVIDER, self._images)
+            self._image_n = 0
+            from arelis.ui.persona_face.orbit_state import OrbitState
+
+            self.orbit_state = OrbitState(self)
+            self.rootContext().setContextProperty("orbitState", self.orbit_state)
+            logging.getLogger("arelis.avatar").info(
+                "[avatar] quick surface: QQuickView, threaded loop, pipeline cache %s",
+                pipeline_cache_path(),
+            )
+            self._frames = qq3d_avatar.frame_log()
+            if self._frames is not None:
+                qq3d_avatar.attach_frame_log(self, self, self._frames)
+            self.setSource(QUrl.fromLocalFile(str(SURFACE_QML)))
+            self._window = window
+            window._quick_surface = self
+            self.container = QWidget.createWindowContainer(self, window)
+            self.container.setObjectName("QuickSurfaceContainer")
+            self.container.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            self.container.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            window.installEventFilter(self)
+            self.container.setGeometry(window.rect())
+            self.container.lower()
+            self.container.show()
+            self.mirror = WidgetMirror(self, window, self.container)
+
+        def parentWidget(self) -> QWidget:
+            return self.container.parentWidget()
+
+        def eventFilter(self, obj, event) -> bool:
+            if obj is self._window and event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+                self.container.setGeometry(self._window.rect())
+                self.container.lower()
+                self.mirror.mark_all()
+            return False
+
+    return QuickSurfaceWindow
 
 
 class QuickSurfaceAvatar(QWidget):

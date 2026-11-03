@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -426,6 +426,21 @@ def _step_rects(current: QRect, want: QRect) -> list[QRect]:
     return [want]
 
 
+def _settle_qt_rect(widget: QWidget, hwnd: int, rect: QRect, scale: float) -> None:
+    """After Qt has seen the HWND move: sync its cache, and undo a Qt clamp."""
+    try:
+        if _geo_matches(widget.geometry(), rect):
+            return
+        # Cache sync only. If the native rect already matches, this is a no-op at
+        # Win32; if Qt then clamps, put the HWND back.
+        _qt_set_rect(widget, widget.windowHandle(), rect)
+        native = _hwnd_logical_rect(hwnd, scale)
+        if native is not None and not _geo_matches(native, rect):
+            _set_hwnd_rect(hwnd, rect, scale)
+    except (RuntimeError, OSError):
+        return  # the window went away first
+
+
 def place_frameless_rect(widget: QWidget, rect: QRect) -> bool:
     """Put a frameless HWND on a multi-desk rect. Qt setGeometry often only moves."""
     if not rect.isValid():
@@ -456,16 +471,11 @@ def place_frameless_rect(widget: QWidget, rect: QRect) -> bool:
         for step in _step_rects(current, rect):
             _set_hwnd_rect(hwnd, step, scale)
         _set_hwnd_rect(hwnd, rect, scale)
-        # HWND first. Qt setGeometry *before* that is the grow-left clamp.
-        QGuiApplication.processEvents()
-        if not _geo_matches(widget.geometry(), rect):
-            # Cache sync only. If the native rect already matches, this is a
-            # no-op at Win32; if Qt then clamps, put the HWND back.
-            _qt_set_rect(widget, handle, rect)
-            native = _hwnd_logical_rect(hwnd, scale)
-            if native is not None and not _geo_matches(native, rect):
-                _set_hwnd_rect(hwnd, rect, scale)
-                QGuiApplication.processEvents()
+        # HWND first. Qt setGeometry *before* that is the grow-left clamp. No
+        # processEvents here (#520h): it ran the whole event loop reentrantly, so a
+        # placement during launch sat inside her QML load (19.6 s). Qt takes the
+        # HWND's geometry change in its own turn; the clamp check waits for that.
+        QTimer.singleShot(0, widget, lambda: _settle_qt_rect(widget, hwnd, rect, scale))
         native = _hwnd_logical_rect(hwnd, scale)
         if native is not None and _geo_matches(native, rect):
             return True

@@ -23,7 +23,7 @@ from arelis.mail import load_account
 from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer, MemoryStore, flush_background_writes
 from arelis.paths import app_icon_path, logs_dir
 from arelis.presence.confirm_persist import ConfirmPersister
-from arelis.presence.glass_inbound import install_owned_inbound, start_orphan_watch
+from arelis.presence.glass_inbound import install_owned_inbound_off_ui, start_orphan_watch
 from arelis.presence.inbound_runtime import InboundRuntime
 from arelis.presence.ipc_client import IpcClient
 from arelis.presence.ipc_server import IpcServer
@@ -800,7 +800,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
             hint=stay_hint,
         )
     else:
-        install_owned_inbound(window, bus, loop, config, hint=stay_hint)
+        # Off the GUI thread: the "is our ingest already up?" scan is blocking urllib.
+        install_owned_inbound_off_ui(window, bus, loop, config, hint=stay_hint)
     # Always: a second shortcut click has someone to talk to, whether a core
     # owns ingest or this glass does.
     _start_activation_listener(window, bus, loop, presence_cfg)
