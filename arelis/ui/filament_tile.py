@@ -72,6 +72,20 @@ def apply_tile_opacity(widget: QWidget, value: float) -> None:
     widget.setWindowOpacity(clamp_opacity(value))
 
 
+def hold_unseen_until_grow(widget: QWidget) -> None:
+    """Filament: a tile about to be shown waits at opacity 0 until its grow places it.
+
+    Showing it first (a dock's setVisible, notify's show) put it on screen at its last
+    geometry and saved opacity. Anything that let a frame through before the grow hid it
+    again (the camera starting, notify's poll and foreground claim) flashed it full size
+    at its saved spot for a frame or two before it jumped to its node.
+    """
+    from arelis.ui.theme import active_theme
+
+    if active_theme() == "filament" and widget.isHidden():
+        widget.setWindowOpacity(0.0)
+
+
 def add_opacity_action(
     menu: QMenu, widget: QWidget, name: str, store: dict[str, float]
 ) -> None:

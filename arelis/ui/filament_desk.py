@@ -687,7 +687,8 @@ class FilamentDesk:
         w = self.window
         w._filament_woken = True
         widget.setMinimumSize(240, 180)
-        apply_tile_opacity(widget, w._filament_opacity.get(name, DEFAULT_OPACITY))
+        if widget.windowOpacity() > 0.0:  # held unseen until its grow (hold_unseen_until_grow)
+            apply_tile_opacity(widget, w._filament_opacity.get(name, DEFAULT_OPACITY))
         bind_tile_opacity(widget, name, w._filament_opacity)
         apply_tile_size(widget, name, w._filament_tile_sizes)
         bind_tile_size(widget, name, w._filament_tile_sizes, w._filament_tile_pos)

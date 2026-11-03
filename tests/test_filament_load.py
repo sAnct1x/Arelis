@@ -192,3 +192,36 @@ def test_the_seed_is_centred_on_the_spawn_origin() -> None:
     seed, plate = tile_grow_rects(QPoint(400, 300), QRect(380, 200, 320, 280))
     assert seed.center() == QPoint(400, 300)
     assert plate == QRect(380, 200, 320, 280)
+
+
+def test_a_tile_is_never_on_screen_at_its_saved_spot_before_it_grows(
+    arelis_window, qt_app, monkeypatch
+) -> None:
+    from PySide6.QtCore import QEvent, QObject
+
+    import arelis.ui.filament_desk as desk
+
+    w = _filament(arelis_window, qt_app)
+    dock = w.camera_dock
+    dock.setFloating(True)  # a Filament tile is its own window once it has been opened
+    dock.hide()
+    qt_app.processEvents()
+    seen: list[tuple[str, float]] = []
+
+    class Spy(QObject):
+        def eventFilter(self, obj, event):
+            if obj is dock and event.type() == QEvent.Type.Show:
+                seen.append(("show", dock.windowOpacity()))
+            return False
+
+    spy = Spy()
+    dock.installEventFilter(spy)
+    monkeypatch.setattr(desk, "play_tile_grow", lambda *a, **k: seen.append(("grow", 0.0)))
+    # Starting the camera lets frames through before the grow, as it does on Windows.
+    monkeypatch.setattr(w.camera, "start", qt_app.processEvents)
+    w._toggle_camera(True)
+    qt_app.processEvents()
+    dock.removeEventFilter(spy)
+    assert ("grow", 0.0) in seen
+    before = seen[: seen.index(("grow", 0.0))]
+    assert all(opacity == 0.0 for _kind, opacity in before), seen
