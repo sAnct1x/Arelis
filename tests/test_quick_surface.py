@@ -175,3 +175,34 @@ def test_the_surface_loads_without_unbound_shader_properties() -> None:
     )
     assert "root True" in run.stdout, run.stderr[-2000:]
     assert "does not have a matching property" not in run.stderr
+
+
+def test_the_threaded_surface_loads_and_saves_the_pipeline_cache(
+    qt_app, monkeypatch, tmp_path
+) -> None:
+    """ARELIS_SURFACE=quickwindow: a QQuickView with its own QRhi, so the pipeline cache works."""
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.persona_face import qq3d_avatar, quick_surface
+
+    if qq3d_avatar.unavailable_reason():
+        pytest.skip(qq3d_avatar.unavailable_reason())
+    from PySide6.QtGui import QGuiApplication
+
+    if QGuiApplication.platformName() == "offscreen":
+        pytest.skip("the threaded render loop never exposes a window on offscreen")
+    monkeypatch.setenv("ARELIS_SURFACE", "quickwindow")
+    cache = tmp_path / "quick" / "pipelines.bin"
+    monkeypatch.setattr(quick_surface, "pipeline_cache_path", lambda: cache)
+    monkeypatch.setattr(quick_surface, "_SURFACE_CLASS", None)
+    assert quick_surface.enabled() and quick_surface.threaded()
+    host = QWidget()
+    host.resize(640, 400)
+    s = quick_surface.surface_for(host)
+    host.show()
+    QTest.qWait(100)
+    cfg = s.graphicsConfiguration()
+    assert cfg.pipelineCacheSaveFile() == str(cache)
+    assert s.rootObject() is not None and s.slot() is not None
+    assert s.container.parentWidget() is host and s.container.geometry() == host.rect()
+    host.hide()
