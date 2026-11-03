@@ -342,6 +342,14 @@ class QuickSurfaceAvatar(QWidget):
         super().closeEvent(event)
 
     def _drop(self) -> None:
+        # A host swapped out mid-load (a theme switch): its poll and deadline stop, and the
+        # window's loading veil goes, or it breathes on forever over the next host.
+        for t in ("_poll", "_deadline"):
+            timer = getattr(self, t, None)
+            if timer is not None:
+                timer.stop()
+        if self.surface is not None and not self._ready:
+            self.surface.set_loading(False)
         slot = getattr(self, "_slot", None)
         if slot is not None:
             slot.setVisible(False)
