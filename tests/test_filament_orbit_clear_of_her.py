@@ -1,5 +1,5 @@
-"""Filament: the orbit, the ask and reality sit on the desk left of her figure, so a click on her
-centre reaches the stage, as in Night and Sodium."""
+"""Filament: the orbit and reality sit on the desk left of her figure, so a click on her centre
+reaches the stage, as in Night and Sodium; the ask ('say "hey arelis"') sits in the top right."""
 
 from __future__ import annotations
 
@@ -13,7 +13,8 @@ def test_orbit_settles_left_of_her_and_her_centre_is_the_stage(arelis_window, qt
     field = w._filament
     cx, _cy, rx, _ry = field.ellipse(w.rect(), settled=True)
     assert cx + rx < band_left
-    assert field.prompt_point(w.rect()).x() < band_left
+    ask = field.prompt_point(w.rect())
+    assert ask.x() > w.width() * 0.75 and ask.y() < w.height() * 0.15  # the top right corner
     assert field.bead_point("reality", w.rect()).x() < band_left
     hit = w.childAt(w._filament.hub.toPoint())
     assert hit is not None and not w.conversation.isAncestorOf(hit) and hit is not w.conversation

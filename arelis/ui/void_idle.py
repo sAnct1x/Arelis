@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import time
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QImage,
@@ -794,16 +794,13 @@ class OrbitIdle(QWidget):
             win = self.window()
             field = getattr(win, "_filament", None) if win is not None else None
             if field is not None and win is not None:
+                # Top right of the window (prompt_point), kept on the window, not the desk.
                 p = field.prompt_point(win.rect())
                 local = self.mapFrom(win, p.toPoint())
-                cx = local.x() - cw // 2
+                right = self.mapFrom(win, QPoint(win.width(), 0)).x()
+                cx = min(local.x() - cw // 2, right - cw - margin)
                 cy = local.y()
-                home = field.home_rect(win.rect())
-                band = QRect(self.mapFrom(win, home.topLeft()), home.size())
-                if band.width() > cw + margin * 2:
-                    cx = max(band.left() + margin, min(cx, band.right() - cw - margin))
-                    cy = max(band.top() + margin, min(cy, band.bottom() - ch - margin))
-                    pinned_home = True
+                pinned_home = True
             else:
                 cx = bloom.x() - cw // 2
                 cy = bloom.y() + 80
