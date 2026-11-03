@@ -29,6 +29,7 @@ def breath_at(t: float) -> float:
 
 
 SPLASH_TITLE = "Arelis loading"
+_RING_GAP = 24  # clear space round the outer ring at full breath: plate edge and status line
 
 
 class LaunchSplash(QWidget):
@@ -47,7 +48,7 @@ class LaunchSplash(QWidget):
         # exactly this title (scripts/installer_smoke.py SPLASH_TITLE).
         self.setWindowTitle(SPLASH_TITLE)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.resize(320, 260)
+        self.resize(320, 300)
         self._void = QColor(*(void or _VOID))
         self._status = "Starting"
         self._t0 = time.monotonic()
@@ -83,6 +84,16 @@ class LaunchSplash(QWidget):
         self.close()
         self.deleteLater()
 
+    @staticmethod
+    def ring_radius(i: int, breath: float) -> float:
+        return 26 + i * 22 + breath * (10 + i * 8)
+
+    def ring_centre(self) -> tuple[float, float]:
+        return self.width() * 0.5, self.height() * 0.41
+
+    def status_rect(self) -> QRectF:
+        return QRectF(0, self.height() - 52, self.width(), 24)
+
     def paintEvent(self, _event) -> None:  # type: ignore[override]
         self.frames += 1
         breath = breath_at(time.monotonic() - self._t0)
@@ -91,10 +102,13 @@ class LaunchSplash(QWidget):
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(self._void)
         p.drawRoundedRect(QRectF(self.rect()), 18, 18)
-        cx, cy = self.width() * 0.5, self.height() * 0.42
+        # The outer ring at full breath kept 11 px to the top edge and ran into the status
+        # line, so the rings looked jammed against the top and the text: centre them in a
+        # taller plate with _RING_GAP clear all round.
+        cx, cy = self.ring_centre()
         p.setBrush(Qt.BrushStyle.NoBrush)
         for i in range(3):
-            r = 26 + i * 22 + breath * (10 + i * 8)
+            r = self.ring_radius(i, breath)
             pen = QPen(QColor.fromRgbF(0.66, 0.56, 1.0, (0.42 - i * 0.11) * (0.55 + 0.45 * breath)))
             pen.setWidthF(1.2)
             p.setPen(pen)
@@ -109,7 +123,7 @@ class LaunchSplash(QWidget):
         p.setFont(font)
         p.setPen(QColor.fromRgbF(0.80, 0.74, 1.0, 0.45 + 0.35 * breath))
         p.drawText(
-            QRectF(0, self.height() - 56, self.width(), 24),
+            self.status_rect(),
             int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
             self._status,
         )

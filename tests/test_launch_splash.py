@@ -62,3 +62,14 @@ def test_no_window_is_up_before_first_run_setup(monkeypatch, tmp_path) -> None:
     finally:
         QApplication.instance().removeEventFilter(shows)
     assert shows.shown == []
+
+
+def test_the_rings_keep_clear_of_the_edge_and_the_status_line(qt_app) -> None:
+    from arelis.ui.splash import _RING_GAP, LaunchSplash
+
+    splash = LaunchSplash()
+    _cx, cy = splash.ring_centre()
+    outer = LaunchSplash.ring_radius(2, 1.0)  # outer ring at full breath
+    assert cy - outer >= _RING_GAP
+    assert splash.status_rect().top() - (cy + outer) >= _RING_GAP
+    splash.deleteLater()
