@@ -533,6 +533,10 @@ _LIBS = ("libQt6Quick.so.6", "Qt6Quick.dll", "QtQuick.framework/QtQuick")
 
 
 def _quick_library():
+    return _load_library(_LIBS)
+
+
+def _load_library(names):
     import ctypes
 
     from PySide6.QtCore import QLibraryInfo
@@ -543,7 +547,7 @@ def _quick_library():
 
     dirs.append(os.path.dirname(PySide6.__file__))
     for d in dirs:
-        for name in _LIBS:
+        for name in names:
             try:
                 return ctypes.CDLL(os.path.join(d, name) if d else name)
             except OSError:

@@ -134,6 +134,17 @@ class WindowLifetime:
             pass
         self.deleteLater()
 
+    def _suspend_quick_surface(self) -> None:
+        """Stop the QQuickView before hide(): hidden, it kept rendering her orbit (~85 fps
+        in the tray), and hiding it from Python while its render thread wants the GIL
+        deadlocks."""
+        surface = getattr(self, "_quick_surface", None)
+        if surface is not None:
+            try:
+                surface.suspend()
+            except RuntimeError:
+                pass
+
     def closeEvent(self, event) -> None:
         # Close-to-tray: keep ingest / bus alive; Quit from the tray fully exits.
         if (
@@ -156,6 +167,7 @@ class WindowLifetime:
                 pass
             self._remember_window_state()
             self._park_floating_docks()
+            self._suspend_quick_surface()
             self.hide()
             self._tray.showMessage(
                 "Arelis",
@@ -181,6 +193,7 @@ class WindowLifetime:
                 self._tray.hide()
             except RuntimeError:
                 pass
+        self._suspend_quick_surface()
         try:
             self.hide()
         except RuntimeError:

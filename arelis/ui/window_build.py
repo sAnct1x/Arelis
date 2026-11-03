@@ -515,6 +515,9 @@ class WindowBuild:
         app = QApplication.instance()
         if app is not None:
             app.installEventFilter(self)
+            from arelis.ui import wrapper_pin
+
+            wrapper_pin.install()  # before her avatar incubates
         apply_always_on_top(self, self._always_on_top, persist=False)
         apply_chat_font_scale(self, self._chat_font_scale, persist=False)
         self.conversation.submitted.connect(self._on_submit)

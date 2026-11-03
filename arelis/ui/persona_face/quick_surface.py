@@ -84,6 +84,79 @@ def pipeline_cache_config():
     return cfg
 
 
+def write_pipeline_cache(data: bytes) -> bool:
+    """Atomically write the QQuickView's pipeline cache plus its .key (as qq3d_avatar does)."""
+    if not data:
+        return False
+    try:
+        path = pipeline_cache_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+        path.with_suffix(".key").write_text(qq3d_avatar.pipeline_cache_key(), encoding="utf-8")
+        return True
+    except OSError:
+        logging.getLogger("arelis.avatar").debug("quick pipeline cache not saved", exc_info=True)
+        return False
+
+
+_SET_VISIBLE = ("_ZN7QWindow10setVisibleEb", "?setVisible@QWindow@@QEAAX_N@Z")
+_GUI_LIBS = ("libQt6Gui.so.6", "Qt6Gui.dll", "QtGui.framework/QtGui")
+
+
+def gil_free_set_visible(window):
+    """``f(on)`` calling QWindow::setVisible without the GIL, or the PySide call.
+
+    Hiding a QQuickView on the threaded loop waits for its render thread, and that thread
+    takes the GIL for Python slots and LayerGeometry: a PySide ``hide()`` deadlocks.
+    """
+    import ctypes
+
+    import shiboken6
+
+    lib = qq3d_avatar._load_library(_GUI_LIBS)
+    fn = None
+    for sym in _SET_VISIBLE:
+        fn = getattr(lib, sym, None) if lib is not None else None
+        if fn is not None:
+            break
+    if fn is None:
+        logging.getLogger("arelis.avatar").warning("[avatar] QWindow::setVisible keeps the GIL")
+        return window.setVisible
+    fn.restype = None
+    fn.argtypes = [ctypes.c_void_p, ctypes.c_bool]
+    this = ctypes.c_void_p(shiboken6.getCppPointer(window)[0])
+    return lambda on: fn(this, bool(on))
+
+
+def _container_accessible(key, obj):
+    """The window container as a leaf for accessibility.
+
+    Qt's container lists its QQuickView as child 0, but QAccessibleQuickWindow says its
+    parent is the application, so UIA walkers bounce QuickSurfaceWindow <->
+    QuickSurfaceContainer forever. The surface is transparent to input and has nothing
+    to read (the widgets are mirrored, the real ones stay accessible), so drop it.
+    """
+    if obj is None or not isinstance(obj, QWidget) or obj.objectName() != "QuickSurfaceContainer":
+        return None
+    from PySide6.QtGui import QAccessible
+    from PySide6.QtWidgets import QAccessibleWidget
+
+    return QAccessibleWidget(obj, QAccessible.Role.Client)
+
+
+_FACTORY = []
+
+
+def _install_accessible_factory() -> None:
+    if not _FACTORY:
+        from PySide6.QtGui import QAccessible
+
+        QAccessible.installFactory(_container_accessible)
+        _FACTORY.append(_container_accessible)
+
+
 def log_surface_choice() -> None:
     kind, source = surface_choice()
     logging.getLogger("arelis.avatar").info("[avatar] surface=%s source=%s", kind, source)
@@ -109,6 +182,12 @@ def _image_provider():
 
 class _SurfaceApi:
     """What the window and her host ask of the surface, whichever Quick host draws it."""
+
+    def suspend(self) -> None:
+        """Host hidden: stop rendering (QQuickView overrides)."""
+
+    def resume(self) -> None:
+        """Host shown again."""
 
     def slot(self):
         from PySide6.QtQuick import QQuickItem
@@ -222,6 +301,8 @@ def _quick_widget_class():
             self.show()
 
         def eventFilter(self, obj, event) -> bool:
+            if obj is self._window and event.type() == QEvent.Type.Show:
+                self.resume()
             if obj is self._window and event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
                 self.setGeometry(self._window.rect())
                 self.lower()
@@ -244,6 +325,14 @@ def surface_for(window: QWidget):
     return _SURFACE_CLASS(window)
 
 
+_TILE = 256  # logical px: a streamed token dirties one or two tiles, not the window
+
+_TILE_QML = b"""
+import QtQuick
+Image { cache: false; smooth: false; fillMode: Image.Stretch; visible: source != "" }
+"""
+
+
 class WidgetMirror:
     """The window's widgets, drawn as the top layer of a QQuickView surface.
 
@@ -251,8 +340,15 @@ class WidgetMirror:
     child always paints over its sibling widgets, so with ARELIS_SURFACE=quickwindow the
     whole widget layer was painted to the top-level window underneath it and never seen.
     The widgets stay real (the view is transparent for input, so clicks, keys and hover
-    still reach them); only their pixels are re-rendered, by dirty region, into one
-    transparent image the surface shows over everything ("widgets" in QuickSurface.qml).
+    still reach them); only their pixels are re-rendered, into _TILE-sized images the
+    surface shows over everything (the "widgets" item in QuickSurface.qml).
+
+    #v11c-r2 streaming frames: one window-sized image per change meant a full-window
+    QImage copy and a full-window texture upload for every token (at 2560x1392, 14 MB
+    each, the upload inside the render thread's sync while the GUI thread waits on it),
+    and every dirty widget painted twice: once into the window's backing store, which the
+    native view covers, then again into the mirror. Now only the dirty tiles are rendered
+    and uploaded, and the backing-store paint of a child widget is skipped.
     """
 
     def __init__(self, surface, window: QWidget, container: QWidget) -> None:
@@ -263,8 +359,11 @@ class WidgetMirror:
         self.surface = surface
         self.window = window
         self.container = container
-        self.image = QImage()
         self.dirty = QRegion()
+        self.tiles: dict[tuple[int, int], object] = {}  # (col, row) -> its Image item
+        self._tile_n = 0
+        self._dpr = 0.0
+        self._component = None
         self._busy = False
         self._timer = QTimer()
         self._timer.setSingleShot(True)
@@ -275,7 +374,7 @@ class WidgetMirror:
         class _Watch(QObject):
             def eventFilter(self, obj, event) -> bool:
                 if event.type() == QEvent.Type.Paint and not mirror._busy:
-                    mirror._painted(obj, event)
+                    return mirror._painted(obj, event)
                 return False
 
         self._watch = _Watch()
@@ -290,51 +389,96 @@ class WidgetMirror:
             app.removeEventFilter(self._watch)
         self._timer.stop()
 
-    def _painted(self, obj, event) -> None:
+    def _painted(self, obj, event) -> bool:
+        """Note the damage; True eats a child's paint into the covered backing store."""
         if not isinstance(obj, QWidget) or obj is self.container:
-            return
+            return False
         if obj is not self.window and obj.window() is not self.window:
-            return
+            return False
         rect = event.rect()
         if obj is not self.window:
             rect = rect.translated(obj.mapTo(self.window, rect.topLeft()) - rect.topLeft())
         self.dirty += rect
         self._timer.start()
+        # The window's own paintEvent only syncs the surface's void (it paints nothing
+        # under the flag): let it run. A child's paint here lands under the native view.
+        return obj is not self.window
 
     def mark_all(self) -> None:
         self.dirty += self.window.rect()
         self._timer.start()
 
+    def _tile_item(self, key: tuple[int, int]):
+        item = self.tiles.get(key)
+        if item is not None:
+            return item
+        from PySide6.QtQml import QQmlComponent
+        from PySide6.QtQuick import QQuickItem
+
+        root = self.surface.rootObject()
+        layer = None if root is None else root.findChild(QQuickItem, "widgets")
+        if layer is None:
+            return None
+        if self._component is None:
+            self._component = QQmlComponent(self.surface.engine())
+            self._component.setData(_TILE_QML, QUrl())
+        item = self._component.create()
+        if item is None:
+            return None
+        item.setParentItem(layer)
+        item.setX(key[0] * _TILE)
+        item.setY(key[1] * _TILE)
+        item.setWidth(_TILE)
+        item.setHeight(_TILE)
+        self.tiles[key] = item
+        return item
+
     def flush(self) -> None:
-        """Re-render the dirty region of the widget layer and hand it to the surface."""
-        from PySide6.QtGui import QPainter, QRegion
+        """Re-render the dirty tiles of the widget layer and hand each to the surface."""
+        from PySide6.QtCore import QPoint, QRect
+        from PySide6.QtGui import QRegion
 
         win = self.window
         if not win.isVisible():
             return
         dpr = win.devicePixelRatioF() or 1.0
-        size = win.size() * dpr
-        if self.image.size() != size:
-            self.image = QImage(size, QImage.Format.Format_ARGB32_Premultiplied)
-            self.image.setDevicePixelRatio(dpr)
-            self.image.fill(Qt.GlobalColor.transparent)
+        if dpr != self._dpr:
+            self._dpr = dpr
             self.dirty = QRegion(win.rect())
         region, self.dirty = self.dirty & win.rect(), QRegion()
         if region.isEmpty():
             return
-        painter = QPainter(self.image)
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-        for r in region:
-            painter.fillRect(r, Qt.GlobalColor.transparent)
-        painter.end()
+        box = region.boundingRect()
+        side = int(_TILE * dpr)
         self._busy = True  # render() sends paint events of its own: not new damage
         try:
-            # render() puts the region's bounding box at the offset, not the region's origin.
-            at = region.boundingRect().topLeft()
-            win.render(self.image, at, region, QWidget.RenderFlag.DrawChildren)
+            for row in range(box.top() // _TILE, box.bottom() // _TILE + 1):
+                for col in range(box.left() // _TILE, box.right() // _TILE + 1):
+                    cell = QRect(col * _TILE, row * _TILE, _TILE, _TILE)
+                    if not region.intersects(cell):
+                        continue
+                    item = self._tile_item((col, row))
+                    if item is None:
+                        continue
+                    img = QImage(side, side, QImage.Format.Format_ARGB32_Premultiplied)
+                    img.setDevicePixelRatio(dpr)
+                    img.fill(Qt.GlobalColor.transparent)
+                    win.render(img, QPoint(0, 0), QRegion(cell), QWidget.RenderFlag.DrawChildren)
+                    name = f"w{col}_{row}"
+                    self.surface._images.images[name] = img
+                    self._tile_n += 1
+                    item.setProperty("source", f"image://{_ORBIT_PROVIDER}/{name}/{self._tile_n}")
         finally:
             self._busy = False
-        self.surface._set_image("widgets", "widgetsSource", self.image.copy())
+
+    def drop_tiles_outside(self) -> None:
+        """After a shrink: tiles past the window's edge would show stale pixels."""
+        w, h = self.window.width(), self.window.height()
+        for key in [k for k in self.tiles if k[0] * _TILE >= w or k[1] * _TILE >= h]:
+            item = self.tiles.pop(key)
+            self.surface._images.images.pop(f"w{key[0]}_{key[1]}", None)
+            item.setParentItem(None)
+            item.deleteLater()
 
 
 def _quick_window_class():
@@ -378,6 +522,7 @@ def _quick_window_class():
             self.setSource(QUrl.fromLocalFile(str(SURFACE_QML)))
             self._window = window
             window._quick_surface = self
+            _install_accessible_factory()
             self.container = QWidget.createWindowContainer(self, window)
             self.container.setObjectName("QuickSurfaceContainer")
             self.container.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -387,14 +532,71 @@ def _quick_window_class():
             self.container.lower()
             self.container.show()
             self.mirror = WidgetMirror(self, window, self.container)
+            self._cache_jobs: list = []
+            self._suspended = False
+            self._set_visible = gil_free_set_visible(self)
+            self._first_frame = False
+            self.frameSwapped.connect(self._on_first_frame, Qt.ConnectionType.QueuedConnection)
+
+        def _on_first_frame(self) -> None:
+            if self._first_frame:
+                return
+            self._first_frame = True
+            self.frameSwapped.disconnect(self._on_first_frame)
+            # Qt writes setPipelineCacheSaveFile only when the window is destroyed, which a
+            # killed or tray-parked app never does: save once the first pipelines exist.
+            QTimer.singleShot(5000, self.save_pipeline_cache)
+
+        def save_pipeline_cache(self) -> None:
+            """Write rhi().pipelineCacheData() from the render thread (where the QRhi lives)."""
+            from PySide6.QtCore import QRunnable
+
+            view = self
+
+            class _Save(QRunnable):
+                def run(self) -> None:
+                    rhi = view.rhi()
+                    if rhi is not None:
+                        write_pipeline_cache(bytes(rhi.pipelineCacheData()))
+
+            job = _Save()
+            job.setAutoDelete(False)  # Python owns it; Qt deleting it under PySide crashes
+            del self._cache_jobs[:-4]
+            self._cache_jobs.append(job)
+            self.scheduleRenderJob(job, QQuickWindow.RenderStage.NoStage)
+            self.update()
+
+        def suspend(self) -> None:
+            """The host is going away (tray): stop her animations and the render loop."""
+            if self._suspended:
+                return
+            self._suspended = True
+            if self._first_frame:
+                self.save_pipeline_cache()
+            root = self.rootObject()
+            if root is not None:
+                root.setVisible(False)  # FrameAnimations run only while visible
+            self._set_visible(False)
+
+        def resume(self) -> None:
+            if not self._suspended:
+                return
+            self._suspended = False
+            root = self.rootObject()
+            if root is not None:
+                root.setVisible(True)
+            self._set_visible(True)
 
         def parentWidget(self) -> QWidget:
             return self.container.parentWidget()
 
         def eventFilter(self, obj, event) -> bool:
+            if obj is self._window and event.type() == QEvent.Type.Show:
+                self.resume()
             if obj is self._window and event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
                 self.container.setGeometry(self._window.rect())
                 self.container.lower()
+                self.mirror.drop_tiles_outside()
                 self.mirror.mark_all()
             return False
 
@@ -564,6 +766,9 @@ class QuickSurfaceAvatar(QWidget):
         QQ3DAvatar._on_status(self, *args)
         if self._ready and self.surface is not None:
             self.surface.set_loading(False)
+            save = getattr(self.surface, "save_pipeline_cache", None)
+            if save is not None:
+                QTimer.singleShot(2000, save)  # her pipelines are built by now
 
     def _on_chest(self) -> None:
         """Her chest bone, mapped to the window: where the Filament chat strand starts."""

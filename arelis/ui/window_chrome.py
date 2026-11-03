@@ -167,7 +167,7 @@ class WindowChrome:
         return QRect(tile.mapTo(self, QPoint(0, 0)), tile.size())
 
     def _tick_atmosphere(self) -> None:
-        if self.isMinimized():
+        if self.isMinimized() or not self.isVisible():
             return
         self._atmosphere_phase = (self._atmosphere_phase + 0.012) % 6.283185307179586
         # Slow grain drift. Rim on plates is a static hairline, not a pulse circus.

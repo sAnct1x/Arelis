@@ -17,9 +17,6 @@ Rectangle {
     // light where she will stand, so a cold start (her model, the pipeline compile) reads as
     // her arriving, not as a frozen window.
     property bool loading: false
-    // ARELIS_SURFACE=quickwindow only (quick_surface.WidgetMirror): the window's widgets,
-    // drawn on top. The native QQuickView covers them, so they reach the screen through here.
-    property string widgetsSource: ""
     color: voidColor
 
     Image {
@@ -139,14 +136,10 @@ Rectangle {
         }
     }
 
-    Image {
+    // The window's widgets as _TILE-sized images (WidgetMirror makes the tiles here).
+    Item {
         objectName: "widgets"
         anchors.fill: parent
         z: 1000
-        source: surface.widgetsSource
-        visible: surface.widgetsSource !== ""
-        cache: false
-        smooth: false
-        fillMode: Image.Stretch
     }
 }

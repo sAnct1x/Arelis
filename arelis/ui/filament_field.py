@@ -1400,6 +1400,7 @@ class FilamentFloatBar(QObject):
             bead.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             bead.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
             bead.setToolTip(name)
+            bead.setAccessibleName(f"{name} bead")
             bead.clicked.connect(lambda _=False, n=name: self.opened.emit(n))
             bead.hide()
             self._beads[name] = bead
@@ -1441,6 +1442,11 @@ class FilamentFloatBar(QObject):
             self._open.add(name)
         else:
             self._open.discard(name)
+        bead = self._beads.get(name)
+        if bead is not None:
+            # An open plate hides its title button, which left nothing named for the tile:
+            # the bead (which toggles it) carries the tile's name while it is open.
+            bead.setAccessibleName(name if open else f"{name} bead")
 
     def skip(self, name: str, on: bool) -> None:
         if on:
