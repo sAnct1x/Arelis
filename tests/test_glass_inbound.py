@@ -125,3 +125,42 @@ async def test_sibling_ingest_does_not_count_as_core(
             await bus_task
 
 
+
+
+def test_launch_ingest_scan_runs_off_the_ui_thread(monkeypatch) -> None:
+    """#520h: the 'is our ingest up?' urllib scan froze the window 5 s at launch."""
+    import threading
+
+    from arelis.presence import glass_inbound
+    from arelis.presence.inbound_runtime import InboundRuntime
+
+    release = threading.Event()
+    seen: dict[str, object] = {}
+
+    def slow_attach(*_a, **_k):
+        seen["thread"] = threading.current_thread()
+        release.wait(5)
+        return InboundRuntime(owned=True)
+
+    monkeypatch.setattr(glass_inbound, "attach_inbound", slow_attach)
+    monkeypatch.setattr("arelis.ui.mobile_host.bind_mobile_hub", lambda _w: None)
+    queued: list = []
+
+    class Window:
+        _disposed = False
+        inbound_runtime = None
+
+        class _ui_call:  # noqa: N801  (the window's Signal(object))
+            emit = staticmethod(queued.append)
+
+    window = Window()
+    from arelis.ui import launch
+
+    worker = launch.install_owned_inbound_off_ui(window, object(), None, {}, hint="")
+    assert window.inbound_runtime is None  # returned while the scan still blocks
+    release.set()
+    worker.join(5)
+    assert seen["thread"] is not threading.main_thread()
+    assert len(queued) == 1
+    queued[0]()  # the UI thread's turn
+    assert window.inbound_runtime is not None and window.inbound_runtime.owned

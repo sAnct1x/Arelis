@@ -245,7 +245,7 @@ def test_quit_joins_handed_off_workers(qt_app, monkeypatch) -> None:
             launch_mod, "_start_activation_listener", lambda *_a, **_k: None
         )
         monkeypatch.setattr(
-            "arelis.presence.glass_inbound.install_owned_inbound", lambda *_a, **_k: None
+            "arelis.ui.launch.install_owned_inbound_off_ui", lambda *_a, **_k: None
         )
 
         baker = start_worker()
