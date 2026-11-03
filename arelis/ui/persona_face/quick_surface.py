@@ -230,7 +230,10 @@ class QuickSurfaceAvatar(QWidget):
         self.root = None
         self.surface = None
         self._watched: list[QWidget] = []
-        QTimer.singleShot(0, self._attach)
+        # With self as the context, Qt drops the call when this widget is gone first. A bare
+        # bound method still ran on a host deleted in the same turn (a theme switch, a test
+        # window torn down) and raised "QuickSurfaceAvatar already deleted" from the event loop.
+        QTimer.singleShot(0, self, self._attach)
 
     # ---- attach and place ----
 
@@ -358,8 +361,15 @@ class QuickSurfaceAvatar(QWidget):
         slot = getattr(self, "_slot", None)
         if slot is not None:
             slot.setVisible(False)
+        for w in self._watched:
+            w.removeEventFilter(self)
+        self._watched = []
         root, self.root = self.root, None
         if root is not None:
+            try:
+                root.chestChanged.disconnect(self._on_chest)
+            except (RuntimeError, TypeError):
+                pass
             root.setParentItem(None)
             root.deleteLater()
 

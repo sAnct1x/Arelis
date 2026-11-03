@@ -185,3 +185,17 @@ def test_unset_surface_defaults_to_quick_and_override_still_works(monkeypatch) -
     assert quick_surface.surface_choice() == ("quick", "default")
     monkeypatch.setenv("ARELIS_SURFACE", "widget")
     assert quick_surface.surface_choice() == ("widget", "env")
+
+
+def test_a_host_deleted_before_it_attaches_runs_nothing_late(qt_app, qtbot) -> None:
+    """A theme switch or a window teardown can delete her host in the turn that built it."""
+    from PySide6.QtWidgets import QWidget
+    from shiboken6 import Shiboken
+
+    from arelis.ui.persona_face import quick_surface
+
+    host = QWidget()
+    av = quick_surface.QuickSurfaceAvatar(host)
+    Shiboken.delete(av)
+    QTest.qWait(20)  # pytest-qt fails the test on any exception raised in the event loop
+    host.deleteLater()

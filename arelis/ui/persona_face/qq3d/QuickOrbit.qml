@@ -13,7 +13,7 @@ import QtQuick
 Item {
     id: orbit
     required property QtObject st
-    visible: st.active
+    visible: !!st && st.active
 
     property real time: 0
     property real form: 0
@@ -60,6 +60,8 @@ Item {
     }
 
     function step(raw) {
+        if (!st)
+            return; // its surface is being torn down: orbitState is already gone
         fpsFrames += 1;
         fpsSpan += raw;
         if (fpsSpan >= 5.0) {
@@ -111,7 +113,7 @@ Item {
         function onSyncChanged() { orbit.takeSync(); }
         function onRingPhaseChanged() { orbit.ringGrow = orbit.st.ringGrow; }
     }
-    Component.onCompleted: { takeSync(); ringGrow = st.ringPhase === "" ? 1 : st.ringGrow; }
+    Component.onCompleted: { if (!st) return; takeSync(); ringGrow = st.ringPhase === "" ? 1 : st.ringGrow; }
 
     FrameAnimation {
         running: orbit.visible && orbit.clockRunning
