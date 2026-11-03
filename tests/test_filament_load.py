@@ -80,8 +80,24 @@ def test_tile_titles_fade_in_at_their_spot_once_the_ring_settles(arelis_window, 
         here = field.float_points(name, rect)[1]
         assert math.hypot(here.x() - spot.x(), here.y() - spot.y()) < 12.0  # its drift, never the trip from her hub
         shows.append((field.ring_grow, field.title_show()))
+        if 0.0 < shows[-1][1] < 0.15:
+            early = _reality_ink(field, rect)
     assert all(show == 0.0 for grow, show in shows if grow < 1.0)
     assert shows[-1][1] == 1.0
+    assert early < 0.25 * _reality_ink(field, rect)  # reality's rings fade in with the rest
+
+
+def _reality_ink(field, rect) -> float:
+    from PySide6.QtGui import QImage, QPainter
+
+    img = QImage(rect.size(), QImage.Format.Format_ARGB32)
+    img.fill(0)
+    hidden, field._hidden = field._hidden, {n for n, _t, _p in FLOATS if n not in FREE_FLOATS}
+    painter = QPainter(img)
+    field._paint_beads(painter, rect)
+    painter.end()
+    field._hidden = hidden
+    return sum(img.constBits().tobytes()[3::4])
 
 
 @pytest.mark.parametrize("parked", [False, True])
