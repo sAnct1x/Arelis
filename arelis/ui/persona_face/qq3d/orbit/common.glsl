@@ -31,6 +31,7 @@ layout(std140, binding = 0) uniform buf {
     float flow;        // seconds of calm flow (QuickOrbit.qml): sway, packets, flares
     float treeOn;      // 1: the tree shows in every state (the old strands and threads stay off)
     vec2 reality;      // the reality tile's light (OrbitState.reality); x < 0: none
+    float packetFlow;  // the packets' own clock (QuickOrbit.qml): calm flow, quicker while she generates
 };
 
 const float PI = 3.14159265358979;
@@ -258,7 +259,7 @@ float packetOffset(int j) {
     return 0.42;
 }
 
-float packetPhase(int j) { return fract(packetOffset(j) + flow / TREE_LOOP); }
+float packetPhase(int j) { return fract(packetOffset(j) + packetFlow / TREE_LOOP); }
 float packetHead(int j) { return packetPhase(j) / 0.82; }
 
 // Twig i (0..71): twelve per main limb, the odd ones long secondary limbs, off the limb at a hashed point, turned off its tangent,

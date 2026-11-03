@@ -76,6 +76,14 @@ Rectangle {
         property color ice: "black"
         property color gold: "black"
         property color coreColor: "black"
+        // The rest of common.glsl's block: unbound, each warned "does not have a matching
+        // property" at load.
+        property vector4d tree: Qt.vector4d(0, 0, 0, 0)
+        property point feet: Qt.point(0, 0)
+        property real flow: 0
+        property real treeOn: 0
+        property point reality: Qt.point(-1, -1)
+        property real packetFlow: 0
     }
 
     Item {

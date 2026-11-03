@@ -24,6 +24,12 @@ Item {
     property real dustClock: 0
     property real flow: 0
     readonly property real flowRate: 0.4
+    // The packets' clock: the calm 15 s loop, and a 4 s loop while she thinks or speaks, so
+    // every tile (all six crown tiles and reality) gets a packet within a few seconds of a
+    // reply starting, not only the two or three whose turn falls in it.
+    property real packetFlow: 0
+    property real packetRate: flowRate
+    readonly property real generatingRate: 1.5
     // The tree stands in every state (idle, thinking, speaking); form only brightens its packets.
     readonly property real treeOn: 1
     // The tree's own layers (fibers, glow, pool, packets, flares): faded out, then not drawn at
@@ -77,6 +83,9 @@ Item {
         dustClock += dt * (0.012 + speed * 0.028);
         // flow runs at FLOW_RATE of real time: a 15 s packet loop and a slow wind, calm water.
         flow = (flow + dt * flowRate) % 600.0;  // a whole number of loops, so the wrap is seamless
+        const gen = st.weather === "think" || st.weather === "speak";
+        packetRate = ease(packetRate, gen ? generatingRate : flowRate, dt, 0.5);
+        packetFlow = (packetFlow + dt * packetRate) % 600.0;
     }
 
     function takeSync() {
@@ -132,6 +141,7 @@ Item {
         property point feet: orbit.st.feet
         property point reality: orbit.st.reality
         property real flow: orbit.flow
+        property real packetFlow: orbit.packetFlow
         property real treeOn: orbit.treeOn
         fragmentShader: "orbit/line.frag.qsb"
     }
@@ -265,7 +275,7 @@ Item {
         objectName: "orbitFlares"
         visible: orbit.treeShow > 0.001
         treeOn: orbit.treeShow
-        mesh: GridMesh { resolution: Qt.size(4 * 6 - 1, 1) }
+        mesh: GridMesh { resolution: Qt.size(4 * 7 - 1, 1) }
         vertexShader: "orbit/flare.vert.qsb"
         fragmentShader: "orbit/flare.frag.qsb"
     }
