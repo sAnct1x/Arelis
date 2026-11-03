@@ -34,7 +34,10 @@ _TRACKED = (QEvent.Type.Move, QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.
 
 
 def surface_choice() -> tuple[str, str]:
-    """('quick' | 'widget', source): process env first, then the saved user variable."""
+    """('quick' | 'widget', source): process env first, then the saved user variable.
+
+    Unset means quick: the tree orbit is the default. Any other value (widget) keeps the old orbit.
+    """
     raw = os.environ.get(SURFACE_ENV, "").strip()
     source = "env"
     if not raw:
@@ -42,6 +45,8 @@ def surface_choice() -> tuple[str, str]:
         source = "user-env" if raw else "default"
         if raw:
             os.environ[SURFACE_ENV] = raw  # read the registry once
+    if not raw:
+        return "quick", source
     return ("quick" if raw.lower() == "quick" else "widget"), source
 
 

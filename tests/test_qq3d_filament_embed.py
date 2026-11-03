@@ -6,6 +6,9 @@ import pytest
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QApplication, QWidget
 
+# Bound before QQ3DAvatar is patched below: QuickSurfaceAvatar copies its methods on import.
+from arelis.ui.persona_face import quick_surface  # noqa: F401
+
 
 class _Fake(QWidget):
     ready = Signal()
@@ -35,6 +38,7 @@ def test_engine_switch_picks_quick3d_only_in_its_rooms(monkeypatch, engine, them
     from arelis.ui.persona_face import PersonaPanel, qq3d_avatar, web_avatar
 
     monkeypatch.setenv("ARELIS_AVATAR_ENGINE", engine)
+    monkeypatch.setenv("ARELIS_SURFACE", "widget")  # the readback host, not the Quick surface
     monkeypatch.setattr(theme_tokens, "active_theme", lambda: theme)
     for mod in (web_avatar, qq3d_avatar):
         monkeypatch.setattr(mod, "unavailable_reason", lambda: None)
@@ -70,6 +74,7 @@ def test_theme_switch_swaps_the_host(monkeypatch) -> None:
     # Every room has landed now: keep one out so the swap both ways stays covered.
     monkeypatch.setattr(qq3d_avatar, "ROOMS", frozenset({"filament", "night"}))
     monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "qq3d")
+    monkeypatch.setenv("ARELIS_SURFACE", "widget")  # the readback host, not the Quick surface
     monkeypatch.setattr(theme_tokens, "active_theme", lambda: room["name"])
     for mod in (web_avatar, qq3d_avatar):
         monkeypatch.setattr(mod, "unavailable_reason", lambda: None)

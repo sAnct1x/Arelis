@@ -175,3 +175,13 @@ def test_the_surface_loads_without_unbound_shader_properties() -> None:
     )
     assert "root True" in run.stdout, run.stderr[-2000:]
     assert "does not have a matching property" not in run.stderr
+
+
+def test_unset_surface_defaults_to_quick_and_override_still_works(monkeypatch) -> None:
+    from arelis.ui.persona_face import qq3d_avatar, quick_surface
+
+    monkeypatch.setattr(qq3d_avatar, "_saved_user_env", lambda name: "")
+    monkeypatch.delenv("ARELIS_SURFACE", raising=False)
+    assert quick_surface.surface_choice() == ("quick", "default")
+    monkeypatch.setenv("ARELIS_SURFACE", "widget")
+    assert quick_surface.surface_choice() == ("widget", "env")
