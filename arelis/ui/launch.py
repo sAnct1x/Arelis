@@ -590,13 +590,24 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     families = load_fonts()
     app.setFont(app_font(families))
     install_stylesheet()
+    # Her breathing light while the seat, voice and window load; a quiet launch has none.
+    from arelis.ui.filament_field import FILAMENT_VOID
+    from arelis.ui.splash import LaunchSplash, run_off_ui
+
+    splash = None if background else LaunchSplash(FILAMENT_VOID)
+    if splash is not None:
+        splash.start()
 
     from arelis.ui.live_threads import drain_parked_threads
 
     # First run: workspace folder, then model setup. Needs QApplication.
     # Always ask when needed. Do not skip because main passed a config dict.
+    if splash is not None:
+        splash.hide()  # the first-run dialogs, if any, are the only thing on screen
     refreshed = apply_first_run_glass(config, config_was_given=config_was_given)
     if refreshed is None:
+        if splash is not None:
+            splash.finish()
         from arelis.ui.dialog import notice
 
         notice(
@@ -612,6 +623,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         _release_ui_lock()
         return 1
     config = refreshed
+    if splash is not None:
+        splash.start()
     workspace = _bind_workspace(config)
     # Required so hiding the last window to the tray does not kill the process.
     presence_cfg_early = (config or {}).get("presence") or {}
@@ -631,12 +644,19 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
 
     # Cold glass launch is a new conversation. Jobs use profile="job"
     # (no sink). CLI restores the last thread.
-    seat = build_seat(config, profile="ui", bus=bus)
+    try:
+        seat = run_off_ui(
+            splash, "Loading model", lambda: build_seat(config, profile="ui", bus=bus)
+        )
+        voice = run_off_ui(splash, "Starting voice", lambda: VoiceService(bus, config))
+    except BaseException:
+        if splash is not None:
+            splash.finish()
+        raise
     router = seat.router
     store = seat.store
     tools = seat.tools
     orchestrator = seat.orchestrator
-    voice = VoiceService(bus, config)
     transcribe = tools.get("transcribe")
     if transcribe is not None:
         transcribe._stt = voice.stt
@@ -706,6 +726,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
 
     asyncio.run_coroutine_threadsafe(_startup_models(), loop)
 
+    if splash is not None:
+        splash.set_status("Building her")
     try:
         window = ArelisWindow(
             config,
@@ -720,6 +742,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         )
     except Exception:
         logging.getLogger(__name__).exception("Arelis window failed to start")
+        if splash is not None:
+            splash.finish()
         drain_parked_threads()
         _release_ui_lock()
         raise
@@ -830,6 +854,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
 
     apply_language(window, session_code(config))
     _present_at_startup(window)
+    if splash is not None:
+        splash.finish()  # the window is up: her light hands over to it
 
     def _deferred_memory_backup() -> None:
         try:

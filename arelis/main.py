@@ -223,7 +223,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sync_checkout_deps()
 
-    from arelis.ui.app import run_ui
+    # launch, not app: the window modules load inside run_ui, after her splash is up.
+    from arelis.ui.launch import run_ui
 
     if args.config:
         if args.background:
