@@ -1123,7 +1123,7 @@ class FilamentField:
             open_ = name in self._open
             pulse = 0.5 + 0.5 * math.sin(self.time * 1.7 + t * 8.0)
             if name in FREE_FLOATS:
-                self._paint_reality_orbit(painter, p)
+                self._paint_reality_orbit(painter, p, show)
                 lure = 0.5 + 0.5 * math.sin(self.time * 1.15)
                 if open_:
                     halo, core, glow = 17.5, 5.8, 0.62 + lure * 0.08
@@ -1172,7 +1172,7 @@ class FilamentField:
                 pin=1.6 if not open_ else 0.9,
             )
 
-    def _paint_reality_orbit(self, painter: QPainter, center: QPointF) -> None:
+    def _paint_reality_orbit(self, painter: QPainter, center: QPointF, show: float = 1.0) -> None:
         """A little world of its own. Not a stem back to the current."""
         rx, ry = _REALITY_RX, _REALITY_RY
         steps = 32
@@ -1191,7 +1191,7 @@ class FilamentField:
                 if prev is not None:
                     fade = self._path_fade(t)
                     if fade > 0.12:
-                        pen = QPen(_lit(_GOLD, (0.14 + s * 0.05) * fade))
+                        pen = QPen(_lit(_GOLD, (0.14 + s * 0.05) * fade * show))
                         pen.setWidthF(1.80 - s * 0.14)
                         painter.setPen(pen)
                         painter.drawLine(prev, p)
@@ -1204,7 +1204,7 @@ class FilamentField:
                 center.x() + math.cos(ang) * rx * outer,
                 center.y() + math.sin(ang) * ry * outer,
             )
-            _paint_soft_orb(painter, q, 3.2, _CORE, 0.56, core=1.1, pin=0.5)
+            _paint_soft_orb(painter, q, 3.2, _CORE, 0.56 * show, core=1.1, pin=0.5)
 
     def _paint_stems(self, painter: QPainter, rect: QRect) -> None:
         """Short strand from the light to each closed title, on the settled ring with it."""
