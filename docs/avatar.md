@@ -241,3 +241,4 @@ third of the 6.5 deg each, so her stomach no longer folds at the waist.
 
 - Arelis rests facing you or a touch toward the chat side, in every theme and state. She still sways and looks around, but no animation leaves her turned away.
 - Switching themes while she is still loading no longer leaves the breathing loading glow running.
+- Her lips keep moving with a reply after the window is minimized and restored mid-reply.

@@ -397,6 +397,13 @@ class PersonaPanel(QWidget):
         self._level_timer.stop()
         super().hideEvent(event)
 
+    def showEvent(self, event) -> None:
+        # Hidden mid-reply (a minimize): _push only starts the timer when speaking flips,
+        # so without this her lips stayed still for the rest of the reply.
+        if self._lipsync:
+            self._level_timer.start()
+        super().showEvent(event)
+
     def paintEvent(self, event) -> None:
         del event
         if self._caption.isVisible():
