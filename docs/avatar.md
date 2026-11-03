@@ -82,6 +82,9 @@ When you enter Filament she comes up first. Once her scene is ready (or after si
 seconds, or straight away if the 3D view cannot start), the orbit ring grows out of
 her centre over about two seconds, easing in and out. The threads between her and
 the ring stay attached the whole time.
+The tile names do not travel with it: once the ring settles, each name fades in at its
+own spot over about three quarters of a second, together with the ring of light around
+its node.
 
 A tile you open in Filament grows out of the end of its own filament: it starts as a
 small seed where its thread meets the plate, then opens to full size.

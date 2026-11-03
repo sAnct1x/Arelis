@@ -8,7 +8,13 @@ import math
 import pytest
 from PySide6.QtCore import QPoint, QPointF, QRect
 
-from arelis.ui.filament_field import RING_GROW_S, FilamentField
+from arelis.ui.filament_field import (
+    FLOATS,
+    FREE_FLOATS,
+    RING_GROW_S,
+    TITLE_FADE_S,
+    FilamentField,
+)
 
 
 def _filament(arelis_window, qt_app):
@@ -42,6 +48,9 @@ def test_entering_filament_grows_the_ring_out_of_her_hub(arelis_window, qt_app, 
     field, rect = w._filament, w.rect()
     hub = QPointF(field.hub)
     field.ring_grow, field._ring_phase = 0.0, "wait"
+    # She is up: under qq3d offscreen her scene never reports ready, so the gate would hold
+    # the ring for RING_WAIT_MAX_S, past this loop. The gate has its own path in the app.
+    field._ring_gate = None
     cx, cy, rx, _ry = field.ellipse(rect)
     assert math.hypot(cx - hub.x(), cy - hub.y()) < 1.0 and rx < 10.0
     last_rx = rx
@@ -56,6 +65,23 @@ def test_entering_filament_grows_the_ring_out_of_her_hub(arelis_window, qt_app, 
     assert "[avatar] filament load step=she appears" in text
     assert "[avatar] filament load step=ring grows origin=" in text
     assert "[avatar] filament load step=ring settled" in text
+
+
+def test_tile_titles_fade_in_at_their_spot_once_the_ring_settles(arelis_window, qt_app) -> None:
+    w = _filament(arelis_window, qt_app)
+    field, rect = w._filament, w.rect()
+    field.crown = True  # the tree's crown (OrbitState): titles ride the ring itself
+    field.begin_ring_growth(None)
+    name = next(n for n, _t, _p in FLOATS if n not in FREE_FLOATS)
+    spot = field.float_points(name, rect)[1]
+    shows = []
+    for _ in range(int((RING_GROW_S + TITLE_FADE_S) / 0.05) + 6):
+        field.tick(0.05)
+        here = field.float_points(name, rect)[1]
+        assert math.hypot(here.x() - spot.x(), here.y() - spot.y()) < 12.0  # its drift, never the trip from her hub
+        shows.append((field.ring_grow, field.title_show()))
+    assert all(show == 0.0 for grow, show in shows if grow < 1.0)
+    assert shows[-1][1] == 1.0
 
 
 @pytest.mark.parametrize("parked", [False, True])
