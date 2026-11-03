@@ -63,6 +63,7 @@ class OrbitState(QObject):
     feetChanged = Signal()
     realityChanged = Signal()
     treeCoveredChanged = Signal()
+    titleShowChanged = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -88,6 +89,8 @@ class OrbitState(QObject):
             "feet": QPointF(),
             "reality": QPointF(-1.0, -1.0),
             "treeCovered": False,
+            # FilamentField.title_show: the tile titles' fade, which QML's beads and rings share.
+            "titleShow": 0.0,
         }
         self._sync_at = 0.0
         self.emits = 0  # how many property changes went to QML (the test and the bench read it)
@@ -133,6 +136,9 @@ class OrbitState(QObject):
         if phase != self._values["ringPhase"]:
             self._set("ringGrow", float(field.ring_grow))
             self._set("ringPhase", phase)
+        # The pulses and node rings (and so reality's light) fade in on the titles' own value,
+        # not on QML's ring clock, which settles ahead of the field's when frames stall.
+        self._set("titleShow", float(field.title_show()) if field.ring_started else 0.0)
         want = ff._WEATHER[field.state]
         self._set("target", [want[k] for k in ("form", "speed", "pulse", "warm", "words")])
         weather_moved = self._values["weather"] != field.state
@@ -187,3 +193,4 @@ class OrbitState(QObject):
     treeCovered = Property(
         bool, lambda self: self._values["treeCovered"], notify=treeCoveredChanged
     )
+    titleShow = Property(float, lambda self: self._values["titleShow"], notify=titleShowChanged)

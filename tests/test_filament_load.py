@@ -6,7 +6,7 @@ import logging
 import math
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, QRect
+from PySide6.QtCore import Q_ARG, QMetaObject, QPoint, QPointF, QRect, Qt
 
 from arelis.ui.filament_field import (
     FLOATS,
@@ -74,9 +74,20 @@ def test_tile_titles_fade_in_at_their_spot_once_the_ring_settles(arelis_window, 
     field.begin_ring_growth(None)
     name = next(n for n, _t, _p in FLOATS if n not in FREE_FLOATS)
     spot = field.float_points(name, rect)[1]
+    layers = _quick_orbit_layers(field, rect)
     shows = []
     for _ in range(int((RING_GROW_S + TITLE_FADE_S) / 0.05) + 6):
         field.tick(0.05)
+        if layers:  # the GPU's pulses and node rings (reality's light) on the titles' value
+            st, orbit, flares, pulses = layers
+            st.update(field, rect)
+            for _f in range(3):  # its own ring clock runs ahead, as when the field's frames stall
+                QMetaObject.invokeMethod(
+                    orbit, "step", Qt.ConnectionType.DirectConnection, Q_ARG("QVariant", 0.05)
+                )
+            show = field.title_show()
+            assert abs(flares.property("opacity") - show) < 1e-6
+            assert abs(pulses.property("opacity") - show) < 1e-6
         here = field.float_points(name, rect)[1]
         assert math.hypot(here.x() - spot.x(), here.y() - spot.y()) < 12.0  # its drift, never the trip from her hub
         shows.append((field.ring_grow, field.title_show()))
@@ -85,6 +96,30 @@ def test_tile_titles_fade_in_at_their_spot_once_the_ring_settles(arelis_window, 
     assert all(show == 0.0 for grow, show in shows if grow < 1.0)
     assert shows[-1][1] == 1.0
     assert early < 0.25 * _reality_ink(field, rect)  # reality's rings fade in with the rest
+
+
+def _quick_orbit_layers(field, rect):
+    from PySide6.QtCore import QObject, QUrl
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+
+    from arelis.ui.persona_face.orbit_state import OrbitState
+    from arelis.ui.persona_face.qq3d_avatar import QML_DIR
+
+    st = OrbitState()
+    st.update(field, rect)
+    engine = QQmlEngine()
+    engine.rootContext().setContextProperty("orbitState", st)
+    comp = QQmlComponent(engine)
+    comp.setData(
+        b"import QtQuick\nQuickOrbit { st: orbitState }\n",
+        QUrl.fromLocalFile(str(QML_DIR / "_t.qml")),
+    )
+    orbit = comp.create()
+    if orbit is None:
+        return None
+    _quick_orbit_layers.keep = (engine, comp)
+    find = orbit.findChild
+    return st, orbit, find(QObject, "orbitFlares"), find(QObject, "orbitPulses")
 
 
 def _reality_ink(field, rect) -> float:
