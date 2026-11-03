@@ -864,6 +864,10 @@ class ChatPanel(QWidget):
             self._flush_pending_notices()
             return
         follow = self._near_bottom()
+        # A streamed reply is already on screen: fading it in again painted the whole
+        # bubble at strength 0 for a frame at finalize (#520h). Only a reply that arrives
+        # whole is new to the eye.
+        streamed = self._stream_open
         self.view.arm_math()
         if not self._stream_open:
             self._ensure_view()
@@ -883,7 +887,8 @@ class ChatPanel(QWidget):
         self._last_assistant_body = body
         self._flush_pending_notices()
         self._place_last_acts()
-        self._fade_new_message(origin)
+        if not streamed:
+            self._fade_new_message(origin)
         self._scroll(follow=follow)
 
     def discard_stream(self) -> None:

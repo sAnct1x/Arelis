@@ -192,3 +192,19 @@ def _image_alt(document) -> str:
         if fmt.isImageFormat() and fmt.toImageFormat().name().startswith("arelis-math:"):
             return fmt.stringProperty(QTextFormat.Property.ImageAltText) or ""
     return ""
+
+
+def test_a_streamed_reply_stays_solid_when_it_finishes(qt_app, monkeypatch) -> None:
+    """It is already on screen: finalize must not fade it in from nothing (#520h blank)."""
+    _motion_on(monkeypatch)
+    from arelis.ui.panels.chat import ChatPanel
+
+    panel = ChatPanel()
+    panel.resize(640, 480)
+    try:
+        panel.begin_assistant()
+        panel.append_delta("streamed words arrive")
+        panel.finish_assistant("streamed words arrive")
+        assert _alpha_of(panel.view, "streamed") >= 250
+    finally:
+        panel.deleteLater()
