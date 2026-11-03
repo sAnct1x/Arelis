@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -36,6 +37,9 @@ def stt_enabled(config: dict[str, Any]) -> bool:
     Both sub-toggles default to true: turning voice on and getting neither
     direction would be the more surprising default.
     """
+    if os.environ.get("ARELIS_TEST_NO_STT", "").strip() in ("1", "true", "yes"):
+        # Test runs: room audio transcribed by Whisper skewed the streaming timings.
+        return False
     voice = config.get("voice", {})
     return bool(voice.get("enabled")) and bool(voice.get("stt", {}).get("enabled", True))
 
