@@ -76,7 +76,11 @@ dependencies = [
   "Pillow>=10.0",
   # Background cutout and 4x upscale. CPU only, so the chat model keeps the
   # GPU. MIT. Already pinned in the Windows and Mac installer locks.
-  "onnxruntime>=1.16",
+  # 1.30 held the GIL for the whole InferenceSession build (Kokoro: ~0.5 s on the
+  # box, the 1.01 s warm-launch freeze on Atria, right after Sherpa ready); 1.31
+  # releases it. The Mac lock stays on its own pin.
+  "onnxruntime>=1.31.1; sys_platform == 'win32'",
+  "onnxruntime>=1.16; sys_platform != 'win32'",
   # Diagrams from text. vl-convert is BSD-3, one wheel per OS. typst is
   # Apache-2.0. Core, not an extra: asking for a diagram should not need a
   # second install. The flowchart helper downloads the first time it is used.

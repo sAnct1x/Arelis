@@ -155,6 +155,8 @@ class KokoroSynthesizer:
         opts.inter_op_num_threads = 1
         opts.intra_op_num_threads = 2
         opts.log_severity_level = 3
+        # Idle pool threads spin between chunks by default, on cores llama-server wants.
+        opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
         self._session = ort.InferenceSession(
             str(self.model_path),
             sess_options=opts,

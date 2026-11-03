@@ -110,7 +110,8 @@ Item {
     }
 
     // Track C: body clips, pools and crossfades (persona_q3d/Mixer.qml).
-    Mixer { id: mixer; objectName: "mixer"; model: loader.item }
+    // Hidden (tray), its FrameAnimation kept the render loop animation timer at 60 Hz.
+    Mixer { id: mixer; objectName: "mixer"; model: loader.item; running: root.visible }
     onAvatarStateChanged: { mixer.setState(avatarState); if (face) face.setState(avatarState) }
     Component.onCompleted: mixer.setState(avatarState)
 

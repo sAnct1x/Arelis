@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from collections.abc import Callable
 from typing import Any
@@ -19,6 +20,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QMenu,
+    QPushButton,
     QSystemTrayIcon,
     QWidget,
 )
@@ -145,6 +147,12 @@ class WindowLifetime:
             except RuntimeError:
                 pass
 
+    def _stop_camera_quietly(self) -> None:
+        try:
+            self.camera.stop()
+        except Exception:
+            log.debug("camera stop on close-to-tray failed", exc_info=True)
+
     def closeEvent(self, event) -> None:
         # Close-to-tray: keep ingest / bus alive; Quit from the tray fully exits.
         if (
@@ -161,14 +169,14 @@ class WindowLifetime:
                 self.voice_controller.set_dictate(False)
                 self.voice_controller.resume_wake()
             stop_speech(self)
-            try:
-                self.camera.stop()
-            except Exception:
-                pass
             self._remember_window_state()
             self._park_floating_docks()
             self._suspend_quick_surface()
             self.hide()
+            # QCamera.stop() blocks ~0.5 s in the Windows media backend and must run
+            # on the thread that owns it. After hide() that wait is no longer a
+            # frozen window, and closeEvent returns at once.
+            QTimer.singleShot(0, self._stop_camera_quietly)
             self._tray.showMessage(
                 "Arelis",
                 "Still running in the tray, inbound texts keep working. "
@@ -234,6 +242,7 @@ class WindowLifetime:
 
     def setup_tray(self, app: QApplication) -> None:
         """OS tray icon: Show window / Quit Arelis."""
+        self._install_test_quit()
         if not QSystemTrayIcon.isSystemTrayAvailable():
             self._close_to_tray = False
             return
@@ -253,6 +262,24 @@ class WindowLifetime:
         tray.activated.connect(self._on_tray_activated)
         tray.show()
         self._tray = tray
+
+    def _install_test_quit(self) -> None:
+        """ARELIS_TEST_QUIT=1: a "Quit Arelis" button in the window for UI Automation.
+
+        The only Quit is the tray menu, which needs a right click on an icon UIA
+        cannot see, so a tester could not reach the full-exit path at all.
+        """
+        if os.environ.get("ARELIS_TEST_QUIT", "").strip() not in ("1", "true", "yes"):
+            return
+        btn = QPushButton("Quit", self)
+        btn.setObjectName("TestQuit")
+        btn.setAccessibleName("Quit Arelis")
+        btn.setFlat(True)
+        btn.setGeometry(4, 4, 40, 20)
+        btn.clicked.connect(self.quit_from_tray)
+        btn.show()
+        btn.raise_()
+        self._test_quit_btn = btn
 
     def _park_floating_docks(self) -> None:
         """Take floating instruments with the glass when it leaves the screen.

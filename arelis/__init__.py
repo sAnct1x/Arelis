@@ -16,3 +16,19 @@ __license__ = "AGPL-3.0-or-later"
 # running the program can find what they are entitled to, so this is shown in
 # the app rather than buried in a file most people never open.
 __source_url__ = "https://github.com/sAnct1x/arelis"
+
+
+def _cap_math_threads() -> None:
+    """Keep numpy's BLAS / OpenMP pools small before anything imports them.
+
+    OpenBLAS starts one thread per core and spins them after each call, which on
+    Atria competed with llama-server's decode threads while she streams. Our math is
+    small; two threads lose nothing. A value the user set wins.
+    """
+    import os
+
+    for key in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.setdefault(key, "2")
+
+
+_cap_math_threads()

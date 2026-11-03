@@ -167,7 +167,12 @@ class WindowChrome:
         return QRect(tile.mapTo(self, QPoint(0, 0)), tile.size())
 
     def _tick_atmosphere(self) -> None:
-        if self.isMinimized() or not self.isVisible():
+        if not self.isVisible():
+            # In the tray, ticking at 30 Hz only to skip kept the GUI thread awake.
+            # showEvent starts it again.
+            self._atmosphere_timer.stop()
+            return
+        if self.isMinimized():
             return
         self._atmosphere_phase = (self._atmosphere_phase + 0.012) % 6.283185307179586
         # Slow grain drift. Rim on plates is a static hairline, not a pulse circus.
@@ -610,6 +615,9 @@ class WindowChrome:
         self.setMouseTracking(True)
         self._sync_browser_anchor()
         sync_idle_mode(self)
+        timer = getattr(self, "_atmosphere_timer", None)
+        if timer is not None and not timer.isActive():
+            timer.start()
         if active_theme() == "filament" and self._filament_parked is not None:
             self._later(0, self._filament_place_entity)
 

@@ -1442,11 +1442,6 @@ class FilamentFloatBar(QObject):
             self._open.add(name)
         else:
             self._open.discard(name)
-        bead = self._beads.get(name)
-        if bead is not None:
-            # An open plate hides its title button, which left nothing named for the tile:
-            # the bead (which toggles it) carries the tile's name while it is open.
-            bead.setAccessibleName(name if open else f"{name} bead")
 
     def skip(self, name: str, on: bool) -> None:
         if on:
@@ -1498,15 +1493,13 @@ class FilamentFloatBar(QObject):
                 bead.move(bx, by)
             if settle:
                 bead.raise_()
-            if name in self._open:
-                if not btn.isHidden():
-                    btn.hide()
-                self._breath_title(btn, name, force_off=True)
-                continue
+            # An open plate keeps its title on the coil (quiet, no breath): hiding it
+            # took the tile out of the window, and Invoke on it is how the plate closes.
             if btn.isHidden():
                 btn.show()
                 settle = True
-            if self._breath_title(btn, name) or settle:
+            opened = name in self._open
+            if self._breath_title(btn, name, force_off=opened) or settle:
                 btn.adjustSize()
             x = int(local.x() - btn.width() / 2)
             y = int(local.y() - btn.height() / 2)

@@ -188,3 +188,63 @@ def test_window_close_does_not_block_the_ui(qt_app: Any, monkeypatch: Any) -> No
         _stop_loop(loop, thread)
 
     assert not failures, "\n".join(failures)
+
+
+def test_close_to_tray_hides_before_the_camera_stops(qt_app: Any, monkeypatch: Any) -> None:
+    """QCamera.stop() blocks ~0.5 s on Windows; close-to-tray hid only after it (#v11c)."""
+    del qt_app
+    monkeypatch.setattr("arelis.ui.window_lifetime.stop_speech", lambda window: None)
+    loop, thread = _start_loop()
+    try:
+        host = _CloseHost(
+            force_quit=False, loop=loop, inbound=_SlowInbound(), indexer=_SlowIndexer()
+        )
+        host._close_to_tray = True
+        host._tray = SimpleNamespace(isVisible=lambda: True, showMessage=lambda *a: None)
+        host._remember_window_state = lambda: None
+        seen: list[bool] = []
+
+        def _slow_stop() -> None:
+            seen.append(host.isVisible())
+            time.sleep(0.6)
+
+        host.camera = SimpleNamespace(stop=_slow_stop)
+        host.show()
+        t0 = time.monotonic()
+        host.close()
+        elapsed = time.monotonic() - t0
+        from PySide6.QtWidgets import QApplication
+
+        deadline = time.monotonic() + 2.0
+        while not seen and time.monotonic() < deadline:
+            QApplication.processEvents()
+        assert elapsed < _BLOCK_LIMIT_S, f"close-to-tray blocked {elapsed:.2f}s"
+        assert seen == [False], f"camera stopped with the window visible={seen}"
+        host.deleteLater()
+    finally:
+        _stop_loop(loop, thread)
+
+
+def test_test_quit_button_runs_the_full_quit(qt_app: Any, monkeypatch: Any) -> None:
+    """UIA cannot reach the tray menu; ARELIS_TEST_QUIT gives Babbage "Quit Arelis"."""
+    del qt_app
+    from PySide6.QtWidgets import QPushButton
+
+    monkeypatch.setenv("ARELIS_TEST_QUIT", "1")
+    loop, thread = _start_loop()
+    try:
+        host = _CloseHost(
+            force_quit=False, loop=loop, inbound=_SlowInbound(), indexer=_SlowIndexer()
+        )
+        quits: list[str] = []
+        host.quit_from_tray = lambda: quits.append("quit")
+        host._install_test_quit()
+        named = [
+            b for b in host.findChildren(QPushButton) if b.accessibleName() == "Quit Arelis"
+        ]
+        assert len(named) == 1
+        named[0].click()
+        assert quits == ["quit"]
+        host.deleteLater()
+    finally:
+        _stop_loop(loop, thread)
