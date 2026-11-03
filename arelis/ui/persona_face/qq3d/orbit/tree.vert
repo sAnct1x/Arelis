@@ -119,7 +119,8 @@ void main() {
         float dep = mixb * (0.25 + 0.75 * pow(0.5 + 0.5 * sin(thb), 1.3))
                   + (1.0 - mixb) * (minor ? 0.85 : 0.2 + 0.8 * pow(0.5 + 0.5 * sin(thl), 1.5));
         float trk = 1.0 - 0.42 * (1.0 - smoothstep(dT - 60.0, dT + 40.0, d));
-        float fade = smoothstep(0.0, 30.0, d) * (1.0 - smoothstep(0.92, 1.0, s) * (minor ? 0.9 : 0.35));
+        // They rise out of the floor over a long soft ramp: no splayed stub starts at full light.
+        float fade = smoothstep(0.0, 110.0, d) * (1.0 - smoothstep(0.92, 1.0, s) * (minor ? 0.9 : 0.35));
         float lf = length(tree.xy - feet) * 1.05;
         float tot = lf + lt + ll;
         float pl = pkt(j, (lf + s * (lt + ll)) / max(tot, 1.0), tot) * (minor ? 0.55 : 1.0);
@@ -147,12 +148,19 @@ void main() {
         gpos = 0.6 + 0.4 * s;
     } else if (f < F_WISP) {
         // The roots: thin ones flowing far to the left across the floor (Vela's note 2), and
-        // shorter ones toward her. s 0 is the root's far end.
+        // the rest spread round the foot in all three directions: right, toward the viewer
+        // (lower on the floor) and away (higher, fainter). s 0 is the root's far end.
         bool left = f < F_RROOT;
         float i = left ? floor((f - F_LROOT) / 3.0) : floor((f - F_RROOT) / 3.0) + 40.0;
-        float sd = left ? -1.0 : 1.0;
-        float L = (left ? 300.0 + th(i, 2.0) * 760.0 : (180.0 + th(i, 2.0) * 340.0) * 1.35) * k;
-        float ey = left ? -30.0 + th(i, 3.0) * 72.0 : -40.0 + th(i, 3.0) * 80.0;
+        float dir = left ? -1.0 : mod(i, 3.0);   // 0 right, 1 front, 2 back
+        float sd = left ? -1.0 : (dir < 0.5 || th(i, 8.0) > 0.5 ? 1.0 : -1.0);
+        float L = (left ? 300.0 + th(i, 2.0) * 760.0
+                 : dir < 0.5 ? (180.0 + th(i, 2.0) * 340.0) * 1.35
+                 : 70.0 + th(i, 2.0) * (dir < 1.5 ? 200.0 : 260.0)) * k;
+        float ey = left ? -30.0 + th(i, 3.0) * 72.0
+                 : dir < 0.5 ? -40.0 + th(i, 3.0) * 80.0
+                 : dir < 1.5 ? 22.0 + th(i, 3.0) * 26.0
+                 : -24.0 - th(i, 3.0) * 30.0;
         // the left roots fan: the longer, the lower and the more they lift off the floor between
         vec2 end = tree.xy + vec2(sd * L, ey * k);
         float ca = left ? -10.0 - th(i, 4.0) * 70.0 : -30.0 + th(i, 4.0) * 55.0;
@@ -164,10 +172,10 @@ void main() {
         // a sheen that flows out along the root, away from the trunk
         float sheen = 0.7 + 0.3 * sin(TAU * (2.0 * s + ph) + th(i, 9.0) * TAU);
         float brk = clamp(wob(f, s * 3.0, 10.0) * 0.7 + 0.75, 0.0, 1.0);
-        float fade = left
-            ? 2.1 * pow(smoothstep(0.0, 0.2, s), 1.2) * (1.0 - 0.6 * smoothstep(0.85, 1.0, s)) * brk
-            : pow(smoothstep(0.0, 0.6, s), 1.2) * (1.0 - smoothstep(0.55, 1.0, s)) * brk * 0.8;
-        a = (0.4 + th(f, 11.0) * 0.8) * fade * sheen * (left ? 0.17 : 0.08);
+        // Every root fades in from its far end and runs on into the trunk's foot.
+        float fade = (left ? 2.1 : dir < 0.5 ? 0.9 : dir < 1.5 ? 1.3 : 0.8)
+            * pow(smoothstep(0.0, left ? 0.2 : 0.35, s), 1.2) * (1.0 - 0.6 * smoothstep(0.85, 1.0, s)) * brk;
+        a = (0.4 + th(f, 11.0) * 0.8) * fade * sheen * (left ? 0.17 : 0.1);
         halfW *= left ? 0.75 : 0.85;
         gpos = 1.0 - s;
         gpos *= 0.4;
@@ -184,9 +192,10 @@ void main() {
             float tot = routeTot(j);
             pl += pkt(j, s * lf / tot, tot);
         }
-        // They leave her feet brightest (s 0) and thin toward the root, a sheen running away from her.
+        // They fade in softly beside her (s 0), never a hot point under her, and run on into
+        // the trunk's foot, a sheen running away from her.
         float sheen = 0.7 + 0.3 * sin(TAU * (ph - 2.0 * s) + th(i, 9.0) * TAU);
-        a = (0.4 + th(f, 6.0) * 0.6) * max(brk, 0.5 * (1.0 - s)) * (1.6 - 0.9 * s) * sheen * 0.09
+        a = (0.4 + th(f, 6.0) * 0.6) * brk * smoothstep(0.0, 0.3, s) * (1.2 - 0.3 * s) * sheen * 0.09
           * (1.0 + 1.5 * pl);
         gpos = 0.0;
     } else if (f < F_WRAP) {
@@ -202,7 +211,8 @@ void main() {
         P = bez3(top, c1, c2, end, s);
         P2 = bez3(top, c1, c2, end, min(1.0, s + 0.01));
         off = wob(f, s * 4.0, 6.0) * 2.5 * k;
-        a = (0.6 + th(f, 7.0) * 0.8) * (1.0 - 0.7 * smoothstep(0.7, 1.0, s)) * smoothstep(0.0, 0.1, s) * 0.26;
+        // out to nothing on the floor: a buttress thins away, it never stops short
+        a = (0.6 + th(f, 7.0) * 0.8) * (1.0 - smoothstep(0.45, 1.0, s)) * smoothstep(0.0, 0.1, s) * 0.26;
         hot = 0.3 * (1.0 - s);
         gpos = 0.05;
     } else {

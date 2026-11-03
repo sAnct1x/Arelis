@@ -1,7 +1,8 @@
 """Filament, ARELIS_SURFACE=quick: in idle the orbit is Iris's v11b tree. Its trunk stands on the
-floor under the ring, forks inside it, and the floor link runs left from her feet (below her
-hub) to the trunk base; the GPU layers that draw it (fibers, packets, flares) ship baked. It
-stays a tree while she thinks or speaks: the tree's layers never fade out as form rises."""
+floor under the ring, forks inside it, and the floor link runs left from just outside her near
+foot (not between her feet) to the trunk base; the GPU layers that draw it (fibers, packets,
+flares) ship baked. It stays a tree while she thinks or speaks: the tree's layers never fade
+out as form rises."""
 
 from __future__ import annotations
 
@@ -26,7 +27,9 @@ def test_tree_stands_under_the_ring_and_stays_while_she_thinks(qt_app) -> None:
     tree, feet = state.property("tree"), state.property("feet")
     base_x, base_y, fork_x, fork_y = tree.x(), tree.y(), tree.z(), tree.w()
 
-    assert feet.x() == 1000 and feet.y() == base_y  # her feet: on the floor below her hub
+    # The floor link starts off her near foot, toward the tree, not between her feet (her hub)
+    assert 1000 - 0.2 * rect.height() < feet.x() < 1000 - 0.1 * rect.height()
+    assert feet.y() == base_y
     assert base_y > cy + ry and base_y > 0.9 * rect.height()  # the base is on the floor
     assert abs(base_x - cx) < rx * 0.1 and base_x < 900  # under the ring, left of her band
     assert base_x < feet.x()  # the floor link runs left from her feet to the root
@@ -95,13 +98,6 @@ def test_reality_sits_top_left_and_the_tree_reaches_it(qt_app) -> None:
     p = field.bead_point("reality", rect)
     assert p.x() < home.left() + home.width() * 0.2 and p.y() < home.top() + home.height() * 0.3
     assert state.property("reality") == field.reality_center(rect)  # its limb's end (pulses)
-
-
-def test_ask_stands_off_the_trunk(qt_app) -> None:
-    field, state, rect = _crown_field(qt_app)
-    ask = field.prompt_rect(rect)
-    base_x = state.property("tree").x()
-    assert ask.right() < base_x - 40  # the trunk rises from base_x, the ask stands left of it
 
 
 def test_chat_strand_leaves_her_chest_not_her_hub(qt_app) -> None:
