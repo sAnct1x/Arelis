@@ -29,6 +29,14 @@ are gone; Reality stays as its own view. Sentinel lives in the repo
 and starts with Arelis from a source checkout (not in the installer
 yet). Plus a batch of fixes and security updates.
 
+Filament tiles and the chat have no size limit, can sit anywhere
+(even outside the main window), and reopen at the size and spot you
+left them. A tile grows out of its own node on the tree. The tree
+keeps drawing under the open chat. "Hey Arelis" and the conversation
+button sit at the top right. The tree's base reaches out in all
+directions, its light starts beside her rather than between her feet,
+and its short strands fade away instead of stopping short.
+
 ## 0.3.2.1
 
 Two picture fixes. Full notes: [v0.3.2.1](releases/v0.3.2.1.md).
