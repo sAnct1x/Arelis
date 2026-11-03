@@ -233,13 +233,18 @@ Item {
         live: false
     }
     // The fibers are most of a frame's cost (vertex work and thin-triangle raster), so each
-    // quarter draws into its own full-size texture and half of them redraw per frame (quarters
-    // 0+1, the major limbs, then 2+3): every fiber moves at half the frame rate, none thinner.
+    // quarter draws into its own full-size texture and one quarter redraws per frame, in turn
+    // (a major limb quarter, then a minor one): every fiber moves at a quarter of the frame
+    // rate, none thinner. Their motion is slow, so that reads the same as half rate did, and
+    // it halves the per-frame fiber cost now the tree is always drawn (also under the chat).
     FrameAnimation {
         running: orbit.visible
         onTriggered: {
-            if (currentFrame % 2 == 0) { fibersTex0.scheduleUpdate(); fibersTex1.scheduleUpdate() }
-            else { fibersTex2.scheduleUpdate(); fibersTex3.scheduleUpdate() }
+            const q = currentFrame % 4
+            if (q == 0) fibersTex0.scheduleUpdate()
+            else if (q == 1) fibersTex2.scheduleUpdate()
+            else if (q == 2) fibersTex1.scheduleUpdate()
+            else fibersTex3.scheduleUpdate()
         }
     }
 

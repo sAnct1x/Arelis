@@ -96,6 +96,8 @@ besides the long roots to the left. Every root and buttress fades in from its fa
 runs on into the trunk, so no strand stops short. The floor light starts just outside her
 near foot (`OrbitState` `feet`, 0.14 of the height off her hub, toward the tree) as a wide
 soft swell, not a hot point between her feet. The tree keeps drawing under the open chat.
+Its fibers are drawn in four quarters into textures, and one quarter redraws per frame in
+turn, so the always-on tree costs about half what it did per frame.
 
 She stays in view when the app goes idle. She is always framed head to toe and the
 view refits when the window changes size.
