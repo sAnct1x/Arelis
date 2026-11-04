@@ -576,3 +576,4 @@ and the Earth zone are still checkout-only. Full notes:
   open of the day is a new chat (orbit), like glass; yesterday stays
   in **chats**. If the PC is away, Gemma on the phone (install after
   pair, ~2.6 GB). Those words copy in when the house is back.
+- Arelis uses the new Quick 3D figure by default, along with the Quick surface. Set `ARELIS_AVATAR_ENGINE=web` for the old figure.
