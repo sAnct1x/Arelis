@@ -1223,7 +1223,7 @@ class QQ3DAvatar(QWidget):
         self.control.prepareThread(self._render)
         why = self._render.initialize()
         if why is not None:
-            QTimer.singleShot(0, self, lambda: self._fail(why))
+            self._fail_later(why)
             return
         self._render.start(QThread.Priority.HighPriority)
         self._watch_window()
@@ -1279,7 +1279,7 @@ class QQ3DAvatar(QWidget):
         model = self._model
         if root is None:
             errs = "; ".join(e.toString() for e in component.errors()) or "no root"
-            QTimer.singleShot(0, self, lambda: self._fail(f"scene error: {errs}"))
+            self._fail_later(f"scene error: {errs}")
             return
         root.setParentItem(self.view.contentItem())
         self.root = self._render.root = root
@@ -1472,11 +1472,16 @@ class QQ3DAvatar(QWidget):
             alog("ready", engine="qq3d", clips=clips)
             self.ready.emit()
 
-    def _fail(self, reason: str) -> None:
-        import shiboken6
+    def _fail_later(self, reason: str) -> None:
+        # A child timer dies with her, so the fail never fires on a freed avatar
+        # (a context singleShot with a Python lambda could, under PySide).
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda: self._fail(reason))
+        timer.start(0)
 
-        # A queued fail can land after Qt freed her (host deleted first); nothing to tell.
-        if self._dead or not shiboken6.isValid(self):
+    def _fail(self, reason: str) -> None:
+        if self._dead:
             return
         self._dead = True
         from arelis.ui import void_idle
