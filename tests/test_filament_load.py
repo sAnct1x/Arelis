@@ -239,3 +239,34 @@ def test_a_tile_is_never_on_screen_at_its_saved_spot_before_it_grows(
         assert seen and seen[0][0] == "grow", seen
         w._toggle_notifications(False)
         qt_app.processEvents()
+
+
+def test_clicking_a_history_chat_opens_it_in_the_chat_tile(
+    arelis_window, qt_app, monkeypatch
+) -> None:
+    import arelis.ui.history_host as host
+
+    w = _filament(arelis_window, qt_app)
+    loads: list[str] = []
+    monkeypatch.setattr(host, "request_session_load", lambda _w, sid: loads.append(sid))
+    w.history.set_sessions([{"id": "s-old", "title": "old chat"}])
+    item = w.history.list.item(0)
+    assert not w._filament_chat_open
+    w.history._on_activated(item)
+    qt_app.processEvents()
+    assert loads == ["s-old"]
+    assert w._filament_chat_open
+    assert not w._filament_chat_tile.isHidden()
+
+    # The chat already open, clicked mid-turn, is not a switch: no toast.
+    from types import SimpleNamespace
+
+    toasts: list[str] = []
+    monkeypatch.setattr(host, "toast_finish_or_stop", lambda _w, msg: toasts.append(msg))
+    monkeypatch.setattr(w, "store", SimpleNamespace(session_id="s-old"))
+    monkeypatch.setattr(w, "_turn_busy", True)
+    w._filament_set_chat_open(False)
+    w.history._on_activated(item)
+    qt_app.processEvents()
+    assert (loads, toasts) == (["s-old"], [])
+    assert w._filament_chat_open
