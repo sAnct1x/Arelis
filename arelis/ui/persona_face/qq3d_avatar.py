@@ -123,15 +123,15 @@ def engine_choice() -> tuple[str, str]:
     else:
         raw = _saved_user_env(ENGINE_ENV).strip()
         source = "user-env" if raw else "default"
-        raw = raw or "web"
+        raw = raw or "qq3d"
         # Read the registry once: later calls (layout asks often) and children see it.
         os.environ[ENGINE_ENV] = raw
         os.environ[_ENGINE_SOURCE_ENV] = f"{source}:{raw}"
-    return ("qq3d" if raw.strip().lower() == "qq3d" else "web"), source
+    return ("web" if raw.strip().lower() == "web" else "qq3d"), source
 
 
 def engine() -> str:
-    """'qq3d' or 'web' (the default until Quick 3D passes its gates)."""
+    """'qq3d' (the default) or 'web' (ARELIS_AVATAR_ENGINE=web)."""
     return engine_choice()[0]
 
 

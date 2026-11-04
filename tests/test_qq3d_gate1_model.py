@@ -66,4 +66,4 @@ def test_missing_model_files_fail_loudly_and_say_so_on_her_veil(
     assert any(str(d / "meshes" / "body.mesh") in r.getMessage() for r in caplog.records)
     panel = PersonaPanel()
     assert panel.web is None
-    assert "Her figure could not load" in panel.loading.message
+    assert panel.loading.message == "Her figure couldn't load on this PC."

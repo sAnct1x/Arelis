@@ -37,3 +37,15 @@ def test_avatar_engine_flag_wins_over_env_and_saved_user_variable(monkeypatch) -
     monkeypatch.setattr(login_start, "remove_login_start", lambda: "ok")
     assert main(["--avatar-engine", "qq3d", "--remove-login-start"]) == 0
     assert qq3d_avatar.engine_choice() == ("qq3d", "flag")
+
+
+def test_with_no_env_set_the_avatar_quick3d_and_quick_surface_are_the_defaults(monkeypatch):
+    from arelis.ui.persona_face import qq3d_avatar, quick_surface
+
+    for name in ("ARELIS_AVATAR_ENGINE", "ARELIS_AVATAR_ENGINE_SOURCE", "ARELIS_SURFACE", "ARELIS_WEB_AVATAR"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(qq3d_avatar, "_saved_user_env", lambda name: "", raising=False)
+    assert qq3d_avatar.engine_choice() == ("qq3d", "default")
+    assert quick_surface.surface_choice() == ("quick", "default")
+    monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "web")
+    assert qq3d_avatar.engine() == "web"

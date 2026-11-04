@@ -246,6 +246,10 @@ def _avatar_choice_env_is_per_test():
     """
     names = ("ARELIS_AVATAR_ENGINE", "ARELIS_AVATAR_ENGINE_SOURCE", "ARELIS_SURFACE")
     before = {n: os.environ.get(n) for n in names}
+    # Quick 3D is the shipped default; the suite's host and layout tests were written
+    # against the old web figure, so they keep it unless a test picks an engine itself.
+    if not before["ARELIS_AVATAR_ENGINE"]:
+        os.environ["ARELIS_AVATAR_ENGINE"] = "web"
     yield
     for n, v in before.items():
         if v is None:

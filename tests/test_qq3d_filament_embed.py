@@ -1,4 +1,4 @@
-"""ARELIS_AVATAR_ENGINE=qq3d puts the Quick 3D host in its ROOMS; rooms outside keep WebEngine."""
+"""Quick 3D (the default) puts the Quick 3D host in its ROOMS; rooms outside keep WebEngine."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class _QQ3D(_Fake):
 
 @pytest.mark.parametrize(
     ("engine", "theme", "want"),
-    [("qq3d", "filament", _QQ3D), ("", "filament", _Web), ("qq3d", "night", _QQ3D), ("qq3d", "sodium", _QQ3D)],
+    [("qq3d", "filament", _QQ3D), ("web", "filament", _Web), ("qq3d", "night", _QQ3D), ("qq3d", "sodium", _QQ3D)],
 )
 def test_engine_switch_picks_quick3d_only_in_its_rooms(monkeypatch, engine, theme, want) -> None:
     QApplication.instance() or QApplication([])
@@ -55,7 +55,7 @@ def test_quick3d_engine_asks_for_an_alpha_surface(monkeypatch) -> None:
     from arelis.ui.persona_face.qq3d_avatar import surface_format
 
     before = QSurfaceFormat.defaultFormat()
-    monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "")
+    monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "web")
     assert surface_format() is None
     monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "qq3d")
     surface_format()
