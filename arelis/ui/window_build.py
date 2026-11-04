@@ -379,6 +379,9 @@ class WindowBuild:
             self._apply_calm_instrument_defaults()
         # Seal restored floats now, before the first show. Do not redock them
         # after paint — that shrink used to leave a second orbit on the right.
+        # The camera tile opens the webcam, so like Hands it starts closed every launch,
+        # whatever the saved layout says. Only the user turns the camera on.
+        self.camera_dock.hide()
         seat_persona(self)
         self._sanitize_floating_docks()
         self._stack_left_instruments()

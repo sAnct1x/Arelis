@@ -21,6 +21,7 @@ Notes: [v0.3.3](releases/v0.3.3.md). Older:
 - Filament uses the Quick surface (her tree orbit) by default. Set `ARELIS_SURFACE=widget` for the old orbit.
 - Filament tiles: dragging a tile by its title keeps the size you gave it. An edge resize stops at the tile's smallest and largest size instead of snapping back on the next drag.
 - Privacy: Filament no longer turns the webcam on by itself. Hands (which uses the camera) starts off every launch, even if it was on last time, and turning Hands off closes the camera.
+- Privacy: the camera tile starts closed every launch, even if it was open last time, and switching from Filament to Sodium with Hands on closes the camera unless its tile is open or Track is on.
 - Tree base: the right-hand roots are as visible as the left, and the band of strands that ran right from the trunk's foot and ended abruptly now fades out smoothly.
 
 ## 0.3.3

@@ -44,3 +44,42 @@ def test_turning_hands_off_in_filament_closes_the_camera(arelis_window, monkeypa
     assert opened == ["start"] and w.spatial.tracking
     w._on_hands_chip(False)
     assert not w.camera._running and not w.spatial.tracking
+
+
+def test_camera_tile_left_open_last_session_stays_closed_at_launch(
+    arelis_window, monkeypatch, tmp_path
+) -> None:
+    from arelis.ui import layout_store
+    from arelis.ui.layout_store import save_window_layout
+
+    monkeypatch.setattr(layout_store, "_settings_path", lambda: tmp_path / "ui_layout.ini")
+
+    opened = _spy_camera(monkeypatch)
+    first = arelis_window({"ui": dict(FILAMENT)})
+    first.show()
+    QTest.qWait(300)
+    first.camera_dock.setFloating(True)  # a Filament tile
+    first.camera_dock.show()
+    QTest.qWait(300)
+    save_window_layout(first)
+    first.hide()
+    opened.clear()
+    w = arelis_window({"ui": dict(FILAMENT)})
+    w.show()
+    QTest.qWait(1000)
+    assert opened == []
+    assert not w.camera_dock.isVisible()
+
+
+def test_switching_to_sodium_with_hands_on_closes_the_camera(arelis_window, monkeypatch) -> None:
+    from arelis.ui.hands_host import apply_hands_face
+
+    _spy_camera(monkeypatch)
+    w = arelis_window({"ui": dict(FILAMENT)})
+    w.show()
+    QTest.qWait(500)
+    w._on_hands_chip(True)
+    assert w.camera._running
+    monkeypatch.setattr("arelis.ui.hands_host.active_theme", lambda: "sodium")
+    apply_hands_face(w)
+    assert not w.camera._running and not w.spatial.tracking

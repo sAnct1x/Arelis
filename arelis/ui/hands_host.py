@@ -27,12 +27,27 @@ def apply_hands_face(window) -> None:
         # its tile is open.
         if window.spatial.tracking:
             window.spatial.stop_track()
-        if getattr(window.camera, "_running", False) and not window.camera_dock.isVisible():
-            window.camera.stop()
+        release_camera(window)
         return
     # Sodium: only the camera Track button keeps a session.
     if window.spatial.tracking and not window.camera.track_btn.isChecked():
         window.spatial.stop_track()
+    release_camera(window)
+
+
+def camera_wanted(window) -> bool:
+    """The one rule: the webcam runs only while something the user can see and turn off
+    needs it: the open camera tile, Hands on in Filament, or Track checked in Sodium."""
+    if window.camera_dock.isVisible():
+        return True
+    if active_theme() == "filament":
+        return bool(getattr(window, "_hands_chip", False)) and world_stage_allowed()
+    return window.camera.track_btn.isChecked()
+
+
+def release_camera(window) -> None:
+    if getattr(window.camera, "_running", False) and not camera_wanted(window):
+        window.camera.stop()
 
 
 def on_hands_chip(window, on: bool) -> None:
