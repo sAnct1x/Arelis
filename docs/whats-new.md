@@ -1,8 +1,9 @@
 # What's new
 
-This checkout is **0.3.3**. The latest published installer is still **0.3.2.1** until 0.3.3 is published: [download it here](https://github.com/sAnct1x/Arelis/releases/latest). The 0.2.4 to 0.2.9 installers were broken (they closed at startup), so use 0.3.0 or newer.
+This checkout is **0.3.4**. The latest published installer is still **0.3.3** until 0.3.4 is published: [download it here](https://github.com/sAnct1x/Arelis/releases/latest). The 0.2.4 to 0.2.9 installers were broken (they closed at startup), so use 0.3.0 or newer.
 
-Notes: [v0.3.3](releases/v0.3.3.md). Older:
+Notes: [v0.3.4](releases/v0.3.4.md). Older:
+[v0.3.3](releases/v0.3.3.md).
 [v0.3.2.1](releases/v0.3.2.1.md).
 [v0.3.2](releases/v0.3.2.md).
 [v0.3.1](releases/v0.3.1.md).
@@ -14,7 +15,11 @@ Notes: [v0.3.3](releases/v0.3.3.md). Older:
 [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
 [v0.2.1](releases/v0.2.1.md).
 
-## In this checkout
+## 0.3.4
+
+Filament becomes the main room, with Arelis standing beside her orbit tree,
+a cleaner startup, and the webcam off until you ask for it. Full notes:
+[v0.3.4](releases/v0.3.4.md).
 
 - Launch: a small splash shows her energy breathing right away, with a line that says what is loading (Loading model, Starting voice, Building her). It closes when the main window appears.
 - Launch splash: the rings sit centred in a slightly taller plate, clear of its top edge and of the status line.
