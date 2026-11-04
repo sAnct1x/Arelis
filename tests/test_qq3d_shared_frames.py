@@ -60,3 +60,24 @@ def test_shared_frames_reach_the_surface_with_no_readback(qt_app) -> None:
     assert len(set(seqs)) >= 4 and seqs == sorted(seqs)
     assert len({f.index for f in surface.frames}) >= 2  # the ring turns over
     assert reads == [] and surface.images == 0
+
+
+def test_a_d3d_resource_given_as_a_sized_zero_voidptr_is_still_read():
+    import ctypes
+
+    import shiboken6
+
+    from arelis.ui.persona_face import shared_frame
+
+    buf = ctypes.create_string_buffer(8)
+    addr = ctypes.addressof(buf)
+
+    class _RI:
+        def getResource(self, _window, _resource):
+            return shiboken6.VoidPtr(addr, 0, False)  # what PySide hands back
+
+    class _Win:
+        def rendererInterface(self):
+            return _RI()
+
+    assert shared_frame._d3d_resource(_Win(), "DeviceResource") == addr

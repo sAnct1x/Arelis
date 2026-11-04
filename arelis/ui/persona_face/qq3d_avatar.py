@@ -1239,13 +1239,38 @@ class QQ3DAvatar(QWidget):
         self.engine = self._render.engine = QQmlEngine()
         self._render.incubator = _incubation()  # freed with the engine (dispose)
         self.engine.setIncubationController(self._render.incubator)
-        component = QQmlComponent(self.engine, QUrl.fromLocalFile(str(ENTRY)))
+        # Compiled on the QML loader thread: loading the scene and its Quick 3D imports
+        # synchronously held the GUI thread for about 2 s of every load on Atria.
+        component = QQmlComponent(self.engine)
+        self._component = component
+        self._model = model
+        self._t_load = time.monotonic()
+        mode = QQmlComponent.CompilationMode.Asynchronous
+        component.loadUrl(QUrl.fromLocalFile(str(ENTRY)), mode)
+        if component.isLoading():
+            component.statusChanged.connect(self._scene_compiled)
+        else:
+            self._scene_compiled()
+
+    def _scene_compiled(self, *_args) -> None:
+        import shiboken6
+
+        from arelis.ui.persona_face.panel import alog
+
+        component = self._component
+        if self._dead or not shiboken6.isValid(component) or component.isLoading():
+            return
+        if getattr(self, "root", None) is not None:
+            return
+        compiled = time.monotonic()
         root = component.create() if component.isReady() else None
+        alog("qq3d scene", compile_ms=int((compiled - self._t_load) * 1000),
+             create_ms=int((time.monotonic() - compiled) * 1000))
+        model = self._model
         if root is None:
             errs = "; ".join(e.toString() for e in component.errors()) or "no root"
             QTimer.singleShot(0, self, lambda: self._fail(f"scene error: {errs}"))
             return
-        self._component = component
         root.setParentItem(self.view.contentItem())
         self.root = self._render.root = root
         self._fit()

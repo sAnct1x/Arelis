@@ -630,3 +630,24 @@ def test_each_frame_reads_back_the_one_before_it_and_a_still_scene_settles(
     assert "rd" in drawn and all(f in ("d", "rd") for f in drawn), frames  # never d then r
     assert host._image_seq == render._drawn > 1  # the last drawn frame lands once she is still
     host.close()
+
+
+def test_her_scene_compiles_off_the_gui_thread_and_still_loads(tmp_path, monkeypatch) -> None:
+    """Building her must not compile the scene on the GUI thread (a 2 s freeze on Atria)."""
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    host = QQ3DAvatar()
+    assert getattr(host, "root", None) is None  # still compiling when the constructor returns
+    host.resize(200, 400)
+    host.show()
+    for _ in range(40):
+        if host.is_ready():
+            break
+        QTest.qWait(100)
+    ready = host.is_ready()
+    host.close()
+    assert ready

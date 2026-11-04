@@ -136,10 +136,12 @@ def _d3d_resource(window, name: str) -> int:
     from PySide6.QtQuick import QSGRendererInterface
 
     ri = window.rendererInterface()
-    ptr = ri.getResource(window, getattr(QSGRendererInterface.Resource, name))
-    ptr = int(ptr) if ptr else 0
+    raw = ri.getResource(window, getattr(QSGRendererInterface.Resource, name))
+    # PySide returns a shiboken6.VoidPtr of size 0 here (its .pyi says int). A VoidPtr's
+    # truth is its size, so a live pointer tested falsy and sharing never engaged.
+    ptr = int(raw) if raw is not None else 0
     if not ptr:
-        raise OSError(f"no D3D11 {name}")
+        raise OSError(f"no D3D11 {name} (getResource gave {type(raw).__name__} {raw!r})")
     return ptr
 
 
