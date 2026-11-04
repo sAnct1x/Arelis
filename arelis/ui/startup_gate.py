@@ -28,7 +28,7 @@ _STATUS = {"model": "Loading model", "arelis": "Drawing Arelis", "tree": "Growin
 
 def startup_waits(window: Any) -> dict[str, Callable[[], bool]]:
     """What the open app needs before it is shown, by name, each a ready check."""
-    from arelis.ui.theme import active_theme
+    from arelis.ui import theme
 
     router = getattr(window, "router", None)
     panel = getattr(window, "persona_panel", None)
@@ -37,9 +37,19 @@ def startup_waits(window: Any) -> dict[str, Callable[[], bool]]:
         "arelis": lambda: panel is None or not panel.scene_pending(),
     }
     field = getattr(window, "_filament", None)
-    if active_theme() == "filament" and field is not None:
-        waits["tree"] = field.tree_built
+    if theme.active_theme() == "filament" and field is not None:
+        # Leaving Filament mid-launch stops the tree, so it no longer counts.
+        waits["tree"] = lambda: theme.active_theme() != "filament" or field.tree_built()
     return waits
+
+
+def _ready(name: str, check: Callable[[], bool]) -> bool:
+    """A check that raises counts as ready, so it can never hold the window hidden."""
+    try:
+        return bool(check())
+    except Exception:
+        log.warning("startup %s check failed; not waiting on it", name, exc_info=True)
+        return True
 
 
 class StartupGate(QObject):
@@ -76,7 +86,7 @@ class StartupGate(QObject):
         if self.done:
             return
         for name, ready in list(self._waits.items()):
-            if ready():
+            if _ready(name, ready):
                 del self._waits[name]
                 self._mark(f"{name} ready")
         late = time.monotonic() - self._t0 >= GIVE_UP_S
