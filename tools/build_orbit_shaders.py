@@ -22,6 +22,7 @@ STAGES = (
     "dust.vert",
     "dust.frag",
     "overlay.frag",
+    "fibers.frag",
     "tree.vert",
     "pulse.vert",
     "flare.vert",

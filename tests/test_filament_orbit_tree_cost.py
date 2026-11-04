@@ -29,8 +29,10 @@ def test_under_the_tree_the_hidden_ring_layers_draw_nothing(qt_app) -> None:
     assert root is not None, [e.toString() for e in component.errors()]
     orbit = next(i for i in root.findChildren(QQuickItem) if i.property("treeOn") is not None)
 
+    stack = orbit.findChild(QQuickItem, "orbitTreeStack")
+
     def drawn_by(stage: str) -> list[QQuickItem]:  # the Repeaters' layers are child items only
-        items = orbit.childItems()
+        items = stack.childItems()
         return [i for i in items if i.property("vertexShader") == QUrl(stage)]
 
     strands = drawn_by("orbit/strand.vert.qsb") + drawn_by("orbit/thread.vert.qsb")

@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import time
 
-from PySide6.QtCore import Property, QObject, QPointF, QRect, Signal, Slot
+from PySide6.QtCore import Property, QObject, QPointF, QRect, QRectF, Signal, Slot
 from PySide6.QtGui import QColor, QVector4D
 
 from arelis.ui import filament_field as ff
@@ -26,6 +26,20 @@ LOG = logging.getLogger("arelis.avatar")
 SYNC_S = 1.0
 TREE_FLOOR = 0.955  # the floor the tree stands on, as a share of the height (v11b: 1328/1392)
 FEET_OFFSET = 0.14  # the floor link's start, out from her hub, as a share of the height
+COVER_SHARE = 0.25  # the chat tile covers the tree when it hides this share of the tree's box
+
+
+def tree_covered(
+    cover: QRect | None, rect: QRect, cx: float, cy: float, rx: float, ry: float
+) -> bool:
+    """The open chat tile hides enough of the tree (its crown round the ring down to the floor)
+    that animating its fibers is wasted: QuickOrbit.qml holds them still (still drawn)."""
+    if cover is None or cover.isEmpty():
+        return False
+    floor = rect.top() + rect.height() * TREE_FLOOR
+    box = QRectF(cx - rx * 1.3, cy - ry * 1.4, rx * 2.6, max(1.0, floor - (cy - ry * 1.4)))
+    hit = box.intersected(QRectF(cover))
+    return hit.width() * hit.height() >= COVER_SHARE * box.width() * box.height()
 
 
 class OrbitState(QObject):
@@ -48,6 +62,8 @@ class OrbitState(QObject):
     treeChanged = Signal()
     feetChanged = Signal()
     realityChanged = Signal()
+    treeCoveredChanged = Signal()
+    coverChanged = Signal()
     titleShowChanged = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -73,6 +89,10 @@ class OrbitState(QObject):
             "tree": QVector4D(),
             "feet": QPointF(),
             "reality": QPointF(-1.0, -1.0),
+            "treeCovered": False,
+            # The open chat tile's rect (empty when closed): QuickOrbit.qml shades none of the
+            # held tree under it.
+            "cover": QRectF(),
             # FilamentField.title_show: the tile titles' fade, which QML's beads and rings share.
             "titleShow": 0.0,
         }
@@ -103,6 +123,8 @@ class OrbitState(QObject):
         # The reality tile's light, where the tree's last minor limb ends (common.glsl).
         hidden = "reality" in field._hidden
         self._set("reality", QPointF(-1.0, -1.0) if hidden else field.reality_center(rect))
+        self._set("treeCovered", tree_covered(field.cover, rect, cx, cy, rx, ry))
+        self._set("cover", QRectF(field.cover) if field.cover is not None else QRectF())
         self._set("hasHub", hub is not None)
         if hub is not None:
             self._set("hub", QPointF(hub))
@@ -179,4 +201,8 @@ class OrbitState(QObject):
     tree = Property(QVector4D, lambda self: self._values["tree"], notify=treeChanged)
     feet = Property(QPointF, lambda self: self._values["feet"], notify=feetChanged)
     reality = Property(QPointF, lambda self: self._values["reality"], notify=realityChanged)
+    treeCovered = Property(
+        bool, lambda self: self._values["treeCovered"], notify=treeCoveredChanged
+    )
+    cover = Property(QRectF, lambda self: self._values["cover"], notify=coverChanged)
     titleShow = Property(float, lambda self: self._values["titleShow"], notify=titleShowChanged)
