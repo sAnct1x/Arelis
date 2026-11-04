@@ -270,3 +270,71 @@ def test_clicking_a_history_chat_opens_it_in_the_chat_tile(
     qt_app.processEvents()
     assert (loads, toasts) == (["s-old"], [])
     assert w._filament_chat_open
+
+def test_the_splash_stays_until_model_arelis_tree_and_a_paint_are_ready(
+    arelis_window, qt_app, monkeypatch
+) -> None:
+    from types import SimpleNamespace
+
+    from arelis.ui.startup_gate import hold_until_ready
+
+    w = _filament(arelis_window, qt_app)
+    warming = {"v": True}
+    built = {"v": False}
+    monkeypatch.setattr(w, "router", SimpleNamespace(warmup_pending=lambda: warming["v"]))
+    monkeypatch.setattr(w._filament, "tree_built", lambda: built["v"])
+
+    def launch():
+        splash = SimpleNamespace(closed=0, note=lambda _t: None)
+        splash.finish = lambda: setattr(splash, "closed", splash.closed + 1)
+        gate = hold_until_ready(w, splash)
+        gate._poll()
+        w.repaint()  # a frame is painted, so only the wait under test holds it
+        gate._poll()
+        return gate, splash
+
+    passes_clicks = lambda: bool(  # noqa: E731
+        w.windowHandle().flags() & Qt.WindowType.WindowTransparentForInput
+    )
+    built["v"] = True  # only the model holds it
+    gate, splash = launch()
+    assert (splash.closed, w.windowOpacity(), passes_clicks()) == (0, 0.0, True)
+    warming["v"] = False
+    gate._poll()
+    assert splash.closed == 0  # no full frame painted since the last wait cleared
+    w.repaint()
+    gate._poll()
+    assert (splash.closed, w.windowOpacity(), passes_clicks()) == (1, 1.0, False)
+
+    built["v"] = False  # only the tree holds it
+    gate, splash = launch()
+    assert (splash.closed, w.windowOpacity()) == (0, 0.0)
+
+
+def test_a_failing_check_or_leaving_filament_never_strands_the_splash(
+    arelis_window, qt_app, monkeypatch
+) -> None:
+    from types import SimpleNamespace
+
+    import arelis.ui.theme as theme
+    from arelis.ui.startup_gate import hold_until_ready
+
+    w = _filament(arelis_window, qt_app)
+
+    def broken() -> bool:
+        raise RuntimeError("router gone")
+
+    monkeypatch.setattr(w, "router", SimpleNamespace(warmup_pending=broken))
+    monkeypatch.setattr(w._filament, "tree_built", lambda: False)
+    splash = SimpleNamespace(closed=0, note=lambda _t: None)
+    splash.finish = lambda: setattr(splash, "closed", splash.closed + 1)
+    gate = hold_until_ready(w, splash)
+    gate._poll()
+    w.repaint()
+    gate._poll()
+    assert splash.closed == 0  # the tree still counts in Filament
+    monkeypatch.setattr(theme, "active_theme", lambda: "night")
+    gate._poll()
+    w.repaint()
+    gate._poll()
+    assert (splash.closed, w.windowOpacity()) == (1, 1.0)
