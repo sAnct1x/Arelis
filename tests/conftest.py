@@ -61,7 +61,42 @@ _TESTS_DATA_ROOT = Path(tempfile.mkdtemp(prefix="arelis-tests-")).resolve()
 os.environ["ARELIS_DATA_DIR"] = str(_TESTS_DATA_ROOT)
 
 
+# Watchdogs that need no GIL. pytest-timeout (thread method) runs Python on a timer
+# thread, so a test stuck in C code that holds the GIL (a Qt, Metal or WebEngine call)
+# never times out: the macOS job sat at 91% for 20+ minutes with no output, twice.
+# faulthandler's watchdog is a C thread: past its bound it dumps every thread's stack and
+# ends the process, and xdist then reports the worker crashed while running that test.
+_TEST_GUARD_S = float(os.environ.get("ARELIS_TEST_GUARD_S", "180"))  # above timeout = 90
 _EXIT_GUARD_S = 120  # each drain at exit has its own bound (the longest is 20 s)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_protocol(item, nextitem):
+    """Bound one test (setup, call and teardown) even when pytest-timeout cannot fire."""
+    import faulthandler
+    import sys
+
+    faulthandler.dump_traceback_later(_TEST_GUARD_S, exit=True, file=sys.__stderr__)
+    try:
+        yield
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+
+
+def _arm_exit_guard() -> None:
+    import faulthandler
+    import sys
+
+    faulthandler.dump_traceback_later(_EXIT_GUARD_S, exit=True, file=sys.__stderr__)
+
+
+def pytest_unconfigure(config) -> None:
+    """Bound interpreter exit (atexit drains, Qt and interpreter teardown), not the wait
+    before it: an xdist worker that finished its share idles, rightly, until the controller
+    closes it. Registered last, so it runs first among the atexit handlers."""
+    import atexit
+
+    atexit.register(_arm_exit_guard)
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -70,14 +105,6 @@ def pytest_sessionfinish(session, exitstatus):
     ignore_errors because a test that left a SQLite connection open holds a lock Windows
     honours, and a suite that passed must not report failure over scratch files in TEMP.
     """
-    import faulthandler
-    import sys
-
-    # pytest-timeout bounds each test, not what runs after the last one: thread drains,
-    # atexit (_drain_at_exit), Qt and interpreter teardown. A worker stuck there hung the
-    # macOS job for 35+ minutes with no output. Past the bound, dump every thread's stack
-    # and end the process, so a hang is a short failure that names where it sat.
-    faulthandler.dump_traceback_later(_EXIT_GUARD_S, exit=True, file=sys.__stderr__)
     from arelis.ui.live_threads import drain_parked_threads
 
     drain_parked_threads()
