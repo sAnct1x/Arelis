@@ -120,7 +120,7 @@ void main() {
                   + (1.0 - mixb) * (minor ? 0.85 : 0.2 + 0.8 * pow(0.5 + 0.5 * sin(thl), 1.5));
         float trk = 1.0 - 0.42 * (1.0 - smoothstep(dT - 60.0, dT + 40.0, d));
         // They rise out of the floor over a long soft ramp: no splayed stub starts at full light.
-        float fade = smoothstep(0.0, 110.0, d) * (1.0 - smoothstep(0.92, 1.0, s) * (minor ? 0.9 : 0.35));
+        float fade = pow(smoothstep(0.0, 220.0, d), 1.5) * (1.0 - smoothstep(0.92, 1.0, s) * (minor ? 0.9 : 0.35));
         float lf = length(tree.xy - feet) * 1.05;
         float tot = lf + lt + ll;
         float pl = pkt(j, (lf + s * (lt + ll)) / max(tot, 1.0), tot) * (minor ? 0.55 : 1.0);
@@ -173,9 +173,9 @@ void main() {
         float sheen = 0.7 + 0.3 * sin(TAU * (2.0 * s + ph) + th(i, 9.0) * TAU);
         float brk = clamp(wob(f, s * 3.0, 10.0) * 0.7 + 0.75, 0.0, 1.0);
         // Every root fades in from its far end and runs on into the trunk's foot.
-        float fade = (left ? 2.1 : dir < 0.5 ? 0.9 : dir < 1.5 ? 1.3 : 0.8)
+        float fade = (left ? 1.7 : dir < 0.5 ? 1.8 : dir < 1.5 ? 1.6 : 1.1)
             * pow(smoothstep(0.0, left ? 0.2 : 0.35, s), 1.2) * (1.0 - 0.6 * smoothstep(0.85, 1.0, s)) * brk;
-        a = (0.4 + th(f, 11.0) * 0.8) * fade * sheen * (left ? 0.17 : 0.1);
+        a = (0.4 + th(f, 11.0) * 0.8) * fade * sheen * (left ? 0.16 : 0.14);
         halfW *= left ? 0.75 : 0.85;
         gpos = 1.0 - s;
         gpos *= 0.4;
