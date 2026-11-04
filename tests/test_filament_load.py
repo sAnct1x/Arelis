@@ -210,14 +210,15 @@ def test_a_tile_is_never_on_screen_at_its_saved_spot_before_it_grows(
 
     class Spy(QObject):
         def eventFilter(self, obj, event):
-            if obj is dock and event.type() == QEvent.Type.Show:
-                seen.append(("show", dock.windowOpacity()))
+            if obj is self.target and event.type() == QEvent.Type.Show:
+                seen.append(("show", obj.windowOpacity()))
             return False
 
+    Spy.target = dock
     spy = Spy()
     dock.installEventFilter(spy)
     monkeypatch.setattr(desk, "play_tile_grow", lambda *a, **k: seen.append(("grow", 0.0)))
-    # Starting the camera lets frames through before the grow, as it does on Windows.
+    # Anything that lets frames through before the grow (as on Windows) must find it unseen.
     monkeypatch.setattr(w.camera, "start", qt_app.processEvents)
     w._toggle_camera(True)
     qt_app.processEvents()
@@ -225,3 +226,16 @@ def test_a_tile_is_never_on_screen_at_its_saved_spot_before_it_grows(
     assert ("grow", 0.0) in seen
     before = seen[: seen.index(("grow", 0.0))]
     assert all(opacity == 0.0 for _kind, opacity in before), seen
+    # Notify, on its second open too: the grow is its first show, so no full-size frame
+    # (a fresh native window on Windows could carry the saved opacity on it).
+    inbox = w.notify_inbox
+    for _ in range(2):
+        seen.clear()
+        inbox.installEventFilter(spy)
+        Spy.target = inbox
+        w._toggle_notifications(True)
+        qt_app.processEvents()
+        inbox.removeEventFilter(spy)
+        assert seen and seen[0][0] == "grow", seen
+        w._toggle_notifications(False)
+        qt_app.processEvents()

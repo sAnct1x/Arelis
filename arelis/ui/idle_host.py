@@ -175,8 +175,8 @@ def wake_from_away_rest(window) -> None:
 
         refresh_history(window)
     if hidden.get("camera"):
+        # The tile comes back with the webcam off: only Start camera turns it on.
         window.camera_dock.show()
-        window.camera.start()
     if hidden.get("calendar"):
         window.calendar_window.show()
         window.calendar_window.raise_()
