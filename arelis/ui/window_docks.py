@@ -11,7 +11,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QDockWidget, QTabBar, QWidget
 
 from arelis.ui.dock_surface import apply_dock_chrome, chrome_applying
-from arelis.ui.filament_tile import flush_tile_geom
+from arelis.ui.filament_tile import flush_tile_geom, hold_unseen_until_grow
 from arelis.ui.theme import SHELL, active_theme
 
 # Copied from app.py so this module never imports ArelisWindow (cycle).
@@ -80,6 +80,7 @@ def reveal_dock(
         return
     if dock.isVisible():
         return
+    hold_unseen_until_grow(dock)
     dock.show()
     if action is not None:
         action.setChecked(True)
@@ -98,6 +99,7 @@ def toggle_history(window, checked: bool) -> None:
 
     note_engagement(window)
     if checked:
+        hold_unseen_until_grow(window.history_dock)
         window.history_dock.setVisible(True)
         refresh_history(window)
         window._animate_dock(window.history_dock, show=True)
@@ -114,6 +116,7 @@ def toggle_notifications(window, checked: bool) -> None:
     note_engagement(window)
     if checked:
         on_notify_poll(window)
+        hold_unseen_until_grow(window.notify_inbox)
         window.notify_inbox.show()
         window.notify_inbox.raise_()
         from arelis.ui.foreground import claim_foreground
@@ -137,6 +140,7 @@ def toggle_camera(window, checked: bool) -> None:
 
     note_engagement(window)
     if checked:
+        hold_unseen_until_grow(window.camera_dock)
         window.camera_dock.setVisible(True)
         window.camera.start()
         window._animate_dock(window.camera_dock, show=True)

@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import time
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QImage,
@@ -746,6 +746,9 @@ class OrbitIdle(QWidget):
         orbit = getattr(self, "orbit", None)
         if orbit is not None:
             orbit.set_animating(False)
+        center = getattr(self, "_center", None)
+        if center is not None and center.parentWidget() is not self:
+            center.hide()  # lent to the window (Filament): it leaves with this face
         super().hideEvent(event)
 
     def _bloom_in_self(self) -> QPoint:
@@ -790,20 +793,25 @@ class OrbitIdle(QWidget):
         bloom = self._bloom_in_self()
         orbit_h = self.orbit.height()
         pinned_home = False
+        win = self.window()
+        field = getattr(win, "_filament", None) if win is not None else None
+        # Filament puts the ask at the window's top right, which is outside this chat
+        # column: as this column's child it was clipped away (UIA saw it, nobody else did).
+        # So it is lent to the window while Filament shows it, and taken back otherwise.
+        lend = active_theme() == "filament" and field is not None and win is not self
+        host = win if lend else self
+        if self._center.parentWidget() is not host:
+            self._center.setParent(host)  # setParent hides it
+            self._center.show()
+        if host is not self:
+            self._center.setVisible(self.isVisible())
         if active_theme() == "filament":
-            win = self.window()
-            field = getattr(win, "_filament", None) if win is not None else None
-            if field is not None and win is not None:
+            if host is not self:
+                # Top right of the window (prompt_point), kept on the window, not the desk.
                 p = field.prompt_point(win.rect())
-                local = self.mapFrom(win, p.toPoint())
-                cx = local.x() - cw // 2
-                cy = local.y()
-                home = field.home_rect(win.rect())
-                band = QRect(self.mapFrom(win, home.topLeft()), home.size())
-                if band.width() > cw + margin * 2:
-                    cx = max(band.left() + margin, min(cx, band.right() - cw - margin))
-                    cy = max(band.top() + margin, min(cy, band.bottom() - ch - margin))
-                    pinned_home = True
+                cx = min(int(p.x()) - cw // 2, win.width() - cw - margin)
+                cy = int(p.y())
+                pinned_home = True
             else:
                 cx = bloom.x() - cw // 2
                 cy = bloom.y() + 80

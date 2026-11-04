@@ -687,7 +687,8 @@ class FilamentDesk:
         w = self.window
         w._filament_woken = True
         widget.setMinimumSize(240, 180)
-        apply_tile_opacity(widget, w._filament_opacity.get(name, DEFAULT_OPACITY))
+        if widget.windowOpacity() > 0.0:  # held unseen until its grow (hold_unseen_until_grow)
+            apply_tile_opacity(widget, w._filament_opacity.get(name, DEFAULT_OPACITY))
         bind_tile_opacity(widget, name, w._filament_opacity)
         apply_tile_size(widget, name, w._filament_tile_sizes)
         bind_tile_size(widget, name, w._filament_tile_sizes, w._filament_tile_pos)
@@ -698,10 +699,16 @@ class FilamentDesk:
         from arelis.ui.hands_desk import remember_front
 
         remember_front(self.window, name)
-        dock.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
-        dock.setFloating(True)
-        apply_dock_chrome(dock, True)
-        self._filament_dress_tile(dock, name)
+        # Re-floating hides the dock for a moment, and that hide flushed its unplaced
+        # geometry over the saved size and spot. Nothing is the user's until it is placed.
+        dock._filament_growing = True
+        try:
+            dock.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
+            dock.setFloating(True)
+            apply_dock_chrome(dock, True)
+            self._filament_dress_tile(dock, name)
+        finally:
+            dock._filament_growing = False
         self._filament_place_near_title(dock, name)
 
     def _filament_place_near_title(self, widget, name: str) -> None:
@@ -716,10 +723,10 @@ class FilamentDesk:
             return
         if active_theme() == "filament":
             if parked is not None and origin_on_a_desk(parked[0], parked[1], size[0], size[1]):
+                # The user's own spot and size, as they left it: on a desk is all it needs,
+                # even outside the main window or over her. Fitting it back into the window
+                # is what made the chat reopen small and pulled tiles back inside.
                 dest = QRect(int(parked[0]), int(parked[1]), int(size[0]), int(size[1]))
-                # Parked in a bigger window, the spot can sit on her hub now
-                # (Babbage, 1100x800: over the hub and 36 px past the left edge).
-                dest = self._filament_clear_of_hub(self._filament_fit_window(dest, widget))
             else:
                 fresh = QRect(origin, QSize(int(size[0]), int(size[1])))
                 dest = self._filament_clear_of_hub(self._filament_fit_window(fresh, widget))
@@ -802,21 +809,26 @@ class FilamentDesk:
             if hasattr(widget, "isFloating") and not widget.isFloating():
                 continue
             geo = QRect(widget.geometry())
+            filt = getattr(widget, "_filament_size_filter", None)
+            if filt is not None and filt._name in w._filament_tile_pos:
+                continue  # the user moved or sized it: their spot, not ours to nudge
             dest = self._filament_clear_of_hub(geo)
             if dest != geo:
                 widget._filament_placed_geo = QRect(dest)
                 widget.setGeometry(dest)
 
     def _filament_spawn_tile(self, widget, name: str, dest: QRect) -> None:
-        """Every Filament tile opens here: it grows out of the end of its filament."""
+        """Every Filament tile opens here: it grows out of its own node on the tree (its
+        bead), not out of the plate's edge nearest her, which read as a random spot."""
         w = self.window
         local = QRect(w.mapFromGlobal(dest.topLeft()), dest.size())
         seed = w._filament.spawn_origin(name, local, w.rect())
         w._filament.bind_tether(name, seed)
-        start = w.mapToGlobal(QPoint(int(seed.x()), int(seed.y())))
+        node = w._filament.bead_point(name, w.rect())
+        start = w.mapToGlobal(QPoint(int(node.x()), int(node.y())))
         from arelis.ui.persona_face.panel import alog
 
-        alog("tile spawn", name=name, origin=f"{int(seed.x())},{int(seed.y())}")
+        alog("tile spawn", name=name, origin=f"{int(node.x())},{int(node.y())}")
         play_tile_grow(
             widget,
             start,

@@ -483,6 +483,10 @@ def attach_on_rect(rect: QRect, from_pt: QPointF) -> QPointF:
 
 
 
+PROMPT_INSET_X = 200  # the ask cluster's centre, in from the window's right edge
+PROMPT_INSET_Y = 56  # its top, down from the window's top (under the slim title bar)
+
+
 class FilamentField:
     """Sim + painter for the filament stream. Lives on ArelisWindow."""
 
@@ -513,9 +517,6 @@ class FilamentField:
         self.crown = False
         # Window x where her band starts (Filament): the ring, ask and reality stay left of it.
         self.band_left: float | None = None
-        # The open chat tile's rect in window coords (None when closed): the GPU orbit tree fades
-        # out while the tile covers it (OrbitState.treeCovered), so it costs nothing under it.
-        self.cover: QRect | None = None
         # Load sequence: 1.0 is a full ring. begin_ring_growth drops it to 0,
         # waits for her, then eases it back so the ring grows out of the hub.
         self.ring_grow = 1.0
@@ -974,12 +975,9 @@ class FilamentField:
         return home
 
     def prompt_point(self, rect: QRect) -> QPointF:
-        """Ask cluster sits under the ring, on the home desk; under the crown it stands left
-        of the tree's trunk (which rises from under the ring's centre), not on it."""
-        cx, cy, rx, ry = self.ellipse(rect, settled=True)
-        if self.crown:
-            return QPointF(cx - rx * 0.95, cy + ry + 96)
-        return QPointF(cx, cy + ry + 96)
+        """The ask cluster ('say "hey arelis"' and the talk icon): top centre of its box, in
+        the window's top right corner under the title bar, clear of the tree and her figure."""
+        return QPointF(rect.right() - PROMPT_INSET_X, rect.top() + PROMPT_INSET_Y)
 
     def prompt_rect(self, rect: QRect) -> QRect:
         p = self.prompt_point(rect)

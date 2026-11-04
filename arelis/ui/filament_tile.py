@@ -43,15 +43,12 @@ DEFAULT_SIZES: dict[str, tuple[int, int]] = {
     "contacts": (320, 260),
     "reality": (420, 320),
 }
-# Largest size a tile keeps. The days tile once saved its Night chrome size
-# (1100x800 clamped to 720x768), so its saved size stays near its default.
-_MAX_SIZE = (720, 800)
-MAX_SIZES: dict[str, tuple[int, int]] = {"days": (540, 618)}
+# Qt's own "no maximum" (QWIDGETSIZE_MAX). A tile has no size cap: the user sizes it.
+_WIDGET_SIZE_MAX = 16777215
 
 
 def clamp_tile_size(name: str, width: int, height: int) -> tuple[int, int]:
-    max_w, max_h = MAX_SIZES.get(name, _MAX_SIZE)
-    return max(240, min(max_w, int(width))), max(180, min(max_h, int(height)))
+    return max(240, int(width)), max(180, int(height))
 
 
 def clamp_opacity(value: float) -> float:
@@ -73,6 +70,20 @@ def load_opacities(config: dict) -> dict[str, float]:
 
 def apply_tile_opacity(widget: QWidget, value: float) -> None:
     widget.setWindowOpacity(clamp_opacity(value))
+
+
+def hold_unseen_until_grow(widget: QWidget) -> None:
+    """Filament: a tile about to be shown waits at opacity 0 until its grow places it.
+
+    Showing it first (a dock's setVisible, notify's show) put it on screen at its last
+    geometry and saved opacity. Anything that let a frame through before the grow hid it
+    again (the camera starting, notify's poll and foreground claim) flashed it full size
+    at its saved spot for a frame or two before it jumped to its node.
+    """
+    from arelis.ui.theme import active_theme
+
+    if active_theme() == "filament" and widget.isHidden():
+        widget.setWindowOpacity(0.0)
 
 
 def add_opacity_action(
@@ -254,7 +265,7 @@ def play_tile_grow(
 def apply_tile_size(widget: QWidget, name: str, store: dict[str, tuple[int, int]]) -> None:
     width, height = store.get(name) or DEFAULT_SIZES.get(name, (320, 280))
     width, height = clamp_tile_size(name, width, height)
-    widget.setMaximumSize(*MAX_SIZES.get(name, _MAX_SIZE))
+    widget.setMaximumSize(_WIDGET_SIZE_MAX, _WIDGET_SIZE_MAX)
     widget.resize(width, height)
 
 

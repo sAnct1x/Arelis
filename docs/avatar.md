@@ -88,8 +88,17 @@ its node.
 The beads, the pulses of light and the reality orb appear at that same moment, on the
 same fade as the names, never while the ring is still growing.
 
-A tile you open in Filament grows out of the end of its own filament: it starts as a
-small seed where its thread meets the plate, then opens to full size.
+A tile you open in Filament grows out of its own node on the tree, then opens to full
+size. It reopens at the size and spot you left it, even outside the main window.
+
+The tree's base spreads three ways on the floor: right, toward you and away from you,
+besides the long roots to the left. Every root and buttress fades in from its far end and
+runs on into the trunk, so no strand stops short. The floor light starts just outside her
+near foot (`OrbitState` `feet`, 0.14 of the height off her hub, toward the tree) as a wide
+soft swell, not a hot point between her feet. The tree keeps drawing under the open chat.
+Its fibers are drawn in four quarters into textures, one quarter redrawing per frame in
+turn, and laid together into one cached texture, so a frame composites one fiber texture,
+not four. The tree keeps moving under the chat too.
 
 She stays in view when the app goes idle. She is always framed head to toe and the
 view refits when the window changes size.
@@ -181,7 +190,7 @@ find them all with a single search. The page's own console messages are included
 | `[avatar] filament load step=she appears` | Filament opened; the ring waits for her. |
 | `[avatar] filament load step=ring grows origin=X,Y` | The ring starts growing out of her hub at X,Y. |
 | `[avatar] filament load step=ring settled` | The ring is at full size. |
-| `[avatar] tile spawn name=... origin=X,Y` | A Filament tile started growing from its filament at X,Y. |
+| `[avatar] tile spawn name=... origin=X,Y` | A Filament tile started growing from its node on the tree at X,Y. |
 | `[avatar] webgl lost` / `restored` | The graphics context dropped or came back. |
 | `[avatar] failed reason=...` | The scene gave up; the glow stays. |
 | `[avatar] js ...` | Any other console message from the page, with file and line. |
