@@ -12,6 +12,7 @@ Chosen with ``ARELIS_AVATAR_ENGINE=qq3d`` or ``--avatar-engine qq3d``, in the ro
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import re
@@ -581,6 +582,40 @@ def gil_free_calls(control) -> dict[str, object]:
 
 
 _LIVE: set = set()  # running render threads, kept until dispose so GC never frees one mid-frame
+_PINNED: list = []  # threads still in a frame at exit: never freed, so never destroyed running
+_EXIT_WAIT_S = 20.0
+
+
+def _drain_at_exit(timeout_s: float = _EXIT_WAIT_S) -> list:
+    """At interpreter exit: let her render threads finish the frame in flight, within a bound.
+
+    The window is gone by then, so Quit already felt instant. A thread still inside a cold
+    pipeline compile after the bound is pinned: its wrapper gets an extra reference, so
+    neither module teardown nor the GC destroys a running QThread (Qt aborts on that). The
+    OS ends it with the process. Returns the threads it pinned.
+    """
+    import ctypes
+
+    import shiboken6
+
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    pinned = []
+    for thread in list(_LIVE):
+        try:
+            if not shiboken6.isValid(thread):
+                continue
+            thread.cancel()
+            left = int(max(0.0, deadline - time.monotonic()) * 1000)
+            if thread.isRunning() and not thread.wait(left):
+                ctypes.pythonapi.Py_IncRef(ctypes.py_object(thread))
+                _PINNED.append(thread)
+                pinned.append(thread)
+        except RuntimeError:
+            continue
+    return pinned
+
+
+atexit.register(_drain_at_exit)
 
 
 class _RenderThread(QThread):
@@ -647,37 +682,47 @@ class _RenderThread(QThread):
                 self._cv.wait(0.5)
             return True
 
-    def stop(self) -> bool:
-        """Ask the loop to end; True once run() has returned (False if still in a frame)."""
+    def cancel(self) -> None:
+        """Ask the loop to end after the frame in flight; never waits (live_threads calls it)."""
         with self._cv:
             self._stop = True
             self._cv.notify_all()
+
+    def stop(self) -> bool:
+        """Ask the loop to end; True once run() has returned (False if still in a frame)."""
+        self.cancel()
         return self.wait(5000)
 
     def dispose(self, *_args) -> None:
         """Stop the thread, then free the scene, its window and the control, in that order.
 
-        A frame still in flight after the wait (a heavy model's first frame on a slow GPU)
-        keeps the thread, its control and its window alive until run() returns: freeing
-        them now would pull the control out from under _release, and dropping the last
-        wrapper of a running QThread aborts the process.
+        Never waits on the GUI thread. A cold first frame can sit in its pipeline compile for
+        10 s or more, and waiting for it froze Quit and a theme switch. A thread still in a
+        frame is parked (live_threads holds its wrapper, and launch's exit drain waits for it
+        within its bound; _drain_at_exit then pins any it could not join so no destructor
+        aborts the process), and this runs again from finished to free the rest.
         """
         import shiboken6
 
         if not shiboken6.isValid(self):  # Qt already freed it (a host that failed to start)
             _LIVE.discard(self)
             return
-        if self.isRunning() and not self.stop():
+        self.cancel()
+        if self.isRunning():
             if not self._dispose_queued:
                 self._dispose_queued = True
+                from arelis.ui.live_threads import park_running_thread
+
+                park_running_thread(self)
                 self.finished.connect(self.dispose, Qt.ConnectionType.QueuedConnection)
             return
         _LIVE.discard(self)
         for name in ("root", "_window", "engine", "_control"):
             obj = getattr(self, name, None)
-            if obj is not None:
+            setattr(self, name, None)
+            # The scene can go with its window or engine first; only free what is still there.
+            if obj is not None and shiboken6.isValid(obj):
                 obj.deleteLater()
-                setattr(self, name, None)
 
     # ---- render thread ----
 
@@ -796,7 +841,9 @@ class _RenderThread(QThread):
             from PySide6.QtCore import QCoreApplication
 
             self._ctx.doneCurrent()
-            self._ctx.moveToThread(QCoreApplication.instance().thread())
+            app = QCoreApplication.instance()
+            if app is not None:  # gone when this frame outlived the app at exit
+                self._ctx.moveToThread(app.thread())
 
 
 class QQ3DAvatar(QWidget):
@@ -861,7 +908,7 @@ class QQ3DAvatar(QWidget):
         self.control.prepareThread(self._render)
         why = self._render.initialize()
         if why is not None:
-            QTimer.singleShot(0, lambda: self._fail(why))
+            QTimer.singleShot(0, self, lambda: self._fail(why))
             return
         self._render.start(QThread.Priority.HighPriority)
         self._watch_window()
@@ -886,7 +933,7 @@ class QQ3DAvatar(QWidget):
         root = component.create() if component.isReady() else None
         if root is None:
             errs = "; ".join(e.toString() for e in component.errors()) or "no root"
-            QTimer.singleShot(0, lambda: self._fail(f"scene error: {errs}"))
+            QTimer.singleShot(0, self, lambda: self._fail(f"scene error: {errs}"))
             return
         self._component = component
         root.setParentItem(self.view.contentItem())

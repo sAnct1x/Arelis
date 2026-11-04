@@ -419,3 +419,62 @@ def test_filament_scales_her_down_with_her_soles_on_the_floor(tmp_path, monkeypa
     half = math.tan(math.radians(cam.property("fieldOfView") / 2)) * cam.property("camZ")
     assert abs(cam.property("y") - cam.property("tilt") - half - root.property("soleY")) < 1e-3
     host.close()
+
+
+def test_quit_with_a_frame_in_flight_never_waits_and_never_destroys_a_running_thread() -> None:
+    """Quit or a theme switch during her cold first frame (a 10 s+ pipeline compile).
+
+    dispose used to wait up to 5 s on the GUI thread, then let the app exit with the thread
+    still in run(), which Qt aborts on. Now it returns at once, the thread finishes its frame
+    and frees the rest, and at exit a thread still in a frame is pinned, not destroyed.
+    """
+    import threading
+    import time
+
+    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtQuick import QQuickRenderControl, QQuickWindow
+
+    from arelis.ui import live_threads
+    from arelis.ui.persona_face import qq3d_avatar
+
+    QApplication.instance() or QApplication([])
+    in_frame, release = threading.Event(), threading.Event()
+
+    class Stuck(qq3d_avatar._RenderThread):
+        def _loop(self) -> None:  # a frame that sits in its compile until released
+            in_frame.set()
+            release.wait(30)
+
+        def _release(self) -> None:
+            pass
+
+    def started():
+        control = QQuickRenderControl()
+        t = Stuck(control, QQuickWindow(control))
+        qq3d_avatar._LIVE.add(t)
+        t.start()
+        assert in_frame.wait(5)
+        return t
+
+    render = started()
+    t0 = time.monotonic()
+    render.dispose()  # what destroyed and aboutToQuit call
+    assert time.monotonic() - t0 < 0.5
+    assert render.isRunning() and any(p is render for p in live_threads._PARKED)
+    release.set()
+    assert render.wait(5000)
+    for _ in range(20):
+        QCoreApplication.processEvents()
+        if render._control is None:
+            break
+        time.sleep(0.01)
+    assert render._control is None and render not in qq3d_avatar._LIVE
+
+    in_frame.clear()
+    release.clear()
+    render = started()
+    t0 = time.monotonic()
+    pinned = qq3d_avatar._drain_at_exit(0.2)  # the app is gone; the frame is not done
+    assert time.monotonic() - t0 < 2.0 and pinned == [render]
+    release.set()  # let the pinned thread end before the test process does
+    assert render.wait(5000)

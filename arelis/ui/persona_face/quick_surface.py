@@ -230,8 +230,12 @@ class QuickSurfaceAvatar(QQ3DAvatar):
         self.surface = None
         self._slot = None
         self._watched_up: list[QWidget] = []
+        self._attaching = False
         self._frame_n = 0
         self._shown_from: int | None = None  # the first frame number that has her posed
+        # QQ3DAvatar returns early (before setting root) when her render control cannot start
+        # (no GPU context); _drop, _place and the tests read root on that path too.
+        self.root = None
         super().__init__(parent)
         root = getattr(self, "root", None)
         if root is not None and not self._dead:
@@ -244,16 +248,21 @@ class QuickSurfaceAvatar(QQ3DAvatar):
     # ---- attach and place ----
 
     def _attach(self) -> None:
-        if self._dead or self.surface is not None or not self.isVisible():
+        if self._dead or self.surface is not None or self._attaching or not self.isVisible():
             return
         top = self.window()
         if top is self:
             return
+        # Building the surface on a shown window shows it, which re-enters this through
+        # showEvent before surface_for returns: one attach, one surface.
+        self._attaching = True
         try:
             surface = surface_for(top)
         except Exception as exc:
             self._fail(f"quick surface failed: {exc}")
             return
+        finally:
+            self._attaching = False
         slot = surface.slot()
         if slot is None:
             errs = "; ".join(e.toString() for e in surface.errors()) or "no surface root"
@@ -265,7 +274,7 @@ class QuickSurfaceAvatar(QQ3DAvatar):
         if not self._shown():
             surface.set_loading(True)
         if self._image is not None:
-            surface.set_figure(self._image)
+            self._show_figure(self._image)
 
     def _watch_ancestors(self) -> None:
         for w in self._watched_up:
@@ -335,8 +344,7 @@ class QuickSurfaceAvatar(QQ3DAvatar):
         if self.surface is not None:
             if not self._shown():
                 self.surface.set_loading(False)
-            if hasattr(self.surface, "set_figure"):
-                self.surface.set_figure(None)
+            self._show_figure(None)
         if self._slot is not None:
             self._slot.setVisible(False)
         for w in self._watched_up:
@@ -355,6 +363,12 @@ class QuickSurfaceAvatar(QQ3DAvatar):
 
     # ---- frames: the render thread's image, drawn by the surface ----
 
+    def _show_figure(self, image) -> None:
+        """Hand her frame (or None) to the surface; a surface without set_figure is skipped."""
+        show = getattr(self.surface, "set_figure", None)
+        if show is not None:
+            show(image)
+
     def _shown(self) -> bool:
         return self._shown_from is not None and self._frame_n >= self._shown_from
 
@@ -362,9 +376,13 @@ class QuickSurfaceAvatar(QQ3DAvatar):
         super()._on_frame()
         self._frame_n += 1
         if self.surface is not None and not self._dead:
-            self.surface.set_figure(self._image)
+            self._show_figure(self._image)
             if self._shown():
                 self.surface.set_loading(False)
+        if self._ready and not self._shown():
+            # A still scene asks for no frame after ready, so ask here until a posed frame
+            # has landed; otherwise the breathing state could stay over her for good.
+            self._request()
 
     def paintEvent(self, _event) -> None:
         pass  # the surface draws her
@@ -376,6 +394,7 @@ class QuickSurfaceAvatar(QQ3DAvatar):
             # frame is the one that builds her pipelines: the breathing state stays until a
             # frame begun after ready lands, so she never shows as an empty slot.
             self._shown_from = self._frame_n + 2
+            self._request()
 
     def _on_chest(self) -> None:
         """Her chest bone, mapped to the window: where the Filament chat strand starts."""
@@ -395,5 +414,5 @@ class QuickSurfaceAvatar(QQ3DAvatar):
                 self._slot.setVisible(False)
             if self.surface is not None:
                 self.surface.set_loading(False)
-                self.surface.set_figure(None)
+                self._show_figure(None)
         super()._fail(reason)

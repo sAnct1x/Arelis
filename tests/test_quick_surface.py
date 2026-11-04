@@ -35,9 +35,11 @@ def test_flag_on_builds_one_quick_surface(qt_app, monkeypatch) -> None:
         quick_root = surface.rootObject() if surface is not None else None
         if quick_root is not None:
             seen.append(quick_root.property("loading"))
-        if host is not None and host.is_ready():
+        if host is not None and (host.is_ready() or getattr(host, "_dead", False)):
             break
         QTest.qWait(100)
+    if getattr(host, "_dead", False) and not host.is_ready():
+        pytest.skip("no Quick 3D rendering here: her render control did not start")
     assert host.is_ready(), "her scene on the surface never reported ready"
     surfaces = win.findChildren(QQuickWidget)
     assert len(surfaces) == 1 and surfaces[0].parentWidget() is win
@@ -191,13 +193,29 @@ def test_her_load_renders_off_the_gui_thread_and_the_surface_draws_it(qt_app) ->
         pytest.skip(qq3d_avatar.unavailable_reason())
     win = QWidget()
     win.resize(640, 480)
-    av = quick_surface.QuickSurfaceAvatar(win)
-    av.setGeometry(320, 0, 320, 480)
-    win.show()
-    for _ in range(20):
-        if av.root is not None and av.root.window() is not None:
-            break
-        QTest.qWait(50)
+    made = []
+    real_surface_for = quick_surface.surface_for
+
+    def counting_surface_for(top):
+        made.append(top)
+        return real_surface_for(top)
+
+    quick_surface.surface_for = counting_surface_for
+    try:
+        av = quick_surface.QuickSurfaceAvatar(win)
+        if getattr(av, "control", None) is not None and av.control.rhi() is None:
+            win.close()
+            assert av.root is None  # the panel and _drop read it on this path too
+            pytest.skip("no Quick 3D rendering here: her render control did not start")
+        av.setGeometry(320, 0, 320, 480)
+        win.show()
+        for _ in range(20):
+            if av.root is not None and av.root.window() is not None and av.surface is not None:
+                break
+            QTest.qWait(50)
+        av._attach()  # a second attach (a re-entrant show) must not attach her again
+    finally:
+        quick_surface.surface_for = real_surface_for
     assert av.root is not None and av.root.window() is not None
     threads: set[int] = set()
     av.root.window().afterRendering.connect(
@@ -213,7 +231,44 @@ def test_her_load_renders_off_the_gui_thread_and_the_surface_draws_it(qt_app) ->
     win.close()
     assert threads, "her scene rendered no frame"
     assert threading.main_thread().ident not in threads
+    # Her scene is in its own window, not the QQuickWidget's (which renders on the GUI thread).
+    assert av.root.window() is not av.surface.quickWindow()
+    assert len(made) == 1
     assert figure.startswith("image://")
+
+
+def test_loading_clears_on_a_frame_begun_after_ready_and_frames_keep_coming(qt_app) -> None:
+    """Ready means posed, but the frame in flight may predate it: the breathing state stays
+    until a frame begun after ready lands, and frames are asked for until then even when the
+    scene asks for none (a still scene on macOS CI never cleared it)."""
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.persona_face import quick_surface
+
+    class Surface:
+        loading = True
+        figures = 0
+
+        def set_loading(self, on: bool) -> None:
+            self.loading = on
+
+        def set_figure(self, image) -> None:
+            self.figures += 1
+
+    host = QWidget()
+    av = quick_surface.QuickSurfaceAvatar(host)
+    av.surface = Surface()
+    asked = []
+    av._request = lambda *a: asked.append(1)
+    av._ready, av._shown_from = True, None
+    quick_surface.QuickSurfaceAvatar._on_status(av)  # ready: shown from two frames on
+    assert av._shown_from == 2 and asked
+    av._render.image = None
+    av._on_frame()  # the frame in flight at ready
+    assert av.surface.loading is True and len(asked) >= 2
+    av._on_frame()  # the first frame begun after ready
+    assert av.surface.loading is False and av.surface.figures == 2
+    host.deleteLater()
 
 
 def test_unset_surface_defaults_to_quick_and_override_still_works(monkeypatch) -> None:
