@@ -116,16 +116,22 @@ def toggle_notifications(window, checked: bool) -> None:
     note_engagement(window)
     if checked:
         on_notify_poll(window)
-        hold_unseen_until_grow(window.notify_inbox)
-        window.notify_inbox.show()
-        window.notify_inbox.raise_()
         from arelis.ui.foreground import claim_foreground
 
-        claim_foreground(window.notify_inbox)
-        window.notifications.opened.emit()
         if active_theme() == "filament":
+            # The grow is its first show, at the seed on its node. Showing it here first
+            # put a fresh native window on screen at full size; on Windows that first frame
+            # could carry the saved opacity (FULLSIZE-FLASH) before the grow hid it.
+            hold_unseen_until_grow(window.notify_inbox)
             window._filament_dress_tile(window.notify_inbox, "notify")
             window._filament_place_near_title(window.notify_inbox, "notify")
+            claim_foreground(window.notify_inbox)
+            window.notifications.opened.emit()
+        else:
+            window.notify_inbox.show()
+            window.notify_inbox.raise_()
+            claim_foreground(window.notify_inbox)
+            window.notifications.opened.emit()
     else:
         if active_theme() == "filament":
             flush_tile_geom(window.notify_inbox)
