@@ -11,13 +11,14 @@ This object reads and writes those attributes. It does not keep a second span.
 
 from __future__ import annotations
 
+import os
+
 from PySide6.QtCore import QByteArray, QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import QApplication, QDockWidget, QMenu
 
 from arelis.config import merge_local_config
 from arelis.ui.dock_surface import apply_dock_chrome
 from arelis.ui.filament_field import (
-    attach_on_rect,
     chrome_band_on_glass,
     clamp_filament_span,
     filament_chosen_desks,
@@ -208,6 +209,7 @@ class FilamentDesk:
     def _filament_apply_shape(self) -> None:
         w = self.window
         w.clearMask()
+        w._filament_home_band = None
         if not self._filament_can_claim_desk():
             w._filament.set_span(w._filament_span)
             self._filament_place_chrome()
@@ -233,6 +235,12 @@ class FilamentDesk:
             desk_left=float(desk_left),
             desk_width=float(desk_w),
         )
+        # Across 2 or 3 desks she stands on the home desk, inside the mask, not at the
+        # far edge of the union (another desk, or cut by the mask on uneven desks).
+        w._filament_home_band = QRect(band) if count >= 2 and band.width() >= 280 else None
+        stage = getattr(w, "persona_stage", None)
+        if stage is not None:
+            stage.follow()
         self._filament_place_chrome()
 
     def _filament_place_chrome(self) -> None:
@@ -269,7 +277,6 @@ class FilamentDesk:
     def _filament_lock_tiles(self, on: bool) -> None:
         w = self.window
         docks = {
-            "thinking": w.persona_dock,
             "history": w.history_dock,
             "camera": w.camera_dock,
         }
@@ -302,6 +309,8 @@ class FilamentDesk:
             for widget, _name in self._filament_extra_tiles():
                 apply_tile_opacity(widget, 1.0)
             w.calendar_window.setMinimumSize(720, 520)
+            # The tile cap is Filament's; Night's calendar takes any size again.
+            w.calendar_window.setMaximumSize(16777215, 16777215)
 
     def _filament_extra_tiles(self) -> list[tuple[object, str]]:
         w = self.window
@@ -390,7 +399,6 @@ class FilamentDesk:
             "maximized": was_max,
             "fullscreen": was_full,
             "docks": {
-                "think": not w.persona_dock.isHidden(),
                 "history": not w.history_dock.isHidden(),
                 "camera": not w.camera_dock.isHidden(),
                 "notify": not w.notify_inbox.isHidden(),
@@ -403,7 +411,6 @@ class FilamentDesk:
         try:
             w.title_bar.set_slim(True)
             w.readiness_strip.hide()
-            w.persona_dock.hide()
             w.history_dock.hide()
             w.camera_dock.hide()
             w.notify_inbox.hide()
@@ -416,6 +423,13 @@ class FilamentDesk:
         self._filament_apply_glass(True)
         self._filament_lock_tiles(True)
         self._filament_place_entity()
+        # She is the hub at the bottom left, part of the scene, not a tile.
+        from arelis.ui.persona_stage import seat_persona
+
+        seat_persona(w)
+        # Load sequence: she is up first, then the ring grows out of her hub.
+        panel = w.persona_panel
+        w._filament.begin_ring_growth(lambda p=panel: not p.scene_pending())
         apply = getattr(w.conversation, "apply_filament_desk", None)
         if callable(apply):
             apply(True, chat_open=False)
@@ -437,7 +451,15 @@ class FilamentDesk:
         w._filament_home = None
         w._filament_chrome_peek = False
         self._filament_set_chat_open(False)
+        mark = self._leave_mark
+        # Tiles the parked layout does not keep go first. Unlocking a visible
+        # tile restates its opacity (a native layered-window change) and the
+        # calendar's minimum size (a resize and a relayout of its whole tree),
+        # all for a window hidden a few lines later.
+        self._filament_hide_unparked(parked)
+        mark("leave_hide")
         self._filament_lock_tiles(False)
+        mark("leave_unlock")
         self._filament_apply_glass(False)
         w.clearMask()
         self._filament_dock_chrome()
@@ -445,6 +467,7 @@ class FilamentDesk:
         apply = getattr(w.conversation, "apply_filament_desk", None)
         if callable(apply):
             apply(False)
+        mark("leave_chrome")
         if parked is None:
             w._sync_panel_margins()
             from arelis.ui.idle_host import sync_idle_mode
@@ -454,7 +477,6 @@ class FilamentDesk:
         docks = parked.get("docks") or {}
         w._filament_hiding = True
         try:
-            w.persona_dock.setVisible(bool(docks.get("think")))
             w.history_dock.setVisible(bool(docks.get("history")))
             w.camera_dock.setVisible(bool(docks.get("camera")))
             if docks.get("notify"):
@@ -477,6 +499,7 @@ class FilamentDesk:
                     world.hide()
         finally:
             w._filament_hiding = False
+        mark("leave_docks")
         if self._filament_can_claim_desk():
             geo = parked.get("geometry")
             if parked.get("fullscreen"):
@@ -487,6 +510,7 @@ class FilamentDesk:
                 w.showNormal()
                 if geo:
                     w.restoreGeometry(geo)
+        mark("leave_geometry")
         w._sync_panel_margins()
         w._sync_view_checks()
         from arelis.ui.idle_host import sync_idle_mode
@@ -494,6 +518,33 @@ class FilamentDesk:
         sync_idle_mode(w)
         w._apply_round_mask()
         w.update()
+        mark("leave_mask")
+
+    def _leave_mark(self, phase: str) -> None:
+        trace = getattr(self.window, "_theme_trace", None)
+        if trace is not None:
+            trace.mark(phase)
+
+    def _filament_hide_unparked(self, parked) -> None:
+        if parked is None:
+            return
+        w = self.window
+        docks = parked.get("docks") or {}
+        tiles = {
+            "history": w.history_dock,
+            "camera": w.camera_dock,
+            "notify": w.notify_inbox,
+            "contacts": w.contacts_inbox,
+            "calendar": w.calendar_window,
+            "world": getattr(w, "world_window", None),
+        }
+        w._filament_hiding = True
+        try:
+            for name, tile in tiles.items():
+                if tile is not None and not docks.get(name) and not tile.isHidden():
+                    tile.hide()
+        finally:
+            w._filament_hiding = False
 
     def _sync_filament_face(self) -> None:
         w = self.window
@@ -520,7 +571,6 @@ class FilamentDesk:
         if floats is None or active_theme() != "filament":
             return
         history = getattr(w, "history_dock", None)
-        think = getattr(w, "persona_dock", None)
         cal = getattr(w, "calendar_window", None)
         camera = getattr(w, "camera_dock", None)
         notify = getattr(w, "notify_inbox", None)
@@ -532,7 +582,6 @@ class FilamentDesk:
             hidden.add("reality")
         w._filament.set_hidden_faces(hidden)
         floats.set_open("history", self._filament_plate_open(history))
-        floats.set_open("thinking", self._filament_plate_open(think))
         floats.set_open("days", self._filament_plate_open(cal))
         floats.set_open("camera", self._filament_plate_open(camera))
         floats.set_open("notify", self._filament_plate_open(notify))
@@ -540,8 +589,6 @@ class FilamentDesk:
         floats.set_open("reality", self._filament_plate_open(world))
         floats.set_open("chat", bool(w._filament_chat_open))
         live: set[str] = set()
-        if self._filament_weather() == "think" or getattr(w, "_confirm_waiting", False):
-            live.add("thinking")
         unread = 0
         center = getattr(w, "notify_center", None)
         if center is not None:
@@ -552,7 +599,6 @@ class FilamentDesk:
         if isinstance(hot, set) and hot:
             plates = {
                 "history": history,
-                "thinking": think,
                 "days": cal,
                 "camera": camera,
                 "notify": notify,
@@ -576,7 +622,6 @@ class FilamentDesk:
         w = self.window
         tiles = {
             "history": getattr(w, "history_dock", None),
-            "thinking": getattr(w, "persona_dock", None),
             "days": getattr(w, "calendar_window", None),
             "camera": getattr(w, "camera_dock", None),
             "notify": getattr(w, "notify_inbox", None),
@@ -594,8 +639,7 @@ class FilamentDesk:
                 continue
             geo = widget.frameGeometry()
             local = QRect(w.mapFromGlobal(geo.topLeft()), geo.size())
-            anchor = w._filament.anchor_point(name, w.rect())
-            w._filament.bind_tether(name, attach_on_rect(local, anchor))
+            w._filament.bind_tether(name, w._filament.spawn_origin(name, local, w.rect()))
 
     def _on_filament_float(self, name: str) -> None:
         w = self.window
@@ -604,8 +648,6 @@ class FilamentDesk:
             return
         if name == "history":
             w.act_history.trigger()
-        elif name == "thinking":
-            w.act_thinking.trigger()
         elif name == "days":
             w.act_calendar.trigger()
         elif name == "camera":
@@ -645,7 +687,8 @@ class FilamentDesk:
         w = self.window
         w._filament_woken = True
         widget.setMinimumSize(240, 180)
-        apply_tile_opacity(widget, w._filament_opacity.get(name, DEFAULT_OPACITY))
+        if widget.windowOpacity() > 0.0:  # held unseen until its grow (hold_unseen_until_grow)
+            apply_tile_opacity(widget, w._filament_opacity.get(name, DEFAULT_OPACITY))
         bind_tile_opacity(widget, name, w._filament_opacity)
         apply_tile_size(widget, name, w._filament_tile_sizes)
         bind_tile_size(widget, name, w._filament_tile_sizes, w._filament_tile_pos)
@@ -656,10 +699,16 @@ class FilamentDesk:
         from arelis.ui.hands_desk import remember_front
 
         remember_front(self.window, name)
-        dock.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
-        dock.setFloating(True)
-        apply_dock_chrome(dock, True)
-        self._filament_dress_tile(dock, name)
+        # Re-floating hides the dock for a moment, and that hide flushed its unplaced
+        # geometry over the saved size and spot. Nothing is the user's until it is placed.
+        dock._filament_growing = True
+        try:
+            dock.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
+            dock.setFloating(True)
+            apply_dock_chrome(dock, True)
+            self._filament_dress_tile(dock, name)
+        finally:
+            dock._filament_growing = False
         self._filament_place_near_title(dock, name)
 
     def _filament_place_near_title(self, widget, name: str) -> None:
@@ -668,37 +717,125 @@ class FilamentDesk:
         origin = w.mapToGlobal(QPoint(int(p.x()) + 12, int(p.y()) + 24))
         size = w._filament_tile_sizes.get(name) or DEFAULT_SIZES.get(name, (320, 280))
         parked = w._filament_tile_pos.get(name)
-        if (
-            active_theme() == "filament"
-            and parked is not None
-            and origin_on_a_desk(parked[0], parked[1], size[0], size[1])
-        ):
-            dest = QRect(int(parked[0]), int(parked[1]), int(size[0]), int(size[1]))
-            start = w._filament.bead_point(name, w.rect())
-            local = QRect(w.mapFromGlobal(dest.topLeft()), dest.size())
-            w._filament.bind_tether(name, attach_on_rect(local, start))
-            widget.setMinimumSize(240, 180)
-            apply_tile_opacity(widget, w._filament_opacity.get(name, DEFAULT_OPACITY))
-            widget.setGeometry(dest)
-            widget.show()
-            widget.raise_()
-            self._place_filament_floats()
+        test_rect = _test_chat_rect(w) if name == "chat" else None
+        if active_theme() == "filament" and test_rect is not None:
+            self._filament_spawn_tile(widget, name, test_rect)
             return
         if active_theme() == "filament":
-            dest = QRect(w.mapFromGlobal(origin), QSize(int(size[0]), int(size[1])))
-            start = w._filament.bead_point(name, w.rect())
-            w._filament.bind_tether(name, attach_on_rect(dest, start))
-            play_tile_grow(
-                widget,
-                origin,
-                size,
-                opacity=w._filament_opacity.get(name, DEFAULT_OPACITY),
-            )
-            self._place_filament_floats()
+            if parked is not None and origin_on_a_desk(parked[0], parked[1], size[0], size[1]):
+                # The user's own spot and size, as they left it: on a desk is all it needs,
+                # even outside the main window or over her. Fitting it back into the window
+                # is what made the chat reopen small and pulled tiles back inside.
+                dest = QRect(int(parked[0]), int(parked[1]), int(size[0]), int(size[1]))
+            else:
+                fresh = QRect(origin, QSize(int(size[0]), int(size[1])))
+                dest = self._filament_clear_of_hub(self._filament_fit_window(fresh, widget))
+            self._filament_spawn_tile(widget, name, dest)
             return
         widget.move(origin)
         widget.show()
         widget.raise_()
+
+    def _filament_fit_window(self, dest: QRect, widget=None) -> QRect:
+        """A spot we pick stays inside the window, under the title bar.
+
+        At 1100x800 the title point sat low, so the chat tile hung past the
+        window bottom (or, with a tall saved size, over the title bar and off
+        the top) and read as clipped.
+        """
+        w = self.window
+        frame = QRect(w.mapToGlobal(QPoint(0, 0)), w.size())
+        bar = getattr(w, "title_bar", None)
+        top = frame.top()
+        if bar is not None and bar.isVisible():
+            # The real strip: the slim bar sits on the glass wherever the
+            # chrome band put it, so its height alone undercounts it.
+            strip = QRect(bar.mapToGlobal(QPoint(0, 0)), bar.size())
+            top = max(top, strip.bottom() + 1)
+        if widget is not None and widget.isVisible():
+            # A framed tile's border sits above its geometry: keep that off the strip too.
+            top += max(0, widget.geometry().top() - widget.frameGeometry().top())
+        fit = QRect(dest)
+        fit.setHeight(min(fit.height(), max(180, frame.bottom() - top + 1)))
+        if fit.bottom() > frame.bottom():
+            fit.moveBottom(frame.bottom())
+        if fit.top() < top:
+            fit.moveTop(top)
+        return fit
+
+    def _filament_clear_of_hub(self, dest: QRect) -> QRect:
+        """A tile we place never lands on her figure: it settles in the space to her left.
+
+        A spot the user chose is theirs.
+        """
+        w = self.window
+        stage = getattr(w, "persona_stage", None)
+        if stage is None or stage.isHidden() or stage.parentWidget() is None:
+            return dest
+        zone = stage.zone()
+        hub = QRect(stage.parentWidget().mapToGlobal(zone.topLeft()), zone.size())
+        if not dest.intersects(hub):
+            return dest
+        moved = QRect(dest)
+        moved.moveRight(hub.left() - 13)
+        home = self._filament_pin_home()
+        if home is not None and moved.left() < home.left():
+            # No room beside her: keep to the desk's left edge.
+            moved.moveLeft(home.left())
+        return moved
+
+    def _filament_tiles_clear_hub(self) -> None:
+        """Her hub moved (the window shrank): open tiles that now sit on it step aside.
+
+        Floating tiles are top-level, so a smaller window slid her hub under the
+        chat tile. The nudge is ours, so it is not saved as the user's spot.
+        """
+        w = self.window
+        if active_theme() != "filament":
+            return
+        for widget in (
+            getattr(w, "_filament_chat_tile", None),
+            getattr(w, "history_dock", None),
+            getattr(w, "calendar_window", None),
+            getattr(w, "camera_dock", None),
+            getattr(w, "notify_inbox", None),
+            getattr(w, "contacts_inbox", None),
+            getattr(w, "world_window", None),
+        ):
+            if widget is None or not widget.isVisible():
+                continue
+            if getattr(widget, "_filament_growing", False):
+                continue
+            if hasattr(widget, "isFloating") and not widget.isFloating():
+                continue
+            geo = QRect(widget.geometry())
+            filt = getattr(widget, "_filament_size_filter", None)
+            if filt is not None and filt._name in w._filament_tile_pos:
+                continue  # the user moved or sized it: their spot, not ours to nudge
+            dest = self._filament_clear_of_hub(geo)
+            if dest != geo:
+                widget._filament_placed_geo = QRect(dest)
+                widget.setGeometry(dest)
+
+    def _filament_spawn_tile(self, widget, name: str, dest: QRect) -> None:
+        """Every Filament tile opens here: it grows out of its own node on the tree (its
+        bead), not out of the plate's edge nearest her, which read as a random spot."""
+        w = self.window
+        local = QRect(w.mapFromGlobal(dest.topLeft()), dest.size())
+        seed = w._filament.spawn_origin(name, local, w.rect())
+        w._filament.bind_tether(name, seed)
+        node = w._filament.bead_point(name, w.rect())
+        start = w.mapToGlobal(QPoint(int(node.x()), int(node.y())))
+        from arelis.ui.persona_face.panel import alog
+
+        alog("tile spawn", name=name, origin=f"{int(node.x())},{int(node.y())}")
+        play_tile_grow(
+            widget,
+            start,
+            dest,
+            opacity=w._filament_opacity.get(name, DEFAULT_OPACITY),
+        )
+        self._place_filament_floats()
 
     def _filament_set_chat_open(self, on: bool) -> None:
         w = self.window
@@ -746,6 +883,7 @@ class FilamentDesk:
         tile.body_layout.addWidget(conv._composer)
         conv.chat.setMinimumWidth(0)
         conv._composer.setMinimumWidth(0)
+        conv.chat.set_view_parked(False)
         conv.chat.show()
         empty = getattr(conv.chat, "empty", None)
         if empty is not None:
@@ -770,6 +908,7 @@ class FilamentDesk:
         if lay is not None:
             lay.insertWidget(1, conv.chat, stretch=1)
             lay.addWidget(conv._composer)
+        conv.chat.set_view_parked(True)
         conv.chat.hide()
         conv._composer.hide()
 
@@ -779,9 +918,15 @@ class FilamentDesk:
         w._sync_view_checks()
         menu = QMenu(w)
         menu.setObjectName("FilamentMenu")
-        themes = menu.addMenu("themes")
+        from arelis.i18n import tr
+
+        themes = menu.addMenu(tr("themes"))
         for act in w._theme_actions.values():
             themes.addAction(act)
+        # The same actions as the View menu, which Filament has no bar for.
+        language = menu.addMenu(tr("Language"))
+        for act in w._lang_actions.values():
+            language.addAction(act)
         menu.addSeparator()
         settings = menu.addAction("settings")
         from arelis.ui.settings_host import open_settings
@@ -800,7 +945,6 @@ class FilamentDesk:
             act.setEnabled(n <= max(1, have))
             act.triggered.connect(lambda _c=False, k=n: self._filament_set_span(k))
         menu.addSeparator()
-        menu.addAction(w.act_thinking)
         menu.addAction(w.act_history)
         menu.addAction(w.act_notifications)
         menu.addAction(w.act_camera)
@@ -940,6 +1084,10 @@ def sync_filament_face(window) -> None:
     _of(window)._sync_filament_face()
 
 
+def filament_tiles_clear_hub(window) -> None:
+    _of(window)._filament_tiles_clear_hub()
+
+
 def place_filament_floats(window, *, reshape: bool = True) -> None:
     _of(window)._place_filament_floats(reshape=reshape)
 
@@ -970,6 +1118,24 @@ def filament_present_tile(window, dock: QDockWidget, name: str) -> None:
 
 def filament_place_near_title(window, widget, name: str) -> None:
     _of(window)._filament_place_near_title(widget, name)
+
+
+def _test_chat_rect(w) -> QRect | None:
+    """ARELIS_TEST_CHAT_RECT, for a tester to open the chat tile at a known spot: "x,y,w,h" in
+    window px, or "tree" for a tile over the orbit tree (the chat-cover fade). Global rect."""
+    raw = os.environ.get("ARELIS_TEST_CHAT_RECT", "").strip().lower()
+    if not raw:
+        return None
+    if raw == "tree":
+        cx, cy, rx, ry = w._filament.ellipse(w.rect(), settled=True)
+        local = QRect(int(cx - rx), int(cy - ry), int(rx * 2), int(ry * 2.6))
+    else:
+        try:
+            x, y, cw, ch = (int(v) for v in raw.split(","))
+        except ValueError:
+            return None
+        local = QRect(x, y, cw, ch)
+    return QRect(w.mapToGlobal(local.topLeft()), local.size())
 
 
 def filament_set_chat_open(window, on: bool) -> None:

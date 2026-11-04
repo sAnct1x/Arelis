@@ -10,6 +10,7 @@ from PySide6.QtCore import (
     QPoint,
     QPropertyAnimation,
     QRect,
+    QSize,
     Qt,
     QTimer,
 )
@@ -33,16 +34,21 @@ _SEED = (68, 52)
 _TRAIL_MS = 180
 _GROW_MS = 520
 DEFAULT_SIZES: dict[str, tuple[int, int]] = {
-    "thinking": (320, 260),
     "files": (340, 280),
     "history": (300, 360),
     "chat": (380, 400),
-    "days": (360, 340),
+    "days": (360, 412),
     "camera": (340, 280),
     "notify": (340, 280),
     "contacts": (320, 260),
     "reality": (420, 320),
 }
+# Qt's own "no maximum" (QWIDGETSIZE_MAX). A tile has no size cap: the user sizes it.
+_WIDGET_SIZE_MAX = 16777215
+
+
+def clamp_tile_size(name: str, width: int, height: int) -> tuple[int, int]:
+    return max(240, int(width)), max(180, int(height))
 
 
 def clamp_opacity(value: float) -> float:
@@ -64,6 +70,20 @@ def load_opacities(config: dict) -> dict[str, float]:
 
 def apply_tile_opacity(widget: QWidget, value: float) -> None:
     widget.setWindowOpacity(clamp_opacity(value))
+
+
+def hold_unseen_until_grow(widget: QWidget) -> None:
+    """Filament: a tile about to be shown waits at opacity 0 until its grow places it.
+
+    Showing it first (a dock's setVisible, notify's show) put it on screen at its last
+    geometry and saved opacity. Anything that let a frame through before the grow hid it
+    again (the camera starting, notify's poll and foreground claim) flashed it full size
+    at its saved spot for a frame or two before it jumped to its node.
+    """
+    from arelis.ui.theme import active_theme
+
+    if active_theme() == "filament" and widget.isHidden():
+        widget.setWindowOpacity(0.0)
 
 
 def add_opacity_action(
@@ -172,32 +192,30 @@ def load_tile_sizes(config: dict) -> dict[str, tuple[int, int]]:
         if not isinstance(val, dict):
             continue
         try:
-            width = max(240, min(720, int(val.get("w", 0))))
-            height = max(180, min(800, int(val.get("h", 0))))
+            size = clamp_tile_size(str(key), val.get("w", 0), val.get("h", 0))
         except (TypeError, ValueError):
             continue
-        out[str(key)] = (width, height)
+        out[str(key)] = size
     return out
 
 
-def tile_grow_rects(origin: QPoint, size: tuple[int, int]) -> tuple[QRect, QRect]:
-    """Seed at the title, then the plate. Same origin so it grows out of the trail."""
-    width = max(240, int(size[0]))
-    height = max(180, int(size[1]))
-    seed = QRect(int(origin.x()), int(origin.y()), _SEED[0], _SEED[1])
-    dest = QRect(int(origin.x()), int(origin.y()), width, height)
-    return seed, dest
+def tile_grow_rects(origin: QPoint, dest: QRect) -> tuple[QRect, QRect]:
+    """Seed centred on the filament's end (the spawn origin), then the plate."""
+    plate = QRect(dest.topLeft(), QSize(max(240, dest.width()), max(180, dest.height())))
+    seed = QRect(0, 0, _SEED[0], _SEED[1])
+    seed.moveCenter(QPoint(int(origin.x()), int(origin.y())))
+    return seed, plate
 
 
 def play_tile_grow(
     widget: QWidget,
     origin: QPoint,
-    size: tuple[int, int],
+    dest: QRect,
     *,
     opacity: float = DEFAULT_OPACITY,
 ) -> None:
     """Trail first, then the plate grows out of that end. Not a pop."""
-    seed, dest = tile_grow_rects(origin, size)
+    seed, dest = tile_grow_rects(origin, dest)
     prior = getattr(widget, "_filament_grow_group", None)
     if prior is not None:
         prior.stop()
@@ -231,30 +249,30 @@ def play_tile_grow(
             widget._filament_growing = False
             widget.setMinimumSize(240, 180)
             widget.setGeometry(dest)
+            # Where we put it is not a choice to save. Only a geometry the user
+            # gives it differs from this and reaches config.local.yaml.
+            widget._filament_placed_geo = QRect(widget.geometry())
             apply_tile_opacity(widget, opacity)
-            filt = getattr(widget, "_filament_size_filter", None)
-            if filt is not None:
-                filt._timer.start()
 
         group.finished.connect(_done)
         widget._filament_grow_group = group
         group.start()
 
-    QTimer.singleShot(_TRAIL_MS, _start)
+    # Bound to the widget so a tile torn down mid-trail drops the timer.
+    QTimer.singleShot(_TRAIL_MS, widget, _start)
 
 
 def apply_tile_size(widget: QWidget, name: str, store: dict[str, tuple[int, int]]) -> None:
     width, height = store.get(name) or DEFAULT_SIZES.get(name, (320, 280))
-    width = max(240, min(720, int(width)))
-    height = max(180, min(800, int(height)))
-    widget.setMaximumSize(720, 800)
+    width, height = clamp_tile_size(name, width, height)
+    widget.setMaximumSize(_WIDGET_SIZE_MAX, _WIDGET_SIZE_MAX)
     widget.resize(width, height)
 
 
 def remember_tile_size(
     widget: QWidget, name: str, store: dict[str, tuple[int, int]]
 ) -> None:
-    size = (max(240, min(720, widget.width())), max(180, min(800, widget.height())))
+    size = clamp_tile_size(name, widget.width(), widget.height())
     store[name] = size
     merge_local_config({"ui": {"filament_tile_size": {name: {"w": size[0], "h": size[1]}}}})
 
@@ -292,6 +310,11 @@ class _GeomRemember(QObject):
 
         if active_theme() != "filament":
             return
+        if getattr(self._widget, "_filament_growing", False):
+            return
+        if self._widget.geometry() == getattr(self._widget, "_filament_placed_geo", None):
+            return
+        self._widget._filament_placed_geo = QRect(self._widget.geometry())
         remember_tile_size(self._widget, self._name, self._sizes)
         remember_tile_origin(self._widget, self._name, self._origins)
 

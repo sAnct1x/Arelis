@@ -23,7 +23,7 @@ from arelis.mail import load_account
 from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer, MemoryStore, flush_background_writes
 from arelis.paths import app_icon_path, logs_dir
 from arelis.presence.confirm_persist import ConfirmPersister
-from arelis.presence.glass_inbound import install_owned_inbound, start_orphan_watch
+from arelis.presence.glass_inbound import install_owned_inbound_off_ui, start_orphan_watch
 from arelis.presence.inbound_runtime import InboundRuntime
 from arelis.presence.ipc_client import IpcClient
 from arelis.presence.ipc_server import IpcServer
@@ -36,9 +36,9 @@ from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.theme import (
     app_font,
     apply_theme,
+    install_stylesheet,
     load_fonts,
     qt_font_directory,
-    stylesheet,
     theme_from_config,
 )
 from arelis.ui.window_resize import configure_native_windows
@@ -205,6 +205,28 @@ def _present_at_startup(window: Any) -> None:
         state &= ~Qt.WindowState.WindowMaximized
     window.setWindowState(state)
     show_without_activating(window)
+    _settle_maximized_surface(window)
+
+
+
+def _settle_maximized_surface(window: Any, *, tries: int = 50) -> None:
+    """Give a maximized launch one real resize once Windows exposes it.
+
+    Mapped maximized without activation, the HWND is not exposed at show, and Qt's
+    raster surface is never presented until a real geometry change: Night and Sodium
+    stayed black (Filament got its resize from placing itself on the desk). A 1 px
+    round trip after the first expose is that geometry change.
+    """
+    if window.isHidden() or not window.isMaximized():
+        return
+    handle = window.windowHandle()
+    if handle is None or not handle.isExposed():
+        if tries > 0:
+            QTimer.singleShot(100, lambda: _settle_maximized_surface(window, tries=tries - 1))
+        return
+    size = window.size()
+    window.resize(size.width() - 1, size.height())
+    QTimer.singleShot(200, lambda: window.resize(size))
 
 
 def _open_ui_reason(msg: object) -> str:
@@ -399,7 +421,7 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
             app.setWindowIcon(QIcon(str(icon_path)))
         apply_theme(theme_from_config(config))
         app.setFont(app_font(load_fonts()))
-        app.setStyleSheet(stylesheet())
+        install_stylesheet()
         notice(
             None,
             "Arelis is already running",
@@ -520,6 +542,14 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
             pass
 
     configure_native_windows()
+    # Before QtWebEngine starts: keep her view out of Windows occlusion.
+    from arelis.ui.persona_face import chromium_flags
+
+    chromium_flags.apply()
+    chromium_flags.apply_rhi()
+    from arelis.ui import idle_ab
+
+    idle_ab.load()
     from arelis.ui.solar_gl import gl_wanted
 
     if gl_wanted():
@@ -543,14 +573,29 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     # (globalShareContext stays alive after park()). In-process WebEngine
     # stays for pytest / no solar GL.
     app = QApplication.instance() or QApplication([])
+    from arelis.ui.persona_face import qq3d_avatar
+
+    qq3d_avatar.surface_format()
     app.setApplicationName("Arelis")
     icon_path = app_icon_path()
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))
     apply_theme(theme_from_config(config))
+    from arelis.ui.theme_tokens import active_theme
+
+    qq3d_avatar.log_engine_choice(active_theme())
+    from arelis.ui.persona_face import quick_surface
+
+    quick_surface.log_surface_choice()
     families = load_fonts()
     app.setFont(app_font(families))
-    app.setStyleSheet(stylesheet())
+    install_stylesheet()
+    # Her breathing light while the seat, voice and window load (started after first-run
+    # setup); a quiet launch has none.
+    from arelis.ui.filament_field import FILAMENT_VOID
+    from arelis.ui.splash import LaunchSplash, run_off_ui
+
+    splash = None
 
     from arelis.ui.live_threads import drain_parked_threads
 
@@ -573,6 +618,10 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         _release_ui_lock()
         return 1
     config = refreshed
+    # After first-run setup: its dialogs (and the installer smoke probe) see no splash.
+    if not background:
+        splash = LaunchSplash(FILAMENT_VOID)
+        splash.start()
     workspace = _bind_workspace(config)
     # Required so hiding the last window to the tray does not kill the process.
     presence_cfg_early = (config or {}).get("presence") or {}
@@ -592,12 +641,19 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
 
     # Cold glass launch is a new conversation. Jobs use profile="job"
     # (no sink). CLI restores the last thread.
-    seat = build_seat(config, profile="ui", bus=bus)
+    try:
+        seat = run_off_ui(
+            splash, "Loading model", lambda: build_seat(config, profile="ui", bus=bus)
+        )
+        voice = run_off_ui(splash, "Starting voice", lambda: VoiceService(bus, config))
+    except BaseException:
+        if splash is not None:
+            splash.finish()
+        raise
     router = seat.router
     store = seat.store
     tools = seat.tools
     orchestrator = seat.orchestrator
-    voice = VoiceService(bus, config)
     transcribe = tools.get("transcribe")
     if transcribe is not None:
         transcribe._stt = voice.stt
@@ -667,6 +723,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
 
     asyncio.run_coroutine_threadsafe(_startup_models(), loop)
 
+    if splash is not None:
+        splash.set_status("Building her")
     try:
         window = ArelisWindow(
             config,
@@ -681,6 +739,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         )
     except Exception:
         logging.getLogger(__name__).exception("Arelis window failed to start")
+        if splash is not None:
+            splash.finish()
         drain_parked_threads()
         _release_ui_lock()
         raise
@@ -761,7 +821,8 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
             hint=stay_hint,
         )
     else:
-        install_owned_inbound(window, bus, loop, config, hint=stay_hint)
+        # Off the GUI thread: the "is our ingest already up?" scan is blocking urllib.
+        install_owned_inbound_off_ui(window, bus, loop, config, hint=stay_hint)
     # Always: a second shortcut click has someone to talk to, whether a core
     # owns ingest or this glass does.
     _start_activation_listener(window, bus, loop, presence_cfg)
@@ -789,7 +850,16 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     from arelis.talk_language import session_code
 
     apply_language(window, session_code(config))
-    _present_at_startup(window)
+    if splash is not None:
+        # The splash stays until the model, Arelis, the tree and a full frame
+        # are ready, then hands off in one step: no half-drawn window shows.
+        from arelis.ui.startup_gate import hold_until_ready
+
+        window.setWindowOpacity(0.0)
+        _present_at_startup(window)
+        hold_until_ready(window, splash, splash.started_at)
+    else:
+        _present_at_startup(window)
 
     def _deferred_memory_backup() -> None:
         try:

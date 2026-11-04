@@ -41,3 +41,17 @@ def test_a_wheel_without_tests_hides_the_stage(monkeypatch) -> None:
     assert grant.world_stage_allowed() is False
     assert world_available() is False
     assert should_offer_world("physics") is False
+
+
+def test_stage_check_does_not_touch_the_disk_every_tick(monkeypatch) -> None:
+    """The Filament floats ask on every atmosphere tick; on Windows each file check
+    was an NtCreateFile on the UI thread (Babbage, 6dfe13b py-spy: ~10%)."""
+    import os
+
+    world_stage_allowed()
+    calls = []
+    real_stat = os.stat
+    monkeypatch.setattr(os, "stat", lambda *a, **kw: calls.append(a) or real_stat(*a, **kw))
+    for _ in range(100):
+        world_stage_allowed()
+    assert calls == []

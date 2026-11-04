@@ -57,6 +57,7 @@ __all__ = [
     "color",
     "control_pad_y",
     "dock_tab_bar_qss",
+    "install_stylesheet",
     "load_fonts",
     "motion_enabled",
     "polish_combo_popup",
@@ -192,13 +193,22 @@ def app_font(families: dict[str, str] | None = None) -> QFont:
     every rule below says 13px. Widgets that a rule happens to reach were a
     third of a pixel smaller than widgets it does not, which is invisible until
     a fractional scale factor rounds the two apart.
+
+    The family is the face of the current language (``FONTS["body"]``), the
+    same stack the sheet used to name in every rule. The sheet names no face
+    of its own, so a language change only resets this font and leaves the app
+    sheet as it is.
     """
-    body = (families or {}).get("body", "Segoe UI")
     font = QFont()
     # Plex covers Greek the desk face drops. Segoe is the Windows floor.
-    font.setFamilies([body, "IBM Plex Sans", "Segoe UI"])
+    font.setFamilies(font_stack(FONTS["body"]))
     font.setPixelSize(FONT_PX)
     return font
+
+
+def font_stack(stack: str) -> list[str]:
+    """A CSS family list as Qt's sheet parser reads it, quotes off."""
+    return [part.strip().strip('"').strip("'") for part in stack.split(",") if part.strip()]
 
 
 def color(name: str) -> QColor:
@@ -249,3 +259,54 @@ def polish_combo_popup(combo, *, compact: bool = False) -> None:
         parent.setPalette(pal)
         if hasattr(parent, "setFrameShape"):
             parent.setFrameShape(QFrame.Shape.NoFrame)
+
+
+def app_sheet() -> str:
+    """The app-level sheet: structure plus the hub's gated colour rules.
+
+    The same text in every room, so a room switch never re-matches the app.
+    """
+    return _app_sheet_cached(stylesheet(), active_theme())
+
+
+def _app_sheet_cached(current: str, room: str) -> str:
+    from arelis.ui.theme_layers import hub_rules, split_sheet
+
+    global _APP_SHEET
+    structural = split_sheet(current)[0]
+    if _APP_SHEET is None or _APP_SHEET[0] != structural:
+        # Keyed on the structure, which a font or language change rewrites.
+        colours = {}
+        for tid in THEME_IDS:
+            _tokens._install_palette(tid)
+            colours[tid] = split_sheet(stylesheet())[1]
+        _tokens._install_palette(room)
+        _APP_SHEET = (structural, structural + "\n" + hub_rules(colours))
+    return _APP_SHEET[1]
+
+
+_APP_SHEET: tuple[str, str] | None = None
+
+
+def install_stylesheet(window=None) -> None:
+    """Put the current room on screen.
+
+    The app sheet never changes after the first call. Colour goes on each
+    visible root window; hidden ones take it when they are next shown, so a
+    switch costs only what is on screen.
+    """
+    from PySide6.QtWidgets import QApplication
+
+    from arelis.ui import theme_layers
+
+    app = QApplication.instance()
+    if app is None:
+        if window is not None:
+            window.setStyleSheet(stylesheet())
+        return
+    first = app.styleSheet() != app_sheet()
+    if first:
+        app.setStyleSheet(app_sheet())
+    if window is not None and window.styleSheet():
+        window.setStyleSheet("")
+    theme_layers.restyle(app, hidden=first)

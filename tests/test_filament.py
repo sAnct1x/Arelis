@@ -93,3 +93,129 @@ def test_filament_confirm_arms_without_a_card(arelis_window) -> None:
         apply_window_theme(window, "sodium", persist=False)
 
 
+
+
+def test_leaving_filament_hides_unkept_tiles_before_unlocking_them(arelis_window, qt_app) -> None:
+    """A tile Sodium will not keep is hidden before it is relaid out or re-opacified."""
+    from PySide6.QtCore import QEvent, QObject
+
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    window.show()
+    apply_window_theme(window, "filament", persist=False)
+    window.act_calendar.trigger()
+    qt_app.processEvents()
+    cal = window.calendar_window
+    assert cal.isVisible()
+
+    class _Resized(QObject):
+        seen = 0
+
+        def eventFilter(self, obj, event):  # type: ignore[override]
+            if event.type() == QEvent.Type.Resize and obj.isWidgetType() and obj.isVisible():
+                if obj is cal or cal.isAncestorOf(obj):
+                    self.seen += 1
+            return False
+
+    spy = _Resized()
+    qt_app.installEventFilter(spy)
+    try:
+        apply_window_theme(window, "sodium", persist=False)
+    finally:
+        qt_app.removeEventFilter(spy)
+    assert cal.isHidden()
+    assert spy.seen == 0
+
+
+def test_leaving_filament_times_each_step_of_the_relayout(arelis_window, qt_app, caplog) -> None:
+    """The Atria line splits the leave relayout so its 370 ms has an owner."""
+    import logging
+
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    window.show()
+    apply_window_theme(window, "filament", persist=False)
+    window.act_contacts.trigger()
+    qt_app.processEvents()
+    with caplog.at_level(logging.INFO, logger="arelis.ui.timing"):
+        apply_window_theme(window, "night", persist=False)
+        qt_app.processEvents()
+    line = next(r.getMessage() for r in caplog.records if "theme to=night" in r.getMessage())
+    steps = ("leave_hide", "leave_unlock", "leave_chrome", "leave_docks", "leave_geometry")
+    assert all(f" {step}=" in line for step in steps), line
+
+
+def test_filament_menu_offers_the_language_actions(arelis_window) -> None:
+    """Filament has no View menu, so its own menu is the only way to switch language."""
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    window.show()
+    apply_window_theme(window, "filament", persist=False)
+    menu = window.filament._build_filament_menu()
+    subs = {a.menu().title(): a.menu() for a in menu.actions() if a.menu() is not None}
+    assert "Language" in subs
+    assert subs["Language"].actions() == list(window._lang_actions.values())
+
+
+def test_filament_days_tile_keeps_its_bar_buttons_readable(arelis_window, qt_app) -> None:
+    """At 360 px the calendar bar was squeezed into empty pills; it wraps instead."""
+    from PySide6.QtWidgets import QPushButton
+
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    window.show()
+    apply_window_theme(window, "filament", persist=False)
+    window.act_calendar.trigger()
+    from arelis.ui.filament_tile import DEFAULT_SIZES
+    from arelis.ui.panels.calendar import CalendarMonthView
+
+    cal = window.calendar_window
+    cal.resize(*DEFAULT_SIZES["days"])
+    for _ in range(5):
+        qt_app.processEvents()
+    assert cal.width() < 500
+    # The wrapped bar costs rows: the tile grows so the month grid keeps its pre-wrap
+    # 184 px (183 after other tests; 112 at the old 340 px height).
+    assert cal.findChild(CalendarMonthView).height() >= 180
+    buttons = [
+        b
+        for b in cal.findChildren(QPushButton)
+        if b.isVisible() and b.objectName() == "InstrumentAction"
+    ]
+    assert len(buttons) >= 10
+    for button in buttons:
+        assert button.width() >= button.sizeHint().width(), button.text()
+        assert button.mapTo(cal, button.rect().topRight()).x() < cal.width(), button.text()
+
+
+def test_filament_days_tile_never_opens_at_its_night_size(arelis_window, qt_app) -> None:
+    """It showed at 1100x800 (then 720x800) before shrinking; a saved 720x768 stuck."""
+    from PySide6.QtCore import QEvent, QObject
+
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    window.show()
+    cal = window.calendar_window
+    seen: list[tuple[int, int]] = []
+
+    class _Sizes(QObject):
+        def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+            if event.type() in (QEvent.Type.Show, QEvent.Type.Resize) and obj.isVisible():
+                seen.append((obj.width(), obj.height()))
+            return False
+
+    spy = _Sizes()
+    cal.installEventFilter(spy)
+    apply_window_theme(window, "filament", persist=False)
+    window._filament_tile_sizes["days"] = (720, 768)
+    window._filament_tile_pos.pop("days", None)
+    window.act_calendar.trigger()
+    for _ in range(5):
+        qt_app.processEvents()
+    assert seen and max(h for _w, h in seen) <= 618, seen
+    assert max(w for w, _h in seen) <= 540, seen

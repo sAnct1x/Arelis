@@ -110,6 +110,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--avatar-engine",
+        choices=("qq3d", "web"),
+        default=None,
+        help="Her figure: qq3d (Qt Quick 3D) or web. Overrides ARELIS_AVATAR_ENGINE.",
+    )
+    parser.add_argument(
         "--auth-calendar",
         type=str,
         default=None,
@@ -134,6 +140,9 @@ def main(argv: list[str] | None = None) -> int:
     if "--solar-gl" in argv:
         os.environ["ARELIS_SOLAR_GL"] = "1"
     args = parser.parse_args(argv)
+    if args.avatar_engine:
+        os.environ["ARELIS_AVATAR_ENGINE"] = args.avatar_engine
+        os.environ["ARELIS_AVATAR_ENGINE_SOURCE"] = f"flag:{args.avatar_engine}"
 
     # Before load_config, and deliberately. This runs from an uninstaller, by which time
     # the configuration may be edited, moved or already deleted, and failing to read it
@@ -214,7 +223,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sync_checkout_deps()
 
-    from arelis.ui.app import run_ui
+    # launch, not app: the window modules load inside run_ui, after her splash is up.
+    from arelis.ui.launch import run_ui
 
     if args.config:
         if args.background:

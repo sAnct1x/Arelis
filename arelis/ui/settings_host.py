@@ -158,6 +158,13 @@ def apply_settings(window, values: dict[str, Any]) -> None:
                     setattr(loop, key, bool(agent_patch[key]))
         window._schedule_readiness_probe()
 
+    headroom = (values.get("llamacpp") or {}).get("avatar_headroom")
+    lc_cfg = window.config.setdefault("llamacpp", {})
+    if headroom is not None and bool(headroom) != (lc_cfg.get("avatar_headroom") is not False):
+        # Read by llama_server_args the next time Arelis starts llama-server.
+        lc_cfg["avatar_headroom"] = bool(headroom)
+        merge_local_config({"llamacpp": {"avatar_headroom": bool(headroom)}})
+
     models_patch = values.get("models") or {}
     if models_patch:
         clean = {
@@ -245,17 +252,40 @@ def apply_settings(window, values: dict[str, Any]) -> None:
 
 
 def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
-    """Install a room palette and restyle the open window. No restart."""
+    """Install a room palette and restyle the open window. No restart.
+
+    The whole switch is one batch: no repaint until it is done, and her stage
+    takes one region from the settled layout instead of one per chrome step.
+    """
+    from arelis.ui.phase_trace import PhaseTrace
+
+    trace = PhaseTrace(f"theme to={theme_id}")
+    stage = getattr(window, "persona_stage", None)
+    batch = stage is not None and hasattr(stage, "begin_batch")
+    window.setUpdatesEnabled(False)
+    if batch:
+        stage.begin_batch()
+    try:
+        return _apply_window_theme(window, theme_id, persist=persist, trace=trace)
+    finally:
+        if batch:
+            stage.end_batch()
+        window.setUpdatesEnabled(True)
+        trace.mark("settle")
+        trace.finish_after_repaint()
+
+
+def _apply_window_theme(window, theme_id: str, *, persist: bool, trace=None) -> str:
     from PySide6.QtGui import QColor
-    from PySide6.QtWidgets import QApplication, QComboBox, QDockWidget, QWidget
+    from PySide6.QtWidgets import QComboBox, QDockWidget, QWidget
 
     from arelis.ui.dock_surface import apply_dock_surface
     from arelis.ui.glass import GlassFrame, Hairline
     from arelis.ui.theme import (
         PLATE,
         apply_theme,
+        install_stylesheet,
         polish_combo_popup,
-        stylesheet,
     )
 
     resolved = apply_theme(theme_id)
@@ -263,11 +293,9 @@ def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
     if persist:
         merge_local_config({"ui": {"theme": resolved}})
 
-    css = stylesheet()
-    window.setStyleSheet(css)
-    app = QApplication.instance()
-    if app is not None:
-        app.setStyleSheet(css)
+    install_stylesheet(window)
+    if trace is not None:
+        trace.mark("stylesheet")
 
     pal = window.palette()
     pal.setColor(window.backgroundRole(), QColor(*PLATE["seal"]))
@@ -280,6 +308,8 @@ def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
         apply_dock_surface(dock)
     for combo in window.findChildren(QComboBox):
         polish_combo_popup(combo, compact=combo.count() <= 2)
+    if trace is not None:
+        trace.mark("surfaces")
 
     for child in window.findChildren(QWidget):
         refresh = getattr(child, "refresh_theme_icons", None)
@@ -299,10 +329,27 @@ def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
         refresh_wash = getattr(chat, "refresh_bubble_wash", None)
         if callable(refresh_wash):
             refresh_wash()
+    if trace is not None:
+        # Includes her webview retint (setTint) through refresh_theme_icons.
+        trace.mark("icons_webview")
+    from arelis.ui.persona_stage import seat_persona
+
+    seat_persona(window)
+    window._sync_panel_margins()
     sync = getattr(window, "_sync_filament_face", None)
     if callable(sync):
-        sync()
+        if trace is not None:
+            trace.mark("seat")
+        # Leaving Filament marks its own steps on this trace (leave_*), so
+        # the Atria line says which one the tile relayout cost sits in.
+        window._theme_trace = trace
+        try:
+            sync()
+        finally:
+            window._theme_trace = None
     window.update()
+    if trace is not None:
+        trace.mark("layout")
     return resolved
 
 

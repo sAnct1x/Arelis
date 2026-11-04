@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+from arelis.i18n import tr
 from arelis.presence.readiness import ChipLevel, ReadinessChip, ReadinessSnapshot
 
 # Always on the strip.
@@ -110,6 +111,13 @@ class ReadinessStrip(QWidget):
         self.notify_chip.hide()
         layout.addWidget(self.notify_chip)
 
+    def relabel(self) -> None:
+        """The language changed: the chip and the house button follow."""
+        chip = self._chips["server"]
+        source = chip.property("i18nSource") or "server"
+        chip.setText(tr(source))
+        self._refresh_systems_label()
+
     def set_notify_chip(self, text: str, visible: bool) -> None:
         """Maximized home for the live notification pill."""
         label = (text or "").strip()
@@ -157,7 +165,8 @@ class ReadinessStrip(QWidget):
                 widget.setToolTip("No signal.")
                 self._set_status(widget, ChipLevel.OFF.value)
                 continue
-            widget.setText(item.label.lower())
+            widget.setProperty("i18nSource", item.label.lower())
+            widget.setText(tr(item.label.lower()))
             widget.setToolTip(item.detail)
             self._set_status(widget, item.status.value)
 
@@ -183,11 +192,11 @@ class ReadinessStrip(QWidget):
             for item in self._systems_details.values()
             if item.status == ChipLevel.WARN
         )
-        label = "house ▾"
+        label = f"{tr('house')} ▾"
         if self._confirm_waiting:
-            label = "house · allow ▾"
+            label = f"{tr('house')} · {tr('allow')} ▾"
         elif warn_n:
-            label = f"house · {warn_n} ▾"
+            label = f"{tr('house')} · {warn_n} ▾"
         self.systems_btn.setText(label)
         tip_bits = [
             f"{item.label}: {item.status.value}, {item.detail}"

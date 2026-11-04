@@ -120,7 +120,11 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 [Files]
 ; The whole built tree. recursesubdirs with an empty-directory sweep, because Qt's plugin
 ; layout and the Playwright driver both care about directories that exist.
-Source: "{#SourceTree}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceTree}\*"; DestDir: "{app}"; Excludes: "\Lib\site-packages\arelis\assets\qq3d"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Her Quick 3D model, committed in arelis/assets/qq3d and so part of every tree. It goes to
+; the data folder instead of {app} (qq3d_avatar.model_dir() looks there first), so a plain
+; uninstall keeps it like other data and "delete all data" removes it with the rest.
+Source: "{#SourceTree}\Lib\site-packages\arelis\assets\qq3d\*"; DestDir: "{localappdata}\Arelis\avatar\qq3d"; Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
 
 [InstallDelete]
 ; Runs before the new files are copied. Inno writes what it ships and deletes nothing else,

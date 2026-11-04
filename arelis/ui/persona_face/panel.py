@@ -1,89 +1,131 @@
-"""Avatar plus the short line under her. Job 2 docks this. It does not open the window."""
+"""Her three.js figure plus the short line under her. The window places this."""
 
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Callable
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QPainter
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import QEvent, QPointF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QRadialGradient
+from PySide6.QtWidgets import QApplication, QWidget
 
-from arelis.ui.motion import motion_enabled
-from arelis.ui.persona_face.avatar import PersonaAvatar
-from arelis.ui.persona_face.engine import PHASE_COUNT
-from arelis.ui.persona_face.motion import Motion, frame_interval_ms
-from arelis.ui.theme import app_font, color, load_fonts
+from arelis.ui.theme import color, load_fonts
 
-# She materializes over a couple of seconds. Folding back is shorter.
-BLOOM_S = 2.6
-FOLD_S = 1.25
-_BLOOM_S = BLOOM_S
-_FOLD_S = FOLD_S
 _DONE_S = 2.0
 _STATUS_S = 8.0
 _TEXT_H = 92
+_LEVEL_MS = 33
 _BLUSH = QColor(245, 163, 199)
-_LOG = logging.getLogger("arelis.persona_face")
+# A typed reply has no audio, so streamed text drives her mouth: a calm syllable
+# envelope (about 4 a second) that holds while tokens keep arriving.
+_TEXT_HOLD_S = 0.45
+_TEXT_SYL_HZ = 3.8
+LOG = logging.getLogger("arelis.avatar")
 
 
-def _ease(u: float) -> float:
-    """Ease in and out. The middle of the bloom sits strictly between 0 and 1."""
-    u = 0.0 if u < 0.0 else (1.0 if u > 1.0 else u)
-    return u * u * (3.0 - 2.0 * u)
+def alog(event: str, **fields: object) -> None:
+    """One structured avatar line: ``[avatar] event k=v ...``."""
+    tail = "".join(f" {k}={v}" for k, v in fields.items())
+    LOG.info("[avatar] %s%s", event, tail)
+
+
+class LoadingVeil(QWidget):
+    """What shows while her scene loads, or if it cannot: a still, theme-tinted glow.
+
+    No face and no motion. It only paints a soft wash of the theme accent.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("avatarLoading")
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.message = ""  # set when her figure cannot load: drawn over the glow, never blank
+
+    def set_message(self, text: str) -> None:
+        self.message = text
+        self.update()
+
+    def tint(self) -> QColor:
+        return QColor(color("accent"))
+
+    def paintEvent(self, event) -> None:
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        r = self.rect()
+        c = self.tint()
+        grad = QRadialGradient(QPointF(r.center()), max(1.0, min(r.width(), r.height()) * 0.5))
+        inner = QColor(c)
+        inner.setAlpha(46)
+        outer = QColor(c)
+        outer.setAlpha(0)
+        grad.setColorAt(0.0, inner)
+        grad.setColorAt(1.0, outer)
+        painter.fillRect(r, grad)
+        if self.message:
+            painter.setPen(QColor(color("text")))
+            painter.drawText(
+                r.adjusted(16, 16, -16, -16),
+                int(Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap),
+                self.message,
+            )
+        painter.end()
+
+
+class _CaptionStrip(QWidget):
+    """Her caption and status line, over a view that runs the band's full height."""
+
+    def __init__(self, panel: PersonaPanel) -> None:
+        super().__init__(panel)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.hide()
+
+    def paintEvent(self, event) -> None:
+        del event
+        self.parentWidget().paint_caption(self, 0)
 
 
 class PersonaPanel(QWidget):
-    """Her face, a state word, and one quiet status line."""
+    """Her figure, a state word, and one quiet status line."""
 
-    stop_speaking_requested = Signal()
     state_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("personaPanel")
-        self.setFont(app_font(load_fonts()))
+        # Registers the desk faces. Her font is the app font, so it follows
+        # a language change like every other widget.
+        load_fonts()
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
-        self.setMinimumSize(220, 300)
-        self.avatar = PersonaAvatar(self)
-        self.avatar.pressed.connect(self._pressed)
-        self._motion = Motion(seed=7)
+        # No floor of its own: her stage sizes her. The old dock floor (220x300)
+        # overflowed a small hub, which clipped her off centre.
+        self.setMinimumSize(1, 1)
         self._state = "rest"
         self._speaking = False
         self._busy = False
-        self._mode = "orb"
-        self._mode_t = 0.0
-        self._quiet: float | None = None
+        self._listening = False
+        self._lipsync = False
+        self._pose = "rest"
+        self._place_due = False
         self._done_at: float | None = None
         self._status = ""
         self._status_at = 0.0
         self._level: Callable[[], float | None] | None = None
+        self._text_at: float | None = None
         self._clock: Callable[[], float] | None = None
-        self._last = self._now()
-        # The avatar waits for the dock size to settle, then reads the cache.
-        # A second delay here used to start after layout and miss that file.
-        self._bake_delay = 0.0
-        self._bake_armed = False
-        self._hooked = False
-        self._force_motion: bool | None = None
-        self._phase0_at: float | None = None
-        self._bloom_before_face = False
-        self.wake_start_perf: float | None = None
-        self.wake_end_perf: float | None = None
-        self.wake_duration_s: float | None = None
-        self.fold_start_perf: float | None = None
-        self.fold_end_perf: float | None = None
-        self.fold_duration_s: float | None = None
-        self.avatar.layers_in.connect(self._on_layers)
-        self._timer = QTimer(self)
-        self._timer.setTimerType(Qt.TimerType.PreciseTimer)
-        self._timer.timeout.connect(self._on_timer)
-        self._bake_arm = QTimer(self)
-        self._bake_arm.setSingleShot(True)
-        self._bake_arm.timeout.connect(self._kick_bake)
-        self._listening = False
+        self.loading = LoadingVeil(self)
+        self._level_timer = QTimer(self)
+        self._level_timer.setInterval(_LEVEL_MS)
+        self._level_timer.timeout.connect(self._tick_level)
+        self._status_timer = QTimer(self)
+        self._status_timer.setSingleShot(True)
+        self._status_timer.timeout.connect(self._invalidate_caption)
+        self._caption = _CaptionStrip(self)
         self.web = None
         self.web_avatar_reason = self._start_web()
         self._place()
@@ -92,171 +134,81 @@ class PersonaPanel(QWidget):
         return QSize(370, 520)
 
     def set_clock(self, clock: Callable[[], float] | None) -> None:
-        """Tests pass a clock so a quiet minute does not take a minute."""
+        """Tests pass a clock so a status line does not take seconds to age."""
         self._clock = clock
-        self._last = self._now()
 
-    def set_bake_delay(self, seconds: float) -> None:
-        self._bake_delay = 0.0 if seconds < 0.0 else float(seconds)
+    def scene_pending(self) -> bool:
+        """Her scene is still on its way (not failed, not unavailable)."""
+        return self.web is not None and self.is_loading()
+
+    def is_loading(self) -> bool:
+        """True while the neutral veil stands in for her (loading or no scene)."""
+        return not self.loading.isHidden()
 
     def set_state(self, name: str) -> None:
         if name not in {"rest", "thinking", "speaking", "done"}:
             name = "rest"
         self._state = name
-        now = self._now()
-        if name == "thinking":
-            self._speaking = False
-            self._quiet = None
-            if self._mode == "orb":
-                self._begin("bloom", now)
-        elif name == "speaking":
+        if name == "speaking":
             self._speaking = True
-            self._quiet = None
-            if self._mode == "orb":
-                self._begin("bloom", now)
-        elif name == "done":
+        elif name in {"thinking", "done"}:
             self._speaking = False
-            self._done_at = now
-            # Reply finished: a warm smile eases in, then out.
-            if self._mode == "face":
-                self._motion.cue("smile", now)
-            if self._mode == "orb":
-                self._begin("bloom", now)
-            if self._mode == "face":
-                self._quiet = now
+            if name == "done":
+                self._done_at = self._now()
+                self._status_timer.start(int(_DONE_S * 1000) + 50)
         else:
             self._speaking = False
-            if self._mode == "face" and self._quiet is None:
-                self._quiet = now
-        self._push(now, 0.0)
-        self._apply_interval()
+        self._push()
         self.state_changed.emit(self._state)
-        self.avatar.update()
         self._invalidate_caption()
 
     def set_model_busy(self, busy: bool) -> None:
         self._busy = bool(busy)
-        if busy:
-            self._quiet = None
-        self._apply_interval()
 
     def set_speaking(self, speaking: bool) -> None:
         self._speaking = bool(speaking)
-        now = self._now()
-        if speaking:
-            self._quiet = None
-            if self._mode == "orb":
-                self._begin("bloom", now)
-        elif self._mode == "face" and self._state in {"rest", "done"} and self._quiet is None:
-            self._quiet = now
-        self._push(now, 0.0)
-        self._apply_interval()
-        self.update()
-
-    def set_chat_side(self, side: float) -> None:
-        """Where the chat is from her: -1 to the left (dock on the right), +1 right."""
-        self._motion.chat_side = -1.0 if side < 0.0 else 1.0
-
-    def cue(self, name: str) -> None:
-        """Trigger one motion event now: smile, wink, nod, look or glance."""
-        self._motion.cue(name, self._now())
+        self._push()
+        self._invalidate_caption()
 
     def set_listening(self, on: bool) -> None:
-        """Mic is open. Only the web avatar shows this; the painted face ignores it."""
+        """Mic is open: she shows it in her pose."""
         self._listening = bool(on)
-        self._push_web(None)
-
-    def _start_web(self) -> str | None:
-        """Try the three.js avatar. Returns why not, or None when it is starting."""
-        from arelis.ui.persona_face import web_avatar
-
-        reason = web_avatar.unavailable_reason()
-        if reason is None:
-            try:
-                self.web = web_avatar.WebAvatar(self)
-            except Exception as exc:
-                reason = f"web avatar failed to start: {exc}"
-        if reason is not None:
-            _LOG.info("painted face in use: %s", reason)
-            return reason
-        self.web.hide()
-        self.web.ready.connect(self._on_web_ready)
-        self.web.failed.connect(self._on_web_failed)
-        return None
-
-    def _on_web_ready(self) -> None:
-        if self.web is None:
-            return
-        self._place()
-        self.web.show()
-        self.web.raise_()
-        self.avatar.hide()
-
-    def _on_web_failed(self, reason: str) -> None:
-        self.web_avatar_reason = reason
-        web, self.web = self.web, None
-        self.avatar.show()
-        self.avatar.update()
-        if web is not None:
-            web.hide()
-            web.deleteLater()
-
-    def _push_web(self, level: float | None) -> None:
-        if self.web is None:
-            return
-        speaking = self._speaking or self._state == "speaking"
-        if speaking:
-            state = "speaking"
-        elif self._state in {"thinking", "done"}:
-            state = self._state
-        elif self._listening:
-            state = "listening"
-        else:
-            state = "rest"
-        self.web.set_state(state)
-        self.web.set_level(level if speaking else 0.0)
-
-    def mousePressEvent(self, event) -> None:
-        # The web view lets clicks through; she still stops speaking when clicked.
-        web = self.web
-        hit = web is not None and web.geometry().contains(event.position().toPoint())
-        if hit and web.is_ready():
-            self._pressed()
-            return
-        super().mousePressEvent(event)
+        self._push()
 
     def set_level_source(self, source: Callable[[], float | None] | None) -> None:
         self._level = source
 
+    def note_text(self, text: str) -> None:
+        """A streamed reply chunk arrived: her mouth moves with it while no voice plays."""
+        if text and text.strip():
+            self._text_at = self._now()
+
+    def _text_level(self) -> float | None:
+        if self._text_at is None:
+            return None
+        now = self._now()
+        if now - self._text_at > _TEXT_HOLD_S:
+            return None
+        beat = 0.5 - 0.5 * math.cos(2 * math.pi * _TEXT_SYL_HZ * now)
+        swell = 0.85 + 0.15 * math.sin(2 * math.pi * 0.7 * now)
+        return (0.12 + 0.33 * beat) * swell
+
     def show_status(self, text: str) -> None:
         self._status = " ".join(text.split())
         self._status_at = self._now()
+        self._status_timer.start(int(_STATUS_S * 1000) + 50)
         self._invalidate_caption()
 
-    def form(self) -> str:
-        if self._mode == "orb":
-            return "orb"
-        if self._mode == "face":
-            return "face"
-        return self._mode
-
     def caption_text(self) -> str:
-        now = self._now()
-        if self._state == "done" and self._done_at is not None and (now - self._done_at) < _DONE_S:
-            return "done"
-        if self._speaking or self._state == "speaking":
+        if self._state == "done" and self._done_at is not None:
+            if (self._now() - self._done_at) < _DONE_S:
+                return "done"
+        if self._is_speaking():
             return "speaking"
         return ""
 
-    def hint_text(self) -> str:
-        if self._speaking or self._state == "speaking":
-            return "click her to stop speaking"
-        return ""
-
     def status_text(self) -> str:
-        if not self._status:
-            return ""
-        if self._now() - self._status_at >= _STATUS_S:
+        if not self._status or self._now() - self._status_at >= _STATUS_S:
             return ""
         return self._status
 
@@ -272,172 +224,202 @@ class PersonaPanel(QWidget):
         limit = max(8, int(width) - 16)
         return QFontMetrics(font).elidedText(text, Qt.TextElideMode.ElideRight, limit)
 
-    def face_ready(self) -> bool:
-        """Phase 0 is up and the materialize has finished.
+    def refresh_theme_icons(self) -> None:
+        """Theme change: retint the veil. The scene retints through its own hook.
 
-        All hair phases count, or a few seconds after phase 0 if the rest is
-        still landing. Shots wait on this instead of a fixed sleep.
+        Under ARELIS_AVATAR_ENGINE=qq3d a switch into or out of a room Quick 3D
+        hosts swaps her host, so each room gets the engine it was built for.
         """
-        phases = self.avatar.phases_ready()
-        if phases < 1 or self._mode != "face" or self.avatar.reveal < 0.999:
-            return False
-        if phases >= PHASE_COUNT:
-            return True
-        if self._phase0_at is None:
-            return False
-        return (self._now() - self._phase0_at) >= 4.0
+        self.loading.update()
+        from arelis.ui.persona_face import qq3d_avatar
+        from arelis.ui.theme_tokens import active_theme
 
-    def timer_running(self) -> bool:
-        return self._timer.isActive()
+        want = "qq3d" if qq3d_avatar.wanted(active_theme()) else "web"
+        if qq3d_avatar.engine() == "qq3d" and want != self._engine:
+            self._swap_host()
 
-    def timer_interval(self) -> int:
-        return int(self._timer.interval())
+    def _swap_host(self) -> None:
+        old, self.web = self.web, None
+        self.loading.set_message("")
+        self.loading.show()
+        self.loading.raise_()
+        if old is not None:
+            old.hide()
+            old.deleteLater()
+        self._pose = ""
+        self.web_avatar_reason = self._start_web()
+        self._place()
+        self._push()
 
-    @property
-    def bake_ready(self) -> bool:
-        return self.avatar.bake_ready()
+    # ---- web scene ----
 
-    def bake_thread_name(self) -> str:
-        return self.avatar.bake_thread_name()
+    def _start_web(self) -> str | None:
+        """Start the three.js scene. Returns why not, or None when it is starting."""
+        from arelis.ui.persona_face import qq3d_avatar, web_avatar
+        from arelis.ui.theme_tokens import active_theme
 
-    def painted_orb_while_baking(self) -> bool:
-        return self.avatar.painted_orb_while_baking()
+        host = web_avatar
+        make = lambda: web_avatar.WebAvatar(self)  # noqa: E731
+        self._engine = "web"
+        if qq3d_avatar.wanted(active_theme()):
+            host = qq3d_avatar
+            from arelis.ui.persona_face import quick_surface
 
-    def layer_shapes(self) -> dict:
-        return self.avatar.layer_shapes()
+            # ARELIS_SURFACE=quick: the window's Quick surface draws her (no readback).
+            cls = quick_surface.QuickSurfaceAvatar if quick_surface.enabled() else None
+            make = lambda: (cls or qq3d_avatar.QQ3DAvatar)(self)  # noqa: E731
+            self._engine = "qq3d"
+        reason = host.unavailable_reason()
+        if reason is None:
+            try:
+                self.web = make()
+            except Exception as exc:
+                reason = f"web avatar failed to start: {exc}"
+        if reason is not None:
+            alog("unavailable", reason=f"'{reason}'")  # not repr: it doubles a Windows path's \\
+            self._show_failure(reason)
+            return reason
+        # The page loads shown and sized, under the veil. A hidden view is a
+        # hidden page to Chromium: it started at 0x0 and its frames and fetches
+        # were held back, so scene ready and the clips came about 9 s late and
+        # the first frames resized from 100x30. Before ready the canvas is clear.
+        self._place()
+        self.web.show()
+        self.loading.raise_()
+        self.web.ready.connect(self._on_web_ready)
+        self.web.failed.connect(self._on_web_failed)
+        return None
 
-    def rest_face_image(self):
-        return self.avatar.rest_face_image()
-
-    def _on_timer(self) -> None:
-        if not self.isVisible() or self.window().isMinimized():
-            self._timer.stop()
+    def _on_web_ready(self) -> None:
+        if self.web is None:
             return
-        self.tick()
+        self._place()
+        self.web.show()
+        self.web.raise_()
+        self.loading.hide()
+        self.web.refit()
 
-    def tick(self) -> None:
-        now = self._now()
-        dt = now - self._last
-        if dt < 0.0:
-            dt = 0.0
-        elif dt > 0.1:
-            dt = 0.1
-        self._last = now
-        if self.avatar.phases_ready() >= 1 and self._phase0_at is None:
-            self._phase0_at = now
-        # A turn can ask for the wake while the orb is still the only thing
-        # drawn. The clock used to run out during the bake, so the face popped
-        # in. Start the 2.6 s when the layers actually exist.
-        self._release_wake(now)
-        if self._mode == "bloom":
-            u = (now - self._mode_t) / _BLOOM_S
-            self.avatar.reveal = _ease(u)
-            if u >= 1.0:
-                self._mode = "face"
-                self.avatar.reveal = 1.0
-                self._wake_end()
-                # Greeting: she smiles as she arrives.
-                self._motion.cue("smile", now)
-                if (
-                    self._state in {"rest", "done"}
-                    and not self._speaking
-                    and not self._busy
-                    and self._quiet is None
-                ):
-                    self._quiet = now
-        elif self._mode == "fold":
-            u = (now - self._mode_t) / _FOLD_S
-            self.avatar.reveal = 1.0 - _ease(u)
-            if u >= 1.0:
-                self._mode = "orb"
-                self.avatar.reveal = 0.0
-                self._quiet = None
-                self._fold_end()
-        elif self._mode == "face" and self._fold_due(now):
-            self._begin("fold", now)
-        if self._status and now - self._status_at >= _STATUS_S:
-            self._status = ""
-        self._push(now, dt)
-        self._apply_interval()
-        self.avatar.update()
-        self._invalidate_caption()
+    def _show_failure(self, reason: str) -> None:
+        """Quick 3D: the veil says why she is not drawn (a missing model is never a blank)."""
+        if self._engine == "qq3d":
+            self.loading.set_message(f"Her figure could not load: {reason}")
 
-    def _caption_signature(self) -> tuple:
-        return (self.caption_text(), self.hint_text(), self.status_text(), self._status_fade_step())
+    def _on_web_failed(self, reason: str) -> None:
+        self.web_avatar_reason = reason
+        self._show_failure(reason)
+        web, self.web = self.web, None
+        self.loading.show()
+        if web is not None:
+            web.hide()
+            web.deleteLater()
 
-    def _status_fade_step(self) -> int:
-        if not self._status:
-            return 0
-        age = self._now() - self._status_at
-        if age <= _STATUS_S - 1.5:
-            return 0
-        return int(age * 10)
+    def _is_speaking(self) -> bool:
+        return self._speaking or self._state == "speaking"
+
+    def _push(self) -> None:
+        speaking = self._is_speaking()
+        if speaking != self._lipsync:
+            self._lipsync = speaking
+            alog("lipsync start" if speaking else "lipsync stop")
+            if speaking:
+                self._level_timer.start()
+            else:
+                self._level_timer.stop()
+        if speaking:
+            state = "speaking"
+        elif self._state in {"thinking", "done"}:
+            state = self._state
+        elif self._listening:
+            state = "listening"
+        else:
+            state = "rest"
+        if self.web is None:
+            return
+        if state != self._pose:
+            # One line per pose she takes, so a turn reads thinking, speaking, done.
+            self._pose = state
+            alog("clip play", name="idle" if state == "rest" else state)
+        self.web.set_state(state)
+        if not speaking:
+            self.web.set_level(0.0)
+
+    def _tick_level(self) -> None:
+        if self.web is None:
+            return
+        level = None
+        if self._level is not None:
+            try:
+                level = self._level()
+            # A broken level source must not stop her; she keeps her own envelope.
+            except Exception:
+                level = None
+        if level is None:
+            # No voice audio (a typed reply): the streamed text moves her mouth.
+            level = self._text_level()
+        self.web.set_level(level)
+
+    # ---- painting and layout ----
 
     def _invalidate_caption(self) -> None:
-        """Repaint the strip under her only when the words or the fade step changed."""
-        sig = self._caption_signature()
-        if sig == getattr(self, "_caption_sig", None):
-            return
-        self._caption_sig = sig
         self.update(0, max(0, self.height() - _TEXT_H), self.width(), _TEXT_H)
-
-    def wake_for_window(self) -> None:
-        """Start the bake and the bloom once the window is up. Not from showEvent."""
-        if not self._bake_armed:
-            self._bake_armed = True
-            self._bake_arm.start(int(self._bake_delay * 1000))
-        if self._mode == "orb" and self._quiet is None:
-            self._begin("bloom", self._now())
-            self._apply_interval()
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        self._place()
-        self._hook_window()
-        self._sync_timer()
-        if not self._bake_armed:
-            self._bake_armed = True
-            self._bake_arm.start(int(self._bake_delay * 1000))
-
-    def hideEvent(self, event) -> None:
-        self._timer.stop()
-        super().hideEvent(event)
+        self._caption.update()
 
     def resizeEvent(self, event) -> None:
-        self._place()
-        self.avatar.note_resize()
+        # One theme switch hides the chrome bars one at a time, so her panel
+        # stepped through three sizes and the page reallocated its canvas for
+        # each (a 116 ms frame on the switch into Filament). The veil follows
+        # at once; the page takes the settled size once the layout is done.
+        height = max(1, self.height() - _TEXT_H)
+        self.loading.setGeometry(0, 0, max(1, self.width()), height)
+        if self.web is not None and not self._place_due:
+            self._place_due = True
+            QTimer.singleShot(0, self, self._place_now)
         super().resizeEvent(event)
 
-    def changeEvent(self, event) -> None:
-        if event.type() == QEvent.Type.WindowStateChange:
-            self._sync_timer()
-        super().changeEvent(event)
+    def _place_now(self) -> None:
+        # The slim title bar and the hidden chrome reach her through posted
+        # layout requests, some queued after this turn was. Let them land
+        # first, so the page takes one size per switch, not one per step.
+        for _ in range(8):
+            before = self.size()
+            QApplication.sendPostedEvents(None, QEvent.Type.LayoutRequest)
+            if self.size() == before:
+                break
+        self._place_due = False
+        self._place()
+        # The view may have been resized while Chromium held frames back (a
+        # room switch): make the page fit and draw now, never an empty hub.
+        refit = getattr(self.web, "refit", None)
+        if callable(refit):
+            refit()
 
-    def eventFilter(self, obj, event) -> bool:
-        if event.type() == QEvent.Type.WindowStateChange:
-            self._sync_timer()
-        return False
+    def hideEvent(self, event) -> None:
+        self._level_timer.stop()
+        super().hideEvent(event)
 
-    def closeEvent(self, event) -> None:
-        self._timer.stop()
-        self._bake_arm.stop()
-        self.avatar.shutdown()
-        super().closeEvent(event)
+    def showEvent(self, event) -> None:
+        # Hidden mid-reply (a minimize): _push only starts the timer when speaking flips,
+        # so without this her lips stayed still for the rest of the reply.
+        if self._lipsync:
+            self._level_timer.start()
+        super().showEvent(event)
 
     def paintEvent(self, event) -> None:
-        painter = QPainter(self)
+        del event
+        if self._caption.isVisible():
+            return
+        self.paint_caption(self, self.height() - _TEXT_H)
+
+    def paint_caption(self, device: QWidget, top: int) -> None:
+        painter = QPainter(device)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        width = self.width()
+        width = device.width()
         caption = self.caption_text()
-        hint = self.hint_text()
         status = self.status_text()
-        y = self.height() - _TEXT_H + 8
+        y = top + 8
         if caption:
             self._draw_caption(painter, caption, y, width)
             y += 22
-        if hint:
-            self._draw_line(painter, hint, y, width, "text_faint", 12)
-            y += 18
         if status:
             age = self._now() - self._status_at
             fade = 1.0
@@ -468,191 +450,30 @@ class PersonaPanel(QWidget):
         font.setPixelSize(px)
         painter.setFont(font)
         shown = QFontMetrics(font).elidedText(text, Qt.TextElideMode.ElideRight, max(8, width - 16))
-        painter.drawText(
-            8,
-            y,
-            width - 16,
-            18,
-            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-            shown,
-        )
-
-    def _pressed(self) -> None:
-        if self._speaking or self._state == "speaking":
-            self.stop_speaking_requested.emit()
-            return
-        if self._mode == "orb":
-            self._begin("bloom", self._now())
-            self._quiet = None
-            self._apply_interval()
-            self.avatar.update()
-            self._invalidate_caption()
-
-    def _animations_on(self) -> bool:
-        if self._force_motion is not None:
-            return bool(self._force_motion)
-        # The shared switch: ui.motion=false, ARELIS_MOTION, then the Windows
-        # animation flag. Reading only the Windows flag ignored the in-app
-        # setting (issue 427).
-        return motion_enabled()
-
-    def _wake_begin(self) -> None:
-        stamp = time.perf_counter()
-        self.wake_start_perf = stamp
-        self.wake_end_perf = None
-        self.wake_duration_s = None
-        _LOG.info("persona wake start %.6f", stamp)
-
-    def _wake_end(self) -> None:
-        if self.wake_start_perf is None or self.wake_end_perf is not None:
-            return
-        stamp = time.perf_counter()
-        self.wake_end_perf = stamp
-        self.wake_duration_s = stamp - self.wake_start_perf
-        _LOG.info("persona wake end %.6f duration %.3f", stamp, self.wake_duration_s)
-
-    def _fold_begin(self) -> None:
-        stamp = time.perf_counter()
-        self.fold_start_perf = stamp
-        self.fold_end_perf = None
-        self.fold_duration_s = None
-        _LOG.info("persona fold start %.6f", stamp)
-
-    def _fold_end(self) -> None:
-        if self.fold_start_perf is None or self.fold_end_perf is not None:
-            return
-        stamp = time.perf_counter()
-        self.fold_end_perf = stamp
-        self.fold_duration_s = stamp - self.fold_start_perf
-        _LOG.info("persona fold end %.6f duration %.3f", stamp, self.fold_duration_s)
-
-    def _release_wake(self, now: float) -> None:
-        """Start the 2.6 s clock when the layers exist, not on the next timer."""
-        if not (self.avatar.bake_ready() and self._bloom_before_face):
-            return
-        self._bloom_before_face = False
-        # A turn can start speaking while the bake is still running. Tick then
-        # finishes the bloom clock (reveal 1, mode face) with no plate to draw.
-        # When the layers land, restarting that clock would hide her and leave
-        # only the halo. The clock already ran. Keep the plate up.
-        if self.avatar.reveal >= 0.999:
-            self._mode = "face"
-            self._mode_t = now
-            self.avatar.reveal = 1.0
-            self._wake_begin()
-            self._wake_end()
-            return
-        if not self._animations_on():
-            self._mode = "face"
-            self._mode_t = now
-            self.avatar.reveal = 1.0
-            self._wake_begin()
-            self._wake_end()
-            return
-        self._mode = "bloom"
-        self._mode_t = now
-        self.avatar.reveal = 0.0
-        self._wake_begin()
-
-    def _on_layers(self) -> None:
-        self._release_wake(self._now())
-
-    def _begin(self, mode: str, now: float) -> None:
-        if not self._animations_on():
-            if mode == "bloom":
-                self._mode = "face"
-                self._mode_t = now
-                self.avatar.reveal = 1.0
-                self._bloom_before_face = False
-                self._wake_begin()
-                self._wake_end()
-                return
-            if mode == "fold":
-                self._mode = "orb"
-                self._mode_t = now
-                self.avatar.reveal = 0.0
-                self._quiet = None
-                self._fold_begin()
-                self._fold_end()
-                return
-        self._mode = mode
-        self._mode_t = now
-        if mode == "bloom" and not self.avatar.bake_ready():
-            # The clock restarts when the layers land, so a bake does not eat it.
-            self._bloom_before_face = True
-            return
-        if mode == "bloom":
-            self._wake_begin()
-        elif mode == "fold":
-            self._fold_begin()
-
-    def _fold_due(self, now: float) -> bool:
-        """She stays out. A quiet minute does not fold her back into the orb."""
-        del now
-        return False
-
-    def _push(self, now: float, dt: float) -> None:
-        level = None
-        if self._level is not None:
-            try:
-                level = self._level()
-            # A broken level source must not stop her; fall back to the gentle envelope.
-            except Exception:
-                level = None
-        speaking = self._speaking or self._state == "speaking"
-        self.avatar.frame = self._motion.step(
-            now,
-            dt,
-            state=self._state,
-            speaking=speaking,
-            model_busy=self._busy,
-            loudness=level,
-        )
-        self.avatar.thinking = self._state == "thinking"
-        self._push_web(level)
-        self.avatar.speaking = speaking
-        if self._state == "done" and self._done_at is not None:
-            self.avatar.glow = max(0.0, 1.0 - (now - self._done_at) / 0.8)
-        else:
-            self.avatar.glow = 0.0
-
-    def _apply_interval(self) -> None:
-        transitioning = self._mode in {"bloom", "fold"}
-        state = "speaking" if (self._speaking or self._state == "speaking") else self._state
-        form = "orb" if self._mode == "orb" else "face"
-        self._timer.setInterval(
-            frame_interval_ms(
-                form=form,
-                state=state,
-                model_busy=self._busy,
-                transitioning=transitioning,
-            )
-        )
-
-    def _sync_timer(self) -> None:
-        if not self.isVisible() or self.window().isMinimized():
-            self._timer.stop()
-            return
-        self._apply_interval()
-        if not self._timer.isActive():
-            self._timer.start()
-
-    def _hook_window(self) -> None:
-        window = self.window()
-        if window is None or self._hooked:
-            return
-        window.installEventFilter(self)
-        self._hooked = True
-
-    def _kick_bake(self) -> None:
-        if self.isVisible():
-            self.avatar.request_bake(0)
+        align = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        painter.drawText(8, y, width - 16, 18, align, shown)
 
     def _place(self) -> None:
         height = max(1, self.height() - _TEXT_H)
-        self.avatar.setGeometry(0, 0, max(1, self.width()), height)
-        if getattr(self, "web", None) is not None:
-            self.web.setGeometry(0, 0, max(1, self.width()), height)
+        self.loading.setGeometry(0, 0, max(1, self.width()), height)
+        if self.web is not None:
+            # Quick 3D's floor, threads and glow run to the bottom of her band: a view
+            # stopping short of it cut them on a hard line, a box on the stage.
+            # Her caption rides on top of the view instead.
+            full = self._engine == "qq3d"
+            self.web.setGeometry(0, 0, max(1, self.width()), self.height() if full else height)
+            self._caption.setVisible(full)
+            if full:
+                # Under her figure, not across the whole base layer.
+                from arelis.ui.persona_stage import figure_x
+                from arelis.ui.theme_tokens import active_theme
+
+                fx = figure_x(active_theme())
+                half = round(self.width() * min(fx, 1 - fx))
+                mid = round(self.width() * fx)
+                top = max(0, self.height() - _TEXT_H)
+                self._caption.setGeometry(mid - half, top, 2 * half, _TEXT_H)
+                self._caption.raise_()
 
     def _now(self) -> float:
         if self._clock is not None:

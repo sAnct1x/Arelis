@@ -237,3 +237,27 @@ async def test_cli_asks_before_writing_on_a_terminal(monkeypatch) -> None:
     assert await printer._decide("write data/x.txt") == ("allow_turn", True)
 
 
+
+
+def test_streamed_edit_washes_only_the_bubble_it_touched(qt_app, monkeypatch) -> None:
+    """A streamed token must not walk the whole transcript: its cost grew with chat history."""
+    from arelis.ui.panels import chat as chat_mod
+
+    panel = chat_mod.ChatPanel()
+    for n in range(12):
+        panel.add_user(f"question {n}")
+        panel.finish_assistant(f"answer {n} with **bold** words")
+    spans: list[tuple[int, int | None]] = []
+    real = chat_mod.wash_message_cells
+
+    def spy(document, start=0, end=None):
+        spans.append((start, end))
+        real(document, start, end)
+
+    monkeypatch.setattr(chat_mod, "wash_message_cells", spy)
+    history = panel.view.document().characterCount()
+    panel.begin_assistant()
+    panel.append_delta("a new token")
+    panel._repaint_stream()
+    assert spans
+    assert all(end is not None and start >= history // 2 for start, end in spans)

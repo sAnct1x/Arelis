@@ -172,7 +172,7 @@ def test_idle_keeps_one_orbit_when_docks_open(arelis_window) -> None:
     window = arelis_window()
     window._reset_layout()
     window.history_dock.show()
-    window.think_dock.show()
+    window.camera_dock.show()
     sync_idle_mode(window)
     assert window.conversation.graphicsEffect() is None
     assert window.chat.empty.graphicsEffect() is None
@@ -265,10 +265,16 @@ def _hue(rgb: tuple[int, int, int]) -> int:
     return QColor(*rgb).hsvHue()
 
 
-def test_view_checks_start_true_for_her_open_dock(arelis_window) -> None:
-    """Ctrl+1 closes her dock on the first press after launch."""
-    window = arelis_window()
-    assert not window.persona_dock.isHidden()
-    assert window.act_persona.isChecked()
-    window.act_persona.trigger()
-    assert window._persona_user_closed
+def test_idle_timers_off_keeps_the_orb_still_and_says_so(qt_app) -> None:
+    """ARELIS_IDLE_TIMERS=off is an A/B switch for idle fps; the log line names it."""
+    from arelis.ui import idle_ab
+
+    idle_ab.load({"ARELIS_IDLE_TIMERS": "off"})
+    try:
+        orb = OrbitCanvas()
+        orb.show()
+        orb.set_animating(True)
+        assert not orb._timer.isActive()
+        assert "idle_timers=off preserve_buffer=on" in idle_ab.line()
+    finally:
+        idle_ab.load({})

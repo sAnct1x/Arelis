@@ -73,6 +73,7 @@ from arelis.ui.panels import (
     ThinkingPanel,
 )
 from arelis.ui.persona_face import PersonaPanel
+from arelis.ui.persona_stage import PersonaStage, seat_persona
 from arelis.ui.readiness_strip import ReadinessStrip
 from arelis.ui.scale import default_window_size
 from arelis.ui.settings_host import (
@@ -82,14 +83,13 @@ from arelis.ui.settings_host import (
 from arelis.ui.sms_chat import SmsChatRegistry
 from arelis.ui.spatial_hands import SpatialHands
 from arelis.ui.stage import StageBackground
-from arelis.ui.surface_report import log_report
+from arelis.ui.surface_report import log_graphics, log_report
 from arelis.ui.theme import (
     SHELL,
     apply_theme,
-    stylesheet,
+    install_stylesheet,
     theme_from_config,
 )
-from arelis.ui.window_const import THINK_PULSE_MS as _THINK_PULSE_MS
 from arelis.ui.window_docks import bind_docks
 from arelis.ui.world_host import attach_world, bind_world
 from arelis.workspace import WorkspaceRoots
@@ -189,7 +189,7 @@ class WindowBuild:
             QMainWindow.DockOption.AnimatedDocks | QMainWindow.DockOption.AllowNestedDocks
         )
         apply_theme(theme_from_config(config))
-        self.setStyleSheet(stylesheet())
+        install_stylesheet(self)
         # Native Windows chrome removed — custom glass title bar
         self.setWindowFlags(
             Qt.WindowType.Window
@@ -240,7 +240,27 @@ class WindowBuild:
         self.chat = self.conversation.chat
         self.chat.progress_clicked.connect(self._on_thinking_status_clicked)
         self._stage_layout.addWidget(self.conversation, stretch=1)
+        # Her base-UI place (base-ui-plan slice 2): empty for now, under the chat.
+        self.persona_stage = PersonaStage(self.stage)
+        self.persona_stage.stackUnder(self.conversation)
         self._filament = FilamentField()
+        # Off the GUI thread: her Quick 3D frames share it (filament_render).
+        from arelis.ui.filament_render import FieldRenderer
+        from arelis.ui.persona_face import quick_surface
+
+        quick = quick_surface.enabled()
+        # Under the flag the GPU draws the void, ring, strands, dust and hub threads
+        # (QuickOrbit.qml); the worker paints only the beads, stems and tethers.
+        self._filament_render = FieldRenderer(self._filament, self, unported_only=quick)
+        self._quick_surface = None
+        if quick:
+            # One full-window Quick layer under every widget: void, GPU orbit, her figure.
+            quick_surface.surface_for(self)
+            self._filament_render.ready.connect(self._push_orbit_to_surface)
+        else:
+            self._filament_render.ready.connect(
+                lambda: self.update(self._filament.dirty_rect(self.rect()))
+            )
         self._filament_parked: dict[str, Any] | None = None
         self._filament_chrome_peek = False
         self._filament_hiding = False
@@ -256,7 +276,8 @@ class WindowBuild:
         self._filament_dock_areas: dict[str, object] | None = None
         self._filament_floats = FilamentFloatBar(self._filament, self.conversation)
         self._filament_floats.hide()
-        self._hands_chip = bool((self.config.get("ui") or {}).get("hands_chip", False))
+        # Hands opens the webcam, so it starts off every launch: only the user turns it on.
+        self._hands_chip = False
         self._filament_chat_tile = FilamentChatWindow(self)
         self._filament_chat_tile.hide()
         self.filament = FilamentDesk(self)
@@ -280,15 +301,12 @@ class WindowBuild:
         self.spatial.preview_ready.connect(self.camera.set_preview)
         self.calendar = CalendarPanel(memory=self.store)
         self.persona_panel = PersonaPanel()
-        self.persona_panel.stop_speaking_requested.connect(self._on_persona_stop_speaking)
         self.thinking.bind(self)
-        self.persona_host = InstrumentPanel("arelis", self.persona_panel)
-        self.think_host = self.persona_host
         self.history_host = InstrumentPanel("history", self.history)
         self.camera_host = InstrumentPanel("camera", self.camera)
 
     def _build_docks(self) -> None:
-        assert hasattr(self, "persona_host"), (
+        assert hasattr(self, "history_host"), (
             "Instruments must be built before docks (docks wrap the instrument hosts)"
         )
         # The four dock object names below are not styling hooks — no QSS rule
@@ -296,32 +314,7 @@ class WindowBuild:
         # so they are what layout_store writes into ui_layout.ini and matches on
         # the way back. Drop one and that dock silently stops coming back where
         # it was left, days later, with nothing to connect it to.
-        self._persona_user_closed = False
-        self._persona_adjusting = False
-        self.persona_dock = GlassDockWidget("arelis", self)
-        self.persona_dock.setObjectName("PersonaDock")
-        self.think_dock = self.persona_dock
-        self._persona_shell = _dock_shell(
-            self.persona_host,
-            (_PANEL_HALF, _PANEL_TOP, _PANEL_OUTER, _PANEL_BOTTOM),
-        )
-        self._think_shell = self._persona_shell
-        self.persona_dock.setWidget(self._persona_shell)
-        # After setWidget, so the first surface pass reaches the shell and panel.
-        _hide_dock_title(self.persona_dock)
-        self.persona_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea
-            | Qt.DockWidgetArea.RightDockWidgetArea
-            | Qt.DockWidgetArea.BottomDockWidgetArea
-        )
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.persona_dock)
-        # She looks toward the chat while speaking; the chat is across from her dock.
-        self.persona_dock.dockLocationChanged.connect(
-            lambda area: self.persona_panel.set_chat_side(
-                1.0 if area == Qt.DockWidgetArea.LeftDockWidgetArea else -1.0
-            )
-        )
-
+        # She is not a dock: seat_persona hosts her panel in persona_stage.
         self.history_dock = GlassDockWidget("history", self)
         self.history_dock.setObjectName("HistoryDock")
         self._history_shell = _dock_shell(
@@ -357,7 +350,6 @@ class WindowBuild:
         # Without mins, QMainWindow will crush side docks to a few pixels.
         self._dock_min_width = 220
         for dock in (
-            self.persona_dock,
             self.history_dock,
             self.camera_dock,
         ):
@@ -379,19 +371,18 @@ class WindowBuild:
         # and leaves 4K-at-150% alone (that screen is already ~1440 logical).
         opening = default_window_size(self.config)
         self.resize(opening)
-        self.persona_dock.resize(370, 600)
-        self.resizeDocks([self.persona_dock], [370], Qt.Orientation.Horizontal)
         self.history_dock.resize(280, 600)
         self._apply_calm_instrument_defaults()
 
         restored = restore_window_layout(self, opening)
         if not restored:
             self._apply_calm_instrument_defaults()
-        else:
-            self._open_persona_saved_by_old_default()
-        self._adopt_old_thinking_layout()
         # Seal restored floats now, before the first show. Do not redock them
         # after paint — that shrink used to leave a second orbit on the right.
+        # The camera tile opens the webcam, so like Hands it starts closed every launch,
+        # whatever the saved layout says. Only the user turns the camera on.
+        self.camera_dock.hide()
+        seat_persona(self)
         self._sanitize_floating_docks()
         self._stack_left_instruments()
         self._later(0, self._clamp_dock_widths)
@@ -483,10 +474,6 @@ class WindowBuild:
         self._busy_watchdog = QTimer(self)
         self._busy_watchdog.setSingleShot(True)
         self._busy_watchdog.timeout.connect(self._on_busy_watchdog)
-        self._think_pulse_timer = QTimer(self)
-        self._think_pulse_timer.setSingleShot(True)
-        self._think_pulse_timer.setInterval(_THINK_PULSE_MS)
-        self._think_pulse_timer.timeout.connect(self._on_think_pulse_done)
 
         # Embed archived messages between turns only. Mid-turn would load nomic
         # and risk evicting the chat model on a 12GB card.
@@ -523,7 +510,7 @@ class WindowBuild:
         self._atmosphere_timer.start()
 
     def _connect_signals_and_bind(self) -> None:
-        assert hasattr(self, "think_dock"), (
+        assert hasattr(self, "history_dock"), (
             "Docks must be built before signals (view actions need docks)"
         )
         assert hasattr(self, "world_scene"), "Secondary windows must be built before signals"
@@ -564,6 +551,8 @@ class WindowBuild:
         # once the window has settled catches it. See surface_report for why
         # these three lists are the ones worth printing.
         self._later(4000, lambda: log_report(self, tag="settled"))
+        self._later(0, lambda: log_graphics(self, tag="startup"))
+        self._later(4000, lambda: log_graphics(self, tag="settled"))
         if self._restore_session_id:
             # Bus is already running on the background thread by the time the
             # window is shown; a zero-delay shot waits one event-loop pass so
@@ -581,37 +570,3 @@ class WindowBuild:
         if quiet_launch(self):
             return
         self.conversation.focus_input()
-
-    def _on_persona_stop_speaking(self) -> None:
-        from arelis.ui.voice_host import stop_speech
-
-        stop_speech(self)
-
-    def _adopt_old_thinking_layout(self) -> None:
-        """A layout saved by the old Thinking dock opens as her dock on the right."""
-        from arelis.ui.layout_store import settings
-
-        state = settings().value("state")
-        raw = b""
-        if state is not None:
-            try:
-                raw = bytes(state)
-            except TypeError:
-                raw = b""
-        text = raw.decode("latin1", "ignore").replace("\x00", "")
-        if "ThinkingDock" not in text or "PersonaDock" in text:
-            return
-        self._place_persona_dock()
-
-    def _place_persona_dock(self) -> None:
-        dock = self.persona_dock
-        self._persona_adjusting = True
-        try:
-            if dock.isFloating():
-                dock.setFloating(False)
-            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-            self.resizeDocks([dock], [370], Qt.Orientation.Horizontal)
-            ui_cfg = self.config.get("ui", {}) or {}
-            dock.setVisible(bool(ui_cfg.get("thinking_open", True)))
-        finally:
-            self._persona_adjusting = False

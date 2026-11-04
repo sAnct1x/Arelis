@@ -330,6 +330,8 @@ def _paint_spans(view: QWidget, spans, strength: float) -> None:
     document = view.document()
     cursor = QTextCursor(document)
     full = strength >= 0.999
+    # One edit block: each setCharFormat outside one relays out the document on its own.
+    cursor.beginEditBlock()
     for lo, hi, original in reversed(spans):
         if lo >= document.characterCount():
             continue
@@ -343,3 +345,4 @@ def _paint_spans(view: QWidget, spans, strength: float) -> None:
         if cursor.position() == cursor.anchor():
             continue
         cursor.setCharFormat(fmt)
+    cursor.endEditBlock()

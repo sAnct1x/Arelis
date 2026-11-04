@@ -34,14 +34,8 @@ def _dock_window(panel):
     """Enough of a window for the thinking-line branches of dispatch_event."""
     from types import SimpleNamespace
 
-    dock = SimpleNamespace(isHidden=lambda: True)
-    action = object()
     return SimpleNamespace(
         thinking=panel,
-        think_dock=dock,
-        persona_dock=dock,
-        act_thinking=action,
-        act_persona=action,
         _turn_busy=True,
         _busy_status_line=lambda: "working",
         _mobile_foreign=False,

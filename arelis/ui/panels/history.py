@@ -323,10 +323,9 @@ class HistoryPanel(QWidget):
         sid = str(item.data(Qt.ItemDataRole.UserRole) or "")
         if not sid:
             return
-        already = sid == self._active_id
         self.set_active(sid)
-        if already:
-            return
+        # Emit even for the seated chat: in Filament the click is what opens
+        # the chat tile, and the host skips the reload for the seated one.
         self.session_selected.emit(sid)
 
     def _on_session_menu(self, pos) -> None:

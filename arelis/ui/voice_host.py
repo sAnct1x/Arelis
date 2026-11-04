@@ -682,7 +682,10 @@ def preload_voice(window) -> None:
             window.voice.preload(), window.loop
         )
 
-    wake_future.add_done_callback(lambda fut: QTimer.singleShot(0, lambda: _wake_done(fut)))
+    # The done callback runs on the asyncio thread, which has no Qt event loop: a
+    # QTimer.singleShot made there never fired, so the ear never read ready and idle sat on
+    # "getting the ear…" all run (Whisper and TTS preload never started either).
+    wake_future.add_done_callback(lambda fut: window._ui_call.emit(lambda: _wake_done(fut)))
     window._voice_preload_future = wake_future
 
 
@@ -764,7 +767,7 @@ def on_barge_in(window) -> None:
     the transcript is not a second one.
     """
     window.thinking.append("interrupted", kind="status")
-    stop_speech(window)
+    stop_speech(window, source="voice")
 
 
 def arm_speech(window) -> None:
@@ -820,7 +823,9 @@ def update_speaking(window) -> None:
         if speaking:
             panel.set_state("speaking")
         elif was_speaking:
-            if getattr(window, "_turn_busy", False):
+            if getattr(window, "_assistant_streaming", False):
+                pass  # the reply is still streaming in: she keeps speaking
+            elif getattr(window, "_turn_busy", False):
                 panel.set_state("thinking")
             else:
                 panel.set_state("done")
@@ -857,12 +862,16 @@ def stop_playback(window) -> None:
     update_speaking(window)
 
 
-def stop_speech(window) -> None:
+def stop_speech(window, source: str = "system") -> None:
     # Cancelling synthesis matters as much as stopping the player. The
     # player drops the clips it holds, but the service would keep rendering
     # the rest of the answer, and conversation mode stays deaf until that
     # loop reaches its terminal event. Retract must not use this: see
     # stop_playback.
+    if getattr(window, "_speech_expected", False) or getattr(window, "_speech_playing", False):
+        from arelis.ui.persona_face.panel import alog
+
+        alog("stop", source=source)
     if window.voice is not None:
         window.voice.cancel_speech()
     if window.speech_player is not None:
