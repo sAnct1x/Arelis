@@ -373,6 +373,9 @@ def test_wiring_her_chest_hands_the_strand_her_chest_at_once(qt_app) -> None:
         def y(self):
             return 10.0
 
+        def setVisible(self, _v) -> None:
+            pass
+
     host = QWidget()
     host._filament = Field()
     av = quick_surface.QuickSurfaceAvatar(host)
