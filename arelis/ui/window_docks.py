@@ -141,8 +141,8 @@ def toggle_camera(window, checked: bool) -> None:
     note_engagement(window)
     if checked:
         hold_unseen_until_grow(window.camera_dock)
+        # The tile opens with the webcam off; the user clicks Start camera.
         window.camera_dock.setVisible(True)
-        window.camera.start()
         window._animate_dock(window.camera_dock, show=True)
         window._filament_present_tile(window.camera_dock, "camera")
     else:

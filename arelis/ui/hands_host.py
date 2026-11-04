@@ -37,8 +37,9 @@ def apply_hands_face(window) -> None:
 
 def camera_wanted(window) -> bool:
     """The one rule: the webcam runs only while something the user can see and turn off
-    needs it: the open camera tile, Hands on in Filament, or Track checked in Sodium."""
-    if window.camera_dock.isVisible():
+    needs it: Start camera clicked in the open tile, Hands on in Filament, or Track checked
+    in Sodium. An open tile alone does not count."""
+    if window.camera_dock.isVisible() and getattr(window.camera, "user_started", False):
         return True
     if active_theme() == "filament":
         return bool(getattr(window, "_hands_chip", False)) and world_stage_allowed()

@@ -83,3 +83,20 @@ def test_switching_to_sodium_with_hands_on_closes_the_camera(arelis_window, monk
     monkeypatch.setattr("arelis.ui.hands_host.active_theme", lambda: "sodium")
     apply_hands_face(w)
     assert not w.camera._running and not w.spatial.tracking
+
+
+def test_opening_the_camera_tile_waits_for_start_camera(arelis_window, monkeypatch) -> None:
+    from arelis.ui.panels import camera as cam
+
+    opened = _spy_camera(monkeypatch)
+    monkeypatch.setattr(cam.CameraPanel, "problem", lambda self: None)
+    w = arelis_window({"ui": dict(FILAMENT)})
+    w.show()
+    QTest.qWait(300)
+    w._toggle_camera(True)  # the camera window from the menu or title bar
+    QTest.qWait(300)
+    assert w.camera_dock.isVisible() and opened == []
+    assert w.camera.start_btn.text() == "Start camera"
+    w.camera.start_btn.setEnabled(True)
+    w.camera.start_btn.click()
+    assert opened == ["start"]
