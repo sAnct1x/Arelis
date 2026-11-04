@@ -257,3 +257,16 @@ def test_clicking_a_history_chat_opens_it_in_the_chat_tile(
     assert loads == ["s-old"]
     assert w._filament_chat_open
     assert not w._filament_chat_tile.isHidden()
+
+    # The chat already open, clicked mid-turn, is not a switch: no toast.
+    from types import SimpleNamespace
+
+    toasts: list[str] = []
+    monkeypatch.setattr(host, "toast_finish_or_stop", lambda _w, msg: toasts.append(msg))
+    monkeypatch.setattr(w, "store", SimpleNamespace(session_id="s-old"))
+    monkeypatch.setattr(w, "_turn_busy", True)
+    w._filament_set_chat_open(False)
+    w.history._on_activated(item)
+    qt_app.processEvents()
+    assert (loads, toasts) == (["s-old"], [])
+    assert w._filament_chat_open
