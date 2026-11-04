@@ -850,9 +850,16 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
     from arelis.talk_language import session_code
 
     apply_language(window, session_code(config))
-    _present_at_startup(window)
     if splash is not None:
-        splash.finish()  # the window is up: her light hands over to it
+        # The splash stays until the model, Arelis, the tree and a full frame
+        # are ready, then hands off in one step: no half-drawn window shows.
+        from arelis.ui.startup_gate import hold_until_ready
+
+        window.setWindowOpacity(0.0)
+        _present_at_startup(window)
+        hold_until_ready(window, splash, splash.started_at)
+    else:
+        _present_at_startup(window)
 
     def _deferred_memory_backup() -> None:
         try:
