@@ -96,7 +96,9 @@ besides the long roots to the left, and the right side now carries about as much
 the left. Every root and buttress fades in from its far end and
 runs on into the trunk, so no strand stops short. The floor light starts just outside her
 near foot (`OrbitState` `feet`, 0.14 of the height off her hub, toward the tree) as a wide
-soft swell, not a hot point between her feet. The tree keeps drawing under the open chat. The strands that leave the trunk's foot fade in
+soft swell, not a hot point between her feet. In Filament she stands at `FIGURE_SCALE` (0.85, `persona_stage.py`) of her full height,
+soles on the floor line: the camera backs off by 1 / 0.85, and her hub and the floor link's
+start derive from the same constant. The tree keeps drawing under the open chat. The strands that leave the trunk's foot fade in
 slowly, so none sweeps off to the right and stops in the air.
 Its fibers are drawn in four quarters into textures, one quarter redrawing per frame in
 turn, and laid together into one cached texture, so a frame composites one fiber texture,

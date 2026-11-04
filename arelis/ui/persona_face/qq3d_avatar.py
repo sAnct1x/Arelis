@@ -386,7 +386,7 @@ def unavailable_reason() -> str | None:
 def theme_props() -> dict[str, object]:
     """The room as the scene sees it: tint, colours and backdrop."""
     from arelis.ui.persona_face.web_avatar import backdrop_color
-    from arelis.ui.persona_stage import figure_x
+    from arelis.ui.persona_stage import figure_scale, figure_x
     from arelis.ui.theme import active_theme, color
     from arelis.ui.void_idle import aether_hue_shift
 
@@ -397,6 +397,7 @@ def theme_props() -> dict[str, object]:
         "text": color("text"),
         "backdrop": backdrop_color(),
         "figureX": figure_x(active_theme()),
+        "figureScale": figure_scale(active_theme()),
     }
 
 

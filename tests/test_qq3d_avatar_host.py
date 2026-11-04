@@ -399,3 +399,23 @@ def test_her_view_has_its_camera_so_the_chest_strand_does_not_warn(tmp_path, mon
     has_camera, _undefined = expr.evaluate()
     host.close()
     assert has_camera is True
+
+
+def test_filament_scales_her_down_with_her_soles_on_the_floor(tmp_path, monkeypatch) -> None:
+    import math
+
+    from arelis.ui.persona_stage import figure_scale
+
+    assert abs(figure_scale("filament") - 0.85) < 1e-6 and figure_scale("sodium") == 1.0
+    host = _ready_host(tmp_path, monkeypatch)
+    root, cam = host.root, host.root.findChild(QObject, "cam")
+    host.resize(400, 400)
+    QTest.qWait(100)
+    full = cam.property("camZ")
+    root.setProperty("figureScale", figure_scale("filament"))
+    QTest.qWait(100)
+    # She draws 0.85 as tall (the camera backs off), and the frame bottom still meets her soles.
+    assert abs(full / cam.property("camZ") - 0.85) < 1e-3
+    half = math.tan(math.radians(cam.property("fieldOfView") / 2)) * cam.property("camZ")
+    assert abs(cam.property("y") - cam.property("tilt") - half - root.property("soleY")) < 1e-3
+    host.close()

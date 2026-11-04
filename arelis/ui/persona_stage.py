@@ -28,6 +28,10 @@ CHAT_PAD = 2 * SHELL["outer"]
 # orbit and tiles stay left of it).
 FIGURE_X = 0.82
 FIGURE_LEFT = 0.66
+# Filament: her height as a share of her full head-to-toe frame. Her soles stay on the
+# floor line and she gets headroom, so she reads as standing beside the tree. Everything
+# tied to her size (the camera, her hub, the floor link at her feet) derives from this.
+FIGURE_SCALE = 0.85
 
 
 def base_layer(theme: str) -> bool:
@@ -45,6 +49,17 @@ def base_layer(theme: str) -> bool:
 def figure_x(theme: str) -> float:
     """Where her centre stands across her view, 0..1."""
     return FIGURE_X if base_layer(theme) else 0.5
+
+
+def figure_scale(theme: str) -> float:
+    """Her height in her view, as a share of head to toe: smaller in Filament only."""
+    return FIGURE_SCALE if (theme or "").strip().lower() == "filament" else 1.0
+
+
+def figure_hub_y(top: float, height: float, scale: float) -> float:
+    """Her centre's height in a view `height` tall: half her height above the soles,
+    which stay on the view's bottom whatever her scale."""
+    return top + height * (1.0 - scale / 2.0)
 
 
 def figure_zone(region: QRect) -> QRect:
@@ -148,7 +163,10 @@ class PersonaStage(QWidget):
             band_left = None
             if active_theme() == "filament" and parent is not None:
                 g = self.geometry()
-                at = QPointF(g.left() + g.width() * FIGURE_X, g.center().y())
+                at = QPointF(
+                    g.left() + g.width() * FIGURE_X,
+                    figure_hub_y(g.top(), g.height(), FIGURE_SCALE),
+                )
                 hub = QPointF(parent.mapTo(window, at.toPoint()))
                 band_left = parent.mapTo(window, figure_zone(g).topLeft()).x()
             field.set_hub(hub, band_left)

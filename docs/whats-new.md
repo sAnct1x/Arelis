@@ -23,6 +23,7 @@ Notes: [v0.3.3](releases/v0.3.3.md). Older:
 - Privacy: Filament no longer turns the webcam on by itself. Hands (which uses the camera) starts off every launch, even if it was on last time, and turning Hands off closes the camera.
 - Privacy: the camera tile starts closed every launch, even if it was open last time, and switching from Filament to Sodium with Hands on closes the camera unless its tile is open or Track is on.
 - Tree base: the right-hand roots are as visible as the left, and the band of strands that ran right from the trunk's foot and ended abruptly now fades out smoothly.
+- Filament: Arelis stands about 15% smaller, feet on the same floor line, so she has headroom and reads as standing beside the tree. Her hub, the strands and tiles that grow from it, and the floor light at her feet follow her new size. Night and Sodium are unchanged.
 
 ## 0.3.3
 
