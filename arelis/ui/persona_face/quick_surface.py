@@ -390,7 +390,13 @@ class QuickSurfaceAvatar(QQ3DAvatar):
         root = getattr(self, "root", None)
         # Her scene compiles asynchronously, so root first exists here, not after __init__.
         if had is None and root is not None and not self._dead:
-            root.chestChanged.connect(self._on_chest)
+            self._wire_chest(root)
+
+    def _wire_chest(self, root) -> None:
+        """Follow her chest, and hand the strand where it is now: a chest set before this
+        connect sends no change signal, so the strand would wait for her next pose."""
+        root.chestChanged.connect(self._on_chest)
+        self._on_chest()
 
     # ---- attach and place ----
 

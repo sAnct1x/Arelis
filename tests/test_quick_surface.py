@@ -345,3 +345,39 @@ def test_her_chest_reaches_the_strand_once_her_scene_has_compiled(qt_app, monkey
     root.chestChanged.emit()
     host.deleteLater()
     assert calls
+
+
+def test_wiring_her_chest_hands_the_strand_her_chest_at_once(qt_app) -> None:
+    """A chest set before the connect sends no change: the current value is pushed."""
+    from PySide6.QtCore import QObject, QPointF, Signal
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.persona_face import quick_surface
+
+    class Root(QObject):
+        chestChanged = Signal()  # noqa: N815 (QML signal name)
+
+        def property(self, name):
+            return QPointF(40, 60) if name == "chest" else None
+
+    class Field:
+        heart = None
+
+        def set_heart(self, p) -> None:
+            self.heart = p
+
+    class Slot:
+        def x(self):
+            return 100.0
+
+        def y(self):
+            return 10.0
+
+    host = QWidget()
+    host._filament = Field()
+    av = quick_surface.QuickSurfaceAvatar(host)
+    av.root, av._slot = Root(), Slot()
+    av._wire_chest(av.root)
+    heart = host._filament.heart
+    host.deleteLater()
+    assert heart == QPointF(140, 70)
