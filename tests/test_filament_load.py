@@ -280,20 +280,58 @@ def test_the_splash_stays_until_model_arelis_tree_and_a_paint_are_ready(
 
     w = _filament(arelis_window, qt_app)
     warming = {"v": True}
-    monkeypatch.setattr(w, "router", SimpleNamespace(warmup_pending=lambda: warming["v"]))
     built = {"v": False}
+    monkeypatch.setattr(w, "router", SimpleNamespace(warmup_pending=lambda: warming["v"]))
     monkeypatch.setattr(w._filament, "tree_built", lambda: built["v"])
+
+    def launch():
+        splash = SimpleNamespace(closed=0, note=lambda _t: None)
+        splash.finish = lambda: setattr(splash, "closed", splash.closed + 1)
+        gate = hold_until_ready(w, splash)
+        gate._poll()
+        w.repaint()  # a frame is painted, so only the wait under test holds it
+        gate._poll()
+        return gate, splash
+
+    built["v"] = True  # only the model holds it
+    gate, splash = launch()
+    assert (splash.closed, w.windowOpacity()) == (0, 0.0)
+    warming["v"] = False
+    gate._poll()
+    assert splash.closed == 0  # no full frame painted since the last wait cleared
+    w.repaint()
+    gate._poll()
+    assert (splash.closed, w.windowOpacity()) == (1, 1.0)
+
+    built["v"] = False  # only the tree holds it
+    gate, splash = launch()
+    assert (splash.closed, w.windowOpacity()) == (0, 0.0)
+
+
+def test_a_failing_check_or_leaving_filament_never_strands_the_splash(
+    arelis_window, qt_app, monkeypatch
+) -> None:
+    from types import SimpleNamespace
+
+    import arelis.ui.theme as theme
+    from arelis.ui.startup_gate import hold_until_ready
+
+    w = _filament(arelis_window, qt_app)
+
+    def broken() -> bool:
+        raise RuntimeError("router gone")
+
+    monkeypatch.setattr(w, "router", SimpleNamespace(warmup_pending=broken))
+    monkeypatch.setattr(w._filament, "tree_built", lambda: False)
     splash = SimpleNamespace(closed=0, note=lambda _t: None)
     splash.finish = lambda: setattr(splash, "closed", splash.closed + 1)
     gate = hold_until_ready(w, splash)
     gate._poll()
-    assert (splash.closed, w.windowOpacity()) == (0, 0.0)
-    warming["v"] = False
+    w.repaint()
     gate._poll()
-    assert splash.closed == 0  # the tree is still growing
-    built["v"] = True
+    assert splash.closed == 0  # the tree still counts in Filament
+    monkeypatch.setattr(theme, "active_theme", lambda: "night")
     gate._poll()
-    assert splash.closed == 0  # no full frame painted yet
     w.repaint()
     gate._poll()
     assert (splash.closed, w.windowOpacity()) == (1, 1.0)

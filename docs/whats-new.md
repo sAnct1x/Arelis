@@ -26,7 +26,7 @@ Notes: [v0.3.3](releases/v0.3.3.md). Older:
 - Privacy: coming back from idle reopens the camera window with the webcam off too.
 - Filament: Notify grows from its spot on the tree on every open; it no longer flashes at full size first on a second open.
 - Filament: clicking a chat in the History tile opens that conversation in the chat tile. Before, it loaded into the closed chat tile, so the click looked like it did nothing. Clicking the chat you are already in just opens the chat tile.
-- Startup: the loading splash now stays up until the app is whole: the model is loaded, Arelis is drawn, the Filament tree has grown and a full frame is painted. Then the window appears in one step, never half drawn. The splash line says what it is waiting on, and the log records how long each startup step took (lines starting `startup`). If something takes more than 5 minutes, the app opens anyway.
+- Startup: the loading splash now stays up until the app is whole: the model is loaded, Arelis is drawn, the Filament tree has grown and a full frame is painted. Then the window appears in one step, never half drawn. The splash line says what it is waiting on, and Arelis now notes how long each part of startup took, so slow starts can be tracked down. If something takes more than 5 minutes, the app opens anyway.
 - Tree base: the right-hand roots are as visible as the left, and the band of strands that ran right from the trunk's foot and ended abruptly now fades out smoothly.
 - Filament: Arelis stands about 15% smaller, feet on the same floor line, so she has headroom and reads as standing beside the tree. Her hub, the strands and tiles that grow from it, and the floor light at her feet follow her new size. Night and Sodium are unchanged.
 
