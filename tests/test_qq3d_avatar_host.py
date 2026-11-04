@@ -503,7 +503,9 @@ def test_her_gil_free_calls_find_qt_quick_in_the_macos_wheel_layout(tmp_path, mo
         return path
 
     monkeypatch.setattr(ctypes, "CDLL", cdll)
-    assert qq3d_avatar._quick_library() == str(binary) and opened == [str(binary)]
+    found = qq3d_avatar._quick_library()
+    assert os.path.normpath(found) == os.path.normpath(binary)
+    assert [os.path.normpath(o) for o in opened] == [os.path.normpath(binary)]
 
 
 def test_a_frame_never_waits_on_a_render_thread_that_has_ended() -> None:
