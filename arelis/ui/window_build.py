@@ -276,7 +276,8 @@ class WindowBuild:
         self._filament_dock_areas: dict[str, object] | None = None
         self._filament_floats = FilamentFloatBar(self._filament, self.conversation)
         self._filament_floats.hide()
-        self._hands_chip = bool((self.config.get("ui") or {}).get("hands_chip", False))
+        # Hands opens the webcam, so it starts off every launch: only the user turns it on.
+        self._hands_chip = False
         self._filament_chat_tile = FilamentChatWindow(self)
         self._filament_chat_tile.hide()
         self.filament = FilamentDesk(self)
@@ -378,6 +379,9 @@ class WindowBuild:
             self._apply_calm_instrument_defaults()
         # Seal restored floats now, before the first show. Do not redock them
         # after paint — that shrink used to leave a second orbit on the right.
+        # The camera tile opens the webcam, so like Hands it starts closed every launch,
+        # whatever the saved layout says. Only the user turns the camera on.
+        self.camera_dock.hide()
         seat_persona(self)
         self._sanitize_floating_docks()
         self._stack_left_instruments()

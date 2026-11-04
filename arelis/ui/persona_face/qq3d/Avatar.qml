@@ -28,6 +28,9 @@ Item {
     property color text: "#e6e0f5"
     property color backdrop: "transparent"
     property real figureX: 0.5   // where her centre stands across the view, 0..1 (Filament: right of centre)
+    // Her height as a share of head to toe (persona_stage.FIGURE_SCALE; Filament 0.85, else 1).
+    // The camera backs off by 1 / figureScale and stays lifted to her soles, so they stay planted.
+    property real figureScale: 1
     property url modelSource
     readonly property alias figure: loader.item
     // The camera slides sideways, so she keeps her full height and only moves across the view.
@@ -38,7 +41,7 @@ Item {
     readonly property real figureAspect: 0.25
     readonly property real fitScale: view.height > 0 && view.width > 0
         ? Math.max(1, figureAspect * view.height / view.width) : 1
-    readonly property real camShift: -(2 * figureX - 1) * Math.tan(15 * Math.PI / 180) * 3.95 * fitScale * view.width / Math.max(1, view.height)
+    readonly property real camShift: -(2 * figureX - 1) * Math.tan(15 * Math.PI / 180) * 3.95 * fitScale / figureScale * view.width / Math.max(1, view.height)
     property string sceneStatus: "loading"   // loading | ready | error
     property string sceneError: ""
     readonly property string clip: mixer.clip
@@ -81,7 +84,7 @@ Item {
         // backs the camera off by fitScale (lifted to match), so she stays whole, never cropped.
         PerspectiveCamera { id: cam; objectName: "cam"
             readonly property real tilt: 0.02   // v14k: the camera sits 2 cm above the point it looks at
-            readonly property real camZ: 3.95 * root.fitScale
+            readonly property real camZ: 3.95 * root.fitScale / root.figureScale
             readonly property real lookY: root.soleY + Math.tan(fieldOfView * Math.PI / 360) * camZ
             position: Qt.vector3d(root.camShift, lookY + tilt, camZ)
             eulerRotation.x: -Math.atan2(tilt, camZ) * 180 / Math.PI

@@ -92,10 +92,14 @@ A tile you open in Filament grows out of its own node on the tree, then opens to
 size. It reopens at the size and spot you left it, even outside the main window.
 
 The tree's base spreads three ways on the floor: right, toward you and away from you,
-besides the long roots to the left. Every root and buttress fades in from its far end and
+besides the long roots to the left, and the right side now carries about as much weight as
+the left. Every root and buttress fades in from its far end and
 runs on into the trunk, so no strand stops short. The floor light starts just outside her
 near foot (`OrbitState` `feet`, 0.14 of the height off her hub, toward the tree) as a wide
-soft swell, not a hot point between her feet. The tree keeps drawing under the open chat.
+soft swell, not a hot point between her feet. In Filament she stands at `FIGURE_SCALE` (0.85, `persona_stage.py`) of her full height,
+soles on the floor line: the camera backs off by 1 / 0.85, and her hub and the floor link's
+start derive from the same constant. The tree keeps drawing under the open chat. The strands that leave the trunk's foot fade in
+slowly, so none sweeps off to the right and stops in the air.
 Its fibers are drawn in four quarters into textures, one quarter redrawing per frame in
 turn, and laid together into one cached texture, so a frame composites one fiber texture,
 not four. The tree keeps moving under the chat too.

@@ -21,11 +21,12 @@ from PySide6.QtCore import Property, QObject, QPointF, QRect, Signal, Slot
 from PySide6.QtGui import QColor, QVector4D
 
 from arelis.ui import filament_field as ff
+from arelis.ui.persona_stage import FIGURE_SCALE
 
 LOG = logging.getLogger("arelis.avatar")
 SYNC_S = 1.0
 TREE_FLOOR = 0.955  # the floor the tree stands on, as a share of the height (v11b: 1328/1392)
-FEET_OFFSET = 0.14  # the floor link's start, out from her hub, as a share of the height
+FEET_OFFSET = 0.14  # the floor link's start, out from her hub, as a share of her full-scale height
 
 
 class OrbitState(QObject):
@@ -149,7 +150,7 @@ class OrbitState(QObject):
             # Off the outside of her near foot, toward the tree: the floor link, the pool's
             # swell and the packets used to start right between her feet.
             toward = -1.0 if base_x < hub.x() else 1.0
-            feet_x = hub.x() + toward * h * FEET_OFFSET
+            feet_x = hub.x() + toward * h * FEET_OFFSET * FIGURE_SCALE
         else:
             feet_x = min(cx + rx * 1.6, rect.right() - 40.0)
         self._set("feet", QPointF(feet_x, floor))
