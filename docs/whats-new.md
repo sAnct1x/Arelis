@@ -33,8 +33,7 @@ yet). Plus a batch of fixes and security updates.
 Filament tiles and the chat have no size limit, can sit anywhere
 (even outside the main window), and reopen at the size and spot you
 left them. A tile grows out of its own node on the tree. The tree
-keeps drawing under the open chat, held still there so replies stay
-smooth. "Hey Arelis" and the conversation
+keeps drawing and moving under the open chat. "Hey Arelis" and the conversation
 button sit at the top right. The tree's base reaches out in all
 directions, its light starts beside her rather than between her feet,
 and its short strands fade away instead of stopping short.

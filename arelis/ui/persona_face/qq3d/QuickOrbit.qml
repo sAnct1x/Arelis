@@ -148,200 +148,160 @@ Item {
         fragmentShader: "orbit/line.frag.qsb"
     }
 
-    // Everything the orbit draws, so it can be held as one picture while the chat covers the
-    // tree (OrbitState.treeCovered): the tree stays fully on, drawn from that picture (one
-    // full-window texture), and none of its layers shades a pixel under the chat. It moves again
-    // as soon as the chat leaves it.
-    readonly property bool held: !!st && st.treeCovered
-    Item {
-        id: treeStack
-        objectName: "orbitTreeStack"
-        anchors.fill: parent
-
-        Repeater {
-            model: 4
-            Layer {
-                required property int index
-                strand: index
-                visible: orbit.treeOn < 0.999   // under the tree its alpha is 0: draw nothing
-                mesh: GridMesh { resolution: Qt.size(192, 1) }
-                vertexShader: "orbit/strand.vert.qsb"
-            }
-        }
-
+    Repeater {
+        model: 4
         Layer {
-            objectName: "orbitPool"
-            vertexShader: "orbit/pool.vert.qsb"
-            fragmentShader: "orbit/pool.frag.qsb"
-        }
-
-        Layer {
-            objectName: "orbitTreeGlow"
-            mesh: GridMesh { resolution: Qt.size(24 * 64 - 1, 1) }
-            vertexShader: "orbit/glow.vert.qsb"
-            fragmentShader: "orbit/glow.frag.qsb"
-        }
-
-        Layer {
-            id: fibers0
-            objectName: "orbitTree"
-            strand: 0
-            mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
-            vertexShader: "orbit/tree.vert.qsb"
-        }
-        ShaderEffectSource {
-            id: fibersTex0
-            visible: false   // sampled by orbitTreeFibers, not drawn itself
-            objectName: "orbitTreeTex0"
-            anchors.fill: parent
-            sourceItem: fibers0
-            hideSource: true
-            live: false
-        }
-        Layer {
-            id: fibers1
-            objectName: "orbitTree1"
-            strand: 1
-            mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
-            vertexShader: "orbit/tree.vert.qsb"
-        }
-        ShaderEffectSource {
-            id: fibersTex1
-            visible: false   // sampled by orbitTreeFibers, not drawn itself
-            objectName: "orbitTreeTex1"
-            anchors.fill: parent
-            sourceItem: fibers1
-            hideSource: true
-            live: false
-        }
-        Layer {
-            id: fibers2
-            objectName: "orbitTree2"
-            strand: 2
-            mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
-            vertexShader: "orbit/tree.vert.qsb"
-        }
-        ShaderEffectSource {
-            id: fibersTex2
-            visible: false   // sampled by orbitTreeFibers, not drawn itself
-            objectName: "orbitTreeTex2"
-            anchors.fill: parent
-            sourceItem: fibers2
-            hideSource: true
-            live: false
-        }
-        Layer {
-            id: fibers3
-            objectName: "orbitTree3"
-            strand: 3
-            mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
-            vertexShader: "orbit/tree.vert.qsb"
-        }
-        ShaderEffectSource {
-            id: fibersTex3
-            visible: false   // sampled by orbitTreeFibers, not drawn itself
-            objectName: "orbitTreeTex3"
-            anchors.fill: parent
-            sourceItem: fibers3
-            hideSource: true
-            live: false
-        }
-        Layer {   // a Layer so the uniform block it shares (common.glsl) is all bound
-            id: fibersMerged
-            property variant q0: fibersTex0
-            property variant q1: fibersTex1
-            property variant q2: fibersTex2
-            property variant q3: fibersTex3
-            fragmentShader: "orbit/fibers.frag.qsb"
-        }
-        ShaderEffectSource {
-            id: fibersAll
-            objectName: "orbitTreeFibers"
-            anchors.fill: parent
-            sourceItem: fibersMerged
-            hideSource: true
-            live: false
-        }
-        // The fibers are most of a frame's cost (vertex work and thin-triangle raster), so each
-        // quarter draws into its own texture and one quarter redraws per frame, in turn (a major
-        // limb quarter, then a minor one): every fiber moves at a quarter of the frame rate, none
-        // thinner. The four are laid together once per redraw into one cached texture
-        // (orbitTreeFibers), so a frame composites one full-window texture, not four. While the
-        // chat tile covers the tree (OrbitState.treeCovered) the fibers hold still: the tree stays
-        // fully drawn from that texture, and no fiber redraws under the chat.
-        FrameAnimation {
-            objectName: "orbitFiberClock"
-            running: orbit.visible && !orbit.held
-            onTriggered: {
-                const q = currentFrame % 4
-                if (q == 0) fibersTex0.scheduleUpdate()
-                else if (q == 1) fibersTex2.scheduleUpdate()
-                else if (q == 2) fibersTex1.scheduleUpdate()
-                else fibersTex3.scheduleUpdate()
-                fibersAll.scheduleUpdate()
-            }
-        }
-
-        Layer {
-            objectName: "orbitDust"
-            mesh: GridMesh { resolution: Qt.size(4 * 1100 - 1, 1) }
-            vertexShader: "orbit/dust.vert.qsb"
-            fragmentShader: "orbit/dust.frag.qsb"
-        }
-
-        Repeater {
-            model: 3
-            Layer {
-                required property int index
-                visible: orbit.st.hasHub && orbit.treeOn < 0.999
-                strand: index
-                mesh: GridMesh { resolution: Qt.size(48, 1) }
-                vertexShader: "orbit/thread.vert.qsb"
-            }
-        }
-
-        Layer {
-            objectName: "orbitFlares"
-            opacity: orbit.nodeShow
-            mesh: GridMesh { resolution: Qt.size(4 * 7 - 1, 1) }
-            vertexShader: "orbit/flare.vert.qsb"
-            fragmentShader: "orbit/flare.frag.qsb"
-        }
-
-        Layer {
-            objectName: "orbitPulses"
-            opacity: orbit.nodeShow
-            mesh: GridMesh { resolution: Qt.size(4 * (11 * 6 + 36 * 3) - 1, 1) }
-            vertexShader: "orbit/pulse.vert.qsb"
-            fragmentShader: "orbit/dust.frag.qsb"
+            required property int index
+            strand: index
+            visible: orbit.treeOn < 0.999   // under the tree its alpha is 0: draw nothing
+            mesh: GridMesh { resolution: Qt.size(192, 1) }
+            vertexShader: "orbit/strand.vert.qsb"
         }
     }
-    // The held picture, in the four bands round the chat tile (above, below, left, right of
-    // it): each band renders its part of the stack once, when the hold starts.
-    Repeater {
-        objectName: "orbitTreeHeld"
-        model: 4
-        ShaderEffectSource {
-            required property int index
-            readonly property rect c: orbit.st ? orbit.st.cover : Qt.rect(0, 0, 0, 0)
-            readonly property real cTop: Math.max(0, Math.min(orbit.height, c.y))
-            readonly property real cBottom: Math.max(cTop, Math.min(orbit.height, c.y + c.height))
-            readonly property real cLeft: Math.max(0, Math.min(orbit.width, c.x))
-            readonly property real cRight: Math.max(cLeft, Math.min(orbit.width, c.x + c.width))
-            x: index == 3 ? cRight : 0
-            y: index == 0 ? 0 : index == 1 ? cBottom : cTop
-            width: index == 0 || index == 1 ? orbit.width : index == 2 ? cLeft : orbit.width - cRight
-            height: index == 0 ? cTop : index == 1 ? orbit.height - cBottom : cBottom - cTop
-            sourceItem: treeStack
-            sourceRect: Qt.rect(x, y, width, height)
-            hideSource: orbit.held
-            visible: orbit.held && width > 0 && height > 0
-            live: false
-            onSourceRectChanged: if (orbit.held) scheduleUpdate()   // the chat moved
-            Connections {
-                target: orbit
-                function onHeldChanged() { if (orbit.held) scheduleUpdate() }
-            }
+
+    Layer {
+        objectName: "orbitPool"
+        vertexShader: "orbit/pool.vert.qsb"
+        fragmentShader: "orbit/pool.frag.qsb"
+    }
+
+    Layer {
+        objectName: "orbitTreeGlow"
+        mesh: GridMesh { resolution: Qt.size(24 * 64 - 1, 1) }
+        vertexShader: "orbit/glow.vert.qsb"
+        fragmentShader: "orbit/glow.frag.qsb"
+    }
+
+    Layer {
+        id: fibers0
+        objectName: "orbitTree"
+        strand: 0
+        mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
+        vertexShader: "orbit/tree.vert.qsb"
+    }
+    ShaderEffectSource {
+        id: fibersTex0
+        visible: false   // sampled by orbitTreeFibers, not drawn itself
+        objectName: "orbitTreeTex0"
+        anchors.fill: parent
+        sourceItem: fibers0
+        hideSource: true
+        live: false
+    }
+    Layer {
+        id: fibers1
+        objectName: "orbitTree1"
+        strand: 1
+        mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
+        vertexShader: "orbit/tree.vert.qsb"
+    }
+    ShaderEffectSource {
+        id: fibersTex1
+        visible: false   // sampled by orbitTreeFibers, not drawn itself
+        objectName: "orbitTreeTex1"
+        anchors.fill: parent
+        sourceItem: fibers1
+        hideSource: true
+        live: false
+    }
+    Layer {
+        id: fibers2
+        objectName: "orbitTree2"
+        strand: 2
+        mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
+        vertexShader: "orbit/tree.vert.qsb"
+    }
+    ShaderEffectSource {
+        id: fibersTex2
+        visible: false   // sampled by orbitTreeFibers, not drawn itself
+        objectName: "orbitTreeTex2"
+        anchors.fill: parent
+        sourceItem: fibers2
+        hideSource: true
+        live: false
+    }
+    Layer {
+        id: fibers3
+        objectName: "orbitTree3"
+        strand: 3
+        mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
+        vertexShader: "orbit/tree.vert.qsb"
+    }
+    ShaderEffectSource {
+        id: fibersTex3
+        visible: false   // sampled by orbitTreeFibers, not drawn itself
+        objectName: "orbitTreeTex3"
+        anchors.fill: parent
+        sourceItem: fibers3
+        hideSource: true
+        live: false
+    }
+    Layer {   // a Layer so the uniform block it shares (common.glsl) is all bound
+        id: fibersMerged
+        property variant q0: fibersTex0
+        property variant q1: fibersTex1
+        property variant q2: fibersTex2
+        property variant q3: fibersTex3
+        fragmentShader: "orbit/fibers.frag.qsb"
+    }
+    ShaderEffectSource {
+        id: fibersAll
+        objectName: "orbitTreeFibers"
+        anchors.fill: parent
+        sourceItem: fibersMerged
+        hideSource: true
+        live: false
+    }
+    // The fibers are most of a frame's cost (vertex work and thin-triangle raster), so each
+    // quarter draws into its own texture and one quarter redraws per frame, in turn (a major
+    // limb quarter, then a minor one): every fiber moves at a quarter of the frame rate, none
+    // thinner. The four are laid together once per redraw into one cached texture
+    // (orbitTreeFibers), so a frame composites one full-window texture, not four. The tree
+    // keeps moving everywhere, under the chat too.
+    FrameAnimation {
+        objectName: "orbitFiberClock"
+        running: orbit.visible
+        onTriggered: {
+            const q = currentFrame % 4
+            if (q == 0) fibersTex0.scheduleUpdate()
+            else if (q == 1) fibersTex2.scheduleUpdate()
+            else if (q == 2) fibersTex1.scheduleUpdate()
+            else fibersTex3.scheduleUpdate()
+            fibersAll.scheduleUpdate()
         }
+    }
+
+    Layer {
+        objectName: "orbitDust"
+        mesh: GridMesh { resolution: Qt.size(4 * 1100 - 1, 1) }
+        vertexShader: "orbit/dust.vert.qsb"
+        fragmentShader: "orbit/dust.frag.qsb"
+    }
+
+    Repeater {
+        model: 3
+        Layer {
+            required property int index
+            visible: orbit.st.hasHub && orbit.treeOn < 0.999
+            strand: index
+            mesh: GridMesh { resolution: Qt.size(48, 1) }
+            vertexShader: "orbit/thread.vert.qsb"
+        }
+    }
+
+    Layer {
+        objectName: "orbitFlares"
+        opacity: orbit.nodeShow
+        mesh: GridMesh { resolution: Qt.size(4 * 7 - 1, 1) }
+        vertexShader: "orbit/flare.vert.qsb"
+        fragmentShader: "orbit/flare.frag.qsb"
+    }
+
+    Layer {
+        objectName: "orbitPulses"
+        opacity: orbit.nodeShow
+        mesh: GridMesh { resolution: Qt.size(4 * (11 * 6 + 36 * 3) - 1, 1) }
+        vertexShader: "orbit/pulse.vert.qsb"
+        fragmentShader: "orbit/dust.frag.qsb"
     }
 }

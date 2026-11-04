@@ -1,6 +1,5 @@
-"""Filament, ARELIS_SURFACE=quick: the orbit tree stays fully on under the open chat tile (it used
-to fade out; Christopher wants it always on), but its fibers hold still there, drawn from their
-cached texture, so no fiber redraws under the chat (the frame cost while generating)."""
+"""Filament, ARELIS_SURFACE=quick: the orbit tree stays fully on and keeps moving under the open
+chat tile. It used to fade out, then to hold still there; Christopher wants it always on and live."""
 
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ TREE_LAYERS = (
 )
 
 
-def test_the_tree_keeps_drawing_under_the_open_chat_with_its_fibers_held(qt_app) -> None:
+def test_the_tree_keeps_drawing_under_the_open_chat_and_its_fibers_keep_moving(qt_app) -> None:
     from PySide6.QtQml import QQmlComponent, QQmlEngine
     from PySide6.QtQuick import QQuickItem
 
@@ -36,16 +35,14 @@ def test_the_tree_keeps_drawing_under_the_open_chat_with_its_fibers_held(qt_app)
     assert root is not None, [e.toString() for e in component.errors()]
 
     clock = root.findChild(QObject, "orbitFiberClock")
-    assert clock.property("running")
-    # The chat tile open over the crown, as the atmosphere tick reports it.
+    # The chat tile open over the crown, as the atmosphere tick used to report it.
     cx, cy, rx, ry = field.ellipse(rect, settled=True)
     field.cover = QRect(int(cx - rx), int(cy - ry), int(rx * 2), int(ry * 2.6))
     state.update(field, rect, now=0.1)
-    QTest.qWait(900)  # longer than the old fade
+    QTest.qWait(300)
+    start = clock.property("currentFrame")
+    QTest.qWait(600)  # longer than the old fade
+    assert clock.property("running") and clock.property("currentFrame") > start  # fibers redraw
     drawn = [root.findChild(QQuickItem, n).property("visible") for n in TREE_LAYERS]
     assert drawn == [True] * len(TREE_LAYERS)
     assert root.findChild(QQuickItem, "orbitTree").property("treeOn") == 1.0
-    assert not clock.property("running")  # no fiber redraws under the chat
-    field.cover = None  # the chat closed
-    state.update(field, rect, now=0.2)
-    assert clock.property("running")

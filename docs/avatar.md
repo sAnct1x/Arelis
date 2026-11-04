@@ -98,10 +98,7 @@ near foot (`OrbitState` `feet`, 0.14 of the height off her hub, toward the tree)
 soft swell, not a hot point between her feet. The tree keeps drawing under the open chat.
 Its fibers are drawn in four quarters into textures, one quarter redrawing per frame in
 turn, and laid together into one cached texture, so a frame composites one fiber texture,
-not four. While the open chat covers the tree (`OrbitState.treeCovered`) the tree holds
-still: it stays fully on, drawn from one held picture in the bands round the chat
-(`OrbitState.cover`), so nothing redraws or shades under the chat while she generates.
-It moves again when the chat leaves it.
+not four. The tree keeps moving under the chat too.
 
 She stays in view when the app goes idle. She is always framed head to toe and the
 view refits when the window changes size.
