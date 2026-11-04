@@ -14,6 +14,22 @@ Notes: [v0.3.3](releases/v0.3.3.md). Older:
 [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
 [v0.2.1](releases/v0.2.1.md).
 
+## In this checkout
+
+- Launch: a small splash shows her energy breathing right away, with a line that says what is loading (Loading model, Starting voice, Building her). It closes when the main window appears.
+- Launch splash: the rings sit centred in a slightly taller plate, clear of its top edge and of the status line.
+- Filament uses the Quick surface (her tree orbit) by default. Set `ARELIS_SURFACE=widget` for the old orbit.
+- Filament tiles: dragging a tile by its title keeps the size you gave it. An edge resize stops at the tile's smallest and largest size instead of snapping back on the next drag.
+- Privacy: Filament no longer turns the webcam on by itself. Hands (which uses the camera) starts off every launch, even if it was on last time, and turning Hands off closes the camera.
+- Privacy: the camera tile starts closed every launch, even if it was open last time, and switching from Filament to Sodium with Hands on closes the camera unless its tile is open or Track is on.
+- Privacy: opening the camera window no longer turns the webcam on. It opens with the camera off and a Start camera button; the webcam starts only when you click it (the button then reads Stop camera) and stops when you close the window.
+- Privacy: coming back from idle reopens the camera window with the webcam off too.
+- Filament: Notify grows from its spot on the tree on every open; it no longer flashes at full size first on a second open.
+- Filament: clicking a chat in the History tile opens that conversation in the chat tile. Before, it loaded into the closed chat tile, so the click looked like it did nothing. Clicking the chat you are already in just opens the chat tile.
+- Startup: the loading splash now stays up until the app is whole: the model is loaded, Arelis is drawn, the Filament tree has grown and a full frame is painted. Then the window appears in one step, never half drawn. The splash line says what it is waiting on, and Arelis now notes how long each part of startup took, so slow starts can be tracked down. If something takes more than 5 minutes, the app opens anyway.
+- Tree base: the right-hand roots are as visible as the left, and the band of strands that ran right from the trunk's foot and ended abruptly now fades out smoothly.
+- Filament: Arelis stands about 15% smaller, feet on the same floor line, so she has headroom and reads as standing beside the tree. Her hub, the strands and tiles that grow from it, and the floor light at her feet follow her new size. Night and Sodium are unchanged.
+
 ## 0.3.3
 
 New chat model and some cleanup. Full notes: [v0.3.3](releases/v0.3.3.md).
@@ -22,6 +38,14 @@ run. Attached pictures reach the model. Rooms and the Workspace dock
 are gone; Reality stays as its own view. Sentinel lives in the repo
 and starts with Arelis from a source checkout (not in the installer
 yet). Plus a batch of fixes and security updates.
+
+Filament tiles and the chat have no size limit, can sit anywhere
+(even outside the main window), and reopen at the size and spot you
+left them. A tile grows out of its own node on the tree. The tree
+keeps drawing and moving under the open chat. "Hey Arelis" and the conversation
+button sit at the top right. The tree's base reaches out in all
+directions, its light starts beside her rather than between her feet,
+and its short strands fade away instead of stopping short.
 
 ## 0.3.2.1
 

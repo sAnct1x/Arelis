@@ -15,7 +15,6 @@ from arelis.ui.theme_tokens import (
 def dock_tab_bar_qss() -> str:
     """Opaque ember tabs. Translucent QSS on a Windows QTabBar shows grey through."""
     c = COLORS
-    f = FONTS
     t = TYPE
     s = SPACE
     pad_y = control_pad_y()
@@ -31,7 +30,6 @@ def dock_tab_bar_qss() -> str:
         padding: {pad_y}px {s['plate']}px;
         margin-right: {s['micro']}px;
         min-width: 52px;
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         letter-spacing: {TYPE['track_mid']};
@@ -60,18 +58,15 @@ def stylesheet() -> str:
     QMainWindow {{
         background: transparent;
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
     }}
     #StageRoot {{
         background: transparent;
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
     }}
     QWidget {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
     }}
@@ -98,7 +93,6 @@ def stylesheet() -> str:
     }}
     #FloatingDockTitle {{
         color: {c['text_dim']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
@@ -109,7 +103,6 @@ def stylesheet() -> str:
     }}
     #ChromeTitle {{
         color: {c['dim']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
@@ -128,7 +121,6 @@ def stylesheet() -> str:
         border-radius: 6px;
         padding: {s['micro']}px {s['gap']}px;
         color: {c['text_dim']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
     }}
@@ -142,7 +134,6 @@ def stylesheet() -> str:
         border-radius: 6px;
         padding: {s['hair']}px {s['gap']}px;
         color: {c['text_dim']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
@@ -162,7 +153,6 @@ def stylesheet() -> str:
     }}
     #SettingsHeading {{
         color: {c['accent2']};
-        font-family: {f['display']};
         font-size: 15px;
         font-weight: 400;
         letter-spacing: {t['track_heading']};
@@ -191,7 +181,6 @@ def stylesheet() -> str:
     }}
     #SettingsHint, #SettingsNotifyUrl {{
         color: {c['accent2']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
@@ -226,7 +215,6 @@ def stylesheet() -> str:
         background: transparent;
         border: none;
         padding: 2px 0;
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
     }}
@@ -236,7 +224,6 @@ def stylesheet() -> str:
     }}
     #SettingsSection {{
         color: {c['accent2']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
@@ -244,7 +231,6 @@ def stylesheet() -> str:
     }}
     #SettingsFieldLabel {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
@@ -273,7 +259,6 @@ def stylesheet() -> str:
         border: 1px solid {c['edge']};
         border-radius: 8px;
         color: {c['text_dim']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         padding: {pad_y}px {s['plate']}px;
@@ -361,7 +346,6 @@ def stylesheet() -> str:
         border: 1px solid transparent;
         border-radius: 7px;
         color: {c['text_dim']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         padding: 0;
@@ -402,7 +386,6 @@ def stylesheet() -> str:
         padding: 1px {s['gap']}px;
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
     }}
@@ -437,7 +420,6 @@ def stylesheet() -> str:
         min-height: {m['row'] - 8}px;
         color: {c['warn']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
     }}
@@ -456,7 +438,6 @@ def stylesheet() -> str:
         padding: {s['micro']}px {s['inset']}px;
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: 0;
         min-height: {m['row']}px;
@@ -468,13 +449,11 @@ def stylesheet() -> str:
     #NotifyCardTitle {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
     }}
     #NotifyCardBody {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
     }}
     /* Idle word is the body face. Tracking used to live here and in
@@ -482,7 +461,6 @@ def stylesheet() -> str:
     #VoidListenWord {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_idle']};
         background: transparent;
@@ -495,14 +473,12 @@ def stylesheet() -> str:
     #VoidListenWord[wake="true"] {{
         color: {c['accent']};
         font-size: 18px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: 0;
     }}
     #VoidGhostKey {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_wide']};
         background: transparent;
@@ -511,14 +487,12 @@ def stylesheet() -> str:
     #VoidGhostValue {{
         color: {c['text_soft']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         background: transparent;
         border: none;
     }}
     #VoidReadoutKey {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: 0;
         background: transparent;
@@ -527,7 +501,6 @@ def stylesheet() -> str:
     #VoidReadoutValue {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: 0;
         background: transparent;
@@ -542,14 +515,12 @@ def stylesheet() -> str:
     #ShortcutsTitle {{
         color: {c['text']};
         font-size: 18px;
-        font-family: {f['body']};
         letter-spacing: 0;
         background: transparent;
     }}
     #ShortcutsGroup {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_wide']};
         background: transparent;
@@ -558,20 +529,17 @@ def stylesheet() -> str:
     #ShortcutsChord {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         background: transparent;
     }}
     #ShortcutsWhat {{
         color: {c['text_soft']};
         font-size: 12px;
-        font-family: {f['body']};
         background: transparent;
     }}
     #ShortcutsAbout {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         background: transparent;
         padding-top: {s['inset']}px;
@@ -583,7 +551,6 @@ def stylesheet() -> str:
         padding: 1px {s['gap']}px;
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
     }}
@@ -639,7 +606,6 @@ def stylesheet() -> str:
     #ReadinessSystemsCaption {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_idle']};
         background: transparent;
@@ -666,7 +632,6 @@ def stylesheet() -> str:
         padding: {s['hair']}px 0;
         color: {c['text']};
         font-size: 12px;
-        font-family: {f['body']};
         show-decoration-selected: 1;
     }}
     #BrowseList::item, #HistoryList::item, #FactsList::item,
@@ -709,7 +674,6 @@ def stylesheet() -> str:
     }}
     #InstrumentTitle {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
@@ -756,7 +720,6 @@ def stylesheet() -> str:
     #CalendarMonthTitle {{
         color: {c['accent2']};
         font-size: 15px;
-        font-family: {f['display']};
         letter-spacing: 0;
         background: transparent;
         padding: 0 {s['gap']}px;
@@ -767,7 +730,6 @@ def stylesheet() -> str:
         border-radius: 8px;
         color: {c['text']};
         padding: {s['hair']}px {s['gap']}px;
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         min-height: {m['row'] - 8}px;
@@ -810,7 +772,6 @@ def stylesheet() -> str:
         color: {c['text']};
         background: transparent;
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
     }}
     #CalendarJobPrompt {{
         background-color: {c['well']};
@@ -819,7 +780,6 @@ def stylesheet() -> str:
         color: {c['text']};
         padding: {pad_y}px {s['gap']}px;
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
     }}
     #CalendarDelete {{
         background-color: {c['danger_fill_soft']};
@@ -838,7 +798,6 @@ def stylesheet() -> str:
     #InstrumentHint {{
         color: {c['hint']};
         font-size: 12px;
-        font-family: {f['body']};
         background: transparent;
         padding: 0 0 {s['hair']}px {s['hair']}px;
         border: none;
@@ -846,7 +805,6 @@ def stylesheet() -> str:
     #HistoryEmpty {{
         color: {c['text_muted']};
         font-size: 12px;
-        font-family: {f['body']};
         background: transparent;
         padding: {s['stage']}px {s['inset']}px {s['inset']}px {s['inset']}px;
         border: none;
@@ -854,7 +812,6 @@ def stylesheet() -> str:
     #DeskEmpty {{
         color: {c['hint']};
         font-size: 13px;
-        font-family: {f['body']};
         background: transparent;
         padding: 0 {s['gap']}px;
         border: none;
@@ -866,7 +823,6 @@ def stylesheet() -> str:
     #DeskEmptyTitle {{
         color: {c['text']};
         font-size: 16px;
-        font-family: {f['display']};
         background: transparent;
         border: none;
         padding: 0 0 {s['hair']}px 0;
@@ -874,13 +830,11 @@ def stylesheet() -> str:
     #DeskHint {{
         color: {c['dim']};
         font-size: 12px;
-        font-family: {f['body']};
         background: transparent;
         padding: 0 {s['micro']}px;
         border: none;
     }}
     #DeskPreview {{
-        font-family: {f['body']};
         font-size: 13px;
         background-color: transparent;
         border: none;
@@ -926,7 +880,6 @@ def stylesheet() -> str:
     }}
     #SmsPhotoChip {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: {c['card_fill']};
@@ -942,7 +895,6 @@ def stylesheet() -> str:
     #NotificationDetail {{
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         background: {c['raised']};
         border: 1px solid {c['edge_mid']};
         border-radius: 8px;
@@ -955,7 +907,6 @@ def stylesheet() -> str:
         padding: {s['hair']}px {s['gap']}px;
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         selection-background-color: {c['selection']};
     }}
@@ -974,7 +925,6 @@ def stylesheet() -> str:
         padding: {s['hair']}px {m['icon'] - 2}px {s['hair']}px {s['gap']}px;
         color: {c['text']};
         font-size: {FONT_PX}px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         min-height: {m['row'] - 8}px;
     }}
@@ -1004,7 +954,6 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: 0 {s['gap']}px;
         color: {c['accent2']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         min-height: {m['row'] - 2}px;
@@ -1074,7 +1023,6 @@ def stylesheet() -> str:
         border: 1px solid {c['edge']};
         border-radius: 8px;
         padding: {pad_y}px {s['plate']}px;
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
@@ -1096,7 +1044,6 @@ def stylesheet() -> str:
         border-radius: 10px;
         padding: {s['inset']}px;
         selection-background-color: {c['selection']};
-        font-family: {f['body']};
     }}
     #ChatView {{
         background-color: transparent;
@@ -1108,7 +1055,6 @@ def stylesheet() -> str:
     }}
     #ThinkingView {{
         color: {c['thinking']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background-color: transparent;
@@ -1117,7 +1063,6 @@ def stylesheet() -> str:
     }}
     #ThinkingFooter {{
         color: {c['dim']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
@@ -1153,7 +1098,6 @@ def stylesheet() -> str:
     #WorkspaceImageCaption {{
         color: {c['text_dim']};
         font-size: 12px;
-        font-family: {f['body']};
         background: transparent;
         border: none;
         padding: 0;
@@ -1213,7 +1157,6 @@ def stylesheet() -> str:
     #VoidIdlePlaceholder {{
         color: {c['text_muted']};
         font-size: 18px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: 0;
         background: transparent;
@@ -1224,7 +1167,6 @@ def stylesheet() -> str:
         border: none;
         color: {c['accent']};
         font-size: 16px;
-        font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
         padding: {s['hair']}px {pad_y}px;
@@ -1249,7 +1191,6 @@ def stylesheet() -> str:
            28px row. Six pixels of pad leaves 14px and cuts the glyphs. */
         padding: {s['hair']}px {s['gap']}px;
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         selection-background-color: {c['selection']};
@@ -1264,7 +1205,6 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: {s['hair']}px {s['inset']}px;
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         min-height: {m['row'] - 8}px;
@@ -1305,7 +1245,6 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: {s['hair']}px {s['gap']}px;
         color: {c['danger']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
     }}
@@ -1315,7 +1254,6 @@ def stylesheet() -> str:
     }}
     #RoomName {{
         color: {c['accent2']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
@@ -1323,7 +1261,6 @@ def stylesheet() -> str:
     }}
     #RoomDetail {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
@@ -1334,7 +1271,6 @@ def stylesheet() -> str:
         border-radius: 0;
         padding: {s['hair']}px {pad_y}px;
         color: {c['dim']};
-        font-family: {f['body']};
         font-size: 12px;
     }}
     #RoomLeaveButton:hover, #RoomWorldButton:hover {{
@@ -1356,7 +1292,6 @@ def stylesheet() -> str:
         border-radius: 10px;
         padding: {s['inset']}px {s['plate']}px;
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         min-height: 44px;
@@ -1372,14 +1307,12 @@ def stylesheet() -> str:
     }}
     #DriveBrand {{
         color: {c['accent']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
     }}
     #DriveStatus {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
@@ -1393,7 +1326,6 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: {s['hair']}px {s['gap']}px;
         color: {c['hint']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
     }}
@@ -1408,7 +1340,6 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: {s['hair']}px {s['gap']}px;
         color: {c['accent']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
     }}
@@ -1423,14 +1354,12 @@ def stylesheet() -> str:
     }}
     #ConfirmSummary {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
     }}
     #ConfirmDetail {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background-color: {c['inset']};
@@ -1440,14 +1369,12 @@ def stylesheet() -> str:
     }}
     #ConfirmNote {{
         color: {c['danger']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
     }}
     #ConfirmAllowTurn, #ConfirmAllowAlways {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         spacing: 6px;
@@ -1457,7 +1384,6 @@ def stylesheet() -> str:
         background-color: {c['selection']};
         border: 1px solid {c['accent']};
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
     }}
@@ -1481,7 +1407,6 @@ def stylesheet() -> str:
     }}
     #ConfirmSkip, #FactReject, #FactRejectAll, #FactForget, #DialogCancel {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background-color: transparent;
@@ -1513,7 +1438,6 @@ def stylesheet() -> str:
         border-radius: 0;
         padding: {s['hair']}px {s['plate']}px {s['hair']}px {s['gap']}px;
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         min-height: {m['row'] - 8}px;
@@ -1549,7 +1473,6 @@ def stylesheet() -> str:
         border-radius: 6px;
         color: {c['text']};
         background: transparent;
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
     }}
@@ -1709,7 +1632,6 @@ def stylesheet() -> str:
     /* Frameless in-app dialogs: first run, confirms, the update prompt. */
     #DialogHeading, #GlassDialogHeading {{
         color: {c['accent2']};
-        font-family: {f['display']};
         font-size: 15px;
         font-weight: 400;
         letter-spacing: {t['track_heading']};
@@ -1723,21 +1645,18 @@ def stylesheet() -> str:
     }}
     #DialogNote {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
     }}
     #DialogWarning {{
         color: {c['danger']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: transparent;
     }}
     #DialogPath {{
         color: {c['text']};
-        font-family: {f['body']};
         font-size: {FONT_PX}px;
         font-weight: {t['body_weight']};
         background: {c['well_soft']};

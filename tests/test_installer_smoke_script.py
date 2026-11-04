@@ -45,6 +45,14 @@ def test_window_title_filter() -> None:
     assert m.window_title_ok("Arelis")
     assert not m.window_title_ok("")
     assert not m.window_title_ok("   ")
+    from PySide6.QtWidgets import QApplication
+
+    from arelis.ui.splash import LaunchSplash
+
+    QApplication.instance() or QApplication([])
+    splash = LaunchSplash()  # its title, not Qt's 'Arelis' fallback, is what Windows shows
+    assert splash.windowTitle() == m.SPLASH_TITLE
+    assert not m.window_title_ok(splash.windowTitle())
 
 
 def test_welcome_title_ok() -> None:

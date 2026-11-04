@@ -17,7 +17,7 @@ def on_camera_dock_visibility(window, visible: bool) -> None:
     if chrome_applying(window.camera_dock):
         return
     if visible:
-        window.camera.start()
+        # Opening the tile does not turn the webcam on: the user clicks Start camera.
         if window.spatial.tracking:
             window.spatial.set_preview_wanted(True)
     else:

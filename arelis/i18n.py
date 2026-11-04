@@ -19,11 +19,17 @@ _ZH: dict[str, str] = {
     "Settings": "设置",
     "Drag to move": "拖动可移动",
     "Close": "关闭",
+    "Minimize": "最小化",
+    "Maximize": "最大化",
+    "Attach": "附件",
+    "Attach files (or drag onto the chat)": "添加文件（或拖到聊天里）",
     "Close settings": "关闭设置",
     "Settings tabs": "设置分页",
     "audio": "音频",
     "window": "窗口",
     "allow": "允许",
+    "Server": "服务器",
+    "house": "家",
     "notify": "通知",
     "folders": "文件夹",
     "memory": "记忆",
@@ -207,10 +213,10 @@ _ZH: dict[str, str] = {
     "Stopped.": "停了。",
     (
         "Something went wrong mid-turn, so I stopped rather than guess. "
-        "The details are in Thinking (Ctrl+1). Try again, or rephrase."
+        "The details are in this turn's thinking. Try again, or rephrase."
     ): (
         "这一轮中间出错了，我停下来了，没有瞎猜。"
-        "细节在「思考」（Ctrl+1）。再试一次，或者说得再清楚点。"
+        "细节在本轮的「思考」里。再试一次，或者说得再清楚点。"
     ),
     "I didn't open that file because it wasn't allowed.": (
         "那个文件没有被允许，所以我没有打开它。"
@@ -284,13 +290,27 @@ def tr(text: str) -> str:
     """Translate one source string. Unknown text comes back unchanged."""
     if _LANG != "zh" or not text:
         return text
-    return _ZH.get(text, text)
+    key = _catalog_key(text)
+    return text if key is None else _ZH[key]
+
+
+def _catalog_key(text: str) -> str | None:
+    """The catalog entry for ``text``, or for its capitalised form.
+
+    The chrome writes its Latin labels lowercase ("view", "settings") while
+    the catalog holds "View" and "Settings". Values stay unique, so the
+    lowercase label shares the entry instead of adding a second one.
+    """
+    if text in _ZH:
+        return text
+    head = text[:1].upper() + text[1:]
+    return head if head in _ZH else None
 
 
 def _source(current: str, stored: Any) -> str | None:
     if isinstance(stored, str) and stored:
         return stored
-    if current in _ZH:
+    if _catalog_key(current) is not None:
         return current
     reverse = _REVERSE.get(current)
     if reverse:
@@ -483,6 +503,21 @@ def apply_language_face(code: str) -> str | None:
     return family
 
 
+def _follow_app_font(app: Any) -> None:
+    """Make every widget re-read the app font, parents first.
+
+    QApplication.setFont does not reach a widget under a root that carries its
+    own sheet (every colour root does): it keeps the face it was polished with.
+    The event makes it resolve its font again, at no restyle.
+    """
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QWidget
+
+    for top in app.topLevelWidgets():
+        for widget in (top, *top.findChildren(QWidget)):
+            QCoreApplication.sendEvent(widget, QEvent(QEvent.Type.ApplicationFontChange))
+
+
 def _quoted_family(stack: str) -> str:
     text = stack.strip()
     if text.startswith('"'):
@@ -494,39 +529,45 @@ def _quoted_family(stack: str) -> str:
 
 def apply_language(window: Any, raw: Any) -> str:
     """Persist nothing. Switch the live window, face, and reply language."""
+    from arelis.ui.phase_trace import PhaseTrace
+
+    trace = PhaseTrace(f"language to={raw}")
     code = set_ui_language(raw)
-    family = apply_language_face(code)
+    apply_language_face(code)
     try:
-        from PySide6.QtGui import QFont
         from PySide6.QtWidgets import QApplication
 
-        from arelis.ui.theme import app_font, stylesheet
-        from arelis.ui.theme_tokens import FONT_PX
+        from arelis.ui.theme import app_font, install_stylesheet
 
-        css = stylesheet()
-        if window is not None:
-            window.setStyleSheet(css)
+        install_stylesheet(window)
+        trace.mark("stylesheet")
         app = QApplication.instance()
         if app is not None:
-            app.setStyleSheet(css)
-            if family:
-                font = QFont(family)
-                font.setPixelSize(FONT_PX)
-                app.setFont(font)
-            else:
-                app.setFont(app_font())
+            # The face lives here, not in the sheet: the sheet stays put and
+            # install_stylesheet above has nothing to re-apply.
+            app.setFont(app_font())
+            _follow_app_font(app)
+        trace.mark("font")
     except Exception:
         # Styling is cosmetic: a failed font or stylesheet must not stop the
         # language switch, and the text below is still translated.
-        family = None
+        pass
     localize(window)
+    trace.mark("localize")
     _refresh_live_copy(window)
+    trace.mark("live_copy")
+    trace.finish_after_repaint()
     return code
 
 
 def _refresh_live_copy(window: Any) -> None:
     if window is None:
         return
+    strip = getattr(window, "readiness_strip", None)
+    relabel = getattr(strip, "relabel", None)
+    if callable(relabel):
+        # Its labels are composed ("house · 2 ▾"), so the widget walk cannot map them.
+        relabel()
     conv = getattr(window, "conversation", None)
     sync = getattr(conv, "_sync_composer_buttons", None)
     if callable(sync):

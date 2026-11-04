@@ -225,11 +225,22 @@ arelis = [
     "ui/fonts/*",
     "ui/earth_globe/*",
     "assets/*",
+    # Her built Quick 3D model (docs/avatar.md). Never a .glb.
+    "assets/qq3d/*",
+    "assets/qq3d/*/*",
     # The three.js avatar scene. The .glb model is user data and never ships.
     "ui/persona_face/web/*.html",
+    "ui/persona_q3d/*.qml",
+    "ui/persona_q3d/bloom/*.frag",
     "ui/persona_face/web/*.js",
+    "ui/persona_face/web/*.json",
     "ui/persona_face/web/vendor/three/*",
     "ui/persona_face/web/vendor/three/addons/*/*.js",
+    "ui/persona_face/qq3d/*.qml",
+    # The Filament orbit's ShaderEffect stages (QuickOrbit.qml): GLSL and the baked .qsb.
+    "ui/persona_face/qq3d/orbit/*",
+    "ui/persona_q3d/*.qml",
+    "ui/persona_q3d/*.js",
 ]
 sentinel = [
     "config/*.yaml",
@@ -243,6 +254,7 @@ testpaths = ["tests"]
 addopts = ["--ignore=sentinel"]
 markers = [
     "serial: timing-sensitive; excluded from the xdist step and run right after it",
+    "real_qq3d_model: reads her real bundled model (arelis/assets/qq3d) instead of the suite's stand-in",
 ]
 # pytest-qt. The app is PySide6. Leaving this blank lets the plugin guess,
 # and a machine with another binding installed would bind the wrong one.

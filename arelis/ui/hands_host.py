@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from arelis.config import merge_local_config
 from arelis.spatial.grant import world_stage_allowed
 from arelis.ui.theme import active_theme
 
@@ -23,18 +22,38 @@ def apply_hands_face(window) -> None:
     if filament and chip and world_stage_allowed():
         _ensure_session(window)
         return
-    if not filament and not window.spatial.tracking:
-        return
-    if not filament:
-        # Sodium: only the camera Track button keeps a session.
-        if not window.camera.track_btn.isChecked():
+    if filament:
+        # Hands off (or not allowed) in Filament: no session, and the camera closes unless
+        # its tile is open.
+        if window.spatial.tracking:
             window.spatial.stop_track()
+        release_camera(window)
+        return
+    # Sodium: only the camera Track button keeps a session.
+    if window.spatial.tracking and not window.camera.track_btn.isChecked():
+        window.spatial.stop_track()
+    release_camera(window)
+
+
+def camera_wanted(window) -> bool:
+    """The one rule: the webcam runs only while something the user can see and turn off
+    needs it: Start camera clicked in the open tile, Hands on in Filament, or Track checked
+    in Sodium. An open tile alone does not count."""
+    if window.camera_dock.isVisible() and getattr(window.camera, "user_started", False):
+        return True
+    if active_theme() == "filament":
+        return bool(getattr(window, "_hands_chip", False)) and world_stage_allowed()
+    return window.camera.track_btn.isChecked()
+
+
+def release_camera(window) -> None:
+    if getattr(window.camera, "_running", False) and not camera_wanted(window):
+        window.camera.stop()
 
 
 def on_hands_chip(window, on: bool) -> None:
+    # Not saved: the camera opens only when the user turns Hands on in this run.
     window._hands_chip = bool(on)
-    window.config.setdefault("ui", {})["hands_chip"] = bool(on)
-    merge_local_config({"ui": {"hands_chip": bool(on)}})
     apply_hands_face(window)
 
 

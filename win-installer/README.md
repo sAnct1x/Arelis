@@ -13,6 +13,11 @@ Do not run this unless you mean to build a tree. The live install at
 python win-installer\build.py
 ```
 
+Her Quick 3D model is committed in `arelis/assets/qq3d`, so it is in every tree with no
+flag. The setup `.exe` installs it to `%LOCALAPPDATA%\Arelis\avatar\qq3d` rather than the
+program folder, so a plain uninstall keeps it and deleting all data removes it. The build
+stops if the model is missing from the tree or any `.glb` got in.
+
 Any Python 3.11 or newer will do as the *build* interpreter. The
 interpreter that gets **shipped** is downloaded. It is not the one you
 run this with.
@@ -188,7 +193,8 @@ is gone.
 
 It then asks whether to delete data too. **No** is the default, so a
 reinstall still finds conversations, memory, saved jobs, OAuth tokens,
-and downloaded models under `%LOCALAPPDATA%\Arelis`.
+and downloaded models under `%LOCALAPPDATA%\Arelis`, including her Quick 3D model in
+`avatar\qq3d`.
 
 **Yes** also removes:
 

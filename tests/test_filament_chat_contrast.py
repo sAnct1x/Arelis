@@ -164,3 +164,18 @@ def test_filament_chat_text_meets_aa() -> None:
     from arelis.ui.aether_look import aether_rgb
 
     assert COLORS["accent"].lower() == "#{:02x}{:02x}{:02x}".format(*aether_rgb()["lilac"])
+
+
+def test_capture_chat_env_writes_the_tile_alone(qt_app, monkeypatch, tmp_path) -> None:
+    from PySide6.QtGui import QImage
+    from PySide6.QtTest import QTest
+
+    from arelis.ui.filament_field import CAPTURE_CHAT_ENV, FilamentChatWindow
+
+    monkeypatch.setenv(CAPTURE_CHAT_ENV, str(tmp_path / "chat-{n}.png"))
+    w = FilamentChatWindow()
+    w.show()
+    QTest.qWait(1700)  # the shot lands once the tile has painted
+    img = QImage(str(tmp_path / "chat-1.png"))
+    assert not img.isNull() and img.size() == w.grab().size()
+    w.close()

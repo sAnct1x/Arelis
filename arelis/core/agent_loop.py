@@ -4,6 +4,7 @@ import asyncio
 import copy
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -1703,6 +1704,10 @@ class AgentLoop:
         hold_paint = tool_round and bool(
             agent_cfg.get("stream_answer_after_tools", True)
         )
+        if hold_paint and os.environ.get("ARELIS_TEST_STREAM_REPLY") == "1":
+            # Test hook: paint a tool round's answer as it streams, so a harness can watch
+            # paragraphs land one by one (held, the whole reply appears in one frame).
+            hold_paint = False
         # A kept draft is already in the bubble. The next sentence would
         # run on without a break ("...the weather.Boston is clear").
         self._round_gap = bool(self._painted.strip()) and not hold_paint

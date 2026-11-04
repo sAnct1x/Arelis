@@ -69,6 +69,17 @@ def install_owned_inbound(
         owned=True,
         stay_open_hint=hint,
     )
+    adopt_owned_inbound(window, bus, loop, runtime)
+    return runtime
+
+
+def adopt_owned_inbound(
+    window: Any,
+    bus: EventBus,
+    loop: asyncio.AbstractEventLoop,
+    runtime: InboundRuntime,
+) -> None:
+    """Hang a started runtime on the window and wire the phone hub (UI thread)."""
     window.inbound_runtime = runtime
     window.sms_ingest = runtime.ingest
     window.sms_watcher = runtime.watcher
@@ -81,7 +92,44 @@ def install_owned_inbound(
             bus.publish(Event(EventType.STATUS, {"message": message})),
             loop,
         )
-    return runtime
+
+
+def install_owned_inbound_off_ui(
+    window: Any,
+    bus: EventBus,
+    loop: asyncio.AbstractEventLoop,
+    config: dict[str, Any],
+    *,
+    hint: str,
+):
+    """install_owned_inbound with the network part on a worker thread.
+
+    attach_inbound first asks whether this user's ingest already answers
+    (find_my_ingest_port: a blocking urllib GET on each of six ports, 0.4 s
+    timeout each) and then binds. On the GUI thread at launch that was a 5 s
+    freeze right after she appeared (#520h). The window part comes back
+    through window._ui_call; a window closed meanwhile stops the runtime.
+    """
+    import threading
+
+    def work() -> None:
+        try:
+            runtime = attach_inbound(bus, loop, config, owned=True, stay_open_hint=hint)
+        except Exception:
+            log.exception("inbound start failed")
+            return
+
+        def adopt() -> None:
+            if getattr(window, "_disposed", False):
+                asyncio.run_coroutine_threadsafe(runtime.stop(), loop)
+                return
+            adopt_owned_inbound(window, bus, loop, runtime)
+
+        window._ui_call.emit(adopt)
+
+    thread = threading.Thread(target=work, name="arelis-inbound-start", daemon=True)
+    thread.start()
+    return thread
 
 
 async def claim_orphan_ingest(

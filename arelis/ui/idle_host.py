@@ -30,7 +30,6 @@ def sync_idle_mode(window) -> None:
         any(
             not dock.isHidden()
             for dock in (
-                window.persona_dock,
                 window.history_dock,
                 window.camera_dock,
             )
@@ -41,7 +40,15 @@ def sync_idle_mode(window) -> None:
         or (not window.world_window.isHidden())
     )
     filament = active_theme() == "filament"
-    window.readiness_strip.setVisible((not idle or instruments) and not filament)
+    # The strip sits above the stage. Showing it on send and hiding it on finish
+    # used to reflow the stage, so her band and canvas resized twice a turn
+    # (the blink). Outside Filament its height stays reserved while hidden.
+    strip = window.readiness_strip
+    policy = strip.sizePolicy()
+    if policy.retainSizeWhenHidden() == filament:
+        policy.setRetainSizeWhenHidden(not filament)
+        strip.setSizePolicy(policy)
+    strip.setVisible((not idle or instruments) and not filament)
     empty = getattr(window.chat, "empty", None)
     if empty is not None and hasattr(empty, "set_side_chrome"):
         empty.set_side_chrome(
@@ -62,7 +69,7 @@ def return_to_idle(window) -> None:
     """Esc on an empty thread: close instruments and show Orbit."""
     if window.chat.has_messages:
         return
-    window.persona_dock.hide()
+    # She stays fully visible when idle (base-ui-plan); only instruments close.
     window.history_dock.hide()
     window.camera_dock.hide()
     window.calendar_window.hide()
@@ -119,7 +126,6 @@ def enter_away_rest(window) -> None:
         arm_away_rest_timer(window)
         return
     hidden = {
-        "thinking": not window.persona_dock.isHidden(),
         "history": not window.history_dock.isHidden(),
         "camera": not window.camera_dock.isHidden(),
         "calendar": not window.calendar_window.isHidden(),
@@ -130,7 +136,6 @@ def enter_away_rest(window) -> None:
         return
     window._away_hidden = hidden
     window._away_resting = True
-    window.persona_dock.hide()
     window.history_dock.hide()
     window.camera_dock.hide()
     window.calendar_window.hide()
@@ -164,16 +169,14 @@ def wake_from_away_rest(window) -> None:
     hidden = dict(window._away_hidden)
     window._away_resting = False
     window._away_hidden = {}
-    if hidden.get("thinking"):
-        window.persona_dock.show()
     if hidden.get("history"):
         window.history_dock.show()
         from arelis.ui.history_host import refresh_history
 
         refresh_history(window)
     if hidden.get("camera"):
+        # The tile comes back with the webcam off: only Start camera turns it on.
         window.camera_dock.show()
-        window.camera.start()
     if hidden.get("calendar"):
         window.calendar_window.show()
         window.calendar_window.raise_()

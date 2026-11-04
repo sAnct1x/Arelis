@@ -109,6 +109,9 @@ class WindowLifetime:
             lambda: self.camera.stop(),
             lambda: self.voice_controller.stop_all() if self.voice_controller is not None else None,
             lambda: stop_speech(self),
+            # The orbit's paint thread: aboutToQuit only fires from app.exec(), so a
+            # window torn down without it left the QThread running into Qt's abort.
+            lambda: self._filament_render.stop(),
         ):
             try:
                 release()
@@ -253,7 +256,6 @@ class WindowLifetime:
         instruments than you left would be its own small betrayal.
         """
         for dock in (
-            self.think_dock,
             self.history_dock,
             self.camera_dock,
         ):
@@ -282,7 +284,6 @@ class WindowLifetime:
                 dock.raise_()
 
         for dock in (
-            self.think_dock,
             self.history_dock,
             self.camera_dock,
         ):
@@ -380,7 +381,7 @@ class WindowLifetime:
         # Cancel an in-flight turn so Quit is not blocked on model/tools.
         # Do not schedule the next Allow card — that used to show the window.
         try:
-            self._cancel_turn(schedule_next=False)
+            self._cancel_turn(schedule_next=False, reason="quit")
         except Exception:
             log.exception("quit cancel failed")
         try:

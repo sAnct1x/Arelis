@@ -17,6 +17,7 @@ export const LOOK = {
   flyaways: 7,                 // long thin strands off the head
   featureRibbons: 4,           // wide looping swirls around her
   bloom: { strength: 0.85, radius: 0.5, threshold: 0.55 },
+  fx: { flow: 8000, arms: 2000, energy: 9000, rim: 6000, motes: 3000, gain: 1.2 },   // aether layers: dense at the feet, thinning upward
 };
 
 // Per-model overrides, matched by substring of the loaded GLB path.

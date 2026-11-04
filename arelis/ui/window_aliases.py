@@ -30,7 +30,6 @@ from arelis.ui.window_docks import (
     toggle_contacts,
     toggle_history,
     toggle_notifications,
-    toggle_persona,
 )
 from arelis.ui.world_host import (
     apply_physics_act,
@@ -49,12 +48,6 @@ from arelis.ui.world_host import (
 class WindowAliases:
     def _reveal_dock(self, dock, action=None, *, asked: bool = False) -> None:
         return reveal_dock(self, dock, action, asked=asked)
-
-    def _toggle_persona(self, checked: bool) -> None:
-        return toggle_persona(self, checked)
-
-    def _toggle_thinking(self, checked: bool) -> None:
-        return toggle_persona(self, checked)
 
     def _toggle_history(self, checked: bool) -> None:
         return toggle_history(self, checked)

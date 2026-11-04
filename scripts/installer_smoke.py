@@ -80,9 +80,15 @@ def classify_qtopengl_failure(stderr_text: str) -> bool:
     return QTOPENGL_MARK in (stderr_text or "")
 
 
+# The launch splash's title (arelis/ui/splash.py): it is up before the main window, so
+# counting it would let window-probe pass with no main window.
+SPLASH_TITLE = "Arelis loading"
+
+
 def window_title_ok(title: str) -> bool:
-    """Visible top-level windows need a non-empty title for the probe."""
-    return bool((title or "").strip())
+    """Visible top-level windows need a non-empty title, other than the splash's."""
+    t = (title or "").strip()
+    return bool(t) and t != SPLASH_TITLE
 
 
 # --- summary bookkeeping -------------------------------------------------

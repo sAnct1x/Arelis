@@ -220,6 +220,25 @@ def parse_role_set_message(message: str) -> str | None:
     return None
 
 
+def _persona_streaming(window, on: bool) -> None:
+    """She speaks while the reply streams in; a withdrawn draft puts her back to thinking.
+
+    The turn's end (ASSISTANT_DONE or ERROR) clears busy, and _set_busy moves her to done
+    unless speech is still playing.
+    """
+    panel = getattr(window, "persona_panel", None)
+    if panel is None:
+        return
+    if on:
+        panel.set_state("speaking")
+        return
+    speech = bool(getattr(window, "_speech_expected", False)) or bool(
+        getattr(window, "_speech_playing", False)
+    )
+    if not speech and getattr(window, "_turn_busy", False):
+        panel.set_state("thinking")
+
+
 def dispatch_event(window: Any, event: Event) -> None:
     """Render one bus event. Runs on the Qt thread via BusBridge.
 
@@ -325,6 +344,10 @@ def dispatch_event(window: Any, event: Event) -> None:
         if not window._assistant_streaming:
             window.chat.begin_assistant()
             window._assistant_streaming = True
+            _persona_streaming(window, True)
+        panel = getattr(window, "persona_panel", None)
+        if panel is not None:
+            panel.note_text(str(p.get("text", "")))
         window.chat.append_delta(p.get("text", ""))
     elif t == EventType.ASSISTANT_RETRACT:
         if window._mobile_foreign:
@@ -336,6 +359,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         # any speech that streamed from it.
         window.chat.discard_stream()
         window._assistant_streaming = False
+        _persona_streaming(window, False)
         # VoiceService.on_retract already cancelled the withdrawn utterance.
         # This handler runs later, on the Qt thread, after the replacement
         # has bumped the speak id. stop_speech would stamp that new id as
@@ -467,7 +491,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.thinking.extend_stream(text)
         else:
             window.thinking.append(text, kind="trace")
-        window._reveal_dock(window.persona_dock, window.act_persona)
     elif t == EventType.STATUS:
         msg = p.get("message", "")
         if p.get("image_progress"):
@@ -553,8 +576,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             else:
                 spoken = headline
             window.bus.publish(Event(EventType.VOICE_SPEAK, {"text": spoken}))
-        else:
-            window._reveal_dock(window.persona_dock, window.act_persona)
         window.thinking.append(
             str(p.get("headline") or p.get("summary") or "waiting for you"),
             kind="tool",
@@ -597,7 +618,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             window._solar_view_args = {"tool": str(tool or ""), "args": dict(args)}
         # The errand is already in the thought line. Nothing extra above the composer.
         window.conversation.set_turn_visible(True)
-        window._reveal_dock(window.persona_dock, window.act_persona)
         # The shimmer is set for every tool now, so image needs no special
         # case beyond its own Thinking line.
         if str(tool or "") in {"image", "research_report"}:
@@ -771,7 +791,9 @@ def dispatch_event(window: Any, event: Event) -> None:
         if window._ignore_cancel_echo:
             window._ignore_cancel_echo = False
         else:
-            window._apply_stop_ui(publish_confirm_skip=False)
+            window._apply_stop_ui(
+                publish_confirm_skip=False, reason=str(p.get("reason") or "cancel")
+            )
             if not window._force_quit and not window._disposed:
                 window._later(0, window._show_next_pending_confirm)
     elif t == EventType.TURN_PAUSE:

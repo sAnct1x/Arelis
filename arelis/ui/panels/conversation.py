@@ -537,7 +537,8 @@ class ConversationStage(GlassFrame):
             if hasattr(self.chat.empty, "set_animating"):
                 self.chat.empty.set_animating(False)
             self.chat.empty.hide()
-            self.chat.view.show()
+            if not self.chat._view_parked:
+                self.chat.view.show()
         self._place_composer(want)
         self._sync_parked_orbit(want)
         self._sync_composer_buttons()
@@ -553,6 +554,7 @@ class ConversationStage(GlassFrame):
         """Field is the face. Composer and transcript live on the chat tile."""
         was = getattr(self, "_filament_desk", False)
         self._filament_desk = bool(on)
+        self.chat.set_view_parked(bool(on) and not chat_open)
         if not on:
             self._apply_talk_mark_size()
             if was:
@@ -677,6 +679,13 @@ class ConversationStage(GlassFrame):
         if hasattr(empty, "fit_prompt"):
             empty.fit_prompt(width, self.input.height(), typing=typing)
 
+    def _placeholder_width(self) -> int:
+        """The composer input's floor: its placeholder plus the text margins."""
+        from arelis.i18n import tr
+
+        fm = self.input.fontMetrics()
+        return fm.horizontalAdvance(tr("message Arelis…")) + 2 * SPACE["gap"] + 8
+
     def _fit_workbench_prompt(self) -> None:
         """Wrap and grow until the draft is on screen, then scroll."""
         if self._idle_mode:
@@ -795,7 +804,9 @@ class ConversationStage(GlassFrame):
             # width, or the first character sits where the transcript starts.
             self.input.setAlignment(Qt.AlignmentFlag.AlignLeft)
             self.input.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-            self.input.setMinimumWidth(0)
+            # The band gives way to this, so the placeholder reads in full
+            # in a narrow window instead of being squeezed to one letter.
+            self.input.setMinimumWidth(self._placeholder_width())
             self.input.setMaximumWidth(16777215)
             self.input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self.input.show()
@@ -832,8 +843,9 @@ class ConversationStage(GlassFrame):
         from arelis.ui.theme import active_theme
 
         win = self.window()
-        dock = getattr(win, "persona_dock", None)
-        she_is_up = dock is not None and not dock.isHidden()
+        from arelis.ui.persona_stage import in_stage
+
+        she_is_up = in_stage(win)
         parked = not idle and active_theme() != "filament" and not she_is_up
         self._parked_orbit.setVisible(parked)
         self._parked_orbit.set_animating(parked)

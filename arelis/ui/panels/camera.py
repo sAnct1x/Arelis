@@ -294,15 +294,27 @@ class PreviewConvertWorker(QThread):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._lock = threading.Lock()
+        # Single slot: GUI fills it only when empty, the worker empties it.
         self._latest: object | None = None
         self._new = threading.Event()
         self._stop = threading.Event()
 
-    def submit(self, frame: object) -> None:
-        with self._lock:
-            self._latest = frame
+    def submit(self, frame: object) -> bool:
+        """Post a frame unless one is still pending; the GUI thread drops it.
+
+        Replacing a pending frame freed it here (the last QVideoFrame ref
+        releases the capture buffer) and contended the lock with the worker,
+        which made this the top GUI-thread cost while streaming.
+        """
+        if self._latest is not None:
+            return False
+        self._latest = frame
         self._new.set()
+        return True
+
+    @property
+    def pending(self) -> bool:
+        return self._latest is not None
 
     def stop_worker(self) -> None:
         self._stop.set()
@@ -314,9 +326,7 @@ class PreviewConvertWorker(QThread):
             self._new.clear()
             if self._stop.is_set():
                 break
-            with self._lock:
-                frame = self._latest
-                self._latest = None
+            frame = self._latest
             if frame is None:
                 continue
             try:
@@ -326,6 +336,10 @@ class PreviewConvertWorker(QThread):
                 self.frame_ready.emit(rgb_to_qimage(rgb))
             except Exception:
                 log.debug("preview convert failed", exc_info=True)
+            finally:
+                # Busy until converted, and the frame is released here.
+                del frame
+                self._latest = None
 
 
 def _prefer_preview(camera, device, max_width: int | None = None) -> None:
@@ -408,6 +422,7 @@ class CameraPanel(QWidget):
         self._session = None
         self._image_capture = None
         self._running = False
+        self.user_started = False  # the user clicked Start camera (not Hands or Track)
         self._pending_snapshot: Path | None = None
         self._ask_after_next_save = False
         self._sink = None
@@ -428,7 +443,7 @@ class CameraPanel(QWidget):
         self.device_combo.setToolTip("Camera device")
         self.device_combo.currentIndexChanged.connect(self._on_device_changed)
 
-        self.start_btn = QPushButton("start")
+        self.start_btn = QPushButton("Start camera")
         self.stop_btn = QPushButton("stop")
         self.snap_btn = QPushButton("snapshot")
         self.ask_btn = QPushButton("ask Arelis")
@@ -451,7 +466,10 @@ class CameraPanel(QWidget):
             btn.setObjectName("InstrumentAction")
             btn.setFixedHeight(METRICS["row"])
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.start_btn.clicked.connect(self.start)
+        # One button: the webcam starts only when the user clicks Start camera.
+        self.start_btn.clicked.connect(self._on_start_clicked)
+        self.start_btn.setToolTip("Turn the webcam on or off")
+        self.stop_btn.setVisible(False)
         self.stop_btn.clicked.connect(self.stop)
         self.snap_btn.clicked.connect(self.snapshot)
         self.ask_btn.clicked.connect(self.ask)
@@ -507,6 +525,8 @@ class CameraPanel(QWidget):
         self._sync_controls()
         if not CAMERA_MULTIMEDIA_AVAILABLE:
             self._set_hint("QtMultimedia camera support is not available.")
+        elif not self.hint.text():
+            self._set_hint("Camera is off. Click Start camera to turn it on.")
 
     def problem(self) -> str | None:
         if not CAMERA_MULTIMEDIA_AVAILABLE:
@@ -541,13 +561,21 @@ class CameraPanel(QWidget):
 
     def _sync_controls(self) -> None:
         ok = CAMERA_MULTIMEDIA_AVAILABLE and bool(list_video_input_names())
-        self.start_btn.setEnabled(ok and not self._running)
+        self.start_btn.setEnabled(ok)
+        self.start_btn.setText("Stop camera" if self._running else "Start camera")
         self.stop_btn.setEnabled(ok and self._running)
         self.snap_btn.setEnabled(ok and self._running)
         self.ask_btn.setEnabled(ok)
         self.track_btn.setEnabled(ok)
         self.record_btn.setEnabled(ok and self.track_btn.isChecked())
         self.device_combo.setEnabled(ok)
+
+    def _on_start_clicked(self) -> None:
+        if self._running:
+            self.stop()
+            return
+        self.start()
+        self.user_started = self._running
 
     def _on_device_changed(self, _index: int = 0) -> None:
         if self._running:
@@ -597,6 +625,7 @@ class CameraPanel(QWidget):
             self._sync_controls()
             return
         self._teardown_camera()
+        self.user_started = False
         was_running = self._running
         self._running = False
         self._ask_after_next_save = False
@@ -705,10 +734,9 @@ class CameraPanel(QWidget):
             self.pose_video.emit(frame, time.perf_counter())
             return
         self._ensure_preview_worker()
-        if self._preview is None:
+        if self._preview is None or self._preview.pending:
             return
-        held = QVideoFrame(frame)
-        self._preview.submit(held)
+        self._preview.submit(QVideoFrame(frame))
 
     def _teardown_camera(self) -> None:
         cam = self._camera

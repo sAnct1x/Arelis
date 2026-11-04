@@ -13,6 +13,11 @@ import pytest
 # from this variable when it configures.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("PYTEST_QT_API", "pyside6")
+# The Qt Quick scene graph backend is chosen once per process, by whichever Quick window
+# initialises first. Offscreen has no RHI windows, so a web avatar's QQuickWidget made
+# first would lock the process to "software" and every later Quick 3D host would fail to
+# initialise (order-dependent failures). Pick the RHI backend for the whole run.
+os.environ.setdefault("QT_QUICK_BACKEND", "rhi")
 
 
 def pytest_addoption(parser) -> None:
@@ -225,6 +230,49 @@ def arelis_window(qt_app):
             pass
 
 
+QQ3D_STAND_IN = Path(__file__).parent / "fixtures" / "qq3d_stand_in"
+
+
+@pytest.fixture(autouse=True)
+def _avatar_choice_env_is_per_test():
+    """Each test starts with the avatar engine and surface variables it found.
+
+    engine_choice() and surface_choice() write what they read from the saved user variables
+    into os.environ, so later calls in the process see the same choice. monkeypatch.delenv
+    on an unset name records nothing to undo, so a test that deleted the variable and then
+    let engine_choice() run left ARELIS_AVATAR_ENGINE=qq3d behind for every later test on
+    that xdist worker: web-host layout tests then built the Quick surface host and failed
+    or crashed depending on which worker ran them.
+    """
+    names = ("ARELIS_AVATAR_ENGINE", "ARELIS_AVATAR_ENGINE_SOURCE", "ARELIS_SURFACE")
+    before = {n: os.environ.get(n) for n in names}
+    yield
+    for n, v in before.items():
+        if v is None:
+            os.environ.pop(n, None)
+        else:
+            os.environ[n] = v
+
+
+@pytest.fixture(autouse=True)
+def _qq3d_stand_in_model(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Her bundled model, for the suite, is a one-cube stand-in unless a test asks for hers.
+
+    model_source() falls back to the model committed under arelis/assets/qq3d (78 MB of
+    meshes and custom materials). So any test that built a Quick 3D host without pointing
+    it somewhere rendered her real model on a background thread: a layout test in Night did,
+    and on the macOS runner the Metal pipeline build for her materials logged a Qt warning
+    from that render thread while pytest-qt was swapping its message handler in teardown,
+    and the worker segfaulted in PySide's msgHandlerCallback. A test about the real model
+    says so with @pytest.mark.real_qq3d_model.
+    """
+    if request.node.get_closest_marker("real_qq3d_model") is None:
+        from arelis.ui.persona_face import qq3d_avatar
+
+        monkeypatch.setattr(qq3d_avatar, "BUNDLED_DIR", QQ3D_STAND_IN)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _dispose_arelis_windows():
     """Take each window apart after the test that built it.
@@ -293,29 +341,3 @@ def _dispose_arelis_windows():
     app.processEvents()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.processEvents()
-
-
-@pytest.fixture(autouse=True)
-def _stop_persona_bakes():
-    """Stop every persona bake thread a test leaves behind, pass or fail.
-
-    A panel dropped while its bake QThread still runs makes Qt abort the whole
-    process ("QThread: Destroyed while thread is still running") during a later
-    test. A failed or timed-out wait for the bake used to leave exactly that.
-    """
-    yield
-    import sys
-
-    avatar_mod = sys.modules.get("arelis.ui.persona_face.avatar")
-    if avatar_mod is None:
-        return
-    from PySide6.QtWidgets import QApplication
-
-    if QApplication.instance() is None:
-        return
-    for widget in QApplication.allWidgets():
-        if isinstance(widget, avatar_mod.PersonaAvatar):
-            widget.shutdown()
-    from arelis.ui.live_threads import drain_parked_threads
-
-    drain_parked_threads()

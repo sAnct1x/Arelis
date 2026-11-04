@@ -9,10 +9,12 @@ import asyncio
 import logging
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
+    QColor,
+    QImage,
     QKeyEvent,
     QKeySequence,
     QPainter,
@@ -27,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.presence.readiness import ChipLevel, probe_readiness
+from arelis.ui.filament_field import FILAMENT_VOID
 from arelis.ui.glass import GlassFrame, advance_rim_pulse
 from arelis.ui.hands_host import park_hands, resume_hands
 from arelis.ui.idle_host import note_engagement, sync_idle_mode
@@ -64,6 +67,9 @@ from arelis.ui.world_host import world_available
 log = logging.getLogger(__name__)
 
 _PANEL_OUTER = SHELL["outer"]
+# The window filters every event in the app; all but these go straight through.
+_KEY_EVENTS = frozenset({QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress})
+_FILTERED_EVENTS = _KEY_EVENTS | {QEvent.Type.MouseButtonPress, QEvent.Type.MouseMove}
 _PANEL_HALF = SHELL["half"]
 _PANEL_TOP = SHELL["top"]
 _PANEL_BOTTOM = SHELL["bottom"]
@@ -117,12 +123,6 @@ class WindowChrome:
     def _apply_calm_instrument_defaults(self) -> None:
         """Hide instruments for a conversation-first composition."""
         ui_cfg = self.config.get("ui", {})
-        if not ui_cfg.get("thinking_open", True):
-            self._persona_adjusting = True
-            try:
-                self.persona_dock.hide()
-            finally:
-                self._persona_adjusting = False
         if not ui_cfg.get("camera_open", False):
             self.camera_dock.hide()
         self.history_dock.hide()
@@ -130,52 +130,9 @@ class WindowChrome:
         if cal is not None:
             cal.hide()
 
-    def _open_persona_saved_by_old_default(self) -> None:
-        """A restored hidden dock from the old default is not a hand close.
-
-        `_persona_user_closed` is set only when she is closed by hand in this
-        session, after the window exists. A layout saved while the old default
-        hid her has no separate flag, so she opens. A previous session's hand
-        close looks the same in the saved state and also opens; this session's
-        hand close still sticks.
-        """
-        if getattr(self, "_persona_user_closed", False):
-            return
-        ui_cfg = self.config.get("ui", {}) or {}
-        if not ui_cfg.get("thinking_open", True):
-            return
-        if not self.persona_dock.isHidden():
-            return
-        self._persona_adjusting = True
-        try:
-            self.persona_dock.setVisible(True)
-        finally:
-            self._persona_adjusting = False
-
-    def _wake_persona_at_launch(self) -> None:
-        """Bake and bloom once the glass is shown, not from her own showEvent."""
-        if getattr(self, "_persona_launch_woke", False):
-            return
-        if getattr(self, "_persona_user_closed", False):
-            return
-        panel = getattr(self, "persona_panel", None)
-        dock = getattr(self, "persona_dock", None)
-        if panel is None or dock is None or dock.isHidden():
-            return
-        self._persona_launch_woke = True
-        panel.wake_for_window()
-
     def _on_thinking_status_clicked(self) -> None:
         """The status line opens this turn's thinking in the chat."""
         self.chat.expand_thinking()
-
-    def _pulse_thinking_instrument(self) -> None:
-        """One short amber hairline on the thinking plate, then rest."""
-        self.think_host.set_attention(True, ember=True)
-        self._think_pulse_timer.start()
-
-    def _on_think_pulse_done(self) -> None:
-        self.think_host.set_attention(False)
 
     def _atmosphere_glass_frames(self) -> list[GlassFrame]:
         """Plates the 10 Hz tick may invalidate.
@@ -215,29 +172,27 @@ class WindowChrome:
             self._filament.set_state(self._filament_weather())
             self._filament.tick(ms / 1000.0)
             self._place_filament_floats(reshape=False)
-            self.update(self._filament.dirty_rect(self.rect()))
+            surface = getattr(self, "_quick_surface", None)
+            if surface is not None:
+                surface.orbit_state.update(self._filament, self.rect())
+            render = getattr(self, "_filament_render", None)
+            if render is not None:
+                render.request(self.rect(), self.devicePixelRatioF())  # ready repaints
+            else:
+                self.update(self._filament.dirty_rect(self.rect()))
             return
         self._atmosphere_timer.setInterval(300)
         if getattr(self, "_turn_busy", False) or not self.isActiveWindow():
+            return
+        from arelis.ui import idle_ab
+
+        if not idle_ab.idle_timers():
             return
         self.update()
         for frame in self._atmosphere_glass_frames():
             frame.update()
 
     def _build_view_actions(self) -> None:
-        # Checks start from what each dock is set to, not isVisible(): the
-        # window is not shown yet, and the first visibilityChanged arrives mid
-        # chrome swap, where on_dock_visibility ignores it. Ctrl+1 then needed
-        # two presses to close her dock.
-        self.act_persona = QAction("arelis", self)
-        self.act_persona.setCheckable(True)
-        self.act_persona.setChecked(not self.persona_dock.isHidden())
-        self.act_persona.setShortcut(QKeySequence("Ctrl+1"))
-        self.act_persona.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
-        self.act_persona.triggered.connect(self._toggle_persona)
-        self.addAction(self.act_persona)
-        self.act_thinking = self.act_persona
-
         self.act_history = QAction("history", self)
         self.act_history.setCheckable(True)
         self.act_history.setChecked(not self.history_dock.isHidden())
@@ -417,13 +372,15 @@ class WindowChrome:
         the mode turned on and straight back off and the orbit looked dead.
         """
         et = event.type()
+        if et not in _FILTERED_EVENTS:
+            return super().eventFilter(obj, event)
         if et == QEvent.Type.MouseButtonPress:
             note_engagement(self)
             return super().eventFilter(obj, event)
         if et == QEvent.Type.MouseMove:
             self._filament_on_mouse_move(event)
             return super().eventFilter(obj, event)
-        if et not in {QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress}:
+        if et not in _KEY_EVENTS:
             return super().eventFilter(obj, event)
         if not isinstance(event, QKeyEvent):
             return super().eventFilter(obj, event)
@@ -498,12 +455,94 @@ class WindowChrome:
             return False
         return True
 
+    def _push_orbit_to_surface(self) -> None:
+        """ARELIS_SURFACE=quick: the worker's layer (beads, stems, tethers) goes to the surface.
+
+        No note_shown here: under the flag the orbit is the GPU's, and QuickOrbit.qml's own
+        frame counter logs '[filament] orbit fps=N' (OrbitState.reportFps).
+        """
+        surface = getattr(self, "_quick_surface", None)
+        render = getattr(self, "_filament_render", None)
+        if surface is None or render is None:
+            return
+        if active_theme() != "filament":
+            surface.set_orbit(None)
+            return
+        frame = render.frame_for(self.rect(), self.devicePixelRatioF())
+        if frame is not None:
+            surface.set_orbit(frame)
+
+    def _sync_surface_void(self, surface) -> bool:
+        """The Quick layer paints the whole backdrop. True: Filament (void + orbit).
+
+        Under a QQuickWidget Qt punches its rect out of the window's backing store and
+        composites the widget's texture underneath, so whatever this window paints there
+        is erased. The surface covers the window, so a Night or Sodium backdrop painted
+        here came out black; those rooms get their atmosphere as a surface image instead.
+        """
+        filament = active_theme() == "filament"
+        if getattr(self, "_surface_void_filament", None) is not filament:
+            self._surface_void_filament = filament
+            surface.orbit_state.set_active(filament)
+            surface.set_void(
+                QColor(*FILAMENT_VOID) if filament else QColor(Qt.GlobalColor.transparent)
+            )
+            if not filament:
+                surface.set_orbit(None)
+        if filament:
+            self._surface_backdrop_key = None
+            surface.set_backdrop(None)
+            return True
+        dpr = self.devicePixelRatioF()
+        key = (active_theme(), self.width(), self.height(), dpr)
+        if getattr(self, "_surface_backdrop_key", None) != key:
+            self._surface_backdrop_key = key
+            surface.set_backdrop(self._paint_backdrop(dpr))
+        return False
+
+    def _paint_backdrop(self, dpr: float) -> QImage:
+        """This room's atmosphere at window size (the grain's sub-pixel drift is not kept)."""
+        img = QImage(
+            max(1, round(self.width() * dpr)),
+            max(1, round(self.height() * dpr)),
+            QImage.Format.Format_ARGB32_Premultiplied,
+        )
+        img.setDevicePixelRatio(dpr)
+        img.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(img)
+        path = QPainterPath()
+        path.addRoundedRect(self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS)
+        painter.setClipPath(path)
+        paint_atmosphere(painter, self.rect(), drift=self._atmosphere_phase)
+        painter.end()
+        return img
+
     def paintEvent(self, event: QPaintEvent) -> None:
+        surface = getattr(self, "_quick_surface", None)
+        if surface is not None:
+            self._sync_surface_void(surface)
+            return  # the Quick surface under every widget draws the backdrop
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         if active_theme() == "filament":
             painter.setClipRegion(event.region())
-            self._filament.paint(painter, self.rect())
+            render = getattr(self, "_filament_render", None)
+            frame = render.frame_for(self.rect(), self.devicePixelRatioF()) if render else None
+            painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+            if frame is not None:
+                painter.drawImage(0, 0, frame)
+                render.note_shown(frame)
+                return
+            # No worker frame at this size yet (first frame, resize, DPR change, span
+            # grow; frame_for has asked for one). Never paint the field here: a full
+            # Python field paint on the UI thread was the startup stall. Stretch the
+            # last frame if there is one, else the plain void; ready repaints us.
+            last = render.frame() if render else None
+            if last is not None:
+                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+                painter.drawImage(QRectF(self.rect()), last)
+            else:
+                painter.fillRect(self.rect(), QColor(*FILAMENT_VOID))
             return
         path = QPainterPath()
         path.addRoundedRect(self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS)
@@ -561,7 +600,6 @@ class WindowChrome:
         self.setMouseTracking(True)
         self._sync_browser_anchor()
         sync_idle_mode(self)
-        self._later(0, self._wake_persona_at_launch)
         if active_theme() == "filament" and self._filament_parked is not None:
             self._later(0, self._filament_place_entity)
 
@@ -652,7 +690,6 @@ class WindowChrome:
         widths: list[int] = []
         for dock in (
             self.history_dock,
-            self.persona_dock,
             self.camera_dock,
         ):
             if not dock.isVisible() or dock.isFloating():
@@ -710,7 +747,6 @@ class WindowChrome:
         menu.addAction(self.act_find)
         menu.addAction(self.act_search_history)
         menu.addSeparator()
-        menu.addAction(self.act_persona)
         menu.addAction(self.act_history)
         menu.addAction(self.act_notifications)
         menu.addAction(self.act_camera)
@@ -767,9 +803,8 @@ class WindowChrome:
 
     def _sync_view_checks(self) -> None:
         """Keep View-menu checkmarks aligned with the docks that are actually up."""
-        if not hasattr(self, "act_persona"):
+        if not hasattr(self, "act_history"):
             return
-        self.act_persona.setChecked(self.persona_dock.isVisible())
         self.act_history.setChecked(self.history_dock.isVisible())
         self.act_notifications.setChecked(self.notify_inbox.isVisible())
         self.act_camera.setChecked(self.camera_dock.isVisible())
@@ -858,10 +893,8 @@ class WindowChrome:
 
     def _reset_layout(self) -> None:
         self.camera.stop()
-        self.persona_dock.setFloating(False)
         self.history_dock.setFloating(False)
         self.camera_dock.setFloating(False)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.persona_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.history_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.camera_dock)
         self._stack_left_instruments()
@@ -873,7 +906,6 @@ class WindowChrome:
         self._calendar_sync_watchdog.stop()
         self.sms_chats.hide_all()
         self._apply_calm_instrument_defaults()
-        self.act_persona.setChecked(self.persona_dock.isVisible())
         self.act_history.setChecked(False)
         self.act_notifications.setChecked(False)
         self.act_camera.setChecked(False)

@@ -107,8 +107,6 @@ class _PlateHost:
         self.world_window = plate
         self.thinking = _Quiet()
         self.conversation = _Quiet()
-        self.persona_dock = None
-        self.act_persona = None
         self._workspace_tool_args: dict = {}
 
     def _reveal_dock(self, *_args, **_kwargs) -> None:

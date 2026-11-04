@@ -7,10 +7,12 @@ orbit ring + tick + core, ghost recent sessions, and a live readiness readout.
 from __future__ import annotations
 
 import math
+import time
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
+    QImage,
     QMouseEvent,
     QPainter,
     QPainterPath,
@@ -246,6 +248,31 @@ def paint_aether_orbit(
     painter.drawEllipse(heart, (2.0 + t) * s, (2.0 + t) * s)
 
 
+# Orbit pacing on the GUI thread. The orbit sits under her (qq3d) region, so every
+# avatar frame repaints it too; a full vector repaint (~4 ms at DPR 1.5) per avatar
+# frame starved input. paintEvent now blits a cached frame unless the orbit itself
+# moved, and the tick is a single shot re-armed after each tick at no less than
+# _ORBIT_COST_FACTOR x the measured render cost, so it can never queue catch-up.
+_ORBIT_MIN_MS = 40
+_ORBIT_COST_FACTOR = 8
+# While her first frame is pending (a 10 s shader compile on a fresh cache) the
+# orbit breathes slowly so nothing builds up behind the stall.
+_ORBIT_WARMING_MS = 250
+_AVATAR_WARMING = False
+
+
+def set_avatar_warming(on: bool) -> None:
+    """qq3d sets this until her first frame lands (or she fails)."""
+    global _AVATAR_WARMING
+    _AVATAR_WARMING = bool(on)
+
+
+def orbit_interval_ms(cost_ms: float) -> int:
+    """Next tick delay: never under the base rate, never under k x the paint cost."""
+    floor = _ORBIT_WARMING_MS if _AVATAR_WARMING else _ORBIT_MIN_MS
+    return max(floor, math.ceil(_ORBIT_COST_FACTOR * max(0.0, cost_ms)))
+
+
 class OrbitCanvas(QWidget):
     """QPainter orbit in Arelis's aether, tinted to the room: frame, floor, stars, spark."""
 
@@ -261,8 +288,13 @@ class OrbitCanvas(QWidget):
         self._beat = 0.0
         self._thinking = False
         self._timer = QTimer(self)
-        self._timer.setInterval(40)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(_ORBIT_MIN_MS)
         self._timer.timeout.connect(self._tick)
+        self._cache: QImage | None = None
+        self._cache_key: tuple | None = None
+        self._cost_ms = 0.0
+        self.renders = 0  # full vector renders (tests, bench)
 
     def set_thinking(self, on: bool) -> None:
         """Brighter, slower breath while a turn is in flight, never hide/show."""
@@ -271,13 +303,20 @@ class OrbitCanvas(QWidget):
             return
         self._thinking = want
         self._dim = 0.92 if want else 0.42
-        if want and self.isVisible() and not self._timer.isActive():
+        from arelis.ui import idle_ab
+
+        if want and self.isVisible() and not self._timer.isActive() and idle_ab.idle_timers():
             self._timer.start()
         elif not want and not self.isVisible():
             self._timer.stop()
         self.update()
 
     def set_animating(self, on: bool) -> None:
+        from arelis.ui import idle_ab
+
+        if on and not idle_ab.idle_timers():
+            self.update()
+            return
         if on:
             if not self._timer.isActive():
                 self._timer.start()
@@ -291,21 +330,38 @@ class OrbitCanvas(QWidget):
         self._angle = (self._angle + 360.0 * step / 14.0) % 360.0
         self._beat = (self._beat + step / period) % 1.0
         self.update()
+        if self._timer.isSingleShot():
+            self._timer.start(orbit_interval_ms(self._cost_ms))
 
     def paintEvent(self, event: QPaintEvent) -> None:
         if active_theme() == "filament":
             return
+        dpr = self.devicePixelRatioF()
+        key = (self._angle, self._beat, self._dim, dpr, self.width(), self.height(),
+               active_theme(), aether_hue_shift())
+        if self._cache is None or key != self._cache_key:
+            t0 = time.perf_counter()
+            img = QImage(max(1, round(self.width() * dpr)), max(1, round(self.height() * dpr)),
+                         QImage.Format.Format_ARGB32_Premultiplied)
+            img.setDevicePixelRatio(dpr)
+            img.fill(0)
+            p = QPainter(img)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            paint_aether_orbit(
+                p,
+                self.width() / 2.0,
+                self.height() / 2.0,
+                box=float(self._box),
+                dim=self._dim,
+                angle=self._angle,
+                beat=self._beat,
+            )
+            p.end()
+            self._cache, self._cache_key = img, key
+            self._cost_ms = (time.perf_counter() - t0) * 1e3
+            self.renders += 1
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        paint_aether_orbit(
-            painter,
-            self.width() / 2.0,
-            self.height() / 2.0,
-            box=float(self._box),
-            dim=self._dim,
-            angle=self._angle,
-            beat=self._beat,
-        )
+        painter.drawImage(0, 0, self._cache)
 
 
 class _GhostRow(QWidget):
@@ -690,6 +746,9 @@ class OrbitIdle(QWidget):
         orbit = getattr(self, "orbit", None)
         if orbit is not None:
             orbit.set_animating(False)
+        center = getattr(self, "_center", None)
+        if center is not None and center.parentWidget() is not self:
+            center.hide()  # lent to the window (Filament): it leaves with this face
         super().hideEvent(event)
 
     def _bloom_in_self(self) -> QPoint:
@@ -734,20 +793,25 @@ class OrbitIdle(QWidget):
         bloom = self._bloom_in_self()
         orbit_h = self.orbit.height()
         pinned_home = False
+        win = self.window()
+        field = getattr(win, "_filament", None) if win is not None else None
+        # Filament puts the ask at the window's top right, which is outside this chat
+        # column: as this column's child it was clipped away (UIA saw it, nobody else did).
+        # So it is lent to the window while Filament shows it, and taken back otherwise.
+        lend = active_theme() == "filament" and field is not None and win is not self
+        host = win if lend else self
+        if self._center.parentWidget() is not host:
+            self._center.setParent(host)  # setParent hides it
+            self._center.show()
+        if host is not self:
+            self._center.setVisible(self.isVisible())
         if active_theme() == "filament":
-            win = self.window()
-            field = getattr(win, "_filament", None) if win is not None else None
-            if field is not None and win is not None:
+            if host is not self:
+                # Top right of the window (prompt_point), kept on the window, not the desk.
                 p = field.prompt_point(win.rect())
-                local = self.mapFrom(win, p.toPoint())
-                cx = local.x() - cw // 2
-                cy = local.y()
-                home = field.home_rect(win.rect())
-                band = QRect(self.mapFrom(win, home.topLeft()), home.size())
-                if band.width() > cw + margin * 2:
-                    cx = max(band.left() + margin, min(cx, band.right() - cw - margin))
-                    cy = max(band.top() + margin, min(cy, band.bottom() - ch - margin))
-                    pinned_home = True
+                cx = min(int(p.x()) - cw // 2, win.width() - cw - margin)
+                cy = int(p.y())
+                pinned_home = True
             else:
                 cx = bloom.x() - cw // 2
                 cy = bloom.y() + 80

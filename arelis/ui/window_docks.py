@@ -6,12 +6,12 @@ functions from hosts. Do not reopen ``app.py`` for a View toggle.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QDockWidget, QTabBar, QWidget
 
 from arelis.ui.dock_surface import apply_dock_chrome, chrome_applying
-from arelis.ui.filament_tile import flush_tile_geom
+from arelis.ui.filament_tile import flush_tile_geom, hold_unseen_until_grow
 from arelis.ui.theme import SHELL, active_theme
 
 # Copied from app.py so this module never imports ArelisWindow (cycle).
@@ -30,32 +30,8 @@ def _set_shell_margins(shell: QWidget | None, margins: tuple[int, int, int, int]
         layout.setContentsMargins(*margins)
 
 
-class _PersonaCloseWatch(QObject):
-    """The dock's close button is a hand close. hide() from the app is not."""
-
-    def __init__(self, window) -> None:
-        super().__init__(window)
-        self._window = window
-
-    def eventFilter(self, obj, event) -> bool:
-        window = self._window
-        if (
-            obj is window.persona_dock
-            and event.type() == QEvent.Type.Close
-            and not getattr(window, "_persona_adjusting", False)
-        ):
-            window._persona_user_closed = True
-        return False
-
-
 def bind_docks(window) -> None:
-    """Wire her dock and the other instruments to the extracted layout slots."""
-    watch = _PersonaCloseWatch(window)
-    window.persona_dock.installEventFilter(watch)
-    window._persona_close_watch = watch
-    window.persona_dock.visibilityChanged.connect(
-        lambda visible, d=window.persona_dock: on_dock_visibility(window, visible, sender=d)
-    )
+    """Wire the instrument docks to the extracted layout slots."""
     window.history_dock.visibilityChanged.connect(
         lambda visible, d=window.history_dock: on_dock_visibility(window, visible, sender=d)
     )
@@ -63,7 +39,6 @@ def bind_docks(window) -> None:
         lambda visible, d=window.camera_dock: on_dock_visibility(window, visible, sender=d)
     )
     for dock in (
-        window.persona_dock,
         window.history_dock,
         window.camera_dock,
     ):
@@ -93,7 +68,6 @@ def reveal_dock(
     if active_theme() == "filament" and not asked:
         if not dock.isVisible():
             name = {
-                window.persona_dock: "thinking",
                 window.history_dock: "history",
                 window.camera_dock: "camera",
             }.get(dock, "")
@@ -104,46 +78,19 @@ def reveal_dock(
         return
     if getattr(window, "_away_resting", False):
         return
-    if dock is window.persona_dock and not asked and getattr(window, "_persona_user_closed", False):
-        return
     if dock.isVisible():
         return
+    hold_unseen_until_grow(dock)
     dock.show()
     if action is not None:
         action.setChecked(True)
     window._animate_dock(dock)
     if active_theme() == "filament":
         names = {
-            window.persona_dock: "thinking",
             window.history_dock: "history",
             window.camera_dock: "camera",
         }
         window._filament_present_tile(dock, names.get(dock, ""))
-
-
-def toggle_persona(window, checked: bool) -> None:
-    from arelis.ui.idle_host import note_engagement
-
-    note_engagement(window)
-    if checked:
-        window._persona_user_closed = False
-    else:
-        window._persona_user_closed = True
-    window._persona_adjusting = True
-    try:
-        if checked:
-            window.persona_dock.setVisible(True)
-    finally:
-        window._persona_adjusting = False
-    if checked:
-        window._animate_dock(window.persona_dock, show=True)
-        window._filament_present_tile(window.persona_dock, "thinking")
-    else:
-        window._animate_dock(window.persona_dock, show=False)
-
-
-def toggle_thinking(window, checked: bool) -> None:
-    toggle_persona(window, checked)
 
 
 def toggle_history(window, checked: bool) -> None:
@@ -152,6 +99,7 @@ def toggle_history(window, checked: bool) -> None:
 
     note_engagement(window)
     if checked:
+        hold_unseen_until_grow(window.history_dock)
         window.history_dock.setVisible(True)
         refresh_history(window)
         window._animate_dock(window.history_dock, show=True)
@@ -168,15 +116,22 @@ def toggle_notifications(window, checked: bool) -> None:
     note_engagement(window)
     if checked:
         on_notify_poll(window)
-        window.notify_inbox.show()
-        window.notify_inbox.raise_()
         from arelis.ui.foreground import claim_foreground
 
-        claim_foreground(window.notify_inbox)
-        window.notifications.opened.emit()
         if active_theme() == "filament":
+            # The grow is its first show, at the seed on its node. Showing it here first
+            # put a fresh native window on screen at full size; on Windows that first frame
+            # could carry the saved opacity (FULLSIZE-FLASH) before the grow hid it.
+            hold_unseen_until_grow(window.notify_inbox)
             window._filament_dress_tile(window.notify_inbox, "notify")
             window._filament_place_near_title(window.notify_inbox, "notify")
+            claim_foreground(window.notify_inbox)
+            window.notifications.opened.emit()
+        else:
+            window.notify_inbox.show()
+            window.notify_inbox.raise_()
+            claim_foreground(window.notify_inbox)
+            window.notifications.opened.emit()
     else:
         if active_theme() == "filament":
             flush_tile_geom(window.notify_inbox)
@@ -191,8 +146,9 @@ def toggle_camera(window, checked: bool) -> None:
 
     note_engagement(window)
     if checked:
+        hold_unseen_until_grow(window.camera_dock)
+        # The tile opens with the webcam off; the user clicks Start camera.
         window.camera_dock.setVisible(True)
-        window.camera.start()
         window._animate_dock(window.camera_dock, show=True)
         window._filament_present_tile(window.camera_dock, "camera")
     else:
@@ -225,18 +181,22 @@ def toggle_calendar(window, checked: bool) -> None:
 
     note_engagement(window)
     if checked:
-        if not getattr(window, "_calendar_placed", False):
+        filament = active_theme() == "filament"
+        if not filament and not getattr(window, "_calendar_placed", False):
             geo = window.frameGeometry()
             window.calendar_window.move(geo.x() + 40, geo.y() + 40)
             window._calendar_placed = True
-        window.calendar_window.show()
-        window.calendar_window.raise_()
+        if filament:
+            # Dressed before it shows: shown first, it opened at its Night chrome
+            # size (1100x800, then 720x800) and only then shrank to the tile.
+            window._filament_dress_tile(window.calendar_window, "days")
+            window._filament_place_near_title(window.calendar_window, "days")
+        else:
+            window.calendar_window.show()
+            window.calendar_window.raise_()
         window.calendar.reload()
         kick_calendar_sync(window)
         window._calendar_sync_timer.start()
-        if active_theme() == "filament":
-            window._filament_dress_tile(window.calendar_window, "days")
-            window._filament_place_near_title(window.calendar_window, "days")
     else:
         if active_theme() == "filament":
             flush_tile_geom(window.calendar_window)
@@ -275,8 +235,6 @@ def on_dock_visibility(window, visible: bool, *, sender=None) -> None:
     from arelis.ui.idle_host import sync_idle_mode
 
     sync_idle_mode(window)
-    if sender is window.persona_dock:
-        window.conversation._sync_parked_orbit(window.conversation._idle_mode)
 
 
 def docked_in(window, dock: QDockWidget, area: Qt.DockWidgetArea) -> bool:
@@ -332,22 +290,45 @@ def stack_left_instruments(window) -> None:
         window._stacking_left = False
 
 
+def _stage_floor(window, chat_l: int, seated: bool) -> None:
+    """The stage never gets narrower than the chat row plus her narrowest band.
+
+    In a narrow window the history dock gives way, not the composer row.
+    """
+    from arelis.ui.persona_stage import BAND_FIT_MIN
+
+    floor = 420
+    conv = getattr(window, "conversation", None)
+    if seated and conv is not None:
+        floor = max(floor, chat_l + conv.minimumSizeHint().width() + BAND_FIT_MIN + _PANEL_OUTER)
+    if window.stage.minimumWidth() != floor:
+        window.stage.setMinimumWidth(floor)
+
+
 def sync_panel_margins(window) -> None:
     """Keep outer and inter-panel gutters equal (history | chat | thinking)."""
     left = docked_in(
         window, window.history_dock, Qt.DockWidgetArea.LeftDockWidgetArea
     ) or docked_in(window, window.camera_dock, Qt.DockWidgetArea.LeftDockWidgetArea)
-    # Thinking on the right abuts the chat glass.
-    right = docked_in(window, window.persona_dock, Qt.DockWidgetArea.RightDockWidgetArea)
+    right = False
+    from arelis.ui.persona_stage import band_seated
+
+    seated = band_seated(window)
     bottom = False
 
     # Chat: OUTER against the window when a side is empty; HALF when a dock
     # shares that edge (dock contributes the other HALF → gap == OUTER).
     chat_l = _PANEL_HALF if left else _PANEL_OUTER
     chat_r = _PANEL_HALF if right else _PANEL_OUTER
+    if seated:
+        # Her band is part of the stage: the chat ends where she begins.
+        chat_r = window.persona_stage.right_reserve() + _PANEL_OUTER
     chat_b = _PANEL_HALF if bottom else _PANEL_BOTTOM
+    _stage_floor(window, chat_l, seated)
     if active_theme() == "filament" and not left and not right and not bottom:
-        window._stage_layout.setContentsMargins(0, 0, 0, 0)
+        # The orbit and ask own the desk; her band (and clicks on her) stay hers.
+        band = window.persona_stage.right_reserve() if seated else 0
+        window._stage_layout.setContentsMargins(0, 0, band, 0)
     else:
         window._stage_layout.setContentsMargins(chat_l, _PANEL_TOP, chat_r, chat_b)
 
@@ -367,13 +348,6 @@ def sync_panel_margins(window) -> None:
         _set_shell_margins(
             window._history_shell,
             (_PANEL_OUTER, _PANEL_TOP, _PANEL_HALF, _PANEL_BOTTOM),
-        )
-    if window.persona_dock.isFloating():
-        _set_shell_margins(window._think_shell, (0, 0, 0, 0))
-    else:
-        _set_shell_margins(
-            window._think_shell,
-            (_PANEL_HALF, _PANEL_TOP, _PANEL_OUTER, _PANEL_BOTTOM),
         )
     if window.camera_dock.isFloating():
         _set_shell_margins(window._camera_shell, (0, 0, 0, 0))
@@ -398,7 +372,6 @@ def sanitize_floating_docks(window) -> None:
     stay their own opaque HWNDs; calendar and world are not docks.
     """
     for dock in (
-        window.persona_dock,
         window.history_dock,
         window.camera_dock,
     ):

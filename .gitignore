@@ -141,3 +141,5 @@ mypy_out.txt
 
 # The avatar model lives in the user's data folder, never in the repo.
 *.glb
+# A local avatar data folder. Her built Quick 3D model is committed in arelis/assets/qq3d.
+/avatar/
