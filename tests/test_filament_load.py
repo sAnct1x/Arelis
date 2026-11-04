@@ -270,3 +270,30 @@ def test_clicking_a_history_chat_opens_it_in_the_chat_tile(
     qt_app.processEvents()
     assert (loads, toasts) == (["s-old"], [])
     assert w._filament_chat_open
+
+def test_the_splash_stays_until_model_arelis_tree_and_a_paint_are_ready(
+    arelis_window, qt_app, monkeypatch
+) -> None:
+    from types import SimpleNamespace
+
+    from arelis.ui.startup_gate import hold_until_ready
+
+    w = _filament(arelis_window, qt_app)
+    warming = {"v": True}
+    monkeypatch.setattr(w, "router", SimpleNamespace(warmup_pending=lambda: warming["v"]))
+    built = {"v": False}
+    monkeypatch.setattr(w._filament, "tree_built", lambda: built["v"])
+    splash = SimpleNamespace(closed=0, note=lambda _t: None)
+    splash.finish = lambda: setattr(splash, "closed", splash.closed + 1)
+    gate = hold_until_ready(w, splash)
+    gate._poll()
+    assert (splash.closed, w.windowOpacity()) == (0, 0.0)
+    warming["v"] = False
+    gate._poll()
+    assert splash.closed == 0  # the tree is still growing
+    built["v"] = True
+    gate._poll()
+    assert splash.closed == 0  # no full frame painted yet
+    w.repaint()
+    gate._poll()
+    assert (splash.closed, w.windowOpacity()) == (1, 1.0)

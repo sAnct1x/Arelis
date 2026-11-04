@@ -7,6 +7,7 @@ Imports stay light: PySide6 only.
 
 from __future__ import annotations
 
+import logging
 import math
 import threading
 import time
@@ -52,6 +53,7 @@ class LaunchSplash(QWidget):
         self._void = QColor(*(void or _VOID))
         self._status = "Starting"
         self._t0 = time.monotonic()
+        self.started_at = self._t0
         self.frames = 0
         self._tick = QTimer(self)
         self._tick.setInterval(33)
@@ -71,6 +73,11 @@ class LaunchSplash(QWidget):
         self._status = str(text)
         self.update()
         self.pump()
+
+    def note(self, text: str) -> None:
+        """Change the line without pumping: for callers already in the event loop."""
+        self._status = str(text)
+        self.update()
 
     def status(self) -> str:
         return self._status
@@ -138,6 +145,7 @@ def run_off_ui(splash: LaunchSplash | None, status: str, work: Callable[[], T]) 
     if splash is None:
         return work()
     splash.set_status(status)
+    began = time.monotonic()
     out: dict[str, object] = {}
     loop = QEventLoop()
 
@@ -156,6 +164,9 @@ def run_off_ui(splash: LaunchSplash | None, status: str, work: Callable[[], T]) 
     loop.exec(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
     poll.stop()
     worker.join()
+    logging.getLogger("arelis.startup").info(
+        "startup %s took %d ms", status.lower(), int((time.monotonic() - began) * 1000)
+    )
     if "error" in out:
         raise out["error"]  # type: ignore[misc]
     return out["value"]  # type: ignore[return-value]

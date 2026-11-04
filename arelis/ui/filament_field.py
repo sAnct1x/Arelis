@@ -673,6 +673,10 @@ class FilamentField:
         self._title_age = 0.0
         _alog("filament load", step="she appears")
 
+    def tree_built(self) -> bool:
+        """The load has run: she is up and the ring has grown and settled."""
+        return self.ring_started and self._ring_phase == ""
+
     def _tick_ring(self, dt: float) -> None:
         if self._ring_phase == "":
             self._title_age = min(TITLE_FADE_S, self._title_age + dt)
