@@ -71,6 +71,15 @@ def on_history_selected(window, session_id: str) -> None:
             seated = str(window.store.session_id or "")
         window.history.set_active(seated)
         return
+    from arelis.ui.theme import active_theme
+
+    # Filament keeps the chat in a tile that starts closed, so a loaded
+    # conversation landed in a hidden widget and the click looked dead.
+    if active_theme() == "filament":
+        window._filament_set_chat_open(True)
+    seated = str(getattr(window.store, "session_id", "") or "")
+    if session_id and session_id == seated:
+        return
     request_session_load(window, session_id)
 
 
