@@ -480,6 +480,35 @@ def test_quit_with_a_frame_in_flight_never_waits_and_never_destroys_a_running_th
     assert render.wait(5000)
 
 
+def test_a_frame_never_waits_on_a_render_thread_that_has_ended() -> None:
+    """frame() waited for a sync with no bound: a render thread that ended without one held
+    the GUI thread for good. Now it gives up, and the host falls back on the error."""
+    import threading
+
+    from PySide6.QtQuick import QQuickRenderControl, QQuickWindow
+
+    from arelis.ui.persona_face import qq3d_avatar
+
+    QApplication.instance() or QApplication([])
+
+    class Gone(qq3d_avatar._RenderThread):
+        def _loop(self) -> None:  # ends without a sync, stop or error
+            pass
+
+        def _release(self) -> None:
+            pass
+
+    control = QQuickRenderControl()
+    render = Gone(control, QQuickWindow(control))
+    render.start()
+    assert render.wait(5000)
+    out = []
+    asker = threading.Thread(target=lambda: out.append(render.frame((8, 8))), daemon=True)
+    asker.start()
+    asker.join(3)
+    assert out == [False] and "ended" in render.error
+
+
 def test_her_scene_builds_without_the_app_event_filters(tmp_path, monkeypatch) -> None:
     """Her real model creates about 86,000 keyframes in one step, each sending ChildAdded through
     every Python app filter: seconds of frozen GUI thread on first load. They build lifted."""

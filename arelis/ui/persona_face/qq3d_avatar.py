@@ -86,6 +86,7 @@ def _use_pipeline_cache(view) -> None:
 _FLUSH_MS = 1000
 # While her window says it is minimized, look again this often (the flag can be stale).
 _SETTLE_S = 0.05  # no frame asked for this long: read back the last one drawn
+_SYNC_WAIT_S = 10.0  # frame() gives up on a render thread that has not synced by then
 _MIN_FRAME_MS = 16  # about 60 fps: her loop re-armed at 0 ms had no cap
 _MINIMIZED_RETRY_MS = 250
 _KICK_EVENTS = (QEvent.Type.WindowStateChange, QEvent.Type.Show, QEvent.Type.Expose)
@@ -697,7 +698,15 @@ class _RenderThread(QThread):
             self._started += 1
             self._job = size
             self._cv.notify_all()
+            # Bounded: a render thread that ended, or sits in sync, must not hold the GUI
+            # thread (and so Quit, or a test worker's exit) forever.
+            deadline = time.monotonic() + _SYNC_WAIT_S
             while not self._synced and not self._stop and self.error is None:
+                if not self.isRunning() or time.monotonic() > deadline:
+                    why = "ended" if not self.isRunning() else f"no sync in {_SYNC_WAIT_S:.0f} s"
+                    self.error = f"render thread: {why}"
+                    logging.getLogger("arelis.avatar").warning("[avatar] qq3d %s", self.error)
+                    return False
                 self._cv.wait(0.5)
             return True
 

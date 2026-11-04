@@ -32,10 +32,13 @@ def test_the_surface_gets_orbit_bytecode_built_off_the_gui_thread(
     surface = quick_surface.surface_for(QWidget())
     root = surface.rootObject()
     assert root.property("orbitShaders") == ""  # nothing drawn while the worker compiles
-    for _ in range(100):
+    # Bounded by when the worker is done, not by a guess at its speed: 2 s ran out on the
+    # Windows runner with 12 of 15 built, and the test read the unfinished count.
+    for _ in range(1500):
         if root.property("orbitShaders"):
             break
         QTest.qWait(20)
+    assert root.property("orbitShaders") not in ("", orbit_shaders.PACKAGE), "no bytecode folder"
     folder = QUrl(root.property("orbitShaders")).toLocalFile()
     names = sorted(p.name for p in orbit_shaders._sources())
     assert len(threads) == len(names) == 15

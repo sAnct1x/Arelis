@@ -105,17 +105,31 @@ def build(folder: Path, compile_fn: Compiler) -> None:
 
     tmp = folder.with_name(f"{folder.name}.tmp{os.getpid()}.{threading.get_ident()}")
     tmp.mkdir(parents=True, exist_ok=True)
+    failed = []
     for path in _sources():
         shader = QShader.fromSerialized(QByteArray(path.read_bytes()))
         code = shader.shader(QShaderKey(QShader.Source.HlslShader, QShaderVersion(50)))
         vertex = shader.stage() == QShader.Stage.VertexStage
+        target = "vs_5_0" if vertex else "ps_5_0"
         entry = bytes(code.entryPoint()) or b"main"
-        dxbc = compile_fn(bytes(code.shader()), entry, "vs_5_0" if vertex else "ps_5_0")
+        try:
+            if not shader.isValid() or not bytes(code.shader()):
+                raise ValueError("no HLSL 50 source in the .qsb")
+            dxbc = compile_fn(bytes(code.shader()), entry, target)
+        except Exception as exc:  # one bad shader: say which, then fail the folder
+            _log.warning(
+                "[avatar] orbit shader %s (%s, entry %s) got no bytecode: %s",
+                path.name, target, entry.decode(errors="replace"), exc,
+            )
+            failed.append(path.name)
+            continue
         shader.setShader(
             QShaderKey(QShader.Source.DxbcShader, QShaderVersion(50)),
             QShaderCode(QByteArray(dxbc), QByteArray(entry)),
         )
         (tmp / path.name).write_bytes(bytes(shader.serialized()))
+    if failed:
+        raise RuntimeError(f"{len(failed)} of {len(_sources())} failed: {', '.join(failed)}")
     try:
         os.replace(tmp, folder)
     except OSError:  # another start built it first

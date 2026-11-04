@@ -61,12 +61,23 @@ _TESTS_DATA_ROOT = Path(tempfile.mkdtemp(prefix="arelis-tests-")).resolve()
 os.environ["ARELIS_DATA_DIR"] = str(_TESTS_DATA_ROOT)
 
 
+_EXIT_GUARD_S = 120  # each drain at exit has its own bound (the longest is 20 s)
+
+
 def pytest_sessionfinish(session, exitstatus):
     """Delete the throwaway root, and do not fail the run if Windows will not let go.
 
     ignore_errors because a test that left a SQLite connection open holds a lock Windows
     honours, and a suite that passed must not report failure over scratch files in TEMP.
     """
+    import faulthandler
+    import sys
+
+    # pytest-timeout bounds each test, not what runs after the last one: thread drains,
+    # atexit (_drain_at_exit), Qt and interpreter teardown. A worker stuck there hung the
+    # macOS job for 35+ minutes with no output. Past the bound, dump every thread's stack
+    # and end the process, so a hang is a short failure that names where it sat.
+    faulthandler.dump_traceback_later(_EXIT_GUARD_S, exit=True, file=sys.__stderr__)
     from arelis.ui.live_threads import drain_parked_threads
 
     drain_parked_threads()
