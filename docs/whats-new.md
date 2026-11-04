@@ -25,6 +25,7 @@ a cleaner startup, and the webcam off until you ask for it. Full notes:
 - Launch splash: the rings sit centred in a slightly taller plate, clear of its top edge and of the status line.
 - Arelis uses her new Quick 3D figure by default. Set `ARELIS_AVATAR_ENGINE=web` for the old figure.
 - Filament uses the Quick surface (her tree orbit) by default. Set `ARELIS_SURFACE=widget` for the old orbit.
+- Launch: the window no longer freezes while her figure loads, so the tray menu opens and Quit works right away.
 - Filament tiles: dragging a tile by its title keeps the size you gave it. An edge resize stops at the tile's smallest and largest size instead of snapping back on the next drag.
 - Privacy: Filament no longer turns the webcam on by itself. Hands (which uses the camera) starts off every launch, even if it was on last time, and turning Hands off closes the camera.
 - Privacy: the camera tile starts closed every launch, even if it was open last time, and switching from Filament to Sodium with Hands on closes the camera unless its tile is open or Track is on.

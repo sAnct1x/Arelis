@@ -5,9 +5,10 @@ to a QImage every frame, and the Filament orbit blitted by the window's paintEve
 the flag the window's bottom layer is a single QQuickWidget (QuickSurface) that draws the
 void, the Filament orbit (slice 2: ring, strands, dust and hub threads, and in idle the
 v11b orbit tree, drawn by QuickOrbit.qml's shaders from OrbitState; the beads, stems and
-tethers still a worker-painted image layer over them), and her Avatar.qml at her panel's
-rect; nothing is
-read back from the GPU. QuickSurfaceAvatar stands in for QQ3DAvatar with the same API.
+tethers still a worker-painted image layer over them), and her figure at her panel's rect.
+QuickSurfaceAvatar is QQ3DAvatar (her scene on its own render thread, read back) whose frames
+the surface draws in its avatarSlot instead of the widget painting them: a QQuickWidget
+renders on the GUI thread, so her load (meshes, shaders, pipelines) must not happen in it.
 
 QQuickWidget, not createWindowContainer: a container is a native child window, and on
 Windows a native child always paints above its sibling widgets (airspace), so the tiles and
@@ -20,7 +21,7 @@ from __future__ import annotations
 import logging
 import os
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QWidget
 
@@ -113,10 +114,9 @@ def _quick_widget_class():
             self.orbit_state = OrbitState(self)
             self.rootContext().setContextProperty("orbitState", self.orbit_state)
             # No pipeline cache here: a QQuickWidget renders with its top-level window's
-            # backing-store QRhi, which Qt creates without EnablePipelineCacheDataSave and
-            # without the QQuickGraphicsConfiguration (qquickwidget.cpp rhiConfig says so).
-            # D3D11 only looks up its bytecode cache under that flag, so every start compiles
-            # every pipeline on the GUI thread: the slower ready than the readback path.
+            # backing-store QRhi, which Qt creates without EnablePipelineCacheDataSave. Her
+            # figure is not rendered here for that reason (QuickSurfaceAvatar): only the void,
+            # the orbit and the images are, whose few pipelines build quickly.
             logging.getLogger("arelis.avatar").info(
                 "[avatar] quick surface: no pipeline cache (QQuickWidget uses the window's QRhi)"
             )
@@ -125,10 +125,6 @@ def _quick_widget_class():
             self._frames = qq3d_avatar.frame_log()
             if self._frames is not None:
                 qq3d_avatar.attach_frame_log(self, self.quickWindow(), self._frames)
-            # Her Loader3D is asynchronous: its incubation runs on this window's frames. A
-            # QQuickWidget's engine gets no incubation controller by itself, so without this
-            # the async load would never finish.
-            self.engine().setIncubationController(self.quickWindow().incubationController())
             self.setSource(QUrl.fromLocalFile(str(SURFACE_QML)))
             self._window = window
             window._quick_surface = self
@@ -176,6 +172,10 @@ def _quick_widget_class():
                 )
             self._set_image("orbit", "orbitSource", image)
 
+        def set_figure(self, image: QImage | None) -> None:
+            """Her latest frame from her render thread, drawn in avatarSlot; None clears it."""
+            self._set_image("figure", "figureSource", image)
+
         def set_backdrop(self, image: QImage | None) -> None:
             """Night and Sodium: the room's atmosphere under everything; None clears it."""
             self._set_image("backdrop", "backdropSource", image)
@@ -210,26 +210,32 @@ def surface_for(window: QWidget):
     return _SURFACE_CLASS(window)
 
 
-class QuickSurfaceAvatar(QWidget):
-    """QQ3DAvatar's API, drawn by the window's QuickSurface instead of a readback.
+class QuickSurfaceAvatar(QQ3DAvatar):
+    """Her figure for the Quick surface: rendered on her own thread, drawn by the surface.
 
-    This widget paints nothing: it only holds her place in the panel layout, and her scene
-    on the surface follows its rect (mapped to the window) and its visibility.
+    She used to be created inside the surface itself (a QQuickWidget), and a QQuickWidget
+    renders on the GUI thread with the window's QRhi, which has no pipeline cache. Her first
+    frames build every material's shaders and pipelines (D3DCompile on Windows) and upload
+    78 MB of meshes there, so the GUI thread stalled about 10 s twice and the tray menu could
+    not open. Now QQ3DAvatar's render thread (its own QQuickRenderControl and QRhi, with the
+    pipeline cache saved across starts) does all of that, and the GUI thread only polishes
+    and syncs. Each finished frame goes to the surface's avatarSlot as an image, so she
+    still sits in the surface's z-order, under the tiles and chrome.
+
+    This widget paints nothing: it holds her place in the panel layout, and her slot on the
+    surface follows its rect (mapped to the window) and its visibility.
     """
 
-    failed = Signal(str)
-    ready = Signal()
-
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._ready = False
-        self._dead = False
-        self._state = "idle"
-        self._level = -1.0
-        self.root = None
         self.surface = None
-        self._watched: list[QWidget] = []
+        self._slot = None
+        self._watched_up: list[QWidget] = []
+        self._frame_n = 0
+        self._shown_from: int | None = None  # the first frame number that has her posed
+        super().__init__(parent)
+        root = getattr(self, "root", None)
+        if root is not None and not self._dead:
+            root.chestChanged.connect(self._on_chest)
         # With self as the context, Qt drops the call when this widget is gone first. A bare
         # bound method still ran on a host deleted in the same turn (a theme switch, a test
         # window torn down) and raised "QuickSurfaceAvatar already deleted" from the event loop.
@@ -238,64 +244,37 @@ class QuickSurfaceAvatar(QWidget):
     # ---- attach and place ----
 
     def _attach(self) -> None:
-        if self._dead or self.root is not None or not self.isVisible():
+        if self._dead or self.surface is not None or not self.isVisible():
             return
-        from PySide6.QtQml import QQmlComponent
-
-        from arelis.ui.persona_face.panel import alog
-
         top = self.window()
         if top is self:
             return
         try:
-            self.surface = surface_for(top)
+            surface = surface_for(top)
         except Exception as exc:
             self._fail(f"quick surface failed: {exc}")
             return
-        slot = self.surface.slot()
+        slot = surface.slot()
         if slot is None:
-            errs = "; ".join(e.toString() for e in self.surface.errors()) or "no surface root"
+            errs = "; ".join(e.toString() for e in surface.errors()) or "no surface root"
             self._fail(f"surface error: {errs}")
             return
-        model = qq3d_avatar.model_path()
-        alog("qq3d load", path=model, engine="qq3d", surface="quick")
-        component = QQmlComponent(self.surface.engine(), QUrl.fromLocalFile(str(qq3d_avatar.ENTRY)))
-        root = component.create() if component.isReady() else None
-        if root is None:
-            errs = "; ".join(e.toString() for e in component.errors()) or "no root"
-            self._fail(f"scene error: {errs}")
-            return
-        self._component = component
-        root.setParentItem(slot)
-        self.root = root
-        self._slot = slot
+        self.surface, self._slot = surface, slot
         self._watch_ancestors()
         self._place()
-        self._apply_theme()
-        root.setProperty("avatarState", self._state)
-        root.setProperty("speaking", self._state == "speaking")
-        if self._level >= 0:
-            root.setProperty("level", self._level)
-        self._poll = QTimer(self)
-        self._poll.setInterval(250)
-        self._poll.timeout.connect(self._on_status)
-        self._poll.start()
-        self._deadline = QTimer(self)
-        self._deadline.setSingleShot(True)
-        self._deadline.timeout.connect(lambda: self._fail("scene did not report ready"))
-        self._deadline.start(qq3d_avatar._READY_TIMEOUT_MS)
-        self.surface.set_loading(True)
-        root.chestChanged.connect(self._on_chest)
-        root.setProperty("modelSource", QUrl.fromLocalFile(str(model)))
+        if not self._shown():
+            surface.set_loading(True)
+        if self._image is not None:
+            surface.set_figure(self._image)
 
     def _watch_ancestors(self) -> None:
-        for w in self._watched:
+        for w in self._watched_up:
             w.removeEventFilter(self)
-        self._watched = []
+        self._watched_up = []
         w = self.parentWidget()
         while w is not None:
             w.installEventFilter(self)
-            self._watched.append(w)
+            self._watched_up.append(w)
             if w.isWindow():
                 break
             w = w.parentWidget()
@@ -303,23 +282,19 @@ class QuickSurfaceAvatar(QWidget):
     def eventFilter(self, obj, event) -> bool:
         if event.type() in _TRACKED:
             self._place()
-        return False
+        return super().eventFilter(obj, event)
 
     def _place(self) -> None:
-        slot = getattr(self, "_slot", None)
+        slot = self._slot
         if slot is None or self.surface is None:
             return
         top = self.surface.parentWidget()
         pos = self.mapTo(top, QPointF(0, 0)) if top is not None else QPointF(0, 0)
-        w, h = max(1, self.width()), max(1, self.height())
         slot.setX(pos.x())
         slot.setY(pos.y())
-        slot.setWidth(w)
-        slot.setHeight(h)
+        slot.setWidth(max(1, self.width()))
+        slot.setHeight(max(1, self.height()))
         slot.setVisible(self.isVisible() and not self._dead)
-        if self.root is not None:
-            self.root.setWidth(w)
-            self.root.setHeight(h)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -331,7 +306,7 @@ class QuickSurfaceAvatar(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        if self.root is None:
+        if self.surface is None:
             self._attach()
         self._place()
 
@@ -340,7 +315,7 @@ class QuickSurfaceAvatar(QWidget):
         self._place()
 
     def event(self, event) -> bool:
-        if event.type() == QEvent.Type.ParentChange and self.root is not None:
+        if event.type() == QEvent.Type.ParentChange and self.surface is not None:
             self._watch_ancestors()
             self._place()
         return super().event(event)
@@ -351,50 +326,60 @@ class QuickSurfaceAvatar(QWidget):
 
     def _drop(self) -> None:
         # A host swapped out mid-load (a theme switch): its poll and deadline stop, and the
-        # window's loading veil goes, or it breathes on forever over the next host.
-        for t in ("_poll", "_deadline"):
+        # window's loading veil goes, or it breathes on forever over the next host. Her scene
+        # itself is freed with her render thread (QQ3DAvatar's dispose on destroyed).
+        for t in ("_poll", "_deadline", "_kick"):
             timer = getattr(self, t, None)
             if timer is not None:
                 timer.stop()
-        if self.surface is not None and not self._ready:
-            self.surface.set_loading(False)
-        slot = getattr(self, "_slot", None)
-        if slot is not None:
-            slot.setVisible(False)
-        for w in self._watched:
+        if self.surface is not None:
+            if not self._shown():
+                self.surface.set_loading(False)
+            if hasattr(self.surface, "set_figure"):
+                self.surface.set_figure(None)
+        if self._slot is not None:
+            self._slot.setVisible(False)
+        for w in self._watched_up:
             w.removeEventFilter(self)
-        self._watched = []
-        root, self.root = self.root, None
+        self._watched_up = []
+        root, self.root = getattr(self, "root", None), None
         if root is not None:
             try:
                 root.chestChanged.disconnect(self._on_chest)
             except (RuntimeError, TypeError):
                 pass
-            root.setParentItem(None)
-            root.deleteLater()
 
     def deleteLater(self) -> None:  # panel swaps hosts with hide() + deleteLater()
         self._drop()
         super().deleteLater()
 
-    # ---- the API callers use: QQ3DAvatar's own methods ----
+    # ---- frames: the render thread's image, drawn by the surface ----
 
-    is_ready = QQ3DAvatar.is_ready
-    set_state = QQ3DAvatar.set_state
-    set_level = QQ3DAvatar.set_level
-    refit = QQ3DAvatar.refit
-    refresh_theme_icons = QQ3DAvatar.refresh_theme_icons
-    _apply_theme = QQ3DAvatar._apply_theme
-    _set = QQ3DAvatar._set
+    def _shown(self) -> bool:
+        return self._shown_from is not None and self._frame_n >= self._shown_from
+
+    def _on_frame(self) -> None:
+        super()._on_frame()
+        self._frame_n += 1
+        if self.surface is not None and not self._dead:
+            self.surface.set_figure(self._image)
+            if self._shown():
+                self.surface.set_loading(False)
+
+    def paintEvent(self, _event) -> None:
+        pass  # the surface draws her
 
     def _on_status(self, *args) -> None:
-        QQ3DAvatar._on_status(self, *args)
-        if self._ready and self.surface is not None:
-            self.surface.set_loading(False)
+        super()._on_status(*args)
+        if self._ready and self._shown_from is None:
+            # Ready means posed, but the frame in flight may predate that, and her first posed
+            # frame is the one that builds her pipelines: the breathing state stays until a
+            # frame begun after ready lands, so she never shows as an empty slot.
+            self._shown_from = self._frame_n + 2
 
     def _on_chest(self) -> None:
         """Her chest bone, mapped to the window: where the Filament chat strand starts."""
-        root, slot = self.root, getattr(self, "_slot", None)
+        root, slot = getattr(self, "root", None), self._slot
         field = getattr(self.window(), "_filament", None)
         if root is None or slot is None or field is None or not hasattr(field, "set_heart"):
             return
@@ -406,9 +391,9 @@ class QuickSurfaceAvatar(QWidget):
 
     def _fail(self, reason: str) -> None:
         if not self._dead:
-            slot = getattr(self, "_slot", None)
-            if slot is not None:
-                slot.setVisible(False)
+            if self._slot is not None:
+                self._slot.setVisible(False)
             if self.surface is not None:
                 self.surface.set_loading(False)
-        QQ3DAvatar._fail(self, reason)
+                self.surface.set_figure(None)
+        super()._fail(reason)

@@ -1,4 +1,4 @@
-"""ARELIS_SURFACE=quick: the window builds one Quick surface and her readback path never runs."""
+"""ARELIS_SURFACE=quick: the window builds one Quick surface, and her figure renders off its thread."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 from PySide6.QtTest import QTest
 
 
-def test_flag_on_builds_one_quick_surface_without_readback(qt_app, monkeypatch) -> None:
+def test_flag_on_builds_one_quick_surface(qt_app, monkeypatch) -> None:
     monkeypatch.setenv("ARELIS_SURFACE", "quick")
     monkeypatch.setenv("ARELIS_AVATAR_ENGINE", "qq3d")
     from PySide6.QtQuickWidgets import QQuickWidget
@@ -18,9 +18,6 @@ def test_flag_on_builds_one_quick_surface_without_readback(qt_app, monkeypatch) 
 
     if qq3d_avatar.unavailable_reason():
         pytest.skip(qq3d_avatar.unavailable_reason())
-    readback = []
-    monkeypatch.setattr(qq3d_avatar._RenderThread, "frame", lambda *a: readback.append(a))
-    monkeypatch.setattr(qq3d_avatar._RenderThread, "initialize", lambda *a: readback.append(a))
     monkeypatch.setattr(qq3d_avatar, "wanted", lambda theme=None: True)
 
     from arelis.ui.app import ArelisWindow
@@ -49,12 +46,14 @@ def test_flag_on_builds_one_quick_surface_without_readback(qt_app, monkeypatch) 
         for c in win.findChildren(type(win.stage))
         if c.parentWidget() is win
     )
-    assert host.root is not None and host.root.parentItem().objectName() == "avatarSlot"
-    QTest.qWait(200)
+    assert host.root is not None and host.surface is surfaces[0]
+    for _ in range(100):  # the breathing state stays until her first posed frame lands
+        if surfaces[0].rootObject().property("loading") is False:
+            break
+        QTest.qWait(100)
     assert True in seen and surfaces[0].rootObject().property("loading") is False, seen
     host.set_state("speaking")
     assert host.root.property("speaking") is True
-    assert readback == []
     win.hide()
 
 
@@ -175,6 +174,46 @@ def test_the_surface_loads_without_unbound_shader_properties() -> None:
     )
     assert "root True" in run.stdout, run.stderr[-2000:]
     assert "does not have a matching property" not in run.stderr
+
+
+def test_her_load_renders_off_the_gui_thread_and_the_surface_draws_it(qt_app) -> None:
+    """Her scene's frames (where her meshes upload and her pipelines compile) never run on
+    the GUI thread: in the QQuickWidget they did, and a cold load froze the window ~10 s twice,
+    so the tray menu could not open to Quit. The surface still draws her in her slot."""
+    import threading
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.persona_face import qq3d_avatar, quick_surface
+
+    if qq3d_avatar.unavailable_reason():
+        pytest.skip(qq3d_avatar.unavailable_reason())
+    win = QWidget()
+    win.resize(640, 480)
+    av = quick_surface.QuickSurfaceAvatar(win)
+    av.setGeometry(320, 0, 320, 480)
+    win.show()
+    for _ in range(20):
+        if av.root is not None and av.root.window() is not None:
+            break
+        QTest.qWait(50)
+    assert av.root is not None and av.root.window() is not None
+    threads: set[int] = set()
+    av.root.window().afterRendering.connect(
+        lambda: threads.add(threading.get_ident()), Qt.ConnectionType.DirectConnection
+    )
+    for _ in range(100):
+        if threads and av.is_ready() and av.surface is not None:
+            if av.surface.rootObject().property("figureSource"):
+                break
+        av.root.window().update()
+        QTest.qWait(50)
+    figure = av.surface.rootObject().property("figureSource") if av.surface else ""
+    win.close()
+    assert threads, "her scene rendered no frame"
+    assert threading.main_thread().ident not in threads
+    assert figure.startswith("image://")
 
 
 def test_unset_surface_defaults_to_quick_and_override_still_works(monkeypatch) -> None:

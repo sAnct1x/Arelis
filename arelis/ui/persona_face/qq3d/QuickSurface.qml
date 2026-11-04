@@ -13,6 +13,9 @@ Rectangle {
     property rect orbitRect: Qt.rect(0, 0, width, height)
     // Night and Sodium: the room's atmosphere (the window's own paint would be punched out).
     property string backdropSource: ""
+    // Her latest frame (quick_surface.py set_figure): her scene renders on its own thread, so
+    // her load and pipeline compile never block the window's GUI thread.
+    property string figureSource: ""
     // True from her scene's attach until she is posed (quick_surface.py): a calm breathing
     // light where she will stand, so a cold start (her model, the pipeline compile) reads as
     // her arriving, not as a frozen window.
@@ -90,6 +93,15 @@ Rectangle {
         id: slot
         objectName: "avatarSlot"
         visible: false
+        Image {
+            objectName: "figure"
+            anchors.fill: parent
+            source: surface.figureSource
+            visible: surface.figureSource !== ""
+            cache: false
+            smooth: true
+            fillMode: Image.Stretch
+        }
     }
 
     Item {
