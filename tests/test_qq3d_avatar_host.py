@@ -650,4 +650,32 @@ def test_her_scene_compiles_off_the_gui_thread_and_still_loads(tmp_path, monkeyp
         QTest.qWait(100)
     ready = host.is_ready()
     host.close()
-    assert ready
+    if not ready:  # as _ready_host: no GPU here (render control did not initialise)
+        pytest.skip("no Quick 3D rendering here")
+
+
+def test_her_control_is_invalidated_on_the_gui_thread_never_her_render_thread(
+    tmp_path, monkeypatch
+) -> None:
+    """invalidate() cleans up scene graph nodes, which Qt allows only with the GUI thread
+    blocked; run from her render thread at exit it raced the GUI thread and hung on macOS."""
+    import threading
+
+    from PySide6.QtQuick import QQuickRenderControl
+
+    from arelis.ui.persona_face import qq3d_avatar
+
+    host = _ready_host(tmp_path, monkeypatch)
+    render, gui = host._render, threading.get_ident()
+    real, seen = QQuickRenderControl.invalidate, []
+    monkeypatch.setattr(
+        QQuickRenderControl, "invalidate", lambda self: (seen.append(threading.get_ident()), real(self))
+    )
+    host._dead = True  # only the render thread is under test
+    render.dispose()
+    for _ in range(100):
+        if not render.isRunning() and render not in qq3d_avatar._LIVE:
+            break
+        QTest.qWait(20)
+    host.close()
+    assert seen and set(seen) == {gui}

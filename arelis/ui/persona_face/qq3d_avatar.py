@@ -783,6 +783,9 @@ class _RenderThread(QThread):
         if incubator is not None:
             if engine is not None and shiboken6.isValid(engine):
                 engine.setIncubationController(None)
+        control = getattr(self, "_control", None)
+        if control is not None and shiboken6.isValid(control):
+            control.invalidate()  # GUI thread, the thread is finished: nothing to race
         for name in ("root", "_window", "engine", "_control"):
             obj = getattr(self, name, None)
             setattr(self, name, None)
@@ -1103,7 +1106,10 @@ class _RenderThread(QThread):
                 res.destroy()
         if self._ring or self._old_rings:
             self._free_ring(all_rings=True)
-        self._control.invalidate()
+        # Not invalidate() here: it cleans up her scene graph nodes, which Qt only allows
+        # with the GUI thread blocked, and the GUI thread is free (dispose never waits).
+        # On macOS that raced the GUI thread deleting her widget and hung both. dispose
+        # invalidates on the GUI thread once this thread has finished.
         if self._ctx is not None:  # back to the GUI thread, where the control is destroyed
             from PySide6.QtCore import QCoreApplication
 
