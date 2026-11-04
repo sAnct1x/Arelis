@@ -94,7 +94,9 @@ class WindowLifetime:
 
         app = QApplication.instance()
         if app is not None:
-            app.removeEventFilter(self)
+            from arelis.ui import app_filters
+
+            app_filters.remove(app, self)
 
         for timer in self.findChildren(QTimer):
             try:
