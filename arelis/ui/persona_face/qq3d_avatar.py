@@ -533,7 +533,13 @@ _SYMBOLS = {
     "render": ("_ZN19QQuickRenderControl6renderEv", "?render@QQuickRenderControl@@QEAAXXZ"),
     "endFrame": ("_ZN19QQuickRenderControl8endFrameEv", "?endFrame@QQuickRenderControl@@QEAAXXZ"),
 }
-_LIBS = ("libQt6Quick.so.6", "Qt6Quick.dll", "QtQuick.framework/QtQuick")
+# macOS: PySide6's wheels ship the framework binary only under Versions/A (a wheel holds
+# no symlinks), so "QtQuick.framework/QtQuick" is not there and every render and endFrame
+# held the GIL: the GUI thread, and pytest-timeout, froze for her whole Metal frame.
+_LIBS = (
+    "libQt6Quick.so.6", "Qt6Quick.dll",
+    "QtQuick.framework/Versions/A/QtQuick", "QtQuick.framework/QtQuick",
+)
 
 
 def _quick_library():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import pytest
 from PySide6.QtCore import QEvent, QObject
@@ -478,6 +479,31 @@ def test_quit_with_a_frame_in_flight_never_waits_and_never_destroys_a_running_th
     assert time.monotonic() - t0 < 2.0 and pinned == [render]
     release.set()  # let the pinned thread end before the test process does
     assert render.wait(5000)
+
+
+def test_her_gil_free_calls_find_qt_quick_in_the_macos_wheel_layout(tmp_path, monkeypatch) -> None:
+    """PySide6's macOS wheel has QtQuick.framework/Versions/A/QtQuick and no top-level link.
+    Without it found, render and endFrame held the GIL there for her whole frame."""
+    import ctypes
+
+    from PySide6.QtCore import QLibraryInfo
+
+    from arelis.ui.persona_face import qq3d_avatar
+
+    binary = tmp_path / "QtQuick.framework" / "Versions" / "A" / "QtQuick"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"")
+    monkeypatch.setattr(QLibraryInfo, "path", staticmethod(lambda _p: str(tmp_path)))
+    opened = []
+
+    def cdll(path, *a, **k):
+        if not os.path.isfile(path):
+            raise OSError(path)
+        opened.append(path)
+        return path
+
+    monkeypatch.setattr(ctypes, "CDLL", cdll)
+    assert qq3d_avatar._quick_library() == str(binary) and opened == [str(binary)]
 
 
 def test_a_frame_never_waits_on_a_render_thread_that_has_ended() -> None:

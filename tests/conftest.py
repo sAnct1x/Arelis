@@ -70,13 +70,20 @@ _TEST_GUARD_S = float(os.environ.get("ARELIS_TEST_GUARD_S", "180"))  # above tim
 _EXIT_GUARD_S = 120  # each drain at exit has its own bound (the longest is 20 s)
 
 
+def _real_stderr(config) -> int:
+    """The stderr fd pytest's own faulthandler writes crashes to. fd 2 is pytest's capture
+    file while a test runs, and an _exit throws that away: the gw3 crash had no dump."""
+    from _pytest.faulthandler import fault_handler_stderr_fd_key
+
+    return config.stash.get(fault_handler_stderr_fd_key, 2)
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_protocol(item, nextitem):
     """Bound one test (setup, call and teardown) even when pytest-timeout cannot fire."""
     import faulthandler
-    import sys
 
-    faulthandler.dump_traceback_later(_TEST_GUARD_S, exit=True, file=sys.__stderr__)
+    faulthandler.dump_traceback_later(_TEST_GUARD_S, exit=True, file=_real_stderr(item.config))
     try:
         yield
     finally:
