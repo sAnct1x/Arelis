@@ -478,3 +478,98 @@ def test_quit_with_a_frame_in_flight_never_waits_and_never_destroys_a_running_th
     assert time.monotonic() - t0 < 2.0 and pinned == [render]
     release.set()  # let the pinned thread end before the test process does
     assert render.wait(5000)
+
+
+def test_her_scene_builds_without_the_app_event_filters(tmp_path, monkeypatch) -> None:
+    """Her real model creates about 86,000 keyframes in one step, each sending ChildAdded through
+    every Python app filter: seconds of frozen GUI thread on first load. They build lifted."""
+    import shutil
+    from pathlib import Path
+
+    from arelis.ui import app_filters
+
+    app = QApplication.instance() or QApplication([])
+    d = _model(tmp_path, monkeypatch)
+    qad = Path(__file__).parents[1] / "arelis/assets/qq3d/animations/cc_Base_Head_rotation_0.qad"
+    shutil.copy(qad, d / "animations" / "head.qad")
+    groups = "\n".join(
+        '        KeyframeGroup { target: head; property: "rotation"; keyframeSource: "animations/head.qad" }'
+        for _ in range(4)
+    )
+    (d / "Ellah_anim.qml").write_text(
+        _STAND_IN.replace("Node {", "Node {\n    Node { id: head }", 1).replace(
+            "running: false }]", f"running: false }}]\n{groups}", 1
+        ),
+        encoding="utf-8",
+    )
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    seen = []
+
+    class Count(QObject):
+        def eventFilter(self, obj, event) -> bool:
+            if event.type() == QEvent.Type.ChildAdded and type(obj) is QObject:
+                seen.append(1)  # a keyframe added to its group (no Python type for either)
+            return False
+
+    counter = Count()
+    app_filters.install(app, counter)
+    try:
+        host = QQ3DAvatar()
+        host.resize(200, 400)
+        host.show()
+        for _ in range(60):
+            if host.is_ready() or host._dead:
+                break
+            QTest.qWait(100)
+        if not host.is_ready():
+            pytest.skip("no Quick 3D rendering here")
+        assert seen == []
+        host.close()
+    finally:
+        app_filters.remove(app, counter)
+
+
+def test_each_frame_reads_back_the_one_before_it_and_a_still_scene_settles(
+    tmp_path, monkeypatch
+) -> None:
+    """A readback of the frame just drawn made endFrame wait on the GPU every frame (half rate
+    with the model generating): the previous frame's copy is queued ahead of this frame's draw."""
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    host = QQ3DAvatar()
+    host.resize(200, 400)
+    host.show()
+    for _ in range(60):
+        if host.is_ready() or host._dead:
+            break
+        QTest.qWait(100)
+    if not host.is_ready():
+        pytest.skip("no Quick 3D rendering here")
+    render, order = host._render, []
+    real_read, real_draw = render._queue_readback, render._calls["render"]
+    monkeypatch.setattr(render, "_queue_readback", lambda: (order.append("read"), real_read())[1])
+    render._calls["render"] = lambda: (order.append("draw"), real_draw())
+    real_end = render._calls["endFrame"]
+    render._calls["endFrame"] = lambda: (order.append("end"), real_end())
+    for i in range(100):  # drive frames until two have been drawn (slow under a loaded box)
+        host.set_level(0.2 + 0.05 * (i % 10))
+        host._request()
+        QTest.qWait(40)
+        if order.count("draw") >= 2:
+            break
+    for _ in range(50):
+        QTest.qWait(20)
+        if render._drawn and host._image_seq == render._drawn and not render.busy:
+            break
+    frames = "".join(o[0] for o in order).split("e")  # r=read, d=draw, one string per frame
+    drawn = [f for f in frames if "d" in f]
+    assert "rd" in drawn and all(f in ("d", "rd") for f in drawn), frames  # never d then r
+    assert host._image_seq == render._drawn > 1  # the last drawn frame lands once she is still
+    host.close()

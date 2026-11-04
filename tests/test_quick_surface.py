@@ -261,11 +261,13 @@ def test_loading_clears_on_a_frame_begun_after_ready_and_frames_keep_coming(qt_a
     asked = []
     av._request = lambda *a: asked.append(1)
     av._ready, av._shown_from = True, None
-    quick_surface.QuickSurfaceAvatar._on_status(av)  # ready: shown from two frames on
+    av._render._started = 1  # frame 1 is in flight at ready
+    quick_surface.QuickSurfaceAvatar._on_status(av)  # ready: shown from frame 2 on
     assert av._shown_from == 2 and asked
-    av._render.image = None
+    av._render.image, av._render.image_seq = None, 1
     av._on_frame()  # the frame in flight at ready
     assert av.surface.loading is True and len(asked) >= 2
+    av._render.image_seq = 2
     av._on_frame()  # the first frame begun after ready
     assert av.surface.loading is False and av.surface.figures == 2
     host.deleteLater()

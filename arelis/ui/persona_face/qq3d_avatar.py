@@ -85,6 +85,7 @@ def _use_pipeline_cache(view) -> None:
 
 _FLUSH_MS = 1000
 # While her window says it is minimized, look again this often (the flag can be stale).
+_SETTLE_S = 0.05  # no frame asked for this long: read back the last one drawn
 _MIN_FRAME_MS = 16  # about 60 fps: her loop re-armed at 0 ms had no cap
 _MINIMIZED_RETRY_MS = 250
 _KICK_EVENTS = (QEvent.Type.WindowStateChange, QEvent.Type.Show, QEvent.Type.Expose)
@@ -623,7 +624,8 @@ class _RenderThread(QThread):
 
     The GUI thread asks for a frame only while this thread is idle, so it never waits on
     the GPU: it blocks just for ``QQuickRenderControl.sync`` (copying the scene state, as
-    Qt's threaded render loop does) and then blits the last finished image. Waits use
+    Qt's threaded render loop does) and then blits the last finished image, which is one
+    frame behind (_loop). Waits use
     ``threading`` conditions, which drop the GIL.
     """
 
@@ -642,6 +644,9 @@ class _RenderThread(QThread):
         self._stop = False
         self.busy = False
         self.image = None
+        self.image_seq = 0  # which frame() call drew self.image (counted from 1)
+        self._started = 0  # frame() calls accepted
+        self._drawn = 0  # the frame() call whose draw the texture holds
         self.error: str | None = None
         self._tex = self._rt = self._rp = None
         self._calls = gil_free_calls(control)
@@ -650,6 +655,7 @@ class _RenderThread(QThread):
         self._no_cache_logged = False
         self._timed = 0  # frames whose step times were logged (the first _TIMED_FRAMES)
         self._dispose_queued = False  # dispose waits for finished when a frame outlives stop
+        self.incubator = None  # her engine's incubation controller (_incubation)
 
     # ---- GUI thread ----
 
@@ -676,6 +682,7 @@ class _RenderThread(QThread):
                 return False
             self.busy = True
             self._synced = False
+            self._started += 1
             self._job = size
             self._cv.notify_all()
             while not self._synced and not self._stop and self.error is None:
@@ -717,6 +724,11 @@ class _RenderThread(QThread):
                 self.finished.connect(self.dispose, Qt.ConnectionType.QueuedConnection)
             return
         _LIVE.discard(self)
+        engine, incubator = getattr(self, "engine", None), getattr(self, "incubator", None)
+        if incubator is not None:
+            incubator.timer.stop()
+            if engine is not None and shiboken6.isValid(engine):
+                engine.setIncubationController(None)
         for name in ("root", "_window", "engine", "_control"):
             obj = getattr(self, name, None)
             setattr(self, name, None)
@@ -762,31 +774,52 @@ class _RenderThread(QThread):
             self._release()
 
     def _loop(self) -> None:
-        from PySide6.QtGui import QImage, QRhiReadbackDescription, QRhiReadbackResult
+        """Render each asked-for frame; read back the one before it, never the one just drawn.
 
+        Reading back the frame just drawn made every endFrame wait for the GPU to finish it,
+        so with the model generating on the same GPU her frames, and the surface that shows
+        them, ran at half rate or worse. The copy of the previous frame is queued ahead of
+        this frame's draws, so endFrame waits only for that copy: the previous frame has had
+        a whole frame interval to finish. When no frame is asked for within _SETTLE_S, the
+        last drawn frame is read back on its own, so a still scene shows its final pose.
+        """
+        unread = False  # her texture holds a drawn frame that has not been read back
         while True:
             with self._cv:
-                while self._job is None and not self._stop:
+                if self._job is None and not self._stop and unread:
+                    self._cv.wait(_SETTLE_S)
+                while self._job is None and not self._stop and not unread:
                     self._cv.wait()
                 if self._stop:
                     break
                 size, self._job = self._job, None
+                if size is None:
+                    self.busy = True  # frame() must not wait out a readback-only frame
+            if size is None:
+                self._control.beginFrame()
+                result = self._queue_readback()
+                self._calls["endFrame"]()
+                unread = False
+                self._publish(result, self._drawn)
+                continue
             t0 = time.perf_counter()
+            if size != self._size:
+                unread = False  # _target replaces the texture that held it
             self._target(size)
             self._control.beginFrame()
+            result = self._queue_readback() if unread else None
+            read_seq = self._drawn
             t1 = time.perf_counter()
             self._control.sync()
             t2 = time.perf_counter()
             with self._cv:
                 self._synced = True  # the GUI thread may go on; the GPU work is ours
+                self._drawn = self._started
                 self._cv.notify_all()
             self._calls["render"]()
             t3 = time.perf_counter()
-            result = QRhiReadbackResult()
-            batch = self._control.rhi().nextResourceUpdateBatch()
-            batch.readBackTexture(QRhiReadbackDescription(self._tex), result)
-            self._control.commandBuffer().resourceUpdate(batch)
-            self._calls["endFrame"]()  # an offscreen frame: the readback is complete here
+            self._calls["endFrame"]()
+            unread = True
             if self._timed < _TIMED_FRAMES:
                 self._timed += 1
                 if self._timed == 1:
@@ -797,15 +830,34 @@ class _RenderThread(QThread):
                     self._timed, (t1 - t0) * 1e3, (t2 - t1) * 1e3, (t3 - t2) * 1e3,
                     (t4 - t3) * 1e3,
                 )
+            self._publish(result, read_seq)
+
+    def _queue_readback(self):
+        from PySide6.QtGui import QRhiReadbackDescription, QRhiReadbackResult
+
+        result = QRhiReadbackResult()
+        batch = self._control.rhi().nextResourceUpdateBatch()
+        batch.readBackTexture(QRhiReadbackDescription(self._tex), result)
+        self._control.commandBuffer().resourceUpdate(batch)
+        return result
+
+    def _publish(self, result, seq: int) -> None:
+        """Hand the GUI thread a read-back frame (``seq``: the frame() call that drew it)."""
+        from PySide6.QtGui import QImage
+
+        img = None
+        if result is not None:
             data = bytes(result.data)
             w, h = result.pixelSize.width(), result.pixelSize.height()
-            img = QImage(data, w, h, w * 4, QImage.Format.Format_RGBA8888_Premultiplied).copy()
+            fmt = QImage.Format.Format_RGBA8888_Premultiplied
+            img = QImage(data, w, h, w * 4, fmt).copy()
             if self._control.rhi().isYUpInFramebuffer():
                 img = img.flipped(Qt.Orientation.Vertical)
-            with self._cv:
-                self.image = img
-                self.busy = False
-            self.frame_ready.emit()
+        with self._cv:
+            if img is not None:
+                self.image, self.image_seq = img, seq
+            self.busy = False
+        self.frame_ready.emit()
 
     def _save_pipeline_cache(self) -> None:
         try:
@@ -846,6 +898,38 @@ class _RenderThread(QThread):
                 self._ctx.moveToThread(app.thread())
 
 
+_INCUBATE_MS = 5  # one incubation slice; her model's big steps cannot be split anyway
+
+
+def _incubation():
+    """Her engine's incubation controller: her asynchronous Loader3D builds in slices on
+    the GUI thread, each with the app event filters lifted (app_filters.quiet). A plain
+    QQmlEngine has none, so the build ran in one go with every filter seeing each of its
+    86,000 ChildAdded events: 5 to 10 s of frozen GUI thread on the first load."""
+    from PySide6.QtQml import QQmlIncubationController
+
+    from arelis.ui import app_filters
+
+    class Incubation(QQmlIncubationController):
+        def __init__(self) -> None:
+            super().__init__()
+            self.timer = QTimer()  # its own: the engine can outlive her widget
+            self.timer.setInterval(_INCUBATE_MS)
+            self.timer.timeout.connect(self._slice)
+
+        def incubatingObjectCountChanged(self, count: int) -> None:
+            if count > 0:
+                self.timer.start()
+            else:
+                self.timer.stop()
+
+        def _slice(self) -> None:
+            with app_filters.quiet():
+                self.incubateFor(_INCUBATE_MS)
+
+    return Incubation()
+
+
 class QQ3DAvatar(QWidget):
     """Hosts the Quick 3D scene. Call set_state and set_level; listen for failed.
 
@@ -870,6 +954,7 @@ class QQ3DAvatar(QWidget):
         self._state = "idle"
         self._level = -1.0
         self._image = None
+        self._image_seq = 0
         # She never takes a click: stop is the stop button or a spoken "stop".
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._pending = False
@@ -929,6 +1014,8 @@ class QQ3DAvatar(QWidget):
         import arelis.ui.persona_q3d.geometry  # noqa: F401
 
         self.engine = self._render.engine = QQmlEngine()
+        self._render.incubator = _incubation()  # freed with the engine (dispose)
+        self.engine.setIncubationController(self._render.incubator)
         component = QQmlComponent(self.engine, QUrl.fromLocalFile(str(ENTRY)))
         root = component.create() if component.isReady() else None
         if root is None:
@@ -1029,6 +1116,7 @@ class QQ3DAvatar(QWidget):
 
             void_idle.set_avatar_warming(False)
         self._image = self._render.image
+        self._image_seq = self._render.image_seq
         self.update()
         if self._pending:
             self._kick.start(self._frame_delay_ms())

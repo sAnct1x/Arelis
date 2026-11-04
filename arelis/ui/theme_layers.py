@@ -178,5 +178,7 @@ def _ensure_show_filter(app) -> None:
             return False
 
     filt = _ColourOnShow(app)
-    app.installEventFilter(filt)
+    from arelis.ui import app_filters
+
+    app_filters.install(app, filt)
     setattr(app, _FILTER, filt)

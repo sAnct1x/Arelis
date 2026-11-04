@@ -231,8 +231,7 @@ class QuickSurfaceAvatar(QQ3DAvatar):
         self._slot = None
         self._watched_up: list[QWidget] = []
         self._attaching = False
-        self._frame_n = 0
-        self._shown_from: int | None = None  # the first frame number that has her posed
+        self._shown_from: int | None = None  # the first frame() call that has her posed
         # QQ3DAvatar returns early (before setting root) when her render control cannot start
         # (no GPU context); _drop, _place and the tests read root on that path too.
         self.root = None
@@ -370,11 +369,10 @@ class QuickSurfaceAvatar(QQ3DAvatar):
             show(image)
 
     def _shown(self) -> bool:
-        return self._shown_from is not None and self._frame_n >= self._shown_from
+        return self._shown_from is not None and self._image_seq >= self._shown_from
 
     def _on_frame(self) -> None:
         super()._on_frame()
-        self._frame_n += 1
         if self.surface is not None and not self._dead:
             self._show_figure(self._image)
             if self._shown():
@@ -393,7 +391,7 @@ class QuickSurfaceAvatar(QQ3DAvatar):
             # Ready means posed, but the frame in flight may predate that, and her first posed
             # frame is the one that builds her pipelines: the breathing state stays until a
             # frame begun after ready lands, so she never shows as an empty slot.
-            self._shown_from = self._frame_n + 2
+            self._shown_from = self._render._started + 1
             self._request()
 
     def _on_chest(self) -> None:

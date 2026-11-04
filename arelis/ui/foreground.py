@@ -214,7 +214,9 @@ def _install_quiet_click(app: Any, window: Any) -> None:
             return False
 
     filt = _QuietClick(app)
-    app.installEventFilter(filt)
+    from arelis.ui import app_filters
+
+    app_filters.install(app, filt)
     setattr(window, _QUIET_FILTER, filt)
 
 
@@ -227,7 +229,9 @@ def _remove_quiet_click(window: Any) -> None:
 
         app = QGuiApplication.instance()
         if app is not None:
-            app.removeEventFilter(filt)
+            from arelis.ui import app_filters
+
+            app_filters.remove(app, filt)
     except (RuntimeError, TypeError):
         pass
     try:
@@ -475,7 +479,9 @@ def _install_app_filter() -> None:
             return False
 
     filt = _ClickToFront(app)
-    app.installEventFilter(filt)
+    from arelis.ui import app_filters
+
+    app_filters.install(app, filt)
     setattr(app, _APP_FILTER, filt)
     _install_native_filter(app)
 
