@@ -54,3 +54,31 @@ def test_the_surface_gets_orbit_bytecode_built_off_the_gui_thread(
     import shiboken6
 
     shiboken6.delete(surface)
+
+
+def test_the_bytecode_shaders_bind_their_resources_as_the_hlsl_they_came_from(tmp_path) -> None:
+    """Qt's D3D11 backend binds by the loaded variant's map: an empty one samples nothing."""
+    from PySide6.QtCore import QByteArray
+    from PySide6.QtGui import QShader, QShaderKey, QShaderVersion
+
+    from arelis.ui.persona_face import orbit_shaders
+
+    folder = tmp_path / "dxbc"
+    orbit_shaders.build(folder, lambda hlsl, entry, target: b"DXBC")
+    source = QShaderKey(QShader.Source.HlslShader, QShaderVersion(50))
+    dxbc = QShaderKey(QShader.Source.DxbcShader, QShaderVersion(50))
+    wrong = {}
+    for path in orbit_shaders._sources():
+        built = QShader.fromSerialized(QByteArray((folder / path.name).read_bytes()))
+        if built.nativeResourceBindingMap(dxbc) != built.nativeResourceBindingMap(source):
+            wrong[path.name] = built.nativeResourceBindingMap(dxbc)
+    assert not wrong
+
+
+def test_copies_an_older_build_wrote_are_not_served_again(monkeypatch) -> None:
+    """The fixed copies live in a new folder: the black ones on disk are left behind."""
+    from arelis.ui.persona_face import orbit_shaders
+
+    before = orbit_shaders.cache_dir()
+    monkeypatch.setattr(orbit_shaders, "BUILD_FORMAT", b"1")
+    assert orbit_shaders.cache_dir() != before

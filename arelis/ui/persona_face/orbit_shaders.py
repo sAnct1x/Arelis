@@ -35,6 +35,10 @@ PACKAGE = "orbit/"  # QuickOrbit.qml's default: the .qsb files next to it
 
 _log = logging.getLogger("arelis.avatar")
 
+# Part of the cache key: bump when build() writes different copies, so a folder an older
+# build wrote is not served again (2: the DXBC keys carry the HLSL's binding map).
+BUILD_FORMAT = b"2"
+
 Compiler = Callable[[bytes, bytes, str], bytes]  # (hlsl, entry point, target) -> DXBC
 
 
@@ -53,7 +57,7 @@ def cache_dir() -> Path:
     """The bytecode copies, keyed by every .qsb's bytes and the Qt version that reads them."""
     from PySide6.QtCore import qVersion
 
-    h = hashlib.sha1(qVersion().encode())
+    h = hashlib.sha1(qVersion().encode() + b"/" + BUILD_FORMAT)
     for path in _sources():
         h.update(path.name.encode())
         h.update(path.read_bytes())
@@ -123,10 +127,14 @@ def build(folder: Path, compile_fn: Compiler) -> None:
             )
             failed.append(path.name)
             continue
-        shader.setShader(
-            QShaderKey(QShader.Source.DxbcShader, QShaderVersion(50)),
-            QShaderCode(QByteArray(dxbc), QByteArray(entry)),
-        )
+        source_key = QShaderKey(QShader.Source.HlslShader, QShaderVersion(50))
+        dxbc_key = QShaderKey(QShader.Source.DxbcShader, QShaderVersion(50))
+        shader.setShader(dxbc_key, QShaderCode(QByteArray(dxbc), QByteArray(entry)))
+        # Qt's D3D11 backend binds by the map of the variant it loads. The HLSL put the
+        # .qsb's bindings in registers its own way (fibers' texture at binding 1 is t0);
+        # with no map on the DXBC key Qt bound by binding number, so every sampler read
+        # an empty slot and the whole orbit layer came out black on Atria.
+        shader.setResourceBindingMap(dxbc_key, shader.nativeResourceBindingMap(source_key))
         (tmp / path.name).write_bytes(bytes(shader.serialized()))
     if failed:
         raise RuntimeError(f"{len(failed)} of {len(_sources())} failed: {', '.join(failed)}")
