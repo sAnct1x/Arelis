@@ -20,6 +20,7 @@ Notes: [v0.3.3](releases/v0.3.3.md). Older:
 - Launch splash: the rings sit centred in a slightly taller plate, clear of its top edge and of the status line.
 - Filament uses the Quick surface (her tree orbit) by default. Set `ARELIS_SURFACE=widget` for the old orbit.
 - Filament tiles: dragging a tile by its title keeps the size you gave it. An edge resize stops at the tile's smallest and largest size instead of snapping back on the next drag.
+- Privacy: Filament no longer turns the webcam on by itself. Hands (which uses the camera) starts off every launch, even if it was on last time, and turning Hands off closes the camera.
 
 ## 0.3.3
 

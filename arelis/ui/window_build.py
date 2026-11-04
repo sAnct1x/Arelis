@@ -276,7 +276,8 @@ class WindowBuild:
         self._filament_dock_areas: dict[str, object] | None = None
         self._filament_floats = FilamentFloatBar(self._filament, self.conversation)
         self._filament_floats.hide()
-        self._hands_chip = bool((self.config.get("ui") or {}).get("hands_chip", False))
+        # Hands opens the webcam, so it starts off every launch: only the user turns it on.
+        self._hands_chip = False
         self._filament_chat_tile = FilamentChatWindow(self)
         self._filament_chat_tile.hide()
         self.filament = FilamentDesk(self)
