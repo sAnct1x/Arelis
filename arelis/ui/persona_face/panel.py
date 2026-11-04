@@ -302,7 +302,8 @@ class PersonaPanel(QWidget):
     def _show_failure(self, reason: str) -> None:
         """Quick 3D: the veil says why she is not drawn (a missing model is never a blank)."""
         if self._engine == "qq3d":
-            self.loading.set_message(f"Her figure could not load: {reason}")
+            logging.getLogger("arelis.avatar").warning("[avatar] figure failed: %s", reason)
+            self.loading.set_message("Her figure couldn't load on this PC.")
 
     def _on_web_failed(self, reason: str) -> None:
         self.web_avatar_reason = reason

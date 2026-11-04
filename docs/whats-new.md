@@ -23,6 +23,7 @@ a cleaner startup, and the webcam off until you ask for it. Full notes:
 
 - Launch: a small splash shows her energy breathing right away, with a line that says what is loading (Loading model, Starting voice, Building her). It closes when the main window appears.
 - Launch splash: the rings sit centred in a slightly taller plate, clear of its top edge and of the status line.
+- Arelis uses her new Quick 3D figure by default. Set `ARELIS_AVATAR_ENGINE=web` for the old figure.
 - Filament uses the Quick surface (her tree orbit) by default. Set `ARELIS_SURFACE=widget` for the old orbit.
 - Filament tiles: dragging a tile by its title keeps the size you gave it. An edge resize stops at the tile's smallest and largest size instead of snapping back on the next drag.
 - Privacy: Filament no longer turns the webcam on by itself. Hands (which uses the camera) starts off every launch, even if it was on last time, and turning Hands off closes the camera.
@@ -576,4 +577,3 @@ and the Earth zone are still checkout-only. Full notes:
   open of the day is a new chat (orbit), like glass; yesterday stays
   in **chats**. If the PC is away, Gemma on the phone (install after
   pair, ~2.6 GB). Those words copy in when the house is back.
-- Arelis uses the new Quick 3D figure by default, along with the Quick surface. Set `ARELIS_AVATAR_ENGINE=web` for the old figure.
