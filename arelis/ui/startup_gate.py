@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 
 log = logging.getLogger("arelis.startup")
 
@@ -41,6 +41,13 @@ def startup_waits(window: Any) -> dict[str, Callable[[], bool]]:
         # Leaving Filament mid-launch stops the tree, so it no longer counts.
         waits["tree"] = lambda: theme.active_theme() != "filament" or field.tree_built()
     return waits
+
+
+def _pass_input_through(window: Any, on: bool) -> None:
+    """Set the native window's click-through flag in place, without re-creating it."""
+    handle = window.windowHandle()
+    if handle is not None:
+        handle.setFlag(Qt.WindowType.WindowTransparentForInput, on)
 
 
 def _ready(name: str, check: Callable[[], bool]) -> bool:
@@ -74,6 +81,9 @@ class StartupGate(QObject):
     def start(self) -> None:
         self._mark("window built")
         self._window.setWindowOpacity(0.0)
+        # Invisible but still hit-tested: without this the hidden window took
+        # clicks meant for other apps until the handoff.
+        _pass_input_through(self._window, True)
         self._timer.start()
         self._poll()
 
@@ -115,6 +125,7 @@ class StartupGate(QObject):
         self._timer.stop()
         self._window.removeEventFilter(self)
         self._mark("first frame painted")
+        _pass_input_through(self._window, False)
         self._window.setWindowOpacity(1.0)
         if self._splash is not None:
             self._splash.finish()

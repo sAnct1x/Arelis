@@ -293,15 +293,18 @@ def test_the_splash_stays_until_model_arelis_tree_and_a_paint_are_ready(
         gate._poll()
         return gate, splash
 
+    passes_clicks = lambda: bool(  # noqa: E731
+        w.windowHandle().flags() & Qt.WindowType.WindowTransparentForInput
+    )
     built["v"] = True  # only the model holds it
     gate, splash = launch()
-    assert (splash.closed, w.windowOpacity()) == (0, 0.0)
+    assert (splash.closed, w.windowOpacity(), passes_clicks()) == (0, 0.0, True)
     warming["v"] = False
     gate._poll()
     assert splash.closed == 0  # no full frame painted since the last wait cleared
     w.repaint()
     gate._poll()
-    assert (splash.closed, w.windowOpacity()) == (1, 1.0)
+    assert (splash.closed, w.windowOpacity(), passes_clicks()) == (1, 1.0, False)
 
     built["v"] = False  # only the tree holds it
     gate, splash = launch()
