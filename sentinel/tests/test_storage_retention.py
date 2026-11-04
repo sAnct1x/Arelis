@@ -130,3 +130,31 @@ async def test_hive_prune_runtime_storage_and_overseer_api(tmp_path) -> None:  #
             await server.stop()
     finally:
         set_runtime_root(None)
+
+
+def test_a_compaction_tmp_left_by_a_killed_run_is_removed_when_the_ledger_opens(tmp_path):
+    from sentinel.core.receipts import ReceiptLedger
+
+    ledger = tmp_path / "sentinel_ledger.jsonl"
+    ledger.write_text("", encoding="utf-8")
+    stale = tmp_path / "sentinel_ledger.jsonl.tmp"
+    stale.write_text("", encoding="utf-8")  # what a quit mid-compaction left
+    ReceiptLedger(disk_path=ledger)
+    assert not stale.exists() and ledger.exists()
+
+
+def test_a_failed_compaction_leaves_no_tmp_behind(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from sentinel.core.receipts import ReceiptLedger
+
+    ledger = tmp_path / "sentinel_ledger.jsonl"
+    ledger.write_text("".join(f'{{"n": {i}}}\n' for i in range(20)), encoding="utf-8")
+    book = ReceiptLedger(disk_path=ledger)
+
+    def refuse(self, _target):
+        raise OSError("locked")  # Windows: the ledger is open elsewhere
+
+    monkeypatch.setattr(Path, "replace", refuse)
+    assert book.compact_disk_ledger(max_entries=5) == 0
+    assert not (tmp_path / "sentinel_ledger.jsonl.tmp").exists()

@@ -362,6 +362,10 @@ class QuickSurfaceAvatar(QQ3DAvatar):
     """
 
     OWN_FRAME_LOG = False  # the surface logs the frames she is shown in: frames.csv's one writer
+    # She is drawn by the surface. An update() here at her frame rate repainted this empty
+    # widget and, as it is not opaque, the window under it: a second window composite per
+    # frame on top of the surface's own.
+    PAINTS_HER = False
 
     def __init__(self, parent: QWidget | None = None) -> None:
         self.surface = None
@@ -375,13 +379,18 @@ class QuickSurfaceAvatar(QQ3DAvatar):
         # (no GPU context); _drop, _place and the tests read root on that path too.
         self.root = None
         super().__init__(parent)
-        root = getattr(self, "root", None)
-        if root is not None and not self._dead:
-            root.chestChanged.connect(self._on_chest)
         # With self as the context, Qt drops the call when this widget is gone first. A bare
         # bound method still ran on a host deleted in the same turn (a theme switch, a test
         # window torn down) and raised "QuickSurfaceAvatar already deleted" from the event loop.
         QTimer.singleShot(0, self, self._attach)
+
+    def _scene_compiled(self, *args) -> None:
+        had = getattr(self, "root", None)
+        super()._scene_compiled(*args)
+        root = getattr(self, "root", None)
+        # Her scene compiles asynchronously, so root first exists here, not after __init__.
+        if had is None and root is not None and not self._dead:
+            root.chestChanged.connect(self._on_chest)
 
     # ---- attach and place ----
 

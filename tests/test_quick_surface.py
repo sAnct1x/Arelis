@@ -295,3 +295,53 @@ def test_a_host_deleted_before_it_attaches_runs_nothing_late(qt_app, qtbot) -> N
     Shiboken.delete(av)
     QTest.qWait(20)  # pytest-qt fails the test on any exception raised in the event loop
     host.deleteLater()
+
+
+def test_her_frames_do_not_repaint_the_empty_host_widget(qt_app) -> None:
+    """The surface draws her; an update() on the host per frame recomposited the window."""
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.persona_face import quick_surface
+
+    class Surface:
+        def set_loading(self, on: bool) -> None:
+            pass
+
+        def set_figure(self, image) -> None:
+            pass
+
+    host = QWidget()
+    av = quick_surface.QuickSurfaceAvatar(host)
+    av.surface = Surface()
+    updates = []
+    av.update = lambda *a: updates.append(1)
+    av._render.image, av._render.image_seq = None, 1
+    av._on_frame()
+    host.deleteLater()
+    assert updates == []
+
+
+def test_her_chest_reaches_the_strand_once_her_scene_has_compiled(qt_app, monkeypatch) -> None:
+    """Her scene compiles asynchronously: root only exists after __init__ has returned."""
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.persona_face import quick_surface
+    from arelis.ui.persona_face.qq3d_avatar import unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    host = QWidget()
+    av = quick_surface.QuickSurfaceAvatar(host)
+    calls = []
+    monkeypatch.setattr(av, "_on_chest", lambda *a: calls.append(1))
+    for _ in range(100):
+        if getattr(av, "root", None) is not None:
+            break
+        QTest.qWait(20)
+    root = av.root
+    if root is None:
+        host.deleteLater()
+        pytest.skip("her scene did not load here")
+    root.chestChanged.emit()
+    host.deleteLater()
+    assert calls

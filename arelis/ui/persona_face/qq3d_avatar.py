@@ -1169,6 +1169,7 @@ class QQ3DAvatar(QWidget):
     ready = Signal()
     # Whether she writes ARELIS_FRAMETIME_LOG herself. A host that logs the frames of the
     # window she is shown in (QuickSurface) turns this off: frames.csv has one writer.
+    PAINTS_HER = True  # this widget draws her frame (paintEvent)
     OWN_FRAME_LOG = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -1234,6 +1235,7 @@ class QQ3DAvatar(QWidget):
             self._start_frame_log(self._frames)
         model = model_path()
         alog("qq3d load", path=model, engine="qq3d")
+        self._t_load = time.monotonic()
         if model.name != LOOK_FILE:
             logging.getLogger("arelis.avatar").warning(
                 "[avatar] no look (%s) in %s: plain model", LOOK_FILE, model.parent
@@ -1250,9 +1252,11 @@ class QQ3DAvatar(QWidget):
         component = QQmlComponent(self.engine)
         self._component = component
         self._model = model
-        self._t_load = time.monotonic()
         mode = QQmlComponent.CompilationMode.Asynchronous
         component.loadUrl(QUrl.fromLocalFile(str(ENTRY)), mode)
+        # GUI time from "qq3d load" to here: tells a freeze inside her constructor from one
+        # after it (window build, the surface's first render) on Atria.
+        alog("qq3d load queued", gui_ms=int((time.monotonic() - self._t_load) * 1000))
         if component.isLoading():
             component.statusChanged.connect(self._scene_compiled)
         else:
@@ -1371,7 +1375,8 @@ class QQ3DAvatar(QWidget):
             void_idle.set_avatar_warming(False)
         self._image = self._render.image
         self._image_seq = self._render.image_seq
-        self.update()
+        if self.PAINTS_HER:
+            self.update()
         if self._pending:
             self._kick.start(self._frame_delay_ms())
 
