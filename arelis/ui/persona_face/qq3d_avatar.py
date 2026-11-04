@@ -1473,7 +1473,10 @@ class QQ3DAvatar(QWidget):
             self.ready.emit()
 
     def _fail(self, reason: str) -> None:
-        if self._dead:
+        import shiboken6
+
+        # A queued fail can land after Qt freed her (host deleted first); nothing to tell.
+        if self._dead or not shiboken6.isValid(self):
             return
         self._dead = True
         from arelis.ui import void_idle
