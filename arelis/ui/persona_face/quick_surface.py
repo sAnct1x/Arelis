@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QPointF, QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QWidget
 
@@ -78,11 +79,88 @@ def _image_provider():
     return OrbitImages()
 
 
+_TIMED_SURFACE_FRAMES = 8
+READBACK_ENV = "ARELIS_QQ3D_READBACK"  # "1": hand her frames over as images (A/B, a bad driver)
+
+
+def _figure_item_class():
+    from PySide6.QtQuick import QQuickItem, QSGSimpleTextureNode, QSGTexture
+
+    from arelis.ui.persona_face import shared_frame
+
+    class FigureItem(QQuickItem):
+        """Her shared frame in avatarSlot: the texture her thread drew, never copied."""
+
+        def __init__(self, slot, kind: str, on_shown, on_fail) -> None:
+            super().__init__(slot)
+            self.setFlag(QQuickItem.Flag.ItemHasContents, True)
+            self._kind, self._on_shown, self._on_fail = kind, on_shown, on_fail
+            self._consumer = None
+            self.frame = None
+            self._drawn = None
+            self._fit()
+            slot.widthChanged.connect(self._fit)
+            slot.heightChanged.connect(self._fit)
+
+        def _fit(self) -> None:
+            slot = self.parentItem()
+            if slot is not None:
+                self.setSize(slot.size())
+                self.update()
+
+        def show(self, frame) -> None:
+            self.frame = frame
+            self.setVisible(frame is not None)
+            self.update()
+
+        def updatePaintNode(self, node, _data):  # the surface's render: the GUI thread
+            frame = self.frame
+            if frame is None:
+                return None
+            try:
+                if self._consumer is None:
+                    win = self.window()
+                    self._consumer = shared_frame.Consumer(self._kind, win)
+                    # Free her textures while the surface's QRhi still exists.
+                    direct = Qt.ConnectionType.DirectConnection
+                    win.sceneGraphInvalidated.connect(self.close, direct)
+                    QCoreApplication.instance().aboutToQuit.connect(self.close, direct)
+                texture = self._consumer.texture(frame)
+            except Exception as exc:
+                self.frame = None
+                reason = f"{type(exc).__name__}: {exc}"
+                QTimer.singleShot(0, self, lambda: self._on_fail(reason))
+                return None
+            if node is None:
+                node = QSGSimpleTextureNode()
+                node.setFiltering(QSGTexture.Filtering.Linear)
+            node.setTexture(texture)
+            node.setRect(self.boundingRect())
+            flag = QSGSimpleTextureNode.TextureCoordinatesTransformFlag
+            node.setTextureCoordinatesTransform(
+                flag.MirrorVertically if frame.y_up else flag.NoTransform
+            )
+            self._consumer.forget_before(frame.generation)
+            before, self._drawn = self._drawn, frame
+            self._on_shown(frame, before)
+            return node
+
+        def close(self, *_args) -> None:
+            self.frame = None
+            if self._consumer is not None:
+                self._consumer.close()
+                self._consumer = None
+
+    return FigureItem
+
+
 def _quick_widget_class():
     from PySide6.QtQuickWidgets import QQuickWidget
 
     class QuickSurface(QQuickWidget):
         """The window's single full-window Quick layer, kept lowest and window-sized."""
+
+        shaders_ready = Signal(str)  # from orbit_shaders' worker; queued to the GUI thread
 
         def __init__(self, window: QWidget) -> None:
             from PySide6.QtQuick import QQuickWindow
@@ -106,6 +184,7 @@ def _quick_widget_class():
             self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             import arelis.ui.persona_q3d.geometry  # noqa: F401  (registers LayerGeometry)
 
+            self._figure_item = None
             self._images = _image_provider()
             self.engine().addImageProvider(_ORBIT_PROVIDER, self._images)
             self._image_n = 0
@@ -126,6 +205,15 @@ def _quick_widget_class():
             if self._frames is not None:
                 qq3d_avatar.attach_frame_log(self, self.quickWindow(), self._frames)
             self.setSource(QUrl.fromLocalFile(str(SURFACE_QML)))
+            from arelis.ui.persona_face import orbit_shaders
+
+            self._timed_frames = 0
+            self._frame_t0 = 0.0
+            win = self.quickWindow()
+            win.beforeSynchronizing.connect(self._frame_began, Qt.ConnectionType.DirectConnection)
+            win.afterRendering.connect(self._frame_done, Qt.ConnectionType.DirectConnection)
+            self.shaders_ready.connect(self.set_shaders, Qt.ConnectionType.QueuedConnection)
+            self.set_shaders(orbit_shaders.shader_root(self._emit_shaders))
             self._window = window
             window._quick_surface = self
             window.installEventFilter(self)
@@ -138,6 +226,36 @@ def _quick_widget_class():
                 self.setGeometry(self._window.rect())
                 self.lower()
             return False
+
+        def _frame_began(self) -> None:
+            self._frame_t0 = time.perf_counter()
+
+        def _frame_done(self) -> None:
+            """Log the first surface frames: these run on the GUI thread (QQuickWidget)."""
+            if self._timed_frames >= _TIMED_SURFACE_FRAMES or not self._frame_t0:
+                return
+            self._timed_frames += 1
+            logging.getLogger("arelis.avatar").info(
+                "[avatar] quick surface frame %d %dx%d sync+render=%.1fms shaders=%s",
+                self._timed_frames, self.width(), self.height(),
+                (time.perf_counter() - self._frame_t0) * 1e3, self.orbit_shaders or "building",
+            )
+
+        def _emit_shaders(self, folder: str) -> None:  # the worker thread
+            import shiboken6
+
+            try:
+                if shiboken6.isValid(self):
+                    self.shaders_ready.emit(folder)
+            except RuntimeError:  # the surface went between the check and the emit
+                pass
+
+        def set_shaders(self, folder: str) -> None:
+            """Where the orbit's .qsb files are; "" hides the orbit until they are built."""
+            self.orbit_shaders = folder
+            root = self.rootObject()
+            if root is not None:
+                root.setProperty("orbitShaders", folder)
 
         def slot(self):
             from PySide6.QtQuick import QQuickItem
@@ -174,7 +292,23 @@ def _quick_widget_class():
 
         def set_figure(self, image: QImage | None) -> None:
             """Her latest frame from her render thread, drawn in avatarSlot; None clears it."""
+            if self._figure_item is not None:
+                self._figure_item.show(None)
             self._set_image("figure", "figureSource", image)
+
+        def figure_rhi(self):
+            """The QRhi her shared frames must open on (None before the first render)."""
+            return self.quickWindow().rhi()
+
+        def set_figure_frame(self, frame, kind: str, on_shown, on_fail) -> None:
+            """Her shared frame (shared_frame.Frame): drawn from her texture, no image."""
+            if self._figure_item is None:
+                slot = self.slot()
+                if slot is None:
+                    return
+                self._figure_item = _figure_item_class()(slot, kind, on_shown, on_fail)
+            self._set_image("figure", "figureSource", None)
+            self._figure_item.show(frame)
 
         def set_backdrop(self, image: QImage | None) -> None:
             """Night and Sodium: the room's atmosphere under everything; None clears it."""
@@ -219,12 +353,15 @@ class QuickSurfaceAvatar(QQ3DAvatar):
     78 MB of meshes there, so the GUI thread stalled about 10 s twice and the tray menu could
     not open. Now QQ3DAvatar's render thread (its own QQuickRenderControl and QRhi, with the
     pipeline cache saved across starts) does all of that, and the GUI thread only polishes
-    and syncs. Each finished frame goes to the surface's avatarSlot as an image, so she
-    still sits in the surface's z-order, under the tiles and chrome.
+    and syncs. Each finished frame goes to the surface's avatarSlot, so she still sits in the
+    surface's z-order, under the tiles and chrome: as the texture her thread drew where the
+    two QRhis can share it (shared_frame.py: D3D11, OpenGL), else as a read-back image.
 
     This widget paints nothing: it holds her place in the panel layout, and her slot on the
     surface follows its rect (mapped to the window) and its visibility.
     """
+
+    OWN_FRAME_LOG = False  # the surface logs the frames she is shown in: frames.csv's one writer
 
     def __init__(self, parent: QWidget | None = None) -> None:
         self.surface = None
@@ -232,6 +369,8 @@ class QuickSurfaceAvatar(QQ3DAvatar):
         self._watched_up: list[QWidget] = []
         self._attaching = False
         self._shown_from: int | None = None  # the first frame() call that has her posed
+        self._share_kind: str | None = None  # "d3d11"/"gl" once frames are shared, "" if not
+        self._share_waiting = False
         # QQ3DAvatar returns early (before setting root) when her render control cannot start
         # (no GPU context); _drop, _place and the tests read root on that path too.
         self.root = None
@@ -270,6 +409,7 @@ class QuickSurfaceAvatar(QQ3DAvatar):
         self.surface, self._slot = surface, slot
         self._watch_ancestors()
         self._place()
+        self._try_share()
         if not self._shown():
             surface.set_loading(True)
         if self._image is not None:
@@ -368,13 +508,57 @@ class QuickSurfaceAvatar(QQ3DAvatar):
         if show is not None:
             show(image)
 
+    def _try_share(self, *_args) -> None:
+        """Hand frames over as textures once the surface has its QRhi (its first render)."""
+        from arelis.ui.persona_face import shared_frame
+
+        surface, render = self.surface, getattr(self, "_render", None)
+        if self._dead or surface is None or render is None or self._share_kind is not None:
+            return
+        rhi_of = getattr(surface, "figure_rhi", None)
+        if rhi_of is None:
+            return
+        rhi = rhi_of()
+        if rhi is None:
+            if not self._share_waiting:
+                self._share_waiting = True
+                surface.quickWindow().sceneGraphInitialized.connect(
+                    self._try_share, Qt.ConnectionType.QueuedConnection
+                )
+            return
+        her = self.control.rhi()
+        kind = None if os.environ.get(READBACK_ENV) == "1" else shared_frame.kind_for(her, rhi)
+        self._share_kind = kind or ""
+        log = logging.getLogger("arelis.avatar")
+        if not kind:
+            log.info(
+                "[avatar] qq3d frames: readback (her %s, surface %s%s)",
+                her.backendName() if her else "-", rhi.backendName(),
+                ", forced" if os.environ.get(READBACK_ENV) == "1" else "",
+            )
+            return
+        render.share(kind)
+
+    def _shared_failed(self, reason: str) -> None:
+        render = getattr(self, "_render", None)
+        if render is not None:
+            render.unshare(reason)
+        if self.surface is not None:
+            self._show_figure(self._image)
+        self._request()
+
     def _shown(self) -> bool:
         return self._shown_from is not None and self._image_seq >= self._shown_from
 
     def _on_frame(self) -> None:
         super()._on_frame()
+        frame = self._render.shared
         if self.surface is not None and not self._dead:
-            self._show_figure(self._image)
+            show = getattr(self.surface, "set_figure_frame", None)
+            if frame is not None and self._share_kind and show is not None:
+                show(frame, self._share_kind, self._render.shown, self._shared_failed)
+            else:
+                self._show_figure(self._image)
             if self._shown():
                 self.surface.set_loading(False)
         if self._ready and not self._shown():

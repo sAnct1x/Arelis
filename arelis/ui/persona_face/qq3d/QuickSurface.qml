@@ -20,6 +20,8 @@ Rectangle {
     // light where she will stand, so a cold start (her model, the pipeline compile) reads as
     // her arriving, not as a frozen window.
     property bool loading: false
+    // The orbit's shader folder (QuickOrbit.shaders, set by quick_surface.py).
+    property string orbitShaders: "orbit/"
     color: voidColor
 
     Image {
@@ -36,6 +38,7 @@ Rectangle {
         objectName: "orbitGpu"
         anchors.fill: parent
         st: orbitState
+        shaders: surface.orbitShaders
     }
 
     Image {
@@ -55,8 +58,9 @@ Rectangle {
         x: surface.orbitRect.x; y: surface.orbitRect.y
         width: surface.orbitRect.width; height: surface.orbitRect.height
         visible: surface.orbitSource !== "" && overlayImage.status === Image.Ready
+                 && surface.orbitShaders !== ""
         property variant source: overlayImage
-        fragmentShader: "orbit/overlay.frag.qsb"
+        fragmentShader: surface.orbitShaders === "" ? "" : surface.orbitShaders + "overlay.frag.qsb"
         // The rest of the block overlay.frag shares with the orbit layers (unused there).
         property real time: 0
         property real form: 0
