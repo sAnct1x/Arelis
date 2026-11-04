@@ -71,7 +71,13 @@ class ReceiptLedger:
         self._counter = 0
         self._max_disk_entries = max(5, max_disk_entries)
         self._disk_path = disk_path if disk_path is not None else ledger_path()
+        # A compaction cut short (the sentinel child is killed at quit) leaves its tmp
+        # behind; the ledger itself is intact because only replace() swaps it in.
+        self._tmp_path().unlink(missing_ok=True)
         self._load_from_disk()
+
+    def _tmp_path(self) -> Path:
+        return self._disk_path.with_name(f"{self._disk_path.name}.tmp")
 
     def compact_disk_ledger(self, max_entries: int | None = None) -> int:
         """Compact the JSONL disk ledger keeping the latest max_entries while maintaining warrant data."""
@@ -84,11 +90,12 @@ class ReceiptLedger:
                 if len(lines) <= limit:
                     return 0
                 keep = [ln.strip() for ln in lines if ln.strip()][-limit:]
-                tmp = self._disk_path.with_name(f"{self._disk_path.name}.tmp")
+                tmp = self._tmp_path()
                 tmp.write_text("\n".join(keep) + "\n", encoding="utf-8")
                 tmp.replace(self._disk_path)
                 return len(lines) - len(keep)
             except OSError:
+                self._tmp_path().unlink(missing_ok=True)
                 return 0
 
     def _load_from_disk(self) -> None:

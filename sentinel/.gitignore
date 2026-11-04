@@ -15,6 +15,7 @@ data/emp_flag
 data/emp_flag.tmp
 data/config.local.yaml
 data/sentinel_ledger.jsonl
+data/sentinel_ledger.jsonl.tmp
 data/immunized_hashes.json
 data/banned_peers.json
 data/canaries/

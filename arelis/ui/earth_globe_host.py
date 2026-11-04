@@ -619,7 +619,9 @@ class EarthGlobeHost(QWidget):
         )
         app = QApplication.instance()
         if app is not None:
-            app.installEventFilter(self._hose)
+            from arelis.ui import app_filters
+
+            app_filters.install(app, self._hose)
         channel = QWebChannel(self._view.page())
         channel.registerObject("bridge", self.bridge)
         self._view.page().setWebChannel(channel)

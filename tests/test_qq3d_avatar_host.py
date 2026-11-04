@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 import pytest
 from PySide6.QtCore import QEvent, QObject
@@ -419,3 +420,262 @@ def test_filament_scales_her_down_with_her_soles_on_the_floor(tmp_path, monkeypa
     half = math.tan(math.radians(cam.property("fieldOfView") / 2)) * cam.property("camZ")
     assert abs(cam.property("y") - cam.property("tilt") - half - root.property("soleY")) < 1e-3
     host.close()
+
+
+def test_quit_with_a_frame_in_flight_never_waits_and_never_destroys_a_running_thread() -> None:
+    """Quit or a theme switch during her cold first frame (a 10 s+ pipeline compile).
+
+    dispose used to wait up to 5 s on the GUI thread, then let the app exit with the thread
+    still in run(), which Qt aborts on. Now it returns at once, the thread finishes its frame
+    and frees the rest, and at exit a thread still in a frame is pinned, not destroyed.
+    """
+    import threading
+    import time
+
+    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtQuick import QQuickRenderControl, QQuickWindow
+
+    from arelis.ui import live_threads
+    from arelis.ui.persona_face import qq3d_avatar
+
+    QApplication.instance() or QApplication([])
+    in_frame, release = threading.Event(), threading.Event()
+
+    class Stuck(qq3d_avatar._RenderThread):
+        def _loop(self) -> None:  # a frame that sits in its compile until released
+            in_frame.set()
+            release.wait(30)
+
+        def _release(self) -> None:
+            pass
+
+    def started():
+        control = QQuickRenderControl()
+        t = Stuck(control, QQuickWindow(control))
+        qq3d_avatar._LIVE.add(t)
+        t.start()
+        assert in_frame.wait(5)
+        return t
+
+    render = started()
+    t0 = time.monotonic()
+    render.dispose()  # what destroyed and aboutToQuit call
+    assert time.monotonic() - t0 < 0.5
+    assert render.isRunning() and any(p is render for p in live_threads._PARKED)
+    release.set()
+    assert render.wait(5000)
+    for _ in range(20):
+        QCoreApplication.processEvents()
+        if render._control is None:
+            break
+        time.sleep(0.01)
+    assert render._control is None and render not in qq3d_avatar._LIVE
+
+    in_frame.clear()
+    release.clear()
+    render = started()
+    t0 = time.monotonic()
+    pinned = qq3d_avatar._drain_at_exit(0.2)  # the app is gone; the frame is not done
+    assert time.monotonic() - t0 < 2.0 and pinned == [render]
+    release.set()  # let the pinned thread end before the test process does
+    assert render.wait(5000)
+
+
+def test_her_gil_free_calls_find_qt_quick_in_the_macos_wheel_layout(tmp_path, monkeypatch) -> None:
+    """PySide6's macOS wheel has QtQuick.framework/Versions/A/QtQuick and no top-level link.
+    Without it found, render and endFrame held the GIL there for her whole frame."""
+    import ctypes
+
+    from PySide6.QtCore import QLibraryInfo
+
+    from arelis.ui.persona_face import qq3d_avatar
+
+    binary = tmp_path / "QtQuick.framework" / "Versions" / "A" / "QtQuick"
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"")
+    monkeypatch.setattr(QLibraryInfo, "path", staticmethod(lambda _p: str(tmp_path)))
+    opened = []
+
+    def cdll(path, *a, **k):
+        if not os.path.isfile(path):
+            raise OSError(path)
+        opened.append(path)
+        return path
+
+    monkeypatch.setattr(ctypes, "CDLL", cdll)
+    found = qq3d_avatar._quick_library()
+    assert os.path.normpath(found) == os.path.normpath(binary)
+    assert [os.path.normpath(o) for o in opened] == [os.path.normpath(binary)]
+
+
+def test_a_frame_never_waits_on_a_render_thread_that_has_ended() -> None:
+    """frame() waited for a sync with no bound: a render thread that ended without one held
+    the GUI thread for good. Now it gives up, and the host falls back on the error."""
+    import threading
+
+    from PySide6.QtQuick import QQuickRenderControl, QQuickWindow
+
+    from arelis.ui.persona_face import qq3d_avatar
+
+    QApplication.instance() or QApplication([])
+
+    class Gone(qq3d_avatar._RenderThread):
+        def _loop(self) -> None:  # ends without a sync, stop or error
+            pass
+
+        def _release(self) -> None:
+            pass
+
+    control = QQuickRenderControl()
+    render = Gone(control, QQuickWindow(control))
+    render.start()
+    assert render.wait(5000)
+    out = []
+    asker = threading.Thread(target=lambda: out.append(render.frame((8, 8))), daemon=True)
+    asker.start()
+    asker.join(3)
+    assert out == [False] and "ended" in render.error
+
+
+def test_her_scene_builds_without_the_app_event_filters(tmp_path, monkeypatch) -> None:
+    """Her real model creates about 86,000 keyframes in one step, each sending ChildAdded through
+    every Python app filter: seconds of frozen GUI thread on first load. They build lifted."""
+    import shutil
+    from pathlib import Path
+
+    from arelis.ui import app_filters
+
+    app = QApplication.instance() or QApplication([])
+    d = _model(tmp_path, monkeypatch)
+    qad = Path(__file__).parents[1] / "arelis/assets/qq3d/animations/cc_Base_Head_rotation_0.qad"
+    shutil.copy(qad, d / "animations" / "head.qad")
+    groups = "\n".join(
+        '        KeyframeGroup { target: head; property: "rotation"; keyframeSource: "animations/head.qad" }'
+        for _ in range(4)
+    )
+    (d / "Ellah_anim.qml").write_text(
+        _STAND_IN.replace("Node {", "Node {\n    Node { id: head }", 1).replace(
+            "running: false }]", f"running: false }}]\n{groups}", 1
+        ),
+        encoding="utf-8",
+    )
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    seen = []
+
+    class Count(QObject):
+        def eventFilter(self, obj, event) -> bool:
+            if event.type() == QEvent.Type.ChildAdded and type(obj) is QObject:
+                seen.append(1)  # a keyframe added to its group (no Python type for either)
+            return False
+
+    counter = Count()
+    app_filters.install(app, counter)
+    try:
+        host = QQ3DAvatar()
+        host.resize(200, 400)
+        host.show()
+        for _ in range(60):
+            if host.is_ready() or host._dead:
+                break
+            QTest.qWait(100)
+        if not host.is_ready():
+            pytest.skip("no Quick 3D rendering here")
+        assert seen == []
+        host.close()
+    finally:
+        app_filters.remove(app, counter)
+
+
+def test_each_frame_reads_back_the_one_before_it_and_a_still_scene_settles(
+    tmp_path, monkeypatch
+) -> None:
+    """A readback of the frame just drawn made endFrame wait on the GPU every frame (half rate
+    with the model generating): the previous frame's copy is queued ahead of this frame's draw."""
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    host = QQ3DAvatar()
+    host.resize(200, 400)
+    host.show()
+    for _ in range(60):
+        if host.is_ready() or host._dead:
+            break
+        QTest.qWait(100)
+    if not host.is_ready():
+        pytest.skip("no Quick 3D rendering here")
+    render, order = host._render, []
+    real_read, real_draw = render._queue_readback, render._calls["render"]
+    monkeypatch.setattr(render, "_queue_readback", lambda: (order.append("read"), real_read())[1])
+    render._calls["render"] = lambda: (order.append("draw"), real_draw())
+    real_end = render._calls["endFrame"]
+    render._calls["endFrame"] = lambda: (order.append("end"), real_end())
+    for i in range(100):  # drive frames until two have been drawn (slow under a loaded box)
+        host.set_level(0.2 + 0.05 * (i % 10))
+        host._request()
+        QTest.qWait(40)
+        if order.count("draw") >= 2:
+            break
+    for _ in range(50):
+        QTest.qWait(20)
+        if render._drawn and host._image_seq == render._drawn and not render.busy:
+            break
+    frames = "".join(o[0] for o in order).split("e")  # r=read, d=draw, one string per frame
+    drawn = [f for f in frames if "d" in f]
+    assert "rd" in drawn and all(f in ("d", "rd") for f in drawn), frames  # never d then r
+    assert host._image_seq == render._drawn > 1  # the last drawn frame lands once she is still
+    host.close()
+
+
+def test_her_scene_compiles_off_the_gui_thread_and_still_loads(tmp_path, monkeypatch) -> None:
+    """Building her must not compile the scene on the GUI thread (a 2 s freeze on Atria)."""
+    QApplication.instance() or QApplication([])
+    _model(tmp_path, monkeypatch)
+    from arelis.ui.persona_face.qq3d_avatar import QQ3DAvatar, unavailable_reason
+
+    if unavailable_reason():
+        pytest.skip(unavailable_reason())
+    host = QQ3DAvatar()
+    assert getattr(host, "root", None) is None  # still compiling when the constructor returns
+    host.resize(200, 400)
+    host.show()
+    for _ in range(40):
+        if host.is_ready():
+            break
+        QTest.qWait(100)
+    ready = host.is_ready()
+    host.close()
+    if not ready:  # as _ready_host: no GPU here (render control did not initialise)
+        pytest.skip("no Quick 3D rendering here")
+
+
+def test_her_control_is_invalidated_on_the_gui_thread_never_her_render_thread(
+    tmp_path, monkeypatch
+) -> None:
+    """invalidate() cleans up scene graph nodes, which Qt allows only with the GUI thread
+    blocked; run from her render thread at exit it raced the GUI thread and hung on macOS."""
+    import threading
+
+    from PySide6.QtQuick import QQuickRenderControl
+
+    from arelis.ui.persona_face import qq3d_avatar
+
+    host = _ready_host(tmp_path, monkeypatch)
+    render, gui = host._render, threading.get_ident()
+    real, seen = QQuickRenderControl.invalidate, []
+    monkeypatch.setattr(
+        QQuickRenderControl, "invalidate", lambda self: (seen.append(threading.get_ident()), real(self))
+    )
+    host._dead = True  # only the render thread is under test
+    render.dispose()
+    for _ in range(100):
+        if not render.isRunning() and render not in qq3d_avatar._LIVE:
+            break
+        QTest.qWait(20)
+    host.close()
+    assert seen and set(seen) == {gui}

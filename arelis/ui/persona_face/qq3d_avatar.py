@@ -12,6 +12,7 @@ Chosen with ``ARELIS_AVATAR_ENGINE=qq3d`` or ``--avatar-engine qq3d``, in the ro
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import re
@@ -84,6 +85,8 @@ def _use_pipeline_cache(view) -> None:
 
 _FLUSH_MS = 1000
 # While her window says it is minimized, look again this often (the flag can be stale).
+_SETTLE_S = 0.05  # no frame asked for this long: read back the last one drawn
+_SYNC_WAIT_S = 10.0  # frame() gives up on a render thread that has not synced by then
 _MIN_FRAME_MS = 16  # about 60 fps: her loop re-armed at 0 ms had no cap
 _MINIMIZED_RETRY_MS = 250
 _KICK_EVENTS = (QEvent.Type.WindowStateChange, QEvent.Type.Show, QEvent.Type.Expose)
@@ -530,7 +533,13 @@ _SYMBOLS = {
     "render": ("_ZN19QQuickRenderControl6renderEv", "?render@QQuickRenderControl@@QEAAXXZ"),
     "endFrame": ("_ZN19QQuickRenderControl8endFrameEv", "?endFrame@QQuickRenderControl@@QEAAXXZ"),
 }
-_LIBS = ("libQt6Quick.so.6", "Qt6Quick.dll", "QtQuick.framework/QtQuick")
+# macOS: PySide6's wheels ship the framework binary only under Versions/A (a wheel holds
+# no symlinks), so "QtQuick.framework/QtQuick" is not there and every render and endFrame
+# held the GIL: the GUI thread, and pytest-timeout, froze for her whole Metal frame.
+_LIBS = (
+    "libQt6Quick.so.6", "Qt6Quick.dll",
+    "QtQuick.framework/Versions/A/QtQuick", "QtQuick.framework/QtQuick",
+)
 
 
 def _quick_library():
@@ -581,6 +590,40 @@ def gil_free_calls(control) -> dict[str, object]:
 
 
 _LIVE: set = set()  # running render threads, kept until dispose so GC never frees one mid-frame
+_PINNED: list = []  # threads still in a frame at exit: never freed, so never destroyed running
+_EXIT_WAIT_S = 20.0
+
+
+def _drain_at_exit(timeout_s: float = _EXIT_WAIT_S) -> list:
+    """At interpreter exit: let her render threads finish the frame in flight, within a bound.
+
+    The window is gone by then, so Quit already felt instant. A thread still inside a cold
+    pipeline compile after the bound is pinned: its wrapper gets an extra reference, so
+    neither module teardown nor the GC destroys a running QThread (Qt aborts on that). The
+    OS ends it with the process. Returns the threads it pinned.
+    """
+    import ctypes
+
+    import shiboken6
+
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    pinned = []
+    for thread in list(_LIVE):
+        try:
+            if not shiboken6.isValid(thread):
+                continue
+            thread.cancel()
+            left = int(max(0.0, deadline - time.monotonic()) * 1000)
+            if thread.isRunning() and not thread.wait(left):
+                ctypes.pythonapi.Py_IncRef(ctypes.py_object(thread))
+                _PINNED.append(thread)
+                pinned.append(thread)
+        except RuntimeError:
+            continue
+    return pinned
+
+
+atexit.register(_drain_at_exit)
 
 
 class _RenderThread(QThread):
@@ -588,7 +631,8 @@ class _RenderThread(QThread):
 
     The GUI thread asks for a frame only while this thread is idle, so it never waits on
     the GPU: it blocks just for ``QQuickRenderControl.sync`` (copying the scene state, as
-    Qt's threaded render loop does) and then blits the last finished image. Waits use
+    Qt's threaded render loop does) and then blits the last finished image, which is one
+    frame behind (_loop). Waits use
     ``threading`` conditions, which drop the GIL.
     """
 
@@ -607,6 +651,9 @@ class _RenderThread(QThread):
         self._stop = False
         self.busy = False
         self.image = None
+        self.image_seq = 0  # which frame() call drew self.image (counted from 1)
+        self._started = 0  # frame() calls accepted
+        self._drawn = 0  # the frame() call whose draw the texture holds
         self.error: str | None = None
         self._tex = self._rt = self._rp = None
         self._calls = gil_free_calls(control)
@@ -615,6 +662,19 @@ class _RenderThread(QThread):
         self._no_cache_logged = False
         self._timed = 0  # frames whose step times were logged (the first _TIMED_FRAMES)
         self._dispose_queued = False  # dispose waits for finished when a frame outlives stop
+        self.incubator = None  # her engine's incubation controller (_incubation)
+        # Shared frames (shared_frame.py): her ring of textures the surface opens directly.
+        self._share_kind: str | None = None  # asked for by the GUI thread (share)
+        self._producer = None
+        self._ring: list = []  # (QRhiTexture, render target, pass descriptor, native, release)
+        self._ring_size: tuple[int, int] | None = None
+        self._ring_gen = 0
+        self._old_rings: list = []  # (generation, ring) kept until the surface shows a newer one
+        self._pending: list = []  # (generation, index, fence, seq, native, size): GPU not done
+        self._in_use: set[int] = set()  # slots the surface shows or just showed
+        self._shown_gen = 0
+        self.shared = None  # the newest finished shared_frame.Frame
+        self.share_failed: str | None = None
 
     # ---- GUI thread ----
 
@@ -641,43 +701,97 @@ class _RenderThread(QThread):
                 return False
             self.busy = True
             self._synced = False
+            self._started += 1
             self._job = size
             self._cv.notify_all()
+            # Bounded: a render thread that ended, or sits in sync, must not hold the GUI
+            # thread (and so Quit, or a test worker's exit) forever.
+            deadline = time.monotonic() + _SYNC_WAIT_S
             while not self._synced and not self._stop and self.error is None:
+                if not self.isRunning() or time.monotonic() > deadline:
+                    why = "ended" if not self.isRunning() else f"no sync in {_SYNC_WAIT_S:.0f} s"
+                    self.error = f"render thread: {why}"
+                    logging.getLogger("arelis.avatar").warning("[avatar] qq3d %s", self.error)
+                    return False
                 self._cv.wait(0.5)
             return True
 
-    def stop(self) -> bool:
-        """Ask the loop to end; True once run() has returned (False if still in a frame)."""
+    def share(self, kind: str) -> None:
+        """From the next frame on, draw into textures the surface opens (no readback)."""
+        with self._cv:
+            if self.share_failed is None:
+                self._share_kind = kind
+                self._cv.notify_all()
+
+    def unshare(self, reason: str) -> None:
+        """Back to reading frames back (the surface could not open a shared texture)."""
+        with self._cv:
+            if self._share_kind is not None:
+                logging.getLogger("arelis.avatar").warning(
+                    "[avatar] qq3d frames: readback (sharing stopped: %s)", reason
+                )
+            self._share_kind, self.share_failed, self.shared = None, reason, None
+            self._cv.notify_all()
+
+    def shown(self, frame, before=None) -> None:
+        """The surface now draws ``frame`` (and may still sample ``before``): keep both."""
+        with self._cv:
+            self._shown_gen = frame.generation
+            self._in_use = {f.index for f in (frame, before)
+                            if f is not None and f.generation == frame.generation}
+            self._cv.notify_all()
+
+    def cancel(self) -> None:
+        """Ask the loop to end after the frame in flight; never waits (live_threads calls it)."""
         with self._cv:
             self._stop = True
             self._cv.notify_all()
+
+    def stop(self) -> bool:
+        """Ask the loop to end; True once run() has returned (False if still in a frame)."""
+        self.cancel()
         return self.wait(5000)
 
     def dispose(self, *_args) -> None:
         """Stop the thread, then free the scene, its window and the control, in that order.
 
-        A frame still in flight after the wait (a heavy model's first frame on a slow GPU)
-        keeps the thread, its control and its window alive until run() returns: freeing
-        them now would pull the control out from under _release, and dropping the last
-        wrapper of a running QThread aborts the process.
+        Never waits on the GUI thread. A cold first frame can sit in its pipeline compile for
+        10 s or more, and waiting for it froze Quit and a theme switch. A thread still in a
+        frame is parked (live_threads holds its wrapper, and launch's exit drain waits for it
+        within its bound; _drain_at_exit then pins any it could not join so no destructor
+        aborts the process), and this runs again from finished to free the rest.
         """
         import shiboken6
 
         if not shiboken6.isValid(self):  # Qt already freed it (a host that failed to start)
             _LIVE.discard(self)
             return
-        if self.isRunning() and not self.stop():
+        self.cancel()
+        if self.isRunning():
             if not self._dispose_queued:
                 self._dispose_queued = True
+                from arelis.ui.live_threads import park_running_thread
+
+                park_running_thread(self)
                 self.finished.connect(self.dispose, Qt.ConnectionType.QueuedConnection)
             return
         _LIVE.discard(self)
+        engine, incubator = getattr(self, "engine", None), getattr(self, "incubator", None)
+        timer = getattr(incubator, "timer", None)
+        if timer is not None and shiboken6.isValid(timer):  # Qt can free it first at quit
+            timer.stop()
+        if incubator is not None:
+            if engine is not None and shiboken6.isValid(engine):
+                engine.setIncubationController(None)
+        control = getattr(self, "_control", None)
+        if control is not None and shiboken6.isValid(control):
+            control.invalidate()  # GUI thread, the thread is finished: nothing to race
         for name in ("root", "_window", "engine", "_control"):
             obj = getattr(self, name, None)
-            if obj is not None:
+            setattr(self, name, None)
+            # The scene can go with its window or engine first; only free what is still there.
+            if obj is not None and shiboken6.isValid(obj):
                 obj.deleteLater()
-                setattr(self, name, None)
 
     # ---- render thread ----
 
@@ -717,31 +831,61 @@ class _RenderThread(QThread):
             self._release()
 
     def _loop(self) -> None:
-        from PySide6.QtGui import QImage, QRhiReadbackDescription, QRhiReadbackResult
+        """Render each asked-for frame; read back the one before it, never the one just drawn.
 
+        Reading back the frame just drawn made every endFrame wait for the GPU to finish it,
+        so with the model generating on the same GPU her frames, and the surface that shows
+        them, ran at half rate or worse. The copy of the previous frame is queued ahead of
+        this frame's draws, so endFrame waits only for that copy: the previous frame has had
+        a whole frame interval to finish. When no frame is asked for within _SETTLE_S, the
+        last drawn frame is read back on its own, so a still scene shows its final pose.
+        """
+        unread = False  # her texture holds a drawn frame that has not been read back
         while True:
+            if self._share_kind is not None or self._ring:
+                unread = False
+                if not self._shared_step():
+                    break
+                continue
             with self._cv:
-                while self._job is None and not self._stop:
+                if self._job is None and not self._stop and unread:
+                    self._cv.wait(_SETTLE_S)
+                while self._job is None and not self._stop and not unread:
+                    if self._share_kind is not None:
+                        break
                     self._cv.wait()
                 if self._stop:
                     break
+                if self._share_kind is not None:
+                    continue
                 size, self._job = self._job, None
+                if size is None:
+                    self.busy = True  # frame() must not wait out a readback-only frame
+            if size is None:
+                self._control.beginFrame()
+                result = self._queue_readback()
+                self._calls["endFrame"]()
+                unread = False
+                self._publish(result, self._drawn)
+                continue
             t0 = time.perf_counter()
+            if size != self._size:
+                unread = False  # _target replaces the texture that held it
             self._target(size)
             self._control.beginFrame()
+            result = self._queue_readback() if unread else None
+            read_seq = self._drawn
             t1 = time.perf_counter()
             self._control.sync()
             t2 = time.perf_counter()
             with self._cv:
                 self._synced = True  # the GUI thread may go on; the GPU work is ours
+                self._drawn = self._started
                 self._cv.notify_all()
             self._calls["render"]()
             t3 = time.perf_counter()
-            result = QRhiReadbackResult()
-            batch = self._control.rhi().nextResourceUpdateBatch()
-            batch.readBackTexture(QRhiReadbackDescription(self._tex), result)
-            self._control.commandBuffer().resourceUpdate(batch)
-            self._calls["endFrame"]()  # an offscreen frame: the readback is complete here
+            self._calls["endFrame"]()
+            unread = True
             if self._timed < _TIMED_FRAMES:
                 self._timed += 1
                 if self._timed == 1:
@@ -752,15 +896,184 @@ class _RenderThread(QThread):
                     self._timed, (t1 - t0) * 1e3, (t2 - t1) * 1e3, (t3 - t2) * 1e3,
                     (t4 - t3) * 1e3,
                 )
+            self._publish(result, read_seq)
+
+    # ---- shared frames (render thread) ----
+
+    def _shared_step(self) -> bool:
+        """One pass with shared frames: hand over what the GPU finished, draw what was asked.
+        False ends the loop. Never waits on the GPU: fences are polled every _POLL_S."""
+        with self._cv:
+            if self._job is None and not self._stop and self._share_kind is not None:
+                self._cv.wait(_POLL_S if self._pending else None)
+            if self._stop:
+                return False
+            kind = self._share_kind
+            size = self._job if kind is not None else None
+            if size is not None:
+                self._job = None
+        if kind is None:  # sharing stopped: free the ring, back to readback
+            self._free_ring(all_rings=True)
+            self._size = None  # _target sets her readback target again
+            return True
+        self._hand_over()
+        if size is None:
+            return True
+        try:
+            self._shared_draw(kind, size)
+        except Exception as exc:  # no shared texture here: read back instead
+            self.unshare(f"{type(exc).__name__}: {exc}")
+            with self._cv:
+                self._synced = True
+                self.busy = False
+                self._cv.notify_all()
+            self.frame_ready.emit()
+        return True
+
+    def _free_slot(self) -> int | None:
+        used = set(self._in_use) | {p[1] for p in self._pending if p[0] == self._ring_gen}
+        return next((i for i in range(len(self._ring)) if i not in used), None)
+
+    def _shared_draw(self, kind: str, size: tuple[int, int]) -> None:
+        from arelis.ui.persona_face import shared_frame
+
+        t0 = time.perf_counter()
+        if self._producer is None:
+            self._producer = shared_frame.Producer(kind, self._control.rhi(), self._window)
+            logging.getLogger("arelis.avatar").info("[avatar] qq3d frames: shared %s", kind)
+        if size != self._ring_size:
+            self._build_ring(size)
+        index = self._free_slot()
+        if index is None:  # busy stays set until one frees, so this is a stale slot list
+            index = (self._pending[-1][1] + 1) % len(self._ring) if self._pending else 0
+        _tex, rt, _rp, native, _release = self._ring[index]
+        from PySide6.QtQuick import QQuickRenderTarget
+
+        self._window.setRenderTarget(QQuickRenderTarget.fromRhiRenderTarget(rt))
+        self._control.beginFrame()
+        t1 = time.perf_counter()
+        self._control.sync()
+        t2 = time.perf_counter()
+        with self._cv:
+            self._synced = True
+            self._drawn = self._started
+            self._cv.notify_all()
+        self._calls["render"]()
+        t3 = time.perf_counter()
+        self._calls["endFrame"]()
+        fence = self._producer.fence()
+        self._pending.append((self._ring_gen, index, fence, self._drawn, native, size))
+        if self._timed < _TIMED_FRAMES:
+            self._timed += 1
+            if self._timed == 1:
+                self._save_pipeline_cache()
+            t4 = time.perf_counter()
+            logging.getLogger("arelis.avatar").info(
+                "[avatar] qq3d frame %d begin=%.1fms sync=%.1fms render=%.1fms end=%.1fms shared",
+                self._timed, (t1 - t0) * 1e3, (t2 - t1) * 1e3, (t3 - t2) * 1e3, (t4 - t3) * 1e3,
+            )
+        self._hand_over()
+
+    def _hand_over(self) -> None:
+        """Publish the newest frame the GPU has finished; free rings the surface left."""
+        from arelis.ui.persona_face.shared_frame import Frame
+
+        done = None
+        while self._pending and self._producer.done(self._pending[0][2]):
+            done = self._pending.pop(0)
+        yup = self._control.rhi().isYUpInFramebuffer()
+        with self._cv:
+            if done is not None:
+                gen, index, _fence, seq, native, size = done
+                self.shared = Frame(gen, index, native, size, seq, yup)
+                self.image_seq = seq
+            if self.busy and self._job is None and self._synced:
+                # The next frame() needs a free slot, so it waits here, never in frame().
+                self.busy = bool(self._ring) and self._free_slot() is None
+            ready = done is not None or not self.busy
+        keep = []
+        for gen, ring in self._old_rings:
+            if gen < self._shown_gen and not any(p[0] == gen for p in self._pending):
+                for entry in ring:
+                    self._destroy_entry(entry)
+            else:
+                keep.append((gen, ring))
+        self._old_rings = keep
+        if ready:
+            self.frame_ready.emit()
+
+    def _build_ring(self, size: tuple[int, int]) -> None:
+        from arelis.ui.persona_face import shared_frame
+
+        if self._ring:
+            self._old_rings.append((self._ring_gen, self._ring))
+        self._ring, self._ring_size = [], size
+        self._ring_gen += 1
+        rhi = self._control.rhi()
+        from PySide6.QtGui import QRhiColorAttachment, QRhiTextureRenderTargetDescription
+
+        rp = None
+        for _ in range(shared_frame.RING):
+            tex, native, release = self._producer.texture(size)
+            rt = rhi.newTextureRenderTarget(
+                QRhiTextureRenderTargetDescription(QRhiColorAttachment(tex))
+            )
+            first = rp is None
+            rp = rp or rt.newCompatibleRenderPassDescriptor()
+            rt.setRenderPassDescriptor(rp)
+            rt.create()
+            self._ring.append((tex, rt, rp if first else None, native, release))  # rp freed once
+
+    @staticmethod
+    def _destroy_entry(entry) -> None:
+        _tex, rt, rp, _native, release = entry
+        rt.destroy()
+        release()
+        if rp is not None:
+            rp.destroy()
+
+    def _free_ring(self, all_rings: bool = False) -> None:
+        for _gen, _idx, fence, *_rest in self._pending:
+            if self._producer is not None:
+                self._producer.drop(fence)
+        self._pending = []
+        rings = [self._ring] + ([r for _g, r in self._old_rings] if all_rings else [])
+        for ring in rings:
+            for entry in ring:
+                self._destroy_entry(entry)
+        self._ring, self._ring_size = [], None
+        if all_rings:
+            self._old_rings = []
+        self._producer = None if all_rings else self._producer
+        with self._cv:
+            self._in_use = set()
+
+    def _queue_readback(self):
+        from PySide6.QtGui import QRhiReadbackDescription, QRhiReadbackResult
+
+        result = QRhiReadbackResult()
+        batch = self._control.rhi().nextResourceUpdateBatch()
+        batch.readBackTexture(QRhiReadbackDescription(self._tex), result)
+        self._control.commandBuffer().resourceUpdate(batch)
+        return result
+
+    def _publish(self, result, seq: int) -> None:
+        """Hand the GUI thread a read-back frame (``seq``: the frame() call that drew it)."""
+        from PySide6.QtGui import QImage
+
+        img = None
+        if result is not None:
             data = bytes(result.data)
             w, h = result.pixelSize.width(), result.pixelSize.height()
-            img = QImage(data, w, h, w * 4, QImage.Format.Format_RGBA8888_Premultiplied).copy()
+            fmt = QImage.Format.Format_RGBA8888_Premultiplied
+            img = QImage(data, w, h, w * 4, fmt).copy()
             if self._control.rhi().isYUpInFramebuffer():
                 img = img.flipped(Qt.Orientation.Vertical)
-            with self._cv:
-                self.image = img
-                self.busy = False
-            self.frame_ready.emit()
+        with self._cv:
+            if img is not None:
+                self.image, self.image_seq = img, seq
+            self.busy = False
+        self.frame_ready.emit()
 
     def _save_pipeline_cache(self) -> None:
         try:
@@ -791,12 +1104,56 @@ class _RenderThread(QThread):
         for res in (self._rt, self._rp, self._tex):
             if res is not None:
                 res.destroy()
-        self._control.invalidate()
+        if self._ring or self._old_rings:
+            self._free_ring(all_rings=True)
+        # Not invalidate() here: it cleans up her scene graph nodes, which Qt only allows
+        # with the GUI thread blocked, and the GUI thread is free (dispose never waits).
+        # On macOS that raced the GUI thread deleting her widget and hung both. dispose
+        # invalidates on the GUI thread once this thread has finished.
         if self._ctx is not None:  # back to the GUI thread, where the control is destroyed
             from PySide6.QtCore import QCoreApplication
 
             self._ctx.doneCurrent()
-            self._ctx.moveToThread(QCoreApplication.instance().thread())
+            app = QCoreApplication.instance()
+            if app is not None:  # gone when this frame outlived the app at exit
+                self._ctx.moveToThread(app.thread())
+
+
+_POLL_S = 0.002  # how often her thread checks a shared frame's GPU fence
+_INCUBATE_MS = 5  # one incubation slice; her model's big steps cannot be split anyway
+
+
+def _incubation():
+    """Her engine's incubation controller: her asynchronous Loader3D builds in slices on
+    the GUI thread, each with the app event filters lifted (app_filters.quiet). A plain
+    QQmlEngine has none, so the build ran in one go with every filter seeing each of its
+    86,000 ChildAdded events: 5 to 10 s of frozen GUI thread on the first load."""
+    from PySide6.QtQml import QQmlIncubationController
+
+    from arelis.ui import app_filters
+
+    class Incubation(QQmlIncubationController):
+        def __init__(self) -> None:
+            super().__init__()
+            self.timer = QTimer()  # its own: the engine can outlive her widget
+            self.timer.setInterval(_INCUBATE_MS)
+            self.timer.timeout.connect(self._slice)
+
+        def incubatingObjectCountChanged(self, count: int) -> None:
+            import shiboken6
+
+            if not shiboken6.isValid(self.timer):  # freed by Qt at quit before the engine
+                return
+            if count > 0:
+                self.timer.start()
+            else:
+                self.timer.stop()
+
+        def _slice(self) -> None:
+            with app_filters.quiet():
+                self.incubateFor(_INCUBATE_MS)
+
+    return Incubation()
 
 
 class QQ3DAvatar(QWidget):
@@ -810,6 +1167,10 @@ class QQ3DAvatar(QWidget):
 
     failed = Signal(str)
     ready = Signal()
+    # Whether she writes ARELIS_FRAMETIME_LOG herself. A host that logs the frames of the
+    # window she is shown in (QuickSurface) turns this off: frames.csv has one writer.
+    PAINTS_HER = True  # this widget draws her frame (paintEvent)
+    OWN_FRAME_LOG = True
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -823,6 +1184,7 @@ class QQ3DAvatar(QWidget):
         self._state = "idle"
         self._level = -1.0
         self._image = None
+        self._image_seq = 0
         # She never takes a click: stop is the stop button or a spoken "stop".
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._pending = False
@@ -861,18 +1223,19 @@ class QQ3DAvatar(QWidget):
         self.control.prepareThread(self._render)
         why = self._render.initialize()
         if why is not None:
-            QTimer.singleShot(0, lambda: self._fail(why))
+            self._fail_later(why)
             return
         self._render.start(QThread.Priority.HighPriority)
         self._watch_window()
         self.control.renderRequested.connect(self._request)
         self.control.sceneChanged.connect(self._request)
         raise_gui_priority()
-        self._frames = frame_log()
+        self._frames = frame_log() if self.OWN_FRAME_LOG else None
         if self._frames is not None:
             self._start_frame_log(self._frames)
         model = model_path()
         alog("qq3d load", path=model, engine="qq3d")
+        self._t_load = time.monotonic()
         if model.name != LOOK_FILE:
             logging.getLogger("arelis.avatar").warning(
                 "[avatar] no look (%s) in %s: plain model", LOOK_FILE, model.parent
@@ -882,13 +1245,42 @@ class QQ3DAvatar(QWidget):
         import arelis.ui.persona_q3d.geometry  # noqa: F401
 
         self.engine = self._render.engine = QQmlEngine()
-        component = QQmlComponent(self.engine, QUrl.fromLocalFile(str(ENTRY)))
+        self._render.incubator = _incubation()  # freed with the engine (dispose)
+        self.engine.setIncubationController(self._render.incubator)
+        # Compiled on the QML loader thread: loading the scene and its Quick 3D imports
+        # synchronously held the GUI thread for about 2 s of every load on Atria.
+        component = QQmlComponent(self.engine)
+        self._component = component
+        self._model = model
+        mode = QQmlComponent.CompilationMode.Asynchronous
+        component.loadUrl(QUrl.fromLocalFile(str(ENTRY)), mode)
+        # GUI time from "qq3d load" to here: tells a freeze inside her constructor from one
+        # after it (window build, the surface's first render) on Atria.
+        alog("qq3d load queued", gui_ms=int((time.monotonic() - self._t_load) * 1000))
+        if component.isLoading():
+            component.statusChanged.connect(self._scene_compiled)
+        else:
+            self._scene_compiled()
+
+    def _scene_compiled(self, *_args) -> None:
+        import shiboken6
+
+        from arelis.ui.persona_face.panel import alog
+
+        component = self._component
+        if self._dead or not shiboken6.isValid(component) or component.isLoading():
+            return
+        if getattr(self, "root", None) is not None:
+            return
+        compiled = time.monotonic()
         root = component.create() if component.isReady() else None
+        alog("qq3d scene", compile_ms=int((compiled - self._t_load) * 1000),
+             create_ms=int((time.monotonic() - compiled) * 1000))
+        model = self._model
         if root is None:
             errs = "; ".join(e.toString() for e in component.errors()) or "no root"
-            QTimer.singleShot(0, lambda: self._fail(f"scene error: {errs}"))
+            self._fail_later(f"scene error: {errs}")
             return
-        self._component = component
         root.setParentItem(self.view.contentItem())
         self.root = self._render.root = root
         self._fit()
@@ -982,7 +1374,9 @@ class QQ3DAvatar(QWidget):
 
             void_idle.set_avatar_warming(False)
         self._image = self._render.image
-        self.update()
+        self._image_seq = self._render.image_seq
+        if self.PAINTS_HER:
+            self.update()
         if self._pending:
             self._kick.start(self._frame_delay_ms())
 
@@ -1077,6 +1471,14 @@ class QQ3DAvatar(QWidget):
 
             alog("ready", engine="qq3d", clips=clips)
             self.ready.emit()
+
+    def _fail_later(self, reason: str) -> None:
+        # A child timer dies with her, so the fail never fires on a freed avatar
+        # (a context singleShot with a Python lambda could, under PySide).
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda: self._fail(reason))
+        timer.start(0)
 
     def _fail(self, reason: str) -> None:
         if self._dead:

@@ -94,7 +94,9 @@ class WindowLifetime:
 
         app = QApplication.instance()
         if app is not None:
-            app.removeEventFilter(self)
+            from arelis.ui import app_filters
+
+            app_filters.remove(app, self)
 
         for timer in self.findChildren(QTimer):
             try:
@@ -167,6 +169,14 @@ class WindowLifetime:
             event.ignore()
             return
 
+        self._quit_teardown()
+        super().closeEvent(event)
+
+    def _quit_teardown(self) -> None:
+        """Quit's teardown, once: from closeEvent, or from Quit if its close never came."""
+        if getattr(self, "_quit_started", False):
+            return
+        self._quit_started = True
         quit_t0 = time.monotonic()
         log.info("quit_begin force=%s", self._force_quit)
         bind_app_bus(None)
@@ -217,7 +227,6 @@ class WindowLifetime:
         except Exception:
             pass
         log.info("quit_end_ms=%.0f", (time.monotonic() - quit_t0) * 1000)
-        super().closeEvent(event)
 
     def setup_tray(self, app: QApplication) -> None:
         """OS tray icon: Show window / Quit Arelis."""
@@ -372,6 +381,7 @@ class WindowLifetime:
                 app.quit()
             return
         self._force_quit = True
+        log.info("quit_requested")
         # When attached to --core, ask core to stop too (full Quit Arelis).
         if self.ipc_client is not None:
             try:
@@ -388,9 +398,16 @@ class WindowLifetime:
             self.close()
         except Exception:
             log.exception("quit close failed")
+        if not getattr(self, "_quit_started", False):
+            # Qt can drop a close event without a word (a window it counts as blocked,
+            # or one mid-handoff at startup), and app.quit() then asks every window
+            # to close again and gives up the same way: the click was simply lost.
+            log.warning("quit: the window's close never came; tearing down directly")
+            self._quit_teardown()
         app = QApplication.instance()
         if app is not None:
-            app.quit()
+            # exit(), not quit(): quit() is refused when a window will not close.
+            app.exit(0)
 
     def _publish_bus_coro(self, coro: object) -> None:
         loop = self.loop

@@ -13,10 +13,15 @@ Rectangle {
     property rect orbitRect: Qt.rect(0, 0, width, height)
     // Night and Sodium: the room's atmosphere (the window's own paint would be punched out).
     property string backdropSource: ""
+    // Her latest frame (quick_surface.py set_figure): her scene renders on its own thread, so
+    // her load and pipeline compile never block the window's GUI thread.
+    property string figureSource: ""
     // True from her scene's attach until she is posed (quick_surface.py): a calm breathing
     // light where she will stand, so a cold start (her model, the pipeline compile) reads as
     // her arriving, not as a frozen window.
     property bool loading: false
+    // The orbit's shader folder (QuickOrbit.shaders, set by quick_surface.py).
+    property string orbitShaders: "orbit/"
     color: voidColor
 
     Image {
@@ -33,6 +38,7 @@ Rectangle {
         objectName: "orbitGpu"
         anchors.fill: parent
         st: orbitState
+        shaders: surface.orbitShaders
     }
 
     Image {
@@ -52,8 +58,9 @@ Rectangle {
         x: surface.orbitRect.x; y: surface.orbitRect.y
         width: surface.orbitRect.width; height: surface.orbitRect.height
         visible: surface.orbitSource !== "" && overlayImage.status === Image.Ready
+                 && surface.orbitShaders !== ""
         property variant source: overlayImage
-        fragmentShader: "orbit/overlay.frag.qsb"
+        fragmentShader: surface.orbitShaders === "" ? "" : surface.orbitShaders + "overlay.frag.qsb"
         // The rest of the block overlay.frag shares with the orbit layers (unused there).
         property real time: 0
         property real form: 0
@@ -90,6 +97,15 @@ Rectangle {
         id: slot
         objectName: "avatarSlot"
         visible: false
+        Image {
+            objectName: "figure"
+            anchors.fill: parent
+            source: surface.figureSource
+            visible: surface.figureSource !== ""
+            cache: false
+            smooth: true
+            fillMode: Image.Stretch
+        }
     }
 
     Item {

@@ -13,7 +13,11 @@ import QtQuick
 Item {
     id: orbit
     required property QtObject st
-    visible: !!st && st.active
+    // Where the .qsb files are (orbit_shaders.py): the package's on most platforms; on D3D11 a
+    // cache with bytecode built off the GUI thread, and "" (nothing drawn) until it is built.
+    property string shaders: "orbit/"
+    function sh(name) { return shaders === "" ? "" : shaders + name; }
+    visible: !!st && st.active && shaders !== ""
 
     property real time: 0
     property real form: 0
@@ -145,7 +149,7 @@ Item {
         property real flow: orbit.flow
         property real packetFlow: orbit.packetFlow
         property real treeOn: orbit.treeOn
-        fragmentShader: "orbit/line.frag.qsb"
+        fragmentShader: orbit.sh("line.frag.qsb")
     }
 
     Repeater {
@@ -155,21 +159,21 @@ Item {
             strand: index
             visible: orbit.treeOn < 0.999   // under the tree its alpha is 0: draw nothing
             mesh: GridMesh { resolution: Qt.size(192, 1) }
-            vertexShader: "orbit/strand.vert.qsb"
+            vertexShader: orbit.sh("strand.vert.qsb")
         }
     }
 
     Layer {
         objectName: "orbitPool"
-        vertexShader: "orbit/pool.vert.qsb"
-        fragmentShader: "orbit/pool.frag.qsb"
+        vertexShader: orbit.sh("pool.vert.qsb")
+        fragmentShader: orbit.sh("pool.frag.qsb")
     }
 
     Layer {
         objectName: "orbitTreeGlow"
         mesh: GridMesh { resolution: Qt.size(24 * 64 - 1, 1) }
-        vertexShader: "orbit/glow.vert.qsb"
-        fragmentShader: "orbit/glow.frag.qsb"
+        vertexShader: orbit.sh("glow.vert.qsb")
+        fragmentShader: orbit.sh("glow.frag.qsb")
     }
 
     Layer {
@@ -177,7 +181,7 @@ Item {
         objectName: "orbitTree"
         strand: 0
         mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
-        vertexShader: "orbit/tree.vert.qsb"
+        vertexShader: orbit.sh("tree.vert.qsb")
     }
     ShaderEffectSource {
         id: fibersTex0
@@ -193,7 +197,7 @@ Item {
         objectName: "orbitTree1"
         strand: 1
         mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
-        vertexShader: "orbit/tree.vert.qsb"
+        vertexShader: orbit.sh("tree.vert.qsb")
     }
     ShaderEffectSource {
         id: fibersTex1
@@ -209,7 +213,7 @@ Item {
         objectName: "orbitTree2"
         strand: 2
         mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
-        vertexShader: "orbit/tree.vert.qsb"
+        vertexShader: orbit.sh("tree.vert.qsb")
     }
     ShaderEffectSource {
         id: fibersTex2
@@ -225,7 +229,7 @@ Item {
         objectName: "orbitTree3"
         strand: 3
         mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
-        vertexShader: "orbit/tree.vert.qsb"
+        vertexShader: orbit.sh("tree.vert.qsb")
     }
     ShaderEffectSource {
         id: fibersTex3
@@ -242,7 +246,7 @@ Item {
         property variant q1: fibersTex1
         property variant q2: fibersTex2
         property variant q3: fibersTex3
-        fragmentShader: "orbit/fibers.frag.qsb"
+        fragmentShader: orbit.sh("fibers.frag.qsb")
     }
     ShaderEffectSource {
         id: fibersAll
@@ -274,8 +278,8 @@ Item {
     Layer {
         objectName: "orbitDust"
         mesh: GridMesh { resolution: Qt.size(4 * 1100 - 1, 1) }
-        vertexShader: "orbit/dust.vert.qsb"
-        fragmentShader: "orbit/dust.frag.qsb"
+        vertexShader: orbit.sh("dust.vert.qsb")
+        fragmentShader: orbit.sh("dust.frag.qsb")
     }
 
     Repeater {
@@ -285,7 +289,7 @@ Item {
             visible: orbit.st.hasHub && orbit.treeOn < 0.999
             strand: index
             mesh: GridMesh { resolution: Qt.size(48, 1) }
-            vertexShader: "orbit/thread.vert.qsb"
+            vertexShader: orbit.sh("thread.vert.qsb")
         }
     }
 
@@ -293,15 +297,15 @@ Item {
         objectName: "orbitFlares"
         opacity: orbit.nodeShow
         mesh: GridMesh { resolution: Qt.size(4 * 7 - 1, 1) }
-        vertexShader: "orbit/flare.vert.qsb"
-        fragmentShader: "orbit/flare.frag.qsb"
+        vertexShader: orbit.sh("flare.vert.qsb")
+        fragmentShader: orbit.sh("flare.frag.qsb")
     }
 
     Layer {
         objectName: "orbitPulses"
         opacity: orbit.nodeShow
         mesh: GridMesh { resolution: Qt.size(4 * (11 * 6 + 36 * 3) - 1, 1) }
-        vertexShader: "orbit/pulse.vert.qsb"
-        fragmentShader: "orbit/dust.frag.qsb"
+        vertexShader: orbit.sh("pulse.vert.qsb")
+        fragmentShader: orbit.sh("dust.frag.qsb")
     }
 }
