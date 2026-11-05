@@ -275,13 +275,50 @@ async def test_alert_policy_retasks_on_host_signals_and_stays_bounded(
         wrd.execute = slow_execute  # type: ignore[method-assign]
         mode["flood"] = True
         await _wait_until(entered.is_set, label="EMP-target dispatch entered")
+        halted = hive._telemetry_task
         await hive.emp.trigger_emp(hive.units, reason="test halt")
         await asyncio.sleep(0.05)
         assert late == []
         assert hive.emp.is_tripped
-        assert hive._telemetry_task.done()
+        assert halted is not None and halted.done()
+        wrd.execute = orig_exec  # type: ignore[method-assign]
         blocked = await hive.apply_alert_signals([("new_ports", ":9999")])
         assert blocked["reason"] == "emp" and blocked["acted"] is False
+        assert hive.alert_policy.dispatch_in_flight() is False
+        await hive.start_background_loops(hz=10)
+        assert hive._telemetry_task is halted and halted.done()
+
+        # Review repro: restore_swarm then start_background_loops must revive
+        # observation; _running stayed True so a no-op start would fail this.
+        starts_halted = scanners.starts
+        await hive.emp.restore_swarm(hive.units)
+        assert hive.emp.is_tripped is False
+        assert halted.done()
+        await hive.start_background_loops(hz=10)
+        revived = hive._telemetry_task
+        assert revived is not None and revived is not halted and not revived.done()
+        assert revived in hive.emp._active_tasks
+        await _wait_until(
+            lambda: scanners.starts > starts_halted,
+            label="observation resumes after restore+start",
+        )
+
+        # Authorized human restore must revive without another start call.
+        await hive.emp.trigger_emp(hive.units, reason="second halt")
+        dead2 = hive._telemetry_task
+        assert dead2 is not None and dead2.done()
+        await hive.start_background_loops(hz=10)
+        assert hive._telemetry_task is dead2 and dead2.done()
+        starts_again = scanners.starts
+        restored = await hive.restore_from_emp()
+        assert restored.get("ok") is True
+        after = hive._telemetry_task
+        assert after is not None and after is not dead2 and not after.done()
+        assert after in hive.emp._active_tasks
+        await _wait_until(
+            lambda: scanners.starts > starts_again,
+            label="observation resumes after restore_from_emp",
+        )
     finally:
         release_dispatch.set()
         release_obs.set()
