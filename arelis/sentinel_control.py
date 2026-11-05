@@ -1,4 +1,4 @@
-"""Arelis owns the Sentinel child. start and stop only. No model-facing ops."""
+"""Arelis owns the Sentinel child. start, stop, and the Overseer URL. No model-facing ops."""
 
 from __future__ import annotations
 
@@ -25,6 +25,9 @@ _stopped = False
 _TOKEN_WAIT_S = 8.0
 _TOKEN_POLL_S = 0.05
 _STOP_WAIT_S = 1.5
+# The headless bridge binds this loopback port first (sentinel config default).
+_BRIDGE_HOST = "127.0.0.1"
+_BRIDGE_PORT = 8790
 
 
 def _sentinel_root() -> Path | None:
@@ -176,3 +179,20 @@ def stop(*, timeout_s: float = _STOP_WAIT_S) -> None:
     if proc is None:
         return
     _kill(proc, timeout_s=timeout_s)
+
+
+def overseer_url() -> str | None:
+    """Overseer page on loopback, token in the fragment only. None when down.
+
+    The fragment never reaches the server or its access log, and
+    telemetry_ws.js reads ``#token=`` then strips it from history. Never log
+    the returned value.
+    """
+    with _lock:
+        proc = _process
+        token = _token
+    if proc is None or not token:
+        return None
+    if proc.poll() is not None:
+        return None
+    return f"http://{_BRIDGE_HOST}:{_BRIDGE_PORT}/overseer#token={token}"

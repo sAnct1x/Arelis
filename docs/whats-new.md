@@ -15,6 +15,10 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
 [v0.2.1](releases/v0.2.1.md).
 
+## 0.3.5 (in progress)
+
+- Sentinels: View, then Sentinels opens a separate window with the live Overseer, themed to match Arelis. If Sentinel is offline it says so and offers Start. See [sentinels.md](sentinels.md).
+
 ## 0.3.4
 
 Filament becomes the main room, with Arelis standing beside her orbit tree,

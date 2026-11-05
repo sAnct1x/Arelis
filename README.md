@@ -345,6 +345,7 @@ something behaves oddly on yours, open an issue. Current release is
 | [architecture.md](docs/architecture.md) | How the code is organized |
 | [dev-tools.md](docs/dev-tools.md) | Repo scan and PR scope check |
 | [earth.md](docs/earth.md) | Earth view inside Reality (source checkout) |
+| [sentinels.md](docs/sentinels.md) | Sentinels window: watch the swarm live |
 | [telemetry.md](docs/telemetry.md) | Logs, on your disk |
 | [win-installer/README.md](win-installer/README.md) | Building the installer |
 

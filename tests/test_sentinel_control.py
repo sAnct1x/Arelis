@@ -448,3 +448,72 @@ async def test_snapshot_and_overseer_post_require_the_session_token(
             os.environ.pop("ARELIS_DATA_DIR", None)
         else:
             os.environ["ARELIS_DATA_DIR"] = prior
+
+
+def test_overseer_url_is_loopback_with_the_token_in_the_fragment_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Sentinels window opens this URL. A token in the query string would
+    reach the server and its access log; only the fragment stays client side.
+    A down child must give None, not raise.
+    """
+    from urllib.parse import urlsplit
+
+    from arelis import sentinel_control
+
+    class _Alive:
+        def poll(self) -> None:
+            return None
+
+    class _Dead:
+        def poll(self) -> int:
+            return 1
+
+    token = "t" * 40
+    monkeypatch.setattr(sentinel_control, "_process", _Alive())
+    monkeypatch.setattr(sentinel_control, "_token", token)
+    url = sentinel_control.overseer_url()
+    assert url is not None
+    parts = urlsplit(url)
+    assert parts.hostname == "127.0.0.1"
+    assert parts.path == "/overseer"
+    assert token not in parts.query and token not in parts.path
+    assert parts.fragment == f"token={token}"
+
+    monkeypatch.setattr(sentinel_control, "_process", _Dead())
+    assert sentinel_control.overseer_url() is None
+    monkeypatch.setattr(sentinel_control, "_process", None)
+    assert sentinel_control.overseer_url() is None
+    monkeypatch.setattr(sentinel_control, "_process", _Alive())
+    monkeypatch.setattr(sentinel_control, "_token", None)
+    assert sentinel_control.overseer_url() is None
+
+
+def test_view_menu_sentinels_opens_the_separate_window_offline(
+    arelis_window, qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """View lists Sentinels; it opens a top-level window that says offline."""
+    from PySide6.QtWidgets import QMenu, QWidget
+
+    from arelis import sentinel_control
+
+    monkeypatch.setattr(sentinel_control, "_process", None)
+    monkeypatch.setattr(sentinel_control, "_token", None)
+    window = arelis_window()
+    seen: list[str] = []
+
+    class _Menu(QMenu):
+        def exec(self, *_a, **_k):
+            seen.extend(x.text() for x in self.actions())
+
+    import arelis.ui.window_chrome as chrome
+
+    monkeypatch.setattr(chrome, "QMenu", _Menu)
+    window._show_view_menu(QWidget())
+    assert "Sentinels" in seen
+    window.act_sentinels.trigger()
+    win = window.sentinel_window
+    assert win.isVisible() and win.isWindow()
+    assert win.is_offline()
+    assert win.offline_label.text() == "Sentinel offline"
+    win.close()
