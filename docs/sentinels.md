@@ -63,3 +63,21 @@ If Sentinel is not running she says so instead of guessing.
 
 Deploy, stop, retask and research ask first in the usual way unless your
 own request already asked for them.
+
+## What the swarm does on its own
+
+While Sentinel is running it watches this machine on a timer: open sockets,
+new listening ports, busy remote peers, file-baseline changes, and canary
+files. Each distinct signal has its own short cooldown. If the hive still
+has room to remember that signal, it may ask an idle warden to scan sockets
+or an idle tripwire to verify files. A host scan and that retask do not run
+at the same time, because the retask uses the same scanners. That is the
+hive following fixed rules, not Arelis deciding, and it does not prove the
+machine is protected.
+
+It does not install a firewall rule, kill a process, or repair files on its
+own. A "listed" peer in the Overseer is a record in Sentinel's own list, not
+an operating-system block. A single change on a watched folder can raise a
+file alert even when you made the change. The emergency stop still halts new
+work at once; only you can lift it.
+

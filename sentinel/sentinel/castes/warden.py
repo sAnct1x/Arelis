@@ -60,7 +60,7 @@ def classify_ip_scope(ip_str: str) -> str:
 
 
 def build_windows_firewall_block_cmd(ip_str: str) -> str:
-    """Return an auditable Windows Defender Firewall command to block a hostile remote IP.
+    """Return an unused, auditable netsh string for a possible future inbound rule. Callers must not execute it unless Christopher has approved an enforce path.
     
     Strictly validates the IP via ipaddress to prevent command injection into netsh.
     """
@@ -84,7 +84,7 @@ class WardenCaste:
     descriptor = CasteDescriptor(
         caste_id="warden",
         code_prefix="WRD",
-        title="Perimeter & Firewall Warden",
+        title="Socket and admission Warden",
         single_purpose="Patrol active network sockets and bastion ports; intercept flood, auth, and egress violations.",
         allowed_capabilities=frozenset(
             {"scan_sockets", "admit_inbound", "note_auth_fail", "verify_egress", "intercept_threat", "ban_peer"}
@@ -154,7 +154,7 @@ class WardenCaste:
         self,
         ip: str,
         *,
-        reason: str = "Hunter-Killer Neutralization",
+        reason: str = "Peer listed by Warden",
         port: int = 8765,
         unit_id: str = "SNT-WRD-001",
     ) -> dict[str, Any]:
@@ -520,7 +520,7 @@ class WardenCaste:
                 self._save_banlist_locked()
                 return {
                     "ok": False,
-                    "reason": "permanent_blacklist",
+                    "reason": "listed_peer",
                     "ip": host,
                     "port": port,
                     "firewall_cmd": ban_entry.get("firewall_cmd") or build_windows_firewall_block_cmd(host),
@@ -688,7 +688,7 @@ class WardenCaste:
             span=(
                 f"Bastion scan complete: {len(snap['bastions'])} ports watched, "
                 f"{snap['total_established_tcp']} active TCP sockets, "
-                f"{snap['locked_count']} locked IPs, {snap['banned_peers_count']} permanently banned."
+                f"{snap['locked_count']} lockout timers, {snap['banned_peers_count']} peers listed (not OS-blocked)."
             ),
             ok=True,
             metadata=snap,

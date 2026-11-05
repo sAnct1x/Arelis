@@ -25,6 +25,7 @@ from sentinel.castes import (
     build_default_caste_registry,
 )
 from sentinel.config import load_config, resolve_theme, save_local_preferences
+from sentinel.core.alert_policy import POLICY_ACTIONS, AlertPolicy
 from sentinel.core.authority import ACTION_BLAST_MAP, AuthorityGate
 from sentinel.core.bus import EventBus, EventTopic
 from sentinel.core.deception import DeceptionCoordinator
@@ -75,8 +76,8 @@ class SwarmHive:
         self.authority = authority or AuthorityGate()
         self.deception = DeceptionCoordinator(bus=self.bus, ledger=self.ledger)
         self.simulator = SimulationDirector(self)
-
-
+        self.alert_policy = AlertPolicy()
+        self._telemetry_interval_s = 3.0
 
         # Register harvester HTTP client closer with EMP controller
         with contextlib.suppress(KeyError):
@@ -1064,18 +1065,108 @@ class SwarmHive:
             "recent_quarantine_files": quarantine_files,
         }
 
+    def _scan_host_bundle(self) -> dict[str, Any]:
+        """Blocking host observations. The worker always calls end_scan."""
+        try:
+            out: dict[str, Any] = {}
+            wrd = self.registry.get("warden")
+            if isinstance(wrd, WardenCaste):
+                out["raw_snap"] = wrd.scan_sockets()
+            trp = self.registry.get("tripwire")
+            if isinstance(trp, TripwireCaste):
+                out["raw_verdict"] = trp.verify_all()
+            out["canaries"] = self.deception.audit_canary_integrity()
+            out["host_telemetry"] = self._collect_host_telemetry()
+            return out
+        finally:
+            self.alert_policy.end_scan()
+
+    async def apply_alert_signals(
+        self, signals: list[tuple[str, str]]
+    ) -> dict[str, Any]:
+        """Retask from existing host signals. Not a model decision.
+
+        One dispatch at a time. Unknown kinds are ignored. EMP skips work.
+        """
+        if self.emp.is_tripped:
+            return {"ok": False, "acted": False, "reason": "emp"}
+        chosen: tuple[str, str] | None = None
+        for kind, signature in signals:
+            if self.alert_policy.should_act(kind, signature):
+                chosen = (kind, signature)
+                break
+        if chosen is None:
+            return {"ok": True, "acted": False, "reason": "quiet"}
+        if not self.alert_policy.begin_dispatch():
+            return {"ok": True, "acted": False, "reason": "dispatch_busy"}
+        kind, signature = chosen
+        self.alert_policy.mark_seen(kind, signature)
+        caste, payload = POLICY_ACTIONS[kind]
+        try:
+            idle = [
+                u
+                for u in self.units.values()
+                if u.caste == caste
+                and u.state == SentinelState.PATROLLING
+                and u.pack_role == "SOLO"
+            ]
+            if not idle:
+                rec = {
+                    "ok": True,
+                    "acted": False,
+                    "reason": "no_idle_unit",
+                    "kind": kind,
+                    "caste": caste,
+                }
+                self.alert_policy.record(rec)
+                return rec
+            result = await self.dispatch_task(
+                caste, dict(payload), unit_id=idle[0].unit_id
+            )
+            rec = {
+                "ok": bool(result.get("ok")),
+                "acted": True,
+                "kind": kind,
+                "caste": caste,
+                "unit_id": idle[0].unit_id,
+                "action": payload.get("action"),
+                "result": result,
+            }
+            if not rec["ok"]:
+                rec["reason"] = "error"
+            self.alert_policy.record(rec)
+            return rec
+        except Exception as exc:
+            rec = {
+                "ok": False,
+                "acted": False,
+                "reason": "error",
+                "kind": kind,
+                "error": str(exc)[:200],
+            }
+            self.alert_policy.record(rec)
+            log.exception("Alert policy dispatch failed; continuing")
+            return rec
+        finally:
+            self.alert_policy.end_dispatch()
+
     async def _run_autonomous_patrol_sortie(self) -> None:
         """Dispatch real inspection work for the patrol animation."""
         if self.emp.is_tripped:
             return
-        if self.simulator._active_task is not None and not self.simulator._active_task.done():
+        if not self.alert_policy.begin_dispatch():
             return
-        self._patrol_tick += 1
-        caste = "warden" if self._patrol_tick % 2 == 0 else "tripwire"
-        idle = [u for u in self.units.values() if u.caste == caste and u.state == SentinelState.PATROLLING and u.pack_role == "SOLO"]
-        if not idle:
-            return
-        await self.dispatch_task(caste, {"action": "patrol_scan" if caste == "warden" else "verify", "animate": True}, unit_id=idle[0].unit_id)
+        try:
+            if self.simulator._active_task is not None and not self.simulator._active_task.done():
+                return
+            self._patrol_tick += 1
+            caste = "warden" if self._patrol_tick % 2 == 0 else "tripwire"
+            idle = [u for u in self.units.values() if u.caste == caste and u.state == SentinelState.PATROLLING and u.pack_role == "SOLO"]
+            if not idle:
+                return
+            await self.dispatch_task(caste, {"action": "patrol_scan" if caste == "warden" else "verify", "animate": True}, unit_id=idle[0].unit_id)
+        finally:
+            self.alert_policy.end_dispatch()
 
     def step_world(self, dt: float = 1.0 / 60.0) -> None:
         """Advance all 3D Boids, Pack Wingman synchronization, & steering physics for one simulation tick."""
@@ -1161,15 +1252,23 @@ class SwarmHive:
             last_new_ports_sig = ""
             last_flood_sig = ""
             while self._running:
-                await asyncio.sleep(3.0)
+                await asyncio.sleep(self._telemetry_interval_s)
                 if not self._running:
                     break
                 try:
+                    bundle: dict[str, Any] | None = None
+                    if self.alert_policy.begin_scan():
+                        try:
+                            bundle = await asyncio.to_thread(self._scan_host_bundle)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            log.exception("Sentinel host scan failed; continuing")
+                    signals: list[tuple[str, str]] = []
                     wrd = self.registry.get("warden")
-                    if isinstance(wrd, WardenCaste):
-                        # OS scan off-thread; node mutation on the loop thread (no cross-thread dict races)
-                        raw_snap = await asyncio.to_thread(wrd.scan_sockets)
-                        b_snap = wrd.apply_bastion_snapshot(self.nodes, raw_snap)
+                    if isinstance(wrd, WardenCaste) and bundle and "raw_snap" in bundle:
+                        # Node mutation on the loop thread (no cross-thread dict races).
+                        b_snap = wrd.apply_bastion_snapshot(self.nodes, bundle["raw_snap"])
                         exposed = [
                             f":{b['port']} ({b['process']})"
                             for b in (b_snap.get("bastions") or [])
@@ -1188,6 +1287,8 @@ class SwarmHive:
                             )
                         elif not exp_sig:
                             last_exposure_alert_sig = ""
+                        if exp_sig:
+                            signals.append(("exposure", exp_sig))
 
                         new_ports = list(b_snap.get("new_listening_ports") or [])
                         np_sig = ",".join(new_ports)
@@ -1203,6 +1304,8 @@ class SwarmHive:
                             )
                         elif not np_sig:
                             last_new_ports_sig = ""
+                        if np_sig:
+                            signals.append(("new_ports", np_sig))
 
                         flood_peers = list(b_snap.get("flood_peers") or [])
                         fl_sig = ",".join(f"{fp['remote_ip']}:{fp['connections']}" for fp in flood_peers)
@@ -1218,11 +1321,12 @@ class SwarmHive:
                             )
                         elif not fl_sig:
                             last_flood_sig = ""
+                        if fl_sig:
+                            signals.append(("flood", fl_sig))
 
                     trp = self.registry.get("tripwire")
-                    if isinstance(trp, TripwireCaste):
-                        raw_verdict = await asyncio.to_thread(trp.verify_all)
-                        m_verdict = trp.apply_merkle_verdict(self.nodes, raw_verdict)
+                    if isinstance(trp, TripwireCaste) and bundle and "raw_verdict" in bundle:
+                        m_verdict = trp.apply_merkle_verdict(self.nodes, bundle["raw_verdict"])
                         if not m_verdict.get("intact", True):
                             dirty_roots = [
                                 f"{r['label']} (mod={len(r.get('modified', []))}, add={len(r.get('added', []))}, del={len(r.get('deleted', []))})"
@@ -1245,21 +1349,32 @@ class SwarmHive:
                                 )
                         else:
                             last_merkle_alert_sig = ""
+                        if not m_verdict.get("intact", True) and m_sig:
+                            signals.append(("merkle", m_sig))
 
-                    # 3. Deception Grid: Check Canary honeytokens
-                    await asyncio.to_thread(self.deception.audit_canary_integrity)
-
-
-                    self.host_telemetry = await asyncio.to_thread(self._collect_host_telemetry)
+                    canaries = list((bundle or {}).get("canaries") or [])
+                    if canaries:
+                        canary_sig = ",".join(
+                            str(c.get("id") or c.get("reason") or "") for c in canaries
+                        )
+                        if canary_sig:
+                            signals.append(("canary", canary_sig))
+                    if bundle and "host_telemetry" in bundle:
+                        self.host_telemetry = bundle["host_telemetry"]
                     if self._running and not self.emp.is_tripped:
-                        self.emp.track_task(asyncio.create_task(self._run_autonomous_patrol_sortie()))
+                        if signals:
+                            await self.apply_alert_signals(signals)
+                        if not self.alert_policy.dispatch_in_flight():
+                            self.emp.track_task(
+                                asyncio.create_task(self._run_autonomous_patrol_sortie())
+                            )
                 except asyncio.CancelledError:
                     raise
                 except Exception:
                     log.exception("Sentinel telemetry tick failed; continuing")
 
         self._kinematics_task = asyncio.create_task(_loop())
-        self._telemetry_task = asyncio.create_task(_telemetry_loop())
+        self._telemetry_task = self.emp.track_task(asyncio.create_task(_telemetry_loop()))
 
     async def stop_background_loops(self) -> None:
         self._running = False

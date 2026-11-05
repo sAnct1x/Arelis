@@ -43,7 +43,7 @@ def test_warden_sliding_window_flood_and_auth_lockout(tmp_path: Path) -> None:
     warden._locked_until.clear()  # type: ignore[attr-defined]
     admit_after = warden.admit_inbound("10.20.30.40")  # type: ignore[attr-defined]
     assert admit_after["ok"] is False
-    assert admit_after["reason"] == "permanent_blacklist"
+    assert admit_after["reason"] == "listed_peer"
 
     # Unbanning removes peer from blacklist
     assert warden.unban_peer("10.20.30.40") is True  # type: ignore[attr-defined]

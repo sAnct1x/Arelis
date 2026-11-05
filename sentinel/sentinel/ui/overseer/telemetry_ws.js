@@ -528,7 +528,7 @@
           bannedList
             .map(
               (b) =>
-                `<span class="doc-pill-link" data-unban-ip="${escapeHtml(b.ip)}" title="Banned: ${escapeHtml(b.reason || '')} • Click to unban">🚫 ${escapeHtml(b.ip)} (x${b.hits_blocked || 1})</span>`
+                `<span class="doc-pill-link" data-unban-ip="${escapeHtml(b.ip)}" title="Listed (not an OS firewall block): ${escapeHtml(b.reason || '')} • Click to remove">${escapeHtml(b.ip)} (listed ${b.hits_blocked || 1} times)</span>`
             )
             .join("") +
           `</div>`
@@ -564,7 +564,7 @@
           <div class="insp-key">OS TCP SOCKETS</div><div class="insp-val">${ht.listening_tcp_count ?? 0} LISTENING • ${ht.established_tcp_count ?? 0} ESTABLISHED</div>
           <div class="insp-key">REMOTE PEERS</div><div class="insp-val">${ht.wan_peers_count ?? 0} WAN • ${ht.lan_peers_count ?? 0} LAN • ${ht.loopback_peers_count ?? 0} LOOP (${escapeHtml(remotePeersStr)})</div>
           <div class="insp-key">PORT BASELINE</div><div class="insp-val">${escapeHtml(newPortsStr)}</div>
-          <div class="insp-key">BLACKLIST / IMM</div><div class="insp-val">${ht.banned_peers_count ?? 0} Banned IPs • ${immCount} Immunized Hashes${bannedPills}</div>
+          <div class="insp-key">LISTED PEERS / IMM</div><div class="insp-val">${ht.banned_peers_count ?? 0} listed peers (records only) • ${immCount} immunized hashes${bannedPills}</div>
           <div class="insp-key">MERKLE ANCHORS</div><div class="insp-val">${ht.merkle_files_hashed ?? 0} files (${escapeHtml(rootsStr)})</div>
           <div class="insp-key">SHADOW CACHE</div><div class="insp-val">${ht.merkle_shadow_files ?? 0} files (${ht.merkle_shadow_kb ?? 0} KiB RAM comparison snapshots)</div>
           <div class="insp-key">DISK HARVESTS</div><div class="insp-val">${ht.harvest_reports_on_disk ?? 0} reports (click to read):<br/>${harvPills}</div>
