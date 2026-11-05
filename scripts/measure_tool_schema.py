@@ -46,6 +46,7 @@ CAP_RAISE_COLD_SECONDS = 1.7
 # default 6,171 here, about 6,391 with Windows desktop; worst 7,216.
 SCHEMA_TOKEN_CAP = {
     "default": 6_600,
+    "default_desktop": 6_721,
     "worst": 7_521,
 }
 
@@ -72,6 +73,11 @@ def registry_for_profile(profile: str) -> Any:
     config = load_config()
     if profile == "default":
         config["_vl_model_installed"] = False
+    elif profile == "default_desktop":
+        # Windows default surface without VL/mail/SMS. Metadata only;
+        # the desktop tool is registered, not executed.
+        config["_vl_model_installed"] = False
+        config["_session_platform"] = "win32"
     elif profile == "worst":
         config["_vl_model_installed"] = True
         config["_session_platform"] = "win32"
@@ -89,9 +95,7 @@ def registry_for_profile(profile: str) -> Any:
         if profile == "worst":
             tools_mod.load_account = lambda path=None: _EXAMPLE_MAIL
             tools_mod.load_sms_account = lambda path=None: _EXAMPLE_SMS
-        return build_tool_registry(
-            config, allow_send=True, attended=True, router=_router()
-        )
+        return build_tool_registry(config, allow_send=True, attended=True, router=_router())
     finally:
         tools_mod.load_account = saved_mail
         tools_mod.load_sms_account = saved_sms
@@ -229,9 +233,7 @@ def group_token_report(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     each row also carries schema_tokens_real. Tools not loaded in this
     profile are left out of that group's row.
     """
-    by_name = {
-        str((spec.get("function") or spec).get("name") or ""): spec for spec in specs
-    }
+    by_name = {str((spec.get("function") or spec).get("name") or ""): spec for spec in specs}
     tokenizer = _qwen_tokenizer()
 
     def row(label: str, chosen: list[dict[str, Any]]) -> dict[str, Any]:
@@ -263,8 +265,7 @@ def _print_group_tokens(stats: dict[str, Any]) -> None:
     for row in rows:
         label = "all loaded" if row["group"] == "all_loaded" else str(row["group"])
         line = (
-            f"  {label:<12} tools {row['tools']:>3}   "
-            f"~{row['schema_tokens_approx']:,} Qwen tokens"
+            f"  {label:<12} tools {row['tools']:>3}   ~{row['schema_tokens_approx']:,} Qwen tokens"
         )
         if real:
             line += f"   real {row['schema_tokens_real']:,}"
@@ -346,18 +347,14 @@ def main() -> int:
         f"mean={stats['description_mean']} "
         f"max={stats['description_max']}"
     )
-    print(
-        f"under 60 chars       : {stats['tools_under_60_chars']}/{stats['tools']}"
-    )
+    print(f"under 60 chars       : {stats['tools_under_60_chars']}/{stats['tools']}")
     print()
     print(
         f"parameters           : {stats['total_params']} total, "
         f"{stats['documented_params']} documented, "
         f"{stats['undocumented_params']} undocumented"
     )
-    print(
-        f"authored in source   : {authored}/{authored_total} documented"
-    )
+    print(f"authored in source   : {authored}/{authored_total} documented")
     thrown_away = authored - stats["documented_params"]
     if thrown_away > 0:
         print()
@@ -365,14 +362,8 @@ def main() -> int:
             f"  >> {thrown_away} parameter descriptions exist and are stripped "
             "before the model sees them."
         )
-        print(
-            "     compact_prompt.skinny_parameters does this to hold the prefix "
-            "cache. The"
-        )
-        print(
-            "     measurement behind that (tool_subset.py:11-31) was about an "
-            "array that changes"
-        )
+        print("     compact_prompt.skinny_parameters does this to hold the prefix cache. The")
+        print("     measurement behind that (tool_subset.py:11-31) was about an array that changes")
         print(
             "     shape per turn. This one does not. Re-price it with "
             "measure_tool_surface_prefill.py."

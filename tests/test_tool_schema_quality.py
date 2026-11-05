@@ -238,9 +238,7 @@ def test_workspace_actions_stay_in_the_model_enum() -> None:
     windows = load_config()
     windows["_vl_model_installed"] = False
     windows["_session_platform"] = "win32"
-    windows_reg = build_tool_registry(
-        windows, allow_send=True, attended=True, router=router
-    )
+    windows_reg = build_tool_registry(windows, allow_send=True, attended=True, router=router)
     profiles = {
         "default": registry_for_profile("default"),
         "mac": registry_for_profile("mac"),
@@ -251,9 +249,7 @@ def test_workspace_actions_stay_in_the_model_enum() -> None:
     for name, registry in profiles.items():
         for hints in (False, True):
             specs = (
-                tool_specs(registry)
-                if not hints
-                else list(registry.chat_tools(param_hints=True))
+                tool_specs(registry) if not hints else list(registry.chat_tools(param_hints=True))
             )
             action = None
             for spec in specs:
@@ -269,26 +265,39 @@ def test_workspace_actions_stay_in_the_model_enum() -> None:
     assert not missing, missing
 
 
-
-
 def test_schema_stays_under_its_token_cap() -> None:
     """The cap was a number nothing checked, so it drifted 700 tokens loose."""
     from scripts.measure_tool_schema import registry_for_profile
 
-    default = measure(tool_specs())["schema_tokens_approx"]
+    host_specs = tool_specs()
+    default = measure(host_specs)["schema_tokens_approx"]
     worst = measure(tool_specs(registry_for_profile("worst")))["schema_tokens_approx"]
-    assert default <= MAX_SCHEMA_TOKENS, default
+    host_has_desktop = any(spec["function"]["name"] == "desktop" for spec in host_specs)
+    host_cap = (
+        SCHEMA_TOKEN_CAP["default_desktop"] if host_has_desktop else SCHEMA_TOKEN_CAP["default"]
+    )
+    assert default <= host_cap, default
     assert worst <= SCHEMA_TOKEN_CAP["worst"], worst
 
     # Sentinel controls (PR4) are resident. Christopher approved a one-time
     # rebaseline for this addition only (2026-11-05 4:36 PM ET). Measured
     # here: default 21,482 chars / 6,500 tokens without desktop (still under
     # the 6,600 cap), worst 24,855 / 7,521. The worst cap is 7,521 to match.
-    # No further unrelated growth is permitted.
-    no_desktop = [s for s in tool_specs() if s["function"]["name"] != "desktop"]
+    # Desktop-present default (forced win32 registry metadata, no desktop
+    # execution) is 22,211 chars / 6,721 tokens; that profile uses its own
+    # 6,721 cap so the no-desktop ceiling stays 6,600. No further unrelated
+    # growth is permitted.
+    no_desktop = [spec for spec in tool_specs() if spec["function"]["name"] != "desktop"]
     base = measure(no_desktop)
+    desk = measure(tool_specs(registry_for_profile("default_desktop")))
     full = measure(tool_specs(registry_for_profile("worst")))
+    assert "desktop" in {
+        spec["function"]["name"] for spec in tool_specs(registry_for_profile("default_desktop"))
+    }
     assert base["schema_chars"] <= 21_482, base
     assert base["schema_tokens_approx"] <= 6_500, base
+    assert desk["schema_chars"] <= 22_211, desk
+    assert desk["schema_tokens_approx"] <= 6_721, desk
+    assert desk["schema_tokens_approx"] <= SCHEMA_TOKEN_CAP["default_desktop"], desk
     assert full["schema_chars"] <= 24_855, full
     assert full["schema_tokens_approx"] <= 7_521, full

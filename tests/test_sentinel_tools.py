@@ -459,6 +459,37 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
     assert policy.confirm_toggle("sentinel_command", {"action": "stop"}, risk="write") == "writes"
     assert not any("restore" in t.name for t in st.sentinel_tools())
 
+    # Real registry risk (write) through needs_confirm. This records current
+    # card and voice behavior; it does not endorse leaving voice unasked
+    # commands free. ask_is_grant still skips the ordinary write card when
+    # the user's ask named the tool, and does not skip it when the switch
+    # is off.
+    from arelis.tools.base import ToolRegistry
+    from arelis.tools.policy import confirm_mode, set_confirm_mode
+
+    reg = ToolRegistry()
+    for tool in st.sentinel_tools():
+        if tool.name in {"sentinel_command", "sentinel_emp"}:
+            reg.register(tool)
+    assert reg.get("sentinel_command").risk == "write"
+    assert reg.get("sentinel_emp").risk == "write"
+    args = {"action": "deploy", "caste": "warden", "count": 1}
+    previous = confirm_mode()
+    try:
+        set_confirm_mode("card")
+        assert reg.needs_confirm("sentinel_command", args, asked=False) is True
+        assert reg.needs_confirm("sentinel_command", args, asked=True, ask_is_grant=True) is False
+        assert reg.needs_confirm("sentinel_command", args, asked=True, ask_is_grant=False) is True
+        assert reg.needs_confirm("sentinel_emp", {}, asked=False) is False
+        assert reg.needs_confirm("sentinel_emp", {}, asked=True) is False
+        set_confirm_mode("voice")
+        assert reg.needs_confirm("sentinel_command", args, asked=False) is False
+        assert reg.needs_confirm("sentinel_command", args, asked=True) is False
+        assert reg.needs_confirm("sentinel_emp", {}, asked=False) is False
+        assert reg.needs_confirm("sentinel_emp", {}, asked=True) is False
+    finally:
+        set_confirm_mode(previous)
+
     async def gated(tool: Any, **kw: Any) -> Any:
         release = threading.Event()
         gate["release"] = release
