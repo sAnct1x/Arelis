@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -116,9 +117,15 @@ def test_read_tools_mirror_live_state_and_fail_soft(monkeypatch: pytest.MonkeyPa
 
     calls: list[str] = []
     reply: dict[str, Any] = {"value": None}
+    # Delayed bridge: when set, the reply waits until a sibling task on the
+    # caller's loop has run. A blocked loop never runs it; the bounded wait
+    # is only a deadlock guard and is recorded as a failure.
+    gate: dict[str, Any] = {"release": None, "sibling_first": []}
 
     def fake_command(op: str, **_kw: Any) -> dict[str, Any]:
         calls.append(op)
+        if gate["release"] is not None:
+            gate["sibling_first"].append(gate["release"].wait(timeout=2.0))
         if reply["value"] is not None:
             return reply["value"]
         if op == "snapshot":
@@ -202,6 +209,32 @@ def test_read_tools_mirror_live_state_and_fail_soft(monkeypatch: pytest.MonkeyPa
         ):
             res = run(tool)
             assert res.ok is False and res.output == err
+
+    reply["value"] = None
+
+    async def gated(tool: Any) -> Any:
+        release = threading.Event()
+        gate["release"] = release
+
+        async def sibling() -> None:
+            release.set()
+
+        # Tasks start in creation order: the tool reaches the bridge call
+        # first, and the sibling only runs if that call yields the loop.
+        result, _ = await asyncio.gather(tool.run(), sibling())
+        return result
+
+    for tool in (
+        st.SentinelStatusTool(),
+        st.SentinelListTool(),
+        st.SentinelLogsTool(),
+        st.SentinelCastesTool(),
+    ):
+        gate["sibling_first"].clear()
+        res = asyncio.run(gated(tool))
+        assert res.ok is True, tool.name
+        assert gate["sibling_first"] == [True], tool.name
+    gate["release"] = None
 
 
 def test_sentinel_tools_are_not_registered_without_the_package(

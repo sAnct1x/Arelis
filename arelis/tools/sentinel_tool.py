@@ -8,6 +8,7 @@ as ``matchesLogFilter`` in sentinel/ui/overseer/telemetry_ws.js.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 from typing import Any
@@ -34,8 +35,10 @@ def _fail(reply: dict[str, Any]) -> ToolResult:
     return ToolResult(ok=False, output=str(reply.get("error") or sentinel_client.UNREACHABLE))
 
 
-def _snapshot() -> tuple[dict[str, Any] | None, ToolResult | None]:
-    reply = sentinel_client.snapshot()
+async def _snapshot() -> tuple[dict[str, Any] | None, ToolResult | None]:
+    # The client blocks on a worker join for up to its 3 s limit. Run it off
+    # the event loop so other tasks and cancellation keep moving.
+    reply = await asyncio.to_thread(sentinel_client.snapshot)
     if not reply.get("ok"):
         return None, _fail(reply)
     snap = reply.get("snapshot")
@@ -84,7 +87,7 @@ class SentinelStatusTool:
 
     async def run(self, **kwargs: Any) -> ToolResult:
         del kwargs
-        snap, err = _snapshot()
+        snap, err = await _snapshot()
         if err is not None:
             return err
         emp = snap.get("emp") or {}
@@ -124,7 +127,7 @@ class SentinelListTool:
         self, caste: str = "", state: str = "", query: str = "", **kwargs: Any
     ) -> ToolResult:
         del kwargs
-        snap, err = _snapshot()
+        snap, err = await _snapshot()
         if err is not None:
             return err
         c = str(caste or "").strip().lower()
@@ -205,7 +208,7 @@ class SentinelLogsTool:
             n = max(1, min(int(limit), _LOG_LIMIT_MAX))
         except (TypeError, ValueError):
             n = 20
-        snap, err = _snapshot()
+        snap, err = await _snapshot()
         if err is not None:
             return err
         q = str(query or "").strip().lower()
@@ -229,7 +232,7 @@ class SentinelCastesTool:
 
     async def run(self, **kwargs: Any) -> ToolResult:
         del kwargs
-        reply = sentinel_client.command("list_castes")
+        reply = await asyncio.to_thread(sentinel_client.command, "list_castes")
         if not reply.get("ok"):
             return _fail(reply)
         counts = dict(reply.get("counts") or {})
