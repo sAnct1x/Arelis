@@ -246,6 +246,10 @@ def live_fifty_turns(*, token: str = BOARD_ID) -> list[ConversationTurn]:
         t("T160_int", "integrate x cubed", expect_tools=("cas",), expect_answer_contains=("x",)),
         t("T161_leave", "leave Earth", allow_no_tools=True),
         t("T162_diag", "run diagnostics", expect_tools=("diagnostics",)),
+        t("T164_sentinel", "how is the sentinel swarm doing", expect_tools=("sentinel_status",)),
+        t("T165_sentinel_units", "list the warden sentinels", expect_tools=("sentinel_list",)),
+        t("T166_sentinel_logs", "show recent sentinel threat logs", expect_tools=("sentinel_logs",)),
+        t("T167_sentinel_castes", "what sentinel castes are there", expect_tools=("sentinel_castes",)),
         t("T163_wrap", f"add a task: coverage board {token} finished", expect_tools=("tasks",), expect_args={"action": "add"}),
     ] + math_board_turns()
 

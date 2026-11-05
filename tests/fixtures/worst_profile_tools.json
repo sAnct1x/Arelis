@@ -3,7 +3,7 @@
     "type": "function",
     "function": {
       "name": "recall",
-      "description": "search memory. action=docs (+ kind=pdf|docx|md) for local files. miss is a miss",
+      "description": "search memory. action=docs (+ kind) for local files. miss is a miss",
       "parameters": {
         "type": "object",
         "properties": {
@@ -53,7 +53,7 @@
     "type": "function",
     "function": {
       "name": "memory",
-      "description": "durable facts / prefs. action=list to read them back, remember, forget",
+      "description": "durable facts / prefs. action=list to read them back",
       "parameters": {
         "type": "object",
         "properties": {
@@ -110,7 +110,7 @@
     "type": "function",
     "function": {
       "name": "tasks",
-      "description": "short list. action=list|add|update|done|reopen|remove|attach|detach. fix a typo with update, not remove+add",
+      "description": "short list. fix a typo with update, not remove+add",
       "parameters": {
         "type": "object",
         "properties": {
@@ -180,7 +180,7 @@
     "type": "function",
     "function": {
       "name": "goals",
-      "description": "long-lived goals. action=list|add|done|drop",
+      "description": "long-lived goals",
       "parameters": {
         "type": "object",
         "properties": {
@@ -245,7 +245,7 @@
     "type": "function",
     "function": {
       "name": "contacts",
-      "description": "local address book. action=list|get|add|update|remove",
+      "description": "local address book",
       "parameters": {
         "type": "object",
         "properties": {
@@ -332,7 +332,7 @@
     "type": "function",
     "function": {
       "name": "scrape",
-      "description": "readable page text. Prefer scrape for news/docs",
+      "description": "readable page text",
       "parameters": {
         "type": "object",
         "properties": {
@@ -350,7 +350,7 @@
     "type": "function",
     "function": {
       "name": "web_search",
-      "description": "quick lookup. sourced report is research_report. never guess a url",
+      "description": "quick lookup. sourced report is research_report",
       "parameters": {
         "type": "object",
         "properties": {
@@ -529,7 +529,7 @@
     "type": "function",
     "function": {
       "name": "schedule",
-      "description": "local jobs. action=create|create_briefing|list|update|delete|run_now. move a time with update, not delete+create",
+      "description": "local jobs. move a time with update, not delete+create",
       "parameters": {
         "type": "object",
         "properties": {
@@ -582,7 +582,7 @@
     "type": "function",
     "function": {
       "name": "agenda",
-      "description": "local calendar. action=today|tomorrow|list|free|busy|create|update|delete|close",
+      "description": "local calendar",
       "parameters": {
         "type": "object",
         "properties": {
@@ -668,8 +668,7 @@
           "text": {
             "type": "string"
           }
-        },
-        "required": []
+        }
       }
     }
   },
@@ -705,7 +704,7 @@
     "type": "function",
     "function": {
       "name": "calculator",
-      "description": "exact arithmetic. expression required. takes '15% of 84', '30% off 59.99', '$4.50+$2'. not unit conversion (units), not equations (cas)",
+      "description": "exact arithmetic. takes '15% of 84', '30% off 59.99', '$4.50+$2'. not unit conversion (units), not equations (cas)",
       "parameters": {
         "type": "object",
         "properties": {
@@ -723,7 +722,7 @@
     "type": "function",
     "function": {
       "name": "python",
-      "description": "short numerics (numpy). You can draw charts with matplotlib; save them with plt.savefig('name.png') and they appear in chat.",
+      "description": "short numerics (numpy). plt.savefig('name.png') shows in chat",
       "parameters": {
         "type": "object",
         "properties": {
@@ -757,6 +756,77 @@
     "function": {
       "name": "watch",
       "description": "house doors snapshot. not antivirus",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "sentinel_status",
+      "description": "EMP stop, caste counts",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "sentinel_list",
+      "description": "units, filterable",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "caste": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "sentinel_logs",
+      "description": "event log, newest first",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string",
+            "enum": [
+              "all",
+              "threat",
+              "sanitize",
+              "harvest",
+              "tripwire"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "sentinel_castes",
+      "description": "castes + capabilities",
       "parameters": {
         "type": "object",
         "properties": {}
@@ -851,7 +921,7 @@
     "type": "function",
     "function": {
       "name": "catalog",
-      "description": "arxiv, horizons, apod. table=local, target=body name. closest: omit date and query. do not add a closest or farthest.",
+      "description": "arxiv, horizons, apod",
       "parameters": {
         "type": "object",
         "properties": {
@@ -895,7 +965,7 @@
     "type": "function",
     "function": {
       "name": "solar",
-      "description": "Reality sim. body/status/load. live lab is one source",
+      "description": "Reality sim. live lab is one source",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1010,7 +1080,7 @@
     "type": "function",
     "function": {
       "name": "plot",
-      "description": "chart PNG. histogram|bar|subplots|line|scatter; expr=sin(x)+xmin/xmax; or path=CSV. path is the table, not the picture",
+      "description": "chart PNG. expr=sin(x)+xmin/xmax; or path=CSV table, not the picture",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1082,8 +1152,7 @@
               "slide"
             ]
           }
-        },
-        "required": []
+        }
       }
     }
   },
@@ -1122,7 +1191,7 @@
     "type": "function",
     "function": {
       "name": "data_cell",
-      "description": "run Python on a data file (CSV, FITS). not weather",
+      "description": "run Python on a data file (CSV, FITS)",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1140,7 +1209,7 @@
     "type": "function",
     "function": {
       "name": "document",
-      "description": "write a new file (md, csv, docx, or pdf). not workspace. not to read a pdf",
+      "description": "write a new file. not workspace. not to read a pdf",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1184,7 +1253,7 @@
     "type": "function",
     "function": {
       "name": "pdf",
-      "description": "merge/split/rotate local PDFs. writes a new file. no form fill",
+      "description": "local PDFs. writes a new file. no form fill",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1297,7 +1366,7 @@
     "type": "function",
     "function": {
       "name": "notes",
-      "description": "desk notes. action=add|list|search|read. same folder as keep this",
+      "description": "desk notes. same folder as keep this",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1337,7 +1406,7 @@
     "type": "function",
     "function": {
       "name": "remind",
-      "description": "in-process timer. action=in minutes= + message; at=local time; list; cancel. max 7 days",
+      "description": "in-process timer. action=in minutes= + message; at=local time. max 7 days",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1373,7 +1442,7 @@
     "type": "function",
     "function": {
       "name": "transcribe",
-      "description": "local audio file via the warm voice engine. never loads Whisper mid-turn",
+      "description": "local audio file. never loads Whisper mid-turn",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1391,7 +1460,7 @@
     "type": "function",
     "function": {
       "name": "git_info",
-      "description": "git status/log/diff/branch/blame/show, stash list, stage, commit. no push/reset/checkout",
+      "description": "git. stash is list only. no push/reset/checkout",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1421,8 +1490,7 @@
           "rev": {
             "type": "string"
           }
-        },
-        "required": []
+        }
       }
     }
   },
@@ -1430,7 +1498,7 @@
     "type": "function",
     "function": {
       "name": "run_script",
-      "description": "run a project .py under workspace. not a shell; not diagnostics; not schedule run_now",
+      "description": "run a project .py under workspace",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1488,7 +1556,7 @@
     "type": "function",
     "function": {
       "name": "analyze",
-      "description": "CSV / table. path required. action=query + where/group_by/agg/on to answer a data question; never add up rows from head yourself",
+      "description": "CSV / table. action=query + where/group_by/agg/on to answer a data question; never add up rows from head yourself",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1600,7 +1668,7 @@
     "type": "function",
     "function": {
       "name": "user_location",
-      "description": "user's saved place. not a web guess",
+      "description": "user's saved place",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1622,8 +1690,7 @@
           "place": {
             "type": "string"
           }
-        },
-        "required": []
+        }
       }
     }
   },
@@ -1867,8 +1934,7 @@
           "question": {
             "type": "string"
           }
-        },
-        "required": []
+        }
       }
     }
   },
@@ -1876,7 +1942,7 @@
     "type": "function",
     "function": {
       "name": "camera",
-      "description": "webcam snapshot. inspect only",
+      "description": "webcam. inspect only",
       "parameters": {
         "type": "object",
         "properties": {
@@ -2104,7 +2170,7 @@
     "type": "function",
     "function": {
       "name": "tile",
-      "description": "View menu. action=open|close name=thinking|history|chat|\u2026",
+      "description": "View menu panels",
       "parameters": {
         "type": "object",
         "properties": {
