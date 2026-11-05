@@ -15,50 +15,52 @@ TOOLS_SLASH = "/tools"
 
 # One line per tool. Names + enums in the schema do the rest.
 _SHORT_DESC: dict[str, str] = {
-    "agenda": "local calendar. action=today|tomorrow|list|free|busy|create|update|delete|close",
-    "analyze": "CSV / table. path required. action=query + where/group_by/agg/on to answer a data question; never add up rows from head yourself",
+    "agenda": "local calendar",
+    "analyze": "CSV / table. action=query + where/group_by/agg/on to answer a data question; never add up rows from head yourself",
     "browser": "her Chrome. no passwords/OTP. stop captcha|Pay. click text|ref|nth",
-    "calculator": "exact arithmetic. expression required. takes '15% of 84', '30% off 59.99', '$4.50+$2'. not unit conversion (units), not equations (cas)",
-    "camera": "webcam snapshot. inspect only",
+    "calculator": "exact arithmetic. takes '15% of 84', '30% off 59.99', '$4.50+$2'. not unit conversion (units), not equations (cas)",
+    "camera": "webcam. inspect only",
     # Verbs stay in the action enum, including dsolve. This line only keeps
     # the parameters that enum does not explain. The old verb list was cut
     # so document, workspace, research_report, and web_search can say when
     # to use each one without growing the schema.
     "cas": "symbolic math. n= order, at= point, dir= vector",
     "catalog": (
-        "arxiv, horizons, apod. table=local, target=body name. "
-        "closest: omit date and query. do not add a closest or farthest."
+        "arxiv, horizons, apod"
     ),
     "clipboard": "OS clipboard. action=read (default) | write with text=",
-    "contacts": "local address book. action=list|get|add|update|remove",
-    "data_cell": "run Python on a data file (CSV, FITS). not weather",
+    "contacts": "local address book",
+    "data_cell": "run Python on a data file (CSV, FITS)",
     "diagnostics": "local pytest / doctor. not a web search",
     "desktop": "your Windows session. look=screenshot (grabs+reads). no shell. no raw exe. stop Pay|delete|UAC",
     "doc_extract": "text from a local PDF, including handwritten/scanned pages",
-    "document": "write a new file (md, csv, docx, or pdf). not workspace. not to read a pdf",
+    "document": "write a new file. not workspace. not to read a pdf",
     "earth": "Reality look / bands. not a web search",
-    "git_info": "git status/log/diff/branch/blame/show, stash list, stage, commit. no push/reset/checkout",
-    "goals": "long-lived goals. action=list|add|done|drop",
+    "git_info": "git. stash is list only. no push/reset/checkout",
+    "goals": "long-lived goals",
     "image": "generate an image. confirm first",
     "image_edit": "edit a local image or overlay text. confirm first",
     "inbound_sms": "recent inbound texts. do not invent replies",
     "inbox": "Gmail list/search/trash/archive. action=download saves attachments. never claim delete without a tool",
-    "memory": "durable facts / prefs. action=list to read them back, remember, forget",
+    "memory": "durable facts / prefs. action=list to read them back",
     "ocr": "read text in an image",
-    "notes": "desk notes. action=add|list|search|read. same folder as keep this",
-    "pdf": "merge/split/rotate local PDFs. writes a new file. no form fill",
-    "plot": "chart PNG. histogram|bar|subplots|line|scatter; expr=sin(x)+xmin/xmax; or path=CSV. path is the table, not the picture",
+    "notes": "desk notes. same folder as keep this",
+    "pdf": "local PDFs. writes a new file. no form fill",
+    "plot": "chart PNG. expr=sin(x)+xmin/xmax; or path=CSV table, not the picture",
     "python": (
-        "short numerics (numpy). You can draw charts with matplotlib; "
-        "save them with plt.savefig('name.png') and they appear in chat."
+        "short numerics (numpy). plt.savefig('name.png') shows in chat"
     ),
-    "recall": "search memory. action=docs (+ kind=pdf|docx|md) for local files. miss is a miss",
-    "remind": "in-process timer. action=in minutes= + message; at=local time; list; cancel. max 7 days",
+    "recall": "search memory. action=docs (+ kind) for local files. miss is a miss",
+    "remind": "in-process timer. action=in minutes= + message; at=local time. max 7 days",
     "research_report": "first choice for a sourced multi-source report. searches and scrapes",
-    "run_script": "run a project .py under workspace. not a shell; not diagnostics; not schedule run_now",
-    "schedule": "local jobs. action=create|create_briefing|list|update|delete|run_now. move a time with update, not delete+create",
+    "run_script": "run a project .py under workspace",
+    "schedule": "local jobs. move a time with update, not delete+create",
     "sql": "read-only SELECT on memory.db or a workspace CSV. never INSERT/UPDATE/DELETE",
-    "scrape": "readable page text. Prefer scrape for news/docs",
+    "scrape": "readable page text. prefer for news/docs",
+    "sentinel_castes": "caste capabilities",
+    "sentinel_list": "units, filterable",
+    "sentinel_logs": "event log, newest first",
+    "sentinel_status": "EMP stop, caste counts",
     "send_email": "send mail. confirm card. never invent sent",
     # Prescriptive on purpose. The first attempt at this line said "do not
     # look up contacts first", and she stopped calling contacts — and stopped
@@ -66,17 +68,17 @@ _SHORT_DESC: dict[str, str] = {
     # tells her what not to do and leaves nowhere to go; wrong tool is
     # recoverable by a redirect, no tool means the text never sends.
     "send_sms": "text via the user's phone. confirm card. to= a nickname (wife, mom, me) or a number they gave, body= their words. contacts optional; never invent a number",
-    "solar": "Reality sim. body/status/load. live lab is one source",
-    "tasks": "short list. action=list|add|update|done|reopen|remove|attach|detach. fix a typo with update, not remove+add",
-    "tile": "View menu. action=open|close name=thinking|history|chat|…",
-    "transcribe": "local audio file via the warm voice engine. never loads Whisper mid-turn",
+    "solar": "Reality sim. live lab is one source",
+    "tasks": "short list. fix a typo with update, not remove+add",
+    "tile": "View menu panels",
+    "transcribe": "local audio file. never loads Whisper mid-turn",
     "units": "unit convert",
-    "user_location": "user's saved place. not a web guess",
+    "user_location": "user's saved place",
     "vision": "describe a local image",
     "watch": "house doors snapshot. not antivirus",
     "weather": "forecast. defaults to the user's own place, omit place for home, never look up their location first. place=city name, not coords",
     "web_fetch": "http(s) APIs / JSON. not pages. method=POST|PUT|PATCH|DELETE + headers/body for a real API; non-GET asks first",
-    "web_search": "quick lookup. sourced report is research_report. never guess a url",
+    "web_search": "quick lookup. sourced report is research_report",
     # Action names stay in the enum. patch= and writes confirm do not.
     "workspace": "plain files in the code workspace, not a formatted document. patch=unified diff. writes confirm",
 }
@@ -189,6 +191,9 @@ def skinny_parameters(
                 }
 
         stripped["properties"] = filtered
+    # An empty required list says nothing; it only costs tokens every turn.
+    if isinstance(stripped, dict) and stripped.get("required") == []:
+        del stripped["required"]
     return stripped
 
 

@@ -60,6 +60,7 @@ from arelis.tools.run_task import RunTaskTool
 from arelis.tools.schedule_jobs import ScheduleTool
 from arelis.tools.scrape import ScrapeTool
 from arelis.tools.search import build_search_tool
+from arelis.tools.sentinel_tool import sentinel_tools
 from arelis.tools.sms_send import SendSmsTool
 from arelis.tools.solar_tool import SolarTool
 from arelis.tools.sql_query import SqlTool
@@ -370,6 +371,8 @@ def build_tool_registry(
     )
     registry.register(DiagnosticsTool())
     registry.register(WatchTool())
+    for tool in sentinel_tools():
+        registry.register(tool)
     if tools_cfg.get("cas", {}).get("enabled", True):
         registry.register(CasTool())
     if tools_cfg.get("units", {}).get("enabled", True):

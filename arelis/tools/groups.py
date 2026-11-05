@@ -42,6 +42,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "code": ("git_info", "run_script", "run_task"),
     "research": ("research_report", "browser"),
     "pc_home": ("desktop", "watch"),
+    "sentinel": ("sentinel_status", "sentinel_list", "sentinel_logs", "sentinel_castes"),
 }
 
 MENU: dict[str, str] = {
@@ -53,6 +54,7 @@ MENU: dict[str, str] = {
     "code": "code (git, scripts, project tasks)",
     "research": "research (reports, browser)",
     "pc_home": "pc and home (desktop, watch)",
+    "sentinel": "sentinel (swarm status, units, logs, castes)",
 }
 
 KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -176,6 +178,7 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
         "watch",
         "window",
     ),
+    "sentinel": ("sentinel", "sentinels", "swarm", "caste", "castes", "emp"),
 }
 
 _BY_TOOL: dict[str, str] = {name: "core" for name in CORE}

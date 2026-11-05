@@ -11,7 +11,7 @@ from arelis.eval.live_fifty import (
     live_fifty_turns,
 )
 
-PRODUCT_N = 160
+PRODUCT_N = 164
 MATH_N = 163
 
 

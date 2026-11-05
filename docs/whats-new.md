@@ -18,6 +18,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 ## 0.3.5 (in progress)
 
 - Sentinels: View, then Sentinels opens a separate window with the live Overseer, themed to match Arelis. If Sentinel is offline it says so and offers Start. See [sentinels.md](sentinels.md).
+- Sentinels: Arelis can now read the swarm when you ask: status and emergency stop, units by caste or state, the event log with the Overseer's filters, and the castes. Read only. See [sentinels.md](sentinels.md).
 
 ## 0.3.4
 

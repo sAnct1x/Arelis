@@ -22,3 +22,20 @@ The page is served on `127.0.0.1` only. The session key that lets the page
 talk to Sentinel travels in the part of the address after `#`, which is
 never sent to the server or written to its logs, and the page removes it
 from its history as soon as it loads.
+
+## Asking Arelis about the swarm
+
+Arelis can read the swarm for you. She can only look; she cannot deploy,
+stop, or retask sentinels yet, and she can never undo an emergency stop.
+
+- "How is the sentinel swarm doing?" She reports whether the emergency
+  stop is on and how many units each caste has.
+- "List the warden sentinels" or "which sentinels are patrolling?" She
+  lists units, filtered by caste, state, or words in their current task.
+- "Show recent sentinel threat logs." She reads the event log with the
+  same filters as the Overseer console: all, threats, injection
+  (sanitize), harvests, and tripwire, plus a text search.
+- "What sentinel castes are there?" She lists built-in and custom castes
+  with what each one is allowed to do.
+
+If Sentinel is not running she says so instead of guessing.
