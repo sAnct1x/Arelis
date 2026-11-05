@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import socket
+import subprocess
+import sys
+import types
+
 import pytest
 
 from sentinel.bridge.client import SentinelClient
@@ -199,30 +205,286 @@ async def test_cryptarch_caste() -> None:
 
 @pytest.mark.asyncio
 async def test_stalker_caste() -> None:
-    """Verify StalkerCaste inspects host processes and memory."""
+    """Stalker deploy/retask maps to real local process audit handlers."""
     hive = SwarmHive()
+    server = None
+    child = None
+    listener = None
+    accepted = None
     try:
         unit = hive.spawn_unit("stalker")
         assert unit.caste == "stalker"
         assert unit.unit_id.startswith("SNT-STK-")
 
-        # 1. List processes
         list_res = await hive.dispatch_task(
             "stalker",
             {"capability": "process:list", "limit": 10},
         )
         assert list_res["ok"] is True
         assert len(list_res["result"]["processes"]) > 0
+        assert list_res["result"]["limit"] == 10
+        assert all("cmdline" not in row for row in list_res["result"]["processes"])
+        if list_res["result"]["count"] == 10:
+            assert list_res["result"].get("truncated") is True
 
-        # 2. Audit memory
+        capped = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:list", "limit": 10_000},
+        )
+        assert capped["ok"] is True
+        assert capped["result"]["limit"] == 80
+        assert capped["result"]["count"] <= 80
+        if capped["result"]["count"] == 80:
+            assert capped["result"].get("truncated") is True
+
         mem_res = await hive.dispatch_task(
             "stalker",
             {"capability": "process:audit_memory", "threshold": 99.0},
         )
         assert mem_res["ok"] is True
+        assert mem_res["result"]["scope"] == "host_ram"
         assert "total_gb" in mem_res["result"]
         assert "used_percent" in mem_res["result"]
+
+        stk = hive.registry.get("stalker")
+        skmod = __import__("sentinel.castes.stalker", fromlist=["psutil", "heapq"])
+
+        def _info(**info: object) -> types.SimpleNamespace:
+            return types.SimpleNamespace(info=info)
+
+        old_iter = skmod.psutil.process_iter
+        try:
+            def iter_list(_attrs=None):
+                for i in range(90):
+                    yield _info(
+                        pid=i + 1,
+                        name=f"p{i}",
+                        username="u",
+                        memory_percent=0.1,
+                        status="running",
+                    )
+
+            skmod.psutil.process_iter = iter_list
+            listed = stk.list_processes(limit=80)
+            assert listed["count"] == 80
+            assert listed["truncated"] is True
+            assert listed["partial"] is False
+        finally:
+            skmod.psutil.process_iter = old_iter
+
+        try:
+            def iter_rogue(_attrs=None):
+                for i in range(39):
+                    yield _info(
+                        pid=1000 + i,
+                        name="nc.exe",
+                        cmdline=[],
+                        exe="C:/Windows/nc.exe",
+                        ppid=1,
+                    )
+                yield _info(
+                    pid=2000,
+                    name="nc.exe",
+                    cmdline=[],
+                    exe="/tmp/evil-nc",
+                    ppid=1,
+                )
+
+            skmod.psutil.process_iter = iter_rogue
+            multi = stk.detect_rogue_processes()
+            assert multi["truncated"] is True
+            assert len(multi["flagged"]) == 40
+            assert all(row.get("heuristic") is True for row in multi["flagged"])
+        finally:
+            skmod.psutil.process_iter = old_iter
+
+        heap_lens: list[int] = []
+        real_push = skmod.heapq.heappush
+        real_replace = skmod.heapq.heapreplace
+
+        def tracking_push(heap, item):
+            real_push(heap, item)
+            heap_lens.append(len(heap))
+
+        def tracking_replace(heap, item):
+            real_replace(heap, item)
+            heap_lens.append(len(heap))
+
+        skmod.heapq.heappush = tracking_push
+        skmod.heapq.heapreplace = tracking_replace
+        try:
+            def iter_mem(_attrs=None):
+                for i in range(200):
+                    yield _info(pid=i + 1, name=f"h{i}", memory_percent=5.0 + i)
+
+            skmod.psutil.process_iter = iter_mem
+            pressed = stk.audit_memory(threshold_pct=99.0)
+            assert heap_lens and max(heap_lens) <= 10
+            assert len(pressed["top_consumers"]) == 10
+            scores = [row["memory_percent"] for row in pressed["top_consumers"]]
+            assert scores == sorted(scores, reverse=True)
+            assert scores[0] == 204.0
+            assert scores[-1] == 195.0
+        finally:
+            skmod.psutil.process_iter = old_iter
+            skmod.heapq.heappush = real_push
+            skmod.heapq.heapreplace = real_replace
+
+
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(5)
+        port = listener.getsockname()[1]
+        child = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import socket, time; "
+                    f"s = socket.create_connection(('127.0.0.1', {port})); "
+                    "time.sleep(30)"
+                ),
+            ]
+        )
+        accepted, _peer = listener.accept()
+        inspected = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:inspect_pid", "pid": child.pid},
+        )
+        assert inspected["ok"] is True
+        info = inspected["result"]
+        assert info["ok"] is True
+        assert info["pid"] == child.pid
+        assert info.get("exe")
+        assert "cmdline" not in info
+        assert info.get("ppid") == os.getpid()
+        assert info.get("parent") and info["parent"]["pid"] == os.getpid()
+        endpoints = info.get("remote_endpoints") or []
+        assert any(
+            ep.get("ip") in {"127.0.0.1", "::ffff:127.0.0.1"} and ep.get("port") == port
+            for ep in endpoints
+        ), endpoints
+        assert info.get("truncated") in (None, False)
+
+        class _Kid:
+            def __init__(self, pid: int) -> None:
+                self.pid = pid
+
+            def name(self) -> str:
+                return f"child-{self.pid}"
+
+        def _fake_children(self, recursive=False):
+            return [_Kid(i) for i in range(20)]
+
+        def _fake_conns(self, kind="inet"):
+            rows = []
+            for i in range(20):
+                rows.append(
+                    types.SimpleNamespace(
+                        raddr=types.SimpleNamespace(ip="10.0.0.8", port=4000 + i),
+                        status="ESTABLISHED",
+                    )
+                )
+            return rows
+
+        old_children = skmod.psutil.Process.children
+        old_conns = getattr(skmod.psutil.Process, "net_connections", None)
+        skmod.psutil.Process.children = _fake_children
+        skmod.psutil.Process.net_connections = _fake_conns
+        try:
+            cut = stk.inspect_pid(child.pid)
+            assert cut["ok"] is True
+            assert cut.get("truncated") is True
+            assert "children" in cut.get("truncated_fields", [])
+            assert "remote_endpoints" in cut.get("truncated_fields", [])
+            assert len(cut["children"]) == 16
+            assert len(cut["remote_endpoints"]) == 16
+            assert cut.get("error") not in {"unknown", "access denied", "process disappeared"}
+        finally:
+            skmod.psutil.Process.children = old_children
+            if old_conns is not None:
+                skmod.psutil.Process.net_connections = old_conns
+            elif hasattr(skmod.psutil.Process, "net_connections"):
+                delattr(skmod.psutil.Process, "net_connections")
+
+        gone = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:inspect_pid", "pid": 999_999_99},
+        )
+        assert gone["ok"] is False
+        assert gone["result"]["error"] == "process disappeared"
+
+        unknown = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:inspect_pid", "pid": "nope"},
+        )
+        assert unknown["ok"] is False
+        assert unknown["result"]["error"] == "unknown"
+
+        rogue = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:detect_rogue"},
+        )
+        assert rogue["ok"] is True
+        assert rogue["result"]["heuristic"] is True
+        assert "flagged" in rogue["result"]
+        assert len(rogue["result"]["flagged"]) <= 40
+        for row in rogue["result"]["flagged"]:
+            assert row.get("heuristic") is True
+            assert "cmdline" not in row
+
+        with pytest.raises(PermissionViolationError):
+            await hive.dispatch_task(
+                "stalker",
+                {"capability": "process:kill"},
+            )
+
+        blocked = await hive.dispatch_task(
+            "stalker",
+            {
+                "capability": "process:list",
+                "method": "POST",
+                "url": "https://example.com/exfil",
+            },
+        )
+        assert blocked["ok"] is False
+
+        hive.emp._tripped = True
+        halted = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:list"},
+        )
+        assert halted["ok"] is False
+        assert "EMP" in str(halted.get("error") or "")
+        hive.emp._tripped = False
+
+        server = SentinelBridgeServer(hive, preferred_port=0)
+        port_b = await server.start()
+        client = SentinelClient(port=port_b)
+        spawned = await client.spawn_units("stalker", 1)
+        assert spawned.get("ok") is True
+        tasked = await client.dispatch_task(
+            "stalker", {"capability": "process:list", "limit": 3}
+        )
+        assert tasked.get("ok") is True
+        inner = tasked.get("result") or {}
+        if "count" not in inner and isinstance(inner.get("result"), dict):
+            inner = inner["result"]
+        if "count" in inner:
+            assert inner["count"] <= 3
     finally:
+        hive.emp._tripped = False
+        if child is not None:
+            child.kill()
+            child.wait(timeout=5)
+        if accepted is not None:
+            accepted.close()
+        if listener is not None:
+            listener.close()
+        if server is not None:
+            await server.stop()
         await hive.stop_background_loops()
 
 

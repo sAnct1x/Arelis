@@ -22,7 +22,7 @@ from typing import Any
 from arelis import sentinel_client
 from arelis.tools.base import ToolResult
 
-BUILT_IN_CASTES = ("harvester", "warden", "sanitizer", "tripwire")
+BUILT_IN_CASTES = ("harvester", "warden", "sanitizer", "tripwire", "stalker")
 LOG_FILTERS = ("all", "threat", "sanitize", "harvest", "tripwire")
 _LOG_LIMIT_MAX = 60
 _LIST_MAX = 50
@@ -309,6 +309,30 @@ RETASK_MAP: dict[tuple[str, str], tuple[dict[str, Any], str | None, bool, frozen
         "data",
         True,
         frozenset({"source"}),
+    ),
+    ("stalker", "process:list"): (
+        {"capability": "process:list"},
+        None,
+        False,
+        frozenset({"limit"}),
+    ),
+    ("stalker", "process:inspect_pid"): (
+        {"capability": "process:inspect_pid"},
+        "pid",
+        True,
+        frozenset(),
+    ),
+    ("stalker", "process:detect_rogue"): (
+        {"capability": "process:detect_rogue"},
+        None,
+        False,
+        frozenset(),
+    ),
+    ("stalker", "process:audit_memory"): (
+        {"capability": "process:audit_memory"},
+        None,
+        False,
+        frozenset({"threshold"}),
     ),
 }
 
