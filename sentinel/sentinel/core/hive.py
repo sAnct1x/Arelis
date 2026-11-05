@@ -945,6 +945,7 @@ class SwarmHive:
         if parked is not None:
             return parked
         res = await self.emp.restore_swarm(self.units)
+        self._ensure_telemetry_loop()
         self.telemetry.record(
             "INFO",
             unit_id="EMP-CORE",
@@ -1228,8 +1229,151 @@ class SwarmHive:
             "telemetry_log": self.telemetry.recent(limit=60),
         }
 
+    async def _run_telemetry_loop(self) -> None:
+        last_merkle_alert_sig = ""
+        last_exposure_alert_sig = ""
+        last_new_ports_sig = ""
+        last_flood_sig = ""
+        while self._running:
+            await asyncio.sleep(self._telemetry_interval_s)
+            if not self._running:
+                break
+            try:
+                bundle: dict[str, Any] | None = None
+                if self.alert_policy.begin_scan():
+                    try:
+                        bundle = await asyncio.to_thread(self._scan_host_bundle)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        log.exception("Sentinel host scan failed; continuing")
+                signals: list[tuple[str, str]] = []
+                wrd = self.registry.get("warden")
+                if isinstance(wrd, WardenCaste) and bundle and "raw_snap" in bundle:
+                    # Node mutation on the loop thread (no cross-thread dict races).
+                    b_snap = wrd.apply_bastion_snapshot(self.nodes, bundle["raw_snap"])
+                    exposed = [
+                        f":{b['port']} ({b['process']})"
+                        for b in (b_snap.get("bastions") or [])
+                        if b.get("exposure_warning")
+                    ]
+                    exp_sig = ",".join(exposed)
+                    if exp_sig and exp_sig != last_exposure_alert_sig:
+                        last_exposure_alert_sig = exp_sig
+                        self.telemetry.record(
+                            "CRITICAL",
+                            unit_id="SNT-WRD-001",
+                            caste="warden",
+                            phase="LIVE OS EXPOSURE",
+                            message=f"Loopback service exposed on 0.0.0.0/:: across all NICs: {exp_sig}",
+                            details={"exposed_ports": exposed},
+                        )
+                    elif not exp_sig:
+                        last_exposure_alert_sig = ""
+                    if exp_sig:
+                        signals.append(("exposure", exp_sig))
+
+                    new_ports = list(b_snap.get("new_listening_ports") or [])
+                    np_sig = ",".join(new_ports)
+                    if np_sig and np_sig != last_new_ports_sig:
+                        last_new_ports_sig = np_sig
+                        self.telemetry.record(
+                            "WARDEN",
+                            unit_id="SNT-WRD-001",
+                            caste="warden",
+                            phase="NEW OS PORT BOUND",
+                            message=f"New listening TCP port(s) opened on host since boot: {np_sig}",
+                            details={"new_listening_ports": new_ports},
+                        )
+                    elif not np_sig:
+                        last_new_ports_sig = ""
+                    if np_sig:
+                        signals.append(("new_ports", np_sig))
+
+                    flood_peers = list(b_snap.get("flood_peers") or [])
+                    fl_sig = ",".join(f"{fp['remote_ip']}:{fp['connections']}" for fp in flood_peers)
+                    if fl_sig and fl_sig != last_flood_sig:
+                        last_flood_sig = fl_sig
+                        self.telemetry.record(
+                            "CRITICAL",
+                            unit_id="SNT-WRD-001",
+                            caste="warden",
+                            phase="REMOTE SOCKET FLOOD",
+                            message=f"High-concurrency remote peer(s) detected: {fl_sig}",
+                            details={"flood_peers": flood_peers},
+                        )
+                    elif not fl_sig:
+                        last_flood_sig = ""
+                    if fl_sig:
+                        signals.append(("flood", fl_sig))
+
+                trp = self.registry.get("tripwire")
+                if isinstance(trp, TripwireCaste) and bundle and "raw_verdict" in bundle:
+                    m_verdict = trp.apply_merkle_verdict(self.nodes, bundle["raw_verdict"])
+                    if not m_verdict.get("intact", True):
+                        dirty_roots = [
+                            f"{r['label']} (mod={len(r.get('modified', []))}, add={len(r.get('added', []))}, del={len(r.get('deleted', []))})"
+                            for r in (m_verdict.get("roots") or [])
+                            if not r.get("intact", True)
+                        ]
+                        m_sig = ";".join(dirty_roots)
+                        if m_sig and m_sig != last_merkle_alert_sig:
+                            last_merkle_alert_sig = m_sig
+                            self.telemetry.record(
+                                "CRITICAL",
+                                unit_id="SNT-TRP-001",
+                                caste="tripwire",
+                                phase="LIVE MERKLE BREACH",
+                                message=f"Live filesystem modification detected by BLAKE2b Merkle guard: {m_sig}",
+                                details={"roots": [
+                                    {k: v for k, v in r.items() if k != "diffs"}
+                                    for r in (m_verdict.get("roots") or [])
+                                ]},
+                            )
+                    else:
+                        last_merkle_alert_sig = ""
+                    if not m_verdict.get("intact", True) and m_sig:
+                        signals.append(("merkle", m_sig))
+
+                canaries = list((bundle or {}).get("canaries") or [])
+                if canaries:
+                    canary_sig = ",".join(
+                        str(c.get("id") or c.get("reason") or "") for c in canaries
+                    )
+                    if canary_sig:
+                        signals.append(("canary", canary_sig))
+                if bundle and "host_telemetry" in bundle:
+                    self.host_telemetry = bundle["host_telemetry"]
+                if self._running and not self.emp.is_tripped:
+                    if signals:
+                        await self.apply_alert_signals(signals)
+                    if not self.alert_policy.dispatch_in_flight():
+                        self.emp.track_task(
+                            asyncio.create_task(self._run_autonomous_patrol_sortie())
+                        )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Sentinel telemetry tick failed; continuing")
+
+    def _ensure_telemetry_loop(self) -> None:
+        """Restart EMP-tracked host observation after an authorized human restore.
+
+        trigger_emp cancels the tracked loop. _running stays True, so a naive
+        start_background_loops would no-op. Do not start while still tripped.
+        """
+        if not self._running or self.emp.is_tripped:
+            return
+        task = self._telemetry_task
+        if task is not None and not task.done():
+            return
+        self._telemetry_task = self.emp.track_task(
+            asyncio.create_task(self._run_telemetry_loop())
+        )
+
     async def start_background_loops(self, *, hz: int = 60) -> None:
         if self._running:
+            self._ensure_telemetry_loop()
             return
         self._running = True
         interval = 1.0 / max(10, min(int(hz), 120))
@@ -1246,135 +1390,8 @@ class SwarmHive:
                     log.exception("Sentinel kinematics tick failed; continuing")
                 await asyncio.sleep(interval)
 
-        async def _telemetry_loop() -> None:
-            last_merkle_alert_sig = ""
-            last_exposure_alert_sig = ""
-            last_new_ports_sig = ""
-            last_flood_sig = ""
-            while self._running:
-                await asyncio.sleep(self._telemetry_interval_s)
-                if not self._running:
-                    break
-                try:
-                    bundle: dict[str, Any] | None = None
-                    if self.alert_policy.begin_scan():
-                        try:
-                            bundle = await asyncio.to_thread(self._scan_host_bundle)
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception:
-                            log.exception("Sentinel host scan failed; continuing")
-                    signals: list[tuple[str, str]] = []
-                    wrd = self.registry.get("warden")
-                    if isinstance(wrd, WardenCaste) and bundle and "raw_snap" in bundle:
-                        # Node mutation on the loop thread (no cross-thread dict races).
-                        b_snap = wrd.apply_bastion_snapshot(self.nodes, bundle["raw_snap"])
-                        exposed = [
-                            f":{b['port']} ({b['process']})"
-                            for b in (b_snap.get("bastions") or [])
-                            if b.get("exposure_warning")
-                        ]
-                        exp_sig = ",".join(exposed)
-                        if exp_sig and exp_sig != last_exposure_alert_sig:
-                            last_exposure_alert_sig = exp_sig
-                            self.telemetry.record(
-                                "CRITICAL",
-                                unit_id="SNT-WRD-001",
-                                caste="warden",
-                                phase="LIVE OS EXPOSURE",
-                                message=f"Loopback service exposed on 0.0.0.0/:: across all NICs: {exp_sig}",
-                                details={"exposed_ports": exposed},
-                            )
-                        elif not exp_sig:
-                            last_exposure_alert_sig = ""
-                        if exp_sig:
-                            signals.append(("exposure", exp_sig))
-
-                        new_ports = list(b_snap.get("new_listening_ports") or [])
-                        np_sig = ",".join(new_ports)
-                        if np_sig and np_sig != last_new_ports_sig:
-                            last_new_ports_sig = np_sig
-                            self.telemetry.record(
-                                "WARDEN",
-                                unit_id="SNT-WRD-001",
-                                caste="warden",
-                                phase="NEW OS PORT BOUND",
-                                message=f"New listening TCP port(s) opened on host since boot: {np_sig}",
-                                details={"new_listening_ports": new_ports},
-                            )
-                        elif not np_sig:
-                            last_new_ports_sig = ""
-                        if np_sig:
-                            signals.append(("new_ports", np_sig))
-
-                        flood_peers = list(b_snap.get("flood_peers") or [])
-                        fl_sig = ",".join(f"{fp['remote_ip']}:{fp['connections']}" for fp in flood_peers)
-                        if fl_sig and fl_sig != last_flood_sig:
-                            last_flood_sig = fl_sig
-                            self.telemetry.record(
-                                "CRITICAL",
-                                unit_id="SNT-WRD-001",
-                                caste="warden",
-                                phase="REMOTE SOCKET FLOOD",
-                                message=f"High-concurrency remote peer(s) detected: {fl_sig}",
-                                details={"flood_peers": flood_peers},
-                            )
-                        elif not fl_sig:
-                            last_flood_sig = ""
-                        if fl_sig:
-                            signals.append(("flood", fl_sig))
-
-                    trp = self.registry.get("tripwire")
-                    if isinstance(trp, TripwireCaste) and bundle and "raw_verdict" in bundle:
-                        m_verdict = trp.apply_merkle_verdict(self.nodes, bundle["raw_verdict"])
-                        if not m_verdict.get("intact", True):
-                            dirty_roots = [
-                                f"{r['label']} (mod={len(r.get('modified', []))}, add={len(r.get('added', []))}, del={len(r.get('deleted', []))})"
-                                for r in (m_verdict.get("roots") or [])
-                                if not r.get("intact", True)
-                            ]
-                            m_sig = ";".join(dirty_roots)
-                            if m_sig and m_sig != last_merkle_alert_sig:
-                                last_merkle_alert_sig = m_sig
-                                self.telemetry.record(
-                                    "CRITICAL",
-                                    unit_id="SNT-TRP-001",
-                                    caste="tripwire",
-                                    phase="LIVE MERKLE BREACH",
-                                    message=f"Live filesystem modification detected by BLAKE2b Merkle guard: {m_sig}",
-                                    details={"roots": [
-                                        {k: v for k, v in r.items() if k != "diffs"}
-                                        for r in (m_verdict.get("roots") or [])
-                                    ]},
-                                )
-                        else:
-                            last_merkle_alert_sig = ""
-                        if not m_verdict.get("intact", True) and m_sig:
-                            signals.append(("merkle", m_sig))
-
-                    canaries = list((bundle or {}).get("canaries") or [])
-                    if canaries:
-                        canary_sig = ",".join(
-                            str(c.get("id") or c.get("reason") or "") for c in canaries
-                        )
-                        if canary_sig:
-                            signals.append(("canary", canary_sig))
-                    if bundle and "host_telemetry" in bundle:
-                        self.host_telemetry = bundle["host_telemetry"]
-                    if self._running and not self.emp.is_tripped:
-                        if signals:
-                            await self.apply_alert_signals(signals)
-                        if not self.alert_policy.dispatch_in_flight():
-                            self.emp.track_task(
-                                asyncio.create_task(self._run_autonomous_patrol_sortie())
-                            )
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    log.exception("Sentinel telemetry tick failed; continuing")
-
         self._kinematics_task = asyncio.create_task(_loop())
-        self._telemetry_task = self.emp.track_task(asyncio.create_task(_telemetry_loop()))
+        self._ensure_telemetry_loop()
 
     async def stop_background_loops(self) -> None:
         self._running = False

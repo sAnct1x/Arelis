@@ -79,5 +79,6 @@ It does not install a firewall rule, kill a process, or repair files on its
 own. A "listed" peer in the Overseer is a record in Sentinel's own list, not
 an operating-system block. A single change on a watched folder can raise a
 file alert even when you made the change. The emergency stop still halts new
-work at once; only you can lift it.
+work at once; only you can lift it. After you lift it, host watching starts
+again.
 
