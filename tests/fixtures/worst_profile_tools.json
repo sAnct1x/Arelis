@@ -332,7 +332,7 @@
     "type": "function",
     "function": {
       "name": "scrape",
-      "description": "readable page text",
+      "description": "readable page text. prefer for news/docs",
       "parameters": {
         "type": "object",
         "properties": {
@@ -826,7 +826,7 @@
     "type": "function",
     "function": {
       "name": "sentinel_castes",
-      "description": "castes + capabilities",
+      "description": "caste capabilities",
       "parameters": {
         "type": "object",
         "properties": {}
