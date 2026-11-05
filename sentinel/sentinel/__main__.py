@@ -16,6 +16,18 @@ from sentinel.core.hive import SwarmHive
 from sentinel.ui.window import launch_overseer_window
 
 
+def _write_endpoint(host: str, port: int) -> None:
+    """Record the bound bridge address for Arelis. Written after bind, atomically."""
+    import os
+
+    from sentinel.paths import endpoint_path
+
+    path = endpoint_path()
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"host": host, "port": int(port)}), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 async def _run_headless(config: dict) -> int:
     hive = SwarmHive(config)
     bridge_cfg = config.get("bridge") or {}
@@ -26,6 +38,7 @@ async def _run_headless(config: dict) -> int:
         telemetry_hz=int(bridge_cfg.get("telemetry_hz", 30)),
     )
     await server.start()
+    _write_endpoint(server.host, server.bound_port)
     print(f"SENTINEL HIVE ONLINE -> {overseer_public_url(server.host, server.bound_port)}")
     try:
         await asyncio.Event().wait()

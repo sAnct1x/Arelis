@@ -950,6 +950,7 @@ class FilamentDesk:
         menu.addAction(w.act_camera)
         menu.addAction(w.act_contacts)
         menu.addAction(w.act_calendar)
+        menu.addAction(w.act_sentinels)
         if world_available():
             menu.addAction(w.act_world)
         menu.addSeparator()

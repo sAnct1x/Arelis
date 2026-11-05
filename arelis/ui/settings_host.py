@@ -294,6 +294,10 @@ def _apply_window_theme(window, theme_id: str, *, persist: bool, trace=None) -> 
         merge_local_config({"ui": {"theme": resolved}})
 
     install_stylesheet(window)
+    # The Sentinels window is top-level, so the restyle above does not reach it.
+    sentinels = getattr(window, "sentinel_window", None)
+    if sentinels is not None:
+        sentinels.apply_theme()
     if trace is not None:
         trace.mark("stylesheet")
 

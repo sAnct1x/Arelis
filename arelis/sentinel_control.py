@@ -1,4 +1,4 @@
-"""Arelis owns the Sentinel child. start and stop only. No model-facing ops."""
+"""Arelis owns the Sentinel child. start, stop, and the Overseer URL. No model-facing ops."""
 
 from __future__ import annotations
 
@@ -20,11 +20,14 @@ _CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00
 _lock = threading.Lock()
 _process: subprocess.Popen[bytes] | None = None
 _token: str | None = None
+_endpoint: tuple[str, int] | None = None
+_endpoint_file: Path | None = None
 _stopped = False
 
 _TOKEN_WAIT_S = 8.0
 _TOKEN_POLL_S = 0.05
 _STOP_WAIT_S = 1.5
+_LOOPBACK = frozenset({"127.0.0.1", "::1"})
 
 
 def _sentinel_root() -> Path | None:
@@ -79,6 +82,25 @@ def _token_path(data_root: Path) -> Path:
     return data_root / "data" / "session_token"
 
 
+def _endpoint_path(data_root: Path) -> Path:
+    return data_root / "data" / "bridge_endpoint.json"
+
+
+def _read_endpoint(path: Path) -> tuple[str, int] | None:
+    """Host and port the child bound, from the file it writes after bind."""
+    import json
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        host = str(raw["host"])
+        port = int(raw["port"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not 0 < port < 65536:
+        return None
+    return host, port
+
+
 def _read_token(path: Path, *, timeout_s: float) -> str | None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -126,17 +148,24 @@ def _kill(proc: subprocess.Popen[bytes], *, timeout_s: float) -> None:
 
 def start() -> None:
     """Launch headless Sentinel as a child. Fail soft. Leave a tripped EMP flag."""
-    global _process, _token, _stopped
+    global _process, _token, _endpoint, _endpoint_file, _stopped
     with _lock:
         _stopped = False
         if _process is not None and _process.poll() is None:
             return
         _token = None
+        _endpoint = None
+        _endpoint_file = None
         sentinel_root = _sentinel_root()
         if sentinel_root is None:
             log.warning("Sentinel did not start")
             return
         data_root = _runtime_root()
+        # A file left by an earlier run could point at a port someone else now holds.
+        try:
+            _endpoint_path(data_root).unlink(missing_ok=True)
+        except OSError:
+            log.warning("Sentinel endpoint file could not be cleared")
         argv = [sys.executable, "-m", "sentinel", "--headless"]
         env = _child_env(data_root, sentinel_root)
         try:
@@ -162,17 +191,48 @@ def start() -> None:
             _token = None
             return
         _token = token
+        _endpoint_file = _endpoint_path(data_root)
         log.info("Sentinel child is up")
 
 
 def stop(*, timeout_s: float = _STOP_WAIT_S) -> None:
     """Stop the child Arelis started. Safe to call more than once."""
-    global _process, _token, _stopped
+    global _process, _token, _endpoint, _endpoint_file, _stopped
     with _lock:
         _stopped = True
         proc = _process
         _process = None
         _token = None
+        _endpoint = None
+        _endpoint_file = None
     if proc is None:
         return
     _kill(proc, timeout_s=timeout_s)
+
+
+def overseer_url() -> str | None:
+    """Overseer page on loopback, token in the fragment only. None when down.
+
+    Host and port are the ones the child reported after binding, never a
+    guessed default: a guess could hand the token to whatever else holds it.
+
+    The fragment never reaches the server or its access log, and
+    telemetry_ws.js reads ``#token=`` then strips it from history. Never log
+    the returned value.
+    """
+    global _endpoint
+    with _lock:
+        proc = _process
+        token = _token
+        if _endpoint is None and _endpoint_file is not None and token:
+            _endpoint = _read_endpoint(_endpoint_file)
+        endpoint = _endpoint
+    if proc is None or not token or endpoint is None:
+        return None
+    host, port = endpoint
+    if host not in _LOOPBACK:
+        return None
+    if proc.poll() is not None:
+        return None
+    netloc = f"[{host}]" if ":" in host else host
+    return f"http://{netloc}:{int(port)}/overseer#token={token}"

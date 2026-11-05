@@ -210,6 +210,9 @@ class WindowLifetime:
         self._calendar_sync_timer.stop()
         self._calendar_sync_watchdog.stop()
         self._job_tick.stop()
+        from arelis.ui.sentinel_host import teardown_sentinel_window
+
+        teardown_sentinel_window(self)
         # Do not wait on inbound here. Shutdown awaits the full stop
         # (including the ingest thread join) after this returns.
         if self.inbound_runtime is not None and self.inbound_runtime.owned:
@@ -279,6 +282,10 @@ class WindowLifetime:
         if world is not None and not world.isHidden():
             world._arelis_parked = True
             world.hide()
+        sentinels = getattr(self, "sentinel_window", None)
+        if sentinels is not None and not sentinels.isHidden():
+            sentinels._arelis_parked = True
+            sentinels.hide()
 
     def _unpark_floating_docks(self) -> None:
         """Bring parked floating instruments back with the glass."""
@@ -306,6 +313,9 @@ class WindowLifetime:
         world = getattr(self, "world_window", None)
         if world is not None and getattr(world, "_arelis_parked", False):
             _back(world)
+        sentinels = getattr(self, "sentinel_window", None)
+        if sentinels is not None and getattr(sentinels, "_arelis_parked", False):
+            _back(sentinels)
 
     def _remember_window_state(self) -> None:
         """Record maximized/full-screen before hiding, ignoring Minimized.

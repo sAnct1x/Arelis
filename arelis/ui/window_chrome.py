@@ -234,6 +234,10 @@ class WindowChrome:
         self.act_calendar.triggered.connect(self._toggle_calendar)
         self.addAction(self.act_calendar)
 
+        self.act_sentinels = QAction("Sentinels", self)
+        self.act_sentinels.triggered.connect(self._open_sentinels)
+        self.addAction(self.act_sentinels)
+
         self.act_world = QAction("Reality", self)
         self.act_world.setCheckable(True)
         self.act_world.setChecked(False)
@@ -752,6 +756,7 @@ class WindowChrome:
         menu.addAction(self.act_camera)
         menu.addAction(self.act_contacts)
         menu.addAction(self.act_calendar)
+        menu.addAction(self.act_sentinels)
         if world_available():
             menu.addAction(self.act_world)
         menu.addSeparator()
