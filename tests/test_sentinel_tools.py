@@ -538,15 +538,153 @@ def test_start_harvest_mission_answers_at_once_and_records_the_outcome() -> None
         tracked[-1].cancel()
         await asyncio.gather(*tracked, return_exceptions=True)
         await asyncio.sleep(0)
-        assert server._missions["REQ-0003"] == {
-            "status": "failed",
-            "question": "q3",
-            "error": "cancelled",
-        }
+        rec3 = server._missions["REQ-0003"]
+        assert rec3["status"] == "failed" and rec3["question"] == "q3"
+        assert rec3["error"] == "cancelled" and "finished_at" in rec3
 
         hive.emp.is_tripped = True
         before = len(tracked)
         ok, _, err = server._start_harvest_mission({"question": "q", "targets": targets})
         assert ok is False and "EMP" in err and len(tracked) == before
+
+        # Admission, target cap, recovery and bounded history (same test).
+        from sentinel.bridge.server import (
+            MAX_IN_FLIGHT_MISSIONS,
+            MAX_MISSION_HISTORY,
+            MAX_MISSION_TARGETS,
+        )
+
+        release2 = asyncio.Event()
+        tracked2: list[asyncio.Task[Any]] = []
+        results2: list[dict[str, Any]] = []
+
+        async def swarm2(question: str, targets: list[dict[str, Any]]) -> dict[str, Any]:
+            await release2.wait()
+            return results2.pop(0) if results2 else {"ok": True}
+
+        def track2(t: asyncio.Task[Any]) -> asyncio.Task[Any]:
+            tracked2.append(t)
+            return t
+
+        hive2 = SimpleNamespace(
+            emp=SimpleNamespace(is_tripped=False, track_task=track2),
+            dispatch_harvest_swarm=swarm2,
+            telemetry=SimpleNamespace(record=lambda level, **kw: None),
+        )
+        server2 = SentinelBridgeServer(hive2, token="t" * 40)
+        before_n, before_t = len(server2._missions), len(tracked2)
+        for bad in (
+            {"question": "q", "targets": 3},
+            {"question": "q", "targets": ["x"]},
+            {"question": "q", "targets": [{}] * (MAX_MISSION_TARGETS + 1)},
+            {"question": "q", "targets": []},
+        ):
+            ok, _, err = server2._start_harvest_mission(bad)
+            assert ok is False and err
+        assert len(server2._missions) == before_n and len(tracked2) == before_t
+        assert server2._mission_seq == 0
+
+        accepted = 0
+        refused = 0
+        for i in range(100):
+            ok, _, _ = server2._start_harvest_mission({"question": f"held-{i}", "targets": targets})
+            if ok:
+                accepted += 1
+            else:
+                refused += 1
+        assert accepted == MAX_IN_FLIGHT_MISSIONS and refused == 100 - MAX_IN_FLIGHT_MISSIONS
+        assert len(tracked2) == MAX_IN_FLIGHT_MISSIONS
+        assert server2._running_mission_count() == MAX_IN_FLIGHT_MISSIONS
+        assert len(server2._missions) == MAX_IN_FLIGHT_MISSIONS
+
+        results2.extend({"ok": True} for _ in range(MAX_IN_FLIGHT_MISSIONS))
+        release2.set()
+        await asyncio.gather(*tracked2)
+        await asyncio.sleep(0)
+        assert server2._running_mission_count() == 0
+
+        # Recovery after success.
+        release2.clear()
+        ok, _, _ = server2._start_harvest_mission({"question": "after-ok", "targets": targets})
+        assert ok is True
+        results2.append({"ok": True})
+        release2.set()
+        await asyncio.gather(*tracked2)
+        await asyncio.sleep(0)
+        assert server2._running_mission_count() == 0
+
+        # Recovery after failure.
+        release2.clear()
+        ok, _, _ = server2._start_harvest_mission({"question": "after-fail", "targets": targets})
+        assert ok is True
+        results2.append({"ok": False, "error": "queued for operator sign-off"})
+        release2.set()
+        await asyncio.gather(*tracked2)
+        await asyncio.sleep(0)
+        assert server2._running_mission_count() == 0
+        assert any(
+            rec.get("error") and "sign-off" in rec["error"] for rec in server2._missions.values()
+        )
+
+        # Recovery after EMP-style cancellation.
+        release2.clear()
+        ok, _, _ = server2._start_harvest_mission({"question": "after-emp", "targets": targets})
+        assert ok is True
+        tracked2[-1].cancel()
+        await asyncio.gather(*tracked2, return_exceptions=True)
+        await asyncio.sleep(0)
+        assert server2._running_mission_count() == 0
+        ok, _, _ = server2._start_harvest_mission({"question": "after-cancel", "targets": targets})
+        assert ok is True
+        tracked2[-1].cancel()
+        await asyncio.gather(*tracked2, return_exceptions=True)
+        await asyncio.sleep(0)
+
+        # History pressure: keep one active, finish more than the cap.
+        release2.clear()
+        ok, data, _ = server2._start_harvest_mission(
+            {"question": "keep-active", "targets": targets}
+        )
+        assert ok is True
+        active_ref = data["mission_ref"]
+        immediate: list[asyncio.Task[Any]] = []
+
+        async def swarm_now(question: str, targets: list[dict[str, Any]]) -> dict[str, Any]:
+            return {"ok": True}
+
+        def track_now(t: asyncio.Task[Any]) -> asyncio.Task[Any]:
+            immediate.append(t)
+            return t
+
+        hive2.dispatch_harvest_swarm = swarm_now
+        hive2.emp.track_task = track_now
+        for i in range(MAX_MISSION_HISTORY + 20):
+            ok, _, _ = server2._start_harvest_mission(
+                {"question": f"flood-{i}", "targets": targets}
+            )
+            assert ok is True
+            await asyncio.gather(*immediate)
+            immediate.clear()
+        await asyncio.sleep(0)
+        finished = [rec for rec in server2._missions.values() if rec.get("status") != "running"]
+        running = [rec for rec in server2._missions.values() if rec.get("status") == "running"]
+        assert len(finished) == MAX_MISSION_HISTORY
+        assert len(running) == 1 and active_ref in server2._missions
+        assert server2._missions[active_ref]["status"] == "running"
+
+        # TTL drops old finished rows but still keeps the active one.
+        old_finished = [
+            ref for ref, rec in server2._missions.items() if rec.get("status") != "running"
+        ]
+        for ref in old_finished:
+            server2._missions[ref]["finished_at"] = 1.0
+        server2._prune_mission_history()
+        assert active_ref in server2._missions
+        assert server2._missions[active_ref]["status"] == "running"
+        assert server2._running_mission_count() == 1
+        assert all(rec.get("status") == "running" for rec in server2._missions.values())
+
+        tracked2[-1].cancel()
+        await asyncio.gather(*tracked2, return_exceptions=True)
 
     asyncio.run(scenario())

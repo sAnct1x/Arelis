@@ -53,7 +53,11 @@ If Sentinel is not running she says so instead of guessing.
   is refused. Sentinels still cannot send your data out.
 - "Research exoplanet transits with the sentinels." Harvesters search arXiv
   and Wikipedia. She tells you the mission started, not that it finished;
-  its result, or why it failed, shows in the log.
+  its result, or why it failed, shows in the log. At most four research
+  missions run at once, each with at most eight targets; further requests
+  wait until one finishes. Older finished mission records are dropped after
+  a while, or when there are too many, but a mission that is still running
+  is kept.
 - "Emergency stop the sentinels." Every unit halts at once, with no card to
   click first. Only you can lift it.
 
