@@ -66,6 +66,12 @@ def ledger_path() -> Path:
     return data_dir() / "sentinel_ledger.jsonl"
 
 
+def endpoint_path() -> Path:
+    """Where headless Sentinel records the host and port it actually bound."""
+    ensure(data_dir())
+    return data_dir() / "bridge_endpoint.json"
+
+
 def token_path() -> Path:
     ensure(data_dir())
     return data_dir() / "session_token"

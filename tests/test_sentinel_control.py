@@ -472,6 +472,7 @@ def test_overseer_url_is_loopback_with_the_token_in_the_fragment_only(
     token = "t" * 40
     monkeypatch.setattr(sentinel_control, "_process", _Alive())
     monkeypatch.setattr(sentinel_control, "_token", token)
+    monkeypatch.setattr(sentinel_control, "_endpoint", ("127.0.0.1", 8790))
     url = sentinel_control.overseer_url()
     assert url is not None
     parts = urlsplit(url)
@@ -516,4 +517,58 @@ def test_view_menu_sentinels_opens_the_separate_window_offline(
     assert win.isVisible() and win.isWindow()
     assert win.is_offline()
     assert win.offline_label.text() == "Sentinel offline"
+    win.close()
+
+
+def test_overseer_url_uses_the_port_the_child_bound_and_only_loopback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """8790 busy moves the bridge to another port. A hard-coded 8790 would send
+    the token to whoever holds it. The child records its bound address; the
+    URL follows that, and a non-loopback host gives no URL.
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sentinel"))
+    from urllib.parse import urlsplit
+
+    from arelis import sentinel_control
+    from sentinel import __main__ as sentinel_main
+    from sentinel import paths as sentinel_paths
+
+    monkeypatch.setattr(sentinel_paths, "_RUNTIME_ROOT", tmp_path)
+    sentinel_main._write_endpoint("127.0.0.1", 8791)
+
+    class _Alive:
+        def poll(self) -> None:
+            return None
+
+    monkeypatch.setattr(sentinel_control, "_process", _Alive())
+    monkeypatch.setattr(sentinel_control, "_token", "k" * 40)
+    monkeypatch.setattr(sentinel_control, "_endpoint", None)
+    monkeypatch.setattr(sentinel_control, "_endpoint_file", sentinel_control._endpoint_path(tmp_path))
+    url = sentinel_control.overseer_url()
+    assert url is not None and urlsplit(url).port == 8791
+    monkeypatch.setattr(sentinel_control, "_endpoint", ("::1", 8792))
+    assert urlsplit(sentinel_control.overseer_url()).hostname == "::1"
+    monkeypatch.setattr(sentinel_control, "_endpoint", ("192.168.1.5", 8791))
+    assert sentinel_control.overseer_url() is None
+
+
+def test_open_sentinels_window_follows_a_theme_switch(
+    arelis_window, qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Settings changing theme must re-theme the open Sentinels window."""
+    from arelis import sentinel_control
+    from arelis.ui.settings_host import apply_window_theme
+    from arelis.ui.theme_tokens import COLORS
+
+    monkeypatch.setattr(sentinel_control, "_process", None)
+    window = arelis_window()
+    apply_window_theme(window, "sodium", persist=False)
+    window.act_sentinels.trigger()
+    win = window.sentinel_window
+    assert COLORS["bg0"] in win.styleSheet()
+    apply_window_theme(window, "night", persist=False)
+    assert COLORS["bg0"] in win.styleSheet()
     win.close()

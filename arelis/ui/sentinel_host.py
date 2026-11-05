@@ -85,11 +85,14 @@ class SentinelWindow(QWidget):
         """Show the Overseer if the child is up, else the offline card."""
         url = sentinel_control.overseer_url()
         if not url:
+            self.offline_label.setText("Sentinel offline")
             self._stack.setCurrentWidget(self._offline)
             return
         view = self._ensure_view()
         if view is None:
-            self.offline_label.setText("Sentinel is running, but the web view is unavailable")
+            self.offline_label.setText(
+                "Sentinel is running, but this window can't show it right now"
+            )
             self._stack.setCurrentWidget(self._offline)
             return
         if url != self._loaded_url:
@@ -133,6 +136,19 @@ class SentinelWindow(QWidget):
         self.apply_theme()
         self.refresh()
         super().showEvent(event)
+
+
+def teardown_sentinel_window(window) -> None:
+    """Quit: stop polling, unload the page, then close and delete the window."""
+    win = getattr(window, "sentinel_window", None)
+    if win is None:
+        return
+    window.sentinel_window = None
+    win._poll.stop()
+    if win._view is not None:
+        win._view.setUrl(QUrl("about:blank"))
+    win.close()
+    win.deleteLater()
 
 
 def open_sentinel_window(window) -> SentinelWindow:
