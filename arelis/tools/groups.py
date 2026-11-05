@@ -42,7 +42,14 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "code": ("git_info", "run_script", "run_task"),
     "research": ("research_report", "browser"),
     "pc_home": ("desktop", "watch"),
-    "sentinel": ("sentinel_status", "sentinel_list", "sentinel_logs", "sentinel_castes"),
+    "sentinel": (
+        "sentinel_status",
+        "sentinel_list",
+        "sentinel_logs",
+        "sentinel_castes",
+        "sentinel_command",
+        "sentinel_emp",
+    ),
 }
 
 MENU: dict[str, str] = {

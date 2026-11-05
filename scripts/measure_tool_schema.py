@@ -46,7 +46,7 @@ CAP_RAISE_COLD_SECONDS = 1.7
 # default 6,171 here, about 6,391 with Windows desktop; worst 7,216.
 SCHEMA_TOKEN_CAP = {
     "default": 6_600,
-    "worst": 7_450,
+    "worst": 7_521,
 }
 
 _EXAMPLE_MAIL = MailAccount(address="person@example.com", password="example-password")

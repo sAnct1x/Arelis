@@ -144,6 +144,8 @@ class SentinelBridgeServer:
         self._ws_clients: set[asyncio.StreamWriter] = set()
         self._broadcast_task: asyncio.Task[Any] | None = None
         self._static_dir: Path = overseer_static_dir()
+        self._missions: dict[str, dict[str, Any]] = {}
+        self._mission_seq = 0
 
     @property
     def overseer_url(self) -> str:
@@ -165,6 +167,52 @@ class SentinelBridgeServer:
             format_command_response(False, error="Unauthorized session token"),
             writer,
         )
+
+    def _start_harvest_mission(self, cmd_data: dict[str, Any]) -> tuple[bool, dict[str, Any] | None, str]:
+        """Start deploy_harvest_swarm in the background and answer at once.
+
+        Same hive call as deploy_harvest_swarm, so the EMP check, the
+        AuthorityGate and the per-task send block all still run. The task is
+        tracked by the EMP controller so an emergency stop cancels it. When it
+        ends, the outcome is recorded in telemetry and in mission_status.
+        """
+        if self.hive.emp.is_tripped:
+            return False, None, "EMP Kill-Switch active"
+        question = str(cmd_data.get("question") or "").strip()
+        targets = list(cmd_data.get("targets") or [])
+        if not question or not targets:
+            return False, None, "question and targets are required"
+        self._mission_seq += 1
+        ref = f"REQ-{self._mission_seq:04d}"
+        rec: dict[str, Any] = {"status": "running", "question": question[:200]}
+        self._missions[ref] = rec
+        task = self.hive.emp.track_task(
+            asyncio.create_task(self.hive.dispatch_harvest_swarm(question, targets))
+        )
+
+        def _finished(t: asyncio.Task[Any]) -> None:
+            if t.cancelled():
+                rec.update(status="failed", error="cancelled")
+            elif t.exception() is not None:
+                rec.update(status="failed", error=str(t.exception())[:300])
+            else:
+                res = t.result() or {}
+                ok = bool(res.get("ok"))
+                rec.update(
+                    status="done" if ok else "failed",
+                    mission_id=res.get("mission_id"),
+                    error=None if ok else str(res.get("error") or "mission did not complete"),
+                )
+            self.hive.telemetry.record(
+                "HARVEST" if rec["status"] == "done" else "ALERT",
+                caste="harvester",
+                phase=f"MISSION {ref}",
+                message=f"Mission {ref} {rec['status']}: {rec.get('error') or rec['question']}",
+                details={"mission_ref": ref, "mission_id": rec.get("mission_id")},
+            )
+
+        task.add_done_callback(_finished)
+        return True, {"mission_ref": ref, "status": "running", "accepted": True}, ""
 
     async def start(self) -> int:
         await self.hive.start_background_loops(hz=60)
@@ -294,6 +342,16 @@ class SentinelBridgeServer:
                 animate=animate,
             )
             return format_command_response(bool(res.get("ok")), {"mission": res})
+
+        if op == "start_harvest_mission":
+            return format_command_response(*self._start_harvest_mission(cmd_data))
+
+        if op == "mission_status":
+            ref = str(cmd_data.get("mission_ref") or "")
+            rec = self._missions.get(ref)
+            if rec is None:
+                return format_command_response(False, error=f"Unknown mission {ref!r}")
+            return format_command_response(True, {"mission_ref": ref, **rec})
 
         if op == "set_theme":
             theme_id = str(cmd_data.get("theme") or "sodium")

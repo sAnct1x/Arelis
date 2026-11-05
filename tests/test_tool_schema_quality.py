@@ -51,7 +51,8 @@ from scripts.measure_tool_schema import (
 # remove_background and upscale as well: 20,973 chars / 6,346 tokens
 # and 24,429 chars / 7,392. The surface then shrank and the caps were
 # ratcheted to 6,600 and 7,450 (issue 291: 6,171 here, about 6,391 with
-# desktop, 7,216 worst). Both caps live in SCHEMA_TOKEN_CAP. This order is that non-Windows profile. Windows CI
+# desktop, 7,216 worst). PR4 raised only the worst cap to 7,521 to fit
+# the resident Sentinel controls. Both caps live in SCHEMA_TOKEN_CAP. This order is that non-Windows profile. Windows CI
 # inserts desktop in front of tile. Hidden parameters on the
 # non-Windows profile are 67 (69 with desktop's x and y).
 MAX_SCHEMA_TOKENS = SCHEMA_TOKEN_CAP["default"]
@@ -279,14 +280,15 @@ def test_schema_stays_under_its_token_cap() -> None:
     assert default <= MAX_SCHEMA_TOKENS, default
     assert worst <= SCHEMA_TOKEN_CAP["worst"], worst
 
-    # Sentinel read tools (PR3) were paid for by wording offsets, so the
-    # surface may not grow past main 9e01123: default 20,837 chars / 6,305
-    # tokens without desktop, worst 24,293 / 7,351. Desktop is left out of
-    # default so Windows CI measures the same profile.
+    # Sentinel controls (PR4) are resident. Christopher approved a one-time
+    # rebaseline for this addition only (2026-11-05 4:36 PM ET). Measured
+    # here: default 21,482 chars / 6,500 tokens without desktop (still under
+    # the 6,600 cap), worst 24,855 / 7,521. The worst cap is 7,521 to match.
+    # No further unrelated growth is permitted.
     no_desktop = [s for s in tool_specs() if s["function"]["name"] != "desktop"]
     base = measure(no_desktop)
     full = measure(tool_specs(registry_for_profile("worst")))
-    assert base["schema_chars"] <= 20_837, base
-    assert base["schema_tokens_approx"] <= 6_305, base
-    assert full["schema_chars"] <= 24_293, full
-    assert full["schema_tokens_approx"] <= 7_351, full
+    assert base["schema_chars"] <= 21_482, base
+    assert base["schema_tokens_approx"] <= 6_500, base
+    assert full["schema_chars"] <= 24_855, full
+    assert full["schema_tokens_approx"] <= 7_521, full
