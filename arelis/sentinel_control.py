@@ -220,6 +220,20 @@ def overseer_url() -> str | None:
     telemetry_ws.js reads ``#token=`` then strips it from history. Never log
     the returned value.
     """
+    target = bridge_target()
+    if target is None:
+        return None
+    host, port, token = target
+    netloc = f"[{host}]" if ":" in host else host
+    return f"http://{netloc}:{int(port)}/overseer#token={token}"
+
+
+def bridge_target() -> tuple[str, int, str] | None:
+    """(host, port, token) of the live child's bridge, loopback only, else None.
+
+    One gate for every caller that talks to the bridge (the Overseer URL and
+    sentinel_client). Never log the token.
+    """
     global _endpoint
     with _lock:
         proc = _process
@@ -234,5 +248,4 @@ def overseer_url() -> str | None:
         return None
     if proc.poll() is not None:
         return None
-    netloc = f"[{host}]" if ":" in host else host
-    return f"http://{netloc}:{int(port)}/overseer#token={token}"
+    return host, int(port), token
