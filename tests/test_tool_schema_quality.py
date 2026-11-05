@@ -278,3 +278,15 @@ def test_schema_stays_under_its_token_cap() -> None:
     worst = measure(tool_specs(registry_for_profile("worst")))["schema_tokens_approx"]
     assert default <= MAX_SCHEMA_TOKENS, default
     assert worst <= SCHEMA_TOKEN_CAP["worst"], worst
+
+    # Sentinel read tools (PR3) were paid for by wording offsets, so the
+    # surface may not grow past main 9e01123: default 20,837 chars / 6,305
+    # tokens without desktop, worst 24,293 / 7,351. Desktop is left out of
+    # default so Windows CI measures the same profile.
+    no_desktop = [s for s in tool_specs() if s["function"]["name"] != "desktop"]
+    base = measure(no_desktop)
+    full = measure(tool_specs(registry_for_profile("worst")))
+    assert base["schema_chars"] <= 20_837, base
+    assert base["schema_tokens_approx"] <= 6_305, base
+    assert full["schema_chars"] <= 24_293, full
+    assert full["schema_tokens_approx"] <= 7_351, full

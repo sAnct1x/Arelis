@@ -89,6 +89,16 @@ def _snapshot() -> dict[str, Any]:
                 "message": "peer banned",
                 "details": {"ip": "10.0.0.9"},
             },
+            {
+                "seq": 5,
+                "iso_time": "t5",
+                "level": "INFO",
+                "unit_id": "TRP-07",
+                "caste": "",
+                "phase": "watch",
+                "message": "decoy hash checked",
+                "details": {},
+            },
         ],
     }
 
@@ -97,7 +107,7 @@ def test_read_tools_mirror_live_state_and_fail_soft(monkeypatch: pytest.MonkeyPa
     """Status, list, logs and castes read the real bridge shapes.
 
     Logs use the Overseer console rules (threat includes ALERT and any warden
-    entry; tripwire matches by caste or TRP id). A down bridge or a refused
+    entry; tripwire matches by caste or, with no caste, by TRP id). A down bridge or a refused
     token comes back as a failed result with the client's clean error, not
     an exception. Breaking any of those fails this test.
     """
@@ -154,13 +164,13 @@ def test_read_tools_mirror_live_state_and_fail_soft(monkeypatch: pytest.MonkeyPa
     def log_ids(**kw: Any) -> list[int]:
         return [e["seq"] for e in run(st.SentinelLogsTool(), **kw).data["entries"]]
 
-    assert log_ids() == [4, 3, 2, 1]
+    assert log_ids() == [5, 4, 3, 2, 1]
     assert log_ids(filter="threat") == [4, 2]
-    assert log_ids(filter="tripwire") == [2]
+    assert log_ids(filter="tripwire") == [5, 2]
     assert log_ids(filter="sanitize") == [3]
     assert log_ids(filter="harvest") == [1]
     assert log_ids(query="10.0.0.9") == [4]
-    assert log_ids(limit=2) == [4, 3]
+    assert log_ids(limit=2) == [5, 4]
     assert run(st.SentinelLogsTool(), filter="bogus").ok is False
 
     castes = run(st.SentinelCastesTool())
