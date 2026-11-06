@@ -688,3 +688,64 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert _entry_count(inst2) == reopened
     inst2.deleteLater()
     qt_app.processEvents()
+
+
+_ASSETS = Path(__file__).resolve().parents[1] / "arelis/assets/sentinel/overseer"
+_CLIP = "POSITION = INSTANCE_MODELVIEWPROJECTION_MATRIX * vec4"
+_WAVE_NEEDLES = (
+    "1.0 - smoothstep(-0.55, 0.15,",
+    "INSTANCE_DATA.x + uTime",
+    "clamp(INSTANCE_DATA.z, 0.0, 1.0)",
+    "0.16 * tail * mix(1.0, 0.25, limp)",
+    "* 5.5 + phase",
+    "* 4.2 + phase * 1.7",
+    "* amp * 0.7",
+)
+
+
+def _emissive_local_clip_errors(text: str) -> list[str]:
+    errors: list[str] = []
+    if "vec3 deformed = VERTEX;" not in text:
+        errors.append("emissive.vert: missing local deformed store")
+    if "VERTEX =" in text:
+        errors.append("emissive.vert: assigns VERTEX")
+    if f"{_CLIP}(deformed, 1.0);" not in text:
+        errors.append("emissive.vert: missing POSITION from deformed")
+    for needle in _WAVE_NEEDLES:
+        if needle not in text:
+            errors.append(f"emissive.vert: missing wave {needle!r}")
+    return errors
+
+
+def _lens_clip_errors(text: str) -> list[str]:
+    errors: list[str] = []
+    if f"{_CLIP}(VERTEX, 1.0);" not in text:
+        errors.append("lens.vert: missing explicit POSITION clip")
+    if "VERTEX =" in text:
+        errors.append("lens.vert: assigns VERTEX")
+    if "INSTANCE_DATA" in text or "sin(" in text:
+        errors.append("lens.vert: unexpected wave inputs")
+    return errors
+
+
+def test_overseer_emissive_clips_wave_from_local_store() -> None:
+    text = (_ASSETS / "shaders" / "emissive.vert").read_text()
+    assert _emissive_local_clip_errors(text) == []
+    mutated = text.replace(
+        f"{_CLIP}(deformed, 1.0);",
+        "VERTEX = deformed;\n    "
+        f"{_CLIP}(VERTEX, 1.0);",
+    )
+    assert mutated != text
+    assert _emissive_local_clip_errors(mutated)
+
+
+def test_overseer_lens_writes_explicit_clip_position() -> None:
+    text = (_ASSETS / "shaders" / "lens.vert").read_text()
+    assert _lens_clip_errors(text) == []
+    mutated = text.replace(
+        f"{_CLIP}(VERTEX, 1.0);",
+        "VERTEX = VERTEX;",
+    )
+    assert mutated != text
+    assert _lens_clip_errors(mutated)
