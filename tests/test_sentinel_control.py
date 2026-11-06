@@ -572,3 +572,16 @@ def test_open_sentinels_window_follows_a_theme_switch(
     apply_window_theme(window, "night", persist=False)
     assert COLORS["bg0"] in win.styleSheet()
     win.close()
+
+
+def test_sentinel_headless_argv_passes_active_theme() -> None:
+    from arelis.sentinel_control import headless_argv
+
+    filament = headless_argv("/usr/bin/python", "filament")
+    assert filament[:4] == ["/usr/bin/python", "-m", "sentinel", "--headless"]
+    assert filament[4:] == ["--theme", "filament"]
+    sodium = headless_argv("/usr/bin/python", "sodium")
+    assert sodium[-2:] == ["--theme", "sodium"]
+    assert sodium != filament
+    ignored = headless_argv("/usr/bin/python", "not-a-theme")
+    assert "--theme" not in ignored
