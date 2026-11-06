@@ -409,6 +409,87 @@ async def test_stalker_caste() -> None:
             elif hasattr(skmod.psutil.Process, "net_connections"):
                 delattr(skmod.psutil.Process, "net_connections")
 
+        # Process-scoped silent empty + system table hit (Windows child miss).
+        # Wrong-pid rows must not leak; removing fallback or pid filter fails this.
+        def _silent_empty(self, kind="inet"):
+            return []
+
+        decoy_pid = child.pid + 97_531
+        system_rows = [
+            types.SimpleNamespace(
+                pid=child.pid,
+                raddr=types.SimpleNamespace(ip="127.0.0.1", port=port),
+                status="ESTABLISHED",
+            ),
+            types.SimpleNamespace(
+                pid=decoy_pid,
+                raddr=types.SimpleNamespace(ip="9.9.9.9", port=9),
+                status="ESTABLISHED",
+            ),
+        ]
+        old_sys = skmod.psutil.net_connections
+        skmod.psutil.Process.net_connections = _silent_empty
+        skmod.psutil.net_connections = lambda kind="inet": list(system_rows)
+        try:
+            via_fallback = stk.inspect_pid(child.pid)
+            assert via_fallback["ok"] is True
+            assert via_fallback.get("partial") in (None, False)
+            fb_eps = via_fallback.get("remote_endpoints") or []
+            assert any(
+                ep.get("ip") in {"127.0.0.1", "::ffff:127.0.0.1"}
+                and ep.get("port") == port
+                for ep in fb_eps
+            ), fb_eps
+            assert all(ep.get("ip") != "9.9.9.9" for ep in fb_eps), fb_eps
+        finally:
+            skmod.psutil.net_connections = old_sys
+            if old_conns is not None:
+                skmod.psutil.Process.net_connections = old_conns
+            elif hasattr(skmod.psutil.Process, "net_connections"):
+                delattr(skmod.psutil.Process, "net_connections")
+
+        # Process-scoped AccessDenied stays typed partial; no fabricated endpoints.
+        def _proc_denied(self, kind="inet"):
+            raise skmod.psutil.AccessDenied(pid=getattr(self, "pid", None))
+
+        skmod.psutil.Process.net_connections = _proc_denied
+        try:
+            denied = stk.inspect_pid(child.pid)
+            assert denied["ok"] is True
+            assert denied.get("partial") is True
+            assert any(
+                err.startswith("connections: access denied")
+                for err in (denied.get("errors") or [])
+            ), denied.get("errors")
+            assert (denied.get("remote_endpoints") or []) == []
+        finally:
+            if old_conns is not None:
+                skmod.psutil.Process.net_connections = old_conns
+            elif hasattr(skmod.psutil.Process, "net_connections"):
+                delattr(skmod.psutil.Process, "net_connections")
+
+        # Silent empty + system AccessDenied → partial, not empty-success.
+        def _sys_denied(kind="inet"):
+            raise skmod.psutil.AccessDenied()
+
+        skmod.psutil.Process.net_connections = _silent_empty
+        skmod.psutil.net_connections = _sys_denied
+        try:
+            blocked_fb = stk.inspect_pid(child.pid)
+            assert blocked_fb["ok"] is True
+            assert blocked_fb.get("partial") is True
+            assert any(
+                err.startswith("connections: access denied")
+                for err in (blocked_fb.get("errors") or [])
+            ), blocked_fb.get("errors")
+            assert (blocked_fb.get("remote_endpoints") or []) == []
+        finally:
+            skmod.psutil.net_connections = old_sys
+            if old_conns is not None:
+                skmod.psutil.Process.net_connections = old_conns
+            elif hasattr(skmod.psutil.Process, "net_connections"):
+                delattr(skmod.psutil.Process, "net_connections")
+
         gone = await hive.dispatch_task(
             "stalker",
             {"capability": "process:inspect_pid", "pid": 999_999_99},

@@ -198,11 +198,8 @@ class StalkerCaste(CasteHandler):
             out["children"] = kids
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.Error) as exc:
             _note("children", exc)
-        try:
-            if hasattr(p, "net_connections"):
-                conns = p.net_connections(kind="inet")
-            else:
-                conns = p.connections(kind="inet")
+
+        def _map_remote_endpoints(conns: Any) -> list[dict[str, Any]]:
             endpoints: list[dict[str, Any]] = []
             for conn in conns:
                 raddr = getattr(conn, "raddr", None)
@@ -223,6 +220,30 @@ class StalkerCaste(CasteHandler):
                     "port": port,
                     "status": getattr(conn, "status", ""),
                 })
+            return endpoints
+
+        try:
+            # Primary: process-scoped enumeration (unchanged contract).
+            if hasattr(p, "net_connections"):
+                conns = p.net_connections(kind="inet")
+            else:
+                conns = p.connections(kind="inet")
+            endpoints = _map_remote_endpoints(conns)
+            # Windows child Process.net_connections can silently return []
+            # while the same pid still has remotes in the system inet table.
+            # Fall back once, filtered by exact pid; never invent endpoints.
+            if not endpoints:
+                try:
+                    system = psutil.net_connections(kind="inet")
+                except (psutil.AccessDenied, psutil.Error) as exc:
+                    _note("connections", exc)
+                else:
+                    matched = [
+                        conn
+                        for conn in system
+                        if getattr(conn, "pid", None) == pid
+                    ]
+                    endpoints = _map_remote_endpoints(matched)
             out["remote_endpoints"] = endpoints
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.Error) as exc:
             _note("connections", exc)
