@@ -785,3 +785,53 @@ def test_overseer_swarm_list_scroll_semantics(qt_app) -> None:
     assert float(swarm.property("contentY") or 0) > before
     view.deleteLater()
     qt_app.processEvents()
+
+
+def test_overseer_swarm_scrollbar_is_filament_not_white(qt_app) -> None:
+    view, root = _hud_with_selection(qt_app)
+    units = _crowd_units()
+    root.setProperty("swarmRows", overseer_runtime.swarm_rows(units, by="caste"))
+    qt_app.processEvents()
+    thumb = _named(root, "OverseerSwarmScrollThumb")
+    track = _named(root, "OverseerSwarmScrollTrack")
+    assert thumb is not None and track is not None
+    thumb_color = thumb.property("color")
+    track_color = track.property("color")
+    assert thumb_color is not None and hasattr(thumb_color, "red")
+    assert track_color is not None and hasattr(track_color, "red")
+    assert min(thumb_color.red(), thumb_color.green(), thumb_color.blue()) < 250
+    assert min(track_color.red(), track_color.green(), track_color.blue()) < 250
+    # Thumb stays in the Filament violet family (#8b6cf2), not grey/white.
+    assert thumb_color.red() < 180 and thumb_color.blue() > 180
+    hot = (255, 255, 255)
+    assert (thumb_color.red(), thumb_color.green(), thumb_color.blue()) != hot
+    muted = (thumb_color.red() // 2, thumb_color.green() // 2, thumb_color.blue() // 2)
+    assert muted[2] < thumb_color.blue()
+    view.deleteLater()
+    qt_app.processEvents()
+
+
+def test_overseer_swarm_header_stays_sticky_while_scrolling(qt_app) -> None:
+    view, root = _hud_with_selection(qt_app)
+    units = _crowd_units()
+    rows = overseer_runtime.swarm_rows(units, by="caste")
+    root.setProperty("swarmRows", rows)
+    qt_app.processEvents()
+    swarm = _named(root, "OverseerSwarmList")
+    sticky = _named(root, "OverseerSwarmStickyHeader")
+    assert swarm is not None and sticky is not None
+    assert bool(swarm.property("stickyVisible")) is False
+    # Skip past the warden header and units so the harvester header leaves the top.
+    # warden header + 6 units + harvester header = 8 rows; +6 harvesters = 14.
+    swarm.setProperty("contentY", 14 * 44)
+    qt_app.processEvents()
+    assert bool(swarm.property("stickyVisible")) is True
+    label = str(sticky.property("rowLabel") or "")
+    assert "harvester" in label
+    assert "8" in label
+    swarm.setProperty("contentY", 0)
+    qt_app.processEvents()
+    assert bool(swarm.property("stickyVisible")) is False
+    view.deleteLater()
+    qt_app.processEvents()
+

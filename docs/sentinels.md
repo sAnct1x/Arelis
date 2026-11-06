@@ -56,7 +56,9 @@ is the selected unit id and caste, matching the mid-zoom still, and those
 names stay available to accessibility. The swarm list uses a standard
 vertical scroll bar so later groups stay reachable by scrolling while
 other headers stay expanded; collapsing other groups is not required to
-reach them. Selecting a unit aims the camera at that unit's snapshot position
+reach them. The bar's thumb is Filament violet (`#8b6cf2`) on a dark
+track (`#1c1430`), not a light system control. The current caste header
+stays pinned at the top of the list while you scroll through that group. Selecting a unit aims the camera at that unit's snapshot position
 (not the hive). Wheel and trackpad dolly along the view axis at 35 mm
 with a factor of 1.18 per notch, rubber-banded 8 percent past the 6 to
 110 m limits. Pitch follows the approved marks: 22 degrees across 6 to

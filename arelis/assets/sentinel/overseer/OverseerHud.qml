@@ -209,11 +209,15 @@ Item {
                 }
             }
 
+            Item {
+                id: swarmListFrame
+                width: parent.width
+                height: parent.height - 128
+
             ListView {
                 id: swarmList
                 objectName: "OverseerSwarmList"
-                width: parent.width
-                height: parent.height - 128
+                anchors.fill: parent
                 clip: true
                 reuseItems: true
                 cacheBuffer: 44 * 6
@@ -222,10 +226,47 @@ Item {
                 flickableDirection: Flickable.VerticalFlick
                 Accessible.role: Accessible.List
                 Accessible.name: "Swarm units"
+                property var stickyRow: null
+                property bool stickyVisible: false
+                function updateSticky() {
+                    var rows = hud.swarmRows || []
+                    var y = contentY
+                    var acc = 0
+                    var current = null
+                    var currentY = 0
+                    for (var i = 0; i < rows.length; i++) {
+                        if (rows[i] && rows[i].kind === "header") {
+                            if (acc <= y + 0.5) {
+                                current = rows[i]
+                                currentY = acc
+                            }
+                        }
+                        acc += 44
+                    }
+                    stickyRow = current
+                    stickyVisible = !!(current && y > currentY + 1)
+                }
+                onContentYChanged: updateSticky()
+                onModelChanged: updateSticky()
+                Component.onCompleted: updateSticky()
                 ScrollBar.vertical: ScrollBar {
                     objectName: "OverseerSwarmScrollBar"
                     policy: swarmList.contentHeight > swarmList.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
                     Accessible.name: "Swarm list scroll bar"
+                    implicitWidth: 8
+                    contentItem: Rectangle {
+                        objectName: "OverseerSwarmScrollThumb"
+                        implicitWidth: 8
+                        implicitHeight: 32
+                        radius: 4
+                        color: "#8b6cf2"
+                    }
+                    background: Rectangle {
+                        objectName: "OverseerSwarmScrollTrack"
+                        implicitWidth: 8
+                        radius: 4
+                        color: "#1c1430"
+                    }
                 }
                 delegate: Rectangle {
                     id: rowBox
@@ -290,6 +331,38 @@ Item {
                         onClicked: rowBox.invokeRow()
                     }
                 }
+            }
+            Rectangle {
+                id: stickyHeader
+                objectName: "OverseerSwarmStickyHeader"
+                visible: swarmList.stickyVisible
+                width: parent.width
+                height: 44
+                z: 2
+                color: "#1a1030"
+                Accessible.role: Accessible.Grouping
+                Accessible.name: stickyHeader.rowLabel
+                readonly property string rowLabel: (swarmList.stickyRow && swarmList.stickyRow.key)
+                      ? (swarmList.stickyRow.key + " " + swarmList.stickyRow.count + " (" + swarmList.stickyRow.active + " active)")
+                      : ""
+                Text {
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    elide: Text.ElideRight
+                    color: "#e0d4ff"
+                    font.pixelSize: 13
+                    verticalAlignment: Text.AlignVCenter
+                    text: stickyHeader.rowLabel
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                        if (swarmList.stickyRow && swarmList.stickyRow.key)
+                            hud.headerToggled(swarmList.stickyRow.key)
+                    }
+                }
+            }
             }
             Row {
                 objectName: "OverseerSwarmFooter"
