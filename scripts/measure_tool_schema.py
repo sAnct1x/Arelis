@@ -57,6 +57,13 @@ _EXAMPLE_SMS = SmsGateAccount(
     password="secret",
 )
 
+# Names that register only when mail/SMS secrets exist. Agenda is already on
+# the isolated attended surface and is not part of this set.
+CREDENTIAL_GATED_TOOL_NAMES = frozenset(
+    {"inbound_sms", "send_sms", "send_email", "inbox", "schedule"}
+)
+NO_CREDENTIAL_PROFILES = frozenset({"default", "default_desktop"})
+
 
 def _router() -> SimpleNamespace:
     return SimpleNamespace(provider=SimpleNamespace(list_models=None))
@@ -66,16 +73,19 @@ def registry_for_profile(profile: str) -> Any:
     """Build one session registry for a named profile.
 
     default: this machine, no VL model, no mail, no SMS. Desktop follows
-    the host (Windows only).
-    worst: every optional tool on, including Windows desktop.
+    the host (Windows only). Mail and SMS loaders are forced absent so a
+    machine with saved credentials cannot inflate this profile.
+    default_desktop: Windows default surface without VL/mail/SMS. Metadata
+    only; the desktop tool is registered, not executed. Loaders are forced
+    absent so this stays the 6,721-token pin, not a live credential session.
+    worst: every optional tool on, including Windows desktop and example
+    mail/SMS credentials.
     mac: VL model installed, desktop off.
     """
     config = load_config()
     if profile == "default":
         config["_vl_model_installed"] = False
     elif profile == "default_desktop":
-        # Windows default surface without VL/mail/SMS. Metadata only;
-        # the desktop tool is registered, not executed.
         config["_vl_model_installed"] = False
         config["_session_platform"] = "win32"
     elif profile == "worst":
@@ -95,6 +105,32 @@ def registry_for_profile(profile: str) -> Any:
         if profile == "worst":
             tools_mod.load_account = lambda path=None: _EXAMPLE_MAIL
             tools_mod.load_sms_account = lambda path=None: _EXAMPLE_SMS
+        elif profile in NO_CREDENTIAL_PROFILES:
+            tools_mod.load_account = lambda path=None: None
+            tools_mod.load_sms_account = lambda path=None: None
+        return build_tool_registry(config, allow_send=True, attended=True, router=_router())
+    finally:
+        tools_mod.load_account = saved_mail
+        tools_mod.load_sms_account = saved_sms
+
+
+def registry_for_credentialed_windows() -> Any:
+    """Windows session with mail/SMS secrets present and VL off.
+
+    This is the live-attended surface (messaging and schedule registered).
+    It is not the default_desktop pin (6,721). It must stay a subset of
+    worst (7,521). Metadata only; tools are not executed.
+    """
+    config = load_config()
+    config["_vl_model_installed"] = False
+    config["_session_platform"] = "win32"
+    import arelis.tools as tools_mod
+
+    saved_mail = tools_mod.load_account
+    saved_sms = tools_mod.load_sms_account
+    try:
+        tools_mod.load_account = lambda path=None: _EXAMPLE_MAIL
+        tools_mod.load_sms_account = lambda path=None: _EXAMPLE_SMS
         return build_tool_registry(config, allow_send=True, attended=True, router=_router())
     finally:
         tools_mod.load_account = saved_mail
