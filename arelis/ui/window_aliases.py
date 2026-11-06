@@ -65,8 +65,9 @@ class WindowAliases:
         return toggle_calendar(self, checked)
 
     def _open_sentinels(self) -> None:
-        from arelis.ui.sentinel_host import open_sentinel_window
+        from arelis.ui.sentinel_host import attach_sentinel_mote, open_sentinel_window
 
+        attach_sentinel_mote(self)
         open_sentinel_window(self)
 
     def _open_world(self) -> None:

@@ -22,6 +22,8 @@ Rectangle {
     property bool loading: false
     // The orbit's shader folder (QuickOrbit.shaders, set by quick_surface.py).
     property string orbitShaders: "orbit/"
+    // 1 while the Sentinels window is closed; 0.2 while it is open (Iris fade).
+    property real presenceOpacity: 1.0
     color: voidColor
 
     Image {
@@ -39,6 +41,7 @@ Rectangle {
         anchors.fill: parent
         st: orbitState
         shaders: surface.orbitShaders
+        opacity: surface.presenceOpacity
     }
 
     Image {
@@ -57,6 +60,7 @@ Rectangle {
         objectName: "orbitOverlay"
         x: surface.orbitRect.x; y: surface.orbitRect.y
         width: surface.orbitRect.width; height: surface.orbitRect.height
+        opacity: surface.presenceOpacity
         visible: surface.orbitSource !== "" && overlayImage.status === Image.Ready
                  && surface.orbitShaders !== ""
         property variant source: overlayImage
@@ -96,6 +100,7 @@ Rectangle {
     Item {
         id: slot
         objectName: "avatarSlot"
+        opacity: surface.presenceOpacity
         visible: false
         Image {
             objectName: "figure"

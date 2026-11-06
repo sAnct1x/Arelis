@@ -544,6 +544,9 @@ class WindowBuild:
         bind_world(self)
         self.filament.bind()
         apply_startup_hosts(self)
+        from arelis.ui.sentinel_host import attach_sentinel_mote
+
+        attach_sentinel_mote(self)
 
         self._sync_filament_face()
 

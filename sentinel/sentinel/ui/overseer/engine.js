@@ -62,8 +62,10 @@
       this.yaw = 0.55;
       this.pitch = 0.46;
       this.distance = 53.0;
+      this.targetDistance = 53.0;
       this.target = [0, 0, 0];
       this.fov = 520;
+      this._rubberUntil = 0;
 
       // World state synced from Python Hive
       this.actors = new Map();
@@ -162,10 +164,10 @@
         startX = e.clientX;
         startY = e.clientY;
 
-        if (dragButton === 0) {
+        if (dragButton === 2) {
           this.yaw -= dx * 0.0065;
           this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - dy * 0.0065));
-        } else if (dragButton === 2) {
+        } else if (dragButton === 0) {
           const panScale = this.distance * 0.0016;
           const right = [Math.cos(this.yaw), 0, -Math.sin(this.yaw)];
           this.target[0] -= right[0] * dx * panScale;
@@ -181,11 +183,26 @@
         dragging = false;
       });
 
+      this.canvas.addEventListener("dblclick", (e) => {
+        const actor = this._pickActorAt(e.clientX, e.clientY);
+        if (actor) {
+          this.selectedId = actor.unit_id;
+          this.selectedKind = "unit";
+          this.applyCursorZoom(18, actor.pos.slice());
+          if (this.onSelectionChanged) this.onSelectionChanged(this.selectedId, this.selectedKind);
+        }
+      });
+
       this.canvas.addEventListener(
         "wheel",
         (e) => {
           e.preventDefault();
-          this.distance = Math.max(12.0, Math.min(150.0, this.distance * (1 + e.deltaY * 0.001)));
+          const Logic = global.OverseerLogic;
+          if (!Logic) return;
+          const notches = e.deltaY > 0 ? 1 : -1;
+          const next = Logic.wheelStep(this.distance, notches);
+          const pivot = this._cursorWorld(e.clientX, e.clientY);
+          this.applyCursorZoom(next, pivot);
         },
         { passive: false }
       );
@@ -193,6 +210,9 @@
       window.addEventListener("keydown", (e) => {
         if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "SELECT")) return;
         this.keys[e.key.toLowerCase()] = true;
+        if (e.key === "+" || e.key === "=") this.zoomByNotches(-1);
+        if (e.key === "-" || e.key === "_") this.zoomByNotches(1);
+        if (e.key === "0") this.zoomFit();
       });
 
       window.addEventListener("keyup", (e) => {
@@ -227,16 +247,78 @@
       if (mode === "top") {
         this.pitch = 1.38;
         this.distance = 76.0;
+        this.targetDistance = 76.0;
         this.target = [0, 0, 0];
       } else if (mode === "core") {
         this.pitch = 0.25;
         this.distance = 24.0;
+        this.targetDistance = 24.0;
         this.target = [0, 0, 0];
       } else if (mode === "orbit") {
         this.pitch = 0.46;
         this.distance = 62.0;
+        this.targetDistance = 62.0;
         this.target = [0, 0, 0];
       }
+    }
+
+    _cursorWorld(cx, cy) {
+      const cam = this._computeCamera(0);
+      const hit = this._pickActorAt(cx, cy);
+      if (hit && hit.pos) return hit.pos.slice();
+      const ndcX = (cx / this.width) * 2 - 1;
+      const ndcY = 1 - (cy / this.height) * 2;
+      const dist = this.distance;
+      return [
+        this.target[0] + cam.right[0] * ndcX * dist * 0.35,
+        0,
+        this.target[2] + cam.fwd[0] * ndcX * dist * 0.12 + ndcY * dist * 0.08,
+      ];
+    }
+
+    _pickActorAt(cx, cy) {
+      let best = null;
+      let bestD = 36;
+      for (const actor of this.actors.values()) {
+        const proj = this.project(actor.pos, this._computeCamera(0));
+        if (!proj) continue;
+        const d = Math.hypot(proj.sx - cx, proj.sy - cy);
+        if (d < bestD) {
+          bestD = d;
+          best = actor;
+        }
+      }
+      return best;
+    }
+
+    applyCursorZoom(nextDistance, pivot) {
+      const Logic = global.OverseerLogic;
+      if (!Logic) {
+        this.distance = nextDistance;
+        return;
+      }
+      const old = this.distance;
+      const rubber = Logic.rubberBand(nextDistance);
+      const settled = Logic.settleDistance(rubber);
+      if (pivot) {
+        this.target = Logic.cursorDolly(this.target, pivot, old, settled);
+      }
+      this.distance = rubber;
+      this.targetDistance = settled;
+      this.pitch = Logic.pitchDeg(settled) * Math.PI / 180;
+      if (rubber !== settled) this._rubberUntil = performance.now() + Logic.RUBBER_MS;
+    }
+
+    zoomByNotches(notches) {
+      const Logic = global.OverseerLogic;
+      if (!Logic) return;
+      this.applyCursorZoom(Logic.wheelStep(this.distance, notches), this.target.slice());
+    }
+
+    zoomFit() {
+      const Logic = global.OverseerLogic;
+      this.applyCursorZoom(Logic ? 62 : 62, [0, 0, 0]);
+      this.target = [0, 0, 0];
     }
 
     triggerEmpShockwave() {
@@ -337,7 +419,8 @@
       }
 
       const seenUnits = new Set();
-      for (const u of snap.units || []) {
+      const liveUnits = (global.OverseerLogic && global.OverseerLogic.snapshotUnits(snap)) || (snap.units || []);
+      for (const u of liveUnits) {
         seenUnits.add(u.unit_id);
         let actor = this.actors.get(u.unit_id);
         if (!actor) {
@@ -478,6 +561,12 @@
     renderFrame(nowMs) {
       const dt = Math.min(0.05, Math.max(0.001, (nowMs - this.lastTime) / 1000));
       this.lastTime = nowMs;
+      if (this.targetDistance != null && this.distance !== this.targetDistance) {
+        if (!this._rubberUntil || nowMs >= this._rubberUntil) {
+          this.distance += (this.targetDistance - this.distance) * Math.min(1, dt * 10);
+          if (Math.abs(this.distance - this.targetDistance) < 0.04) this.distance = this.targetDistance;
+        }
+      }
       const instFps = 1.0 / dt;
       this.fpsSmoothed = this.fpsSmoothed * 0.92 + instFps * 0.08;
       const telemetryFresh = nowMs - this.lastSnapshotAt < 2500;
@@ -1042,6 +1131,10 @@
       if (proj.cz < 4.5) return; // Clean near-camera fade/cull so Sentinel never clips into lens
       const isSelected = this.selectedKind === "unit" && this.selectedId === actor.unit_id;
       this.screenPickables.push({ id: actor.unit_id, kind: "unit", sx: proj.sx, sy: proj.sy });
+      const unitH = Math.max(4, (proj.scale || 1) * (actor.scale || 1) * 2.4);
+      const Logic = global.OverseerLogic;
+      actor.lod = Logic ? Logic.chooseLod(unitH, actor.lod) : 1;
+      const sil = Logic ? Logic.silhouette(actor.lod) : { plates: true, eyeCluster: true, linkChains: true, tentacles: 12, lenses: 4 };
 
       const basis = buildBasis(actor.smoothHeading, actor.lastRight);
       const scale = actor.scale;
@@ -1157,7 +1250,8 @@
       ctx.lineJoin = "round";
       const allJoints = [];
 
-      for (let t = 0; t < actor.tentacles.length; t++) {
+      const tentLimit = sil.tentacles || actor.tentacles.length;
+      for (let t = 0; t < actor.tentacles.length && t < tentLimit; t++) {
         const tent = actor.tentacles[t];
         const pts2d = [];
         for (let s = 0; s < tent.points.length; s++) {
@@ -1169,7 +1263,7 @@
 
         // Outer dark biomechanical armor polyline (1 stroke call per tentacle)
         ctx.strokeStyle = "#121c25";
-        ctx.lineWidth = Math.max(1.8, 0.19 * baseScale);
+        ctx.lineWidth = Math.max(sil.lod === 2 ? 3.4 : 1.8, (sil.lod === 2 ? 0.34 : 0.19) * baseScale);
         ctx.beginPath();
         ctx.moveTo(pts2d[0].sx, pts2d[0].sy);
         for (let s = 1; s < pts2d.length; s++) {
@@ -1187,6 +1281,7 @@
         }
         ctx.stroke();
 
+        if (sil.linkChains) {
         for(let s=1;s<pts2d.length;s++) {
           const a=pts2d[s-1],b=pts2d[s], taper=1-s/pts2d.length;
           const x=a.sx+(b.sx-a.sx)*0.18,y=a.sy+(b.sy-a.sy)*0.18;
@@ -1195,6 +1290,7 @@
           ctx.lineWidth=Math.max(1.2,(0.09+0.13*taper)*baseScale);ctx.strokeStyle='#536675';ctx.stroke();
           ctx.beginPath();ctx.moveTo(x-0.5,y-0.6);ctx.lineTo(ex-0.5,ey-0.6);
           ctx.lineWidth=Math.max(0.6,0.035*baseScale);ctx.strokeStyle='#a4b5bc';ctx.stroke();
+        }
         }
         for (let s = 0; s < pts2d.length - 1; s += 2) {
           const taper = 1.0 - s / pts2d.length;
@@ -1259,7 +1355,7 @@
       // Layered ellipsoidal armor. Depth-sort facets for every camera orientation.
       const local=(x,y,z)=>vec3Add(actor.pos,vec3Add(vec3Scale(basis.right,x*scale),vec3Add(vec3Scale(basis.up,y*scale),vec3Scale(basis.fwd,z*scale))));
       const facets=[];
-      const rings=[[-0.9,0.30],[-0.55,0.73],[0.1,0.83],[0.65,0.59],[1.12,0.24]];
+      const rings= sil.plates ? [[-0.9,0.30],[-0.55,0.73],[0.1,0.83],[0.65,0.59],[1.12,0.24]] : [[-0.7,0.22],[-0.15,0.46],[0.55,0.34],[0.95,0.16]];
       for(let r=0;r<rings.length-1;r++) for(let j=0;j<10;j++) {
         const a=j/10*Math.PI*2,b=(j+1)/10*Math.PI*2;
         const vertices=[[r,a],[r,b],[r+1,b],[r+1,a]].map(([k,v])=>this.project(local(Math.cos(v)*rings[k][1],Math.sin(v)*rings[k][1]*0.8,rings[k][0]),cam));
@@ -1273,7 +1369,7 @@
         if(baseScale>10) {const p=f.p[0];ctx.fillStyle='#a3b1ba';ctx.fillRect(p.sx-0.7,p.sy-0.7,1.4,1.4);}
       }
       // Recessed optical bank: bezels, colored lenses and specular highlights.
-      const opticalCount = actor.caste==='warden'?3:actor.caste==='cryptarch'?6:4;
+      const opticalCount = sil.lenses || (actor.caste==='warden'?3:actor.caste==='cryptarch'?6:4);
       for(let i=0;i<opticalCount;i++) {
         const angle=i/opticalCount*Math.PI*2;
         const p=this.project(local(Math.cos(angle)*0.28,Math.sin(angle)*0.21,1.03),cam);
@@ -1290,9 +1386,11 @@
         if(a&&b){ctx.beginPath();ctx.moveTo(a.sx,a.sy);ctx.lineTo(b.sx,b.sy);ctx.strokeStyle='#17222c';ctx.lineWidth=Math.max(2,baseScale*.2);ctx.stroke();ctx.strokeStyle='#82939c';ctx.lineWidth=Math.max(1,baseScale*.09);ctx.stroke();ctx.fillStyle=eyeColor;ctx.beginPath();ctx.arc(b.sx,b.sy,Math.max(1,baseScale*.055),0,Math.PI*2);ctx.fill();}
       }
       // Dorsal heat-exchanger ribs and caste identification stripe.
+      if (sil.unitLight) {
       for(let i=0;i<5;i++) {
         const a=this.project(local(-0.3,0.58,-0.4+i*0.16),cam),b=this.project(local(0.3,0.58,-0.4+i*0.16),cam);
         if(a&&b){ctx.beginPath();ctx.moveTo(a.sx,a.sy);ctx.lineTo(b.sx,b.sy);ctx.strokeStyle=i===0?eyeColor:'#172530';ctx.lineWidth=Math.max(1,baseScale*0.06);ctx.stroke();}
+      }
       }
       // 7. Selection Reticle OR Engaged Alpha Callout Tag (no clutter on idle/EMP units)
       const isEngaged = actor.state.startsWith("ENGAGED_") || actor.state === "QUARANTINING";

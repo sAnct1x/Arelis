@@ -58,17 +58,16 @@
   const elTrp = document.getElementById("m-trp");
   const elWarrants = document.getElementById("m-warrants");
   const elThreats = document.getElementById("m-threats");
-  const elFps = document.getElementById("m-fps");
+  const elStk = document.getElementById("m-stk");
   const elBeacon = document.getElementById("conn-beacon");
   const elEmpBanner = document.getElementById("emp-banner");
   const elEmpReason = document.getElementById("emp-reason-text");
-  const elScenarioSelect = document.getElementById("scenario-select");
-  const elTierSelect = document.getElementById("tier-select");
   const elThemeSelect = document.getElementById("theme-select");
   const elCamSelect = document.getElementById("camera-select");
-  const elFooterTheme = document.getElementById("footer-theme-info");
+  const elGroupBy = document.getElementById("group-by-select");
+  const elSwarmSearch = document.getElementById("swarm-search");
+  const elBadges = document.getElementById("caste-badges");
 
-  // Tactical Banner
   const elTacticalBanner = document.getElementById("tactical-banner");
   const elTacticalTitle = document.getElementById("tactical-title");
   const elTacticalSub = document.getElementById("tactical-sub");
@@ -96,7 +95,7 @@
   try {
     const savedCam = localStorage.getItem("sentinel_camera_mode");
     if (savedCam && ["orbit", "top", "core"].includes(savedCam)) {
-      elCamSelect.value = savedCam;
+      if (elCamSelect) elCamSelect.value = savedCam;
       engine.setCameraMode(savedCam);
     }
     const savedTheme = localStorage.getItem("sentinel_theme_id");
@@ -322,7 +321,7 @@
   });
 
   function renderTacticalBanner() {
-    if (!latestSnapshot) return;
+    if (!latestSnapshot || !elTacticalBanner) return;
     const banner = latestSnapshot.active_banner;
     if (!banner || !banner.title) {
       elTacticalBanner.classList.add("hidden");
@@ -342,11 +341,29 @@
   let lastUnitIdsSig = "";
   let lastNodeIdsSig = "";
 
+  let groupBy = "caste";
+  let swarmQuery = "";
+  function showActionError(msg) {
+    const feedback = document.getElementById("mission-feedback");
+    if (feedback) feedback.textContent = msg || "";
+  }
+
   function renderRoster(force) {
     if (!latestSnapshot) return;
-    const units = (latestSnapshot.units || []).filter(
+    const Logic = window.OverseerLogic;
+    const raw = Logic ? Logic.snapshotUnits(latestSnapshot) : (latestSnapshot.units || []);
+    let units = raw.filter(
       (u) => activeCasteFilter === "all" || u.caste === activeCasteFilter
     );
+    if (swarmQuery) {
+      const q = swarmQuery.toLowerCase();
+      units = units.filter((u) =>
+        String(u.unit_id || "").toLowerCase().includes(q) ||
+        String(u.caste || "").toLowerCase().includes(q) ||
+        String(u.state || "").toLowerCase().includes(q) ||
+        String(u.current_task || "").toLowerCase().includes(q)
+      );
+    }
 
     const unitSig =
       `${activeCasteFilter}|${engine.selectedKind}|${engine.selectedId}|` +
@@ -361,25 +378,42 @@
       if (idsSig !== lastUnitIdsSig || elUnitRoster.children.length !== units.length) {
         lastUnitIdsSig = idsSig;
         const prevScroll = elUnitRoster.scrollTop;
-        elUnitRoster.innerHTML = units
-          .map((u) => {
-            const sel = engine.selectedKind === "unit" && engine.selectedId === u.unit_id ? "selected" : "";
-            const bCls = badgeClassForState(u.state, u.caste);
-            const doc = u.doctrine || "HUNTER-SEEKER";
-            const shortDoc = doc.replace("HUNTER-", "");
-            const packBadge = u.pack_size > 1 ? ` • PACK ${u.pack_role} (x${u.pack_size})` : "";
-            return `
-              <div class="unit-row ${sel}" data-uid="${escapeHtml(u.unit_id)}">
+        const Logic = window.OverseerLogic;
+        const groups = Logic ? Logic.groupUnits(units, groupBy) : [{ key: "all", units: units, active: 0 }];
+        const rows = [];
+        groups.forEach((g) => {
+          rows.push({ kind: "header", key: g.key, count: g.units.length, active: g.active });
+          g.units.forEach((u) => rows.push({ kind: "unit", unit: u }));
+        });
+        const win = Logic
+          ? Logic.virtualWindow(prevScroll, elUnitRoster.clientHeight || 440, rows.length)
+          : { first: 0, last: rows.length, alive: rows.length, rowH: 44, offsetPx: 0, spacer: rows.length * 44 };
+        const slice = rows.slice(win.first, win.last);
+        const parts = [`<div style="height:${win.offsetPx}px"></div>`];
+        slice.forEach((row) => {
+          if (row.kind === "header") {
+            parts.push(`<div class="swarm-group-h" data-group="${escapeHtml(row.key)}">${escapeHtml(row.key)} ${row.count} (${row.active} active)</div>`);
+            return;
+          }
+          const u = row.unit;
+          const sel = engine.selectedKind === "unit" && engine.selectedId === u.unit_id ? "selected" : "";
+          const bCls = badgeClassForState(u.state, u.caste);
+          const role = (Logic && Logic.CASTE_ROLE[u.caste]) || u.caste;
+          const task = u.current_task || (Logic ? Logic.emptyTaskLabel(u.state) : "idle");
+          parts.push(`
+              <div class="unit-row ${sel}" data-uid="${escapeHtml(u.unit_id)}" style="height:44px">
                 <div class="row-top">
-                  <span class="u-title">${escapeHtml(u.unit_id)} <small>(${escapeHtml(u.tier.toUpperCase())} • ${escapeHtml(shortDoc)})</small></span>
+                  <span class="u-title">${escapeHtml(u.unit_id)} <small>${escapeHtml(role)}</small></span>
                   <span class="${bCls} u-badge">${escapeHtml(u.state)}</span>
                 </div>
-                <div class="row-sub">${escapeHtml(u.current_task || "Patrolling sector")}${escapeHtml(packBadge)}</div>
-              </div>
-            `;
-          })
-          .join("");
+                <div class="row-sub">${escapeHtml(task)}</div>
+              </div>`);
+        });
+        parts.push(`<div style="height:${Math.max(0, win.spacer - win.offsetPx - slice.length * (win.rowH || 44))}px"></div>`);
+        elUnitRoster.innerHTML = parts.join("");
         elUnitRoster.scrollTop = prevScroll;
+        elUnitRoster.dataset.alive = String(win.alive);
+        elUnitRoster.dataset.total = String(rows.length);
       } else {
         // In-place DOM update: zero layout/scroll reset, zero click interruption
         for (let i = 0; i < units.length; i++) {
@@ -401,7 +435,7 @@
           }
           const subEl = row.querySelector(".row-sub");
           const packBadge = u.pack_size > 1 ? ` • PACK ${u.pack_role} (x${u.pack_size})` : "";
-          const wantSub = `${u.current_task || "Patrolling sector"}${packBadge}`;
+          const wantSub = `${u.current_task || (window.OverseerLogic ? window.OverseerLogic.emptyTaskLabel(u.state) : "idle")}${packBadge}`;
           if (subEl && subEl.textContent !== wantSub) subEl.textContent = wantSub;
         }
       }
@@ -912,25 +946,29 @@
   const elBtnSpawn = document.getElementById("btn-spawn-unit");
   const elBtnRetire = document.getElementById("btn-retire-unit");
 
-  if (elBtnSpawn) {
-    elBtnSpawn.addEventListener("click", () => {
-      const targetCaste = activeCasteFilter === "all" ? "harvester" : activeCasteFilter;
-      fetch("/api/overseer/scale", {
+  async function postScale(delta) {
+    if (activeCasteFilter === "all") {
+      showActionError("Pick a caste before deploy or recall");
+      return;
+    }
+    try {
+      const response = await fetch("/api/overseer/scale", {
         method: "POST",
         headers: apiHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ caste: targetCaste, delta: 1 }),
+        body: JSON.stringify({ caste: activeCasteFilter, delta }),
       });
-    });
+      const result = await response.json();
+      if (!response.ok || result.ok === false) throw new Error(result.error || "Scale refused");
+      showActionError("");
+    } catch (error) {
+      showActionError(error.message || "Scale request failed");
+    }
+  }
+  if (elBtnSpawn) {
+    elBtnSpawn.addEventListener("click", () => { postScale(1); });
   }
   if (elBtnRetire) {
-    elBtnRetire.addEventListener("click", () => {
-      const targetCaste = activeCasteFilter === "all" ? "harvester" : activeCasteFilter;
-      fetch("/api/overseer/scale", {
-        method: "POST",
-        headers: apiHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ caste: targetCaste, delta: -1 }),
-      });
-    });
+    elBtnRetire.addEventListener("click", () => { postScale(-1); });
   }
   // Telemetry Log Filter Buttons, Search Box, Pause Toggle & Open Folder Buttons
   document.querySelectorAll(".log-filter").forEach((btn) => {
@@ -979,23 +1017,47 @@
     renderReceipts(true);
   }
 
-  document.getElementById("btn-unselect").addEventListener("click", clearLockAndResetCamera);
+  const elUnselect = document.getElementById("btn-unselect");
+  if (elUnselect) elUnselect.addEventListener("click", clearLockAndResetCamera);
 
-  elThemeSelect.addEventListener("change", () => {
-    const theme = elThemeSelect.value;
-    try {
-      localStorage.setItem("sentinel_theme_id", theme);
-    } catch (_e) {}
-    fetch("/api/overseer/theme", {
-      method: "POST",
-      headers: apiHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ theme }),
+  if (elThemeSelect) {
+    elThemeSelect.addEventListener("change", () => {
+      const theme = elThemeSelect.value;
+      try {
+        localStorage.setItem("sentinel_theme_id", theme);
+      } catch (_e) {}
+      fetch("/api/overseer/theme", {
+        method: "POST",
+        headers: apiHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ theme }),
+      });
     });
-  });
+  }
 
-  elCamSelect.addEventListener("change", () => {
-    setCameraAndSave(elCamSelect.value);
-  });
+  if (elCamSelect) {
+    elCamSelect.addEventListener("change", () => {
+      setCameraAndSave(elCamSelect.value);
+    });
+  }
+  if (elGroupBy) {
+    elGroupBy.addEventListener("change", () => {
+      groupBy = elGroupBy.value || "caste";
+      renderRoster(true);
+    });
+  }
+  if (elSwarmSearch) {
+    elSwarmSearch.addEventListener("input", () => {
+      swarmQuery = elSwarmSearch.value || "";
+      renderRoster(true);
+    });
+  }
+  const elZoomIn = document.getElementById("btn-zoom-in");
+  const elZoomOut = document.getElementById("btn-zoom-out");
+  const elZoomFit = document.getElementById("btn-zoom-fit");
+  if (elZoomIn) elZoomIn.addEventListener("click", () => engine.zoomByNotches(-1));
+  if (elZoomOut) elZoomOut.addEventListener("click", () => engine.zoomByNotches(1));
+  if (elZoomFit) elZoomFit.addEventListener("click", () => engine.zoomFit());
+  elUnitRoster.addEventListener("scroll", () => renderRoster(true));
 
   async function sendMission(url, payload) {
     const feedback = document.getElementById("mission-feedback");
@@ -1014,11 +1076,9 @@
     }
   }
 
-  document.getElementById("btn-demo-wave").addEventListener("click", () => {
-    const scenario = elScenarioSelect ? elScenarioSelect.value : "live_research_swarm";
-    const qInput = document.getElementById("live-query-input");
-    const query = qInput ? qInput.value : "";
-    sendMission("/api/overseer/scenario", { scenario, query });
+  window.addEventListener("arelis-theme", (ev) => {
+    const theme = ev && ev.detail;
+    if (theme) document.documentElement.setAttribute("data-theme", theme);
   });
 
   const elLiveMode = document.getElementById("live-mode-select");
