@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QUrl
-from PySide6.QtQml import QQmlComponent, QQmlEngine
+from PySide6.QtQml import QJSEngine, QQmlComponent, QQmlEngine
 from PySide6.QtWidgets import QWidget
 
 from arelis.ui import overseer_runtime
@@ -50,56 +49,64 @@ def _qml_list(value):
     return list(value)
 
 
-def _node_logic_checks() -> dict:
+def _logic_checks() -> dict:
+    source = LOGIC.read_text(encoding="utf-8")
+    engine = QJSEngine()
+    # Qt JS has no Node `module`; bind the IIFE global and a stub exports object.
+    engine.evaluate("var globalThis = this; var module = {exports: {}};")
+    evaluated = engine.evaluate(source, str(LOGIC))
+    if evaluated.isError():
+        raise RuntimeError(evaluated.toString())
     script = r"""
-const L = require(process.argv[1]);
-const out = {};
-out.lod200 = L.chooseLod(200, null);
-out.lod70 = L.chooseLod(70, null);
-out.lod50 = L.chooseLod(50, null);
-out.hystStay = L.chooseLod(160, 0);
-out.hystLeave = L.chooseLod(150, 0);
-out.hystEnter1 = L.chooseLod(70, 2);
-out.hystStay2 = L.chooseLod(65, 2);
-out.sil2 = L.silhouette(2);
-out.win = L.virtualWindow(0, 748, 100);
-out.demo = L.snapshotUnits({demo: true, units: [{unit_id: "SNT-DEMO"}]}).length;
-out.mixed = L.snapshotUnits({
-  units: [
-    {unit_id: "SNT-FAKE", demo: true},
-    {unit_id: "SNT-SYN", synthetic: true},
+(function () {
+  const L = (typeof OverseerLogic !== "undefined")
+    ? OverseerLogic
+    : (module && module.exports);
+  const out = {};
+  out.lod200 = L.chooseLod(200, null);
+  out.lod70 = L.chooseLod(70, null);
+  out.lod50 = L.chooseLod(50, null);
+  out.hystStay = L.chooseLod(160, 0);
+  out.hystLeave = L.chooseLod(150, 0);
+  out.hystEnter1 = L.chooseLod(70, 2);
+  out.hystStay2 = L.chooseLod(65, 2);
+  out.sil2 = L.silhouette(2);
+  out.win = L.virtualWindow(0, 748, 100);
+  out.demo = L.snapshotUnits({demo: true, units: [{unit_id: "SNT-DEMO"}]}).length;
+  out.mixed = L.snapshotUnits({
+    units: [
+      {unit_id: "SNT-FAKE", demo: true},
+      {unit_id: "SNT-SYN", synthetic: true},
+      {unit_id: "SNT-WRD-001", caste: "warden", state: "PATROLLING"},
+    ],
+  }).map((u) => u.unit_id);
+  out.dolly = L.cursorDolly([0, 0, 0], [10, 0, 0], 10, 20);
+  out.pitchClose = L.pitchDeg(L.ZOOM_MIN);
+  out.pitchWide = L.pitchDeg(L.ZOOM_MAX);
+  out.inspWide = L.inspectorCollapsed(L.ZOOM_MAX, null);
+  out.inspSelected = L.inspectorCollapsed(L.ZOOM_MAX, "SNT-WRD-001");
+  out.rubberLo = L.wheelStep(L.ZOOM_MIN, -1);
+  out.chipWide = L.chipState(30, false, 100);
+  out.chipClose = L.chipState(50, false, 10);
+  out.groups = L.groupUnits([
+    {unit_id: "SNT-WRD-002", caste: "warden", state: "ENGAGED"},
     {unit_id: "SNT-WRD-001", caste: "warden", state: "PATROLLING"},
-  ],
-}).map((u) => u.unit_id);
-out.dolly = L.cursorDolly([0, 0, 0], [10, 0, 0], 10, 20);
-out.pitchClose = L.pitchDeg(L.ZOOM_MIN);
-out.pitchWide = L.pitchDeg(L.ZOOM_MAX);
-out.inspWide = L.inspectorCollapsed(L.ZOOM_MAX, null);
-out.inspSelected = L.inspectorCollapsed(L.ZOOM_MAX, "SNT-WRD-001");
-out.rubberLo = L.wheelStep(L.ZOOM_MIN, -1);
-out.chipWide = L.chipState(30, false, 100);
-out.chipClose = L.chipState(50, false, 10);
-out.groups = L.groupUnits([
-  {unit_id: "SNT-WRD-002", caste: "warden", state: "ENGAGED"},
-  {unit_id: "SNT-WRD-001", caste: "warden", state: "PATROLLING"},
-  {unit_id: "SNT-STK-001", caste: "stalker", state: "VECTORING"},
-], "caste");
-out.empOk = L.actionAllowed("emp_halt");
-out.firewall = L.actionAllowed("firewall");
-out.kill = L.actionAllowed("kill");
-out.grant = L.actionAllowed("grant");
-out.idle = L.emptyTaskLabel(null);
-out.stateLabel = L.emptyTaskLabel("PATROLLING");
-out.zoomReduced = L.zoomDuration("focus", true);
-console.log(JSON.stringify(out));
+    {unit_id: "SNT-STK-001", caste: "stalker", state: "VECTORING"},
+  ], "caste");
+  out.empOk = L.actionAllowed("emp_halt");
+  out.firewall = L.actionAllowed("firewall");
+  out.kill = L.actionAllowed("kill");
+  out.grant = L.actionAllowed("grant");
+  out.idle = L.emptyTaskLabel(null);
+  out.stateLabel = L.emptyTaskLabel("PATROLLING");
+  out.zoomReduced = L.zoomDuration("focus", true);
+  return JSON.stringify(out);
+})()
 """
-    proc = subprocess.run(
-        ["node", "-e", script, str(LOGIC)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return json.loads(proc.stdout)
+    wrapped = engine.evaluate(script)
+    if wrapped.isError():
+        raise RuntimeError(wrapped.toString())
+    return json.loads(wrapped.toString())
 
 
 def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypatch) -> None:
@@ -141,7 +148,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert presence.restore("quit", reduced=True) == 200
     assert presence.last_reason == "quit"
 
-    js = _node_logic_checks()
+    js = _logic_checks()
     assert js["lod200"] == 0
     assert js["lod70"] == 1
     assert js["lod50"] == 2
@@ -182,6 +189,17 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     owner._quick_surface = _Surf()
     mote = attach_sentinel_mote(owner)
     assert mote is not None
+    assert mote.pos().x() == 1250 - 11
+    assert mote.pos().y() == 1090 - 11
+    owner.show()
+    qt_app.processEvents()
+    owner.resize(1280, 696)
+    qt_app.processEvents()
+    mx, my = mote_pos(1280, 696)
+    assert mote.pos().x() == mx - 11
+    assert mote.pos().y() == my - 11
+    owner.resize(2560, 1392)
+    qt_app.processEvents()
     assert mote.pos().x() == 1250 - 11
     assert mote.pos().y() == 1090 - 11
     from arelis import sentinel_control
@@ -252,6 +270,10 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "CustomMaterial" in qml
     assert "shaders/hull.vert" in qml
     assert "View3D" in qml
+    assert "Qt.vector3d(row.x || 0, row.y || 0, row.z || 0)" in qml
+    assert "Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)" not in qml
+    assert "Qt.vector3d(0.022, 0.022, 0.022)" in qml
+    assert "var sc = 0.0012 * vis" in qml
     view_qml = scene.source().toLocalFile() if hasattr(scene, "source") else str(assets / "OverseerView.qml")
     assert view_qml.endswith("OverseerView.qml")
 
@@ -272,7 +294,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     report_map = overseer_runtime.load_mesh_report(assets / "export_report.json")
     # 100 wardens at wide distance: one caste, LOD2, three submeshes.
     wide = [
-        {"unit_id": f"SNT-WRD-{i:03d}", "caste": "warden", "position": [i % 10, i // 10, 0.4], "scale": 1.0}
+        {"unit_id": f"SNT-WRD-{i:03d}", "caste": "warden", "position": [i % 10, 0.4, i // 10], "scale": 1.0}
         for i in range(100)
     ]
     frame = overseer_runtime.build_frame(wide, camera_distance=90.0, viewport_h=1306, report=report_map)
@@ -294,7 +316,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     mixed = []
     for caste in overseer_runtime.CASTES:
         for i in range(20):
-            mixed.append({"unit_id": f"{caste}-{i}", "caste": caste, "position": [i, 0, 0.4], "scale": 1.0})
+            mixed.append({"unit_id": f"{caste}-{i}", "caste": caste, "position": [i, 0.4, 0], "scale": 1.0})
     mixed_frame = overseer_runtime.build_frame(mixed, 90.0, 1306, report=report_map)
     assert mixed_frame["budget"]["unitDrawCalls"] == 15
     assert mixed_frame["budget"]["lodCounts"][2] == 100
@@ -302,10 +324,26 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     qt_app.processEvents()
     assert inst.property("unitDrawCalls") == 15
 
-    close = [{"unit_id": "hero", "caste": "warden", "position": [0, 0, 0.9], "scale": 1.0}]
+    close = [{"unit_id": "hero", "caste": "warden", "position": [0, 0.9, 0], "scale": 1.0}]
     close_frame = overseer_runtime.build_frame(close, 7.0, 1306, report=report_map)
     assert close_frame["units"][0]["lod"] == 0
     assert close_frame["units"][0]["height_px"] > 180
+    axis = [{"unit_id": "axis", "caste": "warden", "position": [5.0, 2.5, 9.0], "scale": 1.0}]
+    inst.applyFrame(overseer_runtime.build_frame(axis, 32.0, 1306, report=report_map))
+    qt_app.processEvents()
+    found_pos = None
+    for child in inst.findChildren(QObject):
+        if "InstanceListEntry" in child.metaObject().className():
+            pos = child.property("position")
+            if pos is not None:
+                found_pos = (float(pos.x()), float(pos.y()), float(pos.z()))
+                break
+    assert found_pos is not None
+    assert abs(found_pos[0] - 5.0) < 1e-4
+    assert abs(found_pos[1] - 2.5) < 1e-4
+    assert abs(found_pos[2] - 9.0) < 1e-4
+    inst.applyFrame(mixed_frame)
+    qt_app.processEvents()
 
     paths = overseer_runtime.particle_paths(wide, count=520)
     assert len(paths) == 520
@@ -331,11 +369,35 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     red = overseer_runtime.entry_timeline(200, reduced=True)
     assert red["duration"] == 200 and float(red["fade"]) == 0.20
 
-    snap = {"units": [{"unit_id": "SNT-WRD-001", "caste": "warden", "position": [3, -4, 0.9], "state": "ENGAGED_DEFENSE", "heading": [1, 0, 0]}]}
+    snap = {"units": [{"unit_id": "SNT-WRD-001", "caste": "warden", "position": [3, 0.9, -4], "state": "ENGAGED_DEFENSE", "heading": [1, 0, 0]}]}
     pushed = win.apply_snapshot(snap)
     assert sum(pushed["budget"]["lodCounts"].values()) == 1
     assert any(pushed["buckets"][k] for k in pushed["buckets"])
     assert overseer_runtime.claw_open("ENGAGED_DEFENSE") == 0.85
+    real22 = {"units": []}
+    mix = [("harvester", 8), ("warden", 6), ("sanitizer", 4), ("tripwire", 4)]
+    n = 0
+    for caste, count in mix:
+        for i in range(count):
+            real22["units"].append({
+                "unit_id": f"SNT-{caste[:3].upper()}-{i:03d}",
+                "caste": caste,
+                "position": [8.0, 0.4, 0.0],
+                "state": "PATROLLING",
+            })
+            n += 1
+    assert n == 22
+    win.apply_snapshot(real22)
+    qt_app.processEvents()
+    assert win._hud_labels["units"].text() == "Units 22"
+    assert win._hud_labels["harvester"].text() == "Harvest 8"
+    assert win._hud_labels["warden"].text() == "Warden 6"
+    assert win._hud_labels["sanitizer"].text() == "Sanitize 4"
+    assert win._hud_labels["tripwire"].text() == "Tripwire 4"
+    assert win._hud_labels["stalker"].text() == "Stalker 0"
+    win.apply_snapshot({"demo": True, "units": [{"unit_id": "x", "caste": "warden"}]})
+    qt_app.processEvents()
+    assert win._hud_labels["units"].text() == "Units 0"
 
     fake_demo = overseer_runtime.snapshot_units({"demo": True, "units": [{"unit_id": "x"}]})
     assert fake_demo == []
@@ -373,6 +435,10 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     hull_vert = (assets / "shaders" / "hull.vert").read_text()
     assert "uTime" in hull_vert
     assert "INSTANCE_DATA.x + uTime" in hull_vert
+    assert "clamp(INSTANCE_DATA.z, 0.0, 1.0)" in hull_vert
+    assert "clamp(INSTANCE_DATA.z, 0.0, 1.0)" in (
+        assets / "shaders" / "emissive.vert"
+    ).read_text()
     assert "uTime: root.sceneTime" in qml
     # Pause the live clock in this fixture only so sceneTime stays put.
     # Production FrameAnimation is left unchanged.
@@ -460,7 +526,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
 
     # Repeated applyFrame / setParticles must reuse entries (bounded QObject count).
     fifty = overseer_runtime.build_frame(
-        [{"unit_id": f"P-{i}", "caste": "warden", "position": [i, 0, 0.4], "scale": 1.0} for i in range(50)],
+        [{"unit_id": f"P-{i}", "caste": "warden", "position": [i, 0.4, 0], "scale": 1.0} for i in range(50)],
         90.0,
         1306,
         report=report_map,

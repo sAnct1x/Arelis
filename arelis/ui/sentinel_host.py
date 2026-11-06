@@ -16,6 +16,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QRegion, QShortcut
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QStackedWidget,
@@ -59,6 +60,7 @@ class SentinelMote(QWidget):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Sentinels")
         self._owner = owner
+        owner.installEventFilter(self)
         self.show()
         self.raise_()
         self.reposition()
@@ -68,6 +70,15 @@ class SentinelMote(QWidget):
             return
         x, y = mote_pos(self._owner.width(), self._owner.height())
         self.move(QPoint(max(0, x - 11), max(0, y - 11)))
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self._owner and event.type() in (
+            QEvent.Type.Resize,
+            QEvent.Type.Move,
+            QEvent.Type.Show,
+        ):
+            self.reposition()
+        return super().eventFilter(watched, event)
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -145,6 +156,30 @@ class SentinelWindow(QWidget):
         self._close_mote.clicked.connect(self.close)
         self._close_mote.raise_()
 
+        self._hud_bar = QWidget(self)
+        self._hud_bar.setObjectName("SentinelHudBar")
+        self._hud_bar.setFixedHeight(36)
+        hud_row = QHBoxLayout(self._hud_bar)
+        hud_row.setContentsMargins(16, 4, 72, 4)
+        hud_row.setSpacing(14)
+        self._hud_labels: dict[str, QLabel] = {}
+        for key, title in (
+            ("units", "Units"),
+            ("warden", "Warden"),
+            ("stalker", "Stalker"),
+            ("harvester", "Harvest"),
+            ("sanitizer", "Sanitize"),
+            ("tripwire", "Tripwire"),
+        ):
+            lab = QLabel(f"{title} 0", self._hud_bar)
+            lab.setObjectName(f"SentinelHud_{key}")
+            lab.setAccessibleName(f"{title} 0")
+            self._hud_labels[key] = lab
+            hud_row.addWidget(lab)
+        hud_row.addStretch(1)
+        self._hud_bar.move(8, 8)
+        self._hud_bar.raise_()
+
         self._poll = QTimer(self)
         self._poll.setInterval(_POLL_MS)
         self._poll.timeout.connect(self._poll_tick)
@@ -166,11 +201,13 @@ class SentinelWindow(QWidget):
         owner = self._owner
         if owner is None:
             self.resize(1200, 780)
+            self._place_hud(1200)
             return
         geo = owner.geometry()
         x, y, w, h = inset_geometry(geo.width(), geo.height())
         self.setGeometry(geo.x() + x, geo.y() + y, w, h)
         self._close_mote.move(max(8, w - 46), 48)
+        self._place_hud(w)
 
     def apply_theme(self) -> None:
         bg = COLORS.get("bg0", "#0b0714")
@@ -186,6 +223,8 @@ class SentinelWindow(QWidget):
             f" border: 1px solid {accent}; padding: 6px 18px; }}"
             f"#SentinelCloseMote {{ background: #d9ccff; color: #1c1430;"
             f" border: 2px solid {accent}; border-radius: 14px; }}"
+            f"#SentinelHudBar {{ background: rgba(14, 9, 32, 180); color: {text}; }}"
+            f"#SentinelHudBar QLabel {{ color: {text}; font-size: 13px; }}"
         )
         self._push_theme_to_page(theme)
 
@@ -338,6 +377,46 @@ class SentinelWindow(QWidget):
         self._overlay_flags = flags if isinstance(flags, dict) else {}
         self.apply_hud_mask()
 
+    def _place_hud(self, width: int) -> None:
+        bar = getattr(self, "_hud_bar", None)
+        if bar is None:
+            return
+        bar.setFixedWidth(max(1, int(width) - 16))
+        bar.move(8, 8)
+        bar.raise_()
+        self._close_mote.raise_()
+
+    def apply_hud_counts(self, units: list) -> None:
+        """Show authenticated snapshot caste counts. Never invents numbers."""
+        counts = {
+            "warden": 0,
+            "stalker": 0,
+            "harvester": 0,
+            "sanitizer": 0,
+            "tripwire": 0,
+        }
+        for unit in units or []:
+            caste = str(unit.get("caste") or "").lower()
+            if caste in counts:
+                counts[caste] += 1
+        total = sum(counts.values())
+        titles = {
+            "units": ("Units", total),
+            "warden": ("Warden", counts["warden"]),
+            "stalker": ("Stalker", counts["stalker"]),
+            "harvester": ("Harvest", counts["harvester"]),
+            "sanitizer": ("Sanitize", counts["sanitizer"]),
+            "tripwire": ("Tripwire", counts["tripwire"]),
+        }
+        for key, (title, n) in titles.items():
+            lab = self._hud_labels.get(key)
+            if lab is None:
+                continue
+            text = f"{title} {n}"
+            lab.setText(text)
+            lab.setAccessibleName(text)
+        self._place_hud(max(1, self.width()))
+
     def apply_snapshot(self, snap: dict) -> dict:
         """Push a live hive snapshot into the native View3D. Returns the frame."""
         units = overseer_runtime.snapshot_units(snap)
@@ -357,9 +436,13 @@ class SentinelWindow(QWidget):
         self._prev_lods = frame["prevLods"]
         if root is not None and hasattr(root, "applyFrame"):
             root.applyFrame(frame)
-        self._particle_paths = overseer_runtime.particle_paths(
-            units, width=float(max(1, self.width())), height=float(max(1, self.height()))
-        )
+        self.apply_hud_counts(units)
+        if self._entry_timer.isActive():
+            self._particle_paths = overseer_runtime.particle_paths(
+                units,
+                width=float(max(1, self.width())),
+                height=float(max(1, self.height())),
+            )
         return frame
 
     def _poll_snapshot(self) -> None:
@@ -411,6 +494,9 @@ class SentinelWindow(QWidget):
             if hasattr(root, "setParticles"):
                 root.setParticles(rows)
         if not bool(root.property("entryPlaying")):
+            if hasattr(root, "setParticles"):
+                root.setParticles([])
+            self._particle_paths = []
             self._entry_timer.stop()
 
     def start_sentinel(self) -> None:
@@ -476,6 +562,7 @@ class SentinelWindow(QWidget):
     def resizeEvent(self, event) -> None:
         if not self._entry_timer.isActive():
             self._close_mote.move(max(8, self.width() - 46), 48)
+        self._place_hud(self.width())
         self.apply_hud_mask()
         super().resizeEvent(event)
 

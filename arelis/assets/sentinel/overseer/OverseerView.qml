@@ -187,7 +187,7 @@ Item {
 
     function fillUnitEntry(row, caste) {
         var e = acquireEntry()
-        e.position = Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)
+        e.position = Qt.vector3d(row.x || 0, row.y || 0, row.z || 0)
         e.eulerRotation = Qt.vector3d(0, -(row.heading_deg || 0), 0)
         var sc = row.scale === undefined ? 1 : row.scale
         e.scale = Qt.vector3d(sc, sc, sc)
@@ -260,7 +260,7 @@ Item {
                 continue
             var e = acquireEntry()
             e.position = Qt.vector3d(row.x || 0, row.y || 0, row.z || 0)
-            var sc = 0.04 * vis
+            var sc = 0.0012 * vis
             e.scale = Qt.vector3d(sc, sc, sc)
             e.color = "#d9ccff"
             entries.push(e)
@@ -354,7 +354,7 @@ Item {
         Model {
             objectName: "hiveCore"
             source: "#Sphere"
-            scale: Qt.vector3d(0.22, 0.22, 0.22)
+            scale: Qt.vector3d(0.022, 0.022, 0.022)
             materials: PrincipledMaterial {
                 baseColor: "#3b2a66"; metalness: 0.4; roughness: 0.2
                 emissiveFactor: Qt.vector3d(0.45, 0.35, 0.75)

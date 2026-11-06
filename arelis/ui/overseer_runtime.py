@@ -119,6 +119,8 @@ def claw_open(state: str | None) -> float:
 def heading_deg(heading: Any) -> float:
     if isinstance(heading, (int, float)):
         return float(heading) * 180.0 / math.pi
+    if isinstance(heading, (list, tuple)) and len(heading) >= 3:
+        return math.degrees(math.atan2(float(heading[2]), float(heading[0])))
     if isinstance(heading, (list, tuple)) and len(heading) >= 2:
         return math.degrees(math.atan2(float(heading[1]), float(heading[0])))
     return 0.0
@@ -205,8 +207,8 @@ def unit_view_pos(unit: dict[str, Any]) -> tuple[float, float, float]:
     pos = unit.get("position") or [unit.get("x") or 0, unit.get("y") or 0, unit.get("z") or 0]
     x, y = float(pos[0]), float(pos[1])
     z = float(pos[2]) if len(pos) > 2 else 0.0
-    # Match OverseerView: Qt (x, z, y) from world (x, y, z).
-    return (x, z, y)
+    # Hive kinematics are Y-up: (x, height, z) maps straight into Qt Quick 3D.
+    return (x, y, z)
 
 
 def unit_camera_distance(unit: dict[str, Any], eye: tuple[float, float, float]) -> float:
@@ -271,7 +273,7 @@ def layout_swarm(n: int = 100) -> list[dict[str, Any]]:
         units.append({
             "unit_id": f"{caste[:3].upper()}-{i:03d}",
             "caste": caste,
-            "position": [ring * math.cos(ang), ring * math.sin(ang), 0.4],
+            "position": [ring * math.cos(ang), 0.4, ring * math.sin(ang)],
             "scale": 1.0,
         })
     return units
@@ -284,7 +286,7 @@ def clustered_swarm(n: int = 100) -> list[dict[str, Any]]:
         units.append({
             "unit_id": f"CL-{i:03d}",
             "caste": CASTES[i % len(CASTES)],
-            "position": [0.12 * (i % 10), 0.12 * (i // 10), 0.4],
+            "position": [0.12 * (i % 10), 0.4, 0.12 * (i // 10)],
             "scale": 1.0,
         })
     return units
