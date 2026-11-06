@@ -7,8 +7,18 @@ the mission picker, and the searchable log console.
 ## Opening it
 
 View menu, then **Sentinels**. In Filament the same item is in the field
-menu. It opens as its own window, separate from the main one, and takes
-its colours from the theme you are using (Night, Sodium, or Filament).
+menu. A small mote below the orbit opens it too. The window sits as an
+inset over the main plate (no OS frame) and leaves a strip on the right
+uncovered. It takes its colours from the theme you are using (Night,
+Sodium, or Filament). While it is open, Arelis and the orbit tree fade
+to about 20 percent. Closing it, quitting Arelis, or an error that
+cannot show the page restores them. Esc or the close mote on the inset
+closes it.
+
+The view is the live Overseer for this machine: cursor zoom, grouped
+roster of real units, caste counts including Stalker. It does not run
+demo or scenario theater. Draw style, baked 3D meshes, and load on a
+real machine have not been visually accepted yet.
 
 ## When Sentinel is offline
 

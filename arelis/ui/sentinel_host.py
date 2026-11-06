@@ -13,7 +13,7 @@ import logging
 import threading
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QPainter, QShortcut, QKeySequence
+from PySide6.QtGui import QColor, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -37,12 +37,12 @@ def _reduced_motion() -> bool:
         from PySide6.QtGui import QGuiApplication
 
         hints = QGuiApplication.styleHints()
-        if hints is not None and hasattr(hints, "showShortcutsInContextMenus"):
-            pass
         fn = getattr(hints, "animationsEnabled", None)
         if callable(fn):
             return not bool(fn())
     except Exception:
+        # Style hints or the animations query are missing on this Qt build.
+        # Treat motion as allowed rather than invent a reduced-motion state.
         return False
     return False
 
@@ -273,7 +273,8 @@ class SentinelWindow(QWidget):
         super().showEvent(event)
 
     def closeEvent(self, event) -> None:
-        self._restore_presence("close")
+        if self.presence.open:
+            self._restore_presence("close")
         super().closeEvent(event)
 
     def resizeEvent(self, event) -> None:

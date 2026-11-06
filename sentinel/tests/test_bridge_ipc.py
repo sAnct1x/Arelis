@@ -51,7 +51,8 @@ async def test_bridge_server_and_sovereign_client_end_to_end() -> None:
         async with httpx.AsyncClient() as http:
             resp = await http.get(f"http://127.0.0.1:{port}/overseer")
             assert resp.status_code == 200
-            assert "SENTINEL — Arelis 3D Swarm Overseer" in resp.text
+            assert "<title>Sentinels</title>" in resp.text
+            assert "overseer-canvas" in resp.text
 
         # 6. EMP Halt & Restore via client
         emp = await client.emp_halt(reason="Bridge Test Halt")

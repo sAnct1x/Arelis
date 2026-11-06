@@ -124,7 +124,7 @@
       if (now - lastFpsUpdateMs > 250) {
         lastFpsUpdateMs = now;
         const fpsStr = String(Math.round(engine.fpsSmoothed));
-        if (elFps.textContent !== fpsStr) elFps.textContent = fpsStr;
+        if (elFps && elFps.textContent !== fpsStr) elFps.textContent = fpsStr;
       }
     } catch (err) {
       if (!animate._warned) {
@@ -341,6 +341,40 @@
   let lastUnitIdsSig = "";
   let lastNodeIdsSig = "";
 
+
+  function renderCasteBadges(units) {
+    if (!elBadges || !window.OverseerLogic) return;
+    const Logic = window.OverseerLogic;
+    const count = (units || []).length;
+    const mode = Logic.chipState(30, false, count);
+    if (!mode.badges) {
+      elBadges.hidden = true;
+      elBadges.innerHTML = "";
+      return;
+    }
+    const groups = Logic.groupUnits(units || [], "caste");
+    elBadges.hidden = false;
+    elBadges.innerHTML = groups.map((g) => {
+      const label = Logic.CASTE_ROLE[g.key] || g.key;
+      return `<button type="button" class="caste-badge" data-caste="${escapeHtml(g.key)}">${escapeHtml(label)} ${g.units.length}</button>`;
+    }).join("");
+  }
+  if (elBadges) {
+    elBadges.addEventListener("click", (ev) => {
+      const btn = ev.target.closest(".caste-badge");
+      if (!btn || !latestSnapshot) return;
+      const caste = btn.getAttribute("data-caste");
+      const Logic = window.OverseerLogic;
+      const units = (Logic ? Logic.snapshotUnits(latestSnapshot) : latestSnapshot.units || []).filter((u) => u.caste === caste);
+      if (!units.length) return;
+      engine.selectedId = units[0].unit_id;
+      engine.selectedKind = "unit";
+      const actor = engine.actors.get(units[0].unit_id);
+      engine.applyCursorZoom(28, actor ? actor.pos.slice() : [0, 0, 0]);
+      if (engine.onSelectionChanged) engine.onSelectionChanged(engine.selectedId, engine.selectedKind);
+    });
+  }
+
   let groupBy = "caste";
   let swarmQuery = "";
   function showActionError(msg) {
@@ -414,6 +448,7 @@
         elUnitRoster.scrollTop = prevScroll;
         elUnitRoster.dataset.alive = String(win.alive);
         elUnitRoster.dataset.total = String(rows.length);
+        renderCasteBadges(units);
       } else {
         // In-place DOM update: zero layout/scroll reset, zero click interruption
         for (let i = 0; i < units.length; i++) {
@@ -634,7 +669,7 @@
           <div class="insp-key">CASTE LOCK</div><div class="insp-val">${escapeHtml(u.caste.toUpperCase())} (v${u.version})</div>
           <div class="insp-key">VISUAL MODEL</div><div class="insp-val">${escapeHtml(u.tier.toUpperCase())} (${u.tentacles} IK Tentacles)</div>
           <div class="insp-key">FSM STATE</div><div class="insp-val">${escapeHtml(u.state)}</div>
-          <div class="insp-key">CURRENT TASK</div><div class="insp-val">${escapeHtml(u.current_task)}</div>
+          <div class="insp-key">CURRENT TASK</div><div class="insp-val">${escapeHtml(u.current_task || (window.OverseerLogic ? window.OverseerLogic.emptyTaskLabel(u.state) : "idle"))}</div>
           <div class="insp-key">3D POSITION</div><div class="insp-val">[${posFixed}]</div>
           <div class="insp-key">3D VELOCITY</div><div class="insp-val">[${velFixed}]</div>
           <div class="insp-key">LASER STATUS</div><div class="insp-val">${u.laser_active ? "ACTIVE (" + escapeHtml(u.laser_kind.toUpperCase()) + ")" : "STANDBY"}</div>
@@ -837,11 +872,11 @@
     latestSnapshot = snap;
     engine.syncSnapshot(snap);
 
-    if (snap.theme && snap.theme.id) {
+    if (snap.theme && snap.theme.id && !window.__arelisThemeLocked) {
       if (document.documentElement.getAttribute("data-theme") !== snap.theme.id) {
         document.documentElement.setAttribute("data-theme", snap.theme.id);
       }
-      if (elThemeSelect.value !== snap.theme.id && document.activeElement !== elThemeSelect) {
+      if (elThemeSelect && elThemeSelect.value !== snap.theme.id && document.activeElement !== elThemeSelect) {
         elThemeSelect.value = snap.theme.id;
       }
       setTextIfChanged(elFooterTheme, `Atmosphere: ${snap.theme.label} (${snap.theme.bg0} / ${snap.theme.accent})`);
@@ -852,6 +887,7 @@
     setTextIfChanged(elUnits, `${m.total_units || 0}/${m.max_units || 64}`);
     setTextIfChanged(elHrv, bc.harvester || 0);
     setTextIfChanged(elWrd, bc.warden || 0);
+    setTextIfChanged(elStk, bc.stalker || 0);
     setTextIfChanged(elSan, bc.sanitizer || 0);
     setTextIfChanged(elTrp, bc.tripwire || 0);
     setTextIfChanged(elWarrants, m.warrants_minted || 0);
@@ -1078,7 +1114,10 @@
 
   window.addEventListener("arelis-theme", (ev) => {
     const theme = ev && ev.detail;
-    if (theme) document.documentElement.setAttribute("data-theme", theme);
+    if (theme) {
+      window.__arelisThemeLocked = true;
+      document.documentElement.setAttribute("data-theme", theme);
+    }
   });
 
   const elLiveMode = document.getElementById("live-mode-select");
