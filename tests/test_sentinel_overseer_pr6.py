@@ -374,9 +374,18 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "uTime" in hull_vert
     assert "INSTANCE_DATA.x + uTime" in hull_vert
     assert "uTime: root.sceneTime" in qml
+    # Pause the live clock in this fixture only so sceneTime stays put.
+    # Production FrameAnimation is left unchanged.
+    paused = 0
+    for child in inst.findChildren(QObject):
+        if "FrameAnimation" in child.metaObject().className():
+            child.setProperty("running", False)
+            paused += 1
+    assert paused >= 1, "expected a FrameAnimation to pause for the binding check"
     inst.setProperty("sceneTime", 2.5)
     qt_app.processEvents()
-    assert abs(float(inst.property("sceneTime")) - 2.5) < 1e-6
+    sticky = float(inst.property("sceneTime"))
+    assert abs(sticky - 2.5) < 1e-6, sticky
     material_times = []
     for child in inst.findChildren(QObject):
         cls = child.metaObject().className()
@@ -385,7 +394,18 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
             if ut is not None:
                 material_times.append(float(ut))
     assert material_times, "CustomMaterial uTime was not instantiated"
-    assert any(abs(t - 2.5) < 1e-5 for t in material_times), material_times
+    assert any(abs(t - sticky) < 1e-5 for t in material_times), (sticky, material_times)
+    inst.setProperty("sceneTime", 4.0)
+    qt_app.processEvents()
+    follow = float(inst.property("sceneTime"))
+    assert abs(follow - 4.0) < 1e-6, follow
+    followed = []
+    for child in inst.findChildren(QObject):
+        if "CustomMaterial" in child.metaObject().className():
+            ut = child.property("uTime")
+            if ut is not None:
+                followed.append(float(ut))
+    assert any(abs(t - follow) < 1e-5 for t in followed), (follow, followed)
 
     # Accounting budget at 100 units: clustered close, mixed rings close/mid/wide.
     close_cluster = overseer_runtime.build_frame(
