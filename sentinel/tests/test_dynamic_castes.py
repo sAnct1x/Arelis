@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -14,6 +15,7 @@ from sentinel.bridge.server import SentinelBridgeServer
 from sentinel.castes import (
     PermissionViolationError,
 )
+from sentinel.core.bus import EventTopic
 from sentinel.core.fsm import SentinelState
 from sentinel.core.hive import SwarmHive
 
@@ -183,7 +185,6 @@ async def test_cryptarch_caste() -> None:
         assert hmac_res["result"]["match"] is True
 
         # 3. High entropy detection on random byte stream
-        import os
         random_payload = os.urandom(1024)
         entropy_res = await hive.dispatch_task(
             "cryptarch",
@@ -605,6 +606,17 @@ async def test_dynamic_caste_bounds_persistence_and_removal() -> None:
         with pytest.raises(ValueError, match="cannot be unregistered"):
             hive.unregister_caste("warden")
 
+        observed: list[tuple[str, str]] = []
+
+        def _note(event) -> None:
+            payload = event.payload or {}
+            cid = str(payload.get("caste_id") or payload.get("caste") or "")
+            observed.append((str(event.topic), cid))
+
+        hive.bus.subscribe(EventTopic.CASTE_REGISTERED, _note)
+        hive.bus.subscribe(EventTopic.CASTE_UNREGISTERED, _note)
+        hive.bus.subscribe(EventTopic.UNIT_SPAWNED, _note)
+
         res = hive.register_dynamic_caste(
             caste_id="persist_guard",
             code_prefix="PSG",
@@ -616,6 +628,14 @@ async def test_dynamic_caste_bounds_persistence_and_removal() -> None:
         assert res["caste_id"] == "persist_guard"
         store_path = data_dir() / "dynamic_castes.json"
         assert store_path.is_file()
+        store_ids = [
+            row.get("caste_id")
+            for row in json.loads(store_path.read_text(encoding="utf-8")).get("castes", [])
+        ]
+        assert "persist_guard" in store_ids
+        assert ("caste.registered", "persist_guard") in observed
+        assert ("unit.spawned", "persist_guard") in observed
+        assert any(u.caste == "persist_guard" for u in hive.units.values())
 
         hive2 = SwarmHive()
         try:
@@ -635,6 +655,7 @@ async def test_dynamic_caste_bounds_persistence_and_removal() -> None:
         gone = hive.unregister_caste("persist_guard")
         assert gone["ok"] is True
         assert "persist_guard" not in hive.registry.caste_ids
+        assert ("caste.unregistered", "persist_guard") in observed
 
         # Corrupt file is left in place and does not load.
         store_path.write_text("{not-json", encoding="utf-8")
@@ -660,6 +681,7 @@ async def test_dynamic_caste_bounds_persistence_and_removal() -> None:
             raise OSError("disk full")
 
         hive._dynamic_store.replace_all = _boom  # type: ignore[method-assign]
+        marked = len(observed)
         with pytest.raises(ValueError, match="failed to persist"):
             hive.register_dynamic_caste(
                 caste_id="never_saved",
@@ -669,8 +691,15 @@ async def test_dynamic_caste_bounds_persistence_and_removal() -> None:
                 allowed_capabilities=["sanitize_text"],
                 initial_pool=1,
             )
+        failed_events = observed[marked:]
         assert "never_saved" not in hive.registry.caste_ids
         assert not any(u.caste == "never_saved" for u in hive.units.values())
+        assert ("caste.registered", "never_saved") not in failed_events
+        assert ("unit.spawned", "never_saved") not in failed_events
+        assert ("caste.unregistered", "never_saved") not in failed_events
+        leftover = store_path.read_text(encoding="utf-8")
+        assert "never_saved" not in leftover
+        assert "write_fail" in leftover
         hive._dynamic_store = CasteStore()
 
         before = len(hive.units)

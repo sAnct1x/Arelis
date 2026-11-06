@@ -431,6 +431,7 @@ class SwarmHive:
         *,
         initial_pool: int = 0,
         tier: str | None = None,
+        announce: bool = True,
     ) -> dict[str, Any]:
         """Dynamically register a new or upgraded Sentinel Caste into the Hive."""
         parked = self._authorize_work(
@@ -454,22 +455,29 @@ class SwarmHive:
             units = self.spawn_units(d.caste_id, initial_pool, tier=tier or self.default_tier)
             spawned = [u.unit_id for u in units]
 
-        self.bus.publish_nowait(EventTopic.CASTE_REGISTERED, d.to_dict())
-        self.telemetry.record(
-            "INFO",
-            unit_id="HIVE-CORE",
-            caste=d.caste_id,
-            phase="CASTE REGISTERED",
-            message=f"Registered custom Sentinel Caste {d.caste_id.upper()} ({d.title}) with {len(spawned)} initial units.",
-            details={
-                "caste_id": d.caste_id,
-                "capabilities": sorted(d.allowed_capabilities),
-                "spawned": spawned,
-            },
-        )
+        if announce:
+            self._announce_caste_registered(d, spawned)
         res = d.to_dict()
         res["spawned_units"] = spawned
         return res
+
+    def _announce_caste_registered(self, descriptor: CasteDescriptor, spawned: list[str]) -> None:
+        self.bus.publish_nowait(EventTopic.CASTE_REGISTERED, descriptor.to_dict())
+        self.telemetry.record(
+            "INFO",
+            unit_id="HIVE-CORE",
+            caste=descriptor.caste_id,
+            phase="CASTE REGISTERED",
+            message=(
+                f"Registered custom Sentinel Caste {descriptor.caste_id.upper()} "
+                f"({descriptor.title}) with {len(spawned)} initial units."
+            ),
+            details={
+                "caste_id": descriptor.caste_id,
+                "capabilities": sorted(descriptor.allowed_capabilities),
+                "spawned": spawned,
+            },
+        )
 
     def register_dynamic_caste(
         self,
@@ -526,7 +534,9 @@ class SwarmHive:
             rules=spec["rules"],
             delegates=self._builtin_delegates(),
         )
-        res = self.register_caste(handler, initial_pool=initial_pool, tier=tier)
+        res = self.register_caste(
+            handler, initial_pool=0, tier=tier, announce=False
+        )
         if res.get("parked"):
             return res
         if not self._restoring_dynamic:
@@ -535,6 +545,15 @@ class SwarmHive:
             except (OSError, ValueError) as exc:
                 self._rollback_dynamic_registration(spec["caste_id"])
                 raise ValueError(f"failed to persist caste {spec['caste_id']!r}") from exc
+        spawned: list[str] = []
+        if initial_pool > 0:
+            units = self.spawn_units(
+                spec["caste_id"], initial_pool, tier=tier or self.default_tier
+            )
+            spawned = [u.unit_id for u in units]
+        self._announce_caste_registered(handler.descriptor, spawned)
+        res = handler.descriptor.to_dict()
+        res["spawned_units"] = spawned
         return res
 
     def unregister_caste(self, caste_id: str) -> dict[str, Any]:
