@@ -5,8 +5,8 @@ import QtQuick3D.Helpers
 Item {
     id: root
     objectName: "OverseerView"
-    property real cameraDistance: 32
-    property real cameraPitch: 36
+    property real cameraDistance: 76
+    property real cameraPitch: 50.8
     property int particleBudget: 520
     property real sceneTime: 0
     property var entryPool: []
@@ -185,11 +185,31 @@ Item {
         releaseList("__particles", particleList)
     }
 
+    function finiteNum(v, fallback) {
+        var n = Number(v)
+        var fb = (fallback === undefined) ? 0 : fallback
+        if (n !== n || n === Infinity || n === -Infinity)
+            return fb
+        return n
+    }
+
+    function finiteCoord(v, fallback) {
+        var n = finiteNum(v, fallback)
+        var fb = (fallback === undefined) ? 0 : fallback
+        if (Math.abs(n) > 40)
+            return fb
+        return n
+    }
+
     function fillUnitEntry(row, caste) {
         var e = acquireEntry()
-        e.position = Qt.vector3d(row.x || 0, row.y || 0, row.z || 0)
-        e.eulerRotation = Qt.vector3d(0, -(row.heading_deg || 0), 0)
-        var sc = row.scale === undefined ? 1 : row.scale
+        e.position = Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))
+        e.eulerRotation = Qt.vector3d(0, -finiteNum(row.heading_deg), 0)
+        var sc = finiteNum(row.scale, 1)
+        if (sc < 0.25)
+            sc = 0.25
+        if (sc > 2.0)
+            sc = 2.0
         e.scale = Qt.vector3d(sc, sc, sc)
         e.color = row.color || casteColors[caste]
         e.customData = Qt.vector4d(row.phase || 0, row.claw || 0.45, row.limp || 0, 0)
@@ -259,8 +279,10 @@ Item {
             if (vis <= 0)
                 continue
             var e = acquireEntry()
-            e.position = Qt.vector3d(row.x || 0, row.y || 0, row.z || 0)
-            var sc = 0.0012 * vis
+            e.position = Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))
+            var sc = vis
+            if (sc > 1)
+                sc = 1
             e.scale = Qt.vector3d(sc, sc, sc)
             e.color = "#d9ccff"
             entries.push(e)
@@ -368,10 +390,21 @@ Item {
     }
 
     Rectangle {
-        id: fillPlate
+        id: backdrop
+        objectName: "overseerBackdrop"
         anchors.fill: parent
         color: "#0b0714"
-        opacity: root.fill
+        z: -1
+    }
+
+    Rectangle {
+        id: fillPlate
+        objectName: "overseerFillPlate"
+        anchors.fill: parent
+        color: "#0b0714"
+        // Opaque while View3D.reveal is 0 so the QQuickWidget cannot
+        // show its default white clear through a transparent scene.
+        opacity: Math.max(root.fill, 1.0 - root.reveal)
         radius: 28
         z: 0
     }
@@ -465,6 +498,9 @@ Item {
         Model {
             objectName: "entryParticleCloud"
             source: "#Sphere"
+            // #Sphere is 100 units; this model scale keeps a leaked
+            // instance scale of 1 at 0.12 m instead of 100 m.
+            scale: Qt.vector3d(0.0012, 0.0012, 0.0012)
             instancing: root.particleList
             materials: PrincipledMaterial {
                 lighting: PrincipledMaterial.NoLighting

@@ -147,6 +147,9 @@ ZOOM_NOTCH = 1.18
 RUBBER = 0.08
 PITCH_CLOSE_DEG = 22.0
 PITCH_WIDE_DEG = 55.0
+# Smallest dolly on the 6..110 / pitch_deg curve that keeps the 23 m
+# ring inside a 2110x1306 35 mm plate (not the 110 m "fit swarm" stop).
+DEFAULT_CAMERA_DISTANCE = 76.0
 CASTE_MIX = (
     ("warden", 0.34),
     ("harvester", 0.36),

@@ -274,10 +274,15 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "model: [5, 10, 16, 23]" in qml
     assert 'source: "#Cylinder"' not in qml
     assert "ringPositions" in qml
-    assert "Qt.vector3d(row.x || 0, row.y || 0, row.z || 0)" in qml
+    assert "overseerBackdrop" in qml
+    assert "Math.max(root.fill, 1.0 - root.reveal)" in qml
+    assert "cameraDistance: 76" in qml
+    assert "scale: Qt.vector3d(0.0012, 0.0012, 0.0012)" in qml
+    assert overseer_runtime.DEFAULT_CAMERA_DISTANCE == 76.0
+    assert "Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))" in qml
     assert "Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)" not in qml
     assert "Qt.vector3d(0.022, 0.022, 0.022)" in qml
-    assert "var sc = 0.0012 * vis" in qml
+    assert "scale: Qt.vector3d(0.0012, 0.0012, 0.0012)" in qml
     view_qml = scene.source().toLocalFile() if hasattr(scene, "source") else str(assets / "OverseerView.qml")
     assert view_qml.endswith("OverseerView.qml")
 
@@ -295,6 +300,18 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     inst = comp.create()
     assert inst is not None
     qt_app.processEvents()
+    inst.setProperty("reveal", 0.0)
+    inst.setProperty("fill", 0.0)
+    qt_app.processEvents()
+    plate_op = None
+    backdrop = None
+    for child in inst.findChildren(QObject):
+        if child.objectName() == "overseerFillPlate":
+            plate_op = float(child.property("opacity"))
+        if child.objectName() == "overseerBackdrop":
+            backdrop = child
+    assert backdrop is not None
+    assert plate_op is not None and abs(plate_op - 1.0) < 1e-5
     caste_rings = [
         child
         for child in inst.findChildren(QObject)
@@ -362,6 +379,22 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert abs(found_pos[0] - 5.0) < 1e-4
     assert abs(found_pos[1] - 2.5) < 1e-4
     assert abs(found_pos[2] - 9.0) < 1e-4
+    boom = [{"unit_id": "boom", "caste": "warden", "position": [999.0, 0.4, 0.0], "scale": 50.0}]
+    inst.applyFrame(overseer_runtime.build_frame(boom, 32.0, 1306, report=report_map))
+    qt_app.processEvents()
+    boom_pos = None
+    boom_sc = None
+    for child in inst.findChildren(QObject):
+        if "InstanceListEntry" in child.metaObject().className():
+            pos = child.property("position")
+            sc = child.property("scale")
+            if pos is not None:
+                boom_pos = (float(pos.x()), float(pos.y()), float(pos.z()))
+                boom_sc = (float(sc.x()), float(sc.y()), float(sc.z())) if sc is not None else None
+                break
+    assert boom_pos is not None and abs(boom_pos[0]) < 1e-4
+    assert abs(boom_pos[1] - 0.4) < 1e-4 and abs(boom_pos[2]) < 1e-4
+    assert boom_sc is not None and all(abs(c - 2.0) < 1e-4 for c in boom_sc)
     inst.applyFrame(mixed_frame)
     qt_app.processEvents()
 
@@ -440,6 +473,35 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     win.apply_snapshot(real22)
     qt_app.processEvents()
     assert path_calls["n"] == 1
+
+    from arelis import sentinel_control
+
+    scene_root = win._scene.rootObject() if win._scene is not None else None
+    assert scene_root is not None
+    scene_root.setProperty("cameraDistance", 90.0)
+    qt_app.processEvents()
+    monkeypatch.setattr(
+        sentinel_control, "overseer_url", lambda: "http://127.0.0.1:9/#tok"
+    )
+    monkeypatch.setattr(
+        sentinel_control, "bridge_target", lambda: ("127.0.0.1", 9, "tok")
+    )
+    real_fetch = overseer_runtime.fetch_snapshot
+    monkeypatch.setattr(
+        overseer_runtime, "fetch_snapshot", lambda *args, **kwargs: real22
+    )
+    win.start_entry_sequence()
+    qt_app.processEvents()
+    assert win._hud_labels["units"].text() == "Units 22"
+    monkeypatch.setattr(overseer_runtime, "fetch_snapshot", real_fetch)
+    assert abs(
+        float(scene_root.property("cameraDistance"))
+        - overseer_runtime.DEFAULT_CAMERA_DISTANCE
+    ) < 1e-3
+    assert abs(
+        float(scene_root.property("cameraPitch"))
+        - overseer_runtime.pitch_deg(overseer_runtime.DEFAULT_CAMERA_DISTANCE)
+    ) < 1e-3
 
     fake_demo = overseer_runtime.snapshot_units({"demo": True, "units": [{"unit_id": "x"}]})
     assert fake_demo == []

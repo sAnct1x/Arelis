@@ -290,6 +290,7 @@ class SentinelWindow(QWidget):
         widget = QQuickWidget(self)
         widget.setObjectName("OverseerScene")
         widget.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
+        widget.setClearColor(QColor("#0b0714"))
         widget.setSource(QUrl.fromLocalFile(str(qml)))
         self._scene = widget
         return widget
@@ -300,12 +301,25 @@ class SentinelWindow(QWidget):
             return
         root = scene.rootObject()
         reduced = _reduced_motion()
+        if root is not None:
+            root.setProperty(
+                "cameraDistance", overseer_runtime.DEFAULT_CAMERA_DISTANCE
+            )
+            root.setProperty(
+                "cameraPitch",
+                overseer_runtime.pitch_deg(overseer_runtime.DEFAULT_CAMERA_DISTANCE),
+            )
+            if hasattr(root, "setParticles"):
+                root.setParticles([])
+        self._entry_timer.start()
+        if sentinel_control.overseer_url():
+            self._poll_snapshot()
         if root is not None and hasattr(root, "startEntry"):
             root.startEntry(reduced)
-        self._particle_paths = overseer_runtime.particle_paths(
-            [], width=max(1, self.width()), height=max(1, self.height())
-        )
-        self._entry_timer.start()
+        if not self._particle_paths:
+            self._particle_paths = overseer_runtime.particle_paths(
+                [], width=max(1, self.width()), height=max(1, self.height())
+            )
         self.apply_hud_mask()
         self._mask_timer.start()
         if sentinel_control.overseer_url():
@@ -424,7 +438,7 @@ class SentinelWindow(QWidget):
         scene = self._scene
         if scene is not None:
             root = scene.rootObject()
-        distance = 32.0
+        distance = overseer_runtime.DEFAULT_CAMERA_DISTANCE
         if root is not None:
             raw = root.property("cameraDistance")
             if raw:
