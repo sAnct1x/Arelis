@@ -26,8 +26,11 @@ from __future__ import annotations
 import sys
 
 from scripts.measure_tool_schema import (
+    CREDENTIAL_GATED_TOOL_NAMES,
     SCHEMA_TOKEN_CAP,
     measure,
+    registry_for_credentialed_windows,
+    registry_for_profile,
     tool_specs,
 )
 
@@ -301,3 +304,53 @@ def test_schema_stays_under_its_token_cap() -> None:
     assert desk["schema_tokens_approx"] <= SCHEMA_TOKEN_CAP["default_desktop"], desk
     assert full["schema_chars"] <= 24_855, full
     assert full["schema_tokens_approx"] <= 7_521, full
+
+    desk_names = {
+        spec["function"]["name"] for spec in tool_specs(registry_for_profile("default_desktop"))
+    }
+    assert not (CREDENTIAL_GATED_TOOL_NAMES & desk_names), sorted(
+        CREDENTIAL_GATED_TOOL_NAMES & desk_names
+    )
+    default_names = {spec["function"]["name"] for spec in tool_specs(registry_for_profile("default"))}
+    assert not (CREDENTIAL_GATED_TOOL_NAMES & default_names), sorted(
+        CREDENTIAL_GATED_TOOL_NAMES & default_names
+    )
+
+
+def test_profile_loaders_isolate_credentials_and_credentialed_windows_is_worst_subset() -> None:
+    """default_desktop stays a no-secret pin even if loaders would return accounts.
+
+    A Windows session with mail/SMS secrets is measured as itself: the five
+    gated names stay visible, and that name set is a subset of worst (7521),
+    not something to squeeze under the disabled-tools 6721 desktop pin.
+    """
+    import arelis.tools as tools_mod
+    from scripts.measure_tool_schema import _EXAMPLE_MAIL, _EXAMPLE_SMS
+
+    saved_mail = tools_mod.load_account
+    saved_sms = tools_mod.load_sms_account
+    tools_mod.load_account = lambda path=None: _EXAMPLE_MAIL
+    tools_mod.load_sms_account = lambda path=None: _EXAMPLE_SMS
+    try:
+        for profile in ("default", "default_desktop"):
+            names = {spec["function"]["name"] for spec in tool_specs(registry_for_profile(profile))}
+            leaked = CREDENTIAL_GATED_TOOL_NAMES & names
+            assert not leaked, (profile, sorted(leaked))
+    finally:
+        tools_mod.load_account = saved_mail
+        tools_mod.load_sms_account = saved_sms
+
+    cred_specs = tool_specs(registry_for_credentialed_windows())
+    worst_specs = tool_specs(registry_for_profile("worst"))
+    cred_names = {spec["function"]["name"] for spec in cred_specs}
+    worst_names = {spec["function"]["name"] for spec in worst_specs}
+    missing = CREDENTIAL_GATED_TOOL_NAMES - cred_names
+    assert not missing, sorted(missing)
+    extra = cred_names - worst_names
+    assert not extra, sorted(extra)
+    cred = measure(cred_specs)
+    desk = measure(tool_specs(registry_for_profile("default_desktop")))
+    assert cred["schema_tokens_approx"] <= SCHEMA_TOKEN_CAP["worst"], cred
+    assert cred["schema_tokens_approx"] > SCHEMA_TOKEN_CAP["default_desktop"], cred
+    assert desk["schema_tokens_approx"] <= SCHEMA_TOKEN_CAP["default_desktop"], desk
+    assert desk["schema_tokens_approx"] <= 6_721, desk
