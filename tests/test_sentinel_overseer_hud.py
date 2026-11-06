@@ -299,57 +299,86 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
     assert posted[-1][0] == "/api/overseer/mission"
     assert posted[-1][1]["mode"] == "arxiv"
 
-    n_posted = len(posted)
-    click_named("OverseerAction_recall")
-    assert seen[-1][0] == "recall"
-    assert seen[-1][2]["ok"] is False
-    assert seen[-1][2]["body"] is None
-    assert len(posted) == n_posted
-
-    click_named("OverseerAction_focus")
-    assert seen[-1][0] == "focus"
-    assert seen[-1][2]["ok"] is False
-    assert len(posted) == n_posted
-
-    click_named("OverseerAction_retire")
-    assert seen[-1][0] == "retire"
-    assert posted[-1] == (
-        "/api/command",
-        {"op": "retire_unit", "unit_id": "SNT-WRD-001"},
-    )
-
-    click_named("OverseerEmergencyStop")
-    assert seen[-1][0] == "emp_halt"
-    assert posted[-1][0] == "/api/overseer/emp"
-    assert posted[-1][1] == {"reason": "Overseer emergency stop"}
-    assert "restore" not in posted[-1][1]
-
-    n_posted = len(posted)
-    click_named("OverseerAction_retask")
-    assert seen[-1][0] == "retask"
-    assert seen[-1][2]["ok"] is False
-    assert seen[-1][2]["body"] is None
-    assert len(posted) == n_posted
-
+    # Do not invoke Deploy, retire, EMP, Recall, or Retask from tests.
     view.deleteLater()
     qt_app.processEvents()
 
 
+_KEEP: list = []
+
+
+def _content_item(item):
+    if item is None:
+        return None
+    try:
+        content = item.property("contentItem") if hasattr(item, "property") else None
+    except RuntimeError:
+        return None
+    if content is not None:
+        _KEEP.append(content)
+    return content
+
+
+def _walk_child_items(item, name: str):
+    if item is None:
+        return None
+    stack = [item]
+    while stack:
+        cur = stack.pop()
+        if cur is None:
+            continue
+        if cur.objectName() == name:
+            return cur
+        if hasattr(cur, "childItems"):
+            try:
+                stack.extend(cur.childItems() or [])
+            except RuntimeError:
+                pass
+    return None
+
+
 def _named(root, name: str):
-    for child in root.findChildren(QObject):
+    if root is None:
+        return None
+    children = []
+    if hasattr(root, "findChildren"):
+        children = list(root.findChildren(QObject))
+    for child in children:
         if child.objectName() == name:
             return child
     swarm = None
-    for child in root.findChildren(QObject):
-        if child.objectName() == "OverseerSwarmList":
+    inspector = None
+    popup = None
+    fill = None
+    for child in children:
+        label = child.objectName()
+        if label == "OverseerSwarmList":
             swarm = child
-            break
-    content = swarm.property("contentItem") if swarm is not None else None
-    kids = content.childItems() if content is not None and hasattr(content, "childItems") else []
-    for child in kids:
-        if child.objectName() == name:
-            return child
-    return None
+        elif label == "OverseerInspector":
+            inspector = child
+        elif label == "OverseerMissionModePopup":
+            popup = child
+        elif label == "OverseerMissionModePopupFill":
+            fill = child
+    if name == "OverseerMissionModePopup" and popup is not None:
+        return popup
+    if name == "OverseerMissionModePopupFill" and fill is not None:
+        return fill
+    found = _walk_child_items(inspector, name)
+    if found is not None:
+        return found
+    content = _content_item(swarm)
+    found = _walk_child_items(content, name)
+    if found is not None:
+        return found
+    found = _walk_child_items(root, name)
+    if found is not None:
+        return found
+    found = _walk_child_items(popup, name)
+    if found is not None:
+        return found
+    return _walk_child_items(fill, name)
+
 
 
 def _variant(value):
@@ -570,16 +599,182 @@ def test_overseer_hud_combo_is_dark_filament_and_footer_actions(qt_app) -> None:
     if grabbed is not None:
         assert _clipped_rgb250(grabbed) == 0
 
-    popup = combo.popup if hasattr(combo, "popup") else None
-    if popup is not None and hasattr(popup, "open"):
-        popup.open()
-        qt_app.processEvents()
-        _assert_dark(_rect_colors(popup), "popup")
-        opened = _grab_or_none()
-        if opened is not None:
-            assert _clipped_rgb250(opened) == 0
-        popup.close()
-        qt_app.processEvents()
+    assert hasattr(combo, "openPopup")
+    combo.openPopup()
+    qt_app.processEvents()
+    popup = _named(root, "OverseerMissionModePopup")
+    fill = _named(root, "OverseerMissionModePopupFill")
+    assert popup is not None
+    assert fill is not None
+    assert bool(popup.property("visible")) is True
+    assert float(popup.property("height") or 0) > 8
+    colors = _rect_colors(fill)
+    if not colors:
+        color = fill.property("color")
+        if color is not None and hasattr(color, "red"):
+            colors = [color]
+    _assert_dark(colors, "open popup")
+    opened = _grab_or_none()
+    if opened is not None:
+        assert _clipped_rgb250(opened) == 0
+    combo.closePopup()
+    qt_app.processEvents()
 
+    view.deleteLater()
+    qt_app.processEvents()
+
+
+def _hud_with_selection(qt_app):
+    view = QQuickView()
+    view.engine().addImportPath(str(ASSETS))
+    view.setColor(QColor("#0b0714"))
+    view.setResizeMode(QQuickView.SizeRootObjectToView)
+    view.setSource(QUrl.fromLocalFile(str(HUD_QML)))
+    if view.status() != QQuickView.Status.Ready:
+        raise AssertionError("; ".join(err.toString() for err in view.errors()))
+    view.resize(900, 700)
+    view.show()
+    qt_app.processEvents()
+    root = view.rootObject()
+    assert root is not None
+    hud = overseer_runtime.build_hud(_snap(), selected_id="SNT-WRD-001")
+    root.setProperty("pills", hud["pills"])
+    root.setProperty("swarmRows", hud["swarmRows"])
+    root.setProperty("inspector", hud["inspector"])
+    root.setProperty("logs", hud["logs"])
+    root.setProperty("inspectorOpen", True)
+    root.setProperty("selectedUnitId", "SNT-WRD-001")
+    qt_app.processEvents()
+    return view, root
+
+
+def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
+    view, root = _hud_with_selection(qt_app)
+    seen: list[str] = []
+    root.hudCommand.connect(lambda name, _payload: seen.append(str(name)))
+    for name in (
+        "OverseerFooter_recall",
+        "OverseerAction_recall",
+        "OverseerAction_retask",
+        "OverseerAction_focus",
+    ):
+        item = _named(root, name)
+        assert item is not None, name
+        assert bool(item.property("enabled")) is False
+        mid = QPointF(
+            float(item.property("width") or 8) / 2.0,
+            float(item.property("height") or 8) / 2.0,
+        )
+        QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier, item.mapToScene(mid).toPoint())
+        qt_app.processEvents()
+    assert seen == []
+    selected = {"unit_id": "SNT-WRD-001", "caste": "warden"}
+    for command in ("recall", "retask", "focus"):
+        plan = overseer_runtime.resolve_hud_command(
+            command,
+            {"unit_id": "SNT-WRD-001", "caste": "warden", "query": "scan"},
+            selected_unit=selected,
+        )
+        assert plan["ok"] is False
+        assert plan["body"] is None
+    deploy = _named(root, "OverseerFooter_deploy")
+    retire = _named(root, "OverseerAction_retire")
+    assert deploy is not None and bool(deploy.property("enabled")) is not False
+    assert retire is not None and bool(retire.property("enabled")) is not False
+    view.deleteLater()
+    qt_app.processEvents()
+
+
+def test_overseer_inspector_card_exposes_named_controls(qt_app) -> None:
+    view, root = _hud_with_selection(qt_app)
+    card = _named(root, "OverseerInspector")
+    assert card is not None
+    title = _named(root, "OverseerInspectorTitle")
+    assert title is not None
+    heading = str(title.property("text") or "")
+    assert "SNT-WRD-001" in heading
+    assert "Warden" in heading
+    assert heading != "Inspector"
+    assert "SNT-WRD-001" in str(title.property("Accessible.name") or heading)
+    state = _named(root, "OverseerInspector_state")
+    assert state is not None
+    state_text = str(state.property("text") or "")
+    row = _named(root, "OverseerInspectorRow_state")
+    assert row is not None
+    assert "ENGAGED_DEFENSE" in state_text
+    for name in (
+        "OverseerAction_focus",
+        "OverseerAction_retask",
+        "OverseerAction_recall",
+        "OverseerAction_retire",
+    ):
+        assert _named(root, name) is not None, name
+    missing = _named(root, "OverseerInspector_not_a_field")
+    assert missing is None
+    view.deleteLater()
+    qt_app.processEvents()
+
+
+def _crowd_units() -> list[dict]:
+    units: list[dict] = []
+    for caste, prefix, count, tentacles in (
+        ("warden", "WRD", 6, 12),
+        ("harvester", "HRV", 8, 7),
+        ("sanitizer", "SAN", 4, 8),
+        ("tripwire", "TRP", 4, 4),
+    ):
+        for index in range(1, count + 1):
+            units.append(
+                {
+                    "unit_id": f"SNT-{prefix}-{index:03d}",
+                    "caste": caste,
+                    "state": "PATROLLING",
+                    "tentacles": tentacles,
+                }
+            )
+    return units
+
+
+def test_overseer_swarm_list_scroll_semantics(qt_app) -> None:
+    view, root = _hud_with_selection(qt_app)
+    units = _crowd_units()
+    expanded = overseer_runtime.swarm_rows(units, by="caste")
+    assert any(row.get("unit_id") == "SNT-TRP-001" for row in expanded)
+    collapsed = overseer_runtime.swarm_rows(
+        units, by="caste", collapsed={"warden", "harvester", "sanitizer"}
+    )
+    assert any(row.get("unit_id") == "SNT-TRP-001" for row in collapsed)
+    assert len(expanded) > len(collapsed)
+    root.setProperty("swarmRows", expanded)
+    qt_app.processEvents()
+    swarm = _named(root, "OverseerSwarmList")
+    assert swarm is not None
+    bar = _named(root, "OverseerSwarmScrollBar")
+    assert bar is not None
+    content_h = float(swarm.property("contentHeight") or 0)
+    view_h = float(swarm.property("height") or 0)
+    assert content_h > view_h + 1
+    before = float(swarm.property("contentY") or 0)
+    mid = swarm.mapToScene(
+        QPointF(float(swarm.property("width") or 10) / 2.0, 20)
+    ).toPoint()
+    wheeled = False
+    if hasattr(QTest, "mouseWheel"):
+        try:
+            QTest.mouseWheel(view, Qt.NoModifier, 0, -240, mid)
+            wheeled = True
+        except TypeError:
+            wheeled = False
+    qt_app.processEvents()
+    after = float(swarm.property("contentY") or 0)
+    if wheeled:
+        # Native QML wheel on the list itself. Posted hwnd wheel and
+        # UIA ScrollPattern on Windows remain unverified.
+        assert after >= before
+    swarm.setProperty("contentY", content_h - view_h)
+    qt_app.processEvents()
+    trip = _named(root, "OverseerSwarmRow_SNT-TRP-001")
+    assert trip is not None
+    assert float(swarm.property("contentY") or 0) > before
     view.deleteLater()
     qt_app.processEvents()

@@ -47,8 +47,20 @@ select that unit; the inspector stays on the selected unit across live
 snapshot updates, including at far zoom. The swarm footer has Deploy
 (existing caste scale-up) and Recall, which stays unavailable. Mission
 mode and other combo boxes use the dark Filament control fill, text,
-and popup. Visual review, load, and frame timing on a real machine have
-not been accepted yet.
+and popup. Unavailable actions (Recall, Retask, camera Focus) stay
+disabled in the widget and in accessibility; the host still refuses them.
+The inspector card exposes named fields and actions. The inspector title
+is the selected unit id and caste, matching the mid-zoom still, and those
+names stay available to accessibility. The swarm list uses a standard
+vertical scroll bar so later groups stay reachable by scrolling while
+other headers stay expanded; collapsing other groups is not required to
+reach them. Wheel-in still frames the hive rather than a selected unit,
+and printed cameraDistance / cameraPitch at the mid (about 32 m / 36 deg)
+and wide (about 96 m / 55 deg) marks have not been evidenced; a close
+pass that keeps selection and units in frame, along with theme.id and
+remaining appearance work, is the next bounded batch and is not changed
+here. Visual review, load, and frame timing on a real machine have not
+been accepted yet.
 
 ## When Sentinel is offline
 

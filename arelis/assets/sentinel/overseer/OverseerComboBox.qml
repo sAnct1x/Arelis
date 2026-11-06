@@ -9,6 +9,18 @@ ComboBox {
     leftPadding: 8
     rightPadding: 22
 
+    Accessible.role: Accessible.ComboBox
+    Accessible.name: displayText ? ("Mission mode " + displayText) : "Mission mode"
+    Accessible.onPressAction: control.openPopup()
+
+    function openPopup() {
+        popup.open()
+    }
+
+    function closePopup() {
+        popup.close()
+    }
+
     background: Rectangle {
         implicitWidth: 220
         implicitHeight: 28
@@ -48,10 +60,12 @@ ComboBox {
         }
     }
     popup: Popup {
+        objectName: control.objectName ? (control.objectName + "Popup") : "OverseerComboPopup"
         y: control.height
         width: control.width
         padding: 1
         background: Rectangle {
+            objectName: control.objectName ? (control.objectName + "PopupFill") : "OverseerComboPopupFill"
             color: "#1c1430"
             border.color: "#6d4ad8"
             radius: 4

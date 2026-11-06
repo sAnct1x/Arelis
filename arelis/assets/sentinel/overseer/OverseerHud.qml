@@ -37,6 +37,15 @@ Item {
         return title + " " + value
     }
 
+    function inspectorHeading() {
+        if (!hud.inspector || !hud.inspector.unit_id)
+            return "Inspector"
+        var caste = hud.inspector.caste ? String(hud.inspector.caste) : ""
+        if (caste.length)
+            caste = caste.charAt(0).toUpperCase() + caste.slice(1)
+        return String(hud.inspector.unit_id) + "  " + caste
+    }
+
     Rectangle {
         id: topBar
         objectName: "OverseerPillBar"
@@ -210,8 +219,14 @@ Item {
                 cacheBuffer: 44 * 6
                 model: hud.swarmRows
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
                 Accessible.role: Accessible.List
                 Accessible.name: "Swarm units"
+                ScrollBar.vertical: ScrollBar {
+                    objectName: "OverseerSwarmScrollBar"
+                    policy: swarmList.contentHeight > swarmList.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
+                    Accessible.name: "Swarm list scroll bar"
+                }
                 delegate: Rectangle {
                     id: rowBox
                     required property var modelData
@@ -315,12 +330,9 @@ Item {
                     radius: 4
                     color: "#1c1430"
                     border.color: "#8b6cf2"
+                    enabled: false
                     Accessible.name: "Recall (unavailable)"
                     Accessible.role: Accessible.Button
-                    Accessible.onPressAction: hud.hudCommand("recall", {
-                        unit_id: hud.selectedUnitId,
-                        caste: hud.inspector && hud.inspector.caste
-                    })
                     Text {
                         id: footerRecallLab
                         anchors.centerIn: parent
@@ -331,10 +343,7 @@ Item {
                     MouseArea {
                         id: footerRecallArea
                         anchors.fill: parent
-                        onClicked: hud.hudCommand("recall", {
-                            unit_id: hud.selectedUnitId,
-                            caste: hud.inspector && hud.inspector.caste
-                        })
+                        enabled: false
                     }
                 }
             }
@@ -352,12 +361,21 @@ Item {
         color: "#cc0e0920"
         border.color: "#6d4ad8"
         border.width: 1
+        Accessible.role: Accessible.Pane
+        Accessible.name: hud.inspectorHeading()
 
         Column {
             anchors.fill: parent
             anchors.margins: 12
             spacing: 8
-            Text { text: "Inspector"; color: "#d8c8ff"; font.pixelSize: 16 }
+            Text {
+                objectName: "OverseerInspectorTitle"
+                text: hud.inspectorHeading()
+                color: "#d8c8ff"
+                font.pixelSize: 16
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+            }
             Text {
                 objectName: "OverseerInspectorEmpty"
                 visible: !hud.inspector || !hud.inspector.unit_id
@@ -385,8 +403,14 @@ Item {
                     ]
                     Row {
                         required property var modelData
+                        objectName: "OverseerInspectorRow_" + modelData[0]
                         width: parent.width
                         spacing: 8
+                        readonly property string fieldValue: (hud.inspector && hud.inspector[modelData[0]] !== undefined)
+                              ? String(hud.inspector[modelData[0]])
+                              : "unavailable"
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: modelData[1] + ": " + fieldValue
                         Text {
                             width: 110
                             text: modelData[1]
@@ -397,11 +421,11 @@ Item {
                             objectName: "OverseerInspector_" + modelData[0]
                             width: parent.width - 118
                             wrapMode: Text.Wrap
-                            text: (hud.inspector && hud.inspector[modelData[0]] !== undefined)
-                                  ? String(hud.inspector[modelData[0]])
-                                  : "unavailable"
+                            text: parent.fieldValue
                             color: "#e0d4ff"
                             font.pixelSize: 12
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: parent.Accessible.name
                         }
                     }
                 }
@@ -416,7 +440,10 @@ Item {
                         radius: 4
                         color: "#1c1430"
                         border.color: "#8b6cf2"
-                        Text {
+                        enabled: false
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Focus (not implemented)"
+                            Text {
                             id: focusLab
                             anchors.centerIn: parent
                             text: "Focus (not implemented)"
@@ -425,11 +452,7 @@ Item {
                         }
                         MouseArea {
                             anchors.fill: parent
-                            onClicked: hud.hudCommand("focus", {
-                                unit_id: hud.selectedUnitId,
-                                caste: hud.inspector && hud.inspector.caste,
-                                query: hud.missionQuery
-                            })
+                            enabled: false
                         }
                     }
                     Rectangle {
@@ -439,7 +462,10 @@ Item {
                         radius: 4
                         color: "#1c1430"
                         border.color: "#8b6cf2"
-                        Text {
+                        enabled: false
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Retask (unavailable)"
+                            Text {
                             id: retaskLab
                             anchors.centerIn: parent
                             text: "Retask (unavailable)"
@@ -448,11 +474,7 @@ Item {
                         }
                         MouseArea {
                             anchors.fill: parent
-                            onClicked: hud.hudCommand("retask", {
-                                unit_id: hud.selectedUnitId,
-                                caste: hud.inspector && hud.inspector.caste,
-                                query: hud.missionQuery
-                            })
+                            enabled: false
                         }
                     }
                     Rectangle {
@@ -462,7 +484,10 @@ Item {
                         radius: 4
                         color: "#1c1430"
                         border.color: "#8b6cf2"
-                        Text {
+                        enabled: false
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Recall (unavailable)"
+                            Text {
                             id: recallLab
                             anchors.centerIn: parent
                             text: "Recall (unavailable)"
@@ -471,11 +496,7 @@ Item {
                         }
                         MouseArea {
                             anchors.fill: parent
-                            onClicked: hud.hudCommand("recall", {
-                                unit_id: hud.selectedUnitId,
-                                caste: hud.inspector && hud.inspector.caste,
-                                query: hud.missionQuery
-                            })
+                            enabled: false
                         }
                     }
                     Rectangle {
@@ -485,6 +506,8 @@ Item {
                         radius: 4
                         color: "#1c1430"
                         border.color: "#8b6cf2"
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Retire"
                         Text {
                             id: retireLab
                             anchors.centerIn: parent
