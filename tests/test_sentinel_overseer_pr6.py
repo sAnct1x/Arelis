@@ -6,7 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QObject, Qt, QUrl
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtWidgets import QWidget
 
@@ -31,6 +31,14 @@ from arelis.ui.sentinel_presence import (
 )
 
 LOGIC = Path(__file__).resolve().parents[1] / "sentinel/sentinel/ui/overseer/overseer_logic.js"
+
+
+def _entry_count(root) -> int:
+    n = 0
+    for child in root.findChildren(QObject):
+        if "InstanceListEntry" in child.metaObject().className():
+            n += 1
+    return n
 
 
 def _qml_list(value):
@@ -360,3 +368,108 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
         text = (assets / "shaders" / name).read_text()
         assert "void MAIN()" in text
     assert "INSTANCE_DATA" in (assets / "shaders" / "hull.vert").read_text()
+    shader_errors = overseer_runtime.validate_overseer_shaders(assets / "shaders")
+    assert shader_errors == [], shader_errors
+    hull_vert = (assets / "shaders" / "hull.vert").read_text()
+    assert "uTime" in hull_vert
+    assert "INSTANCE_DATA.x + uTime" in hull_vert
+    assert "uTime: root.sceneTime" in qml
+    inst.setProperty("sceneTime", 2.5)
+    qt_app.processEvents()
+    assert abs(float(inst.property("sceneTime")) - 2.5) < 1e-6
+    material_times = []
+    for child in inst.findChildren(QObject):
+        cls = child.metaObject().className()
+        if "CustomMaterial" in cls:
+            ut = child.property("uTime")
+            if ut is not None:
+                material_times.append(float(ut))
+    assert material_times, "CustomMaterial uTime was not instantiated"
+    assert any(abs(t - 2.5) < 1e-5 for t in material_times), material_times
+
+    # Accounting budget at 100 units: clustered close, mixed rings close/mid/wide.
+    close_cluster = overseer_runtime.build_frame(
+        overseer_runtime.clustered_swarm(100), 7.0, 1306, report=report_map
+    )
+    assert close_cluster["budget"]["unitTris"] <= overseer_runtime.MAX_TRIS
+    assert close_cluster["budget"]["withinTriBudget"]
+    assert close_cluster["budget"]["withinDrawBudget"]
+    assert close_cluster["budget"]["unitDrawCalls"] <= overseer_runtime.MAX_UNIT_DRAW
+    # Without demotion this clustered close scene is ~1.2M tris.
+    raw_lod0 = 100 * sum(report_map[0]["parts"][part] for part in overseer_runtime.PARTS)
+    assert raw_lod0 > overseer_runtime.MAX_TRIS
+    assert close_cluster["budget"]["unitTris"] < raw_lod0
+
+    mixed_close = overseer_runtime.build_frame(
+        overseer_runtime.layout_swarm(100), 7.0, 1306, report=report_map
+    )
+    mixed_mid = overseer_runtime.build_frame(
+        overseer_runtime.layout_swarm(100), 32.0, 1306, report=report_map
+    )
+    mixed_wide = overseer_runtime.build_frame(
+        overseer_runtime.layout_swarm(100), 90.0, 1306, report=report_map
+    )
+    for named, framed in (("close", mixed_close), ("mid", mixed_mid), ("wide", mixed_wide)):
+        assert framed["budget"]["unitTris"] <= overseer_runtime.MAX_TRIS, named
+        assert framed["budget"]["unitDrawCalls"] <= overseer_runtime.MAX_UNIT_DRAW, named
+        assert framed["budget"]["drawCalls"] <= 80, named
+
+    # Native wheel maps onto the renderer camera (dolly + pitch).
+    start_d = float(inst.property("cameraDistance"))
+    inst.applyWheel(-1)
+    qt_app.processEvents()
+    zoomed = float(inst.property("cameraDistance"))
+    assert abs(zoomed - overseer_runtime.wheel_step(start_d, -1)) < 1e-4
+    assert abs(float(inst.property("cameraPitch")) - overseer_runtime.pitch_deg(zoomed)) < 1e-3
+    # Rubber-band: cannot run past 8% beyond the 6..110 m limits.
+    inst.setProperty("cameraDistance", 6.0)
+    inst.applyWheel(-8)
+    qt_app.processEvents()
+    assert float(inst.property("cameraDistance")) >= overseer_runtime.ZOOM_MIN * (
+        1.0 - overseer_runtime.RUBBER
+    )
+
+    visible0 = [{"x": 1, "y": 0, "z": 0, "visible": 0}]
+    inst.setParticles(visible0)
+    qt_app.processEvents()
+    hidden = _entry_count(inst)
+    inst.setParticles([{"x": 1, "y": 0, "z": 0, "visible": 1}])
+    qt_app.processEvents()
+    shown = _entry_count(inst)
+    assert shown == hidden + 1
+
+    # Repeated applyFrame / setParticles must reuse entries (bounded QObject count).
+    fifty = overseer_runtime.build_frame(
+        [{"unit_id": f"P-{i}", "caste": "warden", "position": [i, 0, 0.4], "scale": 1.0} for i in range(50)],
+        90.0,
+        1306,
+        report=report_map,
+    )
+    inst.applyFrame(fifty)
+    qt_app.processEvents()
+    baseline = _entry_count(inst)
+    assert baseline > 0
+    for _ in range(12):
+        inst.applyFrame(fifty)
+        inst.setParticles([{"x": i * 0.1, "y": 0, "z": 0, "visible": 1} for i in range(40)])
+        qt_app.processEvents()
+    after_loop = _entry_count(inst)
+    assert after_loop == baseline, (baseline, after_loop)
+
+    # Close/reopen the QML scene: a fresh root stays bounded to one frame's entries.
+    inst.deleteLater()
+    qt_app.processEvents()
+    inst2 = comp.create()
+    assert inst2 is not None
+    qt_app.processEvents()
+    inst2.applyFrame(fifty)
+    inst2.setParticles([{"x": 0, "y": 0, "z": 0, "visible": 1} for _ in range(40)])
+    qt_app.processEvents()
+    reopened = _entry_count(inst2)
+    assert reopened <= baseline
+    inst2.applyFrame(fifty)
+    inst2.setParticles([{"x": 0, "y": 0, "z": 0, "visible": 1} for _ in range(40)])
+    qt_app.processEvents()
+    assert _entry_count(inst2) == reopened
+    inst2.deleteLater()
+    qt_app.processEvents()

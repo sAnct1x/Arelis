@@ -18,8 +18,12 @@ closes it.
 The view is a Qt Quick 3D Overseer. Live units from the hive snapshot
 are drawn as instanced Iris LOD meshes (about 12k / 4k / 1k triangles
 per unit), one model per caste, LOD, and part, with caste colour and
-claw opening on each instance. Tentacle motion is a vertex wave on the
-hull material, not CPU skinning. Opening the window follows the entry
+claw opening on each instance. If a hundred units would go over the
+300k triangle ceiling, farther units drop to a coarser LOD or are
+culled. Tentacle motion is a vertex wave on the hull material, driven
+by each unit's phase plus a time uniform, not CPU skinning. The wheel,
+trackpad, and + / - keys dolly the camera between 6 m and 110 m with
+the approved rubber-band limits. Opening the window follows the entry
 timing (mote, edge, fill, reveal, then panels); closing reverses it.
 Reduced motion uses a short crossfade. The HTML HUD sits on top with a
 hole so camera input reaches the 3D view. Visual review, load, and

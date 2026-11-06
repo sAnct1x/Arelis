@@ -139,22 +139,211 @@ def snapshot_units(snap: dict[str, Any] | None) -> list[dict[str, Any]]:
     return out
 
 
+ZOOM_MIN = 6.0
+ZOOM_MAX = 110.0
+ZOOM_NOTCH = 1.18
+RUBBER = 0.08
+PITCH_CLOSE_DEG = 22.0
+PITCH_WIDE_DEG = 55.0
+CASTE_MIX = (
+    ("warden", 0.34),
+    ("harvester", 0.36),
+    ("sanitizer", 0.12),
+    ("tripwire", 0.12),
+    ("stalker", 0.06),
+)
+SWARM_RINGS = (5.0, 10.0, 16.0, 23.0)
+
+
+def zoom_t(distance: float) -> float:
+    d = max(ZOOM_MIN, min(ZOOM_MAX, float(distance)))
+    return math.log(d / ZOOM_MIN) / math.log(ZOOM_MAX / ZOOM_MIN)
+
+
+def pitch_deg(distance: float) -> float:
+    return PITCH_CLOSE_DEG + zoom_t(distance) * (PITCH_WIDE_DEG - PITCH_CLOSE_DEG)
+
+
+def rubber_band(distance: float) -> float:
+    lo = ZOOM_MIN * (1.0 - RUBBER)
+    hi = ZOOM_MAX * (1.0 + RUBBER)
+    return max(lo, min(hi, float(distance)))
+
+
+def settle_distance(distance: float) -> float:
+    return max(ZOOM_MIN, min(ZOOM_MAX, float(distance)))
+
+
+def wheel_step(distance: float, notches: float) -> float:
+    next_d = float(distance) * (ZOOM_NOTCH ** float(notches))
+    return rubber_band(next_d)
+
+
+def cursor_dolly(
+    target: tuple[float, float, float],
+    pivot: tuple[float, float, float],
+    d_old: float,
+    d_new: float,
+) -> tuple[float, float, float]:
+    if not d_old:
+        return target
+    s = d_new / d_old
+    return (
+        pivot[0] + (target[0] - pivot[0]) * s,
+        pivot[1] + (target[1] - pivot[1]) * s,
+        pivot[2] + (target[2] - pivot[2]) * s,
+    )
+
+
+def camera_eye(distance: float, pitch: float | None = None) -> tuple[float, float, float]:
+    p = math.radians(pitch_deg(distance) if pitch is None else pitch)
+    d = float(distance)
+    return (0.0, math.sin(p) * d, math.cos(p) * d)
+
+
+def unit_view_pos(unit: dict[str, Any]) -> tuple[float, float, float]:
+    pos = unit.get("position") or [unit.get("x") or 0, unit.get("y") or 0, unit.get("z") or 0]
+    x, y = float(pos[0]), float(pos[1])
+    z = float(pos[2]) if len(pos) > 2 else 0.0
+    # Match OverseerView: Qt (x, z, y) from world (x, y, z).
+    return (x, z, y)
+
+
+def unit_camera_distance(unit: dict[str, Any], eye: tuple[float, float, float]) -> float:
+    ux, uy, uz = unit_view_pos(unit)
+    return max(0.1, math.dist((ux, uy, uz), eye))
+
+
+def part_tris(lod: int, report: dict[int, dict[str, Any]]) -> int:
+    parts = (report.get(int(lod)) or {}).get("parts") or {}
+    return sum(int(parts.get(part) or 0) for part in PARTS)
+
+
+def assigned_tris(units: list[dict[str, Any]], report: dict[int, dict[str, Any]]) -> int:
+    total = 0
+    for u in units:
+        if u.get("culled"):
+            continue
+        total += part_tris(int(u.get("lod", 2)), report)
+    return total
+
+
+def enforce_budget(
+    assigned: list[dict[str, Any]],
+    report: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Demote smallest on-screen units, then cull, until unit tris fit MAX_TRIS."""
+    rows = [dict(u) for u in assigned]
+    for row in rows:
+        row["culled"] = bool(row.get("culled"))
+        row["lod"] = int(row.get("lod", 1))
+
+    def key(row: dict[str, Any]) -> tuple[float, str]:
+        return (float(row.get("height_px") or 0.0), str(row.get("unit_id") or ""))
+
+    while assigned_tris(rows, report) > MAX_TRIS:
+        demote = [u for u in rows if not u["culled"] and int(u["lod"]) < 2]
+        if not demote:
+            break
+        demote.sort(key=key)
+        demote[0]["lod"] = int(demote[0]["lod"]) + 1
+    while assigned_tris(rows, report) > MAX_TRIS:
+        visible = [u for u in rows if not u["culled"]]
+        if not visible:
+            break
+        visible.sort(key=key)
+        visible[0]["culled"] = True
+    return rows
+
+
+def layout_swarm(n: int = 100) -> list[dict[str, Any]]:
+    """Approved caste mix on the 5/10/16/23 m rings."""
+    labels: list[str] = []
+    for caste, frac in CASTE_MIX:
+        labels.extend([caste] * round(n * frac))
+    while len(labels) < n:
+        labels.append("warden")
+    labels = labels[:n]
+    units = []
+    for i, caste in enumerate(labels):
+        ring = SWARM_RINGS[i % len(SWARM_RINGS)]
+        ang = (2.0 * math.pi * i) / max(1, n) + (i % 4) * 0.15
+        units.append({
+            "unit_id": f"{caste[:3].upper()}-{i:03d}",
+            "caste": caste,
+            "position": [ring * math.cos(ang), ring * math.sin(ang), 0.4],
+            "scale": 1.0,
+        })
+    return units
+
+
+def clustered_swarm(n: int = 100) -> list[dict[str, Any]]:
+    """All units packed near the origin (all-close stress case)."""
+    units = []
+    for i in range(n):
+        units.append({
+            "unit_id": f"CL-{i:03d}",
+            "caste": CASTES[i % len(CASTES)],
+            "position": [0.12 * (i % 10), 0.12 * (i // 10), 0.4],
+            "scale": 1.0,
+        })
+    return units
+
+
+def validate_shader_text(name: str, text: str) -> list[str]:
+    """Static snippet checks (not a GPU compile)."""
+    errors: list[str] = []
+    if "void MAIN()" not in text:
+        errors.append(f"{name}: missing void MAIN()")
+    if text.count("{") != text.count("}"):
+        errors.append(f"{name}: unbalanced braces")
+    if name in {"hull.vert", "emissive.vert"}:
+        if "INSTANCE_DATA" not in text:
+            errors.append(f"{name}: missing INSTANCE_DATA")
+        if "uTime" not in text:
+            errors.append(f"{name}: missing uTime")
+    if name == "hull.frag":
+        for token in ("uHull", "uRole", "CLEARCOAT_AMOUNT", "EMISSIVE_COLOR"):
+            if token not in text:
+                errors.append(f"{name}: missing {token}")
+    return errors
+
+
+def validate_overseer_shaders(asset_root: Path | None = None) -> list[str]:
+    root = asset_root or (asset_dir() / "shaders")
+    errors: list[str] = []
+    for name in (
+        "hull.vert", "hull.frag", "emissive.vert", "emissive.frag", "lens.vert", "lens.frag",
+    ):
+        path = root / name
+        if not path.is_file():
+            errors.append(f"{name}: missing file")
+            continue
+        errors.extend(validate_shader_text(name, path.read_text()))
+    return errors
+
+
 def assign_lods(
     units: list[dict[str, Any]],
     camera_distance: float,
     viewport_h: float = 1306.0,
     prev: dict[str, int] | None = None,
+    pitch: float | None = None,
 ) -> list[dict[str, Any]]:
     prev = prev or {}
+    eye = camera_eye(camera_distance, pitch)
     assigned = []
     for u in units:
         uid = str(u.get("unit_id") or "")
         scale = float(u.get("scale") or 1.0)
-        height = projected_height_px(camera_distance, viewport_h, scale)
+        dist = unit_camera_distance(u, eye)
+        height = projected_height_px(dist, viewport_h, scale)
         lod = choose_lod(height, prev.get(uid))
         row = dict(u)
         row["lod"] = lod
         row["height_px"] = height
+        row["view_distance"] = dist
+        row["culled"] = False
         assigned.append(row)
     return assigned
 
@@ -168,6 +357,8 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
         f"{c}:{lod}": [] for c in CASTES for lod in (0, 1, 2)
     }
     for i, u in enumerate(units):
+        if u.get("culled"):
+            continue
         caste = str(u.get("caste") or "warden").lower()
         if caste not in CASTE_COLOR:
             caste = "warden"
@@ -242,9 +433,13 @@ def build_frame(
 ) -> dict[str, Any]:
     report = report or load_mesh_report()
     assigned = assign_lods(units, camera_distance, viewport_h, prev_lods)
+    assigned = enforce_budget(assigned, report)
     buckets = build_buckets(assigned)
     budget = budget_from_buckets(buckets, report)
-    prev = {str(u.get("unit_id")): int(u["lod"]) for u in assigned}
+    prev = {str(u.get("unit_id")): int(u["lod"]) for u in assigned if not u.get("culled")}
+    for u in assigned:
+        if u.get("culled"):
+            prev[str(u.get("unit_id"))] = int(u["lod"])
     return {"units": assigned, "buckets": buckets, "budget": budget, "prevLods": prev}
 
 

@@ -8,6 +8,12 @@ Item {
     property real cameraDistance: 32
     property real cameraPitch: 36
     property int particleBudget: 520
+    property real sceneTime: 0
+    property var entryPool: []
+    property var liveByKey: ({})
+    property int liveEntryCount: 0
+    property int pooledEntryCount: 0
+    property int totalEntryCount: 0
     property real entryMs: 0
     property bool entryPlaying: false
     property bool reducedMotion: false
@@ -64,10 +70,12 @@ Item {
         if (!frame || !frame.buckets)
             return
         ensureLists()
+        releaseAllLists()
         var buckets = frame.buckets
         var used = 0
         var tris = 0
         var lods = [0, 0, 0]
+        var live = 0
         for (var ci = 0; ci < casteIds.length; ci++) {
             var caste = casteIds[ci]
             for (var lod = 0; lod < 3; lod++) {
@@ -81,17 +89,11 @@ Item {
                         continue
                     var entries = []
                     for (var i = 0; i < rows.length; i++) {
-                        var row = rows[i]
-                        var e = instanceEntry()
-                        e.position = Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)
-                        e.eulerRotation = Qt.vector3d(0, -(row.heading_deg || 0), 0)
-                        var sc = row.scale === undefined ? 1 : row.scale
-                        e.scale = Qt.vector3d(sc, sc, sc)
-                        e.color = row.color || casteColors[caste]
-                        e.customData = Qt.vector4d(row.phase || 0, row.claw || 0.45, row.limp || 0, 0)
-                        entries.push(e)
+                        entries.push(fillUnitEntry(rows[i], caste))
                     }
                     lst.instances = entries
+                    liveByKey[key] = entries
+                    live += entries.length
                     if (entries.length > 0) {
                         used += 1
                         var mt = meshTris[lod + ":" + part] || 0
@@ -104,9 +106,9 @@ Item {
         unitDrawCalls = used
         budgetDrawCalls = used + 10
         lodCounts = lods
+        recountEntries(live)
         var b = frame.budget
         if (b) {
-            // Prefer live instance x mesh totals; keep file budget as a cross-check property.
             if (b.unitTris !== undefined && b.unitTris !== tris)
                 root.budgetFileTris = b.unitTris
         }
@@ -146,8 +148,72 @@ Item {
         return buckets
     }
 
-    function instanceEntry() {
+    function acquireEntry() {
+        var pool = entryPool || []
+        if (pool.length > 0) {
+            var reused = pool.pop()
+            entryPool = pool
+            return reused
+        }
         return Qt.createQmlObject("import QtQuick3D; InstanceListEntry {}", root)
+    }
+
+    function releaseEntry(entry) {
+        if (!entry)
+            return
+        entry.scale = Qt.vector3d(0, 0, 0)
+        var pool = entryPool || []
+        pool.push(entry)
+        entryPool = pool
+    }
+
+    function releaseList(key, lst) {
+        var old = (liveByKey && liveByKey[key]) ? liveByKey[key] : []
+        if (liveByKey)
+            liveByKey[key] = []
+        if (lst)
+            lst.instances = []
+        for (var i = 0; i < old.length; i++)
+            releaseEntry(old[i])
+    }
+
+    function releaseAllLists() {
+        ensureLists()
+        var keys = Object.keys(lists)
+        for (var i = 0; i < keys.length; i++)
+            releaseList(keys[i], lists[keys[i]])
+        releaseList("__particles", particleList)
+    }
+
+    function fillUnitEntry(row, caste) {
+        var e = acquireEntry()
+        e.position = Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)
+        e.eulerRotation = Qt.vector3d(0, -(row.heading_deg || 0), 0)
+        var sc = row.scale === undefined ? 1 : row.scale
+        e.scale = Qt.vector3d(sc, sc, sc)
+        e.color = row.color || casteColors[caste]
+        e.customData = Qt.vector4d(row.phase || 0, row.claw || 0.45, row.limp || 0, 0)
+        return e
+    }
+
+    function recountEntries(live) {
+        liveEntryCount = live
+        pooledEntryCount = entryPool ? entryPool.length : 0
+        totalEntryCount = liveEntryCount + pooledEntryCount
+    }
+
+    function applyWheel(notches) {
+        var next = cameraDistance * Math.pow(1.18, notches)
+        var lo = 6 * 0.92
+        var hi = 110 * 1.08
+        if (next < lo)
+            next = lo
+        if (next > hi)
+            next = hi
+        cameraDistance = next
+        var t = Math.log(Math.max(6, Math.min(110, next)) / 6) / Math.log(110 / 6)
+        cameraPitch = 22 + t * (55 - 22)
+        return cameraDistance
     }
 
     function ensureLists() {
@@ -183,22 +249,54 @@ Item {
         ensureLists()
         if (!particleList)
             return
+        releaseList("__particles", particleList)
         var entries = []
         for (var i = 0; i < rows.length; i++) {
             var row = rows[i]
-            if ((row.visible || 1) <= 0)
+            var vis = row.visible
+            if (vis === undefined || vis === null)
+                vis = 1
+            if (vis <= 0)
                 continue
-            var e = instanceEntry()
+            var e = acquireEntry()
             e.position = Qt.vector3d(row.x || 0, row.y || 0, row.z || 0)
-            var s = 0.04 * (row.visible === undefined ? 1 : row.visible)
-            e.scale = Qt.vector3d(s, s, s)
+            var sc = 0.04 * vis
+            e.scale = Qt.vector3d(sc, sc, sc)
             e.color = "#d9ccff"
             entries.push(e)
         }
         particleList.instances = entries
+        liveByKey["__particles"] = entries
+        recountEntries(liveEntryCountFromLists())
+    }
+
+    function liveEntryCountFromLists() {
+        var n = 0
+        var keys = Object.keys(lists)
+        for (var i = 0; i < keys.length; i++) {
+            var insts = lists[keys[i]].instances || []
+            n += insts.length
+        }
+        if (particleList && particleList.instances)
+            n += particleList.instances.length
+        return n
     }
 
     Component.onCompleted: ensureLists()
+
+    FrameAnimation {
+        running: true
+        onTriggered: root.sceneTime += frameTime
+    }
+
+    WheelHandler {
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+        onWheel: function (event) {
+            var notches = -event.angleDelta.y / 120
+            root.applyWheel(notches)
+            event.accepted = true
+        }
+    }
 
     NumberAnimation on entryMs {
         id: entryAnim
@@ -295,6 +393,7 @@ Item {
                         property color uHull: "#3a2d5c"
                         property color uRole: modelData.part === "lens" ? root.lensColors[modelData.caste] : root.casteColors[modelData.caste]
                         property real uRimK: 1.0
+                        property real uTime: root.sceneTime
                         property real uStrength: modelData.part === "lens" ? 0.95 : (modelData.part === "emissive" ? 1.1 : 1.0)
                     }
                 ]

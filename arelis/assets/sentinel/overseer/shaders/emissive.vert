@@ -1,7 +1,7 @@
 void MAIN() {
     vec3 p = VERTEX;
     float tail = 1.0 - smoothstep(-0.55, 0.15, p.x);
-    float phase = INSTANCE_DATA.x;
+    float phase = INSTANCE_DATA.x + uTime;
     float limp = INSTANCE_DATA.z;
     float amp = 0.16 * tail * mix(1.0, 0.25, limp);
     p.y += sin(p.x * 5.5 + phase) * amp;
