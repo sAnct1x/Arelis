@@ -364,7 +364,7 @@ Item {
                         Text {
                             id: retaskLab
                             anchors.centerIn: parent
-                            text: "Retask"
+                            text: "Retask (unavailable)"
                             color: "#e0d4ff"
                             font.pixelSize: 12
                         }

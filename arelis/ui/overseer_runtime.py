@@ -950,15 +950,21 @@ def resolve_hud_command(
     """Plan a HUD action on an existing route, or refuse it.
 
     Recall is not caste scale-down: that can retire a different unit.
-    Retask and retire only target the selected unit. Emergency halt never
-    includes restore. Camera focus is not implemented.
+    Retask is refused: Hive._acquire_unit returns the preferred unit when
+    that id is still in the hive and the caste matches, including when the
+    unit is busy or not PATROLLING (sentinel/core/hive.py:579-583), but if
+    the id is missing it falls through to another PATROLLING unit, a spawn,
+    or any unit of that caste (:585-599). dispatch_task then recruits
+    wingmen from other units (:737-739). There is no fail-closed per-unit
+    route, and a UI precheck cannot close that race. Retire posts
+    retire_unit for the selected id only (hive.retire_unit pops that id
+    or returns False). Emergency halt never includes restore. Camera
+    focus is not implemented.
     """
     data = coerce_hud_payload(payload)
     selected = selected_unit if isinstance(selected_unit, dict) else {}
     selected_id = str(selected.get("unit_id") or "").strip()
-    selected_caste = str(selected.get("caste") or "").strip().lower()
     payload_id = str(data.get("unit_id") or "").strip()
-    payload_caste = str(data.get("caste") or "").strip().lower()
     name = str(name or "")
 
     def refuse(status: str) -> dict[str, Any]:
@@ -1020,33 +1026,10 @@ def resolve_hud_command(
             "Retire requested",
         )
     if name == "retask":
-        query = str(data.get("query") or "").strip()
-        if not query:
-            return refuse(
-                "Unavailable: retask needs a mission query "
-                "(existing dispatch_task)"
-            )
-        if not selected_id or not selected_caste:
-            return refuse(
-                "Unavailable: retask requires the selected unit and its caste"
-            )
-        if payload_id and payload_id != selected_id:
-            return refuse(
-                "Unavailable: retask would not match the selected unit"
-            )
-        if payload_caste and payload_caste != selected_caste:
-            return refuse(
-                "Unavailable: retask caste does not match the selected unit"
-            )
-        return accept(
-            "/api/command",
-            {
-                "op": "dispatch_task",
-                "caste": selected_caste,
-                "unit_id": selected_id,
-                "payload": {"query": query},
-            },
-            "Retask requested",
+        return refuse(
+            "Unavailable: dispatch_task is not fail-closed on the selected "
+            "unit; if that unit is gone the hive acquires another of the "
+            "same caste or spawns one"
         )
     return refuse(f"Unavailable: no existing route for {name}")
 

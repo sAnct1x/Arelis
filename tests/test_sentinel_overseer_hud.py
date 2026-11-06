@@ -174,6 +174,7 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
     )
     assert wrong_id["ok"] is False
     assert wrong_id["body"] is None
+    assert wrong_id["path"] is None
 
     wrong_caste = overseer_runtime.resolve_hud_command(
         "retask",
@@ -187,7 +188,7 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
     assert wrong_caste["ok"] is False
     assert wrong_caste["body"] is None
 
-    ok_retask = overseer_runtime.resolve_hud_command(
+    matching = overseer_runtime.resolve_hud_command(
         "retask",
         {
             "unit_id": "SNT-WRD-001",
@@ -196,11 +197,10 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
         },
         selected_unit=selected,
     )
-    assert ok_retask["ok"] is True
-    assert ok_retask["path"] == "/api/command"
-    assert ok_retask["body"]["op"] == "dispatch_task"
-    assert ok_retask["body"]["unit_id"] == "SNT-WRD-001"
-    assert ok_retask["body"]["caste"] == "warden"
+    assert matching["ok"] is False
+    assert matching["path"] is None
+    assert matching["body"] is None
+    assert "fail-closed" in matching["status"]
 
     wrong_retire = overseer_runtime.resolve_hud_command(
         "retire",
@@ -321,12 +321,12 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
     assert posted[-1][1] == {"reason": "Overseer emergency stop"}
     assert "restore" not in posted[-1][1]
 
+    n_posted = len(posted)
     click_named("OverseerAction_retask")
     assert seen[-1][0] == "retask"
-    assert posted[-1][0] == "/api/command"
-    assert posted[-1][1]["op"] == "dispatch_task"
-    assert posted[-1][1]["unit_id"] == "SNT-WRD-001"
-    assert posted[-1][1]["caste"] == "warden"
+    assert seen[-1][2]["ok"] is False
+    assert seen[-1][2]["body"] is None
+    assert len(posted) == n_posted
 
     view.deleteLater()
     qt_app.processEvents()
