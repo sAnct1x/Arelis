@@ -399,6 +399,28 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     qt_app.processEvents()
     assert win._hud_labels["units"].text() == "Units 0"
 
+    # Settled snapshots must not rebuild the 520-path entry cloud (CPU fixture).
+    path_calls = {"n": 0}
+    real_paths = overseer_runtime.particle_paths
+
+    def _count_paths(*args, **kwargs):
+        path_calls["n"] += 1
+        return real_paths(*args, **kwargs)
+
+    monkeypatch.setattr(overseer_runtime, "particle_paths", _count_paths)
+    assert not win._entry_timer.isActive()
+    win.apply_snapshot(real22)
+    qt_app.processEvents()
+    assert path_calls["n"] == 0
+    win._entry_timer.start()
+    win.apply_snapshot(real22)
+    qt_app.processEvents()
+    assert path_calls["n"] == 1
+    win._entry_timer.stop()
+    win.apply_snapshot(real22)
+    qt_app.processEvents()
+    assert path_calls["n"] == 1
+
     fake_demo = overseer_runtime.snapshot_units({"demo": True, "units": [{"unit_id": "x"}]})
     assert fake_demo == []
 
