@@ -49,8 +49,9 @@ If Sentinel is not running she says so instead of guessing.
 - "Have the wardens scan sockets." She gives a caste one task it really
   supports: harvesters fetch a page or search arXiv, Horizons or Wikipedia;
   wardens scan sockets, check a URL or intercept; tripwires watch a folder or
-  verify; sanitizers clean text or HTML or inspect an archive. Anything else
-  is refused. Sentinels still cannot send your data out.
+  verify; sanitizers clean text or HTML or inspect an archive; stalkers list
+  local processes, inspect one pid, run a heuristic rogue check, or read host
+  RAM use. Anything else is refused. Sentinels still cannot send your data out.
 - "Research exoplanet transits with the sentinels." Harvesters search arXiv
   and Wikipedia. She tells you the mission started, not that it finished;
   its result, or why it failed, shows in the log. At most four research
@@ -63,6 +64,34 @@ If Sentinel is not running she says so instead of guessing.
 
 Deploy, stop, retask and research ask first in the usual way unless your
 own request already asked for them.
+
+## Stalker host process audit
+
+Stalker is a built-in caste that audits processes on this machine: the process
+tree around a pid, the owning executable, and remote endpoints of that
+process's local connections. It is a local read, not proven cyber-swarm
+defense and not Arelis deciding on her own. Findings from the rogue check
+are heuristics (known names, encoded command markers, Office spawning a
+script engine, or an executable from a temp folder). They can be wrong.
+It does not kill, quarantine, or ban a process, and it does not dump
+process memory: the memory check is host RAM totals and process percents.
+Command lines are not returned, so secrets in arguments stay off the report.
+If a process has disappeared or the OS denies access, the report says so,
+and a partial inspect lists the fields that failed. If a list, rogue check,
+or inspect hits its count cap (including two heuristic hits on one process),
+the report sets truncated rather than pretending it is complete or calling
+the miss an unknown error.
+
+List, rogue, and RAM walks check a 1.5 second cooperative budget between
+process records. That is not a hard deadline on a single OS or psutil call,
+and inspecting one pid has no time budget. Cancelling a retask does not stop
+a worker already inside those calls, and this slice does not add a new lock
+against overlapping cancelled retasks. Payload allowlists constrain keys
+only; limit and threshold values are clamped by the handler.
+
+Deploy a stalker and retask those capabilities the same way as the other
+castes. Recent work still shows in the event log; search for stalker or
+PROCESS rather than a separate hunt filter.
 
 ## What the swarm does on its own
 
