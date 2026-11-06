@@ -24,6 +24,7 @@ Rectangle {
     property string orbitShaders: "orbit/"
     // 1 while the Sentinels window is closed; 0.2 while it is open (Iris fade).
     property real presenceOpacity: 1.0
+    property real presenceTick: 1.0
     color: voidColor
 
     Image {
@@ -42,6 +43,7 @@ Rectangle {
         st: orbitState
         shaders: surface.orbitShaders
         opacity: surface.presenceOpacity
+        presenceTick: surface.presenceTick
     }
 
     Image {

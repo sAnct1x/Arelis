@@ -15,10 +15,10 @@ to about 20 percent. Closing it, quitting Arelis, or an error that
 cannot show the page restores them. Esc or the close mote on the inset
 closes it.
 
-The view is the live Overseer for this machine: cursor zoom, grouped
-roster of real units, caste counts including Stalker. It does not run
-demo or scenario theater. Draw style, baked 3D meshes, and load on a
-real machine have not been visually accepted yet.
+The view is a Qt Quick 3D Overseer (Iris LOD meshes) with the live
+roster of real units, caste counts including Stalker, and no demo or
+scenario theater. Visual review, load, and frame timing on a real
+machine have not been accepted yet.
 
 ## When Sentinel is offline
 

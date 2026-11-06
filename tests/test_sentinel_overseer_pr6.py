@@ -108,13 +108,17 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert presence.opacity == FADE_CLOSED
     assert presence.open_window() == 650
     assert presence.opacity == FADE_OPEN == 0.20
+    assert presence.tick_scale == 0.25
     presence.apply_to(surf)
     assert surf.presenceOpacity == 0.20
+    assert surf.presenceTick == 0.25
     assert presence.restore("error") == 500
     assert presence.opacity == FADE_CLOSED
+    assert presence.tick_scale == 1.0
     assert presence.last_reason == "error"
     presence.apply_to(surf)
     assert surf.presenceOpacity == 1.0
+    assert surf.presenceTick == 1.0
     assert presence.restore("quit", reduced=True) == 200
     assert presence.last_reason == "quit"
 
@@ -207,3 +211,25 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert err.presence.opacity == FADE_CLOSED
     assert err_owner._quick_surface.presenceOpacity == FADE_CLOSED
     err.close()
+
+    assets = Path(__file__).resolve().parents[1] / "arelis/assets/sentinel/overseer"
+    report = json.loads((assets / "export_report.json").read_text())
+    by_lod = {row["lod"]: row for row in report}
+    assert by_lod[0]["tris"] <= 12000 + 50
+    assert by_lod[1]["tris"] <= 4000 + 50
+    assert by_lod[2]["tris"] <= 1000 + 50
+    assert by_lod[0]["raw_by_part"]["hull"] > 60000
+    assert (assets / "meshes/lod0_hull_mesh.mesh").is_file()
+    assert (assets / "Sentinel_lod2.qml").is_file()
+    scene = win._ensure_scene()
+    assert scene is not None
+    qt_app.processEvents()
+    root = scene.rootObject()
+    assert root is not None
+    assert root.property("particleBudget") == 520
+    qml = (assets / "OverseerView.qml").read_text()
+    assert "import QtQuick3D" in qml
+    assert "ParticleSystem3D" in qml
+    assert "View3D" in qml
+    view_qml = scene.source().toLocalFile() if hasattr(scene, "source") else str(assets / "OverseerView.qml")
+    assert view_qml.endswith("OverseerView.qml")

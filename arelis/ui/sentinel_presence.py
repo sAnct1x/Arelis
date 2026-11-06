@@ -63,16 +63,19 @@ class PresenceController:
         self.opacity = FADE_CLOSED
         self.open = False
         self.last_reason = "init"
+        self.tick_scale = 1.0
 
     def open_window(self, *, reduced: bool = False) -> int:
         self.open = True
         self.opacity = FADE_OPEN
+        self.tick_scale = 0.25
         self.last_reason = "open"
         return fade_duration_ms(opening=True, reduced=reduced)
 
     def restore(self, reason: str = "close", *, reduced: bool = False) -> int:
         self.open = False
         self.opacity = FADE_CLOSED
+        self.tick_scale = 1.0
         self.last_reason = reason
         return fade_duration_ms(opening=False, reduced=reduced)
 
@@ -85,6 +88,9 @@ class PresenceController:
         setter = getattr(root, "setProperty", None)
         if callable(setter):
             setter("presenceOpacity", float(self.opacity))
+            setter("presenceTick", float(self.tick_scale))
             return
         if hasattr(root, "presenceOpacity"):
             root.presenceOpacity = float(self.opacity)
+        if hasattr(root, "presenceTick"):
+            root.presenceTick = float(self.tick_scale)

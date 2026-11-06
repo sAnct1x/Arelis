@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QShortcut
@@ -99,6 +100,8 @@ class SentinelWindow(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self._view = None
+        self._scene = None
+        self._live = None
         self._loaded_url: str | None = None
         self._tries = 0
         self._error = ""
@@ -183,6 +186,8 @@ class SentinelWindow(QWidget):
         page.runJavaScript(
             f'document.documentElement.setAttribute("data-theme","{safe}");'
             f'window.dispatchEvent(new CustomEvent("arelis-theme",{{detail:"{safe}"}}));'
+            'var c=document.getElementById("overseer-canvas");'
+            'if(c){c.style.display="none";}'
         )
 
     def is_offline(self) -> bool:
@@ -208,21 +213,72 @@ class SentinelWindow(QWidget):
         self._error = ""
         if url != self._loaded_url:
             self._loaded_url = url
-            view.setUrl(QUrl(url))
+            if self._view is not None:
+                self._view.setUrl(QUrl(url))
         self._stack.setCurrentWidget(view)
         self._push_theme_to_page(active_theme())
+        self.start_entry_sequence()
+
+    def _asset_dir(self) -> Path:
+        return Path(__file__).resolve().parents[1] / "assets" / "sentinel" / "overseer"
+
+    def _ensure_scene(self):
+        if self._scene is not None:
+            return self._scene
+        try:
+            from PySide6.QtQuickWidgets import QQuickWidget
+        except ImportError:
+            log.warning("Sentinels window: Qt Quick widget unavailable")
+            return None
+        qml = self._asset_dir() / "OverseerView.qml"
+        if not qml.is_file():
+            log.warning("Sentinels window: OverseerView.qml missing at %s", qml)
+            return None
+        widget = QQuickWidget(self)
+        widget.setObjectName("OverseerScene")
+        widget.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
+        widget.setSource(QUrl.fromLocalFile(str(qml)))
+        self._scene = widget
+        return widget
+
+    def start_entry_sequence(self) -> None:
+        scene = self._ensure_scene()
+        if scene is None:
+            return
+        root = scene.rootObject()
+        if root is not None and hasattr(root, "startEntry"):
+            root.startEntry()
 
     def _ensure_view(self):
-        if self._view is not None:
-            return self._view
+        if self._live is not None:
+            return self._live
+        scene = self._ensure_scene()
         try:
             from PySide6.QtWebEngineWidgets import QWebEngineView
         except ImportError:
             log.warning("Sentinels window: QtWebEngine unavailable")
-            return None
-        self._view = QWebEngineView(self)
-        self._stack.addWidget(self._view)
-        return self._view
+            if scene is None:
+                return None
+            self._live = scene
+            self._stack.addWidget(scene)
+            return self._live
+        from PySide6.QtWidgets import QGridLayout
+
+        live = QWidget(self)
+        live.setObjectName("OverseerLive")
+        grid = QGridLayout(live)
+        grid.setContentsMargins(0, 0, 0, 0)
+        if scene is not None:
+            grid.addWidget(scene, 0, 0)
+        self._view = QWebEngineView(live)
+        self._view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        page = self._view.page()
+        if page is not None and hasattr(page, "setBackgroundColor"):
+            page.setBackgroundColor(QColor(0, 0, 0, 0))
+        grid.addWidget(self._view, 0, 0)
+        self._live = live
+        self._stack.addWidget(live)
+        return live
 
     def start_sentinel(self) -> None:
         """Run the normal start path off the UI thread, then poll for the URL."""
