@@ -14,7 +14,7 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QKeySequence, QPainter, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QPainter, QRegion, QShortcut
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis import sentinel_control
+from arelis.ui import overseer_runtime
 from arelis.ui.sentinel_presence import PresenceController, inset_geometry, mote_pos
 from arelis.ui.theme_tokens import COLORS, active_theme
 
@@ -105,6 +106,19 @@ class SentinelWindow(QWidget):
         self._loaded_url: str | None = None
         self._tries = 0
         self._error = ""
+        self._overlay_flags: dict = {}
+        self._prev_lods: dict[str, int] = {}
+        self._particle_paths: list = []
+        self._entry_reverse = False
+        self._entry_timer = QTimer(self)
+        self._entry_timer.setInterval(16)
+        self._entry_timer.timeout.connect(self._entry_tick)
+        self._snap_timer = QTimer(self)
+        self._snap_timer.setInterval(250)
+        self._snap_timer.timeout.connect(self._poll_snapshot)
+        self._mask_timer = QTimer(self)
+        self._mask_timer.setInterval(250)
+        self._mask_timer.timeout.connect(self._read_overlay_flags)
 
         self._stack = QStackedWidget(self)
         lay = QVBoxLayout(self)
@@ -246,8 +260,17 @@ class SentinelWindow(QWidget):
         if scene is None:
             return
         root = scene.rootObject()
+        reduced = _reduced_motion()
         if root is not None and hasattr(root, "startEntry"):
-            root.startEntry()
+            root.startEntry(reduced)
+        self._particle_paths = overseer_runtime.particle_paths(
+            [], width=max(1, self.width()), height=max(1, self.height())
+        )
+        self._entry_timer.start()
+        self.apply_hud_mask()
+        self._mask_timer.start()
+        if sentinel_control.overseer_url():
+            self._snap_timer.start()
 
     def _ensure_view(self):
         if self._live is not None:
@@ -279,6 +302,116 @@ class SentinelWindow(QWidget):
         self._live = live
         self._stack.addWidget(live)
         return live
+
+
+    def apply_hud_mask(self) -> None:
+        """Keep mouse events on HUD plates; let the 3D view receive the hole."""
+        if self._view is None:
+            return
+        w, h = max(1, self.width()), max(1, self.height())
+        flags = self._overlay_flags or {}
+        region = QRegion()
+        for x, y, rw, rh in overseer_runtime.hud_mask_rects(
+            w,
+            h,
+            emp=bool(flags.get("emp")),
+            badges=bool(flags.get("badges")),
+            full=bool(flags.get("modal") or flags.get("help")),
+        ):
+            region = region.united(QRegion(x, y, rw, rh))
+        self._view.setMask(region)
+
+    def _read_overlay_flags(self) -> None:
+        view = self._view
+        if view is None:
+            return
+        page = view.page()
+        js = (
+            "(function(){function vis(id){var el=document.getElementById(id);"
+            "return !!(el && !el.classList.contains('hidden'));}"
+            "return {emp:vis('emp-banner'),modal:vis('dossier-modal'),"
+            "help:vis('help-overlay'),badges:vis('caste-badges')};})()"
+        )
+        page.runJavaScript(js, self._on_overlay_flags)
+
+    def _on_overlay_flags(self, flags) -> None:
+        self._overlay_flags = flags if isinstance(flags, dict) else {}
+        self.apply_hud_mask()
+
+    def apply_snapshot(self, snap: dict) -> dict:
+        """Push a live hive snapshot into the native View3D. Returns the frame."""
+        units = overseer_runtime.snapshot_units(snap)
+        root = None
+        scene = self._scene
+        if scene is not None:
+            root = scene.rootObject()
+        distance = 32.0
+        if root is not None:
+            raw = root.property("cameraDistance")
+            if raw:
+                distance = float(raw)
+        viewport_h = max(1, self.height() - 86 - 230)
+        frame = overseer_runtime.build_frame(
+            units, distance, float(viewport_h), self._prev_lods
+        )
+        self._prev_lods = frame["prevLods"]
+        if root is not None and hasattr(root, "applyFrame"):
+            root.applyFrame(frame)
+        self._particle_paths = overseer_runtime.particle_paths(
+            units, width=float(max(1, self.width())), height=float(max(1, self.height()))
+        )
+        return frame
+
+    def _poll_snapshot(self) -> None:
+        target = sentinel_control.bridge_target()
+        if target is None:
+            return
+        host, port, token = target
+        try:
+            snap = overseer_runtime.fetch_snapshot(host, port, token)
+        except Exception:
+            log.warning("Sentinels window: snapshot poll failed")
+            return
+        self.apply_snapshot(snap)
+
+    def _entry_tick(self) -> None:
+        scene = self._scene
+        root = scene.rootObject() if scene is not None else None
+        if root is None:
+            return
+        ms = float(root.property("entryMs") or 0)
+        reduced = bool(root.property("reducedMotion"))
+        reversing = bool(root.property("reversing"))
+        tl = overseer_runtime.entry_timeline(ms, reduced=reduced, reversing=reversing)
+        for key in ("edge", "fill", "reveal", "moteFlight"):
+            root.setProperty(key, float(tl[key]))
+        root.setProperty("inputLive", bool(tl["inputLive"]))
+        flight = float(tl["moteFlight"])
+        start = (max(8, self.width() - 46), 48)
+        # Relative start is the design mote mapped into the inset.
+        inset_start = (1210, 1046)
+        x = inset_start[0] + (start[0] - inset_start[0]) * flight
+        y = inset_start[1] + (start[1] - inset_start[1]) * flight
+        self._close_mote.move(int(x), int(y))
+        r = max(8.0, float(tl["moteRadius"]))
+        self._close_mote.setFixedSize(int(r * 4), int(r * 4))
+        paths = self._particle_paths
+        if paths:
+            rows = []
+            for path in paths:
+                px, py, vis = overseer_runtime.particle_position(path, ms)
+                if vis <= 0:
+                    continue
+                rows.append({
+                    "x": (px - self.width() / 2) / 80.0,
+                    "y": 0.4,
+                    "z": (self.height() / 2 - py) / 80.0,
+                    "visible": vis,
+                })
+            if hasattr(root, "setParticles"):
+                root.setParticles(rows)
+        if not bool(root.property("entryPlaying")):
+            self._entry_timer.stop()
 
     def start_sentinel(self) -> None:
         """Run the normal start path off the UI thread, then poll for the URL."""
@@ -329,12 +462,21 @@ class SentinelWindow(QWidget):
         super().showEvent(event)
 
     def closeEvent(self, event) -> None:
+        scene = self._scene
+        root = scene.rootObject() if scene is not None else None
+        if root is not None and hasattr(root, "startExit"):
+            root.startExit(_reduced_motion())
+            self._entry_timer.start()
+        self._snap_timer.stop()
+        self._mask_timer.stop()
         if self.presence.open:
             self._restore_presence("close")
         super().closeEvent(event)
 
     def resizeEvent(self, event) -> None:
-        self._close_mote.move(max(8, self.width() - 46), 48)
+        if not self._entry_timer.isActive():
+            self._close_mote.move(max(8, self.width() - 46), 48)
+        self.apply_hud_mask()
         super().resizeEvent(event)
 
 
@@ -345,6 +487,9 @@ def teardown_sentinel_window(window) -> None:
         return
     window.sentinel_window = None
     win._poll.stop()
+    win._snap_timer.stop()
+    win._mask_timer.stop()
+    win._entry_timer.stop()
     win._restore_presence("quit")
     if win._view is not None:
         win._view.setUrl(QUrl("about:blank"))

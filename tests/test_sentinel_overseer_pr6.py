@@ -6,9 +6,11 @@ import json
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtWidgets import QWidget
 
+from arelis.ui import overseer_runtime
 from arelis.ui.sentinel_host import (
     SentinelWindow,
     attach_sentinel_mote,
@@ -29,6 +31,15 @@ from arelis.ui.sentinel_presence import (
 )
 
 LOGIC = Path(__file__).resolve().parents[1] / "sentinel/sentinel/ui/overseer/overseer_logic.js"
+
+
+def _qml_list(value):
+    if value is None:
+        return []
+    to_var = getattr(value, "toVariant", None)
+    if callable(to_var):
+        value = to_var()
+    return list(value)
 
 
 def _node_logic_checks() -> dict:
@@ -229,7 +240,123 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert root.property("particleBudget") == 520
     qml = (assets / "OverseerView.qml").read_text()
     assert "import QtQuick3D" in qml
-    assert "ParticleSystem3D" in qml
+    assert "InstanceList" in qml
+    assert "CustomMaterial" in qml
+    assert "shaders/hull.vert" in qml
     assert "View3D" in qml
     view_qml = scene.source().toLocalFile() if hasattr(scene, "source") else str(assets / "OverseerView.qml")
     assert view_qml.endswith("OverseerView.qml")
+
+    engine = QQmlEngine()
+    engine.addImportPath(str(assets))
+    comp = QQmlComponent(engine, QUrl.fromLocalFile(str(assets / "OverseerView.qml")))
+    # Wait briefly if the component is still loading.
+    for _ in range(20):
+        if comp.status() != QQmlComponent.Status.Loading:
+            break
+        qt_app.processEvents()
+    if comp.status() != QQmlComponent.Status.Ready:
+        msgs = "; ".join(err.toString() for err in comp.errors())
+        raise AssertionError(f"OverseerView.qml failed to instantiate: {msgs}")
+    inst = comp.create()
+    assert inst is not None
+    qt_app.processEvents()
+    report_map = overseer_runtime.load_mesh_report(assets / "export_report.json")
+    # 100 wardens at wide distance: one caste, LOD2, three submeshes.
+    wide = [
+        {"unit_id": f"SNT-WRD-{i:03d}", "caste": "warden", "position": [i % 10, i // 10, 0.4], "scale": 1.0}
+        for i in range(100)
+    ]
+    frame = overseer_runtime.build_frame(wide, camera_distance=90.0, viewport_h=1306, report=report_map)
+    assert frame["budget"]["lodCounts"][2] == 100
+    assert frame["budget"]["lodCounts"][0] == 0
+    lod2 = report_map[2]["parts"]
+    expected_tris = 100 * (lod2["hull"] + lod2["emissive"] + lod2["lens"])
+    assert frame["budget"]["unitTris"] == expected_tris
+    assert frame["budget"]["unitDrawCalls"] == 3
+    assert frame["budget"]["withinTriBudget"]
+    assert frame["budget"]["withinDrawBudget"]
+    inst.applyFrame(frame)
+    qt_app.processEvents()
+    assert inst.property("unitDrawCalls") == 3
+    assert inst.property("budgetTris") == expected_tris
+    assert _qml_list(inst.property("lodCounts"))[2] == 100
+
+    # Five castes at wide: 15 instanced models (5 x 3 parts).
+    mixed = []
+    for caste in overseer_runtime.CASTES:
+        for i in range(20):
+            mixed.append({"unit_id": f"{caste}-{i}", "caste": caste, "position": [i, 0, 0.4], "scale": 1.0})
+    mixed_frame = overseer_runtime.build_frame(mixed, 90.0, 1306, report=report_map)
+    assert mixed_frame["budget"]["unitDrawCalls"] == 15
+    assert mixed_frame["budget"]["lodCounts"][2] == 100
+    inst.applyFrame(mixed_frame)
+    qt_app.processEvents()
+    assert inst.property("unitDrawCalls") == 15
+
+    close = [{"unit_id": "hero", "caste": "warden", "position": [0, 0, 0.9], "scale": 1.0}]
+    close_frame = overseer_runtime.build_frame(close, 7.0, 1306, report=report_map)
+    assert close_frame["units"][0]["lod"] == 0
+    assert close_frame["units"][0]["height_px"] > 180
+
+    paths = overseer_runtime.particle_paths(wide, count=520)
+    assert len(paths) == 520
+    assert sum(1 for p in paths if p["fromMote"]) == 208
+    assert sum(1 for p in paths if not p["fromMote"]) == 312
+    early = overseer_runtime.particle_position(paths[0], paths[0]["startMs"] - 1)
+    assert early[2] == 0.0
+    mid = overseer_runtime.particle_position(paths[0], paths[0]["startMs"] + 120)
+    assert mid[2] == 1.0
+    # Bowed control is above the chord (smaller y).
+    assert paths[0]["control"][1] < (paths[0]["start"][1] + paths[0]["end"][1]) / 2
+
+    tl = overseer_runtime.entry_timeline(0)
+    assert tl["reveal"] == 0 and tl["edge"] == 0
+    tl450 = overseer_runtime.entry_timeline(450)
+    assert 0 < float(tl450["edge"]) < 1
+    assert 0 < float(tl450["reveal"]) < 1
+    tl1600 = overseer_runtime.entry_timeline(1600)
+    assert float(tl1600["reveal"]) == 1 and tl1600["inputLive"] is True
+    assert float(tl1600["moteFlight"]) == 1
+    exit_tl = overseer_runtime.entry_timeline(500, reversing=True)
+    assert float(exit_tl["reveal"]) == 0
+    red = overseer_runtime.entry_timeline(200, reduced=True)
+    assert red["duration"] == 200 and float(red["fade"]) == 0.20
+
+    snap = {"units": [{"unit_id": "SNT-WRD-001", "caste": "warden", "position": [3, -4, 0.9], "state": "ENGAGED_DEFENSE", "heading": [1, 0, 0]}]}
+    pushed = win.apply_snapshot(snap)
+    assert sum(pushed["budget"]["lodCounts"].values()) == 1
+    assert any(pushed["buckets"][k] for k in pushed["buckets"])
+    assert overseer_runtime.claw_open("ENGAGED_DEFENSE") == 0.85
+
+    fake_demo = overseer_runtime.snapshot_units({"demo": True, "units": [{"unit_id": "x"}]})
+    assert fake_demo == []
+
+    rects = overseer_runtime.hud_mask_rects(2110, 1306)
+    assert overseer_runtime.point_in_rects(20, 20, rects)
+    assert overseer_runtime.point_in_rects(100, 40, rects)
+    assert not overseer_runtime.point_in_rects(800, 400, rects)
+    assert overseer_runtime.point_in_rects(1800, 200, rects)
+    full = overseer_runtime.hud_mask_rects(2110, 1306, full=True)
+    assert overseer_runtime.point_in_rects(800, 400, full)
+    emp = overseer_runtime.hud_mask_rects(2110, 1306, emp=True)
+    assert overseer_runtime.point_in_rects(1055, 100, emp)
+
+    def _opener(req, timeout=2.0):
+        token = req.get_header("X-sentinel-token") or req.get_header("X-Sentinel-Token")
+        assert token == "secret-token"
+        class _Resp:
+            def read(self):
+                return json.dumps(snap).encode()
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+        return _Resp()
+    got = overseer_runtime.fetch_snapshot("127.0.0.1", 9, "secret-token", opener=_opener)
+    assert got["units"][0]["unit_id"] == "SNT-WRD-001"
+
+    for name in ("hull.vert", "hull.frag", "emissive.vert", "emissive.frag", "lens.vert", "lens.frag"):
+        text = (assets / "shaders" / name).read_text()
+        assert "void MAIN()" in text
+    assert "INSTANCE_DATA" in (assets / "shaders" / "hull.vert").read_text()

@@ -15,10 +15,15 @@ to about 20 percent. Closing it, quitting Arelis, or an error that
 cannot show the page restores them. Esc or the close mote on the inset
 closes it.
 
-The view is a Qt Quick 3D Overseer (Iris LOD meshes) with the live
-roster of real units, caste counts including Stalker, and no demo or
-scenario theater. Visual review, load, and frame timing on a real
-machine have not been accepted yet.
+The view is a Qt Quick 3D Overseer. Live units from the hive snapshot
+are drawn as instanced Iris LOD meshes (about 12k / 4k / 1k triangles
+per unit), one model per caste, LOD, and part, with caste colour and
+claw opening on each instance. Tentacle motion is a vertex wave on the
+hull material, not CPU skinning. Opening the window follows the entry
+timing (mote, edge, fill, reveal, then panels); closing reverses it.
+Reduced motion uses a short crossfade. The HTML HUD sits on top with a
+hole so camera input reaches the 3D view. Visual review, load, and
+frame timing on a real machine have not been accepted yet.
 
 ## When Sentinel is offline
 

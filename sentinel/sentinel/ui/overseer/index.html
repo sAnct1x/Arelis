@@ -6,10 +6,10 @@
   <title>Sentinels</title>
   <link rel="stylesheet" href="/overseer/style.css" />
 </head>
-<body>
-  <canvas id="overseer-canvas"></canvas>
+<body style="pointer-events:none">
+  <canvas id="overseer-canvas" style="pointer-events:none;display:none"></canvas>
 
-  <div id="emp-banner" class="hidden">
+  <div id="emp-banner" class="hidden" style="pointer-events:auto">
     <div class="emp-banner-inner">
       <span class="emp-icon">!</span>
       <div>
@@ -20,7 +20,7 @@
     </div>
   </div>
 
-  <header id="hud-topbar" class="hud-plate">
+  <header id="hud-topbar" style="pointer-events:auto" class="hud-plate">
     <div class="brand-cluster">
       <div class="core-beacon" id="conn-beacon"></div>
       <div class="brand-text-wrap">
@@ -43,7 +43,7 @@
     </div>
   </header>
 
-  <aside id="hud-left" class="hud-plate">
+  <aside id="hud-left" style="pointer-events:auto" class="hud-plate">
     <div class="section-header">
       <span>Swarm</span>
       <span id="roster-filter-label" class="dim-tag">All</span>
@@ -70,7 +70,7 @@
     <div id="unit-roster" class="scroll-list"></div>
   </aside>
 
-  <aside id="hud-right" class="hud-plate">
+  <aside id="hud-right" style="pointer-events:auto" class="hud-plate">
     <div class="section-header">
       <span>Inspector</span>
       <div class="insp-header-actions">
@@ -86,7 +86,7 @@
     <div id="receipt-feed" class="scroll-list"></div>
   </aside>
 
-  <section id="hud-console" class="hud-plate">
+  <section id="hud-console" style="pointer-events:auto" class="hud-plate">
     <div class="live-mission-bar">
       <select id="live-mode-select" class="hud-select live-mode-select" title="Live capability">
         <option value="multi">Multi-source research</option>
@@ -117,16 +117,16 @@
     <div id="telemetry-console-body" class="console-body"></div>
   </section>
 
-  <div id="zoom-rail" class="zoom-rail">
+  <div id="zoom-rail" class="zoom-rail" style="pointer-events:auto">
     <button id="btn-zoom-in" type="button" title="Zoom in">+</button>
     <button id="btn-zoom-out" type="button" title="Zoom out">-</button>
     <button id="btn-zoom-fit" type="button" title="Fit swarm">0</button>
   </div>
 
-  <div id="mission-feedback" role="status" aria-live="polite"></div>
-  <div id="caste-badges" class="caste-badges" hidden></div>
+  <div id="mission-feedback" style="pointer-events:auto" role="status" aria-live="polite"></div>
+  <div id="caste-badges" class="caste-badges" hidden style="pointer-events:auto"></div>
 
-  <div id="dossier-modal" class="modal-backdrop hidden">
+  <div id="dossier-modal" class="modal-backdrop hidden" style="pointer-events:auto">
     <div class="modal-card hud-plate">
       <div class="modal-header">
         <div>
@@ -143,7 +143,7 @@
     </div>
   </div>
 
-  <div id="help-overlay" class="hidden hud-plate">
+  <div id="help-overlay" class="hidden hud-plate" style="pointer-events:auto">
     <p>Wheel or trackpad zooms toward the cursor. Right-drag orbits. + - and 0 fit the swarm. Esc closes or clears a lock.</p>
   </div>
 
