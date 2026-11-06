@@ -1,8 +1,11 @@
-"""Tool groups for a later loader. Nothing in the product imports this yet.
+"""Tool groups for on-demand loading when agent.tool_loading is enabled.
 
-Core stays in the always-loaded set. Every other tool sits in exactly one
-group. Menu phrases and keywords are plain lowercase text a later menu can
-show and match. Insertion order of GROUPS is the menu order.
+load_tools.py and tool_surface.py import CORE, GROUPS, and MENU under that
+flag (default remains off). Core stays in the always-loaded set. Every other
+tool sits in exactly one group. Menu phrases and keywords are plain lowercase
+text a later menu can show and match; KEYWORDS is retained for the upcoming
+keyword pre-load step and is not yet consumed by a product matcher.
+Insertion order of GROUPS is the menu order.
 """
 
 from __future__ import annotations
