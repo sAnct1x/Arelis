@@ -991,7 +991,78 @@ def free_viewport_shift(
     bottom = max(top + 1.0, h - 230.0)
     cx = (left + right) / 2.0
     cy = (top + bottom) / 2.0
-    return (-(cx - w / 2.0) / w, (cy - h / 2.0) / w)
+    return (-(cx - w / 2.0) / w, (cy - h / 2.0) / h)
+
+
+def free_viewport_center(
+    width: float,
+    height: float,
+    inspector_open: bool,
+) -> tuple[float, float]:
+    """Pixel centre of the panel-free well (top-left origin)."""
+    w = max(1.0, float(width))
+    h = max(1.0, float(height))
+    left = min(440.0, w)
+    top = 86.0
+    right = w - (min(460.0, w) if inspector_open else 20.0)
+    if right <= left:
+        right = w
+    bottom = max(top + 1.0, h - 230.0)
+    return ((left + right) / 2.0, (top + bottom) / 2.0)
+
+
+def lens_shift_offset(
+    distance: float,
+    pitch: float,
+    width: float,
+    height: float,
+    inspector_open: bool,
+) -> tuple[float, float, float]:
+    """World-space camera translation matching OverseerView.lensShiftOffset."""
+    sx, sy = free_viewport_shift(width, height, inspector_open)
+    p = math.radians(float(pitch))
+    d = float(distance)
+    vis_h = 2.0 * d * math.tan(math.radians(FOV_DEG) / 2.0)
+    aspect = (float(width) / float(height)) if height > 1 and width > 1 else (2110.0 / 1306.0)
+    vis_w = vis_h * aspect
+    return (sx * vis_w, sy * vis_h * math.cos(p), -sy * vis_h * math.sin(p))
+
+
+def project_world_to_viewport(
+    world: tuple[float, float, float],
+    distance: float,
+    pitch: float | None,
+    target: tuple[float, float, float],
+    width: float,
+    height: float,
+    inspector_open: bool,
+) -> tuple[float, float]:
+    """Project a world point through the product camera (35 deg vertical + lens shift).
+
+    Returns pixel coordinates with origin at the top-left of the view.
+    """
+    pdeg = pitch_deg(distance) if pitch is None else float(pitch)
+    p = math.radians(pdeg)
+    eye = camera_eye(distance, pdeg, target=target)
+    sh = lens_shift_offset(distance, pdeg, width, height, inspector_open)
+    cam = (eye[0] + sh[0], eye[1] + sh[1], eye[2] + sh[2])
+    dx = float(world[0]) - cam[0]
+    dy = float(world[1]) - cam[1]
+    dz = float(world[2]) - cam[2]
+    c, s = math.cos(p), math.sin(p)
+    vx = dx
+    vy = dy * c - dz * s
+    vz = dy * s + dz * c
+    depth = -vz
+    if depth <= 1e-9:
+        return (float("nan"), float("nan"))
+    half = math.tan(math.radians(FOV_DEG) / 2.0)
+    aspect = (float(width) / float(height)) if height > 1 and width > 1 else (2110.0 / 1306.0)
+    ndc_x = vx / (depth * half * aspect)
+    ndc_y = vy / (depth * half)
+    px = (ndc_x * 0.5 + 0.5) * float(width)
+    py = (0.5 - ndc_y * 0.5) * float(height)
+    return (px, py)
 
 
 def camera_evidence(
@@ -1106,6 +1177,15 @@ def resolve_hud_command(
             "path": None,
             "body": None,
             "status": "Camera focused",
+            "name": name,
+            "local": True,
+        }
+    if name in {"fit_swarm", "fitSwarm"}:
+        return {
+            "ok": True,
+            "path": None,
+            "body": None,
+            "status": "Camera fitted",
             "name": name,
             "local": True,
         }

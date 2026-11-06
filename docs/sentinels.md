@@ -64,19 +64,28 @@ with a factor of 1.18 per notch, rubber-banded 8 percent past the 6 to
 110 m limits. Pitch follows the approved marks: 22 degrees across 6 to
 9 m, 36 degrees at 32 m, and 55 degrees at 96 m and at 110 m. Focus
 dollies to 7 m (inside the 6 to 9 m close band) on the selected unit.
-Fit aims at the hive at 96 m. A wheel hit-point, when set, keeps that
+Fit swarm aims at the hive at 96 m (local, no backend POST). A wheel hit-point, when set, keeps that
 world point fixed (new target = P + (target - P) * (d_new / d_old)).
 A lens shift centres the swarm in the panel-free viewport.
 
 Babbage and other reports must read the live QML values
 `cameraDistance`, `cameraPitch`, `cameraTargetX`, `cameraTargetY`,
-`cameraTargetZ`, and `selectedUnitId` (or the `cameraEvidence()` object
-/ host `camera_report()`). Do not write the table numbers unless those
-properties actually read them. Name a still from those live values:
-`overseer_closezoom_*` only when distance is 6 to 9 m, mid near 32 m,
-wide near 96 m. Nondestructive test inputs: `selectUnit`,
-`focusSelectedUnit`, `applyWheel`, `setWheelPivot`, `fitSwarm`. Do not
-invoke Deploy, Retire, EMP, Recall, or Retask to move the camera.
+`cameraTargetZ`, `selectedUnitId`, and `framing` from the named
+readonly texts `OverseerCameraDistance`, `OverseerCameraPitch`,
+`OverseerCameraTargetX`, `OverseerCameraTargetY`, `OverseerCameraTargetZ`,
+`OverseerCameraSelectedUnitId`, `OverseerCameraFraming`, and the combined
+`OverseerCameraEvidence` line (`cameraDistance=… cameraPitch=…` and the
+other live keys). The host `camera_report()` object and `cameraEvidence()`
+match those values. The Sentinels host logger writes the same keys after
+Focus or Fit swarm (`overseer cameraDistance=…`). If the scene is down
+those fields are absent — do not fill them with defaults. Name a still
+from those live values: `overseer_closezoom_*` only when distance is 6 to
+9 m, mid near 32 m, wide near 96 m. Nondestructive test inputs:
+`selectUnit`, `focusSelectedUnit`, `applyWheel`, `setWheelPivot`,
+`fitSwarm`, and the accessible `OverseerAction_fitSwarm` control
+(Accessible name `Fit swarm`, local, no POST; invoke the press action or
+click). Do not invoke Deploy, Retire, EMP, Recall, or Retask to move the
+camera. Cursor-pick on the rail is not claimed complete.
 
 theme.id (sodium metadata vs Filament pixels) and leftover hive-specular
 clips on settled stills are separate appearance work, not claimed fixed

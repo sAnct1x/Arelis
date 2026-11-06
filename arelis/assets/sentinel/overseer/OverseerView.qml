@@ -247,6 +247,28 @@ Item {
         wheelPivotLive = false
     }
 
+    function readRowPos(row) {
+        if (!row)
+            return null
+        var x = row.x, y = row.y, z = row.z
+        if ((x === undefined || x === null) && row.position)
+            x = row.position[0]
+        if ((y === undefined || y === null) && row.position)
+            y = row.position[1]
+        if ((z === undefined || z === null) && row.position && row.position.length > 2)
+            z = row.position[2]
+        if (x === undefined || x === null || y === undefined || y === null)
+            return null
+        if (z === undefined || z === null)
+            z = 0
+        x = finiteNum(x, Number.NaN)
+        y = finiteNum(y, Number.NaN)
+        z = finiteNum(z, Number.NaN)
+        if (x !== x || y !== y || z !== z)
+            return null
+        return { x: x, y: y, z: z }
+    }
+
     function unitPositionOf(unitId) {
         if (!unitId || !unitPositions)
             return null
@@ -288,7 +310,7 @@ Item {
         var bottom = Math.max(top + 1, h - 230)
         var cx = (left + right) / 2
         var cy = (top + bottom) / 2
-        return Qt.vector2d(-(cx - w / 2) / w, (cy - h / 2) / w)
+        return Qt.vector2d(-(cx - w / 2) / w, (cy - h / 2) / h)
     }
 
     function lensShiftOffset() {
@@ -310,8 +332,11 @@ Item {
             var rows = buckets[keys[i]] || []
             for (var r = 0; r < rows.length; r++) {
                 var row = rows[r]
-                if (row && row.unit_id)
-                    next[row.unit_id] = { x: row.x || 0, y: row.y || 0, z: row.z || 0 }
+                if (row && row.unit_id) {
+                    var pos = readRowPos(row)
+                    if (pos)
+                        next[row.unit_id] = pos
+                }
             }
         }
         unitPositions = next
@@ -785,6 +810,107 @@ Item {
                 root.selectUnit(payload.unit_id)
                 root.focusSelectedUnit()
             }
+            if (name === "fit_swarm" || name === "fitSwarm")
+                root.fitSwarm()
         }
+    }
+
+    // Named readonly values for external UIA/log reads. Transparent so
+    // they do not add chrome or clipped pixels. Empty string if a live
+    // property is not a number — never a fabricated default.
+    function cameraEvidenceLabel() {
+        var ev = cameraEvidence()
+        var parts = []
+        var keys = ["cameraDistance", "cameraPitch", "cameraTargetX", "cameraTargetY", "cameraTargetZ", "selectedUnitId", "framing"]
+        for (var i = 0; i < keys.length; i++) {
+            var key = keys[i]
+            if (ev[key] === undefined || ev[key] === null || ev[key] === "")
+                continue
+            parts.push(key + "=" + ev[key])
+        }
+        return parts.join(" ")
+    }
+
+    Text {
+        id: cameraEvidenceText
+        objectName: "OverseerCameraEvidence"
+        z: 4
+        visible: true
+        color: "transparent"
+        font.pixelSize: 1
+        text: root.cameraEvidenceLabel()
+        Accessible.role: Accessible.StaticText
+        Accessible.ignored: false
+        Accessible.name: text
+    }
+    Text {
+        objectName: "OverseerCameraDistance"
+        visible: true
+        color: "transparent"
+        font.pixelSize: 1
+        text: Number.isFinite(root.cameraDistance) ? String(root.cameraDistance) : ""
+        Accessible.role: Accessible.StaticText
+        Accessible.ignored: false
+        Accessible.name: text
+    }
+    Text {
+        objectName: "OverseerCameraPitch"
+        visible: true
+        color: "transparent"
+        font.pixelSize: 1
+        text: Number.isFinite(root.cameraPitch) ? String(root.cameraPitch) : ""
+        Accessible.role: Accessible.StaticText
+        Accessible.ignored: false
+        Accessible.name: text
+    }
+    Text {
+        objectName: "OverseerCameraTargetX"
+        visible: true
+        color: "transparent"
+        font.pixelSize: 1
+        text: Number.isFinite(root.cameraTargetX) ? String(root.cameraTargetX) : ""
+        Accessible.role: Accessible.StaticText
+        Accessible.ignored: false
+        Accessible.name: text
+    }
+    Text {
+        objectName: "OverseerCameraTargetY"
+        visible: true
+        color: "transparent"
+        font.pixelSize: 1
+        text: Number.isFinite(root.cameraTargetY) ? String(root.cameraTargetY) : ""
+        Accessible.role: Accessible.StaticText
+        Accessible.ignored: false
+        Accessible.name: text
+    }
+    Text {
+        objectName: "OverseerCameraTargetZ"
+        visible: true
+        color: "transparent"
+        font.pixelSize: 1
+        text: Number.isFinite(root.cameraTargetZ) ? String(root.cameraTargetZ) : ""
+        Accessible.role: Accessible.StaticText
+        Accessible.ignored: false
+        Accessible.name: text
+    }
+    Text {
+        objectName: "OverseerCameraSelectedUnitId"
+        visible: true
+        color: "transparent"
+        font.pixelSize: 1
+        text: root.selectedUnitId || ""
+        Accessible.role: Accessible.StaticText
+        Accessible.ignored: false
+        Accessible.name: text
+    }
+    Text {
+        objectName: "OverseerCameraFraming"
+        visible: true
+        color: "transparent"
+        font.pixelSize: 1
+        text: root.framingName()
+        Accessible.role: Accessible.StaticText
+        Accessible.ignored: false
+        Accessible.name: text
     }
 }

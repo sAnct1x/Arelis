@@ -537,6 +537,30 @@ Item {
                         }
                     }
                     Rectangle {
+                        objectName: "OverseerAction_fitSwarm"
+                        height: 28
+                        width: fitLab.implicitWidth + 16
+                        radius: 4
+                        color: "#1c1430"
+                        border.color: "#8b6cf2"
+                        enabled: true
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Fit swarm"
+                        Accessible.onPressAction: hud.hudCommand("fit_swarm", {})
+                        Text {
+                            id: fitLab
+                            anchors.centerIn: parent
+                            text: "Fit swarm"
+                            color: "#e0d4ff"
+                            font.pixelSize: 12
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: parent.enabled
+                            onClicked: hud.hudCommand("fit_swarm", {})
+                        }
+                    }
+                    Rectangle {
                         objectName: "OverseerAction_retask"
                         height: 28
                         width: retaskLab.implicitWidth + 16

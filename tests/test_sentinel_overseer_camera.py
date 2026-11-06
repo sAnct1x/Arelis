@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from PySide6.QtCore import QUrl
@@ -220,3 +221,108 @@ def test_overseer_free_viewport_lens_shift_changes_with_inspector() -> None:
     closed_shift = overseer_runtime.free_viewport_shift(2110, 1306, False)
     assert open_shift != closed_shift
     assert abs(open_shift[0]) > 0 or abs(open_shift[1]) > 0
+
+
+def _named_text(root, name: str):
+    matches = [item for item in root.findChildren(root.__class__) if item.objectName() == name]
+    if matches:
+        return matches[0]
+    from PySide6.QtQuick import QQuickItem
+    for item in root.findChildren(QQuickItem):
+        if item.objectName() == name:
+            return item
+    if root.objectName() == name:
+        return root
+    return None
+
+
+def test_overseer_camera_evidence_exposes_named_accessible_values(qt_app) -> None:
+    view, root = _view(qt_app)
+    root.applyUnits(_units())
+    qt_app.processEvents()
+    root.selectUnit("SNT-WRD-001")
+    root.focusSelectedUnit()
+    qt_app.processEvents()
+    ev = root.cameraEvidence()
+    if hasattr(ev, "toVariant"):
+        ev = ev.toVariant()
+    distance = _named_text(root, "OverseerCameraDistance")
+    pitch = _named_text(root, "OverseerCameraPitch")
+    target_x = _named_text(root, "OverseerCameraTargetX")
+    selected = _named_text(root, "OverseerCameraSelectedUnitId")
+    framing = _named_text(root, "OverseerCameraFraming")
+    combined = _named_text(root, "OverseerCameraEvidence")
+    assert distance is not None and pitch is not None and target_x is not None
+    assert selected is not None and framing is not None and combined is not None
+    assert float(distance.property("text")) == float(ev["cameraDistance"])
+    assert float(pitch.property("text")) == float(ev["cameraPitch"])
+    assert float(target_x.property("text")) == float(ev["cameraTargetX"])
+    assert str(selected.property("text")) == "SNT-WRD-001"
+    assert str(framing.property("text")) == "close"
+    label = str(combined.property("text") or "")
+    assert "cameraDistance=" in label
+    assert str(distance.property("text")) in label
+    blank = overseer_runtime.camera_evidence(None, None)
+    assert blank == {}
+    view.deleteLater()
+    qt_app.processEvents()
+
+
+def test_overseer_fit_swarm_is_local_and_accessible(qt_app) -> None:
+    view, root = _view(qt_app)
+    root.applyUnits(_units())
+    qt_app.processEvents()
+    root.selectUnit("SNT-WRD-001")
+    root.focusSelectedUnit()
+    qt_app.processEvents()
+    assert float(root.property("cameraDistance")) == 7.0
+    button = _named_text(root, "OverseerAction_fitSwarm")
+    assert button is not None
+    assert bool(button.property("enabled")) is True
+    labels = [str(child.property("text") or "") for child in button.childItems()]
+    assert "Fit swarm" in labels
+    plan = overseer_runtime.resolve_hud_command("fit_swarm", {}, selected_unit=_units()[0])
+    assert plan["ok"] is True
+    assert plan.get("local") is True
+    assert plan["path"] is None
+    assert plan["body"] is None
+    hud = _named_text(root, "OverseerHud")
+    assert hud is not None
+    hud.hudCommand.emit("fit_swarm", {})
+    qt_app.processEvents()
+    assert abs(float(root.property("cameraDistance")) - 96.0) < 1e-6
+    assert abs(float(root.property("cameraPitch")) - 55.0) < 1e-6
+    assert abs(float(root.property("cameraTargetX"))) < 1e-6
+    assert abs(float(root.property("cameraTargetZ"))) < 1e-6
+    view.deleteLater()
+    qt_app.processEvents()
+
+
+def test_overseer_focus_projects_selected_unit_to_free_viewport() -> None:
+    unit = _units()[0]
+    pos = overseer_runtime.unit_view_pos(unit)
+    width, height = 2110.0, 1306.0
+    distance = overseer_runtime.CLOSE_DISTANCE
+    pitch = overseer_runtime.pitch_deg(distance)
+    px, py = overseer_runtime.project_world_to_viewport(
+        pos, distance, pitch, pos, width, height, True,
+    )
+    cx, cy = overseer_runtime.free_viewport_center(width, height, True)
+    assert abs(px - cx) < 1.0
+    assert abs(py - cy) < 1.0
+    hive = overseer_runtime.project_world_to_viewport(
+        overseer_runtime.HIVE_TARGET, distance, pitch, pos, width, height, True,
+    )
+    # Hive is either behind the close camera (no projection) or well off
+    # the free-viewport centre — not the Focus subject.
+    assert math.isnan(hive[0]) or abs(hive[0] - cx) > 80 or abs(hive[1] - cy) > 80
+    full_frac = overseer_runtime.projected_height_px(distance, height, 1.0) / height
+    # UNIT_WORLD_H 1.56 at 7 m and 35 deg is about 35% of the full plate,
+    # about 47% of the free well — not 60%. Do not retune FOV or height here.
+    assert 0.33 < full_frac < 0.38
+    well_h = height - 86.0 - 230.0
+    assert 0.44 < (full_frac * height / well_h) < 0.50
+    unshifted = overseer_runtime.project_world_to_viewport(
+        pos, distance, pitch, pos, width, height, False,
+    )
+    assert unshifted != (px, py)

@@ -517,6 +517,10 @@ class SentinelWindow(QWidget):
                     status = "Request failed"
         if name == "focus" and root is not None and hasattr(root, "focusSelectedUnit"):
             root.focusSelectedUnit()
+            self._log_camera_evidence()
+        if name in {"fit_swarm", "fitSwarm"} and root is not None and hasattr(root, "fitSwarm"):
+            root.fitSwarm()
+            self._log_camera_evidence()
         if root is not None:
             root.setProperty("hudCommandStatus", status)
             root.setProperty("lastHudCommand", name)
@@ -542,6 +546,21 @@ class SentinelWindow(QWidget):
             target,
             None if sid is None else str(sid),
         )
+
+    def _log_camera_evidence(self) -> None:
+        """Write live camera keys to the existing host logger. Omit missing fields."""
+        report = self.camera_report()
+        if not report:
+            return
+        parts = []
+        for key in (
+            "cameraDistance", "cameraPitch", "cameraTargetX",
+            "cameraTargetY", "cameraTargetZ", "selectedUnitId", "framing",
+        ):
+            if key in report and report[key] is not None and report[key] != "":
+                parts.append(f"{key}={report[key]}")
+        if parts:
+            log.info("overseer %s", " ".join(parts))
 
     def apply_snapshot(self, snap: dict) -> dict:
         """Push a live hive snapshot into the native View3D. Returns the frame."""

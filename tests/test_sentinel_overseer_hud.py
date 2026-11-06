@@ -684,6 +684,8 @@ def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
         assert plan["body"] is None
     focus = _named(root, "OverseerAction_focus")
     assert focus is not None and bool(focus.property("enabled")) is True
+    fit = _named(root, "OverseerAction_fitSwarm")
+    assert fit is not None and bool(fit.property("enabled")) is True
     deploy = _named(root, "OverseerFooter_deploy")
     retire = _named(root, "OverseerAction_retire")
     assert deploy is not None and bool(deploy.property("enabled")) is not False
@@ -711,6 +713,7 @@ def test_overseer_inspector_card_exposes_named_controls(qt_app) -> None:
     assert "ENGAGED_DEFENSE" in state_text
     for name in (
         "OverseerAction_focus",
+        "OverseerAction_fitSwarm",
         "OverseerAction_retask",
         "OverseerAction_recall",
         "OverseerAction_retire",
