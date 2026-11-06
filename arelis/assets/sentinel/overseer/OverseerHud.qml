@@ -30,6 +30,12 @@ Item {
     signal logSearchEdited(string text)
     signal hudCommand(string name, var payload)
 
+    // Palette panel fill #0e0920. The mockup composites this at alpha 0.80
+    // over a flattened scene; live View3D punches through any non-opaque
+    // fragment (544p list/inspector crops). Opaque designed RGB contains
+    // the scene without clipping or hiding unit geometry in the well.
+    readonly property color panelFill: "#0e0920"
+
     function pillText(key, title) {
         var value = pills && pills[key]
         if (value === undefined || value === null)
@@ -53,7 +59,7 @@ Item {
         anchors.right: parent.right
         anchors.top: parent.top
         height: 86
-        color: "#cc0e0920"
+        color: hud.panelFill
         border.color: "#6d4ad8"
         border.width: 1
 
@@ -149,7 +155,7 @@ Item {
         anchors.top: topBar.bottom
         anchors.bottom: consolePanel.top
         width: Math.min(440, parent.width)
-        color: "#cc0e0920"
+        color: hud.panelFill
         border.color: "#6d4ad8"
         border.width: 1
 
@@ -294,7 +300,7 @@ Item {
                             return "#1a1030"
                         if (modelData.unit_id === hud.selectedUnitId)
                             return "#2a1a4a"
-                        return "transparent"
+                        return hud.panelFill
                     }
                     border.color: modelData.unit_id === hud.selectedUnitId ? "#8b6cf2" : "transparent"
                     border.width: modelData.unit_id === hud.selectedUnitId ? 1 : 0
@@ -431,7 +437,7 @@ Item {
         anchors.top: topBar.bottom
         width: Math.min(460, parent.width)
         height: Math.min(536, Math.max(0, parent.height - topBar.height - consolePanel.height))
-        color: "#cc0e0920"
+        color: hud.panelFill
         border.color: "#6d4ad8"
         border.width: 1
         Accessible.role: Accessible.Pane
@@ -641,7 +647,7 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: 230
-        color: "#cc0e0920"
+        color: hud.panelFill
         border.color: "#6d4ad8"
         border.width: 1
 
