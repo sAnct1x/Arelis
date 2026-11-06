@@ -450,8 +450,47 @@ def zoom_t(distance: float) -> float:
     return math.log(d / ZOOM_MIN) / math.log(ZOOM_MAX / ZOOM_MIN)
 
 
+PITCH_MID_DEG = 36.0
+CLOSE_DISTANCE = 7.0  # inside the approved 6 to 9 m close band
+MID_DISTANCE = 32.0
+WIDE_DISTANCE = 96.0
+CLOSE_BAND = (ZOOM_MIN, 9.0)
+HIVE_TARGET = (0.0, 0.0, 0.0)
+_PITCH_MARKS = (
+    (ZOOM_MIN, PITCH_CLOSE_DEG),
+    (9.0, PITCH_CLOSE_DEG),
+    (MID_DISTANCE, 36.0),
+    (WIDE_DISTANCE, PITCH_WIDE_DEG),
+    (ZOOM_MAX, PITCH_WIDE_DEG),
+)
+
+
 def pitch_deg(distance: float) -> float:
-    return PITCH_CLOSE_DEG + zoom_t(distance) * (PITCH_WIDE_DEG - PITCH_CLOSE_DEG)
+    d = max(ZOOM_MIN, min(ZOOM_MAX, float(distance)))
+    marks = _PITCH_MARKS
+    if d <= marks[0][0]:
+        return float(marks[0][1])
+    for i in range(1, len(marks)):
+        d0, p0 = marks[i - 1]
+        d1, p1 = marks[i]
+        if d <= d1:
+            if d0 <= 0 or d1 <= 0 or d0 == d1:
+                return float(p1)
+            u = math.log(d / d0) / math.log(d1 / d0)
+            return float(p0) + u * (float(p1) - float(p0))
+    return float(marks[-1][1])
+
+
+def framing_name(distance: float) -> str:
+    """Name the live distance against the approved bands; do not invent a shot."""
+    d = float(distance)
+    if CLOSE_BAND[0] <= d <= CLOSE_BAND[1]:
+        return "close"
+    if 18.0 <= d <= 40.0:
+        return "mid"
+    if d > 40.0:
+        return "wide"
+    return "unclassified"
 
 
 def rubber_band(distance: float) -> float:
@@ -485,10 +524,25 @@ def cursor_dolly(
     )
 
 
-def camera_eye(distance: float, pitch: float | None = None) -> tuple[float, float, float]:
+def camera_eye(
+    distance: float,
+    pitch: float | None = None,
+    target: tuple[float, float, float] | None = None,
+) -> tuple[float, float, float]:
     p = math.radians(pitch_deg(distance) if pitch is None else pitch)
     d = float(distance)
-    return (0.0, math.sin(p) * d, math.cos(p) * d)
+    tx, ty, tz = HIVE_TARGET if target is None else target
+    return (float(tx), float(ty) + math.sin(p) * d, float(tz) + math.cos(p) * d)
+
+
+def unit_has_geometry(unit: dict[str, Any] | None) -> bool:
+    """True when the snapshot actually sent coordinates (not a default origin)."""
+    if not isinstance(unit, dict):
+        return False
+    pos = unit.get("position")
+    if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+        return True
+    return unit.get("x") is not None or unit.get("z") is not None
 
 
 def unit_view_pos(unit: dict[str, Any]) -> tuple[float, float, float]:
@@ -497,6 +551,18 @@ def unit_view_pos(unit: dict[str, Any]) -> tuple[float, float, float]:
     z = float(pos[2]) if len(pos) > 2 else 0.0
     # Hive kinematics are Y-up: (x, height, z) maps straight into Qt Quick 3D.
     return (x, y, z)
+
+
+def focus_framing(unit: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Local camera focus: look at the unit's snapshot position at close range."""
+    if not unit_has_geometry(unit):
+        return None
+    distance = CLOSE_DISTANCE
+    return {
+        "target": unit_view_pos(unit),
+        "distance": distance,
+        "pitch": pitch_deg(distance),
+    }
 
 
 def unit_camera_distance(unit: dict[str, Any], eye: tuple[float, float, float]) -> float:
@@ -619,9 +685,10 @@ def assign_lods(
     viewport_h: float = 1306.0,
     prev: dict[str, int] | None = None,
     pitch: float | None = None,
+    target: tuple[float, float, float] | None = None,
 ) -> list[dict[str, Any]]:
     prev = prev or {}
-    eye = camera_eye(camera_distance, pitch)
+    eye = camera_eye(camera_distance, pitch, target=target)
     assigned = []
     for u in units:
         uid = str(u.get("unit_id") or "")
@@ -720,9 +787,10 @@ def build_frame(
     viewport_h: float = 1306.0,
     prev_lods: dict[str, int] | None = None,
     report: dict[int, dict[str, Any]] | None = None,
+    target: tuple[float, float, float] | None = None,
 ) -> dict[str, Any]:
     report = report or load_mesh_report()
-    assigned = assign_lods(units, camera_distance, viewport_h, prev_lods)
+    assigned = assign_lods(units, camera_distance, viewport_h, prev_lods, target=target)
     assigned = enforce_budget(assigned, report)
     buckets = build_buckets(assigned)
     budget = budget_from_buckets(buckets, report)
@@ -907,6 +975,47 @@ def hud_mask_rects(
     return rects
 
 
+def free_viewport_shift(
+    width: float,
+    height: float,
+    inspector_open: bool,
+) -> tuple[float, float]:
+    """Lens shift that centres content in the panel-free region (v5 Space)."""
+    w = max(1.0, float(width))
+    h = max(1.0, float(height))
+    left = min(440.0, w)
+    top = 86.0
+    right = w - (min(460.0, w) if inspector_open else 20.0)
+    if right <= left:
+        right = w
+    bottom = max(top + 1.0, h - 230.0)
+    cx = (left + right) / 2.0
+    cy = (top + bottom) / 2.0
+    return (-(cx - w / 2.0) / w, (cy - h / 2.0) / w)
+
+
+def camera_evidence(
+    distance: Any,
+    pitch: Any,
+    target: tuple[Any, Any, Any] | None = None,
+    selected_id: str | None = None,
+) -> dict[str, Any]:
+    """Report live camera numbers only. Omit anything that was not read."""
+    out: dict[str, Any] = {}
+    if distance is not None:
+        out["cameraDistance"] = float(distance)
+        out["framing"] = framing_name(float(distance))
+    if pitch is not None:
+        out["cameraPitch"] = float(pitch)
+    if target is not None:
+        out["cameraTargetX"] = float(target[0])
+        out["cameraTargetY"] = float(target[1])
+        out["cameraTargetZ"] = float(target[2])
+    if selected_id is not None:
+        out["selectedUnitId"] = str(selected_id)
+    return out
+
+
 def point_in_rects(x: int, y: int, rects: list[tuple[int, int, int, int]]) -> bool:
     for rx, ry, rw, rh in rects:
         if rx <= x < rx + rw and ry <= y < ry + rh:
@@ -959,7 +1068,8 @@ def resolve_hud_command(
     route, and a UI precheck cannot close that race. Retire posts
     retire_unit for the selected id only (hive.retire_unit pops that id
     or returns False). Emergency halt never includes restore. Camera
-    focus is not implemented.
+    focus frames the selected unit locally from snapshot geometry and
+    does not post a hive route.
     """
     data = coerce_hud_payload(payload)
     selected = selected_unit if isinstance(selected_unit, dict) else {}
@@ -986,9 +1096,19 @@ def resolve_hud_command(
         }
 
     if name == "focus":
-        return refuse(
-            "Unavailable: camera focus is not implemented (selection only)"
-        )
+        uid = payload_id or selected_id
+        if not uid:
+            return refuse("Unavailable: focus needs a selected unit")
+        if payload_id and selected_id and payload_id != selected_id:
+            return refuse("Unavailable: focus id does not match the selected unit")
+        return {
+            "ok": True,
+            "path": None,
+            "body": None,
+            "status": "Camera focused",
+            "name": name,
+            "local": True,
+        }
     if name == "recall":
         return refuse(
             "Unavailable: no per-unit recall route; caste scale-down can "

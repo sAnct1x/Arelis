@@ -238,8 +238,14 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
     focus = overseer_runtime.resolve_hud_command(
         "focus", {"unit_id": "SNT-WRD-001"}, selected_unit=selected
     )
-    assert focus["ok"] is False
-    assert "not implemented" in focus["status"]
+    assert focus["ok"] is True
+    assert focus["path"] is None
+    assert focus["body"] is None
+    assert focus.get("local") is True
+    wrong_focus = overseer_runtime.resolve_hud_command(
+        "focus", {"unit_id": "SNT-HRV-001"}, selected_unit=selected
+    )
+    assert wrong_focus["ok"] is False
 
     view = QQuickView()
     view.engine().addImportPath(str(ASSETS))
@@ -656,7 +662,6 @@ def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
         "OverseerFooter_recall",
         "OverseerAction_recall",
         "OverseerAction_retask",
-        "OverseerAction_focus",
     ):
         item = _named(root, name)
         assert item is not None, name
@@ -669,7 +674,7 @@ def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
         qt_app.processEvents()
     assert seen == []
     selected = {"unit_id": "SNT-WRD-001", "caste": "warden"}
-    for command in ("recall", "retask", "focus"):
+    for command in ("recall", "retask"):
         plan = overseer_runtime.resolve_hud_command(
             command,
             {"unit_id": "SNT-WRD-001", "caste": "warden", "query": "scan"},
@@ -677,6 +682,8 @@ def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
         )
         assert plan["ok"] is False
         assert plan["body"] is None
+    focus = _named(root, "OverseerAction_focus")
+    assert focus is not None and bool(focus.property("enabled")) is True
     deploy = _named(root, "OverseerFooter_deploy")
     retire = _named(root, "OverseerAction_retire")
     assert deploy is not None and bool(deploy.property("enabled")) is not False

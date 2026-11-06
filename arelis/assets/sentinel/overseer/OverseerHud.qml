@@ -440,19 +440,27 @@ Item {
                         radius: 4
                         color: "#1c1430"
                         border.color: "#8b6cf2"
-                        enabled: false
+                        enabled: !!(hud.inspector && hud.inspector.unit_id)
                         Accessible.role: Accessible.Button
-                        Accessible.name: "Focus (not implemented)"
-                            Text {
+                        Accessible.name: "Focus"
+                        Accessible.onPressAction: hud.hudCommand("focus", {
+                            unit_id: hud.selectedUnitId,
+                            caste: hud.inspector && hud.inspector.caste
+                        })
+                        Text {
                             id: focusLab
                             anchors.centerIn: parent
-                            text: "Focus (not implemented)"
+                            text: "Focus"
                             color: "#e0d4ff"
                             font.pixelSize: 12
                         }
                         MouseArea {
                             anchors.fill: parent
-                            enabled: false
+                            enabled: parent.enabled
+                            onClicked: hud.hudCommand("focus", {
+                                unit_id: hud.selectedUnitId,
+                                caste: hud.inspector && hud.inspector.caste
+                            })
                         }
                     }
                     Rectangle {

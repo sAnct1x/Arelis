@@ -36,8 +36,9 @@ selected unit, and a forensic console for live logs and mission
 dispatch. Inspector actions and dispatch use the hive's existing
 command paths; anything the snapshot does not provide is shown as
 unavailable. Recall is unavailable: caste scale-down is not a per-unit
-recall and can affect a different unit. Focus selects the unit in the
-list; camera framing is not implemented yet. Retask is unavailable:
+recall and can affect a different unit. Focus frames the selected unit
+from its snapshot position (local camera only; no new hive route).
+Retask is unavailable:
 the existing dispatch_task path can acquire a different unit if the
 selected one is gone, and there is no fail-closed per-unit retask
 route. Retire posts retire_unit for that unit. Emergency stop posts
@@ -47,20 +48,38 @@ select that unit; the inspector stays on the selected unit across live
 snapshot updates, including at far zoom. The swarm footer has Deploy
 (existing caste scale-up) and Recall, which stays unavailable. Mission
 mode and other combo boxes use the dark Filament control fill, text,
-and popup. Unavailable actions (Recall, Retask, camera Focus) stay
+and popup. Unavailable actions (Recall and Retask) stay
 disabled in the widget and in accessibility; the host still refuses them.
+Focus is enabled when a unit is selected.
 The inspector card exposes named fields and actions. The inspector title
 is the selected unit id and caste, matching the mid-zoom still, and those
 names stay available to accessibility. The swarm list uses a standard
 vertical scroll bar so later groups stay reachable by scrolling while
 other headers stay expanded; collapsing other groups is not required to
-reach them. Wheel-in still frames the hive rather than a selected unit,
-and printed cameraDistance / cameraPitch at the mid (about 32 m / 36 deg)
-and wide (about 96 m / 55 deg) marks have not been evidenced; a close
-pass that keeps selection and units in frame, along with theme.id and
-remaining appearance work, is the next bounded batch and is not changed
-here. Visual review, load, and frame timing on a real machine have not
-been accepted yet.
+reach them. Selecting a unit aims the camera at that unit's snapshot position
+(not the hive). Wheel and trackpad dolly along the view axis at 35 mm
+with a factor of 1.18 per notch, rubber-banded 8 percent past the 6 to
+110 m limits. Pitch follows the approved marks: 22 degrees across 6 to
+9 m, 36 degrees at 32 m, and 55 degrees at 96 m and at 110 m. Focus
+dollies to 7 m (inside the 6 to 9 m close band) on the selected unit.
+Fit aims at the hive at 96 m. A wheel hit-point, when set, keeps that
+world point fixed (new target = P + (target - P) * (d_new / d_old)).
+A lens shift centres the swarm in the panel-free viewport.
+
+Babbage and other reports must read the live QML values
+`cameraDistance`, `cameraPitch`, `cameraTargetX`, `cameraTargetY`,
+`cameraTargetZ`, and `selectedUnitId` (or the `cameraEvidence()` object
+/ host `camera_report()`). Do not write the table numbers unless those
+properties actually read them. Name a still from those live values:
+`overseer_closezoom_*` only when distance is 6 to 9 m, mid near 32 m,
+wide near 96 m. Nondestructive test inputs: `selectUnit`,
+`focusSelectedUnit`, `applyWheel`, `setWheelPivot`, `fitSwarm`. Do not
+invoke Deploy, Retire, EMP, Recall, or Retask to move the camera.
+
+theme.id (sodium metadata vs Filament pixels) and leftover hive-specular
+clips on settled stills are separate appearance work, not claimed fixed
+by this camera batch. Visual review, load, and frame timing on a real
+machine have not been accepted yet.
 
 ## When Sentinel is offline
 

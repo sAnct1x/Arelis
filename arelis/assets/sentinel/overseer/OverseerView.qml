@@ -7,6 +7,14 @@ Item {
     objectName: "OverseerView"
     property real cameraDistance: 76
     property real cameraPitch: 50.8
+    property real cameraTargetX: 0
+    property real cameraTargetY: 0
+    property real cameraTargetZ: 0
+    property real wheelPivotX: 0
+    property real wheelPivotY: 0
+    property real wheelPivotZ: 0
+    property bool wheelPivotLive: false
+    property var unitPositions: ({})
     property int particleBudget: 520
     property real sceneTime: 0
     property var entryPool: []
@@ -128,6 +136,7 @@ Item {
         budgetDrawCalls = used + 10
         lodCounts = lods
         recountEntries(live)
+        rememberUnitPositions(buckets)
         var b = frame.budget
         if (b) {
             if (b.unitTris !== undefined && b.unitTris !== tris)
@@ -173,6 +182,140 @@ Item {
 
     function selectUnit(unitId) {
         selectedUnitId = unitId || ""
+        syncCameraTargetFromSelection()
+    }
+
+    function pitchDeg(distance) {
+        var lo = 6.0
+        var hi = 110.0
+        var d = Math.max(lo, Math.min(hi, distance))
+        var marks = [[6.0, 22.0], [9.0, 22.0], [32.0, 36.0], [96.0, 55.0], [110.0, 55.0]]
+        if (d <= marks[0][0])
+            return marks[0][1]
+        for (var i = 1; i < marks.length; i++) {
+            if (d <= marks[i][0]) {
+                var d0 = marks[i - 1][0]
+                var p0 = marks[i - 1][1]
+                var d1 = marks[i][0]
+                var p1 = marks[i][1]
+                if (d0 <= 0 || d1 <= 0 || d0 === d1)
+                    return p1
+                var u = Math.log(d / d0) / Math.log(d1 / d0)
+                return p0 + u * (p1 - p0)
+            }
+        }
+        return marks[marks.length - 1][1]
+    }
+
+    function framingName() {
+        var d = cameraDistance
+        if (d >= 6.0 && d <= 9.0)
+            return "close"
+        if (d >= 18.0 && d <= 40.0)
+            return "mid"
+        if (d > 40.0)
+            return "wide"
+        return "unclassified"
+    }
+
+    function cameraEvidence() {
+        return {
+            cameraDistance: cameraDistance,
+            cameraPitch: cameraPitch,
+            cameraTargetX: cameraTargetX,
+            cameraTargetY: cameraTargetY,
+            cameraTargetZ: cameraTargetZ,
+            selectedUnitId: selectedUnitId,
+            framing: framingName()
+        }
+    }
+
+    function setCameraTarget(x, y, z) {
+        cameraTargetX = x
+        cameraTargetY = y
+        cameraTargetZ = z
+    }
+
+    function setWheelPivot(x, y, z) {
+        wheelPivotX = x
+        wheelPivotY = y
+        wheelPivotZ = z
+        wheelPivotLive = true
+    }
+
+    function clearWheelPivot() {
+        wheelPivotLive = false
+    }
+
+    function unitPositionOf(unitId) {
+        if (!unitId || !unitPositions)
+            return null
+        return unitPositions[unitId] || null
+    }
+
+    function syncCameraTargetFromSelection() {
+        var pos = unitPositionOf(selectedUnitId)
+        if (!pos)
+            return false
+        setCameraTarget(pos.x, pos.y, pos.z)
+        return true
+    }
+
+    function focusSelectedUnit() {
+        var pos = unitPositionOf(selectedUnitId)
+        if (!pos)
+            return false
+        setCameraTarget(pos.x, pos.y, pos.z)
+        cameraDistance = 7.0
+        cameraPitch = pitchDeg(7.0)
+        return true
+    }
+
+    function fitSwarm() {
+        setCameraTarget(0, 0, 0)
+        cameraDistance = 96.0
+        cameraPitch = pitchDeg(96.0)
+    }
+
+    function freeViewportShift() {
+        var w = Math.max(1, width)
+        var h = Math.max(1, height)
+        var left = Math.min(440, w)
+        var top = 86
+        var right = w - (showInspector ? Math.min(460, w) : 20)
+        if (right <= left)
+            right = w
+        var bottom = Math.max(top + 1, h - 230)
+        var cx = (left + right) / 2
+        var cy = (top + bottom) / 2
+        return Qt.vector2d(-(cx - w / 2) / w, (cy - h / 2) / w)
+    }
+
+    function lensShiftOffset() {
+        var sh = freeViewportShift()
+        var d = cameraDistance
+        var pitch = cameraPitch * Math.PI / 180
+        var visH = 2 * d * Math.tan(35 * Math.PI / 360)
+        var aspect = (height > 1 && width > 1) ? (width / height) : (2110 / 1306)
+        var visW = visH * aspect
+        return Qt.vector3d(sh.x * visW, sh.y * visH * Math.cos(pitch), -sh.y * visH * Math.sin(pitch))
+    }
+
+    function rememberUnitPositions(buckets) {
+        var next = ({})
+        if (!buckets)
+            return
+        var keys = Object.keys(buckets)
+        for (var i = 0; i < keys.length; i++) {
+            var rows = buckets[keys[i]] || []
+            for (var r = 0; r < rows.length; r++) {
+                var row = rows[r]
+                if (row && row.unit_id)
+                    next[row.unit_id] = { x: row.x || 0, y: row.y || 0, z: row.z || 0 }
+            }
+        }
+        unitPositions = next
+        syncCameraTargetFromSelection()
     }
 
     function _bucketize(units) {
@@ -190,6 +333,7 @@ Item {
             lod = u.lod === undefined ? 1 : Math.max(0, Math.min(2, u.lod))
             var pos = u.position || [u.x || 0, u.y || 0, u.z || 0]
             buckets[caste + ":" + lod].push({
+                unit_id: u.unit_id || "",
                 x: pos[0], y: pos[1], z: pos.length > 2 ? pos[2] : 0,
                 heading_deg: u.heading_deg || 0,
                 scale: u.scale === undefined ? 1 : u.scale,
@@ -277,16 +421,26 @@ Item {
     }
 
     function applyWheel(notches) {
-        var next = cameraDistance * Math.pow(1.18, notches)
+        var old = cameraDistance
+        var next = old * Math.pow(1.18, notches)
         var lo = 6 * 0.92
         var hi = 110 * 1.08
         if (next < lo)
             next = lo
         if (next > hi)
             next = hi
+        if (wheelPivotLive && old) {
+            var s = next / old
+            setCameraTarget(
+                wheelPivotX + (cameraTargetX - wheelPivotX) * s,
+                wheelPivotY + (cameraTargetY - wheelPivotY) * s,
+                wheelPivotZ + (cameraTargetZ - wheelPivotZ) * s
+            )
+        } else {
+            syncCameraTargetFromSelection()
+        }
         cameraDistance = next
-        var t = Math.log(Math.max(6, Math.min(110, next)) / 6) / Math.log(110 / 6)
-        cameraPitch = 22 + t * (55 - 22)
+        cameraPitch = pitchDeg(next)
         return cameraDistance
     }
 
@@ -489,7 +643,12 @@ Item {
             position: {
                 const d = root.cameraDistance
                 const pitch = root.cameraPitch * Math.PI / 180
-                return Qt.vector3d(0, Math.sin(pitch) * d, Math.cos(pitch) * d)
+                const sh = root.lensShiftOffset()
+                return Qt.vector3d(
+                    root.cameraTargetX + sh.x,
+                    root.cameraTargetY + Math.sin(pitch) * d + sh.y,
+                    root.cameraTargetZ + Math.cos(pitch) * d + sh.z
+                )
             }
             eulerRotation.x: -root.cameraPitch
         }
@@ -622,8 +781,10 @@ Item {
         onHudCommand: function (name, payload) {
             root.lastHudCommand = name
             root.lastHudPayload = payload
-            if (name === "focus" && payload && payload.unit_id)
+            if (name === "focus" && payload && payload.unit_id) {
                 root.selectUnit(payload.unit_id)
+                root.focusSelectedUnit()
+            }
         }
     }
 }

@@ -477,8 +477,9 @@ class SentinelWindow(QWidget):
         """Keep the inspector on the chosen unit without waiting for the next poll."""
         scene = self._scene
         root = scene.rootObject() if scene is not None else None
+        self._selected_id = str(unit_id or "")
         if root is not None and hasattr(root, "selectUnit"):
-            root.selectUnit(str(unit_id or ""))
+            root.selectUnit(self._selected_id)
         snap = getattr(self, "_last_snap", None)
         if isinstance(snap, dict):
             self.apply_snapshot(snap)
@@ -501,7 +502,7 @@ class SentinelWindow(QWidget):
             name, payload, selected_unit=selected,
         )
         status = str(plan.get("status") or "")
-        if plan.get("ok"):
+        if plan.get("ok") and plan.get("path"):
             target = sentinel_control.bridge_target()
             if target is None:
                 status = "Unavailable: Sentinel is not connected"
@@ -514,9 +515,33 @@ class SentinelWindow(QWidget):
                 except Exception:
                     log.warning("Sentinels window: HUD command %s failed", name)
                     status = "Request failed"
+        if name == "focus" and root is not None and hasattr(root, "focusSelectedUnit"):
+            root.focusSelectedUnit()
         if root is not None:
             root.setProperty("hudCommandStatus", status)
             root.setProperty("lastHudCommand", name)
+
+    def camera_report(self) -> dict:
+        """Live camera values from QML. Empty if the scene is not up; no defaults."""
+        scene = self._scene
+        root = scene.rootObject() if scene is not None else None
+        if root is None:
+            return {}
+        distance = root.property("cameraDistance")
+        pitch = root.property("cameraPitch")
+        tx = root.property("cameraTargetX")
+        ty = root.property("cameraTargetY")
+        tz = root.property("cameraTargetZ")
+        target = None
+        if tx is not None and ty is not None and tz is not None:
+            target = (tx, ty, tz)
+        sid = root.property("selectedUnitId")
+        return overseer_runtime.camera_evidence(
+            None if distance is None else distance,
+            None if pitch is None else pitch,
+            target,
+            None if sid is None else str(sid),
+        )
 
     def apply_snapshot(self, snap: dict) -> dict:
         """Push a live hive snapshot into the native View3D. Returns the frame."""
@@ -528,13 +553,24 @@ class SentinelWindow(QWidget):
         if scene is not None:
             root = scene.rootObject()
         distance = overseer_runtime.DEFAULT_CAMERA_DISTANCE
+        cam_target = overseer_runtime.HIVE_TARGET
+        selected_id = str(getattr(self, "_selected_id", "") or "")
         if root is not None:
             raw = root.property("cameraDistance")
-            if raw:
+            if raw is not None:
                 distance = float(raw)
+            sid = str(root.property("selectedUnitId") or "") or selected_id
+            selected_id = sid
+            if selected_id:
+                self._selected_id = selected_id
+            tx = root.property("cameraTargetX")
+            ty = root.property("cameraTargetY")
+            tz = root.property("cameraTargetZ")
+            if tx is not None and ty is not None and tz is not None:
+                cam_target = (float(tx), float(ty), float(tz))
         viewport_h = max(1, self.height() - 86 - 230)
         frame = overseer_runtime.build_frame(
-            units, distance, float(viewport_h), self._prev_lods
+            units, distance, float(viewport_h), self._prev_lods, target=cam_target
         )
         self._prev_lods = frame["prevLods"]
         if root is not None and hasattr(root, "applyFrame"):
@@ -547,13 +583,15 @@ class SentinelWindow(QWidget):
                 group_by=str(root.property("swarmGroupBy") or "caste"),
                 search=str(root.property("swarmSearch") or ""),
                 collapsed=self._qml_list_prop(root, "collapsedGroups"),
-                selected_id=str(root.property("selectedUnitId") or ""),
+                selected_id=selected_id,
                 log_filter=str(root.property("logFilter") or "all"),
                 log_query=str(root.property("logQuery") or ""),
                 camera_distance=distance,
             )
             if hasattr(root, "applyHud"):
                 root.applyHud(hud)
+            if selected_id and hasattr(root, "selectUnit"):
+                root.selectUnit(selected_id)
         if self._entry_timer.isActive():
             self._particle_paths = overseer_runtime.particle_paths(
                 units,

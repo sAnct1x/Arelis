@@ -70,7 +70,19 @@
   }
 
   function pitchDeg(distance) {
-    return PITCH_CLOSE_DEG + zoomT(distance) * (PITCH_WIDE_DEG - PITCH_CLOSE_DEG);
+    var d = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, distance));
+    var marks = [[ZOOM_MIN, PITCH_CLOSE_DEG], [9, PITCH_CLOSE_DEG], [32, 36], [96, PITCH_WIDE_DEG], [ZOOM_MAX, PITCH_WIDE_DEG]];
+    if (d <= marks[0][0]) return marks[0][1];
+    for (var i = 1; i < marks.length; i++) {
+      if (d <= marks[i][0]) {
+        var d0 = marks[i - 1][0], p0 = marks[i - 1][1];
+        var d1 = marks[i][0], p1 = marks[i][1];
+        if (d0 <= 0 || d1 <= 0 || d0 === d1) return p1;
+        var u = Math.log(d / d0) / Math.log(d1 / d0);
+        return p0 + u * (p1 - p0);
+      }
+    }
+    return marks[marks.length - 1][1];
   }
 
   function rubberBand(distance) {
