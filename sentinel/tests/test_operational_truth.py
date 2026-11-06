@@ -180,6 +180,10 @@ class LiveMissionTests(unittest.IsolatedAsyncioTestCase):
         hive = types.SimpleNamespace(
             emp=self.hive.emp,
             simulator=self.director,
+            alert_policy=types.SimpleNamespace(
+                begin_dispatch=lambda: True,
+                end_dispatch=lambda: None,
+            ),
             _patrol_tick=0,
             units={
                 name: types.SimpleNamespace(

@@ -139,7 +139,7 @@ class SentinelClient:
         node_id: str | None = None,
         ip: str | None = None,
         sha256: str | None = None,
-        reason: str = "Sovereign Hunter-Killer Neutralization",
+        reason: str = "Inspect-only neutralize request",
     ) -> dict[str, Any]:
         return await self.command("neutralize_target", node_id=node_id, ip=ip, sha256=sha256, reason=reason)
 

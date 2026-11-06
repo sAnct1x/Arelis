@@ -367,7 +367,7 @@ async def test_hardened_warden_cidr_subnet_blocking() -> None:
         # Attempt inbound admission from an IP inside that subnet
         admit_res = wrd.admit_inbound("198.51.100.42", port=8765)
         assert admit_res["ok"] is False
-        assert admit_res["reason"] == "permanent_blacklist"
+        assert admit_res["reason"] == "listed_peer"
         assert admit_res["ip"] == "198.51.100.42"
 
         # Attempt inbound from a safe IP outside the subnet

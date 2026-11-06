@@ -458,7 +458,7 @@ class SentinelBridgeServer:
                 node_id=cmd_data.get("node_id"),
                 ip=cmd_data.get("ip"),
                 sha256_digest=cmd_data.get("sha256"),
-                reason=str(cmd_data.get("reason") or "Sovereign Hunter-Killer Neutralization"),
+                reason=str(cmd_data.get("reason") or "Inspect-only neutralize request"),
             )
             return format_command_response(bool(res.get("ok")), res)
 
@@ -851,7 +851,7 @@ class SentinelBridgeServer:
                 node_id=payload.get("node_id"),
                 ip=payload.get("ip"),
                 sha256_digest=payload.get("sha256"),
-                reason=str(payload.get("reason") or "Overseer Hunter-Killer Neutralization"),
+                reason=str(payload.get("reason") or "Inspect-only neutralize request"),
             )
             self._write_json(200 if res.get("ok") else 400, res, writer)
             return
