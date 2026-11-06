@@ -154,11 +154,9 @@ def headless_argv(executable: str | None = None, theme: str | None = None) -> li
     argv = [executable or sys.executable, "-m", "sentinel", "--headless"]
     chosen = theme
     if chosen is None:
-        try:
-            from arelis.ui.theme_tokens import active_theme
-            chosen = active_theme()
-        except Exception:
-            chosen = None
+        from arelis.ui.theme_tokens import active_theme
+
+        chosen = active_theme()
     if chosen in _THEME_CHOICES:
         argv.extend(["--theme", str(chosen)])
     return argv

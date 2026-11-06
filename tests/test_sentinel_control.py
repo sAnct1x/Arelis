@@ -576,6 +576,7 @@ def test_open_sentinels_window_follows_a_theme_switch(
 
 def test_sentinel_headless_argv_passes_active_theme() -> None:
     from arelis.sentinel_control import headless_argv
+    from arelis.ui.theme_tokens import active_theme
 
     filament = headless_argv("/usr/bin/python", "filament")
     assert filament[:4] == ["/usr/bin/python", "-m", "sentinel", "--headless"]
@@ -585,3 +586,5 @@ def test_sentinel_headless_argv_passes_active_theme() -> None:
     assert sodium != filament
     ignored = headless_argv("/usr/bin/python", "not-a-theme")
     assert "--theme" not in ignored
+    default = headless_argv("/usr/bin/python")
+    assert default[-2:] == ["--theme", active_theme()]
