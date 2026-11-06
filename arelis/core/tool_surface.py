@@ -176,9 +176,15 @@ def omit_unregistered_hints(expected: set[str], available_all: set[str]) -> set[
 
 
 def cap_to_room(available_all: set[str], active_room: Any) -> set[str]:
-    """Apply a room's explicit `tools:` cage, and say so when it cannot hold.
+    """Legacy leftover: apply a room's explicit `tools:` cage if one were active.
 
-    Rooms lean rather than cage by default, `rooms.py` argues the point at
+    Non-product dead path. The rooms module is gone and config["_rooms"] is
+    always absent in product, so turn_prepare never passes a live active_room
+    and this helper does not run. Executable body kept unchanged so importers
+    and any residual callers still resolve; do not read this as a live room
+    system. Historical notes below.
+
+    Rooms lean rather than cage by default, `rooms.py` argued the point at
     length, that a caged agent which has to refuse the time of day teaches you
     to stop asking. So a `tools:` list is not a side effect of naming a folder,
     it is a decision somebody made, and it is worth a line in the log when it

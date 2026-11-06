@@ -210,7 +210,9 @@ async def _begin_turn(
     agent_cfg = loop.config.get("agent") or {}
     research_mode = is_research_mode(role, text)
     available_all = set(loop.tools.names())
-    # Cap the source so every later recompute inherits a room's explicit cage.
+    # Legacy leftover: rooms module is gone; config["_rooms"] is always absent
+    # in product, so active_room stays None and cap_to_room never runs here.
+    # Executable branch kept unchanged (non-product dead path).
     active_room = getattr(loop.config.get("_rooms"), "active", None)
     if active_room is not None:
         available_all = cap_to_room(available_all, active_room)

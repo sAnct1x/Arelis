@@ -1,8 +1,9 @@
 """The tool group table covers every registered tool exactly once.
 
-Nothing reads the table to build a prompt yet. These tests only pin the
-data: membership, a core schema budget, plain menu text, and a golden
-copy of the worst-profile tools list taken before any loader exists.
+load_tools and tool_surface already read CORE/GROUPS/MENU when
+agent.tool_loading is on; these tests still pin the table itself:
+membership, a core schema budget, plain menu text, KEYWORDS shape, and a
+golden copy of the worst-profile tools list.
 """
 
 from __future__ import annotations
