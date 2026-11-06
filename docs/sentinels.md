@@ -28,9 +28,16 @@ the units instead of stretching into a covering plate or stray streaks. The whee
 trackpad, and + / - keys dolly the camera between 6 m and 110 m with
 the approved rubber-band limits. Opening the window follows the entry
 timing (mote, edge, fill, reveal, then panels); closing reverses it.
-Reduced motion uses a short crossfade. The HTML HUD sits on top with a
-hole so camera input reaches the 3D view. Visual review, load, and
-frame timing on a real machine have not been accepted yet.
+Reduced motion uses a short crossfade. A native HUD sits on the view:
+a pill bar with live unit and caste counts plus Warrants and Threats
+when the hive reports them, a grouped Swarm list (search, group by
+caste, task or ring, 44 px rows, engaged first), an inspector for the
+selected unit, and a forensic console for live logs and mission
+dispatch. Inspector actions and dispatch use the hive's existing
+command paths; anything the snapshot does not provide is shown as
+unavailable. The inspector hides past 70 percent zoom until you select
+a unit. Visual review, load, and frame timing on a real machine have
+not been accepted yet.
 
 ## When Sentinel is offline
 

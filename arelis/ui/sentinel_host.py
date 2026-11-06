@@ -241,6 +241,8 @@ class SentinelWindow(QWidget):
             f'window.dispatchEvent(new CustomEvent("arelis-theme",{{detail:"{safe}"}}));'
             'var c=document.getElementById("overseer-canvas");'
             'if(c){c.style.display="none";}'
+            "['hud-topbar','hud-left','hud-right','hud-console'].forEach("
+            "function(id){var el=document.getElementById(id);if(el)el.style.display='none';});"
         )
 
     def is_offline(self) -> bool:
@@ -370,6 +372,7 @@ class SentinelWindow(QWidget):
             emp=bool(flags.get("emp")),
             badges=bool(flags.get("badges")),
             full=bool(flags.get("modal") or flags.get("help")),
+            qml_hud=True,
         ):
             region = region.united(QRegion(x, y, rw, rh))
         self._view.setMask(region)
@@ -397,7 +400,7 @@ class SentinelWindow(QWidget):
             return
         bar.setFixedWidth(max(1, int(width) - 16))
         bar.move(8, 8)
-        bar.raise_()
+        bar.hide()
         self._close_mote.raise_()
 
     def apply_hud_counts(self, units: list) -> None:
@@ -431,6 +434,102 @@ class SentinelWindow(QWidget):
             lab.setAccessibleName(text)
         self._place_hud(max(1, self.width()))
 
+    def _qml_list_prop(self, root, name: str) -> list:
+        value = root.property(name) if root is not None else None
+        to_var = getattr(value, "toVariant", None)
+        if callable(to_var):
+            value = to_var()
+        if isinstance(value, list):
+            return value
+        if value in (None, ""):
+            return []
+        try:
+            return list(value)
+        except TypeError:
+            return []
+
+    def _wire_hud(self, root) -> None:
+        if getattr(self, "_hud_wired", False) or root is None:
+            return
+        chrome = None
+        from PySide6.QtCore import QObject
+
+        for child in root.findChildren(QObject):
+            if child.objectName() == "OverseerHud":
+                chrome = child
+                break
+        if chrome is None or not hasattr(chrome, "hudCommand"):
+            return
+        chrome.hudCommand.connect(self._on_hud_command)
+        self._hud_wired = True
+
+    def _on_hud_command(self, name: str, payload) -> None:
+        """Forward HUD actions along existing Overseer routes only."""
+        data = payload if isinstance(payload, dict) else {}
+        target = sentinel_control.bridge_target()
+        status = ""
+        if name == "focus":
+            status = ""
+        elif name == "retask" and not str(data.get("query") or "").strip():
+            status = "Unavailable: retask needs a mission query (existing dispatch_task)"
+        elif target is None:
+            status = "Unavailable: Sentinel is not connected"
+        else:
+            host, port, token = target
+            try:
+                if name == "emp_halt":
+                    overseer_runtime.post_overseer(
+                        host, port, token, "/api/overseer/emp",
+                        {"reason": str(data.get("reason") or "Overseer emergency stop")},
+                    )
+                    status = "Emergency stop requested"
+                elif name == "dispatch":
+                    overseer_runtime.post_overseer(
+                        host, port, token, "/api/overseer/mission",
+                        {
+                            "mode": str(data.get("mode") or "multi"),
+                            "query": str(data.get("query") or ""),
+                        },
+                    )
+                    status = "Mission requested"
+                elif name == "recall":
+                    caste = str(data.get("caste") or "")
+                    if not caste:
+                        status = "Unavailable: recall needs a caste (existing scale route)"
+                    else:
+                        overseer_runtime.post_overseer(
+                            host, port, token, "/api/overseer/scale",
+                            {"caste": caste, "delta": -1},
+                        )
+                        status = "Recall requested for one idle unit of that caste"
+                elif name == "retire":
+                    overseer_runtime.post_overseer(
+                        host, port, token, "/api/command",
+                        {"op": "retire_unit", "unit_id": str(data.get("unit_id") or "")},
+                    )
+                    status = "Retire requested"
+                elif name == "retask":
+                    overseer_runtime.post_overseer(
+                        host, port, token, "/api/command",
+                        {
+                            "op": "dispatch_task",
+                            "caste": str(data.get("caste") or "harvester"),
+                            "unit_id": data.get("unit_id"),
+                            "payload": {"query": str(data.get("query") or "")},
+                        },
+                    )
+                    status = "Retask requested"
+                else:
+                    status = f"Unavailable: no existing route for {name}"
+            except Exception:
+                log.warning("Sentinels window: HUD command %s failed", name)
+                status = "Request failed"
+        scene = self._scene
+        root = scene.rootObject() if scene is not None else None
+        if root is not None:
+            root.setProperty("hudCommandStatus", status)
+            root.setProperty("lastHudCommand", name)
+
     def apply_snapshot(self, snap: dict) -> dict:
         """Push a live hive snapshot into the native View3D. Returns the frame."""
         units = overseer_runtime.snapshot_units(snap)
@@ -451,6 +550,20 @@ class SentinelWindow(QWidget):
         if root is not None and hasattr(root, "applyFrame"):
             root.applyFrame(frame)
         self.apply_hud_counts(units)
+        if root is not None:
+            self._wire_hud(root)
+            hud = overseer_runtime.build_hud(
+                snap,
+                group_by=str(root.property("swarmGroupBy") or "caste"),
+                search=str(root.property("swarmSearch") or ""),
+                collapsed=self._qml_list_prop(root, "collapsedGroups"),
+                selected_id=str(root.property("selectedUnitId") or ""),
+                log_filter=str(root.property("logFilter") or "all"),
+                log_query=str(root.property("logQuery") or ""),
+                camera_distance=distance,
+            )
+            if hasattr(root, "applyHud"):
+                root.applyHud(hud)
         if self._entry_timer.isActive():
             self._particle_paths = overseer_runtime.particle_paths(
                 units,

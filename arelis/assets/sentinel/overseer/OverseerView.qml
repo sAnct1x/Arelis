@@ -36,6 +36,22 @@ Item {
     property var descriptors: []
     property var particleList: null
     property var liveCounts: ({})
+    property var hudPills: ({})
+    property var swarmRows: []
+    property var inspectorCard: ({})
+    property var hudLogs: []
+    property var collapsedGroups: []
+    property string selectedUnitId: ""
+    property string swarmGroupBy: "caste"
+    property string swarmSearch: ""
+    property string logFilter: "all"
+    property string logQuery: ""
+    property string missionMode: "multi"
+    property string missionQuery: ""
+    property string hudStatusLine: "hive live, all local, sending out blocked"
+    property string hudCommandStatus: ""
+    property string lastHudCommand: ""
+    property var lastHudPayload: ({})
     readonly property var casteIds: ["warden", "stalker", "harvester", "sanitizer", "tripwire"]
     readonly property var casteColors: ({
         warden: "#a78bfa", stalker: "#e879f9", harvester: "#8fd3ff",
@@ -124,6 +140,37 @@ Item {
     function applyUnits(units) {
         // Fallback when the host sends a raw unit list (tests / snapshot).
         applyFrame({ buckets: _bucketize(units || []) })
+    }
+
+    function applyHud(hud) {
+        if (!hud)
+            return
+        if (hud.pills !== undefined)
+            hudPills = hud.pills
+        if (hud.swarmRows !== undefined)
+            swarmRows = hud.swarmRows
+        if (hud.inspector !== undefined)
+            inspectorCard = hud.inspector
+        if (hud.logs !== undefined)
+            hudLogs = hud.logs
+        if (hud.statusLine)
+            hudStatusLine = hud.statusLine
+        if (hud.commandStatus !== undefined)
+            hudCommandStatus = hud.commandStatus
+    }
+
+    function inspectorShouldHide() {
+        if (selectedUnitId)
+            return false
+        var lo = 6.0
+        var hi = 110.0
+        var d = Math.max(lo, Math.min(hi, cameraDistance))
+        var t = Math.log(d / lo) / Math.log(hi / lo)
+        return t > 0.7
+    }
+
+    function selectUnit(unitId) {
+        selectedUnitId = unitId || ""
     }
 
     function _bucketize(units) {
@@ -383,15 +430,6 @@ Item {
         onTriggered: root.sceneTime += frameTime
     }
 
-    WheelHandler {
-        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-        onWheel: function (event) {
-            var notches = -event.angleDelta.y / 120
-            root.applyWheel(notches)
-            event.accepted = true
-        }
-    }
-
     NumberAnimation on entryMs {
         id: entryAnim
         from: 0
@@ -428,6 +466,14 @@ Item {
         camera: cam
         opacity: Math.max(0, Math.min(1, root.reveal))
         z: 1
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            onWheel: function (event) {
+                var notches = -event.angleDelta.y / 120
+                root.applyWheel(notches)
+                event.accepted = true
+            }
+        }
         environment: ExtendedSceneEnvironment {
             backgroundMode: SceneEnvironment.Color
             clearColor: "#0b0714"
@@ -538,6 +584,44 @@ Item {
             origin.y: 48
             xScale: 0.2 + 0.8 * root.edge
             yScale: 0.2 + 0.8 * root.edge
+        }
+    }
+
+    OverseerHud {
+        id: chrome
+        objectName: "OverseerHud"
+        z: 3
+        visible: root.reveal > 0.35 || root.inputLive
+        pills: root.hudPills
+        swarmRows: root.swarmRows
+        inspector: root.inspectorCard
+        logs: root.hudLogs
+        inspectorOpen: !root.inspectorShouldHide()
+        selectedUnitId: root.selectedUnitId
+        groupBy: root.swarmGroupBy
+        statusLine: root.hudStatusLine
+        commandStatus: root.hudCommandStatus
+        missionMode: root.missionMode
+        missionQuery: root.missionQuery
+        onSearchEdited: function (text) { root.swarmSearch = text }
+        onGroupModeChosen: function (mode) { root.swarmGroupBy = mode }
+        onHeaderToggled: function (key) {
+            var next = root.collapsedGroups ? root.collapsedGroups.slice() : []
+            var at = next.indexOf(key)
+            if (at >= 0)
+                next.splice(at, 1)
+            else
+                next.push(key)
+            root.collapsedGroups = next
+        }
+        onUnitChosen: function (unitId) { root.selectUnit(unitId) }
+        onLogFilterChosen: function (name) { root.logFilter = name }
+        onLogSearchEdited: function (text) { root.logQuery = text }
+        onHudCommand: function (name, payload) {
+            root.lastHudCommand = name
+            root.lastHudPayload = payload
+            if (name === "focus" && payload && payload.unit_id)
+                root.selectUnit(payload.unit_id)
         }
     }
 }

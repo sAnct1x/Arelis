@@ -141,6 +141,291 @@ def snapshot_units(snap: dict[str, Any] | None) -> list[dict[str, Any]]:
     return out
 
 
+CASTE_ROLE = {
+    "warden": "Defend",
+    "stalker": "Hunt",
+    "harvester": "Gather",
+    "sanitizer": "Quarantine",
+    "tripwire": "Watch",
+}
+LIST_ROW_PX = 44
+LIST_POOL = 6
+INSPECTOR_COLLAPSE_T = 0.7
+UNAVAILABLE = "unavailable"
+MISSION_MODES = (
+    ("multi", "Multi-source research"),
+    ("arxiv", "arXiv harvest"),
+    ("horizons", "JPL Horizons"),
+    ("wikipedia", "Wikipedia or URL harvest"),
+    ("security_audit", "Host socket and Merkle sweep"),
+)
+LOG_FILTERS = ("all", "threat", "sanitize", "harvest", "tripwire")
+
+
+def empty_task_label(state: object) -> str:
+    if not state:
+        return "idle"
+    return str(state).replace("_", " ").lower()
+
+
+def filter_swarm_units(units: list[dict[str, Any]] | None, query: str = "") -> list[dict[str, Any]]:
+    rows = list(units or [])
+    q = str(query or "").strip().lower()
+    if not q:
+        return rows
+    out = []
+    for unit in rows:
+        hay = " ".join(
+            str(unit.get(key) or "")
+            for key in ("unit_id", "caste", "state", "current_task")
+        ).lower()
+        if q in hay:
+            out.append(unit)
+    return out
+
+
+def group_units(units: list[dict[str, Any]] | None, by: str = "caste") -> list[dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for unit in units or []:
+        if by == "task":
+            key = str(unit.get("current_task") or unit.get("state") or "idle")
+        elif by == "ring":
+            key = str(unit["ring"] if unit.get("ring") is not None else "unassigned")
+        else:
+            key = str(unit.get("caste") or "unknown")
+        if key not in groups:
+            groups[key] = {"key": key, "units": [], "active": 0}
+            order.append(key)
+        groups[key]["units"].append(unit)
+        state = str(unit.get("state") or "")
+        if state.startswith("ENGAGED") or state in {"QUARANTINING", "VECTORING"}:
+            groups[key]["active"] += 1
+    for key in order:
+        groups[key]["units"].sort(
+            key=lambda u: (
+                0 if str(u.get("state") or "").startswith("ENGAGED") else 1,
+                str(u.get("unit_id") or ""),
+            )
+        )
+    return [groups[key] for key in order]
+
+
+def swarm_rows(
+    units: list[dict[str, Any]] | None,
+    *,
+    by: str = "caste",
+    query: str = "",
+    collapsed: set[str] | list[str] | None = None,
+) -> list[dict[str, Any]]:
+    hidden = set(collapsed or [])
+    rows: list[dict[str, Any]] = []
+    for group in group_units(filter_swarm_units(units, query), by):
+        rows.append({
+            "kind": "header",
+            "key": group["key"],
+            "count": len(group["units"]),
+            "active": group["active"],
+            "collapsed": group["key"] in hidden,
+        })
+        if group["key"] in hidden:
+            continue
+        for unit in group["units"]:
+            rows.append({
+                "kind": "unit",
+                "key": group["key"],
+                "unit_id": unit.get("unit_id"),
+                "caste": unit.get("caste"),
+                "role": CASTE_ROLE.get(str(unit.get("caste") or ""), unit.get("caste")),
+                "state": unit.get("state"),
+                "task": unit.get("current_task") or empty_task_label(unit.get("state")),
+                "color": CASTE_COLOR.get(str(unit.get("caste") or ""), "#e0d4ff"),
+            })
+    return rows
+
+
+def virtual_window(
+    scroll_y: float,
+    viewport_h: float,
+    count: int,
+    row_h: int = LIST_ROW_PX,
+    pool: int = LIST_POOL,
+) -> dict[str, int]:
+    first = max(0, int(max(0.0, float(scroll_y)) // row_h))
+    visible = max(1, int((float(viewport_h) + row_h - 1) // row_h))
+    last = min(int(count), first + visible + int(pool))
+    span = last - first
+    first = min(first, max(0, int(count) - span))
+    first = max(0, first)
+    last = min(int(count), first + visible + int(pool))
+    return {
+        "first": first,
+        "last": last,
+        "alive": max(0, last - first),
+        "rowH": int(row_h),
+        "offsetPx": first * int(row_h),
+        "spacer": max(0, int(count)) * int(row_h),
+    }
+
+
+def inspector_collapsed(distance: float, selected: str | None) -> bool:
+    if selected:
+        return False
+    return zoom_t(distance) > INSPECTOR_COLLAPSE_T
+
+
+def pill_counts(
+    units: list[dict[str, Any]] | None,
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    counts = {caste: 0 for caste in CASTES}
+    for unit in units or []:
+        caste = str(unit.get("caste") or "").lower()
+        if caste in counts:
+            counts[caste] += 1
+    pills: dict[str, Any] = {"units": sum(counts.values()), **counts}
+    if isinstance(metrics, dict) and "warrants_minted" in metrics:
+        pills["warrants"] = int(metrics.get("warrants_minted") or 0)
+    else:
+        pills["warrants"] = UNAVAILABLE
+    if isinstance(metrics, dict) and "security_events" in metrics:
+        pills["threats"] = int(metrics.get("security_events") or 0)
+    else:
+        pills["threats"] = UNAVAILABLE
+    return pills
+
+
+def _caste_capabilities(castes: list[dict[str, Any]] | None, caste: str) -> str:
+    wanted = str(caste or "").lower()
+    for row in castes or []:
+        cid = str(row.get("caste_id") or row.get("caste") or "").lower()
+        if cid != wanted:
+            continue
+        caps = row.get("allowed_capabilities") or row.get("capabilities")
+        if caps:
+            return ", ".join(str(item) for item in caps)
+    return UNAVAILABLE
+
+
+def _unit_warrant(receipts: list[dict[str, Any]] | None, unit_id: str) -> str:
+    uid = str(unit_id or "")
+    for row in reversed(list(receipts or [])):
+        if str(row.get("unit_id") or row.get("sentinel_unit") or "") != uid:
+            continue
+        digest = row.get("sha256")
+        if digest:
+            return str(digest)
+    return UNAVAILABLE
+
+
+def inspector_card(
+    unit: dict[str, Any] | None,
+    *,
+    castes: list[dict[str, Any]] | None = None,
+    receipts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if not unit:
+        return {
+            "unit_id": "",
+            "state": UNAVAILABLE,
+            "target": UNAVAILABLE,
+            "last_action": UNAVAILABLE,
+            "time_on_task": UNAVAILABLE,
+            "eyes": UNAVAILABLE,
+            "tentacles": UNAVAILABLE,
+            "capabilities": UNAVAILABLE,
+            "warrant_hash": UNAVAILABLE,
+            "sparkline": UNAVAILABLE,
+        }
+    return {
+        "unit_id": unit.get("unit_id") or "",
+        "state": unit.get("state") or UNAVAILABLE,
+        "target": unit.get("target_node_id") or UNAVAILABLE,
+        "last_action": UNAVAILABLE,
+        "time_on_task": UNAVAILABLE,
+        "eyes": UNAVAILABLE,
+        "tentacles": unit["tentacles"] if "tentacles" in unit else UNAVAILABLE,
+        "capabilities": _caste_capabilities(castes, str(unit.get("caste") or "")),
+        "warrant_hash": _unit_warrant(receipts, str(unit.get("unit_id") or "")),
+        "sparkline": UNAVAILABLE,
+        "caste": unit.get("caste"),
+        "task": unit.get("current_task") or empty_task_label(unit.get("state")),
+    }
+
+
+def filter_logs(
+    entries: list[dict[str, Any]] | None,
+    filt: str = "all",
+    query: str = "",
+) -> list[dict[str, Any]]:
+    wanted = str(filt or "all")
+    q = str(query or "").strip().lower()
+    out: list[dict[str, Any]] = []
+    for entry in entries or []:
+        level = str(entry.get("level") or "").upper()
+        caste = str(entry.get("caste") or "").lower()
+        src = str(entry.get("unit_id") or "").upper()
+        if wanted == "threat":
+            ok = level in {"THREAT", "BLOCK", "CRITICAL", "WARDEN", "ALERT", "EMP"}
+            ok = ok or "warden" in caste
+            if not ok:
+                continue
+        elif wanted == "sanitize":
+            if not (level == "SANITIZE" or "sanitize" in caste or "SAN" in src):
+                continue
+        elif wanted == "harvest":
+            if not (level in {"HARVEST", "WARRANT"} or "harvest" in caste or "HRV" in src):
+                continue
+        elif wanted == "tripwire":
+            if not (level == "TRIPWIRE" or "tripwire" in caste or "TRP" in src):
+                continue
+        if q:
+            hay = " ".join([
+                str(entry.get("unit_id") or ""),
+                str(entry.get("caste") or ""),
+                str(entry.get("phase") or ""),
+                str(entry.get("message") or ""),
+                json.dumps(entry.get("details") or {}),
+            ]).lower()
+            if q not in hay:
+                continue
+        out.append(entry)
+    return list(reversed(out))
+
+
+def build_hud(
+    snap: dict[str, Any] | None,
+    *,
+    group_by: str = "caste",
+    search: str = "",
+    collapsed: set[str] | list[str] | None = None,
+    selected_id: str = "",
+    log_filter: str = "all",
+    log_query: str = "",
+    camera_distance: float = 76.0,
+) -> dict[str, Any]:
+    units = snapshot_units(snap)
+    selected = next((u for u in units if u.get("unit_id") == selected_id), None)
+    metrics = (snap or {}).get("metrics") if isinstance(snap, dict) else None
+    return {
+        "pills": pill_counts(units, metrics if isinstance(metrics, dict) else None),
+        "swarmRows": swarm_rows(units, by=group_by, query=search, collapsed=collapsed),
+        "inspector": inspector_card(
+            selected,
+            castes=(snap or {}).get("castes") if isinstance(snap, dict) else None,
+            receipts=(snap or {}).get("recent_receipts") if isinstance(snap, dict) else None,
+        ),
+        "inspectorCollapsed": inspector_collapsed(camera_distance, selected_id or None),
+        "logs": filter_logs(
+            (snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
+            log_filter,
+            log_query,
+        ),
+        "title": "Sentinels",
+        "statusLine": "hive live, all local, sending out blocked",
+    }
+
+
 ZOOM_MIN = 6.0
 ZOOM_MAX = 110.0
 ZOOM_NOTCH = 1.18
@@ -600,17 +885,21 @@ def hud_mask_rects(
     emp: bool = False,
     badges: bool = False,
     full: bool = False,
+    qml_hud: bool = False,
 ) -> list[tuple[int, int, int, int]]:
     """HUD plates that keep mouse events. The leftover hole is the 3D viewport."""
     w, h = int(width), int(height)
     if full:
         return [(0, 0, w, h)]
-    rects = [
-        (0, 0, w, 86),
-        (0, 0, min(440, w), h),
-        (max(0, w - 460), 86, min(460, w), min(536, max(0, h - 86))),
-        (0, max(0, h - 230), min(1650, w), min(230, h)),
-    ]
+    if qml_hud:
+        rects: list[tuple[int, int, int, int]] = []
+    else:
+        rects = [
+            (0, 0, w, 86),
+            (0, 0, min(440, w), h),
+            (max(0, w - 460), 86, min(460, w), min(536, max(0, h - 86))),
+            (0, max(0, h - 230), min(1650, w), min(230, h)),
+        ]
     if emp:
         rects.append((max(0, w // 2 - 320), 72, min(640, w), 88))
     if badges:
@@ -638,3 +927,32 @@ def fetch_snapshot(host: str, port: int, token: str, opener: Any = None) -> dict
     with get(req, timeout=2.0) as resp:
         raw = resp.read()
     return json.loads(raw.decode("utf-8"))
+
+
+def post_overseer(
+    host: str,
+    port: int,
+    token: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    opener: Any = None,
+) -> dict[str, Any]:
+    """POST an existing Overseer route with the session token header. Never log the token."""
+    import urllib.request
+
+    dest = path if str(path).startswith("/") else f"/{path}"
+    body = json.dumps(payload or {}).encode("utf-8")
+    req = urllib.request.Request(
+        f"http://{host}:{int(port)}{dest}",
+        data=body,
+        headers={
+            "X-Sentinel-Token": token,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    get = opener or urllib.request.urlopen
+    with get(req, timeout=4.0) as resp:
+        raw = resp.read()
+    return json.loads(raw.decode("utf-8") or "{}")
