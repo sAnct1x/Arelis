@@ -836,6 +836,62 @@
   {
     "type": "function",
     "function": {
+      "name": "sentinel_command",
+      "description": "count max 50. stop: unit_id or caste",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "deploy",
+              "stop",
+              "retask",
+              "mission"
+            ]
+          },
+          "caste": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "unit_id": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object"
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "sentinel_emp",
+      "description": "emergency stop all. no undo",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "cas",
       "description": "symbolic math. n= order, at= point, dir= vector",
       "parameters": {

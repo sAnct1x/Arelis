@@ -58,6 +58,8 @@ _SHORT_DESC: dict[str, str] = {
     "sql": "read-only SELECT on memory.db or a workspace CSV. never INSERT/UPDATE/DELETE",
     "scrape": "readable page text. prefer for news/docs",
     "sentinel_castes": "caste capabilities",
+    "sentinel_command": "count max 50. stop: unit_id or caste",
+    "sentinel_emp": "emergency stop all. no undo",
     "sentinel_list": "units, filterable",
     "sentinel_logs": "event log, newest first",
     "sentinel_status": "EMP stop, caste counts",

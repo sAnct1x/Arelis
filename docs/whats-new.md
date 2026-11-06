@@ -19,6 +19,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 - Sentinels: View, then Sentinels opens a separate window with the live Overseer, themed to match Arelis. If Sentinel is offline it says so and offers Start. See [sentinels.md](sentinels.md).
 - Sentinels: Arelis can now read the swarm when you ask: status and emergency stop, units by caste or state, the event log with the Overseer's filters, and the castes. Read only. See [sentinels.md](sentinels.md).
+- Sentinels: Arelis can deploy, stand down, retask or start a research mission, and trigger the emergency stop. Retask only covers what a caste can actually do: fetch a page, search arXiv, Horizons or Wikipedia, scan sockets, check a URL, intercept, watch a folder, verify, clean text or HTML, or inspect an archive. A research mission is accepted and starts at once; she will not say it finished, and its result or failure shows in the event log. Only you can undo the emergency stop. See [sentinels.md](sentinels.md).
 
 ## 0.3.4
 

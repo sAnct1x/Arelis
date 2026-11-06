@@ -1,4 +1,10 @@
-"""Read-only Sentinel tools for the model: status, units, logs, castes.
+"""Sentinel tools for the model: four reads and five controls.
+
+Reads: status, units, logs, castes. Controls: deploy (spawn_units), stop
+(retire_unit or scale_caste to 0), retask (dispatch_task), mission
+(deploy_harvest_swarm) and emp (emp_halt). There is no restore tool: only
+Christopher can undo an emergency stop. The bridge keeps its own send block,
+caps and AuthorityGate; nothing here bypasses them.
 
 Every call goes through ``arelis.sentinel_client`` (held token, bound loopback
 endpoint, 3 s limit, fail soft). No control op and no EMP restore is reachable
@@ -258,8 +264,248 @@ class SentinelCastesTool:
         return ToolResult(ok=True, output="\n".join(lines), data={"castes": rows})
 
 
+MAX_DEPLOY = 50
+COMMAND_ACTIONS = ("deploy", "stop", "retask", "mission")
+
+# Advertised capability -> the payload the caste's handler actually acts on.
+# Only capabilities with a real execute() branch are here; anything else is
+# refused instead of falling through to a handler default.
+# (caste, capability): (fixed payload, key that takes target or None,
+#                       target required, extra payload keys allowed)
+RETASK_MAP: dict[tuple[str, str], tuple[dict[str, Any], str | None, bool, frozenset[str]]] = {
+    ("harvester", "fetch_url"): ({"action": "url"}, "url", True, frozenset()),
+    ("harvester", "query_arxiv"): ({"action": "arxiv"}, "query", True, frozenset({"max_results"})),
+    ("harvester", "query_horizons"): ({"action": "horizons"}, "target", True, frozenset()),
+    ("harvester", "query_wikipedia"): ({"action": "wikipedia"}, "query", True, frozenset()),
+    ("warden", "scan_sockets"): ({"action": "patrol_scan"}, None, False, frozenset()),
+    ("warden", "verify_egress"): ({"action": "verify_egress"}, "url", True, frozenset()),
+    ("warden", "intercept_threat"): (
+        {"action": "intercept"},
+        "source_ip",
+        True,
+        frozenset({"label", "reason", "port"}),
+    ),
+    ("tripwire", "register_watch_root"): (
+        {"action": "register"},
+        "path",
+        True,
+        frozenset({"label"}),
+    ),
+    ("tripwire", "verify_integrity"): ({"action": "verify"}, None, False, frozenset()),
+    ("sanitizer", "sanitize_text"): (
+        {"capability": "sanitize_text", "is_html": False},
+        "text",
+        True,
+        frozenset({"source"}),
+    ),
+    ("sanitizer", "sanitize_html"): (
+        {"capability": "sanitize_html", "is_html": True},
+        "text",
+        True,
+        frozenset({"source"}),
+    ),
+    ("sanitizer", "inspect_archive"): (
+        {"capability": "inspect_archive"},
+        "data",
+        True,
+        frozenset({"source"}),
+    ),
+}
+
+
+async def _call(op: str, **kwargs: Any) -> dict[str, Any]:
+    """One bridge op off the event loop (the client blocks up to 3 s)."""
+    return await asyncio.to_thread(sentinel_client.command, op, **kwargs)
+
+
+def _refuse(message: str) -> ToolResult:
+    return ToolResult(ok=False, output=message)
+
+
+async def _known_caste(raw: Any) -> tuple[str, dict[str, Any], ToolResult | None]:
+    """(caste id, its descriptor) if the bridge lists it, else a clean refusal."""
+    cid = str(raw or "").strip().lower()
+    if not cid:
+        return "", {}, _refuse("caste is required.")
+    reply = await _call("list_castes")
+    if not reply.get("ok"):
+        return "", {}, _fail(reply)
+    by_id = {str(d.get("caste_id") or ""): d for d in reply.get("castes") or []}
+    if cid not in by_id:
+        return "", {}, _refuse(f"Unknown caste {cid!r}. Known: {', '.join(by_id)}.")
+    return cid, by_id[cid], None
+
+
+def build_retask_payload(
+    caste: str, descriptor: dict[str, Any], capability: str, target: str, payload: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str]:
+    """Handler payload for a supported capability, or (None, reason)."""
+    cap = capability.strip().lower()
+    if cap not in set(descriptor.get("allowed_capabilities") or []):
+        return None, f"{caste} does not have capability {cap!r}."
+    entry = RETASK_MAP.get((caste, cap))
+    if entry is None:
+        return None, f"{caste} cannot be tasked with {cap!r} from here."
+    fixed, target_key, needs_target, extras = entry
+    unknown = sorted(set(payload) - extras)
+    if unknown:
+        return None, f"payload keys not allowed for {cap}: {', '.join(unknown)}."
+    task = dict(payload)
+    if target_key is not None:
+        if needs_target and not target:
+            return None, f"{cap} needs a target."
+        task[target_key] = target
+    elif target:
+        return None, f"{cap} takes no target."
+    task.update(fixed)
+    return task, ""
+
+
+class SentinelCommandTool:
+    """One normal-control tool. EMP stays separate (sentinel_emp)."""
+
+    name = "sentinel_command"
+    description = "Command sentinels: deploy, stop, retask, or start a research mission."
+    risk = "write"
+    parameters_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": list(COMMAND_ACTIONS)},
+            "caste": {"type": "string"},
+            "count": {"type": "integer"},
+            "unit_id": {"type": "string"},
+            "capability": {"type": "string"},
+            "target": {"type": "string"},
+            "payload": {"type": "object"},
+            "question": {"type": "string"},
+        },
+        "required": ["action"],
+    }
+
+    _ARGS = {
+        "deploy": {"caste", "count"},
+        "stop": {"unit_id", "caste"},
+        "retask": {"caste", "capability", "target", "payload"},
+        "mission": {"question"},
+    }
+
+    async def run(self, action: str = "", **kwargs: Any) -> ToolResult:
+        act = str(action or "").strip().lower()
+        if act not in COMMAND_ACTIONS:
+            return _refuse("action must be one of " + "|".join(COMMAND_ACTIONS) + ".")
+        given = {k for k, v in kwargs.items() if v not in (None, "", {})}
+        extra = sorted(given - self._ARGS[act])
+        if extra:
+            return _refuse(f"{act} does not take: {', '.join(extra)}.")
+        return await getattr(self, "_" + act)(**{k: kwargs[k] for k in given})
+
+    async def _deploy(self, caste: str = "", count: Any = 1) -> ToolResult:
+        if isinstance(count, bool):
+            return _refuse("count must be a whole number.")
+        try:
+            n = int(count)
+        except (TypeError, ValueError):
+            return _refuse("count must be a whole number.")
+        if not 1 <= n <= MAX_DEPLOY:
+            return _refuse(f"count must be 1 to {MAX_DEPLOY}.")
+        cid, _desc, err = await _known_caste(caste)
+        if err is not None:
+            return err
+        reply = await _call("spawn_units", caste=cid, count=n)
+        if not reply.get("ok"):
+            return _fail(reply)
+        spawned = [str(u.get("unit_id") or "") for u in reply.get("spawned") or []]
+        note = "" if len(spawned) == n else " The swarm is at its unit limit."
+        return ToolResult(
+            ok=True,
+            output=f"Deployed {len(spawned)} {cid}.{note}",
+            data={"spawned": spawned, "total_units": reply.get("total_units")},
+        )
+
+    async def _stop(self, unit_id: str = "", caste: str = "") -> ToolResult:
+        uid = str(unit_id or "").strip()
+        if bool(uid) == bool(str(caste or "").strip()):
+            return _refuse("Give exactly one of unit_id or caste.")
+        if uid:
+            reply = await _call("retire_unit", unit_id=uid)
+            if not reply.get("ok"):
+                return _fail(reply) if reply.get("error") else _refuse(f"No unit {uid}.")
+            return ToolResult(ok=True, output=f"Retired {uid}.", data={"unit_id": uid})
+        cid, _desc, err = await _known_caste(caste)
+        if err is not None:
+            return err
+        reply = await _call("scale_caste", caste=cid, target_count=0)
+        if not reply.get("ok"):
+            return _fail(reply)
+        return ToolResult(ok=True, output=f"Stood down every {cid}.", data={"caste": cid})
+
+    async def _retask(
+        self, caste: str = "", capability: str = "", target: str = "", payload: Any = None
+    ) -> ToolResult:
+        if not str(capability or "").strip():
+            return _refuse("capability is required.")
+        if payload is not None and not isinstance(payload, dict):
+            return _refuse("payload must be an object.")
+        cid, desc, err = await _known_caste(caste)
+        if err is not None:
+            return err
+        task, why = build_retask_payload(
+            cid, desc, str(capability), str(target or "").strip(), dict(payload or {})
+        )
+        if task is None:
+            return _refuse(why)
+        reply = await _call("dispatch_task", caste=cid, payload=task)
+        result = reply.get("result") if isinstance(reply.get("result"), dict) else {}
+        if not reply.get("ok"):
+            msg = str(result.get("error") or reply.get("error") or sentinel_client.REFUSED)
+            return ToolResult(ok=False, output=msg, data={"result": result})
+        return ToolResult(ok=True, output=f"{cid} did {capability}.", data={"result": result})
+
+    async def _mission(self, question: str = "") -> ToolResult:
+        q = str(question or "").strip()
+        if not q:
+            return _refuse("question is required.")
+        targets = [
+            {"action": "arxiv", "query": q, "max_results": 4},
+            {"action": "wikipedia", "query": q},
+        ]
+        reply = await _call("start_harvest_mission", question=q, targets=targets)
+        if not reply.get("ok"):
+            return _fail(reply)
+        ref = str(reply.get("mission_ref") or "")
+        return ToolResult(
+            ok=True,
+            output=(
+                f"Mission {ref} accepted and running, not finished. "
+                "Its result or failure lands in sentinel_logs (harvest)."
+            ),
+            data={"mission_ref": ref, "status": reply.get("status")},
+        )
+
+
+class SentinelEmpTool:
+    name = "sentinel_emp"
+    description = "Emergency stop for every sentinel. Only Christopher can undo it."
+    risk = "write"
+    parameters_schema: dict[str, Any] = {"type": "object", "properties": {}}
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        del kwargs
+        reply = await _call("emp_halt", reason="Arelis emergency stop")
+        if not reply.get("ok"):
+            return _fail(reply)
+        return ToolResult(ok=True, output="Emergency stop is on.", data={"emp": reply.get("emp")})
+
+
 def sentinel_tools() -> list[Any]:
-    """The read tools, or none when the Sentinel package is not installed."""
+    """The Sentinel tools, or none when the Sentinel package is not installed."""
     if not sentinel_available():
         return []
-    return [SentinelStatusTool(), SentinelListTool(), SentinelLogsTool(), SentinelCastesTool()]
+    return [
+        SentinelStatusTool(),
+        SentinelListTool(),
+        SentinelLogsTool(),
+        SentinelCastesTool(),
+        SentinelCommandTool(),
+        SentinelEmpTool(),
+    ]

@@ -250,6 +250,11 @@ def live_fifty_turns(*, token: str = BOARD_ID) -> list[ConversationTurn]:
         t("T165_sentinel_units", "list the warden sentinels", expect_tools=("sentinel_list",)),
         t("T166_sentinel_logs", "show recent sentinel threat logs", expect_tools=("sentinel_logs",)),
         t("T167_sentinel_castes", "what sentinel castes are there", expect_tools=("sentinel_castes",)),
+        t("T168_sentinel_command_deploy", "deploy two more warden sentinels", expect_tools=("sentinel_command",)),
+        t("T169_sentinel_command_stop", "stand down the harvester sentinels", expect_tools=("sentinel_command",)),
+        t("T170_sentinel_command_retask", "have the warden sentinels scan sockets", expect_tools=("sentinel_command",)),
+        t("T171_sentinel_command_mission", "send the sentinels to research exoplanet transits", expect_tools=("sentinel_command",)),
+        t("T172_sentinel_emp", "emergency stop the sentinels", expect_tools=("sentinel_emp",)),
         t("T163_wrap", f"add a task: coverage board {token} finished", expect_tools=("tasks",), expect_args={"action": "add"}),
     ] + math_board_turns()
 

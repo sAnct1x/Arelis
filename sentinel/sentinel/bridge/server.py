@@ -25,6 +25,7 @@ import logging
 import mimetypes
 import os
 import struct
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlparse
@@ -122,6 +123,14 @@ async def _ws_read_frame(reader: asyncio.StreamReader) -> tuple[int, bytes] | No
     return opcode, data
 
 
+# Immediate-start harvest missions: small explicit caps so overlapping
+# swarms cannot grow without bound. Unit caps do not limit these tasks.
+MAX_IN_FLIGHT_MISSIONS = 4
+MAX_MISSION_TARGETS = 8
+MAX_MISSION_HISTORY = 32
+MISSION_HISTORY_TTL_S = 900.0
+
+
 class SentinelBridgeServer:
     """Loopback-only HTTP + 60 Hz WebSocket server connecting Arelis and the 3D Overseer."""
 
@@ -144,6 +153,8 @@ class SentinelBridgeServer:
         self._ws_clients: set[asyncio.StreamWriter] = set()
         self._broadcast_task: asyncio.Task[Any] | None = None
         self._static_dir: Path = overseer_static_dir()
+        self._missions: dict[str, dict[str, Any]] = {}
+        self._mission_seq = 0
 
     @property
     def overseer_url(self) -> str:
@@ -165,6 +176,112 @@ class SentinelBridgeServer:
             format_command_response(False, error="Unauthorized session token"),
             writer,
         )
+
+    def _running_mission_count(self) -> int:
+        return sum(1 for rec in self._missions.values() if rec.get("status") == "running")
+
+    def _prune_mission_history(self) -> None:
+        """Drop finished records past the size cap or TTL. Keep every running one."""
+        now = time.time()
+        running: dict[str, dict[str, Any]] = {}
+        finished: list[tuple[float, str, dict[str, Any]]] = []
+        for ref, rec in self._missions.items():
+            if rec.get("status") == "running":
+                running[ref] = rec
+                continue
+            ended = float(rec.get("finished_at") or 0.0)
+            if now - ended > MISSION_HISTORY_TTL_S:
+                continue
+            finished.append((ended, ref, rec))
+        finished.sort(key=lambda row: row[0])
+        if len(finished) > MAX_MISSION_HISTORY:
+            finished = finished[-MAX_MISSION_HISTORY:]
+        kept = dict(running)
+        for _ended, ref, rec in finished:
+            kept[ref] = rec
+        self._missions = kept
+
+    def _parse_mission_targets(
+        self, raw: Any
+    ) -> tuple[list[dict[str, Any]] | None, str]:
+        if not isinstance(raw, list):
+            return None, "targets must be a list of objects"
+        if not raw:
+            return None, "question and targets are required"
+        if len(raw) > MAX_MISSION_TARGETS:
+            return None, f"at most {MAX_MISSION_TARGETS} targets per mission"
+        targets: list[dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                return None, "each target must be an object"
+            targets.append(item)
+        return targets, ""
+
+    def _start_harvest_mission(self, cmd_data: dict[str, Any]) -> tuple[bool, dict[str, Any] | None, str]:
+        """Start deploy_harvest_swarm in the background and answer at once.
+
+        Same hive call as deploy_harvest_swarm, so the EMP check, the
+        AuthorityGate and the per-task send block all still run. The task is
+        tracked by the EMP controller so an emergency stop cancels it. When it
+        ends, the outcome is recorded in telemetry and in mission_status.
+
+        At most MAX_IN_FLIGHT_MISSIONS run at once and each request may name
+        at most MAX_MISSION_TARGETS targets. Excess is refused before any
+        task or record is created. Finished records (done, failed, cancelled,
+        parked) are kept up to MAX_MISSION_HISTORY and MISSION_HISTORY_TTL_S;
+        running records are never dropped.
+        """
+        if self.hive.emp.is_tripped:
+            return False, None, "EMP Kill-Switch active"
+        question = str(cmd_data.get("question") or "").strip()
+        targets, target_err = self._parse_mission_targets(cmd_data.get("targets"))
+        if not question:
+            return False, None, "question and targets are required"
+        if targets is None:
+            return False, None, target_err
+        if self._running_mission_count() >= MAX_IN_FLIGHT_MISSIONS:
+            return False, None, (
+                f"already {MAX_IN_FLIGHT_MISSIONS} harvest missions running"
+            )
+        self._mission_seq += 1
+        ref = f"REQ-{self._mission_seq:04d}"
+        rec: dict[str, Any] = {
+            "status": "running",
+            "question": question[:200],
+            "started_at": time.time(),
+        }
+        self._missions[ref] = rec
+        task = self.hive.emp.track_task(
+            asyncio.create_task(self.hive.dispatch_harvest_swarm(question, targets))
+        )
+
+        def _finished(t: asyncio.Task[Any]) -> None:
+            if t.cancelled():
+                rec.update(status="failed", error="cancelled")
+            elif t.exception() is not None:
+                rec.update(status="failed", error=str(t.exception())[:300])
+            else:
+                res = t.result() or {}
+                ok = bool(res.get("ok"))
+                rec.update(
+                    status="done" if ok else "failed",
+                    mission_id=res.get("mission_id"),
+                    error=None if ok else str(
+                        res.get("error") or "mission did not complete"
+                    ),
+                )
+            rec["finished_at"] = time.time()
+            self._prune_mission_history()
+            self.hive.telemetry.record(
+                "HARVEST" if rec["status"] == "done" else "ALERT",
+                caste="harvester",
+                phase=f"MISSION {ref}",
+                message=f"Mission {ref} {rec['status']}: {rec.get('error') or rec['question']}",
+                details={"mission_ref": ref, "mission_id": rec.get("mission_id")},
+            )
+
+        task.add_done_callback(_finished)
+        return True, {"mission_ref": ref, "status": "running", "accepted": True}, ""
 
     async def start(self) -> int:
         await self.hive.start_background_loops(hz=60)
@@ -294,6 +411,16 @@ class SentinelBridgeServer:
                 animate=animate,
             )
             return format_command_response(bool(res.get("ok")), {"mission": res})
+
+        if op == "start_harvest_mission":
+            return format_command_response(*self._start_harvest_mission(cmd_data))
+
+        if op == "mission_status":
+            ref = str(cmd_data.get("mission_ref") or "")
+            rec = self._missions.get(ref)
+            if rec is None:
+                return format_command_response(False, error=f"Unknown mission {ref!r}")
+            return format_command_response(True, {"mission_ref": ref, **rec})
 
         if op == "set_theme":
             theme_id = str(cmd_data.get("theme") or "sodium")

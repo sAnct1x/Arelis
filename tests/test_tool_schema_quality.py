@@ -26,8 +26,11 @@ from __future__ import annotations
 import sys
 
 from scripts.measure_tool_schema import (
+    CREDENTIAL_GATED_TOOL_NAMES,
     SCHEMA_TOKEN_CAP,
     measure,
+    registry_for_credentialed_windows,
+    registry_for_profile,
     tool_specs,
 )
 
@@ -51,7 +54,8 @@ from scripts.measure_tool_schema import (
 # remove_background and upscale as well: 20,973 chars / 6,346 tokens
 # and 24,429 chars / 7,392. The surface then shrank and the caps were
 # ratcheted to 6,600 and 7,450 (issue 291: 6,171 here, about 6,391 with
-# desktop, 7,216 worst). Both caps live in SCHEMA_TOKEN_CAP. This order is that non-Windows profile. Windows CI
+# desktop, 7,216 worst). PR4 raised only the worst cap to 7,521 to fit
+# the resident Sentinel controls. Both caps live in SCHEMA_TOKEN_CAP. This order is that non-Windows profile. Windows CI
 # inserts desktop in front of tile. Hidden parameters on the
 # non-Windows profile are 67 (69 with desktop's x and y).
 MAX_SCHEMA_TOKENS = SCHEMA_TOKEN_CAP["default"]
@@ -237,9 +241,7 @@ def test_workspace_actions_stay_in_the_model_enum() -> None:
     windows = load_config()
     windows["_vl_model_installed"] = False
     windows["_session_platform"] = "win32"
-    windows_reg = build_tool_registry(
-        windows, allow_send=True, attended=True, router=router
-    )
+    windows_reg = build_tool_registry(windows, allow_send=True, attended=True, router=router)
     profiles = {
         "default": registry_for_profile("default"),
         "mac": registry_for_profile("mac"),
@@ -250,9 +252,7 @@ def test_workspace_actions_stay_in_the_model_enum() -> None:
     for name, registry in profiles.items():
         for hints in (False, True):
             specs = (
-                tool_specs(registry)
-                if not hints
-                else list(registry.chat_tools(param_hints=True))
+                tool_specs(registry) if not hints else list(registry.chat_tools(param_hints=True))
             )
             action = None
             for spec in specs:
@@ -268,25 +268,89 @@ def test_workspace_actions_stay_in_the_model_enum() -> None:
     assert not missing, missing
 
 
-
-
 def test_schema_stays_under_its_token_cap() -> None:
     """The cap was a number nothing checked, so it drifted 700 tokens loose."""
     from scripts.measure_tool_schema import registry_for_profile
 
-    default = measure(tool_specs())["schema_tokens_approx"]
+    host_specs = tool_specs()
+    default = measure(host_specs)["schema_tokens_approx"]
     worst = measure(tool_specs(registry_for_profile("worst")))["schema_tokens_approx"]
-    assert default <= MAX_SCHEMA_TOKENS, default
+    host_has_desktop = any(spec["function"]["name"] == "desktop" for spec in host_specs)
+    host_cap = (
+        SCHEMA_TOKEN_CAP["default_desktop"] if host_has_desktop else SCHEMA_TOKEN_CAP["default"]
+    )
+    assert default <= host_cap, default
     assert worst <= SCHEMA_TOKEN_CAP["worst"], worst
 
-    # Sentinel read tools (PR3) were paid for by wording offsets, so the
-    # surface may not grow past main 9e01123: default 20,837 chars / 6,305
-    # tokens without desktop, worst 24,293 / 7,351. Desktop is left out of
-    # default so Windows CI measures the same profile.
-    no_desktop = [s for s in tool_specs() if s["function"]["name"] != "desktop"]
+    # Sentinel controls (PR4) are resident. Christopher approved a one-time
+    # rebaseline for this addition only (2026-11-05 4:36 PM ET). Measured
+    # here: default 21,482 chars / 6,500 tokens without desktop (still under
+    # the 6,600 cap), worst 24,855 / 7,521. The worst cap is 7,521 to match.
+    # Desktop-present default (forced win32 registry metadata, no desktop
+    # execution) is 22,211 chars / 6,721 tokens; that profile uses its own
+    # 6,721 cap so the no-desktop ceiling stays 6,600. No further unrelated
+    # growth is permitted.
+    no_desktop = [spec for spec in tool_specs() if spec["function"]["name"] != "desktop"]
     base = measure(no_desktop)
+    desk = measure(tool_specs(registry_for_profile("default_desktop")))
     full = measure(tool_specs(registry_for_profile("worst")))
-    assert base["schema_chars"] <= 20_837, base
-    assert base["schema_tokens_approx"] <= 6_305, base
-    assert full["schema_chars"] <= 24_293, full
-    assert full["schema_tokens_approx"] <= 7_351, full
+    assert "desktop" in {
+        spec["function"]["name"] for spec in tool_specs(registry_for_profile("default_desktop"))
+    }
+    assert base["schema_chars"] <= 21_482, base
+    assert base["schema_tokens_approx"] <= 6_500, base
+    assert desk["schema_chars"] <= 22_211, desk
+    assert desk["schema_tokens_approx"] <= 6_721, desk
+    assert desk["schema_tokens_approx"] <= SCHEMA_TOKEN_CAP["default_desktop"], desk
+    assert full["schema_chars"] <= 24_855, full
+    assert full["schema_tokens_approx"] <= 7_521, full
+
+    desk_names = {
+        spec["function"]["name"] for spec in tool_specs(registry_for_profile("default_desktop"))
+    }
+    assert not (CREDENTIAL_GATED_TOOL_NAMES & desk_names), sorted(
+        CREDENTIAL_GATED_TOOL_NAMES & desk_names
+    )
+    default_names = {spec["function"]["name"] for spec in tool_specs(registry_for_profile("default"))}
+    assert not (CREDENTIAL_GATED_TOOL_NAMES & default_names), sorted(
+        CREDENTIAL_GATED_TOOL_NAMES & default_names
+    )
+
+
+def test_profile_loaders_isolate_credentials_and_credentialed_windows_is_worst_subset() -> None:
+    """default_desktop stays a no-secret pin even if loaders would return accounts.
+
+    A Windows session with mail/SMS secrets is measured as itself: the five
+    gated names stay visible, and that name set is a subset of worst (7521),
+    not something to squeeze under the disabled-tools 6721 desktop pin.
+    """
+    import arelis.tools as tools_mod
+    from scripts.measure_tool_schema import _EXAMPLE_MAIL, _EXAMPLE_SMS
+
+    saved_mail = tools_mod.load_account
+    saved_sms = tools_mod.load_sms_account
+    tools_mod.load_account = lambda path=None: _EXAMPLE_MAIL
+    tools_mod.load_sms_account = lambda path=None: _EXAMPLE_SMS
+    try:
+        for profile in ("default", "default_desktop"):
+            names = {spec["function"]["name"] for spec in tool_specs(registry_for_profile(profile))}
+            leaked = CREDENTIAL_GATED_TOOL_NAMES & names
+            assert not leaked, (profile, sorted(leaked))
+    finally:
+        tools_mod.load_account = saved_mail
+        tools_mod.load_sms_account = saved_sms
+
+    cred_specs = tool_specs(registry_for_credentialed_windows())
+    worst_specs = tool_specs(registry_for_profile("worst"))
+    cred_names = {spec["function"]["name"] for spec in cred_specs}
+    worst_names = {spec["function"]["name"] for spec in worst_specs}
+    missing = CREDENTIAL_GATED_TOOL_NAMES - cred_names
+    assert not missing, sorted(missing)
+    extra = cred_names - worst_names
+    assert not extra, sorted(extra)
+    cred = measure(cred_specs)
+    desk = measure(tool_specs(registry_for_profile("default_desktop")))
+    assert cred["schema_tokens_approx"] <= SCHEMA_TOKEN_CAP["worst"], cred
+    assert cred["schema_tokens_approx"] > SCHEMA_TOKEN_CAP["default_desktop"], cred
+    assert desk["schema_tokens_approx"] <= SCHEMA_TOKEN_CAP["default_desktop"], desk
+    assert desk["schema_tokens_approx"] <= 6_721, desk

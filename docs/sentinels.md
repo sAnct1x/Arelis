@@ -25,8 +25,8 @@ from its history as soon as it loads.
 
 ## Asking Arelis about the swarm
 
-Arelis can read the swarm for you. She can only look; she cannot deploy,
-stop, or retask sentinels yet, and she can never undo an emergency stop.
+Arelis can read the swarm for you and, when you ask, command it. She can
+never undo an emergency stop: only you can, from the Overseer.
 
 - "How is the sentinel swarm doing?" She reports whether the emergency
   stop is on and how many units each caste has.
@@ -39,3 +39,27 @@ stop, or retask sentinels yet, and she can never undo an emergency stop.
   with what each one is allowed to do.
 
 If Sentinel is not running she says so instead of guessing.
+
+## Asking Arelis to command the swarm
+
+- "Deploy three more wardens." She adds up to 50 units of a known caste at
+  a time; the swarm's own unit limit still applies.
+- "Stand down the harvesters" or "retire unit SNT-WRD-002." She retires one
+  unit or a whole caste.
+- "Have the wardens scan sockets." She gives a caste one task it really
+  supports: harvesters fetch a page or search arXiv, Horizons or Wikipedia;
+  wardens scan sockets, check a URL or intercept; tripwires watch a folder or
+  verify; sanitizers clean text or HTML or inspect an archive. Anything else
+  is refused. Sentinels still cannot send your data out.
+- "Research exoplanet transits with the sentinels." Harvesters search arXiv
+  and Wikipedia. She tells you the mission started, not that it finished;
+  its result, or why it failed, shows in the log. At most four research
+  missions run at once, each with at most eight targets; further requests
+  wait until one finishes. Older finished mission records are dropped after
+  a while, or when there are too many, but a mission that is still running
+  is kept.
+- "Emergency stop the sentinels." Every unit halts at once, with no card to
+  click first. Only you can lift it.
+
+Deploy, stop, retask and research ask first in the usual way unless your
+own request already asked for them.

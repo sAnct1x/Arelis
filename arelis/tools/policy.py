@@ -352,6 +352,9 @@ def confirm_toggle(
         return "vision"
     if tool == "earth":
         return "none"
+    if tool == "sentinel_emp":
+        # Stopping the swarm never waits on a card. Undo stays Christopher's.
+        return "none"
     if tool == "run_script":
         return "run"
     if tool == "run_task":
