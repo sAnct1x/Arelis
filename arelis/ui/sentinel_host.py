@@ -463,69 +463,37 @@ class SentinelWindow(QWidget):
         chrome.hudCommand.connect(self._on_hud_command)
         self._hud_wired = True
 
+    def _selected_hud_unit(self, root=None) -> dict | None:
+        sid = ""
+        if root is not None:
+            sid = str(root.property("selectedUnitId") or "")
+        for unit in getattr(self, "_hud_units", None) or []:
+            if str(unit.get("unit_id") or "") == sid:
+                return unit
+        return None
+
     def _on_hud_command(self, name: str, payload) -> None:
         """Forward HUD actions along existing Overseer routes only."""
-        data = payload if isinstance(payload, dict) else {}
-        target = sentinel_control.bridge_target()
-        status = ""
-        if name == "focus":
-            status = ""
-        elif name == "retask" and not str(data.get("query") or "").strip():
-            status = "Unavailable: retask needs a mission query (existing dispatch_task)"
-        elif target is None:
-            status = "Unavailable: Sentinel is not connected"
-        else:
-            host, port, token = target
-            try:
-                if name == "emp_halt":
-                    overseer_runtime.post_overseer(
-                        host, port, token, "/api/overseer/emp",
-                        {"reason": str(data.get("reason") or "Overseer emergency stop")},
-                    )
-                    status = "Emergency stop requested"
-                elif name == "dispatch":
-                    overseer_runtime.post_overseer(
-                        host, port, token, "/api/overseer/mission",
-                        {
-                            "mode": str(data.get("mode") or "multi"),
-                            "query": str(data.get("query") or ""),
-                        },
-                    )
-                    status = "Mission requested"
-                elif name == "recall":
-                    caste = str(data.get("caste") or "")
-                    if not caste:
-                        status = "Unavailable: recall needs a caste (existing scale route)"
-                    else:
-                        overseer_runtime.post_overseer(
-                            host, port, token, "/api/overseer/scale",
-                            {"caste": caste, "delta": -1},
-                        )
-                        status = "Recall requested for one idle unit of that caste"
-                elif name == "retire":
-                    overseer_runtime.post_overseer(
-                        host, port, token, "/api/command",
-                        {"op": "retire_unit", "unit_id": str(data.get("unit_id") or "")},
-                    )
-                    status = "Retire requested"
-                elif name == "retask":
-                    overseer_runtime.post_overseer(
-                        host, port, token, "/api/command",
-                        {
-                            "op": "dispatch_task",
-                            "caste": str(data.get("caste") or "harvester"),
-                            "unit_id": data.get("unit_id"),
-                            "payload": {"query": str(data.get("query") or "")},
-                        },
-                    )
-                    status = "Retask requested"
-                else:
-                    status = f"Unavailable: no existing route for {name}"
-            except Exception:
-                log.warning("Sentinels window: HUD command %s failed", name)
-                status = "Request failed"
         scene = self._scene
         root = scene.rootObject() if scene is not None else None
+        selected = self._selected_hud_unit(root)
+        plan = overseer_runtime.resolve_hud_command(
+            name, payload, selected_unit=selected,
+        )
+        status = str(plan.get("status") or "")
+        if plan.get("ok"):
+            target = sentinel_control.bridge_target()
+            if target is None:
+                status = "Unavailable: Sentinel is not connected"
+            else:
+                host, port, token = target
+                try:
+                    overseer_runtime.post_overseer(
+                        host, port, token, plan["path"], plan["body"],
+                    )
+                except Exception:
+                    log.warning("Sentinels window: HUD command %s failed", name)
+                    status = "Request failed"
         if root is not None:
             root.setProperty("hudCommandStatus", status)
             root.setProperty("lastHudCommand", name)
@@ -533,6 +501,7 @@ class SentinelWindow(QWidget):
     def apply_snapshot(self, snap: dict) -> dict:
         """Push a live hive snapshot into the native View3D. Returns the frame."""
         units = overseer_runtime.snapshot_units(snap)
+        self._hud_units = list(units)
         root = None
         scene = self._scene
         if scene is not None:

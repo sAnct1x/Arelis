@@ -35,7 +35,12 @@ caste, task or ring, 44 px rows, engaged first), an inspector for the
 selected unit, and a forensic console for live logs and mission
 dispatch. Inspector actions and dispatch use the hive's existing
 command paths; anything the snapshot does not provide is shown as
-unavailable. The inspector hides past 70 percent zoom until you select
+unavailable. Recall is unavailable: caste scale-down is not a per-unit
+recall and can affect a different unit. Focus selects the unit in the
+list; camera framing is not implemented yet. Retask posts dispatch_task
+only for the selected unit and that unit's caste. Retire posts
+retire_unit for that unit. Emergency stop posts the existing halt and
+cannot restore it from this HUD. The inspector hides past 70 percent zoom until you select
 a unit. Visual review, load, and frame timing on a real machine have
 not been accepted yet.
 

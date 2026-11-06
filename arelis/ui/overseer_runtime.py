@@ -929,6 +929,128 @@ def fetch_snapshot(host: str, port: int, token: str, opener: Any = None) -> dict
     return json.loads(raw.decode("utf-8"))
 
 
+
+def coerce_hud_payload(payload: Any) -> dict[str, Any]:
+    """Turn a QML hudCommand payload into a plain dict."""
+    if isinstance(payload, dict):
+        return payload
+    to_var = getattr(payload, "toVariant", None)
+    if callable(to_var):
+        value = to_var()
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def resolve_hud_command(
+    name: str,
+    payload: Any = None,
+    selected_unit: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Plan a HUD action on an existing route, or refuse it.
+
+    Recall is not caste scale-down: that can retire a different unit.
+    Retask and retire only target the selected unit. Emergency halt never
+    includes restore. Camera focus is not implemented.
+    """
+    data = coerce_hud_payload(payload)
+    selected = selected_unit if isinstance(selected_unit, dict) else {}
+    selected_id = str(selected.get("unit_id") or "").strip()
+    selected_caste = str(selected.get("caste") or "").strip().lower()
+    payload_id = str(data.get("unit_id") or "").strip()
+    payload_caste = str(data.get("caste") or "").strip().lower()
+    name = str(name or "")
+
+    def refuse(status: str) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "path": None,
+            "body": None,
+            "status": status,
+            "name": name,
+        }
+
+    def accept(path: str, body: dict[str, Any], status: str) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "path": path,
+            "body": body,
+            "status": status,
+            "name": name,
+        }
+
+    if name == "focus":
+        return refuse(
+            "Unavailable: camera focus is not implemented (selection only)"
+        )
+    if name == "recall":
+        return refuse(
+            "Unavailable: no per-unit recall route; caste scale-down can "
+            "affect a different unit"
+        )
+    if name in {"emp_restore", "restore"}:
+        return refuse(
+            "Unavailable: emergency restore is not available from this HUD"
+        )
+    if name == "emp_halt":
+        return accept(
+            "/api/overseer/emp",
+            {"reason": str(data.get("reason") or "Overseer emergency stop")},
+            "Emergency stop requested",
+        )
+    if name == "dispatch":
+        return accept(
+            "/api/overseer/mission",
+            {
+                "mode": str(data.get("mode") or "multi"),
+                "query": str(data.get("query") or ""),
+            },
+            "Mission requested",
+        )
+    if name == "retire":
+        if not selected_id:
+            return refuse("Unavailable: retire requires a selected unit")
+        if payload_id and payload_id != selected_id:
+            return refuse(
+                "Unavailable: retire would not match the selected unit"
+            )
+        return accept(
+            "/api/command",
+            {"op": "retire_unit", "unit_id": selected_id},
+            "Retire requested",
+        )
+    if name == "retask":
+        query = str(data.get("query") or "").strip()
+        if not query:
+            return refuse(
+                "Unavailable: retask needs a mission query "
+                "(existing dispatch_task)"
+            )
+        if not selected_id or not selected_caste:
+            return refuse(
+                "Unavailable: retask requires the selected unit and its caste"
+            )
+        if payload_id and payload_id != selected_id:
+            return refuse(
+                "Unavailable: retask would not match the selected unit"
+            )
+        if payload_caste and payload_caste != selected_caste:
+            return refuse(
+                "Unavailable: retask caste does not match the selected unit"
+            )
+        return accept(
+            "/api/command",
+            {
+                "op": "dispatch_task",
+                "caste": selected_caste,
+                "unit_id": selected_id,
+                "payload": {"query": query},
+            },
+            "Retask requested",
+        )
+    return refuse(f"Unavailable: no existing route for {name}")
+
+
 def post_overseer(
     host: str,
     port: int,

@@ -327,38 +327,100 @@ Item {
                         }
                     }
                 }
-                Row {
+                Flow {
+                    width: parent.width
                     spacing: 8
-                    Repeater {
-                        model: [
-                            ["focus", "Focus"],
-                            ["retask", "Retask"],
-                            ["recall", "Recall"],
-                            ["retire", "Retire"]
-                        ]
-                        Rectangle {
-                            required property var modelData
-                            objectName: "OverseerAction_" + modelData[0]
-                            height: 28
-                            width: actLab.implicitWidth + 16
-                            radius: 4
-                            color: "#1c1430"
-                            border.color: "#8b6cf2"
-                            Text {
-                                id: actLab
-                                anchors.centerIn: parent
-                                text: parent.modelData[1]
-                                color: "#e0d4ff"
-                                font.pixelSize: 12
-                            }
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: hud.hudCommand(parent.modelData[0], {
-                                    unit_id: hud.selectedUnitId,
-                                    caste: hud.inspector && hud.inspector.caste,
-                                    query: hud.missionQuery
-                                })
-                            }
+
+                    Rectangle {
+                        objectName: "OverseerAction_focus"
+                        height: 28
+                        width: focusLab.implicitWidth + 16
+                        radius: 4
+                        color: "#1c1430"
+                        border.color: "#8b6cf2"
+                        Text {
+                            id: focusLab
+                            anchors.centerIn: parent
+                            text: "Focus (not implemented)"
+                            color: "#e0d4ff"
+                            font.pixelSize: 12
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: hud.hudCommand("focus", {
+                                unit_id: hud.selectedUnitId,
+                                caste: hud.inspector && hud.inspector.caste,
+                                query: hud.missionQuery
+                            })
+                        }
+                    }
+                    Rectangle {
+                        objectName: "OverseerAction_retask"
+                        height: 28
+                        width: retaskLab.implicitWidth + 16
+                        radius: 4
+                        color: "#1c1430"
+                        border.color: "#8b6cf2"
+                        Text {
+                            id: retaskLab
+                            anchors.centerIn: parent
+                            text: "Retask"
+                            color: "#e0d4ff"
+                            font.pixelSize: 12
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: hud.hudCommand("retask", {
+                                unit_id: hud.selectedUnitId,
+                                caste: hud.inspector && hud.inspector.caste,
+                                query: hud.missionQuery
+                            })
+                        }
+                    }
+                    Rectangle {
+                        objectName: "OverseerAction_recall"
+                        height: 28
+                        width: recallLab.implicitWidth + 16
+                        radius: 4
+                        color: "#1c1430"
+                        border.color: "#8b6cf2"
+                        Text {
+                            id: recallLab
+                            anchors.centerIn: parent
+                            text: "Recall (unavailable)"
+                            color: "#e0d4ff"
+                            font.pixelSize: 12
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: hud.hudCommand("recall", {
+                                unit_id: hud.selectedUnitId,
+                                caste: hud.inspector && hud.inspector.caste,
+                                query: hud.missionQuery
+                            })
+                        }
+                    }
+                    Rectangle {
+                        objectName: "OverseerAction_retire"
+                        height: 28
+                        width: retireLab.implicitWidth + 16
+                        radius: 4
+                        color: "#1c1430"
+                        border.color: "#8b6cf2"
+                        Text {
+                            id: retireLab
+                            anchors.centerIn: parent
+                            text: "Retire"
+                            color: "#e0d4ff"
+                            font.pixelSize: 12
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: hud.hudCommand("retire", {
+                                unit_id: hud.selectedUnitId,
+                                caste: hud.inspector && hud.inspector.caste,
+                                query: hud.missionQuery
+                            })
                         }
                     }
                 }
