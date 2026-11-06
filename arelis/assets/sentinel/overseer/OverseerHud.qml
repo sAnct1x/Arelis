@@ -204,18 +204,35 @@ Item {
                 id: swarmList
                 objectName: "OverseerSwarmList"
                 width: parent.width
-                height: parent.height - 92
+                height: parent.height - 128
                 clip: true
                 reuseItems: true
                 cacheBuffer: 44 * 6
                 model: hud.swarmRows
                 boundsBehavior: Flickable.StopAtBounds
+                Accessible.role: Accessible.List
+                Accessible.name: "Swarm units"
                 delegate: Rectangle {
                     id: rowBox
                     required property var modelData
                     required property int index
                     width: swarmList.width
                     height: 44
+                    readonly property string rowLabel: modelData.kind === "header"
+                          ? (modelData.key + " " + modelData.count + " (" + modelData.active + " active)")
+                          : (String(modelData.unit_id || "") + "  " + (modelData.role || "") + "  " + (modelData.state || ""))
+                    objectName: modelData.kind === "header"
+                                ? ("OverseerSwarmHeader_" + String(modelData.key || index))
+                                : ("OverseerSwarmRow_" + String(modelData.unit_id || index))
+                    Accessible.role: modelData.kind === "header" ? Accessible.Grouping : Accessible.ListItem
+                    Accessible.name: rowBox.rowLabel
+                    Accessible.description: modelData.kind === "header"
+                                            ? "Toggle swarm group"
+                                            : "Select this sentinel"
+                    Accessible.selectable: modelData.kind === "unit"
+                    Accessible.selected: modelData.kind === "unit" && modelData.unit_id === hud.selectedUnitId
+                    Accessible.focusable: true
+                    Accessible.onPressAction: rowBox.invokeRow()
                     color: {
                         if (modelData.kind === "header")
                             return "#1a1030"
@@ -225,6 +242,12 @@ Item {
                     }
                     border.color: modelData.unit_id === hud.selectedUnitId ? "#8b6cf2" : "transparent"
                     border.width: modelData.unit_id === hud.selectedUnitId ? 1 : 0
+                    function invokeRow() {
+                        if (modelData.kind === "header")
+                            hud.headerToggled(modelData.key)
+                        else if (modelData.unit_id)
+                            hud.unitChosen(modelData.unit_id)
+                    }
                     Row {
                         anchors.fill: parent
                         anchors.leftMargin: 8
@@ -244,19 +267,74 @@ Item {
                             color: "#e0d4ff"
                             font.pixelSize: 13
                             anchors.verticalCenter: parent.verticalCenter
-                            text: modelData.kind === "header"
-                                  ? (modelData.key + " " + modelData.count + " (" + modelData.active + " active)")
-                                  : (modelData.unit_id + "  " + (modelData.role || "") + "  " + (modelData.state || ""))
+                            text: rowBox.rowLabel
                         }
                     }
                     MouseArea {
                         anchors.fill: parent
-                        onClicked: {
-                            if (modelData.kind === "header")
-                                hud.headerToggled(modelData.key)
-                            else if (modelData.unit_id)
-                                hud.unitChosen(modelData.unit_id)
-                        }
+                        onClicked: rowBox.invokeRow()
+                    }
+                }
+            }
+            Row {
+                objectName: "OverseerSwarmFooter"
+                spacing: 8
+                Rectangle {
+                    objectName: "OverseerFooter_deploy"
+                    height: 28
+                    width: deployLab.implicitWidth + 16
+                    radius: 4
+                    color: "#1c1430"
+                    border.color: "#8b6cf2"
+                    Accessible.name: "Deploy"
+                    Accessible.role: Accessible.Button
+                    Accessible.onPressAction: hud.hudCommand("deploy", {
+                        unit_id: hud.selectedUnitId,
+                        caste: hud.inspector && hud.inspector.caste
+                    })
+                    Text {
+                        id: deployLab
+                        anchors.centerIn: parent
+                        text: "Deploy"
+                        color: "#e0d4ff"
+                        font.pixelSize: 12
+                    }
+                    MouseArea {
+                        id: deployArea
+                        anchors.fill: parent
+                        onClicked: hud.hudCommand("deploy", {
+                            unit_id: hud.selectedUnitId,
+                            caste: hud.inspector && hud.inspector.caste
+                        })
+                    }
+                }
+                Rectangle {
+                    objectName: "OverseerFooter_recall"
+                    height: 28
+                    width: footerRecallLab.implicitWidth + 16
+                    radius: 4
+                    color: "#1c1430"
+                    border.color: "#8b6cf2"
+                    Accessible.name: "Recall (unavailable)"
+                    Accessible.role: Accessible.Button
+                    Accessible.onPressAction: hud.hudCommand("recall", {
+                        unit_id: hud.selectedUnitId,
+                        caste: hud.inspector && hud.inspector.caste
+                    })
+                    Text {
+                        id: footerRecallLab
+                        anchors.centerIn: parent
+                        text: "Recall (unavailable)"
+                        color: "#e0d4ff"
+                        font.pixelSize: 12
+                    }
+                    MouseArea {
+                        id: footerRecallArea
+                        anchors.fill: parent
+                        onClicked: hud.hudCommand("recall", {
+                            unit_id: hud.selectedUnitId,
+                            caste: hud.inspector && hud.inspector.caste
+                        })
                     }
                 }
             }
@@ -446,7 +524,7 @@ Item {
 
             Row {
                 spacing: 8
-                ComboBox {
+                OverseerComboBox {
                     id: modeBox
                     objectName: "OverseerMissionMode"
                     width: 220

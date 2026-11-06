@@ -366,15 +366,22 @@ class SentinelWindow(QWidget):
         w, h = max(1, self.width()), max(1, self.height())
         flags = self._overlay_flags or {}
         region = QRegion()
-        for x, y, rw, rh in overseer_runtime.hud_mask_rects(
+        rects = overseer_runtime.hud_mask_rects(
             w,
             h,
             emp=bool(flags.get("emp")),
             badges=bool(flags.get("badges")),
             full=bool(flags.get("modal") or flags.get("help")),
             qml_hud=True,
-        ):
+        )
+        for x, y, rw, rh in rects:
             region = region.united(QRegion(x, y, rw, rh))
+        # Empty mask alone can still leave the web view as childAt() for
+        # coordinate posts. When the native HUD owns chrome, do not steal hits.
+        transparent = not rects
+        self._view.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, transparent
+        )
         self._view.setMask(region)
 
     def _read_overlay_flags(self) -> None:
@@ -458,10 +465,23 @@ class SentinelWindow(QWidget):
             if child.objectName() == "OverseerHud":
                 chrome = child
                 break
-        if chrome is None or not hasattr(chrome, "hudCommand"):
+        if chrome is None:
             return
-        chrome.hudCommand.connect(self._on_hud_command)
+        if hasattr(chrome, "hudCommand"):
+            chrome.hudCommand.connect(self._on_hud_command)
+        if hasattr(chrome, "unitChosen"):
+            chrome.unitChosen.connect(self._on_unit_chosen)
         self._hud_wired = True
+
+    def _on_unit_chosen(self, unit_id: str) -> None:
+        """Keep the inspector on the chosen unit without waiting for the next poll."""
+        scene = self._scene
+        root = scene.rootObject() if scene is not None else None
+        if root is not None and hasattr(root, "selectUnit"):
+            root.selectUnit(str(unit_id or ""))
+        snap = getattr(self, "_last_snap", None)
+        if isinstance(snap, dict):
+            self.apply_snapshot(snap)
 
     def _selected_hud_unit(self, root=None) -> dict | None:
         sid = ""
@@ -501,6 +521,7 @@ class SentinelWindow(QWidget):
     def apply_snapshot(self, snap: dict) -> dict:
         """Push a live hive snapshot into the native View3D. Returns the frame."""
         units = overseer_runtime.snapshot_units(snap)
+        self._last_snap = snap
         self._hud_units = list(units)
         root = None
         scene = self._scene

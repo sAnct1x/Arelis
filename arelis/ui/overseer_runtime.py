@@ -994,6 +994,23 @@ def resolve_hud_command(
             "Unavailable: no per-unit recall route; caste scale-down can "
             "affect a different unit"
         )
+    if name == "deploy":
+        selected_caste = str(selected.get("caste") or "").strip().lower()
+        payload_caste = str(data.get("caste") or "").strip().lower()
+        if payload_caste and selected_caste and payload_caste != selected_caste:
+            return refuse(
+                "Unavailable: deploy caste does not match the selected unit"
+            )
+        caste = selected_caste or payload_caste
+        if not caste:
+            return refuse(
+                "Unavailable: deploy needs a caste (existing scale-up)"
+            )
+        return accept(
+            "/api/overseer/scale",
+            {"caste": caste, "delta": 1},
+            "Deploy requested",
+        )
     if name in {"emp_restore", "restore"}:
         return refuse(
             "Unavailable: emergency restore is not available from this HUD"

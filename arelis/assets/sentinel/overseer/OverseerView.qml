@@ -169,6 +169,8 @@ Item {
         return t > 0.7
     }
 
+    readonly property bool showInspector: !inspectorShouldHide()
+
     function selectUnit(unitId) {
         selectedUnitId = unitId || ""
     }
@@ -596,7 +598,7 @@ Item {
         swarmRows: root.swarmRows
         inspector: root.inspectorCard
         logs: root.hudLogs
-        inspectorOpen: !root.inspectorShouldHide()
+        inspectorOpen: root.showInspector
         selectedUnitId: root.selectedUnitId
         groupBy: root.swarmGroupBy
         statusLine: root.hudStatusLine

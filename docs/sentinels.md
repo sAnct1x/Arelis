@@ -42,7 +42,12 @@ the existing dispatch_task path can acquire a different unit if the
 selected one is gone, and there is no fail-closed per-unit retask
 route. Retire posts retire_unit for that unit. Emergency stop posts
 the existing halt and cannot restore it from this HUD. The inspector hides past 70 percent zoom until you select
-a unit. Visual review, load, and frame timing on a real machine have
+a unit. Each swarm row has an accessible name and can be invoked to
+select that unit; the inspector stays on the selected unit across live
+snapshot updates, including at far zoom. The swarm footer has Deploy
+(existing caste scale-up) and Recall, which stays unavailable. Mission
+mode and other combo boxes use the dark Filament control fill, text,
+and popup. Visual review, load, and frame timing on a real machine have
 not been accepted yet.
 
 ## When Sentinel is offline
