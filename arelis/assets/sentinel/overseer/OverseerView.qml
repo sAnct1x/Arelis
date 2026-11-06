@@ -284,6 +284,66 @@ Item {
 
     Component.onCompleted: ensureLists()
 
+
+    // Thin orbit rings: Qt #Cylinder is a solid 100-unit primitive, so
+    // scale (R/50, 0.002, R/50) makes a filled disc of radius R. Pass 5
+    // uses a torus of major radius R and minor 0.014 (R<=12) or 0.02.
+    readonly property int ringSegments: 96
+    readonly property int ringTubeSegments: 8
+
+    function ringPositions(radius, tube) {
+        var pos = []
+        var segs = ringSegments
+        var tubeSegs = ringTubeSegments
+        for (var i = 0; i < segs; i++) {
+            var theta = i / segs * Math.PI * 2
+            var ct = Math.cos(theta)
+            var st = Math.sin(theta)
+            for (var j = 0; j < tubeSegs; j++) {
+                var phi = j / tubeSegs * Math.PI * 2
+                var cp = Math.cos(phi)
+                var sp = Math.sin(phi)
+                var rr = radius + tube * cp
+                pos.push(Qt.vector3d(rr * ct, tube * sp, rr * st))
+            }
+        }
+        return pos
+    }
+
+    function ringNormals(radius, tube) {
+        var nrm = []
+        var segs = ringSegments
+        var tubeSegs = ringTubeSegments
+        for (var i = 0; i < segs; i++) {
+            var theta = i / segs * Math.PI * 2
+            var ct = Math.cos(theta)
+            var st = Math.sin(theta)
+            for (var j = 0; j < tubeSegs; j++) {
+                var phi = j / tubeSegs * Math.PI * 2
+                var cp = Math.cos(phi)
+                var sp = Math.sin(phi)
+                nrm.push(Qt.vector3d(cp * ct, sp, cp * st))
+            }
+        }
+        return nrm
+    }
+
+    function ringIndexes() {
+        var idx = []
+        var segs = ringSegments
+        var tubeSegs = ringTubeSegments
+        for (var i = 0; i < segs; i++) {
+            var i0 = i * tubeSegs
+            var i1 = ((i + 1) % segs) * tubeSegs
+            for (var j = 0; j < tubeSegs; j++) {
+                var j1 = (j + 1) % tubeSegs
+                idx.push(i0 + j, i1 + j, i1 + j1)
+                idx.push(i0 + j, i1 + j1, i0 + j1)
+            }
+        }
+        return idx
+    }
+
     FrameAnimation {
         running: true
         onTriggered: root.sceneTime += frameTime
@@ -365,13 +425,15 @@ Item {
             Model {
                 required property real modelData
                 objectName: "casteRing"
-                source: "#Cylinder"
                 y: 0.02
-                scale: Qt.vector3d(modelData / 50, 0.002, modelData / 50)
+                geometry: ProceduralMesh {
+                    positions: root.ringPositions(modelData, modelData > 12 ? 0.02 : 0.014)
+                    normals: root.ringNormals(modelData, modelData > 12 ? 0.02 : 0.014)
+                    indexes: root.ringIndexes()
+                }
                 materials: PrincipledMaterial {
-                    baseColor: "#6d4ad8"
+                    baseColor: modelData > 12 ? "#6d4ad8" : "#a78bfa"
                     lighting: PrincipledMaterial.NoLighting
-                    opacity: 0.35
                 }
             }
         }

@@ -270,6 +270,10 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "CustomMaterial" in qml
     assert "shaders/hull.vert" in qml
     assert "View3D" in qml
+    assert "ProceduralMesh" in qml
+    assert "model: [5, 10, 16, 23]" in qml
+    assert 'source: "#Cylinder"' not in qml
+    assert "ringPositions" in qml
     assert "Qt.vector3d(row.x || 0, row.y || 0, row.z || 0)" in qml
     assert "Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)" not in qml
     assert "Qt.vector3d(0.022, 0.022, 0.022)" in qml
@@ -291,6 +295,22 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     inst = comp.create()
     assert inst is not None
     qt_app.processEvents()
+    caste_rings = [
+        child
+        for child in inst.findChildren(QObject)
+        if child.objectName() == "casteRing"
+    ]
+    assert len(caste_rings) == 4
+    meshes = [
+        child
+        for child in inst.findChildren(QObject)
+        if "ProceduralMesh" in child.metaObject().className()
+    ]
+    assert len(meshes) == 4
+    for ring in caste_rings:
+        src = ring.property("source")
+        src_s = src.toString() if src is not None and hasattr(src, "toString") else str(src or "")
+        assert "#Cylinder" not in src_s
     report_map = overseer_runtime.load_mesh_report(assets / "export_report.json")
     # 100 wardens at wide distance: one caste, LOD2, three submeshes.
     wide = [
