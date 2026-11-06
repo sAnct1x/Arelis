@@ -50,6 +50,9 @@ Item {
     property var hudLogs: []
     property var collapsedGroups: []
     property string selectedUnitId: ""
+    property string cameraMode: "follow"
+    property int placementFrameId: 0
+    property var instanceRecords: ({})
     property string swarmGroupBy: "caste"
     property string swarmSearch: ""
     property string logFilter: "all"
@@ -94,6 +97,8 @@ Item {
     function applyFrame(frame) {
         if (!frame || !frame.buckets)
             return
+        placementFrameId += 1
+        var recs = ({})
         ensureLists()
         releaseAllLists()
         var buckets = frame.buckets
@@ -115,7 +120,7 @@ Item {
                         continue
                     var entries = []
                     for (var i = 0; i < rows.length; i++) {
-                        entries.push(fillUnitEntry(rows[i], caste))
+                        entries.push(fillUnitEntry(rows[i], caste, key, recs))
                     }
                     lst.instances = entries
                     liveByKey[key] = entries
@@ -136,6 +141,7 @@ Item {
         budgetDrawCalls = used + 10
         lodCounts = lods
         recountEntries(live)
+        instanceRecords = recs
         rememberUnitPositions(buckets)
         var b = frame.budget
         if (b) {
@@ -226,7 +232,8 @@ Item {
             cameraTargetY: cameraTargetY,
             cameraTargetZ: cameraTargetZ,
             selectedUnitId: selectedUnitId,
-            framing: framingName()
+            framing: framingName(),
+            cameraMode: cameraMode
         }
     }
 
@@ -276,6 +283,8 @@ Item {
     }
 
     function syncCameraTargetFromSelection() {
+        if (cameraMode === "fit")
+            return false
         var pos = unitPositionOf(selectedUnitId)
         if (!pos)
             return false
@@ -287,6 +296,7 @@ Item {
         var pos = unitPositionOf(selectedUnitId)
         if (!pos)
             return false
+        cameraMode = "follow"
         setCameraTarget(pos.x, pos.y, pos.z)
         cameraDistance = 7.0
         cameraPitch = pitchDeg(7.0)
@@ -294,6 +304,7 @@ Item {
     }
 
     function fitSwarm() {
+        cameraMode = "fit"
         setCameraTarget(0, 0, 0)
         cameraDistance = 96.0
         cameraPitch = pitchDeg(96.0)
@@ -424,7 +435,7 @@ Item {
         return n
     }
 
-    function fillUnitEntry(row, caste) {
+    function fillUnitEntry(row, caste, key, recs) {
         var e = acquireEntry()
         e.position = Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))
         e.eulerRotation = Qt.vector3d(0, -finiteNum(row.heading_deg), 0)
@@ -436,6 +447,22 @@ Item {
         e.scale = Qt.vector3d(sc, sc, sc)
         e.color = row.color || casteColors[caste]
         e.customData = Qt.vector4d(row.phase || 0, row.claw || 0.45, row.limp || 0, 0)
+        var uid = row && row.unit_id ? row.unit_id : ""
+        if (uid && recs) {
+            if (!recs[uid] || String(key).indexOf(":hull") >= 0) {
+                recs[uid] = {
+                    unit_id: uid,
+                    caste: caste,
+                    modelKey: key || "",
+                    x: e.position.x,
+                    y: e.position.y,
+                    z: e.position.z,
+                    scale: sc,
+                    color: String(e.color),
+                    heading: -finiteNum(row.heading_deg)
+                }
+            }
+        }
         return e
     }
 
@@ -815,13 +842,112 @@ Item {
         }
     }
 
+
+    function _fmtDumpNum(n) {
+        if (n === undefined || n === null)
+            return ""
+        var v = Number(n)
+        if (v !== v)
+            return ""
+        return String(v)
+    }
+
+    function _tryMapFrom3DScene(world) {
+        if (!view || world === undefined || world === null)
+            return null
+        try {
+            return view.mapFrom3DScene(world)
+        } catch (err) {
+            return null
+        }
+    }
+
+    function _tryAppendMatrix(parts, label, node, propName) {
+        if (!node || !parts)
+            return
+        var m = node[propName]
+        if (m === undefined || m === null)
+            return
+        try {
+            if (m.m11 === undefined)
+                return
+            parts.push(label + "=" + m.m11 + "," + m.m12 + "," + m.m13 + "," + m.m14 + "," + m.m21 + "," + m.m22 + "," + m.m23 + "," + m.m24 + "," + m.m31 + "," + m.m32 + "," + m.m33 + "," + m.m34 + "," + m.m41 + "," + m.m42 + "," + m.m43 + "," + m.m44)
+        } catch (err) {
+        }
+    }
+
+    function frameDump() {
+        var rec = (instanceRecords && selectedUnitId) ? instanceRecords[selectedUnitId] : null
+        var remembered = unitPositionOf(selectedUnitId)
+        var sh = freeViewportShift()
+        var aspect = (height > 1 && width > 1) ? (width / height) : Number.NaN
+        var parts = []
+        parts.push("frameId=" + placementFrameId)
+        parts.push("selectedId=" + (selectedUnitId || ""))
+        parts.push("selectedCaste=" + (rec && rec.caste ? rec.caste : ""))
+        parts.push("modelKey=" + (rec && rec.modelKey ? rec.modelKey : ""))
+        parts.push("instanceColor=" + (rec ? String(rec.color || "") : ""))
+        parts.push("instanceScale=" + (rec ? _fmtDumpNum(rec.scale) : ""))
+        parts.push("instanceX=" + (rec ? _fmtDumpNum(rec.x) : ""))
+        parts.push("instanceY=" + (rec ? _fmtDumpNum(rec.y) : ""))
+        parts.push("instanceZ=" + (rec ? _fmtDumpNum(rec.z) : ""))
+        parts.push("instanceHeading=" + (rec ? _fmtDumpNum(rec.heading) : ""))
+        parts.push("rememberedX=" + (remembered ? _fmtDumpNum(remembered.x) : ""))
+        parts.push("rememberedY=" + (remembered ? _fmtDumpNum(remembered.y) : ""))
+        parts.push("rememberedZ=" + (remembered ? _fmtDumpNum(remembered.z) : ""))
+        parts.push("cameraMode=" + cameraMode)
+        parts.push("cameraDistance=" + _fmtDumpNum(cameraDistance))
+        parts.push("cameraPitch=" + _fmtDumpNum(cameraPitch))
+        parts.push("cameraTargetX=" + _fmtDumpNum(cameraTargetX))
+        parts.push("cameraTargetY=" + _fmtDumpNum(cameraTargetY))
+        parts.push("cameraTargetZ=" + _fmtDumpNum(cameraTargetZ))
+        parts.push("cameraFov=" + (cam ? _fmtDumpNum(cam.fieldOfView) : ""))
+        parts.push("cameraAspect=" + _fmtDumpNum(aspect))
+        parts.push("lensShiftX=" + _fmtDumpNum(sh.x))
+        parts.push("lensShiftY=" + _fmtDumpNum(sh.y))
+        if (cam && cam.position) {
+            parts.push("cameraPosX=" + _fmtDumpNum(cam.position.x))
+            parts.push("cameraPosY=" + _fmtDumpNum(cam.position.y))
+            parts.push("cameraPosZ=" + _fmtDumpNum(cam.position.z))
+            parts.push("cameraEulerX=" + _fmtDumpNum(cam.eulerRotation.x))
+            parts.push("cameraEulerY=" + _fmtDumpNum(cam.eulerRotation.y))
+            parts.push("cameraEulerZ=" + _fmtDumpNum(cam.eulerRotation.z))
+        }
+        if (cam && cam.scenePosition) {
+            parts.push("cameraSceneX=" + _fmtDumpNum(cam.scenePosition.x))
+            parts.push("cameraSceneY=" + _fmtDumpNum(cam.scenePosition.y))
+            parts.push("cameraSceneZ=" + _fmtDumpNum(cam.scenePosition.z))
+        }
+        _tryAppendMatrix(parts, "cameraSceneTransform", cam, "sceneTransform")
+        _tryAppendMatrix(parts, "cameraViewMatrix", cam, "viewMatrix")
+        _tryAppendMatrix(parts, "cameraProjection", cam, "projection")
+        _tryAppendMatrix(parts, "cameraProjectionMatrix", cam, "projectionMatrix")
+        if (rec) {
+            var mapped = _tryMapFrom3DScene(Qt.vector3d(rec.x, rec.y, rec.z))
+            if (mapped) {
+                parts.push("projectedInstanceX=" + _fmtDumpNum(mapped.x))
+                parts.push("projectedInstanceY=" + _fmtDumpNum(mapped.y))
+                parts.push("projectedInstanceZ=" + _fmtDumpNum(mapped.z))
+            }
+        }
+        var mappedT = _tryMapFrom3DScene(Qt.vector3d(cameraTargetX, cameraTargetY, cameraTargetZ))
+        if (mappedT) {
+            parts.push("projectedTargetX=" + _fmtDumpNum(mappedT.x))
+            parts.push("projectedTargetY=" + _fmtDumpNum(mappedT.y))
+            parts.push("projectedTargetZ=" + _fmtDumpNum(mappedT.z))
+        }
+        parts.push("viewW=" + _fmtDumpNum(width))
+        parts.push("viewH=" + _fmtDumpNum(height))
+        return parts.join(" ")
+    }
+
     // Named readonly values for external UIA/log reads. Transparent so
     // they do not add chrome or clipped pixels. Empty string if a live
     // property is not a number — never a fabricated default.
     function cameraEvidenceLabel() {
         var ev = cameraEvidence()
         var parts = []
-        var keys = ["cameraDistance", "cameraPitch", "cameraTargetX", "cameraTargetY", "cameraTargetZ", "selectedUnitId", "framing"]
+        var keys = ["cameraDistance", "cameraPitch", "cameraTargetX", "cameraTargetY", "cameraTargetZ", "selectedUnitId", "framing", "cameraMode"]
         for (var i = 0; i < keys.length; i++) {
             var key = keys[i]
             if (ev[key] === undefined || ev[key] === null || ev[key] === "")
@@ -909,6 +1035,26 @@ Item {
         color: "transparent"
         font.pixelSize: 1
         text: root.framingName()
+        Accessible.role: Accessible.StaticText
+        Accessible.ignored: false
+        Accessible.name: text
+    }
+    Text {
+        objectName: "OverseerCameraMode"
+        visible: true
+        color: "transparent"
+        font.pixelSize: 1
+        text: root.cameraMode || ""
+        Accessible.role: Accessible.StaticText
+        Accessible.ignored: false
+        Accessible.name: text
+    }
+    Text {
+        objectName: "OverseerFrameDump"
+        visible: true
+        color: "transparent"
+        font.pixelSize: 1
+        text: root.frameDump()
         Accessible.role: Accessible.StaticText
         Accessible.ignored: false
         Accessible.name: text

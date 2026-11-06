@@ -326,3 +326,101 @@ def test_overseer_focus_projects_selected_unit_to_free_viewport() -> None:
         pos, distance, pitch, pos, width, height, False,
     )
     assert unshifted != (px, py)
+
+
+def _parse_evidence_line(text: str) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for part in str(text or "").split():
+        if "=" in part:
+            key, value = part.split("=", 1)
+            parsed[key] = value
+    return parsed
+
+
+def test_overseer_fit_swarm_does_not_follow_selection_on_refresh(qt_app) -> None:
+    from PySide6.QtWidgets import QWidget
+
+    owner = QWidget()
+    owner.resize(1280, 800)
+    win = SentinelWindow(owner)
+    owner.sentinel_window = win
+    win.resize(1280, 800)
+    scene = win._ensure_scene()
+    assert scene is not None
+    win.show()
+    qt_app.processEvents()
+    root = scene.rootObject()
+    if root is None:
+        teardown_sentinel_window(win)
+        return
+    units = _units()
+    snap = {
+        "metrics": {},
+        "units": units,
+        "castes": [],
+        "recent_receipts": [],
+        "telemetry_log": [],
+    }
+    win.apply_snapshot(snap)
+    qt_app.processEvents()
+    root.selectUnit("SNT-HRV-001")
+    root.focusSelectedUnit()
+    qt_app.processEvents()
+    pos = overseer_runtime.unit_view_pos(units[1])
+    assert abs(float(root.property("cameraTargetX")) - pos[0]) < 1e-3
+    root.fitSwarm()
+    qt_app.processEvents()
+    assert str(root.property("cameraMode")) == "fit"
+    assert str(root.property("selectedUnitId")) == "SNT-HRV-001"
+    assert abs(float(root.property("cameraDistance")) - 96.0) < 1e-6
+    assert abs(float(root.property("cameraTargetX"))) < 1e-6
+    assert abs(float(root.property("cameraTargetZ"))) < 1e-6
+    win.apply_snapshot(snap)
+    qt_app.processEvents()
+    assert str(root.property("selectedUnitId")) == "SNT-HRV-001"
+    assert str(root.property("cameraMode")) == "fit"
+    assert abs(float(root.property("cameraDistance")) - 96.0) < 1e-6
+    assert abs(float(root.property("cameraPitch")) - 55.0) < 1e-6
+    assert abs(float(root.property("cameraTargetX"))) < 1e-6
+    assert abs(float(root.property("cameraTargetY"))) < 1e-6
+    assert abs(float(root.property("cameraTargetZ"))) < 1e-6
+    root.selectUnit("SNT-WRD-001")
+    qt_app.processEvents()
+    assert str(root.property("selectedUnitId")) == "SNT-WRD-001"
+    assert str(root.property("cameraMode")) == "fit"
+    assert abs(float(root.property("cameraTargetX"))) < 1e-6
+    teardown_sentinel_window(win)
+    qt_app.processEvents()
+
+
+def test_overseer_frame_dump_reports_selected_instance(qt_app) -> None:
+    view, root = _view(qt_app)
+    root.applyUnits(_units())
+    qt_app.processEvents()
+    root.selectUnit("SNT-HRV-001")
+    qt_app.processEvents()
+    named = _named_text(root, "OverseerFrameDump")
+    mode = _named_text(root, "OverseerCameraMode")
+    assert named is not None and mode is not None
+    text = str(named.property("text") or "")
+    direct = root.frameDump()
+    parsed = _parse_evidence_line(text)
+    assert parsed.get("selectedId") == "SNT-HRV-001"
+    assert parsed.get("selectedCaste") == "harvester"
+    assert "harvester" in parsed.get("modelKey", "")
+    assert "hull" in parsed.get("modelKey", "")
+    pos = overseer_runtime.unit_view_pos(_units()[1])
+    assert abs(float(parsed["instanceX"]) - pos[0]) < 1e-4
+    assert abs(float(parsed["instanceY"]) - pos[1]) < 1e-4
+    assert abs(float(parsed["instanceZ"]) - pos[2]) < 1e-4
+    assert abs(float(parsed["rememberedX"]) - pos[0]) < 1e-4
+    assert abs(float(parsed["rememberedY"]) - pos[1]) < 1e-4
+    assert abs(float(parsed["rememberedZ"]) - pos[2]) < 1e-4
+    assert parsed.get("cameraMode") == "follow"
+    assert "8fd3ff" in parsed.get("instanceColor", "").lower()
+    assert int(parsed["frameId"]) >= 1
+    assert parsed.get("cameraFov") == "35"
+    assert str(mode.property("text")) == "follow"
+    assert "selectedId=SNT-HRV-001" in str(direct)
+    view.deleteLater()
+    qt_app.processEvents()

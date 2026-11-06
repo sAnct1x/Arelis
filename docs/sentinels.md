@@ -68,19 +68,26 @@ with a factor of 1.18 per notch, rubber-banded 8 percent past the 6 to
 110 m limits. Pitch follows the approved marks: 22 degrees across 6 to
 9 m, 36 degrees at 32 m, and 55 degrees at 96 m and at 110 m. Focus
 dollies to 7 m (inside the 6 to 9 m close band) on the selected unit.
-Fit swarm aims at the hive at 96 m (local, no backend POST). A wheel hit-point, when set, keeps that
+Fit swarm sets camera mode to fit and aims at the hive at 96 m (local, no backend POST). While the mode is fit, live snapshot refreshes and inspector selection changes do not move the camera target back onto the selected unit; Focus sets camera mode to follow and frames that unit again. The inspector stays on the selected unit either way. A wheel hit-point, when set, keeps that
 world point fixed (new target = P + (target - P) * (d_new / d_old)).
 A lens shift centres the swarm in the panel-free viewport.
 
 Babbage and other reports must read the live QML values
 `cameraDistance`, `cameraPitch`, `cameraTargetX`, `cameraTargetY`,
-`cameraTargetZ`, `selectedUnitId`, and `framing` from the named
+`cameraTargetZ`, `selectedUnitId`, `framing`, and `cameraMode` from the named
 readonly texts `OverseerCameraDistance`, `OverseerCameraPitch`,
 `OverseerCameraTargetX`, `OverseerCameraTargetY`, `OverseerCameraTargetZ`,
-`OverseerCameraSelectedUnitId`, `OverseerCameraFraming`, and the combined
+`OverseerCameraSelectedUnitId`, `OverseerCameraFraming`,
+`OverseerCameraMode`, and the combined
 `OverseerCameraEvidence` line (`cameraDistance=… cameraPitch=…` and the
-other live keys). The host `camera_report()` object and `cameraEvidence()`
-match those values. The Sentinels host logger writes the same keys after
+other live keys). The same-frame instance dump is the named
+`OverseerFrameDump` line and `frameDump()` (`frameId`, `selectedId`,
+`selectedCaste`, `modelKey`, instance position and colour after the
+instance write, remembered position, camera position and target, FOV,
+aspect, lens shift, and `mapFrom3DScene` projections when Qt exposes
+them). Do not treat a later HTTP `unit_view_pos` sample as the same
+instant as that dump. The host `camera_report()` object and `cameraEvidence()`
+match the camera keys. The Sentinels host logger writes the same keys after
 Focus or Fit swarm (`overseer cameraDistance=…`). If the scene is down
 those fields are absent — do not fill them with defaults. Name a still
 from those live values: `overseer_closezoom_*` only when distance is 6 to
