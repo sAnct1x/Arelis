@@ -328,6 +328,15 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
         src = ring.property("source")
         src_s = src.toString() if src is not None and hasattr(src, "toString") else str(src or "")
         assert "#Cylinder" not in src_s
+
+    def _instance_visibility(root):
+        found = {}
+        for child in root.findChildren(QObject):
+            name = child.objectName()
+            if name.startswith("instanced-") or name == "entryParticleCloud":
+                found[name] = bool(child.property("visible"))
+        return found
+
     report_map = overseer_runtime.load_mesh_report(assets / "export_report.json")
     # 100 wardens at wide distance: one caste, LOD2, three submeshes.
     wide = [
@@ -348,6 +357,14 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert inst.property("unitDrawCalls") == 3
     assert inst.property("budgetTris") == expected_tris
     assert _qml_list(inst.property("lodCounts"))[2] == 100
+    vis = _instance_visibility(inst)
+    for part in ("hull", "emissive", "lens"):
+        assert vis[f"instanced-warden:2:{part}"] is True
+        assert vis[f"instanced-warden:0:{part}"] is False
+        assert vis[f"instanced-warden:1:{part}"] is False
+        for caste in ("stalker", "harvester", "sanitizer", "tripwire"):
+            for lod in range(3):
+                assert vis[f"instanced-{caste}:{lod}:{part}"] is False
 
     # Five castes at wide: 15 instanced models (5 x 3 parts).
     mixed = []
@@ -360,6 +377,12 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     inst.applyFrame(mixed_frame)
     qt_app.processEvents()
     assert inst.property("unitDrawCalls") == 15
+    vis = _instance_visibility(inst)
+    for caste in overseer_runtime.CASTES:
+        for part in ("hull", "emissive", "lens"):
+            assert vis[f"instanced-{caste}:2:{part}"] is True
+            assert vis[f"instanced-{caste}:0:{part}"] is False
+            assert vis[f"instanced-{caste}:1:{part}"] is False
 
     close = [{"unit_id": "hero", "caste": "warden", "position": [0, 0.9, 0], "scale": 1.0}]
     close_frame = overseer_runtime.build_frame(close, 7.0, 1306, report=report_map)
@@ -623,10 +646,12 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     inst.setParticles(visible0)
     qt_app.processEvents()
     hidden = _entry_count(inst)
+    assert _instance_visibility(inst)["entryParticleCloud"] is False
     inst.setParticles([{"x": 1, "y": 0, "z": 0, "visible": 1}])
     qt_app.processEvents()
     shown = _entry_count(inst)
     assert shown == hidden + 1
+    assert _instance_visibility(inst)["entryParticleCloud"] is True
 
     # Repeated applyFrame / setParticles must reuse entries (bounded QObject count).
     fifty = overseer_runtime.build_frame(

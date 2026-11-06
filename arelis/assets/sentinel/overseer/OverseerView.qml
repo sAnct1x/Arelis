@@ -35,6 +35,7 @@ Item {
     property var lists: ({})
     property var descriptors: []
     property var particleList: null
+    property var liveCounts: ({})
     readonly property var casteIds: ["warden", "stalker", "harvester", "sanitizer", "tripwire"]
     readonly property var casteColors: ({
         warden: "#a78bfa", stalker: "#e879f9", harvester: "#8fd3ff",
@@ -72,6 +73,7 @@ Item {
         ensureLists()
         releaseAllLists()
         var buckets = frame.buckets
+        var counts = ({})
         var used = 0
         var tris = 0
         var lods = [0, 0, 0]
@@ -93,6 +95,7 @@ Item {
                     }
                     lst.instances = entries
                     liveByKey[key] = entries
+                    counts[key] = entries.length
                     live += entries.length
                     if (entries.length > 0) {
                         used += 1
@@ -102,6 +105,8 @@ Item {
                 }
             }
         }
+        counts["__particles"] = 0
+        liveCounts = counts
         budgetTris = tris
         unitDrawCalls = used
         budgetDrawCalls = used + 10
@@ -289,6 +294,13 @@ Item {
         }
         particleList.instances = entries
         liveByKey["__particles"] = entries
+        var nextCounts = ({})
+        var src = liveCounts || ({})
+        var ckeys = Object.keys(src)
+        for (var ci = 0; ci < ckeys.length; ci++)
+            nextCounts[ckeys[ci]] = src[ckeys[ci]]
+        nextCounts["__particles"] = entries.length
+        liveCounts = nextCounts
         recountEntries(liveEntryCountFromLists())
     }
 
@@ -479,6 +491,7 @@ Item {
                 required property var modelData
                 objectName: "instanced-" + modelData.key
                 source: modelData.source
+                visible: (root.liveCounts[modelData.key] || 0) > 0
                 instancing: root.lists[modelData.key]
                 materials: [
                     CustomMaterial {
@@ -501,6 +514,7 @@ Item {
             // #Sphere is 100 units; this model scale keeps a leaked
             // instance scale of 1 at 0.12 m instead of 100 m.
             scale: Qt.vector3d(0.0012, 0.0012, 0.0012)
+            visible: (root.liveCounts["__particles"] || 0) > 0
             instancing: root.particleList
             materials: PrincipledMaterial {
                 lighting: PrincipledMaterial.NoLighting
