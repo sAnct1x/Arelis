@@ -68,7 +68,7 @@ def sanitize(text: str) -> str:
 def diagnostic_output(directory: Path) -> str:
     """Only sanitized, size-bounded diagnostic data leaves the private tempdir."""
     parts = []
-    for name in ("render.jsonl", "native.raw"):
+    for name in ("render.jsonl", "native.raw", "parent.jsonl"):
         path = directory / name
         if path.exists():
             with path.open("rb") as source:
@@ -84,17 +84,50 @@ def run_child(cmd, *, cwd, env, capture_output, text, timeout, check):
     with subprocess.Popen(
         cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text
     ) as process:
+        started = time.monotonic()
+        deadline = min(float(env["ARELIS_OVERSEER_DEADLINE"]), started + timeout)
+        stopped = threading.Event()
+        event_lock = threading.Lock()
+
+        def event(kind, **data):
+            # Parent-owned, finite milestone stream, never environment/locals.
+            row = {"event": kind, "seconds": time.monotonic() - started, **data}
+            with event_lock, (directory / "parent.jsonl").open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(row) + "\n")
+                stream.flush()
 
         def snapshot():
-            if (
-                sys.platform != "win32"
-                and (directory / "signal-ready").exists()
-                and process.poll() is None
-            ):
-                try:
-                    process.send_signal(signal.SIGUSR1)
-                except ProcessLookupError:
-                    pass
+            event("snapshot-attempt")
+            if sys.platform == "win32":
+                event("snapshot-python-timer-only")
+                return
+            waiting = False
+            # Do not permanently lose the request if registration follows the
+            # one-shot45s attempt. Never send before ready or past the ORIGINAL
+            # communicate deadline; polling changes no timeout or exit guard.
+            while not stopped.is_set() and time.monotonic() < deadline:
+                if process.poll() is not None:
+                    event("snapshot-child-already-exited")
+                    return
+                marker = directory / "signal-ready"
+                if marker.exists():
+                    try:
+                        ready = json.loads(marker.read_text())
+                    except (OSError, ValueError):
+                        ready = {}
+                    if ready.get("pid") == process.pid:
+                        event("snapshot-ready-observed", registered_monotonic=ready["monotonic"])
+                        try:
+                            process.send_signal(signal.SIGUSR1)
+                            event("snapshot-sent")
+                        except ProcessLookupError:
+                            event("snapshot-child-exited-before-send")
+                        return
+                if not waiting:
+                    event("snapshot-waiting-for-registration")
+                    waiting = True
+                stopped.wait(0.02)
+            event("snapshot-stopped-without-send")
 
         timer = threading.Timer(
             max(0.001, float(env["ARELIS_OVERSEER_DEADLINE"]) - time.monotonic() - 15), snapshot
@@ -106,9 +139,13 @@ def run_child(cmd, *, cwd, env, capture_output, text, timeout, check):
         except subprocess.TimeoutExpired as exc:
             process.kill()
             exc.stdout, exc.stderr = process.communicate()
+            event("child-timeout-killed", returncode=process.returncode)
             raise
         finally:
+            stopped.set()
             timer.cancel()
+            timer.join(timeout=0.1)
+        event("child-exit", returncode=process.returncode)
         return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
 
 
@@ -165,7 +202,9 @@ class Diagnostics:
         # collect a GIL-independent dump; Windows has a best-effort Python timer.
         if sys.platform != "win32":
             faulthandler.register(signal.SIGUSR1, file=self.trace, all_threads=True)
-            (self.directory / "signal-ready").touch()
+            (self.directory / "signal-ready").write_text(
+                json.dumps({"pid": os.getpid(), "monotonic": time.monotonic()})
+            )
         else:
             self.timer = threading.Timer(
                 seconds, lambda: faulthandler.dump_traceback(file=self.trace, all_threads=True)

@@ -31,16 +31,23 @@ def test_diagnostics_only_persists_sanitized_bounded_metadata(tmp_path):
     )
 
 
-@pytest.mark.parametrize("mode", ["fatal", "timeout"])
+@pytest.mark.parametrize("mode", ["fatal", "python-fatal", "timeout"])
 def test_diagnostics_survives_native_failure_and_predeadline_stack(tmp_path, mode):
     script = """
 import sys,time
 from pathlib import Path
-from PySide6.QtCore import qFatal
 from tests.overseer_render_diagnostics import Diagnostics
-out=Diagnostics(Path(sys.argv[1]));out.arm_trace(0.1);out.install_messages()
+out=Diagnostics(Path(sys.argv[1]))
+if sys.argv[2] == "timeout" and sys.platform != "win32":time.sleep(.7)
+out.arm_trace(0.1)
 out.record("before-failure")
-if sys.argv[2] == "fatal":qFatal("QRhi context fatal token=HIDDEN /private/user/file")
+if sys.argv[2] == "fatal":
+ from PySide6.QtCore import qFatal
+ out.install_messages()
+ qFatal("QRhi context fatal token=HIDDEN /private/user/file")
+elif sys.argv[2] == "python-fatal":
+ import os
+ os.abort()
 else:
  if sys.platform != "win32":
   import ctypes
@@ -53,7 +60,7 @@ else:
         ARELIS_OVERSEER_DIAGNOSTICS=str(tmp_path),
         ARELIS_OVERSEER_DEADLINE=str(time.monotonic() + 15.5),
     )
-    if mode == "fatal":
+    if mode != "timeout":
         result = subprocess.run(
             [sys.executable, "-c", script, str(tmp_path), mode],
             env=env,
@@ -76,11 +83,31 @@ else:
     assert "before-failure" in output
     assert "HIDDEN" not in output and "/private/user" not in output
     assert "native.raw:" in output
-    assert 'File "<string>"' in output
+    # Actual Windows Qt fatal delivery can terminate without calling Python's
+    # fatal handler. Qt severity+nonzero/persistence is still mandatory; the
+    # separate public Python os.abort route retains the stack-delivery contract.
+    if mode != "fatal" or sys.platform != "win32":
+        assert 'File "<string>"' in output
     if mode == "fatal":
         assert "QRhi context fatal" in output
+        rows = [json.loads(line) for line in (tmp_path / "render.jsonl").read_text().splitlines()]
+        assert any(row.get("event") == "qt" and row.get("kind") == "3" for row in rows)
+    elif mode == "python-fatal":
+        assert "Fatal Python error" in output
     else:
         assert "most recent call first" in output
+        if sys.platform != "win32":
+            parent = [
+                json.loads(line) for line in (tmp_path / "parent.jsonl").read_text().splitlines()
+            ]
+            kinds = [row["event"] for row in parent]
+            assert "snapshot-waiting-for-registration" in kinds
+            assert (
+                kinds.index("snapshot-ready-observed")
+                < kinds.index("snapshot-sent")
+                < kinds.index("child-timeout-killed")
+            )
+            assert next(row["seconds"] for row in parent if row["event"] == "snapshot-sent") < 1.5
 
 
 def test_diagnostic_qt_handler_preserves_original_capture_and_severity(tmp_path):
