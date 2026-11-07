@@ -315,7 +315,7 @@ class SpatialHands(QObject):
     @Slot(object)
     def _on_hands(self, frame: HandsFrame) -> None:
         sender = self.sender()
-        if sender is not None and sender is not self._worker:
+        if self._worker is None or sender is not self._worker:
             return
         if not self.allowed:
             return

@@ -95,6 +95,10 @@ def test_delayed_close_retains_worker_through_restart_and_owner_destruction(qt_a
             until(lambda: len(destroyed) == 1)
             assert reference() is None or not shiboken6.isValid(reference())
             assert owner.tracking and owner._worker is second
+            # A queued frame whose retired sender has already been destroyed
+            # must not be treated as a frame from the newly active worker.
+            owner._on_hands(None)
+            assert owner._last_frame is None
             second.destroyed.connect(lambda: destroyed.append(QThread.currentThread()))
             owner.stop_track()
             assert closing[1].wait(2)
