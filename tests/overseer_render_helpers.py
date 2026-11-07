@@ -11,7 +11,10 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
+
+from tests.overseer_render_diagnostics import diagnostic_output
 
 _ROOT = Path(__file__).resolve().parents[1]
 _CHILD = "ARELIS_OVERSEER_RENDER_NODE"
@@ -34,7 +37,17 @@ def isolated_render(*, software: bool = False):
                 # This probe contains only the 2D HUD, not the Quick3D scene.
                 # Qt's software Quick backend supports offscreen pixel grabs.
                 env["QT_QUICK_BACKEND"] = "software"
-            cmd = [sys.executable, "-m", "pytest", "-o", "addopts=", "-q", node]
+            cmd = [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-o",
+                "addopts=",
+                "-p",
+                "tests.overseer_render_diagnostics",
+                "-q",
+                node,
+            ]
             try:
                 import coverage
             except ImportError:
@@ -43,6 +56,9 @@ def isolated_render(*, software: bool = False):
                 active = coverage.Coverage.current()
             with tempfile.TemporaryDirectory(prefix="overseer-render-") as tmp:
                 data_path = str(Path(tmp) / ".coverage")
+                env["ARELIS_OVERSEER_DIAGNOSTICS"] = tmp
+                # Logging only: never select a different QPA/RHI/render backend.
+                env["QSG_INFO"] = "1"
                 if active is not None:
                     cmd = [
                         sys.executable,
@@ -55,20 +71,27 @@ def isolated_render(*, software: bool = False):
                         "-m",
                         *cmd[2:],
                     ]
-                result = subprocess.run(
-                    cmd,
-                    cwd=_ROOT,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    check=False,
-                )
+                env["ARELIS_OVERSEER_DEADLINE"] = str(time.monotonic() + 60)
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        cwd=_ROOT,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        check=False,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    exc.add_note(diagnostic_output(Path(tmp)))
+                    raise
                 if active is not None and Path(data_path).is_file():
                     data = coverage.CoverageData(basename=data_path)
                     data.read()
                     active.get_data().update(data)
                 output = result.stdout + result.stderr
+                if result.returncode != 0 or "1 passed" not in result.stdout:
+                    output += diagnostic_output(Path(tmp))
                 assert result.returncode == 0, output
                 assert "1 passed" in result.stdout, output
 
