@@ -14,7 +14,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from tests.overseer_render_diagnostics import diagnostic_output
+from tests.overseer_render_diagnostics import diagnostic_output, run_child
 
 _ROOT = Path(__file__).resolve().parents[1]
 _CHILD = "ARELIS_OVERSEER_RENDER_NODE"
@@ -73,7 +73,7 @@ def isolated_render(*, software: bool = False):
                     ]
                 env["ARELIS_OVERSEER_DEADLINE"] = str(time.monotonic() + 60)
                 try:
-                    result = subprocess.run(
+                    result = run_child(
                         cmd,
                         cwd=_ROOT,
                         env=env,

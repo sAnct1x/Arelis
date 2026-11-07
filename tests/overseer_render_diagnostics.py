@@ -11,6 +11,8 @@ import faulthandler
 import json
 import os
 import re
+import signal
+import subprocess
 import sys
 import threading
 import time
@@ -57,6 +59,41 @@ def diagnostic_output(directory: Path) -> str:
     return "\nRender diagnostics (native C stack unavailable; no memory dump):\n" + "\n".join(parts)
 
 
+def run_child(cmd, *, cwd, env, capture_output, text, timeout, check):
+    """Same communicate/kill bound as subprocess.run; one diagnostic-only timer."""
+    assert capture_output and text and not check
+    directory = Path(env[_DIRECTORY])
+    with subprocess.Popen(
+        cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text
+    ) as process:
+
+        def snapshot():
+            if (
+                sys.platform != "win32"
+                and (directory / "signal-ready").exists()
+                and process.poll() is None
+            ):
+                try:
+                    process.send_signal(signal.SIGUSR1)
+                except ProcessLookupError:
+                    pass
+
+        timer = threading.Timer(
+            max(0.001, float(env["ARELIS_OVERSEER_DEADLINE"]) - time.monotonic() - 15), snapshot
+        )
+        timer.daemon = True
+        timer.start()
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            exc.stdout, exc.stderr = process.communicate()
+            raise
+        finally:
+            timer.cancel()
+        return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+
+
 class Diagnostics:
     def __init__(self, directory: Path):
         self.directory = directory
@@ -66,6 +103,7 @@ class Diagnostics:
         self.previous = None
         self.trace = None
         self.views = 0
+        self.timer = None
 
     def record(self, event: str, **data):
         def clean(value):
@@ -93,8 +131,8 @@ class Diagnostics:
                 self.size += len(line.encode())
 
     def arm_trace(self, seconds: float = 45):
-        # A native watchdog, independent of the GIL/event loop, before the
-        # parent's unchanged60s limit. Never exit/turn a failure into a pass.
+        # Native fault stacks only, never locals/memory. The independent
+        # diagnostic trigger never changes an existing watchdog or verdict.
         if sys.platform != "win32":
             import resource
 
@@ -104,9 +142,25 @@ class Diagnostics:
         self.trace = (self.directory / "native.raw").open("wb")
         options = {"c_stack": False} if sys.version_info >= (3, 14) else {}
         faulthandler.enable(file=self.trace, all_threads=True, **options)
-        faulthandler.dump_traceback_later(seconds, file=self.trace, repeat=False, exit=False)
+        # faulthandler has ONE native deadline. Never replace conftest's
+        # existing180s exit guard (or pytest-timeout). POSIX parent signals
+        # collect a GIL-independent dump; Windows has a best-effort Python timer.
+        if sys.platform != "win32":
+            faulthandler.register(signal.SIGUSR1, file=self.trace, all_threads=True)
+            (self.directory / "signal-ready").touch()
+        else:
+            self.timer = threading.Timer(
+                seconds, lambda: faulthandler.dump_traceback(file=self.trace, all_threads=True)
+            )
+            self.timer.daemon = True
+            self.timer.start()
         self.record(
-            "watchdog-armed", delay_seconds=seconds, native_c_stack="unavailable; not collected"
+            "snapshot-ready",
+            delay_seconds=seconds,
+            native_c_stack="unavailable; not collected",
+            capture_mode="native POSIX signal"
+            if sys.platform != "win32"
+            else "Python timer; requires available GIL",
         )
 
     def install_messages(self):
@@ -263,7 +317,8 @@ def pytest_runtest_logreport(report):
 def pytest_sessionfinish(session, exitstatus):
     if _diagnostics:
         _diagnostics.record("session-finish", exitstatus=exitstatus)
-        faulthandler.cancel_dump_traceback_later()
+        if _diagnostics.timer:
+            _diagnostics.timer.cancel()
         # Keep fatal handling and signal observations alive through Qt shutdown.
 
 

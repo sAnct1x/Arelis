@@ -19,7 +19,7 @@ def test_isolated_render_propagates_native_and_assertion_failures(monkeypatch, c
         Diagnostics(Path(kwargs["env"]["ARELIS_OVERSEER_DIAGNOSTICS"])).record("before-fatal")
         return SimpleNamespace(returncode=code, stdout=output, stderr="")
 
-    monkeypatch.setattr(subprocess, "run", failed)
+    monkeypatch.setattr("tests.overseer_render_helpers.run_child", failed)
     with pytest.raises(AssertionError, match=output) as error:
         isolated_render()(test_isolated_render_propagates_native_and_assertion_failures)()
     assert "before-fatal" in str(error.value)
@@ -33,7 +33,7 @@ def test_isolated_render_bounds_child_and_selects_software_only_when_requested(m
         calls.append((cmd, kwargs))
         return SimpleNamespace(returncode=0, stdout="1 passed", stderr="")
 
-    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr("tests.overseer_render_helpers.run_child", run)
     monkeypatch.setenv("PYTEST_ADDOPTS", "-n8 -k never_matches")
     isolated_render(software=True)(
         test_isolated_render_bounds_child_and_selects_software_only_when_requested
@@ -60,7 +60,7 @@ def test_isolated_render_timeout_is_failure(monkeypatch):
         )
         raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
-    monkeypatch.setattr(subprocess, "run", hang)
+    monkeypatch.setattr("tests.overseer_render_helpers.run_child", hang)
     with pytest.raises(subprocess.TimeoutExpired) as error:
         isolated_render()(test_isolated_render_timeout_is_failure)()
     assert error.value.timeout == 60

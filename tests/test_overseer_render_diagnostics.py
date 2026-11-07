@@ -4,11 +4,13 @@ import json
 import os
 import subprocess
 import sys
+import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from tests.overseer_render_diagnostics import Diagnostics, diagnostic_output, sanitize
+from tests.overseer_render_diagnostics import Diagnostics, diagnostic_output, run_child, sanitize
 
 
 def test_diagnostics_only_persists_sanitized_bounded_metadata(tmp_path):
@@ -39,9 +41,18 @@ from tests.overseer_render_diagnostics import Diagnostics
 out=Diagnostics(Path(sys.argv[1]));out.arm_trace(0.1);out.install_messages()
 out.record("before-failure")
 if sys.argv[2] == "fatal":qFatal("QRhi context fatal token=HIDDEN /private/user/file")
-else:time.sleep(20)
+else:
+ if sys.platform != "win32":
+  import ctypes
+  libc=ctypes.PyDLL(None)
+  while True:libc.sleep(20)  # Hold the GIL: parent/native signal still dumps.
+ else:time.sleep(20)
 """
-    env = dict(os.environ)
+    env = dict(
+        os.environ,
+        ARELIS_OVERSEER_DIAGNOSTICS=str(tmp_path),
+        ARELIS_OVERSEER_DEADLINE=str(time.monotonic() + 15.5),
+    )
     if mode == "fatal":
         result = subprocess.run(
             [sys.executable, "-c", script, str(tmp_path), mode],
@@ -52,11 +63,14 @@ else:time.sleep(20)
         assert result.returncode != 0
     else:
         with pytest.raises(subprocess.TimeoutExpired):
-            subprocess.run(
+            run_child(
                 [sys.executable, "-c", script, str(tmp_path), mode],
+                cwd=Path.cwd(),
                 env=env,
                 capture_output=True,
-                timeout=1,
+                text=True,
+                check=False,
+                timeout=1.5,
             )
     output = diagnostic_output(tmp_path)
     assert "before-failure" in output
@@ -66,7 +80,7 @@ else:time.sleep(20)
     if mode == "fatal":
         assert "QRhi context fatal" in output
     else:
-        assert "Timeout" in output
+        assert "most recent call first" in output
 
 
 def test_diagnostic_qt_handler_preserves_original_capture_and_severity(tmp_path):
@@ -78,3 +92,19 @@ def test_diagnostic_qt_handler_preserves_original_capture_and_severity(tmp_path)
     diag.message(3, context, original)
     assert captured == [(3, context, original)]
     assert "HIDDEN" not in (tmp_path / "render.jsonl").read_text()
+
+
+def test_diagnostic_snapshot_does_not_replace_existing_native_exit_guard(tmp_path):
+    script = """
+import faulthandler,sys,time
+from pathlib import Path
+from tests.overseer_render_diagnostics import Diagnostics
+faulthandler.dump_traceback_later(0.2, exit=True, file=sys.stderr)
+Diagnostics(Path(sys.argv[1])).arm_trace(0.1)
+time.sleep(20)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)], capture_output=True, timeout=3
+    )
+    assert result.returncode == 1
+    assert b"Timeout" in result.stderr
