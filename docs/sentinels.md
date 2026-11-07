@@ -7,8 +7,112 @@ the mission picker, and the searchable log console.
 ## Opening it
 
 View menu, then **Sentinels**. In Filament the same item is in the field
-menu. It opens as its own window, separate from the main one, and takes
-its colours from the theme you are using (Night, Sodium, or Filament).
+menu. A small mote below the orbit opens it too. The window sits as an
+inset over the main plate (no OS frame) and leaves a strip on the right
+uncovered. It takes its colours from the theme you are using (Night,
+Sodium, or Filament). While it is open, Arelis and the orbit tree fade
+to about 20 percent. Closing it, quitting Arelis, or an error that
+cannot show the page restores them. Esc or the close mote on the inset
+closes it.
+
+The view is a Qt Quick 3D Overseer. Live units from the hive snapshot
+are drawn as instanced Iris LOD meshes (about 12k / 4k / 1k triangles
+per unit), one model per caste, LOD, and part, with caste colour and
+claw opening on each instance. If a hundred units would go over the
+300k triangle ceiling, farther units drop to a coarser LOD or are
+culled. Tentacle motion is a vertex wave on the hull and the glow, driven
+by each unit's phase plus a time uniform, not CPU skinning. The glow
+writes clip position from that waved mesh; the lens writes clip
+position from the mesh as modeled, so those unshaded parts stay on
+the units instead of stretching into a covering plate or stray streaks. The wheel,
+trackpad, and + / - keys dolly the camera between 6 m and 110 m with
+the approved rubber-band limits. Opening the window follows the entry
+timing (mote, edge, fill, reveal, then panels); closing reverses it.
+Reduced motion uses a short crossfade. A native HUD sits on the view:
+a pill bar with live unit and caste counts plus Warrants and Threats
+when the hive reports them, a grouped Swarm list (search, group by
+caste, task or ring, 44 px rows, engaged first), an inspector for the
+selected unit, and a forensic console for live logs and mission
+dispatch. Inspector actions and dispatch use the hive's existing
+command paths; anything the snapshot does not provide is shown as
+unavailable. Recall is unavailable: caste scale-down is not a per-unit
+recall and can affect a different unit. Focus frames the selected unit
+from its snapshot position (local camera only; no new hive route).
+Retask is unavailable:
+the existing dispatch_task path can acquire a different unit if the
+selected one is gone, and there is no fail-closed per-unit retask
+route. Retire posts retire_unit for that unit. Emergency stop posts
+the existing halt and cannot restore it from this HUD. The inspector hides past 70 percent zoom until you select
+a unit. Each swarm row has an accessible name and can be invoked to
+select that unit; the inspector stays on the selected unit across live
+snapshot updates, including at far zoom. The swarm footer has Deploy
+(existing caste scale-up) and Recall, which stays unavailable. Mission
+mode and other combo boxes use the dark Filament control fill, text,
+and popup. Unavailable actions (Recall and Retask) stay
+disabled in the widget and in accessibility; the host still refuses them.
+Focus is enabled when a unit is selected.
+The inspector card exposes named fields and actions. The inspector title
+is the selected unit id and caste, matching the mid-zoom still, and those
+names stay available to accessibility. The swarm list uses a standard
+vertical scroll bar so later groups stay reachable by scrolling while
+other headers stay expanded; collapsing other groups is not required to
+reach them. The bar's thumb is Filament violet (`#8b6cf2`) on a dark
+track (`#1c1430`), not a light system control. The current caste header
+stays pinned at the top of the list while you scroll through that group. The Swarm list, inspector, console, and top bar use the designed
+Filament panel fill `#0e0920` at full opacity so the 3D scene stays
+behind those plates instead of drawing through list rows or the
+inspector. Unselected rows use that same fill (selected rows stay
+`#2a1a4a`). Selecting a unit aims the camera at that unit's snapshot position
+(not the hive). Wheel and trackpad dolly along the view axis at 35 mm
+with a factor of 1.18 per notch, rubber-banded 8 percent past the 6 to
+110 m limits. Pitch follows the approved marks: 22 degrees across 6 to
+9 m, 36 degrees at 32 m, and 55 degrees at 96 m and at 110 m. Focus
+dollies to 7 m (inside the 6 to 9 m close band) on the selected unit.
+Fit swarm sets camera mode to fit and aims at the hive at 96 m (local, no backend POST). While the mode is fit, live snapshot refreshes and inspector selection changes do not move the camera target back onto the selected unit; Focus sets camera mode to follow and frames that unit again. The inspector stays on the selected unit either way. A wheel hit-point, when set, keeps that
+world point fixed (new target = P + (target - P) * (d_new / d_old)).
+A lens shift centres the swarm in the panel-free viewport.
+The camera near clipping plane is explicitly 1 m (Qt defaults to 10 m,
+which clips the subject at the approved 6 to 9 m close distances). This is
+not a dolly limit: Focus remains 7 m / 22 degrees with a 35 degree FOV;
+the far clipping plane stays at Qt's 10000 m default. At the nearest 6 m
+camera position, the 1 m plane leaves 5 m toward the camera from the
+selected origin. This gives room for the body and close appendages without
+requiring the complete heading-dependent LOD0 tail AABB (about 8.8 m long)
+to fit at every orientation. It is a geometric clipping policy, not a
+per-frame artifact clamp or a shift to the mesh pivot. Remeasure the
+painted subject after clipping is corrected; a centered 60 percent close
+portrait and actual-machine validation are not implied by this setting.
+
+Babbage and other reports must read the live QML values
+`cameraDistance`, `cameraPitch`, `cameraTargetX`, `cameraTargetY`,
+`cameraTargetZ`, `selectedUnitId`, `framing`, and `cameraMode` from the named
+readonly texts `OverseerCameraDistance`, `OverseerCameraPitch`,
+`OverseerCameraTargetX`, `OverseerCameraTargetY`, `OverseerCameraTargetZ`,
+`OverseerCameraSelectedUnitId`, `OverseerCameraFraming`,
+`OverseerCameraMode`, and the combined
+`OverseerCameraEvidence` line (`cameraDistance=… cameraPitch=…` and the
+other live keys). The same-frame instance dump is the named
+`OverseerFrameDump` line and `frameDump()` (`frameId`, `selectedId`,
+`selectedCaste`, `modelKey`, instance position and colour after the
+instance write, remembered position, camera position and target, FOV,
+aspect, lens shift, and `mapFrom3DScene` projections when Qt exposes
+them). Do not treat a later HTTP `unit_view_pos` sample as the same
+instant as that dump. The host `camera_report()` object and `cameraEvidence()`
+match the camera keys. The Sentinels host logger writes the same keys after
+Focus or Fit swarm (`overseer cameraDistance=…`). If the scene is down
+those fields are absent — do not fill them with defaults. Name a still
+from those live values: `overseer_closezoom_*` only when distance is 6 to
+9 m, mid near 32 m, wide near 96 m. Nondestructive test inputs:
+`selectUnit`, `focusSelectedUnit`, `applyWheel`, `setWheelPivot`,
+`fitSwarm`, and the accessible `OverseerAction_fitSwarm` control
+(Accessible name `Fit swarm`, local, no POST; invoke the press action or
+click). Do not invoke Deploy, Retire, EMP, Recall, or Retask to move the
+camera. Cursor-pick on the rail is not claimed complete.
+
+theme.id (sodium metadata vs Filament pixels) and leftover hive-specular
+clips on settled stills are separate appearance work, not claimed fixed
+by this camera batch. Visual review, load, and frame timing on a real
+machine have not been accepted yet.
 
 ## When Sentinel is offline
 
