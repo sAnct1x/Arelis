@@ -34,13 +34,31 @@ _ENV = (
 )
 
 
+_CREDENTIAL = re.compile(
+    r"""(?ix)
+    (?P<key>["']?\b(?:password|token|secret|authorization|proxy[-_]authorization|
+        cookie|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)\b["']?)
+    (?P<separator>\s*[:=]\s*)
+    (?P<value>
+        "(?:\\.|[^"\\])*" | '(?:\\.|[^'\\])*' |
+        (?:bearer|basic)\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}"']+) |
+        [^\s,;}"']+ |
+        ["'][^\n]*
+    )
+    """
+)
+
+
+def _redact_credential(match: re.Match) -> str:
+    value = match.group("value")
+    # Preserve valid quoted/JSON field structure, never a credential value.
+    quote = value[0] if value[0] in "\"'" else ""
+    return match.group("key") + match.group("separator") + quote + "<redacted>" + quote
+
+
 def sanitize(text: str) -> str:
     text = text.replace(str(_ROOT), "<repo>").replace(str(_ROOT).replace("\\", "/"), "<repo>")
-    text = re.sub(
-        r"(?i)(password|token|secret|authorization|cookie|api[_-]?key)\s*[:=]\s*[^\s,;\"\\]+",
-        r"\1=<redacted>",
-        text,
-    )
+    text = _CREDENTIAL.sub(_redact_credential, text)
     text = re.sub(r"https?://[^\s]+", "<url>", text)
     text = re.sub(r"[A-Za-z]:[\\/][^\s\"'<>]+|(?<![\w<>:])/(?!/)[^\s\"'<>]+", "<path>", text)
     text = re.sub(r"0x[0-9a-fA-F]+", "<address>", text)

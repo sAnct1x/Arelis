@@ -108,3 +108,46 @@ time.sleep(20)
     )
     assert result.returncode == 1
     assert b"Timeout" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "credential",
+    [
+        'token="DUMMY_SENSITIVE_VALUE"',
+        "token='DUMMY_SENSITIVE_VALUE'",
+        '{"token": "DUMMY_SENSITIVE_VALUE"}',
+        "{'token': 'DUMMY_SENSITIVE_VALUE'}",
+        "Authorization: Bearer DUMMY_SENSITIVE_VALUE",
+        "Authorization: Basic DUMMY_SENSITIVE_VALUE",
+        'authorization = bearer "DUMMY_SENSITIVE_VALUE"',
+        "AUTHORIZATION: BASIC 'DUMMY_SENSITIVE_VALUE'",
+        '{"Authorization": "Bearer DUMMY_SENSITIVE_VALUE"}',
+        '{"api_key": "DUMMY_SENSITIVE_VALUE"}',
+        "password = 'DUMMY_SENSITIVE_VALUE with spaces'",
+        'client_secret="DUMMY_SENSITIVE_VALUE"',
+        "access_token=DUMMY_SENSITIVE_VALUE",
+        "Proxy-Authorization: Basic DUMMY_SENSITIVE_VALUE",
+        'token="DUMMY_SENSITIVE_VALUE unterminated',
+        'token="DUMMY_SENSITIVE_VALUE \\"quoted\\" tail"',
+    ],
+)
+def test_credential_forms_never_persist_or_escape_diagnostics(tmp_path, credential):
+    diag = Diagnostics(tmp_path)
+    original = "QRhi " + credential
+    captured = []
+    diag.previous = lambda *args: captured.append(args)
+    context = SimpleNamespace(category="qt.rhi.general")
+    diag.message(1, context, original)
+    diag.record("qt", message="QRhi OpenGL backend2 device Mesa")
+    # Native trace text is sanitized at read time too, not merely record time.
+    (tmp_path / "native.raw").write_text(original)
+    persisted = (tmp_path / "render.jsonl").read_text()
+    emitted = diagnostic_output(tmp_path)
+    assert "DUMMY_SENSITIVE_VALUE" not in persisted
+    assert "DUMMY_SENSITIVE_VALUE" not in emitted
+    assert "<redacted>" in persisted and "<redacted>" in emitted
+    assert "QRhi OpenGL backend2 device Mesa" in persisted
+    assert "QRhi OpenGL backend2 device Mesa" in emitted
+    assert captured == [(1, context, original)]
+    for row in persisted.splitlines():
+        json.loads(row)
