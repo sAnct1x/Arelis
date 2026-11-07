@@ -11,6 +11,7 @@ from PySide6.QtQuick import QQuickView
 
 from arelis.ui import overseer_runtime
 from arelis.ui.sentinel_host import SentinelWindow, teardown_sentinel_window
+from tests.overseer_render_helpers import isolated_render
 
 VIEW_QML = (
     Path(__file__).resolve().parents[1]
@@ -68,6 +69,7 @@ def test_overseer_pitch_passes_approved_close_mid_wide() -> None:
     assert overseer_runtime.framing_name(12.0) == "unclassified"
 
 
+@isolated_render()
 def test_overseer_camera_focus_uses_snapshot_geometry(qt_app) -> None:
     view, root = _view(qt_app)
     root.applyUnits(_units())
@@ -98,6 +100,7 @@ def test_overseer_camera_focus_uses_snapshot_geometry(qt_app) -> None:
     qt_app.processEvents()
 
 
+@isolated_render()
 def test_overseer_wheel_keeps_selection_and_frames_target(qt_app) -> None:
     view, root = _view(qt_app)
     root.applyUnits(_units())
@@ -138,6 +141,7 @@ def test_overseer_wheel_keeps_selection_and_frames_target(qt_app) -> None:
     qt_app.processEvents()
 
 
+@isolated_render()
 def test_overseer_camera_evidence_is_live_not_default(qt_app) -> None:
     view, root = _view(qt_app)
     root.applyUnits(_units())
@@ -165,6 +169,7 @@ def test_overseer_camera_evidence_is_live_not_default(qt_app) -> None:
     qt_app.processEvents()
 
 
+@isolated_render()
 def test_overseer_snapshot_refresh_keeps_selection_and_focus(qt_app) -> None:
     from PySide6.QtWidgets import QWidget
 
@@ -236,6 +241,7 @@ def _named_text(root, name: str):
     return None
 
 
+@isolated_render()
 def test_overseer_camera_evidence_exposes_named_accessible_values(qt_app) -> None:
     view, root = _view(qt_app)
     root.applyUnits(_units())
@@ -268,6 +274,7 @@ def test_overseer_camera_evidence_exposes_named_accessible_values(qt_app) -> Non
     qt_app.processEvents()
 
 
+@isolated_render()
 def test_overseer_fit_swarm_is_local_and_accessible(qt_app) -> None:
     view, root = _view(qt_app)
     root.applyUnits(_units())
@@ -337,6 +344,7 @@ def _parse_evidence_line(text: str) -> dict[str, str]:
     return parsed
 
 
+@isolated_render()
 def test_overseer_fit_swarm_does_not_follow_selection_on_refresh(qt_app) -> None:
     from PySide6.QtWidgets import QWidget
 
@@ -393,6 +401,7 @@ def test_overseer_fit_swarm_does_not_follow_selection_on_refresh(qt_app) -> None
     qt_app.processEvents()
 
 
+@isolated_render()
 def test_overseer_frame_dump_reports_selected_instance(qt_app) -> None:
     view, root = _view(qt_app)
     root.applyUnits(_units())

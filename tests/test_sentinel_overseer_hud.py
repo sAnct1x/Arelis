@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QWidget
 
 from arelis.ui import overseer_runtime
 from arelis.ui.sentinel_host import SentinelWindow, teardown_sentinel_window
+from tests.overseer_render_helpers import isolated_render
 
 HUD_QML = (
     Path(__file__).resolve().parents[1]
@@ -101,6 +102,7 @@ def test_overseer_inspector_live_fields_and_zoom_collapse() -> None:
     assert overseer_runtime.inspector_card(_units()[1], castes=_snap()["castes"], receipts=_snap()["recent_receipts"])["eyes"] == "unavailable"
 
 
+@isolated_render()
 def test_overseer_console_filters_and_existing_dispatch(qt_app) -> None:
     logs = overseer_runtime.filter_logs(_snap()["telemetry_log"], "harvest", "")
     assert [row["unit_id"] for row in logs] == ["SNT-HRV-001"]
@@ -150,6 +152,7 @@ def test_overseer_console_filters_and_existing_dispatch(qt_app) -> None:
     qt_app.processEvents()
 
 
+@isolated_render()
 def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> None:
     selected = {
         "unit_id": "SNT-WRD-001",
@@ -394,6 +397,7 @@ def _variant(value):
     return value
 
 
+@isolated_render()
 def test_overseer_hud_named_row_invoke_keeps_inspector_across_polls(qt_app) -> None:
     owner = QWidget()
     owner.resize(1280, 800)
@@ -521,6 +525,7 @@ def _clipped_rgb250(image) -> int:
     return count
 
 
+@isolated_render(software=True)
 def test_overseer_hud_combo_is_dark_filament_and_footer_actions(qt_app) -> None:
     deploy = overseer_runtime.resolve_hud_command(
         "deploy",
@@ -586,24 +591,20 @@ def test_overseer_hud_combo_is_dark_filament_and_footer_actions(qt_app) -> None:
 
     _assert_dark(_rect_colors(combo), "combo")
 
-    def _grab_or_none():
+    def _grab():
         image = view.grabWindow()
-        if image.width() < 8 or image.height() < 8:
-            return None
-        visible = False
-        for y in range(0, image.height(), 17):
-            for x in range(0, image.width(), 17):
-                color = image.pixelColor(x, y)
-                if color.alpha() > 0 and max(color.red(), color.green(), color.blue()) > 8:
-                    visible = True
-                    break
-            if visible:
-                break
-        return image if visible else None
+        ratio = image.devicePixelRatio()
+        assert image.width() == round(view.width() * ratio)
+        assert image.height() == round(view.height() * ratio)
+        assert any(
+            image.pixelColor(x, y).alpha() > 0
+            and max(image.pixelColor(x, y).getRgb()[:3]) > 8
+            for y in range(0, image.height(), 17)
+            for x in range(0, image.width(), 17)
+        ), "renderer returned a blank image"
+        return image
 
-    grabbed = _grab_or_none()
-    if grabbed is not None:
-        assert _clipped_rgb250(grabbed) == 0
+    assert _clipped_rgb250(_grab()) == 0
 
     assert hasattr(combo, "openPopup")
     combo.openPopup()
@@ -620,9 +621,7 @@ def test_overseer_hud_combo_is_dark_filament_and_footer_actions(qt_app) -> None:
         if color is not None and hasattr(color, "red"):
             colors = [color]
     _assert_dark(colors, "open popup")
-    opened = _grab_or_none()
-    if opened is not None:
-        assert _clipped_rgb250(opened) == 0
+    assert _clipped_rgb250(_grab()) == 0
     combo.closePopup()
     qt_app.processEvents()
 
@@ -654,6 +653,7 @@ def _hud_with_selection(qt_app):
     return view, root
 
 
+@isolated_render()
 def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
     view, root = _hud_with_selection(qt_app)
     seen: list[str] = []
@@ -694,6 +694,7 @@ def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
     qt_app.processEvents()
 
 
+@isolated_render()
 def test_overseer_inspector_card_exposes_named_controls(qt_app) -> None:
     view, root = _hud_with_selection(qt_app)
     card = _named(root, "OverseerInspector")
@@ -745,6 +746,7 @@ def _crowd_units() -> list[dict]:
     return units
 
 
+@isolated_render()
 def test_overseer_swarm_list_scroll_semantics(qt_app) -> None:
     view, root = _hud_with_selection(qt_app)
     units = _crowd_units()
@@ -790,6 +792,7 @@ def test_overseer_swarm_list_scroll_semantics(qt_app) -> None:
     qt_app.processEvents()
 
 
+@isolated_render()
 def test_overseer_swarm_scrollbar_is_filament_not_white(qt_app) -> None:
     view, root = _hud_with_selection(qt_app)
     units = _crowd_units()
@@ -814,6 +817,7 @@ def test_overseer_swarm_scrollbar_is_filament_not_white(qt_app) -> None:
     qt_app.processEvents()
 
 
+@isolated_render()
 def test_overseer_swarm_header_stays_sticky_while_scrolling(qt_app) -> None:
     view, root = _hud_with_selection(qt_app)
     units = _crowd_units()
@@ -840,6 +844,7 @@ def test_overseer_swarm_header_stays_sticky_while_scrolling(qt_app) -> None:
 
 
 
+@isolated_render()
 def test_overseer_hud_panels_use_designed_fill(qt_app) -> None:
     """Panel plates and unselected rows use opaque #0e0920 so View3D cannot punch through."""
     view, root = _hud_with_selection(qt_app)
