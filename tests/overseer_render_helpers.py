@@ -27,11 +27,14 @@ def isolated_render(*, software: bool = False):
             if os.environ.get(_CHILD) == node:
                 return test(*args, **kwargs)
             env = dict(os.environ, **{_CHILD: node})
+            # This child runs one explicit node, serially, even if its parent
+            # uses xdist or selection flags. Serial pytest needs no xdist option.
+            env.pop("PYTEST_ADDOPTS", None)
             if software:
                 # This probe contains only the 2D HUD, not the Quick3D scene.
                 # Qt's software Quick backend supports offscreen pixel grabs.
                 env["QT_QUICK_BACKEND"] = "software"
-            cmd = [sys.executable, "-m", "pytest", "-o", "addopts=", "-n0", "-q", node]
+            cmd = [sys.executable, "-m", "pytest", "-o", "addopts=", "-q", node]
             try:
                 import coverage
             except ImportError:

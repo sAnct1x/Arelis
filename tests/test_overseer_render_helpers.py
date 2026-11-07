@@ -31,12 +31,14 @@ def test_isolated_render_bounds_child_and_selects_software_only_when_requested(m
         return SimpleNamespace(returncode=0, stdout="1 passed", stderr="")
 
     monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-n8 -k never_matches")
     isolated_render(software=True)(
         test_isolated_render_bounds_child_and_selects_software_only_when_requested
     )()
     cmd, opts = calls[0]
     assert cmd[:3] == [sys.executable, "-m", "pytest"]
-    assert "-n0" in cmd
+    assert not any(arg.startswith("-n") for arg in cmd)
+    assert "PYTEST_ADDOPTS" not in opts["env"]
     assert opts["timeout"] == 60
     assert opts["env"]["QT_QUICK_BACKEND"] == "software"
     assert Path(opts["cwd"]).is_dir()
