@@ -690,6 +690,7 @@ Item {
 
         PerspectiveCamera {
             id: cam
+            clipNear: 1.0
             fieldOfView: 35
             fieldOfViewOrientation: PerspectiveCamera.Vertical
             position: {

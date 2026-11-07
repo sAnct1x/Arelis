@@ -71,6 +71,17 @@ dollies to 7 m (inside the 6 to 9 m close band) on the selected unit.
 Fit swarm sets camera mode to fit and aims at the hive at 96 m (local, no backend POST). While the mode is fit, live snapshot refreshes and inspector selection changes do not move the camera target back onto the selected unit; Focus sets camera mode to follow and frames that unit again. The inspector stays on the selected unit either way. A wheel hit-point, when set, keeps that
 world point fixed (new target = P + (target - P) * (d_new / d_old)).
 A lens shift centres the swarm in the panel-free viewport.
+The camera near clipping plane is explicitly 1 m (Qt defaults to 10 m,
+which clips the subject at the approved 6 to 9 m close distances). This is
+not a dolly limit: Focus remains 7 m / 22 degrees with a 35 degree FOV;
+the far clipping plane stays at Qt's 10000 m default. At the nearest 6 m
+camera position, the 1 m plane leaves 5 m toward the camera from the
+selected origin. This gives room for the body and close appendages without
+requiring the complete heading-dependent LOD0 tail AABB (about 8.8 m long)
+to fit at every orientation. It is a geometric clipping policy, not a
+per-frame artifact clamp or a shift to the mesh pivot. Remeasure the
+painted subject after clipping is corrected; a centered 60 percent close
+portrait and actual-machine validation are not implied by this setting.
 
 Babbage and other reports must read the live QML values
 `cameraDistance`, `cameraPitch`, `cameraTargetX`, `cameraTargetY`,
