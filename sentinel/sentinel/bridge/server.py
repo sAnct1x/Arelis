@@ -465,33 +465,48 @@ class SentinelBridgeServer:
         if op == "register_caste":
             caste_id = str(cmd_data.get("caste_id") or "").strip().lower()
             code_prefix = str(cmd_data.get("code_prefix") or caste_id[:3]).strip().upper()
-            title = str(cmd_data.get("title") or f"{caste_id.title()} Sentinel")
-            single_purpose = str(cmd_data.get("single_purpose") or "Custom autonomous Sentinel FSM task")
-            caps = list(cmd_data.get("allowed_capabilities") or [f"{caste_id}:execute"])
+            title = cmd_data.get("title") or f"{caste_id.title()} Sentinel"
+            if "single_purpose" in cmd_data:
+                single_purpose = cmd_data.get("single_purpose")
+            elif "purpose" in cmd_data:
+                single_purpose = cmd_data.get("purpose")
+            else:
+                single_purpose = "Custom autonomous Sentinel FSM task"
+            caps = list(cmd_data.get("allowed_capabilities") or [])
             initial_pool = int(cmd_data.get("initial_pool", 0))
             tier = cmd_data.get("tier")
-            res = self.hive.register_dynamic_caste(
-                caste_id=caste_id,
-                code_prefix=code_prefix,
-                title=title,
-                single_purpose=single_purpose,
-                allowed_capabilities=caps,
-                version=str(cmd_data.get("version", "1.0.0")),
-                orbit_radius=float(cmd_data.get("orbit_radius", 20.0)),
-                orbit_y_band=float(cmd_data.get("orbit_y_band", 0.0)),
-                speed_mult=float(cmd_data.get("speed_mult", 1.0)),
-                eye_color=str(cmd_data.get("eye_color", "#00e5ff")),
-                laser_kind=str(cmd_data.get("laser_kind", "harvest")),
-                doctrine=str(cmd_data.get("doctrine", "HUNTER-SEEKER")),
-                rules=cmd_data.get("rules"),
-                initial_pool=initial_pool,
-                tier=tier,
-            )
+            try:
+                res = self.hive.register_dynamic_caste(
+                    caste_id=caste_id,
+                    code_prefix=code_prefix,
+                    title=title,
+                    single_purpose=single_purpose,
+                    allowed_capabilities=caps,
+                    version=str(cmd_data.get("version", "1.0.0")),
+                    orbit_radius=float(cmd_data.get("orbit_radius", 20.0)),
+                    orbit_y_band=float(cmd_data.get("orbit_y_band", 0.0)),
+                    speed_mult=float(cmd_data.get("speed_mult", 1.0)),
+                    eye_color=str(cmd_data.get("eye_color", "#00e5ff")),
+                    laser_kind=str(cmd_data.get("laser_kind", "harvest")),
+                    doctrine=str(cmd_data.get("doctrine", "HUNTER-SEEKER")),
+                    rules=cmd_data.get("rules"),
+                    initial_pool=initial_pool,
+                    tier=tier,
+                    purposes=cmd_data.get("purposes"),
+                    extra_purpose=cmd_data.get("extra_purpose"),
+                )
+            except (ValueError, TypeError) as exc:
+                return format_command_response(False, error=str(exc))
+            if res.get("parked"):
+                return format_command_response(False, res)
             return format_command_response(True, res)
 
         if op == "unregister_caste":
             caste_id = str(cmd_data.get("caste_id") or "").strip().lower()
-            res = self.hive.unregister_caste(caste_id)
+            try:
+                res = self.hive.unregister_caste(caste_id)
+            except (ValueError, TypeError, KeyError) as exc:
+                return format_command_response(False, error=str(exc))
             return format_command_response(bool(res.get("ok")), res)
 
         if op == "list_castes":
