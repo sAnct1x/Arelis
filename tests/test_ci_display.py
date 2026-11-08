@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -10,12 +11,26 @@ from pathlib import Path
 import pytest
 import yaml
 
+from scripts import ci_pytest
 from scripts.ci_pytest import command, finish
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _step(mode):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    return next(
+        step
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("name") == ("Pytest serial" if mode == "serial" else "Pytest")
+    )
+
+
 def _run(tmp_path, mode, runner, code=0, missing=None):
+    assert os.name == "posix", "POSIX shell fixture must not execute on a Windows host"
+    shell = shutil.which("bash")
+    assert shell is not None, "POSIX CI execution proof requires existing bash"
     binary = tmp_path / "bin"
     binary.mkdir()
     log = tmp_path / "commands.jsonl"
@@ -33,18 +48,12 @@ raise SystemExit(int(os.environ['FAKE_EXIT']))
             path = binary / name
             path.write_text(script)
             path.chmod(0o755)
-    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-    step = next(
-        step
-        for job in workflow["jobs"].values()
-        for step in job.get("steps", [])
-        if step.get("name") == ("Pytest serial" if mode == "serial" else "Pytest")
-    )
+    step = _step(mode)
     env = dict(
         os.environ, PATH=str(binary), RUNNER_OS=runner, COMMAND_LOG=str(log), FAKE_EXIT=str(code)
     )
     result = subprocess.run(
-        ["/bin/bash", "-e", "-c", re.sub(r"\$\{\{[^}]+\}\}", "contract-fixture", step["run"])],
+        [shell, "-e", "-c", re.sub(r"\$\{\{[^}]+\}\}", "contract-fixture", step["run"])],
         env=env,
         capture_output=True,
         text=True,
@@ -54,10 +63,14 @@ raise SystemExit(int(os.environ['FAKE_EXIT']))
     return result, rows
 
 
+@pytest.mark.skipif(
+    "os.name != 'posix'",
+    reason="POSIX-only Bash execution proof; portable non-Linux contracts run separately",
+)
 @pytest.mark.parametrize("mode", ["xdist", "serial"])
-@pytest.mark.parametrize("runner", ["Linux", "Windows", "macOS"])
 @pytest.mark.parametrize("code", [0, 1, 5])
-def test_ci_display_preserves_platform_command_flags_and_exit(tmp_path, mode, runner, code):
+def test_linux_display_executes_preserved_command_flags_and_exit(tmp_path, mode, code):
+    runner = "Linux"
     result, rows = _run(tmp_path, mode, runner, code)
     original = ["python", "scripts/ci_pytest.py", mode]
     assert rows == ([["xvfb-run", "-a", *original], original] if runner == "Linux" else [original])
@@ -94,6 +107,10 @@ def test_ci_display_preserves_platform_command_flags_and_exit(tmp_path, mode, ru
     assert finish(mode, code) == (0 if mode == "serial" and code == 5 else code)
 
 
+@pytest.mark.skipif(
+    "os.name != 'posix'",
+    reason="POSIX-only missing-tool execution proof; no other platform tests skipped",
+)
 @pytest.mark.parametrize("mode", ["xdist", "serial"])
 @pytest.mark.parametrize("missing", ["xvfb-run", "Xvfb"])
 def test_ci_display_fails_closed_before_pytest_when_tool_missing(tmp_path, mode, missing):
@@ -101,3 +118,42 @@ def test_ci_display_fails_closed_before_pytest_when_tool_missing(tmp_path, mode,
     assert result.returncode == 2
     assert missing in result.stderr and "execution environment" in result.stderr
     assert rows == []
+
+
+@pytest.mark.parametrize("mode", ["xdist", "serial"])
+@pytest.mark.parametrize("runner", ["Windows", "macOS"])
+@pytest.mark.parametrize("code", [0, 1, 5])
+def test_nonlinux_command_contract_needs_no_posix_host(tmp_path, monkeypatch, mode, runner, code):
+    # This is host-portable Python/YAML contract coverage, not an OS/rendering
+    # execution claim. Any accidental Bash lookup/launch fails this test.
+    def forbidden(*args, **kwargs):
+        raise AssertionError("portable command contract attempted POSIX fixture execution")
+
+    monkeypatch.setattr(shutil, "which", forbidden)
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    monkeypatch.setenv("RUNNER_OS", runner)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    (tmp_path / "ci-tier-paths.txt").write_text(
+        "tests/test_sentinel_overseer_camera.py\n", encoding="utf-8"
+    )
+    calls = []
+    monkeypatch.setattr(ci_pytest.subprocess, "call", lambda argv: calls.append(argv) or code)
+    branch = _step(mode)["run"].split("\nelse\n", 1)[1].rsplit("\nfi", 1)[0].strip()
+    assert branch == f"python scripts/ci_pytest.py {mode}"
+    flags = (
+        ["-n", "auto", "-m", "not serial", "--junitxml=pytest-results.xml"]
+        if mode == "xdist"
+        else ["-m", "serial", "--junitxml=pytest-results-serial.xml"]
+    )
+    assert ci_pytest.main([mode]) == (0 if mode == "serial" and code == 5 else code)
+    assert calls == [
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "--tb=short",
+            *flags,
+            "tests/test_sentinel_overseer_camera.py",
+        ]
+    ]
