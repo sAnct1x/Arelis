@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 import weakref
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -179,6 +180,7 @@ class Diagnostics:
         self.previous = None
         self.trace = None
         self.views = 0
+        self.identities = weakref.WeakKeyDictionary()
         self.timer = None
 
     def record(self, event: str, **data):
@@ -268,17 +270,61 @@ class Diagnostics:
         if self.previous is not None:
             self.previous(kind, context, text)
 
+    def checkpoint(self, view, phase, edge):
+        from PySide6.QtCore import QThread
+        from shiboken6 import isValid
+
+        data = {"valid": isValid(view)}
+        if data["valid"]:
+            data["owner_thread"] = QThread.currentThread() == view.thread()
+            if data["owner_thread"]:
+                data.update(visible=view.isVisible(), exposed=view.isExposed())
+        self.record("checkpoint", view=self.identities.get(view), phase=phase, edge=edge, **data)
+
     def observe(self, view):
-        from PySide6.QtCore import Qt, QThread
+        from PySide6.QtCore import QEvent, QObject, Qt, QThread
         from PySide6.QtGui import QGuiApplication
         from PySide6.QtQuick import QQuickView
 
         ref = weakref.ref(view)
         self.views += 1
         identity = self.views  # Child-local sequence, never a memory address.
+        self.identities[view] = identity
 
         def record(event, **data):
             self.record(event, view=identity, thread=QThread.currentThread().objectName(), **data)
+
+        class ViewEvents(QObject):
+            def eventFilter(self, watched, event):
+                phases = {
+                    QEvent.Type.Show: "show",
+                    QEvent.Type.Hide: "hide",
+                    QEvent.Type.Close: "close",
+                    QEvent.Type.Expose: "expose",
+                    QEvent.Type.DeferredDelete: "deferred-delete",
+                }
+                if event.type() == QEvent.Type.PlatformSurface:
+                    from PySide6.QtGui import QPlatformSurfaceEvent
+
+                    phase = (
+                        "surface-created"
+                        if event.surfaceEventType()
+                        == QPlatformSurfaceEvent.SurfaceEventType.SurfaceCreated
+                        else "surface-about-to-destroy"
+                    )
+                else:
+                    phase = phases.get(event.type())
+                if phase is not None:
+                    record(
+                        "view-event",
+                        phase=phase,
+                        owner_thread=QThread.currentThread() == self.thread(),
+                    )
+                return False  # Passive: never consume or forward events manually.
+
+        # View-owned filter, no diagnostic registry strongly retains the window.
+        view._overseer_diagnostic_events = ViewEvents(view)
+        view.installEventFilter(view._overseer_diagnostic_events)
 
         def initialized():
             window = ref()
@@ -311,6 +357,30 @@ class Diagnostics:
 
 
 _diagnostics = None
+_CHECKPOINT_PHASES = frozenset(
+    {
+        "show",
+        "open-pump",
+        "data-pump",
+        "dispatch-click",
+        "action-pump",
+        "disabled-click",
+        "delete",
+        "delete-pump",
+    }
+)
+
+
+@contextmanager
+def checkpoint(view, phase):
+    """Flush BEFORE the original call; only normal returns get a return marker."""
+    if phase not in _CHECKPOINT_PHASES:
+        raise ValueError("unknown diagnostic phase")
+    if _diagnostics is not None:
+        _diagnostics.checkpoint(view, phase, "enter")
+    yield
+    if _diagnostics is not None:
+        _diagnostics.checkpoint(view, phase, "return")
 
 
 @pytest.hookimpl(trylast=True)

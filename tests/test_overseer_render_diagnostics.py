@@ -250,3 +250,118 @@ def test_only_complete_swapchain_descriptor_preserves_structured_uint32(
         assert row["hresult_u32"] == expected
         assert 0 <= row["hresult_u32"] <= 0xFFFFFFFF
         assert f'"hresult_u32": {expected}' in output
+
+
+@pytest.mark.parametrize("mode", ["return", "fatal", "exception"])
+def test_checkpoint_is_flushed_before_call_and_only_marks_normal_return(tmp_path, mode):
+    script = """
+import sys
+from contextlib import nullcontext
+from pathlib import Path
+from PySide6.QtCore import qFatal
+from PySide6.QtWidgets import QApplication
+from PySide6.QtQuick import QQuickView
+from tests import overseer_render_diagnostics as d
+app=QApplication([])
+d._diagnostics=d.Diagnostics(Path(sys.argv[1]))
+d._diagnostics.arm_trace()
+d._diagnostics.install_messages()
+view=QQuickView()
+d._diagnostics.observe(view)
+checkpoint=getattr(d, 'checkpoint', lambda *args: nullcontext())
+try:
+ with checkpoint(view, 'open-pump'):
+  if sys.argv[2]=='fatal':qFatal('QRhi token="DUMMY_CHECKPOINT_SECRET"')
+  if sys.argv[2]=='exception':raise RuntimeError('original sentinel')
+except RuntimeError as exc:
+ assert str(exc)=='original sentinel'
+ if sys.argv[2]!='exception':raise
+if sys.argv[2]=='return':
+ from shiboken6 import delete
+ delete(view)
+ with checkpoint(view, 'delete-pump'):pass
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), mode], capture_output=True, timeout=5
+    )
+    assert (result.returncode != 0) == (mode == "fatal")
+    rows = [json.loads(line) for line in (tmp_path / "render.jsonl").read_text().splitlines()]
+    checkpoints = [row for row in rows if row["event"] == "checkpoint"]
+    entered = [row for row in checkpoints if row["phase"] == "open-pump"]
+    assert [row["edge"] for row in entered] == (
+        ["enter", "return"] if mode == "return" else ["enter"]
+    )
+    assert all(row["view"] == 1 and row["valid"] and row["owner_thread"] for row in entered)
+    assert all(type(row["visible"]) is bool and type(row["exposed"]) is bool for row in entered)
+    if mode == "return":
+        deleted = [row for row in checkpoints if row["phase"] == "delete-pump"]
+        assert len(deleted) == 2 and all(row["valid"] is False for row in deleted)
+    assert "DUMMY_CHECKPOINT_SECRET" not in diagnostic_output(tmp_path)
+    assert (tmp_path / "render.jsonl").stat().st_size <= 256 * 1024
+
+
+def test_view_milestones_are_passive_view_owned_and_do_not_create_handles(qt_app, tmp_path):
+    import gc
+
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QPlatformSurfaceEvent
+    from PySide6.QtQuick import QQuickView
+
+    view = QQuickView()
+    diag = Diagnostics(tmp_path)
+    diag.observe(view)
+    assert hasattr(view, "_overseer_diagnostic_events"), "missing passive view milestones"
+    observer = view._overseer_diagnostic_events
+    assert observer.parent() is view
+    gc.collect()
+    # Direct filter delivery exercises metadata only: never synthesize native
+    # surface destruction into Qt's real window event handler.
+    events = [
+        QEvent(kind)
+        for kind in (
+            QEvent.Type.Show,
+            QEvent.Type.Hide,
+            QEvent.Type.Close,
+            QEvent.Type.Expose,
+            QEvent.Type.DeferredDelete,
+        )
+    ]
+    # PySide exposes only the copy constructor; model the two public event
+    # accessors rather than injecting a fake native surface into Qt.
+    events += [
+        SimpleNamespace(
+            type=lambda: QEvent.Type.PlatformSurface, surfaceEventType=lambda kind=kind: kind
+        )
+        for kind in (
+            QPlatformSurfaceEvent.SurfaceEventType.SurfaceCreated,
+            QPlatformSurfaceEvent.SurfaceEventType.SurfaceAboutToBeDestroyed,
+        )
+    ]
+    for event in events:
+        assert observer.eventFilter(view, event) is False
+    assert observer.eventFilter(view, QEvent(QEvent.Type.User)) is False
+    rows = [json.loads(line) for line in (tmp_path / "render.jsonl").read_text().splitlines()]
+    milestones = [row for row in rows if row["event"] == "view-event"]
+    assert [row["phase"] for row in milestones] == [
+        "show",
+        "hide",
+        "close",
+        "expose",
+        "deferred-delete",
+        "surface-created",
+        "surface-about-to-destroy",
+    ]
+    assert all(row["view"] == 1 and row["owner_thread"] for row in milestones)
+    # Scope guard: neither observer nor checkpoint may create native handles or
+    # change lifecycle/render state. The Qt callbacks never pump or consume.
+    import ast
+    import inspect
+
+    source = inspect.getsource(Diagnostics)
+    calls = {
+        node.func.attr
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert not calls & {"winId", "create", "processEvents", "sendPostedEvents", "close"}
+    view.deleteLater()

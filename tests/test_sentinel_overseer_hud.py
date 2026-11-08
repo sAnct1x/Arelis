@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QWidget
 
 from arelis.ui import overseer_runtime
 from arelis.ui.sentinel_host import SentinelWindow, teardown_sentinel_window
+from tests.overseer_render_diagnostics import checkpoint
 from tests.overseer_render_helpers import isolated_render
 
 HUD_QML = (
@@ -258,8 +259,10 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
         errs = view.errors()
         raise AssertionError("; ".join(err.toString() for err in errs))
     view.resize(1280, 800)
-    view.show()
-    qt_app.processEvents()
+    with checkpoint(view, "show"):
+        view.show()
+    with checkpoint(view, "open-pump"):
+        qt_app.processEvents()
     root = view.rootObject()
     assert root is not None
     hud = overseer_runtime.build_hud(_snap(), selected_id="SNT-WRD-001")
@@ -271,7 +274,8 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
     root.setProperty("selectedUnitId", "SNT-WRD-001")
     root.setProperty("missionMode", "arxiv")
     root.setProperty("missionQuery", "exoplanets")
-    qt_app.processEvents()
+    with checkpoint(view, "data-pump"):
+        qt_app.processEvents()
 
     seen: list = []
     posted: list = []
@@ -296,10 +300,12 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
         width = float(item.property("width") or 0)
         height = float(item.property("height") or 0)
         scene_pt = item.mapToScene(QPointF(width / 2.0, height / 2.0))
-        QTest.mouseClick(
-            view, Qt.LeftButton, Qt.NoModifier, scene_pt.toPoint()
-        )
-        qt_app.processEvents()
+        with checkpoint(view, "dispatch-click"):
+            QTest.mouseClick(
+                view, Qt.LeftButton, Qt.NoModifier, scene_pt.toPoint()
+            )
+        with checkpoint(view, "action-pump"):
+            qt_app.processEvents()
 
     click_named("OverseerDispatch")
     assert seen and seen[-1][0] == "dispatch"
@@ -309,8 +315,10 @@ def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> 
     assert posted[-1][1]["mode"] == "arxiv"
 
     # Do not invoke Deploy, retire, EMP, Recall, or Retask from tests.
-    view.deleteLater()
-    qt_app.processEvents()
+    with checkpoint(view, "delete"):
+        view.deleteLater()
+    with checkpoint(view, "delete-pump"):
+        qt_app.processEvents()
 
 
 _KEEP: list = []
@@ -638,8 +646,10 @@ def _hud_with_selection(qt_app):
     if view.status() != QQuickView.Status.Ready:
         raise AssertionError("; ".join(err.toString() for err in view.errors()))
     view.resize(900, 700)
-    view.show()
-    qt_app.processEvents()
+    with checkpoint(view, "show"):
+        view.show()
+    with checkpoint(view, "open-pump"):
+        qt_app.processEvents()
     root = view.rootObject()
     assert root is not None
     hud = overseer_runtime.build_hud(_snap(), selected_id="SNT-WRD-001")
@@ -649,7 +659,8 @@ def _hud_with_selection(qt_app):
     root.setProperty("logs", hud["logs"])
     root.setProperty("inspectorOpen", True)
     root.setProperty("selectedUnitId", "SNT-WRD-001")
-    qt_app.processEvents()
+    with checkpoint(view, "data-pump"):
+        qt_app.processEvents()
     return view, root
 
 
@@ -670,8 +681,10 @@ def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
             float(item.property("width") or 8) / 2.0,
             float(item.property("height") or 8) / 2.0,
         )
-        QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier, item.mapToScene(mid).toPoint())
-        qt_app.processEvents()
+        with checkpoint(view, "disabled-click"):
+            QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier, item.mapToScene(mid).toPoint())
+        with checkpoint(view, "action-pump"):
+            qt_app.processEvents()
     assert seen == []
     selected = {"unit_id": "SNT-WRD-001", "caste": "warden"}
     for command in ("recall", "retask"):
@@ -690,8 +703,10 @@ def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
     retire = _named(root, "OverseerAction_retire")
     assert deploy is not None and bool(deploy.property("enabled")) is not False
     assert retire is not None and bool(retire.property("enabled")) is not False
-    view.deleteLater()
-    qt_app.processEvents()
+    with checkpoint(view, "delete"):
+        view.deleteLater()
+    with checkpoint(view, "delete-pump"):
+        qt_app.processEvents()
 
 
 @isolated_render()
