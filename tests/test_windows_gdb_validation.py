@@ -105,9 +105,18 @@ def test_validation_detaches_and_requires_post_detach_resume_and_normal_exit(mon
             assert executable == "existing-gdb"
             assert deadline <= proof.time.monotonic() + 24
             self.version = "17.1"
-            self.process = SimpleNamespace(
-                poll=lambda: None, kill=lambda: events.append("kill-gdb"), wait=lambda timeout: None
-            )
+            self.process = SimpleNamespace(returncode=None)
+            self.process.poll = lambda: self.process.returncode
+
+            def kill_debugger():
+                events.append("kill-gdb")
+                self.process.returncode = -9
+
+            self.process.kill = kill_debugger
+            self.process.wait = lambda timeout: self.process.returncode
+
+        def start(self):
+            pass
 
         def command(self, command):
             if not command.startswith("-target-attach"):
@@ -188,6 +197,7 @@ def test_real_mi_parser_discards_streams_and_requires_detach_ack(monkeypatch, de
     process = SimpleNamespace(stdin=io.BytesIO(), stdout=io.BytesIO(transcript))
     monkeypatch.setattr(proof.subprocess, "Popen", lambda *a, **k: process)
     debugger = proof.Debugger("existing-gdb", proof.time.monotonic() + 1)
+    debugger.start()
     debugger.command("-gdb-version")
     assert debugger.version == "17.1"
     if detach_state == "empty":
@@ -225,3 +235,70 @@ def test_standalone_source_preserves_native_and_privacy_boundaries():
     assert '"-gdb-set auto-load off"' in source
     assert '"-gdb-set debuginfod enabled off"' in source
     assert 'os.environ.get("GITHUB_ACTIONS") != "true"' in source
+
+
+@pytest.mark.parametrize("failure", ["debugger-kill", "debugger-wait", "reader-start"])
+def test_owned_process_cleanup_is_independent_even_after_partial_debugger_start(
+    monkeypatch, failure
+):
+    events = []
+
+    class Process:
+        def __init__(self, role):
+            self.role = role
+            self.pid = 999
+            self.stdin = io.BytesIO()
+            self.stdout = role
+            self.returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            events.append(self.role + "-kill")
+            if self.role == "gdb" and failure == "debugger-kill":
+                raise OSError("DUMMY_PRIVATE_CLEANUP_ERROR")
+            self.returncode = -9
+
+        def wait(self, timeout):
+            events.append(self.role + "-wait")
+            assert 0 < timeout <= 1
+            if self.role == "gdb" and failure in {"debugger-kill", "debugger-wait"}:
+                raise proof.subprocess.TimeoutExpired("DUMMY_PRIVATE_CLEANUP_ERROR", timeout)
+            return self.returncode
+
+    child, gdb = Process("child"), Process("gdb")
+
+    class Pipe:
+        def __init__(self, stream):
+            self.stream = stream
+            if stream == "gdb" and failure == "reader-start":
+                raise RuntimeError("DUMMY_PRIVATE_CLEANUP_ERROR")
+
+        def take(self, _):
+            if self.stream == "child":
+                return json.dumps({"gui": 1, "render": 2, "gtick": 1, "rtick": 1, "ack": 0})
+            raise proof.ProofError
+
+    monkeypatch.setattr(proof, "sys", SimpleNamespace(platform="win32", executable="python"))
+    for key, value in {
+        "GITHUB_ACTIONS": "true",
+        "RUNNER_OS": "Windows",
+        "QT_QPA_PLATFORM": "offscreen",
+        "QT_QUICK_BACKEND": "rhi",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(proof.shutil, "which", lambda _: "existing-gdb")
+    monkeypatch.setattr(
+        proof.subprocess, "Popen", lambda args, **kwargs: child if args[0] == "python" else gdb
+    )
+    monkeypatch.setattr(proof, "BoundedPipe", Pipe)
+    result = proof.validate()
+    assert result["status"] == "failed"
+    assert "gdb-kill" in events and "gdb-wait" in events
+    assert "child-kill" in events and "child-wait" in events
+    assert result["cleanup"]["child"] == "exited"
+    assert result["cleanup"]["debugger"] == (
+        "exited" if failure == "reader-start" else "unconfirmed"
+    )
+    assert "DUMMY_PRIVATE_CLEANUP_ERROR" not in json.dumps(result)

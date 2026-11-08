@@ -116,9 +116,15 @@ class Debugger:
         self.deadline = deadline
         self.token = 0
         self.version = None
+        self.executable = executable
+        self.process = None
+        self.output = None
+
+    def start(self):
+        # Caller owns this object BEFORE spawn; retain process even if pipe startup fails.
         self.process = subprocess.Popen(
             [
-                executable,
+                self.executable,
                 "-nx",
                 "-nh",
                 "--quiet",
@@ -247,6 +253,26 @@ Window { width: 80; height: 80; visible: false
     return app.exec()
 
 
+def stop_owned(process):
+    """Independent, sanitized best-effort cleanup; never assert exit after wait failure."""
+    if process is None:
+        return "not_started", False
+    try:
+        if process.poll() is not None:
+            return "exited", False
+    except Exception:
+        pass
+    try:
+        process.kill()
+    except Exception:
+        pass  # A kill failure must not prevent wait or the OTHER owned cleanup.
+    try:
+        process.wait(timeout=1)
+        return ("exited" if process.poll() is not None else "unconfirmed"), True
+    except Exception:
+        return "unconfirmed", True
+
+
 def validate():
     report = {
         "status": "failed",
@@ -256,6 +282,7 @@ def validate():
         "normal_exit": False,
         "frames": {},
         "phase": "preflight",
+        "cleanup": {"debugger": "not_started", "child": "not_started"},
     }
     # No platform impersonation option. Standard privilege attempt permitted ONLY here.
     if (
@@ -292,6 +319,7 @@ def validate():
             state = state_from(output, deadline)
         report["phase"] = "attach"
         debugger = Debugger(executable, deadline)
+        debugger.start()
         debugger.command("-gdb-set auto-load off")
         debugger.command("-gdb-set debuginfod enabled off")
         debugger.command("-gdb-set print frame-arguments none")
@@ -322,29 +350,25 @@ def validate():
         report["normal_exit"] = child.returncode == 0
         if report["detached"] and report["resumed"] and report["normal_exit"]:
             report["status"] = "passed"
-    except (ProofError, OSError, ValueError, subprocess.TimeoutExpired):
+    except Exception:
         pass  # Explicit FAILED proof, never a successful test verdict.
     finally:
-        if debugger is not None:
-            if not report["detached"]:
+        try:
+            if debugger is not None and not report["detached"]:
                 try:
                     debugger.detach(time.monotonic() + 2)
                     report["detached"] = True
-                except (ProofError, OSError, ValueError):
+                except Exception:
                     pass
-            if debugger.process.poll() is None:
-                debugger.process.kill()
-                try:
-                    debugger.process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    report["status"] = "failed"
-        if child is not None and child.poll() is None:
-            child.kill()
+        finally:
+            # Neither debugger cleanup nor a partial start may abandon the child.
             try:
-                child.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                pass
-            report["status"] = "failed"
+                process = debugger.process if debugger is not None else None
+                report["cleanup"]["debugger"], _ = stop_owned(process)
+            finally:
+                report["cleanup"]["child"], forced = stop_owned(child)
+                if forced or "unconfirmed" in report["cleanup"].values():
+                    report["status"] = "failed"
     report["elapsed_ms"] = min(999999, int((time.monotonic() - started) * 1000))
     return report
 

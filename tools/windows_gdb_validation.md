@@ -61,3 +61,10 @@ Local tests mock ALL debugger/process operations, including error/retained-threa
 resume/abnormal-exit paths. They must never be cited as actual Windows/GIL/native
 proof. No production/HUD behavior, assertion, test backend, or required infra is
 changed. Source1ee984/47diagnostics and parent identities remain intact.
+
+Cleanup ownership is registered before debugger spawn: the caller retains its
+Debugger object before `start()` can create GDB or initialize the bounded reader.
+Debugger and child cleanup are independent even on kill/wait/reader exceptions.
+Only fixed `exited`/`unconfirmed`/`not_started` outcomes are emitted; exceptions
+are never printed. A wait failure is unconfirmed, never cleanup success. An
+unconfirmed owned exit or forced child termination keeps proof FAILED.
