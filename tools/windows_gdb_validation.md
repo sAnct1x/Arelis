@@ -12,6 +12,9 @@ No workflow step is added here; reviewer must approve publication/placement.
 Proposed single PowerShell command (do not execute until separately coordinated):
 
 ```powershell
+# EXACT existing tests/conftest.py14,20 setup; step-local, NOT a backend workaround.
+$env:QT_QPA_PLATFORM = "offscreen"
+$env:QT_QUICK_BACKEND = "rhi"
 python tools/windows_gdb_validation.py --hosted-windows-proof
 exit $LASTEXITCODE
 ```
@@ -24,10 +27,13 @@ raw addresses, raw handles or memory. GUI/render native thread IDs transit only
 private child IPC to match debugger threads; they are not persisted. This does
 not try to obtain a QPA handle, call winId/create, or change any backend/env.
 
+The harness fails closed unless the inherited QPA/Quick values match the existing
+conftest defaults exactly; it never changes them itself.
 The sacrificial scene is an ordinary animated QtQuick window using inherited
 setup; it is NOT a backend workaround or the actual failing HUD. Lack of a
 separate working render thread or useful Qt symbols is a FAILED availability
-proof. GDB autoload/debuginfod are explicitly disabled and acknowledged before
+proof. GDB frame argument values/entry values are disabled; no locals/arguments request
+is sent. Autoload/debuginfod are explicitly disabled and acknowledged before
 attach. Version17.1 must be observed in bounded MI output before attach.
 
 Bounds: max16 enumerated threads,12 frames per selected GUI/render thread,

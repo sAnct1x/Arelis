@@ -152,6 +152,8 @@ def test_validation_detaches_and_requires_post_detach_resume_and_normal_exit(mon
     monkeypatch.setattr(proof, "sys", SimpleNamespace(platform="win32", executable="python"))
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("RUNNER_OS", "Windows")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("QT_QUICK_BACKEND", "rhi")
     monkeypatch.setattr(proof.shutil, "which", lambda _: "existing-gdb")
     monkeypatch.setattr(proof.subprocess, "Popen", lambda *a, **k: child)
     monkeypatch.setattr(proof, "Debugger", FakeDebugger)
@@ -206,18 +208,20 @@ def test_standalone_source_preserves_native_and_privacy_boundaries():
 
     tree = ast.parse(inspect.getsource(proof))
     names = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
-    assert not names & {"winId", "createWinId", "dump", "dumpMemory", "eval"}
+    assert not names & {"winId", "createWinId", "dump", "dumpMemory", "eval", "setdefault"}
+    assert 'os.environ.get("QT_QPA_PLATFORM")' in inspect.getsource(proof)
+    assert 'os.environ.get("QT_QUICK_BACKEND")' in inspect.getsource(proof)
     source = inspect.getsource(proof)
     for forbidden in (
-        "QT_QPA_PLATFORM",
         "QSG_RHI_BACKEND",
-        "QT_QUICK_BACKEND",
         "-data-read-memory",
         "-stack-list-variables",
         "-stack-list-arguments",
     ):
         assert forbidden not in source
     assert '"-nx"' in source and '"-nh"' in source
+    assert '"-gdb-set print frame-arguments none"' in source
+    assert '"-gdb-set print entry-values no"' in source
     assert '"-gdb-set auto-load off"' in source
     assert '"-gdb-set debuginfod enabled off"' in source
     assert 'os.environ.get("GITHUB_ACTIONS") != "true"' in source

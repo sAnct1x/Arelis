@@ -264,6 +264,13 @@ def validate():
         or os.environ.get("RUNNER_OS") != "Windows"
     ):
         return report
+    # Standalone does not import conftest: require its EXACT existing defaults,
+    # supplied by the proposed step, rather than silently using Windows QPA.
+    if (os.environ.get("QT_QPA_PLATFORM"), os.environ.get("QT_QUICK_BACKEND")) != (
+        "offscreen",
+        "rhi",
+    ):
+        return report
     executable = shutil.which("gdb")
     if not executable:
         return report
@@ -287,6 +294,8 @@ def validate():
         debugger = Debugger(executable, deadline)
         debugger.command("-gdb-set auto-load off")
         debugger.command("-gdb-set debuginfod enabled off")
+        debugger.command("-gdb-set print frame-arguments none")
+        debugger.command("-gdb-set print entry-values no")
         debugger.command("-gdb-version")
         if debugger.version != "17.1":
             raise ProofError
