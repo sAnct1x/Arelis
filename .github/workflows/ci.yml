@@ -188,11 +188,26 @@ jobs:
         shell: bash
         run: |
           echo "tier=${{ steps.tier.outputs.tier }} area=${{ steps.tier.outputs.area }} reason=${{ steps.tier.outputs.reason }}"
-          python scripts/ci_pytest.py xdist
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            for tool in xvfb-run Xvfb; do
+              command -v "$tool" >/dev/null || { echo "CI execution environment missing $tool (no installs or fallback)" >&2; exit 2; }
+            done
+            xvfb-run -a python scripts/ci_pytest.py xdist
+          else
+            python scripts/ci_pytest.py xdist
+          fi
       - name: Pytest serial
         if: steps.tier.outputs.tier != 'docs'
         shell: bash
-        run: python scripts/ci_pytest.py serial
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            for tool in xvfb-run Xvfb; do
+              command -v "$tool" >/dev/null || { echo "CI execution environment missing $tool (no installs or fallback)" >&2; exit 2; }
+            done
+            xvfb-run -a python scripts/ci_pytest.py serial
+          else
+            python scripts/ci_pytest.py serial
+          fi
       - name: Pytest not required for this tier
         if: steps.tier.outputs.tier == 'docs'
         run: echo "tier=docs reason=${{ steps.tier.outputs.reason }}; pytest not run"
