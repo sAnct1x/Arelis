@@ -181,6 +181,13 @@ jobs:
           python scripts/qt_constraints_from_installer_lock.py --out qt-constraints.txt
           python -m pip install -e ".[dev]" -c qt-constraints.txt
 
+      # Advisory only: resolve the installed Qt plugin, never change its backend.
+      - name: Qt xcb loader metadata
+        if: runner.os == 'Linux' && steps.tier.outputs.tier != 'docs'
+        continue-on-error: true
+        timeout-minutes: 1
+        run: python -m scripts.ci_qt_loader
+
       # xdist first, then the serial marker in the same job. Ubuntu records
       # branch coverage on the xdist step and appends the serial step.
       - name: Pytest
