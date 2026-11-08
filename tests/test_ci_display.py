@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -156,4 +157,33 @@ def test_nonlinux_command_contract_needs_no_posix_host(tmp_path, monkeypatch, mo
             *flags,
             "tests/test_sentinel_overseer_camera.py",
         ]
+    ]
+
+
+def test_linux_test_runtime_provisions_exact_missing_xcb_providers():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    step = next(
+        s
+        for s in workflow["jobs"]["test"]["steps"]
+        if s.get("name") == "Install Qt offscreen libraries"
+    )
+    assert step["if"] == "runner.os == 'Linux' && steps.tier.outputs.tier != 'docs'"
+    assert shlex.split(step["run"].replace("\\\n", " ")) == [
+        "sudo",
+        "apt-get",
+        "update",
+        "sudo",
+        "apt-get",
+        "install",
+        "-y",
+        "libegl1",
+        "libxkbcommon-x11-0",
+        "libdbus-1-3",
+        "libxcb-cursor0",
+        "libxcb-icccm4",
+        "libxcb-util1",
+        "libxcb-image0",
+        "libxcb-keysyms1",
+        "libxcb-render-util0",
+        "libxcb-shape0",
     ]
