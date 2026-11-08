@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -178,3 +179,74 @@ def test_credential_forms_never_persist_or_escape_diagnostics(tmp_path, credenti
     assert captured == [(1, context, original)]
     for row in persisted.splitlines():
         json.loads(row)
+
+
+_SWAPCHAIN_DUMMY = (
+    "Failed to create D3D11 swapchain: COM error 0x81234567: Access is denied. "
+    "(Width=1280 Height=800 Format=28 SampleCount=1 BufferCount=2 "
+    "Scaling=1 SwapEffect=4 Stereo=0)"
+)
+_HRESULT_CASES = {
+    "valid-code": (_SWAPCHAIN_DUMMY, 0x81234567),
+    "uint32-max": (_SWAPCHAIN_DUMMY.replace("0x81234567", "0xFFFFFFFF"), 0xFFFFFFFF),
+    "uint32-zero": (_SWAPCHAIN_DUMMY.replace("0x81234567", "0x00000000"), 0),
+    "second-size-mixed-hex": (
+        _SWAPCHAIN_DUMMY.replace("1280", "900")
+        .replace("800", "700")
+        .replace("0x81234567", "0xabcDEF12"),
+        0xABCDEF12,
+    ),
+    "generic-address": ("QRhi object at 0x81234567", None),
+    "prefix": ("QRhi forwarded: " + _SWAPCHAIN_DUMMY, None),
+    "suffix-address": (_SWAPCHAIN_DUMMY + " at 0x81234567", None),
+    "newline": (_SWAPCHAIN_DUMMY + "\n", None),
+    "missing-descriptor": (_SWAPCHAIN_DUMMY.split(" (", 1)[0], None),
+    "uint32-overflow": (_SWAPCHAIN_DUMMY.replace("0x81234567", "0x181234567"), None),
+    "short-code": (_SWAPCHAIN_DUMMY.replace("0x81234567", "0x1234567"), None),
+    "nonhex-code": (_SWAPCHAIN_DUMMY.replace("0x81234567", "0xZZZZZZZZ"), None),
+    "negative-descriptor": (_SWAPCHAIN_DUMMY.replace("Width=1280", "Width=-1280"), None),
+    "overflow-descriptor": (_SWAPCHAIN_DUMMY.replace("Width=1280", "Width=4294967296"), None),
+    "nonboolean-stereo": (_SWAPCHAIN_DUMMY.replace("Stereo=0", "Stereo=2"), None),
+    "reordered-descriptor": (
+        _SWAPCHAIN_DUMMY.replace("Width=1280 Height=800", "Height=800 Width=1280"),
+        None,
+    ),
+    "quoted-credential": ('QRhi token="' + _SWAPCHAIN_DUMMY + '"', None),
+    "json-credential": (json.dumps({"token": _SWAPCHAIN_DUMMY}), None),
+    "credential-prefix": ('QRhi token="DUMMY_HRESULT_SECRET" ' + _SWAPCHAIN_DUMMY, None),
+    "bearer-suffix": (_SWAPCHAIN_DUMMY + " Authorization: Bearer DUMMY_HRESULT_SECRET", None),
+    "credential-descriptor": (
+        _SWAPCHAIN_DUMMY.replace("Width=1280", 'Width=token="DUMMY_HRESULT_SECRET"'),
+        None,
+    ),
+    "credential-reason": (
+        _SWAPCHAIN_DUMMY.replace("Access is denied.", 'token="DUMMY_HRESULT_SECRET"'),
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("message, expected", _HRESULT_CASES.values(), ids=_HRESULT_CASES)
+def test_only_complete_swapchain_descriptor_preserves_structured_uint32(
+    tmp_path, message, expected
+):
+    diag = Diagnostics(tmp_path)
+    captured = []
+    diag.previous = lambda *args: captured.append(args)
+    context = SimpleNamespace(category="default")
+    diag.message(3, context, message)
+    persisted = (tmp_path / "render.jsonl").read_text()
+    row = json.loads(persisted)
+    output = diagnostic_output(tmp_path)
+    assert captured == [(3, context, message)]
+    assert row["kind"] == "3" and row["category"] == "default"
+    assert row["message"] == sanitize(message[:4096])
+    assert not re.search(r"0x[0-9a-fA-F]+", persisted + output)
+    assert "DUMMY_HRESULT_SECRET" not in persisted and "DUMMY_HRESULT_SECRET" not in output
+    if expected is None:
+        assert "hresult_u32" not in row and '"hresult_u32"' not in output
+    else:
+        assert type(row["hresult_u32"]) is int
+        assert row["hresult_u32"] == expected
+        assert 0 <= row["hresult_u32"] <= 0xFFFFFFFF
+        assert f'"hresult_u32": {expected}' in output

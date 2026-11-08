@@ -34,6 +34,27 @@ _ENV = (
 )
 
 
+# Only the complete known Qt D3D11 denial descriptor carries a non-pointer code.
+# Free-form reasons, prefixes/suffixes and credential-bearing messages stay on
+# the ordinary sanitizer path; never exempt hex in the original message.
+_D3D11_SWAPCHAIN_DENIED = re.compile(
+    r"Failed to create D3D11 swapchain: COM error (?P<hresult>0x[0-9a-fA-F]{8}): "
+    r"Access is denied\. "
+    r"\((?P<descriptor>Width=[0-9]{1,10} Height=[0-9]{1,10} "
+    r"Format=[0-9]{1,10} SampleCount=[0-9]{1,10} BufferCount=[0-9]{1,10} "
+    r"Scaling=[0-9]{1,10} SwapEffect=[0-9]{1,10} Stereo=[01])\)"
+)
+
+
+def _swapchain_hresult(text: str) -> dict[str, int]:
+    match = _D3D11_SWAPCHAIN_DENIED.fullmatch(text)
+    if match is not None and all(
+        int(value) <= 0xFFFFFFFF for value in re.findall(r"=([0-9]+)", match.group("descriptor"))
+    ):
+        return {"hresult_u32": int(match.group("hresult"), 16)}
+    return {}
+
+
 _CREDENTIAL = re.compile(
     r"""(?ix)
     (?P<key>["']?\b(?:password|token|secret|authorization|proxy[-_]authorization|
@@ -241,6 +262,7 @@ class Diagnostics:
             kind=str(kind),
             category=category,
             message=text[:4096] if graphics else "<non-graphics message redacted>",
+            **_swapchain_hresult(text),
         )
         # Preserve pytest-qt's original warning/fatal assertions and capture.
         if self.previous is not None:
