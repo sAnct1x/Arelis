@@ -376,7 +376,12 @@ def validate():
 if __name__ == "__main__":
     if sys.argv[1:] == ["--child"] and sys.platform == "win32":
         sys.exit(sacrificial_child())
-    if sys.argv[1:] != ["--hosted-windows-proof"]:
+    arguments = sys.argv[1:]
+    if arguments == ["--hosted-windows-proof", "--job-gated"]:
+        # The external owner assigns our native job BEFORE permitting any descendants.
+        if sys.stdin.buffer.readline(8) != b"go\n":
+            sys.exit(1)
+    elif arguments != ["--hosted-windows-proof"]:
         sys.exit(2)
     try:
         result = validate()

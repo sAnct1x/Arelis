@@ -8,19 +8,20 @@ on the temporary hosted Windows runner (decision250).
 
 Proposed placement **after existing Windows Python/dependency setup**, separately
 from all unchanged pytest/coverage commands, on the exact reviewed source head.
-The prepared CI step is default-off: `vars.SENTINEL_GDB_PROOF == 'true'`, Windows,
-non-doc tier and not-cancelled. No variable is created/configured by this change;
-absence/other values means no execution. No dispatch trigger is added/assumed.
-It is LAST in the existing test job, after dependency setup and all existing
-pytest/serial/Task Scheduler steps, so a proof failure cannot prevent them.
-Publication, activation and execution still require coordinated review/app checks.
+The temporary reviewed workflow opts in ONLY on `push` to the existing publication
+branch `refs/heads/sentinel/pr6-overseer`, Windows, non-doc tier, not-cancelled.
+This branch is recorded in archived actual PR544 metadata (47-followup-1705 /
+live-pr.json.txt), not guessed from this local worktree. No repo variable/settings
+or dispatch required/created. Remove this temporary proof after selected runtime
+review. It is last in the existing test job after all original tests and dependencies.
+Publication/execution still require coordinated review/app checks.
 Proposed single PowerShell command (do not execute until separately coordinated):
 
 ```powershell
 # EXACT existing tests/conftest.py14,20 setup; step-local, NOT a backend workaround.
 $env:QT_QPA_PLATFORM = "offscreen"
 $env:QT_QUICK_BACKEND = "rhi"
-python tools/windows_gdb_validation.py --hosted-windows-proof
+python -m tools.windows_gdb_outer
 exit $LASTEXITCODE
 ```
 
@@ -74,14 +75,25 @@ Only fixed `exited`/`unconfirmed`/`not_started` outcomes are emitted; exceptions
 are never printed. A wait failure is unconfirmed, never cleanup success. An
 unconfirmed owned exit or forced child termination keeps proof FAILED.
 
-The prepared PowerShell outer launcher waits35s, then terminates ONLY its held
-Python process and descendant tree via standard `.Kill($true)`, with2s bounded
-exit confirmation. A separate1minute step timeout is the runner safety ceiling;
-none of the existing test/job deadlines changes. Stderr streams to Stream.Null
-without persistence; only harness-sanitized stdout and fixed outer failure JSON
-reach logs. Cleanup failures remain nonzero. This is a runtime-bound proposal,
-not a hard guarantee against an unresponsive OS/descendant kill or proof that
-all descendants exited when an already-exited root cannot be inspected. No
-process enumeration/name matching/broad kill is used. Actual Windows process-tree
-cleanup and PowerShell execution remain HOSTED acceptance checks, not proven by
-placement/YAML tests. Approved harness source is unchanged by placement.
+The new standard Windows Job Object outer supervisor owns a private kill-on-close
+job across ROOT EXIT. It reuses the existing child_proc native DLL/limit-structure
+and venv-base-interpreter helpers; it does NOT change the product cell's caps or
+call its active-process-limit1 spawn path. A private stdin gate prevents the new
+root from starting any GDB/Qt descendants until assignment succeeds. Descendants
+inherit the diagnostic job; no breakaway flags, process enumeration, PID/name
+killing, global policy, native handle output, installs or debugger implementation.
+Native job support is documented in Microsoft Learn Job Objects / QueryInformationJobObject.
+If creation/config/assignment is unavailable, fail before gate release and kill
+ONLY the unassigned waiting root. No permissive fallback.
+
+Outer root wait35s; cleanup always terminates the OWNED JOB, including when root
+already exited with inner cleanup-unconfirmed, then checks ActiveProcesses==0
+for up to2s. Only this boolean survives; job accounting fields/handles are NEVER
+printed. Remaining members invalidate even a rootexit0. CloseHandle kill-on-close
+is independent final cleanup after terminate/query failure. The existing1minute
+step ceiling remains unchanged. Parent-root liveness is NOT the ownership token.
+Stderr DEVNULL, approved inner sanitized stdout inherited; fixed outer JSON only.
+Mock failures cover exited-root/live-descendant ownership, timeout, assignment,
+and termination error paths. Actual Windows nested-job assignment, unwind and
+cleanup responsiveness remain HOSTED runtime checks, NOT claimed from mocks or
+source. There is no static hard guarantee against unresponsive kernel operations.

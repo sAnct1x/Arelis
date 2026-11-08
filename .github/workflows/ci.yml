@@ -239,56 +239,19 @@ jobs:
         if: runner.os == 'Windows' && steps.tier.outputs.tier != 'docs'
         run: python scripts/schtasks_smoke.py
 
-      # Explicit opt-in only; last so a failed proof cannot prevent existing tests.
-      # No repository variable is created/configured by this workflow change.
+      # Temporary explicit branch/push opt-in; remove after selected proof review.
+      # Last so the proof cannot prevent any existing test from running.
       - name: Opt-in sacrificial Windows GDB proof
         id: gdb_sacrificial_proof
-        if: ${{ !cancelled() && runner.os == 'Windows' && steps.tier.outputs.tier != 'docs' && vars.SENTINEL_GDB_PROOF == 'true' }}
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.tier.outputs.tier != 'docs' && github.event_name == 'push' && github.ref == 'refs/heads/sentinel/pr6-overseer' }}
         shell: pwsh
         timeout-minutes: 1
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QUICK_BACKEND: rhi
         run: |
-          $ErrorActionPreference = 'Stop'
-          $exitCode = 1
-          $started = $false
-          $process = [System.Diagnostics.Process]::new()
-          try {
-            $process.StartInfo.FileName = (Get-Command python -CommandType Application).Source
-            $process.StartInfo.UseShellExecute = $false
-            $process.StartInfo.RedirectStandardOutput = $false
-            $process.StartInfo.RedirectStandardError = $true
-            $process.StartInfo.ArgumentList.Add('tools/windows_gdb_validation.py')
-            $process.StartInfo.ArgumentList.Add('--hosted-windows-proof')
-            $started = $process.Start()
-            if ($started) {
-              $discard = $process.StandardError.BaseStream.CopyToAsync([System.IO.Stream]::Null)
-              if ($process.WaitForExit(35000)) {
-                $exitCode = $process.ExitCode
-              } else {
-                Write-Output '{"status":"failed","phase":"outer_timeout"}'
-              }
-            }
-          } catch {
-            Write-Output '{"status":"failed","phase":"outer_execution_error"}'
-          } finally {
-            try {
-              if ($started -and -not $process.HasExited) {
-                $process.Kill($true)
-                if (-not $process.WaitForExit(2000)) {
-                  $exitCode = 1
-                  Write-Output '{"status":"failed","phase":"outer_cleanup_unconfirmed"}'
-                }
-              }
-            } catch {
-              $exitCode = 1
-              Write-Output '{"status":"failed","phase":"outer_cleanup_error"}'
-            } finally {
-              try { $process.Dispose() } catch { $exitCode = 1 }
-            }
-          }
-          exit $exitCode
+          python -m tools.windows_gdb_outer
+          exit $LASTEXITCODE
 
   # Adding a dependency and forgetting to regenerate the lock would ship an installer
   # missing it, and nothing else in this file would notice: the jobs above install from
