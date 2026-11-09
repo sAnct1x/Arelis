@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -9,12 +10,12 @@ import sys
 import types
 
 import pytest
-
 from sentinel.bridge.client import SentinelClient
 from sentinel.bridge.server import SentinelBridgeServer
 from sentinel.castes import (
     PermissionViolationError,
 )
+from sentinel.core.bus import EventTopic
 from sentinel.core.fsm import SentinelState
 from sentinel.core.hive import SwarmHive
 
@@ -26,65 +27,63 @@ async def test_dynamic_caste_fsm_and_capability_sandboxing() -> None:
     try:
         # Register a custom network packet inspector caste
         res = hive.register_dynamic_caste(
-            caste_id="packet_inspector",
-            code_prefix="PKT",
-            title="Deep Packet Inspector",
-            single_purpose="Validates network protocol headers and packet length constraints",
-            allowed_capabilities=["packet:inspect", "packet:verify_checksum"],
+            caste_id="text_guard",
+            code_prefix="TGD",
+            title="Text Guard",
+            single_purpose="Sanitizes inbound text against a short forbidden-pattern list",
+            allowed_capabilities=["sanitize_text"],
             orbit_radius=19.5,
             orbit_y_band=2.0,
             eye_color="#00ffcc",
-            laser_kind="defense",
+            laser_kind="sanitize",
             rules=[
                 {
-                    "capability": "packet:inspect",
+                    "capability": "sanitize_text",
                     "forbidden_patterns": ["drop database", "admin'--"],
-                    "required_fields": ["src_ip", "dst_port"],
+                    "required_fields": ["text"],
                 }
             ],
             initial_pool=2,
         )
 
-        assert res["caste_id"] == "packet_inspector"
+        assert res["caste_id"] == "text_guard"
         assert len(res["spawned_units"]) == 2
 
-        units = [u for u in hive.units.values() if u.caste == "packet_inspector"]
+        units = [u for u in hive.units.values() if u.caste == "text_guard"]
         assert len(units) == 2
         for u in units:
             assert u.state == SentinelState.PATROLLING
             assert u.orb_color == "#00ffcc"
-            assert u.unit_id.startswith("SNT-PKT-")
+            assert u.unit_id.startswith("SNT-TGD-")
 
-        # 1. Successful execution within capability contract
         valid_payload = {
-            "capability": "packet:inspect",
-            "target": "TCP:443",
-            "data": {"src_ip": "10.0.0.1", "dst_port": 443, "payload": "GET /status HTTP/1.1"},
+            "capability": "sanitize_text",
+            "text": "GET /status HTTP/1.1",
+            "animate": False,
+            "data": {"text": "GET /status HTTP/1.1"},
         }
-        task_res = await hive.dispatch_task("packet_inspector", valid_payload)
+        task_res = await hive.dispatch_task("text_guard", valid_payload)
         assert task_res["ok"] is True
-        assert task_res["capability"] == "packet:inspect"
-        assert len(task_res["violations"]) == 0
-        assert "receipt" in task_res
-        assert task_res["receipt"]["ok"] is True
+        assert task_res["capability"] == "sanitize_text"
+        assert task_res.get("delegated_handler") == "sanitizer"
+        assert len(task_res.get("violations") or []) == 0
 
-        # 2. Rule violation detected (forbidden pattern)
         malicious_payload = {
-            "capability": "packet:inspect",
-            "target": "SQL:1433",
-            "data": {"src_ip": "10.0.0.9", "dst_port": 1433, "payload": "DROP DATABASE master;--"},
+            "capability": "sanitize_text",
+            "text": "DROP DATABASE master;--",
+            "animate": False,
+            "data": {"text": "DROP DATABASE master;--"},
         }
-        bad_res = await hive.dispatch_task("packet_inspector", malicious_payload)
+        bad_res = await hive.dispatch_task("text_guard", malicious_payload)
         assert bad_res["ok"] is False
         assert any("Forbidden pattern matched" in v for v in bad_res["violations"])
 
-        # 3. Permission violation (attempting unauthorized capability)
         unauth_payload = {
             "capability": "kernel:write_memory",
             "target": "0xDEADBEEF",
         }
         with pytest.raises(PermissionViolationError) as exc_info:
-            await hive.dispatch_task("packet_inspector", unauth_payload)
+            await hive.dispatch_task("text_guard", unauth_payload)
         assert "is strictly locked to" in str(exc_info.value)
     finally:
         await hive.stop_background_loops()
@@ -186,7 +185,6 @@ async def test_cryptarch_caste() -> None:
         assert hmac_res["result"]["match"] is True
 
         # 3. High entropy detection on random byte stream
-        import os
         random_payload = os.urandom(1024)
         entropy_res = await hive.dispatch_task(
             "cryptarch",
@@ -614,12 +612,11 @@ async def test_bridge_ipc_dynamic_caste_registration_and_execution() -> None:
             "ast_security_probe",
             code_prefix="ASP",
             title="AST Security Probe",
-            single_purpose="Dynamic security probe for syntax validation",
-            allowed_capabilities=["probe:audit"],
+            single_purpose="Runs the built-in syntax validator on offered source",
+            allowed_capabilities=["ast:verify_ast_clean"],
             orbit_radius=22.0,
             orbit_y_band=1.0,
             eye_color="#39ff14",
-            rules=[{"capability": "probe:audit", "required_fields": ["code_hash"]}],
             initial_pool=2,
             tier="mk2",
         )
@@ -627,37 +624,226 @@ async def test_bridge_ipc_dynamic_caste_registration_and_execution() -> None:
         assert reg_res["caste_id"] == "ast_security_probe"
         assert len(reg_res["spawned_units"]) == 2
 
-        # 2. List castes
         list_res = await client.list_castes()
         assert list_res["ok"] is True
         castes = [c["caste_id"] for c in list_res["castes"]]
         assert "ast_security_probe" in castes
         assert list_res["counts"].get("ast_security_probe") == 2
 
-        # 3. Dispatch task to newly registered caste
         task_res = await client.dispatch_task(
             "ast_security_probe",
             {
-                "capability": "probe:audit",
-                "target": "eval_probe",
-                "data": {"code_hash": "a1b2c3d4", "status": "clean"},
+                "capability": "ast:verify_ast_clean",
+                "code": "def fib(n):\n    return n if n <= 1 else fib(n-1) + fib(n-2)\n",
+                "filename": "fib.py",
             },
         )
         assert task_res["ok"] is True
         assert task_res["result"]["ok"] is True
         assert task_res["result"]["caste"] == "ast_security_probe"
+        assert task_res["result"].get("delegated_handler") == "interceptor"
 
-        # 4. Unregister caste
         unreg_res = await client.unregister_caste("ast_security_probe")
         assert unreg_res["ok"] is True
         assert len(unreg_res["retired_units"]) == 2
 
-
-        # Verify units were retired
         after_units = [u for u in hive.units.values() if u.caste == "ast_security_probe"]
         assert len(after_units) == 0
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_dynamic_caste_bounds_persistence_and_removal() -> None:
+    """Hostile names, capabilities, persistence, corrupt store, and busy removal."""
+    from sentinel.castes.dynamic import MAX_DYNAMIC_CASTES, validate_dynamic_spec
+    from sentinel.castes.store import CasteStore
+    from sentinel.core.fsm import SentinelState
+    from sentinel.paths import data_dir
+
+    hive = SwarmHive()
+    try:
+        with pytest.raises(ValueError, match="built-in capability"):
+            hive.register_dynamic_caste(
+                caste_id="hostile_cap",
+                code_prefix="HST",
+                title="Hostile",
+                single_purpose="Tries a capability no built-in caste has",
+                allowed_capabilities=["packet:inspect"],
+            )
+        with pytest.raises(ValueError, match="clashes with a built-in"):
+            hive.register_dynamic_caste(
+                caste_id="warden",
+                code_prefix="WRD",
+                title="Fake Warden",
+                single_purpose="Cannot reuse a built-in name",
+                allowed_capabilities=["scan_sockets"],
+            )
+        with pytest.raises(ValueError, match="plain-text"):
+            hive.register_dynamic_caste(
+                caste_id="two_purposes",
+                code_prefix="TWO",
+                title="Two purposes",
+                single_purpose=["guard text", "also hunt"],
+                allowed_capabilities=["sanitize_text"],
+            )
+        with pytest.raises(ValueError, match="exactly one purpose"):
+            hive.register_dynamic_caste(
+                caste_id="extra_purpose",
+                code_prefix="EXT",
+                title="Extra purpose",
+                single_purpose="One stated purpose",
+                allowed_capabilities=["sanitize_text"],
+                purposes=["another"],
+            )
+        with pytest.raises(ValueError, match="executable keys"):
+            hive.register_dynamic_caste(
+                caste_id="eval_rule",
+                code_prefix="EVL",
+                title="Eval rule",
+                single_purpose="Must not run expressions",
+                allowed_capabilities=["sanitize_text"],
+                rules=[{"expr": "os.system('id')"}],
+            )
+        with pytest.raises(ValueError, match="lowercase identifier"):
+            hive.register_dynamic_caste(
+                caste_id="../etc/passwd",
+                code_prefix="PTH",
+                title="Path",
+                single_purpose="Unsafe name",
+                allowed_capabilities=["sanitize_text"],
+            )
+        with pytest.raises(ValueError, match="cannot be unregistered"):
+            hive.unregister_caste("stalker")
+        with pytest.raises(ValueError, match="cannot be unregistered"):
+            hive.unregister_caste("warden")
+
+        observed: list[tuple[str, str]] = []
+
+        def _note(event) -> None:
+            payload = event.payload or {}
+            cid = str(payload.get("caste_id") or payload.get("caste") or "")
+            observed.append((str(event.topic), cid))
+
+        hive.bus.subscribe(EventTopic.CASTE_REGISTERED, _note)
+        hive.bus.subscribe(EventTopic.CASTE_UNREGISTERED, _note)
+        hive.bus.subscribe(EventTopic.UNIT_SPAWNED, _note)
+
+        res = hive.register_dynamic_caste(
+            caste_id="persist_guard",
+            code_prefix="PSG",
+            title="Persist Guard",
+            single_purpose="Checks that a valid caste survives a restart",
+            allowed_capabilities=["sanitize_text"],
+            initial_pool=1,
+        )
+        assert res["caste_id"] == "persist_guard"
+        store_path = data_dir() / "dynamic_castes.json"
+        assert store_path.is_file()
+        store_ids = [
+            row.get("caste_id")
+            for row in json.loads(store_path.read_text(encoding="utf-8")).get("castes", [])
+        ]
+        assert "persist_guard" in store_ids
+        assert ("caste.registered", "persist_guard") in observed
+        assert ("unit.spawned", "persist_guard") in observed
+        assert any(u.caste == "persist_guard" for u in hive.units.values())
+
+        hive2 = SwarmHive()
+        try:
+            assert "persist_guard" in hive2.registry.caste_ids
+            desc = hive2.registry.get("persist_guard").descriptor
+            assert desc.single_purpose.startswith("Checks that a valid caste")
+            assert "sanitize_text" in desc.allowed_capabilities
+        finally:
+            await hive2.stop_background_loops()
+
+        unit = next(u for u in hive.units.values() if u.caste == "persist_guard")
+        unit.state = SentinelState.ENGAGED_EXECUTION
+        with pytest.raises(ValueError, match="active jobs"):
+            hive.unregister_caste("persist_guard")
+        assert "persist_guard" in hive.registry.caste_ids
+        unit.state = SentinelState.PATROLLING
+        gone = hive.unregister_caste("persist_guard")
+        assert gone["ok"] is True
+        assert "persist_guard" not in hive.registry.caste_ids
+        assert ("caste.unregistered", "persist_guard") in observed
+
+        # Corrupt file is left in place and does not load.
+        store_path.write_text("{not-json", encoding="utf-8")
+        hive3 = SwarmHive()
+        try:
+            assert "persist_guard" not in hive3.registry.caste_ids
+            assert store_path.read_text(encoding="utf-8") == "{not-json"
+        finally:
+            await hive3.stop_background_loops()
+
+        store_path.unlink()
+        res = hive.register_dynamic_caste(
+            caste_id="write_fail",
+            code_prefix="WFL",
+            title="Write Fail",
+            single_purpose="Rolls back if the store cannot be written",
+            allowed_capabilities=["sanitize_text"],
+            initial_pool=1,
+        )
+        assert "write_fail" in hive.registry.caste_ids
+
+        def _boom(rows):
+            raise OSError("disk full")
+
+        hive._dynamic_store.replace_all = _boom  # type: ignore[method-assign]
+        marked = len(observed)
+        with pytest.raises(ValueError, match="failed to persist"):
+            hive.register_dynamic_caste(
+                caste_id="never_saved",
+                code_prefix="NVS",
+                title="Never Saved",
+                single_purpose="Must not remain after a failed write",
+                allowed_capabilities=["sanitize_text"],
+                initial_pool=1,
+            )
+        failed_events = observed[marked:]
+        assert "never_saved" not in hive.registry.caste_ids
+        assert not any(u.caste == "never_saved" for u in hive.units.values())
+        assert ("caste.registered", "never_saved") not in failed_events
+        assert ("unit.spawned", "never_saved") not in failed_events
+        assert ("caste.unregistered", "never_saved") not in failed_events
+        leftover = store_path.read_text(encoding="utf-8")
+        assert "never_saved" not in leftover
+        assert "write_fail" in leftover
+        hive._dynamic_store = CasteStore()
+
+        before = len(hive.units)
+        hive.register_dynamic_caste(
+            caste_id="cap_bound",
+            code_prefix="CAP",
+            title="Cap Bound",
+            single_purpose="Unit cap still applies when seeding a pool",
+            allowed_capabilities=["sanitize_text"],
+            initial_pool=10_000,
+        )
+        assert len(hive.units) <= hive.max_total_units
+        assert len(hive.units) >= before
+
+        emp_block = await hive.dispatch_task(
+            "cap_bound",
+            {"capability": "sanitize_text", "text": "ok", "animate": False, "method": "POST",
+             "url": "https://example.com/exfil"},
+        )
+        assert emp_block.get("ok") is False
+
+        validate_dynamic_spec(
+            caste_id="ok_spec",
+            code_prefix="OKS",
+            title="Ok",
+            single_purpose="Valid",
+            allowed_capabilities=["sanitize_text"],
+        )
+        assert MAX_DYNAMIC_CASTES == 16
+    finally:
+        hive.emp._tripped = False
+        await hive.stop_background_loops()
 
 
 @pytest.mark.asyncio

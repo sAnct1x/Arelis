@@ -197,6 +197,17 @@ Deploy a stalker and retask those capabilities the same way as the other
 castes. Recent work still shows in the event log; search for stalker or
 PROCESS rather than a separate hunt filter.
 
+## Custom castes (backend only)
+
+The hive can register a custom caste whose capabilities are a subset of the
+built-in tools, with exactly one purpose string, and keep that definition in
+the runtime data directory across a restart. Built-in names cannot be reused
+or deleted. Arelis does not yet have model tools to build or remove a caste;
+those remain a proposal, not something she can call. This does not grant
+new privileges, run rule expressions, or claim that a purpose string is
+checked by a language model: one purpose field is enforced as a single
+plain-text value of bounded length.
+
 ## What the swarm does on its own
 
 While Sentinel is running it watches this machine on a timer: open sockets,
