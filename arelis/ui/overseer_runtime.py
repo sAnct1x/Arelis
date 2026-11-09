@@ -136,6 +136,49 @@ def tentacle_speed(state: str | None) -> float:
     return 0.55
 
 
+# Front tentacle reach: one pair per open harvest fetch, capped at the
+# three front pairs the close-up mesh has.
+MAX_REACH_PAIRS = 3
+OPEN_FETCH_STATUSES = frozenset({"active", "extracting", "sanitizing"})
+
+
+def open_fetch_counts(
+    units: list[dict[str, Any]] | None = None,
+    nodes: list[dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    """Open harvest fetches per unit id, from the snapshot only.
+
+    The hive spawns one harvest_target node per fetch (metadata.unit_id names
+    the unit) and removes it when the result is back, so an open node is an
+    open request. A unit whose target_node_id points at an open node also
+    counts it once.
+    """
+    open_nodes: dict[str, str] = {}
+    per_unit: dict[str, set[str]] = {}
+    for node in nodes or []:
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("kind") or "").lower() != "harvest_target":
+            continue
+        if str(node.get("status") or "active").lower() not in OPEN_FETCH_STATUSES:
+            continue
+        nid = str(node.get("node_id") or "")
+        meta = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+        owner = str(meta.get("unit_id") or "")
+        if nid:
+            open_nodes[nid] = owner
+        if owner:
+            per_unit.setdefault(owner, set()).add(nid or f"anon-{len(per_unit)}")
+    for unit in units or []:
+        if not isinstance(unit, dict):
+            continue
+        uid = str(unit.get("unit_id") or "")
+        tid = str(unit.get("target_node_id") or "")
+        if uid and tid and tid in open_nodes:
+            per_unit.setdefault(uid, set()).add(tid)
+    return {uid: len(ids) for uid, ids in per_unit.items()}
+
+
 def heading_deg(heading: Any) -> float:
     if isinstance(heading, (int, float)):
         return float(heading) * 180.0 / math.pi
@@ -1102,6 +1145,7 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
                 "claw": claw_open(state),
                 "limp": limp,
                 "speed": tentacle_speed(state),
+                "reach": max(0, min(MAX_REACH_PAIRS, int(u.get("open_fetches") or 0))),
             }
         )
     return buckets
@@ -1536,6 +1580,9 @@ def build_frame(
     report = report or load_mesh_report()
     assigned = assign_lods(units, camera_distance, viewport_h, prev_lods, target=target)
     assigned = enforce_budget(assigned, report)
+    fetches = open_fetch_counts(assigned, nodes)
+    for u in assigned:
+        u["open_fetches"] = fetches.get(str(u.get("unit_id") or ""), 0)
     buckets = build_buckets(assigned)
     budget = budget_from_buckets(buckets, report)
     source_active = active_harvest_sources(assigned, nodes)

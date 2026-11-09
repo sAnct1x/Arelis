@@ -57,6 +57,10 @@ Item {
     property string cameraMode: "follow"
     property int placementFrameId: 0
     property var instanceRecords: ({})
+    // Per unit: open-fetch reach pairs now and before, and the sceneTime the
+    // count changed, so the vertex shader eases the reach with no CPU per frame.
+    property var reachState: ({})
+    property var reachNext: ({})
     property string swarmGroupBy: "caste"
     property string swarmSearch: ""
     property string logFilter: "all"
@@ -106,6 +110,7 @@ Item {
             return
         placementFrameId += 1
         var recs = ({})
+        reachNext = ({})
         ensureLists()
         releaseAllLists()
         var buckets = frame.buckets
@@ -156,6 +161,7 @@ Item {
             }
         }
         unitAnimSpecs = animSpecs
+        reachState = reachNext
         counts["__particles"] = 0
         var cEntries = fillConduitEntries(frame.conduits || [])
         counts["__conduits"] = cEntries.length
@@ -480,8 +486,12 @@ Item {
             sc = 2.0
         e.scale = Qt.vector3d(sc, sc, sc)
         e.color = row.color || casteColors[caste]
-        e.customData = Qt.vector4d(row.phase || 0, row.claw || 0.45, row.limp || 0, (row.speed === undefined || row.speed === null) ? 1.0 : row.speed)
         var uid = row && row.unit_id ? row.unit_id : ""
+        var rs = reachSlot(uid, row.reach)
+        // y packs claw + 2*reach + 8*previous reach + 32*limp; z is when reach changed.
+        var claw = Math.min(0.99, Math.max(0, finiteNum(row.claw, 0.45) || 0.45))
+        var limp = row.limp ? 1 : 0
+        e.customData = Qt.vector4d(row.phase || 0, claw + 2 * rs.n + 8 * rs.prev + 32 * limp, rs.t, (row.speed === undefined || row.speed === null) ? 1.0 : row.speed)
         if (uid && recs) {
             if (!recs[uid] || String(key).indexOf(":hull") >= 0) {
                 recs[uid] = {
@@ -498,6 +508,25 @@ Item {
             }
         }
         return e
+    }
+
+    function reachSlot(uid, reach) {
+        var n = Math.max(0, Math.min(3, Math.floor(finiteNum(reach, 0))))
+        if (!uid)
+            return { n: n, prev: n, t: -10 }
+        var done = reachNext[uid]
+        if (done)
+            return done
+        var old = reachState[uid]
+        var st
+        if (!old)
+            st = { n: n, prev: 0, t: n > 0 ? sceneTime : -10 }
+        else if (old.n !== n)
+            st = { n: n, prev: old.n, t: sceneTime }
+        else
+            st = old
+        reachNext[uid] = st
+        return st
     }
 
     function recountEntries(live) {
@@ -925,6 +954,7 @@ Item {
                         property color uRole: modelData.part === "lens" ? root.lensColors[modelData.caste] : root.casteColors[modelData.caste]
                         property real uRimK: 1.35
                         property real uTime: root.sceneTime
+                        property real uTentacles: modelData.lod === 0 ? 10 : (modelData.lod === 1 ? 6 : 4)
                         property real uStrength: modelData.part === "lens" ? 0.95 : (modelData.part === "emissive" ? 1.1 : 1.0)
                     }
                 ]

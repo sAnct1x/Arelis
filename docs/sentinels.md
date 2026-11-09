@@ -31,7 +31,13 @@ by each unit's phase plus a time uniform, not CPU skinning. Animation
 speed comes from real unit activity in the snapshot (slow idle sway while
 patrolling, faster curl and reach while working or engaged, nearly still
 under EMP), packed into the instance custom data so the GPU keeps 60 fps
-without per-tentacle QML objects. Four fixed source
+without per-tentacle QML objects. While a unit has open fetch requests
+(a harvest target in the snapshot that has not come back yet), one pair of
+its front tentacles per request, up to three pairs, swings forward toward
+the target it faces and settles there in about 0.4 s. The other tentacles
+curl, loosely while the unit is idle and tighter while it is busy. The
+vertex shader does this from each instance's data, so there is no extra
+work per frame on the CPU. Four fixed source
 nodes sit at the scene edge (arXiv, Wikipedia, Horizons, Web). A source
 lights up and beams toward the core only while a real harvest fetch for
 that source is live in the hive snapshot (a harvest_target node or a
