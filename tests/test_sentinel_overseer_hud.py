@@ -85,22 +85,34 @@ def test_overseer_inspector_live_fields_and_zoom_collapse() -> None:
         _units()[1],
         castes=_snap()["castes"],
         receipts=_snap()["recent_receipts"],
+        telemetry_log=_snap()["telemetry_log"],
     )
     assert card["state"] == "ENGAGED_DEFENSE"
+    assert card["state_label"] == "Engaged Defense"
+    assert card["role"] == "Defend"
     assert card["target"] == "THREAT-1"
     assert card["tentacles"] == 12
-    assert card["capabilities"] == "intercept, defend"
+    assert card["capabilities"] == ["intercept", "defend"]
     assert card["warrant_hash"] == "abc123def"
-    assert card["last_action"] == "unavailable"
-    assert card["time_on_task"] == "unavailable"
-    assert card["eyes"] == "unavailable"
-    assert card["sparkline"] == "unavailable"
+    live_keys = [row["key"] for row in card["live"]]
+    assert live_keys == ["state", "target", "tentacles", "warrant_hash"]
+    assert "Last action" in card["missing"]
+    assert "Eyes" in card["missing"]
+    assert "2 min activity" in card["missing"]
+    assert "unavailable" not in str(card["live"]) and "unavailable" not in card["missing"]
+    # Rank 3: dock only while selected (zoom no longer opens an empty panel).
     assert overseer_runtime.inspector_collapsed(96.0, None) is True
-    assert overseer_runtime.inspector_collapsed(32.0, None) is False
+    assert overseer_runtime.inspector_collapsed(32.0, None) is True
     assert overseer_runtime.inspector_collapsed(96.0, "SNT-WRD-001") is False
-    fake = dict(card)
-    fake["eyes"] = 9
-    assert overseer_runtime.inspector_card(_units()[1], castes=_snap()["castes"], receipts=_snap()["recent_receipts"])["eyes"] == "unavailable"
+    empty = overseer_runtime.inspector_card(None)
+    assert empty["unit_id"] == ""
+    assert empty["live"] == []
+    assert empty["missing"] == []
+    refreshed = overseer_runtime.inspector_card(
+        _units()[1], castes=_snap()["castes"], receipts=_snap()["recent_receipts"]
+    )
+    assert refreshed["eyes"] == ""
+    assert "Eyes" in refreshed["missing"]
 
 
 @isolated_render()
@@ -426,6 +438,7 @@ def test_overseer_hud_named_row_invoke_keeps_inspector_across_polls(qt_app) -> N
     win.apply_snapshot(snap)
     qt_app.processEvents()
     assert str(host_root.property("selectedUnitId") or "") == ""
+    assert bool(host_root.property("showInspector")) is False
 
     # QQuickWidget list delegates do not instantiate on this offscreen
     # backend (no QRhi). Use the same HUD document to exercise named
@@ -487,6 +500,7 @@ def test_overseer_hud_named_row_invoke_keeps_inspector_across_polls(qt_app) -> N
     win.apply_snapshot(snap)
     qt_app.processEvents()
     assert overseer_runtime.inspector_collapsed(96.0, None) is True
+    assert overseer_runtime.inspector_collapsed(32.0, None) is True
     assert overseer_runtime.inspector_collapsed(96.0, "SNT-WRD-001") is False
     assert str(host_root.property("selectedUnitId") or "") == "SNT-WRD-001"
     assert bool(host_root.property("showInspector")) is True
@@ -718,9 +732,19 @@ def test_overseer_inspector_card_exposes_named_controls(qt_app) -> None:
     assert title is not None
     heading = str(title.property("text") or "")
     assert "SNT-WRD-001" in heading
-    assert "Warden" in heading
     assert heading != "Inspector"
     assert "SNT-WRD-001" in str(title.property("Accessible.name") or heading)
+    role = _named(root, "OverseerInspectorRole")
+    assert role is not None
+    role_text = str(role.property("text") or "")
+    assert "Warden" in role_text
+    assert "Defend" in role_text
+    missing = _named(root, "OverseerInspectorMissing")
+    assert missing is not None and bool(missing.property("visible")) is True
+    miss_list = _named(root, "OverseerInspectorMissingList")
+    assert miss_list is not None
+    assert "eyes" in str(miss_list.property("text") or "").lower()  # Title or lower
+    assert "unavailable" not in str(miss_list.property("text") or "").lower()
     state = _named(root, "OverseerInspector_state")
     assert state is not None
     state_text = str(state.property("text") or "")
@@ -735,8 +759,8 @@ def test_overseer_inspector_card_exposes_named_controls(qt_app) -> None:
         "OverseerAction_retire",
     ):
         assert _named(root, name) is not None, name
-    missing = _named(root, "OverseerInspector_not_a_field")
-    assert missing is None
+    absent = _named(root, "OverseerInspector_not_a_field")
+    assert absent is None
     view.deleteLater()
     qt_app.processEvents()
 

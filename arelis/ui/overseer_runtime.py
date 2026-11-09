@@ -118,6 +118,24 @@ def claw_open(state: str | None) -> float:
     return 0.45
 
 
+def tentacle_speed(state: str | None) -> float:
+    """GPU tentacle wave speed from real unit activity. Idle sways; busy curls faster."""
+    s = str(state or "").upper()
+    if "EMP" in s or "HALT" in s:
+        return 0.05
+    if "ENGAGED_DEFENSE" in s or s.endswith("DEFENSE"):
+        return 2.5
+    if "ENGAGED" in s or "VECTORING" in s or "PURSUIT" in s:
+        return 2.2
+    if "HARVEST" in s or "CARRY" in s or "RETURNING" in s:
+        return 1.8
+    if "QUARANTIN" in s:
+        return 1.1
+    if "PATROL" in s or not s or s == "IDLE":
+        return 0.55
+    return 0.55
+
+
 def heading_deg(heading: Any) -> float:
     if isinstance(heading, (int, float)):
         return float(heading) * 180.0 / math.pi
@@ -276,9 +294,8 @@ def virtual_window(
 
 
 def inspector_collapsed(distance: float, selected: str | None) -> bool:
-    if selected:
-        return False
-    return zoom_t(distance) > INSPECTOR_COLLAPSE_T
+    """True when the dock must stay hidden. Rank 3: only while a unit is selected."""
+    return not bool(selected)
 
 
 def last_event(entries: list[dict[str, Any]] | None) -> dict[str, Any] | None:
@@ -335,7 +352,7 @@ def pill_counts(
     return pills
 
 
-def _caste_capabilities(castes: list[dict[str, Any]] | None, caste: str) -> str:
+def _caste_capabilities(castes: list[dict[str, Any]] | None, caste: str) -> list[str]:
     wanted = str(caste or "").lower()
     for row in castes or []:
         cid = str(row.get("caste_id") or row.get("caste") or "").lower()
@@ -343,11 +360,11 @@ def _caste_capabilities(castes: list[dict[str, Any]] | None, caste: str) -> str:
             continue
         caps = row.get("allowed_capabilities") or row.get("capabilities")
         if caps:
-            return ", ".join(str(item) for item in caps)
-    return UNAVAILABLE
+            return [str(item) for item in caps if str(item or "").strip()]
+    return []
 
 
-def _unit_warrant(receipts: list[dict[str, Any]] | None, unit_id: str) -> str:
+def _unit_warrant(receipts: list[dict[str, Any]] | None, unit_id: str) -> str | None:
     uid = str(unit_id or "")
     for row in reversed(list(receipts or [])):
         if str(row.get("unit_id") or row.get("sentinel_unit") or "") != uid:
@@ -355,7 +372,65 @@ def _unit_warrant(receipts: list[dict[str, Any]] | None, unit_id: str) -> str:
         digest = row.get("sha256")
         if digest:
             return str(digest)
-    return UNAVAILABLE
+    return None
+
+
+# Live inspector rows the hive may report. Missing ones go in one dashed box.
+_INSPECTOR_LIVE_FIELDS = (
+    ("state", "State", "state"),
+    ("target", "Target", "target"),
+    ("last_action", "Last action", "last_action"),
+    ("time_on_task", "Time on task", "time_on_task"),
+    ("eyes", "Eyes", "eyes"),
+    ("tentacles", "Tentacles", "tentacles"),
+    ("warrant_hash", "Warrant hash", "warrant_hash"),
+    ("sparkline", "2 min activity", "sparkline"),
+)
+
+
+def _inspector_field_value(unit: dict[str, Any], key: str, warrant: str | None) -> object | None:
+    if key == "state":
+        return unit.get("state") or None
+    if key == "target":
+        return unit.get("target_node_id") or None
+    if key == "tentacles":
+        return unit["tentacles"] if "tentacles" in unit else None
+    if key == "eyes":
+        return unit["eyes"] if "eyes" in unit else None
+    if key == "last_action":
+        return unit.get("last_action") or None
+    if key == "time_on_task":
+        return unit.get("time_on_task") or None
+    if key == "warrant_hash":
+        return warrant
+    if key == "sparkline":
+        return unit.get("sparkline") or unit.get("activity_2m") or None
+    return None
+
+
+def _inspector_recent(
+    unit_id: str,
+    entries: list[dict[str, Any]] | None,
+    *,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    uid = str(unit_id or "")
+    if not uid:
+        return []
+    rows = [e for e in entries or [] if isinstance(e, dict) and str(e.get("unit_id") or "") == uid]
+    out: list[dict[str, Any]] = []
+    for entry in reversed(rows):
+        iso = str(entry.get("iso_time") or "")
+        time = iso[11:19] if len(iso) >= 19 and iso[10:11] in "T " else (iso[:8] if iso else "")
+        out.append({
+            "seq": entry.get("seq"),
+            "time": time,
+            "message": plain_log_message(entry),
+            "raw": _raw_log_line(entry),
+        })
+        if len(out) >= limit:
+            break
+    return out
 
 
 def inspector_card(
@@ -363,33 +438,68 @@ def inspector_card(
     *,
     castes: list[dict[str, Any]] | None = None,
     receipts: list[dict[str, Any]] | None = None,
+    telemetry_log: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    """Dock card for the selected unit. Empty when nothing is selected.
+
+    LIVE lists only fields the hive reported. Missing names go in one dashed
+    box so the dock never repeats "unavailable". Capabilities are chips.
+    Recent is the newest three log rows for this unit id.
+    """
     if not unit:
         return {
             "unit_id": "",
-            "state": UNAVAILABLE,
-            "target": UNAVAILABLE,
-            "last_action": UNAVAILABLE,
-            "time_on_task": UNAVAILABLE,
-            "eyes": UNAVAILABLE,
-            "tentacles": UNAVAILABLE,
-            "capabilities": UNAVAILABLE,
-            "warrant_hash": UNAVAILABLE,
-            "sparkline": UNAVAILABLE,
+            "caste": "",
+            "role": "",
+            "task": "",
+            "state": "",
+            "state_label": "",
+            "live": [],
+            "missing": [],
+            "capabilities": [],
+            "recent": [],
+            "target": "",
+            "last_action": "",
+            "time_on_task": "",
+            "eyes": "",
+            "tentacles": "",
+            "warrant_hash": "",
+            "sparkline": "",
         }
+    caste = str(unit.get("caste") or "")
+    role = CASTE_ROLE.get(caste.lower(), "")
+    state = str(unit.get("state") or "")
+    warrant = _unit_warrant(receipts, str(unit.get("unit_id") or ""))
+    live: list[dict[str, str]] = []
+    missing: list[str] = []
+    values: dict[str, object] = {}
+    for key, label, _ in _INSPECTOR_LIVE_FIELDS:
+        value = _inspector_field_value(unit, key, warrant)
+        values[key] = value if value is not None else ""
+        if value is None or value == "":
+            missing.append(label)
+        else:
+            live.append({"key": key, "label": label, "value": str(value)})
+    caps = _caste_capabilities(castes, caste)
+    state_label = state.replace("_", " ").title() if state else ""
     return {
         "unit_id": unit.get("unit_id") or "",
-        "state": unit.get("state") or UNAVAILABLE,
-        "target": unit.get("target_node_id") or UNAVAILABLE,
-        "last_action": UNAVAILABLE,
-        "time_on_task": UNAVAILABLE,
-        "eyes": UNAVAILABLE,
-        "tentacles": unit["tentacles"] if "tentacles" in unit else UNAVAILABLE,
-        "capabilities": _caste_capabilities(castes, str(unit.get("caste") or "")),
-        "warrant_hash": _unit_warrant(receipts, str(unit.get("unit_id") or "")),
-        "sparkline": UNAVAILABLE,
-        "caste": unit.get("caste"),
+        "caste": caste,
+        "role": role,
         "task": unit.get("current_task") or empty_task_label(unit.get("state")),
+        "state": state,
+        "state_label": state_label,
+        "live": live,
+        "missing": missing,
+        "capabilities": caps,
+        "recent": _inspector_recent(str(unit.get("unit_id") or ""), telemetry_log),
+        "target": values.get("target", ""),
+        "last_action": values.get("last_action", ""),
+        "time_on_task": values.get("time_on_task", ""),
+        "eyes": values.get("eyes", ""),
+        "tentacles": values.get("tentacles", ""),
+        "warrant_hash": values.get("warrant_hash", ""),
+        "sparkline": values.get("sparkline", ""),
     }
 
 
@@ -656,6 +766,7 @@ def build_hud(
             selected,
             castes=(snap or {}).get("castes") if isinstance(snap, dict) else None,
             receipts=(snap or {}).get("recent_receipts") if isinstance(snap, dict) else None,
+            telemetry_log=(snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
         ),
         "inspectorCollapsed": inspector_collapsed(camera_distance, selected_id or None),
         "logs": _session_rows(snap, log_session, log_filter, log_query, log_repeats),
@@ -990,6 +1101,7 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
                 "phase": float(u.get("phase") or (i * 1.7)),
                 "claw": claw_open(state),
                 "limp": limp,
+                "speed": tentacle_speed(state),
             }
         )
     return buckets
@@ -1051,6 +1163,129 @@ NODE_KIND_COLOR = {
     "merkle_root": "#7ee0c8",
 }
 
+# Fixed edge sources for the Overseer. Beams light only on a real harvest fetch.
+HARVEST_SOURCE_EDGE_R = 26.0
+HARVEST_SOURCES: tuple[tuple[str, str, float, str], ...] = (
+    # id, label, angle_radians, color
+    ("arxiv", "arXiv", 0.55, "#8fd3ff"),
+    ("wikipedia", "Wikipedia", 2.15, "#a78bfa"),
+    ("horizons", "Horizons", 3.75, "#7ee0c8"),
+    ("web", "Web", 5.35, "#e879f9"),
+)
+HARVEST_SOURCE_IDS = {row[0] for row in HARVEST_SOURCES}
+
+
+def normalize_harvest_source(action: object, target: object = None) -> str:
+    """Map a harvester action or URL onto a fixed edge source id, or empty."""
+    a = str(action or "").strip().lower()
+    t = str(target or "").strip().lower()
+    blob = f"{a} {t}"
+    if a in HARVEST_SOURCE_IDS:
+        return a
+    if "arxiv" in blob:
+        return "arxiv"
+    if "wikipedia" in blob or "wiki" in blob:
+        return "wikipedia"
+    if "horizons" in blob or "ssd.jpl" in blob:
+        return "horizons"
+    if a in {"url", "web", "fetch", "fetch_url"} or t.startswith("http://") or t.startswith("https://"):
+        return "web"
+    return ""
+
+
+def active_harvest_sources(
+    units: list[dict[str, Any]] | None = None,
+    nodes: list[dict[str, Any]] | None = None,
+) -> set[str]:
+    """Sources with a live harvest fetch in this snapshot. No timers; snapshot only.
+
+    A harvest_target node exists only while the harvester is vectoring or
+    extracting, so its metadata.action/target is the primary signal. A unit
+    lights a source only when its task or action normalizes to a known source
+    id (arxiv, wikipedia, horizons, web). Bare HARVEST/CARRY state alone does
+    not light Web.
+    """
+    active: set[str] = set()
+    for node in nodes or []:
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("kind") or "").lower() != "harvest_target":
+            continue
+        meta = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+        sid = normalize_harvest_source(meta.get("action"), meta.get("target") or node.get("label"))
+        if sid:
+            active.add(sid)
+    for unit in units or []:
+        if not isinstance(unit, dict):
+            continue
+        task = str(unit.get("current_task") or unit.get("task") or "")
+        action = unit.get("action")
+        sid = normalize_harvest_source(action, task)
+        if sid:
+            active.add(sid)
+    return active
+
+
+def build_harvest_source_conduits(active: set[str] | None = None) -> list[dict[str, Any]]:
+    """Always place labeled edge source beacons; beam packets only when active."""
+    hot = set(active or ())
+    out: list[dict[str, Any]] = []
+    labels: list[dict[str, Any]] = []
+    for i, (sid, label, angle, color) in enumerate(HARVEST_SOURCES):
+        is_hot = sid in hot
+        x = HARVEST_SOURCE_EDGE_R * math.cos(angle)
+        z = HARVEST_SOURCE_EDGE_R * math.sin(angle)
+        y = 1.6
+        nx, ny, nz = _clamp_conduit_coord(x, y, z)
+        labels.append({
+            "id": sid,
+            "label": label,
+            "x": nx,
+            "y": ny,
+            "z": nz,
+            "hot": is_hot,
+            "color": color,
+        })
+        out.append({
+            "id": f"source-beacon:{sid}",
+            "kind": "node",
+            "sx": nx, "sy": ny, "sz": nz,
+            "cx": nx, "cy": ny, "cz": nz,
+            "ex": nx, "ey": ny, "ez": nz,
+            "phase": (i * 0.23) % 1.0,
+            "speed": 0.0,
+            # Conduit fill multiplies scale by 0.0022. Target ~0.22/0.40 world units.
+            "scale": 180.0 if is_hot else 100.0,
+            "color": color if is_hot else "#7a6aad",
+            "source_id": sid,
+            "label": label,
+            "hot": is_hot,
+        })
+        if not is_hot:
+            continue
+        # Beam: packets from the edge source inward to the core while fetching.
+        arc_y = max(ny, 0.5) + 2.6
+        cx, cy, cz = _clamp_conduit_coord(nx * 0.5, arc_y, nz * 0.5)
+        beam_n = 5
+        for k in range(beam_n):
+            out.append({
+                "id": f"source-beam:{sid}:{k}",
+                "kind": "packet",
+                "sx": nx, "sy": ny, "sz": nz,
+                "cx": cx, "cy": cy, "cz": cz,
+                "ex": 0.0, "ey": 0.4, "ez": 0.0,
+                "phase": ((k / beam_n) + i * 0.17) % 1.0,
+                "speed": 1.55,
+                "scale": 14.0,
+                "color": color,
+                "source_id": sid,
+            })
+    # Stash labels on the first beacon via a sibling return; caller uses build_frame.
+    build_harvest_source_conduits.last_labels = labels  # type: ignore[attr-defined]
+    return out
+
+
+
 
 def _clamp_conduit_coord(
     x: float, y: float, z: float, limit: float = 36.0
@@ -1094,9 +1329,17 @@ def build_conduits(
     units: list[dict[str, Any]] | None = None,
     nodes: list[dict[str, Any]] | None = None,
     fx_events: list[dict[str, Any]] | None = None,
+    *,
+    active_sources: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Build hardware-instanced 3D conduit packet and node beacon descriptors."""
     out: list[dict[str, Any]] = []
+    # Fixed harvest source edge beacons first (beams only when a real fetch is active).
+    if active_sources is None:
+        source_active = active_harvest_sources(units, nodes)
+    else:
+        source_active = active_sources
+    out.extend(build_harvest_source_conduits(source_active))
     node_map: dict[str, tuple[float, float, float, str]] = {}
 
     for i, node in enumerate(nodes or []):
@@ -1297,7 +1540,11 @@ def build_frame(
     assigned = enforce_budget(assigned, report)
     buckets = build_buckets(assigned)
     budget = budget_from_buckets(buckets, report)
-    conduits = build_conduits(assigned, nodes=nodes, fx_events=fx_events)
+    source_active = active_harvest_sources(assigned, nodes)
+    conduits = build_conduits(
+        assigned, nodes=nodes, fx_events=fx_events, active_sources=source_active
+    )
+    source_labels = list(getattr(build_harvest_source_conduits, "last_labels", []) or [])
     prev = {str(u.get("unit_id")): int(u["lod"]) for u in assigned if not u.get("culled")}
     for u in assigned:
         if u.get("culled"):
@@ -1308,6 +1555,8 @@ def build_frame(
         "budget": budget,
         "prevLods": prev,
         "conduits": conduits,
+        "sourceLabels": source_labels,
+        "activeSources": sorted(source_active),
     }
 
 
@@ -1485,6 +1734,31 @@ def hud_mask_rects(
     return rects
 
 
+# Dock column (Iris rank 3): 360 wide, 24 from the right edge, 16 gap to the well.
+DOCK_WIDTH = 360.0
+DOCK_EDGE = 24.0
+DOCK_GAP = 16.0
+
+
+def _free_viewport_edges(
+    width: float,
+    height: float,
+    inspector_open: bool,
+) -> tuple[float, float, float, float]:
+    w = max(1.0, float(width))
+    h = max(1.0, float(height))
+    left = min(440.0, w * 0.26)
+    top = 86.0
+    # Closed: keep the prior 20 px right margin (rank 5 owns the 24 gutter).
+    # Open: exclude the dock column so framing never sits under the panel.
+    right_inset = (DOCK_EDGE + DOCK_WIDTH + DOCK_GAP) if inspector_open else 20.0
+    right = w - right_inset
+    if right <= left:
+        right = w
+    bottom = max(top + 1.0, h - 230.0)
+    return left, top, right, bottom
+
+
 def free_viewport_shift(
     width: float,
     height: float,
@@ -1493,12 +1767,7 @@ def free_viewport_shift(
     """Lens shift that centres content in the panel-free region (v5 Space)."""
     w = max(1.0, float(width))
     h = max(1.0, float(height))
-    left = min(440.0, w * 0.26)
-    top = 86.0
-    right = w - (min(460.0, w * 0.28) if inspector_open else 20.0)
-    if right <= left:
-        right = w
-    bottom = max(top + 1.0, h - 230.0)
+    left, top, right, bottom = _free_viewport_edges(w, h, inspector_open)
     cx = (left + right) / 2.0
     cy = (top + bottom) / 2.0
     return (-(cx - w / 2.0) / w, (cy - h / 2.0) / h)
@@ -1510,14 +1779,7 @@ def free_viewport_center(
     inspector_open: bool,
 ) -> tuple[float, float]:
     """Pixel centre of the panel-free well (top-left origin)."""
-    w = max(1.0, float(width))
-    h = max(1.0, float(height))
-    left = min(440.0, w * 0.26)
-    top = 86.0
-    right = w - (min(460.0, w * 0.28) if inspector_open else 20.0)
-    if right <= left:
-        right = w
-    bottom = max(top + 1.0, h - 230.0)
+    left, top, right, bottom = _free_viewport_edges(width, height, inspector_open)
     return ((left + right) / 2.0, (top + bottom) / 2.0)
 
 

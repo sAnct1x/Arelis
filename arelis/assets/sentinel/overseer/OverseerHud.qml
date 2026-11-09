@@ -12,6 +12,8 @@ Item {
     property var logs: []
     property bool inspectorOpen: true
     property string selectedUnitId: ""
+    property bool unitFocused: false
+    property bool retireArmed: false
     property string groupBy: "caste"
     property string swarmSearch: ""
     property string logFilter: "all"
@@ -182,11 +184,52 @@ Item {
     function inspectorHeading() {
         if (!hud.inspector || !hud.inspector.unit_id)
             return "Inspector"
-        var caste = hud.inspector.caste ? String(hud.inspector.caste) : ""
-        if (caste.length)
-            caste = caste.charAt(0).toUpperCase() + caste.slice(1)
-        return String(hud.inspector.unit_id) + "  " + caste
+        return String(hud.inspector.unit_id)
     }
+
+    function inspectorCasteLabel() {
+        var caste = hud.inspector && hud.inspector.caste ? String(hud.inspector.caste) : ""
+        return caste.length ? titleCase(caste) : ""
+    }
+
+    function inspectorRoleLine() {
+        var caste = inspectorCasteLabel()
+        var role = hud.inspector && hud.inspector.role ? String(hud.inspector.role) : ""
+        if (caste && role)
+            return caste + " \u00b7 " + role
+        return caste || role
+    }
+
+    function inspectorCasteColor() {
+        var caste = hud.inspector && hud.inspector.caste ? String(hud.inspector.caste) : ""
+        if (caste === "warden") return "#a78bfa"
+        if (caste === "stalker") return "#e879f9"
+        if (caste === "harvester") return "#8fd3ff"
+        if (caste === "sanitizer") return "#f2c56b"
+        if (caste === "tripwire") return "#7ee0c8"
+        return "#a99bd6"
+    }
+
+    function missingFieldsText() {
+        var missing = hud.inspector && hud.inspector.missing ? hud.inspector.missing : []
+        if (!missing || !missing.length)
+            return ""
+        var parts = []
+        for (var i = 0; i < missing.length; i++)
+            parts.push(String(missing[i]))
+        if (parts.length === 1)
+            return parts[0]
+        if (parts.length === 2)
+            return parts[0] + ", " + parts[1]
+        return parts.slice(0, parts.length - 1).join(", ") + ", " + parts[parts.length - 1]
+    }
+
+    function clearRetireArm() {
+        retireArmed = false
+        retireArmTimer.stop()
+    }
+
+    onSelectedUnitIdChanged: clearRetireArm()
 
     Rectangle {
         id: topBar
@@ -274,7 +317,7 @@ Item {
                             color: hud.threatCount() > 0 ? "#ff6b9a"
                                    : (hud.threatCount() === 0 ? "#7ee0a8" : "#8a7bbf")
                             font.pixelSize: 24
-                            font.weight: Font.DemiBold
+                            font.weight: Font.Bold
                         }
                         Text {
                             anchors.baseline: threatNum.baseline
@@ -312,7 +355,7 @@ Item {
                             text: hud.stripCount("warden")
                             color: "#a78bfa"
                             font.pixelSize: 24
-                            font.weight: Font.DemiBold
+                            font.weight: Font.Bold
                         }
                         Text {
                             anchors.baseline: defNum.baseline
@@ -339,7 +382,7 @@ Item {
                             text: hud.stripCount("units")
                             color: "#e0d4ff"
                             font.pixelSize: 24
-                            font.weight: Font.DemiBold
+                            font.weight: Font.Bold
                         }
                         Repeater {
                             model: hud.casteOrder
@@ -394,7 +437,7 @@ Item {
                         text: hud.stripCount("warrants")
                         color: "#e0d4ff"
                         font.pixelSize: 24
-                        font.weight: Font.DemiBold
+                        font.weight: Font.Bold
                     }
                     ChipRow {
                         id: warrantsChip
@@ -773,206 +816,459 @@ Item {
         }
     }
 
+    Timer {
+        id: retireArmTimer
+        interval: 4000
+        repeat: false
+        onTriggered: hud.retireArmed = false
+    }
+
     Rectangle {
         id: inspectorPanel
         objectName: "OverseerInspector"
-        visible: hud.inspectorOpen
+        // Rank 3: dock outside the free well, only while a unit is selected.
+        visible: hud.inspectorOpen && !!(hud.inspector && hud.inspector.unit_id)
         anchors.right: parent.right
+        anchors.rightMargin: 24
         anchors.top: topBar.bottom
-        width: Math.min(460, parent.width * 0.28)
-        height: Math.min(536, Math.max(0, parent.height - topBar.height - consolePanel.height))
+        anchors.topMargin: 18
+        width: 360
+        // Cap: Iris y 1050 (946 below the dock top) and above the 230 px console.
+        height: Math.min(
+            dockBody.implicitHeight + 32,
+            Math.max(0, parent.height - topBar.height - 18 - 230 - 16),
+            946
+        )
+        radius: 12
         color: hud.panelFill
-        border.color: "#6d4ad8"
+        border.color: "#2f2358"
         border.width: 1
+        clip: true
         Accessible.role: Accessible.Pane
         Accessible.name: hud.inspectorHeading()
 
-        Column {
+        Flickable {
+            id: dockFlick
             anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
-            Text {
-                objectName: "OverseerInspectorTitle"
-                text: hud.inspectorHeading()
-                color: "#d8c8ff"
-                font.pixelSize: 16
-                Accessible.role: Accessible.StaticText
-                Accessible.name: text
+            anchors.margins: 16
+            contentWidth: width
+            contentHeight: dockBody.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
+
+        Column {
+            id: dockBody
+            width: dockFlick.width
+            spacing: 0
+
+            Item {
+                width: parent.width
+                height: 28
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 10
+                    height: 10
+                    radius: 5
+                    color: hud.inspectorCasteColor()
+                }
+                Text {
+                    id: inspectorTitle
+                    objectName: "OverseerInspectorTitle"
+                    anchors.left: parent.left
+                    anchors.leftMargin: 18
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - 18 - 28
+                    text: hud.inspectorHeading()
+                    color: "#e0d4ff"
+                    font.pixelSize: 18
+                    font.weight: Font.Medium
+                    font.family: "monospace"
+                    elide: Text.ElideRight
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+                Rectangle {
+                    objectName: "OverseerInspectorDeselect"
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 24
+                    height: 24
+                    radius: 12
+                    color: "transparent"
+                    border.color: "#2f2358"
+                    border.width: 1
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Deselect"
+                    Text {
+                        anchors.centerIn: parent
+                        text: "\u00d7"
+                        color: "#a99bd6"
+                        font.pixelSize: 16
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: hud.unitChosen("")
+                    }
+                }
             }
+
             Text {
-                objectName: "OverseerInspectorEmpty"
-                visible: !hud.inspector || !hud.inspector.unit_id
-                text: "Select a unit to see its live state."
-                color: "#6f5fa0"
+                objectName: "OverseerInspectorRole"
+                width: parent.width
+                topPadding: 8
+                text: hud.inspectorRoleLine()
+                color: "#a99bd6"
+                font.pixelSize: 14
+            }
+
+            Item {
+                width: parent.width
+                height: (hud.inspector && hud.inspector.state_label) ? 30 : 8
+                Rectangle {
+                    objectName: "OverseerInspectorStateChip"
+                    visible: !!(hud.inspector && hud.inspector.state_label)
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.topMargin: 8
+                    height: 22
+                    width: stateChipLab.implicitWidth + 20
+                    radius: 11
+                    color: "#1d1438"
+                    Text {
+                        id: stateChipLab
+                        anchors.centerIn: parent
+                        text: hud.inspector && hud.inspector.state_label ? String(hud.inspector.state_label) : ""
+                        color: "#c4b5f0"
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
+                    }
+                }
+            }
+
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: "#2f2358"
+            }
+
+            Text {
+                width: parent.width
+                topPadding: 16
+                bottomPadding: 8
+                text: "LIVE"
+                color: "#a99bd6"
                 font.pixelSize: 12
-                width: parent.width
-                wrapMode: Text.WordWrap
+                font.weight: Font.Medium
             }
+
             Column {
-                visible: !!(hud.inspector && hud.inspector.unit_id)
-                spacing: 6
+                objectName: "OverseerInspectorLive"
                 width: parent.width
+                spacing: 0
                 Repeater {
-                    model: [
-                        ["state", "State"],
-                        ["target", "Target"],
-                        ["last_action", "Last action"],
-                        ["time_on_task", "Time on task"],
-                        ["eyes", "Eyes"],
-                        ["tentacles", "Tentacles"],
-                        ["capabilities", "Capabilities"],
-                        ["warrant_hash", "Warrant hash"],
-                        ["sparkline", "2 min sparkline"]
-                    ]
-                    Row {
+                    model: hud.inspector && hud.inspector.live ? hud.inspector.live : []
+                    Item {
                         required property var modelData
-                        objectName: "OverseerInspectorRow_" + modelData[0]
+                        objectName: "OverseerInspectorRow_" + modelData.key
                         width: parent.width
-                        spacing: 8
-                        readonly property string fieldValue: (hud.inspector && hud.inspector[modelData[0]] !== undefined)
-                              ? String(hud.inspector[modelData[0]])
-                              : "unavailable"
+                        height: 28
                         Accessible.role: Accessible.StaticText
-                        Accessible.name: modelData[1] + ": " + fieldValue
+                        Accessible.name: modelData.label + ": " + modelData.value
                         Text {
-                            width: 110
-                            text: modelData[1]
-                            color: "#9a86d0"
-                            font.pixelSize: 12
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 112
+                            text: modelData.label
+                            color: "#a99bd6"
+                            font.pixelSize: 14
                         }
                         Text {
-                            objectName: "OverseerInspector_" + modelData[0]
-                            width: parent.width - 118
-                            wrapMode: Text.Wrap
-                            text: parent.fieldValue
+                            objectName: "OverseerInspector_" + modelData.key
+                            anchors.left: parent.left
+                            anchors.leftMargin: 112
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: String(modelData.value)
                             color: "#e0d4ff"
-                            font.pixelSize: 12
-                            Accessible.role: Accessible.StaticText
-                            Accessible.name: parent.Accessible.name
+                            font.pixelSize: 14
+                            font.weight: Font.Medium
+                            elide: Text.ElideRight
                         }
                     }
                 }
-                Flow {
-                    width: parent.width
-                    spacing: 8
+            }
 
+            Item {
+                width: parent.width
+                height: missingBox.visible ? 8 : 0
+            }
+
+            Rectangle {
+                id: missingBox
+                objectName: "OverseerInspectorMissing"
+                visible: !!(hud.inspector && hud.inspector.missing && hud.inspector.missing.length)
+                width: parent.width
+                height: 72
+                radius: 8
+                color: "transparent"
+                border.color: "#3b2d6e"
+                border.width: 1
+                // Dashed look: short ticks along the top edge.
+                Row {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 8
+                    anchors.top: parent.top
+                    spacing: 6
+                    Repeater {
+                        model: 28
+                        Rectangle { width: 4; height: 1; color: "#0e0920" }
+                    }
+                }
+                Column {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    spacing: 4
+                    Text {
+                        width: parent.width
+                        text: "Not reported by the hive yet"
+                        color: "#a99bd6"
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        wrapMode: Text.WordWrap
+                    }
+                    Text {
+                        objectName: "OverseerInspectorMissingList"
+                        width: parent.width
+                        text: hud.missingFieldsText()
+                        color: "#8a7bbf"
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            Text {
+                width: parent.width
+                topPadding: 20
+                bottomPadding: 8
+                text: "CAPABILITIES"
+                color: "#a99bd6"
+                font.pixelSize: 12
+                font.weight: Font.Medium
+            }
+
+            Flow {
+                objectName: "OverseerInspectorCapabilities"
+                width: parent.width
+                spacing: 8
+                Repeater {
+                    model: hud.inspector && hud.inspector.capabilities ? hud.inspector.capabilities : []
                     Rectangle {
-                        objectName: "OverseerAction_focus"
-                        height: 28
-                        width: focusLab.implicitWidth + 16
-                        radius: 4
-                        color: "#1c1430"
-                        border.color: "#8b6cf2"
-                        enabled: !!(hud.inspector && hud.inspector.unit_id)
-                        Accessible.role: Accessible.Button
-                        Accessible.name: "Focus"
-                        Accessible.onPressAction: hud.hudCommand("focus", {
+                        required property var modelData
+                        height: 24
+                        width: capLab.implicitWidth + 16
+                        radius: 6
+                        color: "#1d1438"
+                        Text {
+                            id: capLab
+                            anchors.centerIn: parent
+                            text: String(modelData)
+                            color: "#c4b5f0"
+                            font.pixelSize: 12
+                            font.family: "monospace"
+                        }
+                    }
+                }
+                Text {
+                    visible: !(hud.inspector && hud.inspector.capabilities && hud.inspector.capabilities.length)
+                    text: "None listed"
+                    color: "#8a7bbf"
+                    font.pixelSize: 13
+                }
+            }
+
+            Text {
+                width: parent.width
+                topPadding: 20
+                bottomPadding: 8
+                text: "ACTIONS"
+                color: "#a99bd6"
+                font.pixelSize: 12
+                font.weight: Font.Medium
+            }
+
+            Grid {
+                id: actionGrid
+                objectName: "OverseerInspectorActions"
+                width: parent.width
+                columns: 2
+                columnSpacing: 8
+                rowSpacing: 8
+
+                Rectangle {
+                    objectName: "OverseerAction_focus"
+                    height: 36
+                    width: (actionGrid.width - 8) / 2
+                    radius: 8
+                    color: hud.unitFocused ? "#5b3fc4" : "#160f2b"
+                    border.color: hud.unitFocused ? "#5b3fc4" : "#6d4ad8"
+                    border.width: 1
+                    enabled: !!(hud.inspector && hud.inspector.unit_id)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: hud.unitFocused ? "Focused" : "Focus"
+                    Accessible.onPressAction: hud.hudCommand("focus", {
+                        unit_id: hud.selectedUnitId,
+                        caste: hud.inspector && hud.inspector.caste
+                    })
+                    Text {
+                        anchors.centerIn: parent
+                        text: hud.unitFocused ? "Focused" : "Focus"
+                        color: hud.unitFocused ? "#f4efff" : "#e0d4ff"
+                        font.pixelSize: 14
+                        font.weight: Font.Bold
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: parent.enabled
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: hud.hudCommand("focus", {
                             unit_id: hud.selectedUnitId,
                             caste: hud.inspector && hud.inspector.caste
                         })
+                    }
+                }
+
+                Rectangle {
+                    objectName: "OverseerAction_fitSwarm"
+                    height: 36
+                    width: (actionGrid.width - 8) / 2
+                    radius: 8
+                    color: "#160f2b"
+                    border.color: "#6d4ad8"
+                    border.width: 1
+                    enabled: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Fit swarm"
+                    Accessible.onPressAction: hud.hudCommand("fit_swarm", {})
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Fit swarm"
+                        color: "#e0d4ff"
+                        font.pixelSize: 14
+                        font.weight: Font.Medium
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: parent.enabled
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: hud.hudCommand("fit_swarm", {})
+                    }
+                }
+
+                Rectangle {
+                    objectName: "OverseerAction_retask"
+                    height: 36
+                    width: (actionGrid.width - 8) / 2
+                    radius: 8
+                    color: "transparent"
+                    border.color: "#2f2358"
+                    border.width: 1
+                    enabled: false
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Retask"
+                    Accessible.description: "Not available: the hive cannot give one unit a new job."
+                    HoverHandler { id: retaskHover }
+                    ToolTip.visible: retaskHover.hovered
+                    ToolTip.delay: 400
+                    ToolTip.text: "Not available: the hive cannot give one unit a new job."
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 6
                         Text {
-                            id: focusLab
-                            anchors.centerIn: parent
-                            text: "Focus"
-                            color: "#e0d4ff"
-                            font.pixelSize: 12
+                            text: "Retask"
+                            color: "#8a7bbf"
+                            font.pixelSize: 14
+                            font.weight: Font.Medium
                         }
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: parent.enabled
-                            onClicked: hud.hudCommand("focus", {
-                                unit_id: hud.selectedUnitId,
-                                caste: hud.inspector && hud.inspector.caste
-                            })
-                        }
-                    }
-                    Rectangle {
-                        objectName: "OverseerAction_fitSwarm"
-                        height: 28
-                        width: fitLab.implicitWidth + 16
-                        radius: 4
-                        color: "#1c1430"
-                        border.color: "#8b6cf2"
-                        enabled: true
-                        Accessible.role: Accessible.Button
-                        Accessible.name: "Fit swarm"
-                        Accessible.onPressAction: hud.hudCommand("fit_swarm", {})
                         Text {
-                            id: fitLab
-                            anchors.centerIn: parent
-                            text: "Fit swarm"
-                            color: "#e0d4ff"
+                            text: "\u24d8"
+                            color: "#8a7bbf"
                             font.pixelSize: 12
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: parent.enabled
-                            onClicked: hud.hudCommand("fit_swarm", {})
+                            anchors.verticalCenter: parent.verticalCenter
                         }
                     }
-                    Rectangle {
-                        objectName: "OverseerAction_retask"
-                        height: 28
-                        width: retaskLab.implicitWidth + 16
-                        radius: 4
-                        color: "#1c1430"
-                        border.color: "#8b6cf2"
-                        enabled: false
-                        Accessible.role: Accessible.Button
-                        Accessible.name: "Retask (unavailable)"
-                            Text {
-                            id: retaskLab
-                            anchors.centerIn: parent
-                            text: "Retask (unavailable)"
-                            color: "#e0d4ff"
-                            font.pixelSize: 12
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: false
-                        }
-                    }
-                    Rectangle {
-                        objectName: "OverseerAction_recall"
-                        height: 28
-                        width: recallLab.implicitWidth + 16
-                        radius: 4
-                        color: "#1c1430"
-                        border.color: "#8b6cf2"
-                        enabled: false
-                        Accessible.role: Accessible.Button
-                        Accessible.name: "Recall (unavailable)"
-                            Text {
-                            id: recallLab
-                            anchors.centerIn: parent
-                            text: "Recall (unavailable)"
-                            color: "#e0d4ff"
-                            font.pixelSize: 12
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: false
-                        }
-                    }
-                    Rectangle {
-                        objectName: "OverseerAction_retire"
-                        height: 28
-                        width: retireLab.implicitWidth + 16
-                        radius: 4
-                        color: "#1c1430"
-                        border.color: "#8b6cf2"
-                        Accessible.role: Accessible.Button
-                        Accessible.name: "Retire"
+                    MouseArea { anchors.fill: parent; enabled: false }
+                }
+
+                Rectangle {
+                    objectName: "OverseerAction_recall"
+                    height: 36
+                    width: (actionGrid.width - 8) / 2
+                    radius: 8
+                    color: "transparent"
+                    border.color: "#2f2358"
+                    border.width: 1
+                    enabled: false
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Recall"
+                    Accessible.description: "Not available: Recall would shrink the whole caste, not just this unit."
+                    HoverHandler { id: recallHover }
+                    ToolTip.visible: recallHover.hovered
+                    ToolTip.delay: 400
+                    ToolTip.text: "Not available: Recall would shrink the whole caste, not just this unit."
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 6
                         Text {
-                            id: retireLab
-                            anchors.centerIn: parent
-                            text: "Retire"
-                            color: "#e0d4ff"
-                            font.pixelSize: 12
+                            text: "Recall"
+                            color: "#8a7bbf"
+                            font.pixelSize: 14
+                            font.weight: Font.Medium
                         }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: hud.hudCommand("retire", {
+                        Text {
+                            text: "\u24d8"
+                            color: "#8a7bbf"
+                            font.pixelSize: 12
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                    MouseArea { anchors.fill: parent; enabled: false }
+                }
+
+                Rectangle {
+                    objectName: "OverseerAction_retire"
+                    height: 36
+                    width: (actionGrid.width - 8) / 2
+                    radius: 8
+                    color: "transparent"
+                    border.color: "#ff6b9a"
+                    border.width: 1
+                    Accessible.role: Accessible.Button
+                    Accessible.name: hud.retireArmed ? "Confirm retire" : "Retire"
+                    Text {
+                        anchors.centerIn: parent
+                        text: hud.retireArmed ? "Confirm retire" : "Retire"
+                        color: "#ff6b9a"
+                        font.pixelSize: 14
+                        font.weight: Font.Medium
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (!hud.retireArmed) {
+                                hud.retireArmed = true
+                                retireArmTimer.restart()
+                                return
+                            }
+                            hud.clearRetireArm()
+                            hud.hudCommand("retire", {
                                 unit_id: hud.selectedUnitId,
                                 caste: hud.inspector && hud.inspector.caste,
                                 query: hud.missionQuery
@@ -981,7 +1277,46 @@ Item {
                     }
                 }
             }
+
+            Text {
+                width: parent.width
+                topPadding: 20
+                bottomPadding: 8
+                text: "RECENT EVENTS"
+                color: "#a99bd6"
+                font.pixelSize: 12
+                font.weight: Font.Medium
+            }
+
+            Column {
+                objectName: "OverseerInspectorRecent"
+                width: parent.width
+                spacing: 4
+                visible: !!(hud.inspector && hud.inspector.recent && hud.inspector.recent.length)
+                Repeater {
+                    model: hud.inspector && hud.inspector.recent ? hud.inspector.recent : []
+                    Text {
+                        required property var modelData
+                        width: parent.width
+                        text: (modelData.time ? modelData.time + "  " : "") + String(modelData.message || "")
+                        color: "#a99bd6"
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            Text {
+                objectName: "OverseerInspectorRecentEmpty"
+                width: parent.width
+                visible: !(hud.inspector && hud.inspector.recent && hud.inspector.recent.length)
+                text: "None from this unit this session."
+                color: "#8a7bbf"
+                font.pixelSize: 13
+                bottomPadding: 0
+            }
         }
+        } // dockFlick
     }
 
     Rectangle {
