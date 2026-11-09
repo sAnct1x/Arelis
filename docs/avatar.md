@@ -104,9 +104,9 @@ soft swell, not a hot point between her feet. In Filament she stands at `FIGURE_
 soles on the floor line: the camera backs off by 1 / 0.85, and her hub and the floor link's
 start derive from the same constant. The tree keeps drawing under the open chat. The strands that leave the trunk's foot fade in
 slowly, so none sweeps off to the right and stops in the air.
-Its fibers are drawn in four quarters into textures, one quarter redrawing per frame in
-turn, and laid together into one cached texture, so a frame composites one fiber texture,
-not four. The tree keeps moving under the chat too.
+Its fibers are drawn straight into each frame, so every fiber moves at the full frame rate,
+and the window draws one frame per animation step instead of two. The tree keeps moving under
+the chat too.
 
 She stays in view when the app goes idle. She is always framed head to toe and the
 view refits when the window changes size.
