@@ -318,6 +318,15 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
             ],
         },
         {"caste_id": "scout", "allowed_capabilities": ["query_arxiv"]},
+        {
+            "caste_id": "stalker",
+            "allowed_capabilities": [
+                "process:list",
+                "process:inspect_pid",
+                "process:detect_rogue",
+                "process:audit_memory",
+            ],
+        },
     ]
     sent: list[tuple[str, dict[str, Any]]] = []
     gate: dict[str, Any] = {"release": None, "sibling_first": []}
@@ -401,6 +410,13 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
             "text": "<b>",
         },
         ("sanitizer", "inspect_archive", "zz"): {"capability": "inspect_archive", "data": "zz"},
+        ("stalker", "process:list", ""): {"capability": "process:list"},
+        ("stalker", "process:inspect_pid", "4242"): {
+            "capability": "process:inspect_pid",
+            "pid": "4242",
+        },
+        ("stalker", "process:detect_rogue", ""): {"capability": "process:detect_rogue"},
+        ("stalker", "process:audit_memory", ""): {"capability": "process:audit_memory"},
     }
     assert set(st.RETASK_MAP) == {(c, k) for c, k, _ in expected}
     for (caste, cap, target), payload in expected.items():
@@ -419,6 +435,10 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
         ("warden", "scan_sockets", {"target": "x"}),  # takes no target
         ("harvester", "query_arxiv", {"target": "q", "payload": {"method": "POST"}}),
         ("harvester", "query_arxiv", {"target": "q", "payload": {"action": "url"}}),
+        ("stalker", "process:kill", {}),
+        ("stalker", "process:list", {"target": "1"}),
+        ("stalker", "process:inspect_pid", {}),
+        ("stalker", "process:list", {"payload": {"method": "POST"}}),
     ):
         res = run(cmd, action="retask", caste=caste, capability=cap, **kw)
         assert res.ok is False and "dispatch_task" not in control_ops(), (caste, cap)
@@ -436,6 +456,19 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
         payload={"max_results": 3},
     )
     assert sent[-1][1]["payload"] == {"action": "arxiv", "query": "q", "max_results": 3}
+    res = run(
+        cmd,
+        action="retask",
+        caste="stalker",
+        capability="process:list",
+        payload={"limit": 5},
+    )
+    assert res.ok and sent[-1] == (
+        "dispatch_task",
+        {"caste": "stalker", "payload": {"limit": 5, "capability": "process:list"}},
+    )
+    res = run(cmd, action="deploy", caste="stalker", count=1)
+    assert res.ok and sent[-1] == ("spawn_units", {"caste": "stalker", "count": 1})
 
     res = run(cmd, action="mission", question="exoplanet transits")
     assert res.ok and res.data["mission_ref"] == "REQ-0001" and "not finished" in res.output

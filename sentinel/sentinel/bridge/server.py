@@ -735,11 +735,14 @@ class SentinelBridgeServer:
             return
 
         if method == "POST" and path in {"/api/overseer/demo", "/api/overseer/scenario"}:
-            payload = json.loads(body_bytes.decode("utf-8") or "{}") if body_bytes else {}
-            scenario_id = str(payload.get("scenario") or "zion_siege")
-            q_str = str(payload.get("query") or "")
-            res = await self.hive.simulator.run_scenario(scenario_id, query=q_str)
-            self._write_json(200, res, writer)
+            self._write_json(
+                400,
+                {
+                    "ok": False,
+                    "error": "Demo and scenario theater are not available. Dispatch a live mission instead.",
+                },
+                writer,
+            )
             return
 
         if method == "POST" and path == "/api/overseer/mission":

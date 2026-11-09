@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 
 from arelis.spatial import hands_log
 from arelis.spatial.backend import PoseBackend, StubBackend, load_backend
@@ -19,6 +19,7 @@ from arelis.spatial.grant import grant_for, must_revoke
 from arelis.spatial.takes import TakeWriter
 from arelis.spatial.types import FilterBank, HandsFrame
 from arelis.spatial.video import POSE_MAX_WIDTH
+from arelis.ui.live_threads import park_running_thread
 
 log = logging.getLogger(__name__)
 
@@ -205,8 +206,8 @@ class SpatialHands(QObject):
         self._worker = PoseWorker(self)
         self._worker.set_emit_preview(self._preview_wanted)
         self._worker.hands_ready.connect(self._on_hands)
-        self._worker.preview_ready.connect(self.preview_ready.emit)
-        self._worker.status.connect(self.hint.emit)
+        self._worker.preview_ready.connect(self._on_worker_preview)
+        self._worker.status.connect(self._on_worker_status)
         self._worker.start()
         self.tracking_changed.emit(True)
         device = (meta or {}).get("device", "")
@@ -228,9 +229,13 @@ class SpatialHands(QObject):
         worker = self._worker
         self._worker = None
         if worker is not None:
+            # QThread lives on the GUI thread; backend.close() runs on its worker.
+            # Neither stop nor owner destruction may delete it before run returns.
+            worker.finished.connect(worker.deleteLater, Qt.ConnectionType.QueuedConnection)
+            park_running_thread(worker)
             worker.stop_worker()
-            worker.wait(2000)
-            worker.deleteLater()
+            if not worker.isRunning():
+                worker.deleteLater()
         self._last_frame = None
         self.last_clicks = ()
         self.last_tracks = ()
@@ -297,7 +302,21 @@ class SpatialHands(QObject):
             return
         self._worker.submit_video(frame, t_capture)
 
+    @Slot(object)
+    def _on_worker_preview(self, image: object) -> None:
+        if self.sender() is self._worker and self.allowed:
+            self.preview_ready.emit(image)
+
+    @Slot(str)
+    def _on_worker_status(self, text: str) -> None:
+        if self.sender() is self._worker and self._tracking:
+            self.hint.emit(text)
+
+    @Slot(object)
     def _on_hands(self, frame: HandsFrame) -> None:
+        sender = self.sender()
+        if self._worker is None or sender is not self._worker:
+            return
         if not self.allowed:
             return
         state = self._gesture.step(frame)

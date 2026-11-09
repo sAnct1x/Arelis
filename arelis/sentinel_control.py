@@ -146,6 +146,22 @@ def _kill(proc: subprocess.Popen[bytes], *, timeout_s: float) -> None:
             log.warning("Sentinel child did not exit")
 
 
+_THEME_CHOICES = frozenset({"sodium", "filament", "night", "matrix"})
+
+
+def headless_argv(executable: str | None = None, theme: str | None = None) -> list[str]:
+    """Build the child argv. Passes Arelis's active theme without writing prefs."""
+    argv = [executable or sys.executable, "-m", "sentinel", "--headless"]
+    chosen = theme
+    if chosen is None:
+        from arelis.ui.theme_tokens import active_theme
+
+        chosen = active_theme()
+    if chosen in _THEME_CHOICES:
+        argv.extend(["--theme", str(chosen)])
+    return argv
+
+
 def start() -> None:
     """Launch headless Sentinel as a child. Fail soft. Leave a tripped EMP flag."""
     global _process, _token, _endpoint, _endpoint_file, _stopped
@@ -166,7 +182,7 @@ def start() -> None:
             _endpoint_path(data_root).unlink(missing_ok=True)
         except OSError:
             log.warning("Sentinel endpoint file could not be cleared")
-        argv = [sys.executable, "-m", "sentinel", "--headless"]
+        argv = headless_argv()
         env = _child_env(data_root, sentinel_root)
         try:
             proc = _spawn(argv, env=env, cwd=sentinel_root)
