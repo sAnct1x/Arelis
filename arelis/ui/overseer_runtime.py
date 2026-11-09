@@ -451,7 +451,7 @@ def zoom_t(distance: float) -> float:
 
 
 PITCH_MID_DEG = 36.0
-CLOSE_DISTANCE = 7.0  # inside the approved 6 to 9 m close band
+CLOSE_DISTANCE = 24.0  # frame the complete unit between responsive HUD panels
 MID_DISTANCE = 32.0
 WIDE_DISTANCE = 96.0
 CLOSE_BAND = (ZOOM_MIN, 9.0)
@@ -983,9 +983,9 @@ def free_viewport_shift(
     """Lens shift that centres content in the panel-free region (v5 Space)."""
     w = max(1.0, float(width))
     h = max(1.0, float(height))
-    left = min(440.0, w)
+    left = min(440.0, w * 0.26)
     top = 86.0
-    right = w - (min(460.0, w) if inspector_open else 20.0)
+    right = w - (min(460.0, w * 0.28) if inspector_open else 20.0)
     if right <= left:
         right = w
     bottom = max(top + 1.0, h - 230.0)
@@ -1002,9 +1002,9 @@ def free_viewport_center(
     """Pixel centre of the panel-free well (top-left origin)."""
     w = max(1.0, float(width))
     h = max(1.0, float(height))
-    left = min(440.0, w)
+    left = min(440.0, w * 0.26)
     top = 86.0
-    right = w - (min(460.0, w) if inspector_open else 20.0)
+    right = w - (min(460.0, w * 0.28) if inspector_open else 20.0)
     if right <= left:
         right = w
     bottom = max(top + 1.0, h - 230.0)

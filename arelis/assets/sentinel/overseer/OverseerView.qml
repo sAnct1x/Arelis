@@ -298,8 +298,8 @@ Item {
             return false
         cameraMode = "follow"
         setCameraTarget(pos.x, pos.y, pos.z)
-        cameraDistance = 7.0
-        cameraPitch = pitchDeg(7.0)
+        cameraDistance = 24.0
+        cameraPitch = pitchDeg(cameraDistance)
         return true
     }
 
@@ -313,9 +313,9 @@ Item {
     function freeViewportShift() {
         var w = Math.max(1, width)
         var h = Math.max(1, height)
-        var left = Math.min(440, w)
+        var left = Math.min(440, w * 0.26)
         var top = 86
-        var right = w - (showInspector ? Math.min(460, w) : 20)
+        var right = w - (showInspector ? Math.min(460, w * 0.28) : 20)
         if (right <= left)
             right = w
         var bottom = Math.max(top + 1, h - 230)

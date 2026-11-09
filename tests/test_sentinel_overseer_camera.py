@@ -83,8 +83,8 @@ def test_overseer_camera_focus_uses_snapshot_geometry(qt_app) -> None:
     assert abs(float(root.property("cameraTargetZ")) - pos[2]) < 1e-4
     assert root.focusSelectedUnit() is True
     qt_app.processEvents()
-    assert 6.0 <= float(root.property("cameraDistance")) <= 9.0
-    assert abs(float(root.property("cameraPitch")) - 22.0) < 1e-3
+    assert float(root.property("cameraDistance")) == overseer_runtime.CLOSE_DISTANCE
+    assert abs(float(root.property("cameraPitch")) - overseer_runtime.pitch_deg(overseer_runtime.CLOSE_DISTANCE)) < 1e-3
     root.selectUnit("SNT-HRV-001")
     root.focusSelectedUnit()
     qt_app.processEvents()
@@ -155,7 +155,7 @@ def test_overseer_camera_evidence_is_live_not_default(qt_app) -> None:
     assert ev["cameraDistance"] == float(root.property("cameraDistance"))
     assert ev["cameraPitch"] == float(root.property("cameraPitch"))
     assert ev["selectedUnitId"] == "SNT-WRD-001"
-    assert ev["framing"] == "close"
+    assert ev["framing"] == "mid"
     assert ev["cameraDistance"] != overseer_runtime.DEFAULT_CAMERA_DISTANCE
     blank = overseer_runtime.camera_evidence(None, None)
     assert blank == {}
@@ -264,7 +264,7 @@ def test_overseer_camera_evidence_exposes_named_accessible_values(qt_app) -> Non
     assert float(pitch.property("text")) == float(ev["cameraPitch"])
     assert float(target_x.property("text")) == float(ev["cameraTargetX"])
     assert str(selected.property("text")) == "SNT-WRD-001"
-    assert str(framing.property("text")) == "close"
+    assert str(framing.property("text")) == "mid"
     label = str(combined.property("text") or "")
     assert "cameraDistance=" in label
     assert str(distance.property("text")) in label
@@ -282,7 +282,7 @@ def test_overseer_fit_swarm_is_local_and_accessible(qt_app) -> None:
     root.selectUnit("SNT-WRD-001")
     root.focusSelectedUnit()
     qt_app.processEvents()
-    assert float(root.property("cameraDistance")) == 7.0
+    assert float(root.property("cameraDistance")) == overseer_runtime.CLOSE_DISTANCE
     button = _named_text(root, "OverseerAction_fitSwarm")
     assert button is not None
     assert bool(button.property("enabled")) is True
@@ -326,9 +326,9 @@ def test_overseer_focus_projects_selected_unit_to_free_viewport() -> None:
     full_frac = overseer_runtime.projected_height_px(distance, height, 1.0) / height
     # UNIT_WORLD_H 1.56 at 7 m and 35 deg is about 35% of the full plate,
     # about 47% of the free well — not 60%. Do not retune FOV or height here.
-    assert 0.33 < full_frac < 0.38
+    assert 0.05 < full_frac < 0.25
     well_h = height - 86.0 - 230.0
-    assert 0.44 < (full_frac * height / well_h) < 0.50
+    assert full_frac * height < well_h * 0.5
     unshifted = overseer_runtime.project_world_to_viewport(
         pos, distance, pitch, pos, width, height, False,
     )

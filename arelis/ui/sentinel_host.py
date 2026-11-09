@@ -13,7 +13,7 @@ import logging
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QKeySequence, QPainter, QRegion, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -100,8 +100,12 @@ class SentinelMote(QWidget):
 class SentinelWindow(QWidget):
     """Top-level inset Sentinels window: Overseer page, or the offline card."""
 
+    _io_finished = Signal(str, object)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(None)
+        self._io_pending: set[str] = set()
+        self._io_finished.connect(self._on_io_finished)
         self._owner = parent
         self.presence = PresenceController()
         self.setObjectName("SentinelWindow")
@@ -508,13 +512,12 @@ class SentinelWindow(QWidget):
                 status = "Unavailable: Sentinel is not connected"
             else:
                 host, port, token = target
-                try:
-                    overseer_runtime.post_overseer(
-                        host, port, token, plan["path"], plan["body"],
-                    )
-                except Exception:
-                    log.warning("Sentinels window: HUD command %s failed", name)
-                    status = "Request failed"
+                path, body = plan["path"], plan["body"]
+                accepted = self._start_io(
+                    "command",
+                    lambda: overseer_runtime.post_overseer(host, port, token, path, body),
+                )
+                status = "Request pending" if accepted else "A request is already pending"
         if name == "focus" and root is not None and hasattr(root, "focusSelectedUnit"):
             root.focusSelectedUnit()
             self._log_camera_evidence()
@@ -619,17 +622,55 @@ class SentinelWindow(QWidget):
             )
         return frame
 
+    def _start_io(self, kind: str, operation) -> bool:
+        """Keep bounded bridge HTTP waits off the GUI thread; one request per kind."""
+        if kind in self._io_pending:
+            return False
+        self._io_pending.add(kind)
+
+        def run() -> None:
+            try:
+                result = (True, operation())
+            except Exception:
+                log.warning("Sentinels window: %s request failed", kind)
+                result = (False, None)
+            try:
+                self._io_finished.emit(kind, result)
+            except RuntimeError:
+                pass  # the window was destroyed while the bounded request finished
+
+        threading.Thread(target=run, name=f"sentinel-{kind}", daemon=True).start()
+        return True
+
+    @Slot(str, object)
+    def _on_io_finished(self, kind: str, result) -> None:
+        self._io_pending.discard(kind)
+        ok, body = result
+        if kind == "snapshot":
+            if ok and isinstance(body, dict):
+                self.apply_snapshot(body)
+            else:
+                log.warning("Sentinels window: snapshot poll failed")
+            return
+        scene = self._scene
+        root = scene.rootObject() if scene is not None else None
+        if root is not None:
+            # A completed HTTP request can still carry a backend refusal.
+            accepted = ok and isinstance(body, dict) and body.get("ok") is not False
+            status = "Request completed" if accepted else "Request failed or refused"
+            root.setProperty("hudCommandStatus", status)
+        self._poll_snapshot()
+
     def _poll_snapshot(self) -> None:
+        if "snapshot" in self._io_pending:
+            return
         target = sentinel_control.bridge_target()
         if target is None:
             return
         host, port, token = target
-        try:
-            snap = overseer_runtime.fetch_snapshot(host, port, token)
-        except Exception:
-            log.warning("Sentinels window: snapshot poll failed")
-            return
-        self.apply_snapshot(snap)
+        self._start_io(
+            "snapshot", lambda: overseer_runtime.fetch_snapshot(host, port, token)
+        )
 
     def _entry_tick(self) -> None:
         scene = self._scene

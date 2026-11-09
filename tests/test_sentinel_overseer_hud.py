@@ -153,7 +153,7 @@ def test_overseer_console_filters_and_existing_dispatch(qt_app) -> None:
     qt_app.processEvents()
 
 
-@isolated_render()
+@isolated_render(software=True)
 def test_overseer_hud_actions_refuse_wrong_unit_and_preserve_confirm(qt_app) -> None:
     selected = {
         "unit_id": "SNT-WRD-001",
@@ -664,7 +664,7 @@ def _hud_with_selection(qt_app):
     return view, root
 
 
-@isolated_render()
+@isolated_render(software=True)
 def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
     view, root = _hud_with_selection(qt_app)
     seen: list[str] = []
@@ -709,7 +709,7 @@ def test_overseer_unavailable_actions_are_disabled_and_inert(qt_app) -> None:
         qt_app.processEvents()
 
 
-@isolated_render()
+@isolated_render(software=True)
 def test_overseer_inspector_card_exposes_named_controls(qt_app) -> None:
     view, root = _hud_with_selection(qt_app)
     card = _named(root, "OverseerInspector")
@@ -761,7 +761,7 @@ def _crowd_units() -> list[dict]:
     return units
 
 
-@isolated_render()
+@isolated_render(software=True)
 def test_overseer_swarm_list_scroll_semantics(qt_app) -> None:
     view, root = _hud_with_selection(qt_app)
     units = _crowd_units()
@@ -807,7 +807,7 @@ def test_overseer_swarm_list_scroll_semantics(qt_app) -> None:
     qt_app.processEvents()
 
 
-@isolated_render()
+@isolated_render(software=True)
 def test_overseer_swarm_scrollbar_is_filament_not_white(qt_app) -> None:
     view, root = _hud_with_selection(qt_app)
     units = _crowd_units()
@@ -832,7 +832,7 @@ def test_overseer_swarm_scrollbar_is_filament_not_white(qt_app) -> None:
     qt_app.processEvents()
 
 
-@isolated_render()
+@isolated_render(software=True)
 def test_overseer_swarm_header_stays_sticky_while_scrolling(qt_app) -> None:
     view, root = _hud_with_selection(qt_app)
     units = _crowd_units()
@@ -859,7 +859,7 @@ def test_overseer_swarm_header_stays_sticky_while_scrolling(qt_app) -> None:
 
 
 
-@isolated_render()
+@isolated_render(software=True)
 def test_overseer_hud_panels_use_designed_fill(qt_app) -> None:
     """Panel plates and unselected rows use opaque #0e0920 so View3D cannot punch through."""
     view, root = _hud_with_selection(qt_app)

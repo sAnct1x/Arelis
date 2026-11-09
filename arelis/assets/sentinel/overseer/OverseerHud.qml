@@ -154,7 +154,7 @@ Item {
         anchors.left: parent.left
         anchors.top: topBar.bottom
         anchors.bottom: consolePanel.top
-        width: Math.min(440, parent.width)
+        width: Math.min(440, parent.width * 0.26)
         color: hud.panelFill
         border.color: "#6d4ad8"
         border.width: 1
@@ -435,7 +435,7 @@ Item {
         visible: hud.inspectorOpen
         anchors.right: parent.right
         anchors.top: topBar.bottom
-        width: Math.min(460, parent.width)
+        width: Math.min(460, parent.width * 0.28)
         height: Math.min(536, Math.max(0, parent.height - topBar.height - consolePanel.height))
         color: hud.panelFill
         border.color: "#6d4ad8"

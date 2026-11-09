@@ -44,7 +44,7 @@ echo "pre-commit: ruff…"
 # The lint job still runs `ruff check .` over the merged result.
 STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.py' '*.pyi')
 if [ -n "$STAGED" ]; then
-    echo "$STAGED" | tr '\n' '\0' | xargs -0 "$PY" -m ruff check --
+    echo "$STAGED" | tr '\n' '\0' | xargs -0 "$PY" -m ruff check --force-exclude --
 else
     echo "pre-commit: no Python staged; skipping ruff."
 fi

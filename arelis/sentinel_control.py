@@ -180,6 +180,7 @@ def start() -> None:
         # A file left by an earlier run could point at a port someone else now holds.
         try:
             _endpoint_path(data_root).unlink(missing_ok=True)
+            _token_path(data_root).unlink(missing_ok=True)
         except OSError:
             log.warning("Sentinel endpoint file could not be cleared")
         argv = headless_argv()

@@ -809,6 +809,14 @@ async def test_dynamic_caste_bounds_persistence_and_removal() -> None:
         assert ("caste.registered", "never_saved") not in failed_events
         assert ("unit.spawned", "never_saved") not in failed_events
         assert ("caste.unregistered", "never_saved") not in failed_events
+        pool_before = {uid: u for uid, u in hive.units.items() if u.caste == "write_fail"}
+        assert pool_before
+        marked = len(observed)
+        with pytest.raises(ValueError, match="failed to persist removal"):
+            hive.unregister_caste("write_fail")
+        assert "write_fail" in hive.registry.caste_ids
+        assert {uid: u for uid, u in hive.units.items() if u.caste == "write_fail"} == pool_before
+        assert ("caste.unregistered", "write_fail") not in observed[marked:]
         leftover = store_path.read_text(encoding="utf-8")
         assert "never_saved" not in leftover
         assert "write_fail" in leftover

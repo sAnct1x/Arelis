@@ -4,6 +4,12 @@ Arelis starts Sentinel in the background when she launches. The Sentinels
 window lets you watch the swarm live: the 3D view, the roster by caste,
 the mission picker, and the searchable log console.
 
+Snapshot polling and HUD command requests run off the GUI thread. A slow
+or unavailable bridge cannot block window input; duplicate polls do not
+accumulate. Command status remains pending until the backend answers.
+The side panels shrink on smaller windows, leaving room for the scene.
+Focus uses a wider camera distance so the unit body remains visible.
+
 ## Opening it
 
 View menu, then **Sentinels**. In Filament the same item is in the field

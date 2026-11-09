@@ -582,9 +582,8 @@ class SwarmHive:
         if isinstance(handler, DynamicCasteHandler):
             snapshot = handler
         retired: list[str] = []
-        for u in list(self.units.values()):
-            if u.caste == cid and self.retire_unit(u.unit_id):
-                retired.append(u.unit_id)
+        # Commit the definition removal before retiring units. A failed store
+        # write must leave both the caste and its live pool intact.
         ok = self.registry.unregister(cid)
         unregister_caste_profile(cid)
         if ok and not self._restoring_dynamic:
@@ -602,6 +601,9 @@ class SwarmHive:
                     )
                 raise ValueError(f"failed to persist removal of caste {cid!r}") from exc
         if ok:
+            for u in list(self.units.values()):
+                if u.caste == cid and self.retire_unit(u.unit_id):
+                    retired.append(u.unit_id)
             self.bus.publish_nowait(
                 EventTopic.CASTE_UNREGISTERED, {"caste_id": cid, "retired": retired}
             )

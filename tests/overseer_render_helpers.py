@@ -33,6 +33,10 @@ def isolated_render(*, software: bool = False):
             # This child runs one explicit node, serially, even if its parent
             # uses xdist or selection flags. Serial pytest needs no xdist option.
             env.pop("PYTEST_ADDOPTS", None)
+            if sys.platform == "win32" and not software:
+                # Quick 3D needs a real native window: the offscreen QPA
+                # cannot create a D3D swapchain for a QQuickView.
+                env["QT_QPA_PLATFORM"] = "windows"
             if software:
                 # This probe contains only the 2D HUD, not the Quick3D scene.
                 # Qt's software Quick backend supports offscreen pixel grabs.

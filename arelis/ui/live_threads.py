@@ -48,6 +48,9 @@ def park_running_thread(thread: QThread) -> None:
 
     try:
         thread.finished.connect(_drop, Qt.ConnectionType.QueuedConnection)
+        # Deferred deletion can run before the queued finished callback.
+        # Also release the wrapper when Qt actually destroys the worker.
+        thread.destroyed.connect(lambda *_args: _drop())
     except RuntimeError:
         return
     try:
