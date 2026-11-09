@@ -21,10 +21,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # What each objectName is called in the review threads.
 ROLE = {
-    "orbitTree": "fibers (quarter 0, into fibersTex0)",
-    "orbitTree1": "fibers (quarter 1, into fibersTex1)",
-    "orbitTree2": "fibers (quarter 2, into fibersTex2)",
-    "orbitTree3": "fibers (quarter 3, into fibersTex3)",
+    "orbitTree": "fibers (quarter 0)",
+    "orbitTree1": "fibers (quarter 1)",
+    "orbitTree2": "fibers (quarter 2)",
+    "orbitTree3": "fibers (quarter 3)",
     "orbitTreeGlow": "glow",
     "orbitPool": "pool",
     "orbitPulses": "pulses",
