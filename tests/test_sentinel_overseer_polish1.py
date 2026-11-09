@@ -60,7 +60,7 @@ def test_hud_warrants_tooltip_labels_and_placeholders(qt_app) -> None:
         hud.setProperty("pills", {"warrants": 238, "threats": 0})
         qt_app.processEvents()
         items = list(_items(hud))
-        pill = next(i for i in items if i.objectName() == "OverseerPill_warrants")
+        pill = next(i for i in items if i.objectName() == "OverseerStrip_warrants")
         tips = [
             str(o.property("text"))
             for o in pill.findChildren(QObject)

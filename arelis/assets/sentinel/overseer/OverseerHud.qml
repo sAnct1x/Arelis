@@ -18,7 +18,7 @@ Item {
     property string logQuery: ""
     property string missionMode: "multi"
     property string missionQuery: ""
-    property string statusLine: "hive live, all local, sending out blocked"
+    property string statusLine: "hive live · all local · sending out blocked"
     property string commandStatus: ""
     property bool logPaused: false
 
@@ -36,17 +36,72 @@ Item {
     // the scene without clipping or hiding unit geometry in the well.
     readonly property color panelFill: "#0e0920"
 
-    function pillText(key, title) {
-        var value = pills && pills[key]
-        if (value === undefined || value === null)
-            return title + " —"
-        return title + " " + value
+    readonly property string warrantsTooltip: "Evidence receipts in memory (includes up to 120 from earlier runs)"
+
+    function stripCount(key) {
+        var value = pills ? pills[key] : undefined
+        return (value === undefined || value === null || value === "unavailable") ? "?" : String(value)
     }
 
-    function pillTooltip(key) {
-        if (key === "warrants")
-            return "Evidence receipts in memory (includes up to 120 from earlier runs)"
-        return ""
+    // -1 while the hive has not reported security events.
+    function threatCount() {
+        var value = pills ? pills.threats : undefined
+        return typeof value === "number" ? value : -1
+    }
+
+    function threatValue() {
+        return threatCount() < 0 ? "?" : String(threatCount())
+    }
+
+    function threatWord() {
+        var n = threatCount()
+        if (n < 0)
+            return "Not reported"
+        if (n === 0)
+            return "All clear"
+        return n === 1 ? "threat" : "threats"
+    }
+
+    function defenderWords() {
+        var engaged = pills && pills.engaged ? pills.engaged.warden : undefined
+        var wardens = stripCount("warden") === "1" ? "Warden" : "Wardens"
+        return wardens + " patrolling · " + (engaged === undefined ? "?" : engaged) + " engaged"
+    }
+
+    function showLogRow(seq) {
+        for (var i = 0; i < logs.length; i++) {
+            if (logs[i] && logs[i].seq === seq) {
+                logList.positionViewAtIndex(i, ListView.Beginning)
+                return
+            }
+        }
+        logList.positionViewAtBeginning()
+    }
+
+    component StripBlock: Rectangle {
+        property string label: ""
+        default property alias content: body.data
+        height: 56
+        radius: 12
+        color: "#140d2a"
+        border.color: "#2f2358"
+        border.width: 1
+        Accessible.role: Accessible.StaticText
+        Text {
+            x: 16
+            y: 6
+            text: parent.label.toUpperCase()
+            color: "#a99bd6"
+            font.pixelSize: 12
+            font.weight: Font.Medium
+        }
+        Item {
+            id: body
+            x: 16
+            y: 22
+            width: parent.width - 32
+            height: 28
+        }
     }
 
     function titleCase(word) {
@@ -89,52 +144,183 @@ Item {
                 Rectangle { width: 8; height: 8; radius: 4; color: "#7ee0a8"; anchors.verticalCenter: parent.verticalCenter }
                 Text {
                     text: hud.statusLine
-                    color: "#9a86d0"
-                    font.pixelSize: 12
+                    color: "#a99bd6"
+                    font.pixelSize: 13
                 }
             }
         }
 
-        Row {
-            id: pillRow
-            objectName: "OverseerPills"
+        // Status strip (Iris FIX-LIST rank 1): five read-only blocks from the
+        // snapshot's numbers, updated with the snapshot only (no timers).
+        Item {
+            id: strip
+            objectName: "OverseerStatusStrip"
             anchors.left: parent.left
-            anchors.leftMargin: 280
+            anchors.leftMargin: 344
             anchors.right: empButton.left
             anchors.rightMargin: 16
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 8
-            Repeater {
-                model: [
-                    ["units", "Units"],
-                    ["warden", "Warden"],
-                    ["stalker", "Stalker"],
-                    ["harvester", "Harvest"],
-                    ["sanitizer", "Sanitize"],
-                    ["tripwire", "Tripwire"],
-                    ["warrants", "Warrants"],
-                    ["threats", "Threats"]
-                ]
-                Rectangle {
-                    required property var modelData
-                    objectName: "OverseerPill_" + modelData[0]
-                    height: 28
-                    width: pillLabel.implicitWidth + 16
-                    radius: 14
-                    color: "#24163d"
-                    border.color: "#6d4ad8"
-                    Accessible.name: hud.pillText(modelData[0], modelData[1])
-                    Accessible.description: hud.pillTooltip(modelData[0])
-                    HoverHandler { id: pillHover }
-                    ToolTip.text: hud.pillTooltip(modelData[0])
-                    ToolTip.visible: pillHover.hovered && ToolTip.text.length > 0
+            height: 56
+            readonly property var widths: [152, 288, 548, 104, 240]
+            // A block that would not fit whole is left out, from the right.
+            function fits(i) {
+                var w = 0
+                for (var k = 0; k <= i; k++)
+                    w += widths[k] + (k ? 16 : 0)
+                return w <= strip.width
+            }
+
+            Row {
+                spacing: 16
+                StripBlock {
+                    objectName: "OverseerStrip_threats"
+                    visible: strip.fits(0)
+                    width: strip.widths[0]
+                    label: "Threats"
+                    border.color: hud.threatCount() > 0 ? "#ff6b9a"
+                                  : (hud.threatCount() === 0 ? "#2f6b55" : "#2f2358")
+                    Accessible.name: "Threats: " + hud.threatValue() + " " + hud.threatWord()
+                    Row {
+                        spacing: 8
+                        Text {
+                            id: threatNum
+                            text: hud.threatValue()
+                            color: hud.threatCount() > 0 ? "#ff6b9a"
+                                   : (hud.threatCount() === 0 ? "#7ee0a8" : "#8a7bbf")
+                            font.pixelSize: 24
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            anchors.baseline: threatNum.baseline
+                            text: hud.threatWord()
+                            color: hud.threatCount() >= 0 ? "#e0d4ff" : "#8a7bbf"
+                            font.pixelSize: 14
+                            font.weight: Font.Medium
+                        }
+                    }
+                }
+                StripBlock {
+                    objectName: "OverseerStrip_defenders"
+                    visible: strip.fits(1)
+                    width: strip.widths[1]
+                    label: "Defenders"
+                    Accessible.name: "Defenders: " + hud.stripCount("warden") + " " + hud.defenderWords()
+                    Row {
+                        spacing: 8
+                        Text {
+                            id: defNum
+                            text: hud.stripCount("warden")
+                            color: "#a78bfa"
+                            font.pixelSize: 24
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            anchors.baseline: defNum.baseline
+                            text: hud.defenderWords()
+                            color: "#e0d4ff"
+                            font.pixelSize: 14
+                        }
+                    }
+                }
+                StripBlock {
+                    objectName: "OverseerStrip_units"
+                    visible: strip.fits(2)
+                    width: strip.widths[2]
+                    label: "Units by caste"
+                    Accessible.name: "Units by caste: " + hud.stripCount("units") + " total"
+                    Row {
+                        spacing: 16
+                        Text {
+                            id: unitTotal
+                            text: hud.stripCount("units")
+                            color: "#e0d4ff"
+                            font.pixelSize: 24
+                            font.weight: Font.DemiBold
+                        }
+                        Repeater {
+                            model: [
+                                ["warden", "Warden", "#a78bfa"],
+                                ["stalker", "Stalker", "#e879f9"],
+                                ["harvester", "Harvester", "#8fd3ff"],
+                                ["sanitizer", "Sanitizer", "#f2c56b"],
+                                ["tripwire", "Tripwire", "#7ee0c8"]
+                            ]
+                            Row {
+                                required property var modelData
+                                objectName: "OverseerStrip_caste_" + modelData[0]
+                                readonly property string n: hud.stripCount(modelData[0])
+                                readonly property bool present: n !== "0" && n !== "?"
+                                y: unitTotal.baselineOffset - casteLab.baselineOffset
+                                spacing: 6
+                                Rectangle {
+                                    width: 8; height: 8; radius: 4
+                                    anchors.verticalCenter: casteLab.verticalCenter
+                                    color: parent.present ? parent.modelData[2] : "#8a7bbf"
+                                }
+                                Text {
+                                    id: casteLab
+                                    text: parent.modelData[1] + " " + parent.n
+                                    color: parent.present ? "#e0d4ff" : "#8a7bbf"
+                                    font.pixelSize: 13
+                                }
+                            }
+                        }
+                    }
+                }
+                StripBlock {
+                    objectName: "OverseerStrip_warrants"
+                    visible: strip.fits(3)
+                    width: strip.widths[3]
+                    label: "Warrants"
+                    Accessible.name: "Warrants: " + hud.stripCount("warrants")
+                    Accessible.description: hud.warrantsTooltip
+                    HoverHandler { id: warrantsHover }
+                    ToolTip.text: hud.warrantsTooltip
+                    ToolTip.visible: warrantsHover.hovered
                     ToolTip.delay: 400
                     Text {
-                        id: pillLabel
-                        anchors.centerIn: parent
-                        color: modelData[0] === "threats" ? "#ff6b9a" : "#e0d4ff"
-                        font.pixelSize: 12
-                        text: hud.pillText(modelData[0], modelData[1])
+                        text: hud.stripCount("warrants")
+                        color: "#e0d4ff"
+                        font.pixelSize: 24
+                        font.weight: Font.DemiBold
+                    }
+                }
+                StripBlock {
+                    id: lastEventBlock
+                    objectName: "OverseerStrip_lastEvent"
+                    visible: strip.fits(4)
+                    width: strip.widths[4]
+                    label: "Last event"
+                    readonly property var event: hud.pills ? hud.pills.lastEvent : null
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Last event: " + (event ? event.time + " " + event.summary : "None yet")
+                    Row {
+                        spacing: 8
+                        width: parent.width
+                        Text {
+                            id: eventTime
+                            visible: text.length > 0
+                            text: lastEventBlock.event ? String(lastEventBlock.event.time || "") : ""
+                            color: "#a99bd6"
+                            font.pixelSize: 14
+                            font.family: "monospace"
+                        }
+                        Text {
+                            anchors.baseline: eventTime.baseline
+                            width: parent.width - (eventTime.visible ? eventTime.width + 8 : 0)
+                            elide: Text.ElideRight
+                            text: lastEventBlock.event ? String(lastEventBlock.event.summary || "") : "None yet"
+                            color: lastEventBlock.event ? "#e0d4ff" : "#8a7bbf"
+                            font.pixelSize: 14
+                        }
+                    }
+                    MouseArea {
+                        x: -16
+                        y: -22
+                        width: lastEventBlock.width
+                        height: lastEventBlock.height
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: hud.showLogRow(lastEventBlock.event ? lastEventBlock.event.seq : undefined)
                     }
                 }
             }

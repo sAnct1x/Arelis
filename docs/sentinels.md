@@ -35,8 +35,9 @@ trackpad, and + / - keys dolly the camera between 6 m and 110 m with
 the approved rubber-band limits. Opening the window follows the entry
 timing (mote, edge, fill, reveal, then panels); closing reverses it.
 Reduced motion uses a short crossfade. A native HUD sits on the view:
-a pill bar with live unit and caste counts plus Warrants and Threats
-when the hive reports them (what the colours and Warrants mean:
+a status strip across the top (Threats, Defenders, Units by caste,
+Warrants, Last event; see "The status strip" below, and what the
+colours and Warrants mean:
 [sentinel-overseer-colours.md](sentinel-overseer-colours.md)), a grouped Swarm list (search, group by
 caste, task or ring, 44 px rows, engaged first), an inspector for the
 selected unit, and a forensic console for live logs and mission
@@ -120,6 +121,30 @@ theme.id (sodium metadata vs Filament pixels) and leftover hive-specular
 clips on settled stills are separate appearance work, not claimed fixed
 by this camera batch. Visual review, load, and frame timing on a real
 machine have not been accepted yet.
+
+### The status strip
+
+Under the Sentinels title, a green dot reads "hive live · all local ·
+sending out blocked". To its right, five blocks give the hive at a glance.
+They are read only: nothing highlights when you point at them, and only
+Last event responds to a click.
+
+- **Threats**: the threat count from the hive. 0 reads "All clear" in
+  green; any threats read in rose with a rose outline. If the hive does
+  not report it, it reads "?" and "Not reported".
+- **Defenders**: how many Wardens there are, and how many are engaged
+  (the same number as the Warden header's active count in the Swarm list).
+- **Units by caste**: the total, then Warden, Stalker, Harvester,
+  Sanitizer and Tripwire, always in that order. A caste with no units
+  still shows, dimmed, with 0.
+- **Warrants**: evidence receipts in memory. Hover it to read
+  "Evidence receipts in memory (includes up to 120 from earlier runs)".
+- **Last event**: the time and a short summary of the newest event in the
+  console. Click it to scroll the console to that row (or to the newest
+  row if the current filter hides it).
+
+The strip updates with each snapshot, not every frame. If the window is
+too narrow for all five, blocks drop from the right so none is cut off.
 
 ## When Sentinel is offline
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -184,6 +185,12 @@ def filter_swarm_units(units: list[dict[str, Any]] | None, query: str = "") -> l
     return out
 
 
+def _is_active(state: object) -> bool:
+    """Counts toward a Swarm header's active number (and the status strip's engaged)."""
+    s = str(state or "")
+    return s.startswith("ENGAGED") or s in {"QUARANTINING", "VECTORING"}
+
+
 def group_units(units: list[dict[str, Any]] | None, by: str = "caste") -> list[dict[str, Any]]:
     groups: dict[str, dict[str, Any]] = {}
     order: list[str] = []
@@ -198,8 +205,7 @@ def group_units(units: list[dict[str, Any]] | None, by: str = "caste") -> list[d
             groups[key] = {"key": key, "units": [], "active": 0}
             order.append(key)
         groups[key]["units"].append(unit)
-        state = str(unit.get("state") or "")
-        if state.startswith("ENGAGED") or state in {"QUARANTINING", "VECTORING"}:
+        if _is_active(unit.get("state")):
             groups[key]["active"] += 1
     for key in order:
         groups[key]["units"].sort(
@@ -274,16 +280,49 @@ def inspector_collapsed(distance: float, selected: str | None) -> bool:
     return zoom_t(distance) > INSPECTOR_COLLAPSE_T
 
 
+def last_event(entries: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    """The newest telemetry row as the status strip shows it: time and a short summary."""
+    rows = [e for e in entries or [] if isinstance(e, dict)]
+    if not rows:
+        return None
+    entry = rows[-1]
+    message = str(entry.get("message") or "")
+    done = re.search(r"finished (\w+):(\w+) \(ok=(True|False)", message)
+    began = re.search(r"deployed for (\w+):(\w+)", message)
+    if done:
+        summary = f"{done[1].title()} {done[2].replace('_', ' ')}, " + (
+            "ok" if done[3] == "True" else "failed"
+        )
+    elif began:
+        summary = f"{began[1].title()} {began[2].replace('_', ' ')} started"
+    else:
+        summary = " ".join(message.split()[:6])
+    return {
+        "seq": entry.get("seq"),
+        "time": str(entry.get("iso_time") or "")[:8],
+        "summary": summary,
+    }
+
+
 def pill_counts(
     units: list[dict[str, Any]] | None,
     metrics: dict[str, Any] | None = None,
+    logs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    """The status strip's numbers (the header blocks), all from the snapshot."""
     counts = {caste: 0 for caste in CASTES}
+    engaged = {caste: 0 for caste in CASTES}
     for unit in units or []:
         caste = str(unit.get("caste") or "").lower()
         if caste in counts:
             counts[caste] += 1
-    pills: dict[str, Any] = {"units": sum(counts.values()), **counts}
+            engaged[caste] += _is_active(unit.get("state"))
+    pills: dict[str, Any] = {
+        "units": sum(counts.values()),
+        **counts,
+        "engaged": engaged,
+        "lastEvent": last_event(logs),
+    }
     if isinstance(metrics, dict) and "warrants_minted" in metrics:
         pills["warrants"] = int(metrics.get("warrants_minted") or 0)
     else:
@@ -407,7 +446,7 @@ def build_hud(
     units = snapshot_units(snap)
     selected = next((u for u in units if u.get("unit_id") == selected_id), None)
     metrics = (snap or {}).get("metrics") if isinstance(snap, dict) else None
-    status_line = "hive live, all local, sending out blocked"
+    status_line = "hive live · all local · sending out blocked"
     if isinstance(snap, dict):
         emp = snap.get("emp")
         banner = snap.get("active_banner")
@@ -419,7 +458,11 @@ def build_hud(
             b_sub = str(banner.get("subtitle") or "").strip()
             status_line = f"{b_title}: {b_sub}" if b_sub else b_title
     return {
-        "pills": pill_counts(units, metrics if isinstance(metrics, dict) else None),
+        "pills": pill_counts(
+            units,
+            metrics if isinstance(metrics, dict) else None,
+            (snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
+        ),
         "swarmRows": swarm_rows(units, by=group_by, query=search, collapsed=collapsed),
         "inspector": inspector_card(
             selected,

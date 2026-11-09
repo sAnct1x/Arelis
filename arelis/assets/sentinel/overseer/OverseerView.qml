@@ -63,7 +63,7 @@ Item {
     property string logQuery: ""
     property string missionMode: "multi"
     property string missionQuery: ""
-    property string hudStatusLine: "hive live, all local, sending out blocked"
+    property string hudStatusLine: "hive live · all local · sending out blocked"
     property string hudCommandStatus: ""
     property string lastHudCommand: ""
     property var lastHudPayload: ({})
