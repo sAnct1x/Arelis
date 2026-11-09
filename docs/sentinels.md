@@ -27,7 +27,11 @@ per unit), one model per caste, LOD, and part, with caste colour and
 claw opening on each instance. If a hundred units would go over the
 300k triangle ceiling, farther units drop to a coarser LOD or are
 culled. Tentacle motion is a vertex wave on the hull and the glow, driven
-by each unit's phase plus a time uniform, not CPU skinning. The glow
+by each unit's phase plus a time uniform, not CPU skinning. Animation
+speed comes from real unit activity in the snapshot (slow idle sway while
+patrolling, faster curl and reach while working or engaged, nearly still
+under EMP), packed into the instance custom data so the GPU keeps 60 fps
+without per-tentacle QML objects. The glow
 writes clip position from that waved mesh; the lens writes clip
 position from the mesh as modeled, so those unshaded parts stay on
 the units instead of stretching into a covering plate or stray streaks. The wheel,

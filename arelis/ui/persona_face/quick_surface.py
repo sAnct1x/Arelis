@@ -109,6 +109,12 @@ def _figure_item_class():
                 self.update()
 
         def show(self, frame) -> None:
+            # Her thread also signals when a ring slot frees, which this item's own draw
+            # causes (on_shown), with no new frame. Drawing that same frame again asked for
+            # another surface render, whose draw freed a slot again: back-to-back renders
+            # with nothing new, as fast as the window could present (about 90/s at 180 Hz).
+            if frame is self.frame:
+                return
             self.frame = frame
             self.setVisible(frame is not None)
             self.update()
