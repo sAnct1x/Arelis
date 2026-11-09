@@ -233,3 +233,4 @@ file alert even when you made the change. The emergency stop still halts new
 work at once; only you can lift it. After you lift it, host watching starts
 again.
 
+See [The Overseer and the main window](sentinel-overseer-window.md) for how the Overseer draws next to the main window.
