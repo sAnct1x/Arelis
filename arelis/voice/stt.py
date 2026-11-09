@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -138,14 +139,28 @@ _IN_BOX = re.compile(r"(?i)\bin\s+box\b")
 _EMILES = re.compile(r"(?i)\bemiles\b")
 _EMILE = re.compile(r"(?i)\bemile\b")
 _EMIL = re.compile(r"(?i)\bemil\b")
+_ARELIS_RELIC = re.compile(
+    r"(?i)\b(?:(?P<prefix>hey|hi|hello|ok|okay|thanks|thank\s+you|show(?:ing)?(?:\s+\w+)?|with|to|ask(?:ing)?|tell(?:ing)?|call(?:ed)?)\s+)"
+    r"(?:a\s+relic|her\s+relic|a\s+relis|arilis|aurelis|arrelas|arellis)\b"
+)
+_BARE_ARELIS_MISS = re.compile(r"(?i)\b(?:arilis|aurelis|arrelas|arellis|airelyse|arelyse)\b")
+_COMPOUND_SPLITS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"(?i)\bto\s+morrow\b"), "tomorrow"),
+    (re.compile(r"(?i)\bto\s+night\b"), "tonight"),
+    (re.compile(r"(?i)\bsome\s+one\b"), "someone"),
+    (re.compile(r"(?i)\bany\s+one\b"), "anyone"),
+    (re.compile(r"(?i)\bevery\s+one\b"), "everyone"),
+    (re.compile(r"(?i)\bsign\s+wave(s?)\b"), r"sine wave\1"),
+    (re.compile(r"(?i)\bhullo\b"), "Hello"),
+)
 
 
 def repair_stt_mail_words(text: str) -> str:
-    """Sherpa Zipformer mail homophones and splits.
+    """Repair common STT homophones, name mishears, and archaic splits.
 
-    "email" often comes back as the French name Émile / Emil, and "inbox"
-    as two words. Repair here so skill, preflight, and the model all see
-    the same words the operator said.
+    "email" often comes back as the French name Émile / Emil, "inbox" as two
+    words, and "Arelis" after conversational verbs as "a relic". Repair here so
+    skill, preflight, and the model all see the words the operator said.
     """
     raw = text or ""
     if not raw:
@@ -154,6 +169,13 @@ def repair_stt_mail_words(text: str) -> str:
     raw = _EMILES.sub("emails", raw)
     raw = _EMILE.sub("email", raw)
     raw = _EMIL.sub("email", raw)
+    raw = _ARELIS_RELIC.sub(
+        lambda m: f"{m.group('prefix')} Arelis" if m.group("prefix") else "Arelis",
+        raw,
+    )
+    raw = _BARE_ARELIS_MISS.sub("Arelis", raw)
+    for pattern, repl in _COMPOUND_SPLITS:
+        raw = pattern.sub(repl, raw)
     return raw
 
 
@@ -208,6 +230,160 @@ _STT_STOP = frozenset(
         "your",
     }
 )
+_STT_PROTECTED_COMMON = frozenset(
+    {
+        "able",
+        "back",
+        "best",
+        "both",
+        "call",
+        "came",
+        "chat",
+        "code",
+        "come",
+        "cool",
+        "coal",
+        "data",
+        "days",
+        "done",
+        "down",
+        "each",
+        "even",
+        "fact",
+        "fast",
+        "feel",
+        "file",
+        "find",
+        "fine",
+        "first",
+        "full",
+        "game",
+        "give",
+        "good",
+        "great",
+        "hand",
+        "hard",
+        "head",
+        "hear",
+        "heard",
+        "help",
+        "here",
+        "high",
+        "hold",
+        "home",
+        "idea",
+        "info",
+        "keep",
+        "kind",
+        "know",
+        "last",
+        "late",
+        "left",
+        "less",
+        "life",
+        "line",
+        "list",
+        "live",
+        "long",
+        "look",
+        "lost",
+        "made",
+        "main",
+        "make",
+        "many",
+        "mean",
+        "middle",
+        "might",
+        "mind",
+        "mode",
+        "model",
+        "most",
+        "move",
+        "much",
+        "must",
+        "name",
+        "near",
+        "need",
+        "next",
+        "nice",
+        "none",
+        "note",
+        "once",
+        "only",
+        "open",
+        "over",
+        "page",
+        "part",
+        "past",
+        "path",
+        "plan",
+        "play",
+        "port",
+        "post",
+        "pretty",
+        "pull",
+        "push",
+        "read",
+        "real",
+        "rest",
+        "right",
+        "room",
+        "root",
+        "rule",
+        "same",
+        "save",
+        "seem",
+        "seen",
+        "send",
+        "sent",
+        "show",
+        "side",
+        "sign",
+        "simple",
+        "site",
+        "size",
+        "slow",
+        "soon",
+        "sort",
+        "stay",
+        "step",
+        "stop",
+        "sure",
+        "take",
+        "talk",
+        "task",
+        "team",
+        "tell",
+        "term",
+        "test",
+        "text",
+        "time",
+        "told",
+        "took",
+        "tool",
+        "tree",
+        "true",
+        "turn",
+        "type",
+        "unit",
+        "used",
+        "user",
+        "view",
+        "wait",
+        "walk",
+        "wall",
+        "want",
+        "week",
+        "well",
+        "went",
+        "will",
+        "wind",
+        "wire",
+        "word",
+        "work",
+        "year",
+    }
+)
 _STT_TOKEN = re.compile(r"[A-Za-z][A-Za-z']+")
 
 
@@ -248,7 +424,11 @@ def _stt_context_hit(heard: str, candidate: str) -> bool:
     b = candidate.lower()
     if a == b:
         return False
-    if a in _STT_STOP or b in _STT_STOP:
+    if a in _STT_STOP or b in _STT_STOP or a in _STT_PROTECTED_COMMON:
+        return False
+    # Only repair toward proper nouns / capitalized entities from recent context,
+    # never toward ordinary lowercase words that happen to share consonants.
+    if not any(ch.isupper() for ch in candidate):
         return False
     if abs(len(a) - len(b)) > 4:
         return False
@@ -263,7 +443,7 @@ def _stt_context_hit(heard: str, candidate: str) -> bool:
 
 
 def repair_stt_from_recent(text: str, messages: list[Any] | None) -> str:
-    """Swap near-miss transcript words for ones just said in this chat.
+    """Swap near-miss transcript words for proper nouns just said in this chat.
 
     Sherpa hears "tighten" / "your rope" after she said Titan and Europa.
     The model can often guess, but intent gates and the next turn cannot.
@@ -275,6 +455,9 @@ def repair_stt_from_recent(text: str, messages: list[Any] | None) -> str:
     vocab = recent_stt_vocab(messages or [])
     if not vocab:
         return raw
+    vocab_lower = {w.lower(): w for w in vocab}
+    if "europa" in vocab_lower:
+        raw = re.sub(r"(?i)\byour\s+rope\b", vocab_lower["europa"], raw)
     parts = re.split(r"(\b[A-Za-z][A-Za-z']+\b)", raw)
     out: list[str] = []
     for part in parts:
@@ -284,7 +467,7 @@ def repair_stt_from_recent(text: str, messages: list[Any] | None) -> str:
             continue
         heard = part
         low = heard.lower()
-        if low in _STT_STOP or len(low) < 4:
+        if low in _STT_STOP or low in _STT_PROTECTED_COMMON or len(low) < 4:
             out.append(heard)
             continue
         hits = [word for word in vocab if _stt_context_hit(low, word)]
@@ -384,10 +567,12 @@ class SpeechToText:
         return "zh" if session_code(self._app_config) == "zh" else "en"
 
     def requested_backend(self) -> str:
-        raw = str(self.config.get("backend") or "sherpa").strip().lower()
-        if raw in {"faster-whisper", "faster_whisper", "whisper"}:
+        raw = str(self.config.get("backend") or "faster-whisper").strip().lower()
+        if raw == "sherpa":
+            return "sherpa"
+        if raw in {"faster-whisper", "faster_whisper", "whisper", "auto"}:
             return "faster-whisper"
-        return "sherpa"
+        return "faster-whisper"
 
     def resolved_backend(self, *, purpose: str = "turn") -> str | None:
         """Which ear will actually run. None if neither backend can.
@@ -520,11 +705,22 @@ class SpeechToText:
         else:
             language = self.config.get("language") or None
             prompt = str(self.config.get("initial_prompt") or "").strip() or None
+        audio_input: Any = audio_path
+        if str(audio_path).lower().endswith(".wav"):
+            try:
+                from arelis.voice.sherpa_stt import _read_wav_mono
+
+                samples, _sr = _read_wav_mono(Path(audio_path))
+                if samples.size > 0:
+                    audio_input = samples
+            except Exception:
+                audio_input = audio_path
         segments, _info = model.transcribe(
-            audio_path,
+            audio_input,
             language=language,
             beam_size=int(self.config.get("beam_size", 1)),
             vad_filter=bool(self.config.get("vad_filter", False)),
+            without_timestamps=True,
             # Biases decoding toward the wake name. Keep the prompt short —
             # long jargon lists are often echoed as the whole transcript.
             initial_prompt=prompt,
@@ -584,7 +780,12 @@ class SpeechToText:
         compute_type = self.config.get("compute_type") or (
             "int8" if device == "cpu" else "default"
         )
-        kwargs = {"device": device, "compute_type": compute_type}
+        cpu_threads = int(
+            self.config.get("cpu_threads") or max(4, (os.cpu_count() or 4) // 2)
+        )
+        kwargs: dict[str, Any] = {"device": device, "compute_type": compute_type}
+        if device == "cpu":
+            kwargs["cpu_threads"] = cpu_threads
         try:
             self._model = WhisperModel(size, local_files_only=True, **kwargs)
         except Exception as exc:

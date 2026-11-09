@@ -335,32 +335,19 @@ class SentinelWindow(QWidget):
         if self._live is not None:
             return self._live
         scene = self._ensure_scene()
+        if scene is not None:
+            self._live = scene
+            self._stack.addWidget(scene)
+            return self._live
         try:
             from PySide6.QtWebEngineWidgets import QWebEngineView
         except ImportError:
             log.warning("Sentinels window: QtWebEngine unavailable")
-            if scene is None:
-                return None
-            self._live = scene
-            self._stack.addWidget(scene)
-            return self._live
-        from PySide6.QtWidgets import QGridLayout
-
-        live = QWidget(self)
-        live.setObjectName("OverseerLive")
-        grid = QGridLayout(live)
-        grid.setContentsMargins(0, 0, 0, 0)
-        if scene is not None:
-            grid.addWidget(scene, 0, 0)
-        self._view = QWebEngineView(live)
-        self._view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        page = self._view.page()
-        if page is not None and hasattr(page, "setBackgroundColor"):
-            page.setBackgroundColor(QColor(0, 0, 0, 0))
-        grid.addWidget(self._view, 0, 0)
-        self._live = live
-        self._stack.addWidget(live)
-        return live
+            return None
+        self._view = QWebEngineView(self)
+        self._live = self._view
+        self._stack.addWidget(self._view)
+        return self._live
 
 
     def apply_hud_mask(self) -> None:
@@ -591,8 +578,16 @@ class SentinelWindow(QWidget):
             if tx is not None and ty is not None and tz is not None:
                 cam_target = (float(tx), float(ty), float(tz))
         viewport_h = max(1, self.height() - 86 - 230)
+        nodes = (snap or {}).get("nodes") if isinstance(snap, dict) else None
+        fx_events = (snap or {}).get("fx_events") if isinstance(snap, dict) else None
         frame = overseer_runtime.build_frame(
-            units, distance, float(viewport_h), self._prev_lods, target=cam_target
+            units,
+            distance,
+            float(viewport_h),
+            self._prev_lods,
+            target=cam_target,
+            nodes=nodes if isinstance(nodes, list) else None,
+            fx_events=fx_events if isinstance(fx_events, list) else None,
         )
         self._prev_lods = frame["prevLods"]
         if root is not None and hasattr(root, "applyFrame"):

@@ -45,3 +45,24 @@ def test_vocab_skips_stopwords() -> None:
     assert "that" not in words
 
 
+def test_arelis_and_archaic_splits_are_repaired() -> None:
+    assert scrub_transcript(
+        "I am actually just showing somebody a relic for the first time"
+    ) == "I am actually just showing somebody Arelis for the first time"
+    assert scrub_transcript(
+        "HULLO to morrow and to night we test a sign wave with some one"
+    ) == "Hello tomorrow and tonight we test a sine wave with someone"
+
+
+def test_recent_vocab_never_corrupts_common_lowercase_words() -> None:
+    history = [
+        SimpleNamespace(
+            role="assistant",
+            content="The middle model has a simple system part and port.",
+        )
+    ]
+    heard = "the mode is fast and I will test my part"
+    assert repair_stt_from_recent(heard, history) == heard
+
+
+

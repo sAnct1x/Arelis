@@ -136,19 +136,23 @@ class VoiceController(QObject):
         # Smart Turn asks after a short pause. Without it, keep the longer
         # adaptive windows so last words are not chopped. Yaml may list the
         # Smart Turn windows (280 ms); floor those when the ONNX is missing.
-        default_silence = 280 if self._smart_turn is not None else 900
-        default_short = 280 if self._smart_turn is not None else 550
+        default_silence = 600 if self._smart_turn is not None else 900
+        default_short = 500 if self._smart_turn is not None else 550
         silence_ms = int(conversation.get("silence_ms", default_silence))
         short_silence_ms = int(conversation.get("short_silence_ms", default_short))
-        if self._smart_turn is None:
-            silence_ms = max(silence_ms, 900)
-            short_silence_ms = max(short_silence_ms, 550)
         # Trailing silence after real speech that ends a conversation turn.
-        # Slow talkers pause mid-thought, so this is a floor, and Smart Turn
-        # cannot keep the turn open past it. 0 restores the old behavior.
+        # Slow talkers pause mid-thought, so this is a ceiling that Smart Turn
+        # cannot keep the turn open past, and the floor when Smart Turn is off.
         self._end_silence_ms = max(0, int(conversation.get("end_silence_ms", 2500)))
-        silence_ms = max(silence_ms, self._end_silence_ms)
-        short_silence_ms = max(short_silence_ms, self._end_silence_ms)
+        if self._smart_turn is None:
+            silence_ms = max(silence_ms, 900, self._end_silence_ms)
+            short_silence_ms = max(short_silence_ms, 550, self._end_silence_ms)
+        else:
+            silence_ms = max(silence_ms, 550)
+            short_silence_ms = max(short_silence_ms, 450)
+            if self._end_silence_ms > 0:
+                silence_ms = min(silence_ms, self._end_silence_ms)
+                short_silence_ms = min(short_silence_ms, self._end_silence_ms)
         agent = config.get("agent") or {}
         self._speculate_preflight = bool(agent.get("voice_speculate_preflight", True))
         vad_cfg = voice.get("vad") or {}
@@ -728,18 +732,23 @@ class VoiceController(QObject):
             self._on_speech_ended(timed_out=event == TIMEOUT)
 
     def _on_speech_started(self) -> None:
-        # Wake only: drop pre-onset silence so Whisper is not fed minutes of
-        # ambient buffer. Conversation keeps full onset (hot-swap already
-        # cleared the buffer on mode enter).
-        if self._mode == WAKE:
-            self.recorder.keep_last_ms(350)
+        # Drop pre-onset ambient silence so neither Whisper nor live Sherpa is
+        # fed tens of seconds of between-turn room noise, while keeping enough
+        # pre-roll that initial consonants are never clipped.
+        self.recorder.keep_last_ms(350 if self._mode == WAKE else 450)
         prob = getattr(self._detector, "last_speech_prob", None)
         self.trace.record(
             "speech_start",
             prob=None if prob is None else round(float(prob), 3),
             **self.debug_state(),
         )
-        if self._mode == CONVERSATION and self._speaking and self._barge_in_enabled:
+        barge_prob_ok = prob is None or float(prob) >= max(self._vad_threshold, 0.65)
+        if (
+            self._mode == CONVERSATION
+            and self._speaking
+            and self._barge_in_enabled
+            and barge_prob_ok
+        ):
             # Existing barge-in: she stops talking now. The window cuts
             # playback. Headset: this clip is the next turn. Speakers with
             # barge_in_as_turn false: control only (stop / allow / deny).
@@ -768,7 +777,6 @@ class VoiceController(QObject):
                     self.live_pcm.emit(
                         peeked, self.recorder.sample_rate, self.recorder.channels
                     )
-            return
         if (
             self._speculate_preflight
             and self._mode == CONVERSATION
@@ -879,7 +887,9 @@ class VoiceController(QObject):
             return False
         if not self._listening:
             return False
-        if self._end_silence_ms > 0:
+        trailing_fn = getattr(self._detector, "trailing_silence_ms", None)
+        trailing_ms = int(trailing_fn()) if callable(trailing_fn) else 0
+        if self._end_silence_ms > 0 and trailing_ms >= self._end_silence_ms:
             return False
         peeked = self.recorder.peek() if hasattr(self.recorder, "peek") else b""
         if self._too_short(peeked, _MIN_UTTERANCE_S):

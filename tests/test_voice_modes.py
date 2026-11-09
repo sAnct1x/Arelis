@@ -231,3 +231,67 @@ async def test_speech_during_a_busy_turn_reaches_the_model(qt_app) -> None:
     answered = [m.content for m in orch.memory.messages if m.role == "assistant"]
     assert answered and "Stopped" not in answered[-1], answered
     assert orch._turn_task is None or orch._turn_task.done()
+
+
+def test_smart_turn_ends_complete_utterance_fast_and_holds_incomplete_up_to_ceiling(
+    qt_app,
+) -> None:
+    from arelis.ui.voice_control import VoiceController
+    from tests.voice_helpers import _config, _FakeRecorder
+
+    state = {"complete": True}
+
+    class _FakeSmartTurn:
+        def predict(self, pcm: bytes, *, sample_rate: int = 16000, channels: int = 1):
+            del pcm, sample_rate, channels
+            return {"complete": state["complete"], "probability": 0.9 if state["complete"] else 0.1}
+
+    cfg = _config(conversation={"smart_turn": False, "silence_ms": 550, "short_silence_ms": 450, "end_silence_ms": 2500})
+    controller = VoiceController(cfg)
+    controller._smart_turn = _FakeSmartTurn()
+    controller._detector_defaults["silence_ms"] = 550
+    controller._detector_defaults["short_silence_ms"] = 450
+    recorder = _FakeRecorder(controller)
+    controller.recorder = recorder
+    recorder.frames.connect(controller._on_frames)
+
+    turns: list[bytes] = []
+    controller.utterance.connect(
+        lambda pcm, _r, _c, kind: turns.append(pcm) if kind == "turn" else None
+    )
+    controller.set_conversation(True)
+
+    # 1) When Smart Turn says complete=True, the turn ends after ~0.6s of silence
+    # without waiting for the 2.5s end_silence_ms ceiling.
+    recorder.push(_silence(0.5) + _tone(1.0) + _silence(0.6))
+    assert len(turns) == 1
+
+    # 2) When Smart Turn says complete=False (mid-thought pause), a 1.5s pause
+    # holds the turn open, and if silence reaches end_silence_ms (2.5s), it caps.
+    controller.notify_turn_started()
+    controller.notify_speaking(True)
+    controller.notify_turn_finished()
+    controller.notify_speaking(False)
+    turns.clear()
+    state["complete"] = False
+
+    recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.5))
+    assert turns == []
+    recorder.push(_silence(1.2))
+    assert len(turns) == 1
+
+
+def test_conversation_speech_start_trims_pre_onset_ambient_buffer(qt_app) -> None:
+    controller, recorder = _controller(qt_app)
+    turns: list[bytes] = []
+    controller.utterance.connect(
+        lambda pcm, _r, _c, kind: turns.append(pcm) if kind == "turn" else None
+    )
+    controller.set_conversation(True)
+
+    # 12 seconds of quiet room wait before speaking 1 second of voice.
+    recorder.push(_silence(12.0) + _tone(1.0) + _silence(2.7))
+    assert len(turns) == 1
+    duration_s = len(turns[0]) / (16000 * 2)
+    assert duration_s < 2.5, f"Expected pre-onset silence trimmed, got {duration_s:.2f}s"
+

@@ -37,29 +37,29 @@ TIER_SPECS: dict[str, TierSpec] = {
         tentacles=8,
         max_speed=24.0,
         accel=42.0,
-        scale=1.0,
+        scale=0.35,
     ),
     "mk2": TierSpec(
         tier="mk2",
         tentacles=10,
         max_speed=34.0,
         accel=60.0,
-        scale=1.18,
+        scale=0.42,
     ),
     "mk3": TierSpec(
         tier="mk3",
         tentacles=12,
         max_speed=46.0,
         accel=82.0,
-        scale=1.36,
+        scale=0.50,
     ),
 }
 
 CASTE_ORBIT_PROFILES: dict[str, dict[str, float]] = {
-    "harvester": {"radius": 18.0, "y_band": 4.0, "speed_mult": 1.05},
-    "sanitizer": {"radius": 12.5, "y_band": 3.0, "speed_mult": 0.95},
-    "warden": {"radius": 28.0, "y_band": 2.5, "speed_mult": 1.15},
-    "tripwire": {"radius": 24.0, "y_band": -3.5, "speed_mult": 0.90},
+    "harvester": {"radius": 16.0, "y_band": 3.0, "speed_mult": 1.05},
+    "sanitizer": {"radius": 10.0, "y_band": 2.2, "speed_mult": 0.95},
+    "warden": {"radius": 23.0, "y_band": 2.0, "speed_mult": 1.15},
+    "tripwire": {"radius": 19.5, "y_band": -2.5, "speed_mult": 0.90},
 }
 
 

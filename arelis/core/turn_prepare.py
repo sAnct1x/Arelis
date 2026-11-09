@@ -846,10 +846,12 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         active_plan=active_plan,
     )
-    # A short ask that expects no tool round answers from what the model
-    # knows. Thinking first was most of a 9 to 21 s first token (#368).
-    # Only the first request: a tool round still thinks as before.
-    if not expect_tool_round and len(text.split()) <= _SHORT_ASK_WORDS:
+    # A short ask or a spoken conversational turn that expects no tool round
+    # answers from what the model knows. Thinking first was most of a 9 to 21 s
+    # first token (#368). Only the first request: a tool round still thinks.
+    if not expect_tool_round and (
+        len(text.split()) <= _SHORT_ASK_WORDS or (speak and not research_mode)
+    ):
         loop._think_off_next = True
     chat_tools = session_tool_schemas(loop.tools, agent_cfg)
     loop.memory.remember_turn_block(turn_tail)

@@ -169,7 +169,7 @@ def _build_recognizer(
         "encoder": str(files["encoder"]),
         "decoder": str(files["decoder"]),
         "joiner": str(files["joiner"]),
-        "num_threads": 2,
+        "num_threads": 4,
         "sample_rate": SAMPLE_RATE,
         "feature_dim": 80,
         "provider": "cpu",
@@ -389,9 +389,16 @@ def ensure_sherpa_files(
     lang = "zh" if language == "zh" else "en"
     found = find_transducer_files(root, language=lang)
     if found is not None:
-        return found
+        if (
+            lang != "en"
+            or not allow_download
+            or str(found.get("pack") or "") == _KROKO_PACK
+        ):
+            return found
     archive_name, model_url = _archive_for(lang)
     if not allow_download:
+        if found is not None:
+            return found
         raise SherpaUnavailableError(
             f"Sherpa model not found in {root}. See models/sherpa/README.md."
         )
@@ -402,18 +409,21 @@ def ensure_sherpa_files(
     try:
         urlretrieve(model_url, tmp)
         tmp.replace(archive)
+        _extract_archive(archive, root)
     except Exception as exc:
         tmp.unlink(missing_ok=True)
+        if found is not None:
+            log.warning(
+                "Could not upgrade Sherpa model from %s (%s); keeping %s",
+                model_url,
+                exc,
+                found.get("pack"),
+            )
+            return found
+        if isinstance(exc, SherpaUnavailableError):
+            raise
         raise SherpaUnavailableError(
-            f"Could not download Sherpa model from {model_url}: {exc}"
-        ) from exc
-    try:
-        _extract_archive(archive, root)
-    except SherpaUnavailableError:
-        raise
-    except Exception as exc:
-        raise SherpaUnavailableError(
-            f"Could not unpack Sherpa model {archive}: {exc}"
+            f"Could not download/unpack Sherpa model from {model_url}: {exc}"
         ) from exc
     found = find_transducer_files(root, language=lang)
     if found is None:

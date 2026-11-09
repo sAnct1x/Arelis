@@ -43,7 +43,10 @@ Item {
     property var lists: ({})
     property var descriptors: []
     property var particleList: null
+    property var conduitList: null
+    property var conduitSpecs: []
     property var liveCounts: ({})
+    onSceneTimeChanged: root.stepConduits()
     property var hudPills: ({})
     property var swarmRows: []
     property var inspectorCard: ({})
@@ -135,6 +138,9 @@ Item {
             }
         }
         counts["__particles"] = 0
+        var cEntries = fillConduitEntries(frame.conduits || [])
+        counts["__conduits"] = cEntries.length
+        live += cEntries.length
         liveCounts = counts
         budgetTris = tris
         unitDrawCalls = used
@@ -372,7 +378,7 @@ Item {
                 unit_id: u.unit_id || "",
                 x: pos[0], y: pos[1], z: pos.length > 2 ? pos[2] : 0,
                 heading_deg: u.heading_deg || 0,
-                scale: u.scale === undefined ? 1 : u.scale,
+                scale: u.scale === undefined ? 0.36 : u.scale,
                 color: casteColors[caste],
                 phase: u.phase || i * 1.7,
                 claw: u.claw || 0.45,
@@ -417,6 +423,8 @@ Item {
         for (var i = 0; i < keys.length; i++)
             releaseList(keys[i], lists[keys[i]])
         releaseList("__particles", particleList)
+        releaseList("__conduits", conduitList)
+        conduitSpecs = []
     }
 
     function finiteNum(v, fallback) {
@@ -439,9 +447,9 @@ Item {
         var e = acquireEntry()
         e.position = Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))
         e.eulerRotation = Qt.vector3d(0, -finiteNum(row.heading_deg), 0)
-        var sc = finiteNum(row.scale, 1)
-        if (sc < 0.25)
-            sc = 0.25
+        var sc = finiteNum(row.scale, 0.36)
+        if (sc < 0.20)
+            sc = 0.20
         if (sc > 2.0)
             sc = 2.0
         e.scale = Qt.vector3d(sc, sc, sc)
@@ -499,6 +507,9 @@ Item {
     function ensureLists() {
         if (particleList === null) {
             particleList = Qt.createQmlObject("import QtQuick3D; InstanceList {}", root)
+        }
+        if (conduitList === null) {
+            conduitList = Qt.createQmlObject("import QtQuick3D; InstanceList {}", root)
         }
         if (descriptors.length)
             return
@@ -559,6 +570,84 @@ Item {
         recountEntries(liveEntryCountFromLists())
     }
 
+    function evalConduitSpec(spec, tSec) {
+        var kind = spec.kind || "packet"
+        var phase = finiteNum(spec.phase, 0)
+        var baseSc = finiteNum(spec.scale, 0.75)
+        var sx = finiteCoord(spec.sx, 0)
+        var sy = finiteCoord(spec.sy, 0)
+        var sz = finiteCoord(spec.sz, 0)
+        if (kind === "node") {
+            var nsc = baseSc * (0.88 + 0.22 * Math.sin(tSec * 3.2 + phase * 6.2831853))
+            return { x: sx, y: sy, z: sz, scale: Math.max(0.15, Math.min(2.5, nsc)) }
+        }
+        var speed = finiteNum(spec.speed, 0.75)
+        var t = (phase + tSec * speed) % 1.0
+        if (t < 0)
+            t += 1.0
+        var u = 1.0 - t
+        var cx = finiteCoord(spec.cx, sx * 0.5)
+        var cy = finiteCoord(spec.cy, Math.max(sy, 0.5) + 1.4)
+        var cz = finiteCoord(spec.cz, sz * 0.5)
+        var ex = finiteCoord(spec.ex, 0)
+        var ey = finiteCoord(spec.ey, 0)
+        var ez = finiteCoord(spec.ez, 0)
+        var px = u * u * sx + 2.0 * u * t * cx + t * t * ex
+        var py = u * u * sy + 2.0 * u * t * cy + t * t * ey
+        var pz = u * u * sz + 2.0 * u * t * cz + t * t * ez
+        var pulse = 0.65 + 0.55 * Math.sin(t * Math.PI)
+        var psc = Math.max(0.15, Math.min(2.2, baseSc * pulse))
+        return { x: px, y: py, z: pz, scale: psc }
+    }
+
+    function fillConduitEntries(specs) {
+        ensureLists()
+        if (!conduitList || !specs || !specs.length) {
+            conduitSpecs = []
+            if (conduitList)
+                conduitList.instances = []
+            liveByKey["__conduits"] = []
+            return []
+        }
+        var entries = []
+        var cleanSpecs = []
+        var tSec = finiteNum(sceneTime, 0)
+        for (var i = 0; i < specs.length; i++) {
+            var sp = specs[i]
+            if (!sp)
+                continue
+            var e = acquireEntry()
+            var st = evalConduitSpec(sp, tSec)
+            var psc = st.scale * 0.0022
+            e.position = Qt.vector3d(st.x, st.y, st.z)
+            e.scale = Qt.vector3d(psc, psc, psc)
+            e.color = sp.color || "#38bdf8"
+            entries.push(e)
+            cleanSpecs.push(sp)
+        }
+        conduitSpecs = cleanSpecs
+        conduitList.instances = entries
+        liveByKey["__conduits"] = entries
+        return entries
+    }
+
+    function stepConduits() {
+        var specs = conduitSpecs
+        if (!specs || !specs.length || !liveByKey)
+            return
+        var entries = liveByKey["__conduits"] || []
+        if (entries.length !== specs.length)
+            return
+        var tSec = finiteNum(sceneTime, 0)
+        for (var i = 0; i < specs.length; i++) {
+            var st = evalConduitSpec(specs[i], tSec)
+            var psc = st.scale * 0.0022
+            var e = entries[i]
+            e.position = Qt.vector3d(st.x, st.y, st.z)
+            e.scale = Qt.vector3d(psc, psc, psc)
+        }
+    }
+
     function liveEntryCountFromLists() {
         var n = 0
         var keys = Object.keys(lists)
@@ -568,6 +657,8 @@ Item {
         }
         if (particleList && particleList.instances)
             n += particleList.instances.length
+        if (conduitList && conduitList.instances)
+            n += conduitList.instances.length
         return n
     }
 
@@ -758,13 +849,25 @@ Item {
                         shadingMode: modelData.part === "hull" ? CustomMaterial.Shaded : CustomMaterial.Unshaded
                         vertexShader: modelData.part === "lens" ? "shaders/lens.vert" : (modelData.part === "hull" ? "shaders/hull.vert" : "shaders/emissive.vert")
                         fragmentShader: modelData.part === "lens" ? "shaders/lens.frag" : (modelData.part === "hull" ? "shaders/hull.frag" : "shaders/emissive.frag")
-                        property color uHull: "#3a2d5c"
+                        property color uHull: "#140f24"
                         property color uRole: modelData.part === "lens" ? root.lensColors[modelData.caste] : root.casteColors[modelData.caste]
-                        property real uRimK: 1.0
+                        property real uRimK: 1.35
                         property real uTime: root.sceneTime
                         property real uStrength: modelData.part === "lens" ? 0.95 : (modelData.part === "emissive" ? 1.1 : 1.0)
                     }
                 ]
+            }
+        }
+
+        Model {
+            objectName: "dataConduitCloud"
+            source: "#Sphere"
+            visible: (root.liveCounts["__conduits"] || 0) > 0
+            instancing: root.conduitList
+            materials: PrincipledMaterial {
+                lighting: PrincipledMaterial.NoLighting
+                baseColor: "#ffffff"
+                emissiveFactor: Qt.vector3d(0.95, 0.95, 1.0)
             }
         }
 

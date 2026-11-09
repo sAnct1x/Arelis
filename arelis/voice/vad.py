@@ -105,6 +105,7 @@ class EnergyUtteranceDetector:
         self._speaking = False
         self._onset_samples = 0
         self._silence_samples = 0
+        self._total_silence_samples = 0
         self._speech_samples = 0
         self._voiced_samples = 0
         self._finished = False
@@ -115,12 +116,18 @@ class EnergyUtteranceDetector:
         self._finished = False
         self._silence_samples = 0
 
+    def trailing_silence_ms(self) -> int:
+        """Total contiguous silence since the last voiced block."""
+        rate = max(1, int(self.config.sample_rate))
+        return (self._total_silence_samples * 1000) // rate
+
     def force_speaking(self) -> None:
         """Treat the live buffer as already in speech (OWW remainder)."""
         self._speaking = True
         self._finished = False
         self._onset_samples = 0
         self._silence_samples = 0
+        self._total_silence_samples = 0
         if self._speech_samples <= 0:
             self._speech_samples = 1
         if self._voiced_samples <= 0:
@@ -186,6 +193,7 @@ class EnergyUtteranceDetector:
         onset_ms = int(cfg.onset_ms or _DEFAULT_ONSET_MS)
         if level >= self.threshold:
             self._silence_samples = 0
+            self._total_silence_samples = 0
             if not self._speaking:
                 self._onset_samples += samples
                 if self._onset_samples >= _ms_to_samples(onset_ms, cfg.sample_rate):
@@ -202,6 +210,7 @@ class EnergyUtteranceDetector:
                 return None
             self._speech_samples += samples
             self._silence_samples += samples
+            self._total_silence_samples += samples
             need = _ms_to_samples(self.required_silence_ms(), cfg.sample_rate)
             if self._silence_samples >= need:
                 self._finished = True
@@ -245,6 +254,12 @@ class SileroUtteranceDetector:
         self._finished = False
         self._silence_samples = 0
 
+    def trailing_silence_ms(self) -> int:
+        """Total contiguous silence since the last voiced frame."""
+        from arelis.voice.silero_vad import TARGET_SR
+
+        return (self._total_silence_samples * 1000) // TARGET_SR
+
     def force_speaking(self) -> None:
         """Treat the live buffer as already in speech (OWW remainder)."""
         from arelis.voice.silero_vad import FRAME_SAMPLES
@@ -253,6 +268,7 @@ class SileroUtteranceDetector:
         self._finished = False
         self._onset_samples = 0
         self._silence_samples = 0
+        self._total_silence_samples = 0
         if self._speech_samples <= 0:
             self._speech_samples = FRAME_SAMPLES
         if self._voiced_samples <= 0:
@@ -262,6 +278,7 @@ class SileroUtteranceDetector:
         self._speaking = False
         self._onset_samples = 0
         self._silence_samples = 0
+        self._total_silence_samples = 0
         self._speech_samples = 0
         self._voiced_samples = 0
         self._finished = False
@@ -329,6 +346,7 @@ class SileroUtteranceDetector:
                 voiced = self._prob_ema >= end_threshold
             if voiced:
                 self._silence_samples = 0
+                self._total_silence_samples = 0
                 if not self._speaking:
                     self._onset_samples += FRAME_SAMPLES
                     if self._onset_samples >= onset_need:
@@ -345,6 +363,7 @@ class SileroUtteranceDetector:
                     continue
                 self._speech_samples += FRAME_SAMPLES
                 self._silence_samples += FRAME_SAMPLES
+                self._total_silence_samples += FRAME_SAMPLES
                 need = _ms_to_samples(self.required_silence_ms(), TARGET_SR)
                 if self._silence_samples >= need:
                     self._finished = True

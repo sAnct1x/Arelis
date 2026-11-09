@@ -725,7 +725,8 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
         x, y, z = float(pos[0]), float(pos[1]), float(pos[2] if len(pos) > 2 else 0)
         state = str(u.get("state") or "")
         limp = 1.0 if "EMP" in state.upper() or "HALT" in state.upper() else 0.0
-        scale = float(u.get("scale") or 1.0)
+        raw_scale = u.get("scale")
+        scale = float(raw_scale) if raw_scale is not None else 0.36
         buckets[bucket_key(caste, lod)].append(
             {
                 "unit_id": u.get("unit_id"),
@@ -781,6 +782,252 @@ def budget_from_buckets(
     }
 
 
+MAX_CONDUIT_INSTANCES = 192
+CONDUIT_ACTIVE_STATES = {
+    "ENGAGED_HARVEST",
+    "ENGAGED_SANITIZE",
+    "ENGAGED_DEFENSE",
+    "ENGAGED_EXECUTION",
+    "VECTORING",
+    "RETURNING",
+    "QUARANTINING",
+    "HARVESTING",
+    "CARRYING_WARRANT",
+}
+NODE_KIND_COLOR = {
+    "bastion": "#a78bfa",
+    "harvest_target": "#38bdf8",
+    "threat": "#f43f5e",
+    "quarantine": "#f2c56b",
+    "memory_crystal": "#22d3ee",
+    "merkle_root": "#7ee0c8",
+}
+
+
+def _clamp_conduit_coord(
+    x: float, y: float, z: float, limit: float = 36.0
+) -> tuple[float, float, float]:
+    r = math.hypot(x, z)
+    if r > limit and r > 0.0:
+        scale = limit / r
+        x *= scale
+        z *= scale
+    y = max(-limit, min(limit, y))
+    return (round(x, 4), round(y, 4), round(z, 4))
+
+
+def conduit_position_3d(
+    spec: dict[str, Any], scene_time: float = 0.0
+) -> tuple[float, float, float, float]:
+    """Evaluate a 3D conduit particle or node beacon at scene_time -> (x, y, z, scale)."""
+    kind = str(spec.get("kind") or "packet")
+    phase = float(spec.get("phase") or 0.0)
+    base_scale = float(spec.get("scale") or 0.75)
+    t_sec = float(scene_time)
+    if kind == "node":
+        sc = base_scale * (0.88 + 0.22 * math.sin(t_sec * 3.2 + phase * 6.2831853))
+        return (float(spec["sx"]), float(spec["sy"]), float(spec["sz"]), sc)
+    speed = float(spec.get("speed") or 0.75)
+    t = (phase + t_sec * speed) % 1.0
+    if t < 0.0:
+        t += 1.0
+    u = 1.0 - t
+    sx, sy, sz = float(spec["sx"]), float(spec["sy"]), float(spec["sz"])
+    cx, cy, cz = float(spec["cx"]), float(spec["cy"]), float(spec["cz"])
+    ex, ey, ez = float(spec["ex"]), float(spec["ey"]), float(spec["ez"])
+    px = u * u * sx + 2.0 * u * t * cx + t * t * ex
+    py = u * u * sy + 2.0 * u * t * cy + t * t * ey
+    pz = u * u * sz + 2.0 * u * t * cz + t * t * ez
+    pulse = 0.65 + 0.55 * math.sin(t * math.pi)
+    return (px, py, pz, base_scale * pulse)
+
+
+def build_conduits(
+    units: list[dict[str, Any]] | None = None,
+    nodes: list[dict[str, Any]] | None = None,
+    fx_events: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Build hardware-instanced 3D conduit packet and node beacon descriptors."""
+    out: list[dict[str, Any]] = []
+    node_map: dict[str, tuple[float, float, float, str]] = {}
+
+    for i, node in enumerate(nodes or []):
+        if not isinstance(node, dict):
+            continue
+        pos = node.get("position")
+        if not isinstance(pos, (list, tuple)) or len(pos) < 2:
+            continue
+        nx, ny, nz = _clamp_conduit_coord(
+            float(pos[0]),
+            float(pos[1]),
+            float(pos[2]) if len(pos) > 2 else 0.0,
+        )
+        kind = str(node.get("kind") or "bastion").lower()
+        sev = str(node.get("severity") or "none").lower()
+        status = str(node.get("status") or "active").lower()
+        hot = (
+            sev in {"medium", "high", "critical"}
+            or kind in {"threat", "harvest_target"}
+            or status in {"extracting", "sanitizing", "blocked", "quarantined"}
+        )
+        color = str(node.get("color") or (
+            "#f43f5e" if sev in {"high", "critical"} else NODE_KIND_COLOR.get(kind, "#38bdf8")
+        ))
+        nid = str(node.get("node_id") or f"node-{i}")
+        node_map[nid] = (nx, ny, nz, color)
+        out.append({
+            "id": f"beacon:{nid}",
+            "kind": "node",
+            "sx": nx, "sy": ny, "sz": nz,
+            "cx": nx, "cy": ny, "cz": nz,
+            "ex": nx, "ey": ny, "ez": nz,
+            "phase": (i * 0.19) % 1.0,
+            "speed": 0.0,
+            "scale": 1.65 if hot else 1.25,
+            "color": color,
+        })
+        pkt_count = 5 if hot else 2
+        speed = 1.05 if hot else 0.42
+        arc_y = max(ny, 0.4) + (2.4 if hot else 1.35)
+        cx, cy, cz = _clamp_conduit_coord(nx * 0.5, arc_y, nz * 0.5)
+        for k in range(pkt_count):
+            if len(out) >= MAX_CONDUIT_INSTANCES:
+                return out[:MAX_CONDUIT_INSTANCES]
+            out.append({
+                "id": f"node-stream:{nid}:{k}",
+                "kind": "packet",
+                "sx": nx, "sy": ny, "sz": nz,
+                "cx": cx, "cy": cy, "cz": cz,
+                "ex": 0.0, "ey": 0.0, "ez": 0.0,
+                "phase": ((k / pkt_count) + i * 0.11) % 1.0,
+                "speed": speed,
+                "scale": 0.86 if hot else 0.58,
+                "color": color,
+            })
+
+    for i, u in enumerate(units or []):
+        if not isinstance(u, dict) or u.get("culled"):
+            continue
+        state = str(u.get("state") or "").upper()
+        laser_active = bool(u.get("laser_active"))
+        carrying_orb = bool(u.get("carrying_orb"))
+        if not (laser_active or carrying_orb or state in CONDUIT_ACTIVE_STATES):
+            continue
+        pos = u.get("position") or [u.get("x") or 0, u.get("y") or 0, u.get("z") or 0]
+        ux, uy, uz = _clamp_conduit_coord(
+            float(pos[0]),
+            float(pos[1]),
+            float(pos[2]) if len(pos) > 2 else 0.0,
+        )
+        caste = str(u.get("caste") or "warden").lower()
+        base_color = CASTE_COLOR.get(caste, "#a78bfa")
+        uid = str(u.get("unit_id") or f"u-{i}")
+
+        lt = u.get("laser_target") or u.get("target_position")
+        tnid = str(u.get("target_node_id") or "")
+        if not lt and tnid and tnid in node_map:
+            tx, ty, tz, _ = node_map[tnid]
+            lt = [tx, ty, tz]
+        engaged_beam_states = {
+            "ENGAGED_DEFENSE",
+            "ENGAGED_HARVEST",
+            "ENGAGED_SANITIZE",
+            "ENGAGED_EXECUTION",
+            "VECTORING",
+        }
+        if laser_active or (lt and state in engaged_beam_states):
+            if isinstance(lt, (list, tuple)) and len(lt) >= 2:
+                tx, ty, tz = _clamp_conduit_coord(
+                    float(lt[0]),
+                    float(lt[1]),
+                    float(lt[2]) if len(lt) > 2 else 0.0,
+                )
+            else:
+                tx, ty, tz = (0.0, 0.0, 0.0)
+            lkind = str(u.get("laser_kind") or "").lower()
+            beam_color = (
+                "#f43f5e" if ("DEFENSE" in state or lkind == "defense")
+                else "#38bdf8" if ("HARVEST" in state or lkind == "harvest")
+                else "#f2c56b" if ("SANITIZE" in state or lkind == "sanitize")
+                else base_color
+            )
+            mx, my, mz = _clamp_conduit_coord(
+                (ux + tx) * 0.5,
+                max(uy, ty) + 0.55,
+                (uz + tz) * 0.5,
+            )
+            beam_n = 5 if laser_active else 3
+            for k in range(beam_n):
+                if len(out) >= MAX_CONDUIT_INSTANCES:
+                    return out[:MAX_CONDUIT_INSTANCES]
+                out.append({
+                    "id": f"beam:{uid}:{k}",
+                    "kind": "beam",
+                    "sx": ux, "sy": uy, "sz": uz,
+                    "cx": mx, "cy": my, "cz": mz,
+                    "ex": tx, "ey": ty, "ez": tz,
+                    "phase": ((k / beam_n) + i * 0.13) % 1.0,
+                    "speed": 1.85 if laser_active else 1.15,
+                    "scale": 0.85 if laser_active else 0.65,
+                    "color": beam_color,
+                })
+
+        orb_color = str(u.get("orb_color") or ("#22d3ee" if carrying_orb else base_color))
+        arc_h = max(uy, 0.5) + (2.1 if carrying_orb else 1.45)
+        cx, cy, cz = _clamp_conduit_coord(ux * 0.48, arc_h, uz * 0.48)
+        stream_n = 4 if (carrying_orb or "ENGAGED" in state) else 3
+        for k in range(stream_n):
+            if len(out) >= MAX_CONDUIT_INSTANCES:
+                return out[:MAX_CONDUIT_INSTANCES]
+            out.append({
+                "id": f"hive-conduit:{uid}:{k}",
+                "kind": "orb" if carrying_orb else "packet",
+                "sx": ux, "sy": uy, "sz": uz,
+                "cx": cx, "cy": cy, "cz": cz,
+                "ex": 0.0, "ey": 0.0, "ez": 0.0,
+                "phase": ((k / stream_n) + i * 0.17) % 1.0,
+                "speed": 1.35 if carrying_orb else 0.92,
+                "scale": 0.94 if carrying_orb else 0.72,
+                "color": orb_color,
+            })
+
+    for i, fx in enumerate(fx_events or []):
+        if not isinstance(fx, dict):
+            continue
+        orig = fx.get("origin") or fx.get("position") or [0.0, 0.0, 0.0]
+        tgt = fx.get("target") or [0.0, 0.0, 0.0]
+        if not isinstance(orig, (list, tuple)) or len(orig) < 2:
+            continue
+        sx, sy, sz = _clamp_conduit_coord(
+            float(orig[0]),
+            float(orig[1]),
+            float(orig[2]) if len(orig) > 2 else 0.0,
+        )
+        ex, ey, ez = _clamp_conduit_coord(
+            float(tgt[0]) if isinstance(tgt, (list, tuple)) and len(tgt) >= 2 else 0.0,
+            float(tgt[1]) if isinstance(tgt, (list, tuple)) and len(tgt) >= 2 else 0.0,
+            float(tgt[2]) if isinstance(tgt, (list, tuple)) and len(tgt) > 2 else 0.0,
+        )
+        cx, cy, cz = _clamp_conduit_coord((sx + ex) * 0.5, max(sy, ey, 0.5) + 2.0, (sz + ez) * 0.5)
+        fx_color = str(fx.get("color") or "#38bdf8")
+        for k in range(4):
+            if len(out) >= MAX_CONDUIT_INSTANCES:
+                return out[:MAX_CONDUIT_INSTANCES]
+            out.append({
+                "id": f"fx:{i}:{k}",
+                "kind": "packet",
+                "sx": sx, "sy": sy, "sz": sz,
+                "cx": cx, "cy": cy, "cz": cz,
+                "ex": ex, "ey": ey, "ez": ez,
+                "phase": (k / 4.0),
+                "speed": 1.65,
+                "scale": 0.95,
+                "color": fx_color,
+            })
+
+    return out[:MAX_CONDUIT_INSTANCES]
+
+
 def build_frame(
     units: list[dict[str, Any]],
     camera_distance: float,
@@ -788,17 +1035,27 @@ def build_frame(
     prev_lods: dict[str, int] | None = None,
     report: dict[int, dict[str, Any]] | None = None,
     target: tuple[float, float, float] | None = None,
+    *,
+    nodes: list[dict[str, Any]] | None = None,
+    fx_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     report = report or load_mesh_report()
     assigned = assign_lods(units, camera_distance, viewport_h, prev_lods, target=target)
     assigned = enforce_budget(assigned, report)
     buckets = build_buckets(assigned)
     budget = budget_from_buckets(buckets, report)
+    conduits = build_conduits(assigned, nodes=nodes, fx_events=fx_events)
     prev = {str(u.get("unit_id")): int(u["lod"]) for u in assigned if not u.get("culled")}
     for u in assigned:
         if u.get("culled"):
             prev[str(u.get("unit_id"))] = int(u["lod"])
-    return {"units": assigned, "buckets": buckets, "budget": budget, "prevLods": prev}
+    return {
+        "units": assigned,
+        "buckets": buckets,
+        "budget": budget,
+        "prevLods": prev,
+        "conduits": conduits,
+    }
 
 
 def out_cubic(t: float) -> float:
