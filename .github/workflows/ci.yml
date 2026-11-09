@@ -239,20 +239,6 @@ jobs:
         if: runner.os == 'Windows' && steps.tier.outputs.tier != 'docs'
         run: python scripts/schtasks_smoke.py
 
-      # Temporary explicit branch/push opt-in; remove after selected proof review.
-      # Last so the proof cannot prevent any existing test from running.
-      - name: Opt-in sacrificial Windows GDB proof
-        id: gdb_sacrificial_proof
-        if: ${{ !cancelled() && runner.os == 'Windows' && steps.tier.outputs.tier != 'docs' && github.event_name == 'push' && github.ref == 'refs/heads/sentinel/pr6-overseer' }}
-        shell: pwsh
-        timeout-minutes: 1
-        env:
-          QT_QPA_PLATFORM: offscreen
-          QT_QUICK_BACKEND: rhi
-        run: |
-          python -m tools.windows_gdb_outer
-          exit $LASTEXITCODE
-
   # Adding a dependency and forgetting to regenerate the lock would ship an installer
   # missing it, and nothing else in this file would notice: the jobs above install from
   # pyproject, which is exactly the file that was updated. Offline and a few seconds,
