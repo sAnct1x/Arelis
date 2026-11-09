@@ -401,7 +401,8 @@ Item {
                 color: casteColors[caste],
                 phase: u.phase || i * 1.7,
                 claw: u.claw || 0.45,
-                limp: u.limp || 0
+                limp: u.limp || 0,
+                speed: (u.speed === undefined || u.speed === null) ? 1.0 : u.speed
             })
         }
         return buckets
@@ -474,7 +475,7 @@ Item {
             sc = 2.0
         e.scale = Qt.vector3d(sc, sc, sc)
         e.color = row.color || casteColors[caste]
-        e.customData = Qt.vector4d(row.phase || 0, row.claw || 0.45, row.limp || 0, 0)
+        e.customData = Qt.vector4d(row.phase || 0, row.claw || 0.45, row.limp || 0, (row.speed === undefined || row.speed === null) ? 1.0 : row.speed)
         var uid = row && row.unit_id ? row.unit_id : ""
         if (uid && recs) {
             if (!recs[uid] || String(key).indexOf(":hull") >= 0) {
