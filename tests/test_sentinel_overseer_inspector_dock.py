@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, Qt, QUrl
+from PySide6.QtCore import QPointF, QSizeF, Qt, QUrl
 from PySide6.QtGui import QColor
+from PySide6.QtQml import QQmlProperty
 from PySide6.QtQuick import QQuickView
 from PySide6.QtTest import QTest
 
@@ -93,6 +94,30 @@ def _named(root, name: str):
     return None
 
 
+def _show_hud(qt_app, width: int = 2110, height: int = 1306):
+    """Lay the HUD out at width x height whatever size the OS gives the window.
+
+    The window manager may clamp a top-level window to the screen (the
+    Windows runner gave a 2110 x 1306 request 1028 x 749), so the root item
+    owns the size and the view follows it instead of the other way round.
+    """
+    view = QQuickView()
+    view.engine().addImportPath(str(ASSETS))
+    view.setColor(QColor("#0b0714"))
+    view.setResizeMode(QQuickView.SizeViewToRootObject)
+    view.setSource(QUrl.fromLocalFile(str(HUD_QML)))
+    assert view.status() == QQuickView.Status.Ready, [e.toString() for e in view.errors()]
+    root = view.rootObject()
+    assert root is not None
+    # The HUD fills its parent; in this bare view that is the clamped window.
+    assert QQmlProperty(root, "anchors.fill").reset()
+    root.setSize(QSizeF(width, height))
+    view.show()
+    qt_app.processEvents()
+    assert (root.width(), root.height()) == (width, height)
+    return view, root
+
+
 @isolated_render(software=True)
 def test_overseer_inspector_docks_outside_well_without_unavailable(qt_app) -> None:
     """One behaviour change: docked inspector only when selected, no unavailable rows."""
@@ -130,17 +155,7 @@ def test_overseer_inspector_docks_outside_well_without_unavailable(qt_app) -> No
     assert "8080" in card["recent"][0]["message"]
     assert "unavailable" not in str(card)
 
-    view = QQuickView()
-    view.engine().addImportPath(str(ASSETS))
-    view.setColor(QColor("#0b0714"))
-    view.setResizeMode(QQuickView.SizeRootObjectToView)
-    view.setSource(QUrl.fromLocalFile(str(HUD_QML)))
-    assert view.status() == QQuickView.Status.Ready, [e.toString() for e in view.errors()]
-    view.resize(2110, 1306)
-    view.show()
-    qt_app.processEvents()
-    root = view.rootObject()
-    assert root is not None
+    view, root = _show_hud(qt_app)
 
     empty_hud = overseer_runtime.build_hud(_snap(), selected_id="", camera_distance=32.0)
     root.setProperty("pills", empty_hud["pills"])
@@ -218,17 +233,7 @@ def test_overseer_inspector_docks_outside_well_without_unavailable(qt_app) -> No
 @isolated_render(software=True)
 def test_overseer_retire_confirms_in_place(qt_app) -> None:
     """First Retire click arms; second posts; selection change clears without posting."""
-    view = QQuickView()
-    view.engine().addImportPath(str(ASSETS))
-    view.setColor(QColor("#0b0714"))
-    view.setResizeMode(QQuickView.SizeRootObjectToView)
-    view.setSource(QUrl.fromLocalFile(str(HUD_QML)))
-    assert view.status() == QQuickView.Status.Ready, [e.toString() for e in view.errors()]
-    view.resize(2110, 1306)
-    view.show()
-    qt_app.processEvents()
-    root = view.rootObject()
-    assert root is not None
+    view, root = _show_hud(qt_app)
 
     hud = overseer_runtime.build_hud(_snap(), selected_id="SNT-HRV-001")
     root.setProperty("pills", hud["pills"])
