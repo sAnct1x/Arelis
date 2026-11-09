@@ -121,6 +121,7 @@ class SentinelWindow(QWidget):
         self._loaded_url: str | None = None
         self._tries = 0
         self._error = ""
+        self._refreshing = False
         self._overlay_flags: dict = {}
         self._prev_lods: dict[str, int] = {}
         self._particle_paths: list = []
@@ -257,6 +258,18 @@ class SentinelWindow(QWidget):
 
     def refresh(self) -> None:
         """Show the Overseer if the child is up, else the offline card."""
+        # The first QQuickWidget added to this shown window makes Qt recreate the
+        # native window, which sends a nested showEvent from inside QQuickWidget().
+        # Without this guard that nested refresh built a second Overseer scene.
+        if self._refreshing:
+            return
+        self._refreshing = True
+        try:
+            self._refresh()
+        finally:
+            self._refreshing = False
+
+    def _refresh(self) -> None:
         url = sentinel_control.overseer_url()
         if not url:
             self.offline_label.setText("Sentinel offline")
