@@ -24,6 +24,13 @@ from sentinel.castes import (
     WardenCaste,
     build_default_caste_registry,
 )
+from sentinel.castes.dynamic import (
+    MAX_DYNAMIC_CASTES,
+    builtin_caste_ids,
+    spec_to_record,
+    validate_dynamic_spec,
+)
+from sentinel.castes.store import CasteStore
 from sentinel.config import load_config, resolve_theme, save_local_preferences
 from sentinel.core.alert_policy import POLICY_ACTIONS, AlertPolicy
 from sentinel.core.authority import ACTION_BLAST_MAP, AuthorityGate
@@ -133,6 +140,9 @@ class SwarmHive:
                 self.spawn_units(caste_id, int(count), tier=self.default_tier)
 
         self._trim_runtime_storage()
+        self._dynamic_store = CasteStore()
+        self._restoring_dynamic = False
+        self._restore_dynamic_castes()
 
         self.telemetry.record(
             "INFO",
@@ -324,12 +334,104 @@ class SwarmHive:
         self.bus.publish_nowait(EventTopic.UNIT_SPAWNED, unit.to_dict())
         return unit
 
+
+    _BUSY_STATES = frozenset({
+        SentinelState.VECTORING,
+        SentinelState.ENGAGED_HARVEST,
+        SentinelState.ENGAGED_SANITIZE,
+        SentinelState.ENGAGED_DEFENSE,
+        SentinelState.ENGAGED_EXECUTION,
+        SentinelState.QUARANTINING,
+        SentinelState.RETURNING,
+    })
+
+    def _builtin_delegates(self) -> dict[str, CasteHandler]:
+        out: dict[str, CasteHandler] = {}
+        for cid in builtin_caste_ids():
+            if cid in self.registry.caste_ids:
+                out[cid] = self.registry.get(cid)
+        return out
+
+    def _dynamic_count(self) -> int:
+        built = builtin_caste_ids()
+        return sum(1 for cid in self.registry.caste_ids if cid not in built)
+
+    def _restore_dynamic_castes(self) -> None:
+        rows, status = self._dynamic_store.load()
+        if status == "corrupt":
+            log.error("Dynamic caste store is unreadable; leaving it in place")
+            return
+        self._restoring_dynamic = True
+        try:
+            for row in rows:
+                try:
+                    self.register_dynamic_caste(
+                        caste_id=str(row.get("caste_id") or ""),
+                        code_prefix=str(row.get("code_prefix") or ""),
+                        title=str(row.get("title") or ""),
+                        single_purpose=row.get("single_purpose"),
+                        allowed_capabilities=row.get("allowed_capabilities") or [],
+                        version=str(row.get("version") or "1.0.0"),
+                        orbit_radius=float(row.get("orbit_radius", 20.0)),
+                        orbit_y_band=float(row.get("orbit_y_band", 0.0)),
+                        speed_mult=float(row.get("speed_mult", 1.0)),
+                        eye_color=str(row.get("eye_color") or "#00e5ff"),
+                        laser_kind=str(row.get("laser_kind") or "harvest"),
+                        doctrine=str(row.get("doctrine") or "HUNTER-SEEKER"),
+                        rules=row.get("rules"),
+                        initial_pool=0,
+                    )
+                except (ValueError, TypeError, KeyError) as exc:
+                    log.warning("Skipping stored dynamic caste: %s", exc)
+        finally:
+            self._restoring_dynamic = False
+
+    def _persist_dynamic_castes(self) -> None:
+        built = builtin_caste_ids()
+        rows: list[dict] = []
+        for cid in self.registry.caste_ids:
+            if cid in built:
+                continue
+            handler = self.registry.get(cid)
+            if not isinstance(handler, DynamicCasteHandler):
+                continue
+            d = handler.descriptor
+            rows.append(spec_to_record(
+                {
+                    "caste_id": d.caste_id,
+                    "code_prefix": d.code_prefix,
+                    "title": d.title,
+                    "single_purpose": d.single_purpose,
+                    "allowed_capabilities": sorted(d.allowed_capabilities),
+                    "rules": list(handler._rules),
+                },
+                {
+                    "version": d.version,
+                    "orbit_radius": d.orbit_radius,
+                    "orbit_y_band": d.orbit_y_band,
+                    "speed_mult": d.speed_mult,
+                    "eye_color": d.eye_color,
+                    "laser_kind": d.laser_kind,
+                    "doctrine": d.doctrine,
+                },
+            ))
+        self._dynamic_store.replace_all(rows)
+
+    def _rollback_dynamic_registration(self, caste_id: str) -> None:
+        cid = caste_id.strip().lower()
+        for u in list(self.units.values()):
+            if u.caste == cid:
+                self.retire_unit(u.unit_id)
+        self.registry.unregister(cid)
+        unregister_caste_profile(cid)
+
     def register_caste(
         self,
         handler: CasteHandler,
         *,
         initial_pool: int = 0,
         tier: str | None = None,
+        announce: bool = True,
     ) -> dict[str, Any]:
         """Dynamically register a new or upgraded Sentinel Caste into the Hive."""
         parked = self._authorize_work(
@@ -353,22 +455,29 @@ class SwarmHive:
             units = self.spawn_units(d.caste_id, initial_pool, tier=tier or self.default_tier)
             spawned = [u.unit_id for u in units]
 
-        self.bus.publish_nowait(EventTopic.CASTE_REGISTERED, d.to_dict())
-        self.telemetry.record(
-            "INFO",
-            unit_id="HIVE-CORE",
-            caste=d.caste_id,
-            phase="CASTE REGISTERED",
-            message=f"Registered custom Sentinel Caste {d.caste_id.upper()} ({d.title}) with {len(spawned)} initial units.",
-            details={
-                "caste_id": d.caste_id,
-                "capabilities": sorted(d.allowed_capabilities),
-                "spawned": spawned,
-            },
-        )
+        if announce:
+            self._announce_caste_registered(d, spawned)
         res = d.to_dict()
         res["spawned_units"] = spawned
         return res
+
+    def _announce_caste_registered(self, descriptor: CasteDescriptor, spawned: list[str]) -> None:
+        self.bus.publish_nowait(EventTopic.CASTE_REGISTERED, descriptor.to_dict())
+        self.telemetry.record(
+            "INFO",
+            unit_id="HIVE-CORE",
+            caste=descriptor.caste_id,
+            phase="CASTE REGISTERED",
+            message=(
+                f"Registered custom Sentinel Caste {descriptor.caste_id.upper()} "
+                f"({descriptor.title}) with {len(spawned)} initial units."
+            ),
+            details={
+                "caste_id": descriptor.caste_id,
+                "capabilities": sorted(descriptor.allowed_capabilities),
+                "spawned": spawned,
+            },
+        )
 
     def register_dynamic_caste(
         self,
@@ -388,14 +497,30 @@ class SwarmHive:
         rules: list[dict[str, Any]] | None = None,
         initial_pool: int = 0,
         tier: str | None = None,
+        purposes: Any = None,
+        extra_purpose: Any = None,
     ) -> dict[str, Any]:
         """Create and register a declarative custom Sentinel Caste on behalf of Arelis."""
+        spec = validate_dynamic_spec(
+            caste_id=caste_id,
+            code_prefix=code_prefix,
+            title=title,
+            single_purpose=single_purpose,
+            allowed_capabilities=allowed_capabilities,
+            rules=rules,
+            purposes=purposes,
+            extra_purpose=extra_purpose,
+        )
+        if spec["caste_id"] in self.registry.caste_ids:
+            raise ValueError(f"caste {spec['caste_id']!r} is already registered")
+        if self._dynamic_count() >= MAX_DYNAMIC_CASTES:
+            raise ValueError(f"at most {MAX_DYNAMIC_CASTES} dynamic castes are allowed")
         desc = CasteDescriptor(
-            caste_id=caste_id.strip().lower(),
-            code_prefix=code_prefix.strip().upper(),
-            title=title.strip(),
-            single_purpose=single_purpose.strip(),
-            allowed_capabilities=frozenset(allowed_capabilities),
+            caste_id=spec["caste_id"],
+            code_prefix=spec["code_prefix"],
+            title=spec["title"],
+            single_purpose=spec["single_purpose"],
+            allowed_capabilities=frozenset(spec["allowed_capabilities"]),
             version=version,
             orbit_radius=float(orbit_radius),
             orbit_y_band=float(orbit_y_band),
@@ -404,32 +529,93 @@ class SwarmHive:
             laser_kind=laser_kind,
             doctrine=doctrine,
         )
-        handler = DynamicCasteHandler(desc, rules=rules)
-        return self.register_caste(handler, initial_pool=initial_pool, tier=tier)
+        handler = DynamicCasteHandler(
+            desc,
+            rules=spec["rules"],
+            delegates=self._builtin_delegates(),
+        )
+        res = self.register_caste(
+            handler, initial_pool=0, tier=tier, announce=False
+        )
+        if res.get("parked"):
+            return res
+        if not self._restoring_dynamic:
+            try:
+                self._persist_dynamic_castes()
+            except (OSError, ValueError) as exc:
+                self._rollback_dynamic_registration(spec["caste_id"])
+                raise ValueError(f"failed to persist caste {spec['caste_id']!r}") from exc
+        spawned: list[str] = []
+        if initial_pool > 0:
+            units = self.spawn_units(
+                spec["caste_id"], initial_pool, tier=tier or self.default_tier
+            )
+            spawned = [u.unit_id for u in units]
+        self._announce_caste_registered(handler.descriptor, spawned)
+        res = handler.descriptor.to_dict()
+        res["spawned_units"] = spawned
+        return res
 
     def unregister_caste(self, caste_id: str) -> dict[str, Any]:
-        """Retire all units of a caste and unregister it from the swarm."""
+        """Remove a dynamic caste. Built-ins cannot be deleted.
+
+        Units in an active job are refused. Idle or patrolling units follow
+        the existing retire_unit path before the caste is dropped.
+        """
         cid = caste_id.strip().lower()
-        if cid in {"harvester", "warden", "sanitizer", "tripwire"}:
-            raise ValueError(f"Core Sentinel caste {cid!r} cannot be unregistered.")
+        if cid in builtin_caste_ids():
+            raise ValueError(f"Built-in Sentinel caste {cid!r} cannot be unregistered.")
+        if cid not in self.registry.caste_ids:
+            raise ValueError(f"Unknown Sentinel caste: {cid!r}")
+        busy = [
+            u.unit_id
+            for u in self.units.values()
+            if u.caste == cid and u.state in self._BUSY_STATES
+        ]
+        if busy:
+            raise ValueError(
+                f"caste {cid!r} has active jobs {busy}; retire or wait before removal"
+            )
 
-        # Retire active units
+        snapshot = None
+        handler = self.registry.get(cid)
+        if isinstance(handler, DynamicCasteHandler):
+            snapshot = handler
         retired: list[str] = []
-        for u in list(self.units.values()):
-            if u.caste == cid and self.retire_unit(u.unit_id):
-                retired.append(u.unit_id)
-
-
+        # Commit the definition removal before retiring units. A failed store
+        # write must leave both the caste and its live pool intact.
         ok = self.registry.unregister(cid)
         unregister_caste_profile(cid)
+        if ok and not self._restoring_dynamic:
+            try:
+                self._persist_dynamic_castes()
+            except (OSError, ValueError) as exc:
+                if snapshot is not None:
+                    self.registry.register(snapshot)
+                    register_caste_profile(
+                        snapshot.descriptor.caste_id,
+                        radius=snapshot.descriptor.orbit_radius,
+                        y_band=snapshot.descriptor.orbit_y_band,
+                        speed_mult=snapshot.descriptor.speed_mult,
+                        doctrine=snapshot.descriptor.doctrine,
+                    )
+                raise ValueError(f"failed to persist removal of caste {cid!r}") from exc
         if ok:
-            self.bus.publish_nowait(EventTopic.CASTE_UNREGISTERED, {"caste_id": cid, "retired": retired})
+            for u in list(self.units.values()):
+                if u.caste == cid and self.retire_unit(u.unit_id):
+                    retired.append(u.unit_id)
+            self.bus.publish_nowait(
+                EventTopic.CASTE_UNREGISTERED, {"caste_id": cid, "retired": retired}
+            )
             self.telemetry.record(
                 "INFO",
                 unit_id="HIVE-CORE",
                 caste=cid,
                 phase="CASTE UNREGISTERED",
-                message=f"Unregistered Sentinel Caste {cid.upper()} and retired {len(retired)} units.",
+                message=(
+                    f"Unregistered Sentinel Caste {cid.upper()} "
+                    f"and retired {len(retired)} units."
+                ),
                 details={"caste_id": cid, "retired": retired},
             )
         return {"ok": ok, "caste_id": cid, "retired_units": retired}

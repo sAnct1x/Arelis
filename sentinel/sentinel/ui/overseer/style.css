@@ -20,21 +20,21 @@ html[data-theme="sodium"] {
 }
 
 html[data-theme="filament"] {
-  --bg0: #07080b;
-  --bg1: #101218;
-  --bg2: #181c24;
-  --plate: rgba(14, 16, 22, 0.88);
-  --plate-strong: rgba(18, 20, 26, 0.95);
-  --rim: rgba(196, 160, 106, 0.50);
-  --hairline: rgba(196, 160, 106, 0.26);
-  --text: #e8d4b0;
-  --text-dim: #d4c1a1;
-  --text-muted: rgba(232, 212, 176, 0.62);
-  --accent: #c4a06a;
-  --accent2: #e4c896;
-  --warn: #d4783c;
-  --danger: #ff3344;
-  --san-green: #b0c8d8;
+  --bg0: #0b0714;
+  --bg1: #0e0920;
+  --bg2: #2a1a4a;
+  --plate: rgba(14, 9, 32, 0.80);
+  --plate-strong: rgba(14, 9, 32, 0.92);
+  --rim: rgba(167, 139, 250, 0.75);
+  --hairline: rgba(109, 74, 216, 0.60);
+  --text: #e0d4ff;
+  --text-dim: #9a86d0;
+  --text-muted: rgba(111, 95, 160, 0.85);
+  --accent: #a78bfa;
+  --accent2: #d8c8ff;
+  --warn: #d68ab8;
+  --danger: #ff6b9a;
+  --san-green: #7ee0c8;
 }
 
 html[data-theme="night"] {
@@ -1061,4 +1061,61 @@ button, select, input { appearance: none; -webkit-appearance: none; }
  #hud-footer { gap: 5px; font-size: 8px; flex-wrap: wrap; height: 24px; overflow: hidden; }
  .swarm-ops-bar { gap: 4px; }
  .mini-op-btn { min-width: 72px; padding: 3px; }
+}
+
+/* PR6 overlay chrome: zoom rail, grouped list, caste badges */
+#hud-left, #hud-right, #hud-console, #hud-topbar { pointer-events: auto; }
+.unit-row { min-height: 44px; }
+.swarm-group-h {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--plate-strong);
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 8px 10px;
+}
+#swarm-search { width: 100%; margin: 6px 0; }
+.zoom-rail {
+  position: fixed;
+  right: 28px;
+  top: 46%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 40;
+}
+.zoom-rail button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--rim);
+  background: var(--plate);
+  color: var(--text);
+  border-radius: 6px;
+}
+.caste-badges {
+  position: fixed;
+  top: 96px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 35;
+}
+.caste-badge {
+  border: 1px solid var(--rim);
+  background: var(--plate);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+#mission-feedback {
+  position: fixed;
+  bottom: 12px;
+  left: 24px;
+  z-index: 100;
+  color: var(--text);
+  background: var(--bg1);
+  padding: 8px;
+  max-width: 70vw;
 }

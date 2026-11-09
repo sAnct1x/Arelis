@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
-import pytest
+import json
+import os
+import socket
+import subprocess
+import sys
+import types
 
+import pytest
 from sentinel.bridge.client import SentinelClient
 from sentinel.bridge.server import SentinelBridgeServer
 from sentinel.castes import (
     PermissionViolationError,
 )
+from sentinel.core.bus import EventTopic
 from sentinel.core.fsm import SentinelState
 from sentinel.core.hive import SwarmHive
 
@@ -20,65 +27,63 @@ async def test_dynamic_caste_fsm_and_capability_sandboxing() -> None:
     try:
         # Register a custom network packet inspector caste
         res = hive.register_dynamic_caste(
-            caste_id="packet_inspector",
-            code_prefix="PKT",
-            title="Deep Packet Inspector",
-            single_purpose="Validates network protocol headers and packet length constraints",
-            allowed_capabilities=["packet:inspect", "packet:verify_checksum"],
+            caste_id="text_guard",
+            code_prefix="TGD",
+            title="Text Guard",
+            single_purpose="Sanitizes inbound text against a short forbidden-pattern list",
+            allowed_capabilities=["sanitize_text"],
             orbit_radius=19.5,
             orbit_y_band=2.0,
             eye_color="#00ffcc",
-            laser_kind="defense",
+            laser_kind="sanitize",
             rules=[
                 {
-                    "capability": "packet:inspect",
+                    "capability": "sanitize_text",
                     "forbidden_patterns": ["drop database", "admin'--"],
-                    "required_fields": ["src_ip", "dst_port"],
+                    "required_fields": ["text"],
                 }
             ],
             initial_pool=2,
         )
 
-        assert res["caste_id"] == "packet_inspector"
+        assert res["caste_id"] == "text_guard"
         assert len(res["spawned_units"]) == 2
 
-        units = [u for u in hive.units.values() if u.caste == "packet_inspector"]
+        units = [u for u in hive.units.values() if u.caste == "text_guard"]
         assert len(units) == 2
         for u in units:
             assert u.state == SentinelState.PATROLLING
             assert u.orb_color == "#00ffcc"
-            assert u.unit_id.startswith("SNT-PKT-")
+            assert u.unit_id.startswith("SNT-TGD-")
 
-        # 1. Successful execution within capability contract
         valid_payload = {
-            "capability": "packet:inspect",
-            "target": "TCP:443",
-            "data": {"src_ip": "10.0.0.1", "dst_port": 443, "payload": "GET /status HTTP/1.1"},
+            "capability": "sanitize_text",
+            "text": "GET /status HTTP/1.1",
+            "animate": False,
+            "data": {"text": "GET /status HTTP/1.1"},
         }
-        task_res = await hive.dispatch_task("packet_inspector", valid_payload)
+        task_res = await hive.dispatch_task("text_guard", valid_payload)
         assert task_res["ok"] is True
-        assert task_res["capability"] == "packet:inspect"
-        assert len(task_res["violations"]) == 0
-        assert "receipt" in task_res
-        assert task_res["receipt"]["ok"] is True
+        assert task_res["capability"] == "sanitize_text"
+        assert task_res.get("delegated_handler") == "sanitizer"
+        assert len(task_res.get("violations") or []) == 0
 
-        # 2. Rule violation detected (forbidden pattern)
         malicious_payload = {
-            "capability": "packet:inspect",
-            "target": "SQL:1433",
-            "data": {"src_ip": "10.0.0.9", "dst_port": 1433, "payload": "DROP DATABASE master;--"},
+            "capability": "sanitize_text",
+            "text": "DROP DATABASE master;--",
+            "animate": False,
+            "data": {"text": "DROP DATABASE master;--"},
         }
-        bad_res = await hive.dispatch_task("packet_inspector", malicious_payload)
+        bad_res = await hive.dispatch_task("text_guard", malicious_payload)
         assert bad_res["ok"] is False
         assert any("Forbidden pattern matched" in v for v in bad_res["violations"])
 
-        # 3. Permission violation (attempting unauthorized capability)
         unauth_payload = {
             "capability": "kernel:write_memory",
             "target": "0xDEADBEEF",
         }
         with pytest.raises(PermissionViolationError) as exc_info:
-            await hive.dispatch_task("packet_inspector", unauth_payload)
+            await hive.dispatch_task("text_guard", unauth_payload)
         assert "is strictly locked to" in str(exc_info.value)
     finally:
         await hive.stop_background_loops()
@@ -180,7 +185,6 @@ async def test_cryptarch_caste() -> None:
         assert hmac_res["result"]["match"] is True
 
         # 3. High entropy detection on random byte stream
-        import os
         random_payload = os.urandom(1024)
         entropy_res = await hive.dispatch_task(
             "cryptarch",
@@ -198,31 +202,399 @@ async def test_cryptarch_caste() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stalker_caste() -> None:
-    """Verify StalkerCaste inspects host processes and memory."""
+async def test_stalker_connection_fallback_contracts() -> None:
+    """Mocked connection fallback / denial contracts; independent of live child.
+
+    Collected separately so a real-child / venv-launcher failure cannot skip them.
+    """
     hive = SwarmHive()
+    try:
+        hive.spawn_unit("stalker")
+        stk = hive.registry.get("stalker")
+        skmod = __import__("sentinel.castes.stalker", fromlist=["psutil"])
+        mock_pid = os.getpid()
+        mock_port = 54321
+        old_conns = getattr(skmod.psutil.Process, "net_connections", None)
+        old_children = skmod.psutil.Process.children
+        old_sys = skmod.psutil.net_connections
+
+        class _Kid:
+            def __init__(self, pid: int) -> None:
+                self.pid = pid
+
+            def name(self) -> str:
+                return f"child-{self.pid}"
+
+        def _fake_children(self, recursive=False):
+            return [_Kid(i) for i in range(20)]
+
+        def _fake_conns(self, kind="inet"):
+            rows = []
+            for i in range(20):
+                rows.append(
+                    types.SimpleNamespace(
+                        raddr=types.SimpleNamespace(ip="10.0.0.8", port=4000 + i),
+                        status="ESTABLISHED",
+                    )
+                )
+            return rows
+
+        skmod.psutil.Process.children = _fake_children
+        skmod.psutil.Process.net_connections = _fake_conns
+        try:
+            cut = stk.inspect_pid(mock_pid)
+            assert cut["ok"] is True
+            assert cut.get("truncated") is True
+            assert "children" in cut.get("truncated_fields", [])
+            assert "remote_endpoints" in cut.get("truncated_fields", [])
+            assert len(cut["children"]) == 16
+            assert len(cut["remote_endpoints"]) == 16
+            assert cut.get("error") not in {
+                "unknown",
+                "access denied",
+                "process disappeared",
+            }
+        finally:
+            skmod.psutil.Process.children = old_children
+            if old_conns is not None:
+                skmod.psutil.Process.net_connections = old_conns
+            elif hasattr(skmod.psutil.Process, "net_connections"):
+                delattr(skmod.psutil.Process, "net_connections")
+
+        def _silent_empty(self, kind="inet"):
+            return []
+
+        decoy_pid = mock_pid + 97_531
+        system_rows = [
+            types.SimpleNamespace(
+                pid=mock_pid,
+                raddr=types.SimpleNamespace(ip="127.0.0.1", port=mock_port),
+                status="ESTABLISHED",
+            ),
+            types.SimpleNamespace(
+                pid=decoy_pid,
+                raddr=types.SimpleNamespace(ip="9.9.9.9", port=9),
+                status="ESTABLISHED",
+            ),
+        ]
+        skmod.psutil.Process.net_connections = _silent_empty
+        skmod.psutil.net_connections = lambda kind="inet": list(system_rows)
+        try:
+            via_fallback = stk.inspect_pid(mock_pid)
+            assert via_fallback["ok"] is True
+            assert via_fallback.get("partial") in (None, False)
+            fb_eps = via_fallback.get("remote_endpoints") or []
+            assert any(
+                ep.get("ip") in {"127.0.0.1", "::ffff:127.0.0.1"}
+                and ep.get("port") == mock_port
+                for ep in fb_eps
+            ), fb_eps
+            assert all(ep.get("ip") != "9.9.9.9" for ep in fb_eps), fb_eps
+        finally:
+            skmod.psutil.net_connections = old_sys
+            if old_conns is not None:
+                skmod.psutil.Process.net_connections = old_conns
+            elif hasattr(skmod.psutil.Process, "net_connections"):
+                delattr(skmod.psutil.Process, "net_connections")
+
+        def _proc_denied(self, kind="inet"):
+            raise skmod.psutil.AccessDenied(pid=getattr(self, "pid", None))
+
+        skmod.psutil.Process.net_connections = _proc_denied
+        try:
+            denied = stk.inspect_pid(mock_pid)
+            assert denied["ok"] is True
+            assert denied.get("partial") is True
+            assert any(
+                err.startswith("connections: access denied")
+                for err in (denied.get("errors") or [])
+            ), denied.get("errors")
+            assert (denied.get("remote_endpoints") or []) == []
+        finally:
+            if old_conns is not None:
+                skmod.psutil.Process.net_connections = old_conns
+            elif hasattr(skmod.psutil.Process, "net_connections"):
+                delattr(skmod.psutil.Process, "net_connections")
+
+        def _sys_denied(kind="inet"):
+            raise skmod.psutil.AccessDenied()
+
+        skmod.psutil.Process.net_connections = _silent_empty
+        skmod.psutil.net_connections = _sys_denied
+        try:
+            blocked_fb = stk.inspect_pid(mock_pid)
+            assert blocked_fb["ok"] is True
+            assert blocked_fb.get("partial") is True
+            assert any(
+                err.startswith("connections: access denied")
+                for err in (blocked_fb.get("errors") or [])
+            ), blocked_fb.get("errors")
+            assert (blocked_fb.get("remote_endpoints") or []) == []
+        finally:
+            skmod.psutil.net_connections = old_sys
+            if old_conns is not None:
+                skmod.psutil.Process.net_connections = old_conns
+            elif hasattr(skmod.psutil.Process, "net_connections"):
+                delattr(skmod.psutil.Process, "net_connections")
+    finally:
+        await hive.stop_background_loops()
+
+
+@pytest.mark.asyncio
+async def test_stalker_caste() -> None:
+    """Stalker deploy/retask maps to real local process audit handlers."""
+    hive = SwarmHive()
+    server = None
+    child = None
+    listener = None
+    accepted = None
     try:
         unit = hive.spawn_unit("stalker")
         assert unit.caste == "stalker"
         assert unit.unit_id.startswith("SNT-STK-")
 
-        # 1. List processes
         list_res = await hive.dispatch_task(
             "stalker",
             {"capability": "process:list", "limit": 10},
         )
         assert list_res["ok"] is True
         assert len(list_res["result"]["processes"]) > 0
+        assert list_res["result"]["limit"] == 10
+        assert all("cmdline" not in row for row in list_res["result"]["processes"])
+        if list_res["result"]["count"] == 10:
+            assert list_res["result"].get("truncated") is True
 
-        # 2. Audit memory
+        capped = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:list", "limit": 10_000},
+        )
+        assert capped["ok"] is True
+        assert capped["result"]["limit"] == 80
+        assert capped["result"]["count"] <= 80
+        if capped["result"]["count"] == 80:
+            assert capped["result"].get("truncated") is True
+
         mem_res = await hive.dispatch_task(
             "stalker",
             {"capability": "process:audit_memory", "threshold": 99.0},
         )
         assert mem_res["ok"] is True
+        assert mem_res["result"]["scope"] == "host_ram"
         assert "total_gb" in mem_res["result"]
         assert "used_percent" in mem_res["result"]
+
+        stk = hive.registry.get("stalker")
+        skmod = __import__("sentinel.castes.stalker", fromlist=["psutil", "heapq"])
+
+        def _info(**info: object) -> types.SimpleNamespace:
+            return types.SimpleNamespace(info=info)
+
+        old_iter = skmod.psutil.process_iter
+        try:
+            def iter_list(_attrs=None):
+                for i in range(90):
+                    yield _info(
+                        pid=i + 1,
+                        name=f"p{i}",
+                        username="u",
+                        memory_percent=0.1,
+                        status="running",
+                    )
+
+            skmod.psutil.process_iter = iter_list
+            listed = stk.list_processes(limit=80)
+            assert listed["count"] == 80
+            assert listed["truncated"] is True
+            assert listed["partial"] is False
+        finally:
+            skmod.psutil.process_iter = old_iter
+
+        try:
+            def iter_rogue(_attrs=None):
+                for i in range(39):
+                    yield _info(
+                        pid=1000 + i,
+                        name="nc.exe",
+                        cmdline=[],
+                        exe="C:/Windows/nc.exe",
+                        ppid=1,
+                    )
+                yield _info(
+                    pid=2000,
+                    name="nc.exe",
+                    cmdline=[],
+                    exe="/tmp/evil-nc",
+                    ppid=1,
+                )
+
+            skmod.psutil.process_iter = iter_rogue
+            multi = stk.detect_rogue_processes()
+            assert multi["truncated"] is True
+            assert len(multi["flagged"]) == 40
+            assert all(row.get("heuristic") is True for row in multi["flagged"])
+        finally:
+            skmod.psutil.process_iter = old_iter
+
+        heap_lens: list[int] = []
+        real_push = skmod.heapq.heappush
+        real_replace = skmod.heapq.heapreplace
+
+        def tracking_push(heap, item):
+            real_push(heap, item)
+            heap_lens.append(len(heap))
+
+        def tracking_replace(heap, item):
+            real_replace(heap, item)
+            heap_lens.append(len(heap))
+
+        skmod.heapq.heappush = tracking_push
+        skmod.heapq.heapreplace = tracking_replace
+        try:
+            def iter_mem(_attrs=None):
+                for i in range(200):
+                    yield _info(pid=i + 1, name=f"h{i}", memory_percent=5.0 + i)
+
+            skmod.psutil.process_iter = iter_mem
+            pressed = stk.audit_memory(threshold_pct=99.0)
+            assert heap_lens and max(heap_lens) <= 10
+            assert len(pressed["top_consumers"]) == 10
+            scores = [row["memory_percent"] for row in pressed["top_consumers"]]
+            assert scores == sorted(scores, reverse=True)
+            assert scores[0] == 204.0
+            assert scores[-1] == 195.0
+        finally:
+            skmod.psutil.process_iter = old_iter
+            skmod.heapq.heappush = real_push
+            skmod.heapq.heapreplace = real_replace
+
+
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(5)
+        port = listener.getsockname()[1]
+        # Self-reported socket-owner PID (Windows venv launcher Popen.pid != owner).
+        child = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import os, socket, sys, time; "
+                    f"s = socket.create_connection(('127.0.0.1', {port})); "
+                    "sys.stdout.write(str(os.getpid()) + '\\n'); "
+                    "sys.stdout.flush(); "
+                    "time.sleep(30)"
+                ),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        accepted, _peer = listener.accept()
+        assert child.stdout is not None
+        ready_line = child.stdout.readline()
+        owner_pid = int(ready_line.strip())
+        assert owner_pid > 0
+        inspected = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:inspect_pid", "pid": owner_pid},
+        )
+        assert inspected["ok"] is True
+        info = inspected["result"]
+        assert info["ok"] is True
+        assert info["pid"] == owner_pid
+        assert info.get("exe")
+        assert "cmdline" not in info
+        # Launcher case: owner is grandchild, ppid is Popen.pid; else parent is us.
+        if owner_pid == child.pid:
+            assert info.get("ppid") == os.getpid()
+            assert info.get("parent") and info["parent"]["pid"] == os.getpid()
+        else:
+            assert info.get("ppid") == child.pid
+            assert info.get("parent") and info["parent"]["pid"] == child.pid
+        endpoints = info.get("remote_endpoints") or []
+        assert any(
+            ep.get("ip") in {"127.0.0.1", "::ffff:127.0.0.1"} and ep.get("port") == port
+            for ep in endpoints
+        ), (endpoints, owner_pid, child.pid)
+        assert info.get("truncated") in (None, False)
+
+        gone = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:inspect_pid", "pid": 999_999_99},
+        )
+        assert gone["ok"] is False
+        assert gone["result"]["error"] == "process disappeared"
+
+        unknown = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:inspect_pid", "pid": "nope"},
+        )
+        assert unknown["ok"] is False
+        assert unknown["result"]["error"] == "unknown"
+
+        rogue = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:detect_rogue"},
+        )
+        assert rogue["ok"] is True
+        assert rogue["result"]["heuristic"] is True
+        assert "flagged" in rogue["result"]
+        assert len(rogue["result"]["flagged"]) <= 40
+        for row in rogue["result"]["flagged"]:
+            assert row.get("heuristic") is True
+            assert "cmdline" not in row
+
+        with pytest.raises(PermissionViolationError):
+            await hive.dispatch_task(
+                "stalker",
+                {"capability": "process:kill"},
+            )
+
+        blocked = await hive.dispatch_task(
+            "stalker",
+            {
+                "capability": "process:list",
+                "method": "POST",
+                "url": "https://example.com/exfil",
+            },
+        )
+        assert blocked["ok"] is False
+
+        hive.emp._tripped = True
+        halted = await hive.dispatch_task(
+            "stalker",
+            {"capability": "process:list"},
+        )
+        assert halted["ok"] is False
+        assert "EMP" in str(halted.get("error") or "")
+        hive.emp._tripped = False
+
+        server = SentinelBridgeServer(hive, preferred_port=0)
+        port_b = await server.start()
+        client = SentinelClient(port=port_b)
+        spawned = await client.spawn_units("stalker", 1)
+        assert spawned.get("ok") is True
+        tasked = await client.dispatch_task(
+            "stalker", {"capability": "process:list", "limit": 3}
+        )
+        assert tasked.get("ok") is True
+        inner = tasked.get("result") or {}
+        if "count" not in inner and isinstance(inner.get("result"), dict):
+            inner = inner["result"]
+        if "count" in inner:
+            assert inner["count"] <= 3
     finally:
+        hive.emp._tripped = False
+        if child is not None:
+            child.kill()
+            child.wait(timeout=5)
+        if accepted is not None:
+            accepted.close()
+        if listener is not None:
+            listener.close()
+        if server is not None:
+            await server.stop()
         await hive.stop_background_loops()
 
 
@@ -240,12 +612,11 @@ async def test_bridge_ipc_dynamic_caste_registration_and_execution() -> None:
             "ast_security_probe",
             code_prefix="ASP",
             title="AST Security Probe",
-            single_purpose="Dynamic security probe for syntax validation",
-            allowed_capabilities=["probe:audit"],
+            single_purpose="Runs the built-in syntax validator on offered source",
+            allowed_capabilities=["ast:verify_ast_clean"],
             orbit_radius=22.0,
             orbit_y_band=1.0,
             eye_color="#39ff14",
-            rules=[{"capability": "probe:audit", "required_fields": ["code_hash"]}],
             initial_pool=2,
             tier="mk2",
         )
@@ -253,37 +624,234 @@ async def test_bridge_ipc_dynamic_caste_registration_and_execution() -> None:
         assert reg_res["caste_id"] == "ast_security_probe"
         assert len(reg_res["spawned_units"]) == 2
 
-        # 2. List castes
         list_res = await client.list_castes()
         assert list_res["ok"] is True
         castes = [c["caste_id"] for c in list_res["castes"]]
         assert "ast_security_probe" in castes
         assert list_res["counts"].get("ast_security_probe") == 2
 
-        # 3. Dispatch task to newly registered caste
         task_res = await client.dispatch_task(
             "ast_security_probe",
             {
-                "capability": "probe:audit",
-                "target": "eval_probe",
-                "data": {"code_hash": "a1b2c3d4", "status": "clean"},
+                "capability": "ast:verify_ast_clean",
+                "code": "def fib(n):\n    return n if n <= 1 else fib(n-1) + fib(n-2)\n",
+                "filename": "fib.py",
             },
         )
         assert task_res["ok"] is True
         assert task_res["result"]["ok"] is True
         assert task_res["result"]["caste"] == "ast_security_probe"
+        assert task_res["result"].get("delegated_handler") == "interceptor"
 
-        # 4. Unregister caste
         unreg_res = await client.unregister_caste("ast_security_probe")
         assert unreg_res["ok"] is True
         assert len(unreg_res["retired_units"]) == 2
 
-
-        # Verify units were retired
         after_units = [u for u in hive.units.values() if u.caste == "ast_security_probe"]
         assert len(after_units) == 0
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_dynamic_caste_bounds_persistence_and_removal() -> None:
+    """Hostile names, capabilities, persistence, corrupt store, and busy removal."""
+    from sentinel.castes.dynamic import MAX_DYNAMIC_CASTES, validate_dynamic_spec
+    from sentinel.castes.store import CasteStore
+    from sentinel.core.fsm import SentinelState
+    from sentinel.paths import data_dir
+
+    hive = SwarmHive()
+    try:
+        with pytest.raises(ValueError, match="built-in capability"):
+            hive.register_dynamic_caste(
+                caste_id="hostile_cap",
+                code_prefix="HST",
+                title="Hostile",
+                single_purpose="Tries a capability no built-in caste has",
+                allowed_capabilities=["packet:inspect"],
+            )
+        with pytest.raises(ValueError, match="clashes with a built-in"):
+            hive.register_dynamic_caste(
+                caste_id="warden",
+                code_prefix="WRD",
+                title="Fake Warden",
+                single_purpose="Cannot reuse a built-in name",
+                allowed_capabilities=["scan_sockets"],
+            )
+        with pytest.raises(ValueError, match="plain-text"):
+            hive.register_dynamic_caste(
+                caste_id="two_purposes",
+                code_prefix="TWO",
+                title="Two purposes",
+                single_purpose=["guard text", "also hunt"],
+                allowed_capabilities=["sanitize_text"],
+            )
+        with pytest.raises(ValueError, match="exactly one purpose"):
+            hive.register_dynamic_caste(
+                caste_id="extra_purpose",
+                code_prefix="EXT",
+                title="Extra purpose",
+                single_purpose="One stated purpose",
+                allowed_capabilities=["sanitize_text"],
+                purposes=["another"],
+            )
+        with pytest.raises(ValueError, match="executable keys"):
+            hive.register_dynamic_caste(
+                caste_id="eval_rule",
+                code_prefix="EVL",
+                title="Eval rule",
+                single_purpose="Must not run expressions",
+                allowed_capabilities=["sanitize_text"],
+                rules=[{"expr": "os.system('id')"}],
+            )
+        with pytest.raises(ValueError, match="lowercase identifier"):
+            hive.register_dynamic_caste(
+                caste_id="../etc/passwd",
+                code_prefix="PTH",
+                title="Path",
+                single_purpose="Unsafe name",
+                allowed_capabilities=["sanitize_text"],
+            )
+        with pytest.raises(ValueError, match="cannot be unregistered"):
+            hive.unregister_caste("stalker")
+        with pytest.raises(ValueError, match="cannot be unregistered"):
+            hive.unregister_caste("warden")
+
+        observed: list[tuple[str, str]] = []
+
+        def _note(event) -> None:
+            payload = event.payload or {}
+            cid = str(payload.get("caste_id") or payload.get("caste") or "")
+            observed.append((str(event.topic), cid))
+
+        hive.bus.subscribe(EventTopic.CASTE_REGISTERED, _note)
+        hive.bus.subscribe(EventTopic.CASTE_UNREGISTERED, _note)
+        hive.bus.subscribe(EventTopic.UNIT_SPAWNED, _note)
+
+        res = hive.register_dynamic_caste(
+            caste_id="persist_guard",
+            code_prefix="PSG",
+            title="Persist Guard",
+            single_purpose="Checks that a valid caste survives a restart",
+            allowed_capabilities=["sanitize_text"],
+            initial_pool=1,
+        )
+        assert res["caste_id"] == "persist_guard"
+        store_path = data_dir() / "dynamic_castes.json"
+        assert store_path.is_file()
+        store_ids = [
+            row.get("caste_id")
+            for row in json.loads(store_path.read_text(encoding="utf-8")).get("castes", [])
+        ]
+        assert "persist_guard" in store_ids
+        assert ("caste.registered", "persist_guard") in observed
+        assert ("unit.spawned", "persist_guard") in observed
+        assert any(u.caste == "persist_guard" for u in hive.units.values())
+
+        hive2 = SwarmHive()
+        try:
+            assert "persist_guard" in hive2.registry.caste_ids
+            desc = hive2.registry.get("persist_guard").descriptor
+            assert desc.single_purpose.startswith("Checks that a valid caste")
+            assert "sanitize_text" in desc.allowed_capabilities
+        finally:
+            await hive2.stop_background_loops()
+
+        unit = next(u for u in hive.units.values() if u.caste == "persist_guard")
+        unit.state = SentinelState.ENGAGED_EXECUTION
+        with pytest.raises(ValueError, match="active jobs"):
+            hive.unregister_caste("persist_guard")
+        assert "persist_guard" in hive.registry.caste_ids
+        unit.state = SentinelState.PATROLLING
+        gone = hive.unregister_caste("persist_guard")
+        assert gone["ok"] is True
+        assert "persist_guard" not in hive.registry.caste_ids
+        assert ("caste.unregistered", "persist_guard") in observed
+
+        # Corrupt file is left in place and does not load.
+        store_path.write_text("{not-json", encoding="utf-8")
+        hive3 = SwarmHive()
+        try:
+            assert "persist_guard" not in hive3.registry.caste_ids
+            assert store_path.read_text(encoding="utf-8") == "{not-json"
+        finally:
+            await hive3.stop_background_loops()
+
+        store_path.unlink()
+        res = hive.register_dynamic_caste(
+            caste_id="write_fail",
+            code_prefix="WFL",
+            title="Write Fail",
+            single_purpose="Rolls back if the store cannot be written",
+            allowed_capabilities=["sanitize_text"],
+            initial_pool=1,
+        )
+        assert "write_fail" in hive.registry.caste_ids
+
+        def _boom(rows):
+            raise OSError("disk full")
+
+        hive._dynamic_store.replace_all = _boom  # type: ignore[method-assign]
+        marked = len(observed)
+        with pytest.raises(ValueError, match="failed to persist"):
+            hive.register_dynamic_caste(
+                caste_id="never_saved",
+                code_prefix="NVS",
+                title="Never Saved",
+                single_purpose="Must not remain after a failed write",
+                allowed_capabilities=["sanitize_text"],
+                initial_pool=1,
+            )
+        failed_events = observed[marked:]
+        assert "never_saved" not in hive.registry.caste_ids
+        assert not any(u.caste == "never_saved" for u in hive.units.values())
+        assert ("caste.registered", "never_saved") not in failed_events
+        assert ("unit.spawned", "never_saved") not in failed_events
+        assert ("caste.unregistered", "never_saved") not in failed_events
+        pool_before = {uid: u for uid, u in hive.units.items() if u.caste == "write_fail"}
+        assert pool_before
+        marked = len(observed)
+        with pytest.raises(ValueError, match="failed to persist removal"):
+            hive.unregister_caste("write_fail")
+        assert "write_fail" in hive.registry.caste_ids
+        assert {uid: u for uid, u in hive.units.items() if u.caste == "write_fail"} == pool_before
+        assert ("caste.unregistered", "write_fail") not in observed[marked:]
+        leftover = store_path.read_text(encoding="utf-8")
+        assert "never_saved" not in leftover
+        assert "write_fail" in leftover
+        hive._dynamic_store = CasteStore()
+
+        before = len(hive.units)
+        hive.register_dynamic_caste(
+            caste_id="cap_bound",
+            code_prefix="CAP",
+            title="Cap Bound",
+            single_purpose="Unit cap still applies when seeding a pool",
+            allowed_capabilities=["sanitize_text"],
+            initial_pool=10_000,
+        )
+        assert len(hive.units) <= hive.max_total_units
+        assert len(hive.units) >= before
+
+        emp_block = await hive.dispatch_task(
+            "cap_bound",
+            {"capability": "sanitize_text", "text": "ok", "animate": False, "method": "POST",
+             "url": "https://example.com/exfil"},
+        )
+        assert emp_block.get("ok") is False
+
+        validate_dynamic_spec(
+            caste_id="ok_spec",
+            code_prefix="OKS",
+            title="Ok",
+            single_purpose="Valid",
+            allowed_capabilities=["sanitize_text"],
+        )
+        assert MAX_DYNAMIC_CASTES == 16
+    finally:
+        hive.emp._tripped = False
+        await hive.stop_background_loops()
 
 
 @pytest.mark.asyncio

@@ -280,7 +280,9 @@ def test_the_splash_stays_until_model_arelis_tree_and_a_paint_are_ready(
 
     w = _filament(arelis_window, qt_app)
     warming = {"v": True}
+    drawing = {"v": True}
     built = {"v": False}
+    monkeypatch.setattr(w.persona_panel, "scene_pending", lambda: drawing["v"])
     monkeypatch.setattr(w, "router", SimpleNamespace(warmup_pending=lambda: warming["v"]))
     monkeypatch.setattr(w._filament, "tree_built", lambda: built["v"])
 
@@ -300,6 +302,9 @@ def test_the_splash_stays_until_model_arelis_tree_and_a_paint_are_ready(
     gate, splash = launch()
     assert (splash.closed, w.windowOpacity(), passes_clicks()) == (0, 0.0, True)
     warming["v"] = False
+    gate._poll()
+    assert splash.closed == 0  # the independently controlled avatar still holds it
+    drawing["v"] = False
     gate._poll()
     assert splash.closed == 0  # no full frame painted since the last wait cleared
     w.repaint()
@@ -325,6 +330,7 @@ def test_a_failing_check_or_leaving_filament_never_strands_the_splash(
         raise RuntimeError("router gone")
 
     monkeypatch.setattr(w, "router", SimpleNamespace(warmup_pending=broken))
+    monkeypatch.setattr(w.persona_panel, "scene_pending", lambda: False)
     monkeypatch.setattr(w._filament, "tree_built", lambda: False)
     splash = SimpleNamespace(closed=0, note=lambda _t: None)
     splash.finish = lambda: setattr(splash, "closed", splash.closed + 1)

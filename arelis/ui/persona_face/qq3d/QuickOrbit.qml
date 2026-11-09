@@ -44,6 +44,7 @@ Item {
     property real clockErr: 0
     property bool synced: false
     property bool clockRunning: true  // a still (a comparison grab) freezes the clock
+    property real presenceTick: 1.0
     readonly property real ringScale: {
         const g = Math.max(0, Math.min(1, ringGrow));
         return g * g * (3 - 2 * g);
@@ -117,7 +118,7 @@ Item {
 
     FrameAnimation {
         running: orbit.visible && orbit.clockRunning
-        onTriggered: orbit.step(frameTime)
+        onTriggered: orbit.step(frameTime * orbit.presenceTick)
     }
 
     component Layer: ShaderEffect {
@@ -266,6 +267,8 @@ Item {
         objectName: "orbitFiberClock"
         running: orbit.visible
         onTriggered: {
+            if (orbit.presenceTick < 1 && currentFrame % 4 !== 0)
+                return
             const q = currentFrame % 4
             if (q == 0) fibersTex0.scheduleUpdate()
             else if (q == 1) fibersTex2.scheduleUpdate()

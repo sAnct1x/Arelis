@@ -1,0 +1,50 @@
+[
+  {
+    "lod": 0,
+    "path": "/tmp/overseer-qt/sentinel_lod0.glb",
+    "raw_by_part": {
+      "hull": 66878,
+      "emissive": 6684,
+      "lens": 180
+    },
+    "tris_by_part": {
+      "lod0_hull": 10882,
+      "lod0_emissive": 1087,
+      "lod0_lens": 28
+    },
+    "tris": 11997,
+    "target": 12000
+  },
+  {
+    "lod": 1,
+    "path": "/tmp/overseer-qt/sentinel_lod1.glb",
+    "raw_by_part": {
+      "hull": 20630,
+      "emissive": 2332,
+      "lens": 140
+    },
+    "tris_by_part": {
+      "lod1_hull": 3570,
+      "lod1_emissive": 403,
+      "lod1_lens": 32
+    },
+    "tris": 4005,
+    "target": 4000
+  },
+  {
+    "lod": 2,
+    "path": "/tmp/overseer-qt/sentinel_lod2.glb",
+    "raw_by_part": {
+      "hull": 2286,
+      "emissive": 1324,
+      "lens": 20
+    },
+    "tris_by_part": {
+      "lod2_hull": 628,
+      "lod2_emissive": 363,
+      "lod2_lens": 20
+    },
+    "tris": 1011,
+    "target": 1000
+  }
+]
