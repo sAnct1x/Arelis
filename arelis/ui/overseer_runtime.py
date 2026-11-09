@@ -118,6 +118,24 @@ def claw_open(state: str | None) -> float:
     return 0.45
 
 
+def tentacle_speed(state: str | None) -> float:
+    """GPU tentacle wave speed from real unit activity. Idle sways; busy curls faster."""
+    s = str(state or "").upper()
+    if "EMP" in s or "HALT" in s:
+        return 0.05
+    if "ENGAGED_DEFENSE" in s or s.endswith("DEFENSE"):
+        return 2.5
+    if "ENGAGED" in s or "VECTORING" in s or "PURSUIT" in s:
+        return 2.2
+    if "HARVEST" in s or "CARRY" in s or "RETURNING" in s:
+        return 1.8
+    if "QUARANTIN" in s:
+        return 1.1
+    if "PATROL" in s or not s or s == "IDLE":
+        return 0.55
+    return 0.55
+
+
 def heading_deg(heading: Any) -> float:
     if isinstance(heading, (int, float)):
         return float(heading) * 180.0 / math.pi
@@ -1083,6 +1101,7 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
                 "phase": float(u.get("phase") or (i * 1.7)),
                 "claw": claw_open(state),
                 "limp": limp,
+                "speed": tentacle_speed(state),
             }
         )
     return buckets

@@ -57,6 +57,10 @@ dependencies = [
   # with astronomy files should open without a second install. The floor
   # still resolves on the Ubuntu 3.11 CI runner.
   "astropy>=6.1",
+  # HDF5 and NetCDF-4 files for doc_extract and conversion. BSD-3, numpy
+  # only, wheels for every OS (3.2 MB on Windows). NetCDF-3 is read in
+  # arelis/tools/file_read.py, so no netCDF4 package.
+  "h5py>=3.12",
   # Ensemble sampler for a short MCMC fit. MIT, pure Python, numpy only.
   # Core, not an extra: a light-curve fit should run without a second install.
   "emcee>=3.1",
