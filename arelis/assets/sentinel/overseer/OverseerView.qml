@@ -65,6 +65,8 @@ Item {
     property string missionMode: "multi"
     property string missionQuery: ""
     property string hudStatusLine: "hive live · all local · sending out blocked"
+    property var sourceLabelSpecs: []
+    property var sourceLabelScreen: []
     property string hudCommandStatus: ""
     property string lastHudCommand: ""
     property var lastHudPayload: ({})
@@ -166,6 +168,8 @@ Item {
         recountEntries(live)
         instanceRecords = recs
         rememberUnitPositions(buckets)
+        sourceLabelSpecs = frame.sourceLabels || []
+        projectSourceLabels()
         var b = frame.budget
         if (b) {
             if (b.unitTris !== undefined && b.unitTris !== tris)
@@ -652,6 +656,31 @@ Item {
         return entries
     }
 
+    function projectSourceLabels() {
+        var specs = sourceLabelSpecs || []
+        var out = []
+        for (var i = 0; i < specs.length; i++) {
+            var sp = specs[i]
+            if (!sp)
+                continue
+            var mapped = _tryMapFrom3DScene(Qt.vector3d(finiteNum(sp.x), finiteNum(sp.y), finiteNum(sp.z)))
+            var sx = mapped ? mapped.x : -1000
+            var sy = mapped ? mapped.y : -1000
+            // Hide labels behind the camera or off the plate.
+            var visible = mapped && mapped.z > 0 && mapped.z < 1 && sx > 8 && sy > 8 && sx < width - 8 && sy < height - 8
+            out.push({
+                id: sp.id || ("src-" + i),
+                label: sp.label || "",
+                hot: !!sp.hot,
+                color: sp.color || "#8fd3ff",
+                sx: sx,
+                sy: sy,
+                visible: !!visible
+            })
+        }
+        sourceLabelScreen = out
+    }
+
     function stepConduits() {
         var specs = conduitSpecs
         if (!specs || !specs.length || !liveByKey)
@@ -667,6 +696,7 @@ Item {
             e.position = Qt.vector3d(st.x, st.y, st.z)
             e.scale = Qt.vector3d(psc, psc, psc)
         }
+        projectSourceLabels()
     }
 
     function stepUnits(dt) {
@@ -942,6 +972,24 @@ Item {
             origin.y: 48
             xScale: 0.2 + 0.8 * root.edge
             yScale: 0.2 + 0.8 * root.edge
+        }
+    }
+
+    // Fixed harvest source labels at the scene edge (projected from 3D).
+    Repeater {
+        model: root.sourceLabelScreen
+        delegate: Text {
+            visible: modelData.visible
+            x: modelData.sx - paintedWidth * 0.5
+            y: modelData.sy - paintedHeight - 10
+            text: modelData.label
+            color: modelData.hot ? modelData.color : "#6b5f8a"
+            font.pixelSize: modelData.hot ? 14 : 12
+            font.bold: modelData.hot
+            opacity: modelData.hot ? 0.95 : 0.55
+            style: Text.Outline
+            styleColor: "#0b0714"
+            z: 20
         }
     }
 

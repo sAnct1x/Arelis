@@ -395,13 +395,26 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     axis = [{"unit_id": "axis", "caste": "warden", "position": [5.0, 2.5, 9.0], "scale": 1.0}]
     inst.applyFrame(overseer_runtime.build_frame(axis, 32.0, 1306, report=report_map))
     qt_app.processEvents()
-    found_pos = None
-    for child in inst.findChildren(QObject):
-        if "InstanceListEntry" in child.metaObject().className():
+
+    def _unit_instance_entries(root):
+        # Skip conduit/source particles (scale ~= spec * 0.0022). Units stay >= 0.20.
+        rows = []
+        for child in root.findChildren(QObject):
+            if "InstanceListEntry" not in child.metaObject().className():
+                continue
             pos = child.property("position")
-            if pos is not None:
-                found_pos = (float(pos.x()), float(pos.y()), float(pos.z()))
-                break
+            sc = child.property("scale")
+            if pos is None or sc is None:
+                continue
+            if float(sc.x()) < 0.05:
+                continue
+            rows.append((pos, sc))
+        return rows
+
+    found_pos = None
+    for pos, _sc in _unit_instance_entries(inst):
+        found_pos = (float(pos.x()), float(pos.y()), float(pos.z()))
+        break
     assert found_pos is not None
     assert abs(found_pos[0] - 5.0) < 1e-4
     assert abs(found_pos[1] - 2.5) < 1e-4
@@ -411,14 +424,10 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     qt_app.processEvents()
     boom_pos = None
     boom_sc = None
-    for child in inst.findChildren(QObject):
-        if "InstanceListEntry" in child.metaObject().className():
-            pos = child.property("position")
-            sc = child.property("scale")
-            if pos is not None:
-                boom_pos = (float(pos.x()), float(pos.y()), float(pos.z()))
-                boom_sc = (float(sc.x()), float(sc.y()), float(sc.z())) if sc is not None else None
-                break
+    for pos, sc in _unit_instance_entries(inst):
+        boom_pos = (float(pos.x()), float(pos.y()), float(pos.z()))
+        boom_sc = (float(sc.x()), float(sc.y()), float(sc.z()))
+        break
     assert boom_pos is not None and abs(boom_pos[0]) < 1e-4
     assert abs(boom_pos[1] - 0.4) < 1e-4 and abs(boom_pos[2]) < 1e-4
     assert boom_sc is not None and all(abs(c - 2.0) < 1e-4 for c in boom_sc)

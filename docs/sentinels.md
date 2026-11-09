@@ -31,7 +31,12 @@ by each unit's phase plus a time uniform, not CPU skinning. Animation
 speed comes from real unit activity in the snapshot (slow idle sway while
 patrolling, faster curl and reach while working or engaged, nearly still
 under EMP), packed into the instance custom data so the GPU keeps 60 fps
-without per-tentacle QML objects. The glow
+without per-tentacle QML objects. Four fixed source
+nodes sit at the scene edge (arXiv, Wikipedia, Horizons, Web). A source
+lights up and beams toward the core only while a real harvest fetch for
+that source is live in the hive snapshot (a harvest_target node or a
+harvester unit mid-extract). Idle sources stay dim. No extra poll timer:
+the existing snapshot path carries the signal. The glow
 writes clip position from that waved mesh; the lens writes clip
 position from the mesh as modeled, so those unshaded parts stay on
 the units instead of stretching into a covering plate or stray streaks. The wheel,
