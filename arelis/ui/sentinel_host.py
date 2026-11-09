@@ -258,8 +258,8 @@ class SentinelWindow(QWidget):
 
     def refresh(self) -> None:
         """Show the Overseer if the child is up, else the offline card."""
-        # The first QQuickWidget added to this shown window makes Qt recreate the
-        # native window, which sends a nested showEvent from inside QQuickWidget().
+        # The first native scene child added to this shown window makes Qt
+        # recreate the native window, which sends a nested showEvent from inside it.
         # Without this guard that nested refresh built a second Overseer scene.
         if self._refreshing:
             return
@@ -298,21 +298,27 @@ class SentinelWindow(QWidget):
         if self._scene is not None:
             return self._scene
         try:
-            from PySide6.QtQuickWidgets import QQuickWidget
+            from PySide6.QtQuick import QQuickView
         except ImportError:
-            log.warning("Sentinels window: Qt Quick widget unavailable")
+            log.warning("Sentinels window: Qt Quick unavailable")
             return None
         qml = self._asset_dir() / "OverseerView.qml"
         if not qml.is_file():
             log.warning("Sentinels window: OverseerView.qml missing at %s", qml)
             return None
-        widget = QQuickWidget(self)
-        widget.setObjectName("OverseerScene")
-        widget.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
-        widget.setClearColor(QColor("#0b0714"))
-        widget.setSource(QUrl.fromLocalFile(str(qml)))
-        self._scene = widget
-        return widget
+        # A QQuickWindow, not a QQuickWidget: a QQuickWidget renders on the GUI
+        # thread and its endFrame waits for the GPU, so every Overseer frame
+        # (and its first shader builds) also stalled the main window.
+        view = QQuickView()
+        view.setObjectName("OverseerScene")
+        view.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        view.setColor(QColor("#0b0714"))
+        view.sceneGraphError.connect(
+            lambda _err, msg: log.warning("Sentinels window: scene graph error: %s", msg)
+        )
+        view.setSource(QUrl.fromLocalFile(str(qml)))
+        self._scene = view
+        return view
 
     def start_entry_sequence(self) -> None:
         scene = self._ensure_scene()
@@ -349,8 +355,12 @@ class SentinelWindow(QWidget):
             return self._live
         scene = self._ensure_scene()
         if scene is not None:
-            self._live = scene
-            self._stack.addWidget(scene)
+            self._live = QWidget.createWindowContainer(scene, self)
+            self._live.setObjectName("OverseerSceneHost")
+            self._stack.addWidget(self._live)
+            # A native child covers plain sibling widgets, so the mote goes native too.
+            self._close_mote.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
+            self._close_mote.raise_()
             return self._live
         try:
             from PySide6.QtWebEngineWidgets import QWebEngineView
