@@ -17,6 +17,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
+- Sentinels: the Overseer inspector docks on the right outside the scene (360 px, sized to its content) only while a unit is selected. LIVE shows reported fields; missing ones are listed once as "Not reported by the hive yet". Retask and Recall drop "(unavailable)" and keep a tooltip; Retire asks to confirm in place. See [sentinels.md](sentinels.md).
 - Sentinels: the Overseer event log collapses repeats (×N with a first to last time), merges a pack's start and finish into one plain line ("Tripwire pack of 3 ran verify, all ok"), keeps failures on their own line, drops debug text like "ok=True, title=", and never cuts off its bottom line. Turn Repeats ×N off to see every line. See [sentinels.md](sentinels.md).
 - Sentinels: the Overseer's pill row is now a status strip: Threats (0 reads All clear), Defenders, Units by caste (every caste shown, even at 0), Warrants (hover for what it counts) and Last event (click to jump to it in the console). On narrower windows the last three become compact chips with the detail in a tooltip. See [sentinels.md](sentinels.md).
 - Sentinels: rose in the Overseer now means a real threat only. A Warden's routine patrol shows in the Warden colour, and returned research sources show in the Harvester colour. Hover Warrants to see what it counts. Labels read Mode, Caste, Task and Ring, and search hints are easier to read. See [sentinel-overseer-colours.md](sentinel-overseer-colours.md).
