@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import math
+import re
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -184,6 +186,12 @@ def filter_swarm_units(units: list[dict[str, Any]] | None, query: str = "") -> l
     return out
 
 
+def _is_active(state: object) -> bool:
+    """Counts toward a Swarm header's active number (and the status strip's engaged)."""
+    s = str(state or "")
+    return s.startswith("ENGAGED") or s in {"QUARANTINING", "VECTORING"}
+
+
 def group_units(units: list[dict[str, Any]] | None, by: str = "caste") -> list[dict[str, Any]]:
     groups: dict[str, dict[str, Any]] = {}
     order: list[str] = []
@@ -198,8 +206,7 @@ def group_units(units: list[dict[str, Any]] | None, by: str = "caste") -> list[d
             groups[key] = {"key": key, "units": [], "active": 0}
             order.append(key)
         groups[key]["units"].append(unit)
-        state = str(unit.get("state") or "")
-        if state.startswith("ENGAGED") or state in {"QUARANTINING", "VECTORING"}:
+        if _is_active(unit.get("state")):
             groups[key]["active"] += 1
     for key in order:
         groups[key]["units"].sort(
@@ -274,16 +281,49 @@ def inspector_collapsed(distance: float, selected: str | None) -> bool:
     return zoom_t(distance) > INSPECTOR_COLLAPSE_T
 
 
+def last_event(entries: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    """The newest telemetry row as the status strip shows it: time and a short summary."""
+    rows = [e for e in entries or [] if isinstance(e, dict)]
+    if not rows:
+        return None
+    entry = rows[-1]
+    message = str(entry.get("message") or "")
+    done = re.search(r"finished (\w+):(\w+) \(ok=(True|False)", message)
+    began = re.search(r"deployed for (\w+):(\w+)", message)
+    if done:
+        summary = f"{done[1].title()} {done[2].replace('_', ' ')}, " + (
+            "ok" if done[3] == "True" else "failed"
+        )
+    elif began:
+        summary = f"{began[1].title()} {began[2].replace('_', ' ')} started"
+    else:
+        summary = " ".join(message.split()[:6])
+    return {
+        "seq": entry.get("seq"),
+        "time": str(entry.get("iso_time") or "")[:8],
+        "summary": summary,
+    }
+
+
 def pill_counts(
     units: list[dict[str, Any]] | None,
     metrics: dict[str, Any] | None = None,
+    logs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    """The status strip's numbers (the header blocks), all from the snapshot."""
     counts = {caste: 0 for caste in CASTES}
+    engaged = {caste: 0 for caste in CASTES}
     for unit in units or []:
         caste = str(unit.get("caste") or "").lower()
         if caste in counts:
             counts[caste] += 1
-    pills: dict[str, Any] = {"units": sum(counts.values()), **counts}
+            engaged[caste] += _is_active(unit.get("state"))
+    pills: dict[str, Any] = {
+        "units": sum(counts.values()),
+        **counts,
+        "engaged": engaged,
+        "lastEvent": last_event(logs),
+    }
     if isinstance(metrics, dict) and "warrants_minted" in metrics:
         pills["warrants"] = int(metrics.get("warrants_minted") or 0)
     else:
@@ -353,6 +393,36 @@ def inspector_card(
     }
 
 
+def _log_matches(entry: dict[str, Any], wanted: str, q: str) -> bool:
+    level = str(entry.get("level") or "").upper()
+    caste = str(entry.get("caste") or "").lower()
+    src = str(entry.get("unit_id") or "").upper()
+    if wanted == "threat":
+        threat_levels = {"THREAT", "BLOCK", "CRITICAL", "WARDEN", "ALERT", "EMP"}
+        if not (level in threat_levels or "warden" in caste):
+            return False
+    elif wanted == "sanitize":
+        if not (level == "SANITIZE" or "sanitize" in caste or "SAN" in src):
+            return False
+    elif wanted == "harvest":
+        if not (level in {"HARVEST", "WARRANT"} or "harvest" in caste or "HRV" in src):
+            return False
+    elif wanted == "tripwire":
+        if not (level == "TRIPWIRE" or "tripwire" in caste or "TRP" in src):
+            return False
+    if q:
+        hay = " ".join([
+            str(entry.get("unit_id") or ""),
+            str(entry.get("caste") or ""),
+            str(entry.get("phase") or ""),
+            str(entry.get("message") or ""),
+            json.dumps(entry.get("details") or {}),
+        ]).lower()
+        if q not in hay:
+            return False
+    return True
+
+
 def filter_logs(
     entries: list[dict[str, Any]] | None,
     filt: str = "all",
@@ -360,37 +430,192 @@ def filter_logs(
 ) -> list[dict[str, Any]]:
     wanted = str(filt or "all")
     q = str(query or "").strip().lower()
-    out: list[dict[str, Any]] = []
-    for entry in entries or []:
-        level = str(entry.get("level") or "").upper()
-        caste = str(entry.get("caste") or "").lower()
-        src = str(entry.get("unit_id") or "").upper()
-        if wanted == "threat":
-            ok = level in {"THREAT", "BLOCK", "CRITICAL", "WARDEN", "ALERT", "EMP"}
-            ok = ok or "warden" in caste
-            if not ok:
-                continue
-        elif wanted == "sanitize":
-            if not (level == "SANITIZE" or "sanitize" in caste or "SAN" in src):
-                continue
-        elif wanted == "harvest":
-            if not (level in {"HARVEST", "WARRANT"} or "harvest" in caste or "HRV" in src):
-                continue
-        elif wanted == "tripwire":
-            if not (level == "TRIPWIRE" or "tripwire" in caste or "TRP" in src):
-                continue
-        if q:
-            hay = " ".join([
-                str(entry.get("unit_id") or ""),
-                str(entry.get("caste") or ""),
-                str(entry.get("phase") or ""),
-                str(entry.get("message") or ""),
-                json.dumps(entry.get("details") or {}),
-            ]).lower()
-            if q not in hay:
-                continue
-        out.append(entry)
+    out = [entry for entry in entries or [] if _log_matches(entry, wanted, q)]
     return list(reversed(out))
+
+
+# "3-Sentinel HUNTER-SEEKER Pack (SNT-TRP-001 + SNT-TRP-002, SNT-TRP-003)"
+_PACK_TAG = re.compile(r"(\d+)-Sentinel HUNTER-SEEKER Pack \([^)]*\)")
+_PACK_RUN = re.compile(
+    r"^(\d+)-Sentinel HUNTER-SEEKER Pack \([^)]*\) "
+    r"(?:deployed for (\w+):(\w+)|finished (\w+):(\w+) \(ok=(True|False), title=(.*)\))$"
+)
+_OK_TAIL = re.compile(r" \(ok=(True|False), title=(.*)\)$")
+
+
+def _pack_name(caste: str, n: str) -> str:
+    return f"{str(caste or 'sentinel').title()} pack of {n}"
+
+
+def plain_log_message(entry: dict[str, Any]) -> str:
+    """Console wording: no "title=" or "ok=True" debug text, packs named by caste."""
+    message = str(entry.get("message") or "")
+    caste = str(entry.get("caste") or "")
+    run = _PACK_RUN.match(message)
+    if run:
+        n = run[1]
+        if run[2]:
+            return f"{_pack_name(run[2], n)} started {run[3].replace('_', ' ')}"
+        tail = "ok" if run[6] == "True" else "failed" + (f": {run[7]}" if run[7] else "")
+        return f"{_pack_name(run[4], n)} ran {run[5].replace('_', ' ')}, {tail}"
+    message = _PACK_TAG.sub(lambda m: _pack_name(caste, m[1]), message)
+    tail = _OK_TAIL.search(message)
+    if tail:
+        end = "ok" if tail[1] == "True" else "failed" + (f": {tail[2]}" if tail[2] else "")
+        message = message[: tail.start()] + ", " + end
+    return message
+
+
+def _raw_log_line(entry: dict[str, Any]) -> str:
+    return (
+        f"[{entry.get('iso_time') or ''}] [{entry.get('level') or ''}] "
+        f"[{entry.get('unit_id') or ''}] ({entry.get('phase') or ''}) {entry.get('message') or ''}"
+    )
+
+
+class LogSession:
+    """The console's session log, kept by the host across snapshots.
+
+    The snapshot carries only the newest 60 telemetry rows, so repeats are
+    counted here, once per new seq (no rescans). Rule A: identical rows (same
+    caste, unit, level, phase and text; time ignored) merge into one row with
+    a count and a first-to-last range. Rule B: a pack's "deployed for X" and
+    its "finished X (ok=True)" merge into "<Caste> pack of N ran X, all ok";
+    a deploy not finished yet is its own "running" row, and ok=False splits
+    out as its own (failed) row.
+    """
+
+    RAW_LIMIT = 200
+    GROUP_LIMIT = 200
+
+    def __init__(self) -> None:
+        self._last_seq: int | None = None
+        self._raw: deque[dict[str, Any]] = deque(maxlen=self.RAW_LIMIT)
+        self._groups: dict[tuple, dict[str, Any]] = {}
+
+    def reset(self) -> None:
+        self._last_seq = None
+        self._raw.clear()
+        self._groups.clear()
+
+    def ingest(self, entries: list[dict[str, Any]] | None) -> None:
+        rows = [e for e in entries or [] if isinstance(e, dict)]
+        if any(not isinstance(e.get("seq"), int) for e in rows):
+            # No usable seq: treat the list as the whole session.
+            self.reset()
+            rows = [dict(e, seq=i + 1) for i, e in enumerate(rows)]
+        elif rows and self._last_seq is not None and max(e["seq"] for e in rows) < self._last_seq:
+            self.reset()  # the hive restarted and its seq began again
+        for entry in sorted(rows, key=lambda e: e["seq"]):
+            if self._last_seq is not None and entry["seq"] <= self._last_seq:
+                continue
+            self._last_seq = entry["seq"]
+            self._raw.append(entry)
+            self._add(entry)
+        if len(self._groups) > self.GROUP_LIMIT:
+            keep = sorted(self._groups.items(), key=lambda kv: kv[1]["seq"])[-self.GROUP_LIMIT:]
+            self._groups = dict(keep)
+
+    def _add(self, entry: dict[str, Any]) -> None:
+        message = str(entry.get("message") or "")
+        caste = str(entry.get("caste") or "")
+        unit = str(entry.get("unit_id") or "")
+        run = _PACK_RUN.match(message)
+        if run and (run[2] or run[6] == "True"):
+            task = (run[2] or run[4], run[3] or run[5])
+            group = self._groups.setdefault(
+                ("pack", caste, unit, task),
+                {"count": 0, "first": None, "entry": entry, "pending": None, "seq": entry["seq"]},
+            )
+            group["seq"] = entry["seq"]
+            if group["first"] is None:
+                group["first"] = entry
+            if run[2]:
+                group["pending"] = entry
+                return
+            group["count"] += 1
+            group["pending"] = None
+            group["entry"] = entry
+            return
+        if run:  # ok=False: the deploy is over; the failure is its own row
+            pack = self._groups.get(("pack", caste, unit, (run[4], run[5])))
+            if pack is not None:
+                pack["pending"] = None
+        key = ("same", caste, unit, entry.get("level"), entry.get("phase"), message)
+        group = self._groups.setdefault(
+            key, {"count": 0, "first": entry, "entry": entry, "pending": None, "seq": entry["seq"]}
+        )
+        group["count"] += 1
+        group["entry"] = entry
+        group["seq"] = entry["seq"]
+        group["failed"] = bool(run)
+
+    @staticmethod
+    def _row(
+        entry: dict[str, Any],
+        *,
+        count: int = 1,
+        first: dict | None = None,
+        message: str | None = None,
+        failed: bool = False,
+        running: bool = False,
+    ) -> dict[str, Any]:
+        last_t = str(entry.get("iso_time") or "")[:8]
+        first_t = str((first or entry).get("iso_time") or "")[:8]
+        return {
+            "seq": entry.get("seq"),
+            "time": last_t,
+            "count": count,
+            "range": f"{first_t} to {last_t}" if count > 1 and first_t != last_t else "",
+            "unit_id": entry.get("unit_id") or "",
+            "caste": entry.get("caste") or "",
+            "level": entry.get("level") or "",
+            "message": message if message is not None else plain_log_message(entry),
+            "raw": _raw_log_line(entry),
+            "failed": failed,
+            "running": running,
+        }
+
+    def rows(
+        self, filt: str = "all", query: str = "", repeats: bool = True
+    ) -> list[dict[str, Any]]:
+        """Console rows, newest first. repeats=False shows every line again."""
+        wanted = str(filt or "all")
+        q = str(query or "").strip().lower()
+        if not repeats:
+            return [self._row(e) for e in reversed(self._raw) if _log_matches(e, wanted, q)]
+        out: list[dict[str, Any]] = []
+        for key, group in self._groups.items():
+            entry = group["entry"]
+            if key[0] == "pack":
+                pending = group["pending"]
+                if pending is not None and _log_matches(pending, wanted, q):
+                    running = plain_log_message(pending).replace(" started ", " running ", 1)
+                    out.append(self._row(pending, message=running, running=True))
+                if group["count"] and _log_matches(entry, wanted, q):
+                    message = plain_log_message(entry)
+                    if group["count"] > 1:
+                        message = message[: -len(", ok")] + ", all ok"
+                    count, first = group["count"], group["first"]
+                    out.append(self._row(entry, count=count, first=first, message=message))
+            elif _log_matches(entry, wanted, q):
+                count, first = group["count"], group["first"]
+                failed = bool(group.get("failed"))
+                out.append(self._row(entry, count=count, first=first, failed=failed))
+        out.sort(key=lambda r: r["seq"], reverse=True)
+        return out
+
+
+def _session_rows(
+    snap: dict[str, Any] | None,
+    session: LogSession | None,
+    filt: str,
+    query: str,
+    repeats: bool,
+) -> list[dict[str, Any]]:
+    session = session if session is not None else LogSession()
+    session.ingest((snap or {}).get("telemetry_log") if isinstance(snap, dict) else None)
+    return session.rows(filt, query, repeats)
 
 
 def build_hud(
@@ -403,11 +628,13 @@ def build_hud(
     log_filter: str = "all",
     log_query: str = "",
     camera_distance: float = 76.0,
+    log_session: LogSession | None = None,
+    log_repeats: bool = True,
 ) -> dict[str, Any]:
     units = snapshot_units(snap)
     selected = next((u for u in units if u.get("unit_id") == selected_id), None)
     metrics = (snap or {}).get("metrics") if isinstance(snap, dict) else None
-    status_line = "hive live, all local, sending out blocked"
+    status_line = "hive live · all local · sending out blocked"
     if isinstance(snap, dict):
         emp = snap.get("emp")
         banner = snap.get("active_banner")
@@ -419,7 +646,11 @@ def build_hud(
             b_sub = str(banner.get("subtitle") or "").strip()
             status_line = f"{b_title}: {b_sub}" if b_sub else b_title
     return {
-        "pills": pill_counts(units, metrics if isinstance(metrics, dict) else None),
+        "pills": pill_counts(
+            units,
+            metrics if isinstance(metrics, dict) else None,
+            (snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
+        ),
         "swarmRows": swarm_rows(units, by=group_by, query=search, collapsed=collapsed),
         "inspector": inspector_card(
             selected,
@@ -427,11 +658,7 @@ def build_hud(
             receipts=(snap or {}).get("recent_receipts") if isinstance(snap, dict) else None,
         ),
         "inspectorCollapsed": inspector_collapsed(camera_distance, selected_id or None),
-        "logs": filter_logs(
-            (snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
-            log_filter,
-            log_query,
-        ),
+        "logs": _session_rows(snap, log_session, log_filter, log_query, log_repeats),
         "title": "Sentinels",
         "statusLine": status_line,
     }

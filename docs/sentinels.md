@@ -35,8 +35,9 @@ trackpad, and + / - keys dolly the camera between 6 m and 110 m with
 the approved rubber-band limits. Opening the window follows the entry
 timing (mote, edge, fill, reveal, then panels); closing reverses it.
 Reduced motion uses a short crossfade. A native HUD sits on the view:
-a pill bar with live unit and caste counts plus Warrants and Threats
-when the hive reports them (what the colours and Warrants mean:
+a status strip across the top (Threats, Defenders, Units by caste,
+Warrants, Last event; see "The status strip" below, and what the
+colours and Warrants mean:
 [sentinel-overseer-colours.md](sentinel-overseer-colours.md)), a grouped Swarm list (search, group by
 caste, task or ring, 44 px rows, engaged first), an inspector for the
 selected unit, and a forensic console for live logs and mission
@@ -120,6 +121,62 @@ theme.id (sodium metadata vs Filament pixels) and leftover hive-specular
 clips on settled stills are separate appearance work, not claimed fixed
 by this camera batch. Visual review, load, and frame timing on a real
 machine have not been accepted yet.
+
+### The status strip
+
+Under the Sentinels title, a green dot reads "hive live · all local ·
+sending out blocked". To its right, five blocks give the hive at a glance.
+They are read only: nothing highlights when you point at them, and only
+Last event responds to a click.
+
+- **Threats**: the threat count from the hive. 0 reads "All clear" in
+  green; any threats read in rose with a rose outline. If the hive does
+  not report it, it reads "?" and "Not reported". Hover it to see which
+  castes are engaged.
+- **Defenders**: how many Wardens there are, and how many are engaged
+  (the same number as the Warden header's active count in the Swarm list).
+- **Units by caste**: the total, then Warden, Stalker, Harvester,
+  Sanitizer and Tripwire, always in that order. A caste with no units
+  still shows, dimmed, with 0.
+- **Warrants**: evidence receipts in memory. Hover it to read
+  "Evidence receipts in memory (includes up to 120 from earlier runs)".
+- **Last event**: the time and a short summary of the newest event in the
+  console. Click it to scroll the console to that row (or to the newest
+  row if the current filter hides it).
+
+On a window too narrow for all five full blocks (the 1200 px default
+included), Threats and Defenders stay as they are and the other three
+become compact chips: a small icon and the value (units total, warrant
+count, time of the last event). Hover a chip for its full label and
+detail; the Last event chip still scrolls the console when clicked. The
+header stays the same height. On a very narrow window, chips that still
+do not fit drop from the right so none is cut off.
+
+The strip updates with each snapshot, not every frame.
+
+### The event log
+
+The console at the bottom lists the hive's events, newest first, one line
+each: the time, a ×N badge when the line repeats, the unit (in its caste
+colour), the message in plain words, and for repeats the first to last
+time on the right.
+
+- **Repeats collapse.** The same event from the same unit shows once with
+  a count. A pack's start and its successful finish merge into one line,
+  such as "Tripwire pack of 3 ran verify, all ok". A pack that has started
+  but not finished shows as its own "running" line. A failed run is never
+  merged: it gets its own line with a rose dot and the reason, such as
+  "failed: timeout". So a one-off event (a new port, say) is not buried
+  under hundreds of routine patrols.
+- **Counts cover the whole time the window is open**, not just the last
+  60 events the hive sends each time.
+- **Repeats ×N** is on by default and collapses repeats. Turn it off to
+  see every line again, newest first.
+- **Plain words.** Debug text such as "ok=True, title=" is gone, and
+  "3-Sentinel HUNTER-SEEKER Pack (...)" reads "Tripwire pack of 3". Hover a
+  line to see the raw log line exactly as the hive wrote it.
+- **No cut-off line.** The log always shows a whole number of lines with
+  space below the last one, at any window size.
 
 ## When Sentinel is offline
 

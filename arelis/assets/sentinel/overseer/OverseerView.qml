@@ -61,9 +61,10 @@ Item {
     property string swarmSearch: ""
     property string logFilter: "all"
     property string logQuery: ""
+    property bool logRepeats: true
     property string missionMode: "multi"
     property string missionQuery: ""
-    property string hudStatusLine: "hive live, all local, sending out blocked"
+    property string hudStatusLine: "hive live · all local · sending out blocked"
     property string hudCommandStatus: ""
     property string lastHudCommand: ""
     property var lastHudPayload: ({})
@@ -952,6 +953,7 @@ Item {
         swarmRows: root.swarmRows
         inspector: root.inspectorCard
         logs: root.hudLogs
+        logRepeats: root.logRepeats
         inspectorOpen: root.showInspector
         selectedUnitId: root.selectedUnitId
         groupBy: root.swarmGroupBy
@@ -973,6 +975,7 @@ Item {
         onUnitChosen: function (unitId) { root.selectUnit(unitId) }
         onLogFilterChosen: function (name) { root.logFilter = name }
         onLogSearchEdited: function (text) { root.logQuery = text }
+        onLogRepeatsChosen: function (on) { root.logRepeats = on }
         onHudCommand: function (name, payload) {
             root.lastHudCommand = name
             root.lastHudPayload = payload
