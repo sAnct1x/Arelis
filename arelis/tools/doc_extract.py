@@ -1,4 +1,8 @@
-"""Extract text from a local PDF, DOCX, or PPTX under workspace roots."""
+"""Read a local document or data file under workspace roots.
+
+PDF, Word and PowerPoint are read here. Spreadsheets, markdown, LaTeX and
+science data (FITS, HDF5, NetCDF) go through arelis.tools.file_read.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +15,7 @@ from typing import Any
 from arelis.core.document_refs import resolve_drop_file, resolve_reported_output_path
 from arelis.core.look import OcrInspect, inspect_ocr_text, ocr_deferral
 from arelis.paths import outputs_dir
+from arelis.tools import file_read
 from arelis.tools.base import ToolResult
 from arelis.tools.office_text import (
     extract_docx_text,
@@ -28,10 +33,11 @@ from arelis.workspace import ResolvedPath, WorkspaceRoots
 _MAX_OUTPUT_CHARS = 20_000
 _MAX_INK_PAGES = 20
 _SUPPORTED = frozenset({".pdf", ".docx", ".pptx"})
-_DROP_SUFFIXES = _SUPPORTED
+_DROP_SUFFIXES = _SUPPORTED | file_read.SUFFIXES
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 _TABLEISH_LINE = re.compile(r"\S(?:\t|  +)\S")
 _OFFICE_KINDS = frozenset({"docx", "pptx"})
+_DATA_KINDS = frozenset({"xlsx", "csv", "md", "tex", "fits", "hdf5", "netcdf"})
 
 
 def _reported_output(path_str: str) -> ResolvedPath | None:
@@ -54,11 +60,12 @@ def _fail(tag: str, message: str, **extra: Any) -> ToolResult:
 class DocExtractTool:
     name = "doc_extract"
     description = (
-        "Extract text from a local PDF, Word (.docx), or PowerPoint (.pptx) "
-        "under workspace roots. Optional page_start/page_end (PDF pages or "
-        "PPTX slides). DOCX tables are cell text. Scanned PDFs have no text "
-        "layer, this reads the page pictures. Do not invent quotes or ask "
-        "them to paste. Not for images or .exe."
+        "Read a local file under workspace roots: PDF, Word (.docx), "
+        "PowerPoint (.pptx), Excel (.xlsx), CSV, markdown, LaTeX, or science "
+        "data (FITS, HDF5, NetCDF; 2-D data also gets a preview PNG). "
+        "Optional page_start/page_end (PDF pages or PPTX slides). Scanned "
+        "PDFs have no text layer, this reads the page pictures. Do not invent "
+        "quotes or ask them to paste. Not for images or .exe."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -66,7 +73,7 @@ class DocExtractTool:
         "properties": {
             "path": {
                 "type": "string",
-                "description": "Path to PDF, DOCX, or PPTX, or name:relative/path",
+                "description": "Path to the file, or name:relative/path",
             },
             "page_start": {
                 "type": "integer",
@@ -167,6 +174,8 @@ class DocExtractTool:
             return _unsupported(path, display)
         if kind == "docx":
             return self._extract_docx(path, display, resolved.root_name, max_chars)
+        if kind in _DATA_KINDS:
+            return self._extract_data(path, display, resolved.root_name, kind, max_chars)
         if kind == "pptx":
             return self._extract_pptx(
                 path, display, resolved.root_name, page_start, page_end, max_chars
@@ -203,6 +212,38 @@ class DocExtractTool:
             source="docx",
             abs_path=str(path),
             root_name=root_name,
+        )
+
+    def _extract_data(
+        self,
+        path: Path,
+        display: str,
+        root_name: str,
+        kind: str,
+        max_chars: int,
+    ) -> ToolResult:
+        """Spreadsheets, markdown, LaTeX and science data."""
+        previews = outputs_dir() / "images" / "data_previews"
+        try:
+            read = file_read.describe(path, kind, previews)
+        except file_read.ReadError as exc:
+            return _fail("other", str(exc), path=display)
+        if not read.body.strip():
+            return _fail("empty", f"No readable content in {display}", path=display)
+        body = read.body
+        if read.previews:
+            listing = "\n".join(f"  {shot}" for shot in read.previews)
+            body = f"{body}\n\nquick-look images (vision can describe them):\n{listing}"
+        return _text_result(
+            display,
+            body,
+            [1],
+            1,
+            max_chars,
+            source=kind,
+            abs_path=str(path),
+            root_name=root_name,
+            extra={"preview_images": read.previews} if read.previews else None,
         )
 
     def _extract_pptx(
@@ -529,11 +570,11 @@ def _document_kind(path: Path) -> str | None:
         sniffed = sniff_office_kind(path)
         if sniffed in _OFFICE_KINDS:
             return sniffed
-        return None
+        return file_read.kind_of(path)
     suffix = path.suffix.lower()
     if suffix in _SUPPORTED:
         return suffix.lstrip(".")
-    return None
+    return file_read.kind_of(path)
 
 
 def _unsupported(path: Path, display: str) -> ToolResult:
@@ -543,13 +584,13 @@ def _unsupported(path: Path, display: str) -> ToolResult:
             "unsupported",
             "This is an image, use vision to describe it, or ocr "
             "(action=text) to read text in it. doc_extract reads "
-            ".pdf, .docx, and .pptx.",
+            "documents, spreadsheets and science data, not pictures.",
             path=display,
         )
     return _fail(
         "unsupported",
         f"Unsupported file type: {path.suffix or '(none)'} "
-        "(want .pdf, .docx, or .pptx)",
+        "(want pdf, docx, pptx, xlsx, csv, md, tex, FITS, HDF5 or NetCDF)",
         path=display,
     )
 
