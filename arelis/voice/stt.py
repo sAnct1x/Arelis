@@ -713,7 +713,11 @@ class SpeechToText:
                 samples, _sr = _read_wav_mono(Path(audio_path))
                 if samples.size > 0:
                     audio_input = samples
-            except Exception:
+            except Exception as exc:
+                log.warning(
+                    "In-memory WAV decode failed; transcribing from file path instead: %s",
+                    exc,
+                )
                 audio_input = audio_path
         segments, _info = model.transcribe(
             audio_input,
