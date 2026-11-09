@@ -681,7 +681,7 @@ def edit_copy(
         lost = losses(before, inventory(staging))
         if lost:
             raise SheetRefusedError(
-                f"Saving {src.name} with openpyxl would drop: {', '.join(lost)}. "
+                f"Saving {src.name} here would drop: {', '.join(lost)}. "
                 "I did not write anything and the original is untouched. Make the "
                 "change in Excel, or ask me for a new sheet built from its data."
             )
