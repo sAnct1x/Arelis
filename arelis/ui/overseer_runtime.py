@@ -1070,6 +1070,142 @@ NODE_KIND_COLOR = {
     "merkle_root": "#7ee0c8",
 }
 
+# Fixed edge sources for the Overseer. Beams light only on a real harvest fetch.
+HARVEST_SOURCE_EDGE_R = 26.0
+HARVEST_SOURCES: tuple[tuple[str, str, float, str], ...] = (
+    # id, label, angle_radians, color
+    ("arxiv", "arXiv", 0.55, "#8fd3ff"),
+    ("wikipedia", "Wikipedia", 2.15, "#a78bfa"),
+    ("horizons", "Horizons", 3.75, "#7ee0c8"),
+    ("web", "Web", 5.35, "#e879f9"),
+)
+HARVEST_SOURCE_IDS = {row[0] for row in HARVEST_SOURCES}
+
+
+def normalize_harvest_source(action: object, target: object = None) -> str:
+    """Map a harvester action or URL onto a fixed edge source id, or empty."""
+    a = str(action or "").strip().lower()
+    t = str(target or "").strip().lower()
+    blob = f"{a} {t}"
+    if a in HARVEST_SOURCE_IDS:
+        return a
+    if "arxiv" in blob:
+        return "arxiv"
+    if "wikipedia" in blob or "wiki" in blob:
+        return "wikipedia"
+    if "horizons" in blob or "ssd.jpl" in blob:
+        return "horizons"
+    if a in {"url", "web", "fetch", "fetch_url"} or t.startswith("http://") or t.startswith("https://"):
+        return "web"
+    return ""
+
+
+def active_harvest_sources(
+    units: list[dict[str, Any]] | None = None,
+    nodes: list[dict[str, Any]] | None = None,
+) -> set[str]:
+    """Sources with a live harvest fetch in this snapshot. No timers; snapshot only.
+
+    A harvest_target node exists only while the harvester is vectoring or
+    extracting, so its metadata.action is the primary signal. Unit state and
+    current_task cover the same window when the node list is empty.
+    """
+    active: set[str] = set()
+    for node in nodes or []:
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("kind") or "").lower() != "harvest_target":
+            continue
+        meta = node.get("metadata") if isinstance(node.get("metadata"), dict) else {}
+        sid = normalize_harvest_source(meta.get("action"), meta.get("target") or node.get("label"))
+        if sid:
+            active.add(sid)
+    for unit in units or []:
+        if not isinstance(unit, dict):
+            continue
+        state = str(unit.get("state") or "").upper()
+        task = str(unit.get("current_task") or unit.get("task") or "")
+        if not (
+            "HARVEST" in state
+            or "CARRY" in state
+            or state == "RETURNING"
+            or "extract" in task.lower()
+            or "arxiv" in task.lower()
+            or "wikipedia" in task.lower()
+            or "horizons" in task.lower()
+            or "http" in task.lower()
+        ):
+            continue
+        sid = normalize_harvest_source("", task)
+        if not sid:
+            # Engaged harvester with no source token still maps to web when carrying URL work.
+            if "HARVEST" in state or "CARRY" in state:
+                sid = "web"
+        if sid:
+            active.add(sid)
+    return active
+
+
+def build_harvest_source_conduits(active: set[str] | None = None) -> list[dict[str, Any]]:
+    """Always place labeled edge source beacons; beam packets only when active."""
+    hot = set(active or ())
+    out: list[dict[str, Any]] = []
+    labels: list[dict[str, Any]] = []
+    for i, (sid, label, angle, color) in enumerate(HARVEST_SOURCES):
+        is_hot = sid in hot
+        x = HARVEST_SOURCE_EDGE_R * math.cos(angle)
+        z = HARVEST_SOURCE_EDGE_R * math.sin(angle)
+        y = 1.6
+        nx, ny, nz = _clamp_conduit_coord(x, y, z)
+        labels.append({
+            "id": sid,
+            "label": label,
+            "x": nx,
+            "y": ny,
+            "z": nz,
+            "hot": is_hot,
+            "color": color,
+        })
+        out.append({
+            "id": f"source-beacon:{sid}",
+            "kind": "node",
+            "sx": nx, "sy": ny, "sz": nz,
+            "cx": nx, "cy": ny, "cz": nz,
+            "ex": nx, "ey": ny, "ez": nz,
+            "phase": (i * 0.23) % 1.0,
+            "speed": 0.0,
+            # Conduit fill multiplies scale by 0.0022. Target ~0.22/0.40 world units.
+            "scale": 180.0 if is_hot else 100.0,
+            "color": color if is_hot else "#7a6aad",
+            "source_id": sid,
+            "label": label,
+            "hot": is_hot,
+        })
+        if not is_hot:
+            continue
+        # Beam: packets from the edge source inward to the core while fetching.
+        arc_y = max(ny, 0.5) + 2.6
+        cx, cy, cz = _clamp_conduit_coord(nx * 0.5, arc_y, nz * 0.5)
+        beam_n = 5
+        for k in range(beam_n):
+            out.append({
+                "id": f"source-beam:{sid}:{k}",
+                "kind": "packet",
+                "sx": nx, "sy": ny, "sz": nz,
+                "cx": cx, "cy": cy, "cz": cz,
+                "ex": 0.0, "ey": 0.4, "ez": 0.0,
+                "phase": ((k / beam_n) + i * 0.17) % 1.0,
+                "speed": 1.55,
+                "scale": 14.0,
+                "color": color,
+                "source_id": sid,
+            })
+    # Stash labels on the first beacon via a sibling return; caller uses build_frame.
+    build_harvest_source_conduits.last_labels = labels  # type: ignore[attr-defined]
+    return out
+
+
+
 
 def _clamp_conduit_coord(
     x: float, y: float, z: float, limit: float = 36.0
@@ -1113,9 +1249,17 @@ def build_conduits(
     units: list[dict[str, Any]] | None = None,
     nodes: list[dict[str, Any]] | None = None,
     fx_events: list[dict[str, Any]] | None = None,
+    *,
+    active_sources: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Build hardware-instanced 3D conduit packet and node beacon descriptors."""
     out: list[dict[str, Any]] = []
+    # Fixed harvest source edge beacons first (beams only when a real fetch is active).
+    if active_sources is None:
+        source_active = active_harvest_sources(units, nodes)
+    else:
+        source_active = active_sources
+    out.extend(build_harvest_source_conduits(source_active))
     node_map: dict[str, tuple[float, float, float, str]] = {}
 
     for i, node in enumerate(nodes or []):
@@ -1314,7 +1458,11 @@ def build_frame(
     assigned = enforce_budget(assigned, report)
     buckets = build_buckets(assigned)
     budget = budget_from_buckets(buckets, report)
-    conduits = build_conduits(assigned, nodes=nodes, fx_events=fx_events)
+    source_active = active_harvest_sources(assigned, nodes)
+    conduits = build_conduits(
+        assigned, nodes=nodes, fx_events=fx_events, active_sources=source_active
+    )
+    source_labels = list(getattr(build_harvest_source_conduits, "last_labels", []) or [])
     prev = {str(u.get("unit_id")): int(u["lod"]) for u in assigned if not u.get("culled")}
     for u in assigned:
         if u.get("culled"):
@@ -1325,6 +1473,8 @@ def build_frame(
         "budget": budget,
         "prevLods": prev,
         "conduits": conduits,
+        "sourceLabels": source_labels,
+        "activeSources": sorted(source_active),
     }
 
 
