@@ -1554,10 +1554,13 @@
     "type": "function",
     "function": {
       "name": "run_script",
-      "description": "run a project .py under workspace",
+      "description": "sandbox or project .py",
       "parameters": {
         "type": "object",
         "properties": {
+          "code": {
+            "type": "string"
+          },
           "path": {
             "type": "string"
           },
@@ -1567,10 +1570,7 @@
               "type": "string"
             }
           }
-        },
-        "required": [
-          "path"
-        ]
+        }
       }
     }
   },
