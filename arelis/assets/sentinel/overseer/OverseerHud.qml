@@ -21,6 +21,7 @@ Item {
     property string statusLine: "hive live · all local · sending out blocked"
     property string commandStatus: ""
     property bool logPaused: false
+    property bool logRepeats: true
 
     signal searchEdited(string text)
     signal groupModeChosen(string mode)
@@ -28,6 +29,7 @@ Item {
     signal unitChosen(string unitId)
     signal logFilterChosen(string name)
     signal logSearchEdited(string text)
+    signal logRepeatsChosen(bool on)
     signal hudCommand(string name, var payload)
 
     // Palette panel fill #0e0920. The mockup composites this at alpha 0.80
@@ -994,7 +996,10 @@ Item {
         border.width: 1
 
         Column {
-            anchors.fill: parent
+            id: consoleControls
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
             anchors.margins: 10
             spacing: 6
 
@@ -1088,33 +1093,159 @@ Item {
                         hud.logSearchEdited(text)
                     }
                 }
+                Rectangle {
+                    objectName: "OverseerLogRepeats"
+                    height: 24
+                    width: repeatsLab.implicitWidth + 14
+                    radius: 4
+                    color: hud.logRepeats ? "#2a1a4a" : "#1c1430"
+                    border.color: hud.logRepeats ? "#8b6cf2" : "#6d4ad8"
+                    Accessible.role: Accessible.CheckBox
+                    Accessible.name: "Collapse repeats"
+                    Accessible.checked: hud.logRepeats
+                    Text {
+                        id: repeatsLab
+                        anchors.centerIn: parent
+                        text: "Repeats \u00d7N"
+                        color: "#e0d4ff"
+                        font.pixelSize: 11
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            hud.logRepeats = !hud.logRepeats
+                            hud.logRepeatsChosen(hud.logRepeats)
+                        }
+                    }
+                }
             }
+        }
 
-            ListView {
-                id: logList
-                objectName: "OverseerLogList"
-                width: parent.width
-                height: parent.height - 72
-                clip: true
-                reuseItems: true
-                cacheBuffer: 24 * 6
-                model: hud.logs
-                delegate: Text {
-                    required property var modelData
-                    width: logList.width
-                    wrapMode: Text.Wrap
-                    font.pixelSize: 12
+        // Full text of the hovered row (Iris rank 2): one shared tooltip.
+        ToolTip {
+            id: logTip
+            objectName: "OverseerLogTip"
+            delay: 400
+            padding: 8
+            contentItem: Text {
+                text: logTip.text
+                color: "#e0d4ff"
+                font.pixelSize: 13
+                wrapMode: Text.Wrap
+                width: Math.min(720, implicitWidth)
+            }
+            background: Rectangle { color: "#140d2a"; border.color: "#8b6cf2"; radius: 4 }
+        }
+
+        // Root cause of the cut-off bottom line: wrapped rows of varying
+        // height in a viewport of arbitrary height with no bottom padding.
+        // Rows are now single-line, 24 px, and the viewport is always a whole
+        // number of rows, 16 px above the panel's bottom edge.
+
+        ListView {
+            id: logList
+            objectName: "OverseerLogList"
+            readonly property int rowHeight: 24
+            readonly property int rows: Math.max(1, Math.floor(
+                (consolePanel.height - consoleControls.y - consoleControls.height - 12 - 16) / rowHeight))
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 16
+            height: rows * rowHeight
+            clip: true
+            reuseItems: true
+            snapMode: ListView.SnapToItem
+            cacheBuffer: rowHeight * 6
+            model: hud.logs
+            delegate: Item {
+                id: logRow
+                required property var modelData
+                readonly property int count: Number(modelData.count || 1)
+                width: logList.width
+                height: logList.rowHeight
+                HoverHandler {
+                    onHoveredChanged: {
+                        if (hovered) {
+                            logTip.parent = logRow
+                            logTip.text = String(logRow.modelData.raw || logRow.modelData.message || "")
+                            logTip.open()
+                        } else if (logTip.parent === logRow) {
+                            logTip.close()
+                        }
+                    }
+                }
+                Text {
+                    x: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: String(logRow.modelData.time || "")
+                    color: "#a99bd6"
+                    font.pixelSize: 13
                     font.family: "monospace"
+                }
+                Rectangle {
+                    objectName: "OverseerLogCount"
+                    x: 112
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: logRow.count > 1
+                    height: 20
+                    radius: 10
+                    width: countLab.implicitWidth + 12
+                    color: "#1d1438"
+                    Text {
+                        id: countLab
+                        anchors.centerIn: parent
+                        text: "\u00d7" + logRow.count
+                        color: "#c4b5f0"
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
+                        font.family: "monospace"
+                    }
+                }
+                Text {
+                    x: 176
+                    width: 104
+                    elide: Text.ElideRight
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: String(logRow.modelData.unit_id || "")
                     color: {
-                        var caste = String(modelData.caste || "")
+                        var caste = String(logRow.modelData.caste || "")
                         if (caste === "warden") return "#a78bfa"
                         if (caste === "stalker") return "#e879f9"
                         if (caste === "harvester") return "#8fd3ff"
                         if (caste === "sanitizer") return "#f2c56b"
                         if (caste === "tripwire") return "#7ee0c8"
-                        return "#e0d4ff"
+                        return "#a99bd6"
                     }
-                    text: "[" + (modelData.unit_id || "") + "] " + (modelData.message || "")
+                    font.pixelSize: 13
+                    font.weight: Font.Medium
+                    font.family: "monospace"
+                }
+                Rectangle {
+                    x: 280
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: !!logRow.modelData.failed
+                    width: 6; height: 6; radius: 3
+                    color: "#ff6b9a"
+                }
+                Text {
+                    objectName: "OverseerLogMessage"
+                    x: 288
+                    width: Math.max(0, rangeText.x - 16 - x)
+                    elide: Text.ElideRight
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: String(logRow.modelData.message || "")
+                    color: "#e0d4ff"
+                    font.pixelSize: 14
+                }
+                Text {
+                    id: rangeText
+                    x: parent.width - 16 - implicitWidth
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: String(logRow.modelData.range || "")
+                    color: "#8a7bbf"
+                    font.pixelSize: 12
+                    font.family: "monospace"
                 }
             }
         }
