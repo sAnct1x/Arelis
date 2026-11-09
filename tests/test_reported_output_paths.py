@@ -170,10 +170,10 @@ async def test_research_report_path_opens_in_workspace_pdf_and_doc_extract(
     assert "not a PDF" in as_pdf.output
     assert "No PDF" not in as_pdf.output
 
+    # doc_extract reads markdown too (Track A1), and finds the same file.
     extracted = await DocExtractTool(roots).run(path=reported)
-    assert extracted.ok is False
-    assert "Unsupported file type" in extracted.output
-    assert ".md" in extracted.output
+    assert extracted.ok, extracted.output
+    assert _REPORT_MARKER in extracted.output
 
     follow = await DocumentTool(roots).run(
         format="pdf",
