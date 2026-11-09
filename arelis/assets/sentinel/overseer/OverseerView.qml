@@ -201,20 +201,18 @@ Item {
             hudCommandStatus = hud.commandStatus
     }
 
+    // Rank 3: the dock exists only while a unit is selected. No empty inspector.
     function inspectorShouldHide() {
-        if (selectedUnitId)
-            return false
-        var lo = 6.0
-        var hi = 110.0
-        var d = Math.max(lo, Math.min(hi, cameraDistance))
-        var t = Math.log(d / lo) / Math.log(hi / lo)
-        return t > 0.7
+        return !selectedUnitId
     }
 
     readonly property bool showInspector: !inspectorShouldHide()
+    property bool unitFocused: false
 
     function selectUnit(unitId) {
         selectedUnitId = unitId || ""
+        if (!selectedUnitId)
+            unitFocused = false
         syncCameraTargetFromSelection()
     }
 
@@ -324,6 +322,7 @@ Item {
         if (!pos)
             return false
         cameraMode = "follow"
+        unitFocused = true
         setCameraTarget(pos.x, pos.y, pos.z)
         cameraDistance = 24.0
         cameraPitch = pitchDeg(cameraDistance)
@@ -332,6 +331,7 @@ Item {
 
     function fitSwarm() {
         cameraMode = "fit"
+        unitFocused = false
         setCameraTarget(0, 0, 0)
         cameraDistance = 96.0
         cameraPitch = pitchDeg(96.0)
@@ -342,7 +342,8 @@ Item {
         var h = Math.max(1, height)
         var left = Math.min(440, w * 0.26)
         var top = 86
-        var right = w - (showInspector ? Math.min(460, w * 0.28) : 20)
+        // Rank 3 dock: 24 edge + 360 width + 16 gap when open; prior 20 when closed.
+        var right = w - (showInspector ? (24 + 360 + 16) : 20)
         if (right <= left)
             right = w
         var bottom = Math.max(top + 1, h - 230)
@@ -1005,6 +1006,7 @@ Item {
         logRepeats: root.logRepeats
         inspectorOpen: root.showInspector
         selectedUnitId: root.selectedUnitId
+        unitFocused: root.unitFocused
         groupBy: root.swarmGroupBy
         statusLine: root.hudStatusLine
         commandStatus: root.hudCommandStatus

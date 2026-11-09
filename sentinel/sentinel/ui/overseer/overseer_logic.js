@@ -189,8 +189,8 @@
   }
 
   function inspectorCollapsed(distance, selected) {
-    if (selected) return false;
-    return zoomT(distance) > INSPECTOR_COLLAPSE_T;
+    // Rank 3: dock exists only while a unit is selected (zoom no longer opens an empty panel).
+    return !selected;
   }
 
   function virtualWindow(scrollY, viewportH, count, rowH, pool) {
