@@ -269,6 +269,12 @@ class SentinelBridgeServer:
                     error=None if ok else str(
                         res.get("error") or "mission did not complete"
                     ),
+                    report_path=res.get("report_path"),
+                    succeeded=res.get("succeeded", 0),
+                    failed=res.get("failed", 0),
+                    quarantined=res.get("quarantined", 0),
+                    total_targets=res.get("total_targets", 0),
+                    arelis_warrants=res.get("arelis_warrants", []),
                 )
             rec["finished_at"] = time.time()
             self._prune_mission_history()

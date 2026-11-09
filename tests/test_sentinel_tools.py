@@ -327,6 +327,15 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
                 "process:audit_memory",
             ],
         },
+        {
+            "caste_id": "cryptarch",
+            "allowed_capabilities": [
+                "crypto:hash_verify",
+                "crypto:hmac_validate",
+                "crypto:merkle_proof",
+                "crypto:entropy_calc",
+            ],
+        },
     ]
     sent: list[tuple[str, dict[str, Any]]] = []
     gate: dict[str, Any] = {"release": None, "sibling_first": []}
@@ -348,6 +357,18 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
             return {"ok": True, "result": {"ok": True}}
         if op == "start_harvest_mission":
             return {"ok": True, "mission_ref": "REQ-0001", "status": "running", "accepted": True}
+        if op == "mission_status":
+            if kw.get("mission_ref") == "REQ-0001":
+                return {
+                    "ok": True,
+                    "mission_ref": "REQ-0001",
+                    "status": "done",
+                    "succeeded": 2,
+                    "total_targets": 2,
+                    "report_path": "outputs/harvest/test.md",
+                    "arelis_warrants": [{"source": "arxiv"}],
+                }
+            return {"ok": False, "error": "Unknown mission"}
         return {"ok": True}
 
     monkeypatch.setattr(sentinel_client, "command", fake_command)
@@ -417,6 +438,22 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
         },
         ("stalker", "process:detect_rogue", ""): {"capability": "process:detect_rogue"},
         ("stalker", "process:audit_memory", ""): {"capability": "process:audit_memory"},
+        ("cryptarch", "crypto:hash_verify", "abc"): {
+            "capability": "crypto:hash_verify",
+            "data": "abc",
+        },
+        ("cryptarch", "crypto:entropy_calc", "bytes"): {
+            "capability": "crypto:entropy_calc",
+            "data": "bytes",
+        },
+        ("cryptarch", "crypto:hmac_validate", "msg"): {
+            "capability": "crypto:hmac_validate",
+            "data": "msg",
+        },
+        ("cryptarch", "crypto:merkle_proof", "leaf"): {
+            "capability": "crypto:merkle_proof",
+            "data": "leaf",
+        },
     }
     assert set(st.RETASK_MAP) == {(c, k) for c, k, _ in expected}
     for (caste, cap, target), payload in expected.items():
@@ -484,6 +521,11 @@ def test_command_and_emp_send_the_right_ops_and_refuse_bad_input(
             },
         )
     ]
+    # Query finished mission result using REQ- ref
+    res_status = run(cmd, action="mission", question="REQ-0001")
+    assert res_status.ok and "2/2 targets harvested" in res_status.output
+    assert "outputs/harvest/test.md" in res_status.output
+    assert sent == [("mission_status", {"mission_ref": "REQ-0001"})]
 
     assert run(st.SentinelEmpTool()).ok and sent == [
         ("emp_halt", {"reason": "Arelis emergency stop"})

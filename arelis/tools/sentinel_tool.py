@@ -17,12 +17,13 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import time
 from typing import Any
 
 from arelis import sentinel_client
 from arelis.tools.base import ToolResult
 
-BUILT_IN_CASTES = ("harvester", "warden", "sanitizer", "tripwire", "stalker")
+BUILT_IN_CASTES = ("harvester", "warden", "sanitizer", "tripwire", "stalker", "cryptarch")
 LOG_FILTERS = ("all", "threat", "sanitize", "harvest", "tripwire")
 _LOG_LIMIT_MAX = 60
 _LIST_MAX = 50
@@ -334,6 +335,30 @@ RETASK_MAP: dict[tuple[str, str], tuple[dict[str, Any], str | None, bool, frozen
         False,
         frozenset({"threshold"}),
     ),
+    ("cryptarch", "crypto:hash_verify"): (
+        {"capability": "crypto:hash_verify"},
+        "data",
+        True,
+        frozenset({"expected", "digest", "algorithm"}),
+    ),
+    ("cryptarch", "crypto:entropy_calc"): (
+        {"capability": "crypto:entropy_calc"},
+        "data",
+        True,
+        frozenset({"threshold"}),
+    ),
+    ("cryptarch", "crypto:hmac_validate"): (
+        {"capability": "crypto:hmac_validate"},
+        "data",
+        True,
+        frozenset({"key", "expected_hmac", "algorithm"}),
+    ),
+    ("cryptarch", "crypto:merkle_proof"): (
+        {"capability": "crypto:merkle_proof"},
+        "data",
+        True,
+        frozenset({"root_hash", "proof_path", "algorithm"}),
+    ),
 }
 
 
@@ -489,6 +514,39 @@ class SentinelCommandTool:
         q = str(question or "").strip()
         if not q:
             return _refuse("question is required.")
+        if q.upper().startswith("REQ-"):
+            ref = q.upper()
+            reply = await _call("mission_status", mission_ref=ref)
+            if not reply.get("ok"):
+                return _fail(reply)
+            status = reply.get("status")
+            if status == "running":
+                started = float(reply.get("started_at") or 0)
+                elapsed = f"{time.time() - started:.1f}" if started else "?"
+                return ToolResult(
+                    ok=True,
+                    output=f"Mission {ref} is in flight ({elapsed}s elapsed).",
+                    data=reply,
+                )
+            elif status == "done":
+                succeeded = reply.get("succeeded", 0)
+                total = reply.get("total_targets", 0)
+                report = reply.get("report_path") or "none"
+                warrants = reply.get("arelis_warrants") or []
+                lines = [
+                    f"Mission {ref} completed: {succeeded}/{total} targets harvested.",
+                    f"Dossier: {report}",
+                ]
+                if warrants:
+                    lines.append(f"Warrants: {len(warrants)} verified citations.")
+                return ToolResult(ok=True, output="\n".join(lines), data=reply)
+            else:
+                err = reply.get("error") or "failed"
+                return ToolResult(
+                    ok=False,
+                    output=f"Mission {ref} {status}: {err}",
+                    data=reply,
+                )
         targets = [
             {"action": "arxiv", "query": q, "max_results": 4},
             {"action": "wikipedia", "query": q},
