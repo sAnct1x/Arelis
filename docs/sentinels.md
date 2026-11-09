@@ -43,11 +43,10 @@ caste, task or ring, 44 px rows, engaged first), a docked inspector for
 the selected unit (see "The inspector dock" below), and a forensic
 console for live logs and mission dispatch. Inspector actions and
 dispatch use the hive's existing command paths. Recall is disabled:
-caste scale-down is not a per-unit recall and can affect a different
-unit. Focus frames the selected unit from its snapshot position (local
-camera only; no new hive route). Retask is disabled: the existing
-dispatch_task path can acquire a different unit if the selected one is
-gone, and there is no fail-closed per-unit retask route. Retire posts
+it would shrink the whole caste, not just this unit. Focus frames the
+selected unit from its snapshot position (local camera only; no new hive
+route). Retask is disabled: the hive cannot give one unit a new job, and
+if this unit is gone a retask could pick a different one. Retire posts
 retire_unit for that unit after an in-place confirm. Emergency stop
 posts the existing halt and cannot restore it from this HUD. Each swarm
 row has an accessible name and can be invoked to select that unit; the

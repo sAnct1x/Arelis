@@ -1182,11 +1182,11 @@ Item {
                     enabled: false
                     Accessible.role: Accessible.Button
                     Accessible.name: "Retask"
-                    Accessible.description: "Not available: no fail-closed per-unit retask route"
+                    Accessible.description: "Not available: the hive cannot give one unit a new job."
                     HoverHandler { id: retaskHover }
                     ToolTip.visible: retaskHover.hovered
                     ToolTip.delay: 400
-                    ToolTip.text: "Not available: no fail-closed per-unit retask route"
+                    ToolTip.text: "Not available: the hive cannot give one unit a new job."
                     Row {
                         anchors.centerIn: parent
                         spacing: 6
@@ -1217,11 +1217,11 @@ Item {
                     enabled: false
                     Accessible.role: Accessible.Button
                     Accessible.name: "Recall"
-                    Accessible.description: "Not available: caste scale-down is not a per-unit recall"
+                    Accessible.description: "Not available: Recall would shrink the whole caste, not just this unit."
                     HoverHandler { id: recallHover }
                     ToolTip.visible: recallHover.hovered
                     ToolTip.delay: 400
-                    ToolTip.text: "Not available: caste scale-down is not a per-unit recall"
+                    ToolTip.text: "Not available: Recall would shrink the whole caste, not just this unit."
                     Row {
                         anchors.centerIn: parent
                         spacing: 6

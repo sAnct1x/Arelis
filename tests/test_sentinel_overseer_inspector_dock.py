@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QPointF, Qt, QUrl
 from PySide6.QtGui import QColor
 from PySide6.QtQuick import QQuickView
+from PySide6.QtTest import QTest
 
 from arelis.ui import overseer_runtime
 from tests.overseer_render_helpers import isolated_render
@@ -212,3 +213,105 @@ def test_overseer_inspector_docks_outside_well_without_unavailable(qt_app) -> No
 
     view.deleteLater()
     qt_app.processEvents()
+
+
+@isolated_render(software=True)
+def test_overseer_retire_confirms_in_place(qt_app) -> None:
+    """First Retire click arms; second posts; selection change clears without posting."""
+    view = QQuickView()
+    view.engine().addImportPath(str(ASSETS))
+    view.setColor(QColor("#0b0714"))
+    view.setResizeMode(QQuickView.SizeRootObjectToView)
+    view.setSource(QUrl.fromLocalFile(str(HUD_QML)))
+    assert view.status() == QQuickView.Status.Ready, [e.toString() for e in view.errors()]
+    view.resize(2110, 1306)
+    view.show()
+    qt_app.processEvents()
+    root = view.rootObject()
+    assert root is not None
+
+    hud = overseer_runtime.build_hud(_snap(), selected_id="SNT-HRV-001")
+    root.setProperty("pills", hud["pills"])
+    root.setProperty("swarmRows", hud["swarmRows"])
+    root.setProperty("inspector", hud["inspector"])
+    root.setProperty("logs", hud["logs"])
+    root.setProperty("inspectorOpen", True)
+    root.setProperty("selectedUnitId", "SNT-HRV-001")
+    root.setProperty("missionQuery", "")
+    qt_app.processEvents()
+
+    seen: list[tuple[str, dict]] = []
+
+    def _capture(name, payload) -> None:
+        seen.append((str(name), overseer_runtime.coerce_hud_payload(payload)))
+
+    root.hudCommand.connect(_capture)
+
+    retire = _named(root, "OverseerAction_retire")
+    assert retire is not None
+
+    def click_retire() -> None:
+        mid = QPointF(
+            float(retire.property("width") or 8) / 2.0,
+            float(retire.property("height") or 8) / 2.0,
+        )
+        QTest.mouseClick(
+            view, Qt.LeftButton, Qt.NoModifier, retire.mapToScene(mid).toPoint()
+        )
+        qt_app.processEvents()
+
+    def retire_label() -> str:
+        for child in retire.childItems() or []:
+            value = child.property("text")
+            if value is not None:
+                return str(value)
+        return ""
+
+    # First click arms only: no hudCommand.
+    click_retire()
+    assert bool(root.property("retireArmed")) is True
+    assert seen == []
+    assert retire_label() == "Confirm retire"
+
+    # Second click within the window emits retire and clears the arm.
+    click_retire()
+    assert len(seen) == 1
+    assert seen[0][0] == "retire"
+    assert seen[0][1].get("unit_id") == "SNT-HRV-001"
+    assert seen[0][1].get("caste") == "harvester"
+    assert bool(root.property("retireArmed")) is False
+    assert retire_label() == "Retire"
+
+    # Arm again, then change selection: arm clears without posting again.
+    seen.clear()
+    click_retire()
+    assert bool(root.property("retireArmed")) is True
+    assert seen == []
+    root.setProperty("selectedUnitId", "SNT-WRD-001")
+    qt_app.processEvents()
+    assert bool(root.property("retireArmed")) is False
+    assert seen == []
+
+    view.deleteLater()
+    qt_app.processEvents()
+
+
+def test_overseer_retask_recall_copy_is_plain() -> None:
+    """Retask/Recall tips and the inspector docs use plain words, not jargon."""
+    hud = (HUD_QML).read_text(encoding="utf-8")
+    docs = (
+        Path(__file__).resolve().parents[1] / "docs/sentinels.md"
+    ).read_text(encoding="utf-8")
+    assert "Not available: the hive cannot give one unit a new job." in hud
+    assert (
+        "Not available: Recall would shrink the whole caste, not just this unit."
+        in hud
+    )
+    assert "fail-closed per-unit retask" not in hud
+    assert "caste scale-down is not a per-unit recall" not in hud
+    top = docs.split("## When Sentinel is offline")[0]
+    assert "fail-closed" not in top
+    assert "caste scale-down" not in top
+    assert "dispatch_task path" not in top
+    assert "the hive cannot give one unit a new job" in top
+    assert "shrink the whole caste, not just this unit" in top
