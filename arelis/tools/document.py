@@ -395,21 +395,6 @@ def _write_docx(dest: Path, title: str, body: str) -> None:
     doc.save(str(dest))
 
 
-def _write_xlsx(dest: Path, rows: list[list[str]], title: str) -> None:
-    from openpyxl import Workbook
-    from openpyxl.styles import Font
-
-    book = Workbook()
-    sheet = book.active
-    sheet.title = (title or "Sheet1")[:31] or "Sheet1"
-    face = Font(name=_SANS, size=11)
-    for r_i, row in enumerate(rows, start=1):
-        for c_i, cell in enumerate(row, start=1):
-            written = sheet.cell(r_i, c_i, cell)
-            written.font = face
-    book.save(str(dest))
-
-
 def _write_csv(dest: Path, rows: list[list[str]]) -> None:
     with dest.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
@@ -495,6 +480,41 @@ def draft_document_args(text: str, body: str) -> dict[str, str]:
     }
 
 
+def _is_xlsx_edit(args: dict[str, Any], fmt: str) -> bool:
+    source = str(args.get("from_path") or "").strip().replace("\\", "/")
+    return fmt == "xlsx" and Path(source).suffix.lower() in {".xlsx", ".xlsm", ".xls"}
+
+
+def _xlsx_edit_title(args: dict[str, Any], fmt: str) -> str:
+    """Filename seed. Editing a workbook names the copy after the original."""
+    if not _is_xlsx_edit(args, fmt):
+        return str(args.get("title") or "").strip()
+    source = str(args.get("from_path") or "").strip().replace("\\", "/")
+    return f"{Path(source).stem}-edited"
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
+
+
+def _sheet_summary(sheet: dict[str, Any]) -> str:
+    parts = [f" Sheet {sheet['sheet']}"]
+    if sheet.get("changed") is not None:
+        parts.append(f"{sheet['changed']} row(s) or cell(s) changed")
+    parts.append(f"{sheet['formulas']} formula(s), Excel computes them on open")
+    if sheet.get("charts"):
+        parts.append(f"{sheet['charts']} chart(s) added")
+    if sheet.get("backup"):
+        parts.append(f"previous copy kept as {display_path(Path(sheet['backup']))}")
+    text = "; ".join(parts) + "."
+    if sheet.get("notes"):
+        text += " Check: " + "; ".join(sheet["notes"][:6]) + "."
+    return text
+
+
 class DocumentTool:
     name = "document"
     description = (
@@ -502,7 +522,10 @@ class DocumentTool:
         "markdown, or plain text. The file lands in the project's documents/ "
         "directory when one is open, otherwise under outputs/documents/. "
         "Use when they ask to create, make, write, generate, "
-        "export, or save a document or spreadsheet. Pass format plus the full "
+        "export, or save a document or spreadsheet. xlsx cells keep numbers, "
+        "=formulas stay live, body lines 'chart: line x=A y=B:C' and "
+        "'format: C=0.00' add a chart and number formats, and from_path=<.xlsx> "
+        "edits a copy of that workbook. Pass format plus the full "
         "body (markdown and TeX math are fine — formulas are written as "
         "unicode so PDF, Word, CSV, and markdown all read clean). For tables "
         "pass rows as JSON arrays or CSV "
@@ -548,7 +571,10 @@ class DocumentTool:
             },
             "from_path": {
                 "type": "string",
-                "description": "Existing .md/.txt/.csv to render instead of body",
+                "description": (
+                    "Existing .md/.txt/.csv to render instead of body, or an "
+                    ".xlsx to edit into a copy"
+                ),
             },
         },
         "required": ["format"],
@@ -610,7 +636,7 @@ class DocumentTool:
             fmt = "pdf"
         folder, _where = self.out_dir()
         stem = _stem(
-            str(args.get("title") or ""),
+            _xlsx_edit_title(args, fmt),
             str(args.get("filename") or ""),
             fmt,
         )
@@ -650,6 +676,15 @@ class DocumentTool:
         return None
 
     def _read_source(self, raw: str) -> str:
+        path = self._source_file(raw)
+        if path.suffix.lower() not in _SOURCE_SUFFIXES:
+            raise ValueError("from_path must be a markdown, text, or CSV file.")
+        body = path.read_text(encoding="utf-8", errors="replace")
+        if len(body) > _MAX_BODY:
+            raise ValueError(f"source file is too long (max {_MAX_BODY} characters).")
+        return body
+
+    def _source_file(self, raw: str) -> Path:
         text = (raw or "").strip()
         if not text:
             raise ValueError("from_path is empty.")
@@ -682,12 +717,7 @@ class DocumentTool:
                 f"Cannot read {text!r} as a source file. "
                 f"from_path must be under an allowed root ({allowed})."
             )
-        if path.suffix.lower() not in _SOURCE_SUFFIXES:
-            raise ValueError("from_path must be a markdown, text, or CSV file.")
-        body = path.read_text(encoding="utf-8", errors="replace")
-        if len(body) > _MAX_BODY:
-            raise ValueError(f"source file is too long (max {_MAX_BODY} characters).")
-        return body
+        return path
 
     async def run(self, **kwargs: Any) -> ToolResult:
         fmt = str(kwargs.get("format") or "").strip().lower().lstrip(".")
@@ -709,6 +739,8 @@ class DocumentTool:
         body = str(kwargs.get("body") or "")
         rows_raw = str(kwargs.get("rows") or "")
         from_path = str(kwargs.get("from_path") or "").strip()
+        if _is_xlsx_edit(kwargs, fmt):
+            return await self._edit_xlsx(kwargs, title, body, rows_raw)
         if from_path:
             try:
                 body = self._read_source(from_path)
@@ -721,9 +753,18 @@ class DocumentTool:
                 ok=False,
                 output=f"body is too long (max {_MAX_BODY} characters).",
             )
+        directives: list[str] = []
+        if fmt == "xlsx":
+            from arelis.tools.sheet_xlsx import split_body, typed_rows
+
+            directives, rest = split_body(body)
         if fmt in {"csv", "xlsx"}:
             try:
-                rows = _parse_rows(rows_raw, body=body)
+                rows = (
+                    typed_rows(rows_raw, "\n".join(rest))
+                    if fmt == "xlsx"
+                    else _parse_rows(rows_raw, body=body)
+                )
             except Exception as exc:
                 return ToolResult(ok=False, output=f"Could not read table data: {exc}")
             if not rows:
@@ -762,7 +803,9 @@ class DocumentTool:
             elif fmt == "docx":
                 _write_docx(dest, title, body)
             elif fmt == "xlsx":
-                _write_xlsx(dest, rows, title)
+                from arelis.tools.sheet_xlsx import write_new
+
+                sheet = write_new(dest, rows, title, directives)
             elif fmt == "csv":
                 _write_csv(dest, rows)
             elif fmt == "md":
@@ -790,10 +833,11 @@ class DocumentTool:
             except Exception:
                 pages = ""
         verb = "Replaced" if replaced else "Wrote"
+        extra = _sheet_summary(sheet) if fmt == "xlsx" else ""
         return ToolResult(
             ok=True,
             output=(
-                f"{verb} {shown}{pages} in {where}. "
+                f"{verb} {shown}{pages} in {where}.{extra} "
                 "Open that file — do not paste the document into chat."
             ),
             data={
@@ -803,5 +847,65 @@ class DocumentTool:
                 "title": title,
                 "replaced": replaced,
                 "where": where,
+            },
+        )
+
+    async def _edit_xlsx(
+        self, kwargs: dict[str, Any], title: str, body: str, rows_raw: str
+    ) -> ToolResult:
+        """Edit a copy of an existing workbook. The original is never written."""
+        from arelis.tools.sheet_xlsx import (
+            SheetRefusedError,
+            edit_copy,
+            split_body,
+            typed_rows,
+        )
+
+        try:
+            src = self._source_file(str(kwargs.get("from_path") or ""))
+        except Exception as exc:
+            return ToolResult(ok=False, output=str(exc))
+        directives, rest = split_body(body)
+        try:
+            rows = typed_rows(rows_raw, "\n".join(rest))
+        except Exception as exc:
+            return ToolResult(ok=False, output=f"Could not read table data: {exc}")
+        folder, where = self.out_dir()
+        dest = self.preview_path(kwargs)
+        replaced = dest.exists()
+        if not _contained(dest, folder):
+            return ToolResult(
+                ok=False,
+                output="That filename cannot leave the documents folder.",
+            )
+        try:
+            sheet = edit_copy(src, dest, rows, title, directives)
+        except SheetRefusedError as exc:
+            return ToolResult(ok=False, output=str(exc))
+        except Exception as exc:
+            return ToolResult(ok=False, output=f"Could not edit {src.name}: {exc}")
+        shown = display_path(dest)
+        verb = "Replaced" if replaced else "Wrote"
+        origin = (
+            "the original, backed up first"
+            if _same_file(dest, src)
+            else f"an edited copy of {src.name} (the original is unchanged)"
+        )
+        return ToolResult(
+            ok=True,
+            output=(
+                f"{verb} {shown} in {where}, {origin}.{_sheet_summary(sheet)} "
+                "Open that file, do not paste the sheet into chat."
+            ),
+            data={
+                "path": shown,
+                "abs_path": str(dest.resolve()),
+                "format": "xlsx",
+                "title": title,
+                "replaced": replaced,
+                "where": where,
+                "source": str(src),
+                "backup": sheet.get("backup"),
+                "sheets": sheet.get("sheets"),
             },
         )

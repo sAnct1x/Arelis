@@ -47,6 +47,10 @@ _TEXT = frozenset(
 )
 _DATA = frozenset({".json", ".csv", ".tsv", ".tab", ".xlsx", ".xls"})
 _PDF = frozenset({".pdf"})
+# Word, slides, LaTeX and science data: doc_extract reads them all.
+_DOC = frozenset(
+    {".docx", ".pptx", ".tex", ".fits", ".fit", ".fts", ".h5", ".hdf5", ".he5", ".nc", ".nc4"}
+)
 _IMAGE = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 
 _UNSAFE = re.compile(r"[^\w.\- ()\[\]]+", re.UNICODE)
@@ -103,6 +107,8 @@ def detect_kind(path: Path | str) -> str:
         return "data"
     if suffix in _PDF:
         return "pdf"
+    if suffix in _DOC:
+        return "doc"
     if suffix in _IMAGE:
         return "image"
     return "other"
@@ -356,7 +362,7 @@ def route_tool(kind: str, user_text: str = "") -> str:
         if wants_image_text(user_text):
             return "ocr"
         return "vision"
-    if kind == "pdf":
+    if kind in {"pdf", "doc"}:
         return "doc_extract"
     if kind == "data":
         return "analyze"
@@ -882,6 +888,11 @@ def format_attachments_block(
             "Do not call vision on every page. Do not ask them to paste. "
             "Do not call analyze on a PDF (tables only). "
             "Do not call document unless they asked to create or export a file."
+        )
+    if "doc" in kinds and not emailing:
+        rules.append(
+            "Documents and science data (docx, pptx, tex, FITS, HDF5, NetCDF): "
+            "call doc_extract once."
         )
     if "data" in kinds and not emailing:
         rules.append("Tables (csv/xlsx/json): call analyze.")

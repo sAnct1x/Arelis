@@ -33,7 +33,7 @@ _SHORT_DESC: dict[str, str] = {
     "data_cell": "run Python on a data file (CSV, FITS)",
     "diagnostics": "local pytest / doctor. not a web search",
     "desktop": "your Windows session. look=screenshot (grabs+reads). no shell. no raw exe. stop Pay|delete|UAC",
-    "doc_extract": "text from a local PDF, including handwritten/scanned pages",
+    "doc_extract": "read PDF/scans, docx, xlsx, tex, FITS, HDF5, NetCDF",
     "document": "write a new file. not workspace. not to read a pdf",
     "earth": "Reality look / bands. not a web search",
     "git_info": "git. stash is list only. no push/reset/checkout",

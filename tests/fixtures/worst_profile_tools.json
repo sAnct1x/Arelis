@@ -1700,7 +1700,7 @@
     "type": "function",
     "function": {
       "name": "doc_extract",
-      "description": "text from a local PDF, including handwritten/scanned pages",
+      "description": "read PDF/scans, docx, xlsx, tex, FITS, HDF5, NetCDF",
       "parameters": {
         "type": "object",
         "properties": {
