@@ -804,13 +804,15 @@ async def execute_call(
                 )
             )
         if (
-            name in {"document", "plot", "data_cell", "python"}
+            name in {"document", "plot", "data_cell", "python", "run_script"}
             and result.ok
             and data_dict
             and data_dict.get("abs_path")
+            # A project script's abs_path is the script. Only sandbox charts show.
+            and (name != "run_script" or data_dict.get("charts"))
         ):
             ready_rows: list[dict[str, Any]] = [data_dict]
-            if name == "python":
+            if name in {"python", "run_script"}:
                 charts = data_dict.get("charts")
                 picked = []
                 if isinstance(charts, list):
@@ -825,7 +827,7 @@ async def execute_call(
                 # The cell figure is the plot file for this turn.
                 loop.tools_used.add("plot")
                 ledger.add(
-                    source="python",
+                    source=name,
                     kind="plot",
                     span=str(ready_rows[0].get("abs_path") or "")[:300],
                     ok=True,

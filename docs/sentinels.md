@@ -32,7 +32,16 @@ per unit), one model per caste, LOD, and part, with caste colour and
 claw opening on each instance. If a hundred units would go over the
 300k triangle ceiling, farther units drop to a coarser LOD or are
 culled. Tentacle motion is a vertex wave on the hull and the glow, driven
-by each unit's phase plus a time uniform, not CPU skinning. The glow
+by each unit's phase plus a time uniform, not CPU skinning. Animation
+speed comes from real unit activity in the snapshot (slow idle sway while
+patrolling, faster curl and reach while working or engaged, nearly still
+under EMP), packed into the instance custom data so the GPU keeps 60 fps
+without per-tentacle QML objects. Four fixed source
+nodes sit at the scene edge (arXiv, Wikipedia, Horizons, Web). A source
+lights up and beams toward the core only while a real harvest fetch for
+that source is live in the hive snapshot (a harvest_target node or a
+harvester unit mid-extract). Idle sources stay dim. No extra poll timer:
+the existing snapshot path carries the signal. The glow
 writes clip position from that waved mesh; the lens writes clip
 position from the mesh as modeled, so those unshaded parts stay on
 the units instead of stretching into a covering plate or stray streaks. The wheel,
@@ -44,29 +53,24 @@ a status strip across the top (Threats, Defenders, Units by caste,
 Warrants, Last event; see "The status strip" below, and what the
 colours and Warrants mean:
 [sentinel-overseer-colours.md](sentinel-overseer-colours.md)), a grouped Swarm list (search, group by
-caste, task or ring, 44 px rows, engaged first), an inspector for the
-selected unit, and a forensic console for live logs and mission
-dispatch. Inspector actions and dispatch use the hive's existing
-command paths; anything the snapshot does not provide is shown as
-unavailable. Recall is unavailable: caste scale-down is not a per-unit
-recall and can affect a different unit. Focus frames the selected unit
-from its snapshot position (local camera only; no new hive route).
-Retask is unavailable:
-the existing dispatch_task path can acquire a different unit if the
-selected one is gone, and there is no fail-closed per-unit retask
-route. Retire posts retire_unit for that unit. Emergency stop posts
-the existing halt and cannot restore it from this HUD. The inspector hides past 70 percent zoom until you select
-a unit. Each swarm row has an accessible name and can be invoked to
-select that unit; the inspector stays on the selected unit across live
-snapshot updates, including at far zoom. The swarm footer has Deploy
-(existing caste scale-up) and Recall, which stays unavailable. Mission
-mode and other combo boxes use the dark Filament control fill, text,
-and popup. Unavailable actions (Recall and Retask) stay
-disabled in the widget and in accessibility; the host still refuses them.
-Focus is enabled when a unit is selected.
-The inspector card exposes named fields and actions. The inspector title
-is the selected unit id and caste, matching the mid-zoom still, and those
-names stay available to accessibility. The swarm list uses a standard
+caste, task or ring, 44 px rows, engaged first), a docked inspector for
+the selected unit (see "The inspector dock" below), and a forensic
+console for live logs and mission dispatch. Inspector actions and
+dispatch use the hive's existing command paths. Recall is disabled:
+it would shrink the whole caste, not just this unit. Focus frames the
+selected unit from its snapshot position (local camera only; no new hive
+route). Retask is disabled: the hive cannot give one unit a new job, and
+if this unit is gone a retask could pick a different one. Retire posts
+retire_unit for that unit after an in-place confirm. Emergency stop
+posts the existing halt and cannot restore it from this HUD. Each swarm
+row has an accessible name and can be invoked to select that unit; the
+inspector stays on the selected unit across live snapshot updates. The
+swarm footer has Deploy (existing caste scale-up) and Recall, which
+stays disabled. Mission mode and other combo boxes use the dark
+Filament control fill, text, and popup. Disabled inspector actions
+(Recall and Retask) drop "(unavailable)" from the label, show a short
+tooltip, and stay refused by the host. Focus is enabled when a unit is
+selected. The swarm list uses a standard
 vertical scroll bar so later groups stay reachable by scrolling while
 other headers stay expanded; collapsing other groups is not required to
 reach them. The bar's thumb is Filament violet (`#8b6cf2`) on a dark
@@ -182,6 +186,28 @@ time on the right.
   line to see the raw log line exactly as the hive wrote it.
 - **No cut-off line.** The log always shows a whole number of lines with
   space below the last one, at any window size.
+
+### The inspector dock
+
+When you select a unit, a 360 px panel docks on the right, 24 px from the
+window edge, sized to its content. It never floats over the swarm: the
+camera recentres on the free well that excludes the dock column. With
+nothing selected the dock is gone; there is no empty "Select a unit"
+panel.
+
+- **Header**: caste colour dot, the unit id, a deselect control, the
+  caste and role line (for example "Harvester · Gather"), and a state
+  chip.
+- **LIVE**: only fields the hive reported (state, tentacles, target and
+  so on). Anything else is listed once in a dashed box that reads "Not
+  reported by the hive yet", never as seven "unavailable" rows.
+- **CAPABILITIES**: the caste's allowed tools as chips.
+- **ACTIONS**: Focus (reads Focused while focused), Fit swarm, Retask,
+  Recall and Retire in a two-column grid. Retask and Recall stay
+  disabled with a tooltip. Retire is rose-outlined and asks you to
+  confirm in place for four seconds.
+- **RECENT EVENTS**: the newest three console lines for that unit, or
+  "None from this unit this session."
 
 ## When Sentinel is offline
 

@@ -260,6 +260,13 @@ class ToolRegistry:
         # opening the approvals list.
         run_confirm = confirm_run
         if name == "run_script":
+            # Sandbox code runs with no card (policy A5). It asks only when
+            # this exact code tried to change files outside the sandbox, or
+            # after a declined run this turn, like the python cell above.
+            sandbox = getattr(tool, "sandbox_needs_card", None)
+            wants = sandbox(args or {}) if callable(sandbox) else None
+            if wants is not None:
+                return bool(wants) or run_declined
             clear = getattr(tool, "clear_run_pin", None)
             if callable(clear):
                 clear(args or {})
