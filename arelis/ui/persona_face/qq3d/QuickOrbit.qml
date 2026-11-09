@@ -177,21 +177,16 @@ Item {
         fragmentShader: orbit.sh("glow.frag.qsb")
     }
 
+    // The tree's four fiber quarters, drawn straight into the frame in item order. They used
+    // to be cached in ShaderEffectSources, one quarter regrabbed per frame. A grab of a source
+    // that changed asks Qt for one more frame (QSGRhiLayer::scheduleUpdate), and in this
+    // QQuickWidget that is a whole second render and composite 5 ms later: two per tick.
     Layer {
         id: fibers0
         objectName: "orbitTree"
         strand: 0
         mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
         vertexShader: orbit.sh("tree.vert.qsb")
-    }
-    ShaderEffectSource {
-        id: fibersTex0
-        visible: false   // sampled by orbitTreeFibers, not drawn itself
-        objectName: "orbitTreeTex0"
-        anchors.fill: parent
-        sourceItem: fibers0
-        hideSource: true
-        live: false
     }
     Layer {
         id: fibers1
@@ -200,30 +195,12 @@ Item {
         mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
         vertexShader: orbit.sh("tree.vert.qsb")
     }
-    ShaderEffectSource {
-        id: fibersTex1
-        visible: false   // sampled by orbitTreeFibers, not drawn itself
-        objectName: "orbitTreeTex1"
-        anchors.fill: parent
-        sourceItem: fibers1
-        hideSource: true
-        live: false
-    }
     Layer {
         id: fibers2
         objectName: "orbitTree2"
         strand: 2
         mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
         vertexShader: orbit.sh("tree.vert.qsb")
-    }
-    ShaderEffectSource {
-        id: fibersTex2
-        visible: false   // sampled by orbitTreeFibers, not drawn itself
-        objectName: "orbitTreeTex2"
-        anchors.fill: parent
-        sourceItem: fibers2
-        hideSource: true
-        live: false
     }
     Layer {
         id: fibers3
@@ -232,52 +209,6 @@ Item {
         mesh: GridMesh { resolution: Qt.size(49152 / 4 - 1, 1) }
         vertexShader: orbit.sh("tree.vert.qsb")
     }
-    ShaderEffectSource {
-        id: fibersTex3
-        visible: false   // sampled by orbitTreeFibers, not drawn itself
-        objectName: "orbitTreeTex3"
-        anchors.fill: parent
-        sourceItem: fibers3
-        hideSource: true
-        live: false
-    }
-    Layer {   // a Layer so the uniform block it shares (common.glsl) is all bound
-        id: fibersMerged
-        property variant q0: fibersTex0
-        property variant q1: fibersTex1
-        property variant q2: fibersTex2
-        property variant q3: fibersTex3
-        fragmentShader: orbit.sh("fibers.frag.qsb")
-    }
-    ShaderEffectSource {
-        id: fibersAll
-        objectName: "orbitTreeFibers"
-        anchors.fill: parent
-        sourceItem: fibersMerged
-        hideSource: true
-        live: false
-    }
-    // The fibers are most of a frame's cost (vertex work and thin-triangle raster), so each
-    // quarter draws into its own texture and one quarter redraws per frame, in turn (a major
-    // limb quarter, then a minor one): every fiber moves at a quarter of the frame rate, none
-    // thinner. The four are laid together once per redraw into one cached texture
-    // (orbitTreeFibers), so a frame composites one full-window texture, not four. The tree
-    // keeps moving everywhere, under the chat too.
-    FrameAnimation {
-        objectName: "orbitFiberClock"
-        running: orbit.visible
-        onTriggered: {
-            if (orbit.presenceTick < 1 && currentFrame % 4 !== 0)
-                return
-            const q = currentFrame % 4
-            if (q == 0) fibersTex0.scheduleUpdate()
-            else if (q == 1) fibersTex2.scheduleUpdate()
-            else if (q == 2) fibersTex1.scheduleUpdate()
-            else fibersTex3.scheduleUpdate()
-            fibersAll.scheduleUpdate()
-        }
-    }
-
     Layer {
         objectName: "orbitDust"
         mesh: GridMesh { resolution: Qt.size(4 * 1100 - 1, 1) }

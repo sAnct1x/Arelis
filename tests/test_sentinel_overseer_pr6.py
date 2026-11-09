@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from PySide6.QtCore import QObject, Qt, QUrl
 from PySide6.QtQml import QJSEngine, QQmlComponent, QQmlEngine
 from PySide6.QtWidgets import QWidget
@@ -109,6 +110,9 @@ def _logic_checks() -> dict:
     return json.loads(wrapped.toString())
 
 
+# Serial: its Quick 3D teardown intermittently segfaults and took down an xdist worker
+# (Ubuntu gw1, run 42693152838); the serial step keeps the crash from killing other tests.
+@pytest.mark.serial
 def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypatch) -> None:
     geom = inset_geometry(2560, 1392)
     assert geom == (40, 44, 2110, 1306)
