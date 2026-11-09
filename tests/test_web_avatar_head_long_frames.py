@@ -36,6 +36,8 @@ console.log(JSON.stringify(worst));
 """
 
 
+# Serial: under xdist on the hosted Windows runner the node child was starved past 60 s.
+@pytest.mark.serial
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
 def test_web_head_stays_in_range_at_a_slow_frame(tmp_path) -> None:
     script = tmp_path / "head.mjs"
