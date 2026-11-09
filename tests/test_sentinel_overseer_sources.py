@@ -13,7 +13,14 @@ def test_source_nodes_beam_only_when_harvest_fetch_is_live() -> None:
     assert o.normalize_harvest_source("synthetic") == ""
 
     idle = o.build_frame(
-        [{"unit_id": "SNT-WRD-001", "caste": "warden", "state": "PATROLLING", "position": [4, 0.5, 0]}],
+        [
+            {
+                "unit_id": "SNT-WRD-001",
+                "caste": "warden",
+                "state": "PATROLLING",
+                "position": [4, 0.5, 0],
+            }
+        ],
         76.0,
         nodes=[],
     )
@@ -59,12 +66,67 @@ def test_source_nodes_beam_only_when_harvest_fetch_is_live() -> None:
 
     # Unit task alone (no node yet) still lights the matching source.
     from_task = o.active_harvest_sources(
-        units=[{
-            "unit_id": "SNT-HRV-002",
-            "caste": "harvester",
-            "state": "ENGAGED_HARVEST",
-            "current_task": "Extracting wikipedia: nebula",
-        }],
+        units=[
+            {
+                "unit_id": "SNT-HRV-002",
+                "caste": "harvester",
+                "state": "ENGAGED_HARVEST",
+                "current_task": "Extracting wikipedia: nebula",
+            }
+        ],
         nodes=[],
     )
     assert from_task == {"wikipedia"}
+
+    # Negatives: warrant carry and token-less harvest must not light Web.
+    warrant = o.build_frame(
+        [
+            {
+                "unit_id": "SNT-WRD-001",
+                "caste": "warden",
+                "state": "CARRYING_WARRANT",
+                "position": [3, 0.5, 1],
+                "current_task": "Delivering warrant",
+            }
+        ],
+        76.0,
+        nodes=[],
+    )
+    assert warrant["activeSources"] == []
+    assert [c for c in warrant["conduits"] if str(c.get("id", "")).startswith("source-beam:")] == []
+
+    empty_harvest = o.build_frame(
+        [
+            {
+                "unit_id": "SNT-HRV-003",
+                "caste": "harvester",
+                "state": "ENGAGED_HARVEST",
+                "position": [6, 0.5, 1],
+                "current_task": "",
+            }
+        ],
+        76.0,
+        nodes=[],
+    )
+    assert empty_harvest["activeSources"] == []
+    assert [
+        c for c in empty_harvest["conduits"] if str(c.get("id", "")).startswith("source-beam:")
+    ] == []
+
+    extracting_only = o.build_frame(
+        [
+            {
+                "unit_id": "SNT-HRV-004",
+                "caste": "harvester",
+                "state": "ENGAGED_HARVEST",
+                "position": [7, 0.5, 1],
+                "current_task": "Extracting",
+            }
+        ],
+        76.0,
+        nodes=[],
+    )
+    assert extracting_only["activeSources"] == []
+    assert [
+        c for c in extracting_only["conduits"] if str(c.get("id", "")).startswith("source-beam:")
+    ] == []

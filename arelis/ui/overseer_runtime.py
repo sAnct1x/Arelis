@@ -1107,8 +1107,10 @@ def active_harvest_sources(
     """Sources with a live harvest fetch in this snapshot. No timers; snapshot only.
 
     A harvest_target node exists only while the harvester is vectoring or
-    extracting, so its metadata.action is the primary signal. Unit state and
-    current_task cover the same window when the node list is empty.
+    extracting, so its metadata.action/target is the primary signal. A unit
+    lights a source only when its task or action normalizes to a known source
+    id (arxiv, wikipedia, horizons, web). Bare HARVEST/CARRY state alone does
+    not light Web.
     """
     active: set[str] = set()
     for node in nodes or []:
@@ -1123,24 +1125,9 @@ def active_harvest_sources(
     for unit in units or []:
         if not isinstance(unit, dict):
             continue
-        state = str(unit.get("state") or "").upper()
         task = str(unit.get("current_task") or unit.get("task") or "")
-        if not (
-            "HARVEST" in state
-            or "CARRY" in state
-            or state == "RETURNING"
-            or "extract" in task.lower()
-            or "arxiv" in task.lower()
-            or "wikipedia" in task.lower()
-            or "horizons" in task.lower()
-            or "http" in task.lower()
-        ):
-            continue
-        sid = normalize_harvest_source("", task)
-        if not sid:
-            # Engaged harvester with no source token still maps to web when carrying URL work.
-            if "HARVEST" in state or "CARRY" in state:
-                sid = "web"
+        action = unit.get("action")
+        sid = normalize_harvest_source(action, task)
         if sid:
             active.add(sid)
     return active
