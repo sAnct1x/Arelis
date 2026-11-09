@@ -120,8 +120,11 @@ def _key(path: str) -> str:
 
 
 def _fd_folder(fd: Any) -> str | None:
-    """Folder behind a POSIX dir_fd. rmtree uses one for every entry."""
-    if not isinstance(fd, int):
+    """Folder behind a POSIX dir_fd. rmtree uses one for every entry.
+
+    CPython audits a missing dir_fd as -1, so the path is relative to cwd.
+    """
+    if not isinstance(fd, int) or fd < 0:
         return None
     try:
         return os.readlink(f"/proc/self/fd/{fd}")
