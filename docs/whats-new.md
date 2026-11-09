@@ -17,6 +17,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
+- Sentinels: patrolling Wardens no longer leave small red dots on their way back to the hive. Those packets now take the Warden colour; rose stays for real threats.
 - Spreadsheets: Excel files Arelis writes now hold real numbers, dates and percents, live formulas, a styled header row, and charts inside the sheet. She can also edit a copy of your own workbook without losing its other sheets, styles or charts, and refuses if saving would drop something like a pivot table. See [spreadsheets.md](spreadsheets.md).
 - Sentinels: the Overseer event log collapses repeats (×N with a first to last time), merges a pack's start and finish into one plain line ("Tripwire pack of 3 ran verify, all ok"), keeps failures on their own line, drops debug text like "ok=True, title=", and never cuts off its bottom line. Turn Repeats ×N off to see every line. See [sentinels.md](sentinels.md).
 - Sentinels: the Overseer's pill row is now a status strip: Threats (0 reads All clear), Defenders, Units by caste (every caste shown, even at 0), Warrants (hover for what it counts) and Last event (click to jump to it in the console). On narrower windows the last three become compact chips with the detail in a tooltip. See [sentinels.md](sentinels.md).

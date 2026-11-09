@@ -40,6 +40,18 @@ def test_routine_warden_patrol_beam_is_not_threat_rose() -> None:
     assert _beam_colors("ENGAGED_DEFENSE") == {ROSE}
 
 
+def test_patrol_stream_ignores_the_hive_eye_colour_unless_carrying_an_orb() -> None:
+    # The hive sends orb_color = caste eye colour on every unit (Warden #ff2a3a), so
+    # four patrolling Wardens drew rose packets to the hive at Threats 0 (Atria, 168 px).
+    warden = {
+        "unit_id": "SNT-WRD-001", "caste": "warden", "state": "VECTORING",
+        "position": [10.0, 0.6, 0.0], "orb_color": "#ff2a3a", "carrying_orb": False,
+    }
+    frame = overseer_runtime.build_frame([warden], 90.0, 1306)
+    streams = {c["color"] for c in frame["conduits"] if c["id"].startswith("hive-conduit:")}
+    assert streams == {overseer_runtime.CASTE_COLOR["warden"]}
+
+
 def test_local_camera_commands_leave_no_console_status() -> None:
     selected = {"unit_id": "SNT-WRD-001", "caste": "warden"}
     focus = overseer_runtime.resolve_hud_command("focus", {}, selected_unit=selected)
