@@ -154,6 +154,30 @@ do not fit drop from the right so none is cut off.
 
 The strip updates with each snapshot, not every frame.
 
+### The event log
+
+The console at the bottom lists the hive's events, newest first, one line
+each: the time, a ×N badge when the line repeats, the unit (in its caste
+colour), the message in plain words, and for repeats the first to last
+time on the right.
+
+- **Repeats collapse.** The same event from the same unit shows once with
+  a count. A pack's start and its successful finish merge into one line,
+  such as "Tripwire pack of 3 ran verify, all ok". A pack that has started
+  but not finished shows as its own "running" line. A failed run is never
+  merged: it gets its own line with a rose dot and the reason, such as
+  "failed: timeout". So a one-off event (a new port, say) is not buried
+  under hundreds of routine patrols.
+- **Counts cover the whole time the window is open**, not just the last
+  60 events the hive sends each time.
+- **Repeats ×N** (on by default) turns collapsing off; you then see every
+  line again, newest first.
+- **Plain words.** Debug text such as "ok=True, title=" is gone, and
+  "3-Sentinel HUNTER-SEEKER Pack (...)" reads "Tripwire pack of 3". Hover a
+  line to see the raw log line exactly as the hive wrote it.
+- **No cut-off line.** The log always shows a whole number of lines with
+  space below the last one, at any window size.
+
 ## When Sentinel is offline
 
 If Sentinel is not running the window says **Sentinel offline** and shows

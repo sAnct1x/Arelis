@@ -124,6 +124,7 @@ class SentinelWindow(QWidget):
         self._refreshing = False
         self._overlay_flags: dict = {}
         self._prev_lods: dict[str, int] = {}
+        self._log_session = overseer_runtime.LogSession()
         self._particle_paths: list = []
         self._entry_reverse = False
         self._entry_timer = QTimer(self)
@@ -627,6 +628,8 @@ class SentinelWindow(QWidget):
                 log_filter=str(root.property("logFilter") or "all"),
                 log_query=str(root.property("logQuery") or ""),
                 camera_distance=distance,
+                log_session=self._log_session,
+                log_repeats=root.property("logRepeats") is not False,
             )
             if hasattr(root, "applyHud"):
                 root.applyHud(hud)
