@@ -233,5 +233,10 @@ def sandbox_confirm(args: dict[str, Any], writes: list[dict[str, str]]) -> str:
     if isinstance(raw, (list, tuple)) and raw:
         lines.append("Argv: " + json.dumps([str(item) for item in raw], ensure_ascii=False))
     # The whole source, like a project script's card. Approving it approves it all.
-    lines.extend(["", redact_secrets(str(args.get("code") or ""))])
+    code = redact_secrets(str(args.get("code") or ""))
+    lines.extend(["", code])
+    # Same delete/network/env/secret warnings the project-script card shows.
+    from arelis.tools.confirm_preview import _append_loud
+
+    _append_loud(lines, code)
     return "\n".join(lines)

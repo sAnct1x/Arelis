@@ -9,12 +9,19 @@ An audit hook refuses three things before the script's first line runs:
 - changing a file or folder outside the writable folders (open for write,
   delete, move, mkdir, chmod, sqlite), unless that exact path was allowed;
 - a socket to anything but this machine, and name lookups for other hosts;
+  binding to all interfaces (empty host, 0.0.0.0, ::) is refused too;
 - starting another program.
 
-This is Python-level. A C extension that writes or connects on its own, or
-ctypes, does not raise audit events. On Windows the parent's job object is
-the kernel-level part: one process, a memory cap, a CPU cap, and a kill when
-the parent lets go. See docs/code-sandbox.md.
+On POSIX, ``_posixsubprocess.fork_exec`` raises no audit event, so the host
+also replaces it before the script runs (multiprocessing spawn/forkserver).
+On Windows, ``_winapi.CreateProcess`` is audited and the parent's job object
+allows only one process.
+
+This is Python-level. A C extension that writes or connects on its own,
+ctypes, ``os.open``/``os.rename`` with an outside ``dir_fd``, and
+``os.mkfifo`` do not raise the audit events we catch. On Windows the
+parent's job object is the kernel-level part: one process, a memory cap, a
+CPU cap, and a kill when the parent lets go. See docs/code-sandbox.md.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
 
 BLOCK_PREFIX = "ARELIS_SANDBOX_BLOCKED "
 STATUS_PREFIX = "ARELIS_RUN_STATUS "
@@ -35,6 +43,7 @@ _STATE: dict[str, Any] = {"roots": [], "grants": set()}
 _IN_HOOK = False
 
 # Event name to (argument positions that are paths, what the user sees).
+# sqlite3.connect is handled in _audit_inner so file: URIs are parsed.
 _PATH_EVENTS: dict[str, tuple[tuple[int, ...], str]] = {
     "os.remove": ((0,), "delete"),
     "os.rmdir": ((0,), "delete"),
@@ -47,7 +56,6 @@ _PATH_EVENTS: dict[str, tuple[tuple[int, ...], str]] = {
     "os.chown": ((0,), "write"),
     "os.utime": ((0,), "write"),
     "os.truncate": ((0,), "write"),
-    "sqlite3.connect": ((0,), "write"),
 }
 # dir_fd position for the events that take one. POSIX only; Windows has none.
 _DIR_FD_ARG = {"os.remove": 1, "os.rmdir": 1, "os.mkdir": 2, "os.rename": 2}
@@ -73,7 +81,10 @@ _NET_NAME_EVENTS = frozenset(
         "socket.gethostbyaddr",
     }
 )
+# Loopback names for connect/sendto/DNS ("" is an empty host). Bind treats
+# "", 0.0.0.0 and :: as not local (listening on every interface).
 _LOCAL_NAMES = frozenset({"", "localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"})
+_BIND_ALL = frozenset({"", "0.0.0.0", "::"})
 _NULL_DEVICES = frozenset({os.path.normcase(os.devnull), "nul"})
 
 
@@ -146,7 +157,7 @@ def _writable(text: str) -> bool:
 
 def _check_write(op: str, raw: Any, folder: str | None = None) -> None:
     text = _as_text(raw)
-    if text is None or text == ":memory:" or text.startswith("file:"):
+    if text is None or text == ":memory:":
         return
     if folder is not None and not os.path.isabs(text):
         text = os.path.join(folder, text)
@@ -159,6 +170,29 @@ def _check_write(op: str, raw: Any, folder: str | None = None) -> None:
     )
 
 
+def _sqlite_path_to_check(text: str) -> str | None:
+    """Filesystem path to guard for sqlite3.connect, or None if allowed.
+
+    Plain paths are checked. ``:memory:`` and ``file:`` URIs with mode=ro or
+    mode=memory are allowed. Other ``file:`` URIs are stripped to a path and
+    checked like any write.
+    """
+    if text == ":memory:":
+        return None
+    if not text.startswith("file:"):
+        return text
+    parsed = urlparse(text)
+    mode = (parse_qs(parsed.query).get("mode") or [None])[0]
+    if mode in ("ro", "memory"):
+        return None
+    # file://localhost/abs and file:///abs both land in path; file:rel keeps
+    # a relative path. Unknown hosts are treated as a path to refuse.
+    if parsed.netloc and parsed.netloc.lower() not in ("", "localhost"):
+        return text
+    path = unquote(parsed.path or "")
+    return path or None
+
+
 def _local_host(host: Any) -> bool:
     if host is None:
         return True
@@ -168,11 +202,19 @@ def _local_host(host: Any) -> bool:
     return text in _LOCAL_NAMES or text.startswith("127.")
 
 
-def _check_address(address: Any) -> None:
+def _check_address(address: Any, *, bind: bool = False) -> None:
     if isinstance(address, (str, bytes)):
         return  # AF_UNIX path: a local socket file, not the network.
     host = address[0] if isinstance(address, tuple) and address else None
     port = address[1] if isinstance(address, tuple) and len(address) > 1 else None
+    if bind:
+        raw = host
+        if isinstance(raw, bytes):
+            raw = raw.decode("ascii", "replace")
+        text = "" if raw is None else str(raw).strip().lower()
+        if text in _BIND_ALL:
+            _report({"kind": "network", "host": text or "0.0.0.0"})
+            raise SandboxBlocked("Blocked: the sandbox has no network.")
     # Port 9 is the closed proxy the parent sets, so urllib and requests
     # land here. Report that as no network, not as a refused connection.
     if _local_host(host) and port != 9:
@@ -197,6 +239,14 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
         if len(args) >= 3 and _PATHS._is_write(args[1], args[2]):
             _check_write("write", args[0])
         return
+    if event == "sqlite3.connect":
+        text = _as_text(args[0]) if args else None
+        if text is None:
+            return
+        target = _sqlite_path_to_check(text)
+        if target is not None:
+            _check_write("write", target)
+        return
     spec = _PATH_EVENTS.get(event)
     if spec is not None:
         positions, op = spec
@@ -207,7 +257,7 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
                 _check_write(op, args[index], folder)
         return
     if event in _NET_ADDRESS_EVENTS and len(args) >= 2:
-        _check_address(args[1])
+        _check_address(args[1], bind=(event == "socket.bind"))
         return
     if event in _NET_NAME_EVENTS and args:
         if not _local_host(args[0]):
@@ -217,6 +267,23 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
     if event in _PROCESS_EVENTS:
         _report({"kind": "process"})
         raise SandboxBlocked("Blocked: the sandbox cannot start other programs.")
+
+
+def _block_fork_exec(*_args: Any, **_kwargs: Any) -> Any:
+    """Stand-in for ``_posixsubprocess.fork_exec`` (no audit event on spawn)."""
+    _report({"kind": "process"})
+    raise SandboxBlocked("Blocked: the sandbox cannot start other programs.")
+
+
+def _patch_posix_process_start() -> None:
+    """Block multiprocessing spawn/forkserver. Windows uses CreateProcess + job."""
+    if sys.platform == "win32":
+        return
+    try:
+        import _posixsubprocess
+    except ImportError:
+        return
+    _posixsubprocess.fork_exec = _block_fork_exec  # type: ignore[assignment]
 
 
 def _posix_cpu_cap(seconds: int) -> None:
@@ -259,6 +326,7 @@ def main() -> None:
     sys.argv = [script, *[str(item) for item in config.get("argv") or []]]
     sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
     sys.addaudithook(_audit)
+    _patch_posix_process_start()
     try:
         runpy.run_path(script, run_name="__main__")
     except SystemExit as exc:

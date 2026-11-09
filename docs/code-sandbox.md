@@ -53,14 +53,22 @@ Best effort (a Python audit hook inside the sandboxed process):
   everything that goes through Python itself, including numpy, pandas,
   matplotlib and astropy writes. A compiled library that writes files or
   opens connections on its own, or code that uses `ctypes`, is not seen.
+  The same gap covers `os.open` / `os.rename` with an outside `dir_fd`, and
+  `os.mkfifo`: those do not raise the audit events we catch.
+- On macOS and Linux, starting another Python through multiprocessing
+  spawn or forkserver is blocked by replacing `_posixsubprocess.fork_exec`
+  before the script runs (that call raises no audit event). On Windows the
+  job object already allows only one process, and `_winapi.CreateProcess`
+  is audited.
 - Proxy settings point at a closed local port, which also stops many
   compiled libraries that honour them.
 - Connections to this computer (`localhost`) are allowed, because Python
-  uses them internally.
+  uses them internally. Listening on every interface (empty host,
+  `0.0.0.0`, or `::`) is refused.
 
 On macOS and Linux there is no job object: the memory cap is not applied,
 the CPU cap uses the system limit, and the program guard is the audit hook
-only.
+plus the `fork_exec` patch above.
 
 ## Not in this version yet
 
