@@ -131,7 +131,8 @@ Last event responds to a click.
 
 - **Threats**: the threat count from the hive. 0 reads "All clear" in
   green; any threats read in rose with a rose outline. If the hive does
-  not report it, it reads "?" and "Not reported".
+  not report it, it reads "?" and "Not reported". Hover it to see which
+  castes are engaged.
 - **Defenders**: how many Wardens there are, and how many are engaged
   (the same number as the Warden header's active count in the Swarm list).
 - **Units by caste**: the total, then Warden, Stalker, Harvester,
@@ -143,8 +144,15 @@ Last event responds to a click.
   console. Click it to scroll the console to that row (or to the newest
   row if the current filter hides it).
 
-The strip updates with each snapshot, not every frame. If the window is
-too narrow for all five, blocks drop from the right so none is cut off.
+On a window too narrow for all five full blocks (the 1200 px default
+included), Threats and Defenders stay as they are and the other three
+become compact chips: a small icon and the value (units total, warrant
+count, time of the last event). Hover a chip for its full label and
+detail; the Last event chip still scrolls the console when clicked. The
+header stays the same height. On a very narrow window, chips that still
+do not fit drop from the right so none is cut off.
+
+The strip updates with each snapshot, not every frame.
 
 ## When Sentinel is offline
 

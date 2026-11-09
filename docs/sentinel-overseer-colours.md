@@ -15,7 +15,7 @@ So if Threats reads 0, you should see no rose in the scene.
 
 ## What Warrants counts
 
-Hover the **Warrants** block in the status strip to see what it means:
+Hover the **Warrants** block (or chip) in the status strip to see what it means:
 evidence receipts in memory. Every
 caste writes one each time it does a job, such as a patrol scan, a file
 check, or a page it read. When Sentinel starts, it loads up to 120 receipts
