@@ -62,3 +62,47 @@ async def test_doc_extract_reads_docx_in_reading_order(tmp_path: Path) -> None:
     assert read.ok, read.output
     text = read.output
     assert text.index("# Results") < text.index("| a | b |") < text.index("after the table")
+
+
+def test_doc_extract_caps_fits_preview_and_classic_netcdf(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """FITS previews sample; classic NetCDF refuses oversized headers."""
+    import struct
+
+    from astropy.io import fits
+
+    import arelis.tools.file_read as fr
+
+    # --- FITS: array larger than the sample cap must not reach _preview_png whole.
+    monkeypatch.setattr(fr, "_STATS_SAMPLE", 20)
+    seen: list[int] = []
+    real_preview = fr._preview_png
+
+    def _capture(arr, dest, title, *, origin):
+        seen.append(int(np.asarray(arr).size))
+        return real_preview(arr, dest, title, origin=origin)
+
+    monkeypatch.setattr(fr, "_preview_png", _capture)
+    fits.PrimaryHDU(np.arange(100, dtype="f4").reshape(10, 10)).writeto(
+        tmp_path / "wide.fits"
+    )
+    described = fr._describe_fits(tmp_path / "wide.fits", tmp_path / "previews")
+    assert described.previews, described.body
+    assert seen == [20], seen  # lead 2 rows x 10 cols, not the full 100
+
+    # --- Classic NetCDF: a tiny file with a dim count over the ceiling.
+    crafted = tmp_path / "oversized.nc"
+    crafted.write_bytes(
+        b"CDF\x01"
+        + struct.pack(">I", 0)  # numrecs
+        + struct.pack(">I", 10)  # NC_DIMENSION
+        + struct.pack(">I", fr._NC_MAX_DIMS + 1)
+    )
+    try:
+        fr._ClassicNetCDF(crafted)
+        raised = None
+    except fr.ReadError as exc:
+        raised = exc
+    assert raised is not None, "oversized dim count must raise ReadError"
+    assert "too many" in str(raised).lower()

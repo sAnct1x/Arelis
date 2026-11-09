@@ -42,6 +42,14 @@ _MAX_FORMULAS = 20
 _MAX_ATTRS = 24
 _MAX_PREVIEWS = 3
 _STATS_SAMPLE = 10_000_000
+# Classic NetCDF header ceilings (netCDF NC_MAX_* for dims/vars/name;
+# attrs and payload capped so a crafted file cannot hang or allocate).
+_NC_MAX_DIMS = 1024
+_NC_MAX_ATTRS = 8192
+_NC_MAX_VARS = 8192
+_NC_MAX_NAME = 256
+_NC_MAX_VAR_DIMS = 1024
+_NC_MAX_ATTR_BYTES = 4 * 1024 * 1024
 
 _SUFFIX_KIND: dict[str, str] = {
     ".xlsx": "xlsx",
@@ -195,9 +203,10 @@ def _preview_png(arr: Any, dest: Path, title: str, *, origin: str) -> str:
     data = np.asarray(arr)
     if data.dtype.kind not in "iufb":
         return ""
-    data = data.astype("float64")
+    # Peel extra axes before the float64 copy so a cube cannot OOM.
     while data.ndim > 2:
         data = data[0]
+    data = data.astype("float64")
     finite = data[np.isfinite(data)]
     if finite.size == 0:
         return ""
@@ -432,11 +441,11 @@ def _describe_fits(path: Path, preview_dir: Path | None) -> Described:
             out.append(f"\nHDU {idx} {name} ({type(hdu).__name__})")
             keys = {k: header[k] for k in header if k and not _FITS_PLUMBING.match(k)}
             out.extend(_attr_lines(keys))
-            data = hdu.data
-            if data is None:
-                continue
             columns = getattr(getattr(hdu, "columns", None), "names", None)
             if columns:
+                data = hdu.data
+                if data is None:
+                    continue
                 units = [getattr(c, "unit", None) or "" for c in hdu.columns]
                 heads = [f"{n} ({u})" if u else n for n, u in zip(columns, units, strict=False)]
                 out.append(f"  table: {len(data)} rows x {len(columns)} columns")
@@ -446,14 +455,28 @@ def _describe_fits(path: Path, preview_dir: Path | None) -> Described:
                 if len(data) > _PREVIEW_ROWS:
                     out.append(f"  [first {_PREVIEW_ROWS} rows]")
                 continue
-            arr = np.asarray(data)
-            out.append(f"  image: shape {arr.shape}, {arr.dtype.name}")
-            stats = _stats(arr)
+            # Image HDUs: section + lead sample so a multi-GB file never loads whole.
+            shape = tuple(hdu.shape) if getattr(hdu, "shape", None) else ()
+            if not shape:
+                continue
+            lead = _lead(shape, _STATS_SAMPLE)
+            if hasattr(hdu, "section"):
+                sample = hdu.section[:] if lead is None else hdu.section[:lead]
+            else:
+                full = np.asarray(hdu.data)
+                if full.size == 0:
+                    continue
+                sample = full if lead is None else full[:lead]
+            sample = np.asarray(sample)
+            out.append(f"  image: shape {shape}, {sample.dtype.name}")
+            stats = _stats(sample)
+            if stats and lead is not None:
+                stats += f" (first {lead} of {shape[0]} rows)"
             if stats:
                 out.append(f"  {stats}")
-            if arr.ndim >= 2 and preview_dir is not None and len(previews) < _MAX_PREVIEWS:
+            if len(shape) >= 2 and preview_dir is not None and len(previews) < _MAX_PREVIEWS:
                 dest = preview_dir / f"{_safe_name(path.stem)}_hdu{idx}.png"
-                shot = _preview_png(arr, dest, f"{path.name} HDU {idx}", origin="lower")
+                shot = _preview_png(sample, dest, f"{path.name} HDU {idx}", origin="lower")
                 if shot:
                     previews.append(shot)
     return Described("\n".join(out).strip(), previews)
@@ -580,64 +603,105 @@ class _ClassicNetCDF:
 
     def __init__(self, path: Path) -> None:
         self.path = path
+        self._buf: mmap.mmap | None = None
         with path.open("rb") as handle:
             self._buf = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
-        self.version = self._buf[3]
-        self._pos = 4
-        self._big = self.version == 5
-        numrecs = self._non_neg()
-        self.dims = self._dim_list()
-        self.attrs = self._att_list()
-        self.vars = self._var_list()
-        record_vars = [v for v in self.vars if v["record"]]
-        if len(record_vars) == 1:
-            self.recsize = record_vars[0]["slab"]
-        else:
-            self.recsize = sum(v["vsize"] for v in record_vars)
-        streaming = numrecs in (0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF)
-        if streaming and record_vars and self.recsize:
-            start = min(v["begin"] for v in record_vars)
-            numrecs = (len(self._buf) - start) // self.recsize
-        self.numrecs = 0 if streaming and not record_vars else numrecs
+        try:
+            if len(self._buf) < 4 or self._buf[:3] != b"CDF":
+                raise ReadError("This is not a classic NetCDF file.")
+            self.version = self._buf[3]
+            self._pos = 4
+            self._big = self.version == 5
+            numrecs = self._non_neg()
+            self.dims = self._dim_list()
+            self.attrs = self._att_list()
+            self.vars = self._var_list()
+            record_vars = [v for v in self.vars if v["record"]]
+            if len(record_vars) == 1:
+                self.recsize = record_vars[0]["slab"]
+            else:
+                self.recsize = sum(v["vsize"] for v in record_vars)
+            streaming = numrecs in (0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF)
+            if streaming and record_vars and self.recsize:
+                start = min(v["begin"] for v in record_vars)
+                numrecs = (len(self._buf) - start) // self.recsize
+            self.numrecs = 0 if streaming and not record_vars else numrecs
+        except Exception:
+            self.close()
+            raise
 
     def close(self) -> None:
-        self._buf.close()
+        buf = self._buf
+        self._buf = None
+        if buf is not None:
+            buf.close()
+
+    def _ensure(self, n: int) -> None:
+        buf = self._buf
+        assert buf is not None
+        if n < 0 or self._pos + n > len(buf):
+            raise ReadError("This NetCDF file is truncated or invalid.")
 
     def _int(self, size: int) -> int:
-        raw = self._buf[self._pos : self._pos + size]
+        self._ensure(size)
+        buf = self._buf
+        assert buf is not None
+        raw = buf[self._pos : self._pos + size]
         self._pos += size
         return int.from_bytes(raw, "big")
 
     def _non_neg(self) -> int:
         return self._int(8 if self._big else 4)
 
+    def _count(self, limit: int, what: str) -> int:
+        count = self._non_neg()
+        if count > limit:
+            raise ReadError(f"This NetCDF file has too many {what}.")
+        return count
+
     def _name(self) -> str:
         n = self._non_neg()
-        raw = self._buf[self._pos : self._pos + n]
-        self._pos += n + (-n % 4)
+        if n > _NC_MAX_NAME:
+            raise ReadError("This NetCDF file has a name that is too long.")
+        pad = -n % 4
+        self._ensure(n + pad)
+        buf = self._buf
+        assert buf is not None
+        raw = buf[self._pos : self._pos + n]
+        self._pos += n + pad
         return raw.decode("utf-8", errors="replace")
 
     def _dim_list(self) -> list[tuple[str, int]]:
         tag = self._int(4)
-        count = self._non_neg()
+        count = self._count(_NC_MAX_DIMS, "dimensions")
         if tag == 0:
             return []
         return [(self._name(), self._non_neg()) for _ in range(count)]
 
     def _att_list(self) -> dict[str, Any]:
         tag = self._int(4)
-        count = self._non_neg()
+        count = self._count(_NC_MAX_ATTRS, "attributes")
         out: dict[str, Any] = {}
         if tag == 0:
             return out
         for _ in range(count):
             name = self._name()
             nc_type = self._int(4)
+            if nc_type not in _NC_TYPES:
+                raise ReadError("This NetCDF file has an unknown attribute type.")
             n = self._non_neg()
             dtype = np.dtype(_NC_TYPES[nc_type])
+            if n < 0 or n > _NC_MAX_ATTR_BYTES // max(dtype.itemsize, 1):
+                raise ReadError("This NetCDF file has an attribute that is too large.")
             size = n * dtype.itemsize
-            raw = bytes(self._buf[self._pos : self._pos + size])
-            self._pos += size + (-size % 4)
+            if size > _NC_MAX_ATTR_BYTES:
+                raise ReadError("This NetCDF file has an attribute that is too large.")
+            pad = -size % 4
+            self._ensure(size + pad)
+            buf = self._buf
+            assert buf is not None
+            raw = bytes(buf[self._pos : self._pos + size])
+            self._pos += size + pad
             if nc_type == 2:
                 out[name] = raw.decode("utf-8", errors="replace").rstrip("\x00")
             else:
@@ -647,18 +711,25 @@ class _ClassicNetCDF:
 
     def _var_list(self) -> list[dict[str, Any]]:
         tag = self._int(4)
-        count = self._non_neg()
+        count = self._count(_NC_MAX_VARS, "variables")
         out: list[dict[str, Any]] = []
         if tag == 0:
             return out
         for _ in range(count):
             name = self._name()
-            ndims = self._non_neg()
+            ndims = self._count(_NC_MAX_VAR_DIMS, "dimensions on a variable")
             dimids = [self._non_neg() for _ in range(ndims)]
+            for dimid in dimids:
+                if dimid >= len(self.dims):
+                    raise ReadError("This NetCDF file has an invalid dimension id.")
             attrs = self._att_list()
             nc_type = self._int(4)
+            if nc_type not in _NC_TYPES:
+                raise ReadError("This NetCDF file has an unknown variable type.")
             vsize = self._non_neg()
             begin = self._int(4 if self.version == 1 else 8)
+            if begin < 0 or begin > len(self._buf or b""):
+                raise ReadError("This NetCDF file has a variable offset past the end.")
             dims = [self.dims[i][0] for i in dimids]
             lengths = [self.dims[i][1] for i in dimids]
             record = bool(lengths) and lengths[0] == 0
