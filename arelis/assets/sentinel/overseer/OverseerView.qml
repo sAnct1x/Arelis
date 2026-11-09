@@ -45,6 +45,7 @@ Item {
     property var particleList: null
     property var conduitList: null
     property var conduitSpecs: []
+    property var unitAnimSpecs: []
     property var liveCounts: ({})
     onSceneTimeChanged: root.stepConduits()
     property var hudPills: ({})
@@ -110,6 +111,7 @@ Item {
         var tris = 0
         var lods = [0, 0, 0]
         var live = 0
+        var animSpecs = []
         for (var ci = 0; ci < casteIds.length; ci++) {
             var caste = casteIds[ci]
             for (var lod = 0; lod < 3; lod++) {
@@ -123,7 +125,20 @@ Item {
                         continue
                     var entries = []
                     for (var i = 0; i < rows.length; i++) {
-                        entries.push(fillUnitEntry(rows[i], caste, key, recs))
+                        var row = rows[i]
+                        var uEntry = fillUnitEntry(row, caste, key, recs)
+                        entries.push(uEntry)
+                        var rvx = finiteNum(row ? row.vx : 0, 0)
+                        var rvy = finiteNum(row ? row.vy : 0, 0)
+                        var rvz = finiteNum(row ? row.vz : 0, 0)
+                        if (rvx !== 0 || rvy !== 0 || rvz !== 0) {
+                            animSpecs.push({
+                                entry: uEntry,
+                                vx: rvx,
+                                vy: rvy,
+                                vz: rvz
+                            })
+                        }
                     }
                     lst.instances = entries
                     liveByKey[key] = entries
@@ -137,6 +152,7 @@ Item {
                 }
             }
         }
+        unitAnimSpecs = animSpecs
         counts["__particles"] = 0
         var cEntries = fillConduitEntries(frame.conduits || [])
         counts["__conduits"] = cEntries.length
@@ -374,9 +390,11 @@ Item {
                 caste = "warden"
             lod = u.lod === undefined ? 1 : Math.max(0, Math.min(2, u.lod))
             var pos = u.position || [u.x || 0, u.y || 0, u.z || 0]
+            var vel = u.velocity || [u.vx || 0, u.vy || 0, u.vz || 0]
             buckets[caste + ":" + lod].push({
                 unit_id: u.unit_id || "",
                 x: pos[0], y: pos[1], z: pos.length > 2 ? pos[2] : 0,
+                vx: vel[0] || 0, vy: vel[1] || 0, vz: vel.length > 2 ? (vel[2] || 0) : 0,
                 heading_deg: u.heading_deg || 0,
                 scale: u.scale === undefined ? 0.36 : u.scale,
                 color: casteColors[caste],
@@ -425,6 +443,7 @@ Item {
         releaseList("__particles", particleList)
         releaseList("__conduits", conduitList)
         conduitSpecs = []
+        unitAnimSpecs = []
     }
 
     function finiteNum(v, fallback) {
@@ -648,6 +667,23 @@ Item {
         }
     }
 
+    function stepUnits(dt) {
+        var specs = unitAnimSpecs
+        if (!specs || !specs.length || dt <= 0)
+            return
+        var stepDt = Math.min(0.05, dt)
+        for (var i = 0; i < specs.length; i++) {
+            var sp = specs[i]
+            var e = sp.entry
+            if (!e)
+                continue
+            var nx = finiteCoord(e.position.x + sp.vx * stepDt, e.position.x)
+            var ny = Math.max(0.45, finiteCoord(e.position.y + sp.vy * stepDt, e.position.y))
+            var nz = finiteCoord(e.position.z + sp.vz * stepDt, e.position.z)
+            e.position = Qt.vector3d(nx, ny, nz)
+        }
+    }
+
     function liveEntryCountFromLists() {
         var n = 0
         var keys = Object.keys(lists)
@@ -726,7 +762,10 @@ Item {
 
     FrameAnimation {
         running: true
-        onTriggered: root.sceneTime += frameTime
+        onTriggered: {
+            root.sceneTime += frameTime
+            root.stepUnits(frameTime)
+        }
     }
 
     NumberAnimation on entryMs {

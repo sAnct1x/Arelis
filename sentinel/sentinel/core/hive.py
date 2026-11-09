@@ -311,7 +311,7 @@ class SwarmHive:
         r = profile["radius"]
         pos = [
             math.cos(angle) * r,
-            profile["y_band"] + math.sin(phase) * 2.0,
+            max(0.65, profile["y_band"] + math.sin(phase) * 1.25),
             math.sin(angle) * r,
         ]
         vel = [-math.sin(angle) * 8.0, 0.0, math.cos(angle) * 8.0]
@@ -1351,7 +1351,15 @@ class SwarmHive:
             idle = [u for u in self.units.values() if u.caste == caste and u.state == SentinelState.PATROLLING and u.pack_role == "SOLO"]
             if not idle:
                 return
-            await self.dispatch_task(caste, {"action": "patrol_scan" if caste == "warden" else "verify", "animate": True}, unit_id=idle[0].unit_id)
+            await self.dispatch_task(
+                caste,
+                {
+                    "action": "patrol_scan" if caste == "warden" else "verify",
+                    "animate": True,
+                    "patrol_sortie": True,
+                },
+                unit_id=idle[0].unit_id,
+            )
         finally:
             self.alert_policy.end_dispatch()
 

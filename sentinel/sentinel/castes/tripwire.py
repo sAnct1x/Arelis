@@ -67,7 +67,7 @@ class TripwireCaste:
             {"build_baseline", "verify_integrity", "register_watch_root", "heal_root"}
         ),
         version="1.1.0",
-        orbit_radius=24.0,
+        orbit_radius=19.5,
         eye_color="#ffc08a",
         laser_kind="defense",
     )
@@ -302,12 +302,12 @@ class TripwireCaste:
         return {"ok": False, "error": "Runtime source restoration is disabled; integrity inspection remains available."}
 
     def apply_merkle_verdict(self, nodes: dict[str, WorldNode], verdict: dict[str, Any]) -> dict[str, Any]:
-        """Create/update 3D Merkle Anchor Nodes in-place on the R=24 Tripwire Ring."""
+        """Create/update 3D Merkle Anchor Nodes in-place on the R=19.5 Tripwire Ring."""
         roots = verdict.get("roots") or []
         total = max(1, len(roots))
         for idx, r in enumerate(roots):
             angle = (idx / total) * (math.pi * 2.0)
-            pos = [math.cos(angle) * 24.0, -3.5, math.sin(angle) * 24.0]
+            pos = [math.cos(angle) * 19.5, 1.1, math.sin(angle) * 19.5]
             node_id = f"merkle-root-{idx + 1}"
             intact = bool(r.get("intact", True))
             fcount = int(r.get("file_count", 0))
@@ -389,6 +389,17 @@ class TripwireCaste:
                 "receipt": receipt.to_dict(),
             }
 
+        merkle_nodes = [n for nid, n in nodes.items() if nid.startswith("merkle-root-")]
+        if merkle_nodes:
+            m_node = merkle_nodes[unit.missions_completed % len(merkle_nodes)]
+            unit.transition(
+                SentinelState.VECTORING,
+                task=f"Merkle Integrity Sweep: {m_node.label[:38]}",
+                target_node_id=m_node.node_id,
+                target_position=m_node.position,
+                laser_active=True,
+                laser_kind="defense",
+            )
         verdict = await asyncio.to_thread(self.verify_all)
         unit.missions_completed += 1
 
@@ -397,7 +408,7 @@ class TripwireCaste:
             violated = [r for r in verdict["roots"] if not r["intact"]]
             first = violated[0]
             angle = (len(nodes) * 1.1) % (math.pi * 2.0)
-            pos = [math.cos(angle) * 24.0, -3.5, math.sin(angle) * 24.0]
+            pos = [math.cos(angle) * 19.5, 1.8, math.sin(angle) * 19.5]
             alert_node = WorldNode(
                 node_id=f"tripwire-alert-{int(asyncio.get_running_loop().time() * 1000)}",
                 kind="threat",
@@ -432,6 +443,10 @@ class TripwireCaste:
                 await asyncio.sleep(0.25)
             nodes.pop(alert_node.node_id, None)
             await bus.publish(EventTopic.NODE_REMOVED, {"node_id": alert_node.node_id})
+            unit.transition(SentinelState.PATROLLING, task="Patrolling tripwire ring", laser_active=False)
+        elif merkle_nodes:
+            if animate and task_payload.get("patrol_sortie"):
+                await asyncio.sleep(0.24)
             unit.transition(SentinelState.PATROLLING, task="Patrolling tripwire ring", laser_active=False)
 
         receipt = ledger.mint(

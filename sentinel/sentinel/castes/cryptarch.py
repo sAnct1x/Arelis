@@ -45,8 +45,8 @@ class CryptarchCaste(CasteHandler):
             "crypto:entropy_calc",
         ]),
         version="1.1.0",
-        orbit_radius=15.0,
-        orbit_y_band=-1.5,
+        orbit_radius=14.5,
+        orbit_y_band=2.4,
         speed_mult=1.0,
         eye_color="#e040fb",
         laser_kind="defense",
@@ -175,7 +175,7 @@ class CryptarchCaste(CasteHandler):
         unit.transition(
             SentinelState.VECTORING,
             task=f"[CRYPTO] Vectoring -> {target_name}",
-            target_position=[10.0, -1.5, 10.0],
+            target_position=[10.0, 2.4, 10.0],
         )
         await asyncio.sleep(0.04)
 

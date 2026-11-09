@@ -106,8 +106,18 @@ class SimulationDirector:
         )
         try:
             if mode == "security_audit":
-                sockets = await self.hive.dispatch_task("warden", {"action": "patrol_scan"})
-                integrity = await self.hive.dispatch_task("tripwire", {"action": "verify"})
+                self.emit_fx(
+                    "scan_wave",
+                    [0.0, 1.2, 0.0],
+                    color="#a78bfa",
+                    label="PERIMETER & MERKLE SWEEP",
+                )
+                sockets = await self.hive.dispatch_task(
+                    "warden", {"action": "patrol_scan", "animate": True, "patrol_sortie": True}
+                )
+                integrity = await self.hive.dispatch_task(
+                    "tripwire", {"action": "verify", "animate": True, "patrol_sortie": True}
+                )
                 intact = integrity.get("intact") is True
                 roots = integrity.get("roots") or []
                 result = {

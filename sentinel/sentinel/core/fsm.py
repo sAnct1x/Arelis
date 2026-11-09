@@ -56,10 +56,12 @@ TIER_SPECS: dict[str, TierSpec] = {
 }
 
 CASTE_ORBIT_PROFILES: dict[str, dict[str, float]] = {
-    "harvester": {"radius": 16.0, "y_band": 3.0, "speed_mult": 1.05},
-    "sanitizer": {"radius": 10.0, "y_band": 2.2, "speed_mult": 0.95},
-    "warden": {"radius": 23.0, "y_band": 2.0, "speed_mult": 1.15},
-    "tripwire": {"radius": 19.5, "y_band": -2.5, "speed_mult": 0.90},
+    "harvester": {"radius": 16.0, "y_band": 3.4, "speed_mult": 1.05},
+    "sanitizer": {"radius": 10.0, "y_band": 2.6, "speed_mult": 0.95},
+    "warden": {"radius": 23.0, "y_band": 2.4, "speed_mult": 1.15},
+    "tripwire": {"radius": 19.5, "y_band": 2.2, "speed_mult": 0.90},
+    "stalker": {"radius": 13.0, "y_band": 3.0, "speed_mult": 1.15},
+    "cryptarch": {"radius": 14.5, "y_band": 2.4, "speed_mult": 1.00},
 }
 
 
@@ -129,6 +131,8 @@ CASTE_DEFAULT_DOCTRINE: dict[str, str] = {
     "tripwire": "HUNTER-SEEKER",
     "warden": "HUNTER-KILLER",
     "sanitizer": "HUNTER-KILLER",
+    "stalker": "HUNTER-KILLER",
+    "cryptarch": "HUNTER-SEEKER",
 }
 
 
@@ -258,7 +262,10 @@ class SentinelUnit:
 
         if self.state == SentinelState.EMP_DISABLED:
             self.velocity[0] *= 0.90
-            self.velocity[1] = max(-2.5, self.velocity[1] * 0.90 - 1.8 * dt)
+            if self.position[1] <= 0.55:
+                self.velocity[1] = max(0.0, self.velocity[1] * 0.5)
+            else:
+                self.velocity[1] = max(-2.5, self.velocity[1] * 0.90 - 1.8 * dt)
             self.velocity[2] *= 0.90
             self.laser_active = False
             self._integrate(dt, max_spd=6.0)
@@ -267,7 +274,7 @@ class SentinelUnit:
         if self.state == SentinelState.DOCKED:
             goal = [
                 math.cos(self.orbit_angle) * 5.0,
-                -2.0,
+                0.85,
                 math.sin(self.orbit_angle) * 5.0,
             ]
             self._steer_toward(goal, dt, max_spd=spec.max_speed * 0.5, slow_radius=3.0)
@@ -287,9 +294,12 @@ class SentinelUnit:
         if self.state == SentinelState.PATROLLING:
             ang_speed = (0.42 * profile["speed_mult"]) * (1.0 + 0.1 * (spec.tentacles - 8))
             self.orbit_angle = (self.orbit_angle + ang_speed * dt) % (math.pi * 2.0)
-            # Sinuous Matrix corkscrew wave along orbital ring
-            r = profile["radius"] + math.sin(self.orbit_angle * 3.0 + self.orbit_phase) * 2.6
-            y = profile["y_band"] + math.cos(self.orbit_angle * 2.0 + self.orbit_phase) * 3.4
+            # Sinuous Matrix corkscrew wave along orbital ring above the Overseer floor
+            r = profile["radius"] + math.sin(self.orbit_angle * 3.0 + self.orbit_phase) * 2.2
+            y = max(
+                0.65,
+                profile["y_band"] + math.cos(self.orbit_angle * 2.0 + self.orbit_phase) * 1.35,
+            )
             goal = [
                 math.cos(self.orbit_angle) * r,
                 y,
@@ -304,7 +314,7 @@ class SentinelUnit:
             ring_ang = self.orbit_phase + slot_angle
             goal = [
                 tx + math.cos(ring_ang) * standoff,
-                ty + slot_elev,
+                max(0.65, ty + slot_elev),
                 tz + math.sin(ring_ang) * standoff,
             ]
             # Doctrine tag HUNTER-KILLER uses a higher steer speed
@@ -325,7 +335,7 @@ class SentinelUnit:
             ang = self.orbit_angle + slot_angle
             goal = [
                 tx + math.cos(ang) * hover_r,
-                ty + math.sin(ang * 2.0) * 1.15 + slot_elev * 0.65,
+                max(0.65, ty + math.sin(ang * 2.0) * 1.15 + slot_elev * 0.65),
                 tz + math.sin(ang) * hover_r,
             ]
             self._steer_toward(goal, dt, max_spd=spec.max_speed * 0.85, slow_radius=1.2)
@@ -337,7 +347,7 @@ class SentinelUnit:
             ang = self.orbit_phase + slot_angle
             goal = [
                 math.cos(ang) * 3.2,
-                math.sin(ang) * 1.2,
+                1.4 + math.sin(ang) * 0.75,
                 math.sin(ang) * 3.2,
             ]
             self._steer_toward(goal, dt, max_spd=spec.max_speed * 0.95, slow_radius=4.0)

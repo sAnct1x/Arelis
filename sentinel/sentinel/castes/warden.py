@@ -90,7 +90,7 @@ class WardenCaste:
             {"scan_sockets", "admit_inbound", "note_auth_fail", "verify_egress", "intercept_threat", "ban_peer"}
         ),
         version="1.2.0",
-        orbit_radius=28.0,
+        orbit_radius=23.0,
         eye_color="#ff2a3a",
         laser_kind="defense",
     )
@@ -231,19 +231,19 @@ class WardenCaste:
 
     def create_bastion_nodes(self) -> dict[str, WorldNode]:
 
-        """Create 3D Bastion Gate nodes positioned along the Perimeter Wall (R=28) at diagonal angles."""
+        """Create 3D Bastion Gate nodes positioned along the Perimeter Wall (R=22.5) at diagonal angles."""
         bastions: dict[str, WorldNode] = {}
         total = max(1, len(self.watched_ports))
         for idx, item in enumerate(self.watched_ports):
             angle = (idx / total) * (math.pi * 2.0) + (math.pi / 4.0)
-            r = 28.0
+            r = 22.5
             port = int(item["port"])
             node_id = f"bastion-port-{port}"
             bastions[node_id] = WorldNode(
                 node_id=node_id,
                 kind="bastion",
                 label=f":{port} {item['name']}",
-                position=[math.cos(angle) * r, 0.0, math.sin(angle) * r],
+                position=[math.cos(angle) * r, 1.2, math.sin(angle) * r],
                 status="active",
                 progress=1.0,
                 severity="none",
@@ -678,8 +678,27 @@ class WardenCaste:
             return res
 
         # Default: active socket & bastion scan
+        bastion_nodes = [n for nid, n in nodes.items() if nid.startswith("bastion-port-")]
+        if bastion_nodes:
+            b_node = bastion_nodes[unit.missions_completed % len(bastion_nodes)]
+            unit.transition(
+                SentinelState.VECTORING,
+                task=f"Live Socket Patrol: {b_node.label[:38]}",
+                target_node_id=b_node.node_id,
+                target_position=b_node.position,
+                laser_active=True,
+                laser_kind="defense",
+            )
         snap = await asyncio.to_thread(self.scan_sockets)
+        if animate and task_payload.get("patrol_sortie"):
+            await asyncio.sleep(0.24)
         unit.missions_completed += 1
+        if bastion_nodes:
+            unit.transition(
+                SentinelState.PATROLLING,
+                task="Patrolling perimeter wall",
+                laser_active=False,
+            )
         receipt = ledger.mint(
             unit_id=unit.unit_id,
             caste=self.descriptor.caste_id,
@@ -712,13 +731,13 @@ class WardenCaste:
         bastion_id = f"bastion-port-{port}"
         if bastion_id in nodes:
             bx, by, bz = nodes[bastion_id].position
-            pos = [bx * 1.18, by + 2.5, bz * 1.18]
+            pos = [bx * 1.06, max(1.8, by + 1.6), bz * 1.06]
             nodes[bastion_id].severity = "high"
             nodes[bastion_id].status = "intercepting"
             await bus.publish(EventTopic.NODE_UPDATED, nodes[bastion_id].to_dict())
         else:
             angle = (self._threat_seq * 1.5) % (math.pi * 2.0)
-            pos = [math.cos(angle) * 32.0, 2.0, math.sin(angle) * 32.0]
+            pos = [math.cos(angle) * 23.0, 2.2, math.sin(angle) * 23.0]
 
         t_node = WorldNode(
             node_id=f"threat-{self._threat_seq:04d}",

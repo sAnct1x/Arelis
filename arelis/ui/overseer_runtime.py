@@ -407,6 +407,17 @@ def build_hud(
     units = snapshot_units(snap)
     selected = next((u for u in units if u.get("unit_id") == selected_id), None)
     metrics = (snap or {}).get("metrics") if isinstance(snap, dict) else None
+    status_line = "hive live, all local, sending out blocked"
+    if isinstance(snap, dict):
+        emp = snap.get("emp")
+        banner = snap.get("active_banner")
+        if isinstance(emp, dict) and emp.get("tripped"):
+            reason = str(emp.get("reason") or "swarm halted")
+            status_line = f"EMP EMERGENCY STOP ACTIVE — {reason}"
+        elif isinstance(banner, dict) and banner.get("title"):
+            b_title = str(banner.get("title") or "").strip()
+            b_sub = str(banner.get("subtitle") or "").strip()
+            status_line = f"{b_title}: {b_sub}" if b_sub else b_title
     return {
         "pills": pill_counts(units, metrics if isinstance(metrics, dict) else None),
         "swarmRows": swarm_rows(units, by=group_by, query=search, collapsed=collapsed),
@@ -422,7 +433,7 @@ def build_hud(
             log_query,
         ),
         "title": "Sentinels",
-        "statusLine": "hive live, all local, sending out blocked",
+        "statusLine": status_line,
     }
 
 
@@ -723,6 +734,13 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
         lod = 0 if lod < 0 else 2 if lod > 2 else lod
         pos = u.get("position") or [u.get("x") or 0, u.get("y") or 0, u.get("z") or 0]
         x, y, z = float(pos[0]), float(pos[1]), float(pos[2] if len(pos) > 2 else 0)
+        vel = u.get("velocity")
+        if isinstance(vel, (list, tuple)) and len(vel) >= 3:
+            vx, vy, vz = float(vel[0]), float(vel[1]), float(vel[2])
+        else:
+            vx = float(u.get("vx") or 0.0)
+            vy = float(u.get("vy") or 0.0)
+            vz = float(u.get("vz") or 0.0)
         state = str(u.get("state") or "")
         limp = 1.0 if "EMP" in state.upper() or "HALT" in state.upper() else 0.0
         raw_scale = u.get("scale")
@@ -735,6 +753,9 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
                 "x": x,
                 "y": y,
                 "z": z,
+                "vx": vx,
+                "vy": vy,
+                "vz": vz,
                 "heading_deg": heading_deg(u.get("heading")),
                 "scale": scale,
                 "color": CASTE_COLOR[caste],

@@ -173,8 +173,8 @@ class HarvesterCaste:
     def _spawn_target_node(self, label: str, metadata: dict[str, Any]) -> WorldNode:
         self._node_seq += 1
         angle = (self._node_seq * 1.18) % (math.pi * 2.0)
-        radius = 40.0 + (self._node_seq % 4) * 5.5
-        y = math.sin(self._node_seq * 0.9) * 8.0
+        radius = 24.0 + (self._node_seq % 4) * 2.2
+        y = 2.4 + abs(math.sin(self._node_seq * 0.9)) * 2.8
         pos = [math.cos(angle) * radius, y, math.sin(angle) * radius]
         return WorldNode(
             node_id=f"node-hrv-{self._node_seq:04d}",

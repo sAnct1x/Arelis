@@ -146,14 +146,18 @@ def test_kinetic_data_conduits_instancing_and_animation_in_overseer_qml(qt_app) 
 
 
 @pytest.mark.asyncio
-async def test_red_team_sparring_harness_triggers_live_swarm_interception(qt_app) -> None:
+async def test_red_team_sparring_harness_triggers_live_swarm_interception(
+    qt_app, tmp_path
+) -> None:
     import sys
 
     sentinel_pkg = Path(__file__).resolve().parents[1] / "sentinel"
     if str(sentinel_pkg) not in sys.path:
         sys.path.insert(0, str(sentinel_pkg))
     from sentinel.core.hive import SwarmHive
+    from sentinel.paths import set_runtime_root
 
+    set_runtime_root(tmp_path)
     hive = SwarmHive()
     owner = QWidget()
     owner.resize(1280, 800)
@@ -191,5 +195,58 @@ async def test_red_team_sparring_harness_triggers_live_swarm_interception(qt_app
     finally:
         await hive.trigger_emp("Sparring test cleanup")
         await hive.restore_from_emp()
+        set_runtime_root(None)
         teardown_sentinel_window(owner)
         qt_app.processEvents()
+
+
+def test_sentinel_units_and_nodes_stay_above_floor_and_step_smoothly(tmp_path) -> None:
+    """Verify Sentinel units and 3D world nodes remain above y=0.45 and HUD status reflects state."""
+    import sys
+
+    sentinel_pkg = Path(__file__).resolve().parents[1] / "sentinel"
+    if str(sentinel_pkg) not in sys.path:
+        sys.path.insert(0, str(sentinel_pkg))
+    from sentinel.core.fsm import CASTE_ORBIT_PROFILES
+    from sentinel.core.hive import SwarmHive
+    from sentinel.paths import set_runtime_root
+
+    set_runtime_root(tmp_path)
+    try:
+        for caste_id, prof in CASTE_ORBIT_PROFILES.items():
+            assert prof["y_band"] >= 2.0, f"{caste_id} y_band below floor clearance"
+            assert prof["radius"] <= 25.0, f"{caste_id} radius outside arena"
+
+        hive = SwarmHive()
+        for _ in range(90):
+            hive.step_world(1.0 / 60.0)
+        snap = hive.world_snapshot()
+        for u in snap["units"]:
+            pos = u["position"]
+            assert pos[1] >= 0.45, f"Unit {u['unit_id']} clipped below floor: y={pos[1]}"
+            assert abs(pos[0]) < 36.0 and abs(pos[2]) < 36.0
+
+        for n in snap["nodes"]:
+            npos = n["position"]
+            assert npos[1] >= 0.5, f"Node {n['node_id']} buried at y={npos[1]}"
+            assert abs(npos[0]) < 36.0 and abs(npos[2]) < 36.0
+
+        buckets = overseer_runtime.build_buckets(snap["units"])
+        all_rows = [r for rows in buckets.values() for r in rows]
+        assert any(r["vx"] != 0.0 or r["vz"] != 0.0 for r in all_rows)
+
+        hud_idle = overseer_runtime.build_hud(snap)
+        assert hud_idle["statusLine"] == "hive live, all local, sending out blocked"
+
+        snap_working = dict(
+            snap,
+            active_banner={"title": "SENTINELS WORKING", "subtitle": "arXiv sweep"},
+        )
+        hud_working = overseer_runtime.build_hud(snap_working)
+        assert "SENTINELS WORKING: arXiv sweep" in hud_working["statusLine"]
+
+        snap_emp = dict(snap, emp={"tripped": True, "reason": "Operator test"})
+        hud_emp = overseer_runtime.build_hud(snap_emp)
+        assert "EMP EMERGENCY STOP ACTIVE" in hud_emp["statusLine"]
+    finally:
+        set_runtime_root(None)

@@ -77,7 +77,7 @@ class StalkerCaste(CasteHandler):
             "process:audit_memory",
         ]),
         version="1.1.0",
-        orbit_radius=26.0,
+        orbit_radius=13.0,
         orbit_y_band=3.0,
         speed_mult=1.1,
         eye_color="#ffd600",

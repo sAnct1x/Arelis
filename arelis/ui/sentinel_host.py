@@ -129,7 +129,7 @@ class SentinelWindow(QWidget):
         self._entry_timer.setInterval(16)
         self._entry_timer.timeout.connect(self._entry_tick)
         self._snap_timer = QTimer(self)
-        self._snap_timer.setInterval(250)
+        self._snap_timer.setInterval(80)
         self._snap_timer.timeout.connect(self._poll_snapshot)
         self._mask_timer = QTimer(self)
         self._mask_timer.setInterval(250)
