@@ -274,6 +274,22 @@ _PLAN_DOCUMENT = PlanSpec(
     steps=("document",),
 )
 
+_PLAN_SHEET = PlanSpec(
+    id="document",
+    message=(
+        "Plan: 1) Call document format=xlsx, rows a JSON list of lists: header "
+        "row first with units (Mass (kg)), numbers as numbers, live formulas as "
+        "strings starting with = (=SUM(B2:B9)). Chart: add a body line "
+        "'chart: line|bar|hbar|scatter|pie|area x=A y=B:C Title'. Number formats: "
+        "'format: C=0.00 D=0.0%'. To change an existing .xlsx pass from_path: "
+        'rows of ["B7", value] set cells, other rows append, a new title adds a '
+        "sheet; it writes a copy. 2) Tell them the path and any Check: notes. "
+        "Do not paste the sheet into chat. Allow still applies."
+    ),
+    steps=("document",),
+)
+_SHEET_WORDS = re.compile(r"(?i)\b(?:xlsx|excel|spreadsheet|workbook)\b")
+
 _PLAN_DOC = PlanSpec(
     id="docs",
     message=(
@@ -549,7 +565,7 @@ def select_plan(
         or (raw and _NEEDS_SOURCES_FIRST.search(raw))
     )
     if wants_file and not needs_sources:
-        return _PLAN_DOCUMENT
+        return _PLAN_SHEET if raw and _SHEET_WORDS.search(raw) else _PLAN_DOCUMENT
 
     # Local source beats a web report. "Investigate the sim files" is a
     # workspace crawl, not research_report.
