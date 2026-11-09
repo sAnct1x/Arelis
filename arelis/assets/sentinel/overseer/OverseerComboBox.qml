@@ -29,7 +29,7 @@ ComboBox {
         radius: 4
     }
     contentItem: Text {
-        text: control.displayText
+        text: "Mode: " + control.displayText
         color: "#e0d4ff"
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
