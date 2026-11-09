@@ -236,7 +236,7 @@ def test_sentinel_units_and_nodes_stay_above_floor_and_step_smoothly(tmp_path) -
         assert any(r["vx"] != 0.0 or r["vz"] != 0.0 for r in all_rows)
 
         hud_idle = overseer_runtime.build_hud(snap)
-        assert hud_idle["statusLine"] == "hive live, all local, sending out blocked"
+        assert hud_idle["statusLine"] == "hive live · all local · sending out blocked"
 
         snap_working = dict(
             snap,
