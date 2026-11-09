@@ -43,6 +43,17 @@ Item {
         return title + " " + value
     }
 
+    function pillTooltip(key) {
+        if (key === "warrants")
+            return "Evidence receipts in memory (includes up to 120 from earlier runs)"
+        return ""
+    }
+
+    function titleCase(word) {
+        var s = String(word || "")
+        return s.length ? s.charAt(0).toUpperCase() + s.slice(1) : s
+    }
+
     function inspectorHeading() {
         if (!hud.inspector || !hud.inspector.unit_id)
             return "Inspector"
@@ -113,6 +124,11 @@ Item {
                     color: "#24163d"
                     border.color: "#6d4ad8"
                     Accessible.name: hud.pillText(modelData[0], modelData[1])
+                    Accessible.description: hud.pillTooltip(modelData[0])
+                    HoverHandler { id: pillHover }
+                    ToolTip.text: hud.pillTooltip(modelData[0])
+                    ToolTip.visible: pillHover.hovered && ToolTip.text.length > 0
+                    ToolTip.delay: 400
                     Text {
                         id: pillLabel
                         anchors.centerIn: parent
@@ -167,7 +183,7 @@ Item {
             Row {
                 spacing: 8
                 Text { text: "Swarm"; color: "#d8c8ff"; font.pixelSize: 16 }
-                Text { text: hud.groupBy; color: "#6f5fa0"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: hud.titleCase(hud.groupBy); color: "#a99bd6"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
             }
 
             TextField {
@@ -177,7 +193,8 @@ Item {
                 height: 28
                 placeholderText: "Search units"
                 color: "#e0d4ff"
-                background: Rectangle { color: "#1c1430"; border.color: "#6d4ad8"; radius: 4 }
+                placeholderTextColor: "#a090d4"
+                background: Rectangle { color: "#160f2b"; border.color: "#6d4ad8"; radius: 4 }
                 onTextChanged: {
                     hud.swarmSearch = text
                     hud.searchEdited(text)
@@ -200,7 +217,7 @@ Item {
                         Text {
                             id: groupLab
                             anchors.centerIn: parent
-                            text: parent.modelData
+                            text: hud.titleCase(parent.modelData)
                             color: "#e0d4ff"
                             font.pixelSize: 11
                         }
@@ -673,7 +690,8 @@ Item {
                     height: 28
                     placeholderText: "Research query, planet, or topic"
                     color: "#e0d4ff"
-                    background: Rectangle { color: "#1c1430"; border.color: "#6d4ad8"; radius: 4 }
+                    placeholderTextColor: "#a090d4"
+                    background: Rectangle { color: "#160f2b"; border.color: "#6d4ad8"; radius: 4 }
                     onTextChanged: hud.missionQuery = text
                 }
                 Rectangle {
@@ -738,7 +756,8 @@ Item {
                     height: 24
                     placeholderText: "Filter by unit or keyword"
                     color: "#e0d4ff"
-                    background: Rectangle { color: "#1c1430"; border.color: "#6d4ad8"; radius: 4 }
+                    placeholderTextColor: "#a090d4"
+                    background: Rectangle { color: "#160f2b"; border.color: "#6d4ad8"; radius: 4 }
                     onTextChanged: {
                         hud.logQuery = text
                         hud.logSearchEdited(text)

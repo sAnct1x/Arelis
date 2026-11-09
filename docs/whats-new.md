@@ -17,6 +17,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
+- Sentinels: rose in the Overseer now means a real threat only. A Warden's routine patrol shows in the Warden colour, and returned research sources show in the Harvester colour. Hover Warrants to see what it counts. Labels read Mode, Caste, Task and Ring, and search hints are easier to read. See [sentinel-overseer-colours.md](sentinel-overseer-colours.md).
 - Sentinels: View, then Sentinels (or the mote below the orbit) opens an inset, frameless Overseer that follows the theme, fades Arelis and the orbit tree while it is open, and restores them on close, quit, or an error. If Sentinel is offline it says so and offers Start. Demo theater is off. Visual and load acceptance on a real machine is still pending. See [sentinels.md](sentinels.md).
 - Sentinels: Arelis can now read the swarm when you ask: status and emergency stop, units by caste or state, the event log with the Overseer's filters, and the castes. Read only. See [sentinels.md](sentinels.md).
 - Sentinels: while they run, the hive may retask an idle warden or tripwire when it sees a repeat host signal (an exposed bind, a new port, a busy peer, a file-baseline change, or a canary). That is a fixed timer rule, not Arelis choosing, and not a firewall. Listed peers in the window are records only. See [sentinels.md](sentinels.md).

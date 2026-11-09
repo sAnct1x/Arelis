@@ -36,7 +36,8 @@ the approved rubber-band limits. Opening the window follows the entry
 timing (mote, edge, fill, reveal, then panels); closing reverses it.
 Reduced motion uses a short crossfade. A native HUD sits on the view:
 a pill bar with live unit and caste counts plus Warrants and Threats
-when the hive reports them, a grouped Swarm list (search, group by
+when the hive reports them (what the colours and Warrants mean:
+[sentinel-overseer-colours.md](sentinel-overseer-colours.md)), a grouped Swarm list (search, group by
 caste, task or ring, 44 px rows, engaged first), an inspector for the
 selected unit, and a forensic console for live logs and mission
 dispatch. Inspector actions and dispatch use the hive's existing

@@ -967,7 +967,10 @@ def build_conduits(
                 tx, ty, tz = (0.0, 0.0, 0.0)
             lkind = str(u.get("laser_kind") or "").lower()
             beam_color = (
-                "#f43f5e" if ("DEFENSE" in state or lkind == "defense")
+                # Rose only for a real engagement. Every Warden laser carries
+                # laser_kind "defense", including the routine socket patrol
+                # (VECTORING), which takes the Warden caste colour instead.
+                "#f43f5e" if "DEFENSE" in state
                 else "#38bdf8" if ("HARVEST" in state or lkind == "harvest")
                 else "#f2c56b" if ("SANITIZE" in state or lkind == "sanitize")
                 else base_color
@@ -1454,7 +1457,7 @@ def resolve_hud_command(
             "ok": True,
             "path": None,
             "body": None,
-            "status": "Camera focused",
+            "status": "",
             "name": name,
             "local": True,
         }
@@ -1463,7 +1466,7 @@ def resolve_hud_command(
             "ok": True,
             "path": None,
             "body": None,
-            "status": "Camera fitted",
+            "status": "",
             "name": name,
             "local": True,
         }

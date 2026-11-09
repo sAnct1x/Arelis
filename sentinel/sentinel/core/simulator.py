@@ -149,7 +149,9 @@ class SimulationDirector:
                 result = dict(result, ok=total > 0 and succeeded == total)
                 detail = f"{succeeded}/{total} sources retrieved; {result.get('quarantined', 0)} quarantined; {result.get('failed', 0)} failed."
                 if succeeded:
-                    self.emit_fx("orb_deposit", [0.0, 0.0, 0.0], label="SOURCES RETRIEVED")
+                    self.emit_fx(
+                        "orb_deposit", [0.0, 0.0, 0.0], color="#8fd3ff", label="SOURCES RETRIEVED"
+                    )
             if self.hive.emp.is_tripped:
                 raise asyncio.CancelledError
             self.last_result = result
