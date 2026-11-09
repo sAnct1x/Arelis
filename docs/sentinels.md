@@ -170,8 +170,8 @@ time on the right.
   under hundreds of routine patrols.
 - **Counts cover the whole time the window is open**, not just the last
   60 events the hive sends each time.
-- **Repeats ×N** (on by default) turns collapsing off; you then see every
-  line again, newest first.
+- **Repeats ×N** is on by default and collapses repeats. Turn it off to
+  see every line again, newest first.
 - **Plain words.** Debug text such as "ok=True, title=" is gone, and
   "3-Sentinel HUNTER-SEEKER Pack (...)" reads "Tripwire pack of 3". Hover a
   line to see the raw log line exactly as the hive wrote it.
