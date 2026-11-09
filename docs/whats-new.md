@@ -17,6 +17,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
+- Sentinels: the Overseer opens faster after the first time. Closing it saves its compiled shaders, so the next start does not compile them again. See [sentinels.md](sentinels.md).
 - Sentinels: the close x at the top right of the Overseer shows again. It had been hidden under the 3D scene since the scene moved to its own window. See [sentinels.md](sentinels.md).
 - Spreadsheets: Excel files Arelis writes now hold real numbers, dates and percents, live formulas, a styled header row, and charts inside the sheet. She can also edit a copy of your own workbook without losing its other sheets, styles or charts, and refuses if saving would drop something like a pivot table. See [spreadsheets.md](spreadsheets.md).
 - Sentinels: the Overseer event log collapses repeats (×N with a first to last time), merges a pack's start and finish into one plain line ("Tripwire pack of 3 ran verify, all ok"), keeps failures on their own line, drops debug text like "ok=True, title=", and never cuts off its bottom line. Turn Repeats ×N off to see every line. See [sentinels.md](sentinels.md).

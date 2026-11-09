@@ -21,6 +21,10 @@ to about 20 percent. Closing it, quitting Arelis, or an error that
 cannot show the page restores them. Esc or the close mote on the inset
 closes it. The close mote is drawn inside the 3D scene, top right; Tab reaches
 it and Enter or Space presses it.
+Closing the window saves the scene's compiled shaders to
+`sentinel/overseer/pipeline.cache` in the Arelis data folder, so the next start
+opens it without compiling them again. A file from another Qt version or graphics
+backend is ignored and replaced.
 
 The view is a Qt Quick 3D Overseer. Live units from the hive snapshot
 are drawn as instanced Iris LOD meshes (about 12k / 4k / 1k triangles

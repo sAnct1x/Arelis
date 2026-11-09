@@ -10,6 +10,7 @@ percent; close, quit, or an error restores them.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from pathlib import Path
 
@@ -33,6 +34,57 @@ log = logging.getLogger(__name__)
 
 _POLL_MS = 500
 _POLL_TRIES = 24
+
+
+def overseer_pipeline_cache_path() -> Path:
+    """The Overseer's compiled pipelines (D3D11 bytecode, GL program binaries) across starts.
+
+    Its QQuickView has its own QRhi, separate from her window's, so it gets its own file.
+    """
+    from arelis.paths import user_data_dir
+
+    return user_data_dir() / "sentinel" / "overseer" / "pipeline.cache"
+
+
+def _use_pipeline_cache(view) -> None:
+    """Seed the scene's QRhi from the cache file; a stale key (other Qt, backend) is ignored."""
+    from arelis.ui.persona_face.qq3d_avatar import pipeline_cache_key
+
+    path = overseer_pipeline_cache_path()
+    cfg = view.graphicsConfiguration()
+    cfg.setAutomaticPipelineCache(False)
+    try:
+        fresh = path.is_file() and path.with_suffix(".key").read_text(
+            encoding="utf-8"
+        ) == pipeline_cache_key()
+    except OSError:
+        fresh = False
+    if fresh:
+        cfg.setPipelineCacheLoadFile(str(path))
+    cfg.setPipelineCacheSaveFile(str(path))  # Qt writes it only when the QRhi goes away
+    view.setGraphicsConfiguration(cfg)
+
+
+def _save_pipeline_cache(view) -> None:
+    """Write what the scene has compiled so far. A killed app never reaches Qt's own
+    save at teardown. Call only while the view is hidden: its render thread is then
+    idle, so this thread may read the QRhi. A Python slot on the render thread would
+    deadlock on the GIL against any GUI-thread call that waits for that thread."""
+    try:
+        rhi = view.rhi()
+        data = bytes(rhi.pipelineCacheData()) if rhi is not None else b""
+        if not data:
+            return
+        from arelis.ui.persona_face.qq3d_avatar import pipeline_cache_key
+
+        path = overseer_pipeline_cache_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+        path.with_suffix(".key").write_text(pipeline_cache_key(), encoding="utf-8")
+    except (OSError, RuntimeError, AttributeError):
+        log.debug("Sentinels window: pipeline cache not saved", exc_info=True)
 
 
 def _reduced_motion() -> bool:
@@ -314,6 +366,7 @@ class SentinelWindow(QWidget):
         view.setObjectName("OverseerScene")
         view.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
         view.setColor(QColor("#0b0714"))
+        _use_pipeline_cache(view)
         view.sceneGraphError.connect(
             lambda _err, msg: log.warning("Sentinels window: scene graph error: %s", msg)
         )
@@ -803,6 +856,15 @@ class SentinelWindow(QWidget):
         if self.presence.open:
             self._restore_presence("close")
         super().closeEvent(event)
+
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        # The scene window hides after this event, with its children.
+        QTimer.singleShot(0, self._save_pipeline_cache_if_hidden)
+
+    def _save_pipeline_cache_if_hidden(self) -> None:
+        if self._scene is not None and not self._scene.isVisible():
+            _save_pipeline_cache(self._scene)
 
     def resizeEvent(self, event) -> None:
         if not self._entry_timer.isActive():
