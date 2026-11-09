@@ -7,6 +7,9 @@ import pytest
 from PySide6.QtTest import QTest
 
 
+# Serial: a native crash here took down an xdist worker (macOS gw0); the serial step
+# keeps it from killing unrelated tests and gives its render thread an uncontended CPU.
+@pytest.mark.serial
 def test_dispose_after_qt_freed_the_incubation_timer(qt_app) -> None:
     import shiboken6
     from PySide6.QtWidgets import QWidget
