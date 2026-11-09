@@ -944,6 +944,8 @@ Item {
         }
     }
 
+    OverseerCloseMote { flight: root.moteFlight }
+
     OverseerHud {
         id: chrome
         objectName: "OverseerHud"
