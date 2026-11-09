@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import weakref
 
 from PySide6.QtCore import QThread, QTimer
 
@@ -43,6 +44,30 @@ def test_snapshot_wait_is_bounded_to_one_worker_and_gui_keeps_running(qtbot, mon
         assert not win._io_pending
     finally:
         release.set()
+
+
+def test_window_dropped_mid_request_is_freed_on_the_gui_thread(qtbot, monkeypatch):
+    started, release = threading.Event(), threading.Event()
+
+    def fetch(*_args):
+        started.set()
+        assert release.wait(5)
+        return {"units": []}
+
+    monkeypatch.setattr(sentinel_control, "bridge_target", lambda: ("127.0.0.1", 9, "test"))
+    monkeypatch.setattr(overseer_runtime, "fetch_snapshot", fetch)
+    win = SentinelWindow()
+    win._poll_snapshot()
+    assert started.wait(1)
+    worker = next(t for t in threading.enumerate() if t.name == "sentinel-snapshot")
+    freed_on = []
+    weakref.finalize(win, lambda: freed_on.append(threading.get_ident()))
+    del win
+    release.set()
+    worker.join(5)
+    # A window freed on the worker thread cannot stop its timers; they then fire into freed memory.
+    qtbot.waitUntil(lambda: bool(freed_on))
+    assert freed_on == [threading.get_ident()]
 
 
 def test_restart_removes_old_session_token_before_spawning(tmp_path, monkeypatch):

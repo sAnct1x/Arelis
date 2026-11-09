@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import weakref
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl, Signal, Slot
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from arelis import sentinel_control
 from arelis.ui import overseer_runtime
@@ -97,15 +99,44 @@ class SentinelMote(QWidget):
         painter.drawEllipse(6, 6, 10, 10)
 
 
+class _IoRelay(QObject):
+    """Hands worker results to a window on the GUI thread, by weak reference only.
+
+    A worker that held the window could drop its last reference and free it on the
+    worker thread. Qt cannot stop a QWidget's timers from there, so they fired later
+    into freed memory.
+    """
+
+    finished = Signal(object, str, object)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.finished.connect(self._deliver)
+
+    @Slot(object, str, object)
+    def _deliver(self, window_ref, kind: str, result) -> None:
+        window = window_ref()
+        if window is not None and isValid(window):  # deleteLater may have run first
+            window._on_io_finished(kind, result)
+
+
+_io_relay: _IoRelay | None = None
+
+
+def _relay() -> _IoRelay:
+    """Created on the GUI thread by the first request, then kept for the whole run."""
+    global _io_relay
+    if _io_relay is None:
+        _io_relay = _IoRelay()
+    return _io_relay
+
+
 class SentinelWindow(QWidget):
     """Top-level inset Sentinels window: Overseer page, or the offline card."""
-
-    _io_finished = Signal(str, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(None)
         self._io_pending: set[str] = set()
-        self._io_finished.connect(self._on_io_finished)
         self._owner = parent
         self.presence = PresenceController()
         self.setObjectName("SentinelWindow")
@@ -648,6 +679,7 @@ class SentinelWindow(QWidget):
         if kind in self._io_pending:
             return False
         self._io_pending.add(kind)
+        relay, window_ref = _relay(), weakref.ref(self)
 
         def run() -> None:
             try:
@@ -655,10 +687,7 @@ class SentinelWindow(QWidget):
             except Exception:
                 log.warning("Sentinels window: %s request failed", kind)
                 result = (False, None)
-            try:
-                self._io_finished.emit(kind, result)
-            except RuntimeError:
-                pass  # the window was destroyed while the bounded request finished
+            relay.finished.emit(window_ref, kind, result)
 
         threading.Thread(target=run, name=f"sentinel-{kind}", daemon=True).start()
         return True
