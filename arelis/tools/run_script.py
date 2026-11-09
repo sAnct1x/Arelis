@@ -1,7 +1,12 @@
-"""Run a project .py under workspace roots. Not a shell, not the python cell.
+"""Run Python: new code in a sandbox, or a project .py as the user.
 
-The numerics cell cannot open files. This tool starts a named script the way
-the user would: argv, project cwd, captured output. Jobs do not get it.
+``code=`` runs in a sandbox with no card (code_sandbox.py, policy A5). It may
+change only its work folder. The same call made again after it tried to
+change other files shows a card for exactly those paths.
+
+``path=`` starts a named script the way the user would: argv, project cwd,
+captured output, after Allow. The numerics cell cannot open files. Jobs do
+not get this tool.
 """
 
 from __future__ import annotations
@@ -49,16 +54,21 @@ _STATUS_PREFIX = "ARELIS_RUN_STATUS "
 class RunScriptTool:
     name = "run_script"
     description = (
-        "Run a .py file under a workspace root. Not a shell. Not diagnostics. "
-        "Not schedule run_now. Not run_task. Use this to execute a Python "
-        "script file that exists in the workspace. path is relative or "
-        "name:relative/path. args is an argv list of strings. Prefer print "
-        "or a CSV so the result can be read back."
+        "Run Python. code= runs new code in a sandbox: scratch folder, no "
+        "network, time and memory caps, and the user is asked before it "
+        "changes files outside it. path= runs a .py under a workspace root "
+        "(relative or name:relative/path) as the user, after Allow. Not a "
+        "shell, diagnostics, schedule run_now or run_task. args is an argv "
+        "list. Print the result."
     )
     risk = "side_effect"
     parameters_schema: dict[str, Any] = {
         "type": "object",
         "properties": {
+            "code": {
+                "type": "string",
+                "description": "Python source to run in the sandbox",
+            },
             "path": {
                 "type": "string",
                 "description": "Script path relative to a workspace root",
@@ -76,7 +86,6 @@ class RunScriptTool:
                 ),
             },
         },
-        "required": ["path"],
     }
 
     def __init__(
@@ -92,8 +101,29 @@ class RunScriptTool:
             self.workspace = WorkspaceRoots.from_paths(list(roots))
         self.python = (python or "").strip() or None
         self.is_cancelled = is_cancelled
+        # Sandbox call key to the outside paths its last run tried to change.
+        self._outside: dict[str, list[dict[str, str]]] = {}
+        # Keys whose card was shown. Only those runs get the paths.
+        self._carded: set[str] = set()
+
+    def sandbox_needs_card(self, args: dict[str, Any]) -> bool | None:
+        """None for a project script. For sandbox code, True only when this
+        exact code already tried to change files outside the sandbox."""
+        from arelis.tools.code_sandbox import call_key, is_sandbox_call
+
+        if not is_sandbox_call(args):
+            return None
+        key = call_key(args)
+        if key not in self._outside:
+            return False
+        self._carded.add(key)
+        return True
 
     def confirm_detail(self, args: dict[str, Any]) -> str:
+        from arelis.tools.code_sandbox import call_key, is_sandbox_call, sandbox_confirm
+
+        if is_sandbox_call(args):
+            return sandbox_confirm(args, self._outside.get(call_key(args), []))
         return run_script_confirm(self.workspace, args)
 
     def clear_run_pin(self, args: dict[str, Any]) -> None:
@@ -143,8 +173,16 @@ class RunScriptTool:
                 output="Already inside a run_script process. Refusing to nest.",
             )
         path_str = str(kwargs.get("path") or "").strip()
+        code = str(kwargs.get("code") or "")
+        if code.strip() and path_str:
+            return ToolResult(ok=False, output="Pass code or path, not both.")
+        if code.strip():
+            return self._run_sandbox(kwargs)
         if not path_str:
-            return ToolResult(ok=False, output="Missing path. Pass a .py file under the workspace.")
+            return ToolResult(
+                ok=False,
+                output="Missing code or path. Pass Python as code, or a .py file as path.",
+            )
         try:
             timeout_s = float(kwargs.get("timeout_s") or _DEFAULT_TIMEOUT_S)
         except (TypeError, ValueError):
@@ -277,6 +315,79 @@ class RunScriptTool:
             output=text,
             data=data,
         )
+
+
+    def _run_sandbox(self, kwargs: dict[str, Any]) -> ToolResult:
+        from arelis.tools import code_sandbox as sandbox
+
+        key = sandbox.call_key(kwargs)
+        grants: list[str] = []
+        if key in self._carded:
+            # The card for these paths was shown, and this run is what it allowed.
+            self._carded.discard(key)
+            grants = [item["path"] for item in self._outside.pop(key, [])]
+        try:
+            timeout_s = float(kwargs.get("timeout_s") or sandbox.SANDBOX_TIMEOUT_S)
+        except (TypeError, ValueError):
+            timeout_s = sandbox.SANDBOX_TIMEOUT_S
+        timeout_s = max(1.0, min(timeout_s, sandbox.SANDBOX_MAX_TIMEOUT_S))
+        run = sandbox.run_sandboxed(
+            str(kwargs.get("code") or ""),
+            _argv_list(kwargs.get("args")),
+            timeout_s=timeout_s,
+            grants=grants,
+            is_cancelled=self.is_cancelled,
+        )
+        data: dict[str, Any] = {
+            "sandbox": str(run.folder),
+            "python": sys.executable,
+            "cwd": str(run.folder),
+            "exit": run.exit,
+            "duration_s": round(run.duration_s, 3),
+        }
+        if run.stopped == "cancelled":
+            return ToolResult(ok=False, output="The code was stopped.", data=data)
+        if run.stopped == "timeout":
+            data.update(bad_args_data(error_type="TimeoutError"))
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"The code timed out after {int(timeout_s)}s. "
+                    "I will not invent the result."
+                ),
+                data=data,
+            )
+        if run.stopped == "failed":
+            output = run.stderr or "The sandbox could not start."
+            return ToolResult(ok=False, output=output, data=data)
+        writes = run.outside_writes()
+        if writes:
+            self._outside[key] = writes
+            data["outside_writes"] = writes
+        stderr, status = _take_run_status(run.stderr)
+        parts = [f"exit: {run.exit}", f"sandbox: {run.folder}"]
+        out = (run.stdout or "").rstrip()
+        err = stderr.rstrip()
+        if out:
+            parts.extend(["", "stdout:", out])
+        if err:
+            parts.extend(["", "stderr:", err])
+        notes = sandbox.blocked_notes(run)
+        if notes:
+            parts.extend(["", *notes])
+        elif not out and not err:
+            parts.extend(["", "(no output, print the result, or save a file in the sandbox)"])
+        text = redact_secrets("\n".join(parts))
+        if len(text) > _MAX_OUTPUT:
+            text = text[:_MAX_OUTPUT] + "\n…(truncated)"
+        data["stdout"] = redact_secrets(out)[:_STDOUT_WARRANT_CHARS]
+        ok = run.exit == 0 and not run.blocked
+        if ok:
+            data.update(sandbox.chart_data(run))
+        elif not run.blocked:
+            exc_type = status.get("error_type")
+            data.update(bad_args_data(error_type=exc_type if isinstance(exc_type, str) else None))
+        return ToolResult(ok=ok, output=text, data=data)
 
 
 def resolve_interpreter(root: Path, configured: str | None) -> str:

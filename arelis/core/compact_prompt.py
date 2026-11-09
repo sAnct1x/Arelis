@@ -53,7 +53,7 @@ _SHORT_DESC: dict[str, str] = {
     "recall": "search memory. action=docs (+ kind) for local files. miss is a miss",
     "remind": "in-process timer. action=in minutes= + message; at=local time. max 7 days",
     "research_report": "first choice for a sourced multi-source report. searches and scrapes",
-    "run_script": "run a project .py under workspace",
+    "run_script": "sandbox or project .py",
     "schedule": "local jobs. move a time with update, not delete+create",
     "sql": "read-only SELECT on memory.db or a workspace CSV. never INSERT/UPDATE/DELETE",
     "scrape": "readable page text. prefer for news/docs",

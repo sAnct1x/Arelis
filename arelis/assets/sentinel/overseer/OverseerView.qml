@@ -65,6 +65,8 @@ Item {
     property string missionMode: "multi"
     property string missionQuery: ""
     property string hudStatusLine: "hive live · all local · sending out blocked"
+    property var sourceLabelSpecs: []
+    property var sourceLabelScreen: []
     property string hudCommandStatus: ""
     property string lastHudCommand: ""
     property var lastHudPayload: ({})
@@ -166,6 +168,8 @@ Item {
         recountEntries(live)
         instanceRecords = recs
         rememberUnitPositions(buckets)
+        sourceLabelSpecs = frame.sourceLabels || []
+        projectSourceLabels()
         var b = frame.budget
         if (b) {
             if (b.unitTris !== undefined && b.unitTris !== tris)
@@ -197,20 +201,18 @@ Item {
             hudCommandStatus = hud.commandStatus
     }
 
+    // Rank 3: the dock exists only while a unit is selected. No empty inspector.
     function inspectorShouldHide() {
-        if (selectedUnitId)
-            return false
-        var lo = 6.0
-        var hi = 110.0
-        var d = Math.max(lo, Math.min(hi, cameraDistance))
-        var t = Math.log(d / lo) / Math.log(hi / lo)
-        return t > 0.7
+        return !selectedUnitId
     }
 
     readonly property bool showInspector: !inspectorShouldHide()
+    property bool unitFocused: false
 
     function selectUnit(unitId) {
         selectedUnitId = unitId || ""
+        if (!selectedUnitId)
+            unitFocused = false
         syncCameraTargetFromSelection()
     }
 
@@ -320,6 +322,7 @@ Item {
         if (!pos)
             return false
         cameraMode = "follow"
+        unitFocused = true
         setCameraTarget(pos.x, pos.y, pos.z)
         cameraDistance = 24.0
         cameraPitch = pitchDeg(cameraDistance)
@@ -328,6 +331,7 @@ Item {
 
     function fitSwarm() {
         cameraMode = "fit"
+        unitFocused = false
         setCameraTarget(0, 0, 0)
         cameraDistance = 96.0
         cameraPitch = pitchDeg(96.0)
@@ -338,7 +342,8 @@ Item {
         var h = Math.max(1, height)
         var left = Math.min(440, w * 0.26)
         var top = 86
-        var right = w - (showInspector ? Math.min(460, w * 0.28) : 20)
+        // Rank 3 dock: 24 edge + 360 width + 16 gap when open; prior 20 when closed.
+        var right = w - (showInspector ? (24 + 360 + 16) : 20)
         if (right <= left)
             right = w
         var bottom = Math.max(top + 1, h - 230)
@@ -401,7 +406,8 @@ Item {
                 color: casteColors[caste],
                 phase: u.phase || i * 1.7,
                 claw: u.claw || 0.45,
-                limp: u.limp || 0
+                limp: u.limp || 0,
+                speed: (u.speed === undefined || u.speed === null) ? 1.0 : u.speed
             })
         }
         return buckets
@@ -474,7 +480,7 @@ Item {
             sc = 2.0
         e.scale = Qt.vector3d(sc, sc, sc)
         e.color = row.color || casteColors[caste]
-        e.customData = Qt.vector4d(row.phase || 0, row.claw || 0.45, row.limp || 0, 0)
+        e.customData = Qt.vector4d(row.phase || 0, row.claw || 0.45, row.limp || 0, (row.speed === undefined || row.speed === null) ? 1.0 : row.speed)
         var uid = row && row.unit_id ? row.unit_id : ""
         if (uid && recs) {
             if (!recs[uid] || String(key).indexOf(":hull") >= 0) {
@@ -651,6 +657,31 @@ Item {
         return entries
     }
 
+    function projectSourceLabels() {
+        var specs = sourceLabelSpecs || []
+        var out = []
+        for (var i = 0; i < specs.length; i++) {
+            var sp = specs[i]
+            if (!sp)
+                continue
+            var mapped = _tryMapFrom3DScene(Qt.vector3d(finiteNum(sp.x), finiteNum(sp.y), finiteNum(sp.z)))
+            var sx = mapped ? mapped.x : -1000
+            var sy = mapped ? mapped.y : -1000
+            // Hide labels behind the camera or off the plate.
+            var visible = mapped && mapped.z > 0 && mapped.z < 1 && sx > 8 && sy > 8 && sx < width - 8 && sy < height - 8
+            out.push({
+                id: sp.id || ("src-" + i),
+                label: sp.label || "",
+                hot: !!sp.hot,
+                color: sp.color || "#8fd3ff",
+                sx: sx,
+                sy: sy,
+                visible: !!visible
+            })
+        }
+        sourceLabelScreen = out
+    }
+
     function stepConduits() {
         var specs = conduitSpecs
         if (!specs || !specs.length || !liveByKey)
@@ -666,6 +697,7 @@ Item {
             e.position = Qt.vector3d(st.x, st.y, st.z)
             e.scale = Qt.vector3d(psc, psc, psc)
         }
+        projectSourceLabels()
     }
 
     function stepUnits(dt) {
@@ -944,6 +976,24 @@ Item {
         }
     }
 
+    // Fixed harvest source labels at the scene edge (projected from 3D).
+    Repeater {
+        model: root.sourceLabelScreen
+        delegate: Text {
+            visible: modelData.visible
+            x: modelData.sx - paintedWidth * 0.5
+            y: modelData.sy - paintedHeight - 10
+            text: modelData.label
+            color: modelData.hot ? modelData.color : "#6b5f8a"
+            font.pixelSize: modelData.hot ? 14 : 12
+            font.bold: modelData.hot
+            opacity: modelData.hot ? 0.95 : 0.55
+            style: Text.Outline
+            styleColor: "#0b0714"
+            z: 20
+        }
+    }
+
     OverseerCloseMote { flight: root.moteFlight }
 
     OverseerHud {
@@ -958,6 +1008,7 @@ Item {
         logRepeats: root.logRepeats
         inspectorOpen: root.showInspector
         selectedUnitId: root.selectedUnitId
+        unitFocused: root.unitFocused
         groupBy: root.swarmGroupBy
         statusLine: root.hudStatusLine
         commandStatus: root.hudCommandStatus
