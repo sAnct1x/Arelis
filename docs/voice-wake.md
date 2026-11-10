@@ -71,9 +71,21 @@ In conversation she skips the model's thinking phase, including when
 a tool is needed, so the first sentence of the answer can start
 playing as soon as it exists rather than after the whole reply is
 done.
-On speakers, you'll want `conversation.barge_in_as_turn: false` set,
-so a clip that picks up both her voice and yours stays control-only
-(interpreted as stop / allow / deny rather than a new question).
+
+`voice.conversation.barge_in` controls when talking over her is
+allowed. The default is `headset`: barge-in is armed only when the
+current output device looks like a headset or headphones (names such
+as Headset, Headphones, AirPods, or Bluetooth hands-free). On
+speakers, or an output she cannot recognise, her own voice would
+reach the microphone with no echo cancellation, so she will not
+interrupt herself. Press **Stop**, or use a headset, until echo
+cancellation lands. `always` keeps today's behaviour on any device,
+including speakers. `off` turns playback interrupts off entirely.
+The **Stop** button and **Hey Arelis** still work in every mode. If
+you do leave barge-in on for speakers, set
+`conversation.barge_in_as_turn: false` so a clip that picks up both
+her voice and yours stays control-only (interpreted as stop / allow
+/ deny rather than a new question).
 
 Every wake and conversation decision gets logged to `logs/voice.log`,
 even with `voice.debug` turned off: things like `wake_heard`,

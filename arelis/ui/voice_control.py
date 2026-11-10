@@ -27,7 +27,11 @@ The microphone is not closed while she talks, because barge-in needs to hear the
 user interrupt. Talking over her cuts playback. On a headset that clip is the
 next turn. Speakers with barge_in_as_turn false keep the old path: the mixed
 clip is deliver "control" so stop / allow / deny still land and soup does not
-start a question.
+start a question. Barge-in itself defaults to headset mode: playback VAD is
+armed only when the current output looks like a headset or headphones. On
+speakers, or any unknown output, her own voice is ignored and she keeps
+talking; the Stop button and wake still work. always is today's behaviour
+on any device. off disables playback interrupts entirely.
 
 A clip that starts while she is speaking stays on that path: echo, or control,
 or a barge-in turn. A clip that starts while a turn is awaiting or busy and
@@ -43,7 +47,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from arelis.ui.audio import MicRecorder
+from arelis.ui.audio import MicRecorder, current_output_labels
+from arelis.voice.barge_in import barge_in_armed, parse_barge_in_mode
 from arelis.voice.pcm import duration_seconds, trim_trailing_silence
 from arelis.voice.telemetry import VoiceTrace, trace_enabled
 from arelis.voice.vad import (
@@ -114,9 +119,16 @@ class VoiceController(QObject):
         conversation = voice.get("conversation", {})
         wake_cfg = voice.get("wake") or {}
         self._wake_enabled = bool(wake_cfg.get("enabled", True))
-        self._barge_in_enabled = bool(conversation.get("barge_in", True))
+        # headset | always | off. Default headset: arm playback interrupts
+        # only when the output is a headset. Legacy true/false map to
+        # always/off so an existing config.local.yaml keeps its meaning.
+        self._barge_in_mode = parse_barge_in_mode(conversation.get("barge_in", "headset"))
+        self._output_device_hint = str(voice.get("output_device") or "")
+        # Tests inject a (description, id) pair so CI does not depend on
+        # the machine's real output device.
+        self._output_labels_override: tuple[str, str] | None = None
         # Headset default: talking over her is the next turn, not soup-as-control.
-        # Speakers set barge_in_as_turn false (or barge_in false) to keep the old clip.
+        # Speakers set barge_in_as_turn false (or barge_in off) to keep the old clip.
         self._barge_in_as_turn = bool(conversation.get("barge_in_as_turn", True))
         self._barge_join_ms = max(0, int(conversation.get("barge_join_ms", _BARGE_JOIN_MS)))
         smart_cfg = conversation.get("smart_turn")
@@ -281,6 +293,36 @@ class VoiceController(QObject):
         """Change mic device without tearing down voice modes."""
         self.recorder.set_device_hint(hint or "")
 
+    def set_output_device(self, hint: str) -> None:
+        """Follow the same output hint SpeechPlayer uses for playback."""
+        self._output_device_hint = hint or ""
+
+    def _resolve_output_labels(self) -> tuple[str, str]:
+        if self._output_labels_override is not None:
+            return self._output_labels_override
+        try:
+            return current_output_labels(self._output_device_hint)
+        except Exception as exc:
+            log.warning("output device lookup failed: %s", exc)
+            return "", ""
+
+    def _barge_in_is_armed(self) -> bool:
+        """True when playback VAD may interrupt her right now.
+
+        always and off decide without enumerating devices, so a lookup
+        failure cannot abort conversation entry or a speaker barge-in.
+        Headset mode re-reads the current default output on every check
+        so a plugged-in headset (or a default that moved to speakers) is
+        picked up without a restart. A failed lookup is treated as
+        unknown and stays unarmed.
+        """
+        if self._barge_in_mode == "always":
+            return True
+        if self._barge_in_mode == "off":
+            return False
+        description, device_id = self._resolve_output_labels()
+        return barge_in_armed(self._barge_in_mode, description, device_id)
+
     def mode(self) -> str:
         return self._mode
 
@@ -297,6 +339,8 @@ class VoiceController(QObject):
             "speaking": self._speaking,
             "confirm_pending": self._confirm_pending,
             "discard_barge": self._discard_barge_clip,
+            "barge_in": self._barge_in_mode,
+            "barge_armed": self._barge_in_is_armed(),
             "barge_as_turn": self._barge_in_as_turn,
             "mic": self.recorder.is_recording(),
             "vad": self._detector.speaking,
@@ -779,7 +823,7 @@ class VoiceController(QObject):
         if (
             self._mode == CONVERSATION
             and self._speaking
-            and self._barge_in_enabled
+            and self._barge_in_is_armed()
             and barge_prob_ok
         ):
             # Existing barge-in: she stops talking now. The window cuts
