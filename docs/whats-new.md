@@ -17,6 +17,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
+- Sentinels: the Overseer opens faster after the first time. Closing it saves its compiled shaders, so the next start does not compile them again. See [sentinels.md](sentinels.md).
 - Sentinels: screen readers and UI Automation can now pick an Overseer mission Mode (multi, arxiv, horizons, wikipedia, security_audit) directly from the Mode box. See [sentinels.md](sentinels.md).
 - Sentinels: patrolling Wardens no longer leave small red dots on their way back to the hive. Those packets now take the Warden colour; rose stays for real threats.
 - Sentinels: the close x at the top right of the Overseer shows again. It had been hidden under the 3D scene since the scene moved to its own window. See [sentinels.md](sentinels.md).
