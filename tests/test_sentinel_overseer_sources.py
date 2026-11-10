@@ -189,3 +189,69 @@ def test_source_labels_show_on_screen_and_keep_their_delegates(qt_app) -> None:
     view.close()
     view.deleteLater()
     qt_app.processEvents()
+
+
+def _swarm(total: int) -> list[dict]:
+    mix = [("sanitizer", 0.16), ("warden", 0.28), ("stalker", 0.02), ("tripwire", 0.10)]
+    units = []
+    for caste, share in mix:
+        units += [{"unit_id": f"{caste}-{i}", "caste": caste} for i in range(round(total * share))]
+    units += [{"unit_id": f"harvester-{i}", "caste": "harvester"} for i in range(total - len(units))]
+    return [
+        dict(u, state="PATROLLING", position=[0, 0.5, 0], heading=[1, 0, 0], scale=0.36)
+        for u in units
+    ]
+
+
+@isolated_render()
+def test_default_view_frames_perimeter_and_every_source_label(qt_app) -> None:
+    """The default camera is Iris's wide frame, pulled back until the
+    perimeter and all four source labels sit in the scene area the HUD
+    leaves free, at every band size and at the Windows CI clamp."""
+    from PySide6.QtQml import QQmlEngine, QQmlExpression
+
+    view = QQuickView()
+    view.engine().addImportPath(str(VIEW_QML.parent))
+    view.setColor(QColor("#0b0714"))
+    # The root owns the size: the Windows runner clamps a 2110 x 1306 window
+    # to 1028 x 749, and each free area below is computed for the size asked.
+    view.setResizeMode(QQuickView.SizeViewToRootObject)
+    view.setSource(QUrl.fromLocalFile(str(VIEW_QML)))
+    assert view.status() == QQuickView.Status.Ready, view.errors()
+    view.show()
+    root = view.rootObject()
+    ring = QQmlExpression(
+        QQmlEngine.contextForObject(root),
+        root,
+        "(function(){ var out = []; for (var i = 0; i < 24; i++) {"
+        " var a = i * Math.PI / 12, m = view.mapFrom3DScene(Qt.vector3d("
+        "perimeterRadius * Math.cos(a), 0, perimeterRadius * Math.sin(a)));"
+        " out.push([m.x, m.y]) } return out })()",
+    )
+    for w, h in ((2110, 1306), (1028, 749)):
+        root.setSize(QSizeF(w, h))
+        qt_app.processEvents()
+        assert (root.width(), root.height()) == (w, h)
+        free = (min(440, w * 0.26), 86, w - 20, h - 230)
+        for total in (50, 100, 128):
+            root.applyFrame(o.build_frame(_swarm(total), 96.0, float(h), nodes=[]))
+            qt_app.processEvents()
+            assert str(root.property("cameraMode")) == "overview"
+            assert abs(float(root.property("cameraPitch")) - o.OVERVIEW_PITCH_DEG) < 1e-3
+            pts = ring.evaluate()[0]
+            pts = pts.toVariant() if hasattr(pts, "toVariant") else pts
+            for x, y in pts:
+                assert free[0] <= x <= free[2] and free[1] <= y <= free[3], (w, total, x, y)
+            rows = root.property("sourceLabelScreen")
+            rows = rows.toVariant() if hasattr(rows, "toVariant") else rows
+            assert len(rows) == 4 and all(r["visible"] for r in rows), (w, total, rows)
+            for r in rows:
+                name = "OverseerSourceLabel_" + r["id"]
+                item = next(c for c in root.childItems() if c.objectName() == name)
+                box = (item.x(), item.y(), item.x() + item.width(), item.y() + item.height())
+                assert item.isVisible() and item.width() > 0, (w, total, r)
+                assert free[0] <= box[0] and box[2] <= free[2], (w, total, r, box)
+                assert free[1] <= box[1] and box[3] <= free[3], (w, total, r, box)
+    view.close()
+    view.deleteLater()
+    qt_app.processEvents()

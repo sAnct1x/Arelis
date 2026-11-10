@@ -280,9 +280,9 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "ringPositions" in qml
     assert "overseerBackdrop" in qml
     assert "Math.max(root.fill, 1.0 - root.reveal)" in qml
-    assert "cameraDistance: 76" in qml
+    assert "cameraDistance: 95.1893" in qml
     assert "scale: Qt.vector3d(0.0012, 0.0012, 0.0012)" in qml
-    assert overseer_runtime.DEFAULT_CAMERA_DISTANCE == 76.0
+    assert overseer_runtime.DEFAULT_CAMERA_DISTANCE == 95.1893
     assert "Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))" in qml
     assert "Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)" not in qml
     assert "Qt.vector3d(0.022, 0.022, 0.022)" in qml
@@ -530,13 +530,13 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     qt_app.processEvents()
     assert win._hud_labels["units"].text() == "Units 22"
     monkeypatch.setattr(overseer_runtime, "fetch_snapshot", real_fetch)
+    # Each open starts on the fitted overview (never closer than the spec).
+    assert str(scene_root.property("cameraMode")) == "overview"
+    assert float(scene_root.property("cameraDistance")) >= (
+        overseer_runtime.DEFAULT_CAMERA_DISTANCE - 1e-3
+    )
     assert abs(
-        float(scene_root.property("cameraDistance"))
-        - overseer_runtime.DEFAULT_CAMERA_DISTANCE
-    ) < 1e-3
-    assert abs(
-        float(scene_root.property("cameraPitch"))
-        - overseer_runtime.pitch_deg(overseer_runtime.DEFAULT_CAMERA_DISTANCE)
+        float(scene_root.property("cameraPitch")) - overseer_runtime.OVERVIEW_PITCH_DEG
     ) < 1e-3
 
     fake_demo = overseer_runtime.snapshot_units({"demo": True, "units": [{"unit_id": "x"}]})

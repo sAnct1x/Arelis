@@ -5,11 +5,21 @@ import QtQuick3D.Helpers
 Item {
     id: root
     objectName: "OverseerView"
-    property real cameraDistance: 76
-    property real cameraPitch: 50.8
+    // Default view is Iris's wide frame (BAND-SPEC.md "Camera framing"): the
+    // camera sits at k * (0, -78, 44) and looks at k * (0, 3, -6) in spec space,
+    // k = perimeter / 35. In scene space that is a look target k * (0, -6, -3),
+    // 95.19 * k m away along a 31.68 deg pitch (89.6 m and 29.4 deg from the
+    // hive centre). The distance only grows past that when the free scene
+    // area is too small to hold the perimeter and every source with its label.
+    readonly property real specPitchDeg: 31.6864
+    readonly property real specDistance: 95.1893
+    property real overviewDistance: 95.1893
+    property string overviewKey: ""
+    property real cameraDistance: 95.1893
+    property real cameraPitch: 31.6864
     property real cameraTargetX: 0
-    property real cameraTargetY: 0
-    property real cameraTargetZ: 0
+    property real cameraTargetY: -6
+    property real cameraTargetZ: -3
     property real wheelPivotX: 0
     property real wheelPivotY: 0
     property real wheelPivotZ: 0
@@ -54,7 +64,7 @@ Item {
     property var hudLogs: []
     property var collapsedGroups: []
     property string selectedUnitId: ""
-    property string cameraMode: "follow"
+    property string cameraMode: "overview"
     property int placementFrameId: 0
     property var instanceRecords: ({})
     // Per unit: open-fetch reach pairs now and before, and the sceneTime the
@@ -86,8 +96,15 @@ Item {
     property var sourceLabelSpecs: []
     property var sourceLabelScreen: []
     property string sourceLabelKey: ""
-    onWidthChanged: projectSourceLabels()
-    onHeightChanged: projectSourceLabels()
+    onWidthChanged: {
+        updateOverview()
+        projectSourceLabels()
+    }
+    onHeightChanged: {
+        updateOverview()
+        projectSourceLabels()
+    }
+    onShowInspectorChanged: updateOverview()
     property string hudCommandStatus: ""
     property string lastHudCommand: ""
     property var lastHudPayload: ({})
@@ -196,6 +213,7 @@ Item {
         instanceRecords = recs
         rememberUnitPositions(buckets)
         sourceLabelSpecs = frame.sourceLabels || []
+        updateOverview()
         projectSourceLabels()
         var b = frame.budget
         if (b) {
@@ -340,8 +358,139 @@ Item {
         var pos = unitPositionOf(selectedUnitId)
         if (!pos)
             return false
+        // Selecting a unit leaves the overview and follows it, as before.
+        cameraMode = "follow"
         setCameraTarget(pos.x, pos.y, pos.z)
         return true
+    }
+
+    // Spec look direction, distance fitted to the free scene area.
+    function applyOverview() {
+        var s = overviewDistance / specDistance
+        setCameraTarget(0, -6 * s, -3 * s)
+        cameraDistance = overviewDistance
+        cameraPitch = specPitchDeg
+    }
+
+    function showOverview() {
+        cameraMode = "overview"
+        unitFocused = false
+        applyOverview()
+    }
+
+    // Everything the default view must hold: the perimeter ring, the outer
+    // band lanes, and each edge source with room for its name under it.
+    function overviewPoints() {
+        var pts = []
+        var r = finiteNum(perimeterRadius, 35)
+        for (var i = 0; i < 24; i++) {
+            var a = i / 24 * Math.PI * 2
+            pts.push({ p: Qt.vector3d(r * Math.cos(a), 0.02, r * Math.sin(a)), label: false })
+        }
+        var bands = bandSpecs || []
+        for (var bi = 0; bi < bands.length; bi++) {
+            var lanes = bands[bi].lanes || []
+            if (!lanes.length)
+                continue
+            var outer = lanes[lanes.length - 1]
+            for (var j = 0; j < 12; j++)
+                pts.push({ p: bandPoint(bands[bi], outer, j / 12 * Math.PI * 2), label: false })
+        }
+        var specs = sourceLabelSpecs || []
+        for (var si = 0; si < specs.length; si++) {
+            var sp = specs[si]
+            if (sp)
+                pts.push({ p: Qt.vector3d(finiteNum(sp.x), finiteNum(sp.y), finiteNum(sp.z)), label: true })
+        }
+        return pts
+    }
+
+    // Screen position of a scene point for a camera at distance d and pitch
+    // pitchDegValue on the overview target, with the HUD lens shift. Same
+    // maths as the PerspectiveCamera binding (35 deg vertical FOV).
+    function overviewProject(world, d, pitchDegValue) {
+        var w = Math.max(1, width)
+        var h = Math.max(1, height)
+        var p = pitchDegValue * Math.PI / 180
+        var s = d / specDistance
+        var sh = lensShiftFor(d, pitchDegValue)
+        var cx = sh.x
+        var cy = -6 * s + Math.sin(p) * d + sh.y
+        var cz = -3 * s + Math.cos(p) * d + sh.z
+        var vx = world.x - cx
+        var vy = world.y - cy
+        var vz = world.z - cz
+        var depth = -(vy * Math.sin(p) + vz * Math.cos(p))
+        var up = vy * Math.cos(p) - vz * Math.sin(p)
+        if (depth <= 0.1)
+            return null
+        var t = Math.tan(35 * Math.PI / 360)
+        return {
+            x: w / 2 + vx / (depth * t * (w / h)) * (w / 2),
+            y: h / 2 - up / (depth * t) * (h / 2)
+        }
+    }
+
+    function overviewFits(d, pts, free) {
+        for (var i = 0; i < pts.length; i++) {
+            var m = overviewProject(pts[i].p, d, specPitchDeg)
+            if (!m)
+                return false
+            // A source needs its name (about 120 x 50 px) under it; a ring
+            // point needs a small margin.
+            var hx = pts[i].label ? 64 : 8
+            var top = pts[i].label ? 14 : 8
+            var below = pts[i].label ? 64 : 8
+            if (m.x - hx < free.x || m.x + hx > free.x + free.width)
+                return false
+            if (m.y - top < free.y || m.y + below > free.y + free.height)
+                return false
+        }
+        return true
+    }
+
+    function updateOverview() {
+        var free = freeViewportRect()
+        var pts = overviewPoints()
+        var key = Math.round(width) + "x" + Math.round(height) + ":" + free.x + ":" + free.width
+            + ":" + free.height + ":" + perimeterRadius + ":" + bandKey + ":" + sourceSpecKey()
+        if (key === overviewKey)
+            return
+        overviewKey = key
+        var k = Math.max(1, finiteNum(perimeterRadius, 35) / 35)
+        var lo = specDistance * k
+        var d = lo
+        // A window too small to hold the hive keeps the farthest sane frame.
+        var far = lo * 3
+        if (free.width < 1 || free.height < 1)
+            d = lo
+        else if (!overviewFits(far, pts, free))
+            d = far
+        else if (!overviewFits(lo, pts, free)) {
+            var hi = far
+            for (var it = 0; it < 30; it++) {
+                var mid = (lo + hi) / 2
+                if (overviewFits(mid, pts, free))
+                    hi = mid
+                else
+                    lo = mid
+            }
+            d = hi
+        }
+        overviewDistance = d
+        if (cameraMode === "overview" || cameraMode === "fit")
+            applyOverview()
+    }
+
+    function sourceSpecKey() {
+        var specs = sourceLabelSpecs || []
+        var key = ""
+        for (var i = 0; i < specs.length; i++) {
+            var sp = specs[i]
+            if (sp)
+                key += sp.id + ":" + finiteNum(sp.x) + ":" + finiteNum(sp.y) + ":" + finiteNum(sp.z) + "|"
+        }
+        return key
     }
 
     function focusSelectedUnit() {
@@ -356,12 +505,12 @@ Item {
         return true
     }
 
+    // Fit swarm frames the whole hive like the default view (perimeter and
+    // every source), but stays put when a unit is selected.
     function fitSwarm() {
         cameraMode = "fit"
         unitFocused = false
-        setCameraTarget(0, 0, 0)
-        cameraDistance = 96.0
-        cameraPitch = pitchDeg(96.0)
+        applyOverview()
     }
 
     // The scene area the HUD leaves free: list on the left, strip on top,
@@ -389,9 +538,12 @@ Item {
     }
 
     function lensShiftOffset() {
+        return lensShiftFor(cameraDistance, cameraPitch)
+    }
+
+    function lensShiftFor(d, pitchDegValue) {
         var sh = freeViewportShift()
-        var d = cameraDistance
-        var pitch = cameraPitch * Math.PI / 180
+        var pitch = pitchDegValue * Math.PI / 180
         var visH = 2 * d * Math.tan(35 * Math.PI / 360)
         var aspect = (height > 1 && width > 1) ? (width / height) : (2110 / 1306)
         var visW = visH * aspect
@@ -669,6 +821,14 @@ Item {
             next = lo
         if (next > hi)
             next = hi
+        if (cameraMode === "overview") {
+            // The wheel leaves the overview onto the approved zoom curve.
+            cameraMode = "follow"
+            if (!wheelPivotLive && !syncCameraTargetFromSelection() && old) {
+                var ts = next / old
+                setCameraTarget(cameraTargetX * ts, cameraTargetY * ts, cameraTargetZ * ts)
+            }
+        }
         if (wheelPivotLive && old) {
             var s = next / old
             setCameraTarget(
@@ -896,7 +1056,10 @@ Item {
         return n
     }
 
-    Component.onCompleted: ensureLists()
+    Component.onCompleted: {
+        ensureLists()
+        updateOverview()
+    }
 
 
     // Thin orbit rings: Qt #Cylinder is a solid 100-unit primitive, so
