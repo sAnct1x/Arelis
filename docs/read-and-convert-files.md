@@ -70,6 +70,6 @@ If you skip the card, she does not open the file.
 
 ## The message box
 
-The box you type into grows with the text, up to about six lines, and then
+The box you type into grows with the text, up to eight lines, and then
 scrolls, so a long path or a long question stays visible.
 

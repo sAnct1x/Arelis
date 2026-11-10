@@ -52,7 +52,7 @@ def test_typed_path_with_spaces_raises_external_read_allow(
 ) -> None:
     """A typed path with spaces must raise the existing external_read card."""
     found = typed_absolute_paths(_WIN_PROMPT)
-    assert found == [_WIN_CSV]
+    assert _WIN_CSV in found
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -64,14 +64,24 @@ def test_typed_path_with_spaces_raises_external_read_allow(
         "Make a new Excel workbook of the 8 planets from "
         f"{outside}, with mass, radius, moons and AU as real numbers."
     )
-    assert typed_absolute_paths(ask) == [str(outside)]
+    assert str(outside) in typed_absolute_paths(ask)
+
+    # A typed folder followed by a sentence that names a file must keep the
+    # real folder as a fallback, or the Allow card never appears. The
+    # folder is created here, but the assertion and Allow check run after
+    # the original spaced-file card so a revert still proves that case.
+    typed_folder = tmp_path / "test"
+    typed_folder.mkdir()
+    folder_ask = (
+        f"List the files in {typed_folder} and convert sample.nc to csv"
+    )
 
     async def _quiet_run(self, *args, **kwargs):
         self.terminal_sent = True
 
     monkeypatch.setattr(AgentLoop, "run", _quiet_run)
 
-    async def _run() -> None:
+    async def _expect_allow(ask_text: str, expected: Path) -> None:
         bus = EventBus()
         orch = Orchestrator(
             bus,
@@ -86,7 +96,9 @@ def test_typed_path_with_spaces_raises_external_read_allow(
             workspace=WorkspaceRoots.from_paths([str(root)]),
         )
         task = asyncio.create_task(
-            orch.on_user_message(Event(EventType.USER_MESSAGE, {"text": ask}))
+            orch.on_user_message(
+                Event(EventType.USER_MESSAGE, {"text": ask_text})
+            )
         )
         try:
             for _ in range(100):
@@ -96,14 +108,19 @@ def test_typed_path_with_spaces_raises_external_read_allow(
             assert len(orch._confirm_live) == 1
             live = next(iter(orch._confirm_live.values()))
             assert live["tool"] == "external_read"
-            assert Path(live["args"]["path"]) == outside.resolve()
+            assert Path(live["args"]["path"]) == expected.resolve()
             next(iter(orch._confirm_waiters.values())).set_result("allow")
             await asyncio.wait_for(task, timeout=2)
-            assert orch.workspace.has_external_read(outside)
+            assert orch.workspace.has_external_read(expected)
         finally:
             if not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+
+    async def _run() -> None:
+        await _expect_allow(ask, outside)
+        assert str(typed_folder) in typed_absolute_paths(folder_ask)
+        await _expect_allow(folder_ask, typed_folder)
 
     asyncio.run(_run())
 
@@ -162,6 +179,49 @@ def test_table_verify_reports_tool_error_or_accepts_python() -> None:
         )
         is None
     )
+
+
+def test_analyze_and_vision_failure_replies_hide_tool_detail() -> None:
+    """Failed analyze or vision replies must not paste raw tool output."""
+    details = (
+        (
+            "Traceback (most recent call last):\n"
+            '  File "/home/x/.arelis/sandbox/cell.py", line 2\n'
+            "FileNotFoundError: ... /home/x/.arelis/sandbox/data.csv"
+        ),
+        (
+            "summary | /home/x/Arelis/workspace/data/planets.csv | "
+            "pandas ParserError: expected 3 fields"
+        ),
+        "data_cell is off (tools.data_cell.enabled=false)",
+    )
+    banned = (
+        "Traceback",
+        "FileNotFoundError",
+        "/home/x/.arelis/sandbox/cell.py",
+        "/home/x/.arelis/sandbox/data.csv",
+        "/home/x/Arelis/workspace/data/planets.csv",
+        "pandas ParserError",
+        "tools.data_cell.enabled",
+        "data_cell is off",
+        "summary |",
+    )
+    for detail in details:
+        for kind, failed_kw, detail_kw in (
+            ("analyze", "analyze_failed", "analyze_detail"),
+            ("vision", "vision_failed", "vision_detail"),
+        ):
+            reply = unsupported_exactness_reply(
+                [kind],
+                **{failed_kw: True, detail_kw: detail},
+            )
+            assert reply
+            assert detail not in reply
+            lowered = reply.lower()
+            for needle in banned:
+                assert needle.lower() not in lowered, (
+                    f"{kind} reply leaked {needle!r}: {reply}"
+                )
 
 
 def test_workbench_composer_grows_or_scrolls_long_text(qt_app) -> None:

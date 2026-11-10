@@ -26,6 +26,7 @@ from arelis.core.orchestrator_shared import (
     ROLES,
     TOOL_CMD,
     comms_bypasses_sticky,
+    longest_existing_typed_paths,
     match_role_switch,
     research_needs_vram_swap,
     typed_absolute_paths,
@@ -341,7 +342,7 @@ class OrchestratorTurns:
     async def _ensure_external_path_grants(self, text: str) -> bool:
         """Confirm + grant each absolute path outside roots. False if user skips."""
         candidates: list[Path] = []
-        for raw in typed_absolute_paths(text):
+        for raw in longest_existing_typed_paths(typed_absolute_paths(text)):
             if not raw:
                 continue
             if not (_WINDOWS_DRIVE.match(raw) or raw.startswith("/")):

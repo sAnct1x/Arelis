@@ -1572,18 +1572,21 @@ def unsupported_exactness_reply(
         )
     if "analyze" in kinds:
         if analyze_failed:
-            detail = (analyze_detail or "").strip()
-            lowered = detail.lower()
-            if "outside" in lowered and "workspace" in lowered:
+            detail = (analyze_detail or "").lower()
+            if "outside" in detail and "workspace" in detail:
                 return (
                     "I couldn't read that file because it is outside the "
                     "workspace. Allow the path on the card, or add the folder "
                     "in Settings."
                 )
-            if detail:
+            if (
+                "not found" in detail
+                or "filenotfound" in detail
+                or "no such file" in detail
+            ):
                 return (
-                    f"I couldn't read that table: {detail} "
-                    "I will not invent row counts or column stats."
+                    "I couldn't find that file. I will not invent row counts "
+                    "or column stats."
                 )
             return (
                 "I couldn't read that table. I will not invent row counts "
@@ -1595,18 +1598,21 @@ def unsupported_exactness_reply(
         )
     if "vision" in kinds:
         if vision_failed:
-            detail = (vision_detail or "").strip()
-            lowered = detail.lower()
-            if "outside" in lowered and "workspace" in lowered:
+            detail = (vision_detail or "").lower()
+            if "outside" in detail and "workspace" in detail:
                 return (
                     "I couldn't read that image because it is outside the "
                     "workspace. Allow the path on the card, or add the folder "
                     "in Settings."
                 )
-            if detail:
+            if (
+                "not found" in detail
+                or "filenotfound" in detail
+                or "no such file" in detail
+            ):
                 return (
-                    f"I couldn't look at that image: {detail} "
-                    "I will not invent what a screenshot or photo shows."
+                    "I couldn't find that image. I will not invent what a "
+                    "screenshot or photo shows."
                 )
             return (
                 "I couldn't look at that image. I will not invent what a "

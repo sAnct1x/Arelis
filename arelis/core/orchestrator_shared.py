@@ -15,6 +15,7 @@ to a copy nobody reads.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 # Absolute paths typed in chat that may need a session read grant.
 # Paths with spaces (a Desktop folder named "Arelis 0.3.5 test files") must
@@ -73,10 +74,13 @@ def typed_absolute_paths(text: str) -> list[str]:
         return token.replace("\\", "/").lower()
 
     def _covers(long: str, short: str) -> bool:
+        # Only a real path child covers a prefix. A space-separated tail
+        # ("folder and convert sample.nc") must not drop the shorter typed
+        # prefix, which is kept as a fallback for the existence check.
         a, b = _norm(long), _norm(short)
         if a == b:
             return True
-        return a.startswith(b) and (len(a) == len(b) or a[len(b)] in "/\\ ")
+        return a.startswith(b) and (len(a) == len(b) or a[len(b)] in "/\\")
 
     def _add(token: str | None) -> None:
         cleaned = (token or "").strip().rstrip(".,);]")
@@ -116,6 +120,46 @@ def typed_absolute_paths(text: str) -> list[str]:
     for match in _ABS_PATH_TOKEN.finditer(raw):
         _add(match.group("path"))
     return found
+
+
+def longest_existing_typed_paths(tokens: list[str]) -> list[str]:
+    """Keep the longest existing token among overlapping typed paths.
+
+    Shorter space-delimited prefixes stay only when no longer overlapping
+    token exists. A missing file is not walked up to a parent folder that
+    was not itself a typed token.
+    """
+    existing: list[str] = []
+    seen: set[str] = set()
+    for raw in tokens:
+        cleaned = (raw or "").strip()
+        if not cleaned:
+            continue
+        try:
+            path = Path(cleaned).expanduser().resolve()
+        except OSError:
+            continue
+        if not path.exists():
+            continue
+        key = cleaned.replace("\\", "/").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        existing.append(cleaned)
+
+    def _overlaps_longer(long: str, short: str) -> bool:
+        a, b = long.replace("\\", "/").lower(), short.replace("\\", "/").lower()
+        if a == b or not a.startswith(b):
+            return False
+        return a[len(b)] in "/\\ "
+
+    kept: list[str] = []
+    for raw in existing:
+        if any(_overlaps_longer(other, raw) for other in existing):
+            continue
+        kept.append(raw)
+    return kept
+
 
 ROLES: set[str] = {"fast", "research"}
 
