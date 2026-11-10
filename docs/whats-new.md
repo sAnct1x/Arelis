@@ -17,6 +17,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
+- Sentinels: screen readers and UI Automation can now pick an Overseer mission Mode (multi, arxiv, horizons, wikipedia, security_audit) directly from the Mode box. See [sentinels.md](sentinels.md).
 - Sentinels: the close x at the top right of the Overseer shows again. It had been hidden under the 3D scene since the scene moved to its own window. See [sentinels.md](sentinels.md).
 - Sentinels: the Overseer inspector docks on the right outside the scene (360 px, sized to its content) only while a unit is selected. LIVE shows reported fields; missing ones are listed once as "Not reported by the hive yet". Retask and Recall drop "(unavailable)" and keep a tooltip; Retire asks to confirm in place. See [sentinels.md](sentinels.md).
 - Sentinels: Overseer tentacles sway slowly while a unit patrols and curl faster when it is working or engaged, driven by the unit's real state on the GPU. See [sentinels.md](sentinels.md).

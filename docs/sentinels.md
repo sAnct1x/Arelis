@@ -58,7 +58,10 @@ dispatch use the hive's existing command paths. Dispatch needs a query
 (a topic, or a Horizons target) unless Mode is security_audit; if the hive
 refuses a request the console says why, for example "Refused: Enter a
 research topic or Horizons target." Dispatch, the query field and each
-Mode choice have names for screen readers and UI Automation. Recall is disabled:
+Mode choice have names for screen readers and UI Automation. The Mode box
+also lists each mode as its own item (multi, arxiv, horizons, wikipedia,
+security_audit) without opening the menu, so a screen reader or UI
+Automation can pick one directly. Recall is disabled:
 it would shrink the whole caste, not just this unit. Focus frames the
 selected unit from its snapshot position (local camera only; no new hive
 route). Retask is disabled: the hive cannot give one unit a new job, and
