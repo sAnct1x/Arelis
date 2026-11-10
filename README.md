@@ -372,3 +372,7 @@ You're free to use it, read it, change it, and share it. If you share
 a modified version (including by running it as a service other people
 connect to), you need to make your changes available under the same
 license.
+
+Runtime speech weights and libraries are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
+The optional Parakeet speech-to-text model is CC BY 4.0 (NVIDIA). The
+sherpa-onnx runtime is Apache License 2.0.
