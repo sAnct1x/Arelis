@@ -63,8 +63,11 @@ Speech-to-text and text-to-speech both stay on the CPU. Those
 weights are fetched on first open, not stuffed in the setup `.exe`;
 the idle line says **getting the ear…** until wake can hear. Idle
 wake uses faster-whisper until `models/wake/hey_arelis.onnx` exists.
-Conversation and dictation use Sherpa-ONNX Zipformer EN. Speech out
-is Kokoro-82M (`af_heart`), Piper Jenny as fallback. More in
+Conversation and dictation default to faster-whisper. Set
+`voice.stt.engine: parakeet` in `config.local.yaml` to use NVIDIA
+Parakeet TDT 0.6B v3 (int8, CPU); the pack downloads on first use into
+`models/parakeet/` and is not in the installer. Speech out is
+Kokoro-82M (`af_heart`), Piper Jenny as fallback. More in
 [voice-wake.md](voice-wake.md).
 
 Qwen3.5 streams its native thinking one token per SSE frame. The

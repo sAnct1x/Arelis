@@ -493,8 +493,12 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.thinking.append(text, kind="trace")
     elif t == EventType.STATUS:
         msg = p.get("message", "")
-        if p.get("image_progress"):
-            window.chat.show_progress(str(msg))
+        if p.get("image_progress") or p.get("progress"):
+            text = str(msg)
+            if p.get("progress") == "clear" or not text:
+                window.chat.clear_progress()
+                return
+            window.chat.show_progress(text)
             return
         window.thinking.append(tr(msg), kind="status")
         # Listen URL stays in thinking — a system line on cold launch hid the

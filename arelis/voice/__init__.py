@@ -107,6 +107,7 @@ class VoiceService:
         self._pending: list[tuple[str, bool]] = []
         self._drain_task: asyncio.Task[None] | None = None
         self._live_bridge = None
+        self._stt_progress = None
         if self.tts_enabled:
             bus.subscribe(EventType.ASSISTANT_DELTA, self.on_delta)
             bus.subscribe(EventType.ASSISTANT_RETRACT, self.on_retract)
@@ -537,11 +538,15 @@ class VoiceService:
 
         if not self.stt.loaded():
             await self._status("Getting the ear…")
+        self._bind_stt_progress()
         try:
             stt_t0 = time.perf_counter()
             text = (
                 await self.stt.transcribe(path, proceed=proceed, purpose=deliver)
             ).strip()
+            notice = self.stt.take_fallback_notice()
+            if notice:
+                await self._status(notice)
             stt_ms = int((time.perf_counter() - stt_t0) * 1000)
             if turn_telemetry_enabled(self.config):
                 log_span(
@@ -555,9 +560,13 @@ class VoiceService:
             raise
         except Exception as exc:
             log.exception("Transcription failed")
+            notice = self.stt.take_fallback_notice()
+            if notice:
+                await self._status(notice)
             await self._error(f"Could not transcribe that: {exc}")
             return ""
         finally:
+            self._clear_stt_progress()
             # The clip has served its purpose either way, and these are the only
             # recordings of the user's voice the app ever writes to disk, so
             # they go unless the user asked to keep them for debugging.
@@ -737,20 +746,71 @@ class VoiceService:
                 else "Warming the ear…"
             )
             announced = True
-        if missing:
-            await asyncio.to_thread(prepare_voice_files, self.config)
-        if not (self.stt_enabled and self.stt.available()):
-            return
+        self._bind_stt_progress()
         try:
-            await self.stt.preload()
-        except Exception as exc:
-            log.warning("Speech model preload failed: %s", exc)
-            await self._status(f"Could not get the ear: {exc}")
-            return
-        if announced and self.stt.loaded():
-            await self._status("I'm listening. Say Hey Arelis.")
+            if missing:
+                await asyncio.to_thread(prepare_voice_files, self.config, self._stt_progress)
+            if not (self.stt_enabled and self.stt.available()):
+                return
+            try:
+                await self.stt.preload()
+            except Exception as exc:
+                log.warning("Speech model preload failed: %s", exc)
+                await self._status(f"Could not get the ear: {exc}")
+                return
+            notice = self.stt.take_fallback_notice()
+            if notice:
+                await self._status(notice)
+            if announced and self.stt.loaded():
+                await self._status("I'm listening. Say Hey Arelis.")
+        finally:
+            self._clear_stt_progress()
 
     # ----------------------------------------------------------------- misc
+
+    def _bind_stt_progress(self) -> None:
+        """Push first-use download bytes to the existing progress line."""
+        loop = asyncio.get_running_loop()
+        last = {"t": 0.0}
+
+        def progress(status: str, done: int, total: int) -> None:
+            now = time.monotonic()
+            is_edge = done <= 0 or (total > 0 and done >= total)
+            if not is_edge and now - last["t"] < 0.4:
+                return
+            last["t"] = now
+
+            def emit() -> None:
+                self.bus.publish_nowait(
+                    Event(
+                        EventType.STATUS,
+                        {"message": status, "progress": True},
+                    )
+                )
+
+            try:
+                loop.call_soon_threadsafe(emit)
+            except RuntimeError:
+                emit()
+
+        self._stt_progress = progress
+        setter = getattr(self.stt, "set_progress", None)
+        if callable(setter):
+            setter(progress)
+
+    def _clear_stt_progress(self) -> None:
+        setter = getattr(self.stt, "set_progress", None)
+        if callable(setter):
+            setter(None)
+        self._stt_progress = None
+        try:
+            self.bus.publish_nowait(
+                Event(EventType.STATUS, {"message": "", "progress": "clear"})
+            )
+        except Exception:
+            # Best-effort: the download already finished or failed, and a
+            # closed bus in finally must not mask that result.
+            pass
 
     async def _status(self, message: str) -> None:
         await self.bus.publish(Event(EventType.STATUS, {"message": message}))

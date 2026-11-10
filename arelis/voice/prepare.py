@@ -48,7 +48,14 @@ def missing_voice_parts(
     from arelis.voice.sherpa_stt import resolve_model_dir, sherpa_files_present
 
     stt = voice.get("stt") if isinstance(voice.get("stt"), dict) else {}
-    if not sherpa_files_present(resolve_model_dir(stt)):
+    engine = str(stt.get("engine") or "whisper").strip().lower()
+    if engine in {"parakeet", "parakeet-tdt", "parakeet_tdt"}:
+        from arelis.voice.parakeet_stt import parakeet_files_present, resolve_parakeet_dir
+
+        if not parakeet_files_present(resolve_parakeet_dir(stt)):
+            if not allowed_only or _allow(stt.get("allow_download"), True):
+                missing.append("the ear")
+    elif not sherpa_files_present(resolve_model_dir(stt)):
         if not allowed_only or _allow(stt.get("allow_download"), True):
             missing.append("the ear")
 
@@ -102,7 +109,28 @@ def prepare_voice_files(
             progress(status, 0, 0)
 
     stt = voice.get("stt") if isinstance(voice.get("stt"), dict) else {}
-    if _allow(stt.get("allow_download"), True):
+    engine = str(stt.get("engine") or "whisper").strip().lower()
+    if engine in {"parakeet", "parakeet-tdt", "parakeet_tdt"}:
+        if _allow(stt.get("allow_download"), True):
+            from arelis.voice.parakeet_stt import (
+                ensure_parakeet_files,
+                parakeet_files_present,
+                resolve_parakeet_dir,
+            )
+
+            root = resolve_parakeet_dir(stt)
+            if not parakeet_files_present(root):
+                report("Downloading the Parakeet speech model…")
+                try:
+                    ensure_parakeet_files(
+                        root,
+                        allow_download=True,
+                        progress=progress,
+                    )
+                    fetched.append("the ear")
+                except Exception as exc:
+                    log.warning("Could not get the Parakeet ear: %s", exc)
+    elif _allow(stt.get("allow_download"), True):
         from arelis.voice.sherpa_stt import (
             ensure_sherpa_files,
             resolve_model_dir,
