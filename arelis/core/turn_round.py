@@ -85,6 +85,7 @@ from arelis.core.turn_scratch import (
 )
 from arelis.llm.errors import classify_turn_failure, is_vram_failure
 from arelis.tools.pdf_pages import ink_vision_walk
+from arelis.tools.python_handoff import rewrite_python_to_run_script
 
 _CHAIN_STILL_OPEN = "That result does not finish what they asked."
 _CHECKING_AGAIN = "Checking again..."
@@ -613,6 +614,17 @@ async def apply_no_call_path(
                 Event(
                     EventType.THINKING,
                     {"text": "rewrite  desk look snapshot → screenshot"},
+                )
+            )
+
+        before_py = list(r.calls)
+        r.calls = rewrite_python_to_run_script(r.calls)
+        if r.calls != before_py:
+            r.tool_calls = [_native_tool_call(n, a) for n, a in r.calls]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "rewrite  python cell → run_script sandbox"},
                 )
             )
 

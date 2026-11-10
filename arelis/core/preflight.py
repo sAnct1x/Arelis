@@ -92,6 +92,8 @@ __all__ = [
     "rewrite_browser_action",
     "rewrite_desktop_calls",
     "signin_ref_from_snapshot",
+    "unasked_desktop_block",
+    "unasked_notes_write_block",
     "user_asked_for_browser",
     "user_asked_for_desktop",
 ]
@@ -451,6 +453,104 @@ def user_asked_for_desktop(
 ) -> bool:
     return looks_like_desktop_ask(text) or looks_like_desktop_look(
         text, history=history
+    )
+
+
+# A typed absolute path, so "edit that workbook" still counts via DOCUMENT
+# and a follow-up like "Now save it" does not.
+_NAMED_FILE = re.compile(
+    r"(?:"
+    r"[A-Za-z]:[\\/][^\s\"'<>|]+"
+    r"|\\\\[^\s\"'<>|]+"
+    r"|/(?:Users|home|tmp|var|etc|opt|mnt|media)[^\s\"'<>|]*"
+    r")"
+)
+
+
+def _message_role_and_text(item: Any) -> tuple[str, str] | None:
+    if hasattr(item, "role"):
+        role = str(getattr(item, "role", "") or "")
+        content = str(getattr(item, "content", "") or "")
+        name = str(getattr(item, "name", "") or "")
+    elif isinstance(item, dict):
+        role = str(item.get("role") or "")
+        content = str(item.get("content") or "")
+        name = str(item.get("name") or "")
+    else:
+        return None
+    if role == "tool" and name:
+        return role, name
+    return role, content
+
+
+def _is_file_task(text: str, *, require_path: bool = False) -> bool:
+    """True for a document/script ask, or a turn that names a file path."""
+    raw = text or ""
+    named = bool(_NAMED_FILE.search(raw))
+    if require_path:
+        return named
+    if named:
+        return True
+    from arelis.core.intent_catalog import DOCUMENT, RUN_SCRIPT
+
+    return DOCUMENT.matches(raw) or RUN_SCRIPT.matches(raw)
+
+
+def _prior_desktop_grant(history: list[Any] | None) -> bool:
+    """True when a recent user ask, or a desktop tool turn, already granted drive."""
+    users = 0
+    for item in reversed(history or []):
+        parsed = _message_role_and_text(item)
+        if parsed is None:
+            continue
+        role, content = parsed
+        if role == "tool" and content == "desktop":
+            return True
+        if role != "user":
+            continue
+        users += 1
+        if looks_like_desktop_ask(content) or looks_like_desktop_look(content):
+            return True
+        if users >= 6:
+            break
+    return False
+
+
+def unasked_desktop_block(
+    text: str,
+    history: list[Any] | None = None,
+    *,
+    drive_live: bool = False,
+) -> str | None:
+    """Refuse desktop only on a file task that is not a Windows drive."""
+    if user_asked_for_desktop(text, history=history):
+        return None
+    if drive_live or _prior_desktop_grant(history):
+        return None
+    if not _is_file_task(text):
+        return None
+    return (
+        "The user did not ask to drive the Windows session or look at a "
+        "monitor. To edit a workbook, call document format=xlsx with "
+        "from_path; it writes a copy. To change a file they named, use "
+        "workspace or run_script. Do not call desktop."
+    )
+
+
+def unasked_notes_write_block(text: str, args: dict[str, Any] | None = None) -> str | None:
+    """Refuse notes add only when they asked to change a named file."""
+    action = str((args or {}).get("action") or "").strip().lower()
+    if action != "add":
+        return None
+    from arelis.core.intent_catalog import NOTES
+
+    if NOTES.matches(text or ""):
+        return None
+    if not _is_file_task(text, require_path=True):
+        return None
+    return (
+        "The user did not ask to add a desk note. To change a file they "
+        "named, use run_script or workspace. Do not call notes."
     )
 
 

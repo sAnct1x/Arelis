@@ -5,7 +5,10 @@ windows, type, click. This is separate from her Chrome browser. For web
 tasks, see [Browser Control](browser-control.md).
 
 You watch it. Stop / Pause / Go on the Drive strip (or out loud)
-work the same as a browser drive.
+work the same as a browser drive. When the drive ends, or if it fails,
+the strip hides. It stays only if she is still watching a page, or if
+you paused (your turn). Editing a spreadsheet or appending to a file
+is not a desktop drive.
 
 ## Tool
 

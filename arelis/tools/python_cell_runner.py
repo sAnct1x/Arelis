@@ -7,8 +7,10 @@ imported the numerics libraries and printed a ready line.
 The allowlist is the original cell unless the parent sets science_io. That
 flag adds corner, csv, seaborn, emcee, and astropy. matplotlib, pyplot, and
 savefig stay allowed either way. Ordinary Python writes (open, np.save,
-savefig) run in this turn's work folder, which is the process cwd. Process
-launchers stay refused. Matplotlib is imported before those stubs when a
+savefig) run in this turn's work folder, which is the process cwd. A write
+outside that folder or a writable results folder is refused at run time, so
+a path built in a variable still cannot change a file the user named.
+Process launchers stay refused. Matplotlib is imported before those stubs when a
 snippet asks for it. The parent sets MPL_IGNORE_SYSTEM_FONTS, so that import
 uses the bundled fonts and does not spawn system_profiler or fc-list.
 """
@@ -490,6 +492,171 @@ def _set_cwd(raw: Any) -> None:
         os.chdir(folder)
 
 
+_WRITE_ROOTS: list[Path] = []
+_IN_WRITE_HOOK = False
+_NULL_DEVICES = frozenset({os.path.normcase(os.devnull), "nul"})
+# Event name to (path argument positions, what the refusal calls the write).
+_WRITE_EVENTS: dict[str, tuple[tuple[int, ...], str]] = {
+    "os.remove": ((0,), "delete"),
+    "os.rmdir": ((0,), "delete"),
+    "shutil.rmtree": ((0,), "delete"),
+    "os.rename": ((0, 1), "move"),
+    "os.replace": ((0, 1), "move"),
+    "os.link": ((0, 1), "write"),
+    "os.symlink": ((1,), "write"),
+    "os.mkdir": ((0,), "write"),
+    "os.makedirs": ((0,), "write"),
+    "os.chmod": ((0,), "write"),
+    "os.chown": ((0,), "write"),
+    "os.utime": ((0,), "write"),
+    "os.truncate": ((0,), "write"),
+}
+_DIR_FD_ARG = {"os.remove": 1, "os.rmdir": 1, "os.mkdir": 2, "os.rename": 2, "os.replace": 2}
+
+_WRITE_REFUSAL = (
+    "This cell cannot change a file outside its work folder or a results "
+    "folder. Call run_script with the same code so the file card can ask "
+    "first. Nothing was changed there."
+)
+
+
+def _is_write_open(mode: Any, flags: Any) -> bool:
+    if isinstance(mode, bytes):
+        mode = os.fsdecode(mode)
+    text = "" if mode is None else str(mode)
+    if any(ch in text for ch in "wax+"):
+        return True
+    try:
+        flag = int(flags or 0)
+    except (TypeError, ValueError):
+        flag = 0
+    bits = (
+        os.O_WRONLY
+        | os.O_RDWR
+        | os.O_CREAT
+        | getattr(os, "O_APPEND", 0)
+        | getattr(os, "O_TRUNC", 0)
+    )
+    return bool(flag & bits)
+
+
+def _as_text(raw: Any) -> str | None:
+    if isinstance(raw, int) or raw is None:
+        return None
+    if isinstance(raw, bytes):
+        raw = os.fsdecode(raw)
+    text = os.fspath(raw) if isinstance(raw, os.PathLike) else str(raw)
+    return text or None
+
+
+def _fd_folder(fd: Any) -> str | None:
+    if not isinstance(fd, int) or fd < 0:
+        return None
+    try:
+        return os.readlink(f"/proc/self/fd/{fd}")
+    except OSError:
+        pass
+    try:
+        import fcntl
+
+        raw = fcntl.fcntl(fd, fcntl.F_GETPATH, b"\0" * 1024)  # type: ignore[attr-defined]
+        return os.fsdecode(raw.split(b"\0", 1)[0])
+    except (AttributeError, OSError, ImportError):
+        return None
+
+
+def _inside_root(text: str, root: Path) -> bool:
+    try:
+        target = Path(os.path.realpath(os.path.join(os.getcwd(), text)))
+        base = Path(os.path.realpath(str(root)))
+        Path(os.path.normcase(str(target))).relative_to(
+            Path(os.path.normcase(str(base)))
+        )
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _writable_path(text: str) -> bool:
+    if os.path.normcase(text) in _NULL_DEVICES:
+        return True
+    for root in _WRITE_ROOTS:
+        if _inside_root(text, root):
+            return True
+    return False
+
+
+def _check_write(op: str, raw: Any, folder: str | None = None) -> None:
+    text = _as_text(raw)
+    if text is None:
+        return
+    if folder is not None and not os.path.isabs(text):
+        text = os.path.join(folder, text)
+    if _writable_path(text):
+        return
+    raise _CellBlocked(_WRITE_REFUSAL)
+
+
+def _write_audit(event: str, args: tuple[Any, ...]) -> None:
+    global _IN_WRITE_HOOK
+    if _IN_WRITE_HOOK:
+        return
+    _IN_WRITE_HOOK = True
+    try:
+        _write_audit_inner(event, args)
+    finally:
+        _IN_WRITE_HOOK = False
+
+
+def _write_audit_inner(event: str, args: tuple[Any, ...]) -> None:
+    if event == "open":
+        mode = args[1] if len(args) > 1 else ""
+        flags = args[2] if len(args) > 2 else 0
+        if args and _is_write_open(mode, flags):
+            _check_write("write", args[0])
+        return
+    spec = _WRITE_EVENTS.get(event)
+    if spec is None:
+        return
+    positions, op = spec
+    fd_at = _DIR_FD_ARG.get(event)
+    folder = _fd_folder(args[fd_at]) if fd_at is not None and len(args) > fd_at else None
+    for index in positions:
+        if index < len(args):
+            _check_write(op, args[index], folder)
+
+
+def _install_write_guard(payload: dict[str, Any]) -> None:
+    """Refuse writes outside the work folder, results folders, and the cache."""
+    roots: list[Path] = []
+    work = str(payload.get("work") or "").strip()
+    if work:
+        try:
+            roots.append(Path(os.path.abspath(work)))
+        except OSError:
+            pass
+    if not roots:
+        try:
+            roots.append(Path(os.getcwd()))
+        except OSError:
+            pass
+    if _CACHE_ROOT is not None:
+        roots.append(_CACHE_ROOT)
+    for entry in payload.get("roots") or []:
+        if not isinstance(entry, dict) or not entry.get("write"):
+            continue
+        raw = str(entry.get("path") or "").strip()
+        if not raw:
+            continue
+        try:
+            roots.append(Path(os.path.abspath(raw)) / "results")
+        except OSError:
+            continue
+    _WRITE_ROOTS.clear()
+    _WRITE_ROOTS.extend(roots)
+    sys.addaudithook(_write_audit)
+
+
 _CHART_SUFFIXES = {".png", ".svg"}
 
 
@@ -912,6 +1079,7 @@ def main() -> None:
         if _needs_matplotlib(code):
             _warm_matplotlib()
         _set_cwd(payload.get("work"))
+        _install_write_guard(payload)
         _stub_process_launchers()
         _announce()
         try:

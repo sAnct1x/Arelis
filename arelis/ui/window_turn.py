@@ -399,10 +399,13 @@ class WindowTurn:
             if is_watching():
                 self._drive_session = True
                 self.conversation.set_drive(True, "Watching")
-            elif self._drive_session:
-                if not self.conversation.drive.is_paused():
-                    self.conversation.set_drive_status("page stays")
+            elif self._drive_session and self.conversation.drive.is_paused():
+                # Your turn, or Pause mid-drive: the strip stays so they can Go.
+                pass
             else:
+                # A finished or failed desktop/browser turn must not leave
+                # "capturing..." with Pause/Stop on the main window.
+                self._drive_session = False
                 self.conversation.set_drive(False)
         if self.voice_controller is not None:
             if busy:

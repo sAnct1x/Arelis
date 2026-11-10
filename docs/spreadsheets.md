@@ -15,6 +15,7 @@ If a formula names a function Excel does not have, or uses a spilling function l
 ## Editing a sheet you already have
 
 Point her at an existing `.xlsx` and say what to change: fill in cells, add rows, add a sheet, or add a chart.
+She edits the workbook as a file (an edited copy). She does not drive Excel on your desktop to click through the sheet.
 
 - **Your file is not overwritten.** She writes an edited copy named like `budget-edited.xlsx` in the documents folder. If you ask her to replace a file, the previous version is saved first as `name.backup-<date>-<time>.xlsx`.
 - **The rest of the workbook stays.** Other sheets, cell styles, formulas, merged cells, tables, comments and charts are kept. New rows take the style of the row above, and a table or filter that ended at the last row grows to include them.
