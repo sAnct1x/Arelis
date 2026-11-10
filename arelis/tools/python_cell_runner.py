@@ -53,6 +53,7 @@ _BASE_IMPORTS = frozenset(
         "sympy",
         "numpy",
         "scipy",
+        "openpyxl",
         "mpmath",
         "matplotlib",
     }
@@ -202,12 +203,12 @@ class _ChartImportError(ValueError):
 _BASE_LIST = (
     "math, cmath, statistics, fractions, decimal, itertools, functools, "
     "collections, operator, copy, json, re, datetime, sympy, numpy, scipy, "
-    "and mpmath"
+    "openpyxl, and mpmath"
 )
 _SCIENCE_LIST = (
     "math, cmath, statistics, fractions, decimal, itertools, functools, "
     "collections, operator, copy, json, re, datetime, sympy, numpy, scipy, "
-    "emcee, astropy, matplotlib, corner, csv, seaborn, and mpmath"
+    "openpyxl, emcee, astropy, matplotlib, corner, csv, seaborn, and mpmath"
 )
 
 

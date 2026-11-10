@@ -36,6 +36,7 @@ from pathlib import Path
 
 import pytest
 
+from arelis.core.cell_work import begin_cell_work, cell_work_dir
 from arelis.tools.python_exec import PythonTool
 
 
@@ -289,6 +290,107 @@ def test_os_import_refusal_is_not_the_chart_marker() -> None:
             runner._import_refusal(name)
         assert getattr(caught.value, "next_tool", None) != "plot"
         assert not isinstance(caught.value, runner._ChartImportError)
+
+
+
+
+@pytest.mark.asyncio
+async def test_python_cell_writes_formatted_xlsx_into_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cell can import openpyxl and save a formula, styled header, and chart."""
+    from openpyxl import load_workbook
+
+    data = tmp_path / "data"
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(data))
+    begin_cell_work("xlsx-formatted")
+    work = cell_work_dir()
+    source = work / "planets.csv"
+    source.write_text(
+        "planet,mass,radius,moons,au\n"
+        "Mercury,0.330,2439.7,0,0.387\n"
+        "Venus,4.87,6051.8,0,0.723\n"
+        "Earth,5.97,6371.0,1,1.000\n"
+        "Mars,0.642,3389.5,2,1.524\n"
+        "Jupiter,1898.0,69911.0,95,5.203\n"
+        "Saturn,568.0,58232.0,146,9.537\n"
+        "Uranus,86.8,25362.0,28,19.191\n"
+        "Neptune,102.0,24622.0,16,30.070\n",
+        encoding="utf-8",
+    )
+    dest = "planets.xlsx"
+    result = await PythonTool().run(
+        code=(
+            "from openpyxl import Workbook\n"
+            "from openpyxl.chart import BarChart, Reference\n"
+            "from openpyxl.styles import Font, PatternFill, Alignment\n"
+            "from openpyxl.utils import get_column_letter\n"
+            f"path = {str(source)!r}\n"
+            "rows = []\n"
+            "with open(path, encoding='utf-8') as handle:\n"
+            "    lines = [line.strip() for line in handle if line.strip()]\n"
+            "header = lines[0].split(',')\n"
+            "for line in lines[1:]:\n"
+            "    name, mass, radius, moons, au = line.split(',')\n"
+            "    rows.append([name, float(mass), float(radius), int(moons), float(au)])\n"
+            "book = Workbook()\n"
+            "sheet = book.active\n"
+            "sheet.title = 'Planets'\n"
+            "headers = header + ['moons_share']\n"
+            "sheet.append(headers)\n"
+            "fill = PatternFill('solid', fgColor='1F4E79')\n"
+            "font = Font(bold=True, color='FFFFFF')\n"
+            "for cell in sheet[1]:\n"
+            "    cell.font = font\n"
+            "    cell.fill = fill\n"
+            "    cell.alignment = Alignment(horizontal='center')\n"
+            "sheet.freeze_panes = 'A2'\n"
+            "start = 2\n"
+            "for row in rows:\n"
+            "    sheet.append(row + [None])\n"
+            "last = start + len(rows) - 1\n"
+            "total = last + 1\n"
+            "sheet[f'A{total}'] = 'Total'\n"
+            "sheet[f'D{total}'] = f'=SUM(D{start}:D{last})'\n"
+            "sheet[f'E{total}'] = f'=AVERAGE(E{start}:E{last})'\n"
+            "for idx in range(start, last + 1):\n"
+            "    sheet[f'F{idx}'] = f'=D{idx}/D{total}'\n"
+            "    sheet[f'B{idx}'].number_format = '0.00'\n"
+            "    sheet[f'C{idx}'].number_format = '0.0'\n"
+            "    sheet[f'E{idx}'].number_format = '0.000'\n"
+            "    sheet[f'F{idx}'].number_format = '0.0%'\n"
+            "chart = BarChart()\n"
+            "chart.type = 'col'\n"
+            "chart.title = 'Moons'\n"
+            "chart.y_axis.title = 'Moons'\n"
+            "data = Reference(sheet, min_col=4, min_row=1, max_row=last)\n"
+            "cats = Reference(sheet, min_col=1, min_row=start, max_row=last)\n"
+            "chart.add_data(data, titles_from_data=True)\n"
+            "chart.set_categories(cats)\n"
+            "chart.shape = 4\n"
+            "sheet.add_chart(chart, 'H2')\n"
+            f"book.save({dest!r})\n"
+            "print('wrote', " + repr(dest) + ")\n"
+        )
+    )
+    assert result.ok, result.output
+    assert "wrote" in result.output
+    out = work / dest
+    assert out.is_file()
+    assert data.joinpath("outputs", "work", "xlsx-formatted", dest).is_file()
+    book = load_workbook(out)
+    sheet = book.active
+    assert sheet["A1"].font.b
+    assert sheet["A1"].fill.fgColor.rgb in {"001F4E79", "FF1F4E79", "1F4E79"}
+    assert sheet.freeze_panes == "A2"
+    assert sheet["D10"].value == "=SUM(D2:D9)"
+    assert sheet["E10"].value == "=AVERAGE(E2:E9)"
+    assert sheet["F2"].value == "=D2/D10"
+    assert sheet["B2"].number_format == "0.00"
+    assert sheet["F2"].number_format == "0.0%"
+    assert len(sheet._charts) == 1
+    chart = sheet._charts[0]
+    assert chart.type == "col"
 
 
 # --------------------------------------------------------------------------
