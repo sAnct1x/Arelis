@@ -81,6 +81,33 @@ even with `voice.debug` turned off: things like `wake_heard`,
 `utterance_dropped`. The full raw VAD firehose only gets written when
 `voice.debug` is actually set to true.
 
+## Switching the speech-to-text engine
+
+The default ear is Whisper (`faster-whisper`, `base`, int8 on CPU). To try
+NVIDIA Parakeet TDT 0.6B v3 instead, add this to `data/config.local.yaml`
+and restart Arelis:
+
+```yaml
+voice:
+  stt:
+    engine: parakeet
+```
+
+Parakeet is opt-in until a bench says otherwise. It is not a tool or a
+chat routing setting, and it is not in Settings. The first time you use
+it, Arelis downloads about 487 MB from the official sherpa-onnx release
+(`sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2`), checks the size
+and SHA-256, and unpacks it into the user models folder
+(`models/parakeet/`). A progress line shows how far the download has
+got. The weights are never shipped in the repo or the installer. If the
+download is stopped or fails, she says so and keeps using Whisper. A
+pack that is already on disk is not downloaded again.
+
+Parakeet and sherpa-onnx licences are listed in [THIRD_PARTY.md](../THIRD_PARTY.md).
+
+`voice.stt.backend: sherpa` is a separate choice: the live Zipformer
+stream, not Parakeet.
+
 ## Phrase matching (`arelis/voice/wake.py`)
 
 A wake requires **Hey** (or Whisper's occasional mishearing of it as
@@ -105,7 +132,7 @@ soon as Sherpa is up; Whisper can still be phoning HuggingFace.
 | Idle wake (**Hey Arelis**) | faster-whisper until `models/wake/hey_arelis.onnx` exists, then openwakeword running on that ONNX. Whatever's left in the same audio clip becomes the first turn. |
 | Voice activity detection | Silero VAD |
 | End of turn | Smart Turn v3, after a short pause, with a 1400 ms silence ceiling (`voice.conversation.end_silence_ms`) even if it thinks you are still mid-thought. A fixed silence window if that ONNX file is missing. Raise the ceiling in config if you pause longer. |
-| Conversation + dictation (Ctrl+M) | Sherpa-ONNX Kroko Zipformer, on live PCM audio. Falls back to the 2023 pack or faster-whisper if Kroko isn't available |
+| Conversation + dictation (Ctrl+M) | faster-whisper by default (`voice.stt.engine: whisper`). Set `engine: parakeet` to use NVIDIA Parakeet TDT 0.6B v3 (int8, CPU via sherpa-onnx) on the finished clip. `backend: sherpa` still selects the live Kroko Zipformer ear. |
 | Speech output | Kokoro-82M (`af_heart` voice): the first clause of a reply can start before the first sentence has finished generating. Later sentences stay whole, and neighboring ones can share a clip. A short leftover after the opening is held so she does not say four words and stall. Falls back to Piper Jenny if Kokoro can't run |
 
 If you're training your own wake model, train it on **Hey Arelis**
@@ -127,6 +154,7 @@ Porcupine isn't used anywhere in this codebase, for what it's worth.
 | `arelis/voice/telemetry.py` | `record_always` / `record_wake`: always writes to `logs/voice.log` |
 | `arelis/voice/stt.py` | No prompt-seeding on wake clips; mail-word repair applied during conversation and dictation |
 | `arelis/voice/sherpa_stt.py` | The live Kroko session, with the 2023 pack as fallback |
+| `arelis/voice/parakeet_stt.py` | Opt-in Parakeet TDT v3 int8 engine, first-use download |
 | `arelis/voice/smart_turn.py` | Pipecat Smart Turn v3 ONNX |
 | `arelis/voice/whisper_mel.py` | Whisper-compatible mel spectrogram, used for Smart Turn |
 | `arelis/voice/speech_text.py` | Extracts an opening clause, then whole sentences, for TTS to start on |

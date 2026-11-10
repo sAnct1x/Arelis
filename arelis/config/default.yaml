@@ -644,9 +644,16 @@ voice:
 
   stt:
     enabled: true
+    # whisper (default until a bench picks otherwise) | parakeet (NVIDIA
+    # Parakeet TDT 0.6B v3, int8 ONNX, CPU via sherpa-onnx). First use of
+    # parakeet downloads about 487 MB into the user models folder. This is
+    # not a tool or router setting; set it in config.local.yaml and restart.
+    engine: whisper
     # faster-whisper (default ear: full-utterance attention, punctuation, and
     # initial_prompt vocabulary biasing) | sherpa (streaming Zipformer ear).
     backend: faster-whisper
+    # Where the Parakeet pack lands on first use. Not shipped in the installer.
+    parakeet_dir: "models/parakeet"
     model_dir: "models/sherpa"
     allow_download: true
     # Greedy locks the first token. A letter like "x" then becomes "ax"
