@@ -645,8 +645,9 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     inst.applyWheel(-1)
     qt_app.processEvents()
     zoomed = float(inst.property("cameraDistance"))
-    assert abs(zoomed - overseer_runtime.wheel_step(start_d, -1)) < 1e-4
-    assert abs(float(inst.property("cameraPitch")) - overseer_runtime.pitch_deg(zoomed)) < 1e-3
+    pose = overseer_runtime.zoom_pose(1, start_d)
+    assert abs(zoomed - pose[0]) < 1e-4
+    assert abs(float(inst.property("cameraPitch")) - pose[1]) < 1e-3
     # Rubber-band: cannot run past 8% beyond the 6..110 m limits.
     inst.setProperty("cameraDistance", 6.0)
     inst.applyWheel(-8)

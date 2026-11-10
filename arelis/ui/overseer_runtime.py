@@ -1017,6 +1017,26 @@ def pitch_deg(distance: float) -> float:
     return float(marks[-1][1])
 
 
+
+ZOOM_EASE_NOTCHES = 3.0
+
+
+def zoom_pose(z: float, overview_distance: float) -> tuple[float, float]:
+    """Distance and pitch z wheel notches in from the default frame (mirrors
+    OverseerView.qml zoomPose): an even pitch ease onto the curve's 55 deg
+    wide mark over ZOOM_EASE_NOTCHES, then the approved curve."""
+    d0 = float(overview_distance)
+    j = min(WIDE_DISTANCE, d0)
+    n = ZOOM_EASE_NOTCHES
+    if z <= 0:
+        return d0, OVERVIEW_PITCH_DEG
+    if z < n:
+        u = z / n
+        return d0 * (j / d0) ** u, OVERVIEW_PITCH_DEG + (pitch_deg(j) - OVERVIEW_PITCH_DEG) * u
+    d = j / ZOOM_NOTCH ** (z - n)
+    return d, pitch_deg(d)
+
+
 def framing_name(distance: float) -> str:
     """Name the live distance against the approved bands; do not invent a shot."""
     d = float(distance)

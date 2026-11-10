@@ -72,15 +72,19 @@ units. The glow
 writes clip position from that waved mesh; the lens writes clip
 position from the mesh as modeled, so those unshaded parts stay on
 the units instead of stretching into a covering plate or stray streaks. The wheel,
-trackpad, and + / - keys dolly the camera between 6 m and 110 m with
-the approved rubber-band limits. Each time the window opens, the camera
+trackpad, and + / - keys dolly the camera between the default view and
+6 m, with the approved rubber band at the near end. Each time the window opens, the camera
 starts on the default view: the wide, low frame from the design (about
 31.7 degrees down, 95 m or more from a point just in front of the hive)
 pulled back only as far as the window needs so the whole edge ring, the
 outer band lanes, and all four edge sources with their names sit clear of
 the top bar, Swarm list, inspector, and console. A small window (such as
-1028 x 749) shows the same frame from farther away. The first wheel notch
-leaves the default view for the zoom curve below. Opening the window follows the entry
+1028 x 749) shows the same frame from farther away. The first three wheel
+notches ease out of the default view: each one tilts the camera by the same
+step (about 7.8 degrees) and closes the distance evenly, so the third
+notch lands on the 55 degree, 96 m wide mark of the zoom curve below.
+Scrolling back out retraces those steps and stops on the default view.
+Opening the window follows the entry
 timing (mote, edge, fill, reveal, then panels); closing reverses it.
 Reduced motion uses a short crossfade. A native HUD sits on the view:
 a status strip across the top (Threats, Defenders, Units by caste,
@@ -122,9 +126,9 @@ behind those plates instead of drawing through list rows or the
 inspector. Unselected rows use that same fill (selected rows stay
 `#2a1a4a`). Selecting a unit aims the camera at that unit's snapshot position
 (not the hive). Wheel and trackpad dolly along the view axis at 35 mm
-with a factor of 1.18 per notch, rubber-banded 8 percent past the 6 to
-110 m limits. Pitch follows the approved marks: 22 degrees across 6 to
-9 m, 36 degrees at 32 m, and 55 degrees at 96 m and at 110 m. Focus
+with a factor of 1.18 per notch past the 96 m wide mark, rubber-banded
+8 percent past the 6 m limit. Pitch follows the approved marks: 22 degrees across 6 to
+9 m, 36 degrees at 32 m, and 55 degrees at 96 m. Focus
 dollies to 7 m (inside the 6 to 9 m close band) on the selected unit.
 Fit swarm sets camera mode to fit and returns to the default view described above (local, no backend POST), so the whole hive and every source label are on screen again. While the mode is fit, live snapshot refreshes and inspector selection changes do not move the camera target back onto the selected unit; Focus sets camera mode to follow and frames that unit again. The inspector stays on the selected unit either way. A wheel hit-point, when set, keeps that
 world point fixed (new target = P + (target - P) * (d_new / d_old)).
