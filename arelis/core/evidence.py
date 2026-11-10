@@ -142,6 +142,11 @@ class EvidenceLedger:
         if name == "python":
             span = str(data.get("result") or output or "")[:200]
             self.add(source="python", kind="calc", span=span, ok=ok)
+            # A cell that printed table/file output is also the table reading
+            # for a convert-in-the-sandbox ask. A failed cell is the error
+            # the verify gate should report, not a canned "no analyze reading".
+            if span.strip() and span.strip() != "(empty)":
+                self.add(source="python", kind="analyze", span=span, ok=ok)
             return
         if name == "run_script":
             # Same trust as python: a script that actually printed something
@@ -167,15 +172,24 @@ class EvidenceLedger:
                 )
             if ok and exit_code == 0 and stdout:
                 self.add(source="run_script", kind="calc", span=stdout[:200], ok=True)
+                self.add(source="run_script", kind="analyze", span=stdout[:200], ok=True)
             return
         if name == "workspace":
             # A write that landed is an action. The path is the warrant.
-            # Reads record nothing.
+            # A failed read is the error the verify gate should report.
             action = str(args.get("action") or "").strip().lower()
+            path = str(data.get("path") or args.get("path") or "").strip()
             if ok and action == "write":
-                path = str(data.get("path") or args.get("path") or "").strip()
                 if path:
                     self.add(source=path, kind="file_write", span=path, ok=True)
+                return
+            if not ok:
+                self.add(
+                    source=path or "workspace",
+                    kind="file_read",
+                    span=(output or path or "workspace")[:300],
+                    ok=False,
+                )
             return
         if name == "diagnostics":
             span = str(data.get("summary") or output or "")[:300]
@@ -198,10 +212,15 @@ class EvidenceLedger:
             self.add(source="plot", kind="plot", span=span, ok=ok)
             return
         if name == "data_cell":
-            # A failed cell is not a number and not a chart. The tool being
-            # off, or a workspace folder with no data file, leaves the ledger
-            # as it was.
+            # A failed cell is not a number and not a chart, but the verify
+            # gate still needs the error so it can report it.
             if not ok:
+                self.add(
+                    source="data_cell",
+                    kind="analyze",
+                    span=(output or "data_cell failed")[:300],
+                    ok=False,
+                )
                 return
             from arelis.core.intent_catalog import data_cell_enabled, data_file_names
 
@@ -335,6 +354,7 @@ class EvidenceLedger:
             else:
                 span = f"{path}: {(output or '')[:240]}"
             self.add(source=path, kind="doc", span=span[:400], ok=ok)
+            self.add(source=path, kind="analyze", span=span[:300], ok=ok)
             if not ok:
                 fail = str(data.get("fail_class") or "")
                 if not fail and "[fail:" in (output or ""):
@@ -409,16 +429,19 @@ class EvidenceLedger:
             return
         # Local table peek → analyze warrant (only successful readings count).
         if name == "analyze":
-            if not ok:
-                return
             path = str(data.get("path") or args.get("path") or "analyze")
             action = str(data.get("action") or args.get("action") or "summary")
             head = (output or "").strip().splitlines()[0] if (output or "").strip() else ""
             parts = [p for p in (action, path, head) if p]
-            span = " | ".join(parts) if parts else "analyze"
-            self.add(source=path[:200], kind="analyze", span=span[:300], ok=True)
+            span = " | ".join(parts) if parts else (output or "analyze")
+            self.add(source=path[:200], kind="analyze", span=span[:300], ok=ok)
             return
         # Single-frame VL → vision warrant (describing that image this turn).
+        if name == "image_edit":
+            path = str(data.get("path") or args.get("path") or "image_edit")
+            span = (output or ("image_edit" if ok else "image_edit failed"))[:300]
+            self.add(source=path[:200], kind="vision", span=span, ok=ok)
+            return
         if name == "vision":
             path = str(data.get("path") or args.get("path") or "vision")
             span = (output or "")[:300] if ok else (output or "vision failed")[:300]

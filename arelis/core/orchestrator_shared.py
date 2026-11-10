@@ -15,13 +15,151 @@ to a copy nobody reads.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 # Absolute paths typed in chat that may need a session read grant.
+# Paths with spaces (a Desktop folder named "Arelis 0.3.5 test files") must
+# be included; a token that stops at the first space never issues the Allow
+# card for the file the user typed.
 _ABS_PATH_TOKEN = re.compile(
     r"(?P<path>"
     r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+)"
     r"|(?:/(?:Users|home|tmp|var|etc|opt)[^\s\"'<>|]*))"
 )
+_ABS_PATH_START = re.compile(
+    r"[A-Za-z]:[\\/]|/(?:Users|home|tmp|var|etc|opt)/"
+)
+_FILE_EXT = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,7}$")
+_PATH_ILLEGAL = frozenset("\"'<>|\r\n\t")
+
+
+def _scan_typed_path(text: str, start: int) -> str | None:
+    """Longest typed file path starting at ``start``, spaces allowed."""
+    if start < len(text) and text[start] in "\"'":
+        quote = text[start]
+        end = text.find(quote, start + 1)
+        if end < 0:
+            return None
+        body = text[start + 1 : end].strip().rstrip(".,);]")
+        return body or None
+    i = start
+    n = len(text)
+    while i < n and text[i] not in _PATH_ILLEGAL:
+        i += 1
+        candidate = text[start:i].rstrip(".,);]")
+        if not _FILE_EXT.search(candidate):
+            continue
+        end = start + len(candidate)
+        nxt = text[end] if end < n else ""
+        if nxt.isalnum() or nxt in "\\/":
+            continue
+        if nxt == "." and end + 1 < n and text[end + 1].isalnum():
+            continue
+        return candidate
+    return None
+
+
+def typed_absolute_paths(text: str) -> list[str]:
+    """Absolute paths typed in a message, including ones that contain spaces.
+
+    The returned strings are the typed forms, punctuation at the end already
+    stripped. Existence is left to the caller so a missing file does not
+    become a parent-folder grant.
+    """
+    raw = text or ""
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def _norm(token: str) -> str:
+        return token.replace("\\", "/").lower()
+
+    def _covers(long: str, short: str) -> bool:
+        # Only a real path child covers a prefix. A space-separated tail
+        # ("folder and convert sample.nc") must not drop the shorter typed
+        # prefix, which is kept as a fallback for the existence check.
+        a, b = _norm(long), _norm(short)
+        if a == b:
+            return True
+        return a.startswith(b) and (len(a) == len(b) or a[len(b)] in "/\\")
+
+    def _add(token: str | None) -> None:
+        cleaned = (token or "").strip().rstrip(".,);]")
+        if not cleaned:
+            return
+        key = _norm(cleaned)
+        if key in seen:
+            return
+        for i, existing in enumerate(found):
+            if _covers(existing, cleaned):
+                return
+            if _covers(cleaned, existing):
+                seen.discard(_norm(existing))
+                found[i] = cleaned
+                seen.add(key)
+                return
+        seen.add(key)
+        found.append(cleaned)
+
+    index = 0
+    while True:
+        match = _ABS_PATH_START.search(raw, index)
+        if match is None:
+            break
+        # A quote immediately before the start is a quoted path.
+        origin = match.start()
+        if origin > 0 and raw[origin - 1] in "\"'":
+            origin -= 1
+        token = _scan_typed_path(raw, origin)
+        if token:
+            _add(token)
+            index = origin + (len(token) if origin == match.start() else len(token) + 2)
+            if index <= match.start():
+                index = match.end()
+            continue
+        index = match.end()
+    for match in _ABS_PATH_TOKEN.finditer(raw):
+        _add(match.group("path"))
+    return found
+
+
+def longest_existing_typed_paths(tokens: list[str]) -> list[str]:
+    """Keep the longest existing token among overlapping typed paths.
+
+    Shorter space-delimited prefixes stay only when no longer overlapping
+    token exists. A missing file is not walked up to a parent folder that
+    was not itself a typed token.
+    """
+    existing: list[str] = []
+    seen: set[str] = set()
+    for raw in tokens:
+        cleaned = (raw or "").strip()
+        if not cleaned:
+            continue
+        try:
+            path = Path(cleaned).expanduser().resolve()
+        except OSError:
+            continue
+        if not path.exists():
+            continue
+        key = cleaned.replace("\\", "/").lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        existing.append(cleaned)
+
+    def _overlaps_longer(long: str, short: str) -> bool:
+        a, b = long.replace("\\", "/").lower(), short.replace("\\", "/").lower()
+        if a == b or not a.startswith(b):
+            return False
+        return a[len(b)] in "/\\ "
+
+    kept: list[str] = []
+    for raw in existing:
+        if any(_overlaps_longer(other, raw) for other in existing):
+            continue
+        kept.append(raw)
+    return kept
+
 
 ROLES: set[str] = {"fast", "research"}
 

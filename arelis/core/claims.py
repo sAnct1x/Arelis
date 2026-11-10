@@ -1443,6 +1443,10 @@ def unsupported_exactness_reply(
     catalog_detail: str = "",
     document_failed: bool = False,
     document_detail: str = "",
+    analyze_failed: bool = False,
+    analyze_detail: str = "",
+    vision_failed: bool = False,
+    vision_detail: str = "",
 ) -> str:
     """Deterministic unknown when a force round still lacks warrants."""
     kinds = [k for k in missing if k]
@@ -1567,11 +1571,53 @@ def unsupported_exactness_reply(
             "turn, so I won't invent what is urgent."
         )
     if "analyze" in kinds:
+        if analyze_failed:
+            detail = (analyze_detail or "").lower()
+            if "outside" in detail and "workspace" in detail:
+                return (
+                    "I couldn't read that file because it is outside the "
+                    "workspace. Allow the path on the card, or add the folder "
+                    "in Settings."
+                )
+            if (
+                "not found" in detail
+                or "filenotfound" in detail
+                or "no such file" in detail
+            ):
+                return (
+                    "I couldn't find that file. I will not invent row counts "
+                    "or column stats."
+                )
+            return (
+                "I couldn't read that table. I will not invent row counts "
+                "or column stats."
+            )
         return (
             "I don't know — I don't have an analyze reading for that table, "
             "so I won't invent row counts or column stats."
         )
     if "vision" in kinds:
+        if vision_failed:
+            detail = (vision_detail or "").lower()
+            if "outside" in detail and "workspace" in detail:
+                return (
+                    "I couldn't read that image because it is outside the "
+                    "workspace. Allow the path on the card, or add the folder "
+                    "in Settings."
+                )
+            if (
+                "not found" in detail
+                or "filenotfound" in detail
+                or "no such file" in detail
+            ):
+                return (
+                    "I couldn't find that image. I will not invent what a "
+                    "screenshot or photo shows."
+                )
+            return (
+                "I couldn't look at that image. I will not invent what a "
+                "screenshot or photo shows."
+            )
         return (
             "I don't know — I don't have a vision reading for that image, "
             "so I won't invent what a screenshot or photo shows."
