@@ -967,6 +967,8 @@ class AgentLoop:
             return
         self._active_turn = ctx
         try:
+            if await self._maybe_voice_lane(ctx):
+                return
             for round_i in range(1, self.max_rounds + 1):
                 if self._wants_close():
                     await self._close_from_gathered(ctx)
@@ -1060,6 +1062,93 @@ class AgentLoop:
             typed_text=typed_text,
             staged_files=staged_files,
         )
+
+    def _voice_lane_will_speak(self) -> bool:
+        """Same gate _finish uses before it hands a reply to the speaker."""
+        voice = self.config.get("voice") or {}
+        tts = voice.get("tts") if isinstance(voice, dict) else None
+        tts_on = True if not isinstance(tts, dict) else bool(tts.get("enabled", True))
+        return (
+            bool(voice.get("enabled"))
+            and tts_on
+            and getattr(self, "_turn_source", "chat") != "mobile"
+        )
+
+    async def _speak_voice_lane_filler(self) -> None:
+        """Speak a short line before the tool loop. Not stored as the answer."""
+        from arelis.core.voice_lane import filler_text
+
+        line = filler_text(self.config)
+        await self.bus.publish(
+            Event(EventType.THINKING, {"text": f"voice_lane filler={line}"})
+        )
+        if not self._voice_lane_will_speak():
+            return
+        await self.bus.publish(Event(EventType.VOICE_SPEAK, {"text": line}))
+
+    async def _maybe_voice_lane(self, ctx: TurnContext) -> bool:
+        """Run the short spoken first pass. True when the turn is already finished.
+
+        A direct answer ends the turn here. A tool signal speaks a filler and
+        leaves the already-prepared full-tool context for the normal loop.
+        Spoken turns that already expect a tool skip the probe, speak the
+        same filler, and keep today's tool request so the schema prefix
+        stays warm.
+        """
+        from arelis.core.voice_lane import (
+            VOICE_LANE_MAX_TOKENS,
+            build_first_pass_messages,
+            first_pass_needs_tool,
+            should_run_first_pass,
+            should_speak_routed_filler,
+        )
+
+        if getattr(self, "_look", None) is not None:
+            return False
+        if should_speak_routed_filler(ctx, self.config) and not should_run_first_pass(
+            ctx, self.config
+        ):
+            await self._speak_voice_lane_filler()
+            if self._timer is not None:
+                self._timer.mark("voice_lane", result="routed")
+            return False
+        if not should_run_first_pass(ctx, self.config):
+            return False
+        messages = await build_first_pass_messages(self, ctx)
+        try:
+            raw, tool_calls, _streamed = await self._stream_round(
+                self._turn_role,
+                messages,
+                None,
+                round_n=0,
+                expect_tools=False,
+                hold_paint=True,
+                num_predict=VOICE_LANE_MAX_TOKENS,
+            )
+        except (_StoppedError, asyncio.CancelledError, _CloseError):
+            raise
+        except Exception as exc:
+            await self._retract()
+            failure = classify_turn_failure(
+                exc,
+                model=self.router.model_for(self._turn_role),
+                role=str(self._turn_role or ""),
+                config=self.config,
+                backend=getattr(self.router, "provider", None),
+            )
+            await self._publish_error(failure.chat, detail=failure.detail)
+            return True
+        content = strip_thinking_text(raw)
+        if tool_calls or first_pass_needs_tool(content):
+            await self._retract()
+            await self._speak_voice_lane_filler()
+            if self._timer is not None:
+                self._timer.mark("voice_lane", result="handoff")
+            return False
+        if self._timer is not None:
+            self._timer.mark("voice_lane", result="answer")
+        await self._finish(content, ctx.sources, streamed="")
+        return True
 
     async def _run_round(self, ctx: TurnContext, round_i: int) -> bool:
         from arelis.core.turn_round import run_round
@@ -1624,17 +1713,24 @@ class AgentLoop:
         return _parse_summary_response("".join(parts))
 
     def _stream_options(
-        self, *, tools: bool = False, reply_cap: bool = False
+        self,
+        *,
+        tools: bool = False,
+        reply_cap: bool = False,
+        num_predict: int | None = None,
     ) -> dict[str, Any] | None:
         """Turn-sticky num_ctx, and cooler temperature on tool rounds.
 
         Chat rounds pass ``reply_cap`` so llama-server gets max_tokens.
         Without it a chat turn runs until the context window is full. The
         rolling summary calls this helper without that flag: it already has
-        a time budget, and the chat cap must not apply there.
+        a time budget, and the chat cap must not apply there. ``num_predict``
+        overrides the chat cap when a short first pass needs a tighter limit.
         """
         opts: dict[str, Any] = {}
-        if reply_cap:
+        if num_predict is not None:
+            opts["num_predict"] = int(num_predict)
+        elif reply_cap:
             opts["num_predict"] = _CHAT_MAX_TOKENS
         ctx = getattr(self, "_turn_num_ctx", None)
         if ctx is not None:
@@ -1680,6 +1776,8 @@ class AgentLoop:
         *,
         round_n: int = 0,
         expect_tools: bool | None = None,
+        hold_paint: bool | None = None,
+        num_predict: int | None = None,
     ) -> tuple[str, list[dict[str, Any]], str]:
         """Run one model step, painting candidate answer text as it arrives.
 
@@ -1703,9 +1801,10 @@ class AgentLoop:
         tool_round = bool(tools) and (
             bool(expect_tools) if expect_tools is not None else True
         )
-        hold_paint = tool_round and bool(
-            agent_cfg.get("stream_answer_after_tools", True)
-        )
+        if hold_paint is None:
+            hold_paint = tool_round and bool(
+                agent_cfg.get("stream_answer_after_tools", True)
+            )
         if hold_paint and os.environ.get("ARELIS_TEST_STREAM_REPLY") == "1":
             # Test hook: paint a tool round's answer as it streams, so a harness can watch
             # paragraphs land one by one (held, the whole reply appears in one frame).
@@ -1761,7 +1860,11 @@ class AgentLoop:
             think = False
         stream_kwargs: dict[str, Any] = {
             "tools": tools,
-            "options": self._stream_options(tools=bool(tools), reply_cap=True),
+            "options": self._stream_options(
+                tools=bool(tools),
+                reply_cap=True,
+                num_predict=num_predict,
+            ),
         }
         if think is not None:
             stream_kwargs["think"] = think
