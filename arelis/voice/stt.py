@@ -749,7 +749,9 @@ class SpeechToText:
 
                 if isinstance(exc, ParakeetUnavailableError) and self._whisper_installed():
                     log.warning("Parakeet STT unavailable (%s); using faster-whisper", exc)
-                    self._parakeet_failed = True
+                    # A user Stop is for this clip only; the next use can retry.
+                    if "stopped" not in str(exc).lower():
+                        self._parakeet_failed = True
                     self._fallback_notice = str(exc)
                 else:
                     raise
@@ -848,7 +850,8 @@ class SpeechToText:
 
                 if isinstance(exc, ParakeetUnavailableError) and self._whisper_installed():
                     log.warning("Parakeet STT preload failed (%s); using faster-whisper", exc)
-                    self._parakeet_failed = True
+                    if "stopped" not in str(exc).lower():
+                        self._parakeet_failed = True
                     self._fallback_notice = str(exc)
                     backends.add("faster-whisper")
                 else:

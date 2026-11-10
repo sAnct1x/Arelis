@@ -108,6 +108,8 @@ class VoiceService:
         self._drain_task: asyncio.Task[None] | None = None
         self._live_bridge = None
         self._stt_progress = None
+        self._stt_progress_shown = False
+        self._stt_cancelled = False
         if self.tts_enabled:
             bus.subscribe(EventType.ASSISTANT_DELTA, self.on_delta)
             bus.subscribe(EventType.ASSISTANT_RETRACT, self.on_retract)
@@ -140,6 +142,8 @@ class VoiceService:
         """
         self._speak_cancelled = self._speak_seq
         self._pending.clear()
+        # Same Stop path also aborts a first-use STT download in the worker.
+        self._stt_cancelled = True
 
     async def on_delta(self, event: Event) -> None:
         """Queue completed sentences from a live answer for synthesis.
@@ -539,6 +543,7 @@ class VoiceService:
         if not self.stt.loaded():
             await self._status("Getting the ear…")
         self._bind_stt_progress()
+        self._bind_stt_cancel()
         try:
             stt_t0 = time.perf_counter()
             text = (
@@ -567,6 +572,7 @@ class VoiceService:
             return ""
         finally:
             self._clear_stt_progress()
+            self._clear_stt_cancel()
             # The clip has served its purpose either way, and these are the only
             # recordings of the user's voice the app ever writes to disk, so
             # they go unless the user asked to keep them for debugging.
@@ -747,6 +753,7 @@ class VoiceService:
             )
             announced = True
         self._bind_stt_progress()
+        self._bind_stt_cancel()
         try:
             if missing:
                 await asyncio.to_thread(prepare_voice_files, self.config, self._stt_progress)
@@ -765,6 +772,7 @@ class VoiceService:
                 await self._status("I'm listening. Say Hey Arelis.")
         finally:
             self._clear_stt_progress()
+            self._clear_stt_cancel()
 
     # ----------------------------------------------------------------- misc
 
@@ -779,6 +787,7 @@ class VoiceService:
             if not is_edge and now - last["t"] < 0.4:
                 return
             last["t"] = now
+            self._stt_progress_shown = True
 
             def emit() -> None:
                 self.bus.publish_nowait(
@@ -793,6 +802,7 @@ class VoiceService:
             except RuntimeError:
                 emit()
 
+        self._stt_progress_shown = False
         self._stt_progress = progress
         setter = getattr(self.stt, "set_progress", None)
         if callable(setter):
@@ -803,6 +813,12 @@ class VoiceService:
         if callable(setter):
             setter(None)
         self._stt_progress = None
+        shown = self._stt_progress_shown
+        self._stt_progress_shown = False
+        if not shown:
+            # Whisper (and any path that never drew a download line) must
+            # not publish a progress clear; that would hide an image line.
+            return
         try:
             self.bus.publish_nowait(
                 Event(EventType.STATUS, {"message": "", "progress": "clear"})
@@ -811,6 +827,22 @@ class VoiceService:
             # Best-effort: the download already finished or failed, and a
             # closed bus in finally must not mask that result.
             pass
+
+    def _stt_is_cancelled(self) -> bool:
+        return bool(self._stt_cancelled)
+
+    def _bind_stt_cancel(self) -> None:
+        # A prior Stop (for speech, not this clip) must not abort this fetch.
+        self._stt_cancelled = False
+        setter = getattr(self.stt, "set_cancelled", None)
+        if callable(setter):
+            setter(self._stt_is_cancelled)
+
+    def _clear_stt_cancel(self) -> None:
+        setter = getattr(self.stt, "set_cancelled", None)
+        if callable(setter):
+            setter(None)
+        self._stt_cancelled = False
 
     async def _status(self, message: str) -> None:
         await self.bus.publish(Event(EventType.STATUS, {"message": message}))
