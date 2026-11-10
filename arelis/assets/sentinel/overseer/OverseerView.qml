@@ -6,6 +6,13 @@ import Arelis.Overseer
 Item {
     id: root
     objectName: "OverseerView"
+    focus: true
+    Keys.onEscapePressed: function (event) {
+        if (root.coreMode || root.cameraMode === "core" || root.coreTransitioning) {
+            root.exitCoreFocus()
+            event.accepted = true
+        }
+    }
     // Default view is Iris's wide frame (BAND-SPEC.md "Camera framing"): the
     // camera sits at k * (0, -78, 44) and looks at k * (0, 3, -6) in spec space,
     // k = perimeter / 35. In scene space that is a look target k * (0, -6, -3),
@@ -121,6 +128,15 @@ Item {
         projectSourceLabels()
     }
     onShowInspectorChanged: updateOverview()
+    onCoreModeChanged: {
+        bandKey = ""
+        applyBands(bandSpecs, perimeterRadius)
+        projectOrbLabels()
+    }
+    onLaneCoreMulChanged: {
+        bandKey = ""
+        applyBands(bandSpecs, perimeterRadius)
+    }
     property string hudCommandStatus: ""
     property string lastHudCommand: ""
     property var lastHudPayload: ({})
@@ -146,8 +162,10 @@ Item {
     // Smallest on-screen eye radius in px, so every eye feeds the bloom.
     readonly property real eyeMinPx: 2.0
     // Lane guides stay soft: edge lanes 0.28, middle lanes 0.16 of caste colour.
+    // In coreFocus the lanes crossing the orb are dimmed to 0.35 of those.
     readonly property real laneEdgeEmission: 0.28
     readonly property real laneMidEmission: 0.16
+    readonly property real laneCoreMul: coreMode ? 0.35 : 1.0
     readonly property color skyColor: "#010103"
     readonly property color fogColor: "#120a1d"
     readonly property real fogNear: 40
@@ -168,30 +186,68 @@ Item {
     property real hiveActivity: 0
     property real hiveActivityShown: 0
     property real starDrift: 0
-    // Pass C orb: energy follows real tok/s (idle floor 0.3, 1.0 at 60).
+    // Orb energy follows real tok/s (idle floor 0.3, 1.0 at 60). Unchanged.
     property real orbEnergy: 0.3
     property real orbEnergyShown: 0.3
-    // Visual gains at energy 1.0. After the first wash cut (nucleus 3.6),
-    // the core was still a clipped white ball that hid the filaments and
-    // shell. These keep a luminous core under clip, with filaments leading
-    // the nucleus and a broader, softer shell (see orbShellPower). Bloom
-    // is unchanged (3 levels, threshold 1.0) so eyes still glow.
-    readonly property real orbNucleusGain: 1.8
-    readonly property real orbFilamentGain: 2.2
-    readonly property real orbShellGain: 2.4
-    readonly property real orbPulseShellGain: 1.5
+    // Pass D visual values. Bloom stays 3 levels, threshold 1.0.
+    readonly property real orbRadius: 2.6
+    readonly property vector3d orbCentre: Qt.vector3d(0, 1.6, 0)
+    readonly property real orbCoreGain: 0.78
+    readonly property real orbCoreFloor: 0.5
+    readonly property real orbCoreSoftPow: 1.6
+    readonly property real orbCoreTightPow: 16.0
+    readonly property real orbCoreTightMix: 0.7
+    readonly property real orbFilamentGain: 0.85
+    readonly property real orbShellGain: 0.75
+    readonly property real orbShellBody: 0.06
+    readonly property real orbPulseShellGain: 0.6
     readonly property real orbShellPower: 3.0
+    readonly property real memoryRingRadius: 4.03
+    readonly property real toolsRingRadius: 4.68
+    readonly property real resultsRingAuthored: 5.98
+    readonly property real memoryBeadRadius: 0.05
+    readonly property real toolsBeadRadius: 0.10
+    readonly property real memPhase: 0.1
+    readonly property real toolPhase: 0.35
+    readonly property real ringMinPx: 1.25
+    readonly property real ringBackGain: 0.5
+    readonly property real filTube: 0.0065
+    readonly property real filMinPx: 1.0
     property real orbSpinAngle: 0
     property int memoryCount: 0
     property string memoryLabel: "Memory · 0 from last chat"
     property int toolsCount: 0
     property string toolsLabel: "Tools 0 running"
+    property var orbTools: []
+    property var orbResults: []
+    property real resultsRadius: 5.98
+    property real resultsFade: 1.0
     property var toolsLitArc: Qt.vector3d(0, 0, 2)
     property var orbImpact: Qt.vector4d(0, 1, 0, -1)
     property real pulseScale: 1.0
     property real pulseGain: 0
     property real memorySpin: 0
     property real toolsSpin: 0
+    // coreFocus: a separate camera preset on the orb centre. The overview
+    // scale and the 24 m unit focus stay as they are.
+    property bool coreMode: false
+    property bool coreTransitioning: false
+    property real coreEaseU: 0
+    property real coreEaseFromD: 95.1893
+    property real coreEaseFromPitch: 31.6864
+    property real coreEaseFromX: 0
+    property real coreEaseFromY: -6
+    property real coreEaseFromZ: -3
+    property real coreEaseToD: 15
+    property real coreEaseToPitch: 22
+    property real coreEaseToX: 0
+    property real coreEaseToY: 1.6
+    property real coreEaseToZ: 0
+    property string coreEaseIntent: ""
+    readonly property real coreFocusPitch: 22.0
+    readonly property real coreFocusMinDistance: 10.0
+    readonly property real coreFocusMaxDistance: 24.0
+    property string hudSansFamily: "Zen Kaku Gothic New"
     property var sourceNodeSpecs: []
     property var sourceList: sourceInstanceList
     property var memoryBeadList: memoryBeadInstanceList
@@ -336,7 +392,7 @@ Item {
         liveCounts = counts
         budgetTris = tris
         unitDrawCalls = used
-        budgetDrawCalls = used + 19  // SCENE_FIXED_DRAW: orb, sources, tentacles, lanes, stars
+        budgetDrawCalls = used + 20  // SCENE_FIXED_DRAW: orb (incl. results ring), sources, tentacles, lanes, stars
         lodCounts = lods
         recountEntries(live)
         instanceRecords = recs
@@ -418,6 +474,8 @@ Item {
     }
 
     function framingName() {
+        if (cameraMode === "core" || coreMode)
+            return "core"
         var d = cameraDistance
         if (d >= 6.0 && d <= 9.0)
             return "close"
@@ -437,7 +495,8 @@ Item {
             cameraTargetZ: cameraTargetZ,
             selectedUnitId: selectedUnitId,
             framing: framingName(),
-            cameraMode: cameraMode
+            cameraMode: cameraMode,
+            coreMode: coreMode
         }
     }
 
@@ -493,7 +552,7 @@ Item {
     }
 
     function syncCameraTargetFromSelection() {
-        if (cameraMode === "fit" || cameraMode === "ease")
+        if (cameraMode === "fit" || cameraMode === "ease" || cameraMode === "core" || coreMode)
             return false
         var pos = unitPositionOf(selectedUnitId)
         if (!pos)
@@ -513,6 +572,7 @@ Item {
     }
 
     function showOverview() {
+        root.snapOutOfCore()
         cameraMode = "overview"
         unitFocused = false
         applyOverview()
@@ -618,6 +678,8 @@ Item {
             d = hi
         }
         overviewDistance = d
+        if (coreMode || cameraMode === "core" || coreTransitioning)
+            return
         if (cameraMode === "overview" || cameraMode === "fit")
             applyOverview()
         else if (cameraMode === "ease") {
@@ -675,6 +737,7 @@ Item {
         var pos = unitPositionOf(selectedUnitId)
         if (!pos)
             return false
+        root.snapOutOfCore()
         cameraMode = "follow"
         unitFocused = true
         setCameraTarget(pos.x, pos.y, pos.z)
@@ -686,6 +749,7 @@ Item {
     // Fit swarm frames the whole hive like the default view (perimeter and
     // every source), but stays put when a unit is selected.
     function fitSwarm() {
+        root.snapOutOfCore()
         cameraMode = "fit"
         unitFocused = false
         applyOverview()
@@ -733,6 +797,226 @@ Item {
         var aspect = (height > 1 && width > 1) ? (width / height) : (2110 / 1306)
         var visW = visH * aspect
         return Qt.vector3d(sh.x * visW, sh.y * visH * Math.cos(pitch), -sh.y * visH * Math.sin(pitch))
+    }
+
+    function pxAngle() {
+        return 0.6306 / Math.max(1, view.height)
+    }
+
+    function cameraDirection() {
+        var p = cameraPitch * Math.PI / 180
+        return Qt.vector3d(0, -Math.sin(p), -Math.cos(p))
+    }
+
+    function cameraWorldPos() {
+        var d = cameraDistance
+        var pitch = cameraPitch * Math.PI / 180
+        var sh = lensShiftOffset()
+        return Qt.vector3d(
+            cameraTargetX + sh.x,
+            cameraTargetY + Math.sin(pitch) * d + sh.y,
+            cameraTargetZ + Math.cos(pitch) * d + sh.z
+        )
+    }
+
+    // Qt Quick 3D applies eulerRotation as Z, then X, then Y.
+    function eulerRotate(tilt, spinYDeg, local) {
+        var rx = tilt.x * Math.PI / 180
+        var ry = (tilt.y + spinYDeg) * Math.PI / 180
+        var rz = tilt.z * Math.PI / 180
+        var x = local.x, y = local.y, z = local.z
+        var c = Math.cos(rz), s = Math.sin(rz)
+        var x0 = x * c - y * s, y0 = x * s + y * c
+        x = x0; y = y0
+        c = Math.cos(rx); s = Math.sin(rx)
+        var y1 = y * c - z * s, z1 = y * s + z * c
+        y = y1; z = z1
+        c = Math.cos(ry); s = Math.sin(ry)
+        var x2 = x * c + z * s, z2 = -x * s + z * c
+        return Qt.vector3d(x2, y, z2)
+    }
+
+    function memoryTiltEuler() { return Qt.vector3d(6.62, 0, -28.75) }
+    function toolsTiltEuler() { return Qt.vector3d(-0.22, 0, 13.97) }
+    function resultsTiltEuler() { return Qt.vector3d(-4.52, 0, 2.86) }
+
+    function ringWorld(tilt, spinYDeg, radius, angle) {
+        var local = Qt.vector3d(radius * Math.cos(angle), 0, radius * Math.sin(angle))
+        var r = eulerRotate(tilt, spinYDeg, local)
+        return Qt.vector3d(root.orbCentre.x + r.x, root.orbCentre.y + r.y, root.orbCentre.z + r.z)
+    }
+
+    function updateResultsOrbit() {
+        var cap = root.resultsRingAuthored
+        var inner = Number.POSITIVE_INFINITY
+        var bands = bandSpecs || []
+        for (var i = 0; i < bands.length; i++) {
+            if (bands[i].caste !== "sanitizer")
+                continue
+            var lanes = bands[i].lanes || []
+            for (var j = 0; j < lanes.length; j++)
+                inner = Math.min(inner, finiteNum(lanes[j].r, inner))
+        }
+        var r = cap
+        if (inner !== Number.POSITIVE_INFINITY)
+            r = Math.min(cap, inner - 1.0)
+        resultsRadius = r
+        // Fade the results orbit out under 5.0 m so it does not collide
+        // with a tight sanitizer band (about 50 units).
+        if (r >= 5.0)
+            resultsFade = 1.0
+        else if (r <= 4.0)
+            resultsFade = 0.0
+        else
+            resultsFade = (r - 4.0) / 1.0
+    }
+
+    function updateBeadScales() {
+        var cam = cameraWorldPos()
+        var dir = cameraDirection()
+        var ang = pxAngle()
+        function pushList(list, radius, minPx) {
+            var rows = list || []
+            for (var i = 0; i < rows.length; i++) {
+                var e = rows[i]
+                if (!e)
+                    continue
+                var w = ringWorld(
+                    (list === memoryBeadList.instances || list === liveByKey["__memBeads"]) ? memoryTiltEuler() : toolsTiltEuler(),
+                    (list === memoryBeadList.instances || list === liveByKey["__memBeads"]) ? memorySpin : toolsSpin,
+                    Math.sqrt(e.position.x * e.position.x + e.position.z * e.position.z),
+                    Math.atan2(e.position.z, e.position.x)
+                )
+                var depth = Math.max((w.x - cam.x) * dir.x + (w.y - cam.y) * dir.y + (w.z - cam.z) * dir.z, 0.1)
+                var s = Math.max(radius, minPx * ang * depth)
+                e.scale = Qt.vector3d(s, s, s)
+                var comp = (radius / s) * (radius / s)
+                e.customData = Qt.vector4d(comp, 0, 0, 0)
+            }
+        }
+        pushList(liveByKey["__memBeads"] || [], root.memoryBeadRadius, 2.0)
+        pushList(liveByKey["__toolBeads"] || [], root.toolsBeadRadius, 2.5)
+    }
+
+    function coreFocusDistance() {
+        var free = freeViewportRect()
+        return Math.max(15.0, 20.0 * Math.max(1, height) / Math.max(1, free.width))
+    }
+
+    function applyCorePose(d) {
+        setCameraTarget(root.orbCentre.x, root.orbCentre.y, root.orbCentre.z)
+        cameraDistance = d
+        cameraPitch = root.coreFocusPitch
+    }
+
+    function snapOutOfCore() {
+        if (typeof coreEaseAnim !== "undefined")
+            coreEaseAnim.stop()
+        coreTransitioning = false
+        coreEaseIntent = ""
+        coreMode = false
+        if (cameraMode === "core")
+            cameraMode = "follow"
+    }
+
+    function finishCoreEase() {
+        if (!coreTransitioning)
+            return
+        coreEaseU = 1
+        applyCoreEase(1)
+        coreTransitioning = false
+        if (typeof coreEaseAnim !== "undefined")
+            coreEaseAnim.stop()
+        if (coreEaseIntent === "enter") {
+            cameraMode = "core"
+            coreMode = true
+        } else {
+            coreMode = false
+            cameraMode = "overview"
+            applyOverview()
+        }
+        coreEaseIntent = ""
+    }
+
+    function applyCoreEase(u) {
+        var aD = coreEaseFromD, bD = coreEaseToD
+        if (aD > 0.0001 && bD > 0.0001)
+            cameraDistance = aD * Math.pow(bD / aD, u)
+        else
+            cameraDistance = aD + (bD - aD) * u
+        cameraPitch = coreEaseFromPitch + (coreEaseToPitch - coreEaseFromPitch) * u
+        cameraTargetX = coreEaseFromX + (coreEaseToX - coreEaseFromX) * u
+        cameraTargetY = coreEaseFromY + (coreEaseToY - coreEaseFromY) * u
+        cameraTargetZ = coreEaseFromZ + (coreEaseToZ - coreEaseFromZ) * u
+    }
+
+    function beginCoreEase(intent, toD, toPitch, toX, toY, toZ, immediate) {
+        coreEaseFromD = cameraDistance
+        coreEaseFromPitch = cameraPitch
+        coreEaseFromX = cameraTargetX
+        coreEaseFromY = cameraTargetY
+        coreEaseFromZ = cameraTargetZ
+        coreEaseToD = toD
+        coreEaseToPitch = toPitch
+        coreEaseToX = toX
+        coreEaseToY = toY
+        coreEaseToZ = toZ
+        coreEaseIntent = intent
+        if (immediate || reducedMotion) {
+            applyCoreEase(1)
+            coreTransitioning = false
+            if (intent === "enter") {
+                cameraMode = "core"
+                coreMode = true
+            } else {
+                coreMode = false
+                cameraMode = "overview"
+                applyOverview()
+            }
+            coreEaseIntent = ""
+            projectOrbLabels()
+            return
+        }
+        coreTransitioning = true
+        if (intent === "enter")
+            coreMode = true
+        coreEaseU = 0
+        coreEaseAnim.stop()
+        coreEaseAnim.start()
+    }
+
+    function enterCoreFocus(immediate) {
+        var d = coreFocusDistance()
+        unitFocused = false
+        beginCoreEase("enter", d, root.coreFocusPitch, root.orbCentre.x, root.orbCentre.y, root.orbCentre.z, !!immediate)
+        if (!!immediate)
+            applyCorePose(d)
+        projectOrbLabels()
+        return true
+    }
+
+    function exitCoreFocus(immediate) {
+        if (!coreMode && cameraMode !== "core" && !coreTransitioning)
+            return false
+        var s = overviewDistance / specDistance
+        beginCoreEase("exit", overviewDistance, specPitchDeg, 0, -6 * s, -3 * s, !!immediate)
+        return true
+    }
+
+    function orbPickHitsCore(hit) {
+        var n = hit
+        while (n) {
+            if (n.objectName === "hiveCore" || n.objectName === "orbBody"
+                    || n.objectName === "orbCore" || n.objectName === "orbNucleus"
+                    || n.objectName === "orbFilaments" || n.objectName === "orbShell"
+                    || n.objectName === "orbPulseShell" || n.objectName === "memoryTilt"
+                    || n.objectName === "toolsTilt" || n.objectName === "resultsTilt"
+                    || n.objectName === "orbRingMemory" || n.objectName === "orbRingTools"
+                    || n.objectName === "orbRingResults")
+                return true
+            n = n.parent
+        }
+        return false
     }
 
     function rememberUnitPositions(buckets) {
@@ -946,17 +1230,18 @@ Item {
 
     function applyBands(bands, perimeter) {
         var list = bands || []
-        var key = String(finiteNum(perimeter, 35))
+        var key = String(finiteNum(perimeter, 35)) + "|core:" + root.laneCoreMul
         for (var i = 0; i < list.length; i++) {
             var lanes = list[i].lanes || []
             for (var li = 0; li < lanes.length; li++)
                 key += "|" + list[i].caste + ":" + lanes[li].r
         }
+        bandSpecs = list
+        perimeterRadius = finiteNum(perimeter, 35)
+        root.updateResultsOrbit()
         if (key === bandKey)
             return
         bandKey = key
-        bandSpecs = list
-        perimeterRadius = finiteNum(perimeter, 35)
         // All lane guides in one line mesh with per-vertex caste colour:
         // edge lanes brighter than middle lanes.
         var pos = []
@@ -968,7 +1253,7 @@ Item {
             var bl = band.lanes || []
             for (var lj = 0; lj < bl.length; lj++) {
                 var edge = (lj === 0 || lj === bl.length - 1)
-                var k = edge ? root.laneEdgeEmission : root.laneMidEmission
+                var k = (edge ? root.laneEdgeEmission : root.laneMidEmission) * root.laneCoreMul
                 // Vertex colours reach the shader as linear light, so convert
                 // the sRGB target (caste colour times k) or the guides render
                 // at about twice the intended brightness.
@@ -1032,6 +1317,23 @@ Item {
             orbEnergy = 0.3
         if (orbEnergy > 1.0)
             orbEnergy = 1.0
+        var tools = []
+        var src = orb.tools || []
+        for (var ti = 0; ti < src.length; ti++) {
+            if (typeof src[ti] === "string")
+                tools.push({ id: src[ti] })
+            else if (src[ti])
+                tools.push({ id: String(src[ti].id || src[ti].name || ("tool-" + ti)) })
+        }
+        orbTools = tools
+        var results = []
+        var rs = orb.results || []
+        for (var ri = 0; ri < rs.length; ri++) {
+            if (rs[ri])
+                results.push(String(rs[ri]))
+        }
+        orbResults = results
+        root.updateResultsOrbit()
     }
 
     function fillSourceEntries(rows) {
@@ -1058,30 +1360,33 @@ Item {
         releaseList("__memBeads", memoryBeadList)
         releaseList("__toolBeads", toolBeadList)
         var mem = [], tools = []
-        var memR = 2.6 * 1.55, toolR = 2.6 * 1.95
+        var memR = root.memoryRingRadius, toolR = root.toolsRingRadius
         var i
         for (i = 0; i < memoryCount; i++) {
-            var a = i * 2 * Math.PI / Math.max(memoryCount, 1)
+            var a = root.memPhase + i * 2 * Math.PI / Math.max(memoryCount, 1)
             var e = acquireEntry()
             e.position = Qt.vector3d(memR * Math.cos(a), 0, memR * Math.sin(a))
-            var s = 0.035 * 2.6
+            var s = root.memoryBeadRadius
             e.scale = Qt.vector3d(s, s, s)
-            e.color = "#a473f0"
+            e.color = "#d2b9f8"
+            e.customData = Qt.vector4d(1, 0, 0, 0)
             mem.push(e)
         }
         for (i = 0; i < Math.min(toolsCount, 8); i++) {
-            var b = i * 2 * Math.PI / Math.max(toolsCount, 1)
+            var b = root.toolPhase + i * 2 * Math.PI / Math.max(toolsCount, 1)
             var f = acquireEntry()
             f.position = Qt.vector3d(toolR * Math.cos(b), 0, toolR * Math.sin(b))
-            var ts = 0.06 * 2.6
+            var ts = root.toolsBeadRadius
             f.scale = Qt.vector3d(ts, ts, ts)
-            f.color = "#d2b9f8"
+            f.color = "#ffffff"
+            f.customData = Qt.vector4d(1, 0, 0, 0)
             tools.push(f)
         }
         memoryBeadList.instances = mem
         toolBeadList.instances = tools
         liveByKey["__memBeads"] = mem
         liveByKey["__toolBeads"] = tools
+        root.updateBeadScales()
     }
 
     function fillTentacleEntries(recs) {
@@ -1251,6 +1556,26 @@ Item {
     }
 
     function applyWheel(notches) {
+        if (coreMode || cameraMode === "core" || (coreTransitioning && coreEaseIntent === "enter")) {
+            if (coreTransitioning && coreEaseIntent === "enter")
+                root.finishCoreEase()
+            var step = Math.pow(1.18, -notches)
+            var next = cameraDistance * step
+            if (next > root.coreFocusMaxDistance) {
+                // Wheel out past 24 m: leave core and let the overview ease take over.
+                root.snapOutOfCore()
+                zoomZ = zoomZFor(cameraDistance)
+                // Fall through to the normal wheel path below.
+            } else {
+                cameraDistance = Math.max(root.coreFocusMinDistance, Math.min(root.coreFocusMaxDistance, next))
+                cameraPitch = root.coreFocusPitch
+                cameraMode = "core"
+                coreMode = true
+                setCameraTarget(root.orbCentre.x, root.orbCentre.y, root.orbCentre.z)
+                projectOrbLabels()
+                return cameraDistance
+            }
+        }
         var home = cameraMode === "overview" || cameraMode === "fit"
         var z0 = home ? 0 : zoomZ
         if (!home && Math.abs(zoomPose(z0).d - cameraDistance) > 1e-4)
@@ -1475,29 +1800,335 @@ Item {
     property var orbLabelScreen: []
     property string orbLabelKey: ""
     property real pulsePhase: 0
+    property var orbLabelBlocks: []
+    property var orbLeaders: []
+    property var orbDots: []
+    property var orbChips: []
+    property var orbGlyphs: []
+
+    TextMetrics { id: labelMetrics }
+
+    function measureText(text, family, px) {
+        labelMetrics.font.family = family
+        labelMetrics.font.pixelSize = px
+        labelMetrics.text = text || ""
+        return { w: labelMetrics.advanceWidth, h: Math.max(px + 3, labelMetrics.height) }
+    }
+
+    function rectHitsCircle(r, c, rad) {
+        var nx = Math.min(Math.max(c.x, r.x0), r.x1)
+        var ny = Math.min(Math.max(c.y, r.y0), r.y1)
+        var dx = nx - c.x, dy = ny - c.y
+        return dx * dx + dy * dy < rad * rad
+    }
+
+    function rectHitsRect(a, b, pad) {
+        pad = pad === undefined ? 4 : pad
+        return !(a.x1 + pad <= b.x0 || b.x1 + pad <= a.x0 || a.y1 + pad <= b.y0 || b.y1 + pad <= a.y0)
+    }
+
+    function labelFree(r, keep, cx, cy, rects, beads) {
+        if (rectHitsCircle(r, { x: cx, y: cy }, keep))
+            return false
+        var i
+        for (i = 0; i < rects.length; i++) {
+            if (rectHitsRect(r, rects[i], 4))
+                return false
+        }
+        for (i = 0; i < beads.length; i++) {
+            if (rectHitsCircle(r, { x: beads[i].x, y: beads[i].y }, beads[i].r))
+                return false
+        }
+        return true
+    }
+
+    function ringScreenPoints(tilt, radius, n, spinDeg) {
+        var pts = []
+        for (var i = 0; i <= n; i++) {
+            var a = 2 * Math.PI * i / n
+            var w = ringWorld(tilt, spinDeg || 0, radius, a)
+            var m = _tryMapFrom3DScene(w)
+            if (m)
+                pts.push({ x: m.x, y: m.y, z: m.z, a: a })
+        }
+        return pts
+    }
+
+    function shellScreen() {
+        var cam = cameraWorldPos()
+        var c = root.orbCentre
+        var dx = cam.x - c.x, dy = cam.y - c.y, dz = cam.z - c.z
+        var dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        var f = Math.max(1, height) / (2 * Math.tan(17.5 * Math.PI / 180))
+        var denom = Math.sqrt(Math.max(dist * dist - root.orbRadius * root.orbRadius, 1e-6))
+        var rs = f * root.orbRadius / denom
+        var mapped = _tryMapFrom3DScene(c)
+        return {
+            rs: rs,
+            keep: rs * 1.04 + 4,
+            cx: mapped ? mapped.x : width / 2,
+            cy: mapped ? mapped.y : height / 2
+        }
+    }
+
+    function ellipsize(text, maxGlyphs) {
+        var s = String(text || "")
+        if (s.length <= maxGlyphs)
+            return s
+        return s.substring(0, Math.max(0, maxGlyphs - 1)).replace(/\s+$/, "") + "..."
+    }
 
     function projectOrbLabels() {
-        var pts = [
-            { id: "memory", text: memoryLabel, color: "#e8dcfb", p: Qt.vector3d(4.2, 2.4, 0.2) },
-            { id: "tools", text: toolsLabel, color: "#e8dcfb", p: Qt.vector3d(-5.1, 1.3, 0.4) }
-        ]
-        var free = freeViewportRect()
-        var out = []
-        var key = ""
-        for (var i = 0; i < pts.length; i++) {
-            var mapped = _tryMapFrom3DScene(pts[i].p)
-            var sx = mapped ? Math.round(mapped.x) : -1000
-            var sy = mapped ? Math.round(mapped.y) : -1000
-            var visible = !!mapped && mapped.z > 0 && sx > free.x && sy > free.y
-                && sx < free.x + free.width && sy < free.y + free.height
-            key += pts[i].id + ":" + pts[i].text + ":" + sx + ":" + sy + ":" + visible + "|"
-            out.push({ id: pts[i].id, text: pts[i].text, color: pts[i].color, sx: sx, sy: sy, visible: visible })
+        var shell = shellScreen()
+        var closeUp = shell.rs >= 90
+        var blocks = [], leaders = [], dots = [], chips = [], glyphs = [], screen = []
+        var rects = [], beadGlows = []
+        var tp = ringScreenPoints(toolsTiltEuler(), root.toolsRingRadius, 180, 0)
+        var mp = ringScreenPoints(memoryTiltEuler(), root.memoryRingRadius, 180, 0)
+        if (!tp.length || !mp.length) {
+            if (orbLabelKey !== "empty") {
+                orbLabelKey = "empty"
+                orbLabelBlocks = []; orbLeaders = []; orbDots = []; orbChips = []; orbGlyphs = []; orbLabelScreen = []
+            }
+            return
         }
+        var i
+        function leftmost(pts) {
+            var best = pts[0]
+            for (var k = 1; k < pts.length; k++)
+                if (pts[k].x < best.x) best = pts[k]
+            return best
+        }
+        function rightmost(pts) {
+            var best = pts[0]
+            for (var k = 1; k < pts.length; k++)
+                if (pts[k].x > best.x) best = pts[k]
+            return best
+        }
+        function lowest(pts) {
+            var best = pts[0]
+            for (var k = 1; k < pts.length; k++)
+                if (pts[k].y > best.y) best = pts[k]
+            return best
+        }
+        if (!closeUp) {
+            function plate(id, text, ax, ay, dx, dy) {
+                var sz = measureText(text, root.glyphFontFamily, 15)
+                var W = sz.w + 18, H = sz.h + 12
+                var r = { x0: ax + dx - W, y0: ay + dy - H / 2, x1: ax + dx, y1: ay + dy + H / 2 }
+                var guard = 0
+                while (!labelFree(r, shell.keep, shell.cx, shell.cy, rects, beadGlows) && guard < 40) {
+                    r = { x0: r.x0 - 8, y0: r.y0, x1: r.x1 - 8, y1: r.y1 }
+                    guard++
+                }
+                var midY = (r.y0 + r.y1) / 2
+                leaders.push({ id: id + "Leader", x1: ax, y1: ay, x2: r.x1, y2: midY })
+                dots.push({ id: id + "Dot", x: ax, y: ay })
+                blocks.push({ id: id, text: text, x: r.x0, y: r.y0, w: W, h: H, kind: "chip" })
+                rects.push(r)
+                screen.push({ id: id, text: text, color: "#e8dcfb", sx: Math.round((r.x0 + r.x1) / 2), sy: Math.round(midY), visible: true })
+            }
+            var ta = leftmost(tp)
+            plate("tools", "Tools · " + toolsCount + " running", ta.x, ta.y, -70, -34)
+            var ma = lowest(mp)
+            plate("memory", "Memory · " + memoryCount + " from last chat", ma.x, ma.y, -110, 46)
+        } else {
+            var tn = Math.max(toolsCount, 1)
+            for (i = 0; i < toolsCount; i++) {
+                var ang = root.toolPhase + i * 2 * Math.PI / tn
+                var bw = ringWorld(toolsTiltEuler(), toolsSpin, root.toolsRingRadius, ang)
+                var bm = _tryMapFrom3DScene(bw)
+                if (bm)
+                    beadGlows.push({ x: bm.x, y: bm.y, r: 34 })
+            }
+            var axp = rightmost(tp)
+            var toolsTitle = measureText("Tools", root.hudSansFamily, 25)
+            var toolsStatus = measureText(toolsCount + " running", root.hudSansFamily, 18)
+            var tW = Math.max(toolsTitle.w, toolsStatus.w)
+            var tH = toolsTitle.h + toolsStatus.h
+            var tb = { x0: axp.x + 22, y0: axp.y - 78, x1: axp.x + 22 + tW, y1: axp.y - 78 + tH }
+            var guard = 0
+            while (!labelFree(tb, shell.keep, shell.cx, shell.cy, rects, beadGlows) && guard < 40) {
+                tb = { x0: tb.x0 + 6, y0: tb.y0 - 4, x1: tb.x1 + 6, y1: tb.y1 - 4 }
+                guard++
+            }
+            blocks.push({
+                id: "tools", kind: "block", x: tb.x0, y: tb.y0,
+                title: "Tools", status: toolsCount + " running",
+                titleSize: 25, statusSize: 18, titleColor: "#ffffff", statusColor: "#cdb2f7"
+            })
+            leaders.push({ id: "toolsLeader", x1: axp.x + 4, y1: axp.y - 4, x2: tb.x0 - 3, y2: tb.y1 - 4 })
+            rects.push(tb)
+            screen.push({ id: "tools", text: "Tools " + toolsCount + " running", color: "#ffffff", sx: Math.round((tb.x0 + tb.x1) / 2), sy: Math.round((tb.y0 + tb.y1) / 2), visible: true })
+
+            var bxp = lowest(mp)
+            var memTitle = measureText("Memory", root.hudSansFamily, 25)
+            var memStatus = measureText(memoryCount + " from last chat", root.hudSansFamily, 18)
+            var mW = Math.max(memTitle.w, memStatus.w)
+            var mH = memTitle.h + memStatus.h
+            var top = Math.max(bxp.y + 18, shell.cy + shell.keep + 6)
+            var mb = { x0: bxp.x - mW / 2, y0: top, x1: bxp.x + mW / 2, y1: top + mH }
+            blocks.push({
+                id: "memory", kind: "block", x: mb.x0, y: mb.y0, align: "centre",
+                title: "Memory", status: memoryCount + " from last chat",
+                titleSize: 25, statusSize: 18, titleColor: "#ffffff", statusColor: "#cdb2f7"
+            })
+            leaders.push({ id: "memoryLeader", x1: bxp.x, y1: bxp.y + 5, x2: bxp.x, y2: mb.y0 - 3 })
+            rects.push(mb)
+            screen.push({ id: "memory", text: "Memory " + memoryCount + " from last chat", color: "#ffffff", sx: Math.round(bxp.x), sy: Math.round(top + mH / 2), visible: true })
+
+            var names = orbTools || []
+            for (i = 0; i < Math.min(toolsCount, names.length || toolsCount); i++) {
+                var nm = (names[i] && names[i].id) ? names[i].id : ("tool-" + i)
+                var a2 = root.toolPhase + i * 2 * Math.PI / tn
+                var ww = ringWorld(toolsTiltEuler(), toolsSpin, root.toolsRingRadius, a2)
+                var sm = _tryMapFrom3DScene(ww)
+                if (!sm)
+                    continue
+                if (Math.hypot(sm.x - shell.cx, sm.y - shell.cy) < shell.keep + 8)
+                    continue
+                var sz = measureText(nm, root.glyphFontFamily, 16)
+                var W = sz.w + 16, H = sz.h + 8
+                var side = sm.x >= shell.cx ? 1 : -1
+                var cands = [], dys = [-26, 26, -46, 46], pushes = [22, 36, 54], di, pi
+                for (di = 0; di < dys.length; di++) {
+                    for (pi = 0; pi < pushes.length; pi++) {
+                        var x0 = side > 0 ? sm.x + pushes[pi] : sm.x - pushes[pi] - W
+                        cands.push({ x0: x0, y0: sm.y + dys[di] - H / 2, x1: x0 + W, y1: sm.y + dys[di] + H / 2 })
+                    }
+                }
+                var chosen = cands[0]
+                for (pi = 0; pi < cands.length; pi++) {
+                    if (labelFree(cands[pi], shell.keep, shell.cx, shell.cy, rects, beadGlows)) {
+                        chosen = cands[pi]
+                        break
+                    }
+                }
+                chips.push({ id: "chip_" + nm, text: nm, x: chosen.x0, y: chosen.y0, w: W, h: H })
+                leaders.push({
+                    id: "chipLeader_" + nm,
+                    x1: sm.x + side * 6, y1: sm.y,
+                    x2: side > 0 ? chosen.x0 : chosen.x1,
+                    y2: (chosen.y0 + chosen.y1) / 2
+                })
+                rects.push(chosen)
+            }
+
+            if (root.resultsFade > 0.001 && (orbResults || []).length) {
+                var rp = ringScreenPoints(resultsTiltEuler(), root.resultsRadius, 360, 0)
+                layoutResultTitles(orbResults, rp, shell, rects, beadGlows, tp.concat(mp), glyphs)
+            }
+        }
+        var key = (closeUp ? "c" : "o") + "|" + toolsCount + "|" + memoryCount + "|" + (orbResults || []).length
+            + "|" + Math.round(shell.rs) + "|" + Math.round(cameraDistance * 10) + "|" + Math.round(memorySpin) + "|" + Math.round(toolsSpin)
+        if (blocks.length)
+            key += "|" + Math.round(blocks[0].x) + "|" + Math.round(blocks[0].y)
         if (key === orbLabelKey)
             return
         orbLabelKey = key
-        orbLabelScreen = out
+        orbLabelBlocks = blocks
+        orbLeaders = leaders
+        orbDots = dots
+        orbChips = chips
+        orbGlyphs = glyphs
+        orbLabelScreen = screen
     }
+
+    function layoutResultTitles(titles, rp, shell, rects, beads, obst, glyphs) {
+        if (!rp.length)
+            return
+        var L = [0]
+        var i
+        for (i = 1; i < rp.length; i++)
+            L.push(L[i - 1] + Math.hypot(rp[i].x - rp[i - 1].x, rp[i].y - rp[i - 1].y))
+        function at(sv) {
+            var j = 1
+            while (j < L.length && L[j] < sv)
+                j++
+            j = Math.max(1, Math.min(L.length - 1, j))
+            var t = (sv - L[j - 1]) / Math.max(L[j] - L[j - 1], 1e-6)
+            var p = { x: rp[j - 1].x + (rp[j].x - rp[j - 1].x) * t, y: rp[j - 1].y + (rp[j].y - rp[j - 1].y) * t }
+            var ang = Math.atan2(rp[j].y - rp[j - 1].y, rp[j].x - rp[j - 1].x)
+            return { p: p, ang: ang, j: j }
+        }
+        function pickIndex(tx, upper) {
+            var best = -1, bestD = 1e9
+            for (var k = 0; k < rp.length; k++) {
+                if ((rp[k].y < shell.cy) !== upper)
+                    continue
+                var d = Math.abs(rp[k].x - tx)
+                if (d < bestD) { bestD = d; best = k }
+            }
+            return best
+        }
+        var tries = [], fxs = [-1.62, 1.62, -1.85, 1.85, -1.4, 1.4, -0.45, 0.45, -1.1, 1.1, 0.0], fi
+        for (fi = 0; fi < fxs.length; fi++) {
+            tries.push({ fx: fxs[fi], upper: true })
+            tries.push({ fx: fxs[fi], upper: false })
+        }
+        var used = {}
+        for (var ti = 0; ti < titles.length; ti++) {
+            var txt = ellipsize(titles[ti], 34)
+            for (var tr = 0; tr < tries.length; tr++) {
+                var tag = tries[tr].fx + ":" + tries[tr].upper
+                if (used[tag])
+                    continue
+                var idx = pickIndex(shell.cx + tries[tr].fx * shell.rs, tries[tr].upper)
+                if (idx < 0)
+                    continue
+                var fontPx = 17
+                var fwd = rp[Math.min(idx + 3, rp.length - 1)].x - rp[Math.max(idx - 3, 0)].x >= 0
+                var tw = measureText(txt, root.glyphFontFamily, fontPx).w
+                var s0 = fwd ? (L[idx] - tw / 2) : (L[idx] + tw / 2)
+                var cur = 0, boxes = [], letters = [], ok = true, ci
+                for (ci = 0; ci < txt.length; ci++) {
+                    var ch = txt.charAt(ci)
+                    var cw = measureText(ch, root.glyphFontFamily, fontPx).w
+                    var loc = at(s0 + (cur + cw / 2) * (fwd ? 1 : -1))
+                    cur += cw
+                    var angDeg = (fwd ? loc.ang : loc.ang + Math.PI) * 180 / Math.PI
+                    letters.push({ ch: ch, x: loc.p.x, y: loc.p.y, rot: angDeg, w: cw })
+                    boxes.push({ x0: loc.p.x - cw, y0: loc.p.y - fontPx, x1: loc.p.x + cw, y1: loc.p.y + fontPx * 0.4 })
+                }
+                for (ci = 0; ci < boxes.length; ci++) {
+                    if (rectHitsCircle(boxes[ci], { x: shell.cx, y: shell.cy }, shell.keep)
+                            || !labelFree(boxes[ci], 0, shell.cx, shell.cy, rects, beads)) {
+                        ok = false
+                        break
+                    }
+                    for (var oi = 0; oi < obst.length; oi++) {
+                        var op = obst[oi]
+                        if (op.x >= boxes[ci].x0 - 4 && op.x <= boxes[ci].x1 + 4
+                                && op.y >= boxes[ci].y0 - 4 && op.y <= boxes[ci].y1 + 4) {
+                            ok = false
+                            break
+                        }
+                    }
+                    if (!ok)
+                        break
+                }
+                if (!ok)
+                    continue
+                used[tag] = true
+                var union = boxes[0]
+                for (ci = 1; ci < boxes.length; ci++) {
+                    union = {
+                        x0: Math.min(union.x0, boxes[ci].x0), y0: Math.min(union.y0, boxes[ci].y0),
+                        x1: Math.max(union.x1, boxes[ci].x1), y1: Math.max(union.y1, boxes[ci].y1)
+                    }
+                }
+                rects.push(union)
+                for (ci = 0; ci < letters.length; ci++) {
+                    glyphs.push({
+                        id: "result_" + ti + "_" + ci,
+                        text: letters[ci].ch, x: letters[ci].x, y: letters[ci].y, rot: letters[ci].rot
+                    })
+                }
+                break
+            }
+        }
+    }
+
 
     function stepConduits() {
         var specs = conduitSpecs
@@ -1666,13 +2297,15 @@ Item {
                     root.pulsePhase -= Math.floor(root.pulsePhase)
                 // A 35 percent expanding HDR shell doubled the bloom disc.
                 // Keep the token pulse, but as a small breath around the shell.
-                root.pulseScale = 1.0 + 0.12 * root.pulsePhase
+                root.pulseScale = 1.0 + 0.06 * root.pulsePhase
                 root.pulseGain = (1.0 - root.pulsePhase) * root.orbEnergyShown
             } else {
                 root.pulsePhase = 0
                 root.pulseScale = 1
                 root.pulseGain = 0
             }
+            root.updateBeadScales()
+            root.projectOrbLabels()
             root.refreshCurves()
         }
     }
@@ -1684,6 +2317,23 @@ Item {
         duration: 1600
         running: false
         onFinished: root.entryPlaying = false
+    }
+
+    NumberAnimation {
+        id: coreEaseAnim
+        target: root
+        property: "coreEaseU"
+        from: 0
+        to: 1
+        duration: 900
+        easing.type: Easing.InOutCubic
+        running: false
+        onFinished: root.finishCoreEase()
+    }
+
+    onCoreEaseUChanged: {
+        if (root.coreTransitioning)
+            root.applyCoreEase(root.coreEaseU)
     }
 
     Rectangle {
@@ -1719,6 +2369,20 @@ Item {
                 var notches = -event.angleDelta.y / 120
                 root.applyWheel(notches)
                 event.accepted = true
+            }
+        }
+        TapHandler {
+            acceptedButtons: Qt.LeftButton
+            grabPermissions: PointerHandler.CanTakeOverFromItems | PointerHandler.ApprovesTakeOverByAnything
+            onTapped: function (event, button) {
+                var pt = event.position
+                var hit = view.pick(pt.x, pt.y)
+                var obj = hit ? hit.objectHit : null
+                if (obj && root.orbPickHitsCore(obj)) {
+                    if (!root.coreMode)
+                        root.enterCoreFocus()
+                    event.accepted = true
+                }
             }
         }
         environment: SceneEnvironment {
@@ -1785,31 +2449,33 @@ Item {
             Node {
                 objectName: "orbBody"
                 Model {
-                    objectName: "orbNucleus"
-                    source: "meshes/orb_nucleus_mesh.mesh"
+                    id: orbCore
+                    objectName: "orbCore"
+                    source: "meshes/orb_core_mesh.mesh"
                     materials: CustomMaterial {
                         shadingMode: CustomMaterial.Unshaded
-                        vertexShader: "shaders/emission.vert"
-                        fragmentShader: "shaders/emission.frag"
+                        vertexShader: "shaders/orb_shell.vert"
+                        fragmentShader: "shaders/orb_core.frag"
                         sourceBlend: CustomMaterial.One
                         destinationBlend: CustomMaterial.One
                         depthDrawMode: Material.NeverDepthDraw
-                        property vector3d spinAxis: Qt.vector3d(0.25, 1.0, 0.2)
-                        property real spinAngle: 0
-                        property real spinShear: 0
-                        property vector3d tint: Qt.vector3d(1, 1, 1)
-                        property real gain: root.orbNucleusGain * root.orbEnergyShown
-                        property vector3d litArc: Qt.vector3d(0, 0, 2)
-                        property real dim: 1
+                        property real coreGain: root.orbCoreGain
+                        property real coreFloor: root.orbCoreFloor
+                        property real energy: root.orbEnergyShown
+                        property real coreSoftPow: root.orbCoreSoftPow
+                        property real coreTightPow: root.orbCoreTightPow
+                        property real coreTightMix: root.orbCoreTightMix
+                        property vector3d coreCentre: root.linearVec("#f3edff")
+                        property vector3d coreEdge: root.linearVec("#b48cf5")
                     }
                 }
                 Model {
                     objectName: "orbFilaments"
-                    source: "meshes/orb_filaments_mesh.mesh"
+                    source: "meshes/orb_filaments_d_mesh.mesh"
                     materials: CustomMaterial {
                         shadingMode: CustomMaterial.Unshaded
-                        vertexShader: "shaders/emission.vert"
-                        fragmentShader: "shaders/emission.frag"
+                        vertexShader: "shaders/emission_minpx.vert"
+                        fragmentShader: "shaders/orb_emission.frag"
                         sourceBlend: CustomMaterial.One
                         destinationBlend: CustomMaterial.One
                         depthDrawMode: Material.NeverDepthDraw
@@ -1820,6 +2486,11 @@ Item {
                         property real gain: root.orbFilamentGain * root.orbEnergyShown
                         property vector3d litArc: Qt.vector3d(0, 0, 2)
                         property real dim: 1
+                        property real tubeRadius: root.filTube
+                        property real minPx: root.filMinPx
+                        property real pxAngle: 0.6306 / Math.max(1, view.height)
+                        property real backGain: 1.0
+                        property vector3d orbCentre: root.orbCentre
                     }
                 }
                 Model {
@@ -1833,10 +2504,11 @@ Item {
                         destinationBlend: CustomMaterial.One
                         depthDrawMode: Material.NeverDepthDraw
                         cullMode: Material.NoCulling
-                        property vector3d shellColor: root.linearVec("#a473f0")
+                        property vector3d shellColor: root.linearVec("#b4a0f2")
                         property real energy: root.orbEnergyShown
                         property real shellPower: root.orbShellPower
                         property real shellGain: root.orbShellGain
+                        property real shellBody: root.orbShellBody
                         property vector4d impact: root.orbImpact
                     }
                 }
@@ -1853,45 +2525,30 @@ Item {
                         destinationBlend: CustomMaterial.One
                         depthDrawMode: Material.NeverDepthDraw
                         cullMode: Material.NoCulling
-                        property vector3d shellColor: root.linearVec("#a473f0")
+                        property vector3d shellColor: root.linearVec("#b4a0f2")
                         property real energy: root.pulseGain
                         property real shellPower: root.orbShellPower
                         property real shellGain: root.orbPulseShellGain
+                        property real shellBody: 0
                         property vector4d impact: Qt.vector4d(0, 1, 0, -1)
                     }
                 }
             }
             Node {
-                objectName: "memoryRingNode"
-                eulerRotation: Qt.vector3d(0.42 * 180 / Math.PI, root.memorySpin, -0.18 * 180 / Math.PI)
-                Model {
-                    objectName: "orbRingMemory"
-                    source: "meshes/orb_ring_memory_mesh.mesh"
+                id: memoryTilt
+                objectName: "memoryTilt"
+                eulerRotation: Qt.vector3d(6.62, 0, -28.75)
+                Node {
+                    id: memorySpinNode
+                    objectName: "memorySpinNode"
+                    eulerRotation.y: root.memorySpin
+                    Model {
+                        objectName: "orbRingMemory"
+                        source: "meshes/orb_ring_memory_d_mesh.mesh"
                     materials: CustomMaterial {
                         shadingMode: CustomMaterial.Unshaded
-                        vertexShader: "shaders/emission.vert"
-                        fragmentShader: "shaders/emission.frag"
-                        sourceBlend: CustomMaterial.One
-                        destinationBlend: CustomMaterial.One
-                        depthDrawMode: Material.NeverDepthDraw
-                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
-                        property real spinAngle: 0
-                        property real spinShear: 0
-                        property vector3d tint: root.linearVec("#a473f0")
-                        property real gain: 1.3
-                        property vector3d litArc: Qt.vector3d(0, 0, 2)
-                        property real dim: 1
-                    }
-                }
-                Model {
-                    objectName: "orbMemoryBeads"
-                    visible: root.memoryCount > 0
-                    instancing: memoryBeadInstanceList
-                    source: "meshes/orb_bead_mesh.mesh"
-                    materials: CustomMaterial {
-                        shadingMode: CustomMaterial.Unshaded
-                        vertexShader: "shaders/emission_instanced.vert"
-                        fragmentShader: "shaders/emission.frag"
+                        vertexShader: "shaders/emission_minpx.vert"
+                        fragmentShader: "shaders/orb_emission.frag"
                         sourceBlend: CustomMaterial.One
                         destinationBlend: CustomMaterial.One
                         depthDrawMode: Material.NeverDepthDraw
@@ -1899,43 +2556,56 @@ Item {
                         property real spinAngle: 0
                         property real spinShear: 0
                         property vector3d tint: Qt.vector3d(1, 1, 1)
-                        property real gain: 4.0
+                        property real gain: 0.95
                         property vector3d litArc: Qt.vector3d(0, 0, 2)
                         property real dim: 1
+                        property real tubeRadius: 0.016
+                        property real minPx: root.ringMinPx
+                        property real pxAngle: 0.6306 / Math.max(1, view.height)
+                        property real backGain: root.ringBackGain
+                        property vector3d orbCentre: root.orbCentre
+                    }
+                    }
+                    Model {
+                        objectName: "orbMemoryBeads"
+                        visible: root.memoryCount > 0
+                        instancing: memoryBeadInstanceList
+                        source: "meshes/orb_bead_mesh.mesh"
+                        materials: CustomMaterial {
+                            shadingMode: CustomMaterial.Unshaded
+                            vertexShader: "shaders/orb_bead.vert"
+                            fragmentShader: "shaders/orb_emission.frag"
+                            sourceBlend: CustomMaterial.One
+                            destinationBlend: CustomMaterial.One
+                            depthDrawMode: Material.NeverDepthDraw
+                            property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                            property real spinAngle: 0
+                            property real spinShear: 0
+                            property vector3d tint: Qt.vector3d(1, 1, 1)
+                            property real gain: 1.6
+                            property vector3d litArc: Qt.vector3d(0, 0, 2)
+                            property real dim: 1
+                            property real backGain: root.ringBackGain
+                            property vector3d orbCentre: root.orbCentre
+                        }
                     }
                 }
             }
             Node {
-                objectName: "toolsRingNode"
-                eulerRotation: Qt.vector3d(-0.62 * 180 / Math.PI, root.toolsSpin, 0.35 * 180 / Math.PI)
-                Model {
-                    objectName: "orbRingTools"
-                    source: "meshes/orb_ring_tools_mesh.mesh"
+                id: toolsTilt
+                objectName: "toolsTilt"
+                eulerRotation: Qt.vector3d(-0.22, 0, 13.97)
+                Node {
+                    id: toolsSpinNode
+                    objectName: "toolsSpinNode"
+                    eulerRotation.y: root.toolsSpin
+                    Model {
+                        objectName: "orbRingTools"
+                        source: "meshes/orb_ring_tools_d_mesh.mesh"
                     materials: CustomMaterial {
                         shadingMode: CustomMaterial.Unshaded
-                        vertexShader: "shaders/emission.vert"
-                        fragmentShader: "shaders/emission.frag"
-                        sourceBlend: CustomMaterial.One
-                        destinationBlend: CustomMaterial.One
-                        depthDrawMode: Material.NeverDepthDraw
-                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
-                        property real spinAngle: 0
-                        property real spinShear: 0
-                        property vector3d tint: root.linearVec("#d2b9f8")
-                        property real gain: 0.9
-                        property vector3d litArc: root.toolsLitArc
-                        property real dim: 1
-                    }
-                }
-                Model {
-                    objectName: "orbToolBeads"
-                    visible: root.toolsCount > 0
-                    instancing: toolBeadInstanceList
-                    source: "meshes/orb_bead_mesh.mesh"
-                    materials: CustomMaterial {
-                        shadingMode: CustomMaterial.Unshaded
-                        vertexShader: "shaders/emission_instanced.vert"
-                        fragmentShader: "shaders/emission.frag"
+                        vertexShader: "shaders/emission_minpx.vert"
+                        fragmentShader: "shaders/orb_emission.frag"
                         sourceBlend: CustomMaterial.One
                         destinationBlend: CustomMaterial.One
                         depthDrawMode: Material.NeverDepthDraw
@@ -1943,13 +2613,76 @@ Item {
                         property real spinAngle: 0
                         property real spinShear: 0
                         property vector3d tint: Qt.vector3d(1, 1, 1)
-                        property real gain: 4.0
+                        property real gain: 0.85
+                        property vector3d litArc: root.toolsLitArc
+                        property real dim: 1
+                        property real tubeRadius: 0.020
+                        property real minPx: root.ringMinPx
+                        property real pxAngle: 0.6306 / Math.max(1, view.height)
+                        property real backGain: root.ringBackGain
+                        property vector3d orbCentre: root.orbCentre
+                    }
+                    }
+                    Model {
+                        objectName: "orbToolBeads"
+                        visible: root.toolsCount > 0
+                        instancing: toolBeadInstanceList
+                        source: "meshes/orb_bead_mesh.mesh"
+                        materials: CustomMaterial {
+                            shadingMode: CustomMaterial.Unshaded
+                            vertexShader: "shaders/orb_bead.vert"
+                            fragmentShader: "shaders/orb_emission.frag"
+                            sourceBlend: CustomMaterial.One
+                            destinationBlend: CustomMaterial.One
+                            depthDrawMode: Material.NeverDepthDraw
+                            property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                            property real spinAngle: 0
+                            property real spinShear: 0
+                            property vector3d tint: Qt.vector3d(1, 1, 1)
+                            property real gain: 2.8
+                            property vector3d litArc: Qt.vector3d(0, 0, 2)
+                            property real dim: 1
+                            property real backGain: root.ringBackGain
+                            property vector3d orbCentre: root.orbCentre
+                        }
+                    }
+                }
+            }
+            Node {
+                id: resultsTilt
+                objectName: "resultsTilt"
+                eulerRotation: Qt.vector3d(-4.52, 0, 2.86)
+                visible: root.resultsFade > 0.001
+                scale: Qt.vector3d(root.resultsRadius / root.resultsRingAuthored,
+                                   root.resultsRadius / root.resultsRingAuthored,
+                                   root.resultsRadius / root.resultsRingAuthored)
+                Model {
+                    objectName: "orbRingResults"
+                    source: "meshes/orb_ring_results_d_mesh.mesh"
+                    materials: CustomMaterial {
+                        shadingMode: CustomMaterial.Unshaded
+                        vertexShader: "shaders/emission_minpx.vert"
+                        fragmentShader: "shaders/orb_emission.frag"
+                        sourceBlend: CustomMaterial.One
+                        destinationBlend: CustomMaterial.One
+                        depthDrawMode: Material.NeverDepthDraw
+                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                        property real spinAngle: 0
+                        property real spinShear: 0
+                        property vector3d tint: Qt.vector3d(1, 1, 1)
+                        property real gain: 0.42 * root.resultsFade
                         property vector3d litArc: Qt.vector3d(0, 0, 2)
                         property real dim: 1
+                        property real tubeRadius: 0.011
+                        property real minPx: root.ringMinPx
+                        property real pxAngle: 0.6306 / Math.max(1, view.height)
+                        property real backGain: root.ringBackGain
+                        property vector3d orbCentre: root.orbCentre
                     }
                 }
             }
         }
+        // Source nodes: one instanced glass draw and one instanced emissive draw.
         // Source nodes: one instanced glass draw and one instanced emissive draw.
         Model {
             objectName: "sourceGlass"
@@ -2020,7 +2753,7 @@ Item {
                 required property var modelData
                 objectName: "instanced-" + modelData.key
                 source: modelData.source
-                visible: (root.liveCounts[modelData.key] || 0) > 0
+                visible: !root.coreMode && (root.liveCounts[modelData.key] || 0) > 0
                 instancing: root.lists[modelData.key]
                 materials: [
                     CustomMaterial {
@@ -2052,7 +2785,7 @@ Item {
 
         Model {
             objectName: "tentacleTubesLod2"
-            visible: (root.tentacleCounts["tube2"] || 0) > 0
+            visible: !root.coreMode && (root.tentacleCounts["tube2"] || 0) > 0
             instancing: tentacleTube2List
             source: "meshes/tentacle_tube_lod2_mesh.mesh"
             materials: CustomMaterial {
@@ -2079,7 +2812,7 @@ Item {
         }
         Model {
             objectName: "tentacleLinksLod1"
-            visible: (root.tentacleCounts["links1"] || 0) > 0
+            visible: !root.coreMode && (root.tentacleCounts["links1"] || 0) > 0
             instancing: tentacleLinks1List
             source: "meshes/tentacle_links_lod1_mesh.mesh"
             materials: CustomMaterial {
@@ -2106,7 +2839,7 @@ Item {
         }
         Model {
             objectName: "tentacleThreadLod1"
-            visible: (root.tentacleCounts["thread1"] || 0) > 0
+            visible: !root.coreMode && (root.tentacleCounts["thread1"] || 0) > 0
             instancing: tentacleThread1List
             source: "meshes/tentacle_thread_lod1_mesh.mesh"
             materials: CustomMaterial {
@@ -2137,7 +2870,7 @@ Item {
         }
         Model {
             objectName: "tentacleLinksLod0"
-            visible: (root.tentacleCounts["links0"] || 0) > 0
+            visible: !root.coreMode && (root.tentacleCounts["links0"] || 0) > 0
             instancing: tentacleLinks0List
             source: "meshes/tentacle_links_lod0_mesh.mesh"
             materials: CustomMaterial {
@@ -2326,25 +3059,134 @@ Item {
     }
 
     Repeater {
-        model: root.orbLabelScreen.length
-        delegate: Text {
-            required property int index
-            readonly property var row: root.orbLabelScreen[index] || ({})
-            objectName: "OverseerOrbLabel_" + (row.id || index)
-            visible: !!row.visible
-            x: (row.sx || 0) - width * 0.5
-            y: (row.sy || 0) - height * 0.5
+        model: root.orbLeaders
+        delegate: Rectangle {
+            required property var modelData
+            objectName: "OverseerOrbLeader_" + (modelData.id || index)
             z: 2
-            text: row.text || ""
-            color: row.color || "#e8dcfb"
-            font.family: root.glyphFontFamily
-            font.pixelSize: 13
-            style: Text.Outline
-            styleColor: "#0b0714"
-            Accessible.role: Accessible.StaticText
-            Accessible.name: text
+            height: 1
+            width: Math.hypot((modelData.x2 || 0) - (modelData.x1 || 0), (modelData.y2 || 0) - (modelData.y1 || 0))
+            x: modelData.x1 || 0
+            y: (modelData.y1 || 0) - 0.5
+            color: Qt.rgba(0xa4 / 255, 0x73 / 255, 0xf0 / 255, 0.6)
+            rotation: Math.atan2((modelData.y2 || 0) - (modelData.y1 || 0), (modelData.x2 || 0) - (modelData.x1 || 0)) * 180 / Math.PI
+            transformOrigin: Item.Left
         }
     }
+
+    Repeater {
+        model: root.orbDots
+        delegate: Rectangle {
+            required property var modelData
+            objectName: "OverseerOrbDot_" + (modelData.id || index)
+            z: 2
+            width: 6
+            height: 6
+            radius: 3
+            color: "#d2b9f8"
+            x: (modelData.x || 0) - 3
+            y: (modelData.y || 0) - 3
+        }
+    }
+
+    Repeater {
+        model: root.orbLabelBlocks
+        delegate: Item {
+            required property var modelData
+            objectName: "OverseerOrbLabel_" + (modelData.id || index)
+            x: modelData.x || 0
+            y: modelData.y || 0
+            z: 2
+            width: modelData.kind === "chip" ? (modelData.w || 0) : col.implicitWidth
+            height: modelData.kind === "chip" ? (modelData.h || 0) : col.implicitHeight
+            Accessible.role: Accessible.StaticText
+            Accessible.name: modelData.kind === "chip" ? (modelData.text || "") : ((modelData.title || "") + " " + (modelData.status || ""))
+
+            Rectangle {
+                anchors.fill: parent
+                visible: modelData.kind === "chip"
+                radius: 4
+                color: Qt.rgba(0x14 / 255, 0x0b / 255, 0x20 / 255, 0.85)
+                border.color: "#a473f0"
+                border.width: 1
+            }
+            Text {
+                visible: modelData.kind === "chip"
+                anchors.centerIn: parent
+                text: modelData.text || ""
+                color: "#e8dcfb"
+                font.family: root.glyphFontFamily
+                font.pixelSize: 15
+            }
+            Column {
+                id: col
+                visible: modelData.kind === "block"
+                spacing: 1
+                width: implicitWidth
+                Text {
+                    text: modelData.title || ""
+                    color: modelData.titleColor || "#ffffff"
+                    font.family: root.hudSansFamily
+                    font.pixelSize: modelData.titleSize || 25
+                    font.weight: Font.Medium
+                    style: Text.Outline
+                    styleColor: "#0b0714"
+                    anchors.horizontalCenter: modelData.align === "centre" ? parent.horizontalCenter : undefined
+                }
+                Text {
+                    text: modelData.status || ""
+                    color: modelData.statusColor || "#cdb2f7"
+                    font.family: root.hudSansFamily
+                    font.pixelSize: modelData.statusSize || 18
+                    style: Text.Outline
+                    styleColor: "#0b0714"
+                    anchors.horizontalCenter: modelData.align === "centre" ? parent.horizontalCenter : undefined
+                }
+            }
+        }
+    }
+
+    Repeater {
+        model: root.orbChips
+        delegate: Rectangle {
+            required property var modelData
+            objectName: "OverseerOrbChip_" + (modelData.id || index)
+            x: modelData.x || 0
+            y: modelData.y || 0
+            z: 2
+            width: modelData.w || 0
+            height: modelData.h || 0
+            radius: 4
+            color: Qt.rgba(0x14 / 255, 0x0b / 255, 0x20 / 255, 0.85)
+            border.color: "#a473f0"
+            border.width: 1
+            Text {
+                anchors.centerIn: parent
+                text: modelData.text || ""
+                color: "#e8dcfb"
+                font.family: root.glyphFontFamily
+                font.pixelSize: 16
+            }
+        }
+    }
+
+    Repeater {
+        model: root.orbGlyphs
+        delegate: Text {
+            required property var modelData
+            objectName: "OverseerOrbGlyph_" + (modelData.id || index)
+            x: (modelData.x || 0) - width / 2
+            y: (modelData.y || 0) - height / 2
+            z: 2
+            text: modelData.text || ""
+            color: Qt.rgba(0xb9 / 255, 0xa7 / 255, 0xe0 / 255, 0.78)
+            font.family: root.glyphFontFamily
+            font.pixelSize: 17
+            rotation: modelData.rot || 0
+            transformOrigin: Item.Center
+        }
+    }
+
 
     OverseerCloseMote { flight: root.moteFlight }
 
@@ -2359,6 +3201,7 @@ Item {
         logs: root.hudLogs
         replayTicks: root.replayTicks
         tokRate: root.tokRate
+        coreMode: root.coreMode
         logRepeats: root.logRepeats
         inspectorOpen: root.showInspector
         selectedUnitId: root.selectedUnitId
@@ -2392,6 +3235,10 @@ Item {
             }
             if (name === "fit_swarm" || name === "fitSwarm")
                 root.fitSwarm()
+            if (name === "core_focus" || name === "coreFocus")
+                root.enterCoreFocus()
+            if (name === "exit_core" || name === "exitCore")
+                root.exitCoreFocus()
         }
     }
 

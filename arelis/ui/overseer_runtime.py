@@ -64,8 +64,9 @@ FOV_DEG = 35.0
 UNIT_WORLD_H = 1.56
 PARTICLE_BUDGET = 520
 MOTE_FRACTION = 0.40
-# orb 6, sources 2, tentacles 3, lanes, perimeter, conduits, particles, glyphs, 3 stars
-SCENE_FIXED_DRAW = 19
+# orb 7 (core, filaments, 2 shells, 3 rings), sources 2, tentacles 3,
+# lanes, perimeter, conduits, particles, glyphs, 3 stars
+SCENE_FIXED_DRAW = 20
 MAX_UNIT_DRAW = 45  # 5 castes x 3 LOD x 3 parts
 MAX_TRIS = 300_000
 
@@ -523,6 +524,7 @@ def orb_state(snap: dict[str, Any] | None, tok_rate: float = 0.0) -> dict[str, A
         "toolsLabel": f"Tools {len(tools)} running",
         "toolsLitArc": lit_arc,
         "tools": tools,
+        "results": orb_result_titles(snap),
     }
 
 
@@ -1260,6 +1262,20 @@ def zoom_t(distance: float) -> float:
 
 PITCH_MID_DEG = 36.0
 CLOSE_DISTANCE = 24.0  # frame the complete unit between responsive HUD panels
+# coreFocus is a separate preset (orb centre, 22 deg pitch). It does not
+# change the default 24 m unit focus or the overview scale.
+CORE_FOCUS_PITCH = 22.0
+CORE_FOCUS_MIN_DISTANCE = 10.0
+CORE_FOCUS_MAX_DISTANCE = 24.0
+CORE_FOCUS_BASE_DISTANCE = 15.0
+ORB_CENTRE = (0.0, 1.6, 0.0)
+
+
+def core_focus_distance(view_h: float, free_w: float) -> float:
+    """Metres for the coreFocus preset: max(15, 20 * viewH / freeW)."""
+    height = max(1.0, float(view_h or 1.0))
+    width = max(1.0, float(free_w or 1.0))
+    return max(CORE_FOCUS_BASE_DISTANCE, 20.0 * height / width)
 MID_DISTANCE = 32.0
 WIDE_DISTANCE = 96.0
 CLOSE_BAND = (ZOOM_MIN, 9.0)
@@ -1924,6 +1940,41 @@ def _ascii_glyphs(text: object) -> str:
     folded = unicodedata.normalize("NFKD", str(text or ""))
     out = "".join(ch for ch in folded if " " <= ch <= "~")
     return " ".join(out.split())
+
+
+def orb_result_titles(snap: dict[str, Any] | None, limit: int = 8) -> list[str]:
+    """Recent harvest titles for the results orbit, as 'Source  title'."""
+    if not isinstance(snap, dict):
+        return []
+    receipts = snap.get("recent_receipts")
+    if not isinstance(receipts, list):
+        metrics = snap.get("metrics") if isinstance(snap.get("metrics"), dict) else {}
+        receipts = metrics.get("recent_receipts") if isinstance(metrics, dict) else []
+    if not isinstance(receipts, list):
+        return []
+    labels = {sid: label for sid, label, *_ in HARVEST_SOURCES}
+    out: list[str] = []
+    seen: set[str] = set()
+    for row in reversed(receipts):
+        if not isinstance(row, dict):
+            continue
+        if row.get("ok") is False:
+            continue
+        meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        title = _ascii_glyphs(meta.get("title") or row.get("title"))
+        if not title:
+            continue
+        sid = normalize_harvest_source(meta.get("action"), row.get("source") or meta.get("source"))
+        source = labels.get(sid, "")
+        text = f"{source}  {title}" if source else title
+        text = " ".join(text.split())
+        if text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _receipt_epoch(at: object) -> float | None:

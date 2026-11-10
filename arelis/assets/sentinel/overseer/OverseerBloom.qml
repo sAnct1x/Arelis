@@ -15,6 +15,7 @@ Effect {
     property real uStrength: 1.2
     property real uIntensity: 1.4
     property real uLevels: levels
+    property real uKnee: 0.86
     // Samplers the sum and add passes read; a BufferInput binds a buffer to one.
     readonly property TextureInput glow2: TextureInput {}
     readonly property TextureInput glow3: TextureInput {}

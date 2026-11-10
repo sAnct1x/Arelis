@@ -203,6 +203,7 @@ Item {
     readonly property string monoFamily: "Space Mono"
     // Tokens per second from the local model; 0 while nothing streams.
     property int tokRate: 0
+    property bool coreMode: false
     // Replay strip: [seq, t, kind] per event, t in epoch seconds.
     property var replayTicks: []
 
@@ -270,7 +271,7 @@ Item {
             Row {
                 id: summary
                 objectName: "OverseerSummary"
-                readonly property real room: empButton.x - 24
+                readonly property real room: coreButton.x - 24
                 readonly property var pieces: [unitsPiece, fetchPiece, threatsPiece, defendersPiece,
                                                warrantsPiece, lastEventPiece, healthPiece]
                 function fits(i) {
@@ -367,6 +368,34 @@ Item {
                     visible: summary.fits(6)
                     body: hud.statusLine
                 }
+            }
+        }
+
+        Item {
+            id: coreButton
+            objectName: "OverseerCoreButton"
+            anchors.right: empButton.left
+            anchors.rightMargin: 12
+            anchors.verticalCenter: empButton.verticalCenter
+            width: coreLab.implicitWidth + 16
+            height: 28
+            z: 5
+            Accessible.role: Accessible.Button
+            Accessible.name: hud.coreMode ? "Leave core view" : "Core"
+            Accessible.description: "Frame the orb close-up, or return to the overview"
+            Accessible.onPressAction: hud.hudCommand(hud.coreMode ? "exit_core" : "core_focus", {})
+            Text {
+                id: coreLab
+                anchors.centerIn: parent
+                text: "Core"
+                color: hud.coreMode ? "#f4efff" : "#cdb2f7"
+                font.pixelSize: 14
+                font.weight: hud.coreMode ? Font.DemiBold : Font.Medium
+            }
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: hud.hudCommand(hud.coreMode ? "exit_core" : "core_focus", {})
             }
         }
 

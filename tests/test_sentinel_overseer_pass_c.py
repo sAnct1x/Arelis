@@ -46,7 +46,8 @@ def test_lod2_has_three_eyes_and_lod1_links_only_on_fetchers() -> None:
     for name in (
         "unit_hull_lod2", "unit_seams_lod2", "unit_eyes_lod2",
         "unit_hull_lod1", "tentacle_tube_lod2", "tentacle_links_lod1",
-        "source_glass", "source_emissive", "orb_nucleus", "orb_shell",
+        "source_glass", "source_emissive", "orb_core", "orb_shell",
+        "orb_filaments_d", "orb_ring_memory_d", "orb_ring_tools_d", "orb_ring_results_d",
     ):
         path = MESHES / f"{name}_mesh.mesh"
         buf = path.read_bytes()
@@ -163,7 +164,10 @@ def test_pass_c_view_loads_orb_sources_and_tentacles(qt_app) -> None:
     }]
     root.applyFrame(o.build_frame(units, 95.1893, 800.0, nodes=nodes, snap={"memories_in_context": 3}))
     qt_app.processEvents()
-    assert root.findChild(QObject, "orbNucleus") is not None
+    assert root.findChild(QObject, "orbCore") is not None
+    assert root.findChild(QObject, "orbRingResults") is not None
+    assert root.findChild(QObject, "memoryTilt") is not None
+    assert root.findChild(QObject, "memorySpinNode") is not None
     assert root.findChild(QObject, "orbFilaments") is not None
     assert root.findChild(QObject, "orbShell") is not None
     assert root.findChild(QObject, "sourceGlass") is not None
@@ -182,12 +186,11 @@ def test_pass_c_view_loads_orb_sources_and_tentacles(qt_app) -> None:
 
 @isolated_render()
 def test_orb_gains_at_thirty_eight_tok_leave_core_structure_readable(qt_app) -> None:
-    """Pinned 38 tok/s must not bloom the orb into a white disc or ball.
+    """Pinned 38 tok/s must keep the core under the bloom knee.
 
-    Energy still maps 0.3 idle to 1.0 at 60 tok/s. The first wash cut
-    (nucleus 3.6, filaments 2.4, shell 2.8, pulse 1.8, shellPower 6)
-    left a clipped white core. This fails if those or the older
-    16 / 9.7 / 9 multipliers are restored.
+    Energy still maps 0.3 idle to 1.0 at 60 tok/s. Pass C gains (nucleus
+    1.8 E, filaments 2.2 E, shell 2.4, pulse 1.5) clipped the centre.
+    The core peak is 0.78 * (0.5 + 0.5 E): about 0.68 at 38 tok/s.
     """
     from PySide6.QtCore import QByteArray, QObject, QSizeF, QUrl
     from PySide6.QtGui import QColor
@@ -214,19 +217,22 @@ def test_orb_gains_at_thirty_eight_tok_leave_core_structure_readable(qt_app) -> 
         QByteArray(
             b"import QtQuick\n"
             b"QtObject {\n"
-            b"    property real nuc: 0\n"
+            b"    property real corePeak: 0\n"
             b"    property real fil: 0\n"
             b"    property real shell: 0\n"
             b"    property real pulse: 0\n"
             b"    property real power: 0\n"
-            b"    property real pulsePower: 0\n"
+            b"    property real body: 0\n"
             b"    function read(n, f, s, p) {\n"
-            b"        nuc = n.materials[0].gain\n"
+            b"        var g = n.materials[0].coreGain\n"
+            b"        var fl = n.materials[0].coreFloor\n"
+            b"        var e = n.materials[0].energy\n"
+            b"        corePeak = g * (fl + (1.0 - fl) * e)\n"
             b"        fil = f.materials[0].gain\n"
             b"        shell = s.materials[0].shellGain\n"
             b"        pulse = p.materials[0].shellGain\n"
             b"        power = s.materials[0].shellPower\n"
-            b"        pulsePower = p.materials[0].shellPower\n"
+            b"        body = s.materials[0].shellBody\n"
             b"    }\n"
             b"}"
         ),
@@ -235,31 +241,171 @@ def test_orb_gains_at_thirty_eight_tok_leave_core_structure_readable(qt_app) -> 
     reader = probe.create()
     assert reader is not None, "; ".join(e.toString() for e in probe.errors())
     reader.read(
-        root.findChild(QObject, "orbNucleus"),
+        root.findChild(QObject, "orbCore"),
         root.findChild(QObject, "orbFilaments"),
         root.findChild(QObject, "orbShell"),
         root.findChild(QObject, "orbPulseShell"),
     )
-    nuc_gain = float(reader.property("nuc"))
+    core_peak = float(reader.property("corePeak"))
     fil_gain = float(reader.property("fil"))
     shell_gain = float(reader.property("shell"))
     pulse_gain = float(reader.property("pulse"))
     shell_power = float(reader.property("power"))
-    pulse_power = float(reader.property("pulsePower"))
-    # Prior wash-cut values at this energy: nucleus ~2.68, filaments ~1.78,
-    # shell 2.8, pulse 1.8, shellPower 6. Those still clipped the core.
-    assert nuc_gain <= 1.6, nuc_gain
-    assert fil_gain <= 1.75, fil_gain
-    assert shell_gain <= 2.55, shell_gain
-    assert pulse_gain <= 1.65, pulse_gain
-    assert shell_power <= 4.0, shell_power
-    assert pulse_power <= 4.0, pulse_power
-    assert abs(nuc_gain - float(root.property("orbNucleusGain")) * energy) < 1e-5
+    shell_body = float(reader.property("body"))
+    core_gain = float(root.property("orbCoreGain"))
+    core_floor = float(root.property("orbCoreFloor"))
+    expected_peak = core_gain * (core_floor + (1.0 - core_floor) * energy)
+    assert core_peak <= 0.75, core_peak
+    assert fil_gain <= 0.75, fil_gain
+    assert shell_gain <= 0.80, shell_gain
+    assert pulse_gain <= 0.65, pulse_gain
+    assert abs(shell_power - 3.0) < 1e-5
+    assert abs(shell_body - 0.06) < 1e-5
+    assert abs(core_peak - expected_peak) < 1e-5
     assert abs(fil_gain - float(root.property("orbFilamentGain")) * energy) < 1e-5
     assert abs(shell_gain - float(root.property("orbShellGain"))) < 1e-5
     assert abs(pulse_gain - float(root.property("orbPulseShellGain"))) < 1e-5
-    assert abs(shell_power - float(root.property("orbShellPower"))) < 1e-5
-    assert abs(pulse_power - float(root.property("orbShellPower"))) < 1e-5
+    view.close()
+    view.deleteLater()
+    qt_app.processEvents()
+
+
+def test_bloom_h_steps_in_output_size() -> None:
+    """H passes of levels 2 and 3 must step in OUTPUT_SIZE, not INPUT_SIZE."""
+    text = (ASSETS / "shaders" / "bloom_h.frag").read_text()
+    # Strip comments so a mention of the old bug in a comment is fine.
+    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("//"))
+    assert "1.0 / OUTPUT_SIZE.x" in code
+    assert "1.0 / INPUT_SIZE.x" not in code
+    bloom = (ASSETS / "OverseerBloom.qml").read_text()
+    assert "uKnee: 0.86" in bloom or "property real uKnee: 0.86" in bloom
+
+
+@isolated_render()
+def test_orb_rings_split_tilt_and_spin(qt_app) -> None:
+    """Each ring is a fixed tilt parent with a spin-only child, so the ellipse stays put."""
+    from PySide6.QtCore import QObject, QSizeF, QUrl
+    from PySide6.QtGui import QColor
+    from PySide6.QtQuick import QQuickView
+
+    view = QQuickView()
+    view.engine().addImportPath(str(ASSETS))
+    view.setColor(QColor("#0b0714"))
+    view.setResizeMode(QQuickView.SizeViewToRootObject)
+    view.setSource(QUrl.fromLocalFile(str(ASSETS / "OverseerView.qml")))
+    assert view.status() == QQuickView.Status.Ready, view.errors()
+    root = view.rootObject()
+    root.setSize(QSizeF(1280, 800))
+    view.show()
+    qt_app.processEvents()
+    memory_tilt = root.findChild(QObject, "memoryTilt")
+    memory_spin = root.findChild(QObject, "memorySpinNode")
+    tools_tilt = root.findChild(QObject, "toolsTilt")
+    tools_spin = root.findChild(QObject, "toolsSpinNode")
+    results_tilt = root.findChild(QObject, "resultsTilt")
+    assert memory_tilt is not None and memory_spin is not None
+    assert tools_tilt is not None and tools_spin is not None
+    assert results_tilt is not None
+    assert memory_spin.parent() is memory_tilt
+    assert tools_spin.parent() is tools_tilt
+    # Results have no spin child: titles ride the orbit in 2D.
+    assert root.findChild(QObject, "resultsSpinNode") is None
+
+    def euler(node):
+        v = node.property("eulerRotation")
+        return (float(v.x()), float(v.y()), float(v.z()))
+
+    mx, my, mz = euler(memory_tilt)
+    assert abs(mx - 6.62) < 1e-4 and abs(my) < 1e-4 and abs(mz + 28.75) < 1e-4
+    tx, ty, tz = euler(tools_tilt)
+    assert abs(tx + 0.22) < 1e-4 and abs(ty) < 1e-4 and abs(tz - 13.97) < 1e-4
+    rx, ry, rz = euler(results_tilt)
+    assert abs(rx + 4.52) < 1e-4 and abs(ry) < 1e-4 and abs(rz - 2.86) < 1e-4
+    root.setProperty("memorySpin", 40.0)
+    root.setProperty("toolsSpin", 15.0)
+    qt_app.processEvents()
+    assert abs(euler(memory_spin)[1] - 40.0) < 1e-4
+    assert abs(euler(memory_tilt)[1]) < 1e-4  # tilt Y stays 0 while the child spins
+    assert abs(euler(tools_spin)[1] - 15.0) < 1e-4
+    ring = root.findChild(QObject, "orbRingMemory")
+    assert ring is not None and ring.parent() is memory_spin
+    view.close()
+    view.deleteLater()
+    qt_app.processEvents()
+
+
+@isolated_render()
+def test_core_focus_preset_frames_the_orb(qt_app) -> None:
+    """coreFocus targets the orb, hides units, and leaves 24 m unit focus alone."""
+    from PySide6.QtCore import QObject, QSizeF, QUrl
+    from PySide6.QtGui import QColor
+    from PySide6.QtQuick import QQuickView
+
+    view = QQuickView()
+    view.engine().addImportPath(str(ASSETS))
+    view.setColor(QColor("#0b0714"))
+    view.setResizeMode(QQuickView.SizeViewToRootObject)
+    view.setSource(QUrl.fromLocalFile(str(ASSETS / "OverseerView.qml")))
+    assert view.status() == QQuickView.Status.Ready, view.errors()
+    root = view.rootObject()
+    root.setSize(QSizeF(2110, 1306))
+    view.setGeometry(0, 0, 2110, 1306)
+    view.show()
+    qt_app.processEvents()
+    units = [
+        {"unit_id": "SNT-WRD-001", "caste": "warden", "state": "PATROLLING", "position": [8, 0.5, 0]},
+    ]
+    root.applyFrame(o.build_frame(units, 95.1893, 1306.0))
+    qt_app.processEvents()
+    assert o.CLOSE_DISTANCE == 24.0
+    assert abs(float(root.property("specDistance")) - 95.1893) < 1e-4
+    # Overview is still the default.
+    assert str(root.property("cameraMode")) == "overview"
+    entered = root.enterCoreFocus(True)
+    assert entered is True
+    qt_app.processEvents()
+    assert bool(root.property("coreMode")) is True
+    assert str(root.property("cameraMode")) == "core"
+    assert abs(float(root.property("cameraTargetX")) - 0.0) < 1e-4
+    assert abs(float(root.property("cameraTargetY")) - 1.6) < 1e-4
+    assert abs(float(root.property("cameraTargetZ")) - 0.0) < 1e-4
+    assert abs(float(root.property("cameraPitch")) - 22.0) < 1e-4
+    free = root.freeViewportRect()
+    expected = o.core_focus_distance(1306.0, float(free.width()))
+    assert abs(float(root.property("cameraDistance")) - expected) < 1e-3
+    assert expected >= 15.0
+    # Unit bodies are hidden; the orb stays up.
+    hull = root.findChild(QObject, "instanced-warden:2:hull")
+    if hull is not None:
+        assert hull.property("visible") is False
+    assert root.findChild(QObject, "orbCore") is not None
+    # 24 m unit focus is unchanged once we leave core.
+    root.selectUnit("SNT-WRD-001")
+    assert root.focusSelectedUnit() is True
+    qt_app.processEvents()
+    assert bool(root.property("coreMode")) is False
+    assert float(root.property("cameraDistance")) == o.CLOSE_DISTANCE
+    assert abs(float(root.property("cameraPitch")) - o.pitch_deg(o.CLOSE_DISTANCE)) < 1e-3
+    # Re-enter and wheel out past 24 m hands off to the overview ease.
+    root.enterCoreFocus(True)
+    qt_app.processEvents()
+    root.setProperty("cameraDistance", 24.0)
+    root.applyWheel(-1)
+    qt_app.processEvents()
+    assert bool(root.property("coreMode")) is False
+    # Wheel inside core stays in 10..24 m.
+    root.enterCoreFocus(True)
+    qt_app.processEvents()
+    d0 = float(root.property("cameraDistance"))
+    root.applyWheel(1)
+    qt_app.processEvents()
+    d1 = float(root.property("cameraDistance"))
+    assert 10.0 <= d1 <= 24.0
+    assert d1 <= d0 + 1e-6
+    root.exitCoreFocus(True)
+    qt_app.processEvents()
+    assert bool(root.property("coreMode")) is False
+    assert str(root.property("cameraMode")) == "overview"
     view.close()
     view.deleteLater()
     qt_app.processEvents()
