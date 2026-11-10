@@ -884,34 +884,45 @@ def test_overseer_swarm_header_stays_sticky_while_scrolling(qt_app) -> None:
 
 
 @isolated_render(software=True)
-def test_overseer_hud_panels_use_designed_fill(qt_app) -> None:
-    """Panel plates and unselected rows use opaque #0e0920 so View3D cannot punch through."""
-    view, root = _hud_with_selection(qt_app)
-    fill = QColor("#0e0920")
-    assert fill.alpha() == 255
-    for name in (
-        "OverseerSwarmPanel",
-        "OverseerInspector",
-        "OverseerConsole",
-        "OverseerPillBar",
-    ):
-        item = _named(root, name)
-        assert item is not None, name
-        color = item.property("color")
-        assert color is not None and hasattr(color, "red"), name
-        assert color.red() == fill.red() and color.green() == fill.green()
-        assert color.blue() == fill.blue()
-        assert color.alpha() == 255, name
-    selected = _named(root, "OverseerSwarmRow_SNT-WRD-001")
-    other = _named(root, "OverseerSwarmRow_SNT-WRD-002")
-    assert selected is not None and other is not None
-    selected_c = selected.property("color")
-    other_c = other.property("color")
-    assert selected_c.alpha() == 255
-    assert (selected_c.red(), selected_c.green(), selected_c.blue()) == (0x2A, 0x1A, 0x4A)
-    assert other_c.alpha() == 255
-    assert (other_c.red(), other_c.green(), other_c.blue()) == (fill.red(), fill.green(), fill.blue())
-    assert other_c.alpha() != 0
+def test_overseer_units_drawer_is_a_closed_overlay_that_never_moves_the_scene(qt_app) -> None:
+    """Chat-off layout: the scene is full bleed and the unit list is an overlay
+    drawer, closed by default, opened by the Units button, on a #140b20 plate
+    at about 85 percent. Opening it changes neither the free area nor the
+    camera, so the scene never resizes."""
+    from PySide6.QtCore import QSizeF
+
+    view = QQuickView()
+    view.engine().addImportPath(str(ASSETS))
+    view.setResizeMode(QQuickView.SizeViewToRootObject)
+    view.setSource(QUrl.fromLocalFile(str(ASSETS / "OverseerView.qml")))
+    assert view.status() == QQuickView.Status.Ready, [e.toString() for e in view.errors()]
+    root = view.rootObject()
+    root.setSize(QSizeF(2110, 1306))
+    root.setProperty("reveal", 1.0)
+    root.setProperty("inputLive", True)
+    view.show()
+    root.applyFrame(overseer_runtime.build_frame(overseer_runtime.layout_swarm(40), 96.0, 1306.0, nodes=[]))
+    qt_app.processEvents()
+    hud = _named(root, "OverseerHud")
+    drawer = _named(root, "OverseerSwarmPanel")
+    button = _named(root, "OverseerUnitsButton")
+    assert hud is not None and drawer is not None and button is not None
+    assert bool(drawer.property("visible")) is False
+    free0 = root.freeViewportRect()
+    dist0 = float(root.property("overviewDistance"))
+    # Full bleed: no list column; the free area starts at the 2% margin.
+    assert abs(free0.x() - round(2110 * 0.02)) < 1.0, free0
+    mid = button.mapToScene(QPointF(button.width() / 2.0, button.height() / 2.0))
+    QTest.mouseClick(view, Qt.LeftButton, Qt.NoModifier, mid.toPoint())
+    qt_app.processEvents()
+    assert bool(hud.property("drawerOpen")) is True
+    assert bool(drawer.property("visible")) is True
+    plate = drawer.property("color")
+    assert (plate.red(), plate.green(), plate.blue()) == (0x14, 0x0B, 0x20)
+    assert abs(plate.alphaF() - 0.85) < 0.01
+    assert root.freeViewportRect() == free0
+    assert float(root.property("overviewDistance")) == dist0
+    view.close()
     view.deleteLater()
     qt_app.processEvents()
 

@@ -24,13 +24,30 @@ CASTE_COLOR = {
     "sanitizer": "#f2c56b",
     "tripwire": "#7ee0c8",
 }
+# Eye lenses (GAP.md item 1): caste colour; a fetching Harvester's eyes turn
+# #2fc4ff, and red is only for a unit engaged on a real threat.
 LENS_COLOR = {
-    "warden": "#5a1cff",
-    "stalker": "#c010e0",
-    "harvester": "#0a7cff",
-    "sanitizer": "#ff8a00",
+    "warden": "#a473f0",
+    "stalker": "#e879f9",
+    "harvester": "#8fd3ff",
+    "sanitizer": "#f2c56b",
     "tripwire": "#7ee0c8",
 }
+EYE_FETCHING = "#2fc4ff"
+EYE_THREAT = "#ff2a3c"
+# Unit size at the overview (BAND-SPEC.md "Unit scale at overview"). The
+# spec ratios stay as written; UNIT_MESH_SCALE maps the exported mesh (LOD2
+# body 3.7 mesh units long) onto the spec size, so a Harvester body is about
+# 3.9 percent of the viewport width at the default camera (GAP.md item 2).
+OVERVIEW_SCALE = {
+    "sanitizer": 1.05,
+    "warden": 1.25,
+    "stalker": 1.25,
+    "harvester": 1.3,
+    "tripwire": 1.35,
+}
+FETCHING_SCALE = 1.9
+UNIT_MESH_SCALE = 0.79
 LOD0_PX = 180.0
 LOD1_PX = 60.0
 HYST = 0.15
@@ -39,7 +56,8 @@ FOV_DEG = 35.0
 UNIT_WORLD_H = 1.56
 PARTICLE_BUDGET = 520
 MOTE_FRACTION = 0.40
-SCENE_FIXED_DRAW = 8  # core, lane guides, perimeter, conduits, particles, 2 spare, glyphs
+# core, lane guides, perimeter, conduits, particles, 2 spare, glyphs, 3 star layers
+SCENE_FIXED_DRAW = 11
 MAX_UNIT_DRAW = 45  # 5 castes x 3 LOD x 3 parts
 MAX_TRIS = 300_000
 
@@ -318,6 +336,42 @@ def open_fetch_counts(
         if uid and tid and tid in open_nodes:
             per_unit.setdefault(uid, set()).add(tid)
     return {uid: len(ids) for uid, ids in per_unit.items()}
+
+
+def unit_fetching(unit: dict[str, Any]) -> bool:
+    """A unit with an open harvest request, or one the hive reports harvesting."""
+    state = str(unit.get("state") or "").upper()
+    return int(unit.get("open_fetches") or 0) > 0 or state == "ENGAGED_HARVEST"
+
+
+def view_scale(unit: dict[str, Any]) -> float:
+    """Draw scale from the BAND-SPEC caste size, not the hive tier scale.
+
+    The hive's tier scale (mk1 0.35, mk2 0.42, mk3 0.50) sizes separation in
+    the hive and was drawn as is, so every unit was about a third of the
+    BAND-SPEC overview size and its eye was under a pixel.
+    """
+    caste = str(unit.get("caste") or "warden").lower()
+    spec = FETCHING_SCALE if unit_fetching(unit) else OVERVIEW_SCALE.get(caste, 1.25)
+    return round(spec * UNIT_MESH_SCALE, 4)
+
+
+def eye_color(unit: dict[str, Any], caste: str) -> str:
+    state = str(unit.get("state") or "").upper()
+    if "ENGAGED_DEFENSE" in state:
+        return EYE_THREAT
+    if caste == "harvester" and unit_fetching(unit):
+        return EYE_FETCHING
+    return LENS_COLOR[caste]
+
+
+# Hive activity for the starfield drift: open requests, saturating at this many.
+ACTIVITY_FULL_REQUESTS = 3
+
+
+def hive_activity(fetches: dict[str, int]) -> float:
+    """0 when idle up to 1 at ACTIVITY_FULL_REQUESTS open requests."""
+    return round(min(1.0, sum(fetches.values()) / ACTIVITY_FULL_REQUESTS), 4)
 
 
 def heading_deg(heading: Any) -> float:
@@ -1305,6 +1359,7 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
                 "scale": scale,
                 "color": CASTE_COLOR[caste],
                 "lens": LENS_COLOR[caste],
+                "eye": eye_color(u, caste),
                 "phase": float(u.get("phase") or (i * 1.7)),
                 "claw": claw_open(state),
                 "limp": limp,
@@ -1668,6 +1723,12 @@ def build_conduits(
         ))
         nid = str(node.get("node_id") or f"node-{i}")
         node_map[nid] = (nx, ny, nz, color)
+        # An idle hive node (a listening bastion port, a memory crystal, a
+        # merkle root) has no visual in the motion brief. Drawn at the hive's own
+        # coordinates, its beacon and stream were the lilac dots scattered on
+        # and between the rings. Only a node with something happening draws.
+        if not hot:
+            continue
         out.append({
             "id": f"beacon:{nid}",
             "kind": "node",
@@ -1676,12 +1737,12 @@ def build_conduits(
             "ex": nx, "ey": ny, "ez": nz,
             "phase": (i * 0.19) % 1.0,
             "speed": 0.0,
-            "scale": 1.65 if hot else 1.25,
+            "scale": 1.65,
             "color": color,
         })
-        pkt_count = 5 if hot else 2
-        speed = 1.05 if hot else 0.42
-        arc_y = max(ny, 0.4) + (2.4 if hot else 1.35)
+        pkt_count = 5
+        speed = 1.05
+        arc_y = max(ny, 0.4) + 2.4
         cx, cy, cz = _clamp_conduit_coord(nx * 0.5, arc_y, nz * 0.5)
         for k in range(pkt_count):
             if len(out) >= MAX_CONDUIT_INSTANCES:
@@ -1694,7 +1755,7 @@ def build_conduits(
                 "ex": 0.0, "ey": 0.0, "ez": 0.0,
                 "phase": ((k / pkt_count) + i * 0.11) % 1.0,
                 "speed": speed,
-                "scale": 0.86 if hot else 0.58,
+                "scale": 0.86,
                 "color": color,
             })
 
@@ -1841,11 +1902,12 @@ def build_frame(
 ) -> dict[str, Any]:
     report = report or load_mesh_report()
     units, layout = place_band_units(list(units)[:MAX_OVERSEER_UNITS], snapshot_ts)
+    fetches = open_fetch_counts(units, nodes)
+    for u in units:
+        u["open_fetches"] = fetches.get(str(u.get("unit_id") or ""), 0)
+        u["scale"] = view_scale(u)
     assigned = assign_lods(units, camera_distance, viewport_h, prev_lods, target=target)
     assigned = enforce_budget(assigned, report)
-    fetches = open_fetch_counts(assigned, nodes)
-    for u in assigned:
-        u["open_fetches"] = fetches.get(str(u.get("unit_id") or ""), 0)
     buckets = build_buckets(assigned)
     budget = budget_from_buckets(buckets, report)
     source_active = active_harvest_sources(assigned, nodes)
@@ -1873,6 +1935,7 @@ def build_frame(
         "glyphTrails": glyph_trails,
         "bands": layout["bands"],
         "perimeter": layout["perimeter"],
+        "hiveActivity": hive_activity(fetches),
     }
 
 
@@ -2052,8 +2115,9 @@ def hud_mask_rects(
 
 # Dock column (Iris rank 3): 360 wide, 24 from the right edge, 16 gap to the well.
 DOCK_WIDTH = 360.0
-DOCK_EDGE = 24.0
 DOCK_GAP = 16.0
+HUD_HEADER_H = 72.0
+HUD_DISPATCH_H = 48.0 + 20.0 + 12.0
 
 
 def _free_viewport_edges(
@@ -2061,17 +2125,19 @@ def _free_viewport_edges(
     height: float,
     inspector_open: bool,
 ) -> tuple[float, float, float, float]:
+    # Mirrors OverseerView.freeViewportRect: full-bleed scene, 2 percent
+    # margin, header text on top, Dispatch bar at the bottom, and the dock
+    # column on the right only while it is open. The drawers never count.
     w = max(1.0, float(width))
     h = max(1.0, float(height))
-    left = min(440.0, w * 0.26)
-    top = 86.0
-    # Closed: keep the prior 20 px right margin (rank 5 owns the 24 gutter).
-    # Open: exclude the dock column so framing never sits under the panel.
-    right_inset = (DOCK_EDGE + DOCK_WIDTH + DOCK_GAP) if inspector_open else 20.0
-    right = w - right_inset
+    mx = float(round(w * 0.02))
+    my = float(round(h * 0.02))
+    left = mx
+    top = my + HUD_HEADER_H
+    right = w - ((mx + DOCK_WIDTH + DOCK_GAP) if inspector_open else mx)
     if right <= left:
         right = w
-    bottom = max(top + 1.0, h - 230.0)
+    bottom = max(top + 1.0, h - my - HUD_DISPATCH_H)
     return left, top, right, bottom
 
 

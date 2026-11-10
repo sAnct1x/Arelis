@@ -21,6 +21,9 @@ to about 20 percent. Closing it, quitting Arelis, or an error that
 cannot show the page restores them. Esc or the close mote on the inset
 closes it. The close mote is drawn inside the 3D scene, top right; Tab reaches
 it and Enter or Space presses it.
+Chat is off while the window is open, and the scene uses the whole window:
+the unit list and the event log are drawers, and missions go through the
+Dispatch bar. See [Overseer: full window, chat off](overseer-full-window.md).
 Closing the window saves the scene's compiled shaders to
 `sentinel/overseer/pipeline.cache` in the Arelis data folder, so the next start
 opens it without compiling them again. A file from another Qt version or graphics
@@ -210,7 +213,7 @@ The strip updates with each snapshot, not every frame.
 
 ### The event log
 
-The console at the bottom lists the hive's events, newest first, one line
+The event log (**Events**, bottom left, opens it above the Dispatch bar) lists the hive's events, newest first, one line
 each: the time, a ×N badge when the line repeats, the unit (in its caste
 colour), the message in plain words, and for repeats the first to last
 time on the right.
@@ -234,8 +237,8 @@ time on the right.
 
 ### The inspector dock
 
-When you select a unit, a 360 px panel docks on the right, 24 px from the
-window edge, sized to its content. It never floats over the swarm: the
+When you select a unit, a 360 px panel docks on the right, 2 percent of the
+window width from the edge, sized to its content. It never floats over the swarm: the
 camera recentres on the free well that excludes the dock column. With
 nothing selected the dock is gone; there is no empty "Select a unit"
 panel.

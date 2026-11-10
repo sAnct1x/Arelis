@@ -1,3 +1,5 @@
+VARYING float vCover;
+
 void MAIN() {
     vec3 deformed = VERTEX;
     float speed = max(INSTANCE_DATA.w, 0.05);
@@ -77,4 +79,13 @@ void MAIN() {
         deformed = hinge + vec3(qa * cb + qb * sb, 0.0, 0.0) + er * (-qa * sb + qb * cb) + qc;
     }
     POSITION = INSTANCE_MODELVIEWPROJECTION_MATRIX * vec4(deformed, 1.0);
+    // Speckle stopgap (GAP.md item 6). This part holds the tentacle threads
+    // (radius 0.095 at the root to 0.03 at the tip in mesh units) and the seam
+    // collars. At the overview they project thinner than a pixel, so they only
+    // rasterised where a sliver crossed a pixel centre: scattered bright flecks.
+    // Fade by projected width instead.
+    float unitScale = length(INSTANCE_MODEL_MATRIX[0].xyz);
+    float radius = (rest.x < -2.63 ? mix(0.095, 0.03, along) : 0.05) * unitScale;
+    float pxPerUnit = PROJECTION_MATRIX[1][1] * 0.5 * uViewportH / max(POSITION.w, 0.001);
+    vCover = smoothstep(0.75, 1.5, 2.0 * radius * pxPerUnit);
 }

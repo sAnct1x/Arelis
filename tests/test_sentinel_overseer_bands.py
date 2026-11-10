@@ -75,8 +75,8 @@ def test_working_units_keep_their_hive_position() -> None:
 @isolated_render()
 def test_scene_background_is_the_floor_grey_without_a_floor_plane(qt_app) -> None:
     """The 1600 m lit floor filled every pixel at every approved camera with one
-    flat grey, (15, 14, 17) after the filmic tonemap. The clear colour #111013
-    tonemaps to (15, 14, 18), so the floor draw and its full-screen fill go."""
+    flat grey, (15, 14, 17) after the filmic tonemap. The floor draw and its
+    full-screen fill go; the sky is the GAP.md near-black #010103."""
     from pathlib import Path
 
     from PySide6.QtCore import QObject, QUrl
@@ -91,7 +91,7 @@ def test_scene_background_is_the_floor_grey_without_a_floor_plane(qt_app) -> Non
     root = view.rootObject()
     assert root.findChild(QObject, "overseerFloor") is None
     env = root.findChild(QObject, "overseerEnvironment")
-    assert env.property("clearColor") == QColor("#111013")
+    assert env.property("clearColor") == QColor("#010103")
     root.applyFrame(o.build_frame(_units({"warden": 6}), 96.0, 749.0, snapshot_ts=1_800_000_000.0))
     assert root.property("budgetDrawCalls") == root.property("unitDrawCalls") + o.SCENE_FIXED_DRAW
     view.deleteLater()

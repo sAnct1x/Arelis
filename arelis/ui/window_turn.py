@@ -158,7 +158,51 @@ class WindowTurn:
             return
         self.chat.add_file_card(written.name, str(written))
 
+    def set_chat_suspended(self, on: bool) -> None:
+        """Turn chat off while the Overseer is open, and back on when it closes.
+
+        Christopher, Nov 9 10:28 PM: chat is disabled while the Overseer is
+        open. The Sentinel window sits over this one as a separate top-level
+        window, so before this its open path only faded her: the composer,
+        voice and a running turn all stayed live underneath. Off means no new
+        turn from the composer, Again or the camera (all go through
+        _on_submit), no mic, no running turn, and no chat tile on screen.
+        """
+        on = bool(on)
+        if on == bool(getattr(self, "_chat_suspended", False)):
+            return
+        self._chat_suspended = on
+        conv = getattr(self, "conversation", None)
+        voice = getattr(self, "voice_controller", None)
+        tile = getattr(self, "_filament_chat_tile", None)
+        if on:
+            if getattr(self, "_turn_busy", False):
+                self._cancel_turn(schedule_next=False, reason="overseer")
+            self._chat_wake_was_on = voice is not None and not getattr(
+                voice, "_wake_suspended", False
+            )
+            if voice is not None:
+                voice.stop_all()
+            tile_open = bool(getattr(self, "_filament_chat_open", False))
+            self._chat_tile_was_open = bool(tile is not None and tile_open and tile.isVisible())
+            if self._chat_tile_was_open:
+                tile.hide()
+            if conv is not None:
+                conv.setEnabled(False)
+            return
+        if conv is not None:
+            conv.setEnabled(True)
+        if tile is not None and getattr(self, "_chat_tile_was_open", False):
+            tile.show()
+            tile.raise_()
+        self._chat_tile_was_open = False
+        if voice is not None and getattr(self, "_chat_wake_was_on", False):
+            voice.resume_wake()
+        self._chat_wake_was_on = False
+
     def _on_submit(self, text: str, role: str, attachments: list | None = None) -> None:
+        if getattr(self, "_chat_suspended", False):
+            return
         note_engagement(self)
         if not attachments and self._try_physics_verb(text):
             return

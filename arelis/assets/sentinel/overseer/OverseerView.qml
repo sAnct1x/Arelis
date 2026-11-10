@@ -119,10 +119,43 @@ Item {
         warden: "#a78bfa", stalker: "#e879f9", harvester: "#8fd3ff",
         sanitizer: "#f2c56b", tripwire: "#7ee0c8"
     })
+    // Eye lenses in caste colour (GAP.md item 1). A fetching Harvester's eyes
+    // (#2fc4ff) and red engaged eyes come per instance from the runtime.
     readonly property var lensColors: ({
-        warden: "#5a1cff", stalker: "#c010e0", harvester: "#0a7cff",
-        sanitizer: "#ff8a00", tripwire: "#7ee0c8"
+        warden: "#a473f0", stalker: "#e879f9", harvester: "#8fd3ff",
+        sanitizer: "#f2c56b", tripwire: "#7ee0c8"
     })
+    // Pass A look constants (GAP.md items 1, 4, 8, 9). Each is one number so
+    // Babbage can trace alternatives on Atria without touching anything else.
+    readonly property int msaaSamples: 4
+    readonly property int glowLevels: 3
+    readonly property real glowThreshold: 1.0
+    readonly property real eyeEmission: 2.4
+    // Smallest on-screen eye radius in px, so every eye feeds the bloom.
+    readonly property real eyeMinPx: 2.0
+    // Lane guides stay soft: edge lanes 0.28, middle lanes 0.16 of caste colour.
+    readonly property real laneEdgeEmission: 0.28
+    readonly property real laneMidEmission: 0.16
+    readonly property color skyColor: "#010103"
+    readonly property color fogColor: "#120a1d"
+    readonly property real fogNear: 40
+    readonly property real fogFar: 110
+    readonly property color hullColor: "#40345f"
+    // Perimeter #7ee0c8 at about 60 percent on screen so the eyes, not the
+    // ring, lead. The Filmic tonemap lifts it by about 1.16, so the material
+    // runs at 0.52 to land near #5b9286 in the frame.
+    readonly property real perimeterLevel: 0.52
+    readonly property color perimeterColor: Qt.rgba(0x7e / 255 * perimeterLevel, 0xe0 / 255 * perimeterLevel, 0xc8 / 255 * perimeterLevel, 1)
+    // Stars: 3 parallax layers, 1,000 points in all. Drift follows hive
+    // activity (open requests), never tok/s: with chat off tok/s is mostly 0.
+    readonly property var starLayers: [
+        { count: 450, from: Qt.vector3d(-260, -70, -260), to: Qt.vector3d(260, -18, 120), px0: 1.0, px1: 1.8, rate: 0.35, seed: 11 },
+        { count: 400, from: Qt.vector3d(-320, -20, -330), to: Qt.vector3d(320, 120, -150), px0: 1.0, px1: 2.4, rate: 0.6, seed: 23 },
+        { count: 150, from: Qt.vector3d(-120, 18, -40), to: Qt.vector3d(120, 60, 60), px0: 1.8, px1: 3.0, rate: 1.0, seed: 37 }
+    ]
+    property real hiveActivity: 0
+    property real hiveActivityShown: 0
+    property real starDrift: 0
 
     function startEntry(reduced) {
         reducedMotion = !!reduced
@@ -208,12 +241,13 @@ Item {
         live += cEntries.length
         applyGlyphTrails(frame.glyphTrails || [])
         applyBands(frame.bands || [], frame.perimeter)
+        hiveActivity = Math.max(0, Math.min(1, finiteNum(frame.hiveActivity, 0)))
         counts["__glyphs"] = glyphCount
         live += glyphCount
         liveCounts = counts
         budgetTris = tris
         unitDrawCalls = used
-        budgetDrawCalls = used + 8
+        budgetDrawCalls = used + 11  // SCENE_FIXED_DRAW: fixed scene draws plus 3 star layers
         lodCounts = lods
         recountEntries(live)
         instanceRecords = recs
@@ -559,18 +593,25 @@ Item {
         applyOverview()
     }
 
-    // The scene area the HUD leaves free: list on the left, strip on top,
-    // console at the bottom, Inspector dock on the right when open.
+    // The scene runs full bleed under the HUD (chat-off layout). The area the
+    // default frame must keep clear: the 2 percent margin, the header text on
+    // top, the Dispatch bar at the bottom, and the Inspector dock on the right
+    // while a unit is selected. The Units and Events drawers are overlays and
+    // never change it, so opening one never moves the camera.
+    readonly property real hudHeaderH: 72
+    readonly property real hudDispatchH: 48 + 20 + 12
     function freeViewportRect() {
         var w = Math.max(1, width)
         var h = Math.max(1, height)
-        var left = Math.min(440, w * 0.26)
-        var top = 86
-        // Rank 3 dock: 24 edge + 360 width + 16 gap when open; prior 20 when closed.
-        var right = w - (showInspector ? (24 + 360 + 16) : 20)
+        var mx = Math.round(w * 0.02)
+        var my = Math.round(h * 0.02)
+        var left = mx
+        var top = my + hudHeaderH
+        // Rank 3 dock: margin + 360 width + 16 gap when open.
+        var right = w - (showInspector ? (mx + 360 + 16) : mx)
         if (right <= left)
             right = w
-        var bottom = Math.max(top + 1, h - 230)
+        var bottom = Math.max(top + 1, h - my - hudDispatchH)
         return Qt.rect(left, top, right - left, bottom - top)
     }
 
@@ -713,7 +754,8 @@ Item {
         if (sc > 2.0)
             sc = 2.0
         e.scale = Qt.vector3d(sc, sc, sc)
-        e.color = row.color || casteColors[caste]
+        // Lens instances carry the eye colour (fetching and engaged eyes differ).
+        e.color = (String(key).indexOf(":lens") >= 0 && row.eye) ? row.eye : (row.color || casteColors[caste])
         var uid = row && row.unit_id ? row.unit_id : ""
         var rs = reachSlot(uid, row.reach)
         // y packs claw + 2*reach + 8*previous reach + 32*limp; z is when reach changed.
@@ -818,8 +860,12 @@ Item {
             var bl = band.lanes || []
             for (var lj = 0; lj < bl.length; lj++) {
                 var edge = (lj === 0 || lj === bl.length - 1)
-                var k = edge ? 0.28 : 0.16
-                var cv = Qt.vector4d(c.r * k, c.g * k, c.b * k, 1.0)
+                var k = edge ? root.laneEdgeEmission : root.laneMidEmission
+                // Vertex colours reach the shader as linear light, so convert
+                // the sRGB target (caste colour times k) or the guides render
+                // at about twice the intended brightness.
+                var cv = Qt.vector4d(Math.pow(c.r * k, 2.2), Math.pow(c.g * k, 2.2),
+                                     Math.pow(c.b * k, 2.2), 1.0)
                 var prev = bandPoint(band, bl[lj], 0)
                 for (var sI = 1; sI <= segs; sI++) {
                     var next = bandPoint(band, bl[lj], sI * 2 * Math.PI / segs)
@@ -1195,6 +1241,10 @@ Item {
         onTriggered: {
             root.sceneTime += frameTime
             root.stepUnits(frameTime)
+            // Ease activity over about 0.5 s, then drift the star layers with it.
+            var k = Math.min(1, frameTime / 0.5)
+            root.hiveActivityShown += (root.hiveActivity - root.hiveActivityShown) * k
+            root.starDrift += frameTime * (0.25 + 2.75 * root.hiveActivityShown)
         }
     }
 
@@ -1250,8 +1300,28 @@ Item {
             // dark grey (15, 14, 17 after the filmic tonemap), a full screen of
             // lit fragments per frame. This clear colour tonemaps to the same
             // grey, so the floor plane and its fill are gone.
-            clearColor: "#111013"
+            clearColor: root.skyColor
             tonemapMode: ExtendedSceneEnvironment.TonemapModeFilmic
+            antialiasingMode: root.msaaSamples > 1 ? SceneEnvironment.MSAA : SceneEnvironment.NoAA
+            antialiasingQuality: root.msaaSamples >= 8 ? SceneEnvironment.VeryHigh
+                                 : (root.msaaSamples >= 4 ? SceneEnvironment.High : SceneEnvironment.Medium)
+            // Bloom: only HDR values over the threshold (eyes, beams, source
+            // cores) glow; hulls, lanes and the perimeter stay under it.
+            glowEnabled: root.glowLevels > 0
+            glowHDRMinimumValue: root.glowThreshold
+            glowLevel: (1 << root.glowLevels) - 1
+            glowStrength: 1.2
+            glowIntensity: 1.4
+            glowBloom: 0.0
+            glowBlendMode: ExtendedSceneEnvironment.GlowBlendMode.Additive
+            fog: Fog {
+                enabled: true
+                color: root.fogColor
+                density: 0.6
+                depthEnabled: true
+                depthNear: root.fogNear
+                depthFar: root.fogFar
+            }
         }
 
         PerspectiveCamera {
@@ -1308,7 +1378,7 @@ Item {
                 indexes: root.ringIndexes()
             }
             materials: PrincipledMaterial {
-                baseColor: root.casteColors.tripwire
+                baseColor: root.perimeterColor
                 lighting: PrincipledMaterial.NoLighting
             }
         }
@@ -1328,12 +1398,16 @@ Item {
                         shadingMode: modelData.part === "hull" ? CustomMaterial.Shaded : CustomMaterial.Unshaded
                         vertexShader: modelData.part === "lens" ? "shaders/lens.vert" : (modelData.part === "hull" ? "shaders/hull.vert" : "shaders/emissive.vert")
                         fragmentShader: modelData.part === "lens" ? "shaders/lens.frag" : (modelData.part === "hull" ? "shaders/hull.frag" : "shaders/emissive.frag")
-                        property color uHull: "#140f24"
+                        property color uHull: root.hullColor
                         property color uRole: modelData.part === "lens" ? root.lensColors[modelData.caste] : root.casteColors[modelData.caste]
-                        property real uRimK: 1.35
+                        property real uRimK: 0.85
                         property real uTime: root.sceneTime
                         property real uTentacles: modelData.lod === 0 ? 10 : (modelData.lod === 1 ? 6 : 4)
-                        property real uStrength: modelData.part === "lens" ? 0.95 : (modelData.part === "emissive" ? 1.1 : 1.0)
+                        // Eyes run HDR so bloom picks them up; tentacle threads and
+                        // seams stay under the glow threshold.
+                        property real uStrength: modelData.part === "lens" ? root.eyeEmission : (modelData.part === "emissive" ? 0.7 : 1.0)
+                        property real uViewportH: Math.max(1, view.height)
+                        property real uEyeMinPx: root.eyeMinPx
                     }
                 ]
             }
@@ -1405,6 +1479,41 @@ Item {
                 lighting: PrincipledMaterial.NoLighting
                 baseColor: "#d9ccff"
                 emissiveFactor: Qt.vector3d(0.85, 0.82, 1.0)
+            }
+        }
+
+        // Starfield (GAP.md item 4): 3 parallax layers, one instanced draw each.
+        // Layers turn about the hive axis at different rates, so they slide past
+        // each other as hive activity rises.
+        Repeater3D {
+            objectName: "starLayers"
+            model: root.starLayers
+            Model {
+                required property var modelData
+                objectName: "starLayer"
+                source: "#Rectangle"
+                eulerRotation.y: root.starDrift * modelData.rate
+                instancing: RandomInstancing {
+                    instanceCount: modelData.count
+                    randomSeed: modelData.seed
+                    position: InstanceRange { from: modelData.from; to: modelData.to }
+                    color: InstanceRange { from: "#a473f0"; to: "#d2b9f8" }
+                    customData: InstanceRange {
+                        from: Qt.vector4d(modelData.px0, 0, 0, 0)
+                        to: Qt.vector4d(modelData.px1, 0, 0, 0)
+                    }
+                }
+                materials: CustomMaterial {
+                    shadingMode: CustomMaterial.Unshaded
+                    vertexShader: "shaders/star.vert"
+                    fragmentShader: "shaders/star.frag"
+                    sourceBlend: CustomMaterial.One
+                    destinationBlend: CustomMaterial.One
+                    cullMode: Material.NoCulling
+                    depthDrawMode: Material.NeverDepthDraw
+                    property real uViewportW: Math.max(1, view.width)
+                    property real uViewportH: Math.max(1, view.height)
+                }
             }
         }
     }

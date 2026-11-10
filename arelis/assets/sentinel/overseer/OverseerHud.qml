@@ -24,6 +24,14 @@ Item {
     property string commandStatus: ""
     property bool logPaused: false
     property bool logRepeats: true
+    // Full-window layout (Christopher, Nov 9 10:28 PM): the scene runs edge to
+    // edge under every control. The unit list and the event list are overlay
+    // drawers, closed by default, so opening one never resizes the scene.
+    property bool drawerOpen: false
+    property bool eventsOpen: false
+    // Overlays keep a 2 percent margin from the window edge at any size.
+    readonly property real marginX: Math.round(width * 0.02)
+    readonly property real marginY: Math.round(height * 0.02)
 
     signal searchEdited(string text)
     signal groupModeChosen(string mode)
@@ -39,6 +47,9 @@ Item {
     // fragment (544p list/inspector crops). Opaque designed RGB contains
     // the scene without clipping or hiding unit geometry in the well.
     readonly property color panelFill: "#0e0920"
+    // Overlay plate (GAP.md chat-off layout): #140b20 at about 85 percent.
+    readonly property color plateFill: Qt.rgba(0x14 / 255, 0x0b / 255, 0x20 / 255, 0.85)
+    readonly property color plateEdge: Qt.rgba(0xa4 / 255, 0x73 / 255, 0xf0 / 255, 0.4)
 
     readonly property string warrantsTooltip: "Evidence receipts in memory (includes up to 120 from earlier runs)"
 
@@ -93,8 +104,8 @@ Item {
         default property alias content: body.data
         height: 56
         radius: 12
-        color: "#140d2a"
-        border.color: "#2f2358"
+        color: "transparent"
+        border.color: "transparent"
         border.width: 1
         Accessible.role: Accessible.StaticText
         Accessible.description: tip
@@ -237,16 +248,17 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
+        anchors.leftMargin: hud.marginX
+        anchors.rightMargin: hud.marginX
+        anchors.topMargin: Math.max(0, hud.marginY - 14)
         height: 86
-        color: hud.panelFill
-        border.color: "#6d4ad8"
-        border.width: 1
+        color: "transparent"
 
         Column {
             id: titleColumn
             objectName: "OverseerTitle"
             anchors.left: parent.left
-            anchors.leftMargin: 18
+            anchors.leftMargin: 0
             anchors.verticalCenter: parent.verticalCenter
             spacing: 2
             Text {
@@ -306,8 +318,7 @@ Item {
                     width: 152
                     label: "Threats"
                     tip: hud.threatsTip()
-                    border.color: hud.threatCount() > 0 ? "#ff6b9a"
-                                  : (hud.threatCount() === 0 ? "#2f6b55" : "#2f2358")
+                    border.color: hud.threatCount() > 0 ? "#ff6b9a" : "transparent"
                     Accessible.name: "Threats: " + hud.threatValue() + " " + hud.threatWord()
                     Row {
                         spacing: 8
@@ -504,7 +515,10 @@ Item {
                         width: lastEventBlock.width
                         height: lastEventBlock.height
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: hud.showLogRow(lastEventBlock.event ? lastEventBlock.event.seq : undefined)
+                        onClicked: {
+                            hud.eventsOpen = true
+                            hud.showLogRow(lastEventBlock.event ? lastEventBlock.event.seq : undefined)
+                        }
                     }
                 }
             }
@@ -520,12 +534,17 @@ Item {
             height: 30
             radius: 15
             color: "#d68ab8"
+            z: 5
+            Accessible.role: Accessible.Button
+            Accessible.name: "Emergency stop"
+            Accessible.onPressAction: hud.hudCommand("emp_halt", { reason: "Overseer emergency stop" })
             Text {
                 id: empLabel
                 anchors.centerIn: parent
                 text: "Emergency stop"
-                color: "#f0c4dc"
+                color: "#2a0d1e"
                 font.pixelSize: 12
+                font.weight: Font.DemiBold
             }
             MouseArea {
                 anchors.fill: parent
@@ -534,15 +553,47 @@ Item {
         }
     }
 
+    // Small borderless text button that opens the unit drawer.
+    Item {
+        id: unitsButton
+        objectName: "OverseerUnitsButton"
+        x: hud.marginX
+        y: topBar.y + topBar.height
+        width: unitsLab.implicitWidth + 16
+        height: 28
+        Accessible.role: Accessible.Button
+        Accessible.name: hud.drawerOpen ? "Hide units" : "Units"
+        Accessible.description: "Open or close the unit list"
+        Accessible.onPressAction: hud.drawerOpen = !hud.drawerOpen
+        Text {
+            id: unitsLab
+            anchors.verticalCenter: parent.verticalCenter
+            text: hud.drawerOpen ? "Units ‹" : "Units ›"
+            color: hud.drawerOpen ? "#e8dcfb" : "#cdb2f7"
+            font.pixelSize: 14
+            font.weight: Font.Medium
+        }
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: hud.drawerOpen = !hud.drawerOpen
+        }
+    }
+
     Rectangle {
         id: swarmPanel
         objectName: "OverseerSwarmPanel"
-        anchors.left: parent.left
-        anchors.top: topBar.bottom
-        anchors.bottom: consolePanel.top
+        // Overlay drawer from the left, over the scene. Closed by default.
+        visible: hud.drawerOpen
+        x: hud.marginX
+        anchors.top: unitsButton.bottom
+        anchors.topMargin: 6
+        anchors.bottom: dispatchBar.top
+        anchors.bottomMargin: 16
         width: Math.min(440, parent.width * 0.26)
-        color: hud.panelFill
-        border.color: "#6d4ad8"
+        radius: 10
+        color: hud.plateFill
+        border.color: hud.plateEdge
         border.width: 1
 
         Column {
@@ -687,7 +738,7 @@ Item {
                             return "#1a1030"
                         if (modelData.unit_id === hud.selectedUnitId)
                             return "#2a1a4a"
-                        return hud.panelFill
+                        return "transparent"
                     }
                     border.color: modelData.unit_id === hud.selectedUnitId ? "#8b6cf2" : "transparent"
                     border.width: modelData.unit_id === hud.selectedUnitId ? 1 : 0
@@ -829,19 +880,19 @@ Item {
         // Rank 3: dock outside the free well, only while a unit is selected.
         visible: hud.inspectorOpen && !!(hud.inspector && hud.inspector.unit_id)
         anchors.right: parent.right
-        anchors.rightMargin: 24
+        anchors.rightMargin: hud.marginX
         anchors.top: topBar.bottom
         anchors.topMargin: 18
         width: 360
-        // Cap: Iris y 1050 (946 below the dock top) and above the 230 px console.
+        // Cap: Iris y 1050 (946 below the dock top) and above the dispatch bar.
         height: Math.min(
             dockBody.implicitHeight + 32,
-            Math.max(0, parent.height - topBar.height - 18 - 230 - 16),
+            Math.max(0, dispatchBar.y - 16 - y),
             946
         )
         radius: 12
-        color: hud.panelFill
-        border.color: "#2f2358"
+        color: hud.plateFill
+        border.color: hud.plateEdge
         border.width: 1
         clip: true
         Accessible.role: Accessible.Pane
@@ -1319,15 +1370,129 @@ Item {
         } // dockFlick
     }
 
+    // Dispatch is the only way to give Arelis a job while chat is off (chat is
+    // disabled while the Overseer is open). An overlay bar at bottom centre,
+    // styled like the chat composer: one rounded plate, a borderless field,
+    // Enter or the button sends.
+    Rectangle {
+        id: dispatchBar
+        objectName: "OverseerDispatchBar"
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: hud.marginY + 20
+        width: Math.max(320, Math.min(820, parent.width - 2 * hud.marginX - 2 * (eventsButton.width + 24)))
+        height: 48
+        radius: 24
+        color: hud.plateFill
+        border.color: queryField.activeFocus ? "#a473f0" : hud.plateEdge
+        border.width: 1
+        Accessible.role: Accessible.Grouping
+        Accessible.name: "Dispatch"
+
+        Row {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.leftMargin: 10
+            spacing: 8
+            OverseerComboBox {
+                id: modeBox
+                objectName: "OverseerMissionMode"
+                anchors.verticalCenter: parent.verticalCenter
+                width: 176
+                height: 32
+                model: ["multi", "arxiv", "horizons", "wikipedia", "security_audit"]
+                onActivated: hud.missionMode = currentText
+            }
+            TextField {
+                id: queryField
+                objectName: "OverseerMissionQuery"
+                Accessible.name: "Mission query"
+                anchors.verticalCenter: parent.verticalCenter
+                width: dispatchBar.width - modeBox.width - dispatchButton.width - 10 - 8 - 8 - 8
+                height: 36
+                placeholderText: "Give the sentinels a job: research query, planet, or topic"
+                color: "#e8dcfb"
+                placeholderTextColor: "#a090d4"
+                font.pixelSize: 16
+                background: Item {}
+                onTextChanged: hud.missionQuery = text
+                onAccepted: dispatchButton.dispatch()
+            }
+            Rectangle {
+                id: dispatchButton
+                objectName: "OverseerDispatch"
+                anchors.verticalCenter: parent.verticalCenter
+                height: 34
+                width: 100
+                radius: 17
+                color: "transparent"  // outline only: Emergency stop is the one filled control
+                border.color: "#8b6cf2"
+                function dispatch() {
+                    hud.hudCommand("dispatch", { mode: hud.missionMode, query: hud.missionQuery })
+                }
+                Accessible.role: Accessible.Button
+                Accessible.name: "Dispatch"
+                Accessible.description: "Send the mission in Mode with the query"
+                Accessible.onPressAction: dispatchButton.dispatch()
+                Text { anchors.centerIn: parent; text: "Dispatch"; color: "#e8dcfb"; font.pixelSize: 14 }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: dispatchButton.dispatch()
+                }
+            }
+        }
+    }
+
+    Text {
+        objectName: "OverseerCommandStatus"
+        anchors.horizontalCenter: dispatchBar.horizontalCenter
+        anchors.top: dispatchBar.bottom
+        anchors.topMargin: 3
+        text: hud.commandStatus
+        color: "#cdb2f7"
+        font.pixelSize: 12
+    }
+
+    // The event list folds into an overlay opened from this text button.
+    Item {
+        id: eventsButton
+        objectName: "OverseerEventsButton"
+        x: hud.marginX
+        anchors.verticalCenter: dispatchBar.verticalCenter
+        width: eventsLab.implicitWidth + 16
+        height: 28
+        Accessible.role: Accessible.Button
+        Accessible.name: hud.eventsOpen ? "Hide events" : "Events"
+        Accessible.description: "Open or close the event list"
+        Accessible.onPressAction: hud.eventsOpen = !hud.eventsOpen
+        Text {
+            id: eventsLab
+            anchors.verticalCenter: parent.verticalCenter
+            text: hud.eventsOpen ? "Events ˅" : "Events ˄"
+            color: hud.eventsOpen ? "#e8dcfb" : "#cdb2f7"
+            font.pixelSize: 14
+            font.weight: Font.Medium
+        }
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: hud.eventsOpen = !hud.eventsOpen
+        }
+    }
+
     Rectangle {
         id: consolePanel
         objectName: "OverseerConsole"
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        visible: hud.eventsOpen
+        x: hud.marginX
+        width: parent.width - 2 * hud.marginX
+        anchors.bottom: dispatchBar.top
+        anchors.bottomMargin: 12
         height: 230
-        color: hud.panelFill
-        border.color: "#6d4ad8"
+        radius: 10
+        color: hud.plateFill
+        border.color: hud.plateEdge
         border.width: 1
 
         Column {
@@ -1337,58 +1502,6 @@ Item {
             anchors.top: parent.top
             anchors.margins: 10
             spacing: 6
-
-            Row {
-                spacing: 8
-                OverseerComboBox {
-                    id: modeBox
-                    objectName: "OverseerMissionMode"
-                    width: 220
-                    height: 28
-                    model: ["multi", "arxiv", "horizons", "wikipedia", "security_audit"]
-                    onActivated: hud.missionMode = currentText
-                }
-                TextField {
-                    id: queryField
-                    objectName: "OverseerMissionQuery"
-                    Accessible.name: "Mission query"
-                    width: 420
-                    height: 28
-                    placeholderText: "Research query, planet, or topic"
-                    color: "#e0d4ff"
-                    placeholderTextColor: "#a090d4"
-                    background: Rectangle { color: "#160f2b"; border.color: "#6d4ad8"; radius: 4 }
-                    onTextChanged: hud.missionQuery = text
-                }
-                Rectangle {
-                    id: dispatchButton
-                    objectName: "OverseerDispatch"
-                    height: 28
-                    width: 90
-                    radius: 4
-                    color: "#2a1a4a"
-                    border.color: "#8b6cf2"
-                    function dispatch() {
-                        hud.hudCommand("dispatch", { mode: hud.missionMode, query: hud.missionQuery })
-                    }
-                    Accessible.role: Accessible.Button
-                    Accessible.name: "Dispatch"
-                    Accessible.description: "Send the mission in Mode with the query"
-                    Accessible.onPressAction: dispatchButton.dispatch()
-                    Text { anchors.centerIn: parent; text: "Dispatch"; color: "#e0d4ff" }
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: dispatchButton.dispatch()
-                    }
-                }
-                Text {
-                    objectName: "OverseerCommandStatus"
-                    text: hud.commandStatus
-                    color: "#9a86d0"
-                    font.pixelSize: 12
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-            }
 
             Row {
                 spacing: 6

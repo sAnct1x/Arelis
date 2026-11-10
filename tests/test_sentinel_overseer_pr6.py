@@ -419,8 +419,14 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert abs(found_pos[0] - 5.0) < 1e-4
     assert abs(found_pos[1] - 2.5) < 1e-4
     assert abs(found_pos[2] - 9.0) < 1e-4
-    boom = [{"unit_id": "boom", "caste": "warden", "position": [999.0, 0.4, 0.0], "scale": 50.0}]
-    inst.applyFrame(overseer_runtime.build_frame(boom, 32.0, 1306, report=report_map))
+    boom = [{"unit_id": "boom", "caste": "warden", "position": [999.0, 0.4, 0.0]}]
+    boom_frame = overseer_runtime.build_frame(boom, 32.0, 1306, report=report_map)
+    # The draw scale comes from the caste spec now, so inject the bad value
+    # where the scene reads it: the scene still clamps it to 2.0.
+    for rows in boom_frame["buckets"].values():
+        for row in rows:
+            row["scale"] = 50.0
+    inst.applyFrame(boom_frame)
     qt_app.processEvents()
     boom_pos = None
     boom_sc = None

@@ -170,7 +170,7 @@ def test_source_labels_show_on_screen_and_keep_their_delegates(qt_app) -> None:
     rows = rows.toVariant() if hasattr(rows, "toVariant") else rows
     shown = [r for r in rows if r["visible"]]
     assert shown, rows
-    free = (min(440, 2110 * 0.26), 86, 2110 - 20, 1306 - 230)
+    free = o._free_viewport_edges(2110, 1306, False)
     for r in rows:
         inside = free[0] < r["sx"] < free[2] and free[1] < r["sy"] < free[3]
         assert r["visible"] == inside, r
@@ -232,7 +232,7 @@ def test_default_view_frames_perimeter_and_every_source_label(qt_app) -> None:
         root.setSize(QSizeF(w, h))
         qt_app.processEvents()
         assert (root.width(), root.height()) == (w, h)
-        free = (min(440, w * 0.26), 86, w - 20, h - 230)
+        free = o._free_viewport_edges(w, h, False)
         for total in (50, 100, 128):
             root.applyFrame(o.build_frame(_swarm(total), 96.0, float(h), nodes=[]))
             qt_app.processEvents()

@@ -690,7 +690,8 @@ class SentinelWindow(QWidget):
             tz = root.property("cameraTargetZ")
             if tx is not None and ty is not None and tz is not None:
                 cam_target = (float(tx), float(ty), float(tz))
-        viewport_h = max(1, self.height() - 86 - 230)
+        # The 3D view fills the whole window (full-bleed layout).
+        viewport_h = max(1, self.height())
         nodes = (snap or {}).get("nodes") if isinstance(snap, dict) else None
         fx_events = (snap or {}).get("fx_events") if isinstance(snap, dict) else None
         frame = overseer_runtime.build_frame(
@@ -851,6 +852,7 @@ class SentinelWindow(QWidget):
         mote = getattr(owner, "sentinel_mote", None)
         if mote is not None:
             mote.hide()
+        _set_owner_chat_suspended(owner, True)
 
     def _restore_presence(self, reason: str = "close") -> None:
         owner = self._owner
@@ -861,6 +863,8 @@ class SentinelWindow(QWidget):
         if mote is not None:
             mote.show()
             mote.reposition()
+        if owner is not None:
+            _set_owner_chat_suspended(owner, False)
 
     def showEvent(self, event) -> None:
         self.apply_theme()
@@ -896,6 +900,13 @@ class SentinelWindow(QWidget):
         self._place_hud(self.width())
         self.apply_hud_mask()
         super().resizeEvent(event)
+
+
+def _set_owner_chat_suspended(owner, on: bool) -> None:
+    """Chat is off while the Overseer is open (see set_chat_suspended)."""
+    fn = getattr(owner, "set_chat_suspended", None)
+    if callable(fn):
+        fn(on)
 
 
 def teardown_sentinel_window(window) -> None:
