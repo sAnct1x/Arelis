@@ -602,6 +602,14 @@ voice:
   # the file is empty.
   debug: false
 
+  # First spoken pass uses a short prompt with no tool schemas so the first
+  # words can start sooner. If she needs a tool she says a short filler and
+  # then runs the normal tool loop. Typed chat is unchanged. Off by default.
+  # Set true in config.local.yaml to turn it on. Switching between spoken
+  # replies and typed or tool turns may cost a longer first wait.
+  lane:
+    enabled: false
+
   # Live onset / end-point detector for conversation and dictate.
   # silero = neural speech probability (default). energy = RMS floor fallback.
   # Missing ONNX/deps fall back to energy automatically.
