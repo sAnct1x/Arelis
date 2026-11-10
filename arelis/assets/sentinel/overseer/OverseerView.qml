@@ -15,6 +15,12 @@ Item {
     readonly property real specDistance: 95.1893
     property real overviewDistance: 95.1893
     property string overviewKey: ""
+    // Wheel position in notches from the default frame. The first
+    // easeNotches notches ease distance and pitch from the default frame onto
+    // the approved curve at its 55 deg wide mark; past that the curve applies.
+    readonly property real easeNotches: 3
+    readonly property real easeJoinDistance: 96.0
+    property real zoomZ: 0
     property real cameraDistance: 95.1893
     property real cameraPitch: 31.6864
     property real cameraTargetX: 0
@@ -256,6 +262,8 @@ Item {
 
     function selectUnit(unitId) {
         selectedUnitId = unitId || ""
+        if (cameraMode === "ease")
+            cameraMode = "follow"
         if (!selectedUnitId)
             unitFocused = false
         syncCameraTargetFromSelection()
@@ -353,7 +361,7 @@ Item {
     }
 
     function syncCameraTargetFromSelection() {
-        if (cameraMode === "fit")
+        if (cameraMode === "fit" || cameraMode === "ease")
             return false
         var pos = unitPositionOf(selectedUnitId)
         if (!pos)
@@ -480,6 +488,44 @@ Item {
         overviewDistance = d
         if (cameraMode === "overview" || cameraMode === "fit")
             applyOverview()
+        else if (cameraMode === "ease") {
+            var pose = zoomPose(zoomZ)
+            cameraDistance = pose.d
+            cameraPitch = pose.pitch
+        }
+    }
+
+    function easeJoin() {
+        return Math.min(easeJoinDistance, overviewDistance)
+    }
+
+    // Distance and pitch z notches in from the default frame. Pitch moves
+    // linearly with z on the ease, so every notch turns it by the same amount.
+    function zoomPose(z) {
+        var d0 = overviewDistance
+        var j = easeJoin()
+        if (z <= 0)
+            return { d: d0, pitch: specPitchDeg }
+        if (z < easeNotches) {
+            var u = z / easeNotches
+            return {
+                d: d0 * Math.pow(j / d0, u),
+                pitch: specPitchDeg + (pitchDeg(j) - specPitchDeg) * u
+            }
+        }
+        var d = j / Math.pow(1.18, z - easeNotches)
+        return { d: d, pitch: pitchDeg(d) }
+    }
+
+    function zoomZFor(d) {
+        var d0 = overviewDistance
+        var j = easeJoin()
+        if (d <= j)
+            return easeNotches + Math.log(j / d) / Math.log(1.18)
+        if (d0 <= j)
+            return 0
+        var u = Math.log(d0 / d) / Math.log(d0 / j)
+        return easeNotches * Math.max(0, Math.min(1, u))
     }
 
     function sourceSpecKey() {
@@ -813,34 +859,57 @@ Item {
     }
 
     function applyWheel(notches) {
+        var home = cameraMode === "overview" || cameraMode === "fit"
+        var z0 = home ? 0 : zoomZ
+        if (!home && Math.abs(zoomPose(z0).d - cameraDistance) > 1e-4)
+            z0 = zoomZFor(cameraDistance)
+        var n = easeNotches
+        var zmax = n + Math.log(easeJoin() / (6 * 0.92)) / Math.log(1.18)
+        var z1 = Math.max(0, Math.min(zmax, z0 - notches))
+        var pos = unitPositionOf(selectedUnitId)
+        if (z1 <= 0) {
+            // Back out to the default frame; a selected unit is kept, not followed.
+            zoomZ = 0
+            cameraMode = pos ? "fit" : "overview"
+            applyOverview()
+            return cameraDistance
+        }
+        var pose = zoomPose(z1)
         var old = cameraDistance
-        var next = old * Math.pow(1.18, notches)
-        var lo = 6 * 0.92
-        var hi = 110 * 1.08
-        if (next < lo)
-            next = lo
-        if (next > hi)
-            next = hi
-        if (cameraMode === "overview") {
-            // The wheel leaves the overview onto the approved zoom curve.
+        var u0 = Math.min(1, z0 / n)
+        var u1 = Math.min(1, z1 / n)
+        if (u0 < 1 || u1 < 1) {
+            // On the ease the target slides between the default frame's look
+            // point and the hive (or the selected unit) in step with the zoom.
+            var s = overviewDistance / specDistance
+            var hx = 0, hy = -6 * s, hz = -3 * s
+            var bx = pos ? pos.x : 0, by = pos ? pos.y : 0, bz = pos ? pos.z : 0
+            if (u1 > u0) {
+                var fin = u0 >= 1 ? 1 : (1 - u1) / (1 - u0)
+                setCameraTarget(bx + (cameraTargetX - bx) * fin, by + (cameraTargetY - by) * fin,
+                    bz + (cameraTargetZ - bz) * fin)
+            } else if (u1 < u0) {
+                var fout = u1 / u0
+                setCameraTarget(hx + (cameraTargetX - hx) * fout, hy + (cameraTargetY - hy) * fout,
+                    hz + (cameraTargetZ - hz) * fout)
+            }
+            cameraMode = u1 < 1 ? "ease" : "follow"
+        } else {
             cameraMode = "follow"
-            if (!wheelPivotLive && !syncCameraTargetFromSelection() && old) {
-                var ts = next / old
-                setCameraTarget(cameraTargetX * ts, cameraTargetY * ts, cameraTargetZ * ts)
+            if (wheelPivotLive && old) {
+                var k = pose.d / old
+                setCameraTarget(
+                    wheelPivotX + (cameraTargetX - wheelPivotX) * k,
+                    wheelPivotY + (cameraTargetY - wheelPivotY) * k,
+                    wheelPivotZ + (cameraTargetZ - wheelPivotZ) * k
+                )
+            } else {
+                syncCameraTargetFromSelection()
             }
         }
-        if (wheelPivotLive && old) {
-            var s = next / old
-            setCameraTarget(
-                wheelPivotX + (cameraTargetX - wheelPivotX) * s,
-                wheelPivotY + (cameraTargetY - wheelPivotY) * s,
-                wheelPivotZ + (cameraTargetZ - wheelPivotZ) * s
-            )
-        } else {
-            syncCameraTargetFromSelection()
-        }
-        cameraDistance = next
-        cameraPitch = pitchDeg(next)
+        zoomZ = z1
+        cameraDistance = pose.d
+        cameraPitch = pose.pitch
         return cameraDistance
     }
 
