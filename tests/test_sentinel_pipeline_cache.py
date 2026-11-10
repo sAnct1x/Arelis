@@ -21,7 +21,15 @@ app = QApplication([])
 from arelis import sentinel_control
 from arelis.ui import sentinel_host
 assets = Path(sys.argv[1])
-(assets / "OverseerView.qml").write_text("import QtQuick\nRectangle { width: 64; height: 64; color: 'red' }\n")
+# A Quick 3D material, like the real scene: its shaders are generated and compiled
+# at run time. Qt Quick's own 2D shaders ship as precompiled DXBC on Windows, so a
+# 2D-only stub never compiles anything on D3D11 and its QRhi has nothing to save.
+(assets / "OverseerView.qml").write_text(
+    "import QtQuick\nimport QtQuick3D\n"
+    "View3D { width: 64; height: 64\n"
+    " PerspectiveCamera { z: 300 }\n DirectionalLight {}\n"
+    " Model { source: '#Cube'; materials: PrincipledMaterial { baseColor: 'red' } } }\n"
+)
 sentinel_control.overseer_url = lambda: "http://127.0.0.1:9/#tok"
 sentinel_control.bridge_target = lambda: None
 win = sentinel_host.SentinelWindow(None)
@@ -38,6 +46,10 @@ win.hide()
 app.processEvents()
 path = sentinel_host.overseer_pipeline_cache_path()
 saved = path.is_file() and path.stat().st_size > 0
+if not saved:
+    rhi = win._scene.rhi()
+    data = rhi.pipelineCacheData() if rhi is not None else b""
+    print("diag visible", win._scene.isVisible(), "rhi", None if rhi is None else rhi.backendName(), "data", len(data))
 nxt = sentinel_host.SentinelWindow(None)
 nxt._asset_dir = lambda: assets
 seeded = nxt._ensure_scene().graphicsConfiguration().pipelineCacheLoadFile() == str(path)
