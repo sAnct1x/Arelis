@@ -18,6 +18,8 @@ from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.preflight import (
     login_check_hop_args,
     looks_like_browser_click_signin,
+    unasked_desktop_block,
+    unasked_notes_write_block,
 )
 from arelis.core.receipts import (
     action_receipt,
@@ -223,7 +225,15 @@ async def execute_call(
     sms_draft = r.sms_draft
     email_draft = r.email_draft
     try:
-        await loop.bus.publish(_tool_start_event(loop, name, args))
+        history = getattr(getattr(loop, "memory", None), "messages", None)
+        blocked_early = None
+        if name == "desktop":
+            blocked_early = unasked_desktop_block(text, history=history)
+        elif name == "notes":
+            blocked_early = unasked_notes_write_block(text, args)
+        # Unasked desktop must not raise the Drive strip, so skip TOOL_START.
+        if blocked_early is None:
+            await loop.bus.publish(_tool_start_event(loop, name, args))
         if loop._look is not None and name == "vision":
             await loop.bus.publish(
                 Event(
@@ -257,12 +267,12 @@ async def execute_call(
                 ms, result = fanout_results[call_i]
             else:
                 t0 = time.perf_counter()
-                blocked = None
-                if name == "calculator":
+                blocked = blocked_early
+                if blocked is None and name == "calculator":
                     blocked = calculator_blocked_for_date_ask(
                         text, str(args.get("expression") or "")
                     )
-                elif name == "python":
+                elif blocked is None and name == "python":
                     blocked = python_blocked_for_date_ask(
                         text, str(args.get("code") or "")
                     )

@@ -5,6 +5,11 @@ analysis, make a plot), she can now write the code and run it herself, with
 no Allow card, in a sandbox. If that code needs to change one of your files,
 or to use the network, she asks you first.
 
+A short numerics cell (`python`) is for math, a fit, or a chart saved in
+the work folder. It cannot use the network or change a file you named. Those
+programs run through `run_script` in the same sandbox, so the first attempt
+is refused and the same code again shows the network or file card below.
+
 ## What the sandbox is
 
 - **Its own folder.** The code runs in this chat turn's work folder

@@ -92,6 +92,8 @@ __all__ = [
     "rewrite_browser_action",
     "rewrite_desktop_calls",
     "signin_ref_from_snapshot",
+    "unasked_desktop_block",
+    "unasked_notes_write_block",
     "user_asked_for_browser",
     "user_asked_for_desktop",
 ]
@@ -451,6 +453,35 @@ def user_asked_for_desktop(
 ) -> bool:
     return looks_like_desktop_ask(text) or looks_like_desktop_look(
         text, history=history
+    )
+
+
+def unasked_desktop_block(
+    text: str, history: list[Any] | None = None
+) -> str | None:
+    """Refuse desktop when this ask is a file task, not a Windows drive."""
+    if user_asked_for_desktop(text, history=history):
+        return None
+    return (
+        "The user did not ask to drive the Windows session or look at a "
+        "monitor. To edit a workbook, call document format=xlsx with "
+        "from_path; it writes a copy. To change a file they named, use "
+        "workspace or run_script. Do not call desktop."
+    )
+
+
+def unasked_notes_write_block(text: str, args: dict[str, Any] | None = None) -> str | None:
+    """Refuse notes add when they asked to change a named file, not a desk note."""
+    action = str((args or {}).get("action") or "").strip().lower()
+    if action != "add":
+        return None
+    from arelis.core.intent_catalog import NOTES
+
+    if NOTES.matches(text or ""):
+        return None
+    return (
+        "The user did not ask to add a desk note. To change a file they "
+        "named, use run_script or workspace. Do not call notes."
     )
 
 

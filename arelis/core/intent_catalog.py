@@ -859,6 +859,14 @@ _DOCUMENT_CREATE = (
     re.compile(
         r"(?i)\bput\s+the\s+(?:report|result)\s+in\s+the\s+file\b"
     ),
+    # "Edit that workbook: add a sheet..." is a file they can open, not a
+    # desktop drive of Excel.
+    re.compile(
+        r"(?i)\b(?:edit|update|change|modify)\s+"
+        r"(?:(?:me\s+)?(?:a\s+|an\s+|the\s+|that\s+|this\s+|my\s+)?)?"
+        r"(?:xlsx|excel|spreadsheet|workbook|(?:excel\s+)?sheet)\b"
+    ),
+    re.compile(r"(?i)\badd\s+a\s+sheet\b"),
 )
 
 DOCUMENT = IntentSpec(
@@ -868,7 +876,9 @@ DOCUMENT = IntentSpec(
     nudge=(
         "Intent preflight: this message asks for a file they can open. "
         "Call document now with format (pdf, docx, xlsx, csv, md, or txt), "
-        "a title, and the full body. Do not dump the document into chat. "
+        "a title, and the full body. To change an existing workbook, pass "
+        "from_path; it writes a copy. Do not use desktop to drive Excel. "
+        "Do not dump the document into chat. "
         "Do not call doc_extract, that reads an existing PDF. "
         "Allow still applies, do not ask permission in chat."
     ),
@@ -1121,6 +1131,15 @@ _HAS_SCRIPT_CONTEXT = re.compile(
 _CALL_RUN_SCRIPT = re.compile(
     r"(?i)\bcall\s+run_script\b"
 )
+# "Write and run Python that fetches https://..." or "appends a line to C:\..."
+_SANDBOX_PYTHON_NET = re.compile(
+    r"(?i)\b(?:write|run|execute)\b.{0,80}\bpython\b.{0,200}"
+    r"\b(?:https?://|urllib|fetches?\b|http\s+status)\b"
+)
+_SANDBOX_PYTHON_FILE = re.compile(
+    r"(?i)\b(?:write|run|execute)\b.{0,80}\bpython\b.{0,240}"
+    r"\b(?:appends?\s+a\s+line|appends?\s+to)\b"
+)
 
 
 def _run_it_with_script_context(text: str) -> bool:
@@ -1163,15 +1182,25 @@ class _RunScriptSpec(IntentSpec):
 
 RUN_SCRIPT = _RunScriptSpec(
     kind="run_script",
-    patterns=(_RUN_SCRIPT_FILE, _RUN_SCRIPT_BARE, _RUN_IT_AGAIN, _RUN_IT, _CALL_RUN_SCRIPT),
+    patterns=(
+        _RUN_SCRIPT_FILE,
+        _RUN_SCRIPT_BARE,
+        _RUN_IT_AGAIN,
+        _RUN_IT,
+        _CALL_RUN_SCRIPT,
+        _SANDBOX_PYTHON_NET,
+        _SANDBOX_PYTHON_FILE,
+    ),
     expected_tools=("run_script",),
     veto_negation=True,
     nudge=(
-        "Intent preflight: they asked to run a project program. "
-        "Call run_script with the .py they named. Not a shell. "
+        "Intent preflight: they asked to run a program. "
+        "Call run_script: path= for a .py they named, or code= for Python "
+        "that needs the network or changes a file they named. Not a shell. "
         "Not diagnostics. Not schedule run_now. Not run_task. "
-        "Not the python cell (locked formula). "
-        "Allow still applies, do not ask permission in chat."
+        "Not the python cell (it cannot use the network or change their files). "
+        "A first sandbox run that needs those is refused; the same code again "
+        "shows the card. Allow still applies, do not ask permission in chat."
     ),
     schema_tools=frozenset({"run_script"}),
     auto_hint=True,
