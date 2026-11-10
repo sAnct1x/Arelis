@@ -42,11 +42,15 @@ def test_front_pairs_reach_per_open_fetch_and_shader_eases_from_instance_data() 
     idle = o.build_frame(units, 76.0, nodes=[])
     assert {r["reach"] for rows in idle["buckets"].values() for r in rows} == {0}
 
-    # Reach blends to the source over 0.4 s (ease-out cubic) when the curve
-    # points are rebuilt each frame from reachState.
+    # Hook arms ease toward the source in the vertex shader, driven by
+    # unitTex T3.y (wReach). The view eases that weight when a unit is
+    # fetching, instead of rebuilding curve points each frame.
     qml = (ASSETS / "OverseerView.qml").read_text(encoding="utf-8")
-    assert "(sceneTime - rs.t) / 0.4" in qml
-    assert "row.reach = rs.prev + (rs.n - rs.prev) * u" in qml
+    assert 'mode = "reach", tReach = 1' in qml
+    assert "s.wReach = easeToward(finiteNum(s.wReach, 0), tReach, dt, 0.9)" in qml
+    assert "wReach: finiteNum(extra.wReach, 0)" in qml
+    vert = (ASSETS / "shaders" / "sentinel_tentacle.vert").read_text(encoding="utf-8")
+    assert "if (T3.y > 0.0) {   // reach" in vert
     from arelis.ui.overseer_curves import ease_out_cubic
     assert ease_out_cubic(0) == 0
     assert ease_out_cubic(1) == 1

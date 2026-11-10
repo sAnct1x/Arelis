@@ -59,11 +59,8 @@ Item {
     property int budgetDrawCalls: 0
     property int unitDrawCalls: 0
     property var lodCounts: [0, 0, 0]
-    property var meshTris: ({
-        "0:hull": 39284, "0:emissive": 9032, "0:lens": 960,
-        "1:hull": 12628, "1:emissive": 2264, "1:lens": 560,
-        "2:hull": 484, "2:emissive": 216, "2:lens": 60
-    })
+    property var meshTris: ({ "0": 43316, "1": 12192, "2": 1332 })
+    readonly property var strandsByLod: [19, 13, 10]
     property var lists: ({})
     property var descriptors: []
     property var mergedLists: ({})
@@ -266,34 +263,40 @@ Item {
     readonly property real coreFocusPitch: 22.0
     readonly property real coreFocusMinDistance: 10.0
     readonly property real coreFocusMaxDistance: 24.0
+    // Direction toward each directional light (Lambert L vector).
+    // Lights: euler (-40, 30) brightness 1.0 and (-15, -120) brightness 0.35.
+    readonly property vector3d lightKeyDir: {
+        var x = -40 * Math.PI / 180, y = 30 * Math.PI / 180
+        var vy = Math.sin(x), vz = -Math.cos(x)
+        var d = Qt.vector3d(vz * Math.sin(y), vy, vz * Math.cos(y))
+        return Qt.vector3d(-d.x, -d.y, -d.z)
+    }
+    readonly property vector3d lightFillDir: {
+        var x = -15 * Math.PI / 180, y = -120 * Math.PI / 180
+        var vy = Math.sin(x), vz = -Math.cos(x)
+        var d = Qt.vector3d(vz * Math.sin(y), vy, vz * Math.cos(y))
+        return Qt.vector3d(-d.x, -d.y, -d.z)
+    }
     property string hudSansFamily: "Zen Kaku Gothic New"
     property var sourceNodeSpecs: []
     property var sourceList: sourceInstanceList
     property var memoryBeadList: memoryBeadInstanceList
     property var toolBeadList: toolBeadInstanceList
     property var tentacleLists: ({
-        "tube2": tentacleTube2List,
-        "links1": tentacleLinks1List,
-        "thread1": tentacleThread1List,
-        "links0": tentacleLinks0List
+        "0": tentacleLod0List,
+        "1": tentacleLod1List,
+        "2": tentacleLod2List
     })
     property var tentacleCounts: ({})
     InstanceList { id: sourceInstanceList }
     InstanceList { id: memoryBeadInstanceList }
     InstanceList { id: toolBeadInstanceList }
-    InstanceList { id: tentacleTube2List }
-    InstanceList { id: tentacleLinks1List }
-    InstanceList { id: tentacleThread1List }
-    InstanceList { id: tentacleLinks0List }
-    InstanceList { id: mergedHull0List }
-    InstanceList { id: mergedEmissive0List }
-    InstanceList { id: mergedLens0List }
-    InstanceList { id: mergedHull1List }
-    InstanceList { id: mergedEmissive1List }
-    InstanceList { id: mergedLens1List }
-    InstanceList { id: mergedHull2List }
-    InstanceList { id: mergedEmissive2List }
-    InstanceList { id: mergedLens2List }
+    InstanceList { id: tentacleLod0List }
+    InstanceList { id: tentacleLod1List }
+    InstanceList { id: tentacleLod2List }
+    InstanceList { id: mergedHead0List }
+    InstanceList { id: mergedHead1List }
+    InstanceList { id: mergedHead2List }
 
     function startEntry(reduced) {
         reducedMotion = !!reduced
@@ -339,8 +342,9 @@ Item {
             for (var lod = 0; lod < 3; lod++) {
                 var rows = buckets[caste + ":" + lod] || []
                 lods[lod] += rows.length
-                for (var pi = 0; pi < 3; pi++) {
-                    var part = ["hull", "emissive", "lens"][pi]
+                var partsThisLod = ["head"]
+                for (var pi = 0; pi < partsThisLod.length; pi++) {
+                    var part = partsThisLod[pi]
                     var key = caste + ":" + lod + ":" + part
                     var lst = lists[key]
                     if (!lst)
@@ -351,12 +355,35 @@ Item {
                         var uEntry = fillUnitEntry(row, caste, key, recs)
                         entries.push(uEntry)
                         if (row && row.unit_id && !tstate[row.unit_id]) {
+                            var prev = tentacleUnitState[row.unit_id] || ({})
                             tstate[row.unit_id] = {
                                 speed: (row.speed === undefined || row.speed === null) ? 0.55 : row.speed,
                                 limp: row.limp ? 1 : 0,
                                 reach: finiteNum(row.reach, 0),
                                 phase: finiteNum(row.phase, 0),
-                                target: row.target || null
+                                target: row.target || null,
+                                lenMul: finiteNum(row.lenMul, 1.0),
+                                kappa: finiteNum(row.kappa, 0),
+                                state: String(row.state || ""),
+                                open_fetches: finiteNum(row.open_fetches, 0),
+                                eyeMul: finiteNum(row.eyeMul, 1.0),
+                                index: finiteNum(row.index, 0),
+                                caste: caste,
+                                color: row.color || casteColors[caste],
+                                eye: row.eye || casteColors[caste],
+                                wIdle: finiteNum(prev.wIdle, 0),
+                                wReach: finiteNum(prev.wReach, 0),
+                                wHold: finiteNum(prev.wHold, 0),
+                                wCoil: finiteNum(prev.wCoil, 0),
+                                wStrike: finiteNum(prev.wStrike, 0),
+                                wLimp: finiteNum(prev.wLimp, 0),
+                                clawOpen: finiteNum(prev.clawOpen, 0.10),
+                                clawOpenArm: finiteNum(prev.clawOpenArm, 0.10),
+                                time0: (prev.time0 === undefined) ? sceneTime : prev.time0,
+                                mode: prev.mode || "cruise",
+                                kHold: finiteNum(prev.kHold, 0.4),
+                                grabClock: finiteNum(prev.grabClock, -1),
+                                strikeClock: finiteNum(prev.strikeClock, -1)
                             }
                         }
                         var orb = row ? row.orbit : null
@@ -392,8 +419,7 @@ Item {
                     live += entries.length
                     if (entries.length > 0) {
                         used += 1
-                        var mt = meshTris[lod + ":" + part] || 0
-                        tris += mt * entries.length
+                        tris += (meshTris[String(lod)] || 0) * entries.length
                     }
                 }
             }
@@ -429,7 +455,7 @@ Item {
         sourceLabelSpecs = frame.sourceLabels || []
         updateOverview()
         projectSourceLabels()
-        refreshCurves()
+        refreshUnitTex()
         var b = frame.budget
         if (b) {
             if (b.unitTris !== undefined && b.unitTris !== tris)
@@ -1285,10 +1311,9 @@ Item {
         releaseList("__sources", sourceList)
         releaseList("__memBeads", memoryBeadList)
         releaseList("__toolBeads", toolBeadList)
-        releaseList("__tentacle_tube2", tentacleLists["tube2"])
-        releaseList("__tentacle_links1", tentacleLists["links1"])
-        releaseList("__tentacle_thread1", tentacleLists["thread1"])
-        releaseList("__tentacle_links0", tentacleLists["links0"])
+        releaseList("__tentacle_0", tentacleLists["0"])
+        releaseList("__tentacle_1", tentacleLists["1"])
+        releaseList("__tentacle_2", tentacleLists["2"])
         conduitSpecs = []
         unitAnimSpecs = []
         unitOrbitSpecs = []
@@ -1322,26 +1347,29 @@ Item {
             sc = 3.0
         e.scale = Qt.vector3d(sc, sc, sc)
         // Eyes carry the eye colour (fetching and engaged eyes differ).
-        e.color = (String(key).indexOf(":lens") >= 0 && row.eye) ? row.eye : (row.color || casteColors[caste])
+        e.color = row.eye || row.color || casteColors[caste]
         var uid = row && row.unit_id ? row.unit_id : ""
         var rs = reachSlot(uid, row.reach)
-        // INSTANCE_DATA = (dim, eyeGain, threatMix, unitIndex)
         var dim = finiteNum(row.dim, 1.0)
         if (dim <= 0)
             dim = 1.0
-        e.customData = Qt.vector4d(dim, finiteNum(row.eyeGain, 1.0), finiteNum(row.threatMix, 0), finiteNum(row.index, 0))
+        // INSTANCE_DATA = (caste.rgb linear, eyeMul)
+        e.customData = casteData(caste, finiteNum(row.eyeMul, 1.0))
         if (uid && recs) {
-            if (!recs[uid] || String(key).indexOf(":hull") >= 0) {
+            if (!recs[uid] || String(key).indexOf(":head") >= 0) {
                 recs[uid] = {
                     unit_id: uid,
                     caste: caste,
                     modelKey: key || "",
+                    index: finiteNum(row.index, 0),
                     x: e.position.x,
                     y: e.position.y,
                     z: e.position.z,
                     scale: sc,
-                    color: String(e.color),
-                    heading: -finiteNum(row.heading_deg)
+                    color: row.color || casteColors[caste],
+                    eye: row.eye || casteColors[caste],
+                    heading: -finiteNum(row.heading_deg),
+                    dim: dim
                 }
             }
         }
@@ -1565,84 +1593,46 @@ Item {
         root.updateBeadScales()
     }
 
+    function casteData(caste, eyeMul) {
+        var c = Qt.color(casteColors[caste] || casteColors.warden)
+        return Qt.vector4d(Math.pow(c.r, 2.2), Math.pow(c.g, 2.2), Math.pow(c.b, 2.2), finiteNum(eyeMul, 1.0))
+    }
+
     function fillTentacleEntries(recs) {
         ensureLists()
-        var kinds = ["tube2", "links1", "thread1", "links0"]
-        var buckets = { tube2: [], links1: [], thread1: [], links0: [] }
+        var buckets = { "0": [], "1": [], "2": [] }
         var recKeys = recs ? Object.keys(recs) : []
-        // Walk unit hull records so each unit contributes tentacles once.
         for (var i = 0; i < recKeys.length; i++) {
             var rec = recs[recKeys[i]]
-            if (!rec || String(rec.modelKey).indexOf(":hull") < 0)
+            if (!rec || String(rec.modelKey).indexOf(":head") < 0)
                 continue
             var lod = 2
             if (String(rec.modelKey).indexOf(":0:") >= 0)
                 lod = 0
             else if (String(rec.modelKey).indexOf(":1:") >= 0)
                 lod = 1
-            var row = null
-            // Scale, colour, index and reach live on the bucket row too; look it up by id later via recs only.
-            var idx = -1
-            var dim = 1.0
-            var caste = rec.caste
-            var scale = finiteNum(rec.scale, 1.0)
-            var color = rec.color || casteColors[caste]
-            // unit index and dim were packed on the hull entry customData.
-            var hullKey = rec.modelKey
-            var insts = lists[hullKey] ? (lists[hullKey].instances || []) : []
-            var found = null
-            for (var k = 0; k < insts.length; k++) {
-                if (Math.abs(insts[k].position.x - rec.x) < 1e-4 && Math.abs(insts[k].position.z - rec.z) < 1e-4) {
-                    found = insts[k]
-                    break
-                }
-            }
-            if (found)
-                dim = found.customData.x, idx = Math.floor(found.customData.w + 0.5)
+            var idx = Math.floor(finiteNum(rec.index, -1) + 0.5)
             if (idx < 0)
                 continue
-            var n = lod === 0 ? 14 : (lod === 1 ? 8 : 4)
-            var s = scale
+            var extra = tentacleUnitState[rec.unit_id] || ({})
+            var dim = finiteNum(extra.eyeMul, finiteNum(rec.dim, 1.0))
+            if (extra.wLimp > 0.5)
+                dim = 0.35
+            var color = rec.color || casteColors[rec.caste]
+            var c = Qt.color(color)
+            var n = strandsByLod[lod]
             for (var slot = 0; slot < n; slot++) {
                 var e = acquireEntry()
                 e.position = Qt.vector3d(0, 0, 0)
                 e.eulerRotation = Qt.vector3d(0, 0, 0)
                 e.scale = Qt.vector3d(1, 1, 1)
-                e.color = color
-                var r0, r1, kind
-                if (lod === 2) {
-                    r0 = 0.047 * s
-                    r1 = 0.2 * r0
-                    kind = "tube2"
-                } else if (lod === 1) {
-                    // One instance of the pre-strung links and one of the thread per tentacle.
-                    r0 = 0.106 * s
-                    r1 = 0.3 * r0
-                    kind = "links1"
-                    var th = acquireEntry()
-                    th.position = Qt.vector3d(0, 0, 0)
-                    th.scale = Qt.vector3d(1, 1, 1)
-                    th.color = color
-                    var tr0 = 0.036 * s
-                    th.customData = Qt.vector4d(idx * 16 + slot, tr0, 0.2 * tr0, dim)
-                    buckets.thread1.push(th)
-                } else {
-                    r0 = 0.106 * s
-                    r1 = 0.3 * r0
-                    kind = "links0"
-                    var th0 = acquireEntry()
-                    th0.position = Qt.vector3d(0, 0, 0)
-                    th0.scale = Qt.vector3d(1, 1, 1)
-                    th0.color = color
-                    var t0 = 0.036 * s
-                    th0.customData = Qt.vector4d(idx * 16 + slot, t0, 0.2 * t0, dim)
-                    buckets.thread1.push(th0)
-                }
-                e.customData = Qt.vector4d(idx * 16 + slot, r0, r1, dim)
-                buckets[kind].push(e)
+                e.color = Qt.rgba(c.r, c.g, c.b, dim)
+                e.customData = Qt.vector4d(idx, slot, lod, 0)
+                buckets[String(lod)].push(e)
             }
         }
         var counts = ({})
+        var kinds = ["0", "1", "2"]
         for (var ci = 0; ci < kinds.length; ci++) {
             var key = kinds[ci]
             releaseList("__tentacle_" + key, tentacleLists[key])
@@ -1653,76 +1643,223 @@ Item {
         tentacleCounts = counts
     }
 
-    // Per-frame unit poses for the curve texture, including the view's orbit step.
-    function curveUnitRows() {
+    function qFromYaw(deg) {
+        var a = finiteNum(deg, 0) * Math.PI / 360.0
+        return Qt.vector4d(0, Math.sin(a), 0, Math.cos(a))
+    }
+
+    function qrot(q, v) {
+        var cx = q.y * v.z - q.z * v.y
+        var cy = q.z * v.x - q.x * v.z
+        var cz = q.x * v.y - q.y * v.x
+        var dx = cx + q.w * v.x, dy = cy + q.w * v.y, dz = cz + q.w * v.z
+        return Qt.vector3d(
+            v.x + 2.0 * (q.y * dz - q.z * dy),
+            v.y + 2.0 * (q.z * dx - q.x * dz),
+            v.z + 2.0 * (q.x * dy - q.y * dx)
+        )
+    }
+
+    function qinv(q) {
+        return Qt.vector4d(-q.x, -q.y, -q.z, q.w)
+    }
+
+    function worldToLocal(world, pos, q, scale) {
+        var d = Qt.vector3d(world.x - pos.x, world.y - pos.y, world.z - pos.z)
+        var loc = qrot(qinv(q), d)
+        var s = Math.max(scale, 1e-4)
+        return Qt.vector3d(loc.x / s, loc.y / s, loc.z / s)
+    }
+
+    function inOutCubic(t) {
+        t = Math.max(0, Math.min(1, t))
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+    }
+
+    function easeToward(cur, target, dt, duration) {
+        if (duration <= 1e-4)
+            return target
+        var k = Math.min(1, dt / duration)
+        k = inOutCubic(k)
+        return cur + (target - cur) * k
+    }
+
+    function stepTentacleWeights(dt) {
+        var st = tentacleUnitState || ({})
+        var keys = Object.keys(st)
+        for (var i = 0; i < keys.length; i++) {
+            var s = st[keys[i]]
+            if (!s)
+                continue
+            var state = String(s.state || "").toUpperCase()
+            var speed = finiteNum(s.speed, 0.55)
+            var fetching = s.open_fetches > 0 || state.indexOf("ENGAGED_HARVEST") >= 0
+            var defense = state.indexOf("ENGAGED_DEFENSE") >= 0
+            var sanitize = state.indexOf("ENGAGED_SANITIZE") >= 0
+            var emp = s.limp || state.indexOf("EMP") >= 0 || state.indexOf("HALT") >= 0
+            var docked = state.indexOf("DOCKED") >= 0
+            var returning = state.indexOf("RETURNING") >= 0
+            var mode = "cruise"
+            var tIdle = 0, tReach = 0, tHold = 0, tCoil = 0, tLimp = 0
+            if (emp)
+                mode = "limp", tLimp = 1
+            else if (defense)
+                mode = "strike"
+            else if (sanitize)
+                mode = "sanitize", tHold = 1
+            else if (s.grabClock >= 0)
+                mode = "grab"
+            else if (fetching && s.target)
+                mode = "reach", tReach = 1
+            else if (returning || s.wCoil > 0.2)
+                mode = "carry", tCoil = 1
+            else if (docked || speed < 0.2)
+                mode = "idle", tIdle = 1
+            else if (fetching && !s.target)
+                mode = "idle", tIdle = 0.6
+            if (mode !== s.mode) {
+                s.time0 = sceneTime
+                s.mode = mode
+                if (mode === "grab")
+                    s.grabClock = 0
+                if (mode === "strike")
+                    s.strikeClock = 0
+            }
+            // Detect a fetch closing: start the grab / coil choreography.
+            if (!emp && s.prevFetches > 0 && s.open_fetches <= 0 && s.grabClock < 0 && (s.wReach > 0.2 || fetching || returning)) {
+                s.grabClock = 0
+                s.mode = "grab"
+                s.time0 = sceneTime
+            }
+            s.prevFetches = s.open_fetches
+            if (s.grabClock >= 0) {
+                s.grabClock += dt
+                var g = s.grabClock
+                // SPEC: close claws 0.25 s, hold 0.6 s, coil from +0.3 s over 0.7 s.
+                // Release hook arms once coil reaches 0.3 (section 6 contact fix).
+                s.clawOpenArm = (g < 0.25) ? (0.75 - 0.70 * Math.min(1, g / 0.25)) : 0.05
+                tHold = (g < 0.25) ? 0 : ((g < 0.85) ? inOutCubic((g - 0.25) / 0.6) : 1)
+                tCoil = (g < 0.3) ? 0 : inOutCubic(Math.min(1, (g - 0.3) / 0.7))
+                if (tCoil > 0.3)
+                    tHold = Math.min(tHold, Math.max(0, 1 - (tCoil - 0.3) / 0.4))
+                if (g > 2.0 && returning)
+                    tHold = 0, tCoil = 1
+                if (g > 4.5)
+                    s.grabClock = -1, tCoil = 0, tHold = 0
+            }
+            if (mode === "strike") {
+                s.strikeClock = finiteNum(s.strikeClock, 0) + dt
+                var cyc = s.strikeClock % 1.4
+                if (cyc < 0.35)
+                    s.wStrike = -inOutCubic(cyc / 0.35)
+                else if (cyc < 0.53)
+                    s.wStrike = Math.min(1, 1 - Math.pow(2, -10 * (cyc - 0.35) / 0.18))
+                else if (cyc < 0.78)
+                    s.wStrike = 1
+                else
+                    s.wStrike = 1 - inOutCubic((cyc - 0.78) / 0.62)
+                s.clawOpen = 0.85
+            } else {
+                s.wStrike = easeToward(finiteNum(s.wStrike, 0), 0, dt, 0.4)
+                s.clawOpen = easeToward(finiteNum(s.clawOpen, 0.10), 0.10, dt, 0.3)
+            }
+            s.wIdle = easeToward(finiteNum(s.wIdle, 0), tIdle, dt, 0.8)
+            s.wReach = easeToward(finiteNum(s.wReach, 0), tReach, dt, 0.9)
+            s.wHold = easeToward(finiteNum(s.wHold, 0), tHold, dt, 0.4)
+            s.wCoil = easeToward(finiteNum(s.wCoil, 0), tCoil, dt, 0.5)
+            s.wLimp = easeToward(finiteNum(s.wLimp, 0), tLimp, dt, tLimp > 0.5 ? 1.2 : 0.8)
+            if (mode === "reach")
+                s.clawOpenArm = easeToward(finiteNum(s.clawOpenArm, 0.10), 0.75, dt, 0.4)
+            else if (s.grabClock < 0)
+                s.clawOpenArm = easeToward(finiteNum(s.clawOpenArm, 0.10), 0.10, dt, 0.4)
+            st[keys[i]] = s
+        }
+        tentacleUnitState = st
+    }
+
+    // Per-frame unit poses for the unit texture (Pass E).
+    function unitTexRows() {
         var out = []
         var recs = instanceRecords || ({})
         var keys = Object.keys(recs)
         for (var i = 0; i < keys.length; i++) {
             var rec = recs[keys[i]]
-            if (!rec || String(rec.modelKey).indexOf(":hull") < 0)
+            if (!rec || String(rec.modelKey).indexOf(":head") < 0)
                 continue
             var pos = unitPositionOf(rec.unit_id) || { x: rec.x, y: rec.y, z: rec.z }
             var yaw = rec.heading
             var os = orbitEntries ? orbitEntries[rec.unit_id] : null
             if (os && os.entries.length)
                 yaw = os.entries[0].eulerRotation.y
-            var lod = 2
-            if (String(rec.modelKey).indexOf(":0:") >= 0)
-                lod = 0
-            else if (String(rec.modelKey).indexOf(":1:") >= 0)
-                lod = 1
-            var hullKey = rec.modelKey
-            var insts = lists[hullKey] ? (lists[hullKey].instances || []) : []
-            var found = insts.length ? insts[0] : null
-            for (var k = 0; k < insts.length; k++) {
-                var p = insts[k].position
-                if (Math.abs(p.x - pos.x) < 0.05 && Math.abs(p.z - pos.z) < 0.05) {
-                    found = insts[k]
-                    break
-                }
-            }
-            if (!found)
-                continue
-            var cd = found.customData
-            var row = {
-                index: Math.floor(cd.w + 0.5),
+            var extra = tentacleUnitState[rec.unit_id] || ({})
+            var q = qFromYaw(yaw)
+            var targetL = Qt.vector3d(2.45, 0, 0)
+            if (extra.target && extra.target.length >= 3)
+                targetL = worldToLocal(
+                    Qt.vector3d(extra.target[0], extra.target[1], extra.target[2]),
+                    Qt.vector3d(pos.x, pos.y, pos.z), q, rec.scale
+                )
+            var holdL = Qt.vector3d(1.05, -0.72, 0)
+            var wCoil = finiteNum(extra.wCoil, 0)
+            // Raise wPart so the bundle parts earlier (SPEC section 6, wCoil 0.2 contact).
+            var wPart = Math.min(1.0, 8.0 * wCoil * (1.0 - wCoil) + 0.35 * Math.min(1, wCoil / 0.2))
+            out.push({
+                index: Math.floor(finiteNum(rec.index, extra.index) + 0.5),
                 x: pos.x, y: pos.y, z: pos.z,
-                yaw: yaw, pitch: 0, roll: 0,
                 scale: rec.scale,
-                lod: lod,
-                speed: 0.55,
-                limp: 0,
-                reach: 0,
-                phase: 0,
-                target: null
-            }
-            // Reach and speed come from the last frame's bucket via a side table.
-            var extra = tentacleUnitState[rec.unit_id]
-            if (extra) {
-                row.speed = extra.speed
-                row.limp = extra.limp
-                row.phase = extra.phase
-                row.target = extra.target
-                var rs = reachState[rec.unit_id]
-                if (rs) {
-                    var u = Math.max(0, Math.min(1, (sceneTime - rs.t) / 0.4))
-                    u = 1 - (1 - u) * (1 - u) * (1 - u)
-                    row.reach = rs.prev + (rs.n - rs.prev) * u
-                } else {
-                    row.reach = extra.reach
-                }
-            }
-            out.push(row)
+                qx: q.x, qy: q.y, qz: q.z, qw: q.w,
+                speed: finiteNum(extra.speed, 0.55),
+                kappa: finiteNum(extra.kappa, 0),
+                phase: finiteNum(extra.phase, 0),
+                lenMul: finiteNum(extra.lenMul, 1.0),
+                wIdle: finiteNum(extra.wIdle, 0),
+                wReach: finiteNum(extra.wReach, 0),
+                wHold: finiteNum(extra.wHold, 0),
+                wCoil: wCoil,
+                wStrike: finiteNum(extra.wStrike, 0),
+                wLimp: finiteNum(extra.wLimp, 0),
+                clawOpen: finiteNum(extra.clawOpen, 0.10),
+                clawOpenArm: finiteNum(extra.clawOpenArm, 0.10),
+                txx: targetL.x, txy: targetL.y, txz: targetL.z, wPart: wPart,
+                hx: holdL.x, hy: holdL.y, hz: holdL.z,
+                time0: finiteNum(extra.time0, 0),
+                kHold: finiteNum(extra.kHold, 0.4)
+            })
         }
         return out
     }
 
     property var tentacleUnitState: ({})
 
+    function refreshUnitTex() {
+        if (!unitTexData)
+            return
+        var rows = unitTexRows()
+        var flat = []
+        // Pre-size 128 * 32 with zeros, then write each unit into its index row.
+        for (var z = 0; z < 128 * 32; z++)
+            flat.push(0)
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            var idx = r.index
+            if (idx < 0 || idx >= 128)
+                continue
+            var o = idx * 32
+            flat[o+0] = r.x; flat[o+1] = r.y; flat[o+2] = r.z; flat[o+3] = r.scale
+            flat[o+4] = r.qx; flat[o+5] = r.qy; flat[o+6] = r.qz; flat[o+7] = r.qw
+            flat[o+8] = r.speed; flat[o+9] = r.kappa; flat[o+10] = r.phase; flat[o+11] = r.lenMul
+            flat[o+12] = r.wIdle; flat[o+13] = r.wReach; flat[o+14] = r.wHold; flat[o+15] = r.wCoil
+            flat[o+16] = r.wStrike; flat[o+17] = r.wLimp; flat[o+18] = r.clawOpen; flat[o+19] = r.clawOpenArm
+            flat[o+20] = r.txx; flat[o+21] = r.txy; flat[o+22] = r.txz; flat[o+23] = r.wPart
+            flat[o+24] = r.hx; flat[o+25] = r.hy; flat[o+26] = r.hz; flat[o+27] = r.time0
+            flat[o+28] = r.kHold; flat[o+29] = 0; flat[o+30] = 0; flat[o+31] = 0
+        }
+        unitTexData.refreshFlat(flat)
+    }
+
     function refreshCurves() {
-        if (curveTexData)
-            curveTexData.refresh(curveUnitRows(), sceneTime)
+        // Kept as a synonym so older call sites still compile; Pass E writes unitTex.
+        refreshUnitTex()
     }
 
     function recountEntries(live) {
@@ -1819,58 +1956,40 @@ Item {
         var next = ({})
         for (var ci = 0; ci < casteIds.length; ci++) {
             for (var lod = 0; lod < 3; lod++) {
-                var parts = ["hull", "emissive", "lens"]
-                for (var pi = 0; pi < 3; pi++) {
-                    var part = parts[pi]
-                    var key = casteIds[ci] + ":" + lod + ":" + part
-                    next[key] = Qt.createQmlObject("import QtQuick3D; InstanceList {}", root)
-                    var meshPart = part === "lens" ? "eyes" : (part === "emissive" ? "seams" : "hull")
-                    desc.push({
-                        key: key,
-                        caste: casteIds[ci],
-                        lod: lod,
-                        part: part,
-                        source: "meshes/unit_" + meshPart + "_lod" + lod + "_mesh.mesh"
-                    })
-                }
+                var key = casteIds[ci] + ":" + lod + ":head"
+                next[key] = Qt.createQmlObject("import QtQuick3D; InstanceList {}", root)
+                desc.push({
+                    key: key,
+                    caste: casteIds[ci],
+                    lod: lod,
+                    part: "head",
+                    source: "meshes/sentinel_head_lod" + lod + "_mesh.mesh"
+                })
             }
         }
         lists = next
         descriptors = desc
         var mdesc = []
         var mlists = ({
-            "0:hull": mergedHull0List,
-            "0:emissive": mergedEmissive0List,
-            "0:lens": mergedLens0List,
-            "1:hull": mergedHull1List,
-            "1:emissive": mergedEmissive1List,
-            "1:lens": mergedLens1List,
-            "2:hull": mergedHull2List,
-            "2:emissive": mergedEmissive2List,
-            "2:lens": mergedLens2List
+            "0": mergedHead0List,
+            "1": mergedHead1List,
+            "2": mergedHead2List
         })
-        var mparts = ["hull", "emissive", "lens"]
         for (var mlod = 0; mlod < 3; mlod++) {
-            for (var mpi = 0; mpi < 3; mpi++) {
-                var mpart = mparts[mpi]
-                var mkey = mlod + ":" + mpart
-                var mMesh = mpart === "lens" ? "eyes" : (mpart === "emissive" ? "seams" : "hull")
-                mdesc.push({
-                    key: mkey,
-                    lod: mlod,
-                    part: mpart,
-                    source: "meshes/unit_" + mMesh + "_lod" + mlod + "_mesh.mesh"
-                })
-            }
+            mdesc.push({
+                key: String(mlod),
+                lod: mlod,
+                part: "head",
+                source: "meshes/sentinel_head_lod" + mlod + "_mesh.mesh"
+            })
         }
         mergedLists = mlists
         mergedDescriptors = mdesc
     }
 
     function mergeUnitDraws() {
-        // One instanced draw per lod/part, across every caste. Hull, seams
-        // and eyes already share a mesh and material at a given lod; only
-        // the instance colour changes, so five caste draws collapse to one.
+        // One instanced draw per lod, across every caste. Eyes and seams
+        // live in the head mesh; only the instance colour changes.
         var mc = ({})
         var used = 0
         var mkeys = Object.keys(mergedLists)
@@ -1878,7 +1997,7 @@ Item {
             var mkey = mkeys[i]
             var entries = []
             for (var ci = 0; ci < casteIds.length; ci++) {
-                var ck = casteIds[ci] + ":" + mkey
+                var ck = casteIds[ci] + ":" + mkey + ":head"
                 var insts = (lists[ck] && lists[ck].instances) ? lists[ck].instances : []
                 for (var j = 0; j < insts.length; j++)
                     entries.push(insts[j])
@@ -2544,8 +2663,9 @@ Item {
                 root.pulseScale = 1
                 root.pulseGain = 0
             }
+            root.stepTentacleWeights(dt)
             root.projectOrbLabels()
-            root.refreshCurves()
+            root.refreshUnitTex()
         }
     }
 
@@ -3022,7 +3142,8 @@ Item {
             }
         }
 
-        OverseerCurveTex { id: curveTexData; objectName: "overseerCurveTex" }
+        OverseerUnitTex { id: unitTexData; objectName: "overseerUnitTex" }
+        OverseerStrandTex { id: strandTexData; objectName: "overseerStrandTex" }
 
         Repeater3D {
             id: instancedSwarm
@@ -3032,33 +3153,18 @@ Item {
                 required property var modelData
                 objectName: "instanced-" + modelData.key
                 source: modelData.source
-                // Per-caste models stay in the tree for tests, but drawing
-                // goes through mergedSwarm (one draw per lod/part).
+                // Per-caste models stay in the tree for tests; drawing
+                // goes through mergedSwarm (one draw per lod).
                 visible: false
                 instancing: root.lists[modelData.key]
                 materials: [
                     CustomMaterial {
-                        shadingMode: modelData.part === "hull" ? CustomMaterial.Shaded : CustomMaterial.Unshaded
-                        vertexShader: modelData.part === "lens" ? "shaders/eye_lens.vert" : (modelData.part === "hull" ? "shaders/rim_hull.vert" : "shaders/emission_instanced.vert")
-                        fragmentShader: modelData.part === "lens" ? "shaders/eye_lens.frag" : (modelData.part === "hull" ? "shaders/rim_hull.frag" : "shaders/emission.frag")
-                        sourceBlend: modelData.part === "lens" ? CustomMaterial.One : CustomMaterial.NoBlend
-                        destinationBlend: modelData.part === "lens" ? CustomMaterial.One : CustomMaterial.NoBlend
-                        // Hull / seams / eyes
-                        property real rimGain: modelData.lod === 2 ? 1.8 : 1.0
-                        property real rimPower: 3.0
-                        property real metal: 0.55
-                        property real rough: 0.32
-                        property real wearGain: (modelData.part === "hull" && modelData.lod === 1) ? 1.0 : 0.0
-                        property real lipGain: (modelData.part === "hull" && modelData.lod === 1) ? 1.0 : 0.0
-                        property real eyeStrength: modelData.lod === 2 ? 4.46 : 2.48
-                        property real coreWhite: 0.55
-                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
-                        property real spinAngle: 0
-                        property real spinShear: 0
-                        property vector3d tint: root.linearVec(root.casteColors[modelData.caste])
-                        property real gain: modelData.lod === 2 ? 0.8 : 2.2
-                        property vector3d litArc: Qt.vector3d(0, 0, 2)
-                        property real dim: 1
+                        shadingMode: CustomMaterial.Shaded
+                        vertexShader: "shaders/sentinel_head.vert"
+                        fragmentShader: "shaders/sentinel_head.frag"
+                        property real eyeGain: modelData.lod === 0 ? 1.35 : (modelData.lod === 1 ? 1.40 : 1.60)
+                        property real rimGain: modelData.lod === 0 ? 0.06 : (modelData.lod === 1 ? 0.10 : 0.20)
+                        property real seamGain: modelData.lod === 0 ? 0.45 : (modelData.lod === 1 ? 0.50 : 1.00)
                     }
                 ]
             }
@@ -3073,115 +3179,51 @@ Item {
                 objectName: "instanced-merged-" + modelData.key
                 source: modelData.source
                 visible: !root.coreMode && (root.mergedCounts[modelData.key] || 0) > 0
-                instancing: (modelData.part === "hull"
-                             ? (modelData.lod === 0 ? mergedHull0List : (modelData.lod === 1 ? mergedHull1List : mergedHull2List))
-                             : (modelData.part === "lens"
-                                ? (modelData.lod === 0 ? mergedLens0List : (modelData.lod === 1 ? mergedLens1List : mergedLens2List))
-                                : (modelData.lod === 0 ? mergedEmissive0List : (modelData.lod === 1 ? mergedEmissive1List : mergedEmissive2List))))
+                instancing: (modelData.lod === 0 ? mergedHead0List : (modelData.lod === 1 ? mergedHead1List : mergedHead2List))
                 materials: [
                     CustomMaterial {
-                        shadingMode: modelData.part === "hull" ? CustomMaterial.Shaded : CustomMaterial.Unshaded
-                        vertexShader: modelData.part === "lens" ? "shaders/eye_lens.vert" : (modelData.part === "hull" ? "shaders/rim_hull.vert" : "shaders/emission_instanced.vert")
-                        fragmentShader: modelData.part === "lens" ? "shaders/eye_lens.frag" : (modelData.part === "hull" ? "shaders/rim_hull.frag" : "shaders/emission_instanced.frag")
-                        sourceBlend: modelData.part === "lens" ? CustomMaterial.One : CustomMaterial.NoBlend
-                        destinationBlend: modelData.part === "lens" ? CustomMaterial.One : CustomMaterial.NoBlend
-                        property real rimGain: modelData.lod === 2 ? 1.8 : 1.0
-                        property real rimPower: 3.0
-                        property real metal: 0.55
-                        property real rough: 0.32
-                        property real wearGain: (modelData.part === "hull" && modelData.lod === 1) ? 1.0 : 0.0
-                        property real lipGain: (modelData.part === "hull" && modelData.lod === 1) ? 1.0 : 0.0
-                        property real eyeStrength: modelData.lod === 2 ? 4.46 : 2.48
-                        property real coreWhite: 0.55
-                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
-                        property real spinAngle: 0
-                        property real spinShear: 0
-                        property vector3d tint: Qt.vector3d(1, 1, 1)
-                        property real gain: modelData.lod === 2 ? 0.8 : 2.2
-                        property vector3d litArc: Qt.vector3d(0, 0, 2)
-                        property real dim: 1
+                        shadingMode: CustomMaterial.Shaded
+                        vertexShader: "shaders/sentinel_head.vert"
+                        fragmentShader: "shaders/sentinel_head.frag"
+                        property real eyeGain: modelData.lod === 0 ? 1.35 : (modelData.lod === 1 ? 1.40 : 1.60)
+                        property real rimGain: modelData.lod === 0 ? 0.06 : (modelData.lod === 1 ? 0.10 : 0.20)
+                        property real seamGain: modelData.lod === 0 ? 0.45 : (modelData.lod === 1 ? 0.50 : 1.00)
                     }
                 ]
             }
         }
 
         Model {
-            objectName: "tentacleTubesLod2"
-            visible: !root.coreMode && (root.tentacleCounts["tube2"] || 0) > 0
-            instancing: tentacleTube2List
-            source: "meshes/tentacle_tube_lod2_mesh.mesh"
-            materials: CustomMaterial {
-                shadingMode: CustomMaterial.Shaded
-                vertexShader: "shaders/tentacle.vert"
-                fragmentShader: "shaders/rim_hull.frag"
-                property real rimGain: 1.8
-                property real rimPower: 3.0
-                property real metal: 0.55
-                property real rough: 0.32
-                property real wearGain: 0
-                property real lipGain: 0
-                property real uViewportH: Math.max(1, view.height)
-                property TextureInput curveTex: TextureInput {
-                    texture: Texture {
-                        textureData: curveTexData
-                        minFilter: Texture.Nearest
-                        magFilter: Texture.Nearest
-                        tilingModeHorizontal: Texture.ClampToEdge
-                        tilingModeVertical: Texture.ClampToEdge
-                    }
-                }
-            }
-        }
-        Model {
-            objectName: "tentacleLinksLod1"
-            visible: !root.coreMode && (root.tentacleCounts["links1"] || 0) > 0
-            instancing: tentacleLinks1List
-            source: "meshes/tentacle_links_lod1_mesh.mesh"
-            materials: CustomMaterial {
-                shadingMode: CustomMaterial.Shaded
-                vertexShader: "shaders/tentacle.vert"
-                fragmentShader: "shaders/rim_hull.frag"
-                property real rimGain: 1.8
-                property real rimPower: 3.0
-                property real metal: 0.55
-                property real rough: 0.32
-                property real wearGain: 0
-                property real lipGain: 0
-                property real uViewportH: Math.max(1, view.height)
-                property TextureInput curveTex: TextureInput {
-                    texture: Texture {
-                        textureData: curveTexData
-                        minFilter: Texture.Nearest
-                        magFilter: Texture.Nearest
-                        tilingModeHorizontal: Texture.ClampToEdge
-                        tilingModeVertical: Texture.ClampToEdge
-                    }
-                }
-            }
-        }
-        Model {
-            objectName: "tentacleThreadLod1"
-            visible: !root.coreMode && (root.tentacleCounts["thread1"] || 0) > 0
-            instancing: tentacleThread1List
-            source: "meshes/tentacle_thread_lod1_mesh.mesh"
+            objectName: "tentacleLod2"
+            visible: !root.coreMode && (root.tentacleCounts["2"] || 0) > 0
+            instancing: tentacleLod2List
+            source: "meshes/sentinel_tentacle_lod2_mesh.mesh"
             materials: CustomMaterial {
                 shadingMode: CustomMaterial.Unshaded
-                vertexShader: "shaders/tentacle.vert"
-                fragmentShader: "shaders/emission.frag"
-                sourceBlend: CustomMaterial.One
-                destinationBlend: CustomMaterial.One
-                depthDrawMode: Material.NeverDepthDraw
-                property vector3d spinAxis: Qt.vector3d(0, 1, 0)
-                property real spinAngle: 0
-                property real spinShear: 0
-                property vector3d tint: Qt.vector3d(1, 1, 1)
-                property real gain: 1.3
-                property vector3d litArc: Qt.vector3d(0, 0, 2)
-                property real dim: 1
+                vertexShader: "shaders/sentinel_tentacle.vert"
+                fragmentShader: "shaders/sentinel_tentacle_lod2.frag"
+                property real lod: 2
+                property real slitGain: 0.90
+                property real rimGain: 0.55
+                property real ribbonLight: 0.5
+                property real uTime: root.sceneTime
                 property real uViewportH: Math.max(1, view.height)
-                property TextureInput curveTex: TextureInput {
+                property vector3d baseMetal: Qt.vector3d(Math.pow(0x2c/255.0, 2.2), Math.pow(0x2f/255.0, 2.2), Math.pow(0x36/255.0, 2.2))
+                property vector3d clawMetal: Qt.vector3d(Math.pow(0x5a/255.0, 2.2), Math.pow(0x5e/255.0, 2.2), Math.pow(0x66/255.0, 2.2))
+                property vector3d keyDir: root.lightKeyDir
+                property vector3d fillDir: root.lightFillDir
+                property TextureInput unitTex: TextureInput {
                     texture: Texture {
-                        textureData: curveTexData
+                        textureData: unitTexData
+                        minFilter: Texture.Nearest
+                        magFilter: Texture.Nearest
+                        tilingModeHorizontal: Texture.ClampToEdge
+                        tilingModeVertical: Texture.ClampToEdge
+                    }
+                }
+                property TextureInput strandTex: TextureInput {
+                    texture: Texture {
+                        textureData: strandTexData
                         minFilter: Texture.Nearest
                         magFilter: Texture.Nearest
                         tilingModeHorizontal: Texture.ClampToEdge
@@ -3191,24 +3233,75 @@ Item {
             }
         }
         Model {
-            objectName: "tentacleLinksLod0"
-            visible: !root.coreMode && (root.tentacleCounts["links0"] || 0) > 0
-            instancing: tentacleLinks0List
-            source: "meshes/tentacle_links_lod0_mesh.mesh"
+            objectName: "tentacleLod1"
+            visible: !root.coreMode && (root.tentacleCounts["1"] || 0) > 0
+            instancing: tentacleLod1List
+            source: "meshes/sentinel_tentacle_lod1_mesh.mesh"
             materials: CustomMaterial {
                 shadingMode: CustomMaterial.Shaded
-                vertexShader: "shaders/tentacle.vert"
-                fragmentShader: "shaders/rim_hull.frag"
-                property real rimGain: 1.8
-                property real rimPower: 3.0
-                property real metal: 0.55
-                property real rough: 0.32
-                property real wearGain: 0
-                property real lipGain: 0
+                vertexShader: "shaders/sentinel_tentacle.vert"
+                fragmentShader: "shaders/sentinel_tentacle.frag"
+                property real lod: 1
+                property real slitGain: 0.60
+                property real rimGain: 0.30
+                property real ribbonLight: 0.5
+                property real uTime: root.sceneTime
                 property real uViewportH: Math.max(1, view.height)
-                property TextureInput curveTex: TextureInput {
+                property vector3d baseMetal: Qt.vector3d(Math.pow(0x2c/255.0, 2.2), Math.pow(0x2f/255.0, 2.2), Math.pow(0x36/255.0, 2.2))
+                property vector3d clawMetal: Qt.vector3d(Math.pow(0x5a/255.0, 2.2), Math.pow(0x5e/255.0, 2.2), Math.pow(0x66/255.0, 2.2))
+                property vector3d keyDir: root.lightKeyDir
+                property vector3d fillDir: root.lightFillDir
+                property TextureInput unitTex: TextureInput {
                     texture: Texture {
-                        textureData: curveTexData
+                        textureData: unitTexData
+                        minFilter: Texture.Nearest
+                        magFilter: Texture.Nearest
+                        tilingModeHorizontal: Texture.ClampToEdge
+                        tilingModeVertical: Texture.ClampToEdge
+                    }
+                }
+                property TextureInput strandTex: TextureInput {
+                    texture: Texture {
+                        textureData: strandTexData
+                        minFilter: Texture.Nearest
+                        magFilter: Texture.Nearest
+                        tilingModeHorizontal: Texture.ClampToEdge
+                        tilingModeVertical: Texture.ClampToEdge
+                    }
+                }
+            }
+        }
+        Model {
+            objectName: "tentacleLod0"
+            visible: !root.coreMode && (root.tentacleCounts["0"] || 0) > 0
+            instancing: tentacleLod0List
+            source: "meshes/sentinel_tentacle_lod0_mesh.mesh"
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Shaded
+                vertexShader: "shaders/sentinel_tentacle.vert"
+                fragmentShader: "shaders/sentinel_tentacle.frag"
+                property real lod: 0
+                property real slitGain: 0.42
+                property real rimGain: 0.22
+                property real ribbonLight: 0.5
+                property real uTime: root.sceneTime
+                property real uViewportH: Math.max(1, view.height)
+                property vector3d baseMetal: Qt.vector3d(Math.pow(0x2c/255.0, 2.2), Math.pow(0x2f/255.0, 2.2), Math.pow(0x36/255.0, 2.2))
+                property vector3d clawMetal: Qt.vector3d(Math.pow(0x5a/255.0, 2.2), Math.pow(0x5e/255.0, 2.2), Math.pow(0x66/255.0, 2.2))
+                property vector3d keyDir: root.lightKeyDir
+                property vector3d fillDir: root.lightFillDir
+                property TextureInput unitTex: TextureInput {
+                    texture: Texture {
+                        textureData: unitTexData
+                        minFilter: Texture.Nearest
+                        magFilter: Texture.Nearest
+                        tilingModeHorizontal: Texture.ClampToEdge
+                        tilingModeVertical: Texture.ClampToEdge
+                    }
+                }
+                property TextureInput strandTex: TextureInput {
+                    texture: Texture {
+                        textureData: strandTexData
                         minFilter: Texture.Nearest
                         magFilter: Texture.Nearest
                         tilingModeHorizontal: Texture.ClampToEdge

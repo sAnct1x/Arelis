@@ -19,7 +19,7 @@ from typing import Any
 from arelis.ui import overseer_curves as _overseer_curves  # noqa: F401
 
 CASTES = ("warden", "stalker", "harvester", "sanitizer", "tripwire")
-PARTS = ("hull", "emissive", "lens")
+PARTS = ("head",)
 CASTE_COLOR = {
     "warden": "#a78bfa",
     "stalker": "#e879f9",
@@ -39,7 +39,7 @@ LENS_COLOR = {
 EYE_FETCHING = "#2fc4ff"
 EYE_THREAT = "#ff2a3c"
 # Unit size at the overview (BAND-SPEC.md "Unit scale at overview").
-# Pass C meshes are authored in metres (body 3.62 m), so UNIT_MESH_SCALE is 1.
+# Pass E heads are authored in metres (pod length 2.0 m), so UNIT_MESH_SCALE is 1.
 # Chat-off 4.5 percent of width needs a Harvester of about 1.70 (1.31 x the
 # BAND-SPEC 1.3). Sanitizers are capped at 1.2 so they do not fill the 5.3 m
 # lane at 128 units. Fetching stays 1.31 x 1.9 so a live fetch still reads
@@ -68,7 +68,7 @@ MOTE_FRACTION = 0.40
 # plus beads), sources 2, tentacles 3, lanes, perimeter, conduits,
 # particles, glyphs, 1 star draw (three parallax layers instanced)
 SCENE_FIXED_DRAW = 16
-MAX_UNIT_DRAW = 45  # 5 castes x 3 LOD x 3 parts
+MAX_UNIT_DRAW = 6  # 3 LOD x (1 head + 1 tentacle); tentacles stay in the fixed count
 MAX_TRIS = 300_000
 
 
@@ -86,7 +86,11 @@ def load_mesh_report(path: Path | None = None) -> dict[str, Any]:
         for name, count in raw.items():
             # lod0_hull -> hull
             part = name.split("_", 1)[-1]
-            if name.endswith("_hull"):
+            if name.endswith("_head"):
+                part = "head"
+            elif name.endswith("_tentacle"):
+                part = "tentacle"
+            elif name.endswith("_hull"):
                 part = "hull"
             elif name.endswith("_emissive"):
                 part = "emissive"
@@ -94,7 +98,8 @@ def load_mesh_report(path: Path | None = None) -> dict[str, Any]:
                 part = "lens"
             parts[part] = int(count)
         by_lod[int(row["lod"])] = {
-            "tris": int(row["tris"]), "parts": parts, "target": int(row["target"])
+            "tris": int(row["tris"]), "parts": parts, "target": int(row["target"]),
+            "strands": int(row.get("strands") or 0),
         }
     return by_lod
 
@@ -326,6 +331,28 @@ def place_band_units(
             ring = {"r": r, "z": 0.0, "omega": omega}
             put(idx, pos, vel, _orbit(0.0, 0.0, TRIPWIRE_Y, ring, theta))
     return out, layout
+
+
+def apply_tentacle_layout(units: list[dict[str, Any]]) -> None:
+    """lenMul and kappa from the unit's lane gap and radius (SPEC 4.2 / 5.2)."""
+    from collections import defaultdict
+
+    from arelis.ui.overseer_curves import lane_len_mul
+
+    lanes: dict[tuple[float, float], list[int]] = defaultdict(list)
+    for i, u in enumerate(units):
+        orb = u.get("orbit")
+        if isinstance(orb, (list, tuple)) and len(orb) >= 4:
+            lanes[(round(float(orb[3]), 4), round(float(orb[2]), 4))].append(i)
+        else:
+            u.setdefault("lenMul", 1.0)
+            u.setdefault("kappa", 0.0)
+    for (radius, _height), idxs in lanes.items():
+        gap = (2.0 * math.pi * max(radius, 0.1)) / max(len(idxs), 1)
+        for i in idxs:
+            scale = float(units[i].get("scale") or 1.0)
+            units[i]["lenMul"] = round(lane_len_mul(gap, scale), 4)
+            units[i]["kappa"] = round((1.0 / max(radius, 0.1)) * scale, 5)
 
 
 # Front tentacle reach: one pair per open harvest fetch, capped at the
@@ -1416,7 +1443,13 @@ def unit_camera_distance(unit: dict[str, Any], eye: tuple[float, float, float]) 
 
 
 def part_tris(lod: int, report: dict[int, dict[str, Any]]) -> int:
-    parts = (report.get(int(lod)) or {}).get("parts") or {}
+    row = report.get(int(lod)) or {}
+    parts = row.get("parts") or {}
+    head = int(parts.get("head") or 0)
+    tent = int(parts.get("tentacle") or 0)
+    strands = int(row.get("strands") or 0)
+    if head or tent:
+        return head + strands * tent
     return sum(int(parts.get(part) or 0) for part in PARTS)
 
 
@@ -1632,6 +1665,11 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
                 "eyeGain": 1.0,
                 "threatMix": 1.0 if unit_engaged_defense(u) else 0.0,
                 "target": target,
+                "state": state,
+                "lenMul": float(u.get("lenMul") or 1.0),
+                "kappa": float(u.get("kappa") or 0.0),
+                "eyeMul": 0.1 if limp else (0.0 if "DOCKED" in state.upper() else 1.0),
+                "open_fetches": int(u.get("open_fetches") or 0),
             }
         )
         if u.get("orbit"):
@@ -1679,6 +1717,7 @@ def budget_from_buckets(
     tris = 0
     unit_draw = 0
     active = []
+    lod_used = {0: False, 1: False, 2: False}
     for caste in CASTES:
         for lod in (0, 1, 2):
             rows = buckets.get(bucket_key(caste, lod)) or []
@@ -1686,15 +1725,14 @@ def budget_from_buckets(
             lod_counts[lod] += n
             if n == 0:
                 continue
-            parts = (report.get(lod) or {}).get("parts") or {}
-            for part in PARTS:
-                part_tris = int(parts.get(part) or 0)
-                tris += part_tris * n
-                unit_draw += 1
-                active.append({
-                    "caste": caste, "lod": lod, "part": part,
-                    "count": n, "tris": part_tris * n,
-                })
+            per = part_tris(lod, report)
+            tris += per * n
+            lod_used[lod] = True
+            active.append({
+                "caste": caste, "lod": lod, "part": "head",
+                "count": n, "tris": per * n,
+            })
+    unit_draw = sum(1 for used in lod_used.values() if used)
     return {
         "unitTris": tris,
         "unitDrawCalls": unit_draw,
@@ -2323,6 +2361,7 @@ def build_frame(
         tgt = harvest_target_of(u, layout["sourceRadius"])
         if tgt:
             u["harvest_target"] = tgt
+    apply_tentacle_layout(units)
     assigned = assign_lods(units, camera_distance, viewport_h, prev_lods, target=target)
     assigned = apply_lod_policy(assigned, selected_id=selected_id)
     assigned = enforce_budget(assigned, report)

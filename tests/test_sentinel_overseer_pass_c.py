@@ -40,12 +40,13 @@ def test_orb_energy_follows_tok_rate_and_never_fakes_activity() -> None:
 
 def test_lod2_has_three_eyes_and_lod1_links_only_on_fetchers() -> None:
     report = o.load_mesh_report()
-    assert report[2]["parts"]["lens"] == 60  # 3 eyes
-    assert report[1]["parts"]["lens"] == 560  # 7 eyes
+    assert report[2]["parts"]["head"] == 672
+    assert report[2]["parts"]["tentacle"] == 66
+    assert report[1]["parts"]["head"] == 3768
     # New balsam meshes are one draw each.
     for name in (
-        "unit_hull_lod2", "unit_seams_lod2", "unit_eyes_lod2",
-        "unit_hull_lod1", "tentacle_tube_lod2", "tentacle_links_lod1",
+        "sentinel_head_lod2", "sentinel_head_lod1", "sentinel_tentacle_lod2",
+        "sentinel_tentacle_lod1",
         "source_glass", "source_emissive", "orb_core", "orb_shell",
         "orb_filaments_d", "orb_ring_memory_d", "orb_ring_tools_d", "orb_ring_results_d",
     ):
@@ -171,13 +172,13 @@ def test_pass_c_view_loads_orb_sources_and_tentacles(qt_app) -> None:
     assert root.findChild(QObject, "orbFilaments") is not None
     assert root.findChild(QObject, "orbShell") is not None
     assert root.findChild(QObject, "sourceGlass") is not None
-    assert root.findChild(QObject, "tentacleTubesLod2") is not None
+    assert root.findChild(QObject, "tentacleLod2") is not None
     assert int(root.property("memoryCount") or 0) == 3
     assert abs(float(root.property("orbEnergy")) - 0.3) < 1e-6
     counts = root.property("tentacleCounts")
     counts = counts.toVariant() if hasattr(counts, "toVariant") else counts
-    assert (counts or {}).get("tube2", 0) >= 4  # the idle warden
-    assert (counts or {}).get("links1", 0) >= 8  # the fetcher
+    assert (counts or {}).get("2", 0) >= 10  # idle warden, 8 trail + 2 hook
+    assert (counts or {}).get("1", 0) >= 13  # the fetcher, 11 trail + 2 hook
     view.close()
     view.deleteLater()
     qt_app.processEvents()
@@ -375,7 +376,7 @@ def test_core_focus_preset_frames_the_orb(qt_app) -> None:
     assert abs(float(root.property("cameraDistance")) - expected) < 1e-3
     assert expected >= 15.0
     # Unit bodies are hidden; the orb stays up.
-    hull = root.findChild(QObject, "instanced-warden:2:hull")
+    hull = root.findChild(QObject, "instanced-warden:2:head")
     if hull is not None:
         assert hull.property("visible") is False
     assert root.findChild(QObject, "orbCore") is not None

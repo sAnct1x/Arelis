@@ -45,10 +45,12 @@ dim. Esc, or wheeling out past 24 m, returns you to the normal overview
 ease. The 24 m unit Focus and the default overview scale are unchanged.
 Wheeling inside the core view stays between 10 m and 24 m.
 
-Each unit is a plated body with three glowing eyes at the wide view, and
-short solid tentacles instead of the old hairline threads. A unit that is
-fetching, focused, or close enough steps up to a more detailed body with
-linked tentacles; the closest close-up uses the full armour model.
+Each unit is a hard-surface plated sentinel pod with a cluster of eyes
+and a bundle of long, ring-segmented tentacles that trail behind it.
+Eyes stay in the caste colour (a fetching Harvester turns brighter cyan;
+red is only for a real threat). At the wide view the tentacles render as
+camera-facing ribbons; a unit that is fetching, focused, or close enough
+steps up to shaded, linked tentacles that reach, grab and carry.
 
 The edge sources are glass nodes with a thin halo. The label under
 each one is the source name and how many requests are open there, or

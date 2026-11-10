@@ -1,53 +1,50 @@
 [
   {
     "lod": 0,
-    "path": "meshes/unit_hull_lod0_mesh.mesh",
-    "note": "Pass C v2 parked LOD0: hull + seams + eyes. Tentacles are separate draws.",
+    "path": "meshes/sentinel_head_lod0_mesh.mesh",
+    "note": "Pass E: plated pod, 21 eyes, seams in the head mesh. 15 trail + 2 hook + 2 pincer tentacles are a separate instanced draw.",
     "raw_by_part": {
-      "hull": 39284,
-      "emissive": 9032,
-      "lens": 960
+      "head": 9268,
+      "tentacle": 1792
     },
     "tris_by_part": {
-      "lod0_hull": 39284,
-      "lod0_emissive": 9032,
-      "lod0_lens": 960
+      "lod0_head": 9268,
+      "lod0_tentacle": 1792
     },
-    "tris": 49276,
-    "target": 49276
+    "strands": 19,
+    "tris": 43316,
+    "target": 43316
   },
   {
     "lod": 1,
-    "path": "meshes/unit_hull_lod1_mesh.mesh",
-    "note": "Pass C v8 LOD1 rigid parts (same 15430/2048/560 tris as v7). Links and thread are separate draws.",
+    "path": "meshes/sentinel_head_lod1_mesh.mesh",
+    "note": "Pass E LOD1: 13 eyes, 11 trail + 2 hook tentacles.",
     "raw_by_part": {
-      "hull": 15430,
-      "emissive": 2048,
-      "lens": 560
+      "head": 3768,
+      "tentacle": 648
     },
     "tris_by_part": {
-      "lod1_hull": 15430,
-      "lod1_emissive": 2048,
-      "lod1_lens": 560
+      "lod1_head": 3768,
+      "lod1_tentacle": 648
     },
-    "tris": 18038,
-    "target": 18038
+    "strands": 13,
+    "tris": 12192,
+    "target": 12192
   },
   {
     "lod": 2,
-    "path": "meshes/unit_hull_lod2_mesh.mesh",
-    "note": "Pass C LOD2: 3 eyes, plates, seams. Four short tubes are separate draws.",
+    "path": "meshes/sentinel_head_lod2_mesh.mesh",
+    "note": "Pass E LOD2: 9 eyes, 8 trail + 2 hook ribbons.",
     "raw_by_part": {
-      "hull": 484,
-      "emissive": 216,
-      "lens": 60
+      "head": 672,
+      "tentacle": 66
     },
     "tris_by_part": {
-      "lod2_hull": 484,
-      "lod2_emissive": 216,
-      "lod2_lens": 60
+      "lod2_head": 672,
+      "lod2_tentacle": 66
     },
-    "tris": 760,
-    "target": 760
+    "strands": 10,
+    "tris": 1332,
+    "target": 1332
   }
 ]

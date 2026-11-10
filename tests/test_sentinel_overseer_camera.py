@@ -422,7 +422,7 @@ def test_overseer_frame_dump_reports_selected_instance(qt_app) -> None:
     assert parsed.get("selectedId") == "SNT-HRV-001"
     assert parsed.get("selectedCaste") == "harvester"
     assert "harvester" in parsed.get("modelKey", "")
-    assert "hull" in parsed.get("modelKey", "")
+    assert "head" in parsed.get("modelKey", "")
     pos = overseer_runtime.unit_view_pos(_units()[1])
     assert abs(float(parsed["instanceX"]) - pos[0]) < 1e-4
     assert abs(float(parsed["instanceY"]) - pos[1]) < 1e-4

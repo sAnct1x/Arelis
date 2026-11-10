@@ -244,3 +244,247 @@ class OverseerCurveTex(QQuick3DTextureData):
         buf = pack_rows(rows, float(time))
         self.setTextureData(QByteArray(buf.tobytes()))
         self._count = len(rows)
+
+# --- Pass E: per-unit state texture and static strand table -----------------
+# The Pass C curve texture packed 8 world-space Catmull-Rom points per
+# tentacle, but refresh() received a QML array of objects that did not
+# convert to Python dicts, so every row stayed zero and the shader wrote
+# NaN positions. Pass E uploads a flat float array instead (one 32-float
+# row per unit) and evaluates the centreline in the vertex shader.
+
+UNIT_TEX_WIDTH = 8
+UNIT_TEX_ROWS = 128
+UNIT_FLOATS = UNIT_TEX_WIDTH * 4  # 32
+STRAND_TEX_WIDTH = 6
+STRAND_TEX_ROWS = 64
+STRANDS_BY_LOD = (19, 13, 10)
+TRAIL_BY_LOD = (15, 11, 8)
+ARMS_BY_LOD = (4, 2, 2)
+HEAD_L = 2.0
+TRAIL_LEN = 2.2 * HEAD_L
+COLLAR_X = -0.93
+COLLAR_RY, COLLAR_RZ = 0.30, 0.36
+ARM_ROOTS = (
+    (0.62, -0.40, 0.38),
+    (0.62, -0.40, -0.38),
+    (0.50, -0.45, 0.20),
+    (0.50, -0.45, -0.20),
+)
+R0, R1 = 0.085, 0.038
+ARM_LEN = (1.15, 0.80)
+ARM_R = ((0.07, 0.04), (0.045, 0.028))
+CLAW_LEN = (0.22, 0.42, 0.26)
+CLAW_TIP_R = (1.0, 2.0, 1.4)
+GOLD = 2.399963
+BEAD_R = 0.16
+DEFAULT_HOLD = (1.05, -0.72, 0.0)
+HEAD_TRIS = (9268, 3768, 672)
+TENTACLE_TRIS = (1792, 648, 66)
+
+
+def _hsh(i: int, k: int = 0) -> float:
+    x = math.sin(i * 12.9898 + k * 78.233) * 43758.5453
+    return x - math.floor(x)
+
+
+def _bez_len(p0, p1, p2, p3, samples: int = 64) -> float:
+    total = 0.0
+    prev = p0
+    for k in range(1, samples):
+        u = k / (samples - 1)
+        v = 1.0 - u
+        p = (
+            v * v * v * p0[0] + 3 * v * v * u * p1[0] + 3 * v * u * u * p2[0] + u * u * u * p3[0],
+            v * v * v * p0[1] + 3 * v * v * u * p1[1] + 3 * v * u * u * p2[1] + u * u * u * p3[1],
+            v * v * v * p0[2] + 3 * v * v * u * p1[2] + 3 * v * u * u * p2[2] + u * u * u * p3[2],
+        )
+        total += math.dist(prev, p)
+        prev = p
+    return total
+
+
+def _coil_params(
+    root: tuple[float, float, float], side: float, length: float
+) -> tuple[float, float, float]:
+    rc = BEAD_R + 0.11
+    h = DEFAULT_HOLD
+    c3 = (h[0] - rc, h[1], h[2] + 0.14 * side)
+    c1 = (root[0] - 0.55, root[1] - 0.75, root[2] + 0.62 * side)
+    c2 = (c3[0] - 0.9, c3[1] - 0.55, c3[2] + 0.38 * side)
+    lead_len = _bez_len(root, c1, c2, c3)
+    turns = min(1.6, max(0.6, (length - lead_len) / (2.0 * math.pi * rc)))
+    uc = min(0.8, max(0.35, lead_len / max(length, 1e-6)))
+    return uc, turns, lead_len
+
+
+def bezier_fit_k(p0, d1, d2, p3, length: float) -> float:
+    """Handle length k so the cubic is about `length` long (CPU, once per hold)."""
+    lo, hi = 0.0, 6.0
+    for _ in range(24):
+        k = 0.5 * (lo + hi)
+        p1 = (p0[0] + d1[0] * k, p0[1] + d1[1] * k, p0[2] + d1[2] * k)
+        p2 = (p3[0] + d2[0] * k, p3[1] + d2[1] * k, p3[2] + d2[2] * k)
+        if _bez_len(p0, p1, p2, p3) < length:
+            lo = k
+        else:
+            hi = k
+    return 0.5 * (lo + hi)
+
+
+def lane_len_mul(gap: float, scale: float) -> float:
+    """Lt = clamp(gap - 0.35 Lh, 1.6 Lh, 2.4 Lh); lenMul = Lt / (2.2 Lh)."""
+    lh = HEAD_L * max(float(scale), 1e-4)
+    lt = min(max(float(gap) - 0.35 * lh, 1.6 * lh), 2.4 * lh)
+    return lt / (2.2 * lh)
+
+
+def unit_tris(lod: int) -> int:
+    lod = 0 if lod < 0 else 2 if lod > 2 else lod
+    return HEAD_TRIS[lod] + STRANDS_BY_LOD[lod] * TENTACLE_TRIS[lod]
+
+
+def strand_table(lod: int) -> list[dict[str, Any]]:
+    """Static per-strand data for one unit at one LOD (SPEC 5.2 / sentinel_anim.strands)."""
+    lod = 0 if lod < 0 else 2 if lod > 2 else lod
+    out: list[dict[str, Any]] = []
+    n = TRAIL_BY_LOD[lod]
+    for k in range(n):
+        rr = math.sqrt((k + 0.5) / n) * 0.84
+        th = k * GOLD + 0.4
+        o = (0.0, math.sin(th), math.cos(th))
+        b = (0.0, math.cos(th), -math.sin(th))
+        root = (
+            COLLAR_X - 0.02,
+            0.02 + COLLAR_RY * rr * math.sin(th),
+            COLLAR_RZ * rr * math.cos(th),
+        )
+        length = TRAIL_LEN * (0.86 + 0.28 * _hsh(k, 1))
+        out.append({
+            "kind": 0.0, "slot": k, "root": root, "o": o, "b": b, "rr": rr,
+            "L": length, "r0": R0, "r1": R1, "phi": k * GOLD,
+            "clawLen": CLAW_LEN[0], "clawR": CLAW_TIP_R[0],
+            "side": 0.0, "big": 0.0, "role": 0.0, "roleSign": 0.0,
+            "uc": 0.55, "turns": 1.0, "leadLen": 0.0,
+        })
+    trails = out[:]
+    for sgn in (1.0, -1.0):
+        cand = [d for d in trails if d["root"][2] * sgn > 0.02]
+        if not cand:
+            continue
+        low = min(cand, key=lambda d: d["root"][1] - 0.3 * abs(d["root"][2]))
+        low["role"] = 1.0
+        low["roleSign"] = sgn
+        uc, turns, lead = _coil_params(low["root"], sgn, low["L"])
+        low["uc"], low["turns"], low["leadLen"] = uc, turns, lead
+    for d in sorted(trails, key=lambda d: -d["root"][1])[:4]:
+        d["role"] = 2.0
+        d["roleSign"] = 1.0 if d["root"][2] >= 0 else -1.0
+    for a in range(ARMS_BY_LOD[lod]):
+        big = a < 2
+        side = 1.0 if a % 2 == 0 else -1.0
+        root = ARM_ROOTS[a]
+        length = ARM_LEN[0 if big else 1]
+        r0, r1 = ARM_R[0 if big else 1]
+        out.append({
+            "kind": 1.0, "slot": n + a, "root": root, "o": (0.0, 0.0, side),
+            "b": (0.0, 1.0, 0.0), "rr": 0.0, "L": length, "r0": r0, "r1": r1,
+            "phi": a * 1.3, "clawLen": CLAW_LEN[1 if big else 2],
+            "clawR": CLAW_TIP_R[1 if big else 2], "side": side,
+            "big": 1.0 if big else 0.0, "role": 0.0, "roleSign": 0.0,
+            "uc": 0.55, "turns": 1.0, "leadLen": 0.0,
+        })
+    return out
+
+
+def pack_strand_tex() -> array.array:
+    """6 x 64 RGBA32F; row = lod * 20 + slot."""
+    buf = array.array("f", [0.0] * (STRAND_TEX_WIDTH * STRAND_TEX_ROWS * 4))
+    for lod in (0, 1, 2):
+        for sd in strand_table(lod):
+            row = lod * 20 + int(sd["slot"])
+            if row < 0 or row >= STRAND_TEX_ROWS:
+                continue
+            off = row * STRAND_TEX_WIDTH * 4
+            root, o, b = sd["root"], sd["o"], sd["b"]
+            vals = [
+                root[0], root[1], root[2], sd["L"],
+                o[0], o[1], o[2], sd["rr"],
+                b[0], b[1], b[2], sd["phi"],
+                sd["r0"], sd["r1"], sd["clawLen"], sd["clawR"],
+                sd["kind"], sd["side"], sd["big"], sd["role"],
+                sd["roleSign"], sd["uc"], sd["turns"], sd["leadLen"],
+            ]
+            for i, v in enumerate(vals):
+                buf[off + i] = float(v)
+    return buf
+
+
+def pack_unit_flat(values) -> array.array:
+    """Pack a flat list of up to 128 * 32 floats into the unit texture."""
+    buf = array.array("f", [0.0] * (UNIT_TEX_WIDTH * UNIT_TEX_ROWS * 4))
+    try:
+        n = len(values)
+    except TypeError:
+        return buf
+    n = min(n, UNIT_TEX_ROWS * UNIT_FLOATS)
+    for i in range(n):
+        try:
+            item = values[i]
+            if hasattr(item, "toVariant"):
+                item = item.toVariant()
+            buf[i] = float(item)
+        except (TypeError, ValueError):
+            buf[i] = 0.0
+    return buf
+
+
+@QmlElement
+class OverseerUnitTex(QQuick3DTextureData):
+    """8 x 128 RGBA32F unit state table, written from a flat float array."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSize(QSize(UNIT_TEX_WIDTH, UNIT_TEX_ROWS))
+        self.setFormat(QQuick3DTextureData.Format.RGBA32F)
+        self.setHasTransparency(False)
+        self.setTextureData(QByteArray(b"\x00" * (UNIT_TEX_WIDTH * UNIT_TEX_ROWS * 16)))
+        self._count = 0
+
+    def _count_get(self) -> int:
+        return self._count
+
+    def _count_set(self, n: int) -> None:
+        self._count = int(n)
+
+    unitCount = Property(int, _count_get, _count_set)  # noqa: N815
+
+    @Slot(list)
+    def refreshFlat(self, values) -> None:
+        buf = pack_unit_flat(values)
+        self.setTextureData(QByteArray(buf.tobytes()))
+        try:
+            self._count = min(UNIT_TEX_ROWS, len(values) // UNIT_FLOATS)
+        except TypeError:
+            self._count = 0
+
+    @Slot(int, result="QVariant")
+    def sampleRow(self, row: int):
+        raw = bytes(self.textureData())
+        r = int(row)
+        if r < 0 or r >= UNIT_TEX_ROWS or len(raw) < (r + 1) * UNIT_FLOATS * 4:
+            return []
+        off = r * UNIT_FLOATS
+        return list(array.array("f", raw[off * 4 : (off + UNIT_FLOATS) * 4]))
+
+
+@QmlElement
+class OverseerStrandTex(QQuick3DTextureData):
+    """6 x 64 RGBA32F static strand table, built once from strand_table()."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSize(QSize(STRAND_TEX_WIDTH, STRAND_TEX_ROWS))
+        self.setFormat(QQuick3DTextureData.Format.RGBA32F)
+        self.setHasTransparency(False)
+        buf = pack_strand_tex()
+        self.setTextureData(QByteArray(buf.tobytes()))

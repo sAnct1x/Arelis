@@ -257,10 +257,10 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assets = Path(__file__).resolve().parents[1] / "arelis/assets/sentinel/overseer"
     report = json.loads((assets / "export_report.json").read_text())
     by_lod = {row["lod"]: row for row in report}
-    assert by_lod[0]["tris"] == 49276
-    assert by_lod[1]["tris"] == 18038
-    assert by_lod[2]["tris"] == 760
-    assert by_lod[0]["raw_by_part"]["hull"] == 39284
+    assert by_lod[0]["tris"] == 43316
+    assert by_lod[1]["tris"] == 12192
+    assert by_lod[2]["tris"] == 1332
+    assert by_lod[0]["raw_by_part"]["head"] == 9268
     assert (assets / "meshes/lod0_hull_mesh.mesh").is_file()
     assert (assets / "Sentinel_lod2.qml").is_file()
     scene = win._ensure_scene()
@@ -273,7 +273,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "import QtQuick3D" in qml
     assert "InstanceList" in qml
     assert "CustomMaterial" in qml
-    assert "shaders/rim_hull.vert" in qml
+    assert "shaders/sentinel_head.vert" in qml
     assert "View3D" in qml
     assert "ProceduralMesh" in qml
     assert "casteBandGuides" in qml and "tripwirePerimeter" in qml
@@ -353,48 +353,47 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     frame = overseer_runtime.build_frame(wide, camera_distance=120.0, viewport_h=1306, report=report_map)
     assert frame["budget"]["lodCounts"][2] == 100
     assert frame["budget"]["lodCounts"][0] == 0
-    lod2 = report_map[2]["parts"]
-    expected_tris = 100 * (lod2["hull"] + lod2["emissive"] + lod2["lens"])
+    expected_tris = 100 * overseer_runtime.part_tris(2, report_map)
     assert frame["budget"]["unitTris"] == expected_tris
-    assert frame["budget"]["unitDrawCalls"] == 3
+    assert frame["budget"]["unitDrawCalls"] == 1
     assert frame["budget"]["withinTriBudget"]
     assert frame["budget"]["withinDrawBudget"]
     inst.applyFrame(frame)
     qt_app.processEvents()
-    assert inst.property("unitDrawCalls") == 3
+    assert inst.property("unitDrawCalls") == 1
     assert inst.property("budgetTris") == expected_tris
     assert _qml_list(inst.property("lodCounts"))[2] == 100
     vis = _instance_visibility(inst)
-    for part in ("hull", "emissive", "lens"):
+    for part in ("head",):
         # Per-caste models stay in the tree but drawing is one
-        # instanced-merged draw per lod/part.
+        # instanced-merged draw per lod.
         assert vis[f"instanced-warden:2:{part}"] is False
-        assert vis[f"instanced-merged-2:{part}"] is True
+        assert vis["instanced-merged-2"] is True
         assert vis[f"instanced-warden:0:{part}"] is False
         assert vis[f"instanced-warden:1:{part}"] is False
-        assert vis.get(f"instanced-merged-0:{part}", False) is False
-        assert vis.get(f"instanced-merged-1:{part}", False) is False
+        assert vis.get("instanced-merged-0", False) is False
+        assert vis.get("instanced-merged-1", False) is False
         for caste in ("stalker", "harvester", "sanitizer", "tripwire"):
             for lod in range(3):
                 assert vis[f"instanced-{caste}:{lod}:{part}"] is False
 
-    # Five castes at wide: Python still counts 15 buckets; the view
-    # merges them into 3 draws (hull, seams, eyes at lod 2).
+    # Five castes at wide: Python still counts 5 buckets; the view
+    # merges them into 1 draw (one head mesh at lod 2).
     mixed = []
     for caste in overseer_runtime.CASTES:
         for i in range(20):
             mixed.append({"unit_id": f"{caste}-{i}", "caste": caste, "position": [i, 0.4, 0], "scale": 1.0})
     mixed_frame = overseer_runtime.build_frame(mixed, 120.0, 1306, report=report_map)
-    assert mixed_frame["budget"]["unitDrawCalls"] == 15
+    assert mixed_frame["budget"]["unitDrawCalls"] == 1
     assert mixed_frame["budget"]["lodCounts"][2] == 100
     inst.applyFrame(mixed_frame)
     qt_app.processEvents()
-    assert inst.property("unitDrawCalls") == 3
+    assert inst.property("unitDrawCalls") == 1
     vis = _instance_visibility(inst)
-    for part in ("hull", "emissive", "lens"):
-        assert vis[f"instanced-merged-2:{part}"] is True
-        assert vis.get(f"instanced-merged-0:{part}", False) is False
-        assert vis.get(f"instanced-merged-1:{part}", False) is False
+    for part in ("head",):
+        assert vis["instanced-merged-2"] is True
+        assert vis.get("instanced-merged-0", False) is False
+        assert vis.get("instanced-merged-1", False) is False
         for caste in overseer_runtime.CASTES:
             assert vis[f"instanced-{caste}:2:{part}"] is False
             assert vis[f"instanced-{caste}:0:{part}"] is False
@@ -646,7 +645,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert close_cluster["budget"]["withinDrawBudget"]
     assert close_cluster["budget"]["unitDrawCalls"] <= overseer_runtime.MAX_UNIT_DRAW
     # Without demotion this clustered close scene is ~1.2M tris.
-    raw_lod0 = 100 * sum(report_map[0]["parts"][part] for part in overseer_runtime.PARTS)
+    raw_lod0 = 100 * overseer_runtime.part_tris(0, report_map)
     assert raw_lod0 > overseer_runtime.MAX_TRIS
     assert close_cluster["budget"]["unitTris"] < raw_lod0
 
