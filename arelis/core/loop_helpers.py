@@ -656,6 +656,28 @@ def _exactness_finish_refuse(
             return unsupported_exactness_reply(
                 missing, document_failed=True, document_detail=document_fail.span
             )
+    if "analyze" in missing:
+        analyze_fail = next(
+            (
+                w
+                for w in ledger.items
+                if not w.ok and w.kind in {"analyze", "doc", "doc_fail", "file_read"}
+            ),
+            None,
+        )
+        if analyze_fail is not None:
+            return unsupported_exactness_reply(
+                missing, analyze_failed=True, analyze_detail=analyze_fail.span
+            )
+    if "vision" in missing:
+        vision_fail = next(
+            (w for w in ledger.items if w.kind == "vision" and not w.ok),
+            None,
+        )
+        if vision_fail is not None:
+            return unsupported_exactness_reply(
+                missing, vision_failed=True, vision_detail=vision_fail.span
+            )
     # A failed lookup stays inside the invented-forecast check.
     # The reply ships only when it is that failed result's own sentence.
     if "weather" in missing:
