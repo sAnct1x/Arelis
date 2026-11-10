@@ -61,6 +61,13 @@ Item {
     // count changed, so the vertex shader eases the reach with no CPU per frame.
     property var reachState: ({})
     property var reachNext: ({})
+    // Glyph trails: one instance per glyph, rebuilt only when the set of live
+    // trails changes. Births are sceneTime so the shader runs the flow.
+    property var glyphList: null
+    property var glyphTrailBirth: ({})
+    property string glyphTrailKey: ""
+    property int glyphCount: 0
+    property string glyphFontFamily: "Space Mono"
     property string swarmGroupBy: "caste"
     property string swarmSearch: ""
     property string logFilter: "all"
@@ -169,10 +176,13 @@ Item {
         var cEntries = fillConduitEntries(frame.conduits || [])
         counts["__conduits"] = cEntries.length
         live += cEntries.length
+        applyGlyphTrails(frame.glyphTrails || [])
+        counts["__glyphs"] = glyphCount
+        live += glyphCount
         liveCounts = counts
         budgetTris = tris
         unitDrawCalls = used
-        budgetDrawCalls = used + 10
+        budgetDrawCalls = used + 11
         lodCounts = lods
         recountEntries(live)
         instanceRecords = recs
@@ -520,6 +530,48 @@ Item {
             }
         }
         return e
+    }
+
+    function applyGlyphTrails(trails) {
+        var list = trails || []
+        var key = ""
+        var births = ({})
+        for (var i = 0; i < list.length; i++) {
+            var tr = list[i]
+            key += String(tr.id) + "|"
+            var had = glyphTrailBirth[tr.id]
+            births[tr.id] = (had !== undefined) ? had : sceneTime - finiteNum(tr.age_s, 0)
+        }
+        glyphTrailBirth = births
+        if (key === glyphTrailKey && glyphList !== null)
+            return
+        glyphTrailKey = key
+        if (glyphList === null)
+            glyphList = Qt.createQmlObject("import QtQuick3D; InstanceList {}", root)
+        releaseList("__glyphs", glyphList)
+        var entries = []
+        for (var ti = 0; ti < list.length; ti++) {
+            var t = list[ti]
+            var lanes = t.lanes || []
+            for (var li = 0; li < lanes.length && li < 2; li++) {
+                var text = String(lanes[li] || "")
+                for (var ci = 0; ci < text.length && ci < 60; ci++) {
+                    var code = text.charCodeAt(ci)
+                    if (code < 33 || code > 126)
+                        continue
+                    var e = acquireEntry()
+                    e.position = Qt.vector3d(finiteCoord(t.x), finiteNum(t.y), finiteCoord(t.z))
+                    e.eulerRotation = Qt.vector3d(0, 0, 0)
+                    e.scale = Qt.vector3d(1, 1, 1)
+                    e.color = t.color
+                    e.customData = Qt.vector4d(ci, births[t.id], code - 32, li + 2 * Math.min(text.length, 60))
+                    entries.push(e)
+                }
+            }
+        }
+        glyphList.instances = entries
+        liveByKey["__glyphs"] = entries
+        glyphCount = entries.length
     }
 
     function reachSlot(uid, reach) {
@@ -995,6 +1047,48 @@ Item {
                 lighting: PrincipledMaterial.NoLighting
                 baseColor: "#ffffff"
                 emissiveFactor: Qt.vector3d(0.95, 0.95, 1.0)
+            }
+        }
+
+        Model {
+            objectName: "glyphTrails"
+            source: "#Rectangle"
+            visible: root.glyphCount > 0
+            instancing: root.glyphList
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/glyph.vert"
+                fragmentShader: "shaders/glyph.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                cullMode: Material.NoCulling
+                depthDrawMode: Material.NeverDepthDraw
+                property real uTime: root.sceneTime
+                property TextureInput uAtlas: TextureInput {
+                    texture: Texture {
+                        // ASCII 32..127 in a 16 x 6 grid, white on clear; the shader tints it.
+                        sourceItem: Item {
+                            width: 1024
+                            height: 384
+                            Repeater {
+                                model: 96
+                                Text {
+                                    required property int index
+                                    x: (index % 16) * 64
+                                    y: Math.floor(index / 16) * 64
+                                    width: 64
+                                    height: 64
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    font.family: root.glyphFontFamily
+                                    font.pixelSize: 44
+                                    color: Qt.rgba(1, 1, 1, 1)
+                                    text: String.fromCharCode(32 + index)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import math
 import re
+import unicodedata
 from collections import deque
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +39,7 @@ FOV_DEG = 35.0
 UNIT_WORLD_H = 1.56
 PARTICLE_BUDGET = 520
 MOTE_FRACTION = 0.40
-SCENE_FIXED_DRAW = 10
+SCENE_FIXED_DRAW = 11  # floor, core, 4 rings, conduits, particles, 3 spare, glyph trails
 MAX_UNIT_DRAW = 45  # 5 castes x 3 LOD x 3 parts
 MAX_TRIS = 300_000
 
@@ -1331,6 +1333,94 @@ def build_harvest_source_conduits(active: set[str] | None = None) -> list[dict[s
 
 
 
+# Glyph trails: the real title and URL of a harvest result arc from its
+# source node back to the core. Brief: at most 4 live trails x 2 lanes x
+# 60 glyphs (a fifth ends the oldest early). The head reaches the core in
+# 2.5 s; the trail lives 5 s so its last letter also flies into the core.
+GLYPH_TRAIL_MAX = 4
+GLYPH_LANE_MAX = 60
+GLYPH_CAP = 1500
+GLYPH_TRAIL_LIFE_S = 5.0
+
+
+def _ascii_glyphs(text: object) -> str:
+    """Printable ASCII only (the atlas); accents fold, anything else drops."""
+    folded = unicodedata.normalize("NFKD", str(text or ""))
+    out = "".join(ch for ch in folded if " " <= ch <= "~")
+    return " ".join(out.split())
+
+
+def _receipt_epoch(at: object) -> float | None:
+    try:
+        stamp = datetime.fromisoformat(str(at))
+    except (TypeError, ValueError):
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=UTC)
+    return stamp.timestamp()
+
+
+def build_glyph_trails(
+    receipts: list[dict[str, Any]] | None,
+    snapshot_ts: float | None,
+) -> list[dict[str, Any]]:
+    """Trails for harvest results minted in the last GLYPH_TRAIL_LIFE_S seconds.
+
+    Snapshot only: each ok harvester receipt that names a title and a known
+    source gives one trail (title lane, URL lane). No title, no trail.
+    """
+    try:
+        now = float(snapshot_ts) if snapshot_ts is not None else None
+    except (TypeError, ValueError):
+        now = None
+    if not receipts or now is None:
+        return []
+    origins = {
+        row["id"]: row for row in getattr(build_harvest_source_conduits, "last_labels", []) or []
+    }
+    found: list[tuple[float, dict[str, Any]]] = []
+    for r in receipts:
+        if not isinstance(r, dict) or not r.get("ok"):
+            continue
+        if str(r.get("caste") or "").lower() != "harvester":
+            continue
+        meta = r.get("metadata") if isinstance(r.get("metadata"), dict) else {}
+        title = _ascii_glyphs(meta.get("title"))[:GLYPH_LANE_MAX]
+        if not title:
+            continue
+        sid = normalize_harvest_source(meta.get("action"), r.get("source"))
+        origin = origins.get(sid)
+        if origin is None:
+            continue
+        minted = _receipt_epoch(r.get("at"))
+        if minted is None:
+            continue
+        age = now - minted
+        if age < -0.5 or age > GLYPH_TRAIL_LIFE_S:
+            continue
+        url = _ascii_glyphs(re.sub(r"^https?://", "", str(r.get("source") or "")))[:GLYPH_LANE_MAX]
+        found.append((max(0.0, age), {
+            "id": str(r.get("receipt_id") or f"{sid}:{minted}"),
+            "source_id": sid,
+            "age_s": round(max(0.0, age), 3),
+            "lanes": [title, url] if url else [title],
+            "color": origin["color"],
+            "x": origin["x"],
+            "y": origin["y"],
+            "z": origin["z"],
+        }))
+    found.sort(key=lambda item: item[0])
+    trails: list[dict[str, Any]] = []
+    glyphs = 0
+    for _age, trail in found[:GLYPH_TRAIL_MAX]:
+        n = sum(len(lane) for lane in trail["lanes"])
+        if glyphs + n > GLYPH_CAP:
+            break
+        glyphs += n
+        trails.append(trail)
+    return trails
+
+
 def _clamp_conduit_coord(
     x: float, y: float, z: float, limit: float = 36.0
 ) -> tuple[float, float, float]:
@@ -1578,6 +1668,8 @@ def build_frame(
     *,
     nodes: list[dict[str, Any]] | None = None,
     fx_events: list[dict[str, Any]] | None = None,
+    receipts: list[dict[str, Any]] | None = None,
+    snapshot_ts: float | None = None,
 ) -> dict[str, Any]:
     report = report or load_mesh_report()
     assigned = assign_lods(units, camera_distance, viewport_h, prev_lods, target=target)
@@ -1592,6 +1684,7 @@ def build_frame(
         assigned, nodes=nodes, fx_events=fx_events, active_sources=source_active
     )
     source_labels = list(getattr(build_harvest_source_conduits, "last_labels", []) or [])
+    glyph_trails = build_glyph_trails(receipts, snapshot_ts)
     prev = {str(u.get("unit_id")): int(u["lod"]) for u in assigned if not u.get("culled")}
     for u in assigned:
         if u.get("culled"):
@@ -1604,6 +1697,7 @@ def build_frame(
         "conduits": conduits,
         "sourceLabels": source_labels,
         "activeSources": sorted(source_active),
+        "glyphTrails": glyph_trails,
     }
 
 

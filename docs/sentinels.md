@@ -49,7 +49,16 @@ that source is live in the hive snapshot (a harvest_target node or a
 harvester unit mid-extract). Idle sources stay dim. Each source has a
 readable name under it, the same size lit or idle, with "fetching" or
 "idle" below; a source hidden behind a HUD panel hides its name too.
-No extra poll timer: the existing snapshot path carries the signal. The glow
+No extra poll timer: the existing snapshot path carries the signal. When a harvest result
+comes back, its real title and web address fly from that source to the
+core as two lines of glowing text. The letters keep moving along the arc
+and dive into the core one after another, and the line is gone within
+about five seconds.
+The text comes only from the result's receipt in the hive snapshot; a
+result with no title shows no text. At most four results fly at once
+(a fifth ends the oldest), each line is cut at 60 characters, and text
+from every source is the same size. The GPU moves the letters, so the
+CPU only builds them once when a result arrives. The glow
 writes clip position from that waved mesh; the lens writes clip
 position from the mesh as modeled, so those unshaded parts stay on
 the units instead of stretching into a covering plate or stray streaks. The wheel,
