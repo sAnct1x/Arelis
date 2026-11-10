@@ -2,16 +2,15 @@
 // Design stub for Tycho. Reference maths: src/sentinel_anim.py (pose_trail, coil_pose, pose_arm, deform). Every
 // constant below is that file's value. Qt Quick 3D CustomMaterial, shadingMode Shaded (LOD0/1) or Unshaded (LOD2).
 //
-// Mesh: mesh/sentinel_tentacle_lod{0,1,2}. VERTEX.y = u along the strand (claw prongs: 1 + t), VERTEX.xz = unit-circle
-// cross-section (LOD2: VERTEX.x = side -1..1). COLOR_0: r = radius mult / 1.1, g = slit mask, b = (prong id + 1) / 8,
-// a = rim k. Model transform is identity; every instance writes world position itself.
+// fix-c05bb78 v2 mesh: VERTEX.y = u along the strand (claw prongs: 1 + t), VERTEX.xz = unit-circle cross-section
+// (LOD2: VERTEX.x = side -1..1). NO COLOR_0 (Qt multiplies it into the albedo): UV0 = (radius mult, slit mask),
+// UV1 = ((prong id + 1) / 8, rim k). Model transform is identity; every instance writes world position itself.
 //
-// INSTANCE_DATA  = (unitRow, slot, lod, 0)          slot 0..TRAIL-1 = trailing, TRAIL.. = arms (strandTex row)
-// INSTANCE_COLOR = (caste.rgb linear, dim)          dim: 1 normal, 0.35 limp/EMP
+// INSTANCE_DATA  = (unitRow, slot, lod, dim)        dim: 1 normal, 0.35 limp/EMP. INSTANCE_COLOR must be white.
 // unitTex   RGBA32F 8 x 128, one row per unit, written each frame by the view (UnitTexData, SPEC.md 5.2)
 //   T0 pos.xyz, scale        T1 quat xyzw           T2 speed, kappa, phase, lenMul
 //   T3 wIdle wReach wHold wCoil      T4 wStrike wLimp clawOpen clawOpenArm
-//   T5 targetL.xyz, wPart    T6 holdL.xyz, time0    T7 kHold (CPU bezier_fit), reserved x3
+//   T5 targetL.xyz, wPart    T6 holdL.xyz, time0    T7 kHold (CPU bezier_fit), caste.rgb (linear)
 // strandTex RGBA32F 6 x 64, static (uploaded once): row = lod * 20 + slot
 //   S0 root.xyz, L           S1 o.xyz, rr           S2 b.xyz, phi
 //   S3 r0, r1, clawLen, clawR       S4 kind (0 trail 1 arm), side, big, role (0, 1 coil, 2 strike)
@@ -28,6 +27,10 @@ const float CR_F = 0.50, CR_LAM = 0.75, CR_A = 0.055, CR_SPREAD = 0.14, CR_SAG =
 // IDLE = dict(f=0.14, A=0.025, cone=0.80, s0=0.40, curl=1.30, breath=0.20, fb=0.11)
 const float ID_F = 0.14, ID_A = 0.025, ID_CONE = 0.80, ID_S0 = 0.40, ID_CURL = 1.30, ID_BR = 0.20, ID_FB = 0.11;
 const float BEAD_R = 0.16;
+// cruise v2 (fix-c05bb78/src/cruise_v2.py): per-strand seeds, curl along the length, tip whip
+const float V2_A = 0.070, V2_APOW = 1.3, V2_SIDE = 0.35, V2_WHIP = 0.45, V2_SPREAD = 0.20, V2_SAG = 0.05;
+const float V2_CURL = 0.10, V2_CURLJIT = 0.06, V2_CURLFROM = 0.22, V2_CURLBR = 0.35, V2_CURLF = 0.09;
+float hash1(float x) { return fract(sin(x) * 43758.5453); }
 
 vec4 U(int unitRow, int t) { return texelFetch(unitTex, ivec2(t, unitRow), 0); }
 vec4 S(int row, int t) { return texelFetch(strandTex, ivec2(t, row), 0); }
@@ -66,16 +69,24 @@ vec3 coilPose(Strand sd, float u, vec3 H, bool swing) {
     return vec3(H.x + rc * cos(a), H.y + rc * sin(a), H.z + side * (0.14 + 0.22 * v));
 }
 
-vec3 trailP(Strand sd, int r, float u, float t) {
+vec3 trailP(Strand sd, int r, float u, float t, float slot, float lod) {
     vec4 T2 = U(r, 2), T3 = U(r, 3), T4 = U(r, 4), T5 = U(r, 5), T6 = U(r, 6);
     float L = sd.L * T2.w, s = u * L, phi = sd.phi + T2.z, k = T2.y;
     // cruise: arc of the orbit curvature, comet spread, sag, travelling wave (phase per segment = -2 pi s / (lam L))
     vec3 path = arcP(sd.root, vec3(-1, 0, 0), vec3(0, 0, k >= 0.0 ? 1.0 : -1.0), s, 0.0, abs(k));
-    float f = CR_F * clamp(T2.x / 1.2, 0.6, 2.2);
-    float psi = 2.0 * PI * f * t - 2.0 * PI * s / (CR_LAM * L) + phi;
-    float A = CR_A * L * pow(u, 1.5);
-    vec3 P = path + sd.o * (L * (CR_SPREAD * pow(u, 0.9) + 0.05 * sd.rr)) - vec3(0, 1, 0) * (CR_SAG * L * u * u)
-           + A * sin(psi) * sd.b + 0.4 * A * sin(0.73 * psi + 1.7) * sd.o;
+    float sb = slot + lod * 31.0;
+    float h1 = hash1(sb + 0.1), h2 = hash1(sb + 7.3), h3 = hash1(sb + 13.1);
+    float f = CR_F * clamp(T2.x / 1.2, 0.6, 2.2) * (0.80 + 0.40 * h1);
+    float lam = CR_LAM * (0.85 + 0.30 * h2);
+    float psi = 2.0 * PI * f * t - 2.0 * PI * s / (lam * L) + phi;
+    float A = V2_A * L * pow(u, V2_APOW) * (0.8 + 0.4 * h3);
+    float cc = (V2_CURL + V2_CURLJIT * h1) * (1.0 + V2_CURLBR * sin(2.0 * PI * V2_CURLF * t + phi));
+    float cu = pow(clamp((u - V2_CURLFROM) / (1.0 - V2_CURLFROM), 0.0, 1.0), 2.0);
+    vec3 dc = sd.b * cos(0.3) + sd.o * sin(0.3);   // same sense for every strand (pinwheel)
+    vec3 P = path + sd.o * (L * (V2_SPREAD * pow(u, 0.9) + 0.05 * sd.rr)) - vec3(0, 1, 0) * (V2_SAG * L * u * u)
+           + A * sin(psi) * sd.b + V2_SIDE * A * sin(0.61 * psi + 1.7 + 6.2832 * h2) * sd.o
+           + V2_WHIP * A * pow(u, 4.0) * sin(2.0 * psi + 6.2832 * h1) * sd.b
+           + dc * (L * cc * cu);
     if (T3.x > 0.0) {   // idle: splayed cone + pinwheel curl
         vec3 d = normalize(vec3(-1, 0, 0) + ID_CONE * (0.45 + sd.rr) * sd.o);
         vec3 e = normalize(sd.b - d * dot(sd.b, d));
@@ -126,7 +137,7 @@ vec3 armP(Strand sd, int r, float u, float t) {
     return P;
 }
 
-vec3 centre(Strand sd, int r, float u, float t) { return sd.kind < 0.5 ? trailP(sd, r, u, t) : armP(sd, r, u, t); }
+vec3 centre(Strand sd, int r, float u, float t, float slot, float lod) { return sd.kind < 0.5 ? trailP(sd, r, u, t, slot, lod) : armP(sd, r, u, t); }
 
 void MAIN()
 {
@@ -136,17 +147,18 @@ void MAIN()
     float t = uTime - U(r, 6).w;
     float uv = VERTEX.y, u = clamp(uv, 0.0, 1.0);
     const float du = 1.0 / 96.0;
-    vec3 P = centre(sd, r, u, t);
-    vec3 Tn = normalize(centre(sd, r, min(u + du, 1.0), t) - centre(sd, r, max(u - du, 0.0), t));
+    float fs = float(slot), fl = float(lod);
+    vec3 P = centre(sd, r, u, t, fs, fl);
+    vec3 Tn = normalize(centre(sd, r, min(u + du, 1.0), t, fs, fl) - centre(sd, r, max(u - du, 0.0), t, fs, fl));
     vec3 N = normalize(sd.b - Tn * dot(sd.b, Tn)); vec3 B = cross(Tn, N);
-    float widthLod = lod == 2 ? 1.35 : 1.0;
-    float rad = (sd.r0 + (sd.r1 - sd.r0) * pow(u, 0.9)) * COLOR.r * 1.1 * widthLod;
+    float widthLod = lod == 2 ? ribbonWidth : 1.0;   // fix-c05bb78: LOD2 ribbon width multiplier (c05bb78 1.35)
+    float rad = (sd.r0 + (sd.r1 - sd.r0) * pow(u, 0.9)) * UV0.x * widthLod;
     vec3 local;
     vec3 camL = qrot(vec4(-T1.xyz, T1.w), (CAMERA_POSITION - T0.xyz)) / T0.w;   // camera in unit-local space
-    if (COLOR.b > 0.01) {   // claw prong
-        vec3 tipP = centre(sd, r, 1.0, t);
+    if (UV1.x > 0.01) {   // claw prong
+        vec3 tipP = centre(sd, r, 1.0, t, fs, fl);
         float npr = lod == 2 ? 2.0 : (lod == 0 ? 4.0 : 3.0);
-        float th = 2.0 * PI * (floor(COLOR.b * 8.0 + 0.5) - 1.0) / npr + (npr == 4.0 ? 0.25 * PI : 0.0);
+        float th = 2.0 * PI * (floor(UV1.x * 8.0 + 0.5) - 1.0) / npr + (npr == 4.0 ? 0.25 * PI : 0.0);
         vec3 outw = cos(th) * N + sin(th) * B, tang = -sin(th) * N + cos(th) * B;
         float a = 0.10 + 0.85 * (sd.kind < 0.5 ? T4.z : T4.w);
         float tt = uv - 1.0, rt = sd.r1 * sd.clawR, Lp = sd.clawLen;
@@ -165,14 +177,14 @@ void MAIN()
     vec3 world = T0.xyz + qrot(T1, local * T0.w);
     vW = world;
     vN = qrot(T1, lod == 2 ? -normalize(camL - P) : normalize(N * VERTEX.x + B * VERTEX.z));
-    vC = vec4(COLOR.g, COLOR.b > 0.01 ? 1.0 : 0.0, COLOR.a, INSTANCE_COLOR.a);
-    vCaste = pow(max(INSTANCE_COLOR.rgb, vec3(0.0)), vec3(2.2));
+    vC = vec4(UV0.y, UV1.x > 0.01 ? 1.0 : 0.0, UV1.y, INSTANCE_DATA.w);
+    vCaste = U(r, 7).yzw;
     // Pass D near-plane guard plus Pass E 2.0 px min width on LOD2 ribbons.
     vec4 clip = VIEWPROJECTION_MATRIX * vec4(world, 1.0);
     float wAbs = max(abs(clip.w), 0.25);
     if (lod == 2 && abs(clip.w) >= 0.25) {
         float pxPerUnit = PROJECTION_MATRIX[1][1] * 0.5 * uViewportH / wAbs;
-        float minR = 1.0 / max(pxPerUnit, 0.0001);
+        float minR = ribbonMinPx / max(pxPerUnit, 0.0001);   // half width in px (c05bb78 1.0 = 2 px total)
         float curR = length(world - (T0.xyz + qrot(T1, P * T0.w)));
         if (curR < minR && curR > 1e-6) {
             vec3 mid = T0.xyz + qrot(T1, P * T0.w);

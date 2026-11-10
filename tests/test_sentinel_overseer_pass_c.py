@@ -40,9 +40,9 @@ def test_orb_energy_follows_tok_rate_and_never_fakes_activity() -> None:
 
 def test_lod2_has_three_eyes_and_lod1_links_only_on_fetchers() -> None:
     report = o.load_mesh_report()
-    assert report[2]["parts"]["head"] == 672
+    assert report[2]["parts"]["head"] == 1192
     assert report[2]["parts"]["tentacle"] == 66
-    assert report[1]["parts"]["head"] == 3768
+    assert report[1]["parts"]["head"] == 6056
     # New balsam meshes are one draw each.
     for name in (
         "sentinel_head_lod2", "sentinel_head_lod1", "sentinel_tentacle_lod2",

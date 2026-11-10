@@ -2,49 +2,49 @@
   {
     "lod": 0,
     "path": "meshes/sentinel_head_lod0_mesh.mesh",
-    "note": "Pass E: plated pod, 21 eyes, seams in the head mesh. 15 trail + 2 hook + 2 pincer tentacles are a separate instanced draw.",
+    "note": "Pass E2: Iris head v2 (hard shingles, baked cavity). 15 trail + 2 hook + 2 pincer tentacles are a separate instanced draw.",
     "raw_by_part": {
-      "head": 9268,
+      "head": 13092,
       "tentacle": 1792
     },
     "tris_by_part": {
-      "lod0_head": 9268,
+      "lod0_head": 13092,
       "lod0_tentacle": 1792
     },
     "strands": 19,
-    "tris": 43316,
-    "target": 43316
+    "tris": 47140,
+    "target": 47140
   },
   {
     "lod": 1,
     "path": "meshes/sentinel_head_lod1_mesh.mesh",
-    "note": "Pass E LOD1: 13 eyes, 11 trail + 2 hook tentacles.",
+    "note": "Pass E2 LOD1 head v2: 13 eyes, 11 trail + 2 hook tentacles.",
     "raw_by_part": {
-      "head": 3768,
+      "head": 6056,
       "tentacle": 648
     },
     "tris_by_part": {
-      "lod1_head": 3768,
+      "lod1_head": 6056,
       "lod1_tentacle": 648
     },
     "strands": 13,
-    "tris": 12192,
-    "target": 12192
+    "tris": 14480,
+    "target": 14480
   },
   {
     "lod": 2,
     "path": "meshes/sentinel_head_lod2_mesh.mesh",
-    "note": "Pass E LOD2: 9 eyes, 8 trail + 2 hook ribbons.",
+    "note": "Pass E2 LOD2 head v2: 9 eyes, 8 trail + 2 hook ribbons.",
     "raw_by_part": {
-      "head": 672,
+      "head": 1192,
       "tentacle": 66
     },
     "tris_by_part": {
-      "lod2_head": 672,
+      "lod2_head": 1192,
       "lod2_tentacle": 66
     },
     "strands": 10,
-    "tris": 1332,
-    "target": 1332
+    "tris": 1852,
+    "target": 1852
   }
 ]

@@ -257,10 +257,10 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assets = Path(__file__).resolve().parents[1] / "arelis/assets/sentinel/overseer"
     report = json.loads((assets / "export_report.json").read_text())
     by_lod = {row["lod"]: row for row in report}
-    assert by_lod[0]["tris"] == 43316
-    assert by_lod[1]["tris"] == 12192
-    assert by_lod[2]["tris"] == 1332
-    assert by_lod[0]["raw_by_part"]["head"] == 9268
+    assert by_lod[0]["tris"] == 47140
+    assert by_lod[1]["tris"] == 14480
+    assert by_lod[2]["tris"] == 1852
+    assert by_lod[0]["raw_by_part"]["head"] == 13092
     assert (assets / "meshes/lod0_hull_mesh.mesh").is_file()
     assert (assets / "Sentinel_lod2.qml").is_file()
     scene = win._ensure_scene()

@@ -59,7 +59,7 @@ Item {
     property int budgetDrawCalls: 0
     property int unitDrawCalls: 0
     property var lodCounts: [0, 0, 0]
-    property var meshTris: ({ "0": 43316, "1": 12192, "2": 1332 })
+    property var meshTris: ({ "0": 47140, "1": 14480, "2": 1852 })
     readonly property var strandsByLod: [19, 13, 10]
     property var lists: ({})
     property var descriptors: []
@@ -1346,15 +1346,15 @@ Item {
         if (sc > 3.0)
             sc = 3.0
         e.scale = Qt.vector3d(sc, sc, sc)
-        // Eyes carry the eye colour (fetching and engaged eyes differ).
-        e.color = row.eye || row.color || casteColors[caste]
+        // Qt multiplies COLOR by the instance colour and BASE_COLOR by COLOR: keep it white (fix-c05bb78 #1).
+        e.color = "#ffffff"
         var uid = row && row.unit_id ? row.unit_id : ""
         var rs = reachSlot(uid, row.reach)
         var dim = finiteNum(row.dim, 1.0)
         if (dim <= 0)
             dim = 1.0
-        // INSTANCE_DATA = (caste.rgb linear, eyeMul)
-        e.customData = casteData(caste, finiteNum(row.eyeMul, 1.0))
+        // INSTANCE_DATA = (eye colour rgb linear, eyeMul); rim and seam use the eye colour too.
+        e.customData = eyeData(row.eye || row.color || casteColors[caste], finiteNum(row.eyeMul, 1.0))
         if (uid && recs) {
             if (!recs[uid] || String(key).indexOf(":head") >= 0) {
                 recs[uid] = {
@@ -1593,6 +1593,11 @@ Item {
         root.updateBeadScales()
     }
 
+    function eyeData(color, eyeMul) {
+        var c = Qt.color(color)
+        return Qt.vector4d(Math.pow(c.r, 2.2), Math.pow(c.g, 2.2), Math.pow(c.b, 2.2), finiteNum(eyeMul, 1.0))
+    }
+
     function casteData(caste, eyeMul) {
         var c = Qt.color(casteColors[caste] || casteColors.warden)
         return Qt.vector4d(Math.pow(c.r, 2.2), Math.pow(c.g, 2.2), Math.pow(c.b, 2.2), finiteNum(eyeMul, 1.0))
@@ -1626,8 +1631,9 @@ Item {
                 e.position = Qt.vector3d(0, 0, 0)
                 e.eulerRotation = Qt.vector3d(0, 0, 0)
                 e.scale = Qt.vector3d(1, 1, 1)
-                e.color = Qt.rgba(c.r, c.g, c.b, dim)
-                e.customData = Qt.vector4d(idx, slot, lod, 0)
+                // White instance colour (fix #1); dim rides in INSTANCE_DATA.w, caste in unitTex T7.yzw.
+                e.color = "#ffffff"
+                e.customData = Qt.vector4d(idx, slot, lod, dim)
                 buckets[String(lod)].push(e)
             }
         }
@@ -1823,7 +1829,8 @@ Item {
                 txx: targetL.x, txy: targetL.y, txz: targetL.z, wPart: wPart,
                 hx: holdL.x, hy: holdL.y, hz: holdL.z,
                 time0: finiteNum(extra.time0, 0),
-                kHold: finiteNum(extra.kHold, 0.4)
+                kHold: finiteNum(extra.kHold, 0.4),
+                casteLin: eyeData(rec.color || casteColors[rec.caste], 1.0)
             })
         }
         return out
@@ -1852,7 +1859,7 @@ Item {
             flat[o+16] = r.wStrike; flat[o+17] = r.wLimp; flat[o+18] = r.clawOpen; flat[o+19] = r.clawOpenArm
             flat[o+20] = r.txx; flat[o+21] = r.txy; flat[o+22] = r.txz; flat[o+23] = r.wPart
             flat[o+24] = r.hx; flat[o+25] = r.hy; flat[o+26] = r.hz; flat[o+27] = r.time0
-            flat[o+28] = r.kHold; flat[o+29] = 0; flat[o+30] = 0; flat[o+31] = 0
+            flat[o+28] = r.kHold; flat[o+29] = r.casteLin.x; flat[o+30] = r.casteLin.y; flat[o+31] = r.casteLin.z
         }
         unitTexData.refreshFlat(flat)
     }
@@ -2163,6 +2170,19 @@ Item {
         return { w: labelMetrics.advanceWidth, h: Math.max(px + 3, labelMetrics.height) }
     }
 
+    // HUD keep-out rects in view pixels (OverseerHud.qml: margins 2 percent, header 72, inspector 360 wide,
+    // legend 250 x 165 bottom-left, dispatch bar 96 tall centred, replay strip 60). 8 px clearance.
+    function hudKeepOut() {
+        var mx = Math.round(width * 0.02), my = Math.round(height * 0.02), pad = 8
+        var out = [{ x0: 0, y0: 0, x1: width, y1: my + 72 + pad }]
+        if (root.showInspector && root.selectedUnitId)
+            out.push({ x0: width - mx - 360 - pad, y0: my + 72, x1: width, y1: height })
+        out.push({ x0: 0, y0: height - my - 60 - 165 - pad, x1: mx + 250 + pad, y1: height })
+        out.push({ x0: width * 0.5 - 420, y0: height - my - 60 - 96 - pad, x1: width * 0.5 + 420, y1: height })
+        out.push({ x0: 0, y0: height - my - 60, x1: width, y1: height })
+        return out
+    }
+
     function rectHitsCircle(r, c, rad) {
         var nx = Math.min(Math.max(c.x, r.x0), r.x1)
         var ny = Math.min(Math.max(c.y, r.y0), r.y1)
@@ -2228,7 +2248,8 @@ Item {
 
     function projectOrbLabels() {
         var shell = shellScreen()
-        var closeUp = shell.rs >= 90
+        // fix-c05bb78 #9: the big block layout is for core focus only; in unit focus the orb is a backdrop.
+        var closeUp = shell.rs >= 90 && root.coreMode
         var key
         if (!closeUp) {
             // Overview chips pin to the untilted ring extremes, so spin
@@ -2241,7 +2262,8 @@ Item {
             return
         orbLabelComputeCount += 1
         var blocks = [], leaders = [], dots = [], chips = [], glyphs = [], screen = []
-        var rects = [], beadGlows = []
+        var rects = hudKeepOut(), beadGlows = []
+        var nKeep = rects.length
         var tp = ringScreenPoints(toolsTiltEuler(), root.toolsRingRadius, 180, 0)
         var mp = ringScreenPoints(memoryTiltEuler(), root.memoryRingRadius, 180, 0)
         if (!tp.length || !mp.length) {
@@ -2313,7 +2335,7 @@ Item {
             }
             blocks.push({
                 id: "tools", kind: "block", x: tb.x0, y: tb.y0,
-                title: "Tools", status: toolsCount + " running",
+                w: tW, h: tH, title: "Tools", status: toolsCount + " running",
                 titleSize: 25, statusSize: 18, titleColor: "#ffffff", statusColor: "#cdb2f7"
             })
             leaders.push({ id: "toolsLeader", x1: axp.x + 4, y1: axp.y - 4, x2: tb.x0 - 3, y2: tb.y1 - 4 })
@@ -2329,7 +2351,7 @@ Item {
             var mb = { x0: bxp.x - mW / 2, y0: top, x1: bxp.x + mW / 2, y1: top + mH }
             blocks.push({
                 id: "memory", kind: "block", x: mb.x0, y: mb.y0, align: "centre",
-                title: "Memory", status: memoryCount + " from last chat",
+                w: mW, h: mH, title: "Memory", status: memoryCount + " from last chat",
                 titleSize: 25, statusSize: 18, titleColor: "#ffffff", statusColor: "#cdb2f7"
             })
             leaders.push({ id: "memoryLeader", x1: bxp.x, y1: bxp.y + 5, x2: bxp.x, y2: mb.y0 - 3 })
@@ -2378,6 +2400,27 @@ Item {
                 layoutResultTitles(orbResults, rp, shell, rects, beadGlows, tp.concat(mp), glyphs)
             }
         }
+        // Drop any label still touching the HUD or the frame edge (with its leader and dot) instead of overlapping.
+        var kept = [], dropped = ({})
+        for (i = 0; i < blocks.length; i++) {
+            var bk = blocks[i]
+            var br = { x0: bk.x, y0: bk.y, x1: bk.x + (bk.w || 0), y1: bk.y + (bk.h || 0) }
+            var bad = br.x0 < 0 || br.y0 < 0 || br.x1 > width || br.y1 > height
+            for (var hk = 0; hk < nKeep && !bad; hk++)
+                if (rectHitsRect(br, rects[hk], 0)) bad = true
+            if (bad) dropped[bk.id] = true
+            else kept.push(bk)
+        }
+        blocks = kept
+        leaders = leaders.filter(function (q) { return !dropped[String(q.id).replace("Leader", "")] })
+        dots = dots.filter(function (q) { return !dropped[String(q.id).replace("Dot", "")] })
+        chips = chips.filter(function (q) {
+            var cr = { x0: q.x, y0: q.y, x1: q.x + q.w, y1: q.y + q.h }
+            for (var hk2 = 0; hk2 < nKeep; hk2++) if (rectHitsRect(cr, rects[hk2], 0)) { dropped[q.id] = true; return false }
+            return cr.x0 >= 0 && cr.y0 >= 0 && cr.x1 <= width && cr.y1 <= height
+        })
+        leaders = leaders.filter(function (q) { return !dropped[String(q.id).replace("chipLeader_", "chip_")] })
+        screen = screen.filter(function (q) { return !dropped[q.id] })
         orbLabelKey = key
         orbLabelBlocks = blocks
         orbLeaders = leaders
@@ -3159,12 +3202,26 @@ Item {
                 instancing: root.lists[modelData.key]
                 materials: [
                     CustomMaterial {
-                        shadingMode: CustomMaterial.Shaded
+                        shadingMode: CustomMaterial.Unshaded
                         vertexShader: "shaders/sentinel_head.vert"
                         fragmentShader: "shaders/sentinel_head.frag"
-                        property real eyeGain: modelData.lod === 0 ? 1.35 : (modelData.lod === 1 ? 1.40 : 1.60)
-                        property real rimGain: modelData.lod === 0 ? 0.06 : (modelData.lod === 1 ? 0.10 : 0.20)
+                        property real eyeGain: modelData.lod === 0 ? 1.35 : (modelData.lod === 1 ? 1.40 : 2.20)
+                        property real rimGain: modelData.lod === 0 ? 0.020 : (modelData.lod === 1 ? 0.030 : 0.060)
                         property real seamGain: modelData.lod === 0 ? 0.45 : (modelData.lod === 1 ? 0.50 : 1.00)
+                        property real hullMetal: 0.55
+                        property real hullRough: 0.38
+                        property vector3d ambSky: Qt.vector3d(0.1000, 0.1050, 0.1300)
+                        property vector3d ambGround: Qt.vector3d(0.0300, 0.0300, 0.0350)
+                        property real edgeGain: 1.20
+                        property real eyeMinPx: modelData.lod === 0 ? 0.0 : (modelData.lod === 1 ? 1.6 : 3.0)
+                        property real eyeRadiusMul: modelData.lod === 2 ? 1.5 : 1.0
+                        property real uViewportH: Math.max(1, view.height)
+                        property vector3d keyDir: root.lightKeyDir
+                        property vector3d fillDir: root.lightFillDir
+                        property real keyGain: 1.00
+                        property real fillGain: 0.35
+                        property real specGain: 1.00
+                        property real unitFog: 0.30
                     }
                 ]
             }
@@ -3182,12 +3239,26 @@ Item {
                 instancing: (modelData.lod === 0 ? mergedHead0List : (modelData.lod === 1 ? mergedHead1List : mergedHead2List))
                 materials: [
                     CustomMaterial {
-                        shadingMode: CustomMaterial.Shaded
+                        shadingMode: CustomMaterial.Unshaded
                         vertexShader: "shaders/sentinel_head.vert"
                         fragmentShader: "shaders/sentinel_head.frag"
-                        property real eyeGain: modelData.lod === 0 ? 1.35 : (modelData.lod === 1 ? 1.40 : 1.60)
-                        property real rimGain: modelData.lod === 0 ? 0.06 : (modelData.lod === 1 ? 0.10 : 0.20)
+                        property real eyeGain: modelData.lod === 0 ? 1.35 : (modelData.lod === 1 ? 1.40 : 2.20)
+                        property real rimGain: modelData.lod === 0 ? 0.020 : (modelData.lod === 1 ? 0.030 : 0.060)
                         property real seamGain: modelData.lod === 0 ? 0.45 : (modelData.lod === 1 ? 0.50 : 1.00)
+                        property real hullMetal: 0.55
+                        property real hullRough: 0.38
+                        property vector3d ambSky: Qt.vector3d(0.1000, 0.1050, 0.1300)
+                        property vector3d ambGround: Qt.vector3d(0.0300, 0.0300, 0.0350)
+                        property real edgeGain: 1.20
+                        property real eyeMinPx: modelData.lod === 0 ? 0.0 : (modelData.lod === 1 ? 1.6 : 3.0)
+                        property real eyeRadiusMul: modelData.lod === 2 ? 1.5 : 1.0
+                        property real uViewportH: Math.max(1, view.height)
+                        property vector3d keyDir: root.lightKeyDir
+                        property vector3d fillDir: root.lightFillDir
+                        property real keyGain: 1.00
+                        property real fillGain: 0.35
+                        property real specGain: 1.00
+                        property real unitFog: 0.30
                     }
                 ]
             }
@@ -3200,12 +3271,15 @@ Item {
             source: "meshes/sentinel_tentacle_lod2_mesh.mesh"
             materials: CustomMaterial {
                 shadingMode: CustomMaterial.Unshaded
+                cullMode: Material.NoCulling
                 vertexShader: "shaders/sentinel_tentacle.vert"
                 fragmentShader: "shaders/sentinel_tentacle_lod2.frag"
                 property real lod: 2
-                property real slitGain: 0.90
-                property real rimGain: 0.55
-                property real ribbonLight: 0.5
+                property real slitGain: 1.10
+                property real rimGain: 0.350
+                property real ribbonLight: 1.00
+                property real ribbonWidth: 1.70
+                property real ribbonMinPx: 1.25
                 property real uTime: root.sceneTime
                 property real uViewportH: Math.max(1, view.height)
                 property vector3d baseMetal: Qt.vector3d(Math.pow(0x2c/255.0, 2.2), Math.pow(0x2f/255.0, 2.2), Math.pow(0x36/255.0, 2.2))
@@ -3238,13 +3312,24 @@ Item {
             instancing: tentacleLod1List
             source: "meshes/sentinel_tentacle_lod1_mesh.mesh"
             materials: CustomMaterial {
-                shadingMode: CustomMaterial.Shaded
+                shadingMode: CustomMaterial.Unshaded
                 vertexShader: "shaders/sentinel_tentacle.vert"
                 fragmentShader: "shaders/sentinel_tentacle.frag"
                 property real lod: 1
-                property real slitGain: 0.60
-                property real rimGain: 0.30
+                property real slitGain: 0.55
+                property real rimGain: 0.100
                 property real ribbonLight: 0.5
+                property real tentMetal: 0.55
+                property real tentRough: 0.34
+                property vector3d ambSky: Qt.vector3d(0.1000, 0.1050, 0.1300)
+                property vector3d ambGround: Qt.vector3d(0.0300, 0.0300, 0.0350)
+                property real edgeGain: 1.20
+                property real keyGain: 1.00
+                property real fillGain: 0.35
+                property real specGain: 1.00
+                property real unitFog: 0.30
+                property real ribbonWidth: 1.0
+                property real ribbonMinPx: 1.0
                 property real uTime: root.sceneTime
                 property real uViewportH: Math.max(1, view.height)
                 property vector3d baseMetal: Qt.vector3d(Math.pow(0x2c/255.0, 2.2), Math.pow(0x2f/255.0, 2.2), Math.pow(0x36/255.0, 2.2))
@@ -3277,13 +3362,24 @@ Item {
             instancing: tentacleLod0List
             source: "meshes/sentinel_tentacle_lod0_mesh.mesh"
             materials: CustomMaterial {
-                shadingMode: CustomMaterial.Shaded
+                shadingMode: CustomMaterial.Unshaded
                 vertexShader: "shaders/sentinel_tentacle.vert"
                 fragmentShader: "shaders/sentinel_tentacle.frag"
                 property real lod: 0
                 property real slitGain: 0.42
-                property real rimGain: 0.22
+                property real rimGain: 0.080
                 property real ribbonLight: 0.5
+                property real tentMetal: 0.55
+                property real tentRough: 0.34
+                property vector3d ambSky: Qt.vector3d(0.1000, 0.1050, 0.1300)
+                property vector3d ambGround: Qt.vector3d(0.0300, 0.0300, 0.0350)
+                property real edgeGain: 1.20
+                property real keyGain: 1.00
+                property real fillGain: 0.35
+                property real specGain: 1.00
+                property real unitFog: 0.30
+                property real ribbonWidth: 1.0
+                property real ribbonMinPx: 1.0
                 property real uTime: root.sceneTime
                 property real uViewportH: Math.max(1, view.height)
                 property vector3d baseMetal: Qt.vector3d(Math.pow(0x2c/255.0, 2.2), Math.pow(0x2f/255.0, 2.2), Math.pow(0x36/255.0, 2.2))

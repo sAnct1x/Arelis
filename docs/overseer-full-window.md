@@ -51,6 +51,9 @@ Eyes stay in the caste colour (a fetching Harvester turns brighter cyan;
 red is only for a real threat). At the wide view the tentacles render as
 camera-facing ribbons; a unit that is fetching, focused, or close enough
 steps up to shaded, linked tentacles that reach, grab and carry.
+Focusing a unit keeps the header, inspector, legend, dispatch bar and
+replay strip clear; the orb's Tools and Memory labels stay on the Core
+view.
 
 The edge sources are glass nodes with a thin halo. The label under
 each one is the source name and how many requests are open there, or
