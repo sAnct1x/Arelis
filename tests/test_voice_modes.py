@@ -381,3 +381,152 @@ def test_barge_in_keeps_stop_and_the_question_as_one_turn(qt_app) -> None:
     # Both tones plus the 1.16 s gap must be in the same clip (minus a little
     # trailing-silence trim). A split after Stop. is only ~0.4-1.0 s.
     assert seconds > 2.2, f"expected the joined interrupt, got {seconds:.2f}s"
+
+
+def test_barge_in_headset_mode_ignores_speakers_and_always_keeps_today(qt_app) -> None:
+    """On speakers, playback VAD must not cut her off; a headset still can.
+
+    With no echo cancellation, her own TTS reaches a speaker mic and VAD
+    used to fire as a barge-in, so she interrupted herself. headset mode
+    arms that interrupt only when the output looks like a headset.
+    always is today's behaviour on any device, including speakers. off
+    never interrupts from playback VAD. Stop and wake are not gated here.
+    """
+    import yaml
+
+    from arelis.config import DEFAULT_CONFIG_PATH
+    from arelis.ui.voice_control import VoiceController
+    from arelis.voice.barge_in import (
+        ALWAYS,
+        HEADSET,
+        OFF,
+        barge_in_armed,
+        is_headset_output,
+        parse_barge_in_mode,
+    )
+    from tests.voice_helpers import _config, _FakeRecorder
+
+    shipped = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    assert shipped["voice"]["conversation"]["barge_in"] == "headset"
+    assert parse_barge_in_mode(None) == HEADSET
+    assert parse_barge_in_mode(True) == ALWAYS
+    assert parse_barge_in_mode(False) == OFF
+
+    # Conservative detector: listed headset names match, generic speakers
+    # and bare Bluetooth do not, and an empty or unknown name stays off.
+    assert is_headset_output("Headset (Logitech PRO X Wireless Gaming Headset)")
+    assert is_headset_output("Speakers (2- Logitech PRO X Wireless Gaming Headset)")
+    assert is_headset_output("Headphones (AirPods Pro)")
+    assert is_headset_output("AirPods")
+    assert is_headset_output("Bluetooth Hands-Free Audio")
+    assert not is_headset_output("Speakers (Realtek High Definition Audio)")
+    assert not is_headset_output("Speakers (Realtek)")
+    assert not is_headset_output("HDMI (NVIDIA High Definition Audio)")
+    assert not is_headset_output("Bluetooth Stereo")
+    assert not is_headset_output("")
+    assert barge_in_armed("headset", "Speakers (Realtek High Definition Audio)") is False
+    assert barge_in_armed("headset", "Headphones (AirPods Pro)") is True
+    assert barge_in_armed("always", "Speakers (Realtek High Definition Audio)") is True
+    assert barge_in_armed("off", "Headphones (AirPods Pro)") is False
+
+    speaker = ("Speakers (Realtek High Definition Audio)", "")
+    headset = ("Headphones (AirPods Pro)", "")
+
+    def _playback_vad(mode: str, labels: tuple[str, str]) -> tuple[list[str], bool]:
+        cfg = _config(
+            conversation={
+                "smart_turn": False,
+                "silence_ms": 550,
+                "short_silence_ms": 450,
+                "end_silence_ms": 2500,
+                "barge_in": mode,
+                "barge_in_as_turn": True,
+            }
+        )
+        controller = VoiceController(cfg)
+        recorder = _FakeRecorder(controller)
+        controller.recorder = recorder
+        recorder.frames.connect(controller._on_frames)
+        barges: list[str] = []
+
+        def _on_barge() -> None:
+            barges.append("barge")
+            controller.notify_speaking(False)
+
+        controller.barge_in.connect(_on_barge)
+        controller._output_labels_override = labels
+        controller.set_conversation(True)
+        controller.notify_turn_started()
+        controller.notify_speaking(True)
+        recorder.push(_tone(0.4) + _silence(0.7))
+        return barges, controller._speaking
+
+    barges, speaking = _playback_vad("headset", speaker)
+    assert barges == [], barges
+    assert speaking is True
+
+    barges, speaking = _playback_vad("headset", headset)
+    assert barges == ["barge"], barges
+    assert speaking is False
+
+    barges, speaking = _playback_vad("always", speaker)
+    assert barges == ["barge"], barges
+    assert speaking is False
+
+    barges, speaking = _playback_vad("off", headset)
+    assert barges == [], barges
+    assert speaking is True
+
+    # An omitted key uses the headset default, so speakers stay quiet.
+    defaulted = VoiceController(_config(conversation={"smart_turn": False}))
+    defaulted._output_labels_override = speaker
+    assert defaulted._barge_in_mode == HEADSET
+    assert defaulted._barge_in_is_armed() is False
+
+    # A raising device lookup must not abort conversation entry.
+    # always (and off) decide without enumerating, so always stays
+    # today's path. headset treats the failure as unknown and stays
+    # unarmed. debug_state uses the same gate, so it also must not
+    # raise from the lookup.
+    from unittest.mock import patch
+
+    lookup_calls: list[str] = []
+
+    def _raising_lookup(hint: str = "") -> tuple[str, str]:
+        lookup_calls.append(hint)
+        raise RuntimeError("device enum failed")
+
+    def _enter_with_live_lookup(mode: str) -> VoiceController:
+        cfg = _config(
+            conversation={
+                "smart_turn": False,
+                "silence_ms": 550,
+                "short_silence_ms": 450,
+                "end_silence_ms": 2500,
+                "barge_in": mode,
+                "barge_in_as_turn": True,
+            }
+        )
+        controller = VoiceController(cfg)
+        recorder = _FakeRecorder(controller)
+        controller.recorder = recorder
+        recorder.frames.connect(controller._on_frames)
+        controller.set_conversation(True)
+        return controller
+
+    with patch(
+        "arelis.ui.voice_control.current_output_labels",
+        side_effect=_raising_lookup,
+    ):
+        lookup_calls.clear()
+        always = _enter_with_live_lookup("always")
+        assert always.mode() == "conversation"
+        assert always._barge_in_is_armed() is True
+        assert always.debug_state()["barge_armed"] is True
+        assert lookup_calls == []
+
+        lookup_calls.clear()
+        headset = _enter_with_live_lookup("headset")
+        assert headset.mode() == "conversation"
+        assert headset._barge_in_is_armed() is False
+        assert headset.debug_state()["barge_armed"] is False
