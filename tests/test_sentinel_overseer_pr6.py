@@ -328,7 +328,9 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
         for child in inst.findChildren(QObject)
         if "ProceduralMesh" in child.metaObject().className()
     ]
-    assert len(meshes) == 2
+    # Lane guides and the perimeter, plus the combined orb ornaments
+    # and the starfield mesh (each is one ProceduralMesh draw).
+    assert len(meshes) == 4
     for ring in caste_rings:
         src = ring.property("source")
         src_s = src.toString() if src is not None and hasattr(src, "toString") else str(src or "")
@@ -364,14 +366,20 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert _qml_list(inst.property("lodCounts"))[2] == 100
     vis = _instance_visibility(inst)
     for part in ("hull", "emissive", "lens"):
-        assert vis[f"instanced-warden:2:{part}"] is True
+        # Per-caste models stay in the tree but drawing is one
+        # instanced-merged draw per lod/part.
+        assert vis[f"instanced-warden:2:{part}"] is False
+        assert vis[f"instanced-merged-2:{part}"] is True
         assert vis[f"instanced-warden:0:{part}"] is False
         assert vis[f"instanced-warden:1:{part}"] is False
+        assert vis.get(f"instanced-merged-0:{part}", False) is False
+        assert vis.get(f"instanced-merged-1:{part}", False) is False
         for caste in ("stalker", "harvester", "sanitizer", "tripwire"):
             for lod in range(3):
                 assert vis[f"instanced-{caste}:{lod}:{part}"] is False
 
-    # Five castes at wide: 15 instanced models (5 x 3 parts).
+    # Five castes at wide: Python still counts 15 buckets; the view
+    # merges them into 3 draws (hull, seams, eyes at lod 2).
     mixed = []
     for caste in overseer_runtime.CASTES:
         for i in range(20):
@@ -381,11 +389,14 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert mixed_frame["budget"]["lodCounts"][2] == 100
     inst.applyFrame(mixed_frame)
     qt_app.processEvents()
-    assert inst.property("unitDrawCalls") == 15
+    assert inst.property("unitDrawCalls") == 3
     vis = _instance_visibility(inst)
-    for caste in overseer_runtime.CASTES:
-        for part in ("hull", "emissive", "lens"):
-            assert vis[f"instanced-{caste}:2:{part}"] is True
+    for part in ("hull", "emissive", "lens"):
+        assert vis[f"instanced-merged-2:{part}"] is True
+        assert vis.get(f"instanced-merged-0:{part}", False) is False
+        assert vis.get(f"instanced-merged-1:{part}", False) is False
+        for caste in overseer_runtime.CASTES:
+            assert vis[f"instanced-{caste}:2:{part}"] is False
             assert vis[f"instanced-{caste}:0:{part}"] is False
             assert vis[f"instanced-{caste}:1:{part}"] is False
 

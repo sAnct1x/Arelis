@@ -901,6 +901,10 @@ class SentinelWindow(QWidget):
         self.refresh()
         self._fade_owner()
         super().showEvent(event)
+        scene = self._scene
+        root = scene.rootObject() if scene is not None else None
+        if root is not None:
+            root.setProperty("paused", False)
 
     def closeEvent(self, event) -> None:
         scene = self._scene
@@ -916,6 +920,10 @@ class SentinelWindow(QWidget):
 
     def hideEvent(self, event) -> None:
         super().hideEvent(event)
+        scene = self._scene
+        root = scene.rootObject() if scene is not None else None
+        if root is not None:
+            root.setProperty("paused", True)
         # The scene window hides after this event, with its children.
         QTimer.singleShot(0, self._save_pipeline_cache_if_hidden)
 

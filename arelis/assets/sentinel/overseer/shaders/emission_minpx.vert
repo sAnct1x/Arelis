@@ -27,10 +27,13 @@ void MAIN() {
     vec3 w = (MODEL_MATRIX * vec4(p, 1.0)).xyz;
     float depth = max(dot(w - CAMERA_POSITION, CAMERA_DIRECTION), 0.1);
     vComp = 1.0;
-    if (UV0.y < 1.5) {
-        float rMin = minPx * pxAngle * depth;
+    float nlen = length(n);
+    // Cap the min-px push and skip degenerate normals or near-camera
+    // vertices so a bad endpoint cannot blow up into a screen streak.
+    if (UV0.y < 1.5 && nlen > 1e-5 && depth > 0.25) {
+        float rMin = min(minPx * pxAngle * depth, tubeRadius * 12.0);
         float rNew = max(tubeRadius, rMin);
-        p += normalize(n) * (rNew - tubeRadius);
+        p += (n / nlen) * (rNew - tubeRadius);
         vComp = tubeRadius / rNew;
     }
     float ringR = max(length(VERTEX.xz), 0.5);

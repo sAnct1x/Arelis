@@ -64,9 +64,10 @@ FOV_DEG = 35.0
 UNIT_WORLD_H = 1.56
 PARTICLE_BUDGET = 520
 MOTE_FRACTION = 0.40
-# orb 7 (core, filaments, 2 shells, 3 rings), sources 2, tentacles 3,
-# lanes, perimeter, conduits, particles, glyphs, 3 stars
-SCENE_FIXED_DRAW = 20
+# orb 5 (core, filaments, 2 shells, one ornament draw for three rings
+# plus beads), sources 2, tentacles 3, lanes, perimeter, conduits,
+# particles, glyphs, 1 star draw (three parallax layers instanced)
+SCENE_FIXED_DRAW = 16
 MAX_UNIT_DRAW = 45  # 5 castes x 3 LOD x 3 parts
 MAX_TRIS = 300_000
 
@@ -2714,7 +2715,9 @@ def resolve_hud_command(
     retire_unit for the selected id only (hive.retire_unit pops that id
     or returns False). Emergency halt never includes restore. Camera
     focus frames the selected unit locally from snapshot geometry and
-    does not post a hive route.
+    does not post a hive route. coreFocus and exit_core are also local
+    view actions: they move the camera only, and never post a hive
+    route or write a status under the composer.
     """
     data = coerce_hud_payload(payload)
     selected = selected_unit if isinstance(selected_unit, dict) else {}
@@ -2755,6 +2758,15 @@ def resolve_hud_command(
             "local": True,
         }
     if name in {"fit_swarm", "fitSwarm"}:
+        return {
+            "ok": True,
+            "path": None,
+            "body": None,
+            "status": "",
+            "name": name,
+            "local": True,
+        }
+    if name in {"core_focus", "coreFocus", "exit_core", "exitCore"}:
         return {
             "ok": True,
             "path": None,

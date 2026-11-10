@@ -58,8 +58,12 @@ void MAIN() {
     float r = mix(INSTANCE_DATA.y, INSTANCE_DATA.z, u);
     // Minimum 1.5 px on-screen width so LOD2 tubes never speckle.
     vec4 clip = VIEWPROJECTION_MATRIX * vec4(P, 1.0);
-    float pxPerUnit = PROJECTION_MATRIX[1][1] * 0.5 * uViewportH / max(clip.w, 0.001);
+    // clip.w near 0 (camera plane) would make pxPerUnit explode and
+    // stretch the tube into a long screen streak. Keep a real near floor.
+    float wAbs = max(abs(clip.w), 0.25);
+    float pxPerUnit = PROJECTION_MATRIX[1][1] * 0.5 * uViewportH / wAbs;
     r = max(r, 0.75 / max(pxPerUnit, 0.0001));
+    r = min(r, 2.0);
     vec3 world = P + (N * VERTEX.x + B * VERTEX.z) * r;
     // World-space normal: the instance transform is identity, so do not
     // rewrite this by INSTANCE_MODEL_MATRIX.

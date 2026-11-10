@@ -20,7 +20,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 _CHILD = "ARELIS_OVERSEER_RENDER_NODE"
 
 
-def isolated_render(*, software: bool = False):
+def isolated_render(*, software: bool = False, native_gl: bool = False):
     """Keep native crashes, grabs and teardown out of reusable xdist workers."""
 
     def decorate(test):
@@ -41,6 +41,12 @@ def isolated_render(*, software: bool = False):
                 # This probe contains only the 2D HUD, not the Quick3D scene.
                 # Qt's software Quick backend supports offscreen pixel grabs.
                 env["QT_QUICK_BACKEND"] = "software"
+            elif native_gl and env.get("DISPLAY"):
+                # renderStats.drawCallCount stays 0 on the offscreen QPA even
+                # when renderPassCount is live. A real window under xvfb is
+                # needed to read the draw cap. Set xcb explicitly so the
+                # child's conftest setdefault("offscreen") does not win.
+                env["QT_QPA_PLATFORM"] = "xcb"
             cmd = [
                 sys.executable,
                 "-m",

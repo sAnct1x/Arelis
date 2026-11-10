@@ -66,6 +66,9 @@ Item {
     })
     property var lists: ({})
     property var descriptors: []
+    property var mergedLists: ({})
+    property var mergedDescriptors: []
+    property var mergedCounts: ({})
     property var particleList: null
     property var conduitList: null
     property var conduitSpecs: []
@@ -101,6 +104,18 @@ Item {
     property string glyphTrailKey: ""
     property int glyphCount: 0
     property string glyphFontFamily: "Space Mono"
+    property int orbLabelComputeCount: 0
+    property var orbOrnamentPositions: []
+    property var orbOrnamentNormals: []
+    property var orbOrnamentColors: []
+    property var orbOrnamentUvs: []
+    property var orbOrnamentIndexes: []
+    property string orbOrnamentKey: ""
+    property var starPositions: []
+    property var starColors: []
+    property var starUv0s: []
+    property var starUv1s: []
+    property var starIndexes: []
     // Caste bands (BAND-SPEC.md): lane guides rebuild only when a band's
     // lane count or radius changes; the perimeter follows the Harvester band.
     property var bandSpecs: []
@@ -183,6 +198,10 @@ Item {
         { count: 400, from: Qt.vector3d(-320, -20, -330), to: Qt.vector3d(320, 120, -150), px0: 1.0, px1: 2.4, rate: 0.6, seed: 23 },
         { count: 150, from: Qt.vector3d(-120, 18, -40), to: Qt.vector3d(120, 60, 60), px0: 1.8, px1: 3.0, rate: 1.0, seed: 37 }
     ]
+    // The host sets paused when the Sentinels window is hidden or closed so
+    // FrameAnimation does not keep running under generation with no view.
+    property bool paused: true
+    readonly property bool viewOnScreen: visible && !paused
     property real hiveActivity: 0
     property real hiveActivityShown: 0
     property real starDrift: 0
@@ -266,6 +285,15 @@ Item {
     InstanceList { id: tentacleLinks1List }
     InstanceList { id: tentacleThread1List }
     InstanceList { id: tentacleLinks0List }
+    InstanceList { id: mergedHull0List }
+    InstanceList { id: mergedEmissive0List }
+    InstanceList { id: mergedLens0List }
+    InstanceList { id: mergedHull1List }
+    InstanceList { id: mergedEmissive1List }
+    InstanceList { id: mergedLens1List }
+    InstanceList { id: mergedHull2List }
+    InstanceList { id: mergedEmissive2List }
+    InstanceList { id: mergedLens2List }
 
     function startEntry(reduced) {
         reducedMotion = !!reduced
@@ -386,13 +414,14 @@ Item {
         sourceNodeSpecs = frame.sourceNodes || []
         fillSourceEntries(sourceNodeSpecs)
         fillBeadEntries()
+        rebuildOrbOrnaments()
         counts["__glyphs"] = glyphCount
         live += glyphCount
         fillTentacleEntries(recs)
         liveCounts = counts
         budgetTris = tris
-        unitDrawCalls = used
-        budgetDrawCalls = used + 20  // SCENE_FIXED_DRAW: orb (incl. results ring), sources, tentacles, lanes, stars
+        unitDrawCalls = mergeUnitDraws()
+        budgetDrawCalls = unitDrawCalls + 16  // SCENE_FIXED_DRAW: orb (one ornament draw), sources, tentacles, lanes, stars
         lodCounts = lods
         recountEntries(live)
         instanceRecords = recs
@@ -869,6 +898,153 @@ Item {
             resultsFade = 0.0
         else
             resultsFade = (r - 4.0) / 1.0
+        rebuildOrbOrnaments()
+    }
+
+    function _orbPushTorus(pos, nrm, col, uv, idx, radius, tube, partId) {
+        var segs = 128
+        var tubeSegs = 10
+        var base = pos.length
+        var i, j
+        for (i = 0; i < segs; i++) {
+            var theta = i / segs * Math.PI * 2
+            var ct = Math.cos(theta)
+            var st = Math.sin(theta)
+            for (j = 0; j < tubeSegs; j++) {
+                var phi = j / tubeSegs * Math.PI * 2
+                var cp = Math.cos(phi)
+                var sp = Math.sin(phi)
+                var rr = radius + tube * cp
+                pos.push(Qt.vector3d(rr * ct, tube * sp, rr * st))
+                nrm.push(Qt.vector3d(cp * ct, sp, cp * st))
+                col.push(Qt.vector4d(1, 1, 1, partId))
+                uv.push(Qt.vector2d(i / segs, 0))
+            }
+        }
+        for (i = 0; i < segs; i++) {
+            var i0 = base + i * tubeSegs
+            var i1 = base + ((i + 1) % segs) * tubeSegs
+            for (j = 0; j < tubeSegs; j++) {
+                var j1 = (j + 1) % tubeSegs
+                idx.push(i0 + j, i1 + j, i1 + j1)
+                idx.push(i0 + j, i1 + j1, i0 + j1)
+            }
+        }
+    }
+
+    function _orbPushSphere(pos, nrm, col, uv, idx, cx, cy, cz, radius, partId) {
+        var slices = 8
+        var stacks = 6
+        var base = pos.length
+        var i, j
+        for (i = 0; i <= stacks; i++) {
+            var v = i / stacks
+            var phi = v * Math.PI
+            var sp = Math.sin(phi), cp = Math.cos(phi)
+            for (j = 0; j <= slices; j++) {
+                var u = j / slices
+                var th = u * Math.PI * 2
+                var ct = Math.cos(th), st = Math.sin(th)
+                var nx = sp * ct, ny = cp, nz = sp * st
+                pos.push(Qt.vector3d(cx + radius * nx, cy + radius * ny, cz + radius * nz))
+                nrm.push(Qt.vector3d(nx, ny, nz))
+                col.push(Qt.vector4d(1, 1, 1, partId))
+                uv.push(Qt.vector2d(u, 0))
+            }
+        }
+        var stride = slices + 1
+        for (i = 0; i < stacks; i++) {
+            for (j = 0; j < slices; j++) {
+                var a = base + i * stride + j
+                var b = a + stride
+                idx.push(a, b, a + 1)
+                idx.push(a + 1, b, b + 1)
+            }
+        }
+    }
+
+    function rebuildOrbOrnaments() {
+        var key = memoryCount + "|" + toolsCount + "|" + resultsRadius.toFixed(3) + "|" + (resultsFade > 0.001 ? "1" : "0")
+        if (key === orbOrnamentKey && orbOrnamentPositions && orbOrnamentPositions.length)
+            return
+        orbOrnamentKey = key
+        var pos = [], nrm = [], col = [], uv = [], idx = []
+        _orbPushTorus(pos, nrm, col, uv, idx, memoryRingRadius, 0.016, 0)
+        _orbPushTorus(pos, nrm, col, uv, idx, toolsRingRadius, 0.020, 1)
+        if (resultsFade > 0.001)
+            _orbPushTorus(pos, nrm, col, uv, idx, resultsRingAuthored, 0.011, 2)
+        var i, a, n
+        n = memoryCount
+        for (i = 0; i < n; i++) {
+            a = memPhase + i * 2 * Math.PI / Math.max(n, 1)
+            _orbPushSphere(pos, nrm, col, uv, idx,
+                           memoryRingRadius * Math.cos(a), 0, memoryRingRadius * Math.sin(a),
+                           memoryBeadRadius, 3)
+        }
+        n = Math.min(toolsCount, 8)
+        for (i = 0; i < n; i++) {
+            a = toolPhase + i * 2 * Math.PI / Math.max(toolsCount, 1)
+            _orbPushSphere(pos, nrm, col, uv, idx,
+                           toolsRingRadius * Math.cos(a), 0, toolsRingRadius * Math.sin(a),
+                           toolsBeadRadius, 4)
+        }
+        orbOrnamentPositions = pos
+        orbOrnamentNormals = nrm
+        orbOrnamentColors = col
+        orbOrnamentUvs = uv
+        orbOrnamentIndexes = idx
+    }
+
+    function buildStarMesh() {
+        if (starPositions && starPositions.length)
+            return
+        // One ProceduralMesh draw for all three parallax layers. A small
+        // LCG (same seed per layer) places the 1,000 stars in the authored
+        // ranges; the vertex shader applies starDrift * rate. Built as a
+        // mesh instead of an InstanceList so the shader can compile
+        // without instancing built-ins.
+        function lcg(state) {
+            // Numerical Recipes LCG, 32-bit.
+            state[0] = (state[0] * 1664525 + 1013904223) >>> 0
+            return state[0] / 4294967296
+        }
+        var pos = []
+        var col = []
+        var uv0 = []
+        var uv1 = []
+        var idx = []
+        var layers = starLayers
+        var base = 0
+        var corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]]
+        for (var li = 0; li < layers.length; li++) {
+            var layer = layers[li]
+            var state = [layer.seed >>> 0]
+            var from = layer.from, to = layer.to
+            for (var i = 0; i < layer.count; i++) {
+                var ux = lcg(state), uy = lcg(state), uz = lcg(state), uc = lcg(state), up = lcg(state)
+                var ox = from.x + (to.x - from.x) * ux
+                var oy = from.y + (to.y - from.y) * uy
+                var oz = from.z + (to.z - from.z) * uz
+                var r0 = 0xa4 / 255, g0 = 0x73 / 255, b0 = 0xf0 / 255
+                var r1 = 0xd2 / 255, g1 = 0xb9 / 255, b1 = 0xf8 / 255
+                var tint = Qt.rgba(r0 + (r1 - r0) * uc, g0 + (g1 - g0) * uc, b0 + (b1 - b0) * uc, 1)
+                var px = layer.px0 + (layer.px1 - layer.px0) * up
+                for (var c = 0; c < 4; c++) {
+                    var cx = corners[c][0], cy = corners[c][1]
+                    pos.push(Qt.vector3d(ox + cx * 0.01, oy + cy * 0.01, oz))
+                    col.push(tint)
+                    uv0.push(Qt.vector2d(cx, cy))
+                    uv1.push(Qt.vector2d(px, layer.rate))
+                }
+                idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
+                base += 4
+            }
+        }
+        starPositions = pos
+        starColors = col
+        starUv0s = uv0
+        starUv1s = uv1
+        starIndexes = idx
     }
 
     function updateBeadScales() {
@@ -1661,6 +1837,59 @@ Item {
         }
         lists = next
         descriptors = desc
+        var mdesc = []
+        var mlists = ({
+            "0:hull": mergedHull0List,
+            "0:emissive": mergedEmissive0List,
+            "0:lens": mergedLens0List,
+            "1:hull": mergedHull1List,
+            "1:emissive": mergedEmissive1List,
+            "1:lens": mergedLens1List,
+            "2:hull": mergedHull2List,
+            "2:emissive": mergedEmissive2List,
+            "2:lens": mergedLens2List
+        })
+        var mparts = ["hull", "emissive", "lens"]
+        for (var mlod = 0; mlod < 3; mlod++) {
+            for (var mpi = 0; mpi < 3; mpi++) {
+                var mpart = mparts[mpi]
+                var mkey = mlod + ":" + mpart
+                var mMesh = mpart === "lens" ? "eyes" : (mpart === "emissive" ? "seams" : "hull")
+                mdesc.push({
+                    key: mkey,
+                    lod: mlod,
+                    part: mpart,
+                    source: "meshes/unit_" + mMesh + "_lod" + mlod + "_mesh.mesh"
+                })
+            }
+        }
+        mergedLists = mlists
+        mergedDescriptors = mdesc
+    }
+
+    function mergeUnitDraws() {
+        // One instanced draw per lod/part, across every caste. Hull, seams
+        // and eyes already share a mesh and material at a given lod; only
+        // the instance colour changes, so five caste draws collapse to one.
+        var mc = ({})
+        var used = 0
+        var mkeys = Object.keys(mergedLists)
+        for (var i = 0; i < mkeys.length; i++) {
+            var mkey = mkeys[i]
+            var entries = []
+            for (var ci = 0; ci < casteIds.length; ci++) {
+                var ck = casteIds[ci] + ":" + mkey
+                var insts = (lists[ck] && lists[ck].instances) ? lists[ck].instances : []
+                for (var j = 0; j < insts.length; j++)
+                    entries.push(insts[j])
+            }
+            mergedLists[mkey].instances = entries
+            mc[mkey] = entries.length
+            if (entries.length > 0)
+                used += 1
+        }
+        mergedCounts = mc
+        return used
     }
 
     function setParticles(rows) {
@@ -1881,6 +2110,17 @@ Item {
     function projectOrbLabels() {
         var shell = shellScreen()
         var closeUp = shell.rs >= 90
+        var key
+        if (!closeUp) {
+            // Overview chips pin to the untilted ring extremes, so spin
+            // must not retrigger layout (or the 360 mapFrom3DScene calls).
+            key = "o|" + toolsCount + "|" + memoryCount + "|" + Math.round(shell.rs) + "|" + Math.round(cameraDistance * 10) + "|" + Math.round(width) + "x" + Math.round(height)
+        } else {
+            key = "c|" + toolsCount + "|" + memoryCount + "|" + (orbResults || []).length + "|" + Math.round(shell.rs) + "|" + Math.round(cameraDistance * 10) + "|" + Math.round(memorySpin) + "|" + Math.round(toolsSpin)
+        }
+        if (key === orbLabelKey)
+            return
+        orbLabelComputeCount += 1
         var blocks = [], leaders = [], dots = [], chips = [], glyphs = [], screen = []
         var rects = [], beadGlows = []
         var tp = ringScreenPoints(toolsTiltEuler(), root.toolsRingRadius, 180, 0)
@@ -2019,12 +2259,6 @@ Item {
                 layoutResultTitles(orbResults, rp, shell, rects, beadGlows, tp.concat(mp), glyphs)
             }
         }
-        var key = (closeUp ? "c" : "o") + "|" + toolsCount + "|" + memoryCount + "|" + (orbResults || []).length
-            + "|" + Math.round(shell.rs) + "|" + Math.round(cameraDistance * 10) + "|" + Math.round(memorySpin) + "|" + Math.round(toolsSpin)
-        if (blocks.length)
-            key += "|" + Math.round(blocks[0].x) + "|" + Math.round(blocks[0].y)
-        if (key === orbLabelKey)
-            return
         orbLabelKey = key
         orbLabelBlocks = blocks
         orbLeaders = leaders
@@ -2213,6 +2447,8 @@ Item {
 
     Component.onCompleted: {
         ensureLists()
+        buildStarMesh()
+        rebuildOrbOrnaments()
         updateOverview()
     }
 
@@ -2277,22 +2513,26 @@ Item {
     }
 
     FrameAnimation {
-        running: true
+        running: root.viewOnScreen
         onTriggered: {
-            root.sceneTime += frameTime
-            root.stepUnits(frameTime)
+            if (!root.viewOnScreen)
+                return
+            // A hitch should not catch up a huge spin or layout step.
+            var dt = Math.min(frameTime, 0.05)
+            root.sceneTime += dt
+            root.stepUnits(dt)
             // Ease activity over about 0.5 s, then drift the star layers with it.
-            var k = Math.min(1, frameTime / 0.5)
+            var k = Math.min(1, dt / 0.5)
             root.hiveActivityShown += (root.hiveActivity - root.hiveActivityShown) * k
-            root.starDrift += frameTime * (0.25 + 2.75 * root.hiveActivityShown)
+            root.starDrift += dt * (0.25 + 2.75 * root.hiveActivityShown)
             root.orbEnergyShown += (root.orbEnergy - root.orbEnergyShown) * k
             var spinT = root.tokRate > 0 ? 8.0 : 20.0
-            root.orbSpinAngle += frameTime * (2.0 * Math.PI / spinT)
-            root.memorySpin += frameTime * 6.0
+            root.orbSpinAngle += dt * (2.0 * Math.PI / spinT)
+            root.memorySpin += dt * 6.0
             if (root.toolsCount > 0)
-                root.toolsSpin += frameTime * 30.0
+                root.toolsSpin += dt * 30.0
             if (root.tokRate > 0) {
-                root.pulsePhase += frameTime / 0.6
+                root.pulsePhase += dt / 0.6
                 if (root.pulsePhase >= 1.0)
                     root.pulsePhase -= Math.floor(root.pulsePhase)
                 // A 35 percent expanding HDR shell doubled the bloom disc.
@@ -2304,7 +2544,6 @@ Item {
                 root.pulseScale = 1
                 root.pulseGain = 0
             }
-            root.updateBeadScales()
             root.projectOrbLabels()
             root.refreshCurves()
         }
@@ -2544,6 +2783,7 @@ Item {
                     eulerRotation.y: root.memorySpin
                     Model {
                         objectName: "orbRingMemory"
+                        visible: false
                         source: "meshes/orb_ring_memory_d_mesh.mesh"
                     materials: CustomMaterial {
                         shadingMode: CustomMaterial.Unshaded
@@ -2568,7 +2808,7 @@ Item {
                     }
                     Model {
                         objectName: "orbMemoryBeads"
-                        visible: root.memoryCount > 0
+                        visible: false
                         instancing: memoryBeadInstanceList
                         source: "meshes/orb_bead_mesh.mesh"
                         materials: CustomMaterial {
@@ -2601,6 +2841,7 @@ Item {
                     eulerRotation.y: root.toolsSpin
                     Model {
                         objectName: "orbRingTools"
+                        visible: false
                         source: "meshes/orb_ring_tools_d_mesh.mesh"
                     materials: CustomMaterial {
                         shadingMode: CustomMaterial.Unshaded
@@ -2625,7 +2866,7 @@ Item {
                     }
                     Model {
                         objectName: "orbToolBeads"
-                        visible: root.toolsCount > 0
+                        visible: false
                         instancing: toolBeadInstanceList
                         source: "meshes/orb_bead_mesh.mesh"
                         materials: CustomMaterial {
@@ -2658,6 +2899,7 @@ Item {
                                    root.resultsRadius / root.resultsRingAuthored)
                 Model {
                     objectName: "orbRingResults"
+                    visible: false
                     source: "meshes/orb_ring_results_d_mesh.mesh"
                     materials: CustomMaterial {
                         shadingMode: CustomMaterial.Unshaded
@@ -2679,6 +2921,43 @@ Item {
                         property real backGain: root.ringBackGain
                         property vector3d orbCentre: root.orbCentre
                     }
+                }
+            }
+            Model {
+                objectName: "orbOrnaments"
+                visible: orbOrnamentPositions.length > 0
+                geometry: ProceduralMesh {
+                    primitiveMode: ProceduralMesh.Triangles
+                    positions: root.orbOrnamentPositions
+                    normals: root.orbOrnamentNormals
+                    colors: root.orbOrnamentColors
+                    uv0s: root.orbOrnamentUvs
+                    indexes: root.orbOrnamentIndexes
+                }
+                materials: CustomMaterial {
+                    shadingMode: CustomMaterial.Unshaded
+                    vertexShader: "shaders/orb_ornament.vert"
+                    fragmentShader: "shaders/orb_ornament.frag"
+                    sourceBlend: CustomMaterial.One
+                    destinationBlend: CustomMaterial.One
+                    depthDrawMode: Material.NeverDepthDraw
+                    property vector3d memoryTiltEuler: root.memoryTiltEuler()
+                    property vector3d toolsTiltEuler: root.toolsTiltEuler()
+                    property vector3d resultsTiltEuler: root.resultsTiltEuler()
+                    property real memorySpin: root.memorySpin
+                    property real toolsSpin: root.toolsSpin
+                    property real resultsScale: root.resultsRadius / root.resultsRingAuthored
+                    property real resultsFade: root.resultsFade
+                    property real memoryBeadRadius: root.memoryBeadRadius
+                    property real toolsBeadRadius: root.toolsBeadRadius
+                    property real ringMinPx: root.ringMinPx
+                    property real pxAngle: 0.6306 / Math.max(1, view.height)
+                    property real backGain: root.ringBackGain
+                    property vector3d orbCentre: root.orbCentre
+                    property vector3d tint: Qt.vector3d(1, 1, 1)
+                    property real gain: 1
+                    property vector3d litArc: root.toolsLitArc
+                    property real dim: 1
                 }
             }
         }
@@ -2753,7 +3032,9 @@ Item {
                 required property var modelData
                 objectName: "instanced-" + modelData.key
                 source: modelData.source
-                visible: !root.coreMode && (root.liveCounts[modelData.key] || 0) > 0
+                // Per-caste models stay in the tree for tests, but drawing
+                // goes through mergedSwarm (one draw per lod/part).
+                visible: false
                 instancing: root.lists[modelData.key]
                 materials: [
                     CustomMaterial {
@@ -2775,6 +3056,47 @@ Item {
                         property real spinAngle: 0
                         property real spinShear: 0
                         property vector3d tint: root.linearVec(root.casteColors[modelData.caste])
+                        property real gain: modelData.lod === 2 ? 0.8 : 2.2
+                        property vector3d litArc: Qt.vector3d(0, 0, 2)
+                        property real dim: 1
+                    }
+                ]
+            }
+        }
+
+        Repeater3D {
+            id: mergedSwarm
+            objectName: "mergedSwarm"
+            model: root.mergedDescriptors
+            Model {
+                required property var modelData
+                objectName: "instanced-merged-" + modelData.key
+                source: modelData.source
+                visible: !root.coreMode && (root.mergedCounts[modelData.key] || 0) > 0
+                instancing: (modelData.part === "hull"
+                             ? (modelData.lod === 0 ? mergedHull0List : (modelData.lod === 1 ? mergedHull1List : mergedHull2List))
+                             : (modelData.part === "lens"
+                                ? (modelData.lod === 0 ? mergedLens0List : (modelData.lod === 1 ? mergedLens1List : mergedLens2List))
+                                : (modelData.lod === 0 ? mergedEmissive0List : (modelData.lod === 1 ? mergedEmissive1List : mergedEmissive2List))))
+                materials: [
+                    CustomMaterial {
+                        shadingMode: modelData.part === "hull" ? CustomMaterial.Shaded : CustomMaterial.Unshaded
+                        vertexShader: modelData.part === "lens" ? "shaders/eye_lens.vert" : (modelData.part === "hull" ? "shaders/rim_hull.vert" : "shaders/emission_instanced.vert")
+                        fragmentShader: modelData.part === "lens" ? "shaders/eye_lens.frag" : (modelData.part === "hull" ? "shaders/rim_hull.frag" : "shaders/emission_instanced.frag")
+                        sourceBlend: modelData.part === "lens" ? CustomMaterial.One : CustomMaterial.NoBlend
+                        destinationBlend: modelData.part === "lens" ? CustomMaterial.One : CustomMaterial.NoBlend
+                        property real rimGain: modelData.lod === 2 ? 1.8 : 1.0
+                        property real rimPower: 3.0
+                        property real metal: 0.55
+                        property real rough: 0.32
+                        property real wearGain: (modelData.part === "hull" && modelData.lod === 1) ? 1.0 : 0.0
+                        property real lipGain: (modelData.part === "hull" && modelData.lod === 1) ? 1.0 : 0.0
+                        property real eyeStrength: modelData.lod === 2 ? 4.46 : 2.48
+                        property real coreWhite: 0.55
+                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                        property real spinAngle: 0
+                        property real spinShear: 0
+                        property vector3d tint: Qt.vector3d(1, 1, 1)
                         property real gain: modelData.lod === 2 ? 0.8 : 2.2
                         property vector3d litArc: Qt.vector3d(0, 0, 2)
                         property real dim: 1
@@ -2965,38 +3287,30 @@ Item {
             }
         }
 
-        // Starfield (GAP.md item 4): 3 parallax layers, one instanced draw each.
-        // Layers turn about the hive axis at different rates, so they slide past
-        // each other as hive activity rises.
-        Repeater3D {
+        // Starfield: 3 parallax layers, 1,000 points, one ProceduralMesh draw.
+        // The vertex shader turns each layer about the hive axis at its rate.
+        Model {
             objectName: "starLayers"
-            model: root.starLayers
-            Model {
-                required property var modelData
-                objectName: "starLayer"
-                source: "#Rectangle"
-                eulerRotation.y: root.starDrift * modelData.rate
-                instancing: RandomInstancing {
-                    instanceCount: modelData.count
-                    randomSeed: modelData.seed
-                    position: InstanceRange { from: modelData.from; to: modelData.to }
-                    color: InstanceRange { from: "#a473f0"; to: "#d2b9f8" }
-                    customData: InstanceRange {
-                        from: Qt.vector4d(modelData.px0, 0, 0, 0)
-                        to: Qt.vector4d(modelData.px1, 0, 0, 0)
-                    }
-                }
-                materials: CustomMaterial {
-                    shadingMode: CustomMaterial.Unshaded
-                    vertexShader: "shaders/star.vert"
-                    fragmentShader: "shaders/star.frag"
-                    sourceBlend: CustomMaterial.One
-                    destinationBlend: CustomMaterial.One
-                    cullMode: Material.NoCulling
-                    depthDrawMode: Material.NeverDepthDraw
-                    property real uViewportW: Math.max(1, view.width)
-                    property real uViewportH: Math.max(1, view.height)
-                }
+            visible: root.starPositions.length > 0
+            geometry: ProceduralMesh {
+                primitiveMode: ProceduralMesh.Triangles
+                positions: root.starPositions
+                colors: root.starColors
+                uv0s: root.starUv0s
+                uv1s: root.starUv1s
+                indexes: root.starIndexes
+            }
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/star.vert"
+                fragmentShader: "shaders/star.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                cullMode: Material.NoCulling
+                depthDrawMode: Material.NeverDepthDraw
+                property real uViewportW: Math.max(1, view.width)
+                property real uViewportH: Math.max(1, view.height)
+                property real uStarDrift: root.starDrift
             }
         }
     }
