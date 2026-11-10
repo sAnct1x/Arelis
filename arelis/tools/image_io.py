@@ -128,7 +128,12 @@ def _named_in_workspace(workspace: WorkspaceRoots, raw: str) -> Path | None:
     return workspace.resolve_read(str(hits[0])).path
 
 
-def resolve_image(workspace: WorkspaceRoots | None, path_str: str) -> Path:
+def resolve_image(
+    workspace: WorkspaceRoots | None,
+    path_str: str,
+    *,
+    suffixes: frozenset[str] = IMAGE_SUFFIXES,
+) -> Path:
     """An existing local image file, or an exception naming why not.
 
     Raises ValueError for a missing or non-image path, PermissionError for one
@@ -167,8 +172,9 @@ def resolve_image(workspace: WorkspaceRoots | None, path_str: str) -> Path:
         raise PermissionError(
             f"Path is outside the workspace and outside {allowed}: {raw}"
         )
-    if found.suffix.lower() not in IMAGE_SUFFIXES:
-        raise ValueError(f"Unsupported image type `{found.suffix}` (use png/jpg/webp/gif)")
+    if found.suffix.lower() not in suffixes:
+        shown = "/".join(sorted(s.lstrip(".") for s in suffixes if s != ".jpeg"))
+        raise ValueError(f"Unsupported image type `{found.suffix}` (use {shown})")
     if not found.is_file():
         raise FileNotFoundError(f"Image not found: {found}")
     return found

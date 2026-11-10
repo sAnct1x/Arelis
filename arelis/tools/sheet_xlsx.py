@@ -54,7 +54,7 @@ _NUMBER = re.compile(
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?$")
 _DIRECTIVE = re.compile(r"^\s*(chart|format)\s*:\s*(.*?)\s*$", re.I)
-_CHART_KINDS = ("bar", "column", "hbar", "line", "scatter", "pie", "area")
+_CHART_KINDS = ("bar", "column", "col", "hbar", "line", "scatter", "pie", "area")
 # Trailing total/mean rows stay out of a chart unless rows= says otherwise.
 _SUMMARY_LABEL = re.compile(
     r"^\s*(?:grand\s+)?(?:total|sum|subtotal|mean|average|avg|median|std|stdev|"
@@ -413,6 +413,7 @@ def add_charts(ws: Any, directives: list[str], *, header: bool, last: int, notes
             chart = {
                 "bar": BarChart,
                 "column": BarChart,
+                "col": BarChart,
                 "hbar": BarChart,
                 "line": LineChart,
                 "pie": PieChart,

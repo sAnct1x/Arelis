@@ -22,4 +22,38 @@ For 2-D data in FITS, HDF5 or NetCDF she also saves a quick-look picture
 (1st to 99th percentile stretch) under `outputs/images/data_previews/`, and
 can look at it if you ask what the data shows.
 
-Converting files to another format is a separate step.
+## Converting
+
+Ask for the format you want, for example "turn report.docx into a PDF" or
+"save air.nc as a spreadsheet". The new file lands next to her other
+documents (the project's `documents` folder, or `outputs/documents`), and
+the original is never changed.
+
+| From | To |
+| --- | --- |
+| Word, markdown, text, PowerPoint | PDF, Word, markdown, text |
+| PDF | Word, markdown, text (the text only; layout and pictures are not kept) |
+| CSV | Excel, and Excel to CSV. Numbers stay numbers. |
+| FITS, HDF5, NetCDF | CSV or Excel, then a chart from the CSV if you ask |
+| LaTeX | PDF (needs a TeX engine, see below), Word, markdown |
+| Pictures | PNG, JPG, WebP, TIFF, BMP, at any size |
+
+To pick one part of a file, add `#` and its name: `obs.xlsx#Sheet2`,
+`image.fits#1` or `image.fits#EVENTS`, `run.h5#/obs/flux`, `air.nc#tas`.
+Without one, she picks the first sheet, the first FITS table, or the
+largest NetCDF variable. A variable with more than one dimension is written
+one row per value, with a column for each coordinate.
+
+Excel holds at most 1,048,575 rows. A bigger table stops there, and she
+says so. A PDF or Word copy of a table shows its first 500 rows.
+
+Writing formulas or charts into a spreadsheet, or editing one you already
+have, is a separate feature.
+
+## LaTeX to PDF
+
+Arelis does not include a TeX engine. If MiKTeX, TeX Live or tectonic is
+installed (she looks for `pdflatex`, `xelatex`, `lualatex` and `tectonic`),
+she typesets the .tex with it, with shell escape off, and tells you which
+engine she used. If none is installed she says so, and can still convert
+the .tex to Word or markdown with its math kept.

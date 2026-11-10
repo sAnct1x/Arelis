@@ -25,7 +25,7 @@ from typing import Any
 
 from arelis.paths import display_path, ensure, outputs_dir
 from arelis.tools.base import ToolResult
-from arelis.tools.image_io import pillow_error, resolve_image
+from arelis.tools.image_io import IMAGE_SUFFIXES, pillow_error, resolve_image
 from arelis.workspace import WorkspaceRoots
 
 # The sizes people ask for by name. Anything else is width/height directly,
@@ -45,6 +45,11 @@ SIZE_PRESETS: dict[str, tuple[int, int]] = {
 }
 
 FIT_MODES = ("cover", "contain", "stretch")
+# Output formats and their file suffix. TIFF and BMP are read and written
+# here only; vision keeps to the formats the VL model decodes.
+OUTPUT_SUFFIX = {"png": ".png", "jpg": ".jpg", "webp": ".webp", "tiff": ".tif", "bmp": ".bmp"}
+_FORMAT_ALIASES = {"jpeg": "jpg", "tif": "tiff"}
+EDIT_SUFFIXES = IMAGE_SUFFIXES | {".tif", ".tiff", ".bmp"}
 FLIP_MODES = ("horizontal", "vertical")
 TEXT_ALIGNS = ("center", "top", "bottom")
 CROP_SIDES = ("left", "right", "top", "bottom", "center")
@@ -330,8 +335,11 @@ class ImageEditTool:
             },
             "format": {
                 "type": "string",
-                "enum": ["png", "jpg"],
-                "description": "Output format. Defaults to png (lossless).",
+                "enum": list(OUTPUT_SUFFIX),
+                "description": (
+                    "Output format. Defaults to png (lossless). A format on "
+                    "its own converts the file."
+                ),
             },
             # 1b marks. One block so a parallel image_edit edit can rebase.
             "annotate": {
@@ -423,7 +431,9 @@ class ImageEditTool:
         if missing:
             return ToolResult(ok=False, output=f"[fail:image_edit] {missing}")
         try:
-            source = resolve_image(self.workspace, str(kwargs.get("path") or ""))
+            source = resolve_image(
+                self.workspace, str(kwargs.get("path") or ""), suffixes=EDIT_SUFFIXES
+            )
         except (ValueError, PermissionError, FileNotFoundError) as exc:
             return ToolResult(ok=False, output=f"[fail:image_edit] {exc}")
 
@@ -568,6 +578,12 @@ class ImageEditTool:
                 return ToolResult(
                     ok=False, output="[fail:image_edit] upscale must be 2 or 4."
                 )
+        asked_fmt = str(kwargs.get("format") or "").strip().lower().lstrip(".")
+        asked_fmt = _FORMAT_ALIASES.get(asked_fmt, asked_fmt)
+        source_fmt = source.suffix.lower().lstrip(".")
+        converting = bool(asked_fmt) and asked_fmt != _FORMAT_ALIASES.get(
+            source_fmt, source_fmt
+        )
         if remove_background:
             fmt_forced = "png"
         else:
@@ -589,6 +605,7 @@ class ImageEditTool:
             and not marks.active
             and not remove_background
             and upscale is None
+            and not converting
         ):
             return ToolResult(
                 ok=False,
@@ -600,7 +617,8 @@ class ImageEditTool:
                     "rotate=, flip=horizontal, grayscale=true, blur=, "
                     "and/or text= to overlay glyphs. annotate=, scale_bar=, or "
                     "stretch=asinh also count. remove_background=true "
-                    "cuts the background out. upscale=4 enlarges with a model."
+                    "cuts the background out. upscale=4 enlarges with a model. "
+                    "format=webp (or png, jpg, tiff, bmp) converts the file."
                 ),
             )
 
@@ -614,11 +632,11 @@ class ImageEditTool:
             fmt = str(kwargs.get("format") or "png").strip().lower().lstrip(".")
         else:
             fmt = fmt_forced
-        if fmt in {"jpeg"}:
-            fmt = "jpg"
-        if fmt not in {"png", "jpg"}:
+        fmt = _FORMAT_ALIASES.get(fmt, fmt)
+        if fmt not in OUTPUT_SUFFIX:
             return ToolResult(
-                ok=False, output="[fail:image_edit] format must be png or jpg."
+                ok=False,
+                output="[fail:image_edit] format must be png, jpg, webp, tiff or bmp.",
             )
 
         try:
@@ -689,7 +707,7 @@ class ImageEditTool:
 
         with Image.open(source) as opened:
             original = opened.size
-            frame = opened.convert("RGBA" if fmt == "png" else "RGB")
+            frame = opened.convert("RGB" if fmt in {"jpg", "bmp"} else "RGBA")
 
         notes: list[str] = []
         cropped = False
@@ -822,13 +840,21 @@ class ImageEditTool:
             parts.append("nobg")
         if upscale:
             parts.append(f"x{upscale}")
-        suffix = ".png" if fmt == "png" else ".jpg"
-        if fmt == "jpg" and frame.mode != "RGB":
+        suffix = OUTPUT_SUFFIX[fmt]
+        if fmt in {"jpg", "bmp"} and frame.mode != "RGB":
             frame = frame.convert("RGB")
+        if suffix != source.suffix.lower() and not (
+            fmt == "jpg" and source.suffix.lower() == ".jpeg"
+        ):
+            notes.append(f"converted to {fmt}")
         dest = _unique_dest(directory, "-".join(parts), suffix)
         save_args: dict[str, Any] = {}
         if fmt == "jpg":
             save_args = {"quality": 92, "optimize": True}
+        elif fmt == "webp":
+            save_args = {"quality": 92, "method": 6}
+        elif fmt == "tiff":
+            save_args = {"compression": "tiff_lzw"}
         frame.save(dest, **save_args)
         if cosmetic:
             from arelis.tools.image_upscale import mark_cosmetic

@@ -1,4 +1,4 @@
-"""Track A1 read: doc_extract for science data and structured Word text."""
+"""Track A1: read and convert documents, sheets and science data."""
 
 from __future__ import annotations
 
@@ -6,9 +6,12 @@ import shutil
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from arelis.attachments import detect_kind, route_tool
 from arelis.tools.doc_extract import DocExtractTool
+from arelis.tools.document import DocumentTool
+from arelis.workspace import WorkspaceRoots
 
 # NetCDF-3 classic, written by netCDF4-python: tas(time, lat, lon) int16
 # packed with scale_factor 0.1, add_offset 200 and _FillValue -999 at [0, 0, 0].
@@ -106,3 +109,90 @@ def test_doc_extract_caps_fits_preview_and_classic_netcdf(
         raised = exc
     assert raised is not None, "oversized dim count must raise ReadError"
     assert "too many" in str(raised).lower()
+
+
+@pytest.fixture
+def docs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[DocumentTool, Path]:
+    import arelis.paths as paths_mod
+    import arelis.tools.document as document_mod
+
+    outputs = tmp_path / "data" / "outputs"
+    monkeypatch.setattr(paths_mod, "outputs_dir", lambda: outputs)
+    monkeypatch.setattr(document_mod, "outputs_dir", lambda: outputs)
+    tool = DocumentTool(WorkspaceRoots.from_paths([str(tmp_path)]))
+    return tool, outputs / "documents"
+
+
+async def test_document_converts_tables_with_types_and_science_to_csv(
+    tmp_path: Path, docs: tuple[DocumentTool, Path]
+) -> None:
+    from openpyxl import load_workbook
+
+    tool, out = docs
+    (tmp_path / "s.csv").write_text("name,value,zip\nalpha,1.5,007\n", encoding="utf-8")
+    shutil.copy(_CLASSIC, tmp_path / "air.nc")
+
+    made = await tool.run(format="xlsx", from_path=str(tmp_path / "s.csv"))
+    assert made.ok, made.output
+    rows = [[c.value for c in r] for r in load_workbook(out / "s.xlsx").active.iter_rows()]
+    assert rows == [["name", "value", "zip"], ["alpha", 1.5, "007"]]
+
+    made = await tool.run(format="csv", from_path=str(tmp_path / "air.nc"))
+    assert made.ok and "24 rows" in made.output
+    lines = (out / "air.csv").read_text(encoding="utf-8-sig").splitlines()
+    assert lines[0] == "time (days since 2000-01-01),lat (degrees_north),lon,tas (K)"
+    assert lines[1] == "0.0,10.0,0.0," and lines[2] == "0.0,10.0,90.0,200.1"
+    assert "quick-look plot" in made.output
+
+    made = await tool.run(format="csv", from_path=f"{tmp_path / 'air.nc'}#co2")
+    assert made.ok and "2 rows" in made.output
+
+
+async def test_docx_converts_to_markdown_in_reading_order(
+    tmp_path: Path, docs: tuple[DocumentTool, Path]
+) -> None:
+    from docx import Document
+
+    tool, out = docs
+    doc = Document()
+    doc.add_heading("Results", 1)
+    table = doc.add_table(rows=2, cols=2)
+    for (r, c), text in {(0, 0): "a", (0, 1): "b", (1, 0): "1", (1, 1): "2"}.items():
+        table.cell(r, c).text = text
+    doc.add_paragraph("after the table")
+    doc.save(str(tmp_path / "notes.docx"))
+
+    made = await tool.run(format="md", from_path=str(tmp_path / "notes.docx"))
+    assert made.ok, made.output
+    text = (out / "Results.md").read_text(encoding="utf-8")
+    assert text.index("# Results") < text.index("| a | b |") < text.index("after the table")
+
+
+async def test_latex_to_pdf_without_a_tex_engine_says_so(
+    tmp_path: Path, docs: tuple[DocumentTool, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import arelis.tools.file_convert as convert
+
+    monkeypatch.setattr(convert.shutil, "which", lambda _name: None)
+    tool, out = docs
+    (tmp_path / "p.tex").write_text(
+        "\\documentclass{article}\\begin{document}Hi\\end{document}", encoding="utf-8"
+    )
+    made = await tool.run(format="pdf", from_path=str(tmp_path / "p.tex"))
+    assert not made.ok
+    assert "needs a TeX engine" in made.output and "does not bundle" in made.output
+    assert not list(out.glob("*.pdf"))
+
+
+async def test_image_edit_format_alone_converts(tmp_path: Path) -> None:
+    from PIL import Image
+
+    from arelis.tools.image_edit import ImageEditTool
+
+    Image.new("RGB", (8, 6), "red").save(tmp_path / "pic.png")
+    tool = ImageEditTool(WorkspaceRoots.from_paths([str(tmp_path)]))
+    tool.output_dir = lambda: tmp_path / "edited"  # type: ignore[method-assign]
+    made = await tool.run(path=str(tmp_path / "pic.png"), format="webp")
+    assert made.ok, made.output
+    with Image.open(tmp_path / "edited" / "pic.webp") as opened:
+        assert opened.format == "WEBP" and opened.size == (8, 6)

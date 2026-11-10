@@ -219,7 +219,7 @@ async def test_traversal_and_outside_paths_stay_refused(
     escape = data / "escape.md"
     escape.write_text(_DATA_SECRET + "\n", encoding="utf-8")
     with pytest.raises(ValueError) as exc:
-        DocumentTool(roots)._read_source("outputs/documents/../../escape.md")
+        DocumentTool(roots)._source_file("outputs/documents/../../escape.md")
     assert _DATA_SECRET not in str(exc.value)
     assert "allowed root" in str(exc.value)
 
