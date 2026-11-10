@@ -45,6 +45,8 @@ ComboBox {
     delegate: ItemDelegate {
         id: del
         width: control.width
+        // Names the item for screen readers and UI Automation.
+        text: modelData
         implicitHeight: 28
         highlighted: control.highlightedIndex === index
         contentItem: Text {

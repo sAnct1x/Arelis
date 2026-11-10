@@ -914,3 +914,14 @@ def test_overseer_hud_panels_use_designed_fill(qt_app) -> None:
     assert other_c.alpha() != 0
     view.deleteLater()
     qt_app.processEvents()
+
+
+def test_command_status_shows_the_hive_refusal_reason() -> None:
+    """A mission refused by the hive (empty query) must say why, not just fail."""
+    refused = {"ok": False, "error": "Enter a research topic or Horizons target."}
+    assert (
+        overseer_runtime.command_status(True, refused)
+        == "Refused: Enter a research topic or Horizons target."
+    )
+    assert overseer_runtime.command_status(True, {"ok": True, "status": "launched"}) == "Request completed"
+    assert overseer_runtime.command_status(False, None) == "Request failed: Sentinel did not answer"

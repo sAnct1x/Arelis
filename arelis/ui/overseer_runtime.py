@@ -2021,6 +2021,19 @@ def resolve_hud_command(
     return refuse(f"Unavailable: no existing route for {name}")
 
 
+def command_status(ok: bool, body: Any) -> str:
+    """HUD status for a finished bridge request. A completed HTTP request can
+    still carry a backend refusal; show the hive's reason, not a bare failure."""
+    if not ok:
+        return "Request failed: Sentinel did not answer"
+    if isinstance(body, dict) and body.get("ok") is False:
+        reason = " ".join(str(body.get("error") or "").split())[:160]
+        return f"Refused: {reason}" if reason else "Refused by Sentinel"
+    if not isinstance(body, dict):
+        return "Request failed: Sentinel did not answer"
+    return "Request completed"
+
+
 def post_overseer(
     host: str,
     port: int,
@@ -2030,6 +2043,7 @@ def post_overseer(
     opener: Any = None,
 ) -> dict[str, Any]:
     """POST an existing Overseer route with the session token header. Never log the token."""
+    import urllib.error
     import urllib.request
 
     dest = path if str(path).startswith("/") else f"/{path}"
@@ -2045,6 +2059,17 @@ def post_overseer(
         method="POST",
     )
     get = opener or urllib.request.urlopen
-    with get(req, timeout=4.0) as resp:
-        raw = resp.read()
+    try:
+        with get(req, timeout=4.0) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as exc:
+        # The bridge answers a refusal (400) with {"ok": false, "error": ...}.
+        raw = exc.read()
+        try:
+            refused = json.loads(raw.decode("utf-8") or "{}")
+        except ValueError:
+            refused = {}
+        if not isinstance(refused, dict):
+            refused = {}
+        return {"ok": False, "error": str(refused.get("error") or f"HTTP {exc.code}")}
     return json.loads(raw.decode("utf-8") or "{}")
