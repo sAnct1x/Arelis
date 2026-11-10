@@ -56,6 +56,18 @@ def _view(qt_app):
     return view, root
 
 
+def _assert_overview_frame(root) -> None:
+    """Fit swarm and the default view share Iris's wide frame (BAND-SPEC)."""
+    d = float(root.property("overviewDistance"))
+    s = d / overseer_runtime.DEFAULT_CAMERA_DISTANCE
+    assert d >= overseer_runtime.DEFAULT_CAMERA_DISTANCE - 1e-3
+    assert abs(float(root.property("cameraDistance")) - d) < 1e-6
+    assert abs(float(root.property("cameraPitch")) - overseer_runtime.OVERVIEW_PITCH_DEG) < 1e-3
+    assert abs(float(root.property("cameraTargetX"))) < 1e-6
+    assert abs(float(root.property("cameraTargetY")) + 6.0 * s) < 1e-3
+    assert abs(float(root.property("cameraTargetZ")) + 3.0 * s) < 1e-3
+
+
 def test_overseer_pitch_passes_approved_close_mid_wide() -> None:
     assert overseer_runtime.pitch_deg(6.0) == 22.0
     assert overseer_runtime.pitch_deg(9.0) == 22.0
@@ -163,9 +175,9 @@ def test_overseer_camera_evidence_is_live_not_default(qt_app) -> None:
     fitted = ev["cameraDistance"]
     root.fitSwarm()
     qt_app.processEvents()
-    assert abs(float(root.property("cameraDistance")) - 96.0) < 1e-6
+    assert abs(float(root.property("cameraDistance")) - float(root.property("overviewDistance"))) < 1e-6
     assert float(root.property("cameraDistance")) != fitted
-    assert abs(float(root.property("cameraPitch")) - 55.0) < 1e-6
+    assert abs(float(root.property("cameraPitch")) - overseer_runtime.OVERVIEW_PITCH_DEG) < 1e-3
     view.deleteLater()
     qt_app.processEvents()
 
@@ -298,10 +310,7 @@ def test_overseer_fit_swarm_is_local_and_accessible(qt_app) -> None:
     assert hud is not None
     hud.hudCommand.emit("fit_swarm", {})
     qt_app.processEvents()
-    assert abs(float(root.property("cameraDistance")) - 96.0) < 1e-6
-    assert abs(float(root.property("cameraPitch")) - 55.0) < 1e-6
-    assert abs(float(root.property("cameraTargetX"))) < 1e-6
-    assert abs(float(root.property("cameraTargetZ"))) < 1e-6
+    _assert_overview_frame(root)
     view.deleteLater()
     qt_app.processEvents()
 
@@ -381,23 +390,17 @@ def test_overseer_fit_swarm_does_not_follow_selection_on_refresh(qt_app) -> None
     qt_app.processEvents()
     assert str(root.property("cameraMode")) == "fit"
     assert str(root.property("selectedUnitId")) == "SNT-HRV-001"
-    assert abs(float(root.property("cameraDistance")) - 96.0) < 1e-6
-    assert abs(float(root.property("cameraTargetX"))) < 1e-6
-    assert abs(float(root.property("cameraTargetZ"))) < 1e-6
+    _assert_overview_frame(root)
     win.apply_snapshot(snap)
     qt_app.processEvents()
     assert str(root.property("selectedUnitId")) == "SNT-HRV-001"
     assert str(root.property("cameraMode")) == "fit"
-    assert abs(float(root.property("cameraDistance")) - 96.0) < 1e-6
-    assert abs(float(root.property("cameraPitch")) - 55.0) < 1e-6
-    assert abs(float(root.property("cameraTargetX"))) < 1e-6
-    assert abs(float(root.property("cameraTargetY"))) < 1e-6
-    assert abs(float(root.property("cameraTargetZ"))) < 1e-6
+    _assert_overview_frame(root)
     root.selectUnit("SNT-WRD-001")
     qt_app.processEvents()
     assert str(root.property("selectedUnitId")) == "SNT-WRD-001"
     assert str(root.property("cameraMode")) == "fit"
-    assert abs(float(root.property("cameraTargetX"))) < 1e-6
+    _assert_overview_frame(root)
     teardown_sentinel_window(win)
     qt_app.processEvents()
 

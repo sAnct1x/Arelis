@@ -416,13 +416,9 @@ class SentinelWindow(QWidget):
         root = scene.rootObject()
         reduced = _reduced_motion()
         if root is not None:
-            root.setProperty(
-                "cameraDistance", overseer_runtime.DEFAULT_CAMERA_DISTANCE
-            )
-            root.setProperty(
-                "cameraPitch",
-                overseer_runtime.pitch_deg(overseer_runtime.DEFAULT_CAMERA_DISTANCE),
-            )
+            # Every open starts on Iris's wide frame, fitted to the free scene area.
+            if hasattr(root, "showOverview"):
+                root.showOverview()
             if hasattr(root, "setParticles"):
                 root.setParticles([])
         self._entry_timer.start()
