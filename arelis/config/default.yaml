@@ -729,9 +729,15 @@ voice:
     # (energy backend only; Silero uses voice.vad.threshold)
     speech_level: 0.015
     max_utterance_s: 60
-    # Talking over her cuts her off. Turn this off if you use speakers rather
-    # than a headset, where her own voice can trip the microphone.
-    barge_in: true
+    # Talking over her cuts her off. headset (default) arms that only when
+    # the output device looks like a headset or headphones (AirPods,
+    # Bluetooth hands-free, and names that contain Headset or Headphones).
+    # On speakers, or an unknown output, her own voice would reach the mic
+    # with no echo cancellation, so barge-in stays off during playback;
+    # use a headset, or press Stop, until echo cancellation lands.
+    # always is today's behaviour on any device. off disables playback
+    # interrupts. Legacy true/false in a local config mean always/off.
+    barge_in: headset
     # Headset default: the interrupt clip is the next question. Speakers:
     # false keeps the mixed clip as control-only (stop / allow / deny).
     barge_in_as_turn: true

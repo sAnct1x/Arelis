@@ -189,6 +189,8 @@ def apply_settings(window, values: dict[str, Any]) -> None:
 
     if window.voice_controller is not None and "input_device" in voice_patch:
         window.voice_controller.set_input_device(str(voice_patch.get("input_device") or ""))
+    if window.voice_controller is not None and "output_device" in voice_patch:
+        window.voice_controller.set_output_device(str(voice_patch.get("output_device") or ""))
     if window.speech_player is not None:
         if "output_device" in voice_patch:
             window.speech_player.set_output_device(str(voice_patch.get("output_device") or ""))
