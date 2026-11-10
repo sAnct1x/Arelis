@@ -235,6 +235,8 @@ class ConversationStage(GlassFrame):
         # Same copy _sync_composer_buttons() settles on, so the two agree. The
         # idle prompt is the centered VoidIdlePlaceholder label, not this.
         self.input.setPlaceholderText("message Arelis…")
+        self.input.setAccessibleName("Message")
+        self.input.setAccessibleDescription("message box")
         self.input.setFixedHeight(METRICS["control"])
         self.input.image_paste_requested.connect(self._paste_clipboard_image)
         self.input.textChanged.connect(self._on_composer_text)
