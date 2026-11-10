@@ -711,8 +711,11 @@ voice:
     short_silence_ms: 450
     short_utterance_ms: 2800
     # Ceiling of silence after real speech that ends a turn even if Smart Turn
-    # thinks the speaker is still mid-thought, and the floor when Smart Turn is off.
-    end_silence_ms: 2500
+    # thinks the speaker is still mid-thought, and the floor when Smart Turn is
+    # off. 1400 ms is in the 1200-1500 ms band: after the short Silero pause
+    # there is still time to resume mid-thought, and the worst-case wait is
+    # 1.1 s shorter than the old 2500 ms cap. Override this if you pause longer.
+    end_silence_ms: 1400
     # Level counted as speech, as a fraction of full scale. The floor is also
     # measured from the room at the start of each listen and the higher of the
     # two wins, so this is a lower bound rather than the whole test.

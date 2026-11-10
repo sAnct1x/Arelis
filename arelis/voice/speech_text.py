@@ -125,6 +125,49 @@ _SHORT_CLIP_CHARS = 72
 # Glue following sentences into one WAV so Kokoro keeps the breath across
 # periods instead of restarting on every full stop.
 _PACK_TARGET_CHARS = 160
+# Opening clause of a reply: break at clause punctuation after this many
+# words, or at this many characters, so first audio is a short Kokoro clip
+# (~30 ms/char on Atria). Later units stay whole sentences.
+_MIN_FIRST_CLAUSE_WORDS = 4
+_MAX_FIRST_CLAUSE_CHARS = 72
+_CJK_CLAUSE_CHARS = 8
+# A spaced dash, em dash, or en dash is a clause break. A hyphen in a
+# word, a flag like --output, or a numeric range like 12--15 is not.
+# Comma, semicolon, and colon only break when the mark sits at a token
+# boundary: whitespace or the end of the text after it.
+_CLAUSE_PUNCT = re.compile(
+    r"[,;:](?=\s|$)|[，、]|(?<=\s)(?:—+|–+|-+)(?=\s)"
+)
+_CLOCK_TIME = re.compile(
+    r"\b\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AaPp]\.?[Mm]\.?)?\b"
+)
+_NUMBER_OR_UNIT = re.compile(
+    r"""
+    [+-]?
+    (?:
+        \d{1,3}(?:,\d{3})+(?:\.\d+)?
+        |\d+\.\d+
+        |\d+
+    )
+    (?:\s*(?:
+        km/h|km/s|m/s|mph|kph|
+        parsecs?|light[\s-]years?|
+        lbs|lb|kg|mg|cm|mm|km|ft|in|mi|ms|
+        hrs|hr|min|sec|degrees|
+        [kcm]?m|s|%|°[CFcf]
+    ))?
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+_ABBREV_TOKEN = re.compile(
+    r"""
+    \b(?:
+        e\.g|i\.e|etc|vs|fig|approx|
+        dr|mr|mrs|ms|prof|st|no|al|inc|ltd|jr|sr
+    )\.
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 
 
 def split_sentences(text: str, *, language: str = "en") -> list[str]:
@@ -179,23 +222,157 @@ def _sentence_complete(chunk: str) -> bool:
     return True
 
 
+
+def _word_count(text: str) -> int:
+    return len(text.split())
+
+
+def _enough_opening(text: str, *, language: str = "en") -> bool:
+    zh = str(language or "").lower().startswith("zh") or bool(_CJK_RUN.search(text))
+    if zh:
+        glyphs = "".join(_CJK_RUN.findall(text))
+        return len(glyphs) >= _CJK_CLAUSE_CHARS or _word_count(text) >= _MIN_FIRST_CLAUSE_WORDS
+    return _word_count(text) >= _MIN_FIRST_CLAUSE_WORDS
+
+
+def _protected_spans(text: str) -> list[tuple[int, int]]:
+    """Spans that must not be used as a clause or max-char break."""
+    spans: list[tuple[int, int]] = []
+    for pattern in (_BARE_URL, _CLOCK_TIME, _NUMBER_OR_UNIT, _ABBREV_TOKEN):
+        for match in pattern.finditer(text):
+            start, end = match.start(), match.end()
+            # A URL regex eats trailing commas and periods; those can still
+            # be a clause break after the address.
+            if pattern is _BARE_URL:
+                while end > start and text[end - 1] in ",.;:!?)":
+                    end -= 1
+            # "e.g.," keeps the abbreviation comma; "1,200" is already in
+            # the number span, including its thousands separators.
+            if pattern is _ABBREV_TOKEN and end < len(text) and text[end] == ",":
+                end += 1
+            spans.append((start, end))
+    if not spans:
+        return []
+    spans.sort()
+    merged = [spans[0]]
+    for start, end in spans[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end:
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _in_protected(index: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start <= index < end for start, end in spans)
+
+
+def _clause_cut(text: str, _start: int, end: int) -> int:
+    cut = end
+    closers = {chr(34), chr(39), chr(41), chr(93)}
+    while cut < len(text) and text[cut] in closers:
+        cut += 1
+    return cut
+
+
+def _split_first_clause(text: str, *, language: str = "en") -> tuple[str, str] | None:
+    """Split the first sentence into an opening clause and the remainder.
+
+    Returns None when the sentence should stay whole: too short, no safe
+    break, or a break that would land inside a number, abbreviation, URL,
+    clock time, or unit.
+    """
+    body = (text or "").strip()
+    if not body:
+        return None
+    spans = _protected_spans(body)
+    for match in _CLAUSE_PUNCT.finditer(body):
+        if _in_protected(match.start(), spans):
+            continue
+        cut = _clause_cut(body, match.start(), match.end())
+        if cut >= len(body):
+            continue
+        clause = body[:cut].rstrip()
+        rest = body[cut:].lstrip()
+        if not clause or not rest:
+            continue
+        if not _enough_opening(clause, language=language):
+            continue
+        if len(clause) <= _MAX_FIRST_CLAUSE_CHARS:
+            return clause, rest
+    if len(body) <= _MAX_FIRST_CLAUSE_CHARS:
+        return None
+    # No safe punctuation inside the cap: cut at a word boundary.
+    for index in range(min(_MAX_FIRST_CLAUSE_CHARS, len(body)), 0, -1):
+        if not body[index - 1].isspace():
+            continue
+        if _in_protected(index - 1, spans) or _in_protected(index, spans):
+            continue
+        clause = body[:index].rstrip()
+        rest = body[index:].lstrip()
+        if not clause or not rest:
+            continue
+        if not _enough_opening(clause, language=language):
+            continue
+        if any(start < index < end for start, end in spans):
+            continue
+        return clause, rest
+    return None
+
+
+def _split_opening_clause(sentences: list[str], *, language: str = "en") -> list[str]:
+    """Keep first-unit indexing stable: clause, then the rest of sentence 0."""
+    if not sentences:
+        return sentences
+    parts = _split_first_clause(sentences[0], language=language)
+    if parts is None:
+        return sentences
+    clause, rest = parts
+    return [clause, rest, *sentences[1:]]
+
+
+def _units_from_prepared(
+    prepared: str, *, finalize: bool, language: str = "en"
+) -> list[str]:
+    raw = (prepared or "").strip()
+    if not raw:
+        return []
+    sentences = split_sentences(raw, language=language) or ([raw] if finalize else [])
+    return _split_opening_clause(sentences, language=language)
+
+
+
+def _is_opening_remainder(
+    prepared: str, rest: str, *, language: str = "en"
+) -> bool:
+    """True when rest is the leftover of a split first sentence."""
+    sentences = split_sentences((prepared or "").strip(), language=language)
+    if not sentences:
+        return False
+    parts = _split_first_clause(sentences[0], language=language)
+    return parts is not None and parts[1] == rest
+
+
 def next_speakable_units(
     prepared: str, already: int, *, finalize: bool, language: str = "en"
 ) -> tuple[list[str], int]:
-    """Return new clips and how many sentences have now been handed off.
+    """Return new clips and how many units have now been handed off.
 
-    `already` is a sentence count, not a clip count. The first sentence
-    starts as soon as it is complete. Later short leftovers wait for a
+    `already` counts units in the opening-clause-expanded sentence list,
+    not clips. The first unit of a reply is an opening clause when a
+    safe break exists, and it starts as soon as that clause is in the
+    buffer, even if the rest of the first sentence is still streaming.
+    Later units stay whole sentences. Later short leftovers wait for a
     neighbor so she does not restart on every period. Neighboring
     sentences are glued into one clip until ``_PACK_TARGET_CHARS``.
     Finalize flushes whatever is left.
     """
     if already < 0:
         already = 0
-    raw = (prepared or "").strip()
-    if not raw:
-        return [], already
-    sentences = split_sentences(raw, language=language) or ([raw] if finalize else [])
+    sentences = _units_from_prepared(
+        prepared, finalize=finalize, language=language
+    )
     if already >= len(sentences):
         return [], already
 
@@ -203,8 +380,8 @@ def next_speakable_units(
     pending = sentences[already:limit]
     if not pending:
         return [], already
-    # Later leftovers can wait for a neighbor. The first sentence of a
-    # reply has to start now — holding it until finalize is how the
+    # Later leftovers can wait for a neighbor. The first unit of a
+    # reply has to start now: holding it until finalize is how the
     # whole answer types out and she sits silent until Kokoro gets it.
     if (
         not finalize
@@ -216,6 +393,22 @@ def next_speakable_units(
 
     clips: list[str] = []
     consumed = already
+    # Never pack the first unit with later sentences. First audio waits
+    # on that clip at about 30 ms/char, so it has to stay short. The
+    # remainder of a split first sentence also stays its own clip, so
+    # it is not glued onto sentence two.
+    if already == 0:
+        clips.append(pending[0])
+        consumed = 1
+        pending = pending[1:]
+        if pending and _is_opening_remainder(
+            prepared, pending[0], language=language
+        ):
+            clips.append(pending[0])
+            consumed = 2
+            pending = pending[1:]
+        if not pending:
+            return clips, consumed
     buf: list[str] = []
     size = 0
     for sentence in pending:
@@ -252,7 +445,9 @@ def heard_sentence_count(
     """
     if not heard:
         return 0
-    sentences = split_sentences(prepared, language=language)
+    sentences = _units_from_prepared(
+        prepared, finalize=False, language=language
+    )
     count = 0
     for sentence, old in zip(sentences, heard, strict=False):
         if sentence != old:

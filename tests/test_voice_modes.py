@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from tests.voice_helpers import (
     _chord,
+    _config,
     _controller,
+    _FakeRecorder,
     _hotkey_window,
     _silence,
     _tone,
@@ -89,9 +91,32 @@ def test_one_held_chord_latches_conversation_on(qt_app) -> None:
 
 
 
+def test_end_silence_default_is_1400_ms_and_a_user_override_still_applies(qt_app) -> None:
+    """The shipped hard ceiling is 1400 ms; a config override is honored."""
+    import yaml
+
+    from arelis.config import DEFAULT_CONFIG_PATH
+    from arelis.ui.voice_control import DEFAULT_END_SILENCE_MS, VoiceController
+
+    shipped = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    assert shipped["voice"]["conversation"]["end_silence_ms"] == 1400
+    assert DEFAULT_END_SILENCE_MS == 1400
+
+    controller = VoiceController(_config())
+    assert controller._end_silence_ms == 1400
+
+    overridden = VoiceController(_config(conversation={"end_silence_ms": 2500}))
+    assert overridden._end_silence_ms == 2500
+
+
 def test_conversation_turn_survives_two_second_pause_and_ends_at_end_silence(qt_app) -> None:
-    """#260 (a): a 2 s mid-thought pause stays one turn; 2.5 s of silence ends it."""
-    controller, recorder = _controller(qt_app)
+    """#260 (a): with a 2500 ms ceiling, a 2 s mid-thought pause stays one turn."""
+    from arelis.ui.voice_control import VoiceController
+
+    controller = VoiceController(_config(conversation={"end_silence_ms": 2500}))
+    recorder = _FakeRecorder(controller)
+    controller.recorder = recorder
+    recorder.frames.connect(controller._on_frames)
     turns: list[float] = []
     controller.utterance.connect(
         lambda pcm, rate, channels, deliver: turns.append(len(pcm) / (2 * rate))
