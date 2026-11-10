@@ -40,8 +40,10 @@ without per-tentacle QML objects. Four fixed source
 nodes sit at the scene edge (arXiv, Wikipedia, Horizons, Web). A source
 lights up and beams toward the core only while a real harvest fetch for
 that source is live in the hive snapshot (a harvest_target node or a
-harvester unit mid-extract). Idle sources stay dim. No extra poll timer:
-the existing snapshot path carries the signal. The glow
+harvester unit mid-extract). Idle sources stay dim. Each source has a
+readable name under it, the same size lit or idle, with "fetching" or
+"idle" below; a source hidden behind a HUD panel hides its name too.
+No extra poll timer: the existing snapshot path carries the signal. The glow
 writes clip position from that waved mesh; the lens writes clip
 position from the mesh as modeled, so those unshaded parts stay on
 the units instead of stretching into a covering plate or stray streaks. The wheel,
@@ -56,7 +58,14 @@ colours and Warrants mean:
 caste, task or ring, 44 px rows, engaged first), a docked inspector for
 the selected unit (see "The inspector dock" below), and a forensic
 console for live logs and mission dispatch. Inspector actions and
-dispatch use the hive's existing command paths. Recall is disabled:
+dispatch use the hive's existing command paths. Dispatch needs a query
+(a topic, or a Horizons target) unless Mode is security_audit; if the hive
+refuses a request the console says why, for example "Refused: Enter a
+research topic or Horizons target." Dispatch, the query field and each
+Mode choice have names for screen readers and UI Automation. The Mode box
+also lists each mode as its own item (multi, arxiv, horizons, wikipedia,
+security_audit) without opening the menu, so a screen reader or UI
+Automation can pick one directly. Recall is disabled:
 it would shrink the whole caste, not just this unit. Focus frames the
 selected unit from its snapshot position (local camera only; no new hive
 route). Retask is disabled: the hive cannot give one unit a new job, and
