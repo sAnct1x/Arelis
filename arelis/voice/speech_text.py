@@ -131,10 +131,12 @@ _PACK_TARGET_CHARS = 160
 _MIN_FIRST_CLAUSE_WORDS = 4
 _MAX_FIRST_CLAUSE_CHARS = 72
 _CJK_CLAUSE_CHARS = 8
-# Spaced dash, em dash, or en dash is a clause break; a hyphen in a word
-# or a date is not.
+# A spaced dash, em dash, or en dash is a clause break. A hyphen in a
+# word, a flag like --output, or a numeric range like 12--15 is not.
+# Comma, semicolon, and colon only break when the mark sits at a token
+# boundary: whitespace or the end of the text after it.
 _CLAUSE_PUNCT = re.compile(
-    r"[,;:，、]|—+|–+|-{2,}|(?<=\s)-(?=\s)"
+    r"[,;:](?=\s|$)|[，、]|(?<=\s)(?:—+|–+|-+)(?=\s)"
 )
 _CLOCK_TIME = re.compile(
     r"\b\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AaPp]\.?[Mm]\.?)?\b"

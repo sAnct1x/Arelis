@@ -148,6 +148,37 @@ def test_first_unit_of_a_reply_is_a_clause_later_units_stay_sentences() -> None:
     assert already >= 1
     assert len(clips[0]) <= 72
 
+    # Unspaced dashes inside a flag or a numeric range stay in the token.
+    # A spaced dash is still a clause break.
+    clips, _ = next_speakable_units(
+        "Please run it with --output, then wait for the build to finish tonight.",
+        0,
+        finalize=False,
+    )
+    assert clips[0] == "Please run it with --output,"
+    assert not clips[0].endswith("--")
+    clips, _ = next_speakable_units(
+        "Please read pages 12--15, then tell me the summary of the chapter.",
+        0,
+        finalize=False,
+    )
+    assert clips[0] == "Please read pages 12--15,"
+    clips, _ = next_speakable_units(
+        "The path goes around -- the forest is dark tonight after the long rain.",
+        0,
+        finalize=False,
+    )
+    assert clips[0] == "The path goes around --"
+
+    # After prepare_spoken_text strips inline code, a comma inside the
+    # leftover token is not a clause comma.
+    prepared = prepare_spoken_text(
+        "Please go ahead and call `foo,bar` with the settings from last time tonight."
+    )
+    clips, _ = next_speakable_units(prepared, 0, finalize=False)
+    assert "foo,bar" in clips[0]
+    assert not clips[0].endswith("foo,")
+
 
 def test_spoken_reply_says_dates_numbers_and_symbols_as_words() -> None:
     """Dates, #2, degrees, and markdown are words by the time Kokoro hears them.
