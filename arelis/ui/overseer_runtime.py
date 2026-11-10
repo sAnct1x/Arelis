@@ -39,7 +39,7 @@ FOV_DEG = 35.0
 UNIT_WORLD_H = 1.56
 PARTICLE_BUDGET = 520
 MOTE_FRACTION = 0.40
-SCENE_FIXED_DRAW = 11  # floor, core, 4 rings, conduits, particles, 3 spare, glyph trails
+SCENE_FIXED_DRAW = 8  # core, lane guides, perimeter, conduits, particles, 2 spare, glyphs
 MAX_UNIT_DRAW = 45  # 5 castes x 3 LOD x 3 parts
 MAX_TRIS = 300_000
 
@@ -136,6 +136,145 @@ def tentacle_speed(state: str | None) -> float:
     if "PATROL" in s or not s or s == "IDLE":
         return 0.55
     return 0.55
+
+
+# Caste bands (Iris BAND-SPEC.md, Nov 9). Spec space is +Z up; the scene is
+# +Y up, so spec (x, y, z) draws at (x, z, -y). Values are the spec's fitted
+# starting values. caste: (base radius, lane gap, tilt_x, tilt_y, height, lap s)
+BAND_SPEC: dict[str, tuple[float, float, float, float, float, float]] = {
+    "sanitizer": (3.6, 1.00, 0.30, 0.08, 0.9, 60.0),
+    "warden": (7.95, 1.25, -0.16, 0.26, -0.5, 90.0),
+    "harvester": (15.2, 1.35, 0.10, -0.18, 0.4, 120.0),
+}
+BAND_OF_CASTE = {
+    "sanitizer": "sanitizer",
+    "warden": "warden",
+    "stalker": "warden",
+    "harvester": "harvester",
+}
+PERIMETER_MIN = 35.0
+PERIMETER_MARGIN = 10.0
+SOURCE_PAST_PERIMETER = 5.0
+TRIPWIRE_LAP_S = 180.0
+TRIPWIRE_Y = 0.25
+MAX_OVERSEER_UNITS = 128
+
+
+def _patrolling(state: object) -> bool:
+    # Only units the hive reports as idle; a missing state keeps its own position.
+    s = str(state or "").upper()
+    return s in {"IDLE", "DOCKED"} or "PATROL" in s
+
+
+def band_layout(counts: dict[str, int]) -> dict[str, Any]:
+    """Lane count, radii and perimeter from units per caste (spec scaling rule)."""
+    bands: list[dict[str, Any]] = []
+    width_h = 0.0
+    radius_h = 0.0
+    for band, (base, gap, tx, ty, height, lap) in BAND_SPEC.items():
+        n = sum(c for caste, c in counts.items() if BAND_OF_CASTE.get(caste) == band)
+        lanes = max(2, min(4, math.ceil(n / 12) if n else 2))
+        radius = base + 1.1 * math.sqrt(max(n, 1))
+        width = (lanes - 1) * gap
+        if band == "harvester":
+            radius_h, width_h = radius, width
+        lane_rows = []
+        for i in range(lanes):
+            off = i - (lanes - 1) / 2.0
+            omega = (2.0 * math.pi / lap) * (1.0 + 0.08 * (lanes - 1 - i) / (lanes - 1))
+            lane_rows.append(
+                {"r": round(radius + off * gap, 4), "z": round(off * 0.25, 4), "omega": omega}
+            )
+        bands.append({
+            "caste": band, "units": n, "lanes": lane_rows, "radius": round(radius, 4),
+            "width": round(width, 4), "tilt_x": tx, "tilt_y": ty, "height": height,
+            "color": CASTE_COLOR[band],
+        })
+    perimeter = max(PERIMETER_MIN, radius_h + width_h / 2.0 + PERIMETER_MARGIN)
+    return {
+        "bands": bands,
+        "perimeter": round(perimeter, 4),
+        "sourceRadius": round(perimeter + SOURCE_PAST_PERIMETER, 4),
+    }
+
+
+def band_point(
+    band: dict[str, Any], lane: dict[str, Any], theta: float
+) -> tuple[float, float, float]:
+    """Scene position of angle theta on one lane: Rx(tilt_x) * Ry(tilt_y), then height."""
+    x, y, z = math.cos(theta) * lane["r"], math.sin(theta) * lane["r"], lane["z"]
+    cy, sy = math.cos(band["tilt_y"]), math.sin(band["tilt_y"])
+    x, z = x * cy + z * sy, -x * sy + z * cy
+    cx, sx = math.cos(band["tilt_x"]), math.sin(band["tilt_x"])
+    y, z = y * cx - z * sx, y * sx + z * cx
+    return (x, z + band["height"], -y)
+
+
+def place_band_units(
+    units: list[dict[str, Any]], snapshot_ts: float | None = None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Put idle units on their caste lane; working units keep their hive position.
+
+    Lanes: units in a band are dealt round-robin in id order (creation order),
+    evenly spaced, lanes interleaved, inner lanes lap 8% faster. Position is a
+    pure function of the snapshot clock, so laps stay continuous between polls
+    and the view extrapolates along the tangent velocity it is given.
+    """
+    t = float(snapshot_ts or 0.0)
+    counts: dict[str, int] = {}
+    for u in units:
+        caste = str(u.get("caste") or "").lower()
+        counts[caste] = counts.get(caste, 0) + 1
+    layout = band_layout(counts)
+    by_band = {b["caste"]: b for b in layout["bands"]}
+    members: dict[str, list[int]] = {}
+    tripwires: list[int] = []
+    for idx, u in enumerate(units):
+        caste = str(u.get("caste") or "").lower()
+        if caste == "tripwire":
+            tripwires.append(idx)
+        elif caste in BAND_OF_CASTE:
+            members.setdefault(BAND_OF_CASTE[caste], []).append(idx)
+    out = [dict(u) for u in units]
+
+    def put(idx: int, pos: tuple[float, float, float], vel: tuple[float, float, float]) -> None:
+        row = out[idx]
+        if not _patrolling(row.get("state")):
+            return
+        row["position"] = [round(c, 4) for c in pos]
+        row["velocity"] = [round(c, 4) for c in vel]
+        speed = math.hypot(vel[0], vel[2])
+        if speed > 1e-6:
+            row["heading"] = [vel[0] / speed, 0.0, vel[2] / speed]
+
+    for band_id, idxs in members.items():
+        band = by_band[band_id]
+        lanes = band["lanes"]
+        order = sorted(idxs, key=lambda k: str(units[k].get("unit_id") or ""))
+        per_lane = [order[i :: len(lanes)] for i in range(len(lanes))]
+        for i, lane_units in enumerate(per_lane):
+            k = len(lane_units)
+            if not k:
+                continue
+            lane = lanes[i]
+            phase = i * 2.0 * math.pi / (k * len(lanes))
+            for j, idx in enumerate(lane_units):
+                theta = phase + 2.0 * math.pi * j / k + lane["omega"] * t
+                a = band_point(band, lane, theta)
+                b = band_point(band, lane, theta + 1e-3)
+                vel = tuple((bb - aa) / 1e-3 * lane["omega"] for aa, bb in zip(a, b, strict=True))
+                put(idx, a, vel)  # type: ignore[arg-type]
+    n_trip = len(tripwires)
+    if n_trip:
+        r = layout["perimeter"]
+        omega = 2.0 * math.pi / TRIPWIRE_LAP_S
+        order = sorted(tripwires, key=lambda k: str(units[k].get("unit_id") or ""))
+        for j, idx in enumerate(order):
+            theta = 0.3 + 2.0 * math.pi * j / n_trip + omega * t
+            pos = (math.cos(theta) * r, TRIPWIRE_Y, -math.sin(theta) * r)
+            vel = (-math.sin(theta) * r * omega, 0.0, -math.cos(theta) * r * omega)
+            put(idx, pos, vel)
+    return out, layout
 
 
 # Front tentacle reach: one pair per open harvest fetch, capped at the
@@ -1210,13 +1349,14 @@ NODE_KIND_COLOR = {
 }
 
 # Fixed edge sources for the Overseer. Beams light only on a real harvest fetch.
-HARVEST_SOURCE_EDGE_R = 26.0
+HARVEST_SOURCE_EDGE_R = PERIMETER_MIN + SOURCE_PAST_PERIMETER
 HARVEST_SOURCES: tuple[tuple[str, str, float, str], ...] = (
-    # id, label, angle_radians, color
-    ("arxiv", "arXiv", 0.55, "#8fd3ff"),
-    ("wikipedia", "Wikipedia", 2.15, "#a78bfa"),
-    ("horizons", "Horizons", 3.75, "#7ee0c8"),
-    ("web", "Web", 5.35, "#e879f9"),
+    # id, label, angle_radians (spec space, BAND-SPEC.md), color.
+    # Horizons takes the spec's PubMed slot (62 deg); the hive has no PubMed source.
+    ("arxiv", "arXiv", math.radians(8.0), "#8fd3ff"),
+    ("wikipedia", "Wikipedia", math.radians(128.0), "#a78bfa"),
+    ("horizons", "Horizons", math.radians(62.0), "#7ee0c8"),
+    ("web", "Web", math.radians(160.0), "#e879f9"),
 )
 HARVEST_SOURCE_IDS = {row[0] for row in HARVEST_SOURCES}
 
@@ -1272,16 +1412,20 @@ def active_harvest_sources(
     return active
 
 
-def build_harvest_source_conduits(active: set[str] | None = None) -> list[dict[str, Any]]:
+def build_harvest_source_conduits(
+    active: set[str] | None = None, radius: float | None = None
+) -> list[dict[str, Any]]:
     """Always place labeled edge source beacons; beam packets only when active."""
     hot = set(active or ())
     out: list[dict[str, Any]] = []
     labels: list[dict[str, Any]] = []
+    edge_r = float(radius) if radius else HARVEST_SOURCE_EDGE_R
     for i, (sid, label, angle, color) in enumerate(HARVEST_SOURCES):
         is_hot = sid in hot
-        x = HARVEST_SOURCE_EDGE_R * math.cos(angle)
-        z = HARVEST_SOURCE_EDGE_R * math.sin(angle)
-        y = 1.6
+        # Spec space (x, y) on the ground maps to scene (x, -z).
+        x = edge_r * math.cos(angle)
+        z = -edge_r * math.sin(angle)
+        y = 3.0
         nx, ny, nz = _clamp_conduit_coord(x, y, z)
         labels.append({
             "id": sid,
@@ -1422,7 +1566,7 @@ def build_glyph_trails(
 
 
 def _clamp_conduit_coord(
-    x: float, y: float, z: float, limit: float = 36.0
+    x: float, y: float, z: float, limit: float = 46.0
 ) -> tuple[float, float, float]:
     r = math.hypot(x, z)
     if r > limit and r > 0.0:
@@ -1465,6 +1609,7 @@ def build_conduits(
     fx_events: list[dict[str, Any]] | None = None,
     *,
     active_sources: set[str] | None = None,
+    source_radius: float | None = None,
 ) -> list[dict[str, Any]]:
     """Build hardware-instanced 3D conduit packet and node beacon descriptors."""
     out: list[dict[str, Any]] = []
@@ -1473,7 +1618,7 @@ def build_conduits(
         source_active = active_harvest_sources(units, nodes)
     else:
         source_active = active_sources
-    out.extend(build_harvest_source_conduits(source_active))
+    out.extend(build_harvest_source_conduits(source_active, radius=source_radius))
     node_map: dict[str, tuple[float, float, float, str]] = {}
 
     for i, node in enumerate(nodes or []):
@@ -1672,6 +1817,7 @@ def build_frame(
     snapshot_ts: float | None = None,
 ) -> dict[str, Any]:
     report = report or load_mesh_report()
+    units, layout = place_band_units(list(units)[:MAX_OVERSEER_UNITS], snapshot_ts)
     assigned = assign_lods(units, camera_distance, viewport_h, prev_lods, target=target)
     assigned = enforce_budget(assigned, report)
     fetches = open_fetch_counts(assigned, nodes)
@@ -1681,7 +1827,11 @@ def build_frame(
     budget = budget_from_buckets(buckets, report)
     source_active = active_harvest_sources(assigned, nodes)
     conduits = build_conduits(
-        assigned, nodes=nodes, fx_events=fx_events, active_sources=source_active
+        assigned,
+        nodes=nodes,
+        fx_events=fx_events,
+        active_sources=source_active,
+        source_radius=layout["sourceRadius"],
     )
     source_labels = list(getattr(build_harvest_source_conduits, "last_labels", []) or [])
     glyph_trails = build_glyph_trails(receipts, snapshot_ts)
@@ -1698,6 +1848,8 @@ def build_frame(
         "sourceLabels": source_labels,
         "activeSources": sorted(source_active),
         "glyphTrails": glyph_trails,
+        "bands": layout["bands"],
+        "perimeter": layout["perimeter"],
     }
 
 

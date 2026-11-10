@@ -58,7 +58,17 @@ The text comes only from the result's receipt in the hive snapshot; a
 result with no title shows no text. At most four results fly at once
 (a fifth ends the oldest), each line is cut at 60 characters, and text
 from every source is the same size. The GPU moves the letters, so the
-CPU only builds them once when a result arrives. The glow
+CPU only builds them once when a result arrives. Idle units (patrolling
+or docked) fly around the core on tilted bands, one band per caste:
+Sanitizers closest, then Wardens with Stalkers, then Harvesters. Each band
+has its own tilt and height and splits into two to four side-by-side lanes
+as its caste grows (one more lane per twelve units), and the bands widen
+with more units. Inner lanes go round a little faster. Tripwires ride a
+ring at the outer edge, and the sources sit just past it. Units that are
+working keep the position the hive reports. Where a unit sits on its lane
+follows the snapshot clock, so the view needs no extra timer and draws all
+lanes as one line set plus the edge ring. The Overseer shows up to 128
+units. The glow
 writes clip position from that waved mesh; the lens writes clip
 position from the mesh as modeled, so those unshaded parts stay on
 the units instead of stretching into a covering plate or stray streaks. The wheel,

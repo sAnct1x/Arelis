@@ -32,7 +32,8 @@ def _units() -> list[dict]:
         {
             "unit_id": "SNT-HRV-001",
             "caste": "harvester",
-            "state": "PATROLLING",
+            # Working, so it keeps its hive position (idle units ride a caste band).
+            "state": "ENGAGED_HARVEST",
             "position": [-8.0, 0.4, 6.5],
             "tentacles": 7,
         },
