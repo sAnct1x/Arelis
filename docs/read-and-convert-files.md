@@ -57,3 +57,19 @@ installed (she looks for `pdflatex`, `xelatex`, `lualatex` and `tectonic`),
 she typesets the .tex with it, with shell escape off, and tells you which
 engine she used. If none is installed she says so, and can still convert
 the .tex to Word or markdown with its math kept.
+
+## Files outside the workspace
+
+If you type a path that is not inside a workspace folder, Arelis shows an
+Allow card before she reads it. That includes folders whose names have
+spaces, such as a Desktop folder. Allow is read-only and lasts for this
+session. She will not change that file. To keep access, add the folder in
+Settings.
+
+If you skip the card, she does not open the file.
+
+## The message box
+
+The box you type into grows with the text, up to about six lines, and then
+scrolls, so a long path or a long question stays visible.
+

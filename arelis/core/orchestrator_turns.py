@@ -22,13 +22,13 @@ from arelis.core.compact_prompt import TOOLS_SLASH
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import turn_failed_notice
 from arelis.core.orchestrator_shared import (
-    _ABS_PATH_TOKEN,
     _ROLE_HANDOFF,
     ROLES,
     TOOL_CMD,
     comms_bypasses_sticky,
     match_role_switch,
     research_needs_vram_swap,
+    typed_absolute_paths,
 )
 from arelis.desk import match_keep_last, match_keep_note, write_note
 from arelis.llm.router import ModelRole
@@ -341,8 +341,7 @@ class OrchestratorTurns:
     async def _ensure_external_path_grants(self, text: str) -> bool:
         """Confirm + grant each absolute path outside roots. False if user skips."""
         candidates: list[Path] = []
-        for match in _ABS_PATH_TOKEN.finditer(text):
-            raw = match.group("path").rstrip(".,);]")
+        for raw in typed_absolute_paths(text):
             if not raw:
                 continue
             if not (_WINDOWS_DRIVE.match(raw) or raw.startswith("/")):

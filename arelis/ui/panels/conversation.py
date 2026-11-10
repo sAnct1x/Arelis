@@ -200,6 +200,7 @@ class ConversationStage(GlassFrame):
 
         composer = QWidget()
         composer.setObjectName("ComposerInner")
+        composer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self._composer = composer
         row = QHBoxLayout(composer)
         self._composer_row = row
@@ -615,27 +616,56 @@ class ConversationStage(GlassFrame):
         the new width, so the height has to come from the font metrics.
         Padding sits inside the widget: a short field plus the caret scroll
         hides the start of the prompt and leaves no bar to get it back.
+        Long path tokens wrap mid-word (same as the editor), or the field
+        grows to the cap and then scrolls so typed text is never clipped.
         """
         edit = self.input
         edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         fm = edit.fontMetrics()
         line_h = max(fm.lineSpacing(), fm.height(), 1)
+        width = max(1, inner)
+        flags = Qt.TextFlag.TextWordWrap
+        wrap_any = getattr(Qt.TextFlag, "TextWrapAnywhere", None)
+        if wrap_any is not None:
+            flags |= wrap_any
         wrapped = fm.boundingRect(
-            QRect(0, 0, max(1, inner), 10_000),
-            Qt.TextFlag.TextWordWrap,
+            QRect(0, 0, width, 10_000),
+            flags,
             edit.toPlainText() or " ",
         )
+        doc = edit.document()
+        doc.setTextWidth(width)
+        doc_h = int(doc.size().height()) if doc.size().height() > 0 else 0
         view_h = edit.viewport().height()
         chrome = (edit.height() - view_h) if 0 < view_h < edit.height() else 16
         cap = line_h * cap_lines + chrome
-        height = max(floor, min(cap, wrapped.height() + chrome))
+        # One extra line of slack: padding and the caret otherwise leave a
+        # 1-4px leftover after layout, and bar.maximum() is still 0 inside
+        # this call, so a later paint hides the start of the prompt.
+        need = max(wrapped.height(), doc_h) + chrome + line_h
+        height = max(floor, min(cap + line_h, need))
         edit.setFixedHeight(height)
-        bar = edit.verticalScrollBar()
-        if bar.maximum() > 0 and height < cap:
-            height = min(cap, height + int(bar.maximum()) + 2)
+        edit.updateGeometry()
+        if hasattr(self, "_composer") and self._composer is not None:
+            self._composer.updateGeometry()
+        # Grow until the draft is fully visible, or we hit the cap. A single
+        # bump of bar.maximum() still left a few pixels of caret scroll, which
+        # hid the start of a long prompt with the bar off.
+        for _ in range(8):
+            bar = edit.verticalScrollBar()
+            leftover = int(bar.maximum())
+            if leftover <= 0 or height >= cap:
+                break
+            height = min(cap, height + leftover + max(2, line_h // 2))
             edit.setFixedHeight(height)
+            edit.updateGeometry()
         fits = edit.verticalScrollBar().maximum() <= 0
+        if not fits and height < cap:
+            height = cap
+            edit.setFixedHeight(height)
+            edit.updateGeometry()
+            fits = edit.verticalScrollBar().maximum() <= 0
         edit.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff if fits else Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
@@ -644,6 +674,8 @@ class ConversationStage(GlassFrame):
             edit.horizontalScrollBar().setValue(0)
         else:
             edit.ensureCursorVisible()
+        if hasattr(self, "_composer") and self._composer is not None:
+            self._composer.updateGeometry()
 
     def _fit_idle_prompt(self) -> None:
         """Widen with the sentence, then wrap. Show the whole draft until it
@@ -697,7 +729,7 @@ class ConversationStage(GlassFrame):
             return
         self._settle_prompt_box(
             floor=int(METRICS["control"]),
-            cap_lines=6,
+            cap_lines=8,
             inner=max(1, self.input.viewport().width() - 8, self.input.width() - 16),
         )
 
