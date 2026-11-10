@@ -9,6 +9,7 @@ Typed chat never uses this path.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 from arelis.core.context import context_budget
@@ -107,10 +108,16 @@ def filler_text(config: dict[str, Any] | None = None) -> str:
 _FENCE_LINE = re.compile(r"^```[a-zA-Z0-9_-]*\s*$")
 
 
+def _strip_trailing_punctuation(text: str) -> str:
+    compact = text.strip()
+    while compact and unicodedata.category(compact[-1]).startswith("P"):
+        compact = compact[:-1].rstrip()
+    return compact
+
+
 def _is_marker_line(line: str) -> bool:
     compact = line.strip().strip("`").strip().strip("*").strip()
-    if compact.endswith("."):
-        compact = compact[:-1].rstrip()
+    compact = _strip_trailing_punctuation(compact)
     return compact.upper() == NEED_TOOL_MARKER
 
 

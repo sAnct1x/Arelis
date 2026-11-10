@@ -205,55 +205,84 @@ async def test_tool_needed_marker_triggers_filler_and_handoff_without_speaking_i
     """NEED_TOOL is never shown or spoken; the same user turn then gets full tools."""
     assert first_pass_needs_tool("NEED_TOOL")
     assert first_pass_needs_tool("```\nNEED_TOOL\n```")
+    for form in (
+        "NEED_TOOL!",
+        "NEED_TOOL?",
+        "NEED_TOOL:",
+        "NEED_TOOL,",
+        "NEED_TOOL...",
+        "NEED_TOOL。",
+        "need_tool!",
+    ):
+        assert first_pass_needs_tool(form), form
     assert not first_pass_needs_tool("Paris is the capital of France.")
+    assert not first_pass_needs_tool(
+        "You may NEED_TOOL if the hours are missing."
+    )
 
-    router = _RecordingRouter(
-        [
-            [("token", "NEED_TOOL")],
-            [("token", "The downtown library closes at 6 tonight.")],
+    async def _assert_library_handoff(first_tokens: list[tuple[str, Any]]) -> None:
+        router = _RecordingRouter(
+            [
+                first_tokens,
+                [("token", "The downtown library closes at 6 tonight.")],
+            ]
+        )
+        cfg = _config(speak=True, lane=True, voice=True)
+        loop = _loop(router, cfg)
+        events = await _collect(
+            loop.bus,
+            loop.run("How late is the downtown library open tonight?", "fast"),
+        )
+        assert len(router.sent) >= 2
+        first_messages, first_tools, _first_kwargs = router.sent[0]
+        second_messages, second_tools, _second_kwargs = router.sent[1]
+        assert first_tools is None
+        assert second_tools, "handoff must send the session tool schemas"
+        assert any(
+            (item.get("function") or item).get("name") == "weather"
+            for item in second_tools
+        )
+        # Same user turn, not a second copy of the ask as a new history item.
+        first_users = [m for m in first_messages if m.get("role") == "user"]
+        second_users = [m for m in second_messages if m.get("role") == "user"]
+        assert first_users
+        assert second_users
+        assert "library" in str(first_users[-1].get("content")).lower()
+        assert "library" in str(second_users[-1].get("content")).lower()
+
+        blob = _event_blob(events)
+        assert NEED_TOOL_MARKER not in blob
+        deltas = [
+            str((event.payload or {}).get("text") or "")
+            for event in events
+            if event.type == EventType.ASSISTANT_DELTA
         ]
-    )
-    cfg = _config(speak=True, lane=True, voice=True)
-    loop = _loop(router, cfg)
-    events = await _collect(
-        loop.bus,
-        loop.run("How late is the downtown library open tonight?", "fast"),
-    )
-    assert len(router.sent) >= 2
-    first_messages, first_tools, _first_kwargs = router.sent[0]
-    second_messages, second_tools, _second_kwargs = router.sent[1]
-    assert first_tools is None
-    assert second_tools, "handoff must send the session tool schemas"
-    assert any(
-        (item.get("function") or item).get("name") == "weather" for item in second_tools
-    )
-    # Same user turn, not a second copy of the ask as a new history item.
-    first_users = [m for m in first_messages if m.get("role") == "user"]
-    second_users = [m for m in second_messages if m.get("role") == "user"]
-    assert first_users
-    assert second_users
-    assert "library" in str(first_users[-1].get("content")).lower()
-    assert "library" in str(second_users[-1].get("content")).lower()
+        assert all(NEED_TOOL_MARKER not in text for text in deltas)
+        speak_texts = [
+            str((event.payload or {}).get("text") or "")
+            for event in events
+            if event.type == EventType.VOICE_SPEAK
+        ]
+        assert speak_texts[0] == FILLER_EN
+        assert all(NEED_TOOL_MARKER not in text for text in speak_texts)
+        done = [
+            str((event.payload or {}).get("text") or "")
+            for event in events
+            if event.type == EventType.ASSISTANT_DONE
+        ]
+        assert done == ["The downtown library closes at 6 tonight."]
+        assert FILLER_EN not in done[0]
 
-    blob = _event_blob(events)
-    assert NEED_TOOL_MARKER not in blob
-    speak_texts = [
-        str((event.payload or {}).get("text") or "")
-        for event in events
-        if event.type == EventType.VOICE_SPEAK
-    ]
-    assert speak_texts[0] == FILLER_EN
-    assert all(NEED_TOOL_MARKER not in text for text in speak_texts)
-    done = [
-        str((event.payload or {}).get("text") or "")
-        for event in events
-        if event.type == EventType.ASSISTANT_DONE
-    ]
-    assert done == ["The downtown library closes at 6 tonight."]
-    assert FILLER_EN not in done[0]
+        users = [m.content for m in loop.memory.messages if m.role == "user"]
+        assistants = [m.content for m in loop.memory.messages if m.role == "assistant"]
+        assert users == ["How late is the downtown library open tonight?"]
+        assert assistants == ["The downtown library closes at 6 tonight."]
+        assert all(
+            NEED_TOOL_MARKER not in (m.content or "") for m in loop.memory.messages
+        )
 
-    users = [m.content for m in loop.memory.messages if m.role == "user"]
-    assistants = [m.content for m in loop.memory.messages if m.role == "assistant"]
-    assert users == ["How late is the downtown library open tonight?"]
-    assert assistants == ["The downtown library closes at 6 tonight."]
-    assert all(NEED_TOOL_MARKER not in (m.content or "") for m in loop.memory.messages)
+    await _assert_library_handoff([("token", "NEED_TOOL")])
+    # Repro: a trailing bang must hand off, not be spoken or stored as the answer.
+    await _assert_library_handoff([("token", "NEED_TOOL!")])
+    # Mid-stream marker then punctuation must stay held (no bubble or speaker leak).
+    await _assert_library_handoff([("token", "NEED_TOOL"), ("token", "!")])
