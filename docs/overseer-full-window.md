@@ -20,10 +20,29 @@ Opening or closing a drawer never moves the camera or resizes the scene.
 
 ## Glow
 
-Only the brightest things in the scene glow: unit eyes, the source cores
-and fetch beams. Hulls, lanes and the perimeter never do. The glow is a soft
-halo a few pixels wide around each eye. Edges are not smoothed
-(antialiasing is off), which keeps the Overseer within its frame budget.
+Only the brightest things in the scene glow: unit eyes, the orb nucleus
+and filaments, the source cores and fetch beams. Hulls, lanes and the
+perimeter never do. The glow is a soft halo a few pixels wide around each
+eye. Edges are not smoothed (antialiasing is off), which keeps the
+Overseer within its frame budget.
+
+## The orb, units and sources
+
+The core is a glass shell with a bright nucleus and drifting filaments.
+Two rings around it are real state, not decoration: **Memory · N from last
+chat** is how many memories were still in context when the Overseer opened,
+and **Tools N running** lights one bead per tool that is actually running.
+The orb's brightness follows the model's real speed (it sits at its idle
+glow when no tokens are flowing).
+
+Each unit is a plated body with three glowing eyes at the wide view, and
+short solid tentacles instead of the old hairline threads. A unit that is
+fetching, focused, or close enough steps up to a more detailed body with
+linked tentacles; the closest close-up uses the full armour model.
+
+The edge sources are glass nodes with a thin halo. The label under
+each one is the source name and how many requests are open there, or
+"idle" when none are.
 
 ## Chat is off while the Overseer is open
 

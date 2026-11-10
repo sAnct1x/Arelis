@@ -1,50 +1,53 @@
 [
   {
     "lod": 0,
-    "path": "/tmp/overseer-qt/sentinel_lod0.glb",
+    "path": "meshes/unit_hull_lod0_mesh.mesh",
+    "note": "Pass C v2 parked LOD0: hull + seams + eyes. Tentacles are separate draws.",
     "raw_by_part": {
-      "hull": 66878,
-      "emissive": 6684,
-      "lens": 180
+      "hull": 39284,
+      "emissive": 9032,
+      "lens": 960
     },
     "tris_by_part": {
-      "lod0_hull": 10882,
-      "lod0_emissive": 1087,
-      "lod0_lens": 28
+      "lod0_hull": 39284,
+      "lod0_emissive": 9032,
+      "lod0_lens": 960
     },
-    "tris": 11997,
-    "target": 12000
+    "tris": 49276,
+    "target": 49276
   },
   {
     "lod": 1,
-    "path": "/tmp/overseer-qt/sentinel_lod1.glb",
+    "path": "meshes/unit_hull_lod1_mesh.mesh",
+    "note": "Pass C v8 LOD1 rigid parts (same 15430/2048/560 tris as v7). Links and thread are separate draws.",
     "raw_by_part": {
-      "hull": 20630,
-      "emissive": 2332,
-      "lens": 140
+      "hull": 15430,
+      "emissive": 2048,
+      "lens": 560
     },
     "tris_by_part": {
-      "lod1_hull": 3570,
-      "lod1_emissive": 403,
-      "lod1_lens": 32
+      "lod1_hull": 15430,
+      "lod1_emissive": 2048,
+      "lod1_lens": 560
     },
-    "tris": 4005,
-    "target": 4000
+    "tris": 18038,
+    "target": 18038
   },
   {
     "lod": 2,
-    "path": "/tmp/overseer-qt/sentinel_lod2.glb",
+    "path": "meshes/unit_hull_lod2_mesh.mesh",
+    "note": "Pass C LOD2: 3 eyes, plates, seams. Four short tubes are separate draws.",
     "raw_by_part": {
-      "hull": 2286,
-      "emissive": 1324,
-      "lens": 20
+      "hull": 484,
+      "emissive": 216,
+      "lens": 60
     },
     "tris_by_part": {
-      "lod2_hull": 628,
-      "lod2_emissive": 363,
-      "lod2_lens": 20
+      "lod2_hull": 484,
+      "lod2_emissive": 216,
+      "lod2_lens": 60
     },
-    "tris": 1011,
-    "target": 1000
+    "tris": 760,
+    "target": 760
   }
 ]

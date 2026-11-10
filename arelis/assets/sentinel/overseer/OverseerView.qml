@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick3D
 import QtQuick3D.Helpers
+import Arelis.Overseer
 
 Item {
     id: root
@@ -52,9 +53,9 @@ Item {
     property int unitDrawCalls: 0
     property var lodCounts: [0, 0, 0]
     property var meshTris: ({
-        "0:hull": 10882, "0:emissive": 1087, "0:lens": 28,
-        "1:hull": 3570, "1:emissive": 403, "1:lens": 32,
-        "2:hull": 628, "2:emissive": 363, "2:lens": 20
+        "0:hull": 39284, "0:emissive": 9032, "0:lens": 960,
+        "1:hull": 12628, "1:emissive": 2264, "1:lens": 560,
+        "2:hull": 484, "2:emissive": 216, "2:lens": 60
     })
     property var lists: ({})
     property var descriptors: []
@@ -76,6 +77,7 @@ Item {
     property var replayTicks: []
     // Set by the host each poll from token_meter; 0 hides the readout.
     property int tokRate: 0
+    onTokRateChanged: orbEnergy = Math.max(0.3, Math.min(1.0, 0.3 + 0.7 * tokRate / 60.0))
     property var collapsedGroups: []
     property string selectedUnitId: ""
     property string cameraMode: "overview"
@@ -166,6 +168,38 @@ Item {
     property real hiveActivity: 0
     property real hiveActivityShown: 0
     property real starDrift: 0
+    // Pass C orb: energy follows real tok/s (idle floor 0.3, 1.0 at 60).
+    property real orbEnergy: 0.3
+    property real orbEnergyShown: 0.3
+    property real orbSpinAngle: 0
+    property int memoryCount: 0
+    property string memoryLabel: "Memory · 0 from last chat"
+    property int toolsCount: 0
+    property string toolsLabel: "Tools 0 running"
+    property var toolsLitArc: Qt.vector3d(0, 0, 2)
+    property var orbImpact: Qt.vector4d(0, 1, 0, -1)
+    property real pulseScale: 1.0
+    property real pulseGain: 0
+    property real memorySpin: 0
+    property real toolsSpin: 0
+    property var sourceNodeSpecs: []
+    property var sourceList: sourceInstanceList
+    property var memoryBeadList: memoryBeadInstanceList
+    property var toolBeadList: toolBeadInstanceList
+    property var tentacleLists: ({
+        "tube2": tentacleTube2List,
+        "links1": tentacleLinks1List,
+        "thread1": tentacleThread1List,
+        "links0": tentacleLinks0List
+    })
+    property var tentacleCounts: ({})
+    InstanceList { id: sourceInstanceList }
+    InstanceList { id: memoryBeadInstanceList }
+    InstanceList { id: toolBeadInstanceList }
+    InstanceList { id: tentacleTube2List }
+    InstanceList { id: tentacleLinks1List }
+    InstanceList { id: tentacleThread1List }
+    InstanceList { id: tentacleLinks0List }
 
     function startEntry(reduced) {
         reducedMotion = !!reduced
@@ -194,6 +228,7 @@ Item {
         placementFrameId += 1
         var recs = ({})
         reachNext = ({})
+        var tstate = ({})
         ensureLists()
         releaseAllLists()
         var buckets = frame.buckets
@@ -221,6 +256,15 @@ Item {
                         var row = rows[i]
                         var uEntry = fillUnitEntry(row, caste, key, recs)
                         entries.push(uEntry)
+                        if (row && row.unit_id && !tstate[row.unit_id]) {
+                            tstate[row.unit_id] = {
+                                speed: (row.speed === undefined || row.speed === null) ? 0.55 : row.speed,
+                                limp: row.limp ? 1 : 0,
+                                reach: finiteNum(row.reach, 0),
+                                phase: finiteNum(row.phase, 0),
+                                target: row.target || null
+                            }
+                        }
                         var orb = row ? row.orbit : null
                         if (orb && orb.length >= 7) {
                             var os = orbitBy[row.unit_id]
@@ -264,6 +308,7 @@ Item {
         unitOrbitSpecs = orbitSpecs
         orbitEntries = orbitBy
         reachState = reachNext
+        tentacleUnitState = tstate
         counts["__particles"] = 0
         var cEntries = fillConduitEntries(frame.conduits || [])
         counts["__conduits"] = cEntries.length
@@ -271,12 +316,17 @@ Item {
         applyGlyphTrails(frame.glyphTrails || [])
         applyBands(frame.bands || [], frame.perimeter)
         hiveActivity = Math.max(0, Math.min(1, finiteNum(frame.hiveActivity, 0)))
+        applyOrb(frame.orb || ({}))
+        sourceNodeSpecs = frame.sourceNodes || []
+        fillSourceEntries(sourceNodeSpecs)
+        fillBeadEntries()
         counts["__glyphs"] = glyphCount
         live += glyphCount
+        fillTentacleEntries(recs)
         liveCounts = counts
         budgetTris = tris
         unitDrawCalls = used
-        budgetDrawCalls = used + 11  // SCENE_FIXED_DRAW: fixed scene draws plus 3 star layers
+        budgetDrawCalls = used + 19  // SCENE_FIXED_DRAW: orb, sources, tentacles, lanes, stars
         lodCounts = lods
         recountEntries(live)
         instanceRecords = recs
@@ -284,6 +334,7 @@ Item {
         sourceLabelSpecs = frame.sourceLabels || []
         updateOverview()
         projectSourceLabels()
+        refreshCurves()
         var b = frame.budget
         if (b) {
             if (b.unitTris !== undefined && b.unitTris !== tris)
@@ -761,6 +812,13 @@ Item {
             releaseList(keys[i], lists[keys[i]])
         releaseList("__particles", particleList)
         releaseList("__conduits", conduitList)
+        releaseList("__sources", sourceList)
+        releaseList("__memBeads", memoryBeadList)
+        releaseList("__toolBeads", toolBeadList)
+        releaseList("__tentacle_tube2", tentacleLists["tube2"])
+        releaseList("__tentacle_links1", tentacleLists["links1"])
+        releaseList("__tentacle_thread1", tentacleLists["thread1"])
+        releaseList("__tentacle_links0", tentacleLists["links0"])
         conduitSpecs = []
         unitAnimSpecs = []
         unitOrbitSpecs = []
@@ -787,20 +845,21 @@ Item {
         var e = acquireEntry()
         e.position = Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))
         e.eulerRotation = Qt.vector3d(0, -finiteNum(row.heading_deg), 0)
-        var sc = finiteNum(row.scale, 0.36)
+        var sc = finiteNum(row.scale, 1.0)
         if (sc < 0.20)
             sc = 0.20
-        if (sc > 2.0)
-            sc = 2.0
+        if (sc > 3.0)
+            sc = 3.0
         e.scale = Qt.vector3d(sc, sc, sc)
-        // Lens instances carry the eye colour (fetching and engaged eyes differ).
+        // Eyes carry the eye colour (fetching and engaged eyes differ).
         e.color = (String(key).indexOf(":lens") >= 0 && row.eye) ? row.eye : (row.color || casteColors[caste])
         var uid = row && row.unit_id ? row.unit_id : ""
         var rs = reachSlot(uid, row.reach)
-        // y packs claw + 2*reach + 8*previous reach + 32*limp; z is when reach changed.
-        var claw = Math.min(0.99, Math.max(0, finiteNum(row.claw, 0.45) || 0.45))
-        var limp = row.limp ? 1 : 0
-        e.customData = Qt.vector4d(row.phase || 0, claw + 2 * rs.n + 8 * rs.prev + 32 * limp, rs.t, (row.speed === undefined || row.speed === null) ? 1.0 : row.speed)
+        // INSTANCE_DATA = (dim, eyeGain, threatMix, unitIndex)
+        var dim = finiteNum(row.dim, 1.0)
+        if (dim <= 0)
+            dim = 1.0
+        e.customData = Qt.vector4d(dim, finiteNum(row.eyeGain, 1.0), finiteNum(row.threatMix, 0), finiteNum(row.index, 0))
         if (uid && recs) {
             if (!recs[uid] || String(key).indexOf(":hull") >= 0) {
                 recs[uid] = {
@@ -937,6 +996,244 @@ Item {
         return st
     }
 
+    function linearVec(hex) {
+        var c = Qt.color(hex)
+        return Qt.vector3d(Math.pow(c.r, 2.2), Math.pow(c.g, 2.2), Math.pow(c.b, 2.2))
+    }
+
+    function blenderTilt(tx, ty) {
+        // BAND-SPEC Rx(tx)*Ry(ty) in Blender axes (Y first). Blender Y is Qt -Z.
+        // Qt Quick 3D applies eulerRotation as z, then x, then y.
+        return Qt.vector3d(tx * 180 / Math.PI, 0, -ty * 180 / Math.PI)
+    }
+
+    function applyOrb(orb) {
+        memoryCount = Math.max(0, Math.floor(finiteNum(orb.memoryCount, 0)))
+        memoryLabel = orb.memoryLabel || ("Memory · " + memoryCount + " from last chat")
+        toolsCount = Math.max(0, Math.floor(finiteNum(orb.toolsCount, 0)))
+        toolsLabel = orb.toolsLabel || ("Tools " + toolsCount + " running")
+        var arc = orb.toolsLitArc
+        if (arc && arc.length >= 3)
+            toolsLitArc = Qt.vector3d(finiteNum(arc[0], 0), finiteNum(arc[1], 0), finiteNum(arc[2], 2))
+        else
+            toolsLitArc = Qt.vector3d(0, 0, 2)
+        orbEnergy = finiteNum(orb.energy, 0.3)
+        if (orbEnergy < 0.3)
+            orbEnergy = 0.3
+        if (orbEnergy > 1.0)
+            orbEnergy = 1.0
+    }
+
+    function fillSourceEntries(rows) {
+        ensureLists()
+        releaseList("__sources", sourceList)
+        var entries = []
+        for (var i = 0; i < (rows || []).length; i++) {
+            var row = rows[i]
+            var e = acquireEntry()
+            e.position = Qt.vector3d(finiteNum(row.x), finiteNum(row.y), finiteNum(row.z))
+            e.eulerRotation = Qt.vector3d(0, 0, 0)
+            var sc = finiteNum(row.scale, 1.0)
+            e.scale = Qt.vector3d(sc, sc, sc)
+            e.color = row.color || "#8fd3ff"
+            e.customData = Qt.vector4d(finiteNum(row.lit, 0.15), finiteNum(row.open, 0), 0, i)
+            entries.push(e)
+        }
+        sourceList.instances = entries
+        liveByKey["__sources"] = entries
+    }
+
+    function fillBeadEntries() {
+        ensureLists()
+        releaseList("__memBeads", memoryBeadList)
+        releaseList("__toolBeads", toolBeadList)
+        var mem = [], tools = []
+        var memR = 2.6 * 1.55, toolR = 2.6 * 1.95
+        var i
+        for (i = 0; i < memoryCount; i++) {
+            var a = i * 2 * Math.PI / Math.max(memoryCount, 1)
+            var e = acquireEntry()
+            e.position = Qt.vector3d(memR * Math.cos(a), 0, memR * Math.sin(a))
+            var s = 0.035 * 2.6
+            e.scale = Qt.vector3d(s, s, s)
+            e.color = "#a473f0"
+            mem.push(e)
+        }
+        for (i = 0; i < Math.min(toolsCount, 8); i++) {
+            var b = i * 2 * Math.PI / Math.max(toolsCount, 1)
+            var f = acquireEntry()
+            f.position = Qt.vector3d(toolR * Math.cos(b), 0, toolR * Math.sin(b))
+            var ts = 0.06 * 2.6
+            f.scale = Qt.vector3d(ts, ts, ts)
+            f.color = "#d2b9f8"
+            tools.push(f)
+        }
+        memoryBeadList.instances = mem
+        toolBeadList.instances = tools
+        liveByKey["__memBeads"] = mem
+        liveByKey["__toolBeads"] = tools
+    }
+
+    function fillTentacleEntries(recs) {
+        ensureLists()
+        var kinds = ["tube2", "links1", "thread1", "links0"]
+        var buckets = { tube2: [], links1: [], thread1: [], links0: [] }
+        var recKeys = recs ? Object.keys(recs) : []
+        // Walk unit hull records so each unit contributes tentacles once.
+        for (var i = 0; i < recKeys.length; i++) {
+            var rec = recs[recKeys[i]]
+            if (!rec || String(rec.modelKey).indexOf(":hull") < 0)
+                continue
+            var lod = 2
+            if (String(rec.modelKey).indexOf(":0:") >= 0)
+                lod = 0
+            else if (String(rec.modelKey).indexOf(":1:") >= 0)
+                lod = 1
+            var row = null
+            // Scale, colour, index and reach live on the bucket row too; look it up by id later via recs only.
+            var idx = -1
+            var dim = 1.0
+            var caste = rec.caste
+            var scale = finiteNum(rec.scale, 1.0)
+            var color = rec.color || casteColors[caste]
+            // unit index and dim were packed on the hull entry customData.
+            var hullKey = rec.modelKey
+            var insts = lists[hullKey] ? (lists[hullKey].instances || []) : []
+            var found = null
+            for (var k = 0; k < insts.length; k++) {
+                if (Math.abs(insts[k].position.x - rec.x) < 1e-4 && Math.abs(insts[k].position.z - rec.z) < 1e-4) {
+                    found = insts[k]
+                    break
+                }
+            }
+            if (found)
+                dim = found.customData.x, idx = Math.floor(found.customData.w + 0.5)
+            if (idx < 0)
+                continue
+            var n = lod === 0 ? 14 : (lod === 1 ? 8 : 4)
+            var s = scale
+            for (var slot = 0; slot < n; slot++) {
+                var e = acquireEntry()
+                e.position = Qt.vector3d(0, 0, 0)
+                e.eulerRotation = Qt.vector3d(0, 0, 0)
+                e.scale = Qt.vector3d(1, 1, 1)
+                e.color = color
+                var r0, r1, kind
+                if (lod === 2) {
+                    r0 = 0.047 * s
+                    r1 = 0.2 * r0
+                    kind = "tube2"
+                } else if (lod === 1) {
+                    // One instance of the pre-strung links and one of the thread per tentacle.
+                    r0 = 0.106 * s
+                    r1 = 0.3 * r0
+                    kind = "links1"
+                    var th = acquireEntry()
+                    th.position = Qt.vector3d(0, 0, 0)
+                    th.scale = Qt.vector3d(1, 1, 1)
+                    th.color = color
+                    var tr0 = 0.036 * s
+                    th.customData = Qt.vector4d(idx * 16 + slot, tr0, 0.2 * tr0, dim)
+                    buckets.thread1.push(th)
+                } else {
+                    r0 = 0.106 * s
+                    r1 = 0.3 * r0
+                    kind = "links0"
+                    var th0 = acquireEntry()
+                    th0.position = Qt.vector3d(0, 0, 0)
+                    th0.scale = Qt.vector3d(1, 1, 1)
+                    th0.color = color
+                    var t0 = 0.036 * s
+                    th0.customData = Qt.vector4d(idx * 16 + slot, t0, 0.2 * t0, dim)
+                    buckets.thread1.push(th0)
+                }
+                e.customData = Qt.vector4d(idx * 16 + slot, r0, r1, dim)
+                buckets[kind].push(e)
+            }
+        }
+        var counts = ({})
+        for (var ci = 0; ci < kinds.length; ci++) {
+            var key = kinds[ci]
+            releaseList("__tentacle_" + key, tentacleLists[key])
+            tentacleLists[key].instances = buckets[key]
+            liveByKey["__tentacle_" + key] = buckets[key]
+            counts[key] = buckets[key].length
+        }
+        tentacleCounts = counts
+    }
+
+    // Per-frame unit poses for the curve texture, including the view's orbit step.
+    function curveUnitRows() {
+        var out = []
+        var recs = instanceRecords || ({})
+        var keys = Object.keys(recs)
+        for (var i = 0; i < keys.length; i++) {
+            var rec = recs[keys[i]]
+            if (!rec || String(rec.modelKey).indexOf(":hull") < 0)
+                continue
+            var pos = unitPositionOf(rec.unit_id) || { x: rec.x, y: rec.y, z: rec.z }
+            var yaw = rec.heading
+            var os = orbitEntries ? orbitEntries[rec.unit_id] : null
+            if (os && os.entries.length)
+                yaw = os.entries[0].eulerRotation.y
+            var lod = 2
+            if (String(rec.modelKey).indexOf(":0:") >= 0)
+                lod = 0
+            else if (String(rec.modelKey).indexOf(":1:") >= 0)
+                lod = 1
+            var hullKey = rec.modelKey
+            var insts = lists[hullKey] ? (lists[hullKey].instances || []) : []
+            var found = insts.length ? insts[0] : null
+            for (var k = 0; k < insts.length; k++) {
+                var p = insts[k].position
+                if (Math.abs(p.x - pos.x) < 0.05 && Math.abs(p.z - pos.z) < 0.05) {
+                    found = insts[k]
+                    break
+                }
+            }
+            if (!found)
+                continue
+            var cd = found.customData
+            var row = {
+                index: Math.floor(cd.w + 0.5),
+                x: pos.x, y: pos.y, z: pos.z,
+                yaw: yaw, pitch: 0, roll: 0,
+                scale: rec.scale,
+                lod: lod,
+                speed: 0.55,
+                limp: 0,
+                reach: 0,
+                phase: 0,
+                target: null
+            }
+            // Reach and speed come from the last frame's bucket via a side table.
+            var extra = tentacleUnitState[rec.unit_id]
+            if (extra) {
+                row.speed = extra.speed
+                row.limp = extra.limp
+                row.phase = extra.phase
+                row.target = extra.target
+                var rs = reachState[rec.unit_id]
+                if (rs) {
+                    var u = Math.max(0, Math.min(1, (sceneTime - rs.t) / 0.4))
+                    u = 1 - (1 - u) * (1 - u) * (1 - u)
+                    row.reach = rs.prev + (rs.n - rs.prev) * u
+                } else {
+                    row.reach = extra.reach
+                }
+            }
+            out.push(row)
+        }
+        return out
+    }
+
+    property var tentacleUnitState: ({})
+
+    function refreshCurves() {
+        if (curveTexData)
+            curveTexData.refresh(curveUnitRows(), sceneTime)
+    }
+
     function recountEntries(live) {
         liveEntryCount = live
         pooledEntryCount = entryPool ? entryPool.length : 0
@@ -1016,12 +1313,13 @@ Item {
                     var part = parts[pi]
                     var key = casteIds[ci] + ":" + lod + ":" + part
                     next[key] = Qt.createQmlObject("import QtQuick3D; InstanceList {}", root)
+                    var meshPart = part === "lens" ? "eyes" : (part === "emissive" ? "seams" : "hull")
                     desc.push({
                         key: key,
                         caste: casteIds[ci],
                         lod: lod,
                         part: part,
-                        source: "meshes/lod" + lod + "_" + part + "_mesh.mesh"
+                        source: "meshes/unit_" + meshPart + "_lod" + lod + "_mesh.mesh"
                     })
                 }
             }
@@ -1149,17 +1447,46 @@ Item {
                 label: sp.label || "",
                 hot: !!sp.hot,
                 color: sp.color || "#8fd3ff",
+                status: sp.status || (sp.hot ? "fetching" : "idle"),
                 sx: sx,
                 sy: sy,
                 visible: visible
             }
-            key += row.id + ":" + row.label + ":" + row.hot + ":" + row.color + ":" + sx + ":" + sy + ":" + visible + "|"
+            key += row.id + ":" + row.label + ":" + row.hot + ":" + row.status + ":" + sx + ":" + sy + ":" + visible + "|"
             out.push(row)
         }
         if (key === sourceLabelKey)
             return
         sourceLabelKey = key
         sourceLabelScreen = out
+        projectOrbLabels()
+    }
+
+    property var orbLabelScreen: []
+    property string orbLabelKey: ""
+    property real pulsePhase: 0
+
+    function projectOrbLabels() {
+        var pts = [
+            { id: "memory", text: memoryLabel, color: "#e8dcfb", p: Qt.vector3d(4.2, 2.4, 0.2) },
+            { id: "tools", text: toolsLabel, color: "#e8dcfb", p: Qt.vector3d(-5.1, 1.3, 0.4) }
+        ]
+        var free = freeViewportRect()
+        var out = []
+        var key = ""
+        for (var i = 0; i < pts.length; i++) {
+            var mapped = _tryMapFrom3DScene(pts[i].p)
+            var sx = mapped ? Math.round(mapped.x) : -1000
+            var sy = mapped ? Math.round(mapped.y) : -1000
+            var visible = !!mapped && mapped.z > 0 && sx > free.x && sy > free.y
+                && sx < free.x + free.width && sy < free.y + free.height
+            key += pts[i].id + ":" + pts[i].text + ":" + sx + ":" + sy + ":" + visible + "|"
+            out.push({ id: pts[i].id, text: pts[i].text, color: pts[i].color, sx: sx, sy: sy, visible: visible })
+        }
+        if (key === orbLabelKey)
+            return
+        orbLabelKey = key
+        orbLabelScreen = out
     }
 
     function stepConduits() {
@@ -1317,6 +1644,24 @@ Item {
             var k = Math.min(1, frameTime / 0.5)
             root.hiveActivityShown += (root.hiveActivity - root.hiveActivityShown) * k
             root.starDrift += frameTime * (0.25 + 2.75 * root.hiveActivityShown)
+            root.orbEnergyShown += (root.orbEnergy - root.orbEnergyShown) * k
+            var spinT = root.tokRate > 0 ? 8.0 : 20.0
+            root.orbSpinAngle += frameTime * (2.0 * Math.PI / spinT)
+            root.memorySpin += frameTime * 6.0
+            if (root.toolsCount > 0)
+                root.toolsSpin += frameTime * 30.0
+            if (root.tokRate > 0) {
+                root.pulsePhase += frameTime / 0.6
+                if (root.pulsePhase >= 1.0)
+                    root.pulsePhase -= Math.floor(root.pulsePhase)
+                root.pulseScale = 1.0 + 0.35 * root.pulsePhase
+                root.pulseGain = (1.0 - root.pulsePhase) * root.orbEnergyShown
+            } else {
+                root.pulsePhase = 0
+                root.pulseScale = 1
+                root.pulseGain = 0
+            }
+            root.refreshCurves()
         }
     }
 
@@ -1421,13 +1766,209 @@ Item {
         DirectionalLight { eulerRotation.x: -40; eulerRotation.y: 30; brightness: 1.0 }
         DirectionalLight { eulerRotation.x: -15; eulerRotation.y: -120; brightness: 0.35 }
 
-        Model {
+        Node {
+            id: hiveCore
             objectName: "hiveCore"
-            source: "#Sphere"
-            scale: Qt.vector3d(0.022, 0.022, 0.022)
+            y: 1.6
+            Node {
+                objectName: "orbBody"
+                Model {
+                    objectName: "orbNucleus"
+                    source: "meshes/orb_nucleus_mesh.mesh"
+                    materials: CustomMaterial {
+                        shadingMode: CustomMaterial.Unshaded
+                        vertexShader: "shaders/emission.vert"
+                        fragmentShader: "shaders/emission.frag"
+                        sourceBlend: CustomMaterial.One
+                        destinationBlend: CustomMaterial.One
+                        depthDrawMode: Material.NeverDepthDraw
+                        property vector3d spinAxis: Qt.vector3d(0.25, 1.0, 0.2)
+                        property real spinAngle: 0
+                        property real spinShear: 0
+                        property vector3d tint: Qt.vector3d(1, 1, 1)
+                        property real gain: 16.0 * root.orbEnergyShown
+                        property vector3d litArc: Qt.vector3d(0, 0, 2)
+                        property real dim: 1
+                    }
+                }
+                Model {
+                    objectName: "orbFilaments"
+                    source: "meshes/orb_filaments_mesh.mesh"
+                    materials: CustomMaterial {
+                        shadingMode: CustomMaterial.Unshaded
+                        vertexShader: "shaders/emission.vert"
+                        fragmentShader: "shaders/emission.frag"
+                        sourceBlend: CustomMaterial.One
+                        destinationBlend: CustomMaterial.One
+                        depthDrawMode: Material.NeverDepthDraw
+                        property vector3d spinAxis: Qt.vector3d(0.25, 1.0, 0.2)
+                        property real spinAngle: root.orbSpinAngle
+                        property real spinShear: 0.15
+                        property vector3d tint: Qt.vector3d(1, 1, 1)
+                        property real gain: 16.2 * root.orbEnergyShown * 0.6
+                        property vector3d litArc: Qt.vector3d(0, 0, 2)
+                        property real dim: 1
+                    }
+                }
+                Model {
+                    objectName: "orbShell"
+                    source: "meshes/orb_shell_mesh.mesh"
+                    materials: CustomMaterial {
+                        shadingMode: CustomMaterial.Unshaded
+                        vertexShader: "shaders/orb_shell.vert"
+                        fragmentShader: "shaders/orb_shell.frag"
+                        sourceBlend: CustomMaterial.One
+                        destinationBlend: CustomMaterial.One
+                        depthDrawMode: Material.NeverDepthDraw
+                        cullMode: Material.NoCulling
+                        property vector3d shellColor: root.linearVec("#a473f0")
+                        property real energy: root.orbEnergyShown
+                        property real shellPower: 6
+                        property real shellGain: 9
+                        property vector4d impact: root.orbImpact
+                    }
+                }
+                Model {
+                    objectName: "orbPulseShell"
+                    source: "meshes/orb_shell_mesh.mesh"
+                    visible: root.pulseGain > 0.01
+                    scale: Qt.vector3d(root.pulseScale, root.pulseScale, root.pulseScale)
+                    materials: CustomMaterial {
+                        shadingMode: CustomMaterial.Unshaded
+                        vertexShader: "shaders/orb_shell.vert"
+                        fragmentShader: "shaders/orb_shell.frag"
+                        sourceBlend: CustomMaterial.One
+                        destinationBlend: CustomMaterial.One
+                        depthDrawMode: Material.NeverDepthDraw
+                        cullMode: Material.NoCulling
+                        property vector3d shellColor: root.linearVec("#a473f0")
+                        property real energy: root.pulseGain
+                        property real shellPower: 6
+                        property real shellGain: 6
+                        property vector4d impact: Qt.vector4d(0, 1, 0, -1)
+                    }
+                }
+            }
+            Node {
+                objectName: "memoryRingNode"
+                eulerRotation: Qt.vector3d(0.42 * 180 / Math.PI, root.memorySpin, -0.18 * 180 / Math.PI)
+                Model {
+                    objectName: "orbRingMemory"
+                    source: "meshes/orb_ring_memory_mesh.mesh"
+                    materials: CustomMaterial {
+                        shadingMode: CustomMaterial.Unshaded
+                        vertexShader: "shaders/emission.vert"
+                        fragmentShader: "shaders/emission.frag"
+                        sourceBlend: CustomMaterial.One
+                        destinationBlend: CustomMaterial.One
+                        depthDrawMode: Material.NeverDepthDraw
+                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                        property real spinAngle: 0
+                        property real spinShear: 0
+                        property vector3d tint: root.linearVec("#a473f0")
+                        property real gain: 1.3
+                        property vector3d litArc: Qt.vector3d(0, 0, 2)
+                        property real dim: 1
+                    }
+                }
+                Model {
+                    objectName: "orbMemoryBeads"
+                    visible: root.memoryCount > 0
+                    instancing: memoryBeadInstanceList
+                    source: "meshes/orb_bead_mesh.mesh"
+                    materials: CustomMaterial {
+                        shadingMode: CustomMaterial.Unshaded
+                        vertexShader: "shaders/emission_instanced.vert"
+                        fragmentShader: "shaders/emission.frag"
+                        sourceBlend: CustomMaterial.One
+                        destinationBlend: CustomMaterial.One
+                        depthDrawMode: Material.NeverDepthDraw
+                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                        property real spinAngle: 0
+                        property real spinShear: 0
+                        property vector3d tint: Qt.vector3d(1, 1, 1)
+                        property real gain: 4.0
+                        property vector3d litArc: Qt.vector3d(0, 0, 2)
+                        property real dim: 1
+                    }
+                }
+            }
+            Node {
+                objectName: "toolsRingNode"
+                eulerRotation: Qt.vector3d(-0.62 * 180 / Math.PI, root.toolsSpin, 0.35 * 180 / Math.PI)
+                Model {
+                    objectName: "orbRingTools"
+                    source: "meshes/orb_ring_tools_mesh.mesh"
+                    materials: CustomMaterial {
+                        shadingMode: CustomMaterial.Unshaded
+                        vertexShader: "shaders/emission.vert"
+                        fragmentShader: "shaders/emission.frag"
+                        sourceBlend: CustomMaterial.One
+                        destinationBlend: CustomMaterial.One
+                        depthDrawMode: Material.NeverDepthDraw
+                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                        property real spinAngle: 0
+                        property real spinShear: 0
+                        property vector3d tint: root.linearVec("#d2b9f8")
+                        property real gain: 0.9
+                        property vector3d litArc: root.toolsLitArc
+                        property real dim: 1
+                    }
+                }
+                Model {
+                    objectName: "orbToolBeads"
+                    visible: root.toolsCount > 0
+                    instancing: toolBeadInstanceList
+                    source: "meshes/orb_bead_mesh.mesh"
+                    materials: CustomMaterial {
+                        shadingMode: CustomMaterial.Unshaded
+                        vertexShader: "shaders/emission_instanced.vert"
+                        fragmentShader: "shaders/emission.frag"
+                        sourceBlend: CustomMaterial.One
+                        destinationBlend: CustomMaterial.One
+                        depthDrawMode: Material.NeverDepthDraw
+                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                        property real spinAngle: 0
+                        property real spinShear: 0
+                        property vector3d tint: Qt.vector3d(1, 1, 1)
+                        property real gain: 4.0
+                        property vector3d litArc: Qt.vector3d(0, 0, 2)
+                        property real dim: 1
+                    }
+                }
+            }
+        }
+        // Source nodes: one instanced glass draw and one instanced emissive draw.
+        Model {
+            objectName: "sourceGlass"
+            visible: (root.sourceNodeSpecs || []).length > 0
+            instancing: sourceInstanceList
+            source: "meshes/source_glass_mesh.mesh"
             materials: PrincipledMaterial {
-                baseColor: "#3b2a66"; metalness: 0.4; roughness: 0.2
-                emissiveFactor: Qt.vector3d(0.45, 0.35, 0.75)
+                baseColor: "#0c0816"
+                metalness: 0.9
+                roughness: 0.15
+                opacity: 0.85
+                alphaMode: PrincipledMaterial.Blend
+            }
+        }
+        Model {
+            objectName: "sourceEmissive"
+            visible: (root.sourceNodeSpecs || []).length > 0
+            instancing: sourceInstanceList
+            source: "meshes/source_emissive_mesh.mesh"
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/source_node.vert"
+                fragmentShader: "shaders/source_node.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                depthDrawMode: Material.NeverDepthDraw
+                property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                property real spinAngle: 0
+                property real spinShear: 0
+                property vector3d nodeColor: root.linearVec("#8fd3ff")
+                property real lit: 1.0
             }
         }
         Model {
@@ -1457,6 +1998,8 @@ Item {
             }
         }
 
+        OverseerCurveTex { id: curveTexData; objectName: "overseerCurveTex" }
+
         Repeater3D {
             id: instancedSwarm
             objectName: "instancedSwarm"
@@ -1470,20 +2013,141 @@ Item {
                 materials: [
                     CustomMaterial {
                         shadingMode: modelData.part === "hull" ? CustomMaterial.Shaded : CustomMaterial.Unshaded
-                        vertexShader: modelData.part === "lens" ? "shaders/lens.vert" : (modelData.part === "hull" ? "shaders/hull.vert" : "shaders/emissive.vert")
-                        fragmentShader: modelData.part === "lens" ? "shaders/lens.frag" : (modelData.part === "hull" ? "shaders/hull.frag" : "shaders/emissive.frag")
-                        property color uHull: root.hullColor
-                        property color uRole: modelData.part === "lens" ? root.lensColors[modelData.caste] : root.casteColors[modelData.caste]
-                        property real uRimK: 0.85
-                        property real uTime: root.sceneTime
-                        property real uTentacles: modelData.lod === 0 ? 10 : (modelData.lod === 1 ? 6 : 4)
-                        // Eyes run HDR so bloom picks them up; tentacle threads and
-                        // seams stay under the glow threshold.
-                        property real uStrength: modelData.part === "lens" ? root.eyeEmission : (modelData.part === "emissive" ? 0.7 : 1.0)
-                        property real uViewportH: Math.max(1, view.height)
-                        property real uEyeMinPx: root.eyeMinPx
+                        vertexShader: modelData.part === "lens" ? "shaders/eye_lens.vert" : (modelData.part === "hull" ? "shaders/rim_hull.vert" : "shaders/emission_instanced.vert")
+                        fragmentShader: modelData.part === "lens" ? "shaders/eye_lens.frag" : (modelData.part === "hull" ? "shaders/rim_hull.frag" : "shaders/emission.frag")
+                        sourceBlend: modelData.part === "lens" ? CustomMaterial.One : CustomMaterial.NoBlend
+                        destinationBlend: modelData.part === "lens" ? CustomMaterial.One : CustomMaterial.NoBlend
+                        // Hull / seams / eyes
+                        property real rimGain: modelData.lod === 2 ? 1.8 : 1.0
+                        property real rimPower: 3.0
+                        property real metal: 0.55
+                        property real rough: 0.32
+                        property real wearGain: (modelData.part === "hull" && modelData.lod === 1) ? 1.0 : 0.0
+                        property real lipGain: (modelData.part === "hull" && modelData.lod === 1) ? 0.8 : 0.0
+                        property real eyeStrength: modelData.lod === 2 ? 4.46 : 2.48
+                        property real coreWhite: 0.55
+                        property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                        property real spinAngle: 0
+                        property real spinShear: 0
+                        property vector3d tint: root.linearVec(root.casteColors[modelData.caste])
+                        property real gain: modelData.lod === 2 ? 0.8 : 2.2
+                        property vector3d litArc: Qt.vector3d(0, 0, 2)
+                        property real dim: 1
                     }
                 ]
+            }
+        }
+
+        Model {
+            objectName: "tentacleTubesLod2"
+            visible: (root.tentacleCounts["tube2"] || 0) > 0
+            instancing: tentacleTube2List
+            source: "meshes/tentacle_tube_lod2_mesh.mesh"
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Shaded
+                vertexShader: "shaders/tentacle.vert"
+                fragmentShader: "shaders/rim_hull.frag"
+                property real rimGain: 1.8
+                property real rimPower: 3.0
+                property real metal: 0.55
+                property real rough: 0.32
+                property real wearGain: 0
+                property real lipGain: 0
+                property real uViewportH: Math.max(1, view.height)
+                property TextureInput curveTex: TextureInput {
+                    texture: Texture {
+                        textureData: curveTexData
+                        minFilter: Texture.Nearest
+                        magFilter: Texture.Nearest
+                        tilingModeHorizontal: Texture.ClampToEdge
+                        tilingModeVertical: Texture.ClampToEdge
+                    }
+                }
+            }
+        }
+        Model {
+            objectName: "tentacleLinksLod1"
+            visible: (root.tentacleCounts["links1"] || 0) > 0
+            instancing: tentacleLinks1List
+            source: "meshes/tentacle_links_lod1_mesh.mesh"
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Shaded
+                vertexShader: "shaders/tentacle.vert"
+                fragmentShader: "shaders/rim_hull.frag"
+                property real rimGain: 1.8
+                property real rimPower: 3.0
+                property real metal: 0.55
+                property real rough: 0.32
+                property real wearGain: 0
+                property real lipGain: 0
+                property real uViewportH: Math.max(1, view.height)
+                property TextureInput curveTex: TextureInput {
+                    texture: Texture {
+                        textureData: curveTexData
+                        minFilter: Texture.Nearest
+                        magFilter: Texture.Nearest
+                        tilingModeHorizontal: Texture.ClampToEdge
+                        tilingModeVertical: Texture.ClampToEdge
+                    }
+                }
+            }
+        }
+        Model {
+            objectName: "tentacleThreadLod1"
+            visible: (root.tentacleCounts["thread1"] || 0) > 0
+            instancing: tentacleThread1List
+            source: "meshes/tentacle_thread_lod1_mesh.mesh"
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/tentacle.vert"
+                fragmentShader: "shaders/emission.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                depthDrawMode: Material.NeverDepthDraw
+                property vector3d spinAxis: Qt.vector3d(0, 1, 0)
+                property real spinAngle: 0
+                property real spinShear: 0
+                property vector3d tint: Qt.vector3d(1, 1, 1)
+                property real gain: 1.3
+                property vector3d litArc: Qt.vector3d(0, 0, 2)
+                property real dim: 1
+                property real uViewportH: Math.max(1, view.height)
+                property TextureInput curveTex: TextureInput {
+                    texture: Texture {
+                        textureData: curveTexData
+                        minFilter: Texture.Nearest
+                        magFilter: Texture.Nearest
+                        tilingModeHorizontal: Texture.ClampToEdge
+                        tilingModeVertical: Texture.ClampToEdge
+                    }
+                }
+            }
+        }
+        Model {
+            objectName: "tentacleLinksLod0"
+            visible: (root.tentacleCounts["links0"] || 0) > 0
+            instancing: tentacleLinks0List
+            source: "meshes/tentacle_links_lod0_mesh.mesh"
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Shaded
+                vertexShader: "shaders/tentacle.vert"
+                fragmentShader: "shaders/rim_hull.frag"
+                property real rimGain: 1.8
+                property real rimPower: 3.0
+                property real metal: 0.55
+                property real rough: 0.32
+                property real wearGain: 0
+                property real lipGain: 0
+                property real uViewportH: Math.max(1, view.height)
+                property TextureInput curveTex: TextureInput {
+                    texture: Texture {
+                        textureData: curveTexData
+                        minFilter: Texture.Nearest
+                        magFilter: Texture.Nearest
+                        tilingModeHorizontal: Texture.ClampToEdge
+                        tilingModeVertical: Texture.ClampToEdge
+                    }
+                }
             }
         }
 
@@ -1630,7 +2294,7 @@ Item {
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: srcLabel.row.label || ""
-                color: srcLabel.row.hot ? "#e0d4ff" : "#a99bd6"
+                color: "#e8dcfb"
                 font.pixelSize: 20
                 font.bold: true
                 style: Text.Outline
@@ -1639,13 +2303,34 @@ Item {
             Text {
                 id: stateText
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: srcLabel.row.hot ? "fetching" : "idle"
-                color: srcLabel.row.hot ? (srcLabel.row.color || "#8fd3ff") : "#a99bd6"
+                text: srcLabel.row.status || (srcLabel.row.hot ? "fetching" : "idle")
+                color: "#8fd3ff"
                 opacity: srcLabel.row.hot ? 1.0 : 0.75
                 font.pixelSize: 15
                 style: Text.Outline
                 styleColor: "#0b0714"
             }
+        }
+    }
+
+    Repeater {
+        model: root.orbLabelScreen.length
+        delegate: Text {
+            required property int index
+            readonly property var row: root.orbLabelScreen[index] || ({})
+            objectName: "OverseerOrbLabel_" + (row.id || index)
+            visible: !!row.visible
+            x: (row.sx || 0) - width * 0.5
+            y: (row.sy || 0) - height * 0.5
+            z: 2
+            text: row.text || ""
+            color: row.color || "#e8dcfb"
+            font.family: root.glyphFontFamily
+            font.pixelSize: 13
+            style: Text.Outline
+            styleColor: "#0b0714"
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
         }
     }
 

@@ -42,14 +42,12 @@ def test_front_pairs_reach_per_open_fetch_and_shader_eases_from_instance_data() 
     idle = o.build_frame(units, 76.0, nodes=[])
     assert {r["reach"] for rows in idle["buckets"].values() for r in rows} == {0}
 
-    # QML packs reach, previous reach and the change time; both vertex shaders
-    # decode them and ease the swing on the GPU (no per-frame CPU work).
+    # Reach blends to the source over 0.4 s (ease-out cubic) when the curve
+    # points are rebuilt each frame from reachState.
     qml = (ASSETS / "OverseerView.qml").read_text(encoding="utf-8")
-    assert "claw + 2 * rs.n + 8 * rs.prev + 32 * limp, rs.t" in qml
-    for name in ("hull.vert", "emissive.vert"):
-        text = (ASSETS / "shaders" / name).read_text(encoding="utf-8")
-        assert "float reachPairs = floor(packed / 2.0);" in text
-        assert "(uTime - INSTANCE_DATA.z) / 0.4" in text
-        assert "mix(curlAngle" not in text
-        assert "reachW * (1.7 + 1.35 * along)" in text
-        assert "uTentacles" in text
+    assert "(sceneTime - rs.t) / 0.4" in qml
+    assert "row.reach = rs.prev + (rs.n - rs.prev) * u" in qml
+    from arelis.ui.overseer_curves import ease_out_cubic
+    assert ease_out_cubic(0) == 0
+    assert ease_out_cubic(1) == 1
+    assert 0.4 < ease_out_cubic(0.5) < 1

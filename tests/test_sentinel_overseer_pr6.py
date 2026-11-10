@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -256,10 +257,10 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assets = Path(__file__).resolve().parents[1] / "arelis/assets/sentinel/overseer"
     report = json.loads((assets / "export_report.json").read_text())
     by_lod = {row["lod"]: row for row in report}
-    assert by_lod[0]["tris"] <= 12000 + 50
-    assert by_lod[1]["tris"] <= 4000 + 50
-    assert by_lod[2]["tris"] <= 1000 + 50
-    assert by_lod[0]["raw_by_part"]["hull"] > 60000
+    assert by_lod[0]["tris"] == 49276
+    assert by_lod[1]["tris"] == 18038
+    assert by_lod[2]["tris"] == 760
+    assert by_lod[0]["raw_by_part"]["hull"] == 39284
     assert (assets / "meshes/lod0_hull_mesh.mesh").is_file()
     assert (assets / "Sentinel_lod2.qml").is_file()
     scene = win._ensure_scene()
@@ -272,7 +273,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "import QtQuick3D" in qml
     assert "InstanceList" in qml
     assert "CustomMaterial" in qml
-    assert "shaders/hull.vert" in qml
+    assert "shaders/rim_hull.vert" in qml
     assert "View3D" in qml
     assert "ProceduralMesh" in qml
     assert "casteBandGuides" in qml and "tripwirePerimeter" in qml
@@ -285,7 +286,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert overseer_runtime.DEFAULT_CAMERA_DISTANCE == 95.1893
     assert "Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))" in qml
     assert "Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)" not in qml
-    assert "Qt.vector3d(0.022, 0.022, 0.022)" in qml
+    assert "objectName: \"hiveCore\"" in qml and "y: 1.6" in qml
     assert "scale: Qt.vector3d(0.0012, 0.0012, 0.0012)" in qml
     view_qml = scene.source().toLocalFile() if hasattr(scene, "source") else str(assets / "OverseerView.qml")
     assert view_qml.endswith("OverseerView.qml")
@@ -347,7 +348,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
         {"unit_id": f"SNT-WRD-{i:03d}", "caste": "warden", "position": [i % 10, 0.4, i // 10], "scale": 1.0}
         for i in range(100)
     ]
-    frame = overseer_runtime.build_frame(wide, camera_distance=90.0, viewport_h=1306, report=report_map)
+    frame = overseer_runtime.build_frame(wide, camera_distance=120.0, viewport_h=1306, report=report_map)
     assert frame["budget"]["lodCounts"][2] == 100
     assert frame["budget"]["lodCounts"][0] == 0
     lod2 = report_map[2]["parts"]
@@ -375,7 +376,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     for caste in overseer_runtime.CASTES:
         for i in range(20):
             mixed.append({"unit_id": f"{caste}-{i}", "caste": caste, "position": [i, 0.4, 0], "scale": 1.0})
-    mixed_frame = overseer_runtime.build_frame(mixed, 90.0, 1306, report=report_map)
+    mixed_frame = overseer_runtime.build_frame(mixed, 120.0, 1306, report=report_map)
     assert mixed_frame["budget"]["unitDrawCalls"] == 15
     assert mixed_frame["budget"]["lodCounts"][2] == 100
     inst.applyFrame(mixed_frame)
@@ -408,6 +409,12 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
                 continue
             if float(sc.x()) < 0.05:
                 continue
+            # Pass C tentacle strips use an identity transform (origin, scale 1).
+            if abs(float(pos.x())) + abs(float(pos.y())) + abs(float(pos.z())) < 1e-6:
+                continue
+            # Edge source nodes sit at y 3, around 40 m out.
+            if abs(float(pos.y()) - 3.0) < 0.05 and 30 < math.hypot(float(pos.x()), float(pos.z())) < 55:
+                continue
             rows.append((pos, sc))
         return rows
 
@@ -422,7 +429,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     boom = [{"unit_id": "boom", "caste": "warden", "position": [999.0, 0.4, 0.0]}]
     boom_frame = overseer_runtime.build_frame(boom, 32.0, 1306, report=report_map)
     # The draw scale comes from the caste spec now, so inject the bad value
-    # where the scene reads it: the scene still clamps it to 2.0.
+    # where the scene reads it: the scene still clamps it to 3.0.
     for rows in boom_frame["buckets"].values():
         for row in rows:
             row["scale"] = 50.0
@@ -436,7 +443,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
         break
     assert boom_pos is not None and abs(boom_pos[0]) < 1e-4
     assert abs(boom_pos[1] - 0.4) < 1e-4 and abs(boom_pos[2]) < 1e-4
-    assert boom_sc is not None and all(abs(c - 2.0) < 1e-4 for c in boom_sc)
+    assert boom_sc is not None and all(abs(c - 3.0) < 1e-4 for c in boom_sc)
     inst.applyFrame(mixed_frame)
     qt_app.processEvents()
 

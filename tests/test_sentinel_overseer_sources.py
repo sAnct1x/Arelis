@@ -37,9 +37,10 @@ def test_source_nodes_beam_only_when_harvest_fetch_is_live() -> None:
         nodes=[],
     )
     assert idle["activeSources"] == []
-    beacons = [c for c in idle["conduits"] if str(c.get("id", "")).startswith("source-beacon:")]
+    nodes = idle["sourceNodes"]
     beams = [c for c in idle["conduits"] if str(c.get("id", "")).startswith("source-beam:")]
-    assert {c["source_id"] for c in beacons} == {"arxiv", "wikipedia", "horizons", "web"}
+    assert {c["id"] for c in nodes} == {"arxiv", "wikipedia", "horizons", "web"}
+    assert all(c["lit"] == 0.15 and c["scale"] == 1.0 for c in nodes)
     assert beams == []
     assert len(idle["sourceLabels"]) == 4
     assert all(not row["hot"] for row in idle["sourceLabels"])
