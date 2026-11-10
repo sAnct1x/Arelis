@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 import unicodedata
 from collections import deque
 from datetime import UTC, datetime
@@ -844,6 +845,27 @@ def _raw_log_line(entry: dict[str, Any]) -> str:
     )
 
 
+REPLAY_WINDOW_S = 600.0
+REPLAY_TICK_CAP = 1500
+_THREAT_LEVELS = frozenset({"THREAT", "BLOCK", "CRITICAL", "ALERT", "EMP"})
+
+
+def replay_kind(entry: dict[str, Any]) -> str:
+    """Replay tick colour: fetch, result (in), tripwire (check), threat, or other."""
+    level = str(entry.get("level") or "").upper()
+    caste = str(entry.get("caste") or "").lower()
+    message = str(entry.get("message") or "")
+    if level in _THREAT_LEVELS:
+        return "threat"
+    if level == "TRIPWIRE" or caste == "tripwire":
+        return "tripwire"
+    if level in {"HARVEST", "WARRANT"} or caste == "harvester":
+        if "deployed for" in message or "Deploying" in message:
+            return "fetch"
+        return "result"
+    return "other"
+
+
 class LogSession:
     """The console's session log, kept by the host across snapshots.
 
@@ -863,11 +885,20 @@ class LogSession:
         self._last_seq: int | None = None
         self._raw: deque[dict[str, Any]] = deque(maxlen=self.RAW_LIMIT)
         self._groups: dict[tuple, dict[str, Any]] = {}
+        # Replay strip: (seq, time, kind) of every row, kept past RAW_LIMIT
+        # so the strip covers its whole 10 minutes on a busy hive.
+        self._ticks: deque[tuple[int, float, str]] = deque(maxlen=REPLAY_TICK_CAP)
 
     def reset(self) -> None:
         self._last_seq = None
         self._raw.clear()
         self._groups.clear()
+        self._ticks.clear()
+
+    def replay_ticks(self, now: float) -> list[dict[str, Any]]:
+        """One tick per event of the last REPLAY_WINDOW_S seconds, oldest first."""
+        start = float(now) - REPLAY_WINDOW_S
+        return [{"seq": q, "t": t, "kind": k} for q, t, k in self._ticks if start <= t <= now + 5.0]
 
     def ingest(self, entries: list[dict[str, Any]] | None) -> None:
         rows = [e for e in entries or [] if isinstance(e, dict)]
@@ -883,6 +914,9 @@ class LogSession:
             self._last_seq = entry["seq"]
             self._raw.append(entry)
             self._add(entry)
+            ts = entry.get("timestamp")
+            if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+                self._ticks.append((entry["seq"], float(ts), replay_kind(entry)))
         if len(self._groups) > self.GROUP_LIMIT:
             keep = sorted(self._groups.items(), key=lambda kv: kv[1]["seq"])[-self.GROUP_LIMIT:]
             self._groups = dict(keep)
@@ -1001,6 +1035,7 @@ def build_hud(
     camera_distance: float = 76.0,
     log_session: LogSession | None = None,
     log_repeats: bool = True,
+    dispatches: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     units = snapshot_units(snap)
     selected = next((u for u in units if u.get("unit_id") == selected_id), None)
@@ -1016,6 +1051,15 @@ def build_hud(
             b_title = str(banner.get("title") or "").strip()
             b_sub = str(banner.get("subtitle") or "").strip()
             status_line = f"{b_title}: {b_sub}" if b_sub else b_title
+    session = log_session if log_session is not None else LogSession()
+    inspector = inspector_card(
+        selected,
+        castes=(snap or {}).get("castes") if isinstance(snap, dict) else None,
+        receipts=(snap or {}).get("recent_receipts") if isinstance(snap, dict) else None,
+        telemetry_log=(snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
+    )
+    inspector["origin"] = task_origin(selected, dispatches)
+    logs = _session_rows(snap, session, log_filter, log_query, log_repeats)
     return {
         "pills": pill_counts(
             units,
@@ -1023,17 +1067,31 @@ def build_hud(
             (snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
         ),
         "swarmRows": swarm_rows(units, by=group_by, query=search, collapsed=collapsed),
-        "inspector": inspector_card(
-            selected,
-            castes=(snap or {}).get("castes") if isinstance(snap, dict) else None,
-            receipts=(snap or {}).get("recent_receipts") if isinstance(snap, dict) else None,
-            telemetry_log=(snap or {}).get("telemetry_log") if isinstance(snap, dict) else None,
-        ),
+        "inspector": inspector,
         "inspectorCollapsed": inspector_collapsed(camera_distance, selected_id or None),
-        "logs": _session_rows(snap, log_session, log_filter, log_query, log_repeats),
+        "logs": logs,
+        "ticks": session.replay_ticks(time.time()),  # the strip's clock is local time too
         "title": "Sentinels",
         "statusLine": status_line,
     }
+
+
+def task_origin(unit: dict[str, Any] | None, dispatches: list[dict[str, Any]] | None) -> str:
+    """'task from Dispatch at 11:58 PM' when this unit is working on a Dispatch
+    sent from the open Overseer. The hive names the target in the task
+    ("Extracting arxiv: sparse"), so the newest Dispatch whose query the task
+    names is its origin. Anything else has no known origin and says nothing.
+    """
+    if not unit or not dispatches or _patrolling(unit.get("state")):
+        return ""
+    task = str(unit.get("current_task") or "").lower()
+    for sent in reversed(dispatches):
+        query = str(sent.get("query") or "").strip().lower()[:40]
+        at = sent.get("at")
+        if query and query in task and isinstance(at, (int, float)):
+            stamp = datetime.fromtimestamp(float(at)).strftime("%I:%M %p").lstrip("0")
+            return f"task from Dispatch at {stamp}"
+    return ""
 
 
 ZOOM_MIN = 6.0

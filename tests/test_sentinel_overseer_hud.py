@@ -140,7 +140,7 @@ def test_overseer_console_filters_and_existing_dispatch(qt_app) -> None:
     inst.setProperty("inspectorOpen", True)
     inst.setProperty("selectedUnitId", "SNT-WRD-001")
     qt_app.processEvents()
-    pills = inst.findChild(QObject, "OverseerStatusStrip")
+    pills = inst.findChild(QObject, "OverseerSummary")
     assert pills is not None
     swarm = inst.findChild(QObject, "OverseerSwarmList")
     assert swarm is not None

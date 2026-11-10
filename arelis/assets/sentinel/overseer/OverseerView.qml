@@ -73,6 +73,9 @@ Item {
     property var swarmRows: []
     property var inspectorCard: ({})
     property var hudLogs: []
+    property var replayTicks: []
+    // Set by the host each poll from token_meter; 0 hides the readout.
+    property int tokRate: 0
     property var collapsedGroups: []
     property string selectedUnitId: ""
     property string cameraMode: "overview"
@@ -306,6 +309,8 @@ Item {
             inspectorCard = hud.inspector
         if (hud.logs !== undefined)
             hudLogs = hud.logs
+        if (hud.ticks !== undefined)
+            replayTicks = hud.ticks
         if (hud.statusLine)
             hudStatusLine = hud.statusLine
         if (hud.commandStatus !== undefined)
@@ -1655,6 +1660,8 @@ Item {
         swarmRows: root.swarmRows
         inspector: root.inspectorCard
         logs: root.hudLogs
+        replayTicks: root.replayTicks
+        tokRate: root.tokRate
         logRepeats: root.logRepeats
         inspectorOpen: root.showInspector
         selectedUnitId: root.selectedUnitId

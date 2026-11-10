@@ -6,10 +6,15 @@ the whole Sentinels window and chat turns off until you close it.
 ## Full window
 
 The 3D scene runs edge to edge. There is no side panel and no boxed
-header: the title and the status line (threats, defenders, units by caste,
-warrants, last event) sit as text over the sky. Every control from before
-is still there; the list and the event log just fold away until you want
-them. Panels keep a small margin (2 percent of the window) from the edges.
+header: **Sentinels** and one summary line sit as text over the sky. The
+summary line reads, in order: units, how many are fetching, threats,
+Wardens patrolling and engaged, warrants, the last event, and the hive's
+health ("hive live · all local · sending out blocked"). On a narrow window
+the line drops pieces from the right; hover it, or ask a screen reader, for
+the whole line. Hover **warrants** for what that number counts. Every
+control from before is still there; the list and the event log just fold
+away until you want them. Panels keep a small margin (2 percent of the
+window) from the edges.
 
 Opening or closing a drawer never moves the camera or resizes the scene.
 
@@ -47,22 +52,45 @@ the inspector on the right, as before.
 
 ## The Dispatch bar
 
-The bar at the bottom centre works like the chat composer: pick a mode
-(multi, arXiv, Horizons, Wikipedia, security audit), type the query, then
-press Enter or **Dispatch**. The result of the request shows just under
-the bar.
+The bar at the bottom centre, just above the replay strip, works like the
+chat composer: pick a mode (multi, arXiv, Horizons, Wikipedia, security
+audit), type the query, then press Enter or **Dispatch**. The result of the
+request shows just under the bar. When you select a unit working on a job
+you sent this way, the inspector ends with "task from Dispatch at" and the
+time you sent it. This covers jobs sent while the Overseer is open.
 
-**Events** (bottom left) opens the event log above the bar, with the same
-filters, search, and Repeats toggle as before. Clicking **Last event** in
-the status line opens it at that line.
+**Events** (bottom right) opens the event log above the bar, with the same
+filters, search, and Repeats toggle as before. Clicking the last event in
+the summary line opens it at that line.
 
-## Emergency stop
+## Emergency stop and model speed
 
 **Emergency stop** stays top right at all times. It is the only filled
 button in the Overseer, so it is easy to find.
 
+While the local model is writing, its speed shows under Emergency stop,
+for example "38 tok/s". It disappears a second after the last token, so
+it never shows 0 or a number left over from an earlier reply.
+
+## Legend
+
+The panel at the bottom left lists each caste with its colour, how many
+units it has now, and its job: Warden guards the core, Harvester fetches
+sources, Sanitizer checks results, Tripwire watches the edge, Stalker hunts
+threats. Red eyes appear only on a real threat.
+
+## Replay strip
+
+The strip along the bottom shows the last 10 minutes, one tick per event:
+blue for a fetch, lilac for a result coming in, green for a tripwire check,
+red (and taller) for a threat. The line at the right edge is now. Click a
+tick to open the event log at that event. The strip does not scrub the
+scene back in time.
+
 ## Screen readers
 
 The Units button, the Events button, the Dispatch bar's mode, query
-("Mission query"), and Dispatch button, and Emergency stop are all named
-for screen readers and can be pressed without a mouse.
+("Mission query"), and Dispatch button, Emergency stop, the last event in
+the summary line and the replay strip (which opens the newest event) are
+all named for screen readers and can be pressed without a mouse. The
+summary pieces, model speed and legend rows are read as text.
