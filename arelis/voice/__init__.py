@@ -366,6 +366,9 @@ class VoiceService:
             ),
         )
         self._spoken_count = already
+        # The first unit of a reply may be an opening clause, not a full
+        # sentence, so Kokoro can synthesize a short first clip at about
+        # 30 ms/char. Later units stay whole sentences.
         units, spoken = next_speakable_units(
             prepared, already, finalize=finalize, language=lang
         )
