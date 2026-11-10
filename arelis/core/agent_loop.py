@@ -410,7 +410,8 @@ _MAX_PROPOSED_FACTS = 2
 
 # Telegraph policy every turn. Cards in skills.py author the long form and
 # classify turns; they are not pasted into the prompt. Byte-stable so the
-# prefix cache lives. The tail still varies (preflight, facts, clock).
+# prefix cache lives. Slowly changing session lines (profile, theme, the
+# spoken policy) pin after this. The tail still varies (preflight, clock).
 TOOL_POLICY = full_tool_policy()
 STATIC_TOOL_POLICY = TOOL_POLICY
 
@@ -418,8 +419,9 @@ STATIC_TOOL_POLICY = TOOL_POLICY
 def static_system_prefix(persona: str) -> list[dict[str, str]]:
     """Byte-stable system prefix for KV/prefix cache across turns.
 
-    Persona + the compact tool policy. Everything turn-specific (clock,
-    preflight, facts, …) must trail this list.
+    Persona + the compact tool policy. Slowly changing session context
+    is pinned after this list, still ahead of history. Only this-turn
+    lines (clock, preflight, lessons) trail history.
     """
     return [
         {"role": "system", "content": persona},
@@ -1336,9 +1338,9 @@ class AgentLoop:
         not bounce through the fast model and pay a VRAM swap before it starts.
         On the common fast path that is the warm model already.
 
-        ``turn_tail`` is this turn's system text (clock, preflight, goal, and
-        the rest). It is inserted after history and before the latest user
-        line so a later turn can keep the bytes in front of it.
+        ``turn_tail`` is this turn's volatile system text (clock, preflight,
+        goal, lessons, world state). It is inserted after history and before
+        the latest user line so a later turn can keep the bytes in front of it.
         """
         agent_cfg = self.config.get("agent") or {}
         # Not named tail: split_recent_history assigns that name below.

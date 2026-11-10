@@ -55,7 +55,8 @@ def _prepare_messages(monkeypatch, *, location_enabled: bool) -> list[dict[str, 
             "llamacpp": {"default_cap": 4096},
             "location": {"enabled": location_enabled},
         },
-        memory=SimpleNamespace(messages=[]),
+        memory=SimpleNamespace(messages=[], sink=None),
+        _active_facts_line=lambda: "",
         _expected_tools=set(),
         _timer=None,
         _active_plan=None,
@@ -102,7 +103,6 @@ def _prepare_messages(monkeypatch, *, location_enabled: bool) -> list[dict[str, 
     )
     monkeypatch.setattr(subject, "disconnected_integration_reply", lambda **_: None)
     monkeypatch.setattr(subject, "append_plan_and_lessons", lambda *_a, **_k: None)
-    monkeypatch.setattr(subject, "append_operating_context", lambda *_a, **_k: None)
     monkeypatch.setattr(subject, "detect_exactness_need", lambda *_a, **_k: SimpleNamespace(
         needs_web_evidence=False,
         needs_weather=False,

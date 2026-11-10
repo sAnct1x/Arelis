@@ -339,15 +339,37 @@ def prefix_warmup_for(
     costs a slower first reply and must never keep the app from starting.
     """
     try:
+        from types import SimpleNamespace
+
         from arelis.config import load_persona, shipped_num_ctx
         from arelis.core.agent_loop import static_system_prefix
+        from arelis.core.prompt_sections import (
+            append_stable_delivery_context,
+            append_stable_operating_context,
+        )
         from arelis.core.tool_surface import session_tool_schemas
 
         agent_cfg = config.get("agent") or {}
         lc = config.get("llamacpp") or {}
         num_ctx = int(lc.get("default_cap") or shipped_num_ctx())
+        persona = load_persona(config)
+        messages = list(static_system_prefix(persona))
+        # Same stable session lines a turn pins ahead of history, so the
+        # seed stays a prefix of turn 1 when those lines are already known.
+        loop_like = SimpleNamespace(
+            config=config,
+            memory=SimpleNamespace(sink=None),
+            _expected_tools=set(),
+            _active_facts_line=lambda: "",
+        )
+        append_stable_operating_context(messages, loop_like, active_room=None)
+        append_stable_delivery_context(
+            messages,
+            loop_like,
+            speak=bool(config.get("_speak_replies")),
+        )
         return PrefixWarmup(
-            messages=list(static_system_prefix(load_persona(config))),
+            messages=messages,
             # Same function a turn calls, so the seed is a prefix of turn 1.
             tools=session_tool_schemas(tools, agent_cfg),
             num_ctx=num_ctx,

@@ -40,12 +40,14 @@ from arelis.core.image_refs import CAMERA_FRESH_S, latest_camera_image_file
 from arelis.core.look import LookTurn, classify_look, frame_sha256
 from arelis.core.other_work import looks_like_other_work
 from arelis.core.prompt_sections import (
-    append_delivery_context,
-    append_operating_context,
+    append_clock,
     append_plan_and_lessons,
     append_preflight_guidance,
+    append_stable_delivery_context,
+    append_stable_operating_context,
     append_stopped_turn_note,
     append_turn_goal,
+    append_volatile_operating_context,
 )
 from arelis.core.skills import select_skill_ids_detailed
 from arelis.core.sms_complete import (
@@ -646,10 +648,17 @@ async def prepare_turn(
     active_room = start.active_room
     available = start.available
     visible = start.visible
-    # Persona and the tool policy stay at the front so they can be cached.
-    # Everything that changes per turn is collected on its own list and placed
-    # after history, immediately before this ask.
+    # Persona, the tool policy, and slowly changing session context stay at
+    # the front so they can be cached. Only this-turn lines (lessons, the
+    # clock, world state, a project line) sit after history, immediately
+    # before this ask.
     system_messages = static_system_prefix(loop.persona)
+    append_stable_operating_context(
+        system_messages,
+        loop,
+        active_room=active_room,
+    )
+    append_stable_delivery_context(system_messages, loop, speak=speak)
     turn_tail: list[dict[str, str]] = []
     append_stopped_turn_note(turn_tail, stopped_ask)
     drafts = _reconstruct_turn_drafts(loop, text)
@@ -750,15 +759,14 @@ async def prepare_turn(
         skill_ids=skill_ids,
         active_plan=active_plan,
     )
-    append_operating_context(
+    append_volatile_operating_context(
         turn_tail,
         loop,
         role=role,
         model=model,
         skill_ids=skill_ids,
-        active_room=active_room,
     )
-    append_delivery_context(turn_tail, loop, speak=speak)
+    append_clock(turn_tail, loop)
     num_ctx, tool_reserve_chars = await _context_limits(
         loop,
         role,
