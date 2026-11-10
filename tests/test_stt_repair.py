@@ -66,3 +66,11 @@ def test_recent_vocab_never_corrupts_common_lowercase_words() -> None:
 
 
 
+
+
+def test_please_between_numbers_is_repaired_to_plus() -> None:
+    """Whisper-base greedy heard 'plus' as 'Please' on the 11-09 barge clip."""
+    assert scrub_transcript("What's 2 Please 2?") == "What's 2 plus 2?"
+    assert scrub_transcript("what's two please two") == "what's two plus two"
+    # Ordinary politeness is left alone.
+    assert scrub_transcript("Can you help me please") == "Can you help me please"

@@ -17,6 +17,8 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
+- Voice: talking over her with "Stop. What's two plus two?" is now heard as one question, including "Stop.", and "please" between two numbers is repaired to "plus". See [voice-wake.md](voice-wake.md).
+
 - Sentinels: in the Overseer, idle units now circle the core on tilted bands, one per caste, that split into more lanes and widen as the swarm grows (up to 128 units). Tripwires ride the outer edge ring. See [sentinels.md](sentinels.md).
 - Sentinels: in the Overseer, each harvest result's real title and web address now fly from its source along an arc and down into the core as glowing text. Results with no title show no text. See [sentinels.md](sentinels.md).
 - Sentinels: in the Overseer, a unit fetching data reaches toward its target with one pair of front tentacles for each open request (up to three), and its other tentacles curl, loosely when idle and tighter when busy. See [sentinels.md](sentinels.md).

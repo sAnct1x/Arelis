@@ -711,6 +711,11 @@ voice:
     # Headset default: the interrupt clip is the next question. Speakers:
     # false keeps the mixed clip as control-only (stop / allow / deny).
     barge_in_as_turn: true
+    # After a headset barge-in, keep listening through this much silence so
+    # "Stop." plus the real question stay one clip. A lone Stop still ends
+    # here. After speech resumes, the usual short-silence / Smart Turn path
+    # ends the turn, so this does not add a tail to the question.
+    barge_join_ms: 1500
     # Semantic end-of-turn after the short Silero pause. First launch may
     # download ~8 MB into models/smart_turn/. False disables it.
     smart_turn:

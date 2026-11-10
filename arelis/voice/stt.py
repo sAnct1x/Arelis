@@ -132,7 +132,7 @@ def scrub_transcript(text: str) -> str:
         lead = (stop.group("lead") or "").strip()
         if len(lead) >= 24 and re.match(r"(?i)^i(?:'m| am) going to\b", lead):
             return (stop.group("stop") or "stop").strip()
-    return repair_stt_mail_words(raw)
+    return repair_stt_math_words(repair_stt_mail_words(raw))
 
 
 _IN_BOX = re.compile(r"(?i)\bin\s+box\b")
@@ -153,6 +153,27 @@ _COMPOUND_SPLITS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(?i)\bsign\s+wave(s?)\b"), r"sine wave\1"),
     (re.compile(r"(?i)\bhullo\b"), "Hello"),
 )
+
+
+_NUMBER_ATOM = (
+    r"(?:zero|one|two|too|three|four|five|six|seven|eight|nine|ten|"
+    r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+    r"eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|"
+    r"eighty|ninety|hundred|thousand|\d+(?:\.\d+)?)"
+)
+# Whisper-base greedy often hears "plus" as "Please" between numbers
+# ("What's 2 Please 2?"). Same class of repair as email / inbox.
+_PLEASE_PLUS = re.compile(
+    rf"(?i)\b({_NUMBER_ATOM})\s+please\s+({_NUMBER_ATOM})\b"
+)
+
+
+def repair_stt_math_words(text: str) -> str:
+    """Repair 'please' between numbers, a common plus/Please swap."""
+    raw = text or ""
+    if not raw:
+        return ""
+    return _PLEASE_PLUS.sub(r"\1 plus \2", raw)
 
 
 def repair_stt_mail_words(text: str) -> str:

@@ -10,7 +10,7 @@ from typing import Any
 
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
-from arelis.core.turn_telemetry import log_span, turn_telemetry_enabled
+from arelis.core.turn_telemetry import log_span
 from arelis.paths import outputs_dir
 from arelis.voice.speech_text import (
     heard_sentence_count,
@@ -324,8 +324,8 @@ class VoiceService:
                         await self._status(f"Voice output failed: {exc}")
                         return
                     clips += 1
-                    if index == 0 and turn_telemetry_enabled(self.config):
-                        log_span("tts_first", utterance=utterance, chars=len(sentence))
+                    if index == 0:
+                        log_span("tts_first", utterance=utterance, chars=len(sentence), streamed=0)
                     await self.bus.publish(
                         Event(
                             EventType.VOICE_AUDIO_READY,
@@ -376,6 +376,12 @@ class VoiceService:
             self._stream_utterance = self._speak_seq
             self._stream_open = True
             self._stream_clips = 0
+            log_span(
+                "tts_queued",
+                utterance=self._stream_utterance,
+                chars=len(units[0]),
+                finalize=int(finalize),
+            )
         last_i = len(units) - 1
         for offset, sentence in enumerate(units):
             is_final = finalize and offset == last_i
@@ -435,8 +441,8 @@ class VoiceService:
                     split_sentences(sentence, language=self._speak_language())
                     or [sentence]
                 )
-                if index == 0 and turn_telemetry_enabled(self.config):
-                    log_span("tts_first", utterance=utterance, chars=len(sentence))
+                if index == 0:
+                    log_span("tts_first", utterance=utterance, chars=len(sentence), streamed=1)
                 await self.bus.publish(
                     Event(
                         EventType.VOICE_AUDIO_READY,
@@ -533,14 +539,13 @@ class VoiceService:
                 await self.stt.transcribe(path, proceed=proceed, purpose=deliver)
             ).strip()
             stt_ms = int((time.perf_counter() - stt_t0) * 1000)
-            if turn_telemetry_enabled(self.config):
-                log_span(
-                    "stt",
-                    ms=stt_ms,
-                    chars=len(text),
-                    deliver=deliver,
-                    loaded=self.stt.loaded(),
-                )
+            log_span(
+                "stt",
+                ms=stt_ms,
+                chars=len(text),
+                deliver=deliver,
+                loaded=self.stt.loaded(),
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -647,15 +652,14 @@ class VoiceService:
 
         text = soften_stt_case(scrub_transcript(text))
         stt_ms = int((time.perf_counter() - stt_t0) * 1000)
-        if turn_telemetry_enabled(self.config):
-            log_span(
-                "stt",
-                ms=stt_ms,
-                chars=len(text),
-                deliver=deliver,
-                live=1,
-                loaded=True,
-            )
+        log_span(
+            "stt",
+            ms=stt_ms,
+            chars=len(text),
+            deliver=deliver,
+            live=1,
+            loaded=True,
+        )
         if strip_wake:
             text = _peel_wake(text)
         if not text:
