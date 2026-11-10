@@ -95,3 +95,43 @@ def test_idle_repoll_pushes_nothing_and_view_keeps_the_runtime_orbit(qt_app) -> 
         assert max(abs(a - b) for a, b in zip(got, u["position"], strict=True)) < 1e-3
     teardown_sentinel_window(win)
     qt_app.processEvents()
+
+
+@isolated_render()
+def test_glow_costs_two_passes_per_level_not_a_fixed_fourteen(qt_app) -> None:
+    """ExtendedSceneEnvironment glow ran 14 blur passes from half size whatever
+    glowLevel said, which on the box cost about 20 ms p95 at 128 units. The
+    scene's own bloom runs one quarter-size threshold pass, a horizontal and a
+    vertical blur per level, one sum and the full-size tonemap."""
+    import time
+
+    from PySide6.QtCore import QUrl
+    from PySide6.QtQml import QQmlEngine, QQmlExpression
+    from PySide6.QtQuick import QQuickView
+
+    qml = Path(__file__).resolve().parents[1] / "arelis/assets/sentinel/overseer/OverseerView.qml"
+    view = QQuickView()
+    view.engine().addImportPath(str(qml.parent))
+    view.setSource(QUrl.fromLocalFile(str(qml)))
+    assert view.status() == QQuickView.Status.Ready, view.errors()
+    view.resize(1028, 749)
+    view.show()
+    root = view.rootObject()
+    root.setProperty("reveal", 1.0)  # the entry fade-in is over
+    ctx = QQmlEngine.contextForObject(root)
+
+    def ev(src: str):
+        return QQmlExpression(ctx, root, src).evaluate()[0]
+
+    ev("view.renderStats.extendedDataCollectionEnabled = true")
+    passes = 0
+    end = time.monotonic() + 20
+    while not passes and time.monotonic() < end:
+        qt_app.processEvents()
+        time.sleep(0.01)
+        passes = int(ev("view.renderStats.renderPassCount") or 0)
+    levels = int(root.property("glowLevels"))
+    # The scene, the threshold pass, two blurs per level, the sum, the tonemap.
+    assert passes == 1 + 1 + 2 * levels + 2
+    view.deleteLater()
+    qt_app.processEvents()

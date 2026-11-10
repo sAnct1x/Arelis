@@ -13,6 +13,13 @@ them. Panels keep a small margin (2 percent of the window) from the edges.
 
 Opening or closing a drawer never moves the camera or resizes the scene.
 
+## Glow
+
+Only the brightest things in the scene glow: unit eyes, the source cores
+and fetch beams. Hulls, lanes and the perimeter never do. The glow is a soft
+halo a few pixels wide around each eye. Edges are not smoothed
+(antialiasing is off), which keeps the Overseer within its frame budget.
+
 ## Chat is off while the Overseer is open
 
 While the Overseer is open:

@@ -132,9 +132,9 @@ Item {
     })
     // Pass A look constants (GAP.md items 1, 4, 8, 9). Each is one number so
     // Babbage can trace alternatives on Atria without touching anything else.
-    // MSAA 2x: on the box it costs about what no AA costs, where 4x added
-    // about 25 ms p95 and FXAA more than that. The glow stays ESE's 3 levels.
-    readonly property int msaaSamples: 2
+    // No AA (1 sample): see passA/RESULT.md. On the box MSAA 2x added about
+    // 14 ms p95 at 128 units, FXAA about 5 and TAA about 4.
+    readonly property int msaaSamples: 1
     readonly property int glowLevels: 3
     readonly property real glowThreshold: 1.0
     readonly property real eyeEmission: 2.4
@@ -1359,7 +1359,7 @@ Item {
                 event.accepted = true
             }
         }
-        environment: ExtendedSceneEnvironment {
+        environment: SceneEnvironment {
             objectName: "overseerEnvironment"
             backgroundMode: SceneEnvironment.Color
             // The scene used to draw a 1600 m lit floor plane under everything.
@@ -1368,19 +1368,14 @@ Item {
             // lit fragments per frame. This clear colour tonemaps to the same
             // grey, so the floor plane and its fill are gone.
             clearColor: root.skyColor
-            tonemapMode: ExtendedSceneEnvironment.TonemapModeFilmic
+            // OverseerBloom's last pass runs the Filmic tonemap.
+            tonemapMode: SceneEnvironment.TonemapModeNone
             antialiasingMode: root.msaaSamples > 1 ? SceneEnvironment.MSAA : SceneEnvironment.NoAA
             antialiasingQuality: root.msaaSamples >= 8 ? SceneEnvironment.VeryHigh
                                  : (root.msaaSamples >= 4 ? SceneEnvironment.High : SceneEnvironment.Medium)
             // Bloom: only HDR values over the threshold (eyes, beams, source
             // cores) glow; hulls, lanes and the perimeter stay under it.
-            glowEnabled: root.glowLevels > 0
-            glowHDRMinimumValue: root.glowThreshold
-            glowLevel: (1 << root.glowLevels) - 1
-            glowStrength: 1.2
-            glowIntensity: 1.4
-            glowBloom: 0.0
-            glowBlendMode: ExtendedSceneEnvironment.GlowBlendMode.Additive
+            effects: [overseerBloom]
             fog: Fog {
                 enabled: true
                 color: root.fogColor
@@ -1389,6 +1384,13 @@ Item {
                 depthNear: root.fogNear
                 depthFar: root.fogFar
             }
+        }
+
+        OverseerBloom {
+            id: overseerBloom
+            objectName: "overseerBloom"
+            levels: root.glowLevels
+            uThreshold: root.glowThreshold
         }
 
         PerspectiveCamera {
