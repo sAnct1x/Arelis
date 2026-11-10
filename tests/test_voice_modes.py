@@ -482,3 +482,51 @@ def test_barge_in_headset_mode_ignores_speakers_and_always_keeps_today(qt_app) -
     defaulted._output_labels_override = speaker
     assert defaulted._barge_in_mode == HEADSET
     assert defaulted._barge_in_is_armed() is False
+
+    # A raising device lookup must not abort conversation entry.
+    # always (and off) decide without enumerating, so always stays
+    # today's path. headset treats the failure as unknown and stays
+    # unarmed. debug_state uses the same gate, so it also must not
+    # raise from the lookup.
+    from unittest.mock import patch
+
+    lookup_calls: list[str] = []
+
+    def _raising_lookup(hint: str = "") -> tuple[str, str]:
+        lookup_calls.append(hint)
+        raise RuntimeError("device enum failed")
+
+    def _enter_with_live_lookup(mode: str) -> VoiceController:
+        cfg = _config(
+            conversation={
+                "smart_turn": False,
+                "silence_ms": 550,
+                "short_silence_ms": 450,
+                "end_silence_ms": 2500,
+                "barge_in": mode,
+                "barge_in_as_turn": True,
+            }
+        )
+        controller = VoiceController(cfg)
+        recorder = _FakeRecorder(controller)
+        controller.recorder = recorder
+        recorder.frames.connect(controller._on_frames)
+        controller.set_conversation(True)
+        return controller
+
+    with patch(
+        "arelis.ui.voice_control.current_output_labels",
+        side_effect=_raising_lookup,
+    ):
+        lookup_calls.clear()
+        always = _enter_with_live_lookup("always")
+        assert always.mode() == "conversation"
+        assert always._barge_in_is_armed() is True
+        assert always.debug_state()["barge_armed"] is True
+        assert lookup_calls == []
+
+        lookup_calls.clear()
+        headset = _enter_with_live_lookup("headset")
+        assert headset.mode() == "conversation"
+        assert headset._barge_in_is_armed() is False
+        assert headset.debug_state()["barge_armed"] is False

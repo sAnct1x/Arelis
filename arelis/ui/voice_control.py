@@ -300,15 +300,26 @@ class VoiceController(QObject):
     def _resolve_output_labels(self) -> tuple[str, str]:
         if self._output_labels_override is not None:
             return self._output_labels_override
-        return current_output_labels(self._output_device_hint)
+        try:
+            return current_output_labels(self._output_device_hint)
+        except Exception as exc:
+            log.warning("output device lookup failed: %s", exc)
+            return "", ""
 
     def _barge_in_is_armed(self) -> bool:
         """True when playback VAD may interrupt her right now.
 
-        Re-reads the current default output on every check so a headset
-        that was plugged in (or a default that moved to speakers) is
-        picked up without a restart.
+        always and off decide without enumerating devices, so a lookup
+        failure cannot abort conversation entry or a speaker barge-in.
+        Headset mode re-reads the current default output on every check
+        so a plugged-in headset (or a default that moved to speakers) is
+        picked up without a restart. A failed lookup is treated as
+        unknown and stays unarmed.
         """
+        if self._barge_in_mode == "always":
+            return True
+        if self._barge_in_mode == "off":
+            return False
         description, device_id = self._resolve_output_labels()
         return barge_in_armed(self._barge_in_mode, description, device_id)
 
