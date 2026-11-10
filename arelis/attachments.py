@@ -892,7 +892,8 @@ def format_attachments_block(
     if "doc" in kinds and not emailing:
         rules.append(
             "Documents and science data (docx, pptx, tex, FITS, HDF5, NetCDF): "
-            "call doc_extract once."
+            "call doc_extract once. To convert one, call document with "
+            "from_path= the staged path and the format asked for."
         )
     if "data" in kinds and not emailing:
         rules.append("Tables (csv/xlsx/json): call analyze.")

@@ -17,10 +17,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from arelis.core.document_refs import resolve_reported_output_path
+from arelis.core.document_refs import resolve_drop_file, resolve_reported_output_path
 from arelis.mathtext import display_math_plain, flatten_latex
 from arelis.paths import display_path, ensure, outputs_dir, user_data_dir
+from arelis.tools import file_read
 from arelis.tools.base import ToolResult
+from arelis.tools.file_convert import LatexUnavailableError, compile_latex, write_table
 from arelis.workspace import (
     UNSAFE_WINDOWS_PATH_MSG,
     WorkspaceRoots,
@@ -35,6 +37,12 @@ _PDF_FACE = "Desk"
 _FONT_DIR = Path(__file__).resolve().parents[1] / "ui" / "fonts"
 _SOURCE_SUFFIXES = frozenset({".md", ".txt", ".csv", ".markdown"})
 _MAX_BODY = 120_000
+# A file converted with from_path= was not typed by the model, so it may be
+# longer than a body the model writes.
+_MAX_SOURCE_BODY = 2_000_000
+# Rows of a data table written into a pdf, docx or md. All rows go to csv/xlsx.
+_DOC_TABLE_ROWS = 500
+_CONVERT_SUFFIXES = _SOURCE_SUFFIXES | file_read.SUFFIXES | {".docx", ".pdf", ".pptx"}
 _MAX_ROWS = 5_000
 _MAX_COLS = 40
 _SAFE_STEM = re.compile(r"[^a-zA-Z0-9._-]+")
@@ -522,17 +530,17 @@ class DocumentTool:
         "markdown, or plain text. The file lands in the project's documents/ "
         "directory when one is open, otherwise under outputs/documents/. "
         "Use when they ask to create, make, write, generate, "
-        "export, or save a document or spreadsheet. xlsx cells keep numbers, "
-        "=formulas stay live, body lines 'chart: line x=A y=B:C' and "
+        "export, convert, or save a document or spreadsheet. xlsx cells keep "
+        "numbers, =formulas stay live, body lines 'chart: line x=A y=B:C' and "
         "'format: C=0.00' add a chart and number formats, and from_path=<.xlsx> "
-        "edits a copy of that workbook. Pass format plus the full "
-        "body (markdown and TeX math are fine — formulas are written as "
-        "unicode so PDF, Word, CSV, and markdown all read clean). For tables "
-        "pass rows as JSON arrays or CSV "
-        "text. Set replace=true to overwrite the same name (fix / update / "
-        "export that). from_path reads an existing .md/.txt/.csv instead of "
-        "retyping the body. Do not dump the document into chat. Do not call "
-        "doc_extract — that reads an existing PDF. Allow is required."
+        "with format=xlsx edits a copy of that workbook. Pass format plus the "
+        "full body (markdown and TeX math become unicode so the file opens "
+        "clean). For tables pass rows as JSON arrays or CSV text. Set "
+        "replace=true to overwrite the same name (fix / update / export that). "
+        "from_path converts an existing md, txt, csv, docx, pdf, tex, xlsx, "
+        "FITS, HDF5 or NetCDF file without retyping it (add #sheet, #HDU or "
+        "#variable to pick one part). Do not dump the document into chat. "
+        "Do not call doc_extract, that reads an existing PDF. Allow is required."
     )
     risk = "write"
     parameters_schema: dict[str, Any] = {
@@ -572,8 +580,9 @@ class DocumentTool:
             "from_path": {
                 "type": "string",
                 "description": (
-                    "Existing .md/.txt/.csv to render instead of body, or an "
-                    ".xlsx to edit into a copy"
+                    "Existing file to convert (md, txt, csv, docx, pdf, tex, "
+                    "xlsx, FITS, HDF5, NetCDF; #sheet/#HDU/#variable picks a "
+                    "part), or an .xlsx to edit into a copy"
                 ),
             },
         },
@@ -675,20 +684,27 @@ class DocumentTool:
                 return candidate
         return None
 
-    def _read_source(self, raw: str) -> str:
-        path = self._source_file(raw)
-        if path.suffix.lower() not in _SOURCE_SUFFIXES:
-            raise ValueError("from_path must be a markdown, text, or CSV file.")
-        body = path.read_text(encoding="utf-8", errors="replace")
-        if len(body) > _MAX_BODY:
-            raise ValueError(f"source file is too long (max {_MAX_BODY} characters).")
-        return body
-
     def _source_file(self, raw: str) -> Path:
+        """The file from_path names, ignoring a #part selector."""
+        path, _selector = self._source_path(raw)
+        return path
+
+    def _source_path(self, raw: str) -> tuple[Path, str]:
+        """The file from_path names, and a #part selector if it had one."""
         text = (raw or "").strip()
         if not text:
             raise ValueError("from_path is empty.")
         refuse_unsafe_windows_path(text)
+        text, selector = file_read.split_selector(text, self._source_exists)
+        return self._find_source(text), selector
+
+    def _source_exists(self, text: str) -> bool:
+        try:
+            return self._find_source(text).is_file()
+        except (ValueError, PermissionError, OSError):
+            return False
+
+    def _find_source(self, text: str) -> Path:
         path: Path | None = None
         if self.workspace is not None:
             try:
@@ -699,7 +715,7 @@ class DocumentTool:
                 path = None
         # Workspace may "resolve" a relative display path under the project even
         # when the real file lives in outputs/documents (outside roots). Prefer an
-        # existing drop-tray hit over a missing workspace hit — same idea as
+        # existing drop-tray hit over a missing workspace hit, same idea as
         # image_io.resolve_image.
         if path is None or not path.is_file():
             fallback = self._under_document_roots(text)
@@ -710,6 +726,10 @@ class DocumentTool:
             if reported:
                 path = Path(reported)
         if path is None or not path.is_file():
+            dropped = resolve_drop_file(text, suffixes=_CONVERT_SUFFIXES)
+            if dropped:
+                path = Path(dropped)
+        if path is None or not path.is_file():
             allowed = ", ".join(display_path(root) for root in self._source_roots())
             if self.workspace is not None:
                 allowed = f"{allowed}, or a workspace project"
@@ -718,6 +738,68 @@ class DocumentTool:
                 f"from_path must be under an allowed root ({allowed})."
             )
         return path
+
+    def _load_source(
+        self, raw: str, fmt: str
+    ) -> tuple[str, str, file_read.Table | None, Path | None, list[str], Path]:
+        """(title, body, table, tex file, notes, source path) for converting ``raw``.
+
+        A table comes back only when the target is csv or xlsx; a document
+        target gets the first rows as a markdown table in body instead. A
+        .tex going to pdf comes back as the file itself, for a TeX engine.
+        """
+        path, selector = self._source_path(raw)
+        kind = _source_kind(path)
+        if kind is None:
+            raise ValueError(
+                "from_path must be a document or data file: md, txt, docx, "
+                "pptx, pdf, tex, csv, xlsx, FITS, HDF5 or NetCDF."
+            )
+        notes: list[str] = []
+        title = ""
+        if kind in {"csv", "xlsx", "fits", "hdf5", "netcdf"}:
+            tab = file_read.table(path, kind, selector)
+            if tab.note:
+                notes.append(tab.note)
+            if fmt in {"csv", "xlsx"}:
+                return title, "", tab, None, notes, path
+            if tab.total > _DOC_TABLE_ROWS:
+                notes.append(
+                    f"first {_DOC_TABLE_ROWS} of {tab.total} rows; "
+                    "csv or xlsx holds them all"
+                )
+            return title, file_read.markdown_table(tab, _DOC_TABLE_ROWS), None, None, notes, path
+        if kind == "tex":
+            title, body = file_read.tex_to_markdown(path.read_text("utf-8", errors="replace"))
+            if fmt == "pdf":
+                return title, "", None, path, notes, path
+            notes.append("LaTeX structure and math kept; layout is not typeset")
+        elif kind == "docx":
+            from arelis.tools.office_text import extract_docx_text
+
+            body = extract_docx_text(path)
+        elif kind == "pptx":
+            from arelis.tools.office_text import extract_pptx_slides
+
+            slides = extract_pptx_slides(path)
+            body = "\n\n".join(
+                f"## Slide {n}\n\n{text}" for n, text in enumerate(slides, start=1)
+            )
+        elif kind == "pdf":
+            body = _pdf_text(path)
+            notes.append("text only; the PDF's layout, images and fonts are not kept")
+        else:
+            body = path.read_text(encoding="utf-8", errors="replace")
+        if not body.strip():
+            raise ValueError(f"{path.name} has no text to convert.")
+        lead = _MD_HEADING.match(body.lstrip().split("\n", 1)[0])
+        if not title and lead and len(lead.group(1)) == 1:
+            # The file's own top heading is its title, not a second one under it.
+            title = lead.group(2).strip()
+            if fmt not in {"md", "txt"}:
+                body = body.lstrip().split("\n", 1)[1] if "\n" in body.lstrip() else ""
+        return title, body, None, None, notes, path
+
 
     async def run(self, **kwargs: Any) -> ToolResult:
         fmt = str(kwargs.get("format") or "").strip().lower().lstrip(".")
@@ -741,30 +823,50 @@ class DocumentTool:
         from_path = str(kwargs.get("from_path") or "").strip()
         if _is_xlsx_edit(kwargs, fmt):
             return await self._edit_xlsx(kwargs, title, body, rows_raw)
+        table: file_read.Table | None = None
+        tex_source: Path | None = None
+        notes: list[str] = []
+        source_path: Path | None = None
         if from_path:
             try:
-                body = self._read_source(from_path)
+                found_title, body, table, tex_source, notes, source_path = self._load_source(
+                    from_path, fmt
+                )
             except Exception as exc:
                 return ToolResult(ok=False, output=str(exc))
             if not title:
-                title = Path(from_path.replace("\\", "/")).stem.replace("-", " ")
-        if len(body) > _MAX_BODY:
+                title = found_title or Path(
+                    from_path.replace("\\", "/").split("#", 1)[0]
+                ).stem.replace("-", " ")
+        limit = _MAX_SOURCE_BODY if from_path else _MAX_BODY
+        if len(body) > limit:
             return ToolResult(
                 ok=False,
-                output=f"body is too long (max {_MAX_BODY} characters).",
+                output=f"body is too long (max {limit} characters).",
             )
         directives: list[str] = []
-        if fmt == "xlsx":
+        rest: list[str] = []
+        if table is not None or tex_source is not None:
+            rows: list[list[Any]] = []
+        elif fmt == "xlsx":
             from arelis.tools.sheet_xlsx import split_body, typed_rows
 
             directives, rest = split_body(body)
-        if fmt in {"csv", "xlsx"}:
             try:
-                rows = (
-                    typed_rows(rows_raw, "\n".join(rest))
-                    if fmt == "xlsx"
-                    else _parse_rows(rows_raw, body=body)
+                rows = typed_rows(rows_raw, "\n".join(rest))
+            except Exception as exc:
+                return ToolResult(ok=False, output=f"Could not read table data: {exc}")
+            if not rows:
+                return ToolResult(
+                    ok=False,
+                    output=(
+                        "A spreadsheet needs rows (JSON list of lists or CSV) "
+                        "or a markdown table in body."
+                    ),
                 )
+        elif fmt == "csv":
+            try:
+                rows = _parse_rows(rows_raw, body=body)
             except Exception as exc:
                 return ToolResult(ok=False, output=f"Could not read table data: {exc}")
             if not rows:
@@ -780,7 +882,7 @@ class DocumentTool:
             if not body.strip() and not title:
                 return ToolResult(
                     ok=False,
-                    output="A document needs title or body — nothing to write.",
+                    output="A document needs title or body. Nothing to write.",
                 )
             if not body.strip():
                 body = title
@@ -797,8 +899,20 @@ class DocumentTool:
                 ok=False,
                 output="That filename cannot leave the documents folder.",
             )
+        sheet: dict[str, Any] | None = None
         try:
-            if fmt == "pdf":
+            if table is not None:
+                written, cut = write_table(dest, table, fmt)
+                notes.append(
+                    f"{written} of {table.total} rows (the {fmt} row limit)"
+                    if cut
+                    else f"{written} rows"
+                )
+                notes.extend(_science_plots(source_path, folder, notes))
+            elif tex_source is not None:
+                engine = compile_latex(tex_source, dest)
+                notes.append(f"typeset with {engine}")
+            elif fmt == "pdf":
                 _write_pdf(dest, title, body)
             elif fmt == "docx":
                 _write_docx(dest, title, body)
@@ -819,7 +933,13 @@ class DocumentTool:
                 dest.write_text(heading + clean_body + "\n", encoding="utf-8")
             else:
                 dest.write_text(flatten_latex(body).strip() + "\n", encoding="utf-8")
+        except LatexUnavailableError as exc:
+            if not replaced:
+                dest.unlink(missing_ok=True)
+            return ToolResult(ok=False, output=str(exc), data={"fail_class": "fail:no_tex"})
         except Exception as exc:
+            if not replaced:
+                dest.unlink(missing_ok=True)
             return ToolResult(ok=False, output=f"Could not write {fmt}: {exc}")
 
         shown = display_path(dest)
@@ -833,12 +953,16 @@ class DocumentTool:
             except Exception:
                 pages = ""
         verb = "Replaced" if replaced else "Wrote"
-        extra = _sheet_summary(sheet) if fmt == "xlsx" else ""
+        extra = _sheet_summary(sheet) if sheet is not None else ""
+        converted = ""
+        if from_path:
+            detail = f" ({'; '.join(notes)})" if notes else ""
+            converted = f" Converted from {from_path}{detail}."
         return ToolResult(
             ok=True,
             output=(
-                f"{verb} {shown}{pages} in {where}.{extra} "
-                "Open that file — do not paste the document into chat."
+                f"{verb} {shown}{pages} in {where}.{extra}{converted} "
+                "Open that file, do not paste the document into chat."
             ),
             data={
                 "path": shown,
@@ -849,6 +973,7 @@ class DocumentTool:
                 "where": where,
             },
         )
+
 
     async def _edit_xlsx(
         self, kwargs: dict[str, Any], title: str, body: str, rows_raw: str
@@ -909,3 +1034,60 @@ class DocumentTool:
                 "sheets": sheet.get("sheets"),
             },
         )
+
+
+def _source_kind(path: Path) -> str | None:
+    """What from_path holds, from its bytes first and its name second."""
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(8)
+    except OSError:
+        head = b""
+    if head.startswith(b"%PDF"):
+        return "pdf"
+    if head.startswith(b"PK"):
+        from arelis.tools.office_text import sniff_office_kind
+
+        office = sniff_office_kind(path)
+        if office:
+            return office
+    suffix = path.suffix.lower()
+    if suffix in {".pdf", ".docx", ".pptx"}:
+        return suffix.lstrip(".")
+    return file_read.kind_of(path)
+
+
+def _pdf_text(path: Path) -> str:
+    from pypdf import PdfReader
+
+    reader = PdfReader(str(path))
+    if getattr(reader, "is_encrypted", False) and not reader.decrypt(""):
+        raise ValueError(f"{path.name} is encrypted.")
+    pages = [(page.extract_text() or "").strip() for page in reader.pages]
+    text = "\n\n".join(p for p in pages if p)
+    if not text:
+        raise ValueError(
+            f"{path.name} has no text layer (a scan). Read it with doc_extract "
+            "first, then write the file from what it found."
+        )
+    return text
+
+
+def _science_plots(source: Path | None, folder: Path, notes: list[str]) -> list[str]:
+    """Quick-look PNGs for FITS, HDF5 or NetCDF converted to a table."""
+    if source is None:
+        return []
+    kind = file_read.kind_of(source)
+    if kind not in {"fits", "hdf5", "netcdf"}:
+        return []
+    try:
+        described = file_read.describe(source, kind, folder)
+    except Exception:
+        # A failed quick-look must not fail the table the user asked for.
+        return []
+    extra: list[str] = []
+    for raw in described.previews:
+        path = Path(raw)
+        if path.is_file():
+            extra.append(f"quick-look plot {display_path(path)}")
+    return extra

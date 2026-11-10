@@ -3,7 +3,7 @@
 When you ask Arelis to work something out in Python (fit a curve, run an
 analysis, make a plot), she can now write the code and run it herself, with
 no Allow card, in a sandbox. If that code needs to change one of your files,
-she asks you first.
+or to use the network, she asks you first.
 
 ## What the sandbox is
 
@@ -13,7 +13,11 @@ she asks you first.
 - **Your files are read only.** It can read your data files, but writing,
   deleting, moving or renaming anything outside its folder is refused, and
   nothing is changed there.
-- **No network.** It cannot reach the internet or look up a host name.
+- **No network unless you allow it.** A first run that tries to reach the
+  internet or look up a host name is refused, and nothing is sent. When
+  Arelis tries the same code again, you see a card that names the hosts it
+  tried to reach, or says network access. If you allow it, that run may use
+  the network. If you don't, nothing changes.
 - **No other programs.** It cannot start another program or a shell.
 - **Time and memory caps.** It stops after 60 seconds (she can ask for up to
   120). On Windows it also stops at 2 GB of memory or 130 seconds of CPU.
@@ -24,8 +28,8 @@ The first run is refused at that write and nothing outside the folder
 changes. When Arelis tries the same code again, you see a card titled **Let this code
 change your files**. It lists each path and what the code wants to do to it
 (write, delete or move), and shows the whole code. If you allow it, that run
-may change exactly those paths. Network stays off and the caps stay on. If
-you don't, nothing changes.
+may change exactly those paths. Network stays off unless the same card also
+asked for it, and the caps stay on. If you don't, nothing changes.
 
 Running a script that is already in one of your projects is unchanged: it
 runs as you, with full access, after you allow it.
@@ -72,6 +76,5 @@ plus the `fork_exec` patch above.
 
 ## Not in this version yet
 
-- Asking for the network for one run.
 - Other languages (R, Julia, and so on).
 - Editing code in your own projects through the sandbox.

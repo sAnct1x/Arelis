@@ -664,8 +664,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
   path. Do not paste the document into chat. Allow is required.
 - replace=true overwrites the same name (fix / update / export that).
   "Make another" writes a new file beside it.
-- from_path reads an existing .md/.txt to export as PDF/Word without
-  retyping the body.
+- from_path converts an existing file without retyping it: md, txt, docx,
+  pptx, pdf, tex, csv, xlsx, FITS, HDF5 or NetCDF. Add #sheet, #HDU or
+  #variable to pick one part. LaTeX to PDF needs a TeX engine on this PC.
+  from_path on an .xlsx with format=xlsx edits a copy of that workbook.
 - A write-up with no named format is markdown.
 - Export or save as csv/xlsx/pdf is document, not workspace write. Reading
   a file is not document.

@@ -132,3 +132,18 @@ def test_spreadsheet_ask_gets_the_sheet_plan() -> None:
     pdf = select_plan("create a pdf about the transit")
     assert sheet is not None and "chart: line" in sheet.message
     assert pdf is not None and "chart:" not in pdf.message
+
+
+async def test_chart_col_is_a_column_chart(docs) -> None:
+    tool, _folder = docs
+    result = await tool.run(
+        format="xlsx",
+        title="Qty",
+        rows=json.dumps([["Item", "Qty"], ["A", 12], ["B", 2]]),
+        body="chart: col x=A y=B Qty by line",
+    )
+    assert result.ok, result.output
+    book = load_workbook(result.data["abs_path"])
+    chart = book["Qty"]._charts[0]
+    assert chart.type == "col"
+    assert "unknown" not in result.output

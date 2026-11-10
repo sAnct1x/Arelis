@@ -41,7 +41,7 @@ def test_from_path_rejects_traversal(drop_env) -> None:
     assert probe.resolve() == escape.resolve()
     assert probe.resolve().is_file(), "probe must hit a real file or the reject is vacuous"
     with pytest.raises(ValueError, match="allowed root") as exc:
-        tool._read_source("outputs/documents/../../escape.md")
+        tool._source_file("outputs/documents/../../escape.md")
     assert "outputs/documents" in str(exc.value)
 
     # Deeper traversal: three levels up from outputs/documents.
@@ -51,5 +51,5 @@ def test_from_path_rejects_traversal(drop_env) -> None:
     assert probe_deep.resolve() == escape_deep.resolve()
     assert probe_deep.resolve().is_file()
     with pytest.raises(ValueError, match="allowed root") as exc_deep:
-        tool._read_source("outputs/documents/../../../escape_deep.md")
+        tool._source_file("outputs/documents/../../../escape_deep.md")
     assert "outputs/documents" in str(exc_deep.value)

@@ -2,7 +2,8 @@
 
 ``code=`` runs in a sandbox with no card (code_sandbox.py, policy A5). It may
 change only its work folder. The same call made again after it tried to
-change other files shows a card for exactly those paths.
+change other files, or to use the network, shows a card for those paths
+and hosts.
 
 ``path=`` starts a named script the way the user would: argv, project cwd,
 captured output, after Allow. The numerics cell cannot open files. Jobs do
@@ -54,9 +55,9 @@ _STATUS_PREFIX = "ARELIS_RUN_STATUS "
 class RunScriptTool:
     name = "run_script"
     description = (
-        "Run Python. code= runs new code in a sandbox: scratch folder, no "
-        "network, time and memory caps, and the user is asked before it "
-        "changes files outside it. path= runs a .py under a workspace root "
+        "Run Python. code= runs in a sandbox: scratch folder, time and memory "
+        "caps, and the user is asked before it uses the network or changes "
+        "files outside it. path= runs a .py under a workspace root "
         "(relative or name:relative/path) as the user, after Allow. Not a "
         "shell, diagnostics, schedule run_now or run_task. args is an argv "
         "list. Print the result."
@@ -103,18 +104,21 @@ class RunScriptTool:
         self.is_cancelled = is_cancelled
         # Sandbox call key to the outside paths its last run tried to change.
         self._outside: dict[str, list[dict[str, str]]] = {}
-        # Keys whose card was shown. Only those runs get the paths.
+        # Same key to the hosts a refused run tried to reach (empty = network access).
+        self._network: dict[str, list[str]] = {}
+        # Keys whose card was shown. Only those runs get the paths and network.
         self._carded: set[str] = set()
 
     def sandbox_needs_card(self, args: dict[str, Any]) -> bool | None:
         """None for a project script. For sandbox code, True only when this
-        exact code already tried to change files outside the sandbox."""
+        exact code already tried to change files outside the sandbox or
+        use the network."""
         from arelis.tools.code_sandbox import call_key, is_sandbox_call
 
         if not is_sandbox_call(args):
             return None
         key = call_key(args)
-        if key not in self._outside:
+        if key not in self._outside and key not in self._network:
             return False
         self._carded.add(key)
         return True
@@ -123,7 +127,12 @@ class RunScriptTool:
         from arelis.tools.code_sandbox import call_key, is_sandbox_call, sandbox_confirm
 
         if is_sandbox_call(args):
-            return sandbox_confirm(args, self._outside.get(call_key(args), []))
+            key = call_key(args)
+            return sandbox_confirm(
+                args,
+                self._outside.get(key, []),
+                hosts=self._network.get(key),
+            )
         return run_script_confirm(self.workspace, args)
 
     def clear_run_pin(self, args: dict[str, Any]) -> None:
@@ -322,10 +331,14 @@ class RunScriptTool:
 
         key = sandbox.call_key(kwargs)
         grants: list[str] = []
+        network = False
         if key in self._carded:
-            # The card for these paths was shown, and this run is what it allowed.
+            # The card for these paths and network was shown, and this run
+            # is what it allowed.
             self._carded.discard(key)
             grants = [item["path"] for item in self._outside.pop(key, [])]
+            network = key in self._network
+            self._network.pop(key, None)
         try:
             timeout_s = float(kwargs.get("timeout_s") or sandbox.SANDBOX_TIMEOUT_S)
         except (TypeError, ValueError):
@@ -336,6 +349,7 @@ class RunScriptTool:
             _argv_list(kwargs.get("args")),
             timeout_s=timeout_s,
             grants=grants,
+            network=network,
             is_cancelled=self.is_cancelled,
         )
         data: dict[str, Any] = {
@@ -364,6 +378,10 @@ class RunScriptTool:
         if writes:
             self._outside[key] = writes
             data["outside_writes"] = writes
+        if run.needed_network():
+            hosts = run.network_hosts()
+            self._network[key] = hosts
+            data["network_hosts"] = hosts
         stderr, status = _take_run_status(run.stderr)
         parts = [f"exit: {run.exit}", f"sandbox: {run.folder}"]
         out = (run.stdout or "").rstrip()
