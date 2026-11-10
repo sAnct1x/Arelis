@@ -403,19 +403,37 @@ Item {
         // Shown only while tokens arrive: the host sets tokRate to 0 one
         // second after the last token, so it never reads "0 tok/s" or
         // freezes on a stalled stream.
-        Text {
-            id: tokReadout
-            objectName: "OverseerTokRate"
+        // The string is "38 tok/s" with no period. On the 1028 px header a
+        // star in the gap after "8" (the text is overlay, the scene shows
+        // through) reads as "38. tok/s". An opaque plate in the scene clear
+        // colour covers that gap. QtRendering + no hinting also stops a
+        // hinted "8" from leaving its own baseline blob.
+        Item {
+            id: tokReadoutWrap
+            objectName: "OverseerTokRatePlate"
             anchors.right: empButton.right
             anchors.top: empButton.bottom
             anchors.topMargin: 6
+            width: tokReadout.implicitWidth + 4
+            height: tokReadout.implicitHeight + 2
             visible: hud.tokRate > 0
-            text: hud.tokRate + " tok/s"
-            color: "#cdb2f7"
-            font.family: hud.monoFamily
-            font.pixelSize: 13
-            Accessible.role: Accessible.StaticText
-            Accessible.name: "Model speed " + text
+            Rectangle {
+                anchors.fill: parent
+                color: "#010103"
+            }
+            Text {
+                id: tokReadout
+                objectName: "OverseerTokRate"
+                anchors.centerIn: parent
+                text: hud.tokRate + " tok/s"
+                color: "#cdb2f7"
+                font.family: hud.monoFamily
+                font.pixelSize: 13
+                renderType: Text.QtRendering
+                font.hintingPreference: Font.PreferNoHinting
+                Accessible.role: Accessible.StaticText
+                Accessible.name: "Model speed " + text
+            }
         }
     }
 

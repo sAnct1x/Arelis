@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QPoint, QPointF, Qt, QUrl
+from PySide6.QtGui import QFont
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 
 from arelis.llm import token_meter
@@ -214,6 +215,61 @@ def test_inspector_names_a_task_sent_from_dispatch(qt_app) -> None:
         qt_app.processEvents()
         origin = hud.findChild(QObject, "OverseerInspectorOrigin")
         assert origin.isVisible() and origin.property("text") == "task from Dispatch at 11:58 PM"
+    finally:
+        hud.deleteLater()
+        qt_app.processEvents()
+
+
+@isolated_render(software=True)
+def test_tok_rate_readout_has_no_stray_period_on_narrow_header(qt_app) -> None:
+    """The 1028 px header must render "38 tok/s", not "38. tok/s".
+
+    The string is already "38 tok/s". A star showing through the gap after
+    "8" is what reads as a period on the 1028 px shot; the sky-coloured
+    plate covers that gap. QtRendering and PreferNoHinting also stop a
+    hinted "8" from leaving its own baseline blob. This fails if the plate
+    or the hinting fix is reverted.
+    """
+    from PySide6.QtCore import QByteArray
+    from PySide6.QtQml import QQmlComponent
+
+    pack, hud = _hud(qt_app, width=1028, height=749)
+    engine, _comp = pack
+    try:
+        hud.setProperty("tokRate", 38)
+        qt_app.processEvents()
+        readout = hud.findChild(QObject, "OverseerTokRate")
+        assert readout.isVisible()
+        assert readout.property("text") == "38 tok/s"
+        assert "." not in str(readout.property("text"))
+        plate = hud.findChild(QObject, "OverseerTokRatePlate")
+        assert plate is not None and plate.isVisible()
+        fills = [
+            c for c in plate.childItems()
+            if c.property("color") is not None
+        ]
+        assert any(c.property("color").name() == "#010103" for c in fills)
+        assert plate.width() >= readout.implicitWidth()
+        assert plate.height() >= readout.implicitHeight()
+        probe = QQmlComponent(engine)
+        probe.setData(
+            QByteArray(
+                b"import QtQuick\n"
+                b"QtObject {\n"
+                b"    property bool isQtRendering: false\n"
+                b"    function check(item) { isQtRendering = item.renderType === Text.QtRendering }\n"
+                b"}"
+            ),
+            QUrl(),
+        )
+        enums = probe.create()
+        assert enums is not None, "; ".join(e.toString() for e in probe.errors())
+        enums.check(readout)
+        assert enums.property("isQtRendering") is True
+        font = readout.property("font")
+        assert font.hintingPreference() == QFont.PreferNoHinting
+        enums.deleteLater()
+
     finally:
         hud.deleteLater()
         qt_app.processEvents()

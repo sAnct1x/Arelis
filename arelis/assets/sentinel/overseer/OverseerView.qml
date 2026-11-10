@@ -171,6 +171,14 @@ Item {
     // Pass C orb: energy follows real tok/s (idle floor 0.3, 1.0 at 60).
     property real orbEnergy: 0.3
     property real orbEnergyShown: 0.3
+    // Visual gains at energy 1.0. 16 x energy blew the nucleus into a white
+    // disc at a pinned 38 tok/s and washed the filaments, shell, rings and
+    // labels. These stay in a range where those parts still read; bloom is
+    // unchanged (3 levels, threshold 1.0) so eyes still glow.
+    readonly property real orbNucleusGain: 3.6
+    readonly property real orbFilamentGain: 2.4
+    readonly property real orbShellGain: 2.8
+    readonly property real orbPulseShellGain: 1.8
     property real orbSpinAngle: 0
     property int memoryCount: 0
     property string memoryLabel: "Memory · 0 from last chat"
@@ -1654,7 +1662,9 @@ Item {
                 root.pulsePhase += frameTime / 0.6
                 if (root.pulsePhase >= 1.0)
                     root.pulsePhase -= Math.floor(root.pulsePhase)
-                root.pulseScale = 1.0 + 0.35 * root.pulsePhase
+                // A 35 percent expanding HDR shell doubled the bloom disc.
+                // Keep the token pulse, but as a small breath around the shell.
+                root.pulseScale = 1.0 + 0.12 * root.pulsePhase
                 root.pulseGain = (1.0 - root.pulsePhase) * root.orbEnergyShown
             } else {
                 root.pulsePhase = 0
@@ -1786,7 +1796,7 @@ Item {
                         property real spinAngle: 0
                         property real spinShear: 0
                         property vector3d tint: Qt.vector3d(1, 1, 1)
-                        property real gain: 16.0 * root.orbEnergyShown
+                        property real gain: root.orbNucleusGain * root.orbEnergyShown
                         property vector3d litArc: Qt.vector3d(0, 0, 2)
                         property real dim: 1
                     }
@@ -1805,7 +1815,7 @@ Item {
                         property real spinAngle: root.orbSpinAngle
                         property real spinShear: 0.15
                         property vector3d tint: Qt.vector3d(1, 1, 1)
-                        property real gain: 16.2 * root.orbEnergyShown * 0.6
+                        property real gain: root.orbFilamentGain * root.orbEnergyShown
                         property vector3d litArc: Qt.vector3d(0, 0, 2)
                         property real dim: 1
                     }
@@ -1824,7 +1834,7 @@ Item {
                         property vector3d shellColor: root.linearVec("#a473f0")
                         property real energy: root.orbEnergyShown
                         property real shellPower: 6
-                        property real shellGain: 9
+                        property real shellGain: root.orbShellGain
                         property vector4d impact: root.orbImpact
                     }
                 }
@@ -1844,7 +1854,7 @@ Item {
                         property vector3d shellColor: root.linearVec("#a473f0")
                         property real energy: root.pulseGain
                         property real shellPower: 6
-                        property real shellGain: 6
+                        property real shellGain: root.orbPulseShellGain
                         property vector4d impact: Qt.vector4d(0, 1, 0, -1)
                     }
                 }
@@ -2023,7 +2033,7 @@ Item {
                         property real metal: 0.55
                         property real rough: 0.32
                         property real wearGain: (modelData.part === "hull" && modelData.lod === 1) ? 1.0 : 0.0
-                        property real lipGain: (modelData.part === "hull" && modelData.lod === 1) ? 0.8 : 0.0
+                        property real lipGain: (modelData.part === "hull" && modelData.lod === 1) ? 1.0 : 0.0
                         property real eyeStrength: modelData.lod === 2 ? 4.46 : 2.48
                         property real coreWhite: 0.55
                         property vector3d spinAxis: Qt.vector3d(0, 1, 0)

@@ -177,3 +177,75 @@ def test_pass_c_view_loads_orb_sources_and_tentacles(qt_app) -> None:
     view.close()
     view.deleteLater()
     qt_app.processEvents()
+
+
+
+@isolated_render()
+def test_orb_gains_at_thirty_eight_tok_leave_core_structure_readable(qt_app) -> None:
+    """Pinned 38 tok/s must not bloom the orb into a white disc.
+
+    Energy still maps 0.3 idle to 1.0 at 60 tok/s. The nucleus, filaments
+    and shell gains used to be 16 / 9.7 / 9 and washed the rings and
+    labels. This fails if those HDR multipliers are restored.
+    """
+    from PySide6.QtCore import QByteArray, QObject, QSizeF, QUrl
+    from PySide6.QtGui import QColor
+    from PySide6.QtQml import QQmlComponent
+    from PySide6.QtQuick import QQuickView
+
+    view = QQuickView()
+    view.engine().addImportPath(str(ASSETS))
+    view.setColor(QColor("#0b0714"))
+    view.setResizeMode(QQuickView.SizeViewToRootObject)
+    view.setSource(QUrl.fromLocalFile(str(ASSETS / "OverseerView.qml")))
+    assert view.status() == QQuickView.Status.Ready, view.errors()
+    root = view.rootObject()
+    root.setSize(QSizeF(1280, 800))
+    view.show()
+    qt_app.processEvents()
+    energy = o.orb_energy(38)
+    root.setProperty("tokRate", 38)
+    root.setProperty("orbEnergy", energy)
+    root.setProperty("orbEnergyShown", energy)
+    qt_app.processEvents()
+    probe = QQmlComponent(view.engine())
+    probe.setData(
+        QByteArray(
+            b"import QtQuick\n"
+            b"QtObject {\n"
+            b"    property real nuc: 0\n"
+            b"    property real fil: 0\n"
+            b"    property real shell: 0\n"
+            b"    property real pulse: 0\n"
+            b"    function read(n, f, s, p) {\n"
+            b"        nuc = n.materials[0].gain\n"
+            b"        fil = f.materials[0].gain\n"
+            b"        shell = s.materials[0].shellGain\n"
+            b"        pulse = p.materials[0].shellGain\n"
+            b"    }\n"
+            b"}"
+        ),
+        QUrl(),
+    )
+    reader = probe.create()
+    assert reader is not None, "; ".join(e.toString() for e in probe.errors())
+    reader.read(
+        root.findChild(QObject, "orbNucleus"),
+        root.findChild(QObject, "orbFilaments"),
+        root.findChild(QObject, "orbShell"),
+        root.findChild(QObject, "orbPulseShell"),
+    )
+    nuc_gain = float(reader.property("nuc"))
+    fil_gain = float(reader.property("fil"))
+    shell_gain = float(reader.property("shell"))
+    pulse_gain = float(reader.property("pulse"))
+    # Old values at this energy: nucleus ~11.9, filaments ~7.2, shell 9, pulse 6.
+    assert nuc_gain <= 5.0, nuc_gain
+    assert fil_gain <= 4.0, fil_gain
+    assert shell_gain <= 4.0, shell_gain
+    assert pulse_gain <= 3.0, pulse_gain
+    assert abs(nuc_gain - float(root.property("orbNucleusGain")) * energy) < 1e-5
+    assert abs(fil_gain - float(root.property("orbFilamentGain")) * energy) < 1e-5
+    view.close()
+    view.deleteLater()
+    qt_app.processEvents()
