@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import struct
+from pathlib import Path
+
 from arelis.ui import overseer_runtime as o
+from tests.overseer_render_helpers import isolated_render
+
+MESHES = Path(__file__).resolve().parents[1] / "arelis/assets/sentinel/overseer/meshes"
 
 
 def test_idle_hive_nodes_draw_no_beacon_or_stream() -> None:
@@ -29,3 +35,63 @@ def test_star_drift_follows_open_requests_not_throughput() -> None:
         "metadata": {"unit_id": swarm[0]["unit_id"]},
     }
     assert 0 < o.build_frame(swarm, 96.0, 1306.0, nodes=[fetch])["hiveActivity"] < 1
+
+
+def _mesh_subsets(path: Path) -> int:
+    """Subset count of a Qt Quick 3D .mesh file: each subset is one draw call."""
+    buf = path.read_bytes()
+    _fid, _ver, _off, count = struct.unpack_from("<IIII", buf, len(buf) - 16)
+    (start,) = struct.unpack_from("<Q", buf, len(buf) - 16 - 16 * count)
+    # Mesh header (12 bytes), then 14 uint32 sizes; subsetsCount is the 10th.
+    return struct.unpack_from("<14I", buf, start + 12)[9]
+
+
+def test_each_instanced_unit_part_is_one_draw_call() -> None:
+    meshes = sorted(MESHES.glob("lod*_mesh.mesh"))
+    assert len(meshes) == 9
+    assert {m.name: _mesh_subsets(m) for m in meshes} == {m.name: 1 for m in meshes}
+
+
+@isolated_render()
+def test_idle_repoll_pushes_nothing_and_view_keeps_the_runtime_orbit(qt_app) -> None:
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.sentinel_host import SentinelWindow, teardown_sentinel_window
+
+    owner = QWidget()
+    win = SentinelWindow(owner)
+    owner.sentinel_window = win
+    win.resize(1280, 800)
+    scene = win._ensure_scene()
+    win.show()
+    qt_app.processEvents()
+    root = scene.rootObject()
+    units = [
+        {"unit_id": f"SNT-WRD-00{i}", "caste": "warden", "state": "PATROLLING", "position": [i, 0, 0]}
+        for i in (1, 2, 3)
+    ]
+    log = [{"timestamp": "2026-11-09T22:10:00", "category": "PATROL", "unit_id": "SNT-WRD-001", "message": "ok"}]
+
+    def snap(ts: float) -> dict:
+        return {"metrics": {}, "units": [dict(u) for u in units], "telemetry_log": list(log), "timestamp": ts}
+
+    hud_resets: list[int] = []
+    root.hudLogsChanged.connect(lambda: hud_resets.append(1))
+    root.setProperty("sceneTime", 50.0)
+    win.apply_snapshot(snap(1000.0))
+    assert hud_resets
+    hud_resets.clear()
+    # Three seconds on, nothing but the lap angle has changed.
+    root.setProperty("sceneTime", 53.0)
+    win.apply_snapshot(snap(1003.0))
+    specs = root.property("unitOrbitSpecs").toVariant()
+    assert {s["t0"] for s in specs} == {50.0}  # no applyFrame
+    assert hud_resets == []  # no applyHud
+    root.stepUnits(0.016)
+    placed, _ = o.place_band_units(snap(1003.0)["units"], 1003.0)
+    for u in placed:
+        p = root.unitPositionOf(u["unit_id"])
+        got = [p.property(k).toNumber() for k in "xyz"]
+        assert max(abs(a - b) for a, b in zip(got, u["position"], strict=True)) < 1e-3
+    teardown_sentinel_window(win)
+    qt_app.processEvents()

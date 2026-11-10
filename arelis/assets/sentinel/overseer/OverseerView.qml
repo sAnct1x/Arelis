@@ -62,6 +62,11 @@ Item {
     property var conduitList: null
     property var conduitSpecs: []
     property var unitAnimSpecs: []
+    // Idle lane units: one spec per unit (its entries, orbit, apply time). The
+    // view moves them along their lane, so the host sends a frame only when
+    // something else changes.
+    property var unitOrbitSpecs: []
+    property var orbitEntries: ({})
     property var liveCounts: ({})
     onSceneTimeChanged: root.stepConduits()
     property var hudPills: ({})
@@ -127,7 +132,9 @@ Item {
     })
     // Pass A look constants (GAP.md items 1, 4, 8, 9). Each is one number so
     // Babbage can trace alternatives on Atria without touching anything else.
-    readonly property int msaaSamples: 4
+    // MSAA 2x: on the box it costs about what no AA costs, where 4x added
+    // about 25 ms p95 and FXAA more than that. The glow stays ESE's 3 levels.
+    readonly property int msaaSamples: 2
     readonly property int glowLevels: 3
     readonly property real glowThreshold: 1.0
     readonly property real eyeEmission: 2.4
@@ -193,6 +200,8 @@ Item {
         var lods = [0, 0, 0]
         var live = 0
         var animSpecs = []
+        var orbitSpecs = []
+        var orbitBy = ({})
         for (var ci = 0; ci < casteIds.length; ci++) {
             var caste = casteIds[ci]
             for (var lod = 0; lod < 3; lod++) {
@@ -209,6 +218,21 @@ Item {
                         var row = rows[i]
                         var uEntry = fillUnitEntry(row, caste, key, recs)
                         entries.push(uEntry)
+                        var orb = row ? row.orbit : null
+                        if (orb && orb.length >= 7) {
+                            var os = orbitBy[row.unit_id]
+                            if (!os) {
+                                os = {
+                                    o: orb, t0: sceneTime, entries: [],
+                                    cx: Math.cos(orb[0]), sx: Math.sin(orb[0]),
+                                    cy: Math.cos(orb[1]), sy: Math.sin(orb[1])
+                                }
+                                orbitBy[row.unit_id] = os
+                                orbitSpecs.push(os)
+                            }
+                            os.entries.push(uEntry)
+                            continue
+                        }
                         var rvx = finiteNum(row ? row.vx : 0, 0)
                         var rvy = finiteNum(row ? row.vy : 0, 0)
                         var rvz = finiteNum(row ? row.vz : 0, 0)
@@ -234,6 +258,8 @@ Item {
             }
         }
         unitAnimSpecs = animSpecs
+        unitOrbitSpecs = orbitSpecs
+        orbitEntries = orbitBy
         reachState = reachNext
         counts["__particles"] = 0
         var cEntries = fillConduitEntries(frame.conduits || [])
@@ -391,6 +417,12 @@ Item {
     function unitPositionOf(unitId) {
         if (!unitId || !unitPositions)
             return null
+        // A lane unit is where the view has moved it, not where the last frame put it.
+        var os = orbitEntries ? orbitEntries[unitId] : null
+        if (os && os.entries.length) {
+            var p = os.entries[0].position
+            return { x: p.x, y: p.y, z: p.z }
+        }
         return unitPositions[unitId] || null
     }
 
@@ -726,6 +758,8 @@ Item {
         releaseList("__conduits", conduitList)
         conduitSpecs = []
         unitAnimSpecs = []
+        unitOrbitSpecs = []
+        orbitEntries = ({})
     }
 
     function finiteNum(v, fallback) {
@@ -1140,9 +1174,42 @@ Item {
         }
     }
 
+    function stepOrbits() {
+        // band_point() of the runtime at theta + omega * (time since the frame).
+        var orbits = unitOrbitSpecs
+        if (!orbits || !orbits.length)
+            return
+        var t = sceneTime
+        for (var i = 0; i < orbits.length; i++) {
+            var os = orbits[i]
+            var o = os.o
+            var th = o[6] + o[5] * (t - os.t0)
+            var c = Math.cos(th), s = Math.sin(th)
+            var x = c * o[3], y = s * o[3], z = o[4]
+            var x1 = x * os.cy + z * os.sy
+            var z1 = -x * os.sy + z * os.cy
+            var y2 = y * os.cx - z1 * os.sx
+            var z2 = y * os.sx + z1 * os.cx
+            // Tangent (heading) through the same tilt.
+            var tx1 = -s * os.cy
+            var tz1 = s * os.sy
+            var ty2 = c * os.cx - tz1 * os.sx
+            var pos = Qt.vector3d(x1, z2 + o[2], -y2)
+            var rot = Qt.vector3d(0, -Math.atan2(-ty2, tx1) * 180 / Math.PI, 0)
+            var ents = os.entries
+            for (var k = 0; k < ents.length; k++) {
+                ents[k].position = pos
+                ents[k].eulerRotation = rot
+            }
+        }
+    }
+
     function stepUnits(dt) {
+        if (dt <= 0)
+            return
+        stepOrbits()
         var specs = unitAnimSpecs
-        if (!specs || !specs.length || dt <= 0)
+        if (!specs || !specs.length)
             return
         var stepDt = Math.min(0.05, dt)
         for (var i = 0; i < specs.length; i++) {

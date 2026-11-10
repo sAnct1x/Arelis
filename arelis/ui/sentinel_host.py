@@ -208,6 +208,8 @@ class SentinelWindow(QWidget):
         self._overlay_flags: dict = {}
         self._prev_lods: dict[str, int] = {}
         self._log_session = overseer_runtime.LogSession()
+        self._scene_pushed: dict | None = None
+        self._hud_pushed: dict | None = None
         self._particle_paths: list = []
         self._entry_reverse = False
         self._entry_timer = QTimer(self)
@@ -707,7 +709,13 @@ class SentinelWindow(QWidget):
         )
         self._prev_lods = frame["prevLods"]
         if root is not None and hasattr(root, "applyFrame"):
-            root.applyFrame(frame)
+            # Idle lane units move in the view from their orbit, so a poll that
+            # changes nothing else pushes nothing: no instance rebuild, no JS
+            # garbage, 12 times a second.
+            key = overseer_runtime.scene_key(frame)
+            if key != self._scene_pushed:
+                root.applyFrame({k: v for k, v in frame.items() if k not in ("units", "prevLods")})
+                self._scene_pushed = key
         self.apply_hud_counts(units)
         if root is not None:
             self._wire_hud(root)
@@ -723,8 +731,10 @@ class SentinelWindow(QWidget):
                 log_session=self._log_session,
                 log_repeats=root.property("logRepeats") is not False,
             )
-            if hasattr(root, "applyHud"):
+            if hasattr(root, "applyHud") and hud != self._hud_pushed:
+                # A new list model rebuilds every row delegate, so only on change.
                 root.applyHud(hud)
+                self._hud_pushed = hud
             if selected_id and hasattr(root, "selectUnit"):
                 root.selectUnit(selected_id)
         if self._entry_timer.isActive():

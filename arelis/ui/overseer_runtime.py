@@ -228,6 +228,21 @@ def band_point(
     return (x, z + band["height"], -y)
 
 
+def _orbit(
+    tilt_x: float, tilt_y: float, height: float, lane: dict[str, Any], theta: float
+) -> list[float]:
+    """[tilt_x, tilt_y, height, r, z, omega, theta]: the view moves a lane unit itself.
+
+    band_point(band, lane, theta + omega * dt) is where the unit is dt seconds after
+    this snapshot, so the view needs a new frame only when something else changes.
+    """
+    return [
+        float(tilt_x), float(tilt_y), float(height),
+        float(lane["r"]), float(lane["z"]), float(lane["omega"]),
+        round(math.fmod(theta, 2.0 * math.pi), 6),
+    ]
+
+
 def place_band_units(
     units: list[dict[str, Any]], snapshot_ts: float | None = None
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -255,7 +270,12 @@ def place_band_units(
             members.setdefault(BAND_OF_CASTE[caste], []).append(idx)
     out = [dict(u) for u in units]
 
-    def put(idx: int, pos: tuple[float, float, float], vel: tuple[float, float, float]) -> None:
+    def put(
+        idx: int,
+        pos: tuple[float, float, float],
+        vel: tuple[float, float, float],
+        orbit: list[float],
+    ) -> None:
         row = out[idx]
         if not _patrolling(row.get("state")):
             return
@@ -264,6 +284,7 @@ def place_band_units(
         speed = math.hypot(vel[0], vel[2])
         if speed > 1e-6:
             row["heading"] = [vel[0] / speed, 0.0, vel[2] / speed]
+        row["orbit"] = orbit
 
     for band_id, idxs in members.items():
         band = by_band[band_id]
@@ -281,7 +302,8 @@ def place_band_units(
                 a = band_point(band, lane, theta)
                 b = band_point(band, lane, theta + 1e-3)
                 vel = tuple((bb - aa) / 1e-3 * lane["omega"] for aa, bb in zip(a, b, strict=True))
-                put(idx, a, vel)  # type: ignore[arg-type]
+                orbit = _orbit(band["tilt_x"], band["tilt_y"], band["height"], lane, theta)
+                put(idx, a, vel, orbit)  # type: ignore[arg-type]
     n_trip = len(tripwires)
     if n_trip:
         r = layout["perimeter"]
@@ -291,7 +313,8 @@ def place_band_units(
             theta = 0.3 + 2.0 * math.pi * j / n_trip + omega * t
             pos = (math.cos(theta) * r, TRIPWIRE_Y, -math.sin(theta) * r)
             vel = (-math.sin(theta) * r * omega, 0.0, -math.cos(theta) * r * omega)
-            put(idx, pos, vel)
+            ring = {"r": r, "z": 0.0, "omega": omega}
+            put(idx, pos, vel, _orbit(0.0, 0.0, TRIPWIRE_Y, ring, theta))
     return out, layout
 
 
@@ -1367,7 +1390,41 @@ def build_buckets(units: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]
                 "reach": max(0, min(MAX_REACH_PAIRS, int(u.get("open_fetches") or 0))),
             }
         )
+        if u.get("orbit"):
+            buckets[bucket_key(caste, lod)][-1]["orbit"] = list(u["orbit"])
     return buckets
+
+
+# What the view derives itself between frames: a lane unit's place and heading
+# (from its orbit) and a glyph trail's age (from its first sight).
+_ORBIT_MOTION = frozenset({"x", "y", "z", "vx", "vy", "vz", "heading_deg"})
+
+
+def scene_key(frame: dict[str, Any]) -> dict[str, Any]:
+    """The part of a frame the view cannot work out on its own.
+
+    Two polls with equal keys draw the same scene, so the second needs no
+    applyFrame: idle lane units keep moving from their orbit in the view.
+    """
+    buckets = {}
+    for key, rows in (frame.get("buckets") or {}).items():
+        out = []
+        for row in rows:
+            orbit = row.get("orbit")
+            if orbit:
+                row = {k: v for k, v in row.items() if k not in _ORBIT_MOTION}
+                row["orbit"] = orbit[:6]
+            out.append(row)
+        buckets[key] = out
+    trails = [
+        {k: v for k, v in t.items() if k != "age_s"} for t in frame.get("glyphTrails") or []
+    ]
+    rest = {
+        k: v
+        for k, v in frame.items()
+        if k not in ("units", "prevLods", "buckets", "glyphTrails")
+    }
+    return {**rest, "buckets": buckets, "glyphTrails": trails}
 
 
 def budget_from_buckets(
