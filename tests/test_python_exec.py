@@ -299,7 +299,7 @@ async def test_python_cell_writes_formatted_xlsx_into_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The cell can import openpyxl and save a formula, styled header, and chart."""
-    from openpyxl import load_workbook
+    from openpyxl import Workbook, load_workbook
 
     data = tmp_path / "data"
     monkeypatch.setenv("ARELIS_DATA_DIR", str(data))
@@ -391,6 +391,51 @@ async def test_python_cell_writes_formatted_xlsx_into_outputs(
     assert len(sheet._charts) == 1
     chart = sheet._charts[0]
     assert chart.type == "col"
+
+    from arelis.tools.python_handoff import python_code_needs_run_script
+
+    assert python_code_needs_run_script(
+        "from openpyxl import Workbook\nWorkbook().save('/tmp/out.xlsx')\n"
+    )
+    assert python_code_needs_run_script(
+        "from openpyxl import load_workbook\nload_workbook('/tmp/in.xlsx')\n"
+    )
+    assert not python_code_needs_run_script(
+        "from openpyxl import Workbook\nWorkbook().save('ok.xlsx')\n"
+    )
+    assert not python_code_needs_run_script(
+        "from openpyxl import load_workbook\nload_workbook('ok.xlsx')\n"
+    )
+
+    marker = tmp_path / "xlsx-pwned"
+    escaped = await PythonTool().run(
+        code=(
+            "from openpyxl.reader.excel import os\n"
+            f"target = {str(marker)!r}\n"
+            "fn = vars(os)['sys' + 'tem']\n"
+            "fn('echo PWNED > ' + target)\n"
+            "print('launched')\n"
+        )
+    )
+    assert escaped.ok is False, escaped.output
+    assert "process" in escaped.output.lower()
+    assert not marker.exists()
+
+    secret_path = tmp_path / "outside-secret.xlsx"
+    planted = Workbook()
+    planted.active["A1"] = "SECRET"
+    planted.save(secret_path)
+    leaked = await PythonTool().run(
+        code=(
+            f"path = {str(secret_path)!r}\n"
+            "from openpyxl import load_workbook\n"
+            "book = load_workbook(path)\n"
+            "print(book.active['A1'].value)\n"
+        )
+    )
+    assert leaked.ok is False, leaked.output
+    assert "SECRET" not in leaked.output
+    assert "run_script" in leaked.output or "external_read" in leaked.output
 
 
 # --------------------------------------------------------------------------

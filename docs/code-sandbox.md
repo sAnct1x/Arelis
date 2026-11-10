@@ -20,15 +20,20 @@ network or file card below.
 - **Its own folder.** The code runs in this chat turn's work folder
   (`outputs/work/<turn>/` in Arelis's data folder). It can create, change and
   delete files there freely. A chart it saves there as a PNG shows in chat.
-- **Your files are read only.** It can read your data files, but writing,
-  deleting, moving or renaming anything outside its folder is refused, and
-  nothing is changed there.
+- **Your files are read only.** It can read your data files in a workspace
+  folder or the work folder. Reading a file outside those folders is
+  refused; the same code should run through `run_script` so the file card
+  can ask first. Writing, deleting, moving or renaming anything outside
+  its folder is refused, and nothing is changed there.
 - **No network unless you allow it.** A first run that tries to reach the
   internet or look up a host name is refused, and nothing is sent. When
   Arelis tries the same code again, you see a card that names the hosts it
   tried to reach, or says network access. If you allow it, that run may use
   the network. If you don't, nothing changes.
 - **No other programs.** It cannot start another program or a shell.
+  That still holds if a library such as openpyxl or matplotlib hands the
+  cell `os` or `sys`: starting a process, opening a network connection, or
+  importing a blocked module is refused at run time.
 - **Time and memory caps.** It stops after 60 seconds (she can ask for up to
   120). On Windows it also stops at 2 GB of memory or 130 seconds of CPU.
 
