@@ -705,6 +705,8 @@ class SentinelWindow(QWidget):
             target=cam_target,
             nodes=nodes if isinstance(nodes, list) else None,
             fx_events=fx_events if isinstance(fx_events, list) else None,
+            receipts=(snap or {}).get("recent_receipts") if isinstance(snap, dict) else None,
+            snapshot_ts=(snap or {}).get("timestamp") if isinstance(snap, dict) else None,
         )
         self._prev_lods = frame["prevLods"]
         if root is not None and hasattr(root, "applyFrame"):

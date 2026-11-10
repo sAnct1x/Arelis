@@ -17,6 +17,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
+- Sentinels: in the Overseer, each harvest result's real title and web address now fly from its source along an arc and down into the core as glowing text. Results with no title show no text. See [sentinels.md](sentinels.md).
 - Sentinels: in the Overseer, a unit fetching data reaches toward its target with one pair of front tentacles for each open request (up to three), and its other tentacles curl, loosely when idle and tighter when busy. See [sentinels.md](sentinels.md).
 - Sentinels: the Overseer opens faster after the first time. Closing it saves its compiled shaders, so the next start does not compile them again. See [sentinels.md](sentinels.md).
 - Sentinels: screen readers and UI Automation can now pick an Overseer mission Mode (multi, arxiv, horizons, wikipedia, security_audit) directly from the Mode box. See [sentinels.md](sentinels.md).
