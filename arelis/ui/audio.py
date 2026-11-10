@@ -100,6 +100,43 @@ def list_audio_output_names() -> list[str]:
     return [d.description() for d in QMediaDevices.audioOutputs() if not d.isNull()]
 
 
+def _audio_device_id(device) -> str:
+    raw = device.id()
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, (bytes, bytearray, memoryview)):
+        return bytes(raw).decode("utf-8", "replace")
+    try:
+        return bytes(raw).decode("utf-8", "replace")
+    except TypeError:
+        return str(raw)
+
+
+def current_output_labels(hint: str = "") -> tuple[str, str]:
+    """Description and id of the output device playback will use.
+
+    An explicit hint is matched the same way SpeechPlayer selects a
+    device. Otherwise this follows the system default, so a headset
+    plugged in (or unplugged) is seen on the next barge-in check.
+    Missing or unknown hardware returns empty labels.
+    """
+    if not MULTIMEDIA_AVAILABLE:
+        return "", ""
+    outputs = [device for device in QMediaDevices.audioOutputs() if not device.isNull()]
+    matched = _match_device(outputs, hint)
+    if matched is None:
+        default = QMediaDevices.defaultAudioOutput()
+        if default is not None and not default.isNull():
+            matched = default
+        elif outputs:
+            matched = outputs[0]
+    if matched is None:
+        return "", ""
+    return (matched.description() or "", _audio_device_id(matched))
+
+
 def _match_device(devices: list, hint: str):
     if not devices:
         return None
