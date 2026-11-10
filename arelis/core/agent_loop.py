@@ -1750,6 +1750,13 @@ class AgentLoop:
             raise _CloseError
         think = False if getattr(self, "_think_off_next", False) else None
         self._think_off_next = False
+        # Spoken conversation uses the per-request enable_thinking knob on
+        # every model step, not only the first short no-tool ask. Official
+        # voice runs still thought on weather and calculator (9-12 s to the
+        # tool, then 2-5 s more on the write-up), so the first spoken
+        # sentence did not exist until DONE. Typed tool rounds still think.
+        if think is not False and bool(self.config.get("_speak_replies")):
+            think = False
         stream_kwargs: dict[str, Any] = {
             "tools": tools,
             "options": self._stream_options(tools=bool(tools), reply_cap=True),

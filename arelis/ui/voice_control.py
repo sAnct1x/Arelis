@@ -69,6 +69,11 @@ _MIN_UTTERANCE_S = 0.3
 # "Hey Arelis" said quickly is ~0.4s after trailing-silence trim. 0.55
 # was dropping real wakes with no log line. Floor matches conversation.
 _MIN_WAKE_UTTERANCE_S = 0.35
+# After barge-in, the first short pause must not end the clip. The official
+# 2026-11-09 interrupt ("Stop. What's two plus two?") had 1.16 s of silence
+# after "Stop.", Smart Turn was skipped on the barge clip, and 450 ms of
+# silence split the ask. "Stop." was then consumed as a control word.
+_BARGE_JOIN_MS = 1500
 
 # An utterance is handed to the window and the window is expected to report back
 # whether it became a turn. Everything in that path is bounded -- a Whisper run,
@@ -106,6 +111,7 @@ class VoiceController(QObject):
         # Headset default: talking over her is the next turn, not soup-as-control.
         # Speakers set barge_in_as_turn false (or barge_in false) to keep the old clip.
         self._barge_in_as_turn = bool(conversation.get("barge_in_as_turn", True))
+        self._barge_join_ms = max(0, int(conversation.get("barge_join_ms", _BARGE_JOIN_MS)))
         smart_cfg = conversation.get("smart_turn")
         if isinstance(smart_cfg, dict):
             self._smart_turn_on = bool(smart_cfg.get("enabled", True))
@@ -227,6 +233,8 @@ class VoiceController(QObject):
         self._confirm_pending = False
         # One-shot: the clip that cut her off is TTS+mic soup. Trash it.
         self._discard_barge_clip = False
+        self._barge_join_pending = False
+        self._barge_join_held = False
         # Derived from the gates above. Cached only so the transition can be
         # detected and the signal emitted once per change.
         self._listening = False
@@ -348,7 +356,7 @@ class VoiceController(QObject):
         if prev != OFF and self.recorder.is_recording():
             self._mode = mode
             self._clear_awaiting()
-            self._discard_barge_clip = False
+            self._clear_barge_clip()
             if mode != WAKE:
                 self._wake_suspended = False
             self._apply_detector_for_mode()
@@ -399,7 +407,7 @@ class VoiceController(QObject):
             return
         self._mode = mode
         self._clear_awaiting()
-        self._discard_barge_clip = False
+        self._clear_barge_clip()
         if mode != WAKE:
             self._wake_suspended = False
         if not self._open_mic():
@@ -437,7 +445,7 @@ class VoiceController(QObject):
         mode = self._mode
         self._mode = OFF
         self._clear_awaiting()
-        self._discard_barge_clip = False
+        self._clear_barge_clip()
         pcm = self.recorder.stop()
         self._live_feeding = False
         self._sync_listening()
@@ -720,6 +728,13 @@ class VoiceController(QObject):
                 return
             # Mid-drive / armed card: hear stop / allow / pause without Hey Arelis.
         event = self._detector.feed(block)
+        if self._barge_join_held and self._barge_join_pending:
+            trailing_fn = getattr(self._detector, "trailing_silence_ms", None)
+            trailing_ms = int(trailing_fn()) if callable(trailing_fn) else 1
+            # speaking stays True after ENDED, so use a return to voice
+            # (trailing silence reset) as the resume signal.
+            if trailing_ms == 0:
+                self._barge_join_pending = False
         if event is None:
             if self._live_feeding:
                 self.live_pcm.emit(
@@ -730,6 +745,11 @@ class VoiceController(QObject):
             self._on_speech_started()
         elif event in (ENDED, TIMEOUT):
             self._on_speech_ended(timed_out=event == TIMEOUT)
+
+    def _clear_barge_clip(self) -> None:
+        self._discard_barge_clip = False
+        self._barge_join_pending = False
+        self._barge_join_held = False
 
     def _on_speech_started(self) -> None:
         # Drop pre-onset ambient silence so neither Whisper nor live Sherpa is
@@ -753,6 +773,8 @@ class VoiceController(QObject):
             # playback. Headset: this clip is the next turn. Speakers with
             # barge_in_as_turn false: control only (stop / allow / deny).
             self._discard_barge_clip = True
+            self._barge_join_pending = True
+            self._barge_join_held = False
             self.trace.record_always(
                 "barge_in",
                 as_turn=self._barge_in_as_turn,
@@ -801,6 +823,8 @@ class VoiceController(QObject):
     def _on_speech_ended(self, *, timed_out: bool) -> None:
         self._speculate_timer.stop()
         self._speculate_armed = False
+        if self._should_hold_barge_join(timed_out=timed_out):
+            return
         if self._should_hold_for_smart_turn(timed_out=timed_out):
             return
         held_onset = self._held_onset
@@ -845,7 +869,7 @@ class VoiceController(QObject):
             return
 
         if self._discard_barge_clip:
-            self._discard_barge_clip = False
+            self._clear_barge_clip()
             if self._speaking:
                 # Speech started while she was talking, but playback was never
                 # cut. That is her own voice coming back through the speakers,
@@ -879,11 +903,41 @@ class VoiceController(QObject):
 
         self._emit_turn(pcm)
 
+    def _should_hold_barge_join(self, *, timed_out: bool) -> bool:
+        """True when the first pause after a headset barge-in is still short.
+
+        "Stop. What's two plus two?" has a sentence-length gap after Stop.
+        Ending there dropped "Stop." as a control word and transcribed only
+        the question. Hold until more speech arrives, or until barge_join_ms
+        of silence (a lone Stop).
+        """
+        if timed_out or not self._discard_barge_clip or not self._barge_in_as_turn:
+            return False
+        if not self._barge_join_pending or self._barge_join_ms <= 0:
+            return False
+        trailing_fn = getattr(self._detector, "trailing_silence_ms", None)
+        trailing_ms = int(trailing_fn()) if callable(trailing_fn) else 0
+        if trailing_ms >= self._barge_join_ms:
+            return False
+        resume = getattr(self._detector, "resume_after_pause", None)
+        if callable(resume):
+            resume()
+        self._barge_join_held = True
+        self.trace.record(
+            "barge_join_hold",
+            trailing_ms=trailing_ms,
+            join_ms=self._barge_join_ms,
+            **self.debug_state(),
+        )
+        return True
+
     def _should_hold_for_smart_turn(self, *, timed_out: bool) -> bool:
         """True when Smart Turn says this pause is mid-thought, keep listening."""
         if timed_out or self._mode != CONVERSATION:
             return False
-        if self._smart_turn is None or self._discard_barge_clip:
+        if self._smart_turn is None:
+            return False
+        if self._discard_barge_clip and self._barge_join_pending:
             return False
         if not self._listening:
             return False

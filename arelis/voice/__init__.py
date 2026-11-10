@@ -325,7 +325,7 @@ class VoiceService:
                         return
                     clips += 1
                     if index == 0 and turn_telemetry_enabled(self.config):
-                        log_span("tts_first", utterance=utterance, chars=len(sentence))
+                        log_span("tts_first", utterance=utterance, chars=len(sentence), streamed=0)
                     await self.bus.publish(
                         Event(
                             EventType.VOICE_AUDIO_READY,
@@ -376,6 +376,13 @@ class VoiceService:
             self._stream_utterance = self._speak_seq
             self._stream_open = True
             self._stream_clips = 0
+            if turn_telemetry_enabled(self.config):
+                log_span(
+                    "tts_queued",
+                    utterance=self._stream_utterance,
+                    chars=len(units[0]),
+                    finalize=int(finalize),
+                )
         last_i = len(units) - 1
         for offset, sentence in enumerate(units):
             is_final = finalize and offset == last_i
@@ -436,7 +443,7 @@ class VoiceService:
                     or [sentence]
                 )
                 if index == 0 and turn_telemetry_enabled(self.config):
-                    log_span("tts_first", utterance=utterance, chars=len(sentence))
+                    log_span("tts_first", utterance=utterance, chars=len(sentence), streamed=1)
                 await self.bus.publish(
                     Event(
                         EventType.VOICE_AUDIO_READY,

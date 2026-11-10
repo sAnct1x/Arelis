@@ -295,3 +295,64 @@ def test_conversation_speech_start_trims_pre_onset_ambient_buffer(qt_app) -> Non
     duration_s = len(turns[0]) / (16000 * 2)
     assert duration_s < 2.5, f"Expected pre-onset silence trimmed, got {duration_s:.2f}s"
 
+
+
+
+def test_barge_in_keeps_stop_and_the_question_as_one_turn(qt_app) -> None:
+    """A short pause after barge-in 'Stop.' stays in the same clip as the ask.
+
+    The 2026-11-09 headset interrupt was "Stop. What's two plus two?" with
+    1.16 s of silence after Stop. Smart Turn is skipped on the first barge
+    pause, so 450 ms of silence used to end the clip there. "Stop." was
+    then consumed as a control word and only the question was heard.
+    """
+    from arelis.ui.voice_control import VoiceController
+    from tests.voice_helpers import _config, _FakeRecorder
+
+    class _FakeSmartTurn:
+        def predict(self, pcm: bytes, *, sample_rate: int = 16000, channels: int = 1):
+            del pcm, sample_rate, channels
+            return {"complete": True, "probability": 0.98}
+
+    cfg = _config(
+        conversation={
+            "smart_turn": False,
+            "silence_ms": 550,
+            "short_silence_ms": 450,
+            "end_silence_ms": 2500,
+            "barge_in": True,
+            "barge_in_as_turn": True,
+        }
+    )
+    controller = VoiceController(cfg)
+    controller._smart_turn = _FakeSmartTurn()
+    controller._detector_defaults["silence_ms"] = 550
+    controller._detector_defaults["short_silence_ms"] = 450
+    recorder = _FakeRecorder(controller)
+    controller.recorder = recorder
+    recorder.frames.connect(controller._on_frames)
+    # The window cuts playback on barge_in, which clears speaking. Without
+    # that, the first clip is thrown away as echo.
+    controller.barge_in.connect(lambda: controller.notify_speaking(False))
+
+    turns: list[tuple[str, float]] = []
+    controller.utterance.connect(
+        lambda pcm, rate, channels, kind: turns.append(
+            (kind, len(pcm) / (2 * rate))
+        )
+    )
+    controller.set_conversation(True)
+    controller.notify_turn_started()
+    controller.notify_speaking(True)
+
+    # "Stop." then the 1.16 s gap must not end the barge clip on its own.
+    recorder.push(_tone(0.4) + _silence(1.16))
+    assert turns == [], f"mid-gap ended the barge clip early: {turns!r}"
+    # The question plus a short final pause close the same clip.
+    recorder.push(_tone(1.0) + _silence(0.7))
+    assert len(turns) == 1, turns
+    kind, seconds = turns[0]
+    assert kind == "turn", kind
+    # Both tones plus the 1.16 s gap must be in the same clip (minus a little
+    # trailing-silence trim). A split after Stop. is only ~0.4-1.0 s.
+    assert seconds > 2.2, f"expected the joined interrupt, got {seconds:.2f}s"
