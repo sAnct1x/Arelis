@@ -67,6 +67,9 @@ Item {
     property string hudStatusLine: "hive live · all local · sending out blocked"
     property var sourceLabelSpecs: []
     property var sourceLabelScreen: []
+    property string sourceLabelKey: ""
+    onWidthChanged: projectSourceLabels()
+    onHeightChanged: projectSourceLabels()
     property string hudCommandStatus: ""
     property string lastHudCommand: ""
     property var lastHudPayload: ({})
@@ -337,7 +340,9 @@ Item {
         cameraPitch = pitchDeg(96.0)
     }
 
-    function freeViewportShift() {
+    // The scene area the HUD leaves free: list on the left, strip on top,
+    // console at the bottom, Inspector dock on the right when open.
+    function freeViewportRect() {
         var w = Math.max(1, width)
         var h = Math.max(1, height)
         var left = Math.min(440, w * 0.26)
@@ -347,8 +352,15 @@ Item {
         if (right <= left)
             right = w
         var bottom = Math.max(top + 1, h - 230)
-        var cx = (left + right) / 2
-        var cy = (top + bottom) / 2
+        return Qt.rect(left, top, right - left, bottom - top)
+    }
+
+    function freeViewportShift() {
+        var w = Math.max(1, width)
+        var h = Math.max(1, height)
+        var r = freeViewportRect()
+        var cx = r.x + r.width / 2
+        var cy = r.y + r.height / 2
         return Qt.vector2d(-(cx - w / 2) / w, (cy - h / 2) / h)
     }
 
@@ -657,28 +669,40 @@ Item {
         return entries
     }
 
+    // Edge sources sit still, so their labels move only with the camera or the
+    // plate size: re-project on those changes, never per frame.
     function projectSourceLabels() {
         var specs = sourceLabelSpecs || []
+        var free = freeViewportRect()
         var out = []
+        var key = ""
         for (var i = 0; i < specs.length; i++) {
             var sp = specs[i]
             if (!sp)
                 continue
             var mapped = _tryMapFrom3DScene(Qt.vector3d(finiteNum(sp.x), finiteNum(sp.y), finiteNum(sp.z)))
-            var sx = mapped ? mapped.x : -1000
-            var sy = mapped ? mapped.y : -1000
-            // Hide labels behind the camera or off the plate.
-            var visible = mapped && mapped.z > 0 && mapped.z < 1 && sx > 8 && sy > 8 && sx < width - 8 && sy < height - 8
-            out.push({
+            var sx = mapped ? Math.round(mapped.x) : -1000
+            var sy = mapped ? Math.round(mapped.y) : -1000
+            // mapFrom3DScene z is the distance past the near plane in scene
+            // units (negative behind the camera), not a 0..1 depth.
+            // A source under a HUD panel stays hidden with its label.
+            var visible = !!mapped && mapped.z > 0 && sx > free.x && sy > free.y
+                && sx < free.x + free.width && sy < free.y + free.height
+            var row = {
                 id: sp.id || ("src-" + i),
                 label: sp.label || "",
                 hot: !!sp.hot,
                 color: sp.color || "#8fd3ff",
                 sx: sx,
                 sy: sy,
-                visible: !!visible
-            })
+                visible: visible
+            }
+            key += row.id + ":" + row.label + ":" + row.hot + ":" + row.color + ":" + sx + ":" + sy + ":" + visible + "|"
+            out.push(row)
         }
+        if (key === sourceLabelKey)
+            return
+        sourceLabelKey = key
         sourceLabelScreen = out
     }
 
@@ -697,7 +721,6 @@ Item {
             e.position = Qt.vector3d(st.x, st.y, st.z)
             e.scale = Qt.vector3d(psc, psc, psc)
         }
-        projectSourceLabels()
     }
 
     function stepUnits(dt) {
@@ -867,6 +890,8 @@ Item {
                 )
             }
             eulerRotation.x: -root.cameraPitch
+            onPositionChanged: root.projectSourceLabels()
+            onEulerRotationChanged: root.projectSourceLabels()
         }
 
         DirectionalLight { eulerRotation.x: -40; eulerRotation.y: 30; brightness: 1.0 }
@@ -976,21 +1001,43 @@ Item {
         }
     }
 
-    // Fixed harvest source labels at the scene edge (projected from 3D).
+    // Fixed harvest source labels at the scene edge (projected from 3D). One
+    // delegate per source for the life of the scene: the model is a count, so
+    // a new projection only moves the labels. Same size lit or idle (Iris
+    // concept 1: name bold, state line below); lit reads brighter.
     Repeater {
-        model: root.sourceLabelScreen
-        delegate: Text {
-            visible: modelData.visible
-            x: modelData.sx - paintedWidth * 0.5
-            y: modelData.sy - paintedHeight - 10
-            text: modelData.label
-            color: modelData.hot ? modelData.color : "#6b5f8a"
-            font.pixelSize: modelData.hot ? 14 : 12
-            font.bold: modelData.hot
-            opacity: modelData.hot ? 0.95 : 0.55
-            style: Text.Outline
-            styleColor: "#0b0714"
-            z: 20
+        model: root.sourceLabelScreen.length
+        delegate: Column {
+            id: srcLabel
+            required property int index
+            readonly property var row: root.sourceLabelScreen[index] || ({})
+            objectName: "OverseerSourceLabel_" + (row.id || index)
+            visible: !!row.visible
+            x: (row.sx || 0) - width * 0.5
+            y: (row.sy || 0) + 14
+            z: 2
+            spacing: 1
+            Accessible.role: Accessible.StaticText
+            Accessible.name: (row.label || "") + ", " + stateText.text
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: srcLabel.row.label || ""
+                color: srcLabel.row.hot ? "#e0d4ff" : "#a99bd6"
+                font.pixelSize: 20
+                font.bold: true
+                style: Text.Outline
+                styleColor: "#0b0714"
+            }
+            Text {
+                id: stateText
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: srcLabel.row.hot ? "fetching" : "idle"
+                color: srcLabel.row.hot ? (srcLabel.row.color || "#8fd3ff") : "#a99bd6"
+                opacity: srcLabel.row.hot ? 1.0 : 0.75
+                font.pixelSize: 15
+                style: Text.Outline
+                styleColor: "#0b0714"
+            }
         }
     }
 
@@ -1052,7 +1099,7 @@ Item {
     }
 
     function _tryMapFrom3DScene(world) {
-        if (!view || world === undefined || world === null)
+        if (!view || !view.camera || world === undefined || world === null)
             return null
         try {
             return view.mapFrom3DScene(world)

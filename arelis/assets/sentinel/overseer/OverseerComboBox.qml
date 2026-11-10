@@ -21,6 +21,33 @@ ComboBox {
         popup.close()
     }
 
+    // Choose an option the way a click on its popup row does.
+    function pick(i) {
+        if (i < 0 || i >= count)
+            return
+        currentIndex = i
+        activated(i)
+    }
+
+    // The popup's rows live in the window overlay, not under the combo box,
+    // so UI Automation saw no items here. Each option is also an invisible
+    // ListItem child of the combo box: Invoke or Select on it picks it.
+    Repeater {
+        model: control.model
+        delegate: Item {
+            required property int index
+            required property var modelData
+            width: control.width
+            height: control.height
+            Accessible.role: Accessible.ListItem
+            Accessible.name: String(modelData)
+            Accessible.selectable: true
+            Accessible.selected: control.currentIndex === index
+            Accessible.onPressAction: control.pick(index)
+            Accessible.onToggleAction: control.pick(index)
+        }
+    }
+
     background: Rectangle {
         implicitWidth: 220
         implicitHeight: 28
@@ -45,6 +72,8 @@ ComboBox {
     delegate: ItemDelegate {
         id: del
         width: control.width
+        // Names the item for screen readers and UI Automation.
+        text: modelData
         implicitHeight: 28
         highlighted: control.highlightedIndex === index
         contentItem: Text {

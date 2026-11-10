@@ -714,10 +714,7 @@ class SentinelWindow(QWidget):
         scene = self._scene
         root = scene.rootObject() if scene is not None else None
         if root is not None:
-            # A completed HTTP request can still carry a backend refusal.
-            accepted = ok and isinstance(body, dict) and body.get("ok") is not False
-            status = "Request completed" if accepted else "Request failed or refused"
-            root.setProperty("hudCommandStatus", status)
+            root.setProperty("hudCommandStatus", overseer_runtime.command_status(ok, body))
         self._poll_snapshot()
 
     def _poll_snapshot(self) -> None:

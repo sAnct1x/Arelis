@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QMetaObject, QObject, QPointF, Qt, QUrl
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QAccessible, QAccessibleActionInterface, QColor
 from PySide6.QtQml import QQmlComponent, QQmlEngine
 from PySide6.QtQuick import QQuickView
 from PySide6.QtTest import QTest
@@ -912,5 +912,41 @@ def test_overseer_hud_panels_use_designed_fill(qt_app) -> None:
     assert other_c.alpha() == 255
     assert (other_c.red(), other_c.green(), other_c.blue()) == (fill.red(), fill.green(), fill.blue())
     assert other_c.alpha() != 0
+    view.deleteLater()
+    qt_app.processEvents()
+
+
+def test_command_status_shows_the_hive_refusal_reason() -> None:
+    """A mission refused by the hive (empty query) must say why, not just fail."""
+    refused = {"ok": False, "error": "Enter a research topic or Horizons target."}
+    assert (
+        overseer_runtime.command_status(True, refused)
+        == "Refused: Enter a research topic or Horizons target."
+    )
+    assert overseer_runtime.command_status(True, {"ok": True, "status": "launched"}) == "Request completed"
+    assert overseer_runtime.command_status(False, None) == "Request failed: Sentinel did not answer"
+
+
+@isolated_render(software=True)
+def test_overseer_mission_mode_items_are_pickable_by_ui_automation(qt_app) -> None:
+    """The popup rows live in the window overlay, so the combo box exposes
+    each mode as its own ListItem; pressing one picks that mode."""
+    view, root = _hud_with_selection(qt_app)
+    combo = _named(root, "OverseerMissionMode")
+    box = QAccessible.queryAccessibleInterface(combo)
+    items = {
+        box.child(i).text(QAccessible.Text.Name): box.child(i)
+        for i in range(box.childCount())
+        if box.child(i).role() == QAccessible.Role.ListItem
+    }
+    assert list(items) == ["multi", "arxiv", "horizons", "wikipedia", "security_audit"]
+    assert items["multi"].state().selected and not items["arxiv"].state().selected
+    act = items["arxiv"].actionInterface()
+    assert QAccessibleActionInterface.pressAction() in act.actionNames()
+    act.doAction(QAccessibleActionInterface.pressAction())
+    qt_app.processEvents()
+    assert str(root.property("missionMode")) == "arxiv"
+    assert box.text(QAccessible.Text.Name) == "Mission mode arxiv"
+    assert items["arxiv"].state().selected
     view.deleteLater()
     qt_app.processEvents()
