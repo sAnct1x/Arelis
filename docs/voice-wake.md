@@ -42,8 +42,10 @@ Whisper. The default pack is Kroko 2025 (mixed case, with
 punctuation); the 2023 LibriSpeech pack is the fallback if Kroko
 isn't available. Sherpa has a habit of mishearing mail-related words:
 "email" sometimes comes out as a French-sounding name, "inbox" as
-two separate words. Isolated ah / um / er get dropped, "please" between two numbers is
-repaired to "plus" (a common Whisper mix-up), and a near-miss
+two separate words. Isolated ah / um / er get dropped. The default Whisper ear uses a
+small beam and a short hotword list (plus, Stop) so "two plus two"
+is less likely to come back as "2 Please 2". If that mix-up still
+lands, "please" between two numbers is repaired to "plus". A near-miss
 that matches a name from the last few turns (tighten / Titan, your
 rope / Europa) is rewritten before intent or the model see it. Wake-word
 matching runs on a completely separate engine and doesn't get this same
@@ -65,6 +67,10 @@ turn: she stops talking, and whatever you said becomes the question.
 A short pause after **Stop.** is still the same ask, so "Stop. What's
 two plus two?" is heard as one question, not as a bare stop followed
 by the rest.
+In conversation she skips the model's thinking phase, including when
+a tool is needed, so the first sentence of the answer can start
+playing as soon as it exists rather than after the whole reply is
+done.
 On speakers, you'll want `conversation.barge_in_as_turn: false` set,
 so a clip that picks up both her voice and yours stays control-only
 (interpreted as stop / allow / deny rather than a new question).

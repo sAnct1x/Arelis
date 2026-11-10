@@ -740,19 +740,24 @@ class SpeechToText:
                     exc,
                 )
                 audio_input = audio_path
-        segments, _info = model.transcribe(
-            audio_input,
-            language=language,
-            beam_size=int(self.config.get("beam_size", 1)),
-            vad_filter=bool(self.config.get("vad_filter", False)),
-            without_timestamps=True,
+        beam_size = max(1, int(self.config.get("beam_size", 5)))
+        transcribe_kwargs: dict[str, Any] = {
+            "language": language,
+            "beam_size": beam_size,
+            "vad_filter": bool(self.config.get("vad_filter", False)),
+            "without_timestamps": True,
             # Biases decoding toward the wake name. Keep the prompt short —
             # long jargon lists are often echoed as the whole transcript.
-            initial_prompt=prompt,
+            "initial_prompt": prompt,
             # Without this, Whisper can latch onto the prompt / prior text and
             # invent loops on short or noisy clips.
-            condition_on_previous_text=False,
-        )
+            "condition_on_previous_text": False,
+        }
+        # faster-whisper only applies hotwords when the beam is wider than 1.
+        hotwords = str(self.config.get("hotwords") or "").strip()
+        if hotwords and beam_size > 1:
+            transcribe_kwargs["hotwords"] = hotwords
+        segments, _info = model.transcribe(audio_input, **transcribe_kwargs)
         text = " ".join(seg.text.strip() for seg in segments).strip()
         text = scrub_transcript(text)
         if prompt and looks_like_prompt_echo(text, prompt):

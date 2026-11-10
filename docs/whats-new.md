@@ -17,7 +17,7 @@ Notes: [v0.3.4](releases/v0.3.4.md). Older:
 
 ## 0.3.5 (in progress)
 
-- Voice: talking over her with "Stop. What's two plus two?" is now heard as one question, including "Stop.", and "please" between two numbers is repaired to "plus". See [voice-wake.md](voice-wake.md).
+- Voice: talking over her with "Stop. What's two plus two?" is now heard as one question, including "Stop.". The ear uses a small beam and a "plus" hint so "plus" is less likely to come back as "Please"; if it still does, that wording is repaired. Spoken replies skip the thinking pause, so the first sentence can start as soon as it is ready, including after a tool such as weather. See [voice-wake.md](voice-wake.md).
 
 - Sentinels: in the Overseer, idle units now circle the core on tilted bands, one per caste, that split into more lanes and widen as the swarm grows (up to 128 units). Tripwires ride the outer edge ring. See [sentinels.md](sentinels.md).
 - Sentinels: in the Overseer, each harvest result's real title and web address now fly from its source along an arc and down into the core as glowing text. Results with no title show no text. See [sentinels.md](sentinels.md).
