@@ -74,6 +74,13 @@ _MIN_WAKE_UTTERANCE_S = 0.35
 # after "Stop.", Smart Turn was skipped on the barge clip, and 450 ms of
 # silence split the ask. "Stop." was then consumed as a control word.
 _BARGE_JOIN_MS = 1500
+# Hard ceiling on trailing silence after real speech. Smart Turn may hold a
+# mid-thought pause only up to this, and when Smart Turn is off the silence
+# windows floor here. 1400 ms is in the 1200-1500 ms band: after Silero's
+# 450-550 ms pause there is still about 850-950 ms to resume, the worst-case
+# wait drops by 1.1 s versus the old 2500 ms cap, and the setting stays
+# distinct from barge_join_ms (1500).
+DEFAULT_END_SILENCE_MS = 1400
 
 # An utterance is handed to the window and the window is expected to report back
 # whether it became a turn. Everything in that path is bounded -- a Whisper run,
@@ -149,7 +156,13 @@ class VoiceController(QObject):
         # Trailing silence after real speech that ends a conversation turn.
         # Slow talkers pause mid-thought, so this is a ceiling that Smart Turn
         # cannot keep the turn open past, and the floor when Smart Turn is off.
-        self._end_silence_ms = max(0, int(conversation.get("end_silence_ms", 2500)))
+        # 1400 ms is in the 1200-1500 ms band: after Silero's 450-550 ms pause
+        # there is still about 850-950 ms to resume, the worst-case wait drops
+        # by 1.1 s versus 2500 ms, and the knob stays distinct from
+        # barge_join_ms (1500).
+        self._end_silence_ms = max(
+            0, int(conversation.get("end_silence_ms", DEFAULT_END_SILENCE_MS))
+        )
         if self._smart_turn is None:
             silence_ms = max(silence_ms, 900, self._end_silence_ms)
             short_silence_ms = max(short_silence_ms, 550, self._end_silence_ms)

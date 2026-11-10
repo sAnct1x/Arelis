@@ -104,9 +104,9 @@ soon as Sherpa is up; Whisper can still be phoning HuggingFace.
 |---|---|
 | Idle wake (**Hey Arelis**) | faster-whisper until `models/wake/hey_arelis.onnx` exists, then openwakeword running on that ONNX. Whatever's left in the same audio clip becomes the first turn. |
 | Voice activity detection | Silero VAD |
-| End of turn | Smart Turn v3, after a short pause, or a fixed `silence_ms` if that ONNX file is missing |
+| End of turn | Smart Turn v3, after a short pause, with a 1400 ms silence ceiling (`voice.conversation.end_silence_ms`) even if it thinks you are still mid-thought. A fixed silence window if that ONNX file is missing. Raise the ceiling in config if you pause longer. |
 | Conversation + dictation (Ctrl+M) | Sherpa-ONNX Kroko Zipformer, on live PCM audio. Falls back to the 2023 pack or faster-whisper if Kroko isn't available |
-| Speech output | Kokoro-82M (`af_heart` voice): a finished breath can start before the rest of the answer has generated. A short first sentence is held so she does not say four words and stall; neighboring sentences share a clip. Falls back to Piper Jenny if Kokoro can't run |
+| Speech output | Kokoro-82M (`af_heart` voice): the first clause of a reply can start before the first sentence has finished generating. Later sentences stay whole, and neighboring ones can share a clip. A short leftover after the opening is held so she does not say four words and stall. Falls back to Piper Jenny if Kokoro can't run |
 
 If you're training your own wake model, train it on **Hey Arelis**
 specifically, not the bare name alone. The openwakeword package is
@@ -129,6 +129,6 @@ Porcupine isn't used anywhere in this codebase, for what it's worth.
 | `arelis/voice/sherpa_stt.py` | The live Kroko session, with the 2023 pack as fallback |
 | `arelis/voice/smart_turn.py` | Pipecat Smart Turn v3 ONNX |
 | `arelis/voice/whisper_mel.py` | Whisper-compatible mel spectrogram, used for Smart Turn |
-| `arelis/voice/speech_text.py` | Extracts the first punctuated sentence for TTS to start on |
+| `arelis/voice/speech_text.py` | Extracts an opening clause, then whole sentences, for TTS to start on |
 | `arelis/voice/kokoro_tts.py` | Kokoro-82M (`af_heart`), running on CPU |
 | `arelis/voice/vad.py` / `silero_vad.py` | Live speech onset and end-point detection |

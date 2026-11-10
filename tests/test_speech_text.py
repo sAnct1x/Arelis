@@ -35,10 +35,18 @@ def test_a_long_sentence_starts_without_waiting() -> None:
         "I don't have personal preferences, but from a scientific "
         "standpoint Titan is fascinating because of those methane lakes."
     )
+    clause = "I don't have personal preferences,"
+    rest = (
+        "but from a scientific standpoint Titan is fascinating because "
+        "of those methane lakes."
+    )
     assert len(long) >= 72
     clips, already = next_speakable_units(long, 0, finalize=False)
-    assert clips == [long]
-    assert already == 1
+    assert clips[0] == clause
+    # The remainder is already complete and long, so it is queued behind
+    # the opening clause in the same call, not packed into the first clip.
+    assert clips == [clause, rest]
+    assert already == 2
 
 
 def test_already_does_not_reglue_a_spoken_sentence() -> None:
@@ -47,13 +55,98 @@ def test_already_does_not_reglue_a_spoken_sentence() -> None:
         "standpoint Titan is fascinating because of those methane lakes."
     )
     clips, already = next_speakable_units(first, 0, finalize=False)
-    assert already == 1
+    assert already == 2
     more = first + " Europa is the other one people talk about."
     clips, already = next_speakable_units(more, already, finalize=False)
     assert clips == []
     clips, already = next_speakable_units(more, already, finalize=True)
     assert clips == ["Europa is the other one people talk about."]
     assert first not in clips[0]
+
+
+def test_first_unit_of_a_reply_is_a_clause_later_units_stay_sentences() -> None:
+    """First audio can start on a short opening clause, not the full sentence.
+
+    Later units stay whole sentences. Numbers, decimals, abbreviations,
+    URLs, and units are not valid split points.
+    """
+    long = (
+        "I don't have personal preferences, but from a scientific "
+        "standpoint Titan is fascinating because of those methane lakes."
+    )
+    clause = "I don't have personal preferences,"
+    rest = (
+        "but from a scientific standpoint Titan is fascinating because "
+        "of those methane lakes."
+    )
+
+    # A clause is enough to start, even while the first sentence is still
+    # streaming and has no period yet.
+    growing = "I don't have personal preferences, but from a scientific"
+    clips, already = next_speakable_units(growing, 0, finalize=False)
+    assert clips == [clause]
+    assert already == 1
+    clips, already = next_speakable_units(long, already, finalize=False)
+    assert clips == [rest]
+    assert already == 2
+
+    # A later sentence with a comma stays one unit so prosody is not choppy.
+    later = long + " Europa, the icy moon, is the other one people talk about."
+    clips, already = next_speakable_units(later, already, finalize=True)
+    assert clips == ["Europa, the icy moon, is the other one people talk about."]
+
+    # Safe clause punctuation after a protected number or unit.
+    clips, _ = next_speakable_units(
+        "The air is 27.22°C, which is mild tonight.", 0, finalize=False
+    )
+    assert clips[0] == "The air is 27.22°C,"
+    clips, _ = next_speakable_units(
+        "3.2 km west of town, then we turn.", 0, finalize=False
+    )
+    assert clips[0] == "3.2 km west of town,"
+    clips, _ = next_speakable_units(
+        "The distance is 1,200 km, according to the sign.", 0, finalize=False
+    )
+    assert clips[0] == "The distance is 1,200 km,"
+    clips, _ = next_speakable_units(
+        "See e.g., the catalog for Saturn, then ask again.", 0, finalize=False
+    )
+    assert clips[0] == "See e.g., the catalog for Saturn,"
+    clips, _ = next_speakable_units(
+        "The notes are at https://example.com/path/weather, and then we wait.",
+        0,
+        finalize=False,
+    )
+    assert clips[0] == "The notes are at https://example.com/path/weather,"
+
+    # A comma inside a URL or a thousands group is not a clause break, and
+    # a short first sentence with a one-word "Yeah," stays whole.
+    long_url = (
+        "The notes are at https://example.com/foo,bar/baz tonight and also "
+        "tomorrow after that extra padding words here."
+    )
+    clips, _ = next_speakable_units(long_url, 0, finalize=False)
+    assert "foo,bar/baz" in clips[0]
+    assert not clips[0].endswith("foo,")
+    clips, already = next_speakable_units(
+        "Take 1,200 km of rope with you today.", 0, finalize=False
+    )
+    assert clips == ["Take 1,200 km of rope with you today."]
+    assert already == 1
+    clips, _ = next_speakable_units("Yeah, Titan is pretty cool.", 0, finalize=False)
+    assert clips == ["Yeah, Titan is pretty cool."]
+
+    # No punctuation: cap the first unit at about 72 characters.
+    long_plain = (
+        "This is a fairly long opening without any comma semicolon colon "
+        "or dash in the first eighty characters of the reply at all."
+    )
+    clips, already = next_speakable_units(long_plain, 0, finalize=False)
+    assert clips[0] == (
+        "This is a fairly long opening without any comma semicolon colon or dash"
+    )
+    assert already >= 1
+    assert len(clips[0]) <= 72
 
 
 def test_spoken_reply_says_dates_numbers_and_symbols_as_words() -> None:
