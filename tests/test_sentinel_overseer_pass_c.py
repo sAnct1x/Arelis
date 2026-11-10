@@ -182,11 +182,12 @@ def test_pass_c_view_loads_orb_sources_and_tentacles(qt_app) -> None:
 
 @isolated_render()
 def test_orb_gains_at_thirty_eight_tok_leave_core_structure_readable(qt_app) -> None:
-    """Pinned 38 tok/s must not bloom the orb into a white disc.
+    """Pinned 38 tok/s must not bloom the orb into a white disc or ball.
 
-    Energy still maps 0.3 idle to 1.0 at 60 tok/s. The nucleus, filaments
-    and shell gains used to be 16 / 9.7 / 9 and washed the rings and
-    labels. This fails if those HDR multipliers are restored.
+    Energy still maps 0.3 idle to 1.0 at 60 tok/s. The first wash cut
+    (nucleus 3.6, filaments 2.4, shell 2.8, pulse 1.8, shellPower 6)
+    left a clipped white core. This fails if those or the older
+    16 / 9.7 / 9 multipliers are restored.
     """
     from PySide6.QtCore import QByteArray, QObject, QSizeF, QUrl
     from PySide6.QtGui import QColor
@@ -217,11 +218,15 @@ def test_orb_gains_at_thirty_eight_tok_leave_core_structure_readable(qt_app) -> 
             b"    property real fil: 0\n"
             b"    property real shell: 0\n"
             b"    property real pulse: 0\n"
+            b"    property real power: 0\n"
+            b"    property real pulsePower: 0\n"
             b"    function read(n, f, s, p) {\n"
             b"        nuc = n.materials[0].gain\n"
             b"        fil = f.materials[0].gain\n"
             b"        shell = s.materials[0].shellGain\n"
             b"        pulse = p.materials[0].shellGain\n"
+            b"        power = s.materials[0].shellPower\n"
+            b"        pulsePower = p.materials[0].shellPower\n"
             b"    }\n"
             b"}"
         ),
@@ -239,13 +244,22 @@ def test_orb_gains_at_thirty_eight_tok_leave_core_structure_readable(qt_app) -> 
     fil_gain = float(reader.property("fil"))
     shell_gain = float(reader.property("shell"))
     pulse_gain = float(reader.property("pulse"))
-    # Old values at this energy: nucleus ~11.9, filaments ~7.2, shell 9, pulse 6.
-    assert nuc_gain <= 5.0, nuc_gain
-    assert fil_gain <= 4.0, fil_gain
-    assert shell_gain <= 4.0, shell_gain
-    assert pulse_gain <= 3.0, pulse_gain
+    shell_power = float(reader.property("power"))
+    pulse_power = float(reader.property("pulsePower"))
+    # Prior wash-cut values at this energy: nucleus ~2.68, filaments ~1.78,
+    # shell 2.8, pulse 1.8, shellPower 6. Those still clipped the core.
+    assert nuc_gain <= 1.6, nuc_gain
+    assert fil_gain <= 1.75, fil_gain
+    assert shell_gain <= 2.55, shell_gain
+    assert pulse_gain <= 1.65, pulse_gain
+    assert shell_power <= 4.0, shell_power
+    assert pulse_power <= 4.0, pulse_power
     assert abs(nuc_gain - float(root.property("orbNucleusGain")) * energy) < 1e-5
     assert abs(fil_gain - float(root.property("orbFilamentGain")) * energy) < 1e-5
+    assert abs(shell_gain - float(root.property("orbShellGain"))) < 1e-5
+    assert abs(pulse_gain - float(root.property("orbPulseShellGain"))) < 1e-5
+    assert abs(shell_power - float(root.property("orbShellPower"))) < 1e-5
+    assert abs(pulse_power - float(root.property("orbShellPower"))) < 1e-5
     view.close()
     view.deleteLater()
     qt_app.processEvents()

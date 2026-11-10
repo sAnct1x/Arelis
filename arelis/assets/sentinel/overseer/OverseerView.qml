@@ -171,14 +171,16 @@ Item {
     // Pass C orb: energy follows real tok/s (idle floor 0.3, 1.0 at 60).
     property real orbEnergy: 0.3
     property real orbEnergyShown: 0.3
-    // Visual gains at energy 1.0. 16 x energy blew the nucleus into a white
-    // disc at a pinned 38 tok/s and washed the filaments, shell, rings and
-    // labels. These stay in a range where those parts still read; bloom is
-    // unchanged (3 levels, threshold 1.0) so eyes still glow.
-    readonly property real orbNucleusGain: 3.6
-    readonly property real orbFilamentGain: 2.4
-    readonly property real orbShellGain: 2.8
-    readonly property real orbPulseShellGain: 1.8
+    // Visual gains at energy 1.0. After the first wash cut (nucleus 3.6),
+    // the core was still a clipped white ball that hid the filaments and
+    // shell. These keep a luminous core under clip, with filaments leading
+    // the nucleus and a broader, softer shell (see orbShellPower). Bloom
+    // is unchanged (3 levels, threshold 1.0) so eyes still glow.
+    readonly property real orbNucleusGain: 1.8
+    readonly property real orbFilamentGain: 2.2
+    readonly property real orbShellGain: 2.4
+    readonly property real orbPulseShellGain: 1.5
+    readonly property real orbShellPower: 3.0
     property real orbSpinAngle: 0
     property int memoryCount: 0
     property string memoryLabel: "Memory · 0 from last chat"
@@ -1833,7 +1835,7 @@ Item {
                         cullMode: Material.NoCulling
                         property vector3d shellColor: root.linearVec("#a473f0")
                         property real energy: root.orbEnergyShown
-                        property real shellPower: 6
+                        property real shellPower: root.orbShellPower
                         property real shellGain: root.orbShellGain
                         property vector4d impact: root.orbImpact
                     }
@@ -1853,7 +1855,7 @@ Item {
                         cullMode: Material.NoCulling
                         property vector3d shellColor: root.linearVec("#a473f0")
                         property real energy: root.pulseGain
-                        property real shellPower: 6
+                        property real shellPower: root.orbShellPower
                         property real shellGain: root.orbPulseShellGain
                         property vector4d impact: Qt.vector4d(0, 1, 0, -1)
                     }
