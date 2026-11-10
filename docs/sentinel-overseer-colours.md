@@ -8,7 +8,8 @@ reports. Those same events raise the **Threats** count.
 
 Everything routine takes the colour of the caste doing it:
 
-- A Warden's regular socket patrol shows violet packets, the Warden colour.
+- A Warden's regular socket patrol shows violet packets, the Warden colour,
+  both on its beam and on the stream it sends back to the hive.
 - Sources a research mission brings back show light blue, the Harvester colour.
 
 So if Threats reads 0, you should see no rose in the scene.

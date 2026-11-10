@@ -1466,7 +1466,9 @@ def build_conduits(
                     "color": beam_color,
                 })
 
-        orb_color = str(u.get("orb_color") or ("#22d3ee" if carrying_orb else base_color))
+        # The hive sends orb_color (the caste eye colour, Warden #ff2a3a) on every unit,
+        # carrying or not. Only a carried orb takes it; a stream is the caste colour.
+        orb_color = str(u.get("orb_color") or "#22d3ee") if carrying_orb else base_color
         arc_h = max(uy, 0.5) + (2.1 if carrying_orb else 1.45)
         cx, cy, cz = _clamp_conduit_coord(ux * 0.48, arc_h, uz * 0.48)
         stream_n = 4 if (carrying_orb or "ENGAGED" in state) else 3
