@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QSizeF, QUrl
 from PySide6.QtGui import QColor
 from PySide6.QtQuick import QQuickView
 
@@ -152,13 +152,16 @@ def test_source_labels_show_on_screen_and_keep_their_delegates(qt_app) -> None:
     view = QQuickView()
     view.engine().addImportPath(str(VIEW_QML.parent))
     view.setColor(QColor("#0b0714"))
-    view.setResizeMode(QQuickView.SizeRootObjectToView)
+    # The root owns the size: the Windows runner clamps a 2110 x 1306 window
+    # to 1028 x 749, and the free area below is computed for 2110 x 1306.
+    view.setResizeMode(QQuickView.SizeViewToRootObject)
     view.setSource(QUrl.fromLocalFile(str(VIEW_QML)))
     assert view.status() == QQuickView.Status.Ready, view.errors()
-    view.resize(2110, 1306)
+    root = view.rootObject()
+    root.setSize(QSizeF(2110, 1306))
     view.show()
     qt_app.processEvents()
-    root = view.rootObject()
+    assert (root.width(), root.height()) == (2110, 1306)
     # Fit swarm frames the whole hive, sources included, at every band size.
     root.fitSwarm()
     root.applyFrame(o.build_frame([], 96.0, 1306.0, nodes=[]))
