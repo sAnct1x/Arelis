@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from arelis.voice.stt import (
@@ -66,3 +67,51 @@ def test_recent_vocab_never_corrupts_common_lowercase_words() -> None:
 
 
 
+
+
+def test_please_between_numbers_is_repaired_to_plus() -> None:
+    """Whisper-base greedy heard 'plus' as 'Please' on the 11-09 barge clip."""
+    assert scrub_transcript("What's 2 Please 2?") == "What's 2 plus 2?"
+    assert scrub_transcript("what's two please two") == "what's two plus two"
+    # Ordinary politeness is left alone.
+    assert scrub_transcript("Can you help me please") == "Can you help me please"
+    assert scrub_transcript("Me too please ten more") == "Me too please ten more"
+
+
+def test_whisper_uses_a_beam_and_plus_hotwords(tmp_path: Path) -> None:
+    """Official 11-09 barge-in was decoded at beam_size 1 with no hotwords."""
+    import yaml
+
+    from arelis.config import DEFAULT_CONFIG_PATH
+    from arelis.voice.stt import SpeechToText
+
+    shipped = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text())
+    stt_cfg = shipped["voice"]["stt"]
+    assert int(stt_cfg["beam_size"]) > 1
+    assert "plus" in str(stt_cfg.get("hotwords") or "").lower()
+
+    captured: dict[str, object] = {}
+
+    class _Model:
+        def transcribe(self, audio, **kwargs):
+            del audio
+            captured.update(kwargs)
+            return iter((SimpleNamespace(text="What's two plus two?"),)), None
+
+    import struct
+    import wave as _wave
+
+    wav = tmp_path / "clip.wav"
+
+    with _wave.open(str(wav), "wb") as fh:
+        fh.setnchannels(1)
+        fh.setsampwidth(2)
+        fh.setframerate(16000)
+        fh.writeframes(struct.pack("<" + "h" * 1600, *([0] * 1600)))
+
+    ear = SpeechToText(shipped)
+    ear._model = _Model()
+    text = ear._transcribe_whisper(str(wav), purpose="turn")
+    assert "plus" in text.lower()
+    assert int(captured["beam_size"]) > 1
+    assert "plus" in str(captured.get("hotwords") or "").lower()

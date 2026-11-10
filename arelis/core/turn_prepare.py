@@ -846,9 +846,11 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         active_plan=active_plan,
     )
-    # A short ask or a spoken conversational turn that expects no tool round
-    # answers from what the model knows. Thinking first was most of a 9 to 21 s
-    # first token (#368). Only the first request: a tool round still thinks.
+    # A short ask, or a spoken turn that expects no tool, answers from what
+    # the model knows. Thinking first was most of a 9 to 21 s first token
+    # (#368). Typed tool rounds still think. A spoken conversation turn also
+    # skips thinking on later requests in the same turn (the tool call and
+    # the write-up); _stream_round reads _speak_replies for those.
     if not expect_tool_round and (
         len(text.split()) <= _SHORT_ASK_WORDS or (speak and not research_mode)
     ):

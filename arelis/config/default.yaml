@@ -656,7 +656,13 @@ voice:
     language: "en"      # Whisper fallback. "" auto-detects. Session ui.language
                         # zh uses a bilingual Sherpa pack and Whisper language zh.
                         # Wake clips stay English so "Hey Arelis" still matches.
-    beam_size: 1
+    # Greedy (1) locks the first token, so "plus" often becomes "Please"
+    # between numbers. A small beam keeps the other hypothesis. Official
+    # 11-09 barge-in heard "What's 2 Please 2?" at beam 1.
+    beam_size: 5
+    # Bias for words Whisper otherwise swaps. Needs beam_size above 1.
+    # Keep this SHORT. "plus" is the arithmetic mix-up; "Stop" is barge-in.
+    hotwords: "plus Stop"
     # Post-hoc Silero inside faster-whisper. Off while live Silero already
     # end-points the clip — a second trim ate last words ("hobbies" → "hub").
     vad_filter: false
@@ -711,6 +717,11 @@ voice:
     # Headset default: the interrupt clip is the next question. Speakers:
     # false keeps the mixed clip as control-only (stop / allow / deny).
     barge_in_as_turn: true
+    # After a headset barge-in, keep listening through this much silence so
+    # "Stop." plus the real question stay one clip. A lone Stop still ends
+    # here. After speech resumes, the usual short-silence / Smart Turn path
+    # ends the turn, so this does not add a tail to the question.
+    barge_join_ms: 1500
     # Semantic end-of-turn after the short Silero pause. First launch may
     # download ~8 MB into models/smart_turn/. False disables it.
     smart_turn:
