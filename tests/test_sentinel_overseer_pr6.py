@@ -575,8 +575,8 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     hull_vert = (assets / "shaders" / "hull.vert").read_text()
     assert "uTime" in hull_vert
     assert "INSTANCE_DATA.x + uTime" in hull_vert
-    assert "clamp(INSTANCE_DATA.z, 0.0, 1.0)" in hull_vert
-    assert "clamp(INSTANCE_DATA.z, 0.0, 1.0)" in (
+    assert "clamp(limpBit, 0.0, 1.0)" in hull_vert
+    assert "clamp(limpBit, 0.0, 1.0)" in (
         assets / "shaders" / "emissive.vert"
     ).read_text()
     assert "uTime: root.sceneTime" in qml
@@ -708,7 +708,7 @@ _CLIP = "POSITION = INSTANCE_MODELVIEWPROJECTION_MATRIX * vec4"
 _WAVE_NEEDLES = (
     "1.0 - smoothstep(-0.55, 0.15,",
     "INSTANCE_DATA.x + uTime",
-    "clamp(INSTANCE_DATA.z, 0.0, 1.0)",
+    "clamp(limpBit, 0.0, 1.0)",
     "0.16 * tail * mix(1.0, 0.25, limp)",
     "* 5.5 + phase",
     "* 4.2 + phase * 1.7",

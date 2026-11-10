@@ -36,7 +36,7 @@ def test_overseer_shaders_include_claw_flare_obsidian_carapace_and_ocular_scan()
 
     # Both vertex shaders deform forward claws via INSTANCE_DATA.y without breaking wave needles
     for vert in (hull_vert, emissive_vert):
-        assert "clamp(INSTANCE_DATA.y, 0.0, 1.0)" in vert
+        assert "clamp(packed - reachPairs * 2.0, 0.0, 1.0)" in vert
         assert "flare" in vert
     assert "CLEARCOAT_AMOUNT = 0.92;" in hull_frag
     assert "oilTint" in hull_frag
