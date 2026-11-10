@@ -349,6 +349,10 @@ class SentinelWindow(QWidget):
             lambda _err, msg: log.warning("Sentinels window: scene graph error: %s", msg)
         )
         view.setSource(QUrl.fromLocalFile(str(qml)))
+        root = view.rootObject()
+        mote = root.findChild(QObject, "SentinelCloseMote") if root is not None else None
+        if mote is not None:
+            mote.activated.connect(self.close)
         self._scene = view
         return view
 
@@ -390,9 +394,10 @@ class SentinelWindow(QWidget):
             self._live = QWidget.createWindowContainer(scene, self)
             self._live.setObjectName("OverseerSceneHost")
             self._stack.addWidget(self._live)
-            # A native child covers plain sibling widgets, so the mote goes native too.
-            self._close_mote.setAttribute(Qt.WidgetAttribute.WA_NativeWindow)
-            self._close_mote.raise_()
+            # The scene's native window covers sibling widgets, even native ones, so
+            # the scene draws its own close x and the widget one stays for the offline card.
+            self._stack.currentChanged.connect(self._sync_close_mote)
+            self._sync_close_mote()
             return self._live
         try:
             from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -404,6 +409,10 @@ class SentinelWindow(QWidget):
         self._stack.addWidget(self._view)
         return self._live
 
+
+    def _sync_close_mote(self, *_args) -> None:
+        on_scene = self._live is not None and self._stack.currentWidget() is self._live
+        self._close_mote.setVisible(not on_scene)
 
     def apply_hud_mask(self) -> None:
         """Keep mouse events on HUD plates; let the 3D view receive the hole."""
