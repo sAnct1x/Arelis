@@ -68,6 +68,13 @@ Item {
     property string glyphTrailKey: ""
     property int glyphCount: 0
     property string glyphFontFamily: "Space Mono"
+    // Caste bands (BAND-SPEC.md): lane guides rebuild only when a band's
+    // lane count or radius changes; the perimeter follows the Harvester band.
+    property var bandSpecs: []
+    property string bandKey: ""
+    property var bandGuidePositions: []
+    property var bandGuideColors: []
+    property real perimeterRadius: 35.0
     property string swarmGroupBy: "caste"
     property string swarmSearch: ""
     property string logFilter: "all"
@@ -177,12 +184,13 @@ Item {
         counts["__conduits"] = cEntries.length
         live += cEntries.length
         applyGlyphTrails(frame.glyphTrails || [])
+        applyBands(frame.bands || [], frame.perimeter)
         counts["__glyphs"] = glyphCount
         live += glyphCount
         liveCounts = counts
         budgetTris = tris
         unitDrawCalls = used
-        budgetDrawCalls = used + 11
+        budgetDrawCalls = used + 8
         lodCounts = lods
         recountEntries(live)
         instanceRecords = recs
@@ -492,7 +500,7 @@ Item {
     function finiteCoord(v, fallback) {
         var n = finiteNum(v, fallback)
         var fb = (fallback === undefined) ? 0 : fallback
-        if (Math.abs(n) > 40)
+        if (Math.abs(n) > 48)
             return fb
         return n
     }
@@ -572,6 +580,59 @@ Item {
         glyphList.instances = entries
         liveByKey["__glyphs"] = entries
         glyphCount = entries.length
+    }
+
+    function bandPoint(band, lane, theta) {
+        // Spec space is +Z up: Rx(tilt_x) * Ry(tilt_y), lift by height, draw at (x, z, -y).
+        var x = Math.cos(theta) * lane.r
+        var y = Math.sin(theta) * lane.r
+        var z = lane.z
+        var cy = Math.cos(band.tilt_y), sy = Math.sin(band.tilt_y)
+        var x1 = x * cy + z * sy
+        var z1 = -x * sy + z * cy
+        var cx = Math.cos(band.tilt_x), sx = Math.sin(band.tilt_x)
+        var y2 = y * cx - z1 * sx
+        var z2 = y * sx + z1 * cx
+        return Qt.vector3d(x1, z2 + band.height, -y2)
+    }
+
+    function applyBands(bands, perimeter) {
+        var list = bands || []
+        var key = String(finiteNum(perimeter, 35))
+        for (var i = 0; i < list.length; i++) {
+            var lanes = list[i].lanes || []
+            for (var li = 0; li < lanes.length; li++)
+                key += "|" + list[i].caste + ":" + lanes[li].r
+        }
+        if (key === bandKey)
+            return
+        bandKey = key
+        bandSpecs = list
+        perimeterRadius = finiteNum(perimeter, 35)
+        // All lane guides in one line mesh with per-vertex caste colour:
+        // edge lanes brighter than middle lanes.
+        var pos = []
+        var col = []
+        var segs = 128
+        for (var bi = 0; bi < list.length; bi++) {
+            var band = list[bi]
+            var c = Qt.color(casteColors[band.caste] || casteColors.warden)
+            var bl = band.lanes || []
+            for (var lj = 0; lj < bl.length; lj++) {
+                var edge = (lj === 0 || lj === bl.length - 1)
+                var k = edge ? 0.28 : 0.16
+                var cv = Qt.vector4d(c.r * k, c.g * k, c.b * k, 1.0)
+                var prev = bandPoint(band, bl[lj], 0)
+                for (var sI = 1; sI <= segs; sI++) {
+                    var next = bandPoint(band, bl[lj], sI * 2 * Math.PI / segs)
+                    pos.push(prev, next)
+                    col.push(cv, cv)
+                    prev = next
+                }
+            }
+        }
+        bandGuideColors = col
+        bandGuidePositions = pos
     }
 
     function reachSlot(uid, reach) {
@@ -815,7 +876,7 @@ Item {
             if (!e)
                 continue
             var nx = finiteCoord(e.position.x + sp.vx * stepDt, e.position.x)
-            var ny = Math.max(0.45, finiteCoord(e.position.y + sp.vy * stepDt, e.position.y))
+            var ny = Math.max(-7.5, finiteCoord(e.position.y + sp.vy * stepDt, e.position.y))
             var nz = finiteCoord(e.position.z + sp.vz * stepDt, e.position.z)
             e.position = Qt.vector3d(nx, ny, nz)
         }
@@ -950,8 +1011,14 @@ Item {
             }
         }
         environment: ExtendedSceneEnvironment {
+            objectName: "overseerEnvironment"
             backgroundMode: SceneEnvironment.Color
-            clearColor: "#0b0714"
+            // The scene used to draw a 1600 m lit floor plane under everything.
+            // At every approved camera it filled the whole view with one flat
+            // dark grey (15, 14, 17 after the filmic tonemap), a full screen of
+            // lit fragments per frame. This clear colour tonemaps to the same
+            // grey, so the floor plane and its fill are gone.
+            clearColor: "#111013"
             tonemapMode: ExtendedSceneEnvironment.TonemapModeFilmic
         }
 
@@ -979,13 +1046,6 @@ Item {
         DirectionalLight { eulerRotation.x: -15; eulerRotation.y: -120; brightness: 0.35 }
 
         Model {
-            objectName: "overseerFloor"
-            source: "#Rectangle"
-            eulerRotation.x: -90
-            scale: Qt.vector3d(16, 16, 16)
-            materials: PrincipledMaterial { baseColor: "#050309"; roughness: 0.85 }
-        }
-        Model {
             objectName: "hiveCore"
             source: "#Sphere"
             scale: Qt.vector3d(0.022, 0.022, 0.022)
@@ -994,21 +1054,30 @@ Item {
                 emissiveFactor: Qt.vector3d(0.45, 0.35, 0.75)
             }
         }
-        Repeater3D {
-            model: [5, 10, 16, 23]
-            Model {
-                required property real modelData
-                objectName: "casteRing"
-                y: 0.02
-                geometry: ProceduralMesh {
-                    positions: root.ringPositions(modelData, modelData > 12 ? 0.02 : 0.014)
-                    normals: root.ringNormals(modelData, modelData > 12 ? 0.02 : 0.014)
-                    indexes: root.ringIndexes()
-                }
-                materials: PrincipledMaterial {
-                    baseColor: modelData > 12 ? "#6d4ad8" : "#a78bfa"
-                    lighting: PrincipledMaterial.NoLighting
-                }
+        Model {
+            objectName: "casteBandGuides"
+            visible: root.bandGuidePositions.length > 0
+            geometry: ProceduralMesh {
+                primitiveMode: ProceduralMesh.Lines
+                positions: root.bandGuidePositions
+                colors: root.bandGuideColors
+            }
+            materials: PrincipledMaterial {
+                lighting: PrincipledMaterial.NoLighting
+                vertexColorsEnabled: true
+            }
+        }
+        Model {
+            objectName: "tripwirePerimeter"
+            y: 0.02
+            geometry: ProceduralMesh {
+                positions: root.ringPositions(root.perimeterRadius, 0.06)
+                normals: root.ringNormals(root.perimeterRadius, 0.06)
+                indexes: root.ringIndexes()
+            }
+            materials: PrincipledMaterial {
+                baseColor: root.casteColors.tripwire
+                lighting: PrincipledMaterial.NoLighting
             }
         }
 

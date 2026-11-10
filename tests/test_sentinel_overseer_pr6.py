@@ -275,7 +275,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "shaders/hull.vert" in qml
     assert "View3D" in qml
     assert "ProceduralMesh" in qml
-    assert "model: [5, 10, 16, 23]" in qml
+    assert "casteBandGuides" in qml and "tripwirePerimeter" in qml
     assert 'source: "#Cylinder"' not in qml
     assert "ringPositions" in qml
     assert "overseerBackdrop" in qml
@@ -319,15 +319,15 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     caste_rings = [
         child
         for child in inst.findChildren(QObject)
-        if child.objectName() == "casteRing"
+        if child.objectName() in ("casteBandGuides", "tripwirePerimeter")
     ]
-    assert len(caste_rings) == 4
+    assert len(caste_rings) == 2
     meshes = [
         child
         for child in inst.findChildren(QObject)
         if "ProceduralMesh" in child.metaObject().className()
     ]
-    assert len(meshes) == 4
+    assert len(meshes) == 2
     for ring in caste_rings:
         src = ring.property("source")
         src_s = src.toString() if src is not None and hasattr(src, "toString") else str(src or "")
