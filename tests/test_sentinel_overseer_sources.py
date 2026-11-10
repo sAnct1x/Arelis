@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from PySide6.QtCore import QSizeF, QUrl
+from PySide6.QtGui import QColor
+from PySide6.QtQuick import QQuickView
+
 from arelis.ui import overseer_runtime as o
+from tests.overseer_render_helpers import isolated_render
+
+VIEW_QML = (
+    Path(__file__).resolve().parents[1]
+    / "arelis/assets/sentinel/overseer/OverseerView.qml"
+)
 
 
 def test_source_nodes_beam_only_when_harvest_fetch_is_live() -> None:
@@ -130,3 +142,50 @@ def test_source_nodes_beam_only_when_harvest_fetch_is_live() -> None:
     assert [
         c for c in extracting_only["conduits"] if str(c.get("id", "")).startswith("source-beam:")
     ] == []
+
+
+@isolated_render()
+def test_source_labels_show_on_screen_and_keep_their_delegates(qt_app) -> None:
+    """mapFrom3DScene z is a distance in scene units, so a 0..1 depth test hid
+    every label. Labels show in the free scene area, hide under the HUD, and
+    keep their delegates while the scene animates."""
+    view = QQuickView()
+    view.engine().addImportPath(str(VIEW_QML.parent))
+    view.setColor(QColor("#0b0714"))
+    # The root owns the size: the Windows runner clamps a 2110 x 1306 window
+    # to 1028 x 749, and the free area below is computed for 2110 x 1306.
+    view.setResizeMode(QQuickView.SizeViewToRootObject)
+    view.setSource(QUrl.fromLocalFile(str(VIEW_QML)))
+    assert view.status() == QQuickView.Status.Ready, view.errors()
+    root = view.rootObject()
+    root.setSize(QSizeF(2110, 1306))
+    view.show()
+    qt_app.processEvents()
+    assert (root.width(), root.height()) == (2110, 1306)
+    # Fit swarm frames the whole hive, sources included, at every band size.
+    root.fitSwarm()
+    root.applyFrame(o.build_frame([], 96.0, 1306.0, nodes=[]))
+    qt_app.processEvents()
+    rows = root.property("sourceLabelScreen")
+    rows = rows.toVariant() if hasattr(rows, "toVariant") else rows
+    shown = [r for r in rows if r["visible"]]
+    assert shown, rows
+    free = (min(440, 2110 * 0.26), 86, 2110 - 20, 1306 - 230)
+    for r in rows:
+        inside = free[0] < r["sx"] < free[2] and free[1] < r["sy"] < free[3]
+        assert r["visible"] == inside, r
+    def label(sid):
+        name = "OverseerSourceLabel_" + sid
+        return next((c for c in root.childItems() if c.objectName() == name), None)
+
+    first = {r["id"]: label(r["id"]) for r in shown}
+    assert all(item is not None and item.isVisible() for item in first.values()), first
+    t = float(root.property("sceneTime"))
+    for i in range(30):
+        root.setProperty("sceneTime", t + 0.016 * (i + 1))
+    qt_app.processEvents()
+    for sid, item in first.items():
+        assert label(sid) is item
+    view.close()
+    view.deleteLater()
+    qt_app.processEvents()

@@ -1351,6 +1351,7 @@ Item {
                 TextField {
                     id: queryField
                     objectName: "OverseerMissionQuery"
+                    Accessible.name: "Mission query"
                     width: 420
                     height: 28
                     placeholderText: "Research query, planet, or topic"
@@ -1360,16 +1361,24 @@ Item {
                     onTextChanged: hud.missionQuery = text
                 }
                 Rectangle {
+                    id: dispatchButton
                     objectName: "OverseerDispatch"
                     height: 28
                     width: 90
                     radius: 4
                     color: "#2a1a4a"
                     border.color: "#8b6cf2"
+                    function dispatch() {
+                        hud.hudCommand("dispatch", { mode: hud.missionMode, query: hud.missionQuery })
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Dispatch"
+                    Accessible.description: "Send the mission in Mode with the query"
+                    Accessible.onPressAction: dispatchButton.dispatch()
                     Text { anchors.centerIn: parent; text: "Dispatch"; color: "#e0d4ff" }
                     MouseArea {
                         anchors.fill: parent
-                        onClicked: hud.hudCommand("dispatch", { mode: hud.missionMode, query: hud.missionQuery })
+                        onClicked: dispatchButton.dispatch()
                     }
                 }
                 Text {

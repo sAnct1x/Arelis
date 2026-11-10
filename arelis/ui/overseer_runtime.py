@@ -1510,7 +1510,9 @@ def build_conduits(
                     "color": beam_color,
                 })
 
-        orb_color = str(u.get("orb_color") or ("#22d3ee" if carrying_orb else base_color))
+        # The hive sends orb_color (the caste eye colour, Warden #ff2a3a) on every unit,
+        # carrying or not. Only a carried orb takes it; a stream is the caste colour.
+        orb_color = str(u.get("orb_color") or "#22d3ee") if carrying_orb else base_color
         arc_h = max(uy, 0.5) + (2.1 if carrying_orb else 1.45)
         cx, cy, cz = _clamp_conduit_coord(ux * 0.48, arc_h, uz * 0.48)
         stream_n = 4 if (carrying_orb or "ENGAGED" in state) else 3
@@ -2068,6 +2070,19 @@ def resolve_hud_command(
     return refuse(f"Unavailable: no existing route for {name}")
 
 
+def command_status(ok: bool, body: Any) -> str:
+    """HUD status for a finished bridge request. A completed HTTP request can
+    still carry a backend refusal; show the hive's reason, not a bare failure."""
+    if not ok:
+        return "Request failed: Sentinel did not answer"
+    if isinstance(body, dict) and body.get("ok") is False:
+        reason = " ".join(str(body.get("error") or "").split())[:160]
+        return f"Refused: {reason}" if reason else "Refused by Sentinel"
+    if not isinstance(body, dict):
+        return "Request failed: Sentinel did not answer"
+    return "Request completed"
+
+
 def post_overseer(
     host: str,
     port: int,
@@ -2077,6 +2092,7 @@ def post_overseer(
     opener: Any = None,
 ) -> dict[str, Any]:
     """POST an existing Overseer route with the session token header. Never log the token."""
+    import urllib.error
     import urllib.request
 
     dest = path if str(path).startswith("/") else f"/{path}"
@@ -2092,6 +2108,17 @@ def post_overseer(
         method="POST",
     )
     get = opener or urllib.request.urlopen
-    with get(req, timeout=4.0) as resp:
-        raw = resp.read()
+    try:
+        with get(req, timeout=4.0) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as exc:
+        # The bridge answers a refusal (400) with {"ok": false, "error": ...}.
+        raw = exc.read()
+        try:
+            refused = json.loads(raw.decode("utf-8") or "{}")
+        except ValueError:
+            refused = {}
+        if not isinstance(refused, dict):
+            refused = {}
+        return {"ok": False, "error": str(refused.get("error") or f"HTTP {exc.code}")}
     return json.loads(raw.decode("utf-8") or "{}")
