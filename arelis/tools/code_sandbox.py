@@ -3,9 +3,11 @@
 The code runs freely, with no card, inside this turn's work folder
 (``outputs/work/<turn>/``). That folder and a private temp folder are the
 only places it may change. A write, delete or move anywhere else is refused
-and reported, with nothing changed there. The same call made again shows the
-user a card listing those paths. If they allow it, the run may change exactly
-those paths and nothing else.
+and reported, with nothing changed there. A run that needs the network is
+refused the same way. The same call made again shows the user a card
+listing those paths and naming the hosts, or saying network access. If they
+allow it, the run may change exactly those paths and, if the card asked for
+it, may use the network.
 
 What is enforced and what is best effort is in docs/code-sandbox.md. Short
 version: on Windows the job object (one process, 2 GB, CPU and wall-time
@@ -60,6 +62,13 @@ class SandboxRun:
             if item.get("kind") == "write" and item.get("path")
         ]
 
+    def needed_network(self) -> bool:
+        return any(item.get("kind") == "network" for item in self.blocked)
+
+    def network_hosts(self) -> list[str]:
+        """Hosts worth naming on a confirm card. Empty means network access."""
+        return _useful_hosts(self.blocked)
+
 
 def is_sandbox_call(args: dict[str, Any]) -> bool:
     """``code`` and no ``path``. A path is a project script, run as the user."""
@@ -76,29 +85,53 @@ def call_key(args: dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def sandbox_env(scratch: Path) -> dict[str, str]:
-    """Allowlisted environment, temp in the scratch folder, proxies to a closed port."""
+# Loopback and unspecified addresses are not useful on a confirm card.
+_SKIP_NET_HOSTS = frozenset(
+    {
+        "",
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "0:0:0:0:0:0:0:1",
+        "0.0.0.0",
+        "::",
+        "none",
+        "null",
+    }
+)
+
+
+def sandbox_env(scratch: Path, *, network: bool = False) -> dict[str, str]:
+    """Allowlisted environment, temp in the scratch folder.
+
+    With network off, proxies point at a closed local port. With network on,
+    no proxy is set, so the process can reach the network directly.
+    """
     tmp = str(scratch)
-    return child_env(
-        {
-            "PYTHONIOENCODING": "utf-8",
-            "PYTHONUNBUFFERED": "1",
-            "MPLBACKEND": "Agg",
-            "MPL_IGNORE_SYSTEM_FONTS": "1",
-            "MPLCONFIGDIR": str(scratch / "mpl"),
-            "TEMP": tmp,
-            "TMP": tmp,
-            "TMPDIR": tmp,
-            "HTTP_PROXY": _CLOSED_PORT,
-            "HTTPS_PROXY": _CLOSED_PORT,
-            "ALL_PROXY": _CLOSED_PORT,
-            "http_proxy": _CLOSED_PORT,
-            "https_proxy": _CLOSED_PORT,
-            "all_proxy": _CLOSED_PORT,
-            "NO_PROXY": "",
-            "no_proxy": "",
-        }
-    )
+    extra = {
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUNBUFFERED": "1",
+        "MPLBACKEND": "Agg",
+        "MPL_IGNORE_SYSTEM_FONTS": "1",
+        "MPLCONFIGDIR": str(scratch / "mpl"),
+        "TEMP": tmp,
+        "TMP": tmp,
+        "TMPDIR": tmp,
+    }
+    if not network:
+        extra.update(
+            {
+                "HTTP_PROXY": _CLOSED_PORT,
+                "HTTPS_PROXY": _CLOSED_PORT,
+                "ALL_PROXY": _CLOSED_PORT,
+                "http_proxy": _CLOSED_PORT,
+                "https_proxy": _CLOSED_PORT,
+                "all_proxy": _CLOSED_PORT,
+                "NO_PROXY": "",
+                "no_proxy": "",
+            }
+        )
+    return child_env(extra)
 
 
 def _work_folder() -> Path:
@@ -114,6 +147,7 @@ def run_sandboxed(
     *,
     timeout_s: float,
     grants: list[str],
+    network: bool = False,
     is_cancelled: Callable[[], bool] | None = None,
 ) -> SandboxRun:
     # Imported here: run_script imports this module.
@@ -133,7 +167,7 @@ def run_sandboxed(
     proc, job = _spawn(
         sys.executable,
         folder,
-        sandbox_env(scratch),
+        sandbox_env(scratch, network=network),
         runner=_HOST,
         memory_bytes=SANDBOX_MEMORY_BYTES,
         extra_args=("-u",),
@@ -146,6 +180,7 @@ def run_sandboxed(
         "argv": argv,
         "roots": [str(folder), str(scratch)],
         "grants": list(grants),
+        "network": bool(network),
         "cpu_s": _CPU_S,
     }
     exit_code, stdout, stderr, stopped = -1, "", "", "failed"
@@ -208,7 +243,11 @@ def blocked_notes(run: SandboxRun) -> list[str]:
         )
     kinds = {str(item.get("kind")) for item in run.blocked}
     if "network" in kinds:
-        notes.append("The sandbox has no network. Say so; do not invent the data.")
+        notes.append(
+            "The sandbox has no network. Nothing was sent. To ask the user, "
+            "call run_script again with the same code and args. Arelis shows "
+            "them a card first. Do not invent the data."
+        )
     if "process" in kinds:
         notes.append("The sandbox cannot start other programs.")
     return notes
@@ -218,17 +257,70 @@ def chart_data(run: SandboxRun) -> dict[str, Any]:
     return _figure_data(run.charts)
 
 
-def sandbox_confirm(args: dict[str, Any], writes: list[dict[str, str]]) -> str:
-    """Card body for letting sandboxed code change files outside it."""
-    if writes:
+def _useful_hosts(blocked: list[dict[str, Any]]) -> list[str]:
+    """Unique non-local hosts from network blocks, in the order they were seen."""
+    seen: set[str] = set()
+    hosts: list[str] = []
+    for item in blocked:
+        if item.get("kind") != "network":
+            continue
+        host = str(item.get("host") or "").strip()
+        key = host.lower()
+        if key in _SKIP_NET_HOSTS or key.startswith("127."):
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        hosts.append(host)
+    return hosts
+
+
+def _network_card_line(hosts: list[str]) -> str:
+    if hosts:
+        return "Hosts: " + ", ".join(hosts)
+    return "This is network access, with no specific host to name."
+
+
+def sandbox_confirm(
+    args: dict[str, Any],
+    writes: list[dict[str, str]],
+    hosts: list[str] | None = None,
+) -> str:
+    """Card body for letting sandboxed code change files or use the network."""
+    want_net = hosts is not None
+    if writes and want_net:
+        lines = [
+            "Let this code change your files and use the network",
+            "It ran in the sandbox and tried to change these. Only these are allowed:",
+        ]
+        lines.extend(f"- {item['op']} {item['path']}" for item in writes)
+        lines.append(_network_card_line(hosts or []))
+    elif writes:
         lines = [
             "Let this code change your files",
             "It ran in the sandbox and tried to change these. Only these are allowed:",
         ]
         lines.extend(f"- {item['op']} {item['path']}" for item in writes)
+    elif want_net:
+        lines = [
+            "Let this code use the network",
+            "It ran in the sandbox and tried to use the network.",
+            _network_card_line(hosts or []),
+        ]
     else:
         lines = ["Run this code in the sandbox", "It cannot change your files."]
-    lines.append("Network stays off. The time and memory caps stay on.")
+    if want_net:
+        allowed = (
+            "change exactly those paths and may use the network"
+            if writes
+            else "use the network"
+        )
+        lines.append(
+            f"If you allow it, this run may {allowed}. If you don't, nothing changes."
+        )
+        lines.append("The time and memory caps stay on.")
+    else:
+        lines.append("Network stays off. The time and memory caps stay on.")
     raw = args.get("args")
     if isinstance(raw, (list, tuple)) and raw:
         lines.append("Argv: " + json.dumps([str(item) for item in raw], ensure_ascii=False))

@@ -168,6 +168,67 @@ async def test_sandbox_has_no_network_and_starts_no_programs(
 
 
 @pytest.mark.asyncio
+async def test_sandbox_network_is_refused_then_asks_then_allows_that_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tool, registry = _tool(tmp_path, monkeypatch, "sbx-net-ask")
+    # urllib talks to the closed proxy, so the card has no useful host.
+    proxied_args = {
+        "code": (
+            "import urllib.request\n"
+            "urllib.request.urlopen('http://example.invalid', timeout=1)\n"
+            "print('fetched')\n"
+        )
+    }
+    proxied = await tool.run(**proxied_args)
+    assert not proxied.ok
+    assert "no network" in proxied.output
+    assert "fetched" not in proxied.output
+    assert registry.needs_confirm("run_script", proxied_args) is True
+    proxied_card = registry.describe_call("run_script", proxied_args)
+    assert "network access" in proxied_card
+    assert "Let this code use the network" in proxied_card
+    # Decline: the tool is not run again. Nothing was sent.
+
+    args = {
+        "code": (
+            "import socket\n"
+            "try:\n"
+            "    socket.create_connection(('203.0.113.7', 80), timeout=0.05)\n"
+            "    print('connected')\n"
+            "except OSError as exc:\n"
+            "    print('attempted', type(exc).__name__)\n"
+        )
+    }
+    first = await tool.run(**args)
+    assert not first.ok
+    assert "no network" in first.output
+    assert "connected" not in first.output
+    assert "attempted" not in first.output
+
+    # A later run without a card still has no network (the grant is not implicit).
+    second = await tool.run(**args)
+    assert not second.ok
+    assert "no network" in second.output
+    assert "attempted" not in second.output
+
+    assert registry.needs_confirm("run_script", args) is True
+    card = registry.describe_call("run_script", args)
+    assert "203.0.113.7" in card
+    assert "Let this code use the network" in card
+
+    allowed = await tool.run(**args)
+    assert "no network" not in allowed.output
+    assert "attempted" in allowed.output or "connected" in allowed.output
+
+    # The grant is for that one allowed run. The next run is refused again.
+    later = await tool.run(**args)
+    assert not later.ok
+    assert "no network" in later.output
+    assert "attempted" not in later.output
+
+
+@pytest.mark.asyncio
 async def test_sandbox_chart_shows_in_chat(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

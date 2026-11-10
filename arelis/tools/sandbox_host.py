@@ -9,7 +9,8 @@ An audit hook refuses three things before the script's first line runs:
 - changing a file or folder outside the writable folders (open for write,
   delete, move, mkdir, chmod, sqlite), unless that exact path was allowed;
 - a socket to anything but this machine, and name lookups for other hosts;
-  binding to all interfaces (empty host, 0.0.0.0, ::) is refused too;
+  binding to all interfaces (empty host, 0.0.0.0, ::) is refused too,
+  unless the user allowed network on a card for this run;
 - starting another program.
 
 On POSIX, ``_posixsubprocess.fork_exec`` raises no audit event, so the host
@@ -39,7 +40,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 BLOCK_PREFIX = "ARELIS_SANDBOX_BLOCKED "
 STATUS_PREFIX = "ARELIS_RUN_STATUS "
 
-_STATE: dict[str, Any] = {"roots": [], "grants": set()}
+_STATE: dict[str, Any] = {"roots": [], "grants": set(), "network": False}
 _IN_HOOK = False
 
 # Event name to (argument positions that are paths, what the user sees).
@@ -260,10 +261,11 @@ def _audit_inner(event: str, args: tuple[Any, ...]) -> None:
                 _check_write(op, args[index], folder)
         return
     if event in _NET_ADDRESS_EVENTS and len(args) >= 2:
-        _check_address(args[1], bind=(event == "socket.bind"))
+        if not _STATE["network"]:
+            _check_address(args[1], bind=(event == "socket.bind"))
         return
     if event in _NET_NAME_EVENTS and args:
-        if not _local_host(args[0]):
+        if not _STATE["network"] and not _local_host(args[0]):
             _report({"kind": "network", "host": str(args[0])})
             raise SandboxBlocked("Blocked: the sandbox has no network.")
         return
@@ -325,6 +327,7 @@ def main() -> None:
     _PATHS._enable_venv_site()
     _STATE["roots"] = [Path(item) for item in config.get("roots") or []]
     _STATE["grants"] = {_key(str(item)) for item in config.get("grants") or []}
+    _STATE["network"] = bool(config.get("network"))
     _posix_cpu_cap(int(config.get("cpu_s") or 0))
     sys.argv = [script, *[str(item) for item in config.get("argv") or []]]
     sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
