@@ -228,7 +228,13 @@ async def execute_call(
         history = getattr(getattr(loop, "memory", None), "messages", None)
         blocked_early = None
         if name == "desktop":
-            blocked_early = unasked_desktop_block(text, history=history)
+            drive_live = bool(
+                getattr(loop, "_drive_session", False)
+                or "desktop" in set(getattr(loop, "tools_used", ()) or ())
+            )
+            blocked_early = unasked_desktop_block(
+                text, history=history, drive_live=drive_live
+            )
         elif name == "notes":
             blocked_early = unasked_notes_write_block(text, args)
         # Unasked desktop must not raise the Drive strip, so skip TOOL_START.

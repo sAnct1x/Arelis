@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from arelis.core.cell_work import begin_cell_work
+from arelis.core.cell_work import begin_cell_work, cell_work_dir
 from arelis.core.intent_catalog import DOCUMENT, RUN_SCRIPT
 from arelis.core.preflight import (
     detect_intents,
@@ -15,11 +15,13 @@ from arelis.core.preflight import (
     user_asked_for_desktop,
 )
 from arelis.tools.base import ToolRegistry
+from arelis.tools.python_exec import PythonTool
 from arelis.tools.python_handoff import (
     python_code_needs_run_script,
     rewrite_python_to_run_script,
 )
 from arelis.tools.run_script import RunScriptTool
+from arelis.workspace import WorkspaceRoots
 
 _EDIT = (
     "Edit that workbook: add a sheet called Notes with the text "
@@ -136,3 +138,71 @@ def test_failed_desktop_drive_clears_the_strip(arelis_window, qt_app) -> None:
     qt_app.processEvents()
     assert not window.conversation.drive.isVisible()
     assert window._drive_session is False
+
+
+@pytest.mark.asyncio
+async def test_variable_path_append_outside_work_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A path in a variable still cannot write outside the work folder."""
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "data"))
+    begin_cell_work("t035-route-varpath")
+    project = tmp_path / "proj"
+    project.mkdir()
+    outside = tmp_path / "pc582" / "var2.md"
+    outside.parent.mkdir()
+    code = f"p={str(outside)!r}; open(p, \"a\").write(\"x\")\n"
+    assert not python_code_needs_run_script(code)
+    result = await PythonTool(WorkspaceRoots.from_paths([str(project)])).run(
+        code=code
+    )
+    assert not result.ok, result.output
+    assert "run_script" in result.output
+    assert not outside.exists()
+    relative = await PythonTool(WorkspaceRoots.from_paths([str(project)])).run(
+        code="open('line_fit.png', 'wb').write(b'png')\nprint('ok')\n"
+    )
+    assert relative.ok, relative.output
+    assert "ok" in relative.output
+    assert (cell_work_dir() / "line_fit.png").is_file()
+
+
+def test_explicit_desktop_and_notes_asks_still_pass() -> None:
+    desktop_asks = (
+        "Open Excel",
+        "Close Chrome",
+        "Click the Start button",
+        "Minimize all windows",
+        "Can you control my desktop and open File Explorer",
+        "Type hello world into Word",
+        "Press Ctrl+S in Excel",
+        "switch to Blender",
+        "Open the Settings app and turn on dark mode",
+    )
+    for ask in desktop_asks:
+        assert unasked_desktop_block(ask) is None, ask
+    history = [{"role": "user", "content": "Open notepad and type hello"}]
+    followups = (
+        "Now save it",
+        "Click File then Save As",
+        "Type goodbye too",
+        "Close it",
+    )
+    for ask in followups:
+        assert unasked_desktop_block(ask, history=history) is None, ask
+    notes_asks = (
+        "Take a note: buy milk",
+        "Save this to my notes",
+        "add to my notes: Jupiter at 9pm",
+        "Make a note to check the filter wheel",
+        "Remember this in my notes: f/5",
+        "Put this in my desk notes",
+        "Jot down that the exposure was 30 s",
+        "note this down",
+        "keep this",
+    )
+    for ask in notes_asks:
+        assert unasked_notes_write_block(ask, {"action": "add"}) is None, ask
+    assert unasked_desktop_block(_EDIT) is not None
+    assert unasked_desktop_block(_WRITE) is not None
+    assert unasked_notes_write_block(_WRITE, {"action": "add"}) is not None
