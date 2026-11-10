@@ -214,7 +214,7 @@ async def test_sandbox_network_is_refused_then_asks_then_allows_that_run(
 
     assert registry.needs_confirm("run_script", args) is True
     card = registry.describe_call("run_script", args)
-    assert "203.0.113.7" in card
+    assert "Hosts: 203.0.113.7" in card
     assert "Let this code use the network" in card
 
     allowed = await tool.run(**args)
