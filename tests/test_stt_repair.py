@@ -75,6 +75,7 @@ def test_please_between_numbers_is_repaired_to_plus() -> None:
     assert scrub_transcript("what's two please two") == "what's two plus two"
     # Ordinary politeness is left alone.
     assert scrub_transcript("Can you help me please") == "Can you help me please"
+    assert scrub_transcript("Me too please ten more") == "Me too please ten more"
 
 
 def test_whisper_uses_a_beam_and_plus_hotwords(tmp_path: Path) -> None:

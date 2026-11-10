@@ -156,7 +156,7 @@ _COMPOUND_SPLITS: tuple[tuple[re.Pattern[str], str], ...] = (
 
 
 _NUMBER_ATOM = (
-    r"(?:zero|one|two|too|three|four|five|six|seven|eight|nine|ten|"
+    r"(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
     r"eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|"
     r"eighty|ninety|hundred|thousand|\d+(?:\.\d+)?)"
