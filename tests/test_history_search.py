@@ -12,6 +12,9 @@ Mutants this file is supposed to catch:
    disappears).
 3. empty query hides everything (whitespace / blank must keep the
    current list).
+4. a match outside the loaded History window (the last 100 sessions)
+   never appears, or a thread with many body hits crowds others out
+   of a message-hit cap.
 """
 
 from __future__ import annotations
@@ -82,3 +85,46 @@ def test_unrelated_query_drops_non_matches() -> None:
     ]
     rows = filter_history_sessions(sessions, "zebra", search=lambda _q: [])
     assert rows == []
+
+def test_search_reaches_chats_outside_the_loaded_list(tmp_path: Path) -> None:
+    """Mutant: filter only the 100-row list, or cap on message hits not sessions."""
+    store = MemoryStore(tmp_path / "memory.db")
+    memory = SessionMemory(sink=store)
+
+    buried = store.start_session()
+    memory.add("user", "old homework question")
+    memory.add("assistant", "the telescope pointing model drifted")
+
+    crowded = store.start_session()
+    memory.add("user", "repeat this please")
+    for index in range(250):
+        memory.add("assistant", f"common word mention {index}")
+
+    # Newer chats push buried and crowded off a 100-row History window.
+    for index in range(120):
+        store.start_session()
+        memory.add("user", f"recent chat {index}")
+        memory.add("assistant", "ok")
+
+    loaded = [
+        {
+            "id": str(row["id"]),
+            "title": str(row.get("title") or ""),
+            "started_at": str(row.get("started_at") or ""),
+        }
+        for row in store.list_sessions(limit=100)
+    ]
+    loaded_ids = {row["id"] for row in loaded}
+    assert buried not in loaded_ids
+    assert crowded not in loaded_ids
+
+    body_rows = filter_history_sessions(loaded, "telescope", store=store)
+    assert buried in {row["id"] for row in body_rows}
+
+    title_rows = filter_history_sessions(loaded, "homework", store=store)
+    assert buried in {row["id"] for row in title_rows}
+
+    common_rows = filter_history_sessions(loaded, "common", store=store)
+    assert crowded in {row["id"] for row in common_rows}
+    store.close()
+
