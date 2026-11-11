@@ -54,6 +54,15 @@ def test_typed_path_with_spaces_raises_external_read_allow(
     found = typed_absolute_paths(_WIN_PROMPT)
     assert _WIN_CSV in found
 
+    # macOS realpath of /var is /private/var. The extractor must keep the
+    # /private prefix, not start the path at the /var suffix.
+    mac_csv = "/private/var/folders/h5/tmp/Arelis 0.3.5 test files/planets.csv"
+    mac_prompt = (
+        "Make a new Excel workbook of the 8 planets from "
+        f"{mac_csv}, with mass, radius, moons and AU as real numbers."
+    )
+    assert mac_csv in typed_absolute_paths(mac_prompt)
+
     root = tmp_path / "proj"
     root.mkdir()
     folder = tmp_path / "Arelis 0.3.5 test files"

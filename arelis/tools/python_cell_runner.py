@@ -22,12 +22,14 @@ not spawn system_profiler or fc-list.
 
 from __future__ import annotations
 
+import _thread
 import ast
 import io
 import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import traceback
 import warnings
@@ -659,26 +661,203 @@ _NETWORK_REFUSAL = "the network is not allowed in this cell."
 _CTYPES_REFUSAL = "ctypes is not allowed in this cell."
 
 
-def _audit_from_cell() -> bool:
-    """True when the audited call came from the user cell, not a library.
+# Threads started by the cell, not the runner thread that executes it.
+_CELL_MAIN_THREAD = 0
+_CELL_THREADS: set[int] = set()
+_CELL_THREAD_LOCK = threading.Lock()
+_CELL_THREAD_HOOKED = False
+
+
+def _register_cell_thread(ident: int) -> None:
+    with _CELL_THREAD_LOCK:
+        _CELL_THREADS.add(ident)
+
+
+def _on_cell_started_thread() -> bool:
+    ident = threading.get_ident()
+    with _CELL_THREAD_LOCK:
+        return ident != _CELL_MAIN_THREAD and ident in _CELL_THREADS
+
+
+def _parent_starts_cell_thread() -> bool:
+    if _audit_cell_on_stack():
+        return True
+    ident = threading.get_ident()
+    with _CELL_THREAD_LOCK:
+        return ident in _CELL_THREADS or ident == _CELL_MAIN_THREAD
+
+
+def _install_cell_thread_tracking() -> None:
+    """Record threads the cell starts, including descendants.
+
+    A Thread target has no <python> frame when the target is a library
+    function such as import_module. The hook still has to treat that
+    thread as the cell. threading snapshots start_joinable_thread at
+    import time, so Thread.start must be hooked there too.
+    """
+    global _CELL_MAIN_THREAD, _CELL_THREAD_HOOKED
+    _CELL_MAIN_THREAD = threading.get_ident()
+    with _CELL_THREAD_LOCK:
+        _CELL_THREADS.clear()
+        _CELL_THREADS.add(_CELL_MAIN_THREAD)
+    if _CELL_THREAD_HOOKED:
+        return
+    _CELL_THREAD_HOOKED = True
+    orig_new = _thread.start_new_thread
+    orig_joinable = getattr(_thread, "start_joinable_thread", None)
+
+    def _wrap_target(function: Any, from_cell: bool) -> Any:
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            if from_cell:
+                _register_cell_thread(threading.get_ident())
+            return function(*args, **kwargs)
+
+        return wrapped
+
+    def start_new_thread(function: Any, args: Any, kwargs: Any = None) -> int:
+        from_cell = _parent_starts_cell_thread()
+        if kwargs is None:
+            kwargs = {}
+        return orig_new(_wrap_target(function, from_cell), args, kwargs)
+
+    _thread.start_new_thread = start_new_thread  # type: ignore[method-assign]
+    if orig_joinable is not None:
+
+        def start_joinable_thread(
+            function: Any, handle: Any = None, daemon: bool = True
+        ) -> Any:
+            from_cell = _parent_starts_cell_thread()
+            return orig_joinable(_wrap_target(function, from_cell), handle, daemon)
+
+        _thread.start_joinable_thread = start_joinable_thread  # type: ignore[method-assign]
+        # threading snapshots this at import time, so Thread.start
+        # would otherwise keep the unwrapped builtin.
+        if getattr(threading, "_start_joinable_thread", None) is orig_joinable:
+            threading._start_joinable_thread = start_joinable_thread
+
+
+def _norm_frame_name(filename: str) -> str:
+    return filename.replace("\\", "/")
+
+
+def _is_infra_frame(filename: str) -> bool:
+    return (
+        filename == __file__
+        or filename.startswith("<frozen")
+        or filename.startswith("<built-in")
+        or "importlib" in filename
+    )
+
+
+def _is_loading_module_frame(filename: str, module_name: str) -> bool:
+    """True when this frame is the module being imported, not its importer."""
+    text = _norm_frame_name(filename)
+    rel = module_name.replace(".", "/")
+    if not rel or not text:
+        return False
+    for ext in (".py", ".pyc", ".pyo", ".so", ".pyd", ".dylib"):
+        if text.endswith(ext):
+            stem = text[: -len(ext)]
+            break
+    else:
+        stem = text
+    leaf = stem.rsplit("/", 1)[-1]
+    if "." in leaf:
+        directory, leaf = stem.rsplit("/", 1) if "/" in stem else ("", stem)
+        leaf = leaf.split(".", 1)[0]
+        stem = f"{directory}/{leaf}" if directory else leaf
+    return (
+        stem.endswith("/" + rel)
+        or stem.endswith("/" + rel + "/__init__")
+        or stem == rel
+        or stem == rel + "/__init__"
+    )
+
+
+def _is_ctypes_frame(filename: str) -> bool:
+    text = _norm_frame_name(filename)
+    leaf = text.rsplit("/", 1)[-1]
+    if (
+        "/ctypes/" in text
+        or text.endswith("/ctypes.py")
+        or text.endswith("/ctypes.pyc")
+    ):
+        return True
+    if leaf.startswith("ctypes.") or leaf.startswith("_ctypes"):
+        return True
+    return text.startswith("<frozen ctypes") or text.startswith("<frozen _ctypes")
+
+
+# Stdlib names on the allowlist are not "libraries importing a
+# dependency". functools or json can appear on an import_module stack
+# without meaning the cell did not start the import.
+_STDLIB_IMPORTS = frozenset(
+    {
+        "math",
+        "cmath",
+        "statistics",
+        "fractions",
+        "decimal",
+        "itertools",
+        "functools",
+        "collections",
+        "operator",
+        "copy",
+        "json",
+        "re",
+        "datetime",
+        "csv",
+    }
+)
+
+
+def _frame_is_allowed_library(filename: str) -> bool:
+    if not filename or filename.startswith("<"):
+        return False
+    allowed = _allowed_imports() - _STDLIB_IMPORTS
+    for part in _norm_frame_name(filename).split("/"):
+        stem = part
+        if stem.endswith(".py"):
+            stem = stem[:-3]
+        elif "." in stem:
+            stem = stem.split(".", 1)[0]
+        if stem in allowed:
+            return True
+    return False
+
+
+def _audit_from_cell(
+    *, loading_module: str | None = None, skip_ctypes: bool = False
+) -> bool:
+    """True when the audited call was initiated by the user cell.
 
     Allowed libraries import os, sys, socket, subprocess, and ctypes for
     their own use. The hook must not refuse those. A call compiled as
-    <python> is the cell.
+    <python> is the cell. The module being loaded is not the importer:
+    import_module('socket') would otherwise look like socket.py itself
+    made the import. A thread the cell started is also the cell, even
+    when the target is a library function and <python> is not on that
+    thread's stack.
     """
     frame = sys._getframe()
     while frame is not None:
         name = frame.f_code.co_filename
         if (
-            name == __file__
-            or name.startswith("<frozen")
-            or name.startswith("<built-in")
-            or "importlib" in name
+            _is_infra_frame(name)
+            or (
+                loading_module is not None
+                and _is_loading_module_frame(name, loading_module)
+            )
+            or (skip_ctypes and _is_ctypes_frame(name))
         ):
             frame = frame.f_back
             continue
-        return name == "<python>"
-    return False
+        if name == "<python>":
+            return True
+        if _frame_is_allowed_library(name):
+            return False
+        frame = frame.f_back
+    return _on_cell_started_thread()
 
 
 def _audit_cell_on_stack() -> bool:
@@ -746,12 +925,12 @@ def _write_audit_inner(event: str, args: tuple[Any, ...]) -> None:
         raise _CellBlocked(_PROCESS_REFUSAL)
     if event == "sys.addaudithook":
         raise _CellBlocked("changing the audit hook is not allowed in this cell.")
-    if event.startswith("ctypes.") and _audit_from_cell():
+    if event.startswith("ctypes.") and _audit_from_cell(skip_ctypes=True):
         raise _CellBlocked(_CTYPES_REFUSAL)
     if event == "import":
         name = str(args[0] or "") if args else ""
         root = name.split(".", 1)[0]
-        if root and _audit_from_cell() and root not in _allowed_imports():
+        if root and _audit_from_cell(loading_module=name) and root not in _allowed_imports():
             _import_refusal(root)
         return
     if event in _NET_ADDRESS_EVENTS and len(args) >= 2:
@@ -867,6 +1046,7 @@ def _install_write_guard(payload: dict[str, Any]) -> None:
     _WRITE_ROOTS.extend(roots)
     _READ_ROOTS.clear()
     _READ_ROOTS.extend(read_roots)
+    _install_cell_thread_tracking()
     sys.addaudithook(_write_audit)
 
 

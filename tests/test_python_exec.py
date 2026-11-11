@@ -438,6 +438,52 @@ async def test_python_cell_writes_formatted_xlsx_into_outputs(
     assert "run_script" in leaked.output or "external_read" in leaked.output
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "marker"),
+    [
+        (
+            "from openpyxl.compat.strings import sys\n"
+            "sys.modules['importlib'].import_module('socket')\n"
+            "print('SOCKET_OK')\n",
+            "SOCKET_OK",
+        ),
+        (
+            "from openpyxl.compat.strings import sys\n"
+            "th = sys.modules['threading']\n"
+            "imp = sys.modules['importlib'].import_module\n"
+            "t = th.Thread(target=imp, args=('http.client',))\n"
+            "t.start()\n"
+            "t.join()\n"
+            "if 'http.client' in sys.modules:\n"
+            "    print('HTTP_OK')\n"
+            "print('cell-finished')\n",
+            "HTTP_OK",
+        ),
+        (
+            "from openpyxl.compat.strings import sys\n"
+            "ct = sys.modules['ctypes']\n"
+            "ct.CDLL('libc.so.6')\n"
+            "print('launched')\n",
+            "launched",
+        ),
+    ],
+    ids=["import_module_socket", "import_module_thread", "ctypes_cdll"],
+)
+async def test_python_cell_refuses_importlib_and_ctypes_bypasses(
+    code: str, marker: str
+) -> None:
+    """A cell-started import or ctypes load is refused, including via sys.modules."""
+    result = await PythonTool().run(code=code)
+    assert marker not in result.output
+    if marker != "HTTP_OK":
+        assert result.ok is False, result.output
+        text = result.output.lower()
+        assert "import" in text or "ctypes" in text
+    else:
+        assert "cell-finished" in result.output or result.ok is False
+
+
 # --------------------------------------------------------------------------
 # The cell has to die when it is stuck in C, and it has to die in a child
 # --------------------------------------------------------------------------
