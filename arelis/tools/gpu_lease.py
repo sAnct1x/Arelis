@@ -160,7 +160,7 @@ def acquire(config: dict[str, Any] | None = None) -> None:
     log.info("Image GPU lease acquired (stopped_server=%s)", stopped)
 
 
-def mark_generation_done(*, success: bool) -> None:
+def mark_generation_done(*, success: bool, idle_s: float | None = None) -> None:
     """End the active job. Restore chat now on failure, or after a short idle."""
     global _generating
     with _lock:
@@ -169,7 +169,7 @@ def mark_generation_done(*, success: bool) -> None:
     if not held:
         return
     if success:
-        schedule_release()
+        schedule_release(idle_s)
     else:
         release()
 
@@ -264,7 +264,13 @@ def yield_to_chat() -> None:
 
 
 def release_on_quit() -> None:
-    """Stop any image process hold and spawn llama-server without waiting."""
+    """Stop a live sd-cli process, then spawn llama-server without waiting."""
+    try:
+        from arelis.tools.sdcpp import stop_cli
+
+        stop_cli()
+    except Exception:
+        log.warning("Could not stop sd-cli on quit", exc_info=True)
     try:
         release(nowait=True)
     except Exception:

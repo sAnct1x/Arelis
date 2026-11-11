@@ -522,7 +522,7 @@ class ImageTool:
         upscale: bool,
         remove_bg: bool,
     ) -> ToolResult:
-        from arelis.tools.gpu_lease import acquire, release, schedule_release, set_status
+        from arelis.tools.gpu_lease import acquire, mark_generation_done, set_status
         from arelis.tools.image_models import ModelError
 
         if not self._sdcpp_supported():
@@ -647,13 +647,11 @@ class ImageTool:
                 except OSError:
                     pass
             if acquired:
-                if success:
-                    try:
-                        schedule_release(float(idle))
-                    except (TypeError, ValueError):
-                        schedule_release()
-                else:
-                    release()
+                try:
+                    idle_s: float | None = float(idle)
+                except (TypeError, ValueError):
+                    idle_s = None
+                mark_generation_done(success=success, idle_s=idle_s)
 
     async def run(self, **kwargs: Any) -> ToolResult:
         prompt = str(kwargs.get("prompt") or "").strip()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -46,9 +47,13 @@ def _write_output(path: Path) -> None:
 
 @pytest.fixture(autouse=True)
 def _reset_lease() -> None:
+    from arelis.tools import sdcpp
+
     gpu_lease.reset_for_tests()
+    sdcpp.reset_for_tests()
     yield
     gpu_lease.reset_for_tests()
+    sdcpp.reset_for_tests()
 
 
 def _install_lease_spies() -> list[tuple[Any, ...]]:
@@ -177,6 +182,78 @@ def test_lease_restores_llama_server_when_generation_is_cancelled(
     assert result.ok is False
     assert "stopped" in result.output.lower()
     assert [item[0] for item in events] == ["stop", "ensure"]
+
+
+def test_successful_run_clears_generating_so_chat_returns_immediately(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events = _install_lease_spies()
+    _patch_sdcpp_ready(monkeypatch, tmp_path)
+    config = {
+        "llamacpp": {"base_url": "http://127.0.0.1:8080"},
+        "tools": {"image": {"backend": "sdcpp", "sdcpp": {"idle_timeout_s": 90}}},
+    }
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path / "out"),
+        backend="sdcpp",
+        config=config,
+    )
+    result = asyncio.run(tool.run(prompt="a red fox"))
+    assert result.ok is True
+    assert gpu_lease.is_generating() is False
+    assert gpu_lease.is_held() is True
+    assert [item[0] for item in events] == ["stop"]
+    gpu_lease.yield_to_chat()
+    assert [item[0] for item in events] == ["stop", "ensure"]
+    assert gpu_lease.is_held() is False
+
+
+def test_quit_stops_in_flight_sdcli_before_starting_llama_server() -> None:
+    from arelis.tools import sdcpp
+
+    order: list[str] = []
+
+    class _FakeProc:
+        def __init__(self) -> None:
+            self.pid = 4242
+            self._code: int | None = None
+
+        def poll(self) -> int | None:
+            return self._code
+
+        def terminate(self) -> None:
+            order.append("stop-sdcli")
+            self._code = 1
+
+        def kill(self) -> None:
+            order.append("kill-sdcli")
+            self._code = 1
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            if self._code is None:
+                raise subprocess.TimeoutExpired(cmd="sd-cli", timeout=0)
+            return self._code
+
+    def nowait(url: str, args: list[str] | None) -> None:
+        del url, args
+        order.append("start-llama")
+
+    gpu_lease.reset_for_tests(
+        stop=lambda url: True,
+        ensure=lambda url, args: None,
+        nowait=nowait,
+        args=lambda _config: ["llama-server"],
+    )
+    gpu_lease.acquire({"llamacpp": {"base_url": "http://127.0.0.1:8080"}})
+    fake = _FakeProc()
+    sdcpp.attach_proc_for_tests(fake)
+    gpu_lease.release_on_quit()
+    assert fake.poll() is not None
+    assert "stop-sdcli" in order
+    assert "start-llama" in order
+    assert order.index("stop-sdcli") < order.index("start-llama")
 
 
 def test_image_backend_defaults_to_sdcpp_and_comfy_is_optional(tmp_path: Path) -> None:

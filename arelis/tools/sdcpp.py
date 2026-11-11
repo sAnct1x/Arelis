@@ -14,8 +14,10 @@ import hashlib
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
 import zipfile
 from collections.abc import Callable
@@ -42,6 +44,11 @@ from arelis.tools.image_models import (
 log = logging.getLogger(__name__)
 
 Cancel = Callable[[], bool]
+
+# Live sd-cli handle, tracked the same way llama-server tracks _proc, so
+# quit can stop a picture that is still running.
+_proc_lock = threading.Lock()
+_proc: Any = None
 
 # Pinned Windows Vulkan release used on Atria. Digest comes from the GitHub
 # release asset, not from a local hash of a re-download.
@@ -617,6 +624,9 @@ def run_cli(
     except Exception:
         _stop_proc(proc)
         raise
+    finally:
+        if proc.poll() is not None:
+            _forget_proc(proc)
     if not output.is_file() or output.stat().st_size <= 1024:
         raise RuntimeError(NO_IMAGE)
 
@@ -642,28 +652,138 @@ def _spawn(args: list[str], *, cwd: Path | None = None) -> subprocess.Popen[byte
         kwargs["start_new_session"] = True
     log.info("Starting sd.cpp")
     try:
-        return subprocess.Popen(args, **kwargs)
+        proc = subprocess.Popen(args, **kwargs)
     except FileNotFoundError as exc:
         raise RuntimeError(
             "The picture program was not found, so no picture was made."
         ) from exc
+    else:
+        _remember_proc(proc)
+        return proc
     finally:
         if handle is not None:
             handle.close()
 
 
-def _stop_proc(proc: subprocess.Popen[bytes]) -> None:
-    if proc.poll() is not None:
+def stop_cli(*, timeout_s: float = 8.0) -> None:
+    """Stop the live sd-cli process, if any. Used on quit and cancel."""
+    global _proc
+    with _proc_lock:
+        proc = _proc
+        _proc = None
+    if proc is None:
         return
+    _stop_proc(proc, timeout_s=timeout_s)
+
+
+def _remember_proc(proc: subprocess.Popen[bytes]) -> None:
+    global _proc
+    with _proc_lock:
+        _proc = proc
+
+
+def _forget_proc(proc: object) -> None:
+    global _proc
+    with _proc_lock:
+        if _proc is proc:
+            _proc = None
+
+
+def attach_proc_for_tests(proc: object | None) -> None:
+    """Install or clear a stand-in sd-cli handle. Tests only."""
+    global _proc
+    with _proc_lock:
+        _proc = proc
+
+
+def reset_for_tests() -> None:
+    attach_proc_for_tests(None)
+
+
+def _stop_proc(proc: Any, *, timeout_s: float = 8.0) -> None:
     try:
-        proc.terminate()
-        try:
-            proc.wait(timeout=8)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=3)
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=max(0.2, float(timeout_s)))
+            except subprocess.TimeoutExpired:
+                _kill_group(proc)
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    log.warning(
+                        "sd.cpp pid %s did not exit after kill",
+                        getattr(proc, "pid", "?"),
+                    )
+            except Exception:
+                log.warning(
+                    "Could not terminate sd.cpp pid %s; killing the group",
+                    getattr(proc, "pid", "?"),
+                    exc_info=True,
+                )
+                _kill_group(proc)
+        if sys.platform == "win32" and isinstance(proc, subprocess.Popen):
+            # The child starts in a new group, so terminate can leave
+            # helpers running after the parent has already exited.
+            _kill_group(proc)
     except Exception:
-        log.warning("Could not stop sd.cpp pid %s", getattr(proc, "pid", "?"), exc_info=True)
+        log.warning(
+            "Could not stop sd.cpp pid %s", getattr(proc, "pid", "?"), exc_info=True
+        )
+    finally:
+        _forget_proc(proc)
+
+
+def _kill_group(proc: Any) -> None:
+    """Kill sd-cli and its group. The process is started in a new session."""
+    if sys.platform == "win32":
+        pid = getattr(proc, "pid", None)
+        if isinstance(proc, subprocess.Popen) and pid:
+            try:
+                flags = 0
+                if hasattr(subprocess, "CREATE_NO_WINDOW"):
+                    flags = int(subprocess.CREATE_NO_WINDOW)
+                subprocess.run(
+                    ["taskkill", "/PID", str(int(pid)), "/T", "/F"],
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                    creationflags=flags,
+                )
+            except Exception:
+                log.warning("Could not taskkill sd.cpp pid %s", pid, exc_info=True)
+            return
+        try:
+            proc.kill()
+        except Exception:
+            log.warning(
+                "Could not kill sd.cpp pid %s",
+                getattr(proc, "pid", "?"),
+                exc_info=True,
+            )
+        return
+    pid = getattr(proc, "pid", None)
+    if isinstance(proc, subprocess.Popen) and pid:
+        try:
+            pgid = os.getpgid(int(pid))
+        except OSError:
+            pgid = None
+        # killpg of our own group would take down the caller, including a
+        # test worker. start_new_session makes the child its own leader.
+        if pgid and pgid == int(pid) and pgid != os.getpgrp():
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+                return
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+    try:
+        proc.kill()
+    except Exception:
+        log.warning(
+            "Could not kill sd.cpp pid %s",
+            getattr(proc, "pid", "?"),
+            exc_info=True,
+        )
 
 
 def _log_path() -> Path | None:
