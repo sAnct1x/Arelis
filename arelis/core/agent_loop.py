@@ -835,6 +835,9 @@ class AgentLoop:
         vision_tool = self.tools.get("vision")
         if vision_tool is not None:
             vision_tool.is_cancelled = is_cancelled
+        image_tool = self.tools.get("image")
+        if image_tool is not None:
+            image_tool.is_cancelled = is_cancelled
         self.json_fallback = bool(agent.get("json_fallback", True))
         self.terminal_sent = False
         # First model token, thinking chunk, tool call, or argument progress

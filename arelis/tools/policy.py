@@ -243,6 +243,8 @@ def always_pause(name: str, args: dict[str, Any] | None = None) -> bool:
         return True
     if tool == "image_edit" and _image_download_pause(args):
         return True
+    if tool == "image" and _sdcpp_download_pause(args):
+        return True
     return action_is_destructive(name, args)
 
 
@@ -251,6 +253,19 @@ def _image_download_pause(args: dict[str, Any] | None) -> bool:
     from arelis.tools.image_models import download_needs_allow
 
     return download_needs_allow(args)
+
+
+def _sdcpp_download_pause(args: dict[str, Any] | None) -> bool:
+    """First-use klein 4B download is not covered by the ask alone."""
+    from arelis.config import load_config
+    from arelis.tools.sdcpp import download_needs_allow, resolve_backend
+
+    del args
+    config = load_config()
+    image = (config.get("tools") or {}).get("image") or {}
+    if resolve_backend(str((image or {}).get("backend") or "sdcpp")) != "sdcpp":
+        return False
+    return download_needs_allow(config)
 
 
 def persist_ok(name: str, args: dict[str, Any] | None = None) -> bool:

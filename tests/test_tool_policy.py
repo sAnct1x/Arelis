@@ -109,6 +109,9 @@ def test_evaluate_confirm_matches_registry() -> None:
 def test_persist_confirm_off_flips_image_toggle(tmp_path, monkeypatch) -> None:
     local = tmp_path / "config.local.yaml"
     monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+    monkeypatch.setattr(
+        "arelis.tools.sdcpp.download_needs_allow", lambda config=None: False
+    )
 
     class _Loop:
         confirm_image = True

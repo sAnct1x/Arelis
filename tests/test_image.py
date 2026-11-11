@@ -60,7 +60,11 @@ def test_image_tool_timeout_is_fail(tmp_path: Path, monkeypatch: Any) -> None:
     monkeypatch.setattr("arelis.tools.image.queue_workflow", _queue)
     monkeypatch.setattr("arelis.tools.image.wait_for_image", _wait)
 
-    tool = ImageTool(comfy_url="http://127.0.0.1:9", output_dir=str(tmp_path))
+    tool = ImageTool(
+        comfy_url="http://127.0.0.1:9",
+        output_dir=str(tmp_path),
+        backend="comfy",
+    )
     result = asyncio.run(tool.run(prompt="a fox"))
     assert result.ok is False
     assert "[fail:image]" in result.output

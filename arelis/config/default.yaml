@@ -106,7 +106,7 @@ agent:
   # Windows permission prompts still show a card. With it off, no card.
   # The desk still refuses those clicks.
   confirm_desktop: true
-  # See one local image (VL). Separate from confirm_image so disabling Comfy
+  # See one local image (VL). Separate from confirm_image so disabling
   # generation confirm does not disable vision. rest of this ask covers it.
   confirm_vision: true
   # Run a project .py (run_script). Separate from file writes so trusting
@@ -539,12 +539,15 @@ tools:
     max_chars: 20000
   image:
     enabled: true
+    # Built-in stable-diffusion.cpp (Vulkan) with FLUX.2 klein 4B is the
+    # default. Set to comfy to use a local ComfyUI you already run.
+    backend: "sdcpp"
     comfy_url: "http://127.0.0.1:8188"
     output_dir: "outputs/images"
-    # Image generation runs on ComfyUI, which is a separate application and a
-    # large download. Nothing here points anywhere by default: on a machine that
-    # does not have it, the feature simply reports itself unavailable rather than
-    # trying to launch a program that is not there.
+    # ComfyUI is optional. Nothing here points at a Comfy install by default.
+    # When the backend is comfy, a missing server is started only if
+    # auto_start is true (needs launch_cwd), or if a common Comfy folder
+    # is found.
     #
     # When true, a missing ComfyUI server is started for you (needs launch_cwd).
     # Discovery of a common Comfy folder also starts it; that is not this flag.
@@ -568,6 +571,22 @@ tools:
     steps: 25
     cfg: 7.0
     sampler: euler
+    # Proven on an RX 6700 XT (Atria, 2026-11-09): klein 4B Q4_0, 1024 px,
+    # 4 steps, about two minutes per picture after chat is paused.
+    sdcpp:
+      width: 1024
+      height: 1024
+      steps: 4
+      cfg: 1.0
+      sampler: euler
+      offload_to_cpu: true
+      diffusion_fa: true
+      vae_tiling: true
+      idle_timeout_s: 90
+      # Empty = models/sdcpp/ (binary under bin/). Set a folder if the
+      # files already live somewhere else on this PC.
+      bin_dir: ""
+      model_dir: ""
   # Resize, crop, rotate and adjust an image that already exists (Pillow,
   # in-process). No model and no GPU: these have exactly right answers. Always
   # writes a new file into outputs/images/ and never modifies the source.
