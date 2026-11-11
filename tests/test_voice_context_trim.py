@@ -141,13 +141,6 @@ async def test_follow_up_turn_reprocesses_only_the_volatile_tail(monkeypatch) ->
             "instead of asking, unless the user names somewhere else."
         )
     )
-    facts = (
-        "Things you know about the user (approved facts; treat as durable, "
-        "not guesses, and not a substitute for asking when unsure):\n"
-        "- Prefers short spoken answers.\n"
-        "- Lives in Columbus, Ohio.\n"
-        "- Works on local AI and astronomy projects."
-    )
     config = {
         "agent": {
             "chat_fast_path": False,
@@ -171,7 +164,6 @@ async def test_follow_up_turn_reprocesses_only_the_volatile_tail(monkeypatch) ->
         is_cancelled=lambda: False,
     )
     loop.memory.sink = sections.MemoryStore()
-    monkeypatch.setattr(loop, "_active_facts_line", lambda: facts)
 
     first = await prepare_turn(loop, "What's the capital of France?", "fast")
     assert first is not None
@@ -187,7 +179,6 @@ async def test_follow_up_turn_reprocesses_only_the_volatile_tail(monkeypatch) ->
     stable = (
         "Standing profile",
         "Contacts, known people",
-        "Things you know about the user",
         "Recent episodes",
         "The user is in Columbus",
         "You are speaking aloud",

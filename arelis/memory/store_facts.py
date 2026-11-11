@@ -656,6 +656,20 @@ def list_decisions(
     ).fetchall()
     return [dict(row) for row in rows]
 
+def list_all_decisions(store: MemoryStore, *, limit: int = 100) -> list[dict[str, Any]]:
+    """Recent decisions across every project, newest update first."""
+    rows = store._conn.execute(
+        """
+        SELECT id, project, text, created_at, updated_at
+        FROM decisions
+        ORDER BY updated_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def add_episode(
     store: MemoryStore,
     summary: str,

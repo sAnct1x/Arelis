@@ -20,6 +20,7 @@ from arelis.core.prompt_sections import (
     append_stopped_turn_note,
     append_volatile_operating_context,
 )
+from arelis.memory.retrieval import memories_prompt_for_turn
 from arelis.talk_language import active_reply_language, reply_instruction
 
 NEED_TOOL_MARKER = "NEED_TOOL"
@@ -200,7 +201,6 @@ def first_pass_turn_tail(loop: Any, ctx: Any) -> list[dict[str, str]]:
         model=model,
         skill_ids=list(getattr(ctx, "skill_ids", ()) or ()),
     )
-    append_clock(tail, loop)
     return tail
 
 
@@ -208,6 +208,12 @@ async def build_first_pass_messages(loop: Any, ctx: Any) -> list[dict[str, Any]]
     """Prompt for the first spoken pass: short prefix, history, volatile tail."""
     system_messages = first_pass_system_messages(loop, ctx)
     turn_tail = first_pass_turn_tail(loop, ctx)
+    retrieved = await memories_prompt_for_turn(
+        loop, getattr(ctx, "text", "") or ""
+    )
+    if retrieved:
+        turn_tail.append({"role": "system", "content": retrieved})
+    append_clock(turn_tail, loop)
     num_ctx = int(getattr(loop, "_turn_num_ctx", None) or 32768)
     try:
         ratio = float(loop.memory.chars_per_token or 4.0)
