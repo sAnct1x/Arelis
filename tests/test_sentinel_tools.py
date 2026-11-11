@@ -794,3 +794,62 @@ def test_start_harvest_mission_answers_at_once_and_records_the_outcome() -> None
         await asyncio.gather(*tracked2, return_exceptions=True)
 
     asyncio.run(scenario())
+
+
+def test_stop_with_count_retires_exactly_that_many(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stand down N of a caste scales to current minus N and reports the real totals.
+
+    Stop used to reject count and always scale the caste to 0, so "stand down
+    those 3 Harvesters" retired all 11. The reply also omitted the retired
+    number, so a later status could not report it.
+    """
+    from arelis import sentinel_client
+    from arelis.tools import sentinel_tool as st
+
+    sent: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_command(op: str, **kw: Any) -> dict[str, Any]:
+        sent.append((op, kw))
+        if op == "list_castes":
+            return {
+                "ok": True,
+                "castes": [{"caste_id": "harvester", "allowed_capabilities": ["fetch_url"]}],
+                "counts": {"harvester": 11},
+            }
+        if op == "scale_caste":
+            target = int(kw["target_count"])
+            retired_n = max(0, 11 - target)
+            return {
+                "ok": True,
+                "caste": "harvester",
+                "count": target,
+                "spawned": [],
+                "retired": [f"HRV-{i:03d}" for i in range(retired_n)],
+            }
+        return {"ok": False, "error": f"unexpected op {op}"}
+
+    monkeypatch.setattr(sentinel_client, "command", fake_command)
+    cmd = st.SentinelCommandTool()
+
+    def run(**kw: Any):
+        sent.clear()
+        return asyncio.run(cmd.run(**kw))
+
+    res = run(action="stop", caste="harvester", count=3)
+    scale = [kw for op, kw in sent if op == "scale_caste"]
+    assert res.ok
+    assert scale == [{"caste": "harvester", "target_count": 8}]
+    assert "3" in res.output and "8" in res.output
+    assert res.data["retired_count"] == 3
+    assert res.data["remaining"] == 8
+    assert len(res.data["retired"]) == 3
+
+    # A whole-caste stand-down with no count still retires every unit.
+    res = run(action="stop", caste="harvester")
+    scale = [kw for op, kw in sent if op == "scale_caste"]
+    assert res.ok
+    assert scale == [{"caste": "harvester", "target_count": 0}]
+    assert res.data["retired_count"] == 11
+    assert "11" in res.output
