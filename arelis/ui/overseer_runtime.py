@@ -56,7 +56,7 @@ MOTE_FRACTION = 0.40
 # orb 5 (core, filaments, 2 shells, one ornament draw for three rings
 # plus beads), sources 2, tentacles 3, lanes, perimeter, conduits,
 # particles, glyphs, 1 star draw (three parallax layers instanced)
-SCENE_FIXED_DRAW = 22
+SCENE_FIXED_DRAW = 23
 MAX_UNIT_DRAW = 6  # 3 LOD x (1 head + 1 tentacle); tentacles stay in the fixed count
 MAX_TRIS = 300_000
 
@@ -174,9 +174,9 @@ BAND_OF_CASTE = {
     "stalker": "warden",
     "harvester": "harvester",
 }
-PERIMETER_MIN = 39.0  # Pass F picket line
+PERIMETER_MIN = 44.0  # Pass F picket / tripwire outer
 PERIMETER_MARGIN = 10.0
-SOURCE_PAST_PERIMETER = 2.0  # sources at r 41
+SOURCE_PAST_PERIMETER = 1.0  # sources at r 45
 TRIPWIRE_LAP_S = 180.0
 TRIPWIRE_Y = 0.25
 MAX_OVERSEER_UNITS = 128
@@ -1253,10 +1253,10 @@ ZOOM_NOTCH = 1.18
 RUBBER = 0.08
 PITCH_CLOSE_DEG = 22.0
 PITCH_WIDE_DEG = 55.0
-# Pass F overview: Iris's wide frame pulled back 12% (SPEC camera). Target
-# and pitch stay (0, -6, -3) and 31.6864 deg. Distance is 95.1893 * 1.12.
-# k = perimeter / 39, so k stays 1 at the picket line.
-DEFAULT_CAMERA_DISTANCE = 106.6120
+# Pass F overview: camera at 126.4 m with barrier 38 (35 / 116.6 missed
+# the touching cap). Target and pitch stay (0, -6, -3) and 31.6864 deg.
+# k = perimeter / 44, so k stays 1 at the picket line.
+DEFAULT_CAMERA_DISTANCE = 126.4
 OVERVIEW_PITCH_DEG = 31.6864
 CASTE_MIX = (
     ("warden", 0.34),
@@ -2399,7 +2399,7 @@ def build_frame(
         "activeSources": sorted(source_active),
         "glyphTrails": glyph_trails,
         "bands": layout.get("bands") or [],
-        "perimeter": layout.get("perimeter", 39.0),
+        "perimeter": layout.get("perimeter", 44.0),
         "hiveActivity": hive_activity(fetches),
         "threatOpen": threat_open,
         "orb": orb,
@@ -2408,7 +2408,7 @@ def build_frame(
         "links": layout.get("links") or [],
         "memoryMotes": layout.get("memoryMotes") or [],
         "toolSparks": layout.get("toolSparks") or [],
-        "barrier": layout.get("barrier") or {"cx": 0.0, "cy": 0.5, "cz": 0.0, "a": 32.0, "h": 11.0},
+        "barrier": layout.get("barrier") or {"cx": 0.0, "cy": 0.5, "cz": 0.0, "a": 38.0, "h": 13.0},
         "fieldEdge": layout.get("fieldEdge") or [],
         "insideCap": layout.get("insideCap"),
         "scaleK": layout.get("scaleK"),

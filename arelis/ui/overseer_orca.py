@@ -5,9 +5,11 @@ import math
 
 import numpy as np
 
-ORCA_TAU = 0.5
-ORCA_CELL = 12.0
+ORCA_TAU = 2.0
+ORCA_CELL = 10.0
+ORCA_NBR_DIST = 10.0
 ORCA_MAX_NBR = 10
+# ORCA radius is capsule radius + 0.75 m (GAP_MIN 1.5 m floor, SPEC 2.4).
 PROJ_MAX_PASSES = 2
 PROJ_MAX_MOVE = 0.05
 SMOOTH_T = 0.25
@@ -166,8 +168,10 @@ def orca_step(
         for j in found:
             if j == i or not live[j]:
                 continue
-            d = P[j] - P[i]
-            d = d - np.dot(d, f) * f
+            delta = P[j] - P[i]
+            if float(np.dot(delta, delta)) > ORCA_NBR_DIST * ORCA_NBR_DIST:
+                continue
+            d = delta - np.dot(delta, f) * f
             scored.append((float(np.dot(d, d)), j))
         scored.sort()
         return [j for _, j in scored[:ORCA_MAX_NBR]]
@@ -289,6 +293,8 @@ def orca_from_pairs(
         i = int(pair_i[k])
         j = int(pair_j[k])
         if not live[i] or not live[j]:
+            continue
+        if float(np.dot(P[i] - P[j], P[i] - P[j])) > ORCA_NBR_DIST * ORCA_NBR_DIST:
             continue
         n3 = np.asarray(normals[k], dtype=np.float64)
         ln = float(np.linalg.norm(n3))

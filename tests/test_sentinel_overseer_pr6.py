@@ -281,9 +281,9 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "ringPositions" in qml
     assert "overseerBackdrop" in qml
     assert "Math.max(root.fill, 1.0 - root.reveal)" in qml
-    assert "cameraDistance: 106.6120" in qml
+    assert "cameraDistance: 126.4" in qml
     assert "scale: Qt.vector3d(0.0012, 0.0012, 0.0012)" in qml
-    assert overseer_runtime.DEFAULT_CAMERA_DISTANCE == 106.6120
+    assert overseer_runtime.DEFAULT_CAMERA_DISTANCE == 126.4
     assert "Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))" in qml
     assert "Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)" not in qml
     assert "objectName: \"hiveCore\"" in qml and "y: 1.6" in qml
@@ -330,8 +330,8 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     ]
     # Lane guides and the perimeter, the combined orb ornaments, the
     # starfield, plus Pass F gate frames / blades / portals / locks and
-    # the harvest-link mesh (each is one ProceduralMesh).
-    assert len(meshes) == 9
+    # the harvest-link mesh plus its glow pass (each is one ProceduralMesh).
+    assert len(meshes) == 10
     named = {
         child.objectName()
         for child in inst.findChildren(QObject)
@@ -345,6 +345,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
             "gatePortals",
             "gateLocks",
             "harvestLinks",
+            "harvestLinkGlow",
         )
     }
     assert named == {
@@ -357,6 +358,7 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
         "gatePortals",
         "gateLocks",
         "harvestLinks",
+        "harvestLinkGlow",
     }
     for ring in caste_rings:
         src = ring.property("source")

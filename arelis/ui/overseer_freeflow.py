@@ -10,6 +10,7 @@ import math, os
 import numpy as np
 
 from arelis.ui.overseer_orca import (
+    ORCA_NBR_DIST,
     ORCA_TAU,
     PROJ_MAX_MOVE,
     PROJ_MAX_PASSES,
@@ -19,13 +20,19 @@ from arelis.ui.overseer_orca import (
 )
 
 DT = 1.0 / 30.0
-ORB = np.array([0.0, 1.6, 0.0]); ORB_KEEP = 10.0           # core keep-out: no unit capsule inside 10 m of the orb centre (v1: 9)
-BAR_C = np.array([0.0, 0.5, 0.0]); BAR_A = 32.0; BAR_H = 11.0  # barrier: oblate spheroid semi-axes 32 / 11 / 32 (v1: 28 / 10 / 28)
-PERIM = 39.0; SRC_R = 41.0; FIELD_MAX = 50.0                  # FIELD_MAX is the far-side limit; field_max(theta) is the real bound (frame fit)
+ORB = np.array([0.0, 1.6, 0.0]); ORB_KEEP = 11.0           # core keep-out: no unit capsule inside 11 m of the orb centre
+BAR_C = np.array([0.0, 0.5, 0.0]); BAR_A = 38.0; BAR_H = 13.0  # barrier: 38 / 13 / 38 (35 missed the touching cap; sphere scale 0.76 / 0.26 / 0.76)
+PERIM = 44.0; SRC_R = 45.0; FIELD_MAX = 54.6875               # FIELD_MAX is the far-side limit; field_max(theta) is the real bound
+# Official overview plate, used by the Dispatch-bar keep-out (no snap).
+HUD_VIEW_W = 2110.0
+HUD_VIEW_H = 1306.0
+HUD_DISPATCH_H = 80.0  # 48 + 20 + 12, matches overseer_runtime.HUD_DISPATCH_H
+HUD_MARGIN_Y = float(round(HUD_VIEW_H * 0.02))
+HUD_Y_LIM = HUD_VIEW_H - HUD_MARGIN_Y - HUD_DISPATCH_H - 24.0  # bar top minus 24 px
 def field_max(theta):
-    """Outer limit of the field by bearing, so every unit stays in the overview frame (camera pulled back 12 %):
-    44 m on the sides, 50 m on the far side (top of the frame), 40 m on the near side (above the dispatch bar)."""
-    s_ = math.sin(theta); return 44.0 + 6.0 * max(0.0, s_) ** 2 - 4.0 * max(0.0, -s_) ** 2
+    """Outer limit of the field by bearing, scaled with the barrier (BAR_A/32 of the v2 44/50/40 shape)."""
+    s_ = math.sin(theta)
+    return (44.0 + 6.0 * max(0.0, s_) ** 2 - 4.0 * max(0.0, -s_) ** 2) * (BAR_A / 32.0)
 GATE_R_AP = 1.7                                              # gateway aperture radius (frame 1.28 x)
 LANE_OFF = 0.85                                              # two lanes per gate, side by side: out lane +t, in lane -t
 PASS_START = 2.5                                             # the pass state (right of way) starts 2.5 m before the gate plane
@@ -34,7 +41,7 @@ LANE_GAP = 0.4                                               # s between two pas
 YAW_BIAS = math.radians(float(os.environ.get('FF_YAWBIAS', '27')))     # v2.1: cone half-angle off screen-vertical
 YAW_JIT = math.radians(float(os.environ.get('FF_YAWJIT', '5')))        # v2.1: per-unit spread of the cone angle (+-)
 SAN_LEASH = float(os.environ.get('FF_SANLEASH', '1.5'))                 # radial spring (m/s^2 per m) beyond SAN_RHOME, after the separation share
-SAN_RHOME = float(os.environ.get('FF_SANRHOME', '16.0')); SAN_RMAX = float(os.environ.get('FF_SANRMAX', '19'))   # leash start, hard clamp radius
+SAN_RHOME = float(os.environ.get('FF_SANRHOME', '15.5')); SAN_RMAX = float(os.environ.get('FF_SANRMAX', '18.5'))  # leash start, hard clamp (zone 11-18.5)
 SAN_MASS = float(os.environ.get('FF_SANMASS', '2'))                     # spacing mass of a patrolling Sanitizer (v2.1: 2)
 SAN_SCAN = float(os.environ.get('FF_SANSCAN', '15.0'))                  # scan spot depth inside the gate (m); v2.1: 15
 PICKET_OFF = float(os.environ.get('FF_PICKOFF', '5.0')); PICKET_OUT = float(os.environ.get('FF_PICKOUT', '4.0'))
@@ -58,10 +65,14 @@ CAP_T = np.array([0.6, 1.6, 4.4])                    # sample offsets (x scale):
 TENT_SPEED = dict(PATROLLING=0.55, DOCKED=0.55, VECTORING=2.2, ENGAGED_DEFENSE=2.5, ENGAGED_HARVEST=1.8, RETURNING=1.8, ENGAGED_SANITIZE=1.1)
 GAP_MIN = float(os.environ.get("FF_GAP", "1.5")); GAP_SOFT = GAP_MIN + 1.6; K_CAP = 16.0      # clear capsule gap (m, camera-plane metric): hard floor, soft start, gain
 GAP_CAP = 1.0                                     # gap used by the density cap footprint (the floor above has 0.5 m of tip margin)
-CAM_D = 95.1893 * 1.12                        # overview camera distance, pulled back 12 % (v1 95.1893); target, pitch, fov unchanged
-CAM_POS = np.array([0.0, 49.8247, 87.8283])   # = qtcam.Cam((0, -6, -3), CAM_D, 31.6864).pos (v1: 0, 43.8436, 78.0966)
-CAM_FWD = np.array([0.0, -0.5252696836807533, -0.8509358139166088]); CAM_FPX = 653.0 / math.tan(math.radians(17.5))
-CAM_UP = np.array([0.0, 0.8509358139166088, -0.5252696836807533])
+CAM_D = 126.4                                 # overview camera (barrier 38); target, pitch, fov unchanged
+CAM_TARGET = np.array([0.0, -6.0, -3.0])
+CAM_PITCH = math.radians(31.6864)
+CAM_FWD = np.array([0.0, -math.sin(CAM_PITCH), -math.cos(CAM_PITCH)])
+CAM_UP = np.array([0.0, math.cos(CAM_PITCH), -math.sin(CAM_PITCH)])
+CAM_RIGHT = np.array([1.0, 0.0, 0.0])
+CAM_POS = CAM_TARGET - CAM_FWD * CAM_D
+CAM_FPX = 653.0 / math.tan(math.radians(17.5))
 
 def screen_axis(P):
     """Plan direction that projects to screen-vertical at the overview camera."""
@@ -86,15 +97,15 @@ def bearing_pt(theta, r, y):
 CASTES = {
     #            role        vmin vmax amax turn  sepR  nbr  kAli kCoh wander ylo  yhi  bankMax scale
     'sanitizer': dict(role='defender', vmin=1.2, vmax=3.2, amax=3.0, turn=1.6, sepR=3.2, nbr=9.0, kAli=0.35, kCoh=0.30,
-                      wander=0.9, ylo=0.0, yhi=2.5, bank=20, scale=0.72, rlo=12.0, rhi=19.0),
+                      wander=0.9, ylo=0.0, yhi=2.5, bank=20, scale=0.72, rlo=11.0, rhi=18.5),
     'warden':    dict(role='defender', vmin=2.5, vmax=5.5, amax=4.5, turn=1.2, sepR=4.2, nbr=12.0, kAli=1.0, kCoh=0.45,
-                      wander=0.6, ylo=-0.5, yhi=2.5, bank=28, scale=0.90, rlo=21.0, rhi=28.8),
+                      wander=0.6, ylo=-0.5, yhi=2.5, bank=28, scale=0.90, rlo=18.5, rhi=27.0),
     'tripwire':  dict(role='hunter', vmin=0.0, vmax=2.6, amax=2.0, turn=0.9, sepR=6.0, nbr=0.0, kAli=0.0, kCoh=0.0,
-                      wander=0.0, ylo=0.5, yhi=2.0, bank=10, scale=0.95, rlo=36.0, rhi=40.0),
+                      wander=0.0, ylo=0.5, yhi=2.0, bank=10, scale=0.95, rlo=34.0, rhi=44.0),
     'stalker':   dict(role='hunter', vmin=4.0, vmax=9.0, amax=8.0, turn=0.9, sepR=9.0, nbr=0.0, kAli=0.0, kCoh=0.0,
-                      wander=0.5, ylo=1.0, yhi=4.0, bank=40, scale=1.00, rlo=37.0, rhi=44.0, sprint=15.0, turnChase=2.2),
+                      wander=0.5, ylo=1.0, yhi=4.0, bank=40, scale=1.00, rlo=36.0, rhi=51.0, sprint=15.0, turnChase=2.2),
     'harvester': dict(role='gatherer', vmin=1.0, vmax=6.5, amax=5.0, turn=1.4, sepR=3.6, nbr=8.0, kAli=0.6, kCoh=0.0,
-                      wander=0.35, ylo=-0.5, yhi=2.5, bank=24, scale=0.90, rlo=13.0, rhi=28.0, carry=4.6),
+                      wander=0.35, ylo=-0.5, yhi=2.5, bank=24, scale=0.90, rlo=14.2, rhi=30.6, carry=4.6),
 }
 CASTE_IDS = list(CASTES)
 SOURCES = [('arxiv', 'arXiv', math.radians(8.0), '#8fd3ff'), ('wikipedia', 'Wikipedia', math.radians(128.0), '#a78bfa'),
@@ -303,7 +314,7 @@ class Sim:
         if c == 'harvester':
             if st == 'PATROLLING':   # staging cloud inside the barrier, biased to the source-gate half
                 th = self.slot[i] * 2.39996 + 0.04 * t * (1 if self.slot[i] % 2 else -1)   # golden-angle spread all round, slow drift
-                r = 13.5 + 10.0 * h(self.slot[i] * 3.1); A['wIdle'] = 0.35
+                r = 14.8 + 10.9 * h(self.slot[i] * 3.1); A['wIdle'] = 0.35
                 return bearing_pt(th, r, 0.5 + 1.5 * math.sin(0.09 * t + self.phase[i])), C['vmax'] * 0.35
             g = self.gates[self.gate[i]]; src = bearing_pt(g.theta, SRC_R, 3.0)
             if sub == 'to_gate':
@@ -410,7 +421,7 @@ class Sim:
                 return lead + ring, C['sprint']
             # sector sweep: lawnmower zig-zag between r 26 and r 46 across the stalker's own 360/n wedge
             n = len(self.idx['stalker']); k = self.slot[i]; w0 = 2 * math.pi * k / n; ww = 2 * math.pi / n
-            leg = self.wp[i]; th = w0 + ww * (0.15 + 0.7 * ((leg // 2) % 5) / 4.0); r = 39.0 if leg % 2 == 0 else field_max(th) - 1.5
+            leg = self.wp[i]; th = w0 + ww * (0.15 + 0.7 * ((leg // 2) % 5) / 4.0); r = 43.0 if leg % 2 == 0 else field_max(th) - 1.5
             tgt = bearing_pt(th, r, 2.5 + 2.0 * math.sin(0.2 * t + k))
             if np.linalg.norm(p[[0, 2]] - tgt[[0, 2]]) < 4.0: self.wp[i] += 1
             return tgt, C['vmax']
@@ -535,12 +546,13 @@ class Sim:
                 if self.state[i] != 'PATROLLING' or self.docked[i]: continue
                 rr = math.hypot(self.p[i, 0], self.p[i, 2])
                 if rr > SAN_RHOME: F[i, [0, 2]] -= self.p[i, [0, 2]] / rr * min(SAN_LEASH * (rr - SAN_RHOME), 2.0 * CASTES['sanitizer']['amax'])
+        F = self._hud_keepout_force(F)
         v_pref = self.v + F * DT
         Xsp, Rsp = self.spine(sc)
         radii = np.max(Rsp, axis=1)
         v0 = self.v.copy()
         live = ~self.docked
-        reach = GAP_MIN + float(np.max(vmax)) * ORCA_TAU
+        reach = ORCA_NBR_DIST + 8.0
         Ip, Jp, gp, vp = cap_pairs(Xsp, Rsp, self.p, live, reach)
         if len(Ip):
             v1 = orca_from_pairs(self.p, self.v, v_pref, self.mass(), live, vmax, DT, CAM_POS, Ip, Jp, gp, vp, GAP_MIN, ORCA_TAU)
@@ -807,7 +819,7 @@ class Sim:
             self.p[free, 1] = self.p[free, 1] + step[free]
         self.v[hit, 1] = 0.0
         do = self.p - ORB; do[:, 1] = 0.0; ro = np.linalg.norm(do, axis=1) + 1e-9   # core keep-out: a vertical cylinder
-        keep_r = ORB_KEEP if hard else 8.0
+        keep_r = ORB_KEEP if hard else (ORB_KEEP - 2.0)
         m = (ro < keep_r) & ~self.docked & np.array([x not in ('handoff', 'to_core') for x in self.sub])
         # Push toward keep_r (not past it to ORB_KEEP on the running loop, which
         # was a 2 m snap whenever someone crossed 8 m).
@@ -861,9 +873,75 @@ class Sim:
         for g in self.gates.values():
             g.blocked = bool(self.emp or self.egress_muted)
 
+    def _hud_keepout_force(self, F):
+        """Soft Dispatch-bar keep-out for units outside the barrier.
+
+        The free area's bottom edge is the bar top minus 24 px. Units that
+        project below that line are eased out along camera-up (velocity only,
+        no position snap).
+        """
+        outside = np.array([
+            (not self.side(i)) and (not self.docked[i])
+            and self.sub[i] not in ("pass_out", "pass_in")
+            for i in range(self.N)
+        ], dtype=bool)
+        if not outside.any():
+            return F
+        rel = self.p - CAM_POS
+        depth = np.maximum(rel @ CAM_FWD, 0.1)
+        up = rel @ CAM_UP
+        fy = 0.5 * HUD_VIEW_H / math.tan(math.radians(17.5))
+        sy = HUD_VIEW_H / 2.0 - up * fy / depth
+        over = outside & (sy > HUD_Y_LIM)
+        if not over.any():
+            return F
+        overflow_m = (sy - HUD_Y_LIM) * depth / fy
+        acc = np.clip(overflow_m * 3.0, 0.0, 8.0)
+        F = F.copy()
+        F[over] = F[over] + CAM_UP * acc[over, None]
+        vn = self.v[over] @ CAM_UP
+        down = vn < 0.0
+        if down.any():
+            idx = np.flatnonzero(over)[down]
+            self.v[idx] = self.v[idx] - CAM_UP * vn[down, None]
+        return F
+
+    def _clamp_present_yaw(self, p, yaw):
+        """Last clamp: 27 deg +- 5 cone around the projected camera-up at each unit."""
+        if YAW_BIAS <= 0 or len(yaw) == 0:
+            return yaw
+        ax = screen_axis(p)
+        u = np.stack([np.cos(yaw), np.sin(yaw)], 1)
+        c_ = np.sum(u * ax, 1)
+        s_ = ax[:, 0] * u[:, 1] - ax[:, 1] * u[:, 0]
+        phi = np.arctan2(np.abs(s_), np.abs(c_))
+        yb = YAW_BIAS + YAW_JIT * (
+            2.0 * np.array([h(7.31 * i + 0.5) for i in range(len(yaw))]) - 1.0
+        )
+        hit = phi < yb
+        if not hasattr(self, "present_cone_side") or len(self.present_cone_side) != len(yaw):
+            self.present_cone_side = np.zeros(len(yaw))
+        side = self.present_cone_side
+        side[~hit] = 0.0
+        nw = hit & (side == 0)
+        side[nw] = np.where(s_[nw] * np.sign(c_[nw] + 1e-9) >= 0, 1.0, -1.0)
+        self.present_cone_side = side
+        if not hit.any():
+            return yaw
+        axs = ax * np.sign(c_ + 1e-9)[:, None]
+        ca, sa = np.cos(yb), np.sin(yb)
+        nx = axs[:, 0] * ca - axs[:, 1] * sa * side
+        nz = axs[:, 0] * sa * side + axs[:, 1] * ca
+        out = yaw.copy()
+        out[hit] = np.arctan2(nz[hit], nx[hit])
+        return out
+
     def present(self, dt=DT):
         yaw = np.arctan2(self.face[:, 2], self.face[:, 0])
-        return self.smoother.step(self.p, yaw, dt)
+        p, yaw = self.smoother.step(self.p, yaw, dt)
+        # Cone is the last clamp on presented yaw, after 0.25 s smoothing, so
+        # the damper cannot pull a silhouette back through screen-vertical.
+        return p, self._clamp_present_yaw(p, yaw)
 
     def overlap_stats(self, use_present=True):
         par = [CASTES[c] for c in self.caste]
@@ -924,7 +1002,7 @@ def scenario(T_END=46.0, record_from=0.0, fixture=None, threat=True):
         for i in hv:
             if sim.job[i]: last_src[i] = sim.job[i]
         if threat and sim.t >= threat_t and not sim.threats:
-            sim.spawn_threat('port-8765', bearing_off=0.12, r0=47.0)
+            sim.spawn_threat('port-8765', bearing_off=0.12, r0=51.0)
             sim.events.append((round(sim.t, 2), -1, 'THREAT', 'port-8765 UNDER ATTACK'))
         if sim.threats and not engaged and sim.t >= threat_t + 0.8:
             engaged = True
@@ -1028,7 +1106,7 @@ def build_links(sim, present=None):
             "sx": 0.0, "sy": float(ORB[1]), "sz": 0.0,
             "cx": float(arc[0]), "cy": float(arc[1]), "cz": float(arc[2]),
             "ex": float(g.c[0]), "ey": float(g.c[1]), "ez": float(g.c[2]),
-            "radius": 0.022, "inward": inward, "color": "#c4b5fd",
+            "radius": 0.06, "inward": inward, "color": "#8fd3ff",
         })
         for i in ids:
             links.append({
@@ -1038,9 +1116,9 @@ def build_links(sim, present=None):
                 "cy": float((g.c[1] + p[i, 1]) * 0.5 + 0.4),
                 "cz": float((g.c[2] + p[i, 2]) * 0.5),
                 "ex": float(p[i, 0]), "ey": float(p[i, 1]), "ez": float(p[i, 2]),
-                "radius": 0.02,
+                "radius": 0.06,
                 "inward": bool(sim.sub[i] in ("carry", "pass_in", "to_core") or sim.carry[i]),
-                "color": "#c4b5fd",
+                "color": "#8fd3ff",
             })
     return links
 

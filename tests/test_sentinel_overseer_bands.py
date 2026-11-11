@@ -27,11 +27,11 @@ def _units(counts: dict[str, int]) -> list[dict]:
 def test_idle_units_sit_on_tilted_lanes_scaled_by_unit_count() -> None:
     units = _units({"sanitizer": 16, "warden": 28, "stalker": 2, "harvester": 44, "tripwire": 10})
     frame = o.build_frame(units, 76.0, 780.0, snapshot_ts=1_800_000_000.0)
-    # Pass F: no caste lanes. The picket line is the perimeter (r 39);
-    # sources sit at r 41. Incoming positions stay put until a live session steps.
+    # Pass F: no caste lanes. The picket line is the perimeter (r 44);
+    # sources sit at r 45. Incoming positions stay put until a live session steps.
     assert frame["bands"] == []
-    assert frame["perimeter"] == 39.0
-    assert frame["barrier"]["a"] == 32.0
+    assert frame["perimeter"] == 44.0
+    assert frame["barrier"]["a"] == 38.0
     assert len(frame["fieldEdge"]) == 16
     by_id = {u["unit_id"]: u for u in frame["units"]}
     trip = by_id["SNT-TRI-001"]
@@ -45,7 +45,7 @@ def test_bands_grow_with_units_and_sources_sit_past_the_perimeter() -> None:
     hb = {b["caste"]: b for b in big["bands"]}["harvester"]
     assert len(hs["lanes"]) == 2 and len(hb["lanes"]) == 4
     assert hb["radius"] > hs["radius"]
-    assert big["perimeter"] >= 39.0 and big["sourceRadius"] == round(big["perimeter"] + 2.0, 4)
+    assert big["perimeter"] >= 44.0 and big["sourceRadius"] == round(big["perimeter"] + 1.0, 4)
     nodes, _labels = o.build_source_nodes(
         {sid: 0 for sid, *_ in o.HARVEST_SOURCES}, radius=40.0
     )

@@ -13,14 +13,12 @@ Item {
             event.accepted = true
         }
     }
-    // Default view is Iris's wide frame (BAND-SPEC.md "Camera framing"): the
-    // camera sits at k * (0, -78, 44) and looks at k * (0, 3, -6) in spec space,
-    // k = perimeter / 39 so k stays 1 at the Pass F picket line. Distance is
-    // Iris's wide frame pulled back 12% (95.1893 * 1.12). Target and pitch
-    // stay (0, -6, -3) and 31.6864 deg.
+    // Default view: camera at 126.4 m (barrier 38), k = perimeter / 44 so
+    // k stays 1 at the Pass F picket line. Target and pitch stay (0, -6, -3)
+    // and 31.6864 deg.
     readonly property real specPitchDeg: 31.6864
-    readonly property real specDistance: 106.6120
-    property real overviewDistance: 106.6120
+    readonly property real specDistance: 126.4
+    property real overviewDistance: 126.4
     property string overviewKey: ""
     // Wheel position in notches from the default frame. The first
     // easeNotches notches ease distance and pitch from the default frame onto
@@ -28,7 +26,7 @@ Item {
     readonly property real easeNotches: 3
     readonly property real easeJoinDistance: 107.52
     property real zoomZ: 0
-    property real cameraDistance: 106.6120
+    property real cameraDistance: 126.4
     property real cameraPitch: 31.6864
     property real cameraTargetX: 0
     property real cameraTargetY: -6
@@ -118,9 +116,9 @@ Item {
     property string bandKey: ""
     property var bandGuidePositions: []
     property var bandGuideColors: []
-    property real perimeterRadius: 39.0
+    property real perimeterRadius: 44.0
     property var fieldEdgePoints: []
-    property var barrierSpec: ({ cx: 0, cy: 0.5, cz: 0, a: 32, h: 11 })
+    property var barrierSpec: ({ cx: 0, cy: 0.5, cz: 0, a: 38, h: 13 })
     property bool egressMuted: false
     property bool orbHovered: false
     property var gateList: []
@@ -136,6 +134,8 @@ Item {
     property var gateLockIndexes: []
     property var linkPositions: []
     property var linkIndexes: []
+    property var linkGlowPositions: []
+    property var linkGlowIndexes: []
     property var linkColors: []
     property string swarmGroupBy: "caste"
     property string swarmSearch: ""
@@ -267,7 +267,7 @@ Item {
     property bool coreTransitioning: false
     property real coreEaseU: 0
     readonly property real coreToneU: coreTransitioning ? (coreEaseIntent === "enter" ? coreEaseU : 1 - coreEaseU) : (coreMode ? 1 : 0)
-    property real coreEaseFromD: 106.6120
+    property real coreEaseFromD: 126.4
     property real coreEaseFromPitch: 31.6864
     property real coreEaseFromX: 0
     property real coreEaseFromY: -6
@@ -477,7 +477,7 @@ Item {
         liveCounts = counts
         budgetTris = tris
         unitDrawCalls = mergeUnitDraws()
-        budgetDrawCalls = unitDrawCalls + 22  // SCENE_FIXED_DRAW: orb, sources, tentacles, stars, barrier, gates, links, glint
+        budgetDrawCalls = unitDrawCalls + 23  // SCENE_FIXED_DRAW: + harvest link glow pass
         lodCounts = lods
         recountEntries(live)
         instanceRecords = recs
@@ -670,7 +670,8 @@ Item {
         var s_ = Math.sin(theta)
         var pos = Math.max(0.0, s_)
         var neg = Math.max(0.0, -s_)
-        return 44.0 + 6.0 * pos * pos - 4.0 * neg * neg
+        var a = finiteNum((barrierSpec && barrierSpec.a) || 38, 38)
+        return (44.0 + 6.0 * pos * pos - 4.0 * neg * neg) * (a / 32.0)
     }
 
     // Field edge at 16 bearings, label-free (Pass F SPEC / camera pullback).
@@ -743,7 +744,7 @@ Item {
         if (key === overviewKey)
             return
         overviewKey = key
-        var k = Math.max(1, finiteNum(perimeterRadius, 39) / 39)
+        var k = Math.max(1, finiteNum(perimeterRadius, 44) / 44)
         var lo = specDistance * k
         var d = lo
         // A window too small to hold the hive keeps the farthest sane frame.
@@ -1464,7 +1465,7 @@ Item {
                 key += "|" + list[i].caste + ":" + lanes[li].r
         }
         bandSpecs = list
-        perimeterRadius = finiteNum(perimeter, 39)
+        perimeterRadius = finiteNum(perimeter, 44)
         root.updateResultsOrbit()
         if (key === bandKey)
             return
@@ -1806,21 +1807,38 @@ Item {
         }
     }
 
+    function _linkPxRadius(world) {
+        // World radius that covers 2.0 px on the overview plate (width = 2r).
+        var cam = cameraWorldPos()
+        var dx = world.x - cam.x, dy = world.y - cam.y, dz = world.z - cam.z
+        var depth = Math.max(1.0, dx * cameraForward().x + dy * cameraForward().y + dz * cameraForward().z)
+        var fpx = Math.max(1, height) / (2.0 * Math.tan(17.5 * Math.PI / 180.0))
+        return depth / fpx
+    }
+
+    function cameraForward() {
+        var p = cameraPitch * Math.PI / 180.0
+        return Qt.vector3d(0, -Math.sin(p), -Math.cos(p))
+    }
+
     function rebuildLinkMesh() {
-        var pos = [], idx = []
+        var pos = [], idx = [], gpos = [], gidx = []
         var links = root.harvestLinks || []
         for (var i = 0; i < links.length; i++) {
             var L = links[i]
-            var r = finiteNum(L.radius, 0.02)
             var a = Qt.vector3d(finiteNum(L.sx, 0), finiteNum(L.sy, 0), finiteNum(L.sz, 0))
             var c = Qt.vector3d(finiteNum(L.cx, 0), finiteNum(L.cy, 0), finiteNum(L.cz, 0))
             var b = Qt.vector3d(finiteNum(L.ex, 0), finiteNum(L.ey, 0), finiteNum(L.ez, 0))
+            var mid = Qt.vector3d((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5)
+            var r = Math.max(finiteNum(L.radius, 0.06), _linkPxRadius(mid))
             // two segments of the quadratic arc, plus a pulse bead
             var p1 = Qt.vector3d(a.x * 0.25 + c.x * 0.5 + b.x * 0.25,
                                  a.y * 0.25 + c.y * 0.5 + b.y * 0.25,
                                  a.z * 0.25 + c.z * 0.5 + b.z * 0.25)
             _tubeSeg(pos, idx, a, p1, r, 5)
             _tubeSeg(pos, idx, p1, b, r, 5)
+            _tubeSeg(gpos, gidx, a, p1, r * 3.0, 5)
+            _tubeSeg(gpos, gidx, p1, b, r * 3.0, 5)
             var u = (root.sceneTime * 0.35 + i * 0.17) % 1
             if (L.inward) u = 1 - u
             var bx = (1-u)*(1-u)*a.x + 2*(1-u)*u*c.x + u*u*b.x
@@ -1832,6 +1850,8 @@ Item {
         }
         linkPositions = pos
         linkIndexes = idx
+        linkGlowPositions = gpos
+        linkGlowIndexes = gidx
     }
 
     function fillEyeGlints() {
@@ -2438,13 +2458,41 @@ Item {
             if (!sp)
                 continue
             var mapped = _tryMapFrom3DScene(Qt.vector3d(finiteNum(sp.x), finiteNum(sp.y), finiteNum(sp.z)))
-            var sx = mapped ? Math.round(mapped.x) : -1000
-            var sy = mapped ? Math.round(mapped.y) : -1000
+            var sx = mapped ? mapped.x : -1000
+            var sy = mapped ? mapped.y : -1000
+            // Sit in the black margin outside the oval / hex, not on units
+            // that crowd the shell. Push 70 px outward from the orb centre.
+            if (mapped && mapped.z > 0) {
+                var oc = _tryMapFrom3DScene(root.orbCentre)
+                if (oc) {
+                    var dx = sx - oc.x, dy = sy - oc.y
+                    var L = Math.sqrt(dx * dx + dy * dy) || 1
+                    sx = sx + dx / L * 130
+                    sy = sy + dy / L * 70
+                }
+                // Label is a ~140x44 column centred on sx, starting 14 px below sy.
+                var lw = 140, lh = 48
+                sx = Math.max(free.x + lw * 0.5 + 8, Math.min(free.x + free.width - lw * 0.5 - 8, sx))
+                sy = Math.max(free.y + 8, Math.min(free.y + free.height - lh - 22, sy))
+            }
+            sx = Math.round(sx)
+            sy = Math.round(sy)
             // mapFrom3DScene z is the distance past the near plane in scene
             // units (negative behind the camera), not a 0..1 depth.
             // A source under a HUD panel stays hidden with its label.
             var visible = !!mapped && mapped.z > 0 && sx > free.x && sy > free.y
                 && sx < free.x + free.width && sy < free.y + free.height
+            // Gate / core close-ups: keep the source in front of the
+            // camera, hide the others so their labels do not land on
+            // nearby units or the HUD.
+            if (visible && root.cameraDistance < 80) {
+                var tgt = Qt.vector3d(root.cameraTargetX, root.cameraTargetY, root.cameraTargetZ)
+                var ddx = finiteNum(sp.x) - tgt.x
+                var ddy = finiteNum(sp.y) - tgt.y
+                var ddz = finiteNum(sp.z) - tgt.z
+                if (Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz) > 28)
+                    visible = false
+            }
             var row = {
                 id: sp.id || ("src-" + i),
                 label: sp.label || "",
@@ -2622,8 +2670,10 @@ Item {
                 screen.push({ id: id, text: text, color: "#e8dcfb", sx: Math.round((r.x0 + r.x1) / 2), sy: Math.round(midY), visible: true })
             }
             if (root.orbHovered) {
-                plate("memory", "Memory · " + memoryCount + " from last chat", shell.cx - shell.rs, shell.cy, -18, 0)
-                plate("tools", "Tools · " + toolsCount + " running", shell.cx + shell.rs, shell.cy, 18 + 200, 0)
+                var ogap = 0.15 * shell.rs
+                plate("memory", "Memory · " + memoryCount + " from last chat", shell.cx - shell.rs - ogap, shell.cy, 0, 0)
+                var tw = measureText("Tools · " + toolsCount + " running", root.glyphFontFamily, 15)
+                plate("tools", "Tools · " + toolsCount + " running", shell.cx + shell.rs + ogap, shell.cy, tw.w + 18, 0)
             }
         } else {
             var tn = Math.max(toolsCount, 1)
@@ -2634,12 +2684,13 @@ Item {
                 if (bm)
                     beadGlows.push({ x: bm.x, y: bm.y, r: 34 })
             }
-            var axp = { x: shell.cx + shell.rs, y: shell.cy }
+            var gap = 0.22 * shell.rs
+            var axp = { x: shell.cx + shell.rs + gap, y: shell.cy }
             var toolsTitle = measureText("Tools", root.hudSansFamily, 25)
             var toolsStatus = measureText(toolsCount + " running", root.hudSansFamily, 18)
             var tW = Math.max(toolsTitle.w, toolsStatus.w)
             var tH = toolsTitle.h + toolsStatus.h
-            var tb = { x0: axp.x + 22, y0: axp.y - 78, x1: axp.x + 22 + tW, y1: axp.y - 78 + tH }
+            var tb = { x0: axp.x, y0: axp.y - tH / 2, x1: axp.x + tW, y1: axp.y + tH / 2 }
             var guard = 0
             while (!labelFree(tb, shell.keep, shell.cx, shell.cy, rects, beadGlows) && guard < 40) {
                 tb = { x0: tb.x0 + 6, y0: tb.y0 - 4, x1: tb.x1 + 6, y1: tb.y1 - 4 }
@@ -2650,25 +2701,24 @@ Item {
                 w: tW, h: tH, title: "Tools", status: toolsCount + " running",
                 titleSize: 25, statusSize: 18, titleColor: "#ffffff", statusColor: "#cdb2f7"
             })
-            leaders.push({ id: "toolsLeader", x1: axp.x + 4, y1: axp.y - 4, x2: tb.x0 - 3, y2: tb.y1 - 4 })
+            leaders.push({ id: "toolsLeader", x1: shell.cx + shell.rs, y1: shell.cy, x2: tb.x0 - 3, y2: shell.cy })
             rects.push(tb)
             screen.push({ id: "tools", text: "Tools " + toolsCount + " running", color: "#ffffff", sx: Math.round((tb.x0 + tb.x1) / 2), sy: Math.round((tb.y0 + tb.y1) / 2), visible: true })
 
-            var bxp = { x: shell.cx - shell.rs, y: shell.cy }
+            var bxp = { x: shell.cx - shell.rs - gap, y: shell.cy }
             var memTitle = measureText("Memory", root.hudSansFamily, 25)
             var memStatus = measureText(memoryCount + " from last chat", root.hudSansFamily, 18)
             var mW = Math.max(memTitle.w, memStatus.w)
             var mH = memTitle.h + memStatus.h
-            var top = Math.max(bxp.y + 18, shell.cy + shell.keep + 6)
-            var mb = { x0: bxp.x - mW / 2, y0: top, x1: bxp.x + mW / 2, y1: top + mH }
+            var mb = { x0: bxp.x - mW, y0: bxp.y - mH / 2, x1: bxp.x, y1: bxp.y + mH / 2 }
             blocks.push({
-                id: "memory", kind: "block", x: mb.x0, y: mb.y0, align: "centre",
+                id: "memory", kind: "block", x: mb.x0, y: mb.y0, align: "right",
                 w: mW, h: mH, title: "Memory", status: memoryCount + " from last chat",
                 titleSize: 25, statusSize: 18, titleColor: "#ffffff", statusColor: "#cdb2f7"
             })
-            leaders.push({ id: "memoryLeader", x1: bxp.x, y1: bxp.y + 5, x2: bxp.x, y2: mb.y0 - 3 })
+            leaders.push({ id: "memoryLeader", x1: shell.cx - shell.rs, y1: shell.cy, x2: mb.x1 + 3, y2: shell.cy })
             rects.push(mb)
-            screen.push({ id: "memory", text: "Memory " + memoryCount + " from last chat", color: "#ffffff", sx: Math.round(bxp.x), sy: Math.round(top + mH / 2), visible: true })
+            screen.push({ id: "memory", text: "Memory " + memoryCount + " from last chat", color: "#ffffff", sx: Math.round((mb.x0 + mb.x1) / 2), sy: Math.round(shell.cy), visible: true })
 
             var names = orbTools || []
             for (i = 0; i < Math.min(toolsCount, names.length || toolsCount); i++) {
@@ -3530,9 +3580,9 @@ Item {
             // #Sphere, like #Cylinder, is a 100-unit primitive: diameter 100,
             // radius 50. scale (R/50) makes a world radius of R metres.
             // Using R/100 made a 16 m oval that sat inside the 32 m gates.
-            scale: Qt.vector3d(finiteNum(barrierSpec.a, 32) / 50.0,
-                               finiteNum(barrierSpec.h, 11) / 50.0,
-                               finiteNum(barrierSpec.a, 32) / 50.0)
+            scale: Qt.vector3d(finiteNum(barrierSpec.a, 38) / 50.0,
+                               finiteNum(barrierSpec.h, 13) / 50.0,
+                               finiteNum(barrierSpec.a, 38) / 50.0)
             source: "#Sphere"
             materials: CustomMaterial {
                 shadingMode: CustomMaterial.Unshaded
@@ -3544,15 +3594,16 @@ Item {
                 cullMode: Material.NoCulling
                 property vector3d barrierColor: Qt.vector3d(0.486, 0.424, 0.949)
                 property real rimPow: 4.0
-                // SPEC 2.1 is rim 0.024 / cell 0.010 / body 0. On llvmpipe
-                // the filmic path plus no usable bloom leaves that too dim,
-                // so these are raised to match the DESIGN lit oval by eye.
-                property real rimGain: 0.12
+                // Dark field, lit grid. body 0, a low back fill, cell slightly
+                // quieter than the previous lit-dome look. In coreFocus the
+                // whole barrier fades to 0.25 of these gains over the ease.
+                property real barrierFade: 1.0 - 0.75 * root.coreToneU
+                property real rimGain: 0.12 * barrierFade
                 property real cell: 2.2
                 property real lineW: 0.045
-                property real cellGain: 0.048
-                property real body: 0.022
-                property real backGain: 0.22
+                property real cellGain: 0.040 * barrierFade
+                property real body: 0.0
+                property real backGain: 0.05 * barrierFade
                 property real emp: root.egressMuted ? 1.0 : 0.0
                 property real gateCount: Math.min(8, (root.gateList || []).length)
                 property vector4d gate0: root._gateV(0)
@@ -3576,7 +3627,8 @@ Item {
 
         Model {
             objectName: "gateFrames"
-            visible: (root.gateList || []).length > 0
+            visible: (root.gateList || []).length > 0 && root.coreToneU < 0.85
+            opacity: 1.0 - root.coreToneU
             instancing: gateFrameInstanceList
             geometry: ProceduralMesh {
                 positions: root.gateFramePositions
@@ -3591,7 +3643,8 @@ Item {
         }
         Model {
             objectName: "gateBlades"
-            visible: gateBladeInstanceList.instances.length > 0
+            visible: gateBladeInstanceList.instances.length > 0 && root.coreToneU < 0.85
+            opacity: 1.0 - root.coreToneU
             instancing: gateBladeInstanceList
             geometry: ProceduralMesh {
                 positions: root.gateBladePositions
@@ -3606,7 +3659,8 @@ Item {
         }
         Model {
             objectName: "gatePortals"
-            visible: gatePortalInstanceList.instances.length > 0
+            visible: gatePortalInstanceList.instances.length > 0 && root.coreToneU < 0.85
+            opacity: 1.0 - root.coreToneU
             instancing: gatePortalInstanceList
             geometry: ProceduralMesh {
                 positions: root.gatePortalPositions
@@ -3626,7 +3680,8 @@ Item {
         }
         Model {
             objectName: "gateLocks"
-            visible: gateLockInstanceList.instances.length > 0
+            visible: gateLockInstanceList.instances.length > 0 && root.coreToneU < 0.85
+            opacity: 1.0 - root.coreToneU
             instancing: gateLockInstanceList
             geometry: ProceduralMesh {
                 positions: root.gateLockPositions
@@ -3645,6 +3700,25 @@ Item {
             }
         }
         Model {
+            objectName: "harvestLinkGlow"
+            visible: (root.harvestLinks || []).length > 0
+            geometry: ProceduralMesh {
+                positions: root.linkGlowPositions
+                indexes: root.linkGlowIndexes
+            }
+            materials: CustomMaterial {
+                shadingMode: CustomMaterial.Unshaded
+                vertexShader: "shaders/link_emit.vert"
+                fragmentShader: "shaders/link_emit.frag"
+                sourceBlend: CustomMaterial.One
+                destinationBlend: CustomMaterial.One
+                depthDrawMode: Material.NeverDepthDraw
+                // Faint 0.35 alpha glow at 3x width; harvester caste colour.
+                property vector3d linkColor: Qt.vector3d(0.561, 0.827, 1.0)
+                property real gain: 0.18
+            }
+        }
+        Model {
             objectName: "harvestLinks"
             visible: (root.harvestLinks || []).length > 0
             geometry: ProceduralMesh {
@@ -3658,8 +3732,9 @@ Item {
                 sourceBlend: CustomMaterial.One
                 destinationBlend: CustomMaterial.One
                 depthDrawMode: Material.NeverDepthDraw
-                property vector3d linkColor: Qt.vector3d(0.769, 0.710, 0.992)
-                property real gain: 0.045
+                // >= 2.0 px, alpha 0.6, harvester caste colour #8fd3ff.
+                property vector3d linkColor: Qt.vector3d(0.561, 0.827, 1.0)
+                property real gain: 0.60
             }
         }
         Model {
@@ -3720,7 +3795,7 @@ Item {
                         shadingMode: CustomMaterial.Unshaded
                         vertexShader: "shaders/sentinel_head.vert"
                         fragmentShader: "shaders/sentinel_head.frag"
-                        property real eyeGain: modelData.lod === 0 ? 1.35 : 0.90
+                        property real eyeGain: modelData.lod === 0 ? 1.35 : 1.15
                         property real rimGain: modelData.lod === 0 ? 0.020 : (modelData.lod === 1 ? 0.030 : 0.060)
                         property real seamGain: modelData.lod === 0 ? 0.45 : (modelData.lod === 1 ? 0.50 : 1.00)
                         property real hullMetal: 0.55
@@ -3757,7 +3832,7 @@ Item {
                         shadingMode: CustomMaterial.Unshaded
                         vertexShader: "shaders/sentinel_head.vert"
                         fragmentShader: "shaders/sentinel_head.frag"
-                        property real eyeGain: modelData.lod === 0 ? 1.35 : 0.90
+                        property real eyeGain: modelData.lod === 0 ? 1.35 : 1.15
                         property real rimGain: modelData.lod === 0 ? 0.020 : (modelData.lod === 1 ? 0.030 : 0.060)
                         property real seamGain: modelData.lod === 0 ? 0.45 : (modelData.lod === 1 ? 0.50 : 1.00)
                         property real hullMetal: 0.55
