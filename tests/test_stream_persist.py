@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.memory import SessionMemory
@@ -75,3 +77,34 @@ def test_streamed_reply_survives_a_crash_before_the_turn_ends(tmp_path: Path) ->
     assert "Partial answer" in stopped[-1]["content"]
     assert "Stopped" in stopped[-1]["content"]
     store.close()
+
+@pytest.mark.parametrize(
+    ("streamed", "sources"),
+    [
+        ("", []),
+        ("Hello there.", [("Example", "https://example.com/a")]),
+    ],
+    ids=["empty_streamed", "sources_remainder"],
+)
+def test_finish_writes_a_single_assistant_row(
+    tmp_path: Path,
+    streamed: str,
+    sources: list[tuple[str, str]],
+) -> None:
+    """Mutant: _finish publishes a catch-up delta after memory.add, which
+    starts a second open assistant row that is never sealed."""
+    store = MemoryStore(tmp_path / "finish.db")
+    sid = store.start_session()
+    memory = SessionMemory(sink=store)
+    memory.add("user", "hi")
+    loop = _loop(memory)
+    if streamed:
+        asyncio.run(loop._publish_delta(streamed))
+    asyncio.run(loop._finish("Hello there.", sources, streamed=streamed))
+    assistant = [row for row in store.get_messages(sid) if row["role"] == "assistant"]
+    assert len(assistant) == 1
+    assert assistant[0]["content"].startswith("Hello there.")
+    if sources:
+        assert "https://example.com/a" in assistant[0]["content"]
+    store.close()
+

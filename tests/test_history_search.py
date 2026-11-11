@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from arelis.core.memory import SessionMemory
 from arelis.memory import MemoryStore
 from arelis.ui.panels.history import filter_history_sessions
@@ -126,5 +128,40 @@ def test_search_reaches_chats_outside_the_loaded_list(tmp_path: Path) -> None:
 
     common_rows = filter_history_sessions(loaded, "common", store=store)
     assert crowded in {row["id"] for row in common_rows}
+    store.close()
+
+@pytest.mark.parametrize("use_fts", [True, False], ids=["fts", "like"])
+def test_search_treats_like_wildcards_as_literal(tmp_path: Path, use_fts: bool) -> None:
+    """Mutant: unescaped LIKE % and _ match every title, and 100% matches 1000."""
+    store = MemoryStore(tmp_path / "memory.db")
+    if use_fts:
+        assert store.fts_available
+    else:
+        store._fts = False
+    memory = SessionMemory(sink=store)
+
+    percent = store.start_session()
+    memory.add("user", "growth was 100% this year")
+    memory.add("assistant", "growth was 100% this year")
+
+    thousand = store.start_session()
+    memory.add("user", "growth was 1000 this year")
+    memory.add("assistant", "growth was 1000 this year")
+
+    underscored = store.start_session()
+    memory.add("user", "see the file_name notes")
+    memory.add("assistant", "see the file_name notes")
+
+    store.start_session()
+    memory.add("user", "ordinary chat about weather")
+    memory.add("assistant", "it will be sunny")
+
+    def ids(query: str) -> set[str]:
+        return {str(row["id"]) for row in store.search_sessions(query)}
+
+    assert ids("100%") == {percent}
+    assert thousand not in ids("100%")
+    assert ids("%") == {percent}
+    assert ids("_") == {underscored}
     store.close()
 

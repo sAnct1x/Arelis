@@ -15,6 +15,12 @@ if TYPE_CHECKING:
 _OPEN_ASSISTANT_FLUSH_S = 0.4
 
 
+def _like_contains(needle: str) -> str:
+    """Substring LIKE pattern that treats backslash, %, and _ as literals."""
+    escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def _reset_open_assistant_state(store: MemoryStore, *, forget_row: bool = True) -> None:
     """Stop tracking an in-progress assistant row. The row itself stays unless deleted."""
     if forget_row:
@@ -431,14 +437,14 @@ def search_sessions(
     needle = (query or "").strip()
     if not needle or limit <= 0:
         return []
-    pattern = f"%{needle}%"
+    pattern = _like_contains(needle)
     params: list[Any]
     if store.fts_available:
         match = _fts_match(needle)
         if not match:
             return []
         where = """
-            s.title LIKE ?
+            s.title LIKE ? ESCAPE '\\'
             OR s.id IN (
                 SELECT m.session_id
                 FROM messages_fts
@@ -450,12 +456,12 @@ def search_sessions(
         params = [pattern, match, limit]
     else:
         where = """
-            s.title LIKE ?
+            s.title LIKE ? ESCAPE '\\'
             OR EXISTS (
                 SELECT 1 FROM messages m
                 WHERE m.session_id = s.id
                   AND m.role != 'notice'
-                  AND (m.content LIKE ? OR m.note LIKE ?)
+                  AND (m.content LIKE ? ESCAPE '\\' OR m.note LIKE ? ESCAPE '\\')
             )
         """
         params = [pattern, pattern, pattern, limit]

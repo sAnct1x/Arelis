@@ -2236,11 +2236,11 @@ class AgentLoop:
             passthrough = tool_passthrough_note(passthrough_tool)
             note = f"{note}\n{passthrough}" if note else passthrough
         self._remember_sent_follow()
-        self.memory.add("assistant", final, note=note)
 
-        # Usually the answer was already streamed and only the appended Sources
-        # list is still owed. When the text changed under us, for example
-        # because a {"final": ...} payload replaced it, retract and resend.
+        # Catch up the bubble before writing the finished row. memory.add
+        # updates the open assistant row and clears its id, so a remainder
+        # or a retract-and-resend after that write would start a second row
+        # that is never sealed.
         already = streamed.strip()
         if already and final.startswith(already):
             remainder = final[len(already) :]
@@ -2249,6 +2249,8 @@ class AgentLoop:
         else:
             await self._retract()
             await self._publish_delta(final)
+
+        self.memory.add("assistant", final, note=note)
 
         self.terminal_sent = True
         self._painted = ""
