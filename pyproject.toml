@@ -332,6 +332,9 @@ ignore = [
 # QWebChannel signals keep the JS camelCase names. Snake-case would
 # silently stop the Cesium bridge.
 "arelis/ui/earth_globe_host.py" = ["N815", "N801"]
+# Pass F free-flow sim is a port of Iris's dense reference (SPEC 3).
+# Wrapping or renaming the physics symbols would hide the correspondence.
+"arelis/ui/overseer_freeflow.py" = ["E501", "E701", "E702", "E401", "E741", "N806", "UP031", "B905", "E731", "B007", "RUF046", "I001"]
 # Polish scorecards are one Check() per line on purpose.
 "arelis/earth/polish_score.py" = ["E501"]
 "arelis/tools/image_polish.py" = ["E501"]

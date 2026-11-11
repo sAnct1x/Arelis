@@ -73,8 +73,8 @@ def test_overseer_pitch_passes_approved_close_mid_wide() -> None:
     assert overseer_runtime.pitch_deg(6.0) == 22.0
     assert overseer_runtime.pitch_deg(9.0) == 22.0
     assert abs(overseer_runtime.pitch_deg(32.0) - 36.0) < 1e-9
-    assert abs(overseer_runtime.pitch_deg(96.0) - 55.0) < 1e-9
-    assert overseer_runtime.pitch_deg(110.0) == 55.0
+    assert abs(overseer_runtime.pitch_deg(overseer_runtime.WIDE_DISTANCE) - 55.0) < 1e-9
+    assert overseer_runtime.pitch_deg(overseer_runtime.ZOOM_MAX) == 55.0
     linear_mid = 22.0 + overseer_runtime.zoom_t(32.0) * (55.0 - 22.0)
     assert abs(overseer_runtime.pitch_deg(32.0) - linear_mid) > 1.0
     assert overseer_runtime.framing_name(7.0) == "close"

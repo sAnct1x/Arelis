@@ -359,7 +359,7 @@ def test_core_focus_preset_frames_the_orb(qt_app) -> None:
     root.applyFrame(o.build_frame(units, 95.1893, 1306.0))
     qt_app.processEvents()
     assert o.CLOSE_DISTANCE == 24.0
-    assert abs(float(root.property("specDistance")) - 95.1893) < 1e-4
+    assert abs(float(root.property("specDistance")) - 106.6120) < 1e-4
     # Overview is still the default.
     assert str(root.property("cameraMode")) == "overview"
     entered = root.enterCoreFocus(True)

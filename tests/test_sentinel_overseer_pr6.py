@@ -281,9 +281,9 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     assert "ringPositions" in qml
     assert "overseerBackdrop" in qml
     assert "Math.max(root.fill, 1.0 - root.reveal)" in qml
-    assert "cameraDistance: 95.1893" in qml
+    assert "cameraDistance: 106.6120" in qml
     assert "scale: Qt.vector3d(0.0012, 0.0012, 0.0012)" in qml
-    assert overseer_runtime.DEFAULT_CAMERA_DISTANCE == 95.1893
+    assert overseer_runtime.DEFAULT_CAMERA_DISTANCE == 106.6120
     assert "Qt.vector3d(finiteCoord(row.x), finiteCoord(row.y), finiteCoord(row.z))" in qml
     assert "Qt.vector3d(row.x || 0, row.z || 0, row.y || 0)" not in qml
     assert "objectName: \"hiveCore\"" in qml and "y: 1.6" in qml
@@ -671,13 +671,13 @@ def test_overseer_inset_fade_scene_list_lod_zoom_and_lifecycle(qt_app, monkeypat
     pose = overseer_runtime.zoom_pose(1, start_d)
     assert abs(zoomed - pose[0]) < 1e-4
     assert abs(float(inst.property("cameraPitch")) - pose[1]) < 1e-3
-    # Rubber-band: cannot run past 8% beyond the 6..110 m limits.
+    # Rubber-band: cannot run past 8% beyond the 6..123.2 m limits.
     inst.setProperty("cameraDistance", 6.0)
     inst.applyWheel(-8)
     qt_app.processEvents()
     assert float(inst.property("cameraDistance")) >= overseer_runtime.ZOOM_MIN * (
         1.0 - overseer_runtime.RUBBER
-    )
+    ) - 1e-9
 
     visible0 = [{"x": 1, "y": 0, "z": 0, "visible": 0}]
     inst.setParticles(visible0)

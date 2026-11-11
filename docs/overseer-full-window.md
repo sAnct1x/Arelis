@@ -22,26 +22,25 @@ Opening or closing a drawer never moves the camera or resizes the scene.
 
 Only the brightest things in the scene glow: unit eyes, the source cores
 and fetch beams, and (when they go over the threshold) tool beads. The
-orb's soft core stays under the glow threshold. Hulls, lanes and the
-perimeter never glow. The glow is a soft halo a few pixels wide around
+orb's soft core stays under the glow threshold. Hulls and the barrier
+shell never glow. The glow is a soft halo a few pixels wide around
 each eye. Edges are not smoothed (antialiasing is off), which keeps the
 Overseer within its frame budget.
 
 ## The orb, units and sources
 
 The core is a lavender glass shell with a soft nucleus and quiet drifting
-filaments. Three rings around it are real state, not decoration:
-**Memory · N from last chat** is how many memories were still in context
-when the Overseer opened, **Tools N running** lights one bead per tool
-that is actually running, and harvest result titles sit on the outer
-orbit when there is room. The orb's brightness follows the model's real
-speed (it sits at its idle glow when no tokens are flowing). Labels stay
+filaments. Memory motes around the shell show how many memories were still
+in context when the Overseer opened, and tool sparks light when a tool is
+actually running. Harvest result titles still sit just outside the shell
+when there is room. The orb's brightness follows the model's real speed
+(it sits at its idle glow when no tokens are flowing). Labels stay
 outside the shell disc.
 
 Click the orb, or the **Core** button in the header next to Emergency
 stop, to frame the orb itself (about 15 m at a typical full window, 22
-deg pitch). Unit bodies hide while you are in that view, and the lanes
-dim. Esc, or wheeling out past 24 m, returns you to the normal overview
+deg pitch). Unit bodies hide while you are in that view. Esc, or wheeling
+out past 24 m, returns you to the normal overview
 ease. The 24 m unit Focus and the default overview scale are unchanged.
 Wheeling inside the core view stays between 10 m and 24 m.
 

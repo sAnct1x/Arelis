@@ -211,6 +211,7 @@ class SentinelWindow(QWidget):
         self._prev_lods: dict[str, int] = {}
         self._log_session = overseer_runtime.LogSession()
         self._scene_pushed: dict | None = None
+        self._freeflow = None
         self._hud_pushed: dict | None = None
         # Dispatches sent from this open Overseer: the inspector names them as
         # a task's origin ("task from Dispatch at ...").
@@ -705,6 +706,15 @@ class SentinelWindow(QWidget):
         viewport_h = max(1, self.height())
         nodes = (snap or {}).get("nodes") if isinstance(snap, dict) else None
         fx_events = (snap or {}).get("fx_events") if isinstance(snap, dict) else None
+        if self._freeflow is None:
+            from arelis.ui.overseer_freeflow import FreeflowSession
+            self._freeflow = FreeflowSession()
+        if isinstance(snap, dict):
+            snap = dict(snap)
+            if "egress_muted" not in snap:
+                from arelis.ui.overseer_freeflow import resolve_egress_muted
+                snap["egress_muted"] = resolve_egress_muted(snap)
+            snap["_freeflow_session"] = self._freeflow
         frame = overseer_runtime.build_frame(
             units,
             distance,
@@ -725,9 +735,16 @@ class SentinelWindow(QWidget):
             # changes nothing else pushes nothing: no instance rebuild, no JS
             # garbage, 12 times a second.
             key = overseer_runtime.scene_key(frame)
-            if key != self._scene_pushed:
-                root.applyFrame({k: v for k, v in frame.items() if k not in ("units", "prevLods")})
-                self._scene_pushed = key
+            payload = {k: v for k, v in frame.items() if k not in ("units", "prevLods")}
+            # Pass F motion is on the CPU; skip only when the scene and poses both match.
+            poses = tuple(
+                (str(u.get("unit_id")), tuple(u.get("position") or ()))
+                for u in frame.get("units") or []
+            )
+            motion_key = (key, poses)
+            if motion_key != self._scene_pushed:
+                root.applyFrame(payload)
+                self._scene_pushed = motion_key
         self.apply_hud_counts(units)
         if root is not None:
             self._wire_hud(root)

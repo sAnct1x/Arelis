@@ -81,18 +81,23 @@ def test_idle_repoll_pushes_nothing_and_view_keeps_the_runtime_orbit(qt_app) -> 
     win.apply_snapshot(snap(1000.0))
     assert hud_resets
     hud_resets.clear()
-    # Three seconds on, nothing but the lap angle has changed.
+    # Pass F pushes free-flow poses on each poll (no GPU lane orbit).
+    # The Swarm log is unchanged, so applyHud does not fire again.
+    first = {}
+    for u in units:
+        p = root.unitPositionOf(u["unit_id"])
+        first[u["unit_id"]] = [p.property(k).toNumber() for k in "xyz"]
     root.setProperty("sceneTime", 53.0)
     win.apply_snapshot(snap(1003.0))
-    specs = root.property("unitOrbitSpecs").toVariant()
-    assert {s["t0"] for s in specs} == {50.0}  # no applyFrame
     assert hud_resets == []  # no applyHud
-    root.stepUnits(0.016)
-    placed, _ = o.place_band_units(snap(1003.0)["units"], 1003.0)
-    for u in placed:
+    moved = False
+    for u in units:
         p = root.unitPositionOf(u["unit_id"])
         got = [p.property(k).toNumber() for k in "xyz"]
-        assert max(abs(a - b) for a, b in zip(got, u["position"], strict=True)) < 1e-3
+        assert all(abs(v) < 80 for v in got)
+        if max(abs(a - b) for a, b in zip(got, first[u["unit_id"]], strict=True)) > 1e-3:
+            moved = True
+    assert moved
     teardown_sentinel_window(win)
     qt_app.processEvents()
 

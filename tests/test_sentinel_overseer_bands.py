@@ -27,23 +27,15 @@ def _units(counts: dict[str, int]) -> list[dict]:
 def test_idle_units_sit_on_tilted_lanes_scaled_by_unit_count() -> None:
     units = _units({"sanitizer": 16, "warden": 28, "stalker": 2, "harvester": 44, "tripwire": 10})
     frame = o.build_frame(units, 76.0, 780.0, snapshot_ts=1_800_000_000.0)
-    bands = {b["caste"]: b for b in frame["bands"]}
-    # BAND-SPEC 100-unit row: Sanitizer 2 lanes, Warden 3, Harvester 4.
-    assert [len(bands[c]["lanes"]) for c in ("sanitizer", "warden", "harvester")] == [2, 3, 4]
-    assert math.isclose(bands["harvester"]["radius"], 15.2 + 1.1 * math.sqrt(44), abs_tol=1e-3)
-    assert frame["perimeter"] == 35.0
+    # Pass F: no caste lanes. The picket line is the perimeter (r 39);
+    # sources sit at r 41. Incoming positions stay put until a live session steps.
+    assert frame["bands"] == []
+    assert frame["perimeter"] == 39.0
+    assert frame["barrier"]["a"] == 32.0
+    assert len(frame["fieldEdge"]) == 16
     by_id = {u["unit_id"]: u for u in frame["units"]}
-    harv = [by_id[f"SNT-HAR-{i + 1:03d}"] for i in range(44)]
-    radii = sorted(round(math.hypot(u["position"][0], u["position"][2]), 1) for u in harv)
-    # Spread over four lanes, not one flat ring.
-    assert radii[-1] - radii[0] > 3.0
-    # The band is tilted: idle units leave the ground plane, above and below.
-    heights = [u["position"][1] for u in harv]
-    assert max(heights) > 2.0 and min(heights) < -1.0
-    # Wardens and Stalkers share one band; Tripwires ride the perimeter.
-    assert bands["warden"]["units"] == 30
     trip = by_id["SNT-TRI-001"]
-    assert math.isclose(math.hypot(trip["position"][0], trip["position"][2]), 35.0, abs_tol=0.05)
+    assert trip["position"] == [0.0, 0.5, 0.0]
 
 
 def test_bands_grow_with_units_and_sources_sit_past_the_perimeter() -> None:
@@ -53,7 +45,7 @@ def test_bands_grow_with_units_and_sources_sit_past_the_perimeter() -> None:
     hb = {b["caste"]: b for b in big["bands"]}["harvester"]
     assert len(hs["lanes"]) == 2 and len(hb["lanes"]) == 4
     assert hb["radius"] > hs["radius"]
-    assert big["perimeter"] > 35.0 and big["sourceRadius"] == round(big["perimeter"] + 5.0, 4)
+    assert big["perimeter"] >= 39.0 and big["sourceRadius"] == round(big["perimeter"] + 2.0, 4)
     nodes, _labels = o.build_source_nodes(
         {sid: 0 for sid, *_ in o.HARVEST_SOURCES}, radius=40.0
     )

@@ -15,21 +15,20 @@ Item {
     }
     // Default view is Iris's wide frame (BAND-SPEC.md "Camera framing"): the
     // camera sits at k * (0, -78, 44) and looks at k * (0, 3, -6) in spec space,
-    // k = perimeter / 35. In scene space that is a look target k * (0, -6, -3),
-    // 95.19 * k m away along a 31.68 deg pitch (89.6 m and 29.4 deg from the
-    // hive centre). The distance only grows past that when the free scene
-    // area is too small to hold the perimeter and every source with its label.
+    // k = perimeter / 39 so k stays 1 at the Pass F picket line. Distance is
+    // Iris's wide frame pulled back 12% (95.1893 * 1.12). Target and pitch
+    // stay (0, -6, -3) and 31.6864 deg.
     readonly property real specPitchDeg: 31.6864
-    readonly property real specDistance: 95.1893
-    property real overviewDistance: 95.1893
+    readonly property real specDistance: 106.6120
+    property real overviewDistance: 106.6120
     property string overviewKey: ""
     // Wheel position in notches from the default frame. The first
     // easeNotches notches ease distance and pitch from the default frame onto
     // the approved curve at its 55 deg wide mark; past that the curve applies.
     readonly property real easeNotches: 3
-    readonly property real easeJoinDistance: 96.0
+    readonly property real easeJoinDistance: 107.52
     property real zoomZ: 0
-    property real cameraDistance: 95.1893
+    property real cameraDistance: 106.6120
     property real cameraPitch: 31.6864
     property real cameraTargetX: 0
     property real cameraTargetY: -6
@@ -119,7 +118,10 @@ Item {
     property string bandKey: ""
     property var bandGuidePositions: []
     property var bandGuideColors: []
-    property real perimeterRadius: 35.0
+    property real perimeterRadius: 39.0
+    property var fieldEdgePoints: []
+    property var barrierSpec: ({ cx: 0, cy: 0.5, cz: 0, a: 32, h: 11 })
+    property bool egressMuted: false
     property string swarmGroupBy: "caste"
     property string swarmSearch: ""
     property string logFilter: "all"
@@ -249,7 +251,7 @@ Item {
     property bool coreMode: false
     property bool coreTransitioning: false
     property real coreEaseU: 0
-    property real coreEaseFromD: 95.1893
+    property real coreEaseFromD: 106.6120
     property real coreEaseFromPitch: 31.6864
     property real coreEaseFromX: 0
     property real coreEaseFromY: -6
@@ -435,6 +437,10 @@ Item {
         live += cEntries.length
         applyGlyphTrails(frame.glyphTrails || [])
         applyBands(frame.bands || [], frame.perimeter)
+        fieldEdgePoints = frame.fieldEdge || []
+        if (frame.barrier)
+            barrierSpec = frame.barrier
+        egressMuted = !!frame.egressMuted
         hiveActivity = Math.max(0, Math.min(1, finiteNum(frame.hiveActivity, 0)))
         applyOrb(frame.orb || ({}))
         sourceNodeSpecs = frame.sourceNodes || []
@@ -508,9 +514,9 @@ Item {
 
     function pitchDeg(distance) {
         var lo = 6.0
-        var hi = 110.0
+        var hi = 123.2
         var d = Math.max(lo, Math.min(hi, distance))
-        var marks = [[6.0, 22.0], [9.0, 22.0], [32.0, 36.0], [96.0, 55.0], [110.0, 55.0]]
+        var marks = [[6.0, 22.0], [9.0, 22.0], [32.0, 36.0], [107.52, 55.0], [123.2, 55.0]]
         if (d <= marks[0][0])
             return marks[0][1]
         for (var i = 1; i < marks.length; i++) {
@@ -635,27 +641,28 @@ Item {
 
     // Everything the default view must hold: the perimeter ring, the outer
     // band lanes, and each edge source with room for its name under it.
+    function fieldMax(theta) {
+        var s_ = Math.sin(theta)
+        var pos = Math.max(0.0, s_)
+        var neg = Math.max(0.0, -s_)
+        return 44.0 + 6.0 * pos * pos - 4.0 * neg * neg
+    }
+
+    // Field edge at 16 bearings, label-free (Pass F SPEC / camera pullback).
     function overviewPoints() {
         var pts = []
-        var r = finiteNum(perimeterRadius, 35)
-        for (var i = 0; i < 24; i++) {
-            var a = i / 24 * Math.PI * 2
-            pts.push({ p: Qt.vector3d(r * Math.cos(a), 0.02, r * Math.sin(a)), label: false })
-        }
-        var bands = bandSpecs || []
-        for (var bi = 0; bi < bands.length; bi++) {
-            var lanes = bands[bi].lanes || []
-            if (!lanes.length)
-                continue
-            var outer = lanes[lanes.length - 1]
-            for (var j = 0; j < 12; j++)
-                pts.push({ p: bandPoint(bands[bi], outer, j / 12 * Math.PI * 2), label: false })
-        }
-        var specs = sourceLabelSpecs || []
-        for (var si = 0; si < specs.length; si++) {
-            var sp = specs[si]
-            if (sp)
-                pts.push({ p: Qt.vector3d(finiteNum(sp.x), finiteNum(sp.y), finiteNum(sp.z)), label: true })
+        var edge = fieldEdgePoints || []
+        if (edge.length) {
+            for (var i = 0; i < edge.length; i++) {
+                var e = edge[i]
+                pts.push({ p: Qt.vector3d(finiteNum(e.x, 0), finiteNum(e.y, 0.02), finiteNum(e.z, 0)), label: false })
+            }
+        } else {
+            for (var j = 0; j < 16; j++) {
+                var a = j / 16 * Math.PI * 2
+                var r = fieldMax(a)
+                pts.push({ p: Qt.vector3d(r * Math.cos(a), 0.02, -r * Math.sin(a)), label: false })
+            }
         }
         return pts
     }
@@ -691,8 +698,7 @@ Item {
             var m = overviewProject(pts[i].p, d, specPitchDeg)
             if (!m)
                 return false
-            // A source needs its name (about 120 x 50 px) under it; a ring
-            // point needs a small margin.
+            // Field-edge points use an 8 px margin; labelled points keep room for a name.
             var hx = pts[i].label ? 64 : 8
             var top = pts[i].label ? 14 : 8
             var below = pts[i].label ? 64 : 8
@@ -712,7 +718,7 @@ Item {
         if (key === overviewKey)
             return
         overviewKey = key
-        var k = Math.max(1, finiteNum(perimeterRadius, 35) / 35)
+        var k = Math.max(1, finiteNum(perimeterRadius, 39) / 39)
         var lo = specDistance * k
         var d = lo
         // A window too small to hold the hive keeps the farthest sane frame.
@@ -1434,14 +1440,14 @@ Item {
 
     function applyBands(bands, perimeter) {
         var list = bands || []
-        var key = String(finiteNum(perimeter, 35)) + "|core:" + root.laneCoreMul
+        var key = String(finiteNum(perimeter, 39)) + "|core:" + root.laneCoreMul
         for (var i = 0; i < list.length; i++) {
             var lanes = list[i].lanes || []
             for (var li = 0; li < lanes.length; li++)
                 key += "|" + list[i].caste + ":" + lanes[li].r
         }
         bandSpecs = list
-        perimeterRadius = finiteNum(perimeter, 35)
+        perimeterRadius = finiteNum(perimeter, 39)
         root.updateResultsOrbit()
         if (key === bandKey)
             return
@@ -3173,6 +3179,7 @@ Item {
         }
         Model {
             objectName: "tripwirePerimeter"
+            visible: false
             y: 0.02
             geometry: ProceduralMesh {
                 positions: root.ringPositions(root.perimeterRadius, 0.06)
@@ -3182,6 +3189,19 @@ Item {
             materials: PrincipledMaterial {
                 baseColor: root.perimeterColor
                 lighting: PrincipledMaterial.NoLighting
+            }
+        }
+
+        Model {
+            objectName: "barrierShell"
+            position: Qt.vector3d(finiteNum(barrierSpec.cx, 0), finiteNum(barrierSpec.cy, 0.5), finiteNum(barrierSpec.cz, 0))
+            scale: Qt.vector3d(finiteNum(barrierSpec.a, 32), finiteNum(barrierSpec.h, 11), finiteNum(barrierSpec.a, 32))
+            source: "#Sphere"
+            materials: PrincipledMaterial {
+                baseColor: Qt.rgba(0.62, 0.78, 1.0, 0.14)
+                lighting: PrincipledMaterial.NoLighting
+                opacity: 0.16
+                cullMode: Material.NoCulling
             }
         }
 

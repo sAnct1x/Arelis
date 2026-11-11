@@ -185,9 +185,9 @@ BAND_OF_CASTE = {
     "stalker": "warden",
     "harvester": "harvester",
 }
-PERIMETER_MIN = 35.0
+PERIMETER_MIN = 39.0  # Pass F picket line
 PERIMETER_MARGIN = 10.0
-SOURCE_PAST_PERIMETER = 5.0
+SOURCE_PAST_PERIMETER = 2.0  # sources at r 41
 TRIPWIRE_LAP_S = 180.0
 TRIPWIRE_Y = 0.25
 MAX_OVERSEER_UNITS = 128
@@ -1262,16 +1262,15 @@ def task_origin(unit: dict[str, Any] | None, dispatches: list[dict[str, Any]] | 
 
 
 ZOOM_MIN = 6.0
-ZOOM_MAX = 110.0
+ZOOM_MAX = 123.2
 ZOOM_NOTCH = 1.18
 RUBBER = 0.08
 PITCH_CLOSE_DEG = 22.0
 PITCH_WIDE_DEG = 55.0
-# Iris's wide frame (BAND-SPEC.md "Camera framing") at k = 1: camera at
-# spec (0, -78, 44) looking at (0, 3, -6), i.e. 95.19 m from the look target
-# at 31.68 deg pitch. OverseerView.qml fits the distance up from here so the
-# perimeter and every source label sit in the area the HUD leaves free.
-DEFAULT_CAMERA_DISTANCE = 95.1893
+# Pass F overview: Iris's wide frame pulled back 12% (SPEC camera). Target
+# and pitch stay (0, -6, -3) and 31.6864 deg. Distance is 95.1893 * 1.12.
+# k = perimeter / 39, so k stays 1 at the picket line.
+DEFAULT_CAMERA_DISTANCE = 106.6120
 OVERVIEW_PITCH_DEG = 31.6864
 CASTE_MIX = (
     ("warden", 0.34),
@@ -1305,7 +1304,7 @@ def core_focus_distance(view_h: float, free_w: float) -> float:
     width = max(1.0, float(free_w or 1.0))
     return max(CORE_FOCUS_BASE_DISTANCE, 20.0 * height / width)
 MID_DISTANCE = 32.0
-WIDE_DISTANCE = 96.0
+WIDE_DISTANCE = 107.52
 CLOSE_BAND = (ZOOM_MIN, 9.0)
 HIVE_TARGET = (0.0, 0.0, 0.0)
 _PITCH_MARKS = (
@@ -2348,7 +2347,22 @@ def build_frame(
     tok_rate: float = 0.0,
 ) -> dict[str, Any]:
     report = report or load_mesh_report()
-    units, layout = place_band_units(list(units)[:MAX_OVERSEER_UNITS], snapshot_ts)
+    units = list(units)[:MAX_OVERSEER_UNITS]
+    session = None
+    if isinstance(snap, dict):
+        session = snap.get("_freeflow_session")
+    if session is not None:
+        session.sync(units, snap, now=snapshot_ts)
+        layout = session.frame_extras(snap)
+    else:
+        from arelis.ui.overseer_freeflow import layout_static, resolve_egress_muted
+        layout = layout_static(len(units))
+        layout["egressMuted"] = resolve_egress_muted(snap)
+        layout["gates"] = []
+        layout["links"] = []
+        layout["memoryMotes"] = []
+        layout["toolSparks"] = []
+        # Keep incoming positions. Band orbits no longer place the swarm.
     fetches = open_fetch_counts(units, nodes)
     threat_open = threat_is_open(units, nodes)
     opens = source_open_counts(units, nodes)
@@ -2391,11 +2405,20 @@ def build_frame(
         "sourceNodes": source_nodes,
         "activeSources": sorted(source_active),
         "glyphTrails": glyph_trails,
-        "bands": layout["bands"],
-        "perimeter": layout["perimeter"],
+        "bands": layout.get("bands") or [],
+        "perimeter": layout.get("perimeter", 39.0),
         "hiveActivity": hive_activity(fetches),
         "threatOpen": threat_open,
         "orb": orb,
+        "egressMuted": bool(layout.get("egressMuted")),
+        "gates": layout.get("gates") or [],
+        "links": layout.get("links") or [],
+        "memoryMotes": layout.get("memoryMotes") or [],
+        "toolSparks": layout.get("toolSparks") or [],
+        "barrier": layout.get("barrier") or {"cx": 0.0, "cy": 0.5, "cz": 0.0, "a": 32.0, "h": 11.0},
+        "fieldEdge": layout.get("fieldEdge") or [],
+        "insideCap": layout.get("insideCap"),
+        "scaleK": layout.get("scaleK"),
     }
 
 
@@ -2720,7 +2743,13 @@ def fetch_snapshot(host: str, port: int, token: str, opener: Any = None) -> dict
     get = opener or urllib.request.urlopen
     with get(req, timeout=2.0) as resp:
         raw = resp.read()
-    return json.loads(raw.decode("utf-8"))
+    data = json.loads(raw.decode("utf-8"))
+    if not isinstance(data, dict):
+        return data
+    if "egress_muted" not in data:
+        from arelis.ui.overseer_freeflow import resolve_egress_muted
+        data["egress_muted"] = resolve_egress_muted(data)
+    return data
 
 
 
