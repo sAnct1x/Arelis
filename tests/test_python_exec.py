@@ -467,8 +467,21 @@ async def test_python_cell_writes_formatted_xlsx_into_outputs(
             "print('launched')\n",
             "launched",
         ),
+        (
+            "from openpyxl.compat.strings import sys\n"
+            "mod = sys.modules['importlib'].import_module('_socket')\n"
+            "s = mod.socket()\n"
+            "s.bind(('127.0.0.1', 0))\n"
+            "print('BOUND')\n",
+            "BOUND",
+        ),
     ],
-    ids=["import_module_socket", "import_module_thread", "ctypes_cdll"],
+    ids=[
+        "import_module_socket",
+        "import_module_thread",
+        "ctypes_cdll",
+        "import_module_private_socket",
+    ],
 )
 async def test_python_cell_refuses_importlib_and_ctypes_bypasses(
     code: str, marker: str

@@ -692,8 +692,10 @@ def _install_cell_thread_tracking() -> None:
 
     A Thread target has no <python> frame when the target is a library
     function such as import_module. The hook still has to treat that
-    thread as the cell. threading snapshots start_joinable_thread at
-    import time, so Thread.start must be hooked there too.
+    thread as the cell. threading keeps its own copy of the low level
+    start function, under a name that differs by Python version, so
+    Thread.start is tagged directly: the new thread registers itself
+    before its run() starts.
     """
     global _CELL_MAIN_THREAD, _CELL_THREAD_HOOKED
     _CELL_MAIN_THREAD = threading.get_ident()
@@ -730,10 +732,77 @@ def _install_cell_thread_tracking() -> None:
             return orig_joinable(_wrap_target(function, from_cell), handle, daemon)
 
         _thread.start_joinable_thread = start_joinable_thread  # type: ignore[method-assign]
-        # threading snapshots this at import time, so Thread.start
-        # would otherwise keep the unwrapped builtin.
-        if getattr(threading, "_start_joinable_thread", None) is orig_joinable:
-            threading._start_joinable_thread = start_joinable_thread
+
+    orig_start = threading.Thread.start
+
+    def start(self: threading.Thread) -> None:
+        if _parent_starts_cell_thread():
+            run = self.run
+
+            def run_as_cell() -> None:
+                _register_cell_thread(threading.get_ident())
+                run()
+
+            self.run = run_as_cell  # type: ignore[method-assign]
+        orig_start(self)
+
+    threading.Thread.start = start  # type: ignore[method-assign]
+
+
+# Private native modules that hand out a live socket, TLS, a native
+# library loader, or process launch. They are dropped from sys.modules
+# before the cell runs, so sys.modules[...] cannot return the copy a
+# library loaded. A new load of any native module the cell asks for is
+# refused below.
+_PRIVATE_NATIVE_MODULES = frozenset(
+    {
+        "_socket",
+        "_ssl",
+        "_ctypes",
+        "_posixsubprocess",
+        "_winapi",
+        "_overlapped",
+        "_multiprocessing",
+        "select",
+    }
+)
+
+
+def _guard_native_loader(create: Any) -> Any:
+    def guarded(spec: Any, *args: Any) -> Any:
+        name = str(getattr(spec, "name", "") or "")
+        root = name.split(".", 1)[0]
+        if (
+            root
+            and root not in _allowed_imports()
+            and _audit_from_cell(loading_module=name)
+        ):
+            _import_refusal(root)
+        return create(spec, *args)
+
+    return guarded
+
+
+def _install_native_import_guard() -> None:
+    """Refuse builtin and extension module loads the cell starts.
+
+    import_module of a builtin such as _socket fires no import audit
+    event, so the audit hook never sees it. Every builtin or extension
+    load still goes through _imp, whichever route asked for it.
+    Libraries loading their own native parts are allowed, as for
+    the import event.
+    """
+    import _imp
+
+    for attr in ("create_builtin", "create_dynamic"):
+        create = getattr(_imp, attr, None)
+        if create is not None:
+            setattr(_imp, attr, _guard_native_loader(create))
+
+
+def _drop_private_native_modules() -> None:
+    for name in _PRIVATE_NATIVE_MODULES:
+        sys.modules.pop(name, None)
 
 
 def _norm_frame_name(filename: str) -> str:
@@ -1047,6 +1116,7 @@ def _install_write_guard(payload: dict[str, Any]) -> None:
     _READ_ROOTS.clear()
     _READ_ROOTS.extend(read_roots)
     _install_cell_thread_tracking()
+    _install_native_import_guard()
     sys.addaudithook(_write_audit)
 
 
@@ -1474,6 +1544,7 @@ def main() -> None:
         _set_cwd(payload.get("work"))
         _install_write_guard(payload)
         _stub_process_launchers()
+        _drop_private_native_modules()
         _announce()
         try:
             text = _execute(code, namespace)
