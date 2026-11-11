@@ -39,9 +39,9 @@ def test_tentacle_speed_tracks_unit_activity_and_packs_into_instance_data() -> N
     assert by_id["SNT-SAN-001"]["speed"] == 0.05
     assert by_id["SNT-SAN-001"]["limp"] == 1.0
 
-    # Vertex shaders read INSTANCE_DATA.w as activity speed (no per-tentacle QML).
-    for name in ("hull.vert", "emissive.vert"):
-        text = (ASSETS / "shaders" / name).read_text(encoding="utf-8")
-        assert "INSTANCE_DATA.w" in text
-        assert "uTime * speed" in text
-        assert "max(INSTANCE_DATA.w, 0.05)" in text
+    # Pass C places tentacles from a curve texture; wave speed still rides
+    # on the unit row and is sampled when the control points are built.
+    text = (ASSETS / "shaders" / "tentacle.vert").read_text(encoding="utf-8")
+    assert "texelFetch" in text
+    assert "INSTANCE_DATA" in text
+    assert "VIEWPROJECTION_MATRIX" in text

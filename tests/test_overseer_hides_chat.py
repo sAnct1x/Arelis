@@ -240,3 +240,34 @@ def test_a_pending_card_stays_answerable_after_an_esc_close(
     qt_app.processEvents()
     assert decided == [("c-esc", "allow", False)]
     assert not conv.confirm_open()
+
+
+def test_opening_the_overseer_does_not_cancel_a_busy_turn(
+    arelis_window, qt_app, monkeypatch
+) -> None:
+    """A running turn and its Allow card must stay live across an Esc close."""
+    window = arelis_window()
+    window.show()
+    qt_app.processEvents()
+
+    conv = window.conversation
+    conv.ask_confirm("c-busy", "write", "Write notes.txt", detail="hello")
+    qt_app.processEvents()
+    assert conv.confirm_open()
+
+    cancelled: list[dict] = []
+    window._cancel_turn = lambda *, schedule_next, reason="stop": cancelled.append(
+        {"schedule_next": schedule_next, "reason": reason}
+    )
+    window._turn_busy = True
+
+    _open_overseer(window, qt_app, monkeypatch)
+    QTest.keyClick(window.sentinel_window, Qt.Key.Key_Escape)
+    qt_app.processEvents()
+
+    assert window.sentinel_window is None or not window.sentinel_window.isVisible()
+    assert cancelled == []
+    assert conv.confirm_open()
+    assert conv.confirm.allow_btn.isEnabled()
+    assert conv.confirm.allow_btn.isVisible()
+

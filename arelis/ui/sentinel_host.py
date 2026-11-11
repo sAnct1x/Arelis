@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 import weakref
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
 from shiboken6 import isValid
 
 from arelis import sentinel_control
+from arelis.llm import token_meter
 from arelis.ui import overseer_runtime
 from arelis.ui.sentinel_presence import (
     PresenceController,
@@ -215,6 +217,13 @@ class SentinelWindow(QWidget):
         self._overlay_flags: dict = {}
         self._prev_lods: dict[str, int] = {}
         self._log_session = overseer_runtime.LogSession()
+        self._scene_pushed: dict | None = None
+        self._freeflow = None
+        self._hud_pushed: dict | None = None
+        # Dispatches sent from this open Overseer: the inspector names them as
+        # a task's origin ("task from Dispatch at ...").
+        self._dispatches: list[dict] = []
+        self._tok_rate_pushed = -1
         self._particle_paths: list = []
         self._entry_reverse = False
         self._entry_timer = QTimer(self)
@@ -625,6 +634,9 @@ class SentinelWindow(QWidget):
                     lambda: overseer_runtime.post_overseer(host, port, token, path, body),
                 )
                 status = "Request pending" if accepted else "A request is already pending"
+                if accepted and name == "dispatch":
+                    sent = {"query": str(body.get("query") or ""), "at": time.time()}
+                    self._dispatches = [*self._dispatches[-19:], sent]
         if name == "focus" and root is not None and hasattr(root, "focusSelectedUnit"):
             root.focusSelectedUnit()
             self._log_camera_evidence()
@@ -697,9 +709,19 @@ class SentinelWindow(QWidget):
             tz = root.property("cameraTargetZ")
             if tx is not None and ty is not None and tz is not None:
                 cam_target = (float(tx), float(ty), float(tz))
-        viewport_h = max(1, self.height() - 86 - 230)
+        # The 3D view fills the whole window (full-bleed layout).
+        viewport_h = max(1, self.height())
         nodes = (snap or {}).get("nodes") if isinstance(snap, dict) else None
         fx_events = (snap or {}).get("fx_events") if isinstance(snap, dict) else None
+        if self._freeflow is None:
+            from arelis.ui.overseer_freeflow import FreeflowSession
+            self._freeflow = FreeflowSession()
+        if isinstance(snap, dict):
+            snap = dict(snap)
+            if "egress_muted" not in snap:
+                from arelis.ui.overseer_freeflow import resolve_egress_muted
+                snap["egress_muted"] = resolve_egress_muted(snap)
+            snap["_freeflow_session"] = self._freeflow
         frame = overseer_runtime.build_frame(
             units,
             distance,
@@ -710,10 +732,26 @@ class SentinelWindow(QWidget):
             fx_events=fx_events if isinstance(fx_events, list) else None,
             receipts=(snap or {}).get("recent_receipts") if isinstance(snap, dict) else None,
             snapshot_ts=(snap or {}).get("timestamp") if isinstance(snap, dict) else None,
+            selected_id=selected_id,
+            snap=snap if isinstance(snap, dict) else None,
+            tok_rate=token_meter.rate(),
         )
         self._prev_lods = frame["prevLods"]
         if root is not None and hasattr(root, "applyFrame"):
-            root.applyFrame(frame)
+            # Idle lane units move in the view from their orbit, so a poll that
+            # changes nothing else pushes nothing: no instance rebuild, no JS
+            # garbage, 12 times a second.
+            key = overseer_runtime.scene_key(frame)
+            payload = {k: v for k, v in frame.items() if k not in ("units", "prevLods")}
+            # Pass F motion is on the CPU; skip only when the scene and poses both match.
+            poses = tuple(
+                (str(u.get("unit_id")), tuple(u.get("position") or ()))
+                for u in frame.get("units") or []
+            )
+            motion_key = (key, poses)
+            if motion_key != self._scene_pushed:
+                root.applyFrame(payload)
+                self._scene_pushed = motion_key
         self.apply_hud_counts(units)
         if root is not None:
             self._wire_hud(root)
@@ -728,9 +766,17 @@ class SentinelWindow(QWidget):
                 camera_distance=distance,
                 log_session=self._log_session,
                 log_repeats=root.property("logRepeats") is not False,
+                dispatches=self._dispatches,
             )
-            if hasattr(root, "applyHud"):
+            # Tokens per second only while the model is producing them; 0 hides it.
+            tok_rate = round(token_meter.rate())
+            if tok_rate != self._tok_rate_pushed:
+                root.setProperty("tokRate", tok_rate)
+                self._tok_rate_pushed = tok_rate
+            if hasattr(root, "applyHud") and hud != self._hud_pushed:
+                # A new list model rebuilds every row delegate, so only on change.
                 root.applyHud(hud)
+                self._hud_pushed = hud
             if selected_id and hasattr(root, "selectUnit"):
                 root.selectUnit(selected_id)
         if self._entry_timer.isActive():
@@ -861,6 +907,7 @@ class SentinelWindow(QWidget):
             mote.hide()
 
     def _restore_presence(self, reason: str = "close") -> None:
+        self._dispatches = []  # "from Dispatch" covers one open Overseer only
         owner = self._owner
         surface = getattr(owner, "_quick_surface", None) if owner is not None else None
         self.presence.restore(reason, reduced=_reduced_motion())
@@ -876,6 +923,10 @@ class SentinelWindow(QWidget):
         self.refresh()
         self._fade_owner()
         super().showEvent(event)
+        scene = self._scene
+        root = scene.rootObject() if scene is not None else None
+        if root is not None:
+            root.setProperty("paused", False)
 
     def closeEvent(self, event) -> None:
         scene = self._scene
@@ -892,6 +943,10 @@ class SentinelWindow(QWidget):
 
     def hideEvent(self, event) -> None:
         super().hideEvent(event)
+        scene = self._scene
+        root = scene.rootObject() if scene is not None else None
+        if root is not None:
+            root.setProperty("paused", True)
         # The scene window hides after this event, with its children.
         QTimer.singleShot(0, self._save_pipeline_cache_if_hidden)
 

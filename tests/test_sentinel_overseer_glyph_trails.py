@@ -38,8 +38,8 @@ def test_glyph_trails_come_only_from_fresh_titled_harvest_results() -> None:
     assert arxiv["lanes"] == ["SPARC: mass models for 175 disk galaxies", "arxiv.org/abs/1606.09251v1"]
     assert wiki["source_id"] == "wikipedia"
     assert wiki["lanes"][0] == "Cuspy halo problem"
-    labels = {row["id"]: row for row in frame["sourceLabels"]}
-    assert (arxiv["x"], arxiv["z"], arxiv["color"]) == (labels["arxiv"]["x"], labels["arxiv"]["z"], labels["arxiv"]["color"])
+    ax, _ay, az = o.source_world_pos("arxiv")
+    assert (arxiv["x"], arxiv["z"], arxiv["color"]) == (ax, az, o.harvest_source_color("arxiv"))
 
     assert o.build_frame(unit, 76.0, receipts=receipts[2:], snapshot_ts=NOW)["glyphTrails"] == []
     assert o.build_frame(unit, 76.0)["glyphTrails"] == []
