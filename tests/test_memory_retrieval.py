@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -211,4 +213,48 @@ async def test_turn_gets_ranked_relevant_memories_not_the_whole_store(
     assert len(overflow) <= MAX_PROMPT_CHARS
     assert overflow.count("\n- ") <= MAX_ITEMS
 
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_hanging_embed_falls_back_to_keyword_without_stalling_the_turn(
+    tmp_path,
+) -> None:
+    """A hung CPU embedder must not inherit the 300s chat HTTP timeout."""
+    store = MemoryStore(tmp_path / "memory.db")
+    _add_fact(store, "The user's usual coffee is an Ethiopian pour-over.")
+
+    started = asyncio.Event()
+
+    async def hanging_embed(_model: str, texts: list[str]) -> list[list[float]]:
+        started.set()
+        await asyncio.sleep(300)
+        return [[0.0] for _ in texts]
+
+    async def available() -> bool:
+        return True
+
+    class _Tools:
+        def get(self, name: str):
+            if name != "recall":
+                return None
+            return SimpleNamespace(
+                _embed=hanging_embed,
+                _embed_available=available,
+                _embed_model="nomic-embed-text",
+            )
+
+    started_at = time.perf_counter()
+    block = await asyncio.wait_for(
+        memories_prompt_for_turn(
+            _loop(store, tools=_Tools()),
+            "What coffee do I usually drink?",
+        ),
+        timeout=10,
+    )
+    elapsed = time.perf_counter() - started_at
+    assert started.is_set()
+    assert "Ethiopian pour-over" in block
+    # Well under the 300s chat HTTP timeout that a bare embed() would inherit.
+    assert elapsed < 10
     store.close()

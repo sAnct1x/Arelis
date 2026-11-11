@@ -12,6 +12,7 @@ up), keyword overlap, and recency. The injected block is bounded: at most
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Awaitable, Callable
@@ -37,6 +38,9 @@ _MAX_PREFERENCES = 100
 _MAX_DECISIONS = 100
 # Skip a mid-turn embed batch when the pool is larger than this.
 _EMBED_BATCH_CAP = 80
+# Bound the mid-turn embed so a hung CPU embedder cannot inherit the
+# 300s chat HTTP timeout. A timeout falls back to keyword plus recency.
+_EMBED_TIMEOUT_S = 2.0
 
 # Combined score = weighted sum in [0, 1]. Recency alone cannot pass.
 EMBED_WEIGHT = 0.55
@@ -341,6 +345,23 @@ def select_relevant(
     return picked
 
 
+def _clip_item_text(text: str) -> str:
+    """Fit one memory into the per-item cap, breaking on a word boundary."""
+    if len(text) <= MAX_ITEM_CHARS:
+        return text
+    budget = MAX_ITEM_CHARS - 1
+    clipped = text[:budget]
+    if budget < len(text) and not text[budget].isspace():
+        end = len(clipped)
+        while end > 0 and not clipped[end - 1].isspace():
+            end -= 1
+        clipped = clipped[:end]
+    clipped = clipped.rstrip()
+    if not clipped:
+        clipped = text[:budget].rstrip()
+    return clipped + "…"
+
+
 def format_retrieval_block(items: list[MemoryItem]) -> str:
     """Compact system block, or empty when nothing relevant survived the cap."""
     if not items:
@@ -352,9 +373,7 @@ def format_retrieval_block(items: list[MemoryItem]) -> str:
     used = len(lines[0])
     added = 0
     for item in items:
-        text = item.text
-        if len(text) > MAX_ITEM_CHARS:
-            text = text[: MAX_ITEM_CHARS - 1].rstrip() + "…"
+        text = _clip_item_text(item.text)
         line = f"- [{item.kind}] {text}"
         # +1 for the newline that will join this row.
         if used + 1 + len(line) > MAX_PROMPT_CHARS:
@@ -477,7 +496,17 @@ async def _maybe_embed_query_and_items(
     if not available:
         return None
     try:
-        vectors = await embed(embed_model, [query, *[item.text for item in items]])
+        vectors = await asyncio.wait_for(
+            embed(embed_model, [query, *[item.text for item in items]]),
+            timeout=_EMBED_TIMEOUT_S,
+        )
+    except TimeoutError:
+        log.warning(
+            "Memory retrieval embedding timed out after %.1fs; "
+            "using keyword and recency",
+            _EMBED_TIMEOUT_S,
+        )
+        return None
     except Exception:
         log.exception("Memory retrieval embedding failed; using keyword and recency")
         return None
