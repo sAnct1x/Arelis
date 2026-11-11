@@ -1,4 +1,4 @@
-"""Pass F free-flow: velocity avoidance and egress mute on the snapshot."""
+"""Pass F free-flow: velocity avoidance, contact volumes, and egress mute on the snapshot."""
 
 from __future__ import annotations
 
@@ -10,43 +10,32 @@ from arelis.ui import overseer_freeflow as ff
 from arelis.ui import overseer_runtime as o
 
 
-def test_velocity_avoidance_holds_gap_without_position_snapping() -> None:
+def test_velocity_avoidance_prevents_overlap_without_position_snapping() -> None:
+    kinds = ("body_body", "body_tentacle", "tentacle_tentacle")
     sim = ff.Sim(ff.app_fixture(100), seed=7)
     rec = []
     rec_dock = []
-    worst_pairs = 0.0
-    touch_1236: list[float] = []
-    present_minus_raw: list[float] = []
+    worst_raw = {k: 0.0 for k in kinds}
+    worst_present = {k: 0.0 for k in kinds}
     # Ctor already warms ~3 s. Run through t=36 so the official window is scored.
     while sim.t < 36.0 - 1e-9:
         before = sim.p.copy()
         sim.step()
         rec.append(sim.present()[0].copy())
         rec_dock.append(sim.docked.copy())
-        st = sim.overlap_stats()
-        st_raw = sim.overlap_stats(False)
-        worst_pairs = max(worst_pairs, float(st["touching_pairs"]))
-        if 12.0 <= sim.t <= 36.0:
-            touch_1236.append(float(st["touching"]))
-            present_minus_raw.append(float(st["touching"]) - float(st_raw["touching"]))
+        raw = sim.penetration_by_kind(False)
+        pres = sim.penetration_by_kind(True)
+        for k in kinds:
+            worst_raw[k] = max(worst_raw[k], raw[k])
+            worst_present[k] = max(worst_present[k], pres[k])
         moved = float(np.linalg.norm(sim.p - before, axis=1).max())
         # Integration plus the 0.05 m safety net, not a multi-metre snap.
         vmax = max(ff.CASTES[c]["vmax"] for c in sim.caste)
         assert moved <= 1.5 * vmax * ff.DT + ff.PROJ_MAX_MOVE + 1e-6
     assert sim.proj_move_max <= ff.PROJ_MAX_MOVE + 1e-9
-    assert worst_pairs < 0.05
-    # Per-unit touching at 100, capsule gap < 0, t 12-36 s (present).
-    assert touch_1236, "expected samples in the t 12-36 window"
-    med = float(np.median(touch_1236))
-    worst = float(max(touch_1236))
-    assert med < 0.08 and worst <= 0.15, (med, worst)
-    # Without catch-up, the 0.25 s damper can show 0.10 more units touching
-    # than the sim on the same frame (Linux official worst 0.15 sits on a
-    # 0.07 raw frame). That leftover display overlap is the Windows (0.07,
-    # 0.17) failure: the 0.15 cap had no margin. Catch-up keeps the excess
-    # at 0.05 on Linux.
-    assert present_minus_raw, "expected samples in the t 12-36 window"
-    assert max(present_minus_raw) <= 0.07, max(present_minus_raw)
+    for k in kinds:
+        assert worst_raw[k] <= 1e-3, (k, "raw", worst_raw[k])
+        assert worst_present[k] <= 1e-3, (k, "present", worst_present[k])
     jit = ff.jitter_shares(
         {"present_p": rec, "p": rec, "docked": rec_dock},
         sim.caste,
@@ -60,6 +49,22 @@ def test_velocity_avoidance_holds_gap_without_position_snapping() -> None:
     sc = np.array([ff.CASTES[c]["scale"] for c in other.caste]) * other.scale_k
     other.safety_project(sc)
     assert float(np.linalg.norm(other.p - p0, axis=1).max()) <= ff.PROJ_MAX_MOVE + 1e-9
+    # Lagged present pose: sim volumes are clear, the damper still shows a
+    # deep body overlap. present() must resolve it so nothing passes through.
+    lag = ff.Sim(ff.app_fixture(8), seed=3)
+    live = [i for i in range(lag.N) if not lag.docked[i]]
+    assert len(live) >= 2
+    i, j = int(live[0]), int(live[1])
+    lag.p[j] = lag.p[i] + np.array([8.0, 0.0, 0.0])
+    lag.tent_off[i] = 0.0
+    lag.tent_off[j] = 0.0
+    yaw = np.arctan2(lag.face[:, 2], lag.face[:, 0])
+    lag.smoother.snap(lag.p, yaw)
+    lag.present_tent = lag.tent_off.copy()
+    lag.smoother.x[j] = lag.smoother.x[i] + np.array([0.2, 0.0, 0.0])
+    lag.present()
+    for k in kinds:
+        assert lag.penetration_by_kind(True)[k] <= 1e-3, (k, lag.penetration_by_kind(True))
 
 
 def test_egress_muted_reaches_the_overseer_snapshot() -> None:

@@ -66,6 +66,8 @@ result with no title shows no text. At most four results fly at once
 from every source is the same size. The GPU moves the letters, so the
 CPU only builds them once when a result arrives. Idle units (patrolling
 or docked) move in a free field around the core, not on caste rings.
+They may come close; body and tentacle collision volumes keep them from
+passing through each other.
 An oval barrier shell marks the hive boundary, with gateways on the real
 outbound connections. Sanitizers stay in the inner patrol, Wardens near
 the gates, Tripwires as pickets just outside the shell beside each gate,

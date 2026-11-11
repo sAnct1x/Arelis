@@ -63,8 +63,14 @@ CAP_T = np.array([0.6, 1.6, 4.4])                    # sample offsets (x scale):
 # CAP_T / CAP_RS were fitted to the rendered Pass E silhouettes (src/fit_spine.py): 3.0% of silhouette pixels fall outside
 # tentacle speed per state (same table as scene_f / Pass E runtime tentacle_speed)
 TENT_SPEED = dict(PATROLLING=0.55, DOCKED=0.55, VECTORING=2.2, ENGAGED_DEFENSE=2.5, ENGAGED_HARVEST=1.8, RETURNING=1.8, ENGAGED_SANITIZE=1.1)
-GAP_MIN = float(os.environ.get("FF_GAP", "1.5")); GAP_SOFT = GAP_MIN + 1.6; K_CAP = 16.0      # clear capsule gap (m, camera-plane metric): hard floor, soft start, gain
-GAP_CAP = 1.0                                     # gap used by the density cap footprint (the floor above has 0.5 m of tip margin)
+# Density-cap footprint padding (m). Not a motion keep-away floor.
+GAP_CAP = 1.0
+# Contact resolve: fixed iterations, a tiny allowed remainder, and how far a
+# tentacle sample may bend before leftover penetration moves the body.
+CONTACT_ITERS = 12
+CONTACT_SLOP = 1e-4
+TENT_BEND_MAX = 2.5
+TENT_RELAX = 1.0  # seconds; tentacle offsets spring back to the trailing pose
 CAM_D = 126.4                                 # overview camera (barrier 38); target, pitch, fov unchanged
 CAM_TARGET = np.array([0.0, -6.0, -3.0])
 CAM_PITCH = math.radians(31.6864)
@@ -84,12 +90,6 @@ def head_scale(P, s):
     """Head scale with the overview pixel floor: head length >= HEAD_MIN_PX, capped at HEAD_MAX_MUL x s."""
     depth = np.maximum((np.atleast_2d(P) - CAM_POS) @ CAM_FWD, 1.0)
     return np.minimum(np.maximum(s, HEAD_MIN_PX * depth / (HEAD_L * CAM_FPX)), HEAD_MAX_MUL * s)
-def plane(DX, X):
-    """Remove the component of each pair vector along that pair's view ray (camera -> pair midpoint)."""
-    M = 0.5 * (X[:, None, :, None, :] + X[None, :, None, :, :]) - CAM_POS
-    f = M / (np.linalg.norm(M, axis=-1, keepdims=True) + 1e-9)
-    return DX - np.sum(DX * f, -1, keepdims=True) * f
-
 def bearing_pt(theta, r, y):
     return np.array([r * math.cos(theta), y, -r * math.sin(theta)])
 
@@ -154,24 +154,54 @@ def field_edge_points(n=16):
         })
     return pts
 
-def cap_pairs(X, RAD, P, live, reach):
-    """Candidate pairs i<j whose head centres are within the capsule reach (broad phase), then the 3x3 sample
-    distances in the camera-plane metric (narrow phase). Returns I, J, min clear gap, unit push vector (i away from j)."""
-    DP = P[:, None, :] - P[None, :, :]; MP = 0.5 * (P[:, None, :] + P[None, :, :]) - CAM_POS
-    fP = MP / (np.linalg.norm(MP, axis=-1, keepdims=True) + 1e-9); D = np.linalg.norm(DP - np.sum(DP * fP, -1, keepdims=True) * fP, axis=2)
+def cap_sample_gaps(X, RAD, P, live, reach):
+    """Broad phase on head centres, then all 3x3 sample gaps in world space.
+
+    Sample 0 is the body (head), samples 1 and 2 are tentacle segments.
+    Returns I, J, gap (M, 9), and unit directions (M, 9, 3) pointing from
+    j's sample toward i's sample. M may be 0. This is a 3D solid metric, so
+    two units stacked in depth can be close on screen without penetrating.
+    """
+    DP = P[:, None, :] - P[None, :, :]
+    D = np.linalg.norm(DP, axis=2)
     ext = np.max(np.linalg.norm(X - P[:, None, :], axis=2) + RAD, axis=1)          # per-unit reach of its samples
     lim = ext[:, None] + ext[None, :] + reach
     I, J = np.nonzero(np.triu(D < lim, 1) & live[:, None] & live[None, :])
-    if len(I) == 0: return I, J, np.zeros(0), np.zeros((0, 3))
+    empty_v = np.zeros((0, 9, 3))
+    if len(I) == 0:
+        return I, J, np.zeros((0, 9)), empty_v
     DX = X[I][:, :, None, :] - X[J][:, None, :, :]                                       # (M,3,3,3)
-    M_ = 0.5 * (X[I][:, :, None, :] + X[J][:, None, :, :]) - CAM_POS; f = M_ / (np.linalg.norm(M_, axis=-1, keepdims=True) + 1e-9)
-    DX = DX - np.sum(DX * f, -1, keepdims=True) * f
     RX = np.linalg.norm(DX, axis=-1).reshape(len(I), 9) + 1e-6
     rr = (RAD[I][:, :, None] + RAD[J][:, None, :]).reshape(len(I), 9)
-    gap = RX - rr; a = gap.argmin(1); g = gap[np.arange(len(I)), a]
-    v = DX.reshape(len(I), 9, 3)[np.arange(len(I)), a] / RX[np.arange(len(I)), a][:, None]
+    gap = RX - rr
+    v = DX.reshape(len(I), 9, 3) / RX[:, :, None]
+    return I, J, gap, v
+
+
+def cap_pairs(X, RAD, P, live, reach, kinds=False):
+    """Candidate pairs i<j with a sample gap under reach.
+
+    Returns I, J, the closest-sample clear gap, and the unit 3D push vector
+    (i away from j). With kinds=True, also the sample indices of that closest
+    pair (0 is body, 1 and 2 are tentacle segments).
+    """
+    I, J, gap, dirs = cap_sample_gaps(X, RAD, P, live, reach)
+    if len(I) == 0:
+        empty = (I, J, np.zeros(0), np.zeros((0, 3)))
+        if kinds:
+            return (*empty, np.zeros(0, dtype=int), np.zeros(0, dtype=int))
+        return empty
+    a = gap.argmin(1)
+    rows = np.arange(len(I))
+    g = gap[rows, a]
+    v = dirs[rows, a]
     keep = g < reach
-    return I[keep], J[keep], g[keep], v[keep]
+    si = a // 3
+    sj = a % 3
+    out = (I[keep], J[keep], g[keep], v[keep])
+    if kinds:
+        return (*out, si[keep], sj[keep])
+    return out
 
 class Gate:
     def __init__(self, gid, kind, theta, label, color, sub=''):
@@ -239,6 +269,8 @@ class Sim:
         self.proj_active_steps = 0
         self.proj_move_sum = 0.0
         self.proj_move_max = 0.0
+        self.tent_off = np.zeros((self.N, 2, 3))
+        self.present_tent = np.zeros((self.N, 2, 3))
         self.egress_muted = False
         self.emp = False
         inside = [i for i in range(self.N) if CASTES[self.caste[i]]['role'] in ('defender', 'gatherer')]
@@ -341,8 +373,8 @@ class Sim:
         if k == 0:
             # line up on the lane first (a point 4.5 m before the gate, on the lane line), then fly through without braking
             hold = (g.pt(-side * 6.0, lane) if on_lane else g.pt(side * (PASS_START + 2.0), lane)) if free else spot
-        elif k == 1:        # next in line waits ON the lane line, one sentinel length (+gap) behind the pass spot
-            hold = g.pt(side * (PASS_START + 9.1 * CASTES['harvester']['scale'] * SCALE_K + GAP_MIN), lane)
+        elif k == 1:        # next in line waits ON the lane line, one sentinel length behind the pass spot
+            hold = g.pt(side * (PASS_START + 9.1 * CASTES['harvester']['scale'] * SCALE_K), lane)
         else:               # later places fan out along the barrier wall either side of the lane, 5 m back from the gate
             hold = g.pt(side * 5.0, lane) + g.t * (lane * 2.0)
             sp = 1.15 * 9.1 * CASTES['harvester']['scale'] * SCALE_K            # 1.15 full sentinel lengths apart
@@ -553,17 +585,9 @@ class Sim:
                 nx = ax_[:, 0] * ca_ - ax_[:, 1] * sa_ * sd; nz = ax_[:, 0] * sa_ * sd + ax_[:, 1] * ca_
                 desired[hit, 0] = nx[hit] * sp_[hit]; desired[hit, 2] = nz[hit] * sp_[hit]
         F = (desired - self.v) * 1.6
-        # Soft capsule separation is a preferred-velocity bias (Iris step 4).
-        # ORCA then enforces the hard velocity constraint; positions are not snapped.
+        # ORCA plus a later contact resolve stop volumes passing through each
+        # other. There is no preferred-velocity push to hold a gap.
         sc = np.array([C['scale'] for C in par]) * SCALE_K
-        Xsep, Rsep = self.spine(sc)
-        I, J, gmin, vec = cap_pairs(Xsep, Rsep, self.p, ~self.docked, GAP_SOFT)
-        w = np.clip((GAP_SOFT - gmin) / (GAP_SOFT - GAP_MIN), 0, None) ** 2
-        ms = self.mass()
-        fi = np.where(ms[I] > ms[J], 0.0, np.where(ms[I] < ms[J], 2.0, 1.0)); fj = 2.0 - fi
-        Fsep = np.zeros((N, 3))
-        if len(I):
-            np.add.at(Fsep, I, K_CAP * vec * (w * fi)[:, None]); np.add.at(Fsep, J, -K_CAP * vec * (w * fj)[:, None])
         D = self.p[:, None, :] - self.p[None, :, :]; R = np.linalg.norm(D, axis=2) + np.eye(N) * 1e9
         nbr = np.array([C['nbr'] for C in par]); same = (self.pack[:, None] == self.pack[None, :]) & (self.pack[:, None] >= 0)
         pat = np.array([x == 'PATROLLING' for x in self.state]); same &= pat[:, None] & pat[None, :]
@@ -590,12 +614,9 @@ class Sim:
         F[:, 1] += (np.clip(ylo - self.p[:, 1], 0, None) - np.clip(self.p[:, 1] - yhi, 0, None)) * 1.5
         # accel clamp, then ORCA on the preferred velocity
         fm = np.linalg.norm(F, axis=1) + 1e-9; F *= (np.minimum(fm, amax) / fm)[:, None]
-        sm = np.linalg.norm(Fsep, axis=1) + 1e-9; Fsep *= (np.minimum(sm, 2.5 * amax) / sm)[:, None]
-        keep = np.where(ms > 1.0, 0.4, 0.8)
         pk_ = np.array([bool(self.anim[i].get('picket')) for i in range(N)])
         if pk_.any():
             F[pk_] = (desired[pk_] - self.v[pk_]) * 2.5
-        F = F * (1.0 - np.minimum(np.clip(sm / (2.5 * amax), 0, 1), keep))[:, None] + Fsep
         if SAN_LEASH > 0:
             for i in self.idx['sanitizer']:
                 if self.state[i] != 'PATROLLING' or self.docked[i]: continue
@@ -611,12 +632,12 @@ class Sim:
         Ip, Jp, gp, vp = cap_pairs(Xsp, Rsp, self.p, live, reach)
         if len(Ip):
             orca = OrcaPairSolver(
-                self.p, self.mass(), live, vmax, CAM_POS, Ip, Jp, gp, vp, GAP_MIN, ORCA_TAU
+                self.p, self.mass(), live, vmax, CAM_POS, Ip, Jp, gp, vp, 0.0, ORCA_TAU
             )
             v1 = orca.solve(self.v, v_pref)
             v1 = orca.solve(v1, v1)
         else:
-            v1 = orca_step(self.p, self.v, v_pref, radii, self.mass(), live, amax, vmax, DT, CAM_POS, GAP_MIN)
+            v1 = orca_step(self.p, self.v, v_pref, radii, self.mass(), live, amax, vmax, DT, CAM_POS, 0.0)
         # Turn limit applies to preferred velocity only (already in F / caste steering).
         # Clamping the ORCA heading and keeping the ORCA speed on the old heading
         # drives units through each other. Presentation smoothing is 0.25 s.
@@ -639,7 +660,6 @@ class Sim:
                 nx = axs[:, 0] * ca_ - axs[:, 1] * sa_ * sd; nz = axs[:, 0] * sa_ * sd + axs[:, 1] * ca_
                 v1[hit, 0] = nx[hit] * hs[hit]; v1[hit, 2] = nz[hit] * hs[hit]
             # Re-solve ORCA after the cone so heading correction cannot undo avoidance.
-            # (Adding Fsep back, as the snap-based design sim does, would reopen gaps.)
             if len(Ip):
                 v1 = orca.solve(v1, v1)
         # banking from the turn rate (coordinated turn), smoothed 0.25 s
@@ -677,9 +697,14 @@ class Sim:
         self.face = dest
         self.p = self.p + v1 * DT
         self.project_zones()
-        self.safety_project(sc)
         for g in self.gates.values(): g.step(DT, t)
         if int(t / DT) % 15 == 0: self.wake()
+        # Resolve contacts after wake so a newly undocked unit cannot stay
+        # inside a neighbor. Relax tentacle bends afterward, then a short
+        # second pass so the spring cannot reopen a volume.
+        self.resolve_contacts(sc, self.p, self.v, self.tent_off, resolve_velocity=True)
+        self.tent_off *= math.exp(-DT / TENT_RELAX)
+        self.resolve_contacts(sc, self.p, self.v, self.tent_off, iters=12, resolve_velocity=True)
         self.step_threats()
         yaw = np.arctan2(self.v[:, 2], self.v[:, 0])
         snap = np.array([(self.state[i] == 'DOCKED') != (self.prev_state[i] == 'DOCKED') for i in range(N)], dtype=bool)
@@ -697,19 +722,27 @@ class Sim:
         d = -g.n * math.cos(a) + g.t * math.sin(a)          # tails point away from the source
         return src + d * (2.45 * s + 3.2) + np.array([0, 0.6 * s, 0])
 
-    def spine(self, sc):
+    def spine(self, sc, p=None, tent_off=None):
         """(N,3,3) capsule samples matching the rendered silhouette: head ahead on the facing direction,
-        tentacle samples on the tail direction, which trails straight behind (fit to the renders)."""
+        tentacle samples on the tail direction, which trails straight behind (fit to the renders).
+
+        tent_off is a (N, 2, 3) world-space bend of the two tentacle samples, used
+        so a tentacle can slide or curve off a contact instead of passing through.
+        """
+        p = self.p if p is None else p
+        off = self.tent_off if tent_off is None else tent_off
         f = self.face.copy() if hasattr(self, 'face') else self.v.copy()
         for i in range(self.N):
             A = self.anim[i]
-            if 'face' in A: f[i] = np.asarray(A['face']) - self.p[i]; f[i, 1] *= 0.3
+            if 'face' in A: f[i] = np.asarray(A['face']) - p[i]; f[i, 1] *= 0.3
         f[:, 1] = np.clip(f[:, 1], -0.14 * np.linalg.norm(f[:, [0, 2]], axis=1), 0.14 * np.linalg.norm(f[:, [0, 2]], axis=1))   # level: pitch <= 8 deg
         f /= np.linalg.norm(f, axis=1, keepdims=True) + 1e-6
         tail = -f                                       # tails trail level behind the head, even when slow
-        sh = head_scale(self.p, sc); dl = -COLLAR_X * (sh - sc)        # bigger head: tentacles sit further back
+        sh = head_scale(p, sc); dl = -COLLAR_X * (sh - sc)        # bigger head: tentacles sit further back
         X = np.empty((self.N, 3, 3))
-        X[:, 0] = self.p + f * (CAP_T[0] * sh[:, None]); X[:, 1] = self.p + tail * (CAP_T[1] * sc + dl)[:, None]; X[:, 2] = self.p + tail * (CAP_T[2] * sc + dl)[:, None]
+        X[:, 0] = p + f * (CAP_T[0] * sh[:, None])
+        X[:, 1] = p + tail * (CAP_T[1] * sc + dl)[:, None] + off[:, 0]
+        X[:, 2] = p + tail * (CAP_T[2] * sc + dl)[:, None] + off[:, 1]
         RAD = np.stack([CAP_RS[0] * sh, CAP_RS[1] * sc, CAP_RS[2] * sc], 1)
         return X, RAD
 
@@ -729,15 +762,16 @@ class Sim:
         # Batch inner projection steps, then snap zones once per round. Zoning
         # after every single pass pinned wardens to the 0.90 shell and left
         # ~11 % still touching after 80 tries; 8-iter batches reach 0 %.
+        # Push only to clear overlap (no extra kept gap).
         for _ in range(24):
             done = False
             for _it in range(8):
                 X, RAD = self.spine(sc)
-                I, J, g, vec = cap_pairs(X, RAD, self.p, live, GAP_MIN)
-                if len(I) == 0 or float(g.min()) >= 0.0:
+                I, J, g, vec = cap_pairs(X, RAD, self.p, live, 0.0)
+                if len(I) == 0:
                     done = True
                     break
-                d = (GAP_MIN - g)[:, None] * vec
+                d = (-g)[:, None] * vec
                 # Equal responsibility at init only: mass-weighted projection left
                 # mass-2 Sanitizers stuck and shoved Harvesters into residual overlaps.
                 wi = np.full(len(I), 0.5)
@@ -747,12 +781,13 @@ class Sim:
             if done and self.overlap_stats(use_present=False)["touching"] == 0.0:
                 break
         # Cold start: from rest, preferred velocities briefly pack the field.
-        # Settle with the real velocity-avoidance step (not a position snap)
-        # so the first displayed frame is already in the held-gap regime.
+        # Settle with the real step (not a position snap) so the first displayed
+        # frame is already free of interpenetration.
         for _ in range(90):
             self.step()
         yaw = np.arctan2(self.face[:, 2], self.face[:, 0])
         self.smoother.snap(self.p, yaw)
+        self.present_tent = self.tent_off.copy()
         self.proj_steps = 0
         self.proj_active_steps = 0
         self.proj_move_sum = 0.0
@@ -763,15 +798,20 @@ class Sim:
         return self.safety_project(sc)
 
     def safety_project(self, sc):
+        """Capped body-only push out of overlap. At most PROJ_MAX_MOVE per call.
+
+        The running step uses resolve_contacts instead. This stays as a
+        bounded safety net so a deep overlap cannot be cleared in one snap.
+        """
         live = ~self.docked
         m = self.mass()
         p0 = self.p.copy()
         for _ in range(PROJ_MAX_PASSES):
             X, RAD = self.spine(sc)
-            I, J, g, vec = cap_pairs(X, RAD, self.p, live, GAP_MIN)
+            I, J, g, vec = cap_pairs(X, RAD, self.p, live, 0.0)
             if len(I) == 0:
                 break
-            d = (GAP_MIN - g)[:, None] * vec
+            d = (-g)[:, None] * vec
             mi, mj = m[I], m[J]
             wi = np.where(mi > mj, 0.0, np.where(mi < mj, 1.0, 0.5))
             np.add.at(self.p, I, d * wi[:, None])
@@ -994,38 +1034,133 @@ class Sim:
         out[hit] = np.arctan2(nz[hit], nx[hit])
         return out
 
-    def _catch_present_overlaps(self, cap=0.10):
-        """Walk lagged presented poses toward the sim when they overlap.
+    def resolve_contacts(self, sc, p, v, tent_off, iters=CONTACT_ITERS, body_move_cap=None, resolve_velocity=False):
+        """Separate interpenetrating body and tentacle volumes in place.
 
-        The 0.25 s damper can show a tighter capsule gap than the velocity
-        solver just held (on Linux, 0.15 touching on a 0.07 raw frame). That
-        leftover display overlap is what filled the official 0.15 cap and
-        left no margin for Windows. The sim is not moved.
+        Each body (sample 0) and tentacle segment (samples 1 and 2) is a sphere
+        from the existing capsule data. Tentacle contacts bend or slide the
+        sample first; leftover penetration, and body-body contacts, move the
+        head. A fixed iteration count keeps the 12 Hz path bounded. p, v and
+        tent_off are updated in place.
+        """
+        live = ~self.docked
+        mass = self.mass()
+        n = len(p)
+        p0 = p.copy()
+        for _ in range(int(iters)):
+            X, RAD = self.spine(sc, p=p, tent_off=tent_off)
+            I, J, g, vec, si, sj = cap_pairs(X, RAD, p, live, 0.0, kinds=True)
+            if len(I) == 0:
+                break
+            # Target a 0.5 mm clearance so stacked contacts clear in a few
+            # passes instead of creeping toward the slop.
+            if float((-g).max()) <= CONTACT_SLOP:
+                break
+            pen = -g + 2e-3
+            active = pen > 0.0
+            if not active.any():
+                break
+            I, J, vec, si, sj, pen = I[active], J[active], vec[active], si[active], sj[active], pen[active]
+            mi, mj = mass[I], mass[J]
+            wi = np.where(mi > mj, 0.0, np.where(mi < mj, 1.0, 0.5))
+            di = (pen * wi)[:, None] * vec
+            dj = (pen * (1.0 - wi))[:, None] * (-vec)
+            dp = np.zeros((n, 3))
+            dtent = np.zeros((n, 2, 3))
+            tent_i = si > 0
+            tent_j = sj > 0
+            if (~tent_i).any():
+                np.add.at(dp, I[~tent_i], di[~tent_i])
+            if (~tent_j).any():
+                np.add.at(dp, J[~tent_j], dj[~tent_j])
+            for k in np.nonzero(tent_i)[0]:
+                dtent[I[k], si[k] - 1] += di[k]
+            for k in np.nonzero(tent_j)[0]:
+                dtent[J[k], sj[k] - 1] += dj[k]
+            tent_off += dtent
+            rad = np.linalg.norm(tent_off, axis=2)
+            over = rad > TENT_BEND_MAX
+            if over.any():
+                scale = np.ones_like(rad)
+                scale[over] = TENT_BEND_MAX / (rad[over] + 1e-12)
+                spill = tent_off * (1.0 - scale)[:, :, None]
+                tent_off *= scale[:, :, None]
+                dp += spill.sum(axis=1)
+            p += dp
+        if body_move_cap is not None:
+            dp = p - p0
+            nd = np.linalg.norm(dp, axis=1)
+            over = nd > body_move_cap
+            if over.any():
+                dp[over] *= (body_move_cap / (nd[over] + 1e-9))[:, None]
+                p[:] = p0 + dp
+        if resolve_velocity and v is not None:
+            X, RAD = self.spine(sc, p=p, tent_off=tent_off)
+            I, J, g, vec, si, sj = cap_pairs(X, RAD, p, live, 0.25, kinds=True)
+            if len(I):
+                vn = np.sum((v[I] - v[J]) * vec, axis=1)
+                hit = vn < 0.0
+                if hit.any():
+                    mi, mj = mass[I[hit]], mass[J[hit]]
+                    wi = np.where(mi > mj, 0.0, np.where(mi < mj, 1.0, 0.5))
+                    dvn = vn[hit]
+                    nrm = vec[hit]
+                    np.add.at(v, I[hit], (-wi * dvn)[:, None] * nrm)
+                    np.add.at(v, J[hit], ((1.0 - wi) * dvn)[:, None] * nrm)
+        return p, v, tent_off
+
+    def penetration_by_kind(self, use_present=False):
+        """Max penetration (m) for body-body, body-tentacle and tentacle-tentacle.
+
+        0 if that class of volume is clear. Same 3D capsule metric as cap_pairs. When use_present is True, uses the displayed pose and
+        the presented tentacle bends.
         """
         par = [CASTES[c] for c in self.caste]
-        sc = np.array([C["scale"] for C in par]) * SCALE_K
-        saved = self.p.copy()
-        self.p = self.smoother.x
-        X, RAD = self.spine(sc)
+        sc = np.array([C['scale'] for C in par]) * SCALE_K
+        if use_present and self.smoother.ready:
+            p = self.smoother.x
+            tent = getattr(self, 'present_tent', self.tent_off)
+        else:
+            p = self.p
+            tent = self.tent_off
+        X, RAD = self.spine(sc, p=p, tent_off=tent)
         live = ~self.docked
-        I, J, g, _ = cap_pairs(X, RAD, self.p, live, GAP_MIN + 8.0)
-        self.p = saved
+        I, _J, gap, _ = cap_sample_gaps(X, RAD, p, live, 0.0)
+        out = {'body_body': 0.0, 'body_tentacle': 0.0, 'tentacle_tentacle': 0.0}
         if len(I) == 0:
-            return
-        hit = set(I[g < 0.0].tolist() + J[g < 0.0].tolist())
-        if not hit:
-            return
-        idx = np.array(sorted(hit))
-        delta = saved[idx] - self.smoother.x[idx]
-        dist = np.linalg.norm(delta, axis=1, keepdims=True)
-        step = delta * np.minimum(1.0, cap / (dist + 1e-12))
-        self.smoother.x[idx] = self.smoother.x[idx] + step
-        self.smoother.v[idx] *= 0.3
+            return out
+        # 9 sample pairs: (si, sj) with si = k // 3, sj = k % 3.
+        keys = []
+        for si in range(3):
+            for sj in range(3):
+                if si == 0 and sj == 0:
+                    keys.append('body_body')
+                elif si == 0 or sj == 0:
+                    keys.append('body_tentacle')
+                else:
+                    keys.append('tentacle_tentacle')
+        for col, key in enumerate(keys):
+            worst = float((-gap[:, col]).max()) if len(gap) else 0.0
+            if worst > out[key]:
+                out[key] = worst
+        return out
 
     def present(self, dt=DT):
         yaw = np.arctan2(self.face[:, 2], self.face[:, 0])
         p, yaw = self.smoother.step(self.p, yaw, dt)
-        self._catch_present_overlaps()
+        # Presented tentacle bends follow the sim, then a hard non-penetration
+        # pass on the displayed pose replaces the old catch-up walk.
+        if self.present_tent.shape != self.tent_off.shape:
+            self.present_tent = self.tent_off.copy()
+        else:
+            self.present_tent += (self.tent_off - self.present_tent) * (1.0 - math.exp(-dt / TENT_RELAX))
+        par = [CASTES[c] for c in self.caste]
+        sc = np.array([C['scale'] for C in par]) * SCALE_K
+        self.resolve_contacts(
+            sc, self.smoother.x, self.smoother.v, self.present_tent,
+            iters=16,
+            resolve_velocity=True,
+        )
         p = self.smoother.x.copy()
         # Cone is the last clamp on presented yaw, after 0.25 s smoothing, so
         # the damper cannot pull a silhouette back through screen-vertical.
@@ -1034,15 +1169,15 @@ class Sim:
     def overlap_stats(self, use_present=True):
         par = [CASTES[c] for c in self.caste]
         sc = np.array([C['scale'] for C in par]) * SCALE_K
-        saved = None
         if use_present and self.smoother.ready:
-            saved = self.p.copy()
-            self.p = self.smoother.x
-        X, RAD = self.spine(sc)
+            p = self.smoother.x
+            tent = getattr(self, 'present_tent', self.tent_off)
+        else:
+            p = self.p
+            tent = self.tent_off
+        X, RAD = self.spine(sc, p=p, tent_off=tent)
         live = ~self.docked
-        I, J, g, _ = cap_pairs(X, RAD, self.p, live, GAP_MIN + 8.0)
-        if saved is not None:
-            self.p = saved
+        I, J, g, _ = cap_pairs(X, RAD, p, live, 8.0)
         n_live = int(live.sum())
         pairs = n_live * (n_live - 1) // 2
         if pairs <= 0 or len(I) == 0:

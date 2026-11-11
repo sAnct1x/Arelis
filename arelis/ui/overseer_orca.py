@@ -9,12 +9,13 @@ ORCA_TAU = 2.0
 ORCA_CELL = 10.0
 ORCA_NBR_DIST = 10.0
 ORCA_MAX_NBR = 10
-# ORCA radius is capsule radius + 0.75 m (GAP_MIN 1.5 m floor, SPEC 2.4).
+# ORCA radius is the capsule radius. The hard constraint is non-penetration,
+# not a kept gap; units may come right up to each other.
 PROJ_MAX_PASSES = 2
 PROJ_MAX_MOVE = 0.05
 SMOOTH_T = 0.25
 SMOOTH_OMEGA = 2.0 / SMOOTH_T
-GAP_MIN_DEFAULT = 1.5
+GAP_MIN_DEFAULT = 0.0
 
 
 def cam_basis(p: np.ndarray, cam_pos: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -392,8 +393,9 @@ def orca_from_pairs(
 ):
     """Velocity half-planes from capsule-pair gaps in the same metric as overlap tests.
 
-    (v_i - v_j) · n >= (gap_min - g) / tau, split by mass. Avoidance may exceed amax
-    so units can brake in time; heading is still turn-clamped by the caller.
+    (v_i - v_j) · n >= (gap_min - g) / tau, split by mass. Default gap_min is 0
+    (no extra floor). Avoidance may exceed amax so units can brake in time;
+    heading is still turn-clamped by the caller.
     """
     return OrcaPairSolver(
         P, mass, live, vmax, cam_pos, pair_i, pair_j, gaps, normals, gap_min, tau
