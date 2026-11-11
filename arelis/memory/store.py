@@ -26,7 +26,7 @@ _DEFAULT_PATH = state_dir() / "memory.db"
 
 # Bump when the on-disk shape changes, and add a _migrate_to_N step. Opening an
 # older file without this is what turns a weekend of chat into a hard error.
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -550,6 +550,16 @@ class MemoryStore:
                 "ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"
             )
 
+    def _migrate_to_13(self) -> None:
+        """Deduplicate live facts and keep proposed ones as durable memory.
+
+        Older archives only matched exact text, so near-duplicates piled up as
+        new rows. Pending proposals also sat unseen until a History click, then
+        aged out. This pass merges live near-duplicates into one dated row and
+        promotes leftover pending facts to active so they are not lost.
+        """
+        facts.dedupe_and_promote_existing(self)
+
     def start_session(self, session_id: str | None = None, *, room_id: str = "") -> str:
         """Begin a new session and make it the sink target for later writes."""
         return sessions.start_session(self, session_id, room_id=room_id)
@@ -612,7 +622,7 @@ class MemoryStore:
         return sessions.on_summary(self, text)
 
     def on_pending_fact(self, text: str) -> None:
-        """Record a proposed fact. Nothing becomes active without a later click."""
+        """Save a proposed fact as durable memory. Near-duplicates update in place."""
         return facts.on_pending_fact(self, text)
 
     def add_fact(
@@ -624,7 +634,10 @@ class MemoryStore:
         session_id: str | None = None,
         key: str | None = None,
     ) -> int | None:
-        """Insert a fact. Returns its id, or None if it was empty or a duplicate."""
+        """Insert a fact, or update a near-duplicate row in place.
+
+        Returns its id, or None if the text was empty.
+        """
         return facts.add_fact(
             self, text, source=source, status=status, session_id=session_id, key=key
         )
@@ -635,6 +648,10 @@ class MemoryStore:
     def set_fact_status(self, fact_id: int, status: str) -> bool:
         """Approve or reject a pending fact. True when a row changed."""
         return facts.set_fact_status(self, fact_id, status)
+
+    def edit_fact(self, fact_id: int, text: str) -> bool:
+        """Rewrite a live fact in place. True when a row changed."""
+        return facts.edit_fact(self, fact_id, text)
 
     def archive_stale_pending_facts(self, *, older_than_days: int = 30) -> int:
         """Reject pending facts older than the cutoff. Returns how many rows changed."""
