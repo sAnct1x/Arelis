@@ -9,6 +9,13 @@ import pytest
 
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
+from arelis.voice.speech_text import next_speakable_units, prepare_spoken_text
+
+
+def _units(text: str) -> list[str]:
+    """Clips VoiceService will queue for this reply, including an opening clause."""
+    clips, _ = next_speakable_units(prepare_spoken_text(text), 0, finalize=True)
+    return clips
 
 
 class _SlowTTS:
@@ -209,32 +216,44 @@ async def test_replacement_skips_sentences_already_heard() -> None:
     mid = f"{first} {xenon} {third}"
     first_changed = f"{xenon} {second} {third}"
     next_pair = f"{first} {third}"
+    first_u = _units(first)
+    prefix_u = _units(prefix)
+    full_u = _units(full)
+    mid_u = _units(mid)
+    changed_u = _units(first_changed)
+    next_u = _units(next_pair)
+    shared = 0
+    for before, after in zip(prefix_u, mid_u, strict=False):
+        if before != after:
+            break
+        shared += 1
+    mid_new = mid_u[shared:]
 
     bus, _voice, fake, played, task = await _setup()
 
     # Path: speak two sentences, withdraw, stream the restatement in chunks.
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": prefix}))
-    await _wait_clips(played, 2)
-    assert played == [first, second]
+    await _wait_clips(played, len(prefix_u))
+    assert played == prefix_u
     bus.publish_nowait(Event(EventType.ASSISTANT_RETRACT, {}))
     for piece in _chunks(full):
         bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": piece}))
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": full}))
     await bus.drain()
-    assert played == [first, second, third]
-    assert fake.spoken == [first, second, third]
+    assert played == full_u
+    assert fake.spoken == full_u
 
     # Path: retract, then VOICE_SPEAK with no new delta. Same skip, other entry.
     played.clear()
     fake.spoken.clear()
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": prefix}))
-    await _wait_clips(played, 2)
+    await _wait_clips(played, len(prefix_u))
     bus.publish_nowait(Event(EventType.ASSISTANT_RETRACT, {}))
     await bus.drain()
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": full}))
     await bus.drain()
-    assert played == [first, second, third]
-    assert fake.spoken == [first, second, third]
+    assert played == full_u
+    assert fake.spoken == full_u
 
     # Path: stream reset after speak. The next turn still says the first line.
     played.clear()
@@ -242,13 +261,13 @@ async def test_replacement_skips_sentences_already_heard() -> None:
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": first}))
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": first}))
     await bus.drain()
-    assert played == [first]
+    assert played == first_u
 
     # Path: ERROR retract must not silence the next turn's first sentence.
     played.clear()
     fake.spoken.clear()
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": prefix}))
-    await _wait_clips(played, 2)
+    await _wait_clips(played, len(prefix_u))
     bus.publish_nowait(Event(EventType.ERROR, {"message": "the model failed"}))
     await bus.drain()
     played.clear()
@@ -256,37 +275,37 @@ async def test_replacement_skips_sentences_already_heard() -> None:
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": first}))
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": first}))
     await bus.drain()
-    assert played == [first]
+    assert played == first_u
 
     # mid_change: A B heard, replacement A X C continues from the new middle.
     played.clear()
     fake.spoken.clear()
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": prefix}))
-    await _wait_clips(played, 2)
+    await _wait_clips(played, len(prefix_u))
     bus.publish_nowait(Event(EventType.ASSISTANT_RETRACT, {}))
     for piece in _chunks(mid):
         bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": piece}))
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": mid}))
     await bus.drain()
-    assert played == [first, second, xenon, third]
+    assert played == prefix_u + mid_new
 
     # first_change: A B heard, replacement X B C is new from the start.
     played.clear()
     fake.spoken.clear()
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": prefix}))
-    await _wait_clips(played, 2)
+    await _wait_clips(played, len(prefix_u))
     bus.publish_nowait(Event(EventType.ASSISTANT_RETRACT, {}))
     for piece in _chunks(first_changed):
         bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": piece}))
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": first_changed}))
     await bus.drain()
-    assert played == [first, second, xenon, second, third]
+    assert played == prefix_u + changed_u
 
     # two_turns_same_start: A B, then a new turn A C speaks both.
     played.clear()
     fake.spoken.clear()
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": prefix}))
-    await _wait_clips(played, 2)
+    await _wait_clips(played, len(prefix_u))
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": prefix}))
     await bus.drain()
     played.clear()
@@ -295,13 +314,13 @@ async def test_replacement_skips_sentences_already_heard() -> None:
         bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": piece}))
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": next_pair}))
     await bus.drain()
-    assert played == [first, third]
+    assert played == next_u
 
     # draft_then_cancel_next_turn: withdrawn draft, then cancel, then A B.
     played.clear()
     fake.spoken.clear()
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": f"{first} "}))
-    await _wait_clips(played, 1)
+    await _wait_clips(played, len(first_u))
     bus.publish_nowait(
         Event(EventType.TOOL_START, {"draft_speech": True, "name": "x"})
     )
@@ -314,13 +333,13 @@ async def test_replacement_skips_sentences_already_heard() -> None:
         bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": piece}))
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": prefix}))
     await bus.drain()
-    assert played == [first, second]
+    assert played == prefix_u
 
     # draft_then_cancel_repeat_speak: retract, cancel, VOICE_SPEAK A B.
     played.clear()
     fake.spoken.clear()
     bus.publish_nowait(Event(EventType.ASSISTANT_DELTA, {"text": f"{first} "}))
-    await _wait_clips(played, 1)
+    await _wait_clips(played, len(first_u))
     bus.publish_nowait(Event(EventType.ASSISTANT_RETRACT, {}))
     await bus.drain()
     bus.publish_nowait(Event(EventType.TURN_CANCEL, {}))
@@ -329,7 +348,7 @@ async def test_replacement_skips_sentences_already_heard() -> None:
     fake.spoken.clear()
     bus.publish_nowait(Event(EventType.VOICE_SPEAK, {"text": prefix}))
     await bus.drain()
-    assert played == [first, second]
+    assert played == prefix_u
 
     bus.stop()
     task.cancel()

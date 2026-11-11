@@ -177,9 +177,15 @@ class SessionMemory:
 
     def add(self, role: str, content: str, note: str = "") -> None:
         self.messages.append(ChatMessage(role=role, content=content, note=note))
-        self._trim()
+        # Do not silent-trim on every add. That used to drop the oldest
+        # turns with no summary before the agent loop could fold them.
+        # hydrate() and the loop compact on overflow. A 2x runaway cap
+        # still folds here so a session that never hits the loop cannot
+        # grow without bound.
         if self.sink is not None:
             self.sink.on_message(role, content, note)
+        if self._over_runaway_cap():
+            self._compact_to_cap()
 
     def mark_last_user_cancelled(self) -> None:
         """Tag the latest user turn stopped. Bubble stays; prompt gets a stub."""
@@ -317,44 +323,101 @@ class SessionMemory:
         otherwise load every message ever sent into the working set and hand the
         next prompt build a history far past the cap.
         """
+        from arelis.core.compaction import is_compaction_marker
+
         self.messages.clear()
         for item in messages:
             if isinstance(item, ChatMessage):
+                if is_compaction_marker(item.role, item.content, item.note):
+                    continue
                 self.messages.append(item)
             else:
+                role = str(item.get("role") or "user")
+                content = str(item.get("content") or "")
+                note = str(item.get("note") or "")
+                if is_compaction_marker(role, content, note):
+                    continue
                 self.messages.append(
                     ChatMessage(
-                        role=str(item.get("role") or "user"),
-                        content=str(item.get("content") or ""),
-                        note=str(item.get("note") or ""),
+                        role=role,
+                        content=content,
+                        note=note,
                         cancelled=bool(item.get("cancelled")),
                     )
                 )
         self.summary = summary
         self.pending_facts.clear()
-        self._trim()
+        # A long reopen used to slice the working set in half with no
+        # summary, so exact numbers from the dropped prefix were gone
+        # until the next turn, and sometimes for good. Fold them instead.
+        # The archive is not rewritten except for a transcript marker.
+        self._compact_to_cap()
 
     def clear(self) -> None:
         self.messages.clear()
         self.summary = ""
         self.pending_facts.clear()
 
-    def _trim(self) -> None:
-        """Drop a block down to about half when the count or token cap trips.
+    def _over_runaway_cap(self) -> bool:
+        """True when the working set is far past the configured cap."""
+        if self.max_messages > 0 and len(self.messages) > self.max_messages * 2:
+            return True
+        if self.max_tokens is None:
+            return False
+        return len(self.messages) > 1 and self._token_count() > self.max_tokens * 2
 
-        Keeping exactly the cap trims one message off the front on the next
-        add, which breaks a cached prompt prefix every turn.
+    def _compact_to_cap(self) -> list[ChatMessage]:
+        """Fold overflow into the summary pin and shrink the working set.
+
+        Returns the dropped messages. Originals stay in the archive when a
+        sink is attached; only this in-process list shrinks.
         """
+        dropped: list[ChatMessage] = []
         if self.max_messages > 0 and len(self.messages) > self.max_messages:
             keep = max(1, self.max_messages // 2)
-            self.messages = self.messages[-keep:]
-        if self.max_tokens is None or len(self.messages) <= 1:
+            if keep < len(self.messages):
+                dropped.extend(self.messages[:-keep])
+                self.messages = self.messages[-keep:]
+        if self.max_tokens is not None and len(self.messages) > 1:
+            if self._token_count() > self.max_tokens:
+                target = max(1, self.max_tokens // 2)
+                while len(self.messages) > 1 and self._token_count() > target:
+                    dropped.append(self.messages.pop(0))
+        if dropped:
+            self.fold_dropped(dropped)
+        return dropped
+
+    def fold_dropped(self, dropped: list[ChatMessage], *, narrative: str = "") -> None:
+        """Merge a deterministic verbatim pin for *dropped* and mark the cut."""
+        from arelis.core.compaction import (
+            extract_verbatim,
+            merge_compaction_pin,
+            messages_text,
+        )
+
+        items = extract_verbatim(messages_text(dropped))
+        pin = merge_compaction_pin(narrative, items, previous=self.summary)
+        if pin:
+            self.set_summary(pin)
+        self.place_compaction_marker()
+
+    def place_compaction_marker(self) -> None:
+        """Ask the archive to record a transcript marker before the kept rows."""
+        sink = self.sink
+        if sink is None:
             return
-        if self._token_count() <= self.max_tokens:
+        inserter = getattr(sink, "insert_compaction_marker", None)
+        if not callable(inserter):
             return
-        target = max(1, self.max_tokens // 2)
-        while len(self.messages) > 1 and self._token_count() > target:
-            self.messages.pop(0)
+        try:
+            inserter(self.messages)
+        except Exception:
+            # A missed marker must not undo a successful fold.
+            return
+
+    def _trim(self) -> None:
+        """Back-compat alias: compact instead of silently dropping."""
+        self._compact_to_cap()
 
     def _token_count(self) -> int:
         total = 0

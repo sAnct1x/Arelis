@@ -2,7 +2,8 @@
 
 Numbers come from Iris pass 5: window (40, 44) 2110x1306 on a 2560x1392 plate,
 Arelis and the orbit tree at 20 percent while it is open, 650 ms in and 500 ms
-out, 200 ms when motion is reduced.
+out, 200 ms when motion is reduced. Chat is hidden and disabled for that same
+span, and restored when the window closes.
 """
 
 from __future__ import annotations
@@ -54,6 +55,148 @@ def fade_duration_ms(*, opening: bool, reduced: bool) -> int:
     if reduced:
         return REDUCED_MS
     return FADE_OPEN_MS if opening else FADE_CLOSE_MS
+
+
+
+def _chat_suspend_targets(owner: Any) -> list[Any]:
+    """Composer, transcript, and the Filament chat tile, if those widgets exist."""
+    widgets: list[Any] = []
+    conv = getattr(owner, "conversation", None)
+    if conv is not None:
+        widgets.append(conv)
+        chat = getattr(conv, "chat", None)
+        if chat is not None:
+            widgets.append(chat)
+            view = getattr(chat, "view", None)
+            if view is not None:
+                widgets.append(view)
+        composer = getattr(conv, "_composer", None)
+        if composer is not None:
+            widgets.append(composer)
+        for name in ("input", "send_btn"):
+            widget = getattr(conv, name, None)
+            if widget is not None:
+                widgets.append(widget)
+    tile = getattr(owner, "_filament_chat_tile", None)
+    if tile is not None:
+        widgets.append(tile)
+    seen: set[int] = set()
+    unique: list[Any] = []
+    for widget in widgets:
+        ident = id(widget)
+        if ident not in seen:
+            seen.add(ident)
+            unique.append(widget)
+    return unique
+
+
+def _chat_shortcuts(owner: Any) -> list[Any]:
+    """Composer shortcuts, including the application-wide attach chord."""
+    from PySide6.QtGui import QShortcut
+
+    conv = getattr(owner, "conversation", None)
+    if conv is None:
+        return []
+    return list(conv.findChildren(QShortcut))
+
+
+def _snapshot_chat_for_overseer(owner: Any) -> dict[str, Any]:
+    targets = _chat_suspend_targets(owner)
+    return {
+        "widgets": [(w, w.isHidden(), w.isEnabled()) for w in targets],
+        "shortcuts": [(s, s.isEnabled()) for s in _chat_shortcuts(owner)],
+    }
+
+
+def _apply_chat_suspend(owner: Any) -> None:
+    """Hide, disable, and park chat, and ignore its shortcuts, while the window is open."""
+    conv = getattr(owner, "conversation", None)
+    chat = getattr(conv, "chat", None) if conv is not None else None
+    if chat is not None:
+        chat.set_view_parked(True)
+    for widget in _chat_suspend_targets(owner):
+        clearer = getattr(widget, "clearFocus", None)
+        if callable(clearer):
+            clearer()
+        widget.setEnabled(False)
+        widget.hide()
+    for shortcut in _chat_shortcuts(owner):
+        shortcut.setEnabled(False)
+
+
+def suspend_chat_for_overseer(owner: Any) -> None:
+    """Hide and disable the main-window chat, and park per-token painting.
+
+    A theme switch while the Overseer is still open can show chat again.
+    Calling this a second time re-applies the hide without replacing the
+    first snapshot, whose enabled flags are what close restores.
+    """
+    if owner is None:
+        return
+    if getattr(owner, "_overseer_chat_suspend", None) is None:
+        owner._overseer_chat_suspend = _snapshot_chat_for_overseer(owner)
+    _apply_chat_suspend(owner)
+
+
+def restore_chat_after_overseer(owner: Any) -> None:
+    """Show chat again from the current messages and theme, not the pre-open snapshot."""
+    if owner is None:
+        return
+    snap = getattr(owner, "_overseer_chat_suspend", None)
+    if not snap:
+        return
+    owner._overseer_chat_suspend = None
+    from shiboken6 import isValid
+
+    for widget, _hidden, enabled in snap.get("widgets") or []:
+        if widget is None or not isValid(widget):
+            continue
+        widget.setEnabled(enabled)
+    for shortcut, enabled in snap.get("shortcuts") or []:
+        if shortcut is None or not isValid(shortcut):
+            continue
+        shortcut.setEnabled(enabled)
+
+    conv = getattr(owner, "conversation", None)
+    # Isolated Overseer tests use a bare QWidget as the owner. There is no
+    # chat to rebuild, and the idle-layout path needs a real main window.
+    if conv is None or not hasattr(owner, "chat"):
+        return
+    conv.show()
+    sync = getattr(conv, "_sync_composer_buttons", None)
+    if callable(sync):
+        sync()
+
+    from arelis.ui.theme import active_theme
+
+    filament = active_theme() == "filament"
+    chat_open = bool(getattr(owner, "_filament_chat_open", False)) if filament else False
+    chat = getattr(conv, "chat", None) if conv is not None else None
+    # Stay parked through the normal layout pass so a first message does
+    # not paint on the field until unpark re-runs the show path below.
+    if chat is not None and not filament:
+        chat.show()
+    if not filament and conv is not None:
+        composer = getattr(conv, "_composer", None)
+        if composer is not None:
+            composer.show()
+        for name in ("input", "send_btn"):
+            widget = getattr(conv, name, None)
+            if widget is not None:
+                widget.show()
+    tile = getattr(owner, "_filament_chat_tile", None)
+    if tile is not None:
+        if filament and chat_open:
+            tile.show()
+        else:
+            tile.hide()
+    from arelis.ui.idle_host import sync_idle_mode
+
+    sync_idle_mode(owner)
+    if chat is not None:
+        # Unparking re-runs the normal show path. Filament with the tile
+        # closed stays parked so the transcript does not land on the field.
+        chat.set_view_parked(filament and not chat_open)
 
 
 class PresenceController:

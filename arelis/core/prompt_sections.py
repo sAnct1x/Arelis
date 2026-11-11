@@ -117,25 +117,19 @@ def append_plan_and_lessons(
             messages.append({"role": "system", "content": lesson_block})
 
 
-def append_operating_context(
+def append_stable_operating_context(
     messages: list[dict[str, str]],
     loop: Any,
     *,
-    role: str,
-    model: str,
-    skill_ids: list[str],
     active_room: Any,
 ) -> None:
-    """Append project, room, user, memory, and world-state context in order."""
-    workspace = loop.config.get("_workspace")
-    if workspace is not None and _wants_project_context(
-        role=role,
-        skill_ids=skill_ids,
-        expected_tools=loop._expected_tools,
-    ):
-        project_line = workspace.prompt_line()
-        if project_line:
-            messages.append({"role": "system", "content": project_line})
+    """Append slowly changing user and room context.
+
+    These lines are byte-stable across ordinary turns, so they belong in the
+    cached prefix, ahead of history. Putting them after history made the
+    model re-prefill the same profile, contacts, facts, and location on
+    every follow-up.
+    """
     if active_room is not None:
         messages.append({"role": "system", "content": active_room.prompt_block()})
 
@@ -150,15 +144,36 @@ def append_operating_context(
     contacts_line = contacts_prompt_line()
     if contacts_line:
         messages.append({"role": "system", "content": contacts_line})
-    facts_line = loop._active_facts_line()
-    if facts_line:
-        messages.append({"role": "system", "content": facts_line})
+    # Durable facts, preferences, and decisions are selected per turn in
+    # memories_prompt_for_turn and appended to the volatile tail, so a
+    # long unranked list cannot crowd the cached prefix.
 
     store = loop.memory.sink if isinstance(loop.memory.sink, MemoryStore) else None
     if store is not None:
         episode_line = episodes_prompt_line(store, limit=3)
         if episode_line:
             messages.append({"role": "system", "content": episode_line})
+
+
+def append_volatile_operating_context(
+    messages: list[dict[str, str]],
+    loop: Any,
+    *,
+    role: str,
+    model: str,
+    skill_ids: list[str],
+) -> None:
+    """Append this-turn project and world-state lines after history."""
+    workspace = loop.config.get("_workspace")
+    if workspace is not None and _wants_project_context(
+        role=role,
+        skill_ids=skill_ids,
+        expected_tools=loop._expected_tools,
+    ):
+        project_line = workspace.prompt_line()
+        if project_line:
+            messages.append({"role": "system", "content": project_line})
+    store = loop.memory.sink if isinstance(loop.memory.sink, MemoryStore) else None
     world_line = world_state_prompt_line(
         loop.config,
         role=role,
@@ -170,17 +185,37 @@ def append_operating_context(
         messages.append({"role": "system", "content": world_line})
 
 
-def append_delivery_context(
+def append_operating_context(
+    messages: list[dict[str, str]],
+    loop: Any,
+    *,
+    role: str,
+    model: str,
+    skill_ids: list[str],
+    active_room: Any,
+) -> None:
+    """Append operating context in the historical combined order.
+
+    Prefer the stable/volatile split at the call site so the stable
+    half can sit in the cached prefix.
+    """
+    append_stable_operating_context(messages, loop, active_room=active_room)
+    append_volatile_operating_context(
+        messages, loop, role=role, model=model, skill_ids=skill_ids
+    )
+
+
+def append_stable_delivery_context(
     messages: list[dict[str, str]],
     loop: Any,
     *,
     speak: bool,
 ) -> None:
-    """Append spoken-answer policy, language, the screen theme, then the clock.
+    """Append spoken policy, language, and the screen theme.
 
-    The clock stays last. It is the line that changes on its own. The theme
-    changes only when they pick one, so it sits just ahead of the clock and
-    never in the cached prefix.
+    These change only when conversation mode, the reply language, or the
+    theme changes, so they belong in the cached prefix. The clock still
+    goes after history, via append_clock.
     """
     if speak:
         from arelis.talk_language import spoken_policy
@@ -197,4 +232,25 @@ def append_delivery_context(
     if lang_note:
         messages.append({"role": "system", "content": lang_note})
     messages.append({"role": "system", "content": theme_line()})
+
+
+def append_clock(
+    messages: list[dict[str, str]],
+    loop: Any,
+) -> None:
+    """Append the machine clock. It changes on its own, so it trails history."""
     messages.append({"role": "system", "content": now_line(loop.config)})
+
+
+def append_delivery_context(
+    messages: list[dict[str, str]],
+    loop: Any,
+    *,
+    speak: bool,
+) -> None:
+    """Append spoken-answer policy, language, the screen theme, then the clock.
+
+    The clock stays last. It is the line that changes on its own.
+    """
+    append_stable_delivery_context(messages, loop, speak=speak)
+    append_clock(messages, loop)

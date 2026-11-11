@@ -79,6 +79,9 @@ class OrchestratorTurns:
             rows = store.get_messages(session_id)
             summary = store.get_summary(session_id)
             self.memory.hydrate(rows, summary=summary)
+            # hydrate may fold a long thread and insert a transcript marker.
+            rows = store.get_messages(session_id)
+            summary = store.get_summary(session_id)
             await self.bus.publish(
                 Event(
                     EventType.SESSION_LOADED,
@@ -118,6 +121,8 @@ class OrchestratorTurns:
         rows = store.get_messages(session_id)
         summary = store.get_summary(session_id)
         self.memory.hydrate(rows, summary=summary)
+        rows = store.get_messages(session_id)
+        summary = store.get_summary(session_id)
         await self.bus.publish(
             Event(
                 EventType.SESSION_LOADED,

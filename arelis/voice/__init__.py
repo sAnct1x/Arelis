@@ -107,6 +107,9 @@ class VoiceService:
         self._pending: list[tuple[str, bool]] = []
         self._drain_task: asyncio.Task[None] | None = None
         self._live_bridge = None
+        self._stt_progress = None
+        self._stt_progress_shown = False
+        self._stt_cancelled = False
         if self.tts_enabled:
             bus.subscribe(EventType.ASSISTANT_DELTA, self.on_delta)
             bus.subscribe(EventType.ASSISTANT_RETRACT, self.on_retract)
@@ -139,6 +142,8 @@ class VoiceService:
         """
         self._speak_cancelled = self._speak_seq
         self._pending.clear()
+        # Same Stop path also aborts a first-use STT download in the worker.
+        self._stt_cancelled = True
 
     async def on_delta(self, event: Event) -> None:
         """Queue completed sentences from a live answer for synthesis.
@@ -366,6 +371,9 @@ class VoiceService:
             ),
         )
         self._spoken_count = already
+        # The first unit of a reply may be an opening clause, not a full
+        # sentence, so Kokoro can synthesize a short first clip at about
+        # 30 ms/char. Later units stay whole sentences.
         units, spoken = next_speakable_units(
             prepared, already, finalize=finalize, language=lang
         )
@@ -534,11 +542,16 @@ class VoiceService:
 
         if not self.stt.loaded():
             await self._status("Getting the ear…")
+        self._bind_stt_progress()
+        self._bind_stt_cancel()
         try:
             stt_t0 = time.perf_counter()
             text = (
                 await self.stt.transcribe(path, proceed=proceed, purpose=deliver)
             ).strip()
+            notice = self.stt.take_fallback_notice()
+            if notice:
+                await self._status(notice)
             stt_ms = int((time.perf_counter() - stt_t0) * 1000)
             if turn_telemetry_enabled(self.config):
                 log_span(
@@ -552,9 +565,14 @@ class VoiceService:
             raise
         except Exception as exc:
             log.exception("Transcription failed")
+            notice = self.stt.take_fallback_notice()
+            if notice:
+                await self._status(notice)
             await self._error(f"Could not transcribe that: {exc}")
             return ""
         finally:
+            self._clear_stt_progress()
+            self._clear_stt_cancel()
             # The clip has served its purpose either way, and these are the only
             # recordings of the user's voice the app ever writes to disk, so
             # they go unless the user asked to keep them for debugging.
@@ -734,20 +752,97 @@ class VoiceService:
                 else "Warming the ear…"
             )
             announced = True
-        if missing:
-            await asyncio.to_thread(prepare_voice_files, self.config)
-        if not (self.stt_enabled and self.stt.available()):
-            return
+        self._bind_stt_progress()
+        self._bind_stt_cancel()
         try:
-            await self.stt.preload()
-        except Exception as exc:
-            log.warning("Speech model preload failed: %s", exc)
-            await self._status(f"Could not get the ear: {exc}")
-            return
-        if announced and self.stt.loaded():
-            await self._status("I'm listening. Say Hey Arelis.")
+            if missing:
+                await asyncio.to_thread(prepare_voice_files, self.config, self._stt_progress)
+            if not (self.stt_enabled and self.stt.available()):
+                return
+            try:
+                await self.stt.preload()
+            except Exception as exc:
+                log.warning("Speech model preload failed: %s", exc)
+                await self._status(f"Could not get the ear: {exc}")
+                return
+            notice = self.stt.take_fallback_notice()
+            if notice:
+                await self._status(notice)
+            if announced and self.stt.loaded():
+                await self._status("I'm listening. Say Hey Arelis.")
+        finally:
+            self._clear_stt_progress()
+            self._clear_stt_cancel()
 
     # ----------------------------------------------------------------- misc
+
+    def _bind_stt_progress(self) -> None:
+        """Push first-use download bytes to the existing progress line."""
+        loop = asyncio.get_running_loop()
+        last = {"t": 0.0}
+
+        def progress(status: str, done: int, total: int) -> None:
+            now = time.monotonic()
+            is_edge = done <= 0 or (total > 0 and done >= total)
+            if not is_edge and now - last["t"] < 0.4:
+                return
+            last["t"] = now
+            self._stt_progress_shown = True
+
+            def emit() -> None:
+                self.bus.publish_nowait(
+                    Event(
+                        EventType.STATUS,
+                        {"message": status, "progress": True},
+                    )
+                )
+
+            try:
+                loop.call_soon_threadsafe(emit)
+            except RuntimeError:
+                emit()
+
+        self._stt_progress_shown = False
+        self._stt_progress = progress
+        setter = getattr(self.stt, "set_progress", None)
+        if callable(setter):
+            setter(progress)
+
+    def _clear_stt_progress(self) -> None:
+        setter = getattr(self.stt, "set_progress", None)
+        if callable(setter):
+            setter(None)
+        self._stt_progress = None
+        shown = self._stt_progress_shown
+        self._stt_progress_shown = False
+        if not shown:
+            # Whisper (and any path that never drew a download line) must
+            # not publish a progress clear; that would hide an image line.
+            return
+        try:
+            self.bus.publish_nowait(
+                Event(EventType.STATUS, {"message": "", "progress": "clear"})
+            )
+        except Exception:
+            # Best-effort: the download already finished or failed, and a
+            # closed bus in finally must not mask that result.
+            pass
+
+    def _stt_is_cancelled(self) -> bool:
+        return bool(self._stt_cancelled)
+
+    def _bind_stt_cancel(self) -> None:
+        # A prior Stop (for speech, not this clip) must not abort this fetch.
+        self._stt_cancelled = False
+        setter = getattr(self.stt, "set_cancelled", None)
+        if callable(setter):
+            setter(self._stt_is_cancelled)
+
+    def _clear_stt_cancel(self) -> None:
+        setter = getattr(self.stt, "set_cancelled", None)
+        if callable(setter):
+            setter(None)
+        self._stt_cancelled = False
 
     async def _status(self, message: str) -> None:
         await self.bus.publish(Event(EventType.STATUS, {"message": message}))

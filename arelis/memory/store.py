@@ -26,7 +26,7 @@ _DEFAULT_PATH = state_dir() / "memory.db"
 
 # Bump when the on-disk shape changes, and add a _migrate_to_N step. Opening an
 # older file without this is what turns a weekend of chat into a hard error.
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -383,6 +383,10 @@ class MemoryStore:
         self.session_id: str | None = None
         self._ordinal = 0
         self._title_set = False
+        # In-progress assistant reply, so a crash mid-stream keeps the text.
+        self._open_assistant_id: int | None = None
+        self._open_assistant_text: str | None = None
+        self._open_assistant_written_at: float = 0.0
 
     @property
     def fts_available(self) -> bool:
@@ -399,6 +403,7 @@ class MemoryStore:
     def flush(self) -> None:
         """Commit and checkpoint so a quit does not leave WAL pages unwritten."""
         try:
+            sessions.flush_open_assistant(self)
             self._conn.commit()
             self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
         except sqlite3.Error:
@@ -545,6 +550,16 @@ class MemoryStore:
                 "ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"
             )
 
+    def _migrate_to_13(self) -> None:
+        """Deduplicate live facts and keep proposed ones as durable memory.
+
+        Older archives only matched exact text, so near-duplicates piled up as
+        new rows. Pending proposals also sat unseen until a History click, then
+        aged out. This pass merges live near-duplicates into one dated row and
+        promotes leftover pending facts to active so they are not lost.
+        """
+        facts.dedupe_and_promote_existing(self)
+
     def start_session(self, session_id: str | None = None, *, room_id: str = "") -> str:
         """Begin a new session and make it the sink target for later writes."""
         return sessions.start_session(self, session_id, room_id=room_id)
@@ -581,6 +596,22 @@ class MemoryStore:
         """Persist one message. Called from SessionMemory.add when a sink is set."""
         return sessions.on_message(self, role, content, note)
 
+    def on_open_assistant(self, content: str, *, flush_now: bool = False) -> None:
+        """Persist the in-progress assistant reply so a crash keeps the text so far."""
+        return sessions.on_open_assistant(self, content, flush_now=flush_now)
+
+    def clear_open_assistant(self) -> None:
+        """Drop a retracted in-progress assistant row."""
+        return sessions.clear_open_assistant(self)
+
+    def seal_open_assistant(self, content: str) -> None:
+        """Commit the in-progress reply as a finished row (cancel / stop)."""
+        return sessions.seal_open_assistant(self, content)
+
+    def search_sessions(self, query: str, *, limit: int = 200) -> list[dict[str, Any]]:
+        """Sessions whose title or message body matches ``query`` (FTS or LIKE)."""
+        return sessions.search_sessions(self, query, limit=limit)
+
     def append_to_session(
         self, session_id: str, role: str, content: str, note: str = ""
     ) -> bool:
@@ -591,7 +622,7 @@ class MemoryStore:
         return sessions.on_summary(self, text)
 
     def on_pending_fact(self, text: str) -> None:
-        """Record a proposed fact. Nothing becomes active without a later click."""
+        """Save a proposed fact as durable memory. Near-duplicates update in place."""
         return facts.on_pending_fact(self, text)
 
     def add_fact(
@@ -603,7 +634,10 @@ class MemoryStore:
         session_id: str | None = None,
         key: str | None = None,
     ) -> int | None:
-        """Insert a fact. Returns its id, or None if it was empty or a duplicate."""
+        """Insert a fact, or update a near-duplicate row in place.
+
+        Returns its id, or None if the text was empty.
+        """
         return facts.add_fact(
             self, text, source=source, status=status, session_id=session_id, key=key
         )
@@ -614,6 +648,10 @@ class MemoryStore:
     def set_fact_status(self, fact_id: int, status: str) -> bool:
         """Approve or reject a pending fact. True when a row changed."""
         return facts.set_fact_status(self, fact_id, status)
+
+    def edit_fact(self, fact_id: int, text: str) -> bool:
+        """Rewrite a live fact in place. True when a row changed."""
+        return facts.edit_fact(self, fact_id, text)
 
     def archive_stale_pending_facts(self, *, older_than_days: int = 30) -> int:
         """Reject pending facts older than the cutoff. Returns how many rows changed."""
@@ -792,6 +830,9 @@ class MemoryStore:
     ) -> list[dict[str, Any]]:
         return facts.list_decisions(self, project, limit)
 
+    def list_all_decisions(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        return facts.list_all_decisions(self, limit=limit)
+
     def add_episode(
         self,
         summary: str,
@@ -855,6 +896,10 @@ class MemoryStore:
 
     def get_summary(self, session_id: str) -> str:
         return sessions.get_summary(self, session_id)
+
+    def insert_compaction_marker(self, kept: list[Any]) -> bool:
+        """Place a transcript marker before the kept working-set rows."""
+        return sessions.insert_compaction_marker(self, kept)
 
     def search(self, query: str, *, limit: int = 20) -> list[SearchHit]:
         """Keyword search across archived messages.

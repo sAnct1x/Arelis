@@ -17,8 +17,11 @@ menu. A small mote below the orbit opens it too. The window sits as an
 inset over the main plate (no OS frame) and leaves a strip on the right
 uncovered. It takes its colours from the theme you are using (Night,
 Sodium, or Filament). While it is open, Arelis and the orbit tree fade
-to about 20 percent. Closing it, quitting Arelis, or an error that
-cannot show the page restores them. Esc or the close mote on the inset
+to about 20 percent, and chat (the composer and the transcript) is hidden
+and disabled so the window is free for the Overseer. Closing it, quitting
+Arelis, or an error that cannot show the page restores the fade; chat
+comes back for the current theme when the window closes, including a
+reply that arrived while it was open. Esc or the close mote on the inset
 closes it. The close mote is drawn inside the 3D scene, top right; Tab reaches
 it and Enter or Space presses it.
 Chat is off while the window is open, and the scene uses the whole window:
@@ -291,7 +294,8 @@ If Sentinel is not running she says so instead of guessing.
 - "Deploy three more wardens." She adds up to 50 units of a known caste at
   a time; the swarm's own unit limit still applies.
 - "Stand down the harvesters" or "retire unit SNT-WRD-002." She retires one
-  unit or a whole caste.
+  unit or a whole caste. "Stand down those 3 harvesters" retires exactly 3
+  and leaves the rest; she tells you how many she retired and how many remain.
 - "Have the wardens scan sockets." She gives a caste one task it really
   supports: harvesters fetch a page or search arXiv, Horizons or Wikipedia;
   wardens scan sockets, check a URL or intercept; tripwires watch a folder or

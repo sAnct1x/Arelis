@@ -372,8 +372,14 @@ unshipped: importable, cold-start safe, not a product to improve here.
 
 - Chat history is capped at `agent.history_max_messages` (shipped at 600)
   as a backstop. The token budget is the real limit. When either one
-  trips, a block is dropped down to about half so the prompt prefix
-  breaks once, then holds, instead of sliding every turn.
+  trips, a block is folded down to about half so the prompt prefix
+  breaks once, then holds, instead of sliding every turn. The fold
+  keeps a short narrative (800 characters) plus a deterministic
+  verbatim list of numbers with units, equations, identifiers and
+  decisions (1,200 characters, 24 items; combined pin 2,000
+  characters). Reopening a long chat compacts the working set the same
+  way. The archive keeps the original messages, and the transcript
+  shows a marker at the cut.
 - The History dock shows past sessions plus any pending facts
   waiting for approval or rejection.
 - Active facts live in `memory.db`, managed under **Settings →

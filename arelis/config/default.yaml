@@ -232,6 +232,13 @@ agent:
   # There used to be two. SessionMemory defaulted to 40 and won, which meant the
   # oldest turns were deleted there — with no summary, no fold and no telemetry —
   # while the fold-instead-of-forget path below could never reach them.
+  #
+  # When this cap or the token budget trips, the fold keeps a short narrative
+  # (at most 800 characters) plus a deterministic verbatim list of exact
+  # numbers with units, equations or LaTeX, code identifiers and decisions
+  # (at most 1200 characters, 24 items). The combined pin is at most 2000
+  # characters. Reopening a long chat compacts the same way instead of
+  # silently trimming. The archive keeps the original messages.
   history_max_messages: 600
   # Always keep this many recent prompt-visible messages, even when the
   # system prefix has already spent the token budget. 6 = prior 2 turns
@@ -602,6 +609,14 @@ voice:
   # the file is empty.
   debug: false
 
+  # First spoken pass uses a short prompt with no tool schemas so the first
+  # words can start sooner. If she needs a tool she says a short filler and
+  # then runs the normal tool loop. Typed chat is unchanged. Off by default.
+  # Set true in config.local.yaml to turn it on. Switching between spoken
+  # replies and typed or tool turns may cost a longer first wait.
+  lane:
+    enabled: false
+
   # Live onset / end-point detector for conversation and dictate.
   # silero = neural speech probability (default). energy = RMS floor fallback.
   # Missing ONNX/deps fall back to energy automatically.
@@ -636,9 +651,16 @@ voice:
 
   stt:
     enabled: true
+    # whisper (default until a bench picks otherwise) | parakeet (NVIDIA
+    # Parakeet TDT 0.6B v3, int8 ONNX, CPU via sherpa-onnx). First use of
+    # parakeet downloads about 487 MB into the user models folder. This is
+    # not a tool or router setting; set it in config.local.yaml and restart.
+    engine: whisper
     # faster-whisper (default ear: full-utterance attention, punctuation, and
     # initial_prompt vocabulary biasing) | sherpa (streaming Zipformer ear).
     backend: faster-whisper
+    # Where the Parakeet pack lands on first use. Not shipped in the installer.
+    parakeet_dir: "models/parakeet"
     model_dir: "models/sherpa"
     allow_download: true
     # Greedy locks the first token. A letter like "x" then becomes "ax"
@@ -703,17 +725,26 @@ voice:
     short_silence_ms: 450
     short_utterance_ms: 2800
     # Ceiling of silence after real speech that ends a turn even if Smart Turn
-    # thinks the speaker is still mid-thought, and the floor when Smart Turn is off.
-    end_silence_ms: 2500
+    # thinks the speaker is still mid-thought, and the floor when Smart Turn is
+    # off. 1400 ms is in the 1200-1500 ms band: after the short Silero pause
+    # there is still time to resume mid-thought, and the worst-case wait is
+    # 1.1 s shorter than the old 2500 ms cap. Override this if you pause longer.
+    end_silence_ms: 1400
     # Level counted as speech, as a fraction of full scale. The floor is also
     # measured from the room at the start of each listen and the higher of the
     # two wins, so this is a lower bound rather than the whole test.
     # (energy backend only; Silero uses voice.vad.threshold)
     speech_level: 0.015
     max_utterance_s: 60
-    # Talking over her cuts her off. Turn this off if you use speakers rather
-    # than a headset, where her own voice can trip the microphone.
-    barge_in: true
+    # Talking over her cuts her off. headset (default) arms that only when
+    # the output device looks like a headset or headphones (AirPods,
+    # Bluetooth hands-free, and names that contain Headset or Headphones).
+    # On speakers, or an unknown output, her own voice would reach the mic
+    # with no echo cancellation, so barge-in stays off during playback;
+    # use a headset, or press Stop, until echo cancellation lands.
+    # always is today's behaviour on any device. off disables playback
+    # interrupts. Legacy true/false in a local config mean always/off.
+    barge_in: headset
     # Headset default: the interrupt clip is the next question. Speakers:
     # false keeps the mixed clip as control-only (stop / allow / deny).
     barge_in_as_turn: true

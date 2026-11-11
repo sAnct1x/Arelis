@@ -13,6 +13,12 @@ from typing import Any
 from uuid import uuid4
 
 from arelis.core.bus import EventBus
+from arelis.core.compaction import (
+    COMPACTION_MARKER,
+    MAX_SUMMARY_CHARS,
+    SUMMARY_RESERVE_TOKENS,
+    compaction_prompt_line,
+)
 from arelis.core.context import (
     TokenRatios,
     allocate_history,
@@ -377,14 +383,19 @@ _JS_SHELL_BROWSER_NOTICE = (
 )
 
 # Room left for the summary pin when deciding what still fits as raw history.
-# The real summary is capped separately; this only keeps allocate_history from
+# The real pin is capped separately; this only keeps allocate_history from
 # filling the window so tightly that the pin itself would force another drop.
-_SUMMARY_RESERVE_TOKENS = 256
-_MAX_SUMMARY_CHARS = 800
+_SUMMARY_RESERVE_TOKENS = SUMMARY_RESERVE_TOKENS
+_MAX_SUMMARY_CHARS = MAX_SUMMARY_CHARS
 
 _SUMMARY_SYSTEM = """
 You compress older turns of a conversation so a later model call can still use them.
 Write only the filled-in form. No preamble.
+
+In SUMMARY, keep exact numbers with their units, equations or LaTeX, code
+identifiers, and decisions word for word. Do not round, paraphrase, or drop them.
+A later step also copies those values from the original turns, so omitting
+one does not delete it, but the paragraph should still name them.
 
 FACTS are rare. Only list durable identity or preference truths that should
 still matter months from now (job, school, name preferences, standing project
@@ -410,7 +421,8 @@ _MAX_PROPOSED_FACTS = 2
 
 # Telegraph policy every turn. Cards in skills.py author the long form and
 # classify turns; they are not pasted into the prompt. Byte-stable so the
-# prefix cache lives. The tail still varies (preflight, facts, clock).
+# prefix cache lives. Slowly changing session lines (profile, theme, the
+# spoken policy) pin after this. The tail still varies (preflight, clock).
 TOOL_POLICY = full_tool_policy()
 STATIC_TOOL_POLICY = TOOL_POLICY
 
@@ -418,8 +430,9 @@ STATIC_TOOL_POLICY = TOOL_POLICY
 def static_system_prefix(persona: str) -> list[dict[str, str]]:
     """Byte-stable system prefix for KV/prefix cache across turns.
 
-    Persona + the compact tool policy. Everything turn-specific (clock,
-    preflight, facts, …) must trail this list.
+    Persona + the compact tool policy. Slowly changing session context
+    is pinned after this list, still ahead of history. Only this-turn
+    lines (clock, preflight, lessons) trail history.
     """
     return [
         {"role": "system", "content": persona},
@@ -965,6 +978,8 @@ class AgentLoop:
             return
         self._active_turn = ctx
         try:
+            if await self._maybe_voice_lane(ctx):
+                return
             for round_i in range(1, self.max_rounds + 1):
                 if self._wants_close():
                     await self._close_from_gathered(ctx)
@@ -1058,6 +1073,93 @@ class AgentLoop:
             typed_text=typed_text,
             staged_files=staged_files,
         )
+
+    def _voice_lane_will_speak(self) -> bool:
+        """Same gate _finish uses before it hands a reply to the speaker."""
+        voice = self.config.get("voice") or {}
+        tts = voice.get("tts") if isinstance(voice, dict) else None
+        tts_on = True if not isinstance(tts, dict) else bool(tts.get("enabled", True))
+        return (
+            bool(voice.get("enabled"))
+            and tts_on
+            and getattr(self, "_turn_source", "chat") != "mobile"
+        )
+
+    async def _speak_voice_lane_filler(self) -> None:
+        """Speak a short line before the tool loop. Not stored as the answer."""
+        from arelis.core.voice_lane import filler_text
+
+        line = filler_text(self.config)
+        await self.bus.publish(
+            Event(EventType.THINKING, {"text": f"voice_lane filler={line}"})
+        )
+        if not self._voice_lane_will_speak():
+            return
+        await self.bus.publish(Event(EventType.VOICE_SPEAK, {"text": line}))
+
+    async def _maybe_voice_lane(self, ctx: TurnContext) -> bool:
+        """Run the short spoken first pass. True when the turn is already finished.
+
+        A direct answer ends the turn here. A tool signal speaks a filler and
+        leaves the already-prepared full-tool context for the normal loop.
+        Spoken turns that already expect a tool skip the probe, speak the
+        same filler, and keep today's tool request so the schema prefix
+        stays warm.
+        """
+        from arelis.core.voice_lane import (
+            VOICE_LANE_MAX_TOKENS,
+            build_first_pass_messages,
+            first_pass_needs_tool,
+            should_run_first_pass,
+            should_speak_routed_filler,
+        )
+
+        if getattr(self, "_look", None) is not None:
+            return False
+        if should_speak_routed_filler(ctx, self.config) and not should_run_first_pass(
+            ctx, self.config
+        ):
+            await self._speak_voice_lane_filler()
+            if self._timer is not None:
+                self._timer.mark("voice_lane", result="routed")
+            return False
+        if not should_run_first_pass(ctx, self.config):
+            return False
+        messages = await build_first_pass_messages(self, ctx)
+        try:
+            raw, tool_calls, _streamed = await self._stream_round(
+                self._turn_role,
+                messages,
+                None,
+                round_n=0,
+                expect_tools=False,
+                hold_paint=True,
+                num_predict=VOICE_LANE_MAX_TOKENS,
+            )
+        except (_StoppedError, asyncio.CancelledError, _CloseError):
+            raise
+        except Exception as exc:
+            await self._retract()
+            failure = classify_turn_failure(
+                exc,
+                model=self.router.model_for(self._turn_role),
+                role=str(self._turn_role or ""),
+                config=self.config,
+                backend=getattr(self.router, "provider", None),
+            )
+            await self._publish_error(failure.chat, detail=failure.detail)
+            return True
+        content = strip_thinking_text(raw)
+        if tool_calls or first_pass_needs_tool(content):
+            await self._retract()
+            await self._speak_voice_lane_filler()
+            if self._timer is not None:
+                self._timer.mark("voice_lane", result="handoff")
+            return False
+        if self._timer is not None:
+            self._timer.mark("voice_lane", result="answer")
+        await self._finish(content, ctx.sources, streamed="")
+        return True
 
     async def _run_round(self, ctx: TurnContext, round_i: int) -> bool:
         from arelis.core.turn_round import run_round
@@ -1336,9 +1438,9 @@ class AgentLoop:
         not bounce through the fast model and pay a VRAM swap before it starts.
         On the common fast path that is the warm model already.
 
-        ``turn_tail`` is this turn's system text (clock, preflight, goal, and
-        the rest). It is inserted after history and before the latest user
-        line so a later turn can keep the bytes in front of it.
+        ``turn_tail`` is this turn's volatile system text (clock, preflight,
+        goal, lessons, world state). It is inserted after history and before
+        the latest user line so a later turn can keep the bytes in front of it.
         """
         agent_cfg = self.config.get("agent") or {}
         # Not named tail: split_recent_history assigns that name below.
@@ -1355,7 +1457,7 @@ class AgentLoop:
             pinned.append(
                 {
                     "role": "system",
-                    "content": f"[earlier in this conversation: {self.memory.summary}]",
+                    "content": compaction_prompt_line(self.memory.summary),
                 }
             )
         # Message-count backstop. The token budget is the real limit. A tool
@@ -1419,36 +1521,11 @@ class AgentLoop:
         if not dropped:
             return _with_tail(pinned, kept)
 
-        # Conversation mode: a second model pass to fold two old turns costs
-        # ~1-2s and shows up in turns.log every spoken reply. The archive
-        # already has those messages; drop them and keep answering.
-        # Slash commands also skip the model summarize (H1 / L7).
-        skip_summarize = bool(self.config.get("_speak_replies")) or (
-            bool(agent_cfg.get("summarize_skip_slash", True))
-            and (user_text or "").lstrip().startswith("/")
-        ) or (role or "").strip().lower() == "research"
-        if skip_summarize:
-            n_drop = len(dropped)
-            self.memory.drop_prompt_prefix(n_drop, include_notes=notes)
-            if self.config.get("_speak_replies"):
-                mode = "speak"
-            elif (role or "").strip().lower() == "research":
-                mode = "research"
-            else:
-                mode = "slash"
-            if self._timer is not None:
-                self._timer.mark("drop", dropped=n_drop, mode=mode)
-            await self.bus.publish(
-                Event(
-                    EventType.THINKING,
-                    {"text": f"phase=drop dropped={n_drop} mode={mode}"},
-                )
-            )
-            return _with_tail(pinned, _live_history())
-
         # Re-allocate against a smaller budget, because a summary pin is about to
         # take room the first pass did not reserve. Same older/tail split: the
-        # history has not changed, only what it has to fit inside.
+        # history has not changed, only what it has to fit inside. Speak, slash,
+        # research and timeout folds inject that pin too, so they share this
+        # reserve; otherwise a window packed on the first pass can overflow.
         remaining = budget - pinned_cost - tail_cost - _SUMMARY_RESERVE_TOKENS
         if remaining <= 0 or not older:
             dropped = list(older)
@@ -1464,6 +1541,51 @@ class AgentLoop:
             dropped = [*capped_drop, *dropped]
         if not dropped:
             return _with_tail(pinned, kept)
+
+        def _fitted_after_pin() -> list[dict[str, Any]]:
+            # Once the pin is known, fit the remaining history to the real cost
+            # so a tighter ratio cannot still overflow the reserved slack.
+            pinned_now = self._pinned_with_summary(system_messages)
+            pin_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned_now) + sum(
+                message_tokens(m, chars_per_token=ratio) for m in turn_lines
+            )
+            remaining_history = _live_history()
+            older_now, tail_now = split_recent_history(remaining_history, min_recent)
+            tail_now_cost = sum(message_tokens(m, chars_per_token=ratio) for m in tail_now)
+            room = budget - pin_cost - tail_now_cost
+            if room <= 0 or not older_now:
+                kept_now = list(tail_now)
+            else:
+                kept_older, _more = allocate_history(older_now, max(0, room), chars_per_token=ratio)
+                kept_now = [*kept_older, *tail_now]
+            return _with_tail(pinned_now, kept_now)
+
+        # Conversation mode: a second model pass to fold two old turns costs
+        # ~1-2s and shows up in turns.log every spoken reply. The archive
+        # already has those messages; drop them and keep answering.
+        # Slash commands also skip the model summarize (H1 / L7).
+        skip_summarize = bool(self.config.get("_speak_replies")) or (
+            bool(agent_cfg.get("summarize_skip_slash", True))
+            and (user_text or "").lstrip().startswith("/")
+        ) or (role or "").strip().lower() == "research"
+        if skip_summarize:
+            n_drop = len(dropped)
+            await self._fold_dropped_rows(dropped, include_notes=notes)
+            if self.config.get("_speak_replies"):
+                mode = "speak"
+            elif (role or "").strip().lower() == "research":
+                mode = "research"
+            else:
+                mode = "slash"
+            if self._timer is not None:
+                self._timer.mark("drop", dropped=n_drop, mode=mode)
+            await self.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": f"phase=drop dropped={n_drop} mode={mode}"},
+                )
+            )
+            return _fitted_after_pin()
 
         await self.bus.publish(
             Event(
@@ -1495,9 +1617,10 @@ class AgentLoop:
             )
         )
         if not summary and dropped:
-            # Budget/timeout: drop without model fold so the turn can proceed.
+            # Budget/timeout: no model paragraph, but verbatim values still
+            # fold into the pin so exact numbers are not discarded.
             n_drop = len(dropped)
-            self.memory.drop_prompt_prefix(n_drop, include_notes=notes)
+            await self._fold_dropped_rows(dropped, include_notes=notes)
             if self._timer is not None:
                 self._timer.mark("drop", dropped=n_drop, mode="summarize_timeout")
             await self.bus.publish(
@@ -1510,43 +1633,59 @@ class AgentLoop:
                     },
                 )
             )
-            return _with_tail(pinned, _live_history())
+            return _fitted_after_pin()
         if summary:
-            self.memory.set_summary(summary)
-            # Dropped prefix is now in the summary; keeping it in messages would
+            # Dropped prefix is now in the pin; keeping it in messages would
             # re-send it every turn and trigger another summarize immediately.
             # The archive sink has already stored those messages; only the
             # in-process working set shrinks.
-            self.memory.drop_prompt_prefix(len(dropped), include_notes=notes)
+            await self._fold_dropped_rows(
+                dropped, include_notes=notes, narrative=summary
+            )
         for fact in facts:
             self.memory.add_pending_fact(fact)
 
+        return _fitted_after_pin()
+
+    def _pinned_with_summary(
+        self, system_messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         pinned = list(system_messages)
+        line = compaction_prompt_line(self.memory.summary)
+        if line:
+            pinned.append({"role": "system", "content": line})
+        return pinned
+
+    async def _fold_dropped_rows(
+        self,
+        dropped: list[dict[str, Any]],
+        *,
+        include_notes: bool,
+        narrative: str = "",
+    ) -> None:
+        """Shrink the working set and keep a verbatim pin plus a chat marker."""
+        self.memory.drop_prompt_prefix(len(dropped), include_notes=include_notes)
+        self.memory.fold_dropped(dropped, narrative=narrative)
+        await self._publish_compaction()
+
+    async def _publish_compaction(self) -> None:
+        payload: dict[str, Any] = {"text": COMPACTION_MARKER}
         if self.memory.summary:
-            pinned.append(
+            payload["summary"] = self.memory.summary
+        sink = getattr(self.memory, "sink", None)
+        session_id = getattr(sink, "session_id", None) if sink is not None else None
+        getter = getattr(sink, "get_messages", None) if sink is not None else None
+        if session_id and callable(getter):
+            payload["session_id"] = session_id
+            payload["messages"] = [
                 {
-                    "role": "system",
-                    "content": f"[earlier in this conversation: {self.memory.summary}]",
+                    "role": str(row.get("role") or ""),
+                    "content": str(row.get("content") or ""),
+                    "note": str(row.get("note") or ""),
                 }
-            )
-        pinned_cost = sum(message_tokens(m, chars_per_token=ratio) for m in pinned) + sum(
-            message_tokens(m, chars_per_token=ratio) for m in turn_lines
-        )
-        remaining_history = self.memory.as_chat(
-            include_notes=not bool(self.config.get("_speak_replies")),
-            include_latest_block=False,
-        )
-        older, tail = split_recent_history(remaining_history, min_recent)
-        tail_cost = sum(message_tokens(m, chars_per_token=ratio) for m in tail)
-        room = budget - pinned_cost - tail_cost
-        if room <= 0 or not older:
-            kept = list(tail)
-        else:
-            kept_older, _more = allocate_history(
-                older, max(0, room), chars_per_token=ratio
-            )
-            kept = [*kept_older, *tail]
-        return _with_tail(pinned, kept)
+                for row in getter(session_id)
+            ]
+        await self.bus.publish(Event(EventType.CHAT_COMPACTED, payload))
 
     async def _summarize_dropped(
         self,
@@ -1622,17 +1761,24 @@ class AgentLoop:
         return _parse_summary_response("".join(parts))
 
     def _stream_options(
-        self, *, tools: bool = False, reply_cap: bool = False
+        self,
+        *,
+        tools: bool = False,
+        reply_cap: bool = False,
+        num_predict: int | None = None,
     ) -> dict[str, Any] | None:
         """Turn-sticky num_ctx, and cooler temperature on tool rounds.
 
         Chat rounds pass ``reply_cap`` so llama-server gets max_tokens.
         Without it a chat turn runs until the context window is full. The
         rolling summary calls this helper without that flag: it already has
-        a time budget, and the chat cap must not apply there.
+        a time budget, and the chat cap must not apply there. ``num_predict``
+        overrides the chat cap when a short first pass needs a tighter limit.
         """
         opts: dict[str, Any] = {}
-        if reply_cap:
+        if num_predict is not None:
+            opts["num_predict"] = int(num_predict)
+        elif reply_cap:
             opts["num_predict"] = _CHAT_MAX_TOKENS
         ctx = getattr(self, "_turn_num_ctx", None)
         if ctx is not None:
@@ -1678,6 +1824,8 @@ class AgentLoop:
         *,
         round_n: int = 0,
         expect_tools: bool | None = None,
+        hold_paint: bool | None = None,
+        num_predict: int | None = None,
     ) -> tuple[str, list[dict[str, Any]], str]:
         """Run one model step, painting candidate answer text as it arrives.
 
@@ -1701,9 +1849,10 @@ class AgentLoop:
         tool_round = bool(tools) and (
             bool(expect_tools) if expect_tools is not None else True
         )
-        hold_paint = tool_round and bool(
-            agent_cfg.get("stream_answer_after_tools", True)
-        )
+        if hold_paint is None:
+            hold_paint = tool_round and bool(
+                agent_cfg.get("stream_answer_after_tools", True)
+            )
         if hold_paint and os.environ.get("ARELIS_TEST_STREAM_REPLY") == "1":
             # Test hook: paint a tool round's answer as it streams, so a harness can watch
             # paragraphs land one by one (held, the whole reply appears in one frame).
@@ -1759,7 +1908,11 @@ class AgentLoop:
             think = False
         stream_kwargs: dict[str, Any] = {
             "tools": tools,
-            "options": self._stream_options(tools=bool(tools), reply_cap=True),
+            "options": self._stream_options(
+                tools=bool(tools),
+                reply_cap=True,
+                num_predict=num_predict,
+            ),
         }
         if think is not None:
             stream_kwargs["think"] = think
@@ -1888,6 +2041,28 @@ class AgentLoop:
         await self.bus.publish(Event(EventType.THINKING, {"text": label}))
         await self.bus.publish(Event(EventType.STATUS, {"message": label}))
 
+
+    def _archive_open_assistant(
+        self, content: str = "", *, seal: bool = False, clear: bool = False
+    ) -> None:
+        """Write, seal, or drop the in-progress assistant row on the archive sink."""
+        sink = getattr(self.memory, "sink", None)
+        if sink is None:
+            return
+        if clear:
+            fn = getattr(sink, "clear_open_assistant", None)
+            if callable(fn):
+                fn()
+            return
+        if seal:
+            fn = getattr(sink, "seal_open_assistant", None)
+            if callable(fn):
+                fn(content)
+            return
+        fn = getattr(sink, "on_open_assistant", None)
+        if callable(fn):
+            fn(content)
+
     async def _publish_round_text(self, text: str) -> None:
         """Publish answer text. A later round starts its own paragraph."""
         if not text:
@@ -1909,6 +2084,9 @@ class AgentLoop:
         self._painted += text
         if self._timer is not None and text:
             self._timer.note_first_delta()
+        archive = getattr(self, "_archive_open_assistant", None)
+        if callable(archive):
+            archive(self._painted)
         await self.bus.publish(Event(EventType.ASSISTANT_DELTA, {"text": text}))
 
     async def _retract(self) -> None:
@@ -1917,6 +2095,9 @@ class AgentLoop:
         if not self._painted:
             return
         self._painted = ""
+        archive = getattr(self, "_archive_open_assistant", None)
+        if callable(archive):
+            archive(clear=True)
         await self.bus.publish(Event(EventType.ASSISTANT_RETRACT, {}))
 
     async def _confirm_wait_heartbeat(self, tool: str, started: float) -> None:
@@ -2103,11 +2284,11 @@ class AgentLoop:
             passthrough = tool_passthrough_note(passthrough_tool)
             note = f"{note}\n{passthrough}" if note else passthrough
         self._remember_sent_follow()
-        self.memory.add("assistant", final, note=note)
 
-        # Usually the answer was already streamed and only the appended Sources
-        # list is still owed. When the text changed under us, for example
-        # because a {"final": ...} payload replaced it, retract and resend.
+        # Catch up the bubble before writing the finished row. memory.add
+        # updates the open assistant row and clears its id, so a remainder
+        # or a retract-and-resend after that write would start a second row
+        # that is never sealed.
         already = streamed.strip()
         if already and final.startswith(already):
             remainder = final[len(already) :]
@@ -2116,6 +2297,8 @@ class AgentLoop:
         else:
             await self._retract()
             await self._publish_delta(final)
+
+        self.memory.add("assistant", final, note=note)
 
         self.terminal_sent = True
         self._painted = ""
@@ -2217,6 +2400,9 @@ class AgentLoop:
 
         word = tr("Stopped.")
         text = f"{partial}\n\n_{word}_" if partial else word
+        archive = getattr(self, "_archive_open_assistant", None)
+        if callable(archive):
+            archive(text, seal=True)
         # publish_nowait, not publish: this also runs while a CancelledError is
         # propagating, and anything that suspends there can be interrupted
         # again, which would lose the terminal event and hang the composer.
@@ -2226,6 +2412,9 @@ class AgentLoop:
 
     async def _publish_error(self, message: str, *, detail: str = "") -> None:
         self.terminal_sent = True
+        archive = getattr(self, "_archive_open_assistant", None)
+        if callable(archive) and self._painted.strip():
+            archive(self._painted, seal=True)
         self._painted = ""
         if detail:
             await self.bus.publish(Event(EventType.THINKING, {"text": detail}))

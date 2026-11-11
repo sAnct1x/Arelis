@@ -570,7 +570,7 @@ def soften_stt_case(text: str) -> str:
 
 
 class SpeechToText:
-    """Local STT adapter. Sherpa-ONNX by default; faster-whisper as fallback."""
+    """Local STT adapter. Whisper by default; Parakeet and Sherpa as options."""
 
     def __init__(self, config: dict[str, Any]) -> None:
         self._app_config = config
@@ -579,7 +579,35 @@ class SpeechToText:
         self._sherpa = None
         self._sherpa_failed = False
         self._sherpa_lang = ""
+        self._parakeet = None
+        self._parakeet_failed = False
+        self._fallback_notice: str | None = None
+        self._progress = None
+        self._cancelled = None
         self._lock = asyncio.Lock()
+
+    def set_progress(self, progress) -> None:
+        """Optional (status, done, total) hook for a first-use download."""
+        self._progress = progress
+        if self._parakeet is not None:
+            self._parakeet.progress = progress
+
+    def set_cancelled(self, cancelled) -> None:
+        """Optional cancel hook for a first-use download."""
+        self._cancelled = cancelled
+        if self._parakeet is not None:
+            self._parakeet.cancelled = cancelled
+
+    def take_fallback_notice(self) -> str | None:
+        notice = self._fallback_notice
+        self._fallback_notice = None
+        return notice
+
+    def requested_engine(self) -> str:
+        raw = str(self.config.get("engine") or "whisper").strip().lower()
+        if raw in {"parakeet", "parakeet-tdt", "parakeet_tdt"}:
+            return "parakeet"
+        return "whisper"
 
     def _ear_language(self) -> str:
         """Conversation ear. Wake stays on the English phrase matcher."""
@@ -614,6 +642,11 @@ class SpeechToText:
             # Prefer Whisper once it is actually in RAM. Until then Sherpa
             # hears the doorbell — waiting on a HuggingFace check left the
             # mic closed for minutes after Sherpa was already up.
+            # Parakeet is opt-in for turns only; wake stays off that download.
+            if self.requested_engine() == "parakeet":
+                if whisper_loaded or whisper_pkg:
+                    return "faster-whisper"
+                return None
             if whisper_loaded:
                 return "faster-whisper"
             if not self._sherpa_failed and self._sherpa_usable():
@@ -621,6 +654,12 @@ class SpeechToText:
             if whisper_pkg:
                 return "faster-whisper"
             return None
+        if (
+            self.requested_engine() == "parakeet"
+            and not self._parakeet_failed
+            and self._parakeet_usable()
+        ):
+            return "parakeet"
         want = self.requested_backend()
         if want == "sherpa" and not self._sherpa_failed and self._sherpa_usable():
             return "sherpa"
@@ -632,6 +671,8 @@ class SpeechToText:
         return self.resolved_backend() is not None
 
     def _backend_in_memory(self, backend: str | None) -> bool:
+        if backend == "parakeet":
+            return self._parakeet is not None and self._parakeet.loaded()
         if backend == "sherpa":
             return self._sherpa is not None and self._sherpa.loaded()
         if backend == "faster-whisper":
@@ -686,6 +727,8 @@ class SpeechToText:
 
     def ensure_sherpa(self) -> None:
         """Load Zipformer only. Enough for the doorbell while Whisper warms."""
+        if self.requested_engine() == "parakeet" and self.requested_backend() != "sherpa":
+            return
         if self._sherpa_failed or not self._sherpa_usable():
             return
         self._sherpa_engine().ensure_loaded()
@@ -698,6 +741,22 @@ class SpeechToText:
             await asyncio.to_thread(self._ensure_active)
 
     def _transcribe_blocking(self, audio_path: str, purpose: str = "turn") -> str:
+        if self.resolved_backend(purpose=purpose) == "parakeet":
+            try:
+                text = self._parakeet_engine().transcribe(audio_path)
+            except Exception as exc:
+                from arelis.voice.parakeet_stt import ParakeetUnavailableError
+
+                if isinstance(exc, ParakeetUnavailableError) and self._whisper_installed():
+                    log.warning("Parakeet STT unavailable (%s); using faster-whisper", exc)
+                    # A user Stop is for this clip only; the next use can retry.
+                    if "stopped" not in str(exc).lower():
+                        self._parakeet_failed = True
+                    self._fallback_notice = str(exc)
+                else:
+                    raise
+            else:
+                return soften_stt_case(scrub_transcript(text))
         if self.resolved_backend(purpose=purpose) == "sherpa":
             try:
                 text = self._sherpa_engine().transcribe(audio_path)
@@ -781,6 +840,22 @@ class SpeechToText:
         # in the background so later clips can switch.
         if self._whisper_installed():
             backends.add("faster-whisper")
+        if self.requested_engine() == "parakeet" and self.requested_backend() != "sherpa":
+            backends.discard("sherpa")
+        if "parakeet" in backends:
+            try:
+                self._parakeet_engine().ensure_loaded()
+            except Exception as exc:
+                from arelis.voice.parakeet_stt import ParakeetUnavailableError
+
+                if isinstance(exc, ParakeetUnavailableError) and self._whisper_installed():
+                    log.warning("Parakeet STT preload failed (%s); using faster-whisper", exc)
+                    if "stopped" not in str(exc).lower():
+                        self._parakeet_failed = True
+                    self._fallback_notice = str(exc)
+                    backends.add("faster-whisper")
+                else:
+                    raise
         if "sherpa" in backends:
             try:
                 self._sherpa_engine().ensure_loaded()
@@ -843,6 +918,25 @@ class SpeechToText:
         cfg = dict(self.config)
         cfg["pack_language"] = self._ear_language()
         return sherpa_usable(cfg)
+
+    def _parakeet_engine(self):
+        from arelis.voice.parakeet_stt import ParakeetSpeechToText
+
+        if self._parakeet is None:
+            self._parakeet = ParakeetSpeechToText(
+                dict(self.config),
+                progress=self._progress,
+                cancelled=self._cancelled,
+            )
+        else:
+            self._parakeet.progress = self._progress
+            self._parakeet.cancelled = self._cancelled
+        return self._parakeet
+
+    def _parakeet_usable(self) -> bool:
+        from arelis.voice.parakeet_stt import parakeet_usable
+
+        return parakeet_usable(self.config)
 
     def _whisper_installed(self) -> bool:
         try:

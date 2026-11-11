@@ -189,6 +189,8 @@ def apply_settings(window, values: dict[str, Any]) -> None:
 
     if window.voice_controller is not None and "input_device" in voice_patch:
         window.voice_controller.set_input_device(str(voice_patch.get("input_device") or ""))
+    if window.voice_controller is not None and "output_device" in voice_patch:
+        window.voice_controller.set_output_device(str(voice_patch.get("output_device") or ""))
     if window.speech_player is not None:
         if "output_device" in voice_patch:
             window.speech_player.set_output_device(str(voice_patch.get("output_device") or ""))
@@ -351,6 +353,10 @@ def _apply_window_theme(window, theme_id: str, *, persist: bool, trace=None) -> 
             sync()
         finally:
             window._theme_trace = None
+    if getattr(window, "_overseer_chat_suspend", None) is not None:
+        from arelis.ui.sentinel_presence import suspend_chat_for_overseer
+
+        suspend_chat_for_overseer(window)
     window.update()
     if trace is not None:
         trace.mark("layout")
@@ -449,7 +455,16 @@ def open_settings(window, tab: str = "") -> None:
         if window.store is not None:
             dlg.set_active_facts(window.store.list_facts(status="active", limit=50))
 
+    def _on_memory_edit(fact_id: int, text: str) -> None:
+        if window.store is None:
+            return
+        if not window.store.edit_fact(int(fact_id), text):
+            return
+        window.thinking.append("fact updated", kind="status")
+        dlg.set_active_facts(window.store.list_facts(status="active", limit=50))
+
     dlg.fact_decided.connect(_on_memory_fact)
+    dlg.fact_edited.connect(_on_memory_edit)
     dlg.exec()
 
 

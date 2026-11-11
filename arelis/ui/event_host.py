@@ -466,6 +466,24 @@ def dispatch_event(window: Any, event: Event) -> None:
         from arelis.ui.idle_host import sync_idle_mode
 
         sync_idle_mode(window)
+    elif t == EventType.CHAT_COMPACTED:
+        messages = p.get("messages") or []
+        if isinstance(messages, list) and messages:
+            window.chat.load_messages(
+                [
+                    {
+                        "role": str(m.get("role") or ""),
+                        "content": str(m.get("content") or ""),
+                        "note": str(m.get("note") or ""),
+                    }
+                    for m in messages
+                    if isinstance(m, dict)
+                ]
+            )
+        else:
+            text = str(p.get("text") or "").strip()
+            if text:
+                window.chat.add_system(text)
     elif t == EventType.ROOM_CHANGED:
         # Leftover Reality/spatial hook. Nothing publishes this now.
         room_id = str(p.get("room_id") or "")
@@ -493,8 +511,12 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.thinking.append(text, kind="trace")
     elif t == EventType.STATUS:
         msg = p.get("message", "")
-        if p.get("image_progress"):
-            window.chat.show_progress(str(msg))
+        if p.get("image_progress") or p.get("progress"):
+            text = str(msg)
+            if p.get("progress") == "clear" or not text:
+                window.chat.clear_progress()
+                return
+            window.chat.show_progress(text)
             return
         window.thinking.append(tr(msg), kind="status")
         # Listen URL stays in thinking — a system line on cold launch hid the

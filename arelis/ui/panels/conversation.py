@@ -235,6 +235,8 @@ class ConversationStage(GlassFrame):
         # Same copy _sync_composer_buttons() settles on, so the two agree. The
         # idle prompt is the centered VoidIdlePlaceholder label, not this.
         self.input.setPlaceholderText("message Arelis…")
+        self.input.setAccessibleName("Message")
+        self.input.setAccessibleDescription("message box")
         self.input.setFixedHeight(METRICS["control"])
         self.input.image_paste_requested.connect(self._paste_clipboard_image)
         self.input.textChanged.connect(self._on_composer_text)
@@ -427,7 +429,13 @@ class ConversationStage(GlassFrame):
         self._stage_paths(paths)
         event.acceptProposedAction()
 
+    def _overseer_hides_chat(self) -> bool:
+        win = self.window()
+        return bool(win is not None and getattr(win, "_overseer_chat_suspend", None))
+
     def _pick_files(self) -> None:
+        if self._overseer_hides_chat():
+            return
         paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Attach files for Arelis",
@@ -1156,6 +1164,8 @@ class ConversationStage(GlassFrame):
         """
         text = text.strip()
         if not text:
+            return
+        if self._overseer_hides_chat():
             return
         existing = self.input.text().strip()
         self.input.setText(f"{existing} {text}".strip() if existing else text)

@@ -37,36 +37,39 @@ def test_operating_and_delivery_sections_keep_the_volatile_tail_last(monkeypatch
         _expected_tools=set(),
         _active_facts_line=lambda: "FACTS",
         memory=SimpleNamespace(sink=Store()),
+        tools=None,
     )
     messages = [
         {"role": "system", "content": "PERSONA"},
         {"role": "system", "content": "POLICY"},
     ]
 
-    sections.append_operating_context(
-        messages,
+    prefix = list(messages)
+    tail: list[dict[str, str]] = []
+    sections.append_stable_operating_context(prefix, loop, active_room=room)
+    sections.append_stable_delivery_context(prefix, loop, speak=True)
+    sections.append_volatile_operating_context(
+        tail,
         loop,
         role="fast",
         model="model",
         skill_ids=[],
-        active_room=room,
     )
-    sections.append_delivery_context(messages, loop, speak=True)
+    sections.append_clock(tail, loop)
 
-    contents = [message["content"] for message in messages]
-    assert contents[:2] == ["PERSONA", "POLICY"]
-    assert contents[2:10] == [
-        "WORKSPACE",
+    prefix_contents = [message["content"] for message in prefix]
+    tail_contents = [message["content"] for message in tail]
+    assert prefix_contents[:2] == ["PERSONA", "POLICY"]
+    assert prefix_contents[2:7] == [
         "ROOM",
         "LOCATION",
         "PROFILE",
         "CONTACTS",
-        "FACTS",
         "EPISODES",
-        "WORLD",
     ]
-    assert contents[-3:] == ["LANGUAGE", "THEME", "NOW"]
-    assert "conversation mode" in contents[-4]
+    assert "conversation mode" in prefix_contents[7]
+    assert prefix_contents[8:] == ["LANGUAGE", "THEME"]
+    assert tail_contents == ["WORKSPACE", "WORLD", "NOW"]
 
 
 @pytest.mark.asyncio
@@ -166,18 +169,37 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
     )
     monkeypatch.setattr(
         subject,
-        "append_operating_context",
+        "append_stable_operating_context",
         lambda messages, *_a, **_k: messages.append(
-            {"role": "system", "content": "OPERATING"}
+            {"role": "system", "content": "STABLE_OPERATING"}
         ),
     )
     monkeypatch.setattr(
         subject,
-        "append_delivery_context",
+        "append_stable_delivery_context",
         lambda messages, *_a, **_k: messages.append(
-            {"role": "system", "content": "DELIVERY"}
+            {"role": "system", "content": "STABLE_DELIVERY"}
         ),
     )
+    monkeypatch.setattr(
+        subject,
+        "append_volatile_operating_context",
+        lambda messages, *_a, **_k: messages.append(
+            {"role": "system", "content": "VOLATILE_OPERATING"}
+        ),
+    )
+    monkeypatch.setattr(
+        subject,
+        "append_clock",
+        lambda messages, *_a, **_k: messages.append(
+            {"role": "system", "content": "CLOCK"}
+        ),
+    )
+
+    async def fake_retrieve(_loop, _text):
+        return "RETRIEVED"
+
+    monkeypatch.setattr(subject, "memories_prompt_for_turn", fake_retrieve)
     monkeypatch.setattr(subject, "detect_exactness_need", lambda _text, **_k: captured.update(data_cell=_k.get("data_cell")) or SimpleNamespace(
         needs_web_evidence=False,
         needs_weather=False,
@@ -199,12 +221,15 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
     assert [message["content"] for message in ctx.messages] == [
         "PERSONA",
         "POLICY",
+        "STABLE_OPERATING",
+        "STABLE_DELIVERY",
         "STOPPED",
         "PREFLIGHT",
         "GOAL",
         "PLAN_LESSONS",
-        "OPERATING",
-        "DELIVERY",
+        "VOLATILE_OPERATING",
+        "RETRIEVED",
+        "CLOCK",
         "hello",
     ]
     assert captured["history_args"] == (1234, 4.0, "fast", "hello")
