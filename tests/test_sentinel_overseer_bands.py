@@ -47,7 +47,7 @@ def test_bands_grow_with_units_and_sources_sit_past_the_perimeter() -> None:
     assert hb["radius"] > hs["radius"]
     assert big["perimeter"] >= 44.0 and big["sourceRadius"] == round(big["perimeter"] + 1.0, 4)
     nodes, _labels = o.build_source_nodes(
-        {sid: 0 for sid, *_ in o.HARVEST_SOURCES}, radius=40.0
+        {sid: 1 for sid, *_ in o.HARVEST_SOURCES}, radius=40.0
     )
     assert nodes and all(
         math.isclose(math.hypot(c["x"], c["z"]), 40.0, abs_tol=0.05) for c in nodes

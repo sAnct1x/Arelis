@@ -21,7 +21,7 @@ def test_source_nodes_beam_only_when_harvest_fetch_is_live() -> None:
     assert o.normalize_harvest_source("arxiv") == "arxiv"
     assert o.normalize_harvest_source("wikipedia", "Star") == "wikipedia"
     assert o.normalize_harvest_source("horizons", "Mars") == "horizons"
-    assert o.normalize_harvest_source("url", "https://example.com/a") == "web"
+    assert o.normalize_harvest_source("url", "https://example.com/a") == "example.com"
     assert o.normalize_harvest_source("synthetic") == ""
 
     idle = o.build_frame(
@@ -39,11 +39,9 @@ def test_source_nodes_beam_only_when_harvest_fetch_is_live() -> None:
     assert idle["activeSources"] == []
     nodes = idle["sourceNodes"]
     beams = [c for c in idle["conduits"] if str(c.get("id", "")).startswith("source-beam:")]
-    assert {c["id"] for c in nodes} == {"arxiv", "wikipedia", "horizons", "web"}
-    assert all(c["lit"] == 0.15 and c["scale"] == 1.0 for c in nodes)
+    assert nodes == []
+    assert idle["sourceLabels"] == []
     assert beams == []
-    assert len(idle["sourceLabels"]) == 4
-    assert all(not row["hot"] for row in idle["sourceLabels"])
 
     # Live harvest_target node (hive removes it when the fetch ends).
     live_nodes = [
@@ -73,9 +71,9 @@ def test_source_nodes_beam_only_when_harvest_fetch_is_live() -> None:
     beams = [c for c in busy["conduits"] if str(c.get("id", "")).startswith("source-beam:")]
     assert beams and all(c["source_id"] == "arxiv" for c in beams)
     hot = next(row for row in busy["sourceLabels"] if row["id"] == "arxiv")
-    cold = next(row for row in busy["sourceLabels"] if row["id"] == "wikipedia")
+    assert {row["id"] for row in busy["sourceLabels"]} == {"arxiv"}
     assert hot["hot"] is True
-    assert cold["hot"] is False
+    assert hot["label"] == "arXiv"
 
     # Unit task alone (no node yet) still lights the matching source.
     from_task = o.active_harvest_sources(
@@ -165,7 +163,25 @@ def test_source_labels_show_on_screen_and_keep_their_delegates(qt_app) -> None:
     assert (root.width(), root.height()) == (2110, 1306)
     # Fit swarm frames the whole hive, sources included, at every band size.
     root.fitSwarm()
-    root.applyFrame(o.build_frame([], 96.0, 1306.0, nodes=[]))
+    root.applyFrame(o.build_frame(
+        [{
+            "unit_id": "SNT-HRV-001",
+            "caste": "harvester",
+            "state": "ENGAGED_HARVEST",
+            "action": "arxiv",
+            "current_task": "arxiv: fusion",
+            "position": [10, 0.5, 2],
+        }],
+        96.0,
+        1306.0,
+        nodes=[{
+            "node_id": "ht-1",
+            "kind": "harvest_target",
+            "label": "arXiv",
+            "status": "extracting",
+            "metadata": {"action": "arxiv", "target": "fusion", "unit_id": "SNT-HRV-001"},
+        }],
+    ))
     qt_app.processEvents()
     rows = root.property("sourceLabelScreen")
     rows = rows.toVariant() if hasattr(rows, "toVariant") else rows
@@ -254,3 +270,97 @@ def test_default_view_frames_perimeter_and_every_source_label(qt_app) -> None:
     view.close()
     view.deleteLater()
     qt_app.processEvents()
+
+
+def test_harvest_sources_follow_real_hosts_not_a_fixed_catalog() -> None:
+    """Any fetch host or local tool gets its own source, not the Web bucket.
+
+    Idle snapshots do not paint the old four-name catalog. Overflow past
+    MAX_GATES folds by traffic then id; there is no invented 'other' gate.
+    Revert of the identity/catalog change fails this test.
+    """
+    assert o.normalize_harvest_source("url", "https://www.github.com/foo/bar") == "github.com"
+    assert o.harvest_source_label("github.com") == "github.com"
+    assert o.normalize_harvest_source("url", "http://localhost:8080/docs") == "localhost:8080"
+    assert o.normalize_harvest_source("files", "README.md") == "files"
+    assert o.normalize_harvest_source("url", "https://docs.python.org/3/") == "docs.python.org"
+    assert o.normalize_harvest_source("url", "https://news.ycombinator.com/item?id=1") == "news.ycombinator.com"
+    assert o.normalize_harvest_source("url", "https://example.com/a") == "example.com"
+    assert o.normalize_harvest_source("url", "https://export.arxiv.org/api/query") == "arxiv"
+    assert o.normalize_harvest_source("url", "https://en.wikipedia.org/wiki/Mars") == "wikipedia"
+    assert o.normalize_harvest_source("synthetic") == ""
+
+    idle = o.build_frame(
+        [{
+            "unit_id": "SNT-WRD-001",
+            "caste": "warden",
+            "state": "PATROLLING",
+            "position": [4, 0.5, 0],
+        }],
+        76.0,
+        nodes=[],
+    )
+    assert idle["sourceLabels"] == []
+    assert idle["sourceNodes"] == []
+    assert idle["activeSources"] == []
+
+    units = [
+        {
+            "unit_id": "SNT-HRV-001", "caste": "harvester", "state": "ENGAGED_HARVEST",
+            "position": [10, 0.5, 2], "action": "url",
+            "current_task": "https://github.com/x/y",
+        },
+        {
+            "unit_id": "SNT-HRV-002", "caste": "harvester", "state": "ENGAGED_HARVEST",
+            "position": [11, 0.5, 2], "action": "files",
+            "current_task": "files: README.md",
+        },
+        {
+            "unit_id": "SNT-HRV-003", "caste": "harvester", "state": "ENGAGED_HARVEST",
+            "position": [12, 0.5, 2], "action": "url",
+            "current_task": "http://localhost:8080/x",
+        },
+    ]
+    nodes = [
+        {
+            "node_id": "n1", "kind": "harvest_target", "status": "extracting",
+            "metadata": {"action": "url", "target": "https://github.com/x/y", "unit_id": "SNT-HRV-001"},
+        },
+        {
+            "node_id": "n2", "kind": "harvest_target", "status": "extracting",
+            "metadata": {"action": "files", "target": "README.md", "unit_id": "SNT-HRV-002"},
+        },
+        {
+            "node_id": "n3", "kind": "harvest_target", "status": "extracting",
+            "metadata": {"action": "url", "target": "http://localhost:8080/x", "unit_id": "SNT-HRV-003"},
+        },
+    ]
+    busy = o.build_frame(units, 76.0, nodes=nodes)
+    by_id = {row["id"]: row for row in busy["sourceLabels"]}
+    assert set(by_id) == {"github.com", "localhost:8080", "files"}
+    assert "web" not in by_id
+    assert by_id["github.com"]["label"] == "github.com"
+    assert by_id["localhost:8080"]["label"] == "localhost:8080"
+    assert by_id["files"]["label"] == "files"
+    pos = {sid: (row["x"], row["z"]) for sid, row in by_id.items()}
+    assert len(set(pos.values())) == 3
+
+    many_units, many_nodes = [], []
+    for i in range(9):
+        host = f"host{i:02d}.example.net"
+        uid = f"SNT-HRV-{i:03d}"
+        many_units.append({
+            "unit_id": uid, "caste": "harvester", "state": "ENGAGED_HARVEST",
+            "position": [10, 0.5, 2], "action": "url", "current_task": f"https://{host}/p",
+        })
+        many_nodes.append({
+            "node_id": f"n{i}", "kind": "harvest_target", "status": "extracting",
+            "metadata": {"action": "url", "target": f"https://{host}/p", "unit_id": uid},
+        })
+    over = o.build_frame(many_units, 76.0, nodes=many_nodes)
+    ids = [row["id"] for row in over["sourceLabels"]]
+    assert len(ids) == o._max_gates() == 8
+    assert "other" not in ids
+    assert "web" not in ids
+    assert "host08.example.net" not in ids
+    assert ids == sorted(ids)

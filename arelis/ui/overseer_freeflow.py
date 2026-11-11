@@ -258,8 +258,61 @@ class Sim:
             if d:
                 i = d[0]; self.docked[i] = False; self.state[i] = 'PATROLLING'
                 self.p[i] = ORB + np.array([0, -2.5, 0]) + bearing_pt(h(i * 0.7) * 6.28, ORB_KEEP + 1.0, 0); self.v[i] = np.array([0.5, 0.0, 0.5])
+    def ensure_source(self, source, label=None, theta=None, color=None):
+        """Create (or return) a source gateway for any harvest id."""
+        sid = str(source or "").strip()
+        if not sid:
+            raise KeyError("empty harvest source")
+        gid = "src-" + sid
+        if gid in self.gates:
+            g = self.gates[gid]
+            if label:
+                g.label = label
+            return g
+        if theta is None or color is None or not label:
+            from arelis.ui.overseer_runtime import harvest_source_record
+            rec = harvest_source_record(sid, taken=[g.theta for g in self.gates.values()])
+            label = label or rec["label"]
+            theta = rec["theta"] if theta is None else theta
+            color = color or rec["color"]
+        g = Gate(gid, "source", float(theta), label, color)
+        self.gates[gid] = g
+        return g
+
+    def reconcile_source_gates(self, sources):
+        """Keep source gateways in sync with snapshot-derived harvest ids.
+
+        Unused source gates with no assigned unit are dropped. Port gates
+        are left alone. Preset sources from init go away once the snapshot
+        names the real fetches.
+        """
+        want = []
+        for row in sources or []:
+            if isinstance(row, str):
+                sid = row
+                label = theta = color = None
+            else:
+                sid = str(row.get("id") or row.get("sid") or "")
+                label = row.get("label")
+                theta = row.get("theta")
+                color = row.get("color")
+            if sid:
+                want.append((sid, label, theta, color))
+        keep = set()
+        for sid, label, theta, color in want:
+            self.ensure_source(sid, label=label, theta=theta, color=color)
+            keep.add("src-" + sid)
+        in_use = {self.gate[i] for i in range(self.N) if self.gate[i]}
+        for gid in list(self.gates):
+            g = self.gates[gid]
+            if g.kind != "source":
+                continue
+            if gid in keep or gid in in_use:
+                continue
+            del self.gates[gid]
+
     def dispatch(self, i, source):
-        g = self.gates['src-' + source]
+        g = self.ensure_source(source)
         self.job[i] = source; self.gate[i] = g.id; self.state[i] = 'VECTORING'; self.sub[i] = 'to_gate'; self.timer[i] = 0; self.qstart[i] = self.t
         self.events.append((round(self.t, 2), i, 'VECTORING', source))
     def spawn_threat(self, gate_id, bearing_off=0.0, r0=55.0):
@@ -302,7 +355,9 @@ class Sim:
     def picket_station(self, i):
         """Tripwire i's still-picket station: gate (ports first, then sources) by slot, 2 m off the gate axis on the
         out-lane side (second row: the other side), PICKET_OUT m outside the shell, 1.2 m up."""
-        gl = [g for g in self.gates.values() if g.kind == 'port'] + [self.gates['src-' + s_[0]] for s_ in SOURCES]
+        gl = [g for g in self.gates.values() if g.kind == 'port'] + [g for g in self.gates.values() if g.kind == 'source']
+        if not gl:
+            return None, bearing_pt(0.0, BAR_A + 2.0, 1.2)
         g = gl[self.slot[i] % len(gl)]; row = self.slot[i] // len(gl); sideP = 1 if row % 2 == 0 else -1
         st_pt = g.c + g.n * (PICKET_OUT + 3.0 * (row // 2)) + g.t * (PICKET_OFF * sideP); st_pt[1] = 1.2
         return g, st_pt
@@ -1201,6 +1256,18 @@ class FreeflowSession:
             emp = bool(snap.get("emp") or snap.get("emp_active"))
         muted = bool(snap.get("egress_muted")) if isinstance(snap, dict) and "egress_muted" in snap else False
         self.sim.set_blocked(emp=emp, egress_muted=muted)
+        if isinstance(snap, dict):
+            from arelis.ui.overseer_runtime import source_open_counts, harvest_source_record
+            counts = source_open_counts(units, snap.get("nodes") if isinstance(snap.get("nodes"), list) else [])
+            recs = []
+            taken = [g.theta for g in self.sim.gates.values()]
+            for sid, n in counts.items():
+                if n <= 0:
+                    continue
+                rec = harvest_source_record(sid, taken)
+                taken.append(rec["theta"])
+                recs.append(rec)
+            self.sim.reconcile_source_gates(recs)
         tnow = float(now if now is not None else (snap.get("timestamp") if isinstance(snap, dict) else 0) or 0)
         steps = 1
         if self._last is not None and tnow > self._last:

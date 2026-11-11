@@ -114,8 +114,8 @@ def test_lod2_has_three_eyes_and_lod1_links_only_on_fetchers() -> None:
 
 def test_source_nodes_carry_request_counts_and_idle_lit() -> None:
     idle = o.build_frame([], 96.0, nodes=[])
-    assert len(idle["sourceNodes"]) == 4
-    assert all(n["lit"] == 0.15 and n["scale"] == 1.0 and n["status"] == "idle" for n in idle["sourceNodes"])
+    assert idle["sourceNodes"] == []
+    assert idle["sourceLabels"] == []
     assert "source-beacon:" not in "".join(c["id"] for c in idle["conduits"])
 
     units = [{
@@ -128,10 +128,9 @@ def test_source_nodes_carry_request_counts_and_idle_lit() -> None:
     }]
     busy = o.build_frame(units, 96.0, nodes=nodes)
     arxiv = next(n for n in busy["sourceNodes"] if n["id"] == "arxiv")
-    wiki = next(n for n in busy["sourceNodes"] if n["id"] == "wikipedia")
+    assert {n["id"] for n in busy["sourceNodes"]} == {"arxiv"}
     assert arxiv["open"] == 1 and arxiv["lit"] == 1.0 and arxiv["scale"] == 1.25
     assert arxiv["status"] == "1 requests open"
-    assert wiki["open"] == 0 and wiki["lit"] == 0.15 and wiki["status"] == "idle"
     label = next(r for r in busy["sourceLabels"] if r["id"] == "arxiv")
     assert label["status"] == "1 requests open"
 

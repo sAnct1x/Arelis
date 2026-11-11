@@ -15,6 +15,7 @@ from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from arelis.ui import overseer_curves as _overseer_curves  # noqa: F401
 
@@ -1755,35 +1756,194 @@ NODE_KIND_COLOR = {
     "merkle_root": "#7ee0c8",
 }
 
-# Fixed edge sources for the Overseer. Beams light only on a real harvest fetch.
+# Harvest sources are derived from the snapshot (any fetch host, local
+# tool, or local port). These presets only pin the display name, bearing,
+# and colour of well-known ids; they are not a closed catalog.
 HARVEST_SOURCE_EDGE_R = PERIMETER_MIN + SOURCE_PAST_PERIMETER
-HARVEST_SOURCES: tuple[tuple[str, str, float, str], ...] = (
-    # id, label, angle_radians (spec space, BAND-SPEC.md), color.
+HARVEST_SOURCE_PRESETS: dict[str, tuple[str, float, str]] = {
     # Horizons takes the spec's PubMed slot (62 deg); the hive has no PubMed source.
-    ("arxiv", "arXiv", math.radians(8.0), "#8fd3ff"),
-    ("wikipedia", "Wikipedia", math.radians(128.0), "#a78bfa"),
-    ("horizons", "Horizons", math.radians(62.0), "#7ee0c8"),
-    ("web", "Web", math.radians(160.0), "#e879f9"),
+    "arxiv": ("arXiv", math.radians(8.0), "#8fd3ff"),
+    "wikipedia": ("Wikipedia", math.radians(128.0), "#a78bfa"),
+    "horizons": ("Horizons", math.radians(62.0), "#7ee0c8"),
+    "web": ("Web", math.radians(160.0), "#e879f9"),
+}
+HARVEST_SOURCES: tuple[tuple[str, str, float, str], ...] = tuple(
+    (sid, label, ang, col) for sid, (label, ang, col) in HARVEST_SOURCE_PRESETS.items()
 )
-HARVEST_SOURCE_IDS = {row[0] for row in HARVEST_SOURCES}
+HARVEST_SOURCE_IDS = set(HARVEST_SOURCE_PRESETS)
+_SOURCE_PALETTE = ("#8fd3ff", "#a78bfa", "#7ee0c8", "#e879f9", "#38bdf8", "#f0abfc")
+# Port-gateway bearings (SPEC 2.2); new source bearings stay off this set.
+_PORT_BEARINGS = tuple(math.radians(a) for a in (348.0, 292.0, 248.0, 205.0))
+_BEARING_SEP = math.radians(16.0)
+_FETCH_VERBS = frozenset({
+    "url", "web", "fetch", "fetch_url", "harvest", "extracting", "query",
+    "http", "https", "open", "get", "browse", "search",
+})
+_URL_RE = re.compile(r"https?://[^\s<>\]\)]+", re.IGNORECASE)
+_LOCAL_RE = re.compile(r"\b(localhost|127\.0\.0\.1):(\d{1,5})\b", re.IGNORECASE)
+_TOOL_RE = re.compile(r"^[a-z][a-z0-9_]{1,32}$")
+
+
+def _max_gates() -> int:
+    from arelis.ui.overseer_freeflow import MAX_GATES
+    return int(MAX_GATES)
+
+
+def _alias_host(host: str) -> str:
+    h = host.lower().removeprefix("www.")
+    if h == "arxiv.org" or h.endswith(".arxiv.org"):
+        return "arxiv"
+    if h == "wikipedia.org" or h.endswith(".wikipedia.org") or h.endswith(".wikimedia.org"):
+        return "wikipedia"
+    if h in {"ssd.jpl.nasa.gov", "horizons.jpl.nasa.gov"} or "horizons" in h:
+        return "horizons"
+    return h
+
+
+def _display_host(host: str, port: int | None) -> tuple[str, str]:
+    raw = (host or "").lower().removeprefix("www.")
+    if raw in {"::1", "[::1]"}:
+        raw = "localhost"
+    alias = _alias_host(raw)
+    if alias in HARVEST_SOURCE_PRESETS:
+        return alias, HARVEST_SOURCE_PRESETS[alias][0]
+    if raw in {"localhost", "127.0.0.1"}:
+        sid = f"localhost:{port}" if port and port not in (80, 443) else "localhost"
+        return sid, sid
+    if port and port not in (80, 443):
+        sid = f"{raw}:{port}"
+        return sid, sid
+    return raw, raw
+
+
+def _identity_from_url(raw: str) -> tuple[str, str] | None:
+    text = str(raw or "").strip().rstrip(".,;)]>")
+    if not text:
+        return None
+    if "://" not in text:
+        text = "http://" + text
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return None
+    host = parsed.hostname or ""
+    if not host:
+        return None
+    return _display_host(host, parsed.port)
+
+
+def _identity_from_text(text: object) -> tuple[str, str] | None:
+    blob = str(text or "")
+    if not blob.strip():
+        return None
+    for match in _URL_RE.finditer(blob):
+        found = _identity_from_url(match.group(0))
+        if found:
+            return found
+    local = _LOCAL_RE.search(blob)
+    if local:
+        return _display_host("localhost", int(local.group(2)))
+    return None
+
+
+def harvest_source_identity(action: object, target: object = None) -> tuple[str, str]:
+    """Stable (id, display name) for a harvest action/URL, or empty strings.
+
+    Display names are the host without www, a local tool name, or
+    'localhost:port'. Well-known hosts keep their preset ids (arxiv,
+    wikipedia, horizons) so bearings stay put. Unknown URLs keep their
+    own host; they are not folded into 'web'.
+    """
+    a = str(action or "").strip()
+    tgt = str(target or "").strip()
+    al = a.lower()
+    if al in HARVEST_SOURCE_PRESETS:
+        return al, HARVEST_SOURCE_PRESETS[al][0]
+    for blob in (tgt, a, f"{a} {tgt}".strip()):
+        found = _identity_from_text(blob)
+        if found:
+            return found
+    # A local tool (files, read_pdf, ...) only when there is also a target
+    # so a bare unknown token like "synthetic" does not become a source.
+    if _TOOL_RE.match(al) and al not in _FETCH_VERBS and tgt:
+        return al, a or al
+    colon = re.match(r"^([a-z][a-z0-9_]{1,32})\s*:", tgt.lower())
+    if (colon and colon.group(1) not in _FETCH_VERBS
+            and colon.group(1) not in HARVEST_SOURCE_PRESETS):
+        sid = colon.group(1)
+        return sid, sid
+    blob = f"{al} {tgt.lower()}"
+    if "arxiv" in blob:
+        return "arxiv", HARVEST_SOURCE_PRESETS["arxiv"][0]
+    if "wikipedia" in blob or "wiki" in blob:
+        return "wikipedia", HARVEST_SOURCE_PRESETS["wikipedia"][0]
+    if "horizons" in blob or "ssd.jpl" in blob:
+        return "horizons", HARVEST_SOURCE_PRESETS["horizons"][0]
+    if al in {"url", "web", "fetch", "fetch_url"} or tgt.lower().startswith(("http://", "https://")):
+        return "web", HARVEST_SOURCE_PRESETS["web"][0]
+    return "", ""
 
 
 def normalize_harvest_source(action: object, target: object = None) -> str:
-    """Map a harvester action or URL onto a fixed edge source id, or empty."""
-    a = str(action or "").strip().lower()
-    t = str(target or "").strip().lower()
-    blob = f"{a} {t}"
-    if a in HARVEST_SOURCE_IDS:
-        return a
-    if "arxiv" in blob:
-        return "arxiv"
-    if "wikipedia" in blob or "wiki" in blob:
-        return "wikipedia"
-    if "horizons" in blob or "ssd.jpl" in blob:
-        return "horizons"
-    if a in {"url", "web", "fetch", "fetch_url"} or t.startswith("http://") or t.startswith("https://"):
-        return "web"
-    return ""
+    """Map a harvester action or URL onto a source id, or empty."""
+    return harvest_source_identity(action, target)[0]
+
+
+def harvest_source_label(sid: str) -> str:
+    if sid in HARVEST_SOURCE_PRESETS:
+        return HARVEST_SOURCE_PRESETS[sid][0]
+    return sid
+
+
+def harvest_source_color(sid: str) -> str:
+    if sid in HARVEST_SOURCE_PRESETS:
+        return HARVEST_SOURCE_PRESETS[sid][2]
+    acc = 0
+    for ch in sid:
+        acc = (acc * 167 + ord(ch)) & 0xFFFFFFFF
+    return _SOURCE_PALETTE[acc % len(_SOURCE_PALETTE)]
+
+
+def harvest_source_bearing(sid: str, taken: list[float] | None = None) -> float:
+    """Stable bearing for a source id, clear of port gateways and `taken`."""
+    if sid in HARVEST_SOURCE_PRESETS:
+        return HARVEST_SOURCE_PRESETS[sid][1]
+    reserved = list(_PORT_BEARINGS)
+    if taken:
+        reserved.extend(taken)
+    acc = 0
+    for ch in sid:
+        acc = (acc * 167 + ord(ch)) & 0xFFFFFFFF
+    seed = ((acc * 0.6180339887) % 1.0) * 2.0 * math.pi
+    for step in range(48):
+        ang = (seed + step * _BEARING_SEP) % (2.0 * math.pi)
+        if all(min(abs(ang - other) % (2 * math.pi),
+                   2 * math.pi - (abs(ang - other) % (2 * math.pi))) >= _BEARING_SEP
+               for other in reserved):
+            return ang
+    return seed
+
+
+def harvest_source_record(sid: str, taken: list[float] | None = None) -> dict[str, Any]:
+    return {
+        "id": sid,
+        "label": harvest_source_label(sid),
+        "theta": harvest_source_bearing(sid, taken),
+        "color": harvest_source_color(sid),
+    }
+
+
+def select_harvest_sources(counts: dict[str, int], cap: int | None = None) -> list[str]:
+    """Keep at most MAX_GATES sources. Priority: more traffic first, then id.
+
+    SPEC 2.2: threat > traffic > open; no invented 'other' gate. Threat is
+    applied by the caller when it has that flag; here traffic is the open
+    count, and every included source is already open.
+    """
+    limit = int(_max_gates() if cap is None else cap)
+    items = [(sid, int(n)) for sid, n in counts.items() if sid and int(n) > 0]
+    items.sort(key=lambda row: (-row[1], row[0]))
+    return [sid for sid, _ in items[: max(0, limit)]]
 
 
 def active_harvest_sources(
@@ -1794,9 +1954,9 @@ def active_harvest_sources(
 
     A harvest_target node exists only while the harvester is vectoring or
     extracting, so its metadata.action/target is the primary signal. A unit
-    lights a source only when its task or action normalizes to a known source
-    id (arxiv, wikipedia, horizons, web). Bare HARVEST/CARRY state alone does
-    not light Web.
+    lights a source only when its task or action resolves to a harvest
+    source id (a host, local tool, local port, or a well-known preset).
+    Bare HARVEST/CARRY state alone does not invent a source.
     """
     active: set[str] = set()
     for node in nodes or []:
@@ -1824,8 +1984,8 @@ def source_open_counts(
     units: list[dict[str, Any]] | None = None,
     nodes: list[dict[str, Any]] | None = None,
 ) -> dict[str, int]:
-    """Open harvest requests per fixed edge source, from the snapshot only."""
-    counts = {sid: 0 for sid, *_ in HARVEST_SOURCES}
+    """Open harvest requests per derived source, from the snapshot only."""
+    counts: dict[str, int] = {}
     seen: set[str] = set()
     for node in nodes or []:
         if not isinstance(node, dict):
@@ -1853,27 +2013,36 @@ def source_open_counts(
     return counts
 
 
-def source_world_pos(sid: str, radius: float | None = None) -> tuple[float, float, float]:
+def source_world_pos(
+    sid: str, radius: float | None = None, taken: list[float] | None = None
+) -> tuple[float, float, float]:
     edge_r = float(radius) if radius else HARVEST_SOURCE_EDGE_R
-    for name, _label, angle, _color in HARVEST_SOURCES:
-        if name == sid:
-            x = edge_r * math.cos(angle)
-            z = -edge_r * math.sin(angle)
-            return (x, 3.0, z)
-    return (edge_r, 3.0, 0.0)
+    angle = harvest_source_bearing(sid, taken)
+    x = edge_r * math.cos(angle)
+    z = -edge_r * math.sin(angle)
+    return (x, 3.0, z)
 
 
 def build_source_nodes(
-    counts: dict[str, int], radius: float | None = None
+    counts: dict[str, int], radius: float | None = None, *, cap: int | None = None
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Glass + emissive instances and their 2D labels for the five edge sources."""
+    """Glass + emissive instances and 2D labels for derived harvest sources.
+
+    Only sources with an open count are drawn. Overflow beyond MAX_GATES
+    folds by traffic, then id; there is no 'other' gate.
+    """
     nodes: list[dict[str, Any]] = []
     labels: list[dict[str, Any]] = []
-    for sid, label, _angle, color in HARVEST_SOURCES:
-        x, y, z = source_world_pos(sid, radius)
-        nx, ny, nz = _clamp_conduit_coord(x, y, z)
+    taken: list[float] = []
+    for sid in select_harvest_sources(counts, cap=cap):
         n_open = int(counts.get(sid) or 0)
+        rec = harvest_source_record(sid, taken)
+        taken.append(rec["theta"])
+        x, y, z = source_world_pos(sid, radius, taken[:-1])
+        nx, ny, nz = _clamp_conduit_coord(x, y, z)
         hot = n_open > 0
+        label = rec["label"]
+        color = rec["color"]
         row = {
             "id": sid,
             "label": label,
@@ -1907,14 +2076,17 @@ def build_harvest_source_conduits(
     active: set[str] | None = None, radius: float | None = None
 ) -> list[dict[str, Any]]:
     """Beam packets only when a harvest fetch is active. Labels are stashed for the view."""
-    hot = set(active or ())
+    hot = [sid for sid in select_harvest_sources({sid: 1 for sid in (active or ())}) ]
     out: list[dict[str, Any]] = []
     labels: list[dict[str, Any]] = []
     edge_r = float(radius) if radius else HARVEST_SOURCE_EDGE_R
-    for i, (sid, label, _angle, color) in enumerate(HARVEST_SOURCES):
-        is_hot = sid in hot
+    taken: list[float] = []
+    for i, sid in enumerate(hot):
+        rec = harvest_source_record(sid, taken)
+        taken.append(rec["theta"])
+        label, color = rec["label"], rec["color"]
         # Spec space (x, y) on the ground maps to scene (x, -z).
-        x, y, z = source_world_pos(sid, edge_r)
+        x, y, z = source_world_pos(sid, edge_r, taken[:-1])
         nx, ny, nz = _clamp_conduit_coord(x, y, z)
         labels.append({
             "id": sid,
@@ -1922,14 +2094,12 @@ def build_harvest_source_conduits(
             "x": nx,
             "y": ny,
             "z": nz,
-            "hot": is_hot,
+            "hot": True,
             "color": color,
-            "open": 1 if is_hot else 0,
-            "status": "1 requests open" if is_hot else "idle",
+            "open": 1,
+            "status": "1 requests open",
         })
         # Beacons are Pass C source_glass / source_emissive meshes, not conduit spheres.
-        if not is_hot:
-            continue
         # Beam: packets from the edge source inward to the core while fetching.
         arc_y = max(ny, 0.5) + 2.6
         cx, cy, cz = _clamp_conduit_coord(nx * 0.5, arc_y, nz * 0.5)
@@ -1981,7 +2151,7 @@ def orb_result_titles(snap: dict[str, Any] | None, limit: int = 8) -> list[str]:
         receipts = metrics.get("recent_receipts") if isinstance(metrics, dict) else []
     if not isinstance(receipts, list):
         return []
-    labels = {sid: label for sid, label, *_ in HARVEST_SOURCES}
+    labels: dict[str, str] = {}
     out: list[str] = []
     seen: set[str] = set()
     for row in reversed(receipts):
@@ -1994,7 +2164,7 @@ def orb_result_titles(snap: dict[str, Any] | None, limit: int = 8) -> list[str]:
         if not title:
             continue
         sid = normalize_harvest_source(meta.get("action"), row.get("source") or meta.get("source"))
-        source = labels.get(sid, "")
+        source = harvest_source_label(sid) if sid else labels.get(sid, "")
         text = f"{source}  {title}" if source else title
         text = " ".join(text.split())
         if text in seen:
@@ -2022,8 +2192,9 @@ def build_glyph_trails(
 ) -> list[dict[str, Any]]:
     """Trails for harvest results minted in the last GLYPH_TRAIL_LIFE_S seconds.
 
-    Snapshot only: each ok harvester receipt that names a title and a known
-    source gives one trail (title lane, URL lane). No title, no trail.
+    Snapshot only: each ok harvester receipt that names a title and a
+    resolvable harvest source gives one trail (title lane, URL lane).
+    No title, no trail.
     """
     try:
         now = float(snapshot_ts) if snapshot_ts is not None else None
@@ -2045,9 +2216,12 @@ def build_glyph_trails(
         if not title:
             continue
         sid = normalize_harvest_source(meta.get("action"), r.get("source"))
+        if not sid:
+            continue
         origin = origins.get(sid)
         if origin is None:
-            continue
+            x, y, z = source_world_pos(sid)
+            origin = {"color": harvest_source_color(sid), "x": x, "y": y, "z": z}
         minted = _receipt_epoch(r.get("at"))
         if minted is None:
             continue
